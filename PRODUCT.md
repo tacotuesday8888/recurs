@@ -191,6 +191,35 @@ The product must prove the method works through better software output:
 - A roadmap with real quality gates.
 - A layer above one or more coding harnesses.
 
+## Feature Inventory
+
+The product should be understood as a complete development operating system for agentic work, not only a chat app with extra agents.
+
+Core feature areas:
+
+- Project launcher: shows ongoing projects, status, active agents, last activity, and blocked state.
+- Guided onboarding: turns project type, scope, voice/chat description, development style, permissions, and tool choices into a ready project setup.
+- Tool readiness: checks local tools, recommends MCP servers, skills, CLIs, docs, templates, and plugins, then groups them into understandable bundles.
+- Agent company: creates a visible hierarchy of departments, senior agents, specialists, builders, reviewers, and spawned child agents.
+- Live graph: shows who is working, how agents connect, where tasks are blocked, which tools are being used, and how work moves between agents.
+- Command surface: lets users type normal messages, use slash commands, open panels with `/`, click graph nodes, or use the CLI while hitting the same underlying engine.
+- Roadmap: tracks real progress through gates such as scope, architecture, implementation, tests, review, security, deployment, and maintenance.
+- Quality proof: records diffs, tests, reviews, security checks, docs updates, deployment readiness, and remaining risks.
+- Project memory: generates and maintains readable project docs such as product brief, architecture notes, agent plan, roadmap, tool choices, risks, and open questions.
+- Deployment and infrastructure: guides backend, payments, hosting, app store release, environment setup, and release checks.
+- Maintenance and marketing: later beta area for ongoing project health, launch work, and recurring improvement suggestions.
+
+Important missing or underdefined areas to resolve:
+
+- Account and billing: how the app charges, tracks model/tool usage, and explains cost.
+- Model/provider strategy: which LLM providers are supported and how users choose between speed, cost, and quality.
+- Local security model: how files, secrets, approvals, sandboxes, and destructive actions are protected.
+- Collaboration: whether multiple humans can share one project, assign approvals, and view the same agent company.
+- Observability: how users inspect runs, logs, failed tool calls, agent mistakes, and replayable decisions.
+- Recovery: how users undo work, roll back tasks, pause agents, resume runs, or recover from bad changes.
+- Marketplace boundary: which plugin bundles are first-party, community-made, project-generated, or private to a team.
+- Evaluation loop: how the product proves that the sub-agent approach produces better code over time.
+
 ## Product Surfaces
 
 The Mac app should be the flagship experience because the product's strongest idea is visual: a live company graph of agents, departments, tasks, handoffs, reviews, blockers, tools, and quality gates.
@@ -528,6 +557,18 @@ Many coding agents already use command patterns such as review, plan, test, comm
 
 Existing agent commands should be treated as inspiration or integration targets, not copied blindly if licenses or prompts do not allow it. Generic command names and workflow ideas can be adapted, but proprietary prompts or configs should not be copied without permission.
 
+Typing `/` should open a command launcher, not only insert text into chat. The launcher should expose commands, panels, graph actions, agent targets, tool actions, and roadmap actions from the same place.
+
+Examples:
+
+- Type `/agent` to open agent search and inspect or target a specific agent.
+- Type `/department` to focus Product, Engineering, QA, Security, Tools, or Deployment.
+- Type `/graph` to switch graph focus, such as company overview, active work, or current milestone.
+- Type `/tools` to open tool bundles and see what is installed, missing, or recommended.
+- Type `/roadmap` to jump to roadmap progress and quality gates.
+- Type `/approve` to view pending approvals and approve or deny a gated action.
+- Type `/spawn` to create a scoped child agent when the selected agent has permission.
+
 Example familiar commands:
 
 - `/plan`: create or update the implementation plan.
@@ -572,8 +613,20 @@ Product-specific commands:
 - `/roadmap`
 - `/tools`
 - `/permissions`
+- `/spawn`
+- `/approve`
 
 This keeps the product comfortable for users who already know coding agents while making the sub-agent company model feel native.
+
+The slash launcher should be context-aware:
+
+- No graph selection: commands target the boss/orchestrator by default.
+- Agent selected: commands can ask, inspect, pause, review, or change that agent's scope.
+- Department selected: commands can focus the department, show current work, assign a task, or inspect permissions.
+- Task selected: commands can review, retest, reassign, split, pause, or mark blocked.
+- Tool selected: commands can inspect setup, run a safe check, request installation, or change bundle membership.
+
+This turns `/` into a fast navigation and control layer for the app, not just a coding-agent command syntax.
 
 ## Core Engine Direction
 

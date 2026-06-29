@@ -1010,6 +1010,34 @@ Examples:
 
 Current decision: A.
 
+### 8.5 Should typing `/` only run commands, or also open interface panels?
+
+A. **Command launcher and interface launcher**
+
+Examples:
+
+- `/agent` opens agent search and targeting.
+- `/tools` opens tool bundles.
+- `/graph` changes graph focus.
+- `/approve` opens pending approvals.
+
+B. **Text commands only**
+
+Examples:
+
+- `/review` runs a review.
+- `/test` runs tests.
+- `/plan` creates a plan.
+
+C. **Separate command palette**
+
+Examples:
+
+- `/review` stays inside chat.
+- `Command-K` opens app navigation, panels, tools, and graph actions.
+
+Recommendation: A. It makes `/` feel like the fastest way to control the agent company, while `Command-K` can still exist as a keyboard shortcut for the same launcher.
+
 ## 9. Permissions And Safety
 
 ### 9.1 How should permission mode be chosen?

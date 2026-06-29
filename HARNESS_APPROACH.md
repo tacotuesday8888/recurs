@@ -106,6 +106,7 @@ Each command should define:
 
 - Name, such as `/review`.
 - Category: coding, graph, department, roadmap, permission, tool, deployment, or memory.
+- Presentation type: execute immediately, open panel, show picker, focus graph, request approval, or start a longer run.
 - Allowed targets: whole project, selected agent, selected department, selected task, selected blocker, selected review, or selected tool.
 - Permission impact.
 - Expected graph mutation.
@@ -147,6 +148,8 @@ CLI equivalents should map to the same internal command objects:
 - `subagents agent qa ask "..."` maps to a targeted graph command.
 - `subagents approvals` reads pending approval events.
 - `subagents approve <id>` creates an approval decision event.
+
+The Mac app's `/` launcher should use the same command registry. Some entries execute work, while others open the right panel, focus graph areas, show target pickers, or reveal pending approvals. This keeps the command system from splitting into separate chat commands, UI shortcuts, and CLI commands.
 
 Command routing:
 

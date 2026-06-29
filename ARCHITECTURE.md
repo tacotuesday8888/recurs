@@ -290,6 +290,8 @@ The command layer is the user-facing control language for the engine.
 
 It should support familiar coding-agent slash commands, product-specific commands for the sub-agent company model, and CLI command equivalents.
 
+The Mac app should treat `/` as a command launcher. A slash entry can execute a command, open a panel, target a graph node, change graph focus, inspect tools, or manage approvals. This means slash commands are both a text convention and a UI navigation/control mechanism.
+
 The command layer should route commands to:
 
 - Main boss/orchestrator agent.
@@ -312,6 +314,8 @@ The product can support commands from open-source agents where appropriate, but 
 The v1 command set should combine familiar coding-agent commands with app-native company commands. Familiar commands handle normal coding workflows, while app-native commands control graph, departments, handoffs, blockers, roadmap, tools, and permissions.
 
 The same command should have one internal meaning even if it comes from a chat message, a graph click, a toolbar action, or the CLI. For example, `/review` in chat and `subagents review` in the terminal should create the same command event and update the same graph, roadmap, and memory projections.
+
+Slash launcher events should still become normal command events when they affect state. Opening a panel can be a UI-only action, but reviewing code, changing permissions, spawning an agent, approving a task, or modifying tool bundles must flow through the command router and permission engine.
 
 ## Engine Strategy
 
