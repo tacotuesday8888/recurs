@@ -220,6 +220,49 @@ Important missing or underdefined areas to resolve:
 - Marketplace boundary: which plugin bundles are first-party, community-made, project-generated, or private to a team.
 - Evaluation loop: how the product proves that the sub-agent approach produces better code over time.
 
+## Model and Provider Strategy
+
+Subagents IDE should not assume users only use one model provider or one subscription.
+
+V1 should support two model access paths:
+
+- Official coding-client integrations where available, such as Claude Code or Codex-style tools installed on the user's machine.
+- Bring-your-own API keys for model providers such as OpenAI and Anthropic.
+
+Managed credits or Subagents-hosted billing can come later. The first version should earn trust by letting users connect the plans, keys, and coding tools they already pay for.
+
+The product should be careful about authentication:
+
+- Do not scrape or misuse subscription tokens.
+- Do not pretend a ChatGPT or Claude subscription is the same as generic API access.
+- Use official CLI/app authentication where a coding client supports it.
+- Use API keys when Subagents IDE calls models directly.
+- Store API keys in macOS Keychain or another secure store.
+- Redact credentials from logs, prompts, traces, and project memory.
+
+The default model mode should be Balanced.
+
+Balanced means:
+
+- Strongest available model for the boss/orchestrator, architecture decisions, security review, final review, and hard debugging.
+- Cheaper or faster models for bounded tasks such as summarizing logs, drafting docs, classifying tool bundles, scanning files, and simple implementation subtasks.
+- Escalation to a stronger model when a cheap model fails, gets uncertain, or touches risky code.
+
+This keeps the product from becoming unnecessarily expensive while still protecting the moments where judgment matters.
+
+Example model routing:
+
+- Boss/orchestrator: best available reasoning model.
+- Architect: best available reasoning model.
+- Security reviewer: best available reasoning model.
+- Implementation lead: strong coding model.
+- Scoped implementer: balanced coding model unless the task is complex.
+- QA/test agent: cheaper model for routine checks, stronger model for failure diagnosis.
+- Tool curator: cheaper model for inventory, stronger model for risky setup decisions.
+- Docs/memory agent: cheaper model unless summarizing important architecture or review decisions.
+
+Users should be able to override model choices later, but v1 should work well without forcing users to tune every agent manually.
+
 ## Product Surfaces
 
 The Mac app should be the flagship experience because the product's strongest idea is visual: a live company graph of agents, departments, tasks, handoffs, reviews, blockers, tools, and quality gates.
@@ -751,5 +794,6 @@ The risk is credibility. Character agents should make the system memorable and e
 ## Open Product Questions
 
 - How should the future pixel character designs map to agent roles, states, permissions, and graph relationships?
-- Which quality proof metrics matter most in v1?
 - Which existing coding harness should be adapted first?
+- How prominent should deployment be in the first release: optional track or core required path?
+- How should collaboration work if multiple humans share one agent company?

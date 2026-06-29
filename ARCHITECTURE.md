@@ -22,6 +22,7 @@ flowchart TD
     D --> I["Docs and Memory"]
     E --> J["Harness Adapter"]
     E --> K["Plugin and Tool Manager"]
+    E --> O["Model Router"]
     J --> L["Worker Runtime or Coding Adapter"]
     K --> M["MCP Servers, Skills, CLIs, Repos, Docs"]
     G --> N["Quality Gates"]
@@ -40,6 +41,7 @@ In v1, Subagents IDE should own:
 - Permission gates.
 - Project memory.
 - Tool bundle model.
+- Model router.
 - Quality evidence.
 - A narrow harness adapter.
 
@@ -419,6 +421,23 @@ Outputs:
 - Risk warnings.
 
 The user should not need to manage a long list of raw skills unless they open an advanced view.
+
+## Model Router
+
+The model router chooses which model or coding client each agent uses.
+
+It should support:
+
+- Official coding-client integrations where available.
+- Bring-your-own API keys for direct model calls.
+- Per-agent model defaults.
+- Project-level model mode.
+- Cost and quality tradeoffs.
+- Escalation from cheaper models to stronger models.
+
+The default model mode should be Balanced. The boss/orchestrator, architect, security reviewer, and final reviewer should use the strongest appropriate model. Routine scanning, summarization, docs, and simple subtasks can use cheaper or faster models.
+
+Managed credits can come later. V1 should focus on letting users use the model access and coding subscriptions they already have, without misusing credentials or hiding cost.
 
 ## Agent Graph Data Model
 

@@ -1218,10 +1218,11 @@ D. **End-to-end thin slice**
 Examples:
 
 - New project setup.
+- Tool readiness and bundle setup.
 - Launch Agent Team.
 - Agents produce plan, one code change, review, test result, and graph updates.
 
-Recommendation: D.
+Current decision: D, and tool-readiness must be included. In plain language, the first prototype should prove that onboarding, tool setup, agent-company creation, and visible work state connect into one flow.
 
 ### 10.4 Should v1 use an existing engine internally while our first-party engine matures?
 
@@ -1472,7 +1473,7 @@ Examples:
 - Basic proof in normal view.
 - Detailed proof when expanded.
 
-Recommendation: C.
+Current decision: C.
 
 ### 12.3 What should happen when quality gates fail?
 
@@ -1503,6 +1504,8 @@ Recommendation: C.
 
 ### 13.1 How prominent should deployment be in v1?
 
+This question means: should deployment be mandatory for every v1 project, optional when the user is ready, or postponed entirely?
+
 A. **Core v1 path**
 
 Examples:
@@ -1521,7 +1524,7 @@ Examples:
 
 - V1 focuses on building and review only.
 
-Recommendation: B.
+Recommendation: B. Deployment should be available as an optional track, but early projects should not be blocked just because deployment is not configured yet.
 
 ### 13.2 How should infrastructure choices work?
 
@@ -1644,6 +1647,58 @@ Examples:
 
 Current decision: C with A as default.
 
+### 14.4 How should users connect model access?
+
+A. **Bring your own API keys**
+
+Examples:
+
+- User connects OpenAI API key.
+- User connects Anthropic API key.
+- API keys are stored in macOS Keychain.
+
+B. **Official coding-client integrations**
+
+Examples:
+
+- Use Claude Code if it is installed and authenticated.
+- Use Codex-style official auth where supported.
+- Route tasks through those clients without exposing their internals to the user.
+
+C. **Managed credits**
+
+Examples:
+
+- User pays Subagents IDE for included usage.
+- App handles provider billing behind the scenes.
+
+Current decision: A and B for v1. C can come later.
+
+### 14.5 What should the default model mode be?
+
+A. **Quality-first**
+
+Examples:
+
+- Best available model for most agents.
+- Higher cost, strongest default quality.
+
+B. **Balanced**
+
+Examples:
+
+- Best model for boss/orchestrator, architect, security, and final review.
+- Cheaper or faster models for bounded subtasks, summaries, and routine checks.
+
+C. **Economy**
+
+Examples:
+
+- Cheap models by default.
+- Escalate only when the user asks or a task fails.
+
+Current decision: B.
+
 ## 15. What To Answer First
 
 If you want to move fastest, answer these first:
@@ -1651,7 +1706,7 @@ If you want to move fastest, answer these first:
 1. 3.4: Should tool recommendations be repo-specific?
 2. 3.5: Should the app scan the computer for installed tools?
 3. 6.3: What should the main boss/orchestrator be named?
-4. 10.3: What should the first engine build prove?
-5. 11.1: What docs should the app generate inside user projects?
-6. 12.2: What quality proof should v1 show?
-7. 13.1: How prominent should deployment be in v1?
+4. 11.1: What docs should the app generate inside user projects?
+5. 13.1: How prominent should deployment be in v1?
+6. 14.1: How local should the Mac app be?
+7. 14.2: How should secrets be handled?

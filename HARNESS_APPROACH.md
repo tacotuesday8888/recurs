@@ -453,6 +453,21 @@ Memory rules:
 
 The product promise is better code, so quality evidence must be first-class.
 
+Better code should come from the system around the models, not only from better prompts.
+
+The engine should improve output through:
+
+- Clear scope before coding starts.
+- Small, bounded tasks instead of broad uncontrolled edits.
+- Role-specific system prompts for pre-built agents.
+- Model routing that uses stronger models for judgment and cheaper models for routine work.
+- Separate builder, reviewer, QA, security, and deployment responsibilities.
+- Worktrees or equivalent isolation so risky work can be reviewed or discarded.
+- Explicit test, lint, build, review, and security evidence.
+- Failed gates that route work back to the responsible department.
+- Project memory that prevents agents from forgetting decisions.
+- Approval gates for secrets, destructive commands, deployment, and production infrastructure.
+
 Every meaningful coding task should produce:
 
 - Files changed.
