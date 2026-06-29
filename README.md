@@ -31,3 +31,4 @@ The app can still be excellent for non-technical users because the UX is clear, 
 - [PRODUCT_QUESTIONS.md](PRODUCT_QUESTIONS.md): decision checklist for remaining product, onboarding, tool, agent, harness, and launch questions.
 - [HARNESS_RESEARCH.md](HARNESS_RESEARCH.md): current coding-agent, agent-framework, ACP, and MCP ecosystem survey with license and reuse guidance.
 - [HARNESS_APPROACH.md](HARNESS_APPROACH.md): recommended first-party harness/core-engine strategy for Subagents IDE.
+- [COMPETITIVE_RESEARCH.md](COMPETITIVE_RESEARCH.md): direct and adjacent competitor research with a YC-risk conclusion.
