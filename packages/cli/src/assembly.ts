@@ -15,7 +15,6 @@ import {
 } from "@recurs/providers";
 import {
   FileCheckpointStore,
-  PermissionEngine,
   ToolRegistry,
   createApplyPatchTool,
   createGitDiffTool,
@@ -100,11 +99,9 @@ export async function createStandaloneRuntime(
   tools.register(createGitDiffTool());
 
   const runtimeReference: { current?: RecursRuntime } = {};
-  const permissions = new PermissionEngine(state.permissionMode);
   const loop = new AgentLoop({
     provider,
     tools,
-    permissions,
     approvals: {
       async request(intent) {
         const allowed =

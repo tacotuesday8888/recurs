@@ -12,6 +12,7 @@ import { reduceSessionRecords, type SessionState } from "./session.js";
 
 export type SessionStoreErrorCode =
   | "invalid_session_id"
+  | "session_busy"
   | "session_not_found"
   | "session_mismatch"
   | "unsupported_version"
@@ -40,6 +41,8 @@ export interface SessionListEntry {
   model: string;
   updatedAt: string;
 }
+
+const activeSessionRuns = new Set<string>();
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -139,7 +142,11 @@ async function replaceAndSync(file: string, content: string): Promise<void> {
 }
 
 export class JsonlSessionStore {
-  constructor(private readonly directory: string) {}
+  private readonly directory: string;
+
+  constructor(directory: string) {
+    this.directory = path.resolve(directory);
+  }
 
   #file(sessionId: string): string {
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(sessionId)) {
@@ -160,6 +167,25 @@ export class JsonlSessionStore {
     }
     await mkdir(this.directory, { recursive: true });
     await appendAndSync(this.#file(sessionId), `${JSON.stringify(record)}\n`);
+  }
+
+  async withSessionRun<T>(
+    sessionId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const key = this.#file(sessionId);
+    if (activeSessionRuns.has(key)) {
+      throw new SessionStoreError(
+        "session_busy",
+        `Session ${sessionId} already has an active run`,
+      );
+    }
+    activeSessionRuns.add(key);
+    try {
+      return await operation();
+    } finally {
+      activeSessionRuns.delete(key);
+    }
   }
 
   async load(sessionId: string): Promise<LoadedSessionRecords> {

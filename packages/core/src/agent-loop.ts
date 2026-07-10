@@ -10,10 +10,10 @@ import {
   type ToolCall,
 } from "@recurs/providers";
 import {
+  PermissionEngine,
   ToolError,
   type ApprovalHandler,
   type ExecutionMode,
-  type PermissionEngine,
   type ToolContext,
   type ToolRegistry,
   type ToolResult,
@@ -25,7 +25,10 @@ import type {
   SessionRecord,
   Usage,
 } from "./events.js";
-import type { JsonlSessionStore } from "./jsonl-session-store.js";
+import {
+  SessionStoreError,
+  type JsonlSessionStore,
+} from "./jsonl-session-store.js";
 import { recordGoalProgress } from "./goal.js";
 import { LoopDetector } from "./loop-detector.js";
 import {
@@ -52,7 +55,6 @@ export interface RunResult {
 export interface AgentLoopDependencies {
   provider: ModelProvider;
   tools: ToolRegistry;
-  permissions: PermissionEngine;
   approvals: ApprovalHandler;
   sessions: JsonlSessionStore;
   emit(event: RecursEvent): Promise<void>;
@@ -314,7 +316,32 @@ function unresolvedToolCalls(messages: readonly ModelMessage[]): ToolCall[] {
   return [...unresolved.values()];
 }
 
-export async function runAgentLoop(
+const permissionEngines = new WeakMap<
+  JsonlSessionStore,
+  Map<string, PermissionEngine>
+>();
+
+function permissionEngineFor(
+  sessions: JsonlSessionStore,
+  sessionId: string,
+  mode: PermissionEngine["mode"],
+): PermissionEngine {
+  let bySession = permissionEngines.get(sessions);
+  if (bySession === undefined) {
+    bySession = new Map();
+    permissionEngines.set(sessions, bySession);
+  }
+  let engine = bySession.get(sessionId);
+  if (engine === undefined) {
+    engine = new PermissionEngine(mode);
+    bySession.set(sessionId, engine);
+  } else {
+    engine.mode = mode;
+  }
+  return engine;
+}
+
+async function runAgentLoopUnlocked(
   deps: AgentLoopDependencies,
   input: RunInput,
 ): Promise<RunResult> {
@@ -333,7 +360,11 @@ export async function runAgentLoop(
   const signal = input.signal ?? new AbortController().signal;
   throwIfAborted(signal);
   let state = await deps.sessions.loadState(input.sessionId);
-  deps.permissions.mode = state.permissionMode;
+  const permissions = permissionEngineFor(
+    deps.sessions,
+    input.sessionId,
+    state.permissionMode,
+  );
   const executionMode = input.executionMode ?? state.executionMode;
   const executionState = (): SessionState =>
     executionMode === state.executionMode
@@ -563,7 +594,7 @@ export async function runAgentLoop(
           result = await deps.tools.invoke(
             call,
             toolContext,
-            deps.permissions,
+            permissions,
             approvals,
           );
           const completed: SessionRecord = {
@@ -676,23 +707,28 @@ export async function runAgentLoop(
   }
 }
 
-export class AgentLoop {
-  readonly #activeSessions = new Set<string>();
+export async function runAgentLoop(
+  deps: AgentLoopDependencies,
+  input: RunInput,
+): Promise<RunResult> {
+  try {
+    return await deps.sessions.withSessionRun(input.sessionId, () =>
+      runAgentLoopUnlocked(deps, input),
+    );
+  } catch (error) {
+    if (error instanceof SessionStoreError && error.code === "session_busy") {
+      throw new AgentLoopError("session_busy", error.message, false, {
+        cause: error,
+      });
+    }
+    throw error;
+  }
+}
 
+export class AgentLoop {
   constructor(private readonly deps: AgentLoopDependencies) {}
 
   async run(input: RunInput): Promise<RunResult> {
-    if (this.#activeSessions.has(input.sessionId)) {
-      throw new AgentLoopError(
-        "session_busy",
-        `Session ${input.sessionId} already has an active run`,
-      );
-    }
-    this.#activeSessions.add(input.sessionId);
-    try {
-      return await runAgentLoop(this.deps, input);
-    } finally {
-      this.#activeSessions.delete(input.sessionId);
-    }
+    return runAgentLoop(this.deps, input);
   }
 }

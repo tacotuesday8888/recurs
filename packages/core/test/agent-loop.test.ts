@@ -9,7 +9,6 @@ import {
   type ProviderEvent,
 } from "@recurs/providers";
 import {
-  PermissionEngine,
   ToolError,
   ToolRegistry,
   type ApprovalHandler,
@@ -21,6 +20,7 @@ import {
   AgentLoop,
   JsonlSessionStore,
   activeGoal,
+  runAgentLoop,
   type RecursEvent,
 } from "../src/index.js";
 
@@ -73,11 +73,50 @@ function echoTool(
   };
 }
 
+function writeTool(executions: string[] = []): Tool<{ text: string }> {
+  const base = echoTool(executions);
+  return {
+    ...base,
+    definition: { ...base.definition, name: "write_text" },
+    mutating: true,
+    permissions(input) {
+      return [{ category: "write", resource: input.text, risk: "normal" }];
+    },
+  };
+}
+
 const deny: ApprovalHandler = {
   async request() {
     return "deny";
   },
 };
+
+function dependencies(
+  provider: ModelProvider,
+  store: JsonlSessionStore,
+  tools: Tool[],
+  approvals: ApprovalHandler,
+  events: RecursEvent[],
+) {
+  return {
+    provider,
+    tools: new ToolRegistry(tools),
+    approvals,
+    sessions: store,
+    async emit(event: RecursEvent) {
+      events.push(event);
+    },
+    createToolContext(state: { id: string; cwd: string; executionMode: "act" | "plan" }, signal: AbortSignal) {
+      return {
+        sessionId: state.id,
+        cwd: state.cwd,
+        signal,
+        executionMode: state.executionMode,
+        readRevisions: new Map(),
+      };
+    },
+  };
+}
 
 async function harness(
   provider: ModelProvider,
@@ -103,25 +142,7 @@ async function harness(
   return {
     store,
     events,
-    loop: new AgentLoop({
-      provider,
-      tools: new ToolRegistry(tools),
-      permissions: new PermissionEngine("full_access"),
-      approvals,
-      sessions: store,
-      async emit(event) {
-        events.push(event);
-      },
-      createToolContext(state, signal) {
-        return {
-          sessionId: state.id,
-          cwd: state.cwd,
-          signal,
-          executionMode: state.executionMode,
-          readRevisions: new Map(),
-        };
-      },
-    }),
+    loop: new AgentLoop(dependencies(provider, store, tools, approvals, events)),
   };
 }
 
@@ -506,6 +527,193 @@ describe("AgentLoop", () => {
     await vi.waitFor(() => expect(firstStarted).toHaveBeenCalledOnce());
 
     await expect(loop.run({ sessionId: "s1", prompt: "second" })).rejects.toMatchObject({
+      code: "session_busy",
+    });
+    controller.abort();
+    await expect(first).rejects.toMatchObject({ code: "cancelled" });
+    expect(requestCount).toBe(1);
+  });
+
+  it("does not share reusable permission grants across sessions", async () => {
+    const executions: string[] = [];
+    let approvalRequests = 0;
+    const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "write-1",
+            name: "write_text",
+            arguments: { text: "same-resource" },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "first done" },
+        { type: "done", stopReason: "complete" },
+      ],
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "write-2",
+            name: "write_text",
+            arguments: { text: "same-resource" },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "second done" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-permissions-"));
+    temporaryDirectories.push(directory);
+    const store = new JsonlSessionStore(directory);
+    for (const sessionId of ["s1", "s2"]) {
+      await store.append(sessionId, {
+        version: 1,
+        type: "session_created",
+        sessionId,
+        at: "2026-07-10T00:00:00.000Z",
+        cwd: "/workspace",
+        model: "scripted",
+      });
+    }
+    const approvals: ApprovalHandler = {
+      async request() {
+        approvalRequests += 1;
+        return approvalRequests === 1 ? "allow_session" : "deny";
+      },
+    };
+    const loop = new AgentLoop(
+      dependencies(
+        provider,
+        store,
+        [writeTool(executions)],
+        approvals,
+        [],
+      ),
+    );
+
+    await loop.run({ sessionId: "s1", prompt: "first" });
+    await loop.run({ sessionId: "s2", prompt: "second" });
+
+    expect(approvalRequests).toBe(2);
+    expect(executions).toEqual(["same-resource"]);
+  });
+
+  it("does not leak Full Access into an interleaved Ask Always run", async () => {
+    const executions: string[] = [];
+    const askStarted = vi.fn();
+    let releaseAsk = () => {};
+    const askGate = new Promise<void>((resolve) => {
+      releaseAsk = resolve;
+    });
+    const requestCounts = new Map<string, number>();
+    const provider: ModelProvider = {
+      id: "interleaved-permissions",
+      async *stream(request: ProviderRequest): AsyncIterable<ProviderEvent> {
+        const prompt = [...request.messages]
+          .reverse()
+          .find((message) => message.role === "user")?.content ?? "";
+        const count = (requestCounts.get(prompt) ?? 0) + 1;
+        requestCounts.set(prompt, count);
+        if (prompt === "ask" && count === 1) {
+          askStarted();
+          await askGate;
+          yield {
+            type: "tool_call",
+            call: { id: "write-ask", name: "write_text", arguments: { text: "guarded" } },
+          };
+          yield { type: "done", stopReason: "tool_calls" };
+          return;
+        }
+        yield { type: "text_delta", text: "done" };
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-interleaved-"));
+    temporaryDirectories.push(directory);
+    const store = new JsonlSessionStore(directory);
+    for (const sessionId of ["ask-session", "full-session"]) {
+      await store.append(sessionId, {
+        version: 1,
+        type: "session_created",
+        sessionId,
+        at: "2026-07-10T00:00:00.000Z",
+        cwd: "/workspace",
+        model: "scripted",
+      });
+    }
+    await store.append("full-session", {
+      version: 1,
+      type: "mode_updated",
+      sessionId: "full-session",
+      at: "2026-07-10T00:00:01.000Z",
+      executionMode: "act",
+      permissionMode: "full_access",
+    });
+    const loop = new AgentLoop(
+      dependencies(
+        provider,
+        store,
+        [writeTool(executions)],
+        deny,
+        [],
+      ),
+    );
+
+    const askRun = loop.run({ sessionId: "ask-session", prompt: "ask" });
+    await vi.waitFor(() => expect(askStarted).toHaveBeenCalledOnce());
+    await loop.run({ sessionId: "full-session", prompt: "full" });
+    releaseAsk();
+    await askRun;
+
+    expect(executions).toEqual([]);
+  });
+
+  it("locks a session across AgentLoop and direct run entry points", async () => {
+    const started = vi.fn();
+    let requestCount = 0;
+    const provider: ModelProvider = {
+      id: "shared-lock",
+      async *stream(request: ProviderRequest): AsyncIterable<ProviderEvent> {
+        requestCount += 1;
+        if (requestCount === 1) {
+          started();
+          await new Promise<void>((_resolve, reject) => {
+            request.signal.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          });
+        }
+        yield { type: "text_delta", text: "unexpected" };
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-lock-"));
+    temporaryDirectories.push(directory);
+    const store = new JsonlSessionStore(directory);
+    await store.append("s1", {
+      version: 1,
+      type: "session_created",
+      sessionId: "s1",
+      at: "2026-07-10T00:00:00.000Z",
+      cwd: "/workspace",
+      model: "scripted",
+    });
+    const deps = dependencies(provider, store, [echoTool()], deny, []);
+    const loop = new AgentLoop(deps);
+    const controller = new AbortController();
+    const first = loop.run({ sessionId: "s1", prompt: "first", signal: controller.signal });
+    await vi.waitFor(() => expect(started).toHaveBeenCalledOnce());
+
+    await expect(runAgentLoop(deps, { sessionId: "s1", prompt: "second" })).rejects.toMatchObject({
       code: "session_busy",
     });
     controller.abort();
