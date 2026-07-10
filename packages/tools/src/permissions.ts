@@ -12,8 +12,7 @@ function isNormalWorkspaceAction(intent: PermissionIntent): boolean {
   return (
     intent.risk === "normal" &&
     (intent.category === "read" ||
-      intent.category === "write" ||
-      intent.category === "shell")
+      intent.category === "write")
   );
 }
 

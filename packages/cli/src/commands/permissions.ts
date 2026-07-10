@@ -71,7 +71,7 @@ export function createPermissionsCommand(): Command {
       }
       if (mode === "full_access" && context.session.permissionMode !== mode) {
         const confirmed = await context.confirm(
-          "Full Access can read, write, run commands, use the network, and access external paths without routine prompts. Enable it?",
+          "Full Access can read, write, run commands, use the network, access external paths and credentials, and inherit host environment values without routine prompts. Enable it?",
         );
         if (!confirmed) {
           return message("Full Access was not enabled", "warning");
