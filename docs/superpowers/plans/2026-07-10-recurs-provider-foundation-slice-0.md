@@ -234,7 +234,7 @@ Commit: `feat: add pinned version two sessions`
 - Consumes: `BackendResolver`, `HostInvocation`, `RunCoordinator`, `RunOutcome`, `SessionBackendPin` from contracts.
 - Produces: `CompatibilityRunCoordinator`, preflight-before-persistence behavior, and a normalized event/outcome surface.
 
-- [ ] **Step 1: Write failing tests for preflight, immutable routing, and provider lifetime**
+- [x] **Step 1: Write failing tests for preflight, immutable routing, and provider lifetime**
 
 ```ts
 it("resolves the pinned backend before persisting a prompt", async () => {
@@ -250,12 +250,12 @@ it("creates a backend for each run instead of retaining a process-wide provider"
 });
 ```
 
-- [ ] **Step 2: Run the coordinator test and verify it fails because the seam is absent**
+- [x] **Step 2: Run the coordinator test and verify it fails because the seam is absent**
 
 Run: `npm test -- packages/core/test/run-coordinator.test.ts`
 Expected: FAIL because `RunCoordinator` implementation exports are missing.
 
-- [ ] **Step 3: Implement trusted preflight and resolved-backend dispatch**
+- [x] **Step 3: Implement trusted preflight and resolved-backend dispatch**
 
 ```ts
 const context = deriveTrustedRunContext(input.invocation);
