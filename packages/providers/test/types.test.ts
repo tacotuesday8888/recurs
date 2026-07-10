@@ -97,6 +97,13 @@ describe("provider protocol", () => {
         stopReason: "not-real",
       } as unknown as ProviderEvent;
     }
+    async function* invalidUsageType(): AsyncIterable<ProviderEvent> {
+      yield {
+        type: "usage",
+        inputTokens: 1n,
+        outputTokens: 0,
+      } as unknown as ProviderEvent;
+    }
 
     await expect(collectProviderEvents(unknownEvent())).rejects.toMatchObject({
       code: "invalid_response",
@@ -105,6 +112,9 @@ describe("provider protocol", () => {
       code: "invalid_response",
     });
     await expect(collectProviderEvents(invalidStopReason())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    await expect(collectProviderEvents(invalidUsageType())).rejects.toMatchObject({
       code: "invalid_response",
     });
   });

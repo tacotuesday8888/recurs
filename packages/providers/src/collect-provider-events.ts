@@ -99,11 +99,15 @@ export async function collectProviderEvents(
         break;
       }
       case "usage": {
+        if (
+          !validTokenCount(event.inputTokens) ||
+          !validTokenCount(event.outputTokens)
+        ) {
+          throw invalid("Provider emitted invalid token usage");
+        }
         const inputTokens = usage.inputTokens + event.inputTokens;
         const outputTokens = usage.outputTokens + event.outputTokens;
         if (
-          !validTokenCount(event.inputTokens) ||
-          !validTokenCount(event.outputTokens) ||
           !validTokenCount(inputTokens) ||
           !validTokenCount(outputTokens)
         ) {
