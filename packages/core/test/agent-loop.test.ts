@@ -500,6 +500,128 @@ describe("AgentLoop", () => {
     expect((await store.loadState("s1")).pendingToolCalls).toEqual([]);
   });
 
+  it("recovers a completed tool result when only its message was lost", async () => {
+    const provider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: "continued" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const { loop, store } = await harness(provider);
+    const call = { id: "completed-1", name: "echo", arguments: { text: "done" } };
+    await store.append("s1", {
+      version: 1,
+      type: "message_appended",
+      sessionId: "s1",
+      at: "2026-07-10T00:00:01.000Z",
+      message: { id: "assistant-completed", role: "assistant", content: "", toolCalls: [call] },
+    });
+    await store.append("s1", {
+      version: 1,
+      type: "tool_started",
+      sessionId: "s1",
+      at: "2026-07-10T00:00:02.000Z",
+      call,
+    });
+    await store.append("s1", {
+      version: 1,
+      type: "tool_completed",
+      sessionId: "s1",
+      at: "2026-07-10T00:00:03.000Z",
+      callId: call.id,
+      result: { output: "already completed" },
+    });
+
+    await loop.run({ sessionId: "s1", prompt: "continue" });
+
+    expect(provider.requests[0]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          toolCallId: call.id,
+          content: "already completed",
+        }),
+      ]),
+    );
+  });
+
+  it("recovers a recorded tool failure when only its message was lost", async () => {
+    const provider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: "continued" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const { loop, store } = await harness(provider);
+    const call = { id: "failed-1", name: "echo", arguments: { text: "denied" } };
+    await store.append("s1", {
+      version: 1,
+      type: "message_appended",
+      sessionId: "s1",
+      at: "2026-07-10T00:00:01.000Z",
+      message: { id: "assistant-failed", role: "assistant", content: "", toolCalls: [call] },
+    });
+    await store.append("s1", {
+      version: 1,
+      type: "tool_started",
+      sessionId: "s1",
+      at: "2026-07-10T00:00:02.000Z",
+      call,
+    });
+    await store.append("s1", {
+      version: 1,
+      type: "tool_failed",
+      sessionId: "s1",
+      at: "2026-07-10T00:00:03.000Z",
+      callId: call.id,
+      error: { code: "permission_denied", message: "write denied", retryable: false },
+    });
+
+    await loop.run({ sessionId: "s1", prompt: "continue" });
+
+    expect(provider.requests[0]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          toolCallId: call.id,
+          content: "Tool error [permission_denied]: write denied",
+        }),
+      ]),
+    );
+  });
+
+  it("does not append a failed terminal after a completed-event sink failure", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-event-failure-"));
+    temporaryDirectories.push(directory);
+    const store = new JsonlSessionStore(directory);
+    await store.append("s1", {
+      version: 1,
+      type: "session_created",
+      sessionId: "s1",
+      at: "2026-07-10T00:00:00.000Z",
+      cwd: "/workspace",
+      model: "scripted",
+    });
+    const provider = new ScriptedProvider([toolTurn("call-1", "done")]);
+    const deps = dependencies(provider, store, [echoTool()], deny, []);
+    deps.emit = async (event: RecursEvent) => {
+      if (event.type === "tool_completed") {
+        throw new Error("event sink unavailable");
+      }
+    };
+
+    await expect(new AgentLoop(deps).run({ sessionId: "s1", prompt: "work" })).rejects.toMatchObject({
+      code: "provider_failed",
+    });
+    const terminalTypes = (await store.load("s1")).records
+      .filter((record) =>
+        (record.type === "tool_completed" || record.type === "tool_failed") &&
+        record.callId === "call-1",
+      )
+      .map((record) => record.type);
+    expect(terminalTypes).toEqual(["tool_completed"]);
+  });
+
   it("rejects concurrent runs for the same session", async () => {
     const firstStarted = vi.fn();
     let requestCount = 0;

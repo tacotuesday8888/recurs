@@ -34,6 +34,7 @@ import { LoopDetector } from "./loop-detector.js";
 import {
   reduceSessionRecord,
   type SessionState,
+  type ToolOutcome,
 } from "./session.js";
 
 export interface RunInput {
@@ -316,6 +317,16 @@ function unresolvedToolCalls(messages: readonly ModelMessage[]): ToolCall[] {
   return [...unresolved.values()];
 }
 
+function recoveredToolOutput(outcome: ToolOutcome | undefined): string {
+  if (outcome?.type === "completed") {
+    return outcome.result.output;
+  }
+  if (outcome?.type === "failed") {
+    return `Tool error [${outcome.error.code}]: ${outcome.error.message}`;
+  }
+  return "Tool error [interrupted]: execution ended before a durable result was recorded";
+}
+
 const permissionEngines = new WeakMap<
   JsonlSessionStore,
   Map<string, PermissionEngine>
@@ -383,9 +394,15 @@ async function runAgentLoopUnlocked(
     state = reduceSessionRecord(state, record);
   }
 
+  const unresolvedCalls = unresolvedToolCalls(state.messages);
   const interruptedCalls = new Map(
     state.pendingToolCalls.map((call) => [call.id, call]),
   );
+  for (const call of unresolvedCalls) {
+    if (state.toolOutcomes[call.id] === undefined) {
+      interruptedCalls.set(call.id, call);
+    }
+  }
   for (const call of interruptedCalls.values()) {
     const failed: SessionRecord = {
       version: 1,
@@ -402,7 +419,7 @@ async function runAgentLoopUnlocked(
     await append(failed);
     await emitPersistedEvent(deps, failed);
   }
-  for (const call of unresolvedToolCalls(state.messages)) {
+  for (const call of unresolvedCalls) {
     await append({
       version: 1,
       type: "message_appended",
@@ -411,8 +428,7 @@ async function runAgentLoopUnlocked(
       message: {
         id: randomUUID(),
         role: "tool",
-        content:
-          "Tool error [interrupted]: execution ended before a durable result was recorded",
+        content: recoveredToolOutput(state.toolOutcomes[call.id]),
         toolCallId: call.id,
       },
     });
@@ -567,6 +583,7 @@ async function runAgentLoopUnlocked(
         await emitPersistedEvent(deps, started);
 
         let result: ToolResult;
+        let terminalRecord: SessionRecord;
         let cancelledDuringTool = false;
         try {
           const approvals: ApprovalHandler = {
@@ -597,7 +614,7 @@ async function runAgentLoopUnlocked(
             permissions,
             approvals,
           );
-          const completed: SessionRecord = {
+          terminalRecord = {
             version: 1,
             type: "tool_completed",
             sessionId: input.sessionId,
@@ -605,8 +622,6 @@ async function runAgentLoopUnlocked(
             callId: call.id,
             result,
           };
-          await append(completed);
-          await emitPersistedEvent(deps, completed);
         } catch (error) {
           const failure = signal.aborted
             ? new ToolError("cancelled", `Tool ${call.name} was cancelled`)
@@ -616,7 +631,7 @@ async function runAgentLoopUnlocked(
               ? failure
               : new Error("Unknown tool failure"),
           );
-          const failed: SessionRecord = {
+          terminalRecord = {
             version: 1,
             type: "tool_failed",
             sessionId: input.sessionId,
@@ -624,11 +639,12 @@ async function runAgentLoopUnlocked(
             callId: call.id,
             error: serialized,
           };
-          await append(failed);
-          await emitPersistedEvent(deps, failed);
           result = toolFailureResult(failure);
           cancelledDuringTool = signal.aborted;
         }
+
+        await append(terminalRecord);
+        await emitPersistedEvent(deps, terminalRecord);
 
         const toolMessage: ModelMessage = {
           id: randomUUID(),
