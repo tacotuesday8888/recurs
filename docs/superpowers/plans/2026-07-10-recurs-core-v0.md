@@ -2,16 +2,16 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a usable single-agent coding harness with a streaming tool-call loop, safe workspace tools, durable sessions and goals, three permission modes, enforced Plan mode, checkpoints, a GLM-compatible provider, and an interactive/non-interactive `recurs` CLI.
+**Goal:** Build a usable single-agent coding harness with a provider-neutral streaming tool-call loop, safe workspace tools, durable sessions and goals, three permission modes, enforced Plan mode, checkpoints, and an interactive/non-interactive `recurs` CLI.
 
 **Architecture:** Four TypeScript workspaces separate provider transport, tool execution, orchestration, and presentation. The core owns immutable turn snapshots and an append-only session log; the CLI and scripted tests consume the same event stream. Tools enforce path, permission, checkpoint, and read-before-write rules independently of model prompts.
 
-**Tech Stack:** Node.js 22.22+ (Node 24 LTS supported), TypeScript 6.0.3, npm workspaces, Vitest 4.1.10, ESLint 10.6.0, native `fetch`, native `readline`, and macOS `security` for Keychain integration.
+**Tech Stack:** Node.js 22.22+ (Node 24 LTS supported), TypeScript 6.0.3, npm workspaces, Vitest 4.1.10, ESLint 10.6.0, and native `readline`.
 
 ## Global Constraints
 
 - Build a first-party harness; do not fork or copy implementation code from the reference agents.
-- Keep provider credentials out of transcripts, prompts, events, project files, and test snapshots.
+- Keep provider transport, authentication, and model selection outside the core harness boundary.
 - Default permission mode is `ask_always`; `full_access` never becomes a new-project default.
 - Plan mode must hide and deny mutating tools at the execution boundary.
 - Execute multiple tool calls sequentially in provider order for deterministic v0 behavior.
@@ -30,10 +30,10 @@ package.json                         Workspace scripts and pinned development de
 tsconfig.json                        Shared strict TypeScript settings and project references
 eslint.config.mjs                    Type-aware lint rules
 vitest.config.ts                     Workspace test discovery and coverage defaults
-packages/providers/src/              Provider protocol, scripted provider, OpenAI-compatible transport
+packages/providers/src/              Provider protocol and deterministic scripted provider
 packages/tools/src/                  Tool protocol, permission engine, checkpoints, built-in tools
 packages/core/src/                   Events, sessions, goals, modes, compaction, and agent loop
-packages/cli/src/                    Commands, credentials, runtime assembly, REPL, and run mode
+packages/cli/src/                    Commands, runtime assembly, REPL, and run mode
 tests/e2e/                            Temporary-repository end-to-end harness proof
 ```
 
@@ -680,79 +680,7 @@ git add packages/tools
 git commit -m "feat: add command execution and safe checkpoints"
 ```
 
-## Task 7: OpenAI-Compatible Streaming Provider for GLM
-
-**Files:**
-- Create: `packages/providers/src/openai-compatible.ts`
-- Create: `packages/providers/src/sse.ts`
-- Modify: `packages/providers/src/index.ts`
-- Test: `packages/providers/test/openai-compatible.test.ts`
-
-**Interfaces:**
-- Produces: `OpenAICompatibleProvider({ id, baseUrl, apiKey, model, fetch? })`.
-- Implements: `ModelProvider.stream()` using Chat Completions SSE and function calls.
-
-- [ ] **Step 1: Write mocked SSE tests**
-
-```ts
-it("assembles fragmented streaming tool arguments", async () => {
-  const provider = providerWithSse([
-    `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"read_file","arguments":"{\\\"pa"}}]}}]}\n\n`,
-    `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\\\":\\\"a.ts\\\"}"}}]},"finish_reason":"tool_calls"}]}\n\n`,
-    "data: [DONE]\n\n",
-  ]);
-  const events = await toArray(provider.stream(request));
-  expect(events).toContainEqual({ type: "tool_call", call: { id: "c1", name: "read_file", arguments: { path: "a.ts" } } });
-});
-```
-
-- [ ] **Step 2: Confirm red**
-
-Run: `npm test -- --run packages/providers/test/openai-compatible.test.ts`
-
-Expected: FAIL because the provider does not exist.
-
-- [ ] **Step 3: Implement authenticated streaming and normalized errors**
-
-POST to `${baseUrl}/chat/completions` with Bearer auth, `stream: true`, normalized messages, and function definitions. Parse SSE by event boundary, assemble text/reasoning/tool deltas by choice and tool index, validate JSON arguments at tool completion, and map HTTP 401/403, 429, context errors, aborts, and malformed streams to `ProviderError`.
-
-The adapter constructor and secret boundary are exact:
-
-```ts
-export interface OpenAICompatibleOptions {
-  id: string;
-  baseUrl: string;
-  model: string;
-  apiKey: () => Promise<string>;
-  fetch?: typeof globalThis.fetch;
-}
-
-export class OpenAICompatibleProvider implements ModelProvider {
-  readonly id: string;
-  constructor(private readonly options: OpenAICompatibleOptions) {
-    this.id = options.id;
-  }
-  async *stream(request: ProviderRequest): AsyncIterable<ProviderEvent> {
-    const apiKey = await this.options.apiKey();
-    yield* streamChatCompletions(this.options, apiKey, request);
-  }
-}
-```
-
-- [ ] **Step 4: Verify transport behavior without a real key**
-
-Run: `npm test -- --run packages/providers/test/openai-compatible.test.ts`
-
-Expected: streaming text, fragmented tool calls, usage, error mapping, and abort tests pass with mocked fetch.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add packages/providers
-git commit -m "feat: add GLM-compatible streaming provider"
-```
-
-## Task 8: Slash Command Router, Goals, Plan Mode, and Permissions
+## Task 7: Slash Command Router, Goals, Plan Mode, and Permissions
 
 **Files:**
 - Create: `packages/cli/package.json`
@@ -769,7 +697,7 @@ git commit -m "feat: add GLM-compatible streaming provider"
 
 **Interfaces:**
 - Produces: `Command`, `CommandContext`, `CommandResult`, `parseCommand()`, and `createCommandRegistry()`.
-- Commands: `/help`, `/model`, `/goal`, `/plan`, `/permissions`, `/status`, `/cancel`, `/quit`, and `/exit`.
+- Commands: `/help`, `/goal`, `/plan`, `/permissions`, `/status`, `/cancel`, `/quit`, and `/exit`.
 
 - [ ] **Step 1: Write parser and state-transition tests**
 
@@ -822,23 +750,21 @@ git add packages/cli
 git commit -m "feat: add Recurs foundation slash commands"
 ```
 
-## Task 9: Remaining Usable-Agent Commands and Compaction
+## Task 8: Remaining Usable-Agent Commands and Compaction
 
 **Files:**
 - Create: `packages/core/src/compaction.ts`
-- Create: `packages/cli/src/credentials.ts`
 - Create: `packages/cli/src/commands/session.ts`
 - Create: `packages/cli/src/commands/repository.ts`
-- Create: `packages/cli/src/commands/auth.ts`
 - Modify: `packages/cli/src/commands/registry.ts`
 - Test: `packages/core/test/compaction.test.ts`
 - Test: `packages/cli/test/session-commands.test.ts`
 
 **Interfaces:**
-- Adds commands: `/login`, `/logout`, `/init`, `/new`, `/resume`, `/compact`, `/diff`, `/review`, and `/undo`.
-- Produces: `CredentialStore`, `EnvironmentCredentialStore`, `MacOsKeychainCredentialStore`, and `compactSession()`.
+- Adds commands: `/init`, `/new`, `/resume`, `/compact`, `/diff`, `/review`, and `/undo`.
+- Produces: `compactSession()` and the remaining session and repository command handlers.
 
-- [ ] **Step 1: Write compaction, secret, and repository-command tests**
+- [ ] **Step 1: Write compaction and repository-command tests**
 
 ```ts
 it("compaction retains goal, recent turns, changed files, and blockers", async () => {
@@ -847,11 +773,6 @@ it("compaction retains goal, recent turns, changed files, and blockers", async (
   expect(compacted.summary).toContain("src/auth.ts");
   expect(compacted.summary).toContain("Blocked by missing migration");
   expect(compacted.retainedMessages).toEqual(longSession.messages.slice(-6));
-});
-
-it("never serializes a credential returned by login", async () => {
-  await registry.execute("/login zai", contextWithSecret("top-secret"));
-  expect(await readFile(sessionLog, "utf8")).not.toContain("top-secret");
 });
 ```
 
@@ -863,23 +784,13 @@ Expected: FAIL because the commands and compaction are missing.
 
 - [ ] **Step 3: Implement complete command behavior**
 
-- `/login` accepts a key through hidden input, stores it in macOS Keychain under service `dev.recurs.cli`, and emits only provider/status metadata.
 - `/init` creates `AGENTS.md` only after confirming it does not exist.
 - `/resume` lists durable sessions newest-first and selects by exact ID.
 - `/compact` asks the provider for a structured summary and keeps the latest six messages.
 - `/review` submits a read-only prompt containing `git_diff` output; the active execution mode remains unchanged.
 - `/undo` calls `CheckpointStore.undoLatest()` and reports conflicts without partial restore.
 
-Credential storage must be replaceable and never expose values through status commands:
-
 ```ts
-export interface CredentialStore {
-  get(providerId: string): Promise<string | undefined>;
-  set(providerId: string, value: string): Promise<void>;
-  delete(providerId: string): Promise<void>;
-  has(providerId: string): Promise<boolean>;
-}
-
 export interface CompactionResult {
   summary: string;
   retainedMessages: ModelMessage[];
@@ -896,7 +807,7 @@ export async function compactSession(state: SessionState, provider: ModelProvide
 
 Run: `npm test -- --run packages/core/test/compaction.test.ts packages/cli/test/session-commands.test.ts`
 
-Expected: compaction, auth redaction, initialization, session lifecycle, diff/review, and undo tests pass.
+Expected: compaction, initialization, session lifecycle, diff/review, and undo tests pass.
 
 - [ ] **Step 5: Commit**
 
@@ -905,7 +816,7 @@ git add packages/core packages/cli
 git commit -m "feat: complete the Recurs basic command set"
 ```
 
-## Task 10: Interactive CLI and Structured Run Mode
+## Task 9: Interactive CLI and Structured Run Mode
 
 **Files:**
 - Create: `packages/cli/src/runtime.ts`
@@ -982,7 +893,7 @@ git add packages/cli
 git commit -m "feat: ship the Recurs interactive CLI foundation"
 ```
 
-## Task 11: End-to-End Coding Proof and Documentation
+## Task 10: End-to-End Coding Proof and Documentation
 
 **Files:**
 - Create: `tests/e2e/coding-agent.test.ts`
@@ -1018,11 +929,11 @@ it("reads, patches, verifies, persists, resumes, reviews, and safely undoes", as
 
 Run: `npm test -- --run tests/e2e/coding-agent.test.ts`
 
-Expected: the full coding session passes without network credentials.
+Expected: the full coding session passes with the deterministic scripted provider.
 
 - [ ] **Step 3: Document the usable surface**
 
-`docs/CLI.md` must explain installation from source, Z.AI key setup, Keychain behavior, the three permission modes, Plan/Act mode, `/goal`, every slash command, session location, checkpoint/undo conflicts, JSONL run mode, and current security limitations. `README.md` must link the CLI guide and clearly label plugins, multi-agent company behavior, and desktop as future work.
+`docs/CLI.md` must explain installation from source, the injected-provider boundary, the three permission modes, Plan/Act mode, `/goal`, every slash command, session location, checkpoint/undo conflicts, JSONL run mode, and current security limitations. It must clearly state that live LLM transports, authentication, model selection, and subscription adapters are deferred. `README.md` must link the CLI guide and clearly label provider integrations, plugins, multi-agent company behavior, and desktop as future work.
 
 - [ ] **Step 4: Run the completion suite**
 

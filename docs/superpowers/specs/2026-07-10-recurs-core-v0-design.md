@@ -74,9 +74,7 @@ Every provider adapter exposes the same capabilities:
 - Normalize authentication, rate limits, context overflow, cancellation, and transport failures.
 - Declare capabilities such as images, parallel tool calls, prompt caching, and supported reasoning controls.
 
-V0 includes a deterministic fake provider for tests and a configurable OpenAI-compatible Chat Completions adapter with streaming function calls. The first verified configuration targets the official [Z.AI chat-completions API](https://docs.z.ai/api-reference/llm/chat-completion), giving the foundation a real GLM API-key path while keeping the provider boundary reusable. Additional native provider protocols and official subscription-backed coding-client adapters are later slices built behind the same interface.
-
-Credentials never enter session transcripts, prompts, event logs, or project files. The CLI reads them through a credential interface. V0 resolves environment variables first and can persist keys in macOS Keychain when `/login` is used. Other operating-system credential-store adapters come later.
+V0 includes a deterministic scripted provider for tests and the complete provider-neutral streaming contract. Concrete LLM transports, authentication, model discovery, subscriptions, and API-key handling are deliberately deferred until the harness behavior is proven. Later provider integrations must implement this boundary without changing the agent loop.
 
 ## Built-in Tools
 
@@ -175,8 +173,6 @@ Commands are local control operations, not prompts disguised as commands. The co
 V0 commands are:
 
 - `/help`: list commands and concise usage.
-- `/login` and `/logout`: configure or remove provider credentials through the credential interface.
-- `/model`: inspect or select the active provider and model.
 - `/goal`: manage the durable project goal.
 - `/plan`: enter enforced read-only planning or return to Act mode.
 - `/permissions`: inspect or change the current permission preset.
@@ -230,7 +226,7 @@ No completion claim is made until unit tests, type checking, linting, and the en
 - Public plugins, MCP installation, hooks, and a marketplace.
 - Desktop UI and IDE integrations.
 - Cloud execution and remote workers.
-- Subscription-backed Codex, Claude Code, Gemini, or ACP adapters.
+- Real LLM transports, API-key authentication, model selection, and subscription-backed Codex, Claude Code, Gemini, or ACP adapters.
 - Strong OS-specific sandboxes and containers.
 - Scheduled or endless loops.
 - Branded command renaming.
@@ -240,4 +236,4 @@ These features must extend the core interfaces rather than require a second harn
 
 ## Acceptance Criteria
 
-Recurs Core v0 is complete when a user can launch the CLI in a Git repository, authenticate a supported API provider, set a goal, ask for a bounded coding change, observe streaming tool activity and approvals, review the diff, resume the session after restarting, and see the automated verification pass.
+Recurs Core v0 is complete when the CLI can run in a Git repository with an injected provider implementation, set a goal, execute a bounded scripted coding change through the real agent loop, show tool activity and approvals, review the diff, resume the session after restarting, and pass the automated end-to-end verification. Connecting that provider boundary to live LLMs is the next product layer.
