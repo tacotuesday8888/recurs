@@ -18,6 +18,7 @@ import {
   runCli,
   type CliDependencies,
 } from "../src/index.js";
+import { testAt, testBackendPin } from "../../../tests/support/backend.js";
 
 class TextOutput extends Writable {
   value = "";
@@ -46,13 +47,11 @@ async function createRuntime(sink: EventSink): Promise<RecursRuntime> {
   const directory = await mkdtemp(path.join(tmpdir(), "recurs-run-mode-"));
   directories.push(directory);
   const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
-  await sessions.append("s1", {
-    version: 1,
-    type: "session_created",
-    sessionId: "s1",
-    at: "2026-07-10T00:00:00.000Z",
+  await sessions.createPinnedSession({
+    id: "s1",
+    at: testAt,
     cwd: directory,
-    model: "scripted",
+    backend: testBackendPin(),
   });
   const provider = new ScriptedProvider([
     [
@@ -201,5 +200,41 @@ describe("runCli", () => {
 
     expect(exitCode).toBe(code);
     expect(stderr.value).toContain(error.message);
+  });
+
+  it("emits a machine-readable configuration error in JSONL mode", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const error = new RuntimeError(
+      "provider_not_configured",
+      "No model connection is ready",
+    );
+
+    const exitCode = await runCli(
+      ["run", "inspect", "--format", "jsonl"],
+      {
+        stdout,
+        stderr,
+        async createRuntime() {
+          return {
+            async submit() {
+              throw error;
+            },
+          } as unknown as RecursRuntime;
+        },
+      },
+    );
+
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(stdout.value)).toMatchObject({
+      version: 1,
+      type: "configuration_error",
+      error: {
+        phase: "preflight",
+        code: "connection_invalid",
+        safeMessage: "No model connection is ready",
+      },
+    });
+    expect(stderr.value).toBe("");
   });
 });

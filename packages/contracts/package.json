@@ -1,5 +1,5 @@
 {
-  "name": "@recurs/tools",
+  "name": "@recurs/contracts",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,5 @@
   },
   "files": [
     "dist"
-  ],
-  "dependencies": {
-    "@recurs/contracts": "0.0.0"
-  }
+  ]
 }

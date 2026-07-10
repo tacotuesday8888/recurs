@@ -8,6 +8,7 @@ import type {
 } from "@recurs/tools";
 
 import type { Goal } from "./goal.js";
+import type { SessionRecordV2 } from "./session-v2.js";
 
 export interface Usage {
   inputTokens: number;
@@ -87,3 +88,5 @@ export type SessionRecord =
   | ({ version: 1 } & Extract<RecursEvent, { type: "verification_recorded" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "turn_completed" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "turn_failed" }>);
+
+export type AnySessionRecord = SessionRecord | SessionRecordV2;

@@ -18,6 +18,7 @@ import {
   RecursRuntime,
   createCommandRegistry,
 } from "../src/index.js";
+import { testAt, testBackendPin } from "../../../tests/support/backend.js";
 
 const directories: string[] = [];
 const sink: EventSink = { async emit() {} };
@@ -34,13 +35,11 @@ async function runtimeWith(provider: ScriptedProvider): Promise<RecursRuntime> {
   const directory = await mkdtemp(path.join(tmpdir(), "recurs-runtime-"));
   directories.push(directory);
   const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
-  await sessions.append("s1", {
-    version: 1,
-    type: "session_created",
-    sessionId: "s1",
-    at: "2026-07-10T00:00:00.000Z",
+  await sessions.createPinnedSession({
+    id: "s1",
+    at: testAt,
     cwd: directory,
-    model: "scripted",
+    backend: testBackendPin(),
   });
   const state = await sessions.loadState("s1");
   const approvals: ApprovalHandler = {

@@ -7,31 +7,28 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
-import type { SessionRecord } from "./events.js";
+import type { SessionBackendPin } from "@recurs/contracts";
+
+import type { AnySessionRecord, SessionRecord } from "./events.js";
+import { parseSessionRecordV2 } from "./session-record-validator.js";
+import { acquireSessionLock } from "./session-mutation-lease.js";
+import type {
+  PinnedSessionState,
+  SessionRecordInputV2,
+  SessionRecordV2,
+} from "./session-v2.js";
+import {
+  isPinnedSessionState,
+  reduceSessionRecordV2,
+} from "./session-v2.js";
 import { reduceSessionRecords, type SessionState } from "./session.js";
+import { SessionStoreError } from "./session-store-error.js";
 
-export type SessionStoreErrorCode =
-  | "invalid_session_id"
-  | "session_busy"
-  | "session_not_found"
-  | "session_mismatch"
-  | "unsupported_version"
-  | "invalid_record"
-  | "corrupt_log";
-
-export class SessionStoreError extends Error {
-  constructor(
-    public readonly code: SessionStoreErrorCode,
-    message: string,
-    options?: ErrorOptions,
-  ) {
-    super(message, options);
-    this.name = "SessionStoreError";
-  }
-}
+export { SessionStoreError } from "./session-store-error.js";
+export type { SessionStoreErrorCode } from "./session-store-error.js";
 
 export interface LoadedSessionRecords {
-  records: SessionRecord[];
+  records: AnySessionRecord[];
   recoveredPartialRecord: boolean;
 }
 
@@ -40,9 +37,22 @@ export interface SessionListEntry {
   cwd: string;
   model: string;
   updatedAt: string;
+  version: 1 | 2;
 }
 
-const activeSessionRuns = new Set<string>();
+export interface CreatePinnedSessionOptions {
+  id: string;
+  cwd: string;
+  backend: SessionBackendPin;
+  at: string;
+}
+
+export interface SessionMutationLease {
+  readonly sessionId: string;
+  readonly fencingToken: number;
+  readonly currentSequence: number;
+  append(record: SessionRecordInputV2): Promise<SessionRecordV2>;
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -142,7 +152,7 @@ async function replaceAndSync(file: string, content: string): Promise<void> {
 }
 
 export class JsonlSessionStore {
-  private readonly directory: string;
+  readonly directory: string;
 
   constructor(directory: string) {
     this.directory = path.resolve(directory);
@@ -165,27 +175,158 @@ export class JsonlSessionStore {
         `Cannot append record for ${record.sessionId} to ${sessionId}`,
       );
     }
-    await mkdir(this.directory, { recursive: true });
-    await appendAndSync(this.#file(sessionId), `${JSON.stringify(record)}\n`);
+    throw new SessionStoreError(
+      "legacy_read_only",
+      `Version 1 session writes are disabled; session ${sessionId} is read-only`,
+    );
   }
 
-  async withSessionRun<T>(
+  async createPinnedSession(
+    options: CreatePinnedSessionOptions,
+  ): Promise<PinnedSessionState> {
+    const file = this.#file(options.id);
+    await mkdir(this.directory, { recursive: true, mode: 0o700 });
+    const lock = await acquireSessionLock(this.directory, options.id);
+    try {
+      const existing = await this.load(options.id);
+      if (existing.records.length > 0) {
+        throw new SessionStoreError(
+          "session_conflict",
+          `Session already exists: ${options.id}`,
+        );
+      }
+      const created: SessionRecordV2 = {
+        version: 2,
+        type: "session_created",
+        sessionId: options.id,
+        sequence: 0,
+        at: options.at,
+        cwd: options.cwd,
+        backend: options.backend,
+      };
+      parseSessionRecordV2(created, options.id);
+      await appendAndSync(file, `${JSON.stringify(created)}\n`);
+      const state = await this.loadState(options.id);
+      if (!isPinnedSessionState(state)) {
+        throw new SessionStoreError(
+          "corrupt_log",
+          `Expected pinned session ${options.id}`,
+        );
+      }
+      return state;
+    } finally {
+      await lock.release();
+    }
+  }
+
+  async withSessionMutation<T>(
     sessionId: string,
-    operation: () => Promise<T>,
+    expectedSequence: number,
+    operation: (lease: SessionMutationLease) => Promise<T>,
   ): Promise<T> {
-    const key = this.#file(sessionId);
-    if (activeSessionRuns.has(key)) {
+    if (!Number.isSafeInteger(expectedSequence) || expectedSequence < 0) {
       throw new SessionStoreError(
-        "session_busy",
-        `Session ${sessionId} already has an active run`,
+        "session_conflict",
+        `Invalid expected sequence: ${expectedSequence}`,
       );
     }
-    activeSessionRuns.add(key);
+    const lock = await acquireSessionLock(this.directory, sessionId);
+    let active = true;
     try {
-      return await operation();
+      const loaded = await this.load(sessionId);
+      const first = loaded.records[0];
+      const last = loaded.records.at(-1);
+      if (first === undefined || last === undefined) {
+        throw new SessionStoreError(
+          "session_not_found",
+          `Session not found: ${sessionId}`,
+        );
+      }
+      if (first.version !== 2 || last.version !== 2) {
+        throw new SessionStoreError(
+          "legacy_read_only",
+          `Legacy session ${sessionId} is read-only`,
+        );
+      }
+      if (last.sequence !== expectedSequence) {
+        throw new SessionStoreError(
+          "session_conflict",
+          `Expected session sequence ${expectedSequence}, received ${last.sequence}`,
+        );
+      }
+      const restored = reduceSessionRecords(loaded.records);
+      if (!isPinnedSessionState(restored)) {
+        throw new SessionStoreError(
+          "legacy_read_only",
+          `Legacy session ${sessionId} is read-only`,
+        );
+      }
+      let currentState = restored;
+      let currentSequence = last.sequence;
+      const lease: SessionMutationLease = {
+        sessionId,
+        fencingToken: lock.fencingToken,
+        get currentSequence() {
+          return currentSequence;
+        },
+        append: async (input) => {
+          if (!active) {
+            throw new SessionStoreError(
+              "session_conflict",
+              `Mutation lease for ${sessionId} is no longer active`,
+            );
+          }
+          if (input.type === "session_created") {
+            throw new SessionStoreError(
+              "invalid_record",
+              "session_created may appear only at sequence zero",
+            );
+          }
+          const record = {
+            ...input,
+            version: 2,
+            sessionId,
+            sequence: currentSequence + 1,
+          } as SessionRecordV2;
+          parseSessionRecordV2(record, sessionId);
+          const nextState = reduceSessionRecordV2(currentState, record);
+          await appendAndSync(this.#file(sessionId), `${JSON.stringify(record)}\n`);
+          currentSequence = record.sequence;
+          currentState = nextState;
+          return record;
+        },
+      };
+      return await operation(lease);
     } finally {
-      activeSessionRuns.delete(key);
+      active = false;
+      await lock.release();
     }
+  }
+
+  async recoverInterruptedOperations(
+    sessionId: string,
+    at: string,
+  ): Promise<boolean> {
+    const state = await this.loadState(sessionId);
+    if (!isPinnedSessionState(state) || state.pendingCompaction === null) {
+      return false;
+    }
+    const pending = state.pendingCompaction;
+    await this.withSessionMutation(
+      sessionId,
+      state.lastSequence,
+      async (lease) => {
+        await lease.append({
+          type: "compaction_interrupted",
+          operationId: pending.operationId,
+          at,
+          reason: "The process ended before compaction recorded a terminal result",
+          usage: null,
+          usageSource: "unknown",
+        });
+      },
+    );
+    return true;
   }
 
   async load(sessionId: string): Promise<LoadedSessionRecords> {
@@ -206,17 +347,35 @@ export class JsonlSessionStore {
       lines.pop();
     }
 
-    const records: SessionRecord[] = [];
+    const records: AnySessionRecord[] = [];
     for (const [index, line] of lines.entries()) {
       try {
         const parsed: unknown = JSON.parse(line);
-        if (!isSessionRecord(parsed, sessionId)) {
+        const record = isObject(parsed) && parsed.version === 2
+          ? parseSessionRecordV2(parsed, sessionId)
+          : isSessionRecord(parsed, sessionId)
+            ? parsed
+            : null;
+        if (record === null) {
           throw new SessionStoreError(
             "invalid_record",
             `Invalid session record at line ${index + 1}`,
           );
         }
-        records.push(parsed);
+        const previous = records.at(-1);
+        if (previous !== undefined && previous.version !== record.version) {
+          throw new SessionStoreError(
+            "invalid_record",
+            `Mixed session record versions at line ${index + 1}`,
+          );
+        }
+        if (record.version === 2 && record.sequence !== index) {
+          throw new SessionStoreError(
+            "invalid_record",
+            `Expected sequence ${index} at line ${index + 1}`,
+          );
+        }
+        records.push(record);
       } catch (error) {
         const isPartialTrailingRecord =
           index === lines.length - 1 && !hasTerminatingNewline;
@@ -290,8 +449,9 @@ export class JsonlSessionStore {
       entries.push({
         id,
         cwd: first.cwd,
-        model: first.model,
+        model: first.version === 1 ? first.model : first.backend.modelId,
         updatedAt: last.at,
+        version: first.version,
       });
     }
     return entries.sort((left, right) =>

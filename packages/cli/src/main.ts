@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
@@ -9,7 +10,11 @@ import {
 } from "node:process";
 import type { Readable, Writable } from "node:stream";
 
-import type { EventSink } from "@recurs/core";
+import {
+  createHostInvocation,
+  type IntegrationFailure,
+} from "@recurs/contracts";
+import { CoordinatedRunError, type EventSink } from "@recurs/core";
 
 import { createStandaloneRuntime } from "./assembly.js";
 import type { CommandResult } from "./commands/types.js";
@@ -93,7 +98,31 @@ function exitCodeFor(error: unknown): number {
   ) {
     return 2;
   }
+  if (error instanceof CoordinatedRunError && error.failure.phase === "preflight") {
+    return 2;
+  }
   return 1;
+}
+
+function configurationFailure(error: unknown): IntegrationFailure | null {
+  if (error instanceof CoordinatedRunError && error.failure.phase === "preflight") {
+    return error.failure;
+  }
+  if (
+    error instanceof RuntimeError &&
+    (error.code === "invalid_input" || error.code === "provider_not_configured")
+  ) {
+    return {
+      domain: "connection",
+      phase: "preflight",
+      code: "connection_invalid",
+      safeMessage: error.message,
+      diagnosticId: randomUUID(),
+      retryable: false,
+      action: "select_connection",
+    };
+  }
+  return null;
 }
 
 export async function runCli(
@@ -140,12 +169,33 @@ export async function runCli(
     : new TextEventRenderer(dependencies.stdout);
   try {
     const runtime = await dependencies.createRuntime(renderer);
-    const result = await runtime.submit(parsed.prompt);
+    const result = await runtime.submit(
+      parsed.prompt,
+      createHostInvocation({
+        invocation: "one_shot",
+        userPresent: false,
+        remote: false,
+        scripted: true,
+        embedding: "cli",
+      }),
+    );
     if (isCommandResult(result)) {
       await renderCommandResult(result, dependencies.stdout, dependencies.stderr);
     }
     return 0;
   } catch (error) {
+    const failure = configurationFailure(error);
+    if (parsed.format === "jsonl" && failure !== null) {
+      await writeOutput(
+        dependencies.stdout,
+        `${JSON.stringify({
+          version: 1,
+          type: "configuration_error",
+          error: failure,
+        })}\n`,
+      );
+      return 2;
+    }
     await writeOutput(
       dependencies.stderr,
       `Error: ${error instanceof Error ? error.message : "Unknown failure"}\n`,

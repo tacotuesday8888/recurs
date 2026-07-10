@@ -22,9 +22,11 @@ import { CheckpointStore, ToolError } from "@recurs/tools";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  applyCommandSessionRecord,
   createCommandRegistry,
   type CommandContext,
 } from "../src/index.js";
+import { testBackendPin } from "../../../tests/support/backend.js";
 
 const execFileAsync = promisify(execFile);
 const at = "2026-07-10T00:00:00.000Z";
@@ -48,21 +50,51 @@ async function storeSession(
   createdAt = at,
   messages: SessionState["messages"] = [],
 ): Promise<SessionState> {
-  await sessions.append(id, {
-    version: 1,
-    type: "session_created",
-    sessionId: id,
+  await sessions.createPinnedSession({
+    id,
     at: createdAt,
     cwd,
-    model: "scripted",
+    backend: testBackendPin(),
   });
-  for (const message of messages) {
-    await sessions.append(id, {
-      version: 1,
-      type: "message_appended",
-      sessionId: id,
-      at: createdAt,
-      message,
+  if (messages.length > 0) {
+    await sessions.withSessionMutation(id, 0, async (lease) => {
+      let turnId: string | null = null;
+      for (const [index, message] of messages.entries()) {
+        if (message.role === "user") {
+          turnId = `seed-turn-${index}`;
+          await lease.append({
+            type: "turn_started",
+            turnId,
+            prompt: message.content,
+            at: createdAt,
+          });
+        } else if (message.role === "assistant" && turnId !== null) {
+          await lease.append({
+            type: "model_completed",
+            turnId,
+            message,
+            usage: null,
+            stopReason: "complete",
+            at: createdAt,
+          });
+          await lease.append({
+            type: "turn_completed",
+            turnId,
+            at: createdAt,
+            result: {
+              finalText: message.content,
+              usage: null,
+              usageSource: "unavailable",
+              steps: 1,
+              changedFiles: [],
+              changedFilesSource: "host_tools",
+              evidence: [],
+              evidenceSource: "none",
+            },
+          });
+          turnId = null;
+        }
+      }
     });
   }
   return sessions.loadState(id);
@@ -82,8 +114,13 @@ function context(
       return at;
     },
     async applyRecord(record: SessionRecord) {
-      await sessions.append(commandContext.session.id, record);
-      commandContext.session = reduceSessionRecord(commandContext.session, record);
+      commandContext.session = commandContext.session.version === 2
+        ? await applyCommandSessionRecord(
+            sessions,
+            commandContext.session,
+            record,
+          )
+        : reduceSessionRecord(commandContext.session, record);
     },
   };
   return commandContext;
@@ -159,6 +196,7 @@ describe("session commands", () => {
       content: `message ${index}`,
     }));
     const state = await storeSession("s1", at, messages);
+    const durableMessages = state.messages;
     const provider = new ScriptedProvider([
       [
         { type: "text_delta", text: "Earlier work summarized" },
@@ -171,7 +209,7 @@ describe("session commands", () => {
     await registry.execute("/compact", commandContext);
 
     expect(commandContext.session.summary).toBe("Earlier work summarized");
-    expect(commandContext.session.messages).toEqual(messages.slice(-6));
+    expect(commandContext.session.messages).toEqual(durableMessages.slice(-6));
     expect((await sessions.loadState("s1")).summary).toBe("Earlier work summarized");
   });
 });

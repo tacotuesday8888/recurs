@@ -1,4 +1,4 @@
-import type { ToolDefinition } from "@recurs/providers";
+import type { ToolDefinition } from "@recurs/contracts";
 
 export type PermissionMode =
   | "ask_always"

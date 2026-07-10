@@ -3,16 +3,18 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { realpath } from "node:fs/promises";
 
+import type {
+  BackendResolver,
+  SessionBackendPin,
+} from "@recurs/contracts";
 import {
-  AgentLoop,
+  AgentLoopDirectExecutor,
+  BackendRunCoordinator,
   JsonlSessionStore,
+  createWorkspaceShell,
   type EventSink,
 } from "@recurs/core";
-import {
-  ProviderError,
-  type ModelProvider,
-  type ProviderEvent,
-} from "@recurs/providers";
+import type { ModelProvider } from "@recurs/providers";
 import {
   FileCheckpointStore,
   ToolRegistry,
@@ -28,32 +30,39 @@ import {
 import { createCommandRegistry } from "./commands/create.js";
 import { RecursRuntime } from "./runtime.js";
 
-class UnavailableProvider implements ModelProvider {
-  readonly id = "unconfigured";
-
-  stream(): AsyncIterable<ProviderEvent> {
-    const error = new ProviderError(
-      "authentication",
-      "No live LLM provider is configured. The Recurs harness is ready for an injected provider.",
-      false,
-    );
-    return {
-      [Symbol.asyncIterator]() {
-        return {
-          async next(): Promise<IteratorResult<ProviderEvent>> {
-            throw error;
-          },
-        };
-      },
-    };
-  }
-}
-
 export interface StandaloneRuntimeOptions {
   cwd?: string;
   dataDirectory?: string;
   provider?: ModelProvider;
   model?: string;
+}
+
+function injectedBackendPin(
+  provider: ModelProvider,
+  modelId: string,
+  at: string,
+): SessionBackendPin {
+  return {
+    kind: "model_provider",
+    providerId: provider.id,
+    adapterId: `injected:${provider.id}`,
+    connectionId: `injected:${provider.id}`,
+    modelId,
+    modelIdentityKind: "versioned",
+    providerResolvedModelRevisionAtCreation: modelId,
+    catalogRevision: "injected-v1",
+    policyRevisionAtCreation: "injected-test-only-v1",
+    billingPolicyRevisionAtCreation: "injected-test-only-v1",
+    primaryBillingSourceAtCreation: "local_compute",
+    billingSelectionAtCreation: {
+      mode: "strict_primary_only",
+      policyRevision: "injected-test-only-v1",
+      disclosureRevision: "injected-test-only-v1",
+      allowedSources: ["local_compute"],
+      acknowledgedAt: at,
+    },
+    accountSubjectFingerprint: `injected:${provider.id}`,
+  };
 }
 
 export async function createStandaloneRuntime(
@@ -71,22 +80,41 @@ export async function createStandaloneRuntime(
   const checkpoints = new FileCheckpointStore(
     path.join(projectData, "checkpoints"),
   );
-  const provider = options.provider ?? new UnavailableProvider();
+  const provider = options.provider;
   const existing = await sessions.list();
   let state;
-  if (existing[0] === undefined) {
-    const id = randomUUID();
-    await sessions.append(id, {
-      version: 1,
-      type: "session_created",
-      sessionId: id,
-      at: new Date().toISOString(),
-      cwd,
-      model: options.model ?? provider.id,
-    });
-    state = await sessions.loadState(id);
+  if (provider === undefined) {
+    state = createWorkspaceShell(cwd);
   } else {
-    state = await sessions.loadState(existing[0].id);
+    const model = options.model ?? provider.id;
+    let matching = null;
+    for (const entry of existing) {
+      const candidate = await sessions.loadState(entry.id);
+      if (
+        candidate.backend.type === "pinned" &&
+        candidate.backend.pin.connectionId === `injected:${provider.id}` &&
+        candidate.backend.pin.adapterId === `injected:${provider.id}` &&
+        candidate.backend.pin.modelId === model
+      ) {
+        matching = candidate;
+        break;
+      }
+    }
+    if (matching === null) {
+      const createdAt = new Date().toISOString();
+      state = await sessions.createPinnedSession({
+        id: randomUUID(),
+        cwd,
+        backend: injectedBackendPin(provider, model, createdAt),
+        at: createdAt,
+      });
+    } else {
+      await sessions.recoverInterruptedOperations(
+        matching.id,
+        new Date().toISOString(),
+      );
+      state = await sessions.loadState(matching.id);
+    }
   }
 
   const tools = new ToolRegistry([], { checkpoints });
@@ -99,8 +127,7 @@ export async function createStandaloneRuntime(
   tools.register(createGitDiffTool());
 
   const runtimeReference: { current?: RecursRuntime } = {};
-  const loop = new AgentLoop({
-    provider,
+  const direct = provider === undefined ? undefined : new AgentLoopDirectExecutor({
     tools,
     approvals: {
       async request(intent) {
@@ -125,9 +152,55 @@ export async function createStandaloneRuntime(
       };
     },
   });
+  const resolver: BackendResolver | undefined = provider === undefined
+    ? undefined
+    : {
+        async resolve(input) {
+          if (
+            input.pin.connectionId !== `injected:${provider.id}` ||
+            input.pin.adapterId !== `injected:${provider.id}`
+          ) {
+            throw new Error("The injected provider does not match the session pin");
+          }
+          return {
+            kind: "direct",
+            pin: input.pin,
+            authorization: {
+              kind: "run",
+              id: randomUUID(),
+              operation: input.operation,
+              sessionId: input.sessionId,
+              operationId: input.operationId,
+              turnId: input.turnId,
+              connectionId: input.pin.connectionId,
+              modelId: input.pin.modelId,
+              backendFingerprint: createHash("sha256")
+                .update(JSON.stringify(input.pin))
+                .digest("hex"),
+              connectionRevision: 1,
+              policyRevision: input.pin.policyRevisionAtCreation,
+              billingMode: input.pin.billingSelectionAtCreation.mode,
+              billingSelectionDigest: createHash("sha256")
+                .update(JSON.stringify(input.pin.billingSelectionAtCreation))
+                .digest("hex"),
+              contextDigest: createHash("sha256")
+                .update(JSON.stringify(input.context))
+                .digest("hex"),
+              maxRequests: 40,
+              expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+            },
+            async createProvider() {
+              return provider;
+            },
+          };
+        },
+      };
+  const coordinator = direct === undefined || resolver === undefined
+    ? undefined
+    : new BackendRunCoordinator({ sessions, resolver, direct });
   const commands = createCommandRegistry({
     sessions,
-    provider,
+    ...(provider === undefined ? {} : { provider }),
     checkpoints,
     signal: () =>
       runtimeReference.current?.currentSignal() ?? new AbortController().signal,
@@ -135,13 +208,13 @@ export async function createStandaloneRuntime(
   const runtime = new RecursRuntime(
     {
       commands,
-      loop,
+      ...(coordinator === undefined ? {} : { coordinator }),
       sessions,
       confirm: async () => false,
       ...(options.provider === undefined
         ? {
             promptUnavailableMessage:
-              "No live LLM provider is configured yet. Local slash commands are available, and provider injection is the next integration layer.",
+              "No model connection is ready. Run recurs setup in an interactive terminal, then try again.",
           }
         : {}),
     },

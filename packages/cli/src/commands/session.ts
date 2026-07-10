@@ -3,6 +3,7 @@ import { lstat, open } from "node:fs/promises";
 import path from "node:path";
 
 import { compactSession, type SessionRecord } from "@recurs/core";
+import { isPinnedSessionState } from "@recurs/core";
 
 import {
   message,
@@ -78,13 +79,17 @@ function createNewCommand(dependencies: CommandDependencies): Command {
         return message("Session storage is unavailable", "error");
       }
       const id = randomUUID();
-      await dependencies.sessions.append(id, {
-        version: 1,
-        type: "session_created",
-        sessionId: id,
-        at: context.now(),
+      if (!isPinnedSessionState(context.session)) {
+        return message(
+          "Legacy sessions are read-only; connect a provider before starting a new session",
+          "error",
+        );
+      }
+      await dependencies.sessions.createPinnedSession({
+        id,
         cwd: context.session.cwd,
-        model: context.session.model,
+        backend: context.session.backend.pin,
+        at: context.now(),
       });
       context.session = await dependencies.sessions.loadState(id);
       return message(`Started session ${id}`);

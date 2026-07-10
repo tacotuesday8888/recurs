@@ -2,7 +2,7 @@
 
 Recurs Core v0 is a provider-neutral coding-agent harness. The CLI, agent loop, tools, permissions, Plan mode, durable sessions, goals, checkpoints, and structured output are implemented. A live LLM transport is intentionally not bundled yet.
 
-The executable can run local slash commands today. Coding prompts require a host application or test harness to inject an implementation of the `ModelProvider` interface.
+The executable starts in a sessionless workspace shell when no provider is available. Coding prompts require a host application or test harness to inject an implementation of the `ModelProvider` interface; no fake `unconfigured` session is written.
 
 ## Install from source
 
@@ -38,7 +38,7 @@ interface ModelProvider {
 
 The normalized request contains the model name, immutable message snapshot, visible tool definitions, and an abort signal. The stream returns text/reasoning deltas, normalized tool calls, usage, and one terminal event. `ScriptedProvider` supplies deterministic responses for tests and embedded development.
 
-`createStandaloneRuntime(eventSink, { provider, model })` is the current assembly point for an injected provider. Launching the compiled CLI without one keeps local slash commands available, but `recurs run <prompt>` exits with configuration code `2` and explains that no live provider is connected.
+`createStandaloneRuntime(eventSink, { provider, model })` is the current test/embedding assembly point for an injected provider. It creates an immutable version-2 backend pin and resolves that exact pin before each run. Launching the compiled CLI without one keeps workspace commands available, but `recurs run <prompt>` exits with configuration code `2` before persisting the prompt. JSONL mode emits one `configuration_error` object without prose on standard output.
 
 ## Start and run
 
@@ -119,6 +119,8 @@ Replacing or clearing an unfinished goal requires confirmation. Each successful 
 | `/cancel` | Abort the current provider/tool run. |
 | `/quit`, `/exit`, `/q` | Exit the interactive CLI. |
 
+Before a provider is configured, the workspace shell exposes only `/help`, `/connect`, `/model`, `/permissions`, `/status`, `/resume` listing, `/init`, `/diff`, and exit commands. `/connect` and `/model` currently explain that onboarding is the next slice; they do not request or store a credential.
+
 ## Sessions and recovery
 
 By default, project data lives under:
@@ -127,7 +129,9 @@ By default, project data lives under:
 ~/.recurs/projects/<workspace-hash>/
 ```
 
-Set `RECURS_HOME` to move the Recurs data root. Session logs are versioned, append-only JSONL. Completed messages and tool/permission/turn boundaries are flushed to disk. A partial final JSONL record is quarantined during recovery; committed corruption in the middle of a log fails loudly. Before the next turn, pending tool calls are closed as interrupted and any assistant tool call without a result receives a synthetic interrupted result so resumed provider history remains valid.
+Set `RECURS_HOME` to move the Recurs data root. New session logs use strict version-2 append-only JSONL. Sequence zero pins the provider lane, connection, adapter, account fingerprint, model identity, billing choice, catalog, and policy revisions. Every mutation holds a cross-process lock and exact sequence; stale or concurrent writers fail. Version-1 logs remain readable and listable but cannot be changed.
+
+Completed messages and tool/permission/turn boundaries are flushed to disk. A partial final JSONL record is quarantined during recovery; committed corruption in the middle fails loudly. Before the next turn, pending tools receive durable failure results and the prior open turn is closed as interrupted. An orphaned compaction is closed locally with unknown usage and never retried automatically.
 
 Compaction is also append-only: the log keeps the audit history, while replay replaces active context with the summary plus retained recent messages.
 

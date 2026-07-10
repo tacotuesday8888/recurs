@@ -23,6 +23,7 @@ import {
   runAgentLoop,
   type RecursEvent,
 } from "../src/index.js";
+import { testAt, testBackendPin } from "../../../tests/support/backend.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -130,13 +131,11 @@ async function harness(
   const directory = await mkdtemp(path.join(tmpdir(), "recurs-loop-"));
   temporaryDirectories.push(directory);
   const store = new JsonlSessionStore(directory);
-  await store.append("s1", {
-    version: 1,
-    type: "session_created",
-    sessionId: "s1",
-    at: "2026-07-10T00:00:00.000Z",
+  await store.createPinnedSession({
+    id: "s1",
+    at: testAt,
     cwd: "/workspace",
-    model: "scripted",
+    backend: testBackendPin(),
   });
   const events: RecursEvent[] = [];
   return {
@@ -154,6 +153,64 @@ function toolTurn(id: string, text: string): ProviderEvent[] {
     },
     { type: "done", stopReason: "tool_calls" },
   ];
+}
+
+async function seedInterruptedTool(
+  store: JsonlSessionStore,
+  call: { id: string; name: string; arguments: unknown },
+  outcome?: { type: "completed"; output: string } | { type: "failed"; message: string },
+): Promise<void> {
+  await store.withSessionMutation("s1", 0, async (lease) => {
+    await lease.append({
+      type: "turn_started",
+      turnId: "crashed-turn",
+      prompt: "before crash",
+      at: "2026-07-10T00:00:01.000Z",
+    });
+    await lease.append({
+      type: "model_completed",
+      turnId: "crashed-turn",
+      at: "2026-07-10T00:00:02.000Z",
+      message: {
+        id: "assistant-before-crash",
+        role: "assistant",
+        content: "",
+        toolCalls: [call],
+      },
+      usage: null,
+      stopReason: "tool_calls",
+    });
+    await lease.append({
+      type: "tool_started",
+      turnId: "crashed-turn",
+      at: "2026-07-10T00:00:03.000Z",
+      call,
+    });
+    if (outcome?.type === "completed") {
+      await lease.append({
+        type: "tool_completed",
+        turnId: "crashed-turn",
+        at: "2026-07-10T00:00:04.000Z",
+        callId: call.id,
+        result: { output: outcome.output },
+      });
+    } else if (outcome?.type === "failed") {
+      await lease.append({
+        type: "tool_failed",
+        turnId: "crashed-turn",
+        at: "2026-07-10T00:00:04.000Z",
+        callId: call.id,
+        error: {
+          domain: "tool",
+          phase: "started",
+          code: "tool_failed",
+          safeMessage: `Tool error [permission_denied]: ${outcome.message}`,
+          diagnosticId: "seeded-tool-failure",
+          retryable: false,
+        },
+      });
+    }
+  });
 }
 
 describe("AgentLoop", () => {
@@ -183,6 +240,39 @@ describe("AgentLoop", () => {
       expect.arrayContaining(["turn_started", "model_text_delta", "model_completed", "turn_completed"]),
     );
     expect(events.some((event) => "version" in event)).toBe(false);
+  });
+
+  it("runs pinned sessions entirely through sequenced version 2 records", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-loop-v2-"));
+    temporaryDirectories.push(directory);
+    const store = new JsonlSessionStore(directory);
+    await store.createPinnedSession({
+      id: "s2",
+      cwd: "/workspace",
+      backend: testBackendPin(),
+      at: "2026-07-10T00:00:00.000Z",
+    });
+    const provider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: "pinned" },
+        { type: "usage", inputTokens: 2, outputTokens: 1 },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const events: RecursEvent[] = [];
+    const loop = new AgentLoop(dependencies(provider, store, [], deny, events));
+
+    await expect(
+      loop.run({ sessionId: "s2", prompt: "inspect" }),
+    ).resolves.toMatchObject({ finalText: "pinned" });
+
+    const loaded = await store.load("s2");
+    expect(loaded.records.map((record) => record.version)).toEqual([2, 2, 2, 2]);
+    expect(loaded.records.map((record) =>
+      record.version === 2 ? record.sequence : -1,
+    )).toEqual([0, 1, 2, 3]);
+    expect((await store.loadState("s2")).messages.map((message) => message.role))
+      .toEqual(["user", "assistant"]);
   });
 
   it("feeds sequential tool results back to the provider in call order", async () => {
@@ -466,25 +556,7 @@ describe("AgentLoop", () => {
     ]);
     const { loop, store } = await harness(provider);
     const call = { id: "orphan-1", name: "echo", arguments: { text: "lost" } };
-    await store.append("s1", {
-      version: 1,
-      type: "message_appended",
-      sessionId: "s1",
-      at: "2026-07-10T00:00:01.000Z",
-      message: {
-        id: "assistant-before-crash",
-        role: "assistant",
-        content: "",
-        toolCalls: [call],
-      },
-    });
-    await store.append("s1", {
-      version: 1,
-      type: "tool_started",
-      sessionId: "s1",
-      at: "2026-07-10T00:00:02.000Z",
-      call,
-    });
+    await seedInterruptedTool(store, call);
 
     await loop.run({ sessionId: "s1", prompt: "continue" });
 
@@ -509,27 +581,9 @@ describe("AgentLoop", () => {
     ]);
     const { loop, store } = await harness(provider);
     const call = { id: "completed-1", name: "echo", arguments: { text: "done" } };
-    await store.append("s1", {
-      version: 1,
-      type: "message_appended",
-      sessionId: "s1",
-      at: "2026-07-10T00:00:01.000Z",
-      message: { id: "assistant-completed", role: "assistant", content: "", toolCalls: [call] },
-    });
-    await store.append("s1", {
-      version: 1,
-      type: "tool_started",
-      sessionId: "s1",
-      at: "2026-07-10T00:00:02.000Z",
-      call,
-    });
-    await store.append("s1", {
-      version: 1,
-      type: "tool_completed",
-      sessionId: "s1",
-      at: "2026-07-10T00:00:03.000Z",
-      callId: call.id,
-      result: { output: "already completed" },
+    await seedInterruptedTool(store, call, {
+      type: "completed",
+      output: "already completed",
     });
 
     await loop.run({ sessionId: "s1", prompt: "continue" });
@@ -554,27 +608,9 @@ describe("AgentLoop", () => {
     ]);
     const { loop, store } = await harness(provider);
     const call = { id: "failed-1", name: "echo", arguments: { text: "denied" } };
-    await store.append("s1", {
-      version: 1,
-      type: "message_appended",
-      sessionId: "s1",
-      at: "2026-07-10T00:00:01.000Z",
-      message: { id: "assistant-failed", role: "assistant", content: "", toolCalls: [call] },
-    });
-    await store.append("s1", {
-      version: 1,
-      type: "tool_started",
-      sessionId: "s1",
-      at: "2026-07-10T00:00:02.000Z",
-      call,
-    });
-    await store.append("s1", {
-      version: 1,
-      type: "tool_failed",
-      sessionId: "s1",
-      at: "2026-07-10T00:00:03.000Z",
-      callId: call.id,
-      error: { code: "permission_denied", message: "write denied", retryable: false },
+    await seedInterruptedTool(store, call, {
+      type: "failed",
+      message: "write denied",
     });
 
     await loop.run({ sessionId: "s1", prompt: "continue" });
@@ -594,13 +630,11 @@ describe("AgentLoop", () => {
     const directory = await mkdtemp(path.join(tmpdir(), "recurs-event-failure-"));
     temporaryDirectories.push(directory);
     const store = new JsonlSessionStore(directory);
-    await store.append("s1", {
-      version: 1,
-      type: "session_created",
-      sessionId: "s1",
-      at: "2026-07-10T00:00:00.000Z",
+    await store.createPinnedSession({
+      id: "s1",
+      at: testAt,
       cwd: "/workspace",
-      model: "scripted",
+      backend: testBackendPin(),
     });
     const provider = new ScriptedProvider([toolTurn("call-1", "done")]);
     const deps = dependencies(provider, store, [echoTool()], deny, []);
@@ -695,13 +729,11 @@ describe("AgentLoop", () => {
     temporaryDirectories.push(directory);
     const store = new JsonlSessionStore(directory);
     for (const sessionId of ["s1", "s2"]) {
-      await store.append(sessionId, {
-        version: 1,
-        type: "session_created",
-        sessionId,
-        at: "2026-07-10T00:00:00.000Z",
+      await store.createPinnedSession({
+        id: sessionId,
+        at: testAt,
         cwd: "/workspace",
-        model: "scripted",
+        backend: testBackendPin("scripted", `connection-${sessionId}`),
       });
     }
     const approvals: ApprovalHandler = {
@@ -761,22 +793,21 @@ describe("AgentLoop", () => {
     temporaryDirectories.push(directory);
     const store = new JsonlSessionStore(directory);
     for (const sessionId of ["ask-session", "full-session"]) {
-      await store.append(sessionId, {
-        version: 1,
-        type: "session_created",
-        sessionId,
-        at: "2026-07-10T00:00:00.000Z",
+      await store.createPinnedSession({
+        id: sessionId,
+        at: testAt,
         cwd: "/workspace",
-        model: "scripted",
+        backend: testBackendPin("scripted", `connection-${sessionId}`),
       });
     }
-    await store.append("full-session", {
-      version: 1,
-      type: "mode_updated",
-      sessionId: "full-session",
-      at: "2026-07-10T00:00:01.000Z",
-      executionMode: "act",
-      permissionMode: "full_access",
+    await store.withSessionMutation("full-session", 0, async (lease) => {
+      await lease.append({
+        type: "mode_updated",
+        source: "command",
+        at: "2026-07-10T00:00:01.000Z",
+        executionMode: "act",
+        permissionMode: "full_access",
+      });
     });
     const loop = new AgentLoop(
       dependencies(
@@ -821,13 +852,11 @@ describe("AgentLoop", () => {
     const directory = await mkdtemp(path.join(tmpdir(), "recurs-lock-"));
     temporaryDirectories.push(directory);
     const store = new JsonlSessionStore(directory);
-    await store.append("s1", {
-      version: 1,
-      type: "session_created",
-      sessionId: "s1",
-      at: "2026-07-10T00:00:00.000Z",
+    await store.createPinnedSession({
+      id: "s1",
+      at: testAt,
       cwd: "/workspace",
-      model: "scripted",
+      backend: testBackendPin(),
     });
     const deps = dependencies(provider, store, [echoTool()], deny, []);
     const loop = new AgentLoop(deps);
@@ -878,12 +907,13 @@ describe("AgentLoop", () => {
       evidence: ["npm test passed"],
     };
     const { loop, store } = await harness(provider, [echoTool([], metadata)]);
-    await store.append("s1", {
-      version: 1,
-      type: "goal_updated",
-      sessionId: "s1",
-      at: "2026-07-10T00:00:00.000Z",
-      goal: activeGoal("change a", "2026-07-10T00:00:00.000Z"),
+    await store.withSessionMutation("s1", 0, async (lease) => {
+      await lease.append({
+        type: "goal_updated",
+        source: "command",
+        at: testAt,
+        goal: activeGoal("change a", testAt),
+      });
     });
 
     const result = await loop.run({ sessionId: "s1", prompt: "work" });

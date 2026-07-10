@@ -8,10 +8,15 @@ import {
 export type ScriptedResponse = readonly ProviderEvent[] | Error;
 
 export class ScriptedProvider implements ModelProvider {
-  readonly id = "scripted";
+  readonly id: string;
   readonly requests: ProviderRequest[] = [];
 
-  constructor(private readonly responses: readonly ScriptedResponse[]) {}
+  constructor(
+    private readonly responses: readonly ScriptedResponse[],
+    id = "scripted",
+  ) {
+    this.id = id;
+  }
 
   async *stream(request: ProviderRequest): AsyncIterable<ProviderEvent> {
     const responseIndex = this.requests.length;
