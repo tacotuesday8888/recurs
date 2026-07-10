@@ -1,8 +1,8 @@
 # Recurs Core v0 Design
 
-**Status:** Implemented and verified. Live providers remain a separate layer.
+**Status:** Reviewed design input. Core v0 is implemented, with later hardening documented in the current architecture and CLI guide.
 
-This document is the reviewed design input for Core v0. For the current implementation boundary and known limitations, see [the architecture](../../../ARCHITECTURE.md) and [CLI guide](../../CLI.md).
+This document records the design that guided Core v0; it is not the source of truth for current behavior. For the implemented boundary and known limitations, see [the architecture](../../../ARCHITECTURE.md) and [CLI guide](../../CLI.md).
 
 ## Purpose
 
@@ -103,8 +103,8 @@ The tool registry is extensible internally, but there is no public plugin market
 V0 exposes three user-facing permission modes:
 
 - **Ask Always**: the default. Normal project reads are allowed, but every file change and shell command requires confirmation. Sensitive-file reads, network access, external paths, destructive commands, credential access, and deployment are denied unless the user explicitly approves the individual action.
-- **Approved for Me**: normal project reads and writes plus recognized safe local development commands run automatically. Network access, external paths, sensitive files, destructive commands, credential access, and deployment still require confirmation or remain denied. This is the practical everyday mode.
-- **Full Access**: tools can read, write, execute commands, use the network, and access paths without routine approval prompts. Selecting this mode requires an explicit warning confirmation. Secret redaction, event logging, cancellation, and step/time/token limits remain active because they are integrity controls rather than permission restrictions.
+- **Approved for Me**: normal guarded project reads and writes run automatically. Every shell command requires confirmation until Recurs has an enforceable OS sandbox. Network access, external paths, sensitive files, destructive commands, credential access, and deployment also require confirmation or remain denied.
+- **Full Access**: tools can read, write, execute commands, use the network, access external paths and credentials, and inherit host environment values without routine approval prompts. Selecting this mode requires an explicit warning confirmation. Event logging, cancellation, bounded output, step limits, path validation, and checkpoint conflict checks remain active because they are integrity controls rather than permission restrictions.
 
 The active mode is session state and may be changed with `/permissions`. Permission grants in Ask Always or Approved for Me can apply once or to a narrow reusable command/path pattern for the current session. Full Access never silently becomes the default for a new project.
 

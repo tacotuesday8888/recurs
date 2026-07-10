@@ -32,13 +32,13 @@
 - Test: `packages/core/test/agent-loop.test.ts`
 - Test: `packages/core/test/compaction.test.ts`
 
-- [ ] Add failing provider tests for events after `done`, duplicate or empty tool IDs/names, invalid usage, output/tool-count limits, and event observation.
-- [ ] Add a failing loop test proving that a retryable failure after text or a tool call is not retried.
-- [ ] Add `CollectProviderEventsOptions.onEvent` and make `collectProviderEvents` the only reducer.
-- [ ] Reject streams without exactly one terminal event, invalid usage, duplicate tool IDs, more than 128 tool calls, or more than 4 MiB of combined text/reasoning output.
-- [ ] Reuse the reducer from `AgentLoop`; emit model events through the observer and retry at most twice only before semantic text, reasoning, or tool output.
-- [ ] Run focused tests and `npm run typecheck`.
-- [ ] Commit as `fix: harden provider stream handling`.
+- [x] Add failing provider tests for events after `done`, duplicate or empty tool IDs/names, invalid usage, output/tool-count limits, and event observation.
+- [x] Add a failing loop test proving that a retryable failure after text or a tool call is not retried.
+- [x] Add `CollectProviderEventsOptions.onEvent` and make `collectProviderEvents` the only reducer.
+- [x] Reject streams without exactly one terminal event, invalid usage, duplicate tool IDs, more than 128 tool calls, or more than 4 MiB of combined text/reasoning output.
+- [x] Reuse the reducer from `AgentLoop`; emit model events through the observer and retry at most twice only before semantic text, reasoning, or tool output.
+- [x] Run focused tests and `npm run typecheck`.
+- [x] Commit as `fix: harden provider stream handling`.
 
 ## Task 2: Make tool execution durable and single-writer per session
 
@@ -47,15 +47,15 @@
 - Modify: `packages/core/src/agent-loop.ts`
 - Test: `packages/core/test/agent-loop.test.ts`
 
-- [ ] Add a failing cancellation test proving a started tool currently remains pending and lacks a model-visible tool result.
-- [ ] Add a failing restart test by seeding an assistant tool call and `tool_started`, then proving the next request currently lacks an interrupted tool result.
-- [ ] Add a failing concurrency test proving two `AgentLoop.run()` calls can currently enter the same session.
-- [ ] On every tool failure, append `tool_failed` and a tool result message before propagating cancellation.
-- [ ] Before a new turn, reconcile pending calls and assistant tool calls without results. Persist an `interrupted` failure when needed and append a synthetic tool result so provider history remains valid.
-- [ ] Add `session_busy` to `AgentLoopErrorCode`; have `AgentLoop` reject a concurrent run for the same session and always release its in-memory guard in `finally`.
-- [ ] Preserve complete assistant-tool-call/result groups when selecting the recent compaction window.
-- [ ] Run focused tests and `npm run typecheck`.
-- [ ] Commit as `fix: recover interrupted tool calls`.
+- [x] Add a failing cancellation test proving a started tool currently remains pending and lacks a model-visible tool result.
+- [x] Add a failing restart test by seeding an assistant tool call and `tool_started`, then proving the next request currently lacks an interrupted tool result.
+- [x] Add a failing concurrency test proving two `AgentLoop.run()` calls can currently enter the same session.
+- [x] On every tool failure, append `tool_failed` and a tool result message before propagating cancellation.
+- [x] Before a new turn, reconcile pending calls and assistant tool calls without results. Persist an `interrupted` failure when needed and append a synthetic tool result so provider history remains valid.
+- [x] Add `session_busy` to `AgentLoopErrorCode`; have `AgentLoop` reject a concurrent run for the same session and always release its in-memory guard in `finally`.
+- [x] Preserve complete assistant-tool-call/result groups when selecting the recent compaction window.
+- [x] Run focused tests and `npm run typecheck`.
+- [x] Commit as `fix: recover interrupted tool calls`.
 
 ## Task 3: Keep unsandboxed shell permissions honest
 
@@ -67,13 +67,13 @@
 - Modify: `packages/cli/src/commands/permissions.ts`
 - Test: `packages/cli/test/commands.test.ts`
 
-- [ ] Change the Approved for Me test to require approval for normal shell commands while continuing to allow normal workspace reads and writes.
-- [ ] Change the command test to prove a normal command runs only after an approval response in Approved for Me.
-- [ ] Add an assertion that the Full Access confirmation explicitly mentions credentials and the host environment.
-- [ ] Remove `shell` from automatic normal workspace actions in `PermissionEngine`.
-- [ ] Update Full Access confirmation copy to say it may access credentials and inherited host environment values without routine prompts.
-- [ ] Run focused tests and `npm run typecheck`.
-- [ ] Commit as `fix: clarify unsandboxed shell trust`.
+- [x] Change the Approved for Me test to require approval for normal shell commands while continuing to allow normal workspace reads and writes.
+- [x] Change the command test to prove a normal command runs only after an approval response in Approved for Me.
+- [x] Add an assertion that the Full Access confirmation explicitly mentions credentials and the host environment.
+- [x] Remove `shell` from automatic normal workspace actions in `PermissionEngine`.
+- [x] Update Full Access confirmation copy to say it may access credentials and inherited host environment values without routine prompts.
+- [x] Run focused tests and `npm run typecheck`.
+- [x] Commit as `fix: clarify unsandboxed shell trust`.
 
 ## Task 4: Add one strict repository verification path
 
@@ -83,12 +83,12 @@
 - Modify: `tsconfig.json`
 - Create: `.github/workflows/ci.yml`
 
-- [ ] Run `npm run check` and confirm it fails because the script does not exist.
-- [ ] Add `noFallthroughCasesInSwitch`, `noImplicitReturns`, `noImplicitOverride`, `noUnusedLocals`, and `noUnusedParameters` to the shared TypeScript configuration.
-- [ ] Add `"check": "npm run lint && npm run typecheck && npm test && npm run build"`.
-- [ ] Add a read-only GitHub Actions workflow using `actions/checkout@v7`, `actions/setup-node@v6`, Node 24, `npm ci`, and `npm run check`.
-- [ ] Run `npm run check`.
-- [ ] Commit as `ci: verify the base harness`.
+- [x] Run `npm run check` and confirm it fails because the script does not exist.
+- [x] Add `noFallthroughCasesInSwitch`, `noImplicitReturns`, `noImplicitOverride`, `noUnusedLocals`, and `noUnusedParameters` to the shared TypeScript configuration.
+- [x] Add `"check": "npm run lint && npm run typecheck && npm test && npm run build"`.
+- [x] Add a read-only GitHub Actions workflow using `actions/checkout@v7`, `actions/setup-node@v6`, Node 24, `npm ci`, and `npm run check`.
+- [x] Run `npm run check`.
+- [x] Commit as `ci: verify the base harness`.
 
 ## Task 5: Consolidate current documentation
 
@@ -108,13 +108,22 @@
 - Modify: `docs/superpowers/specs/2026-07-10-recurs-core-v0-design.md`
 - Modify: `docs/superpowers/specs/2026-07-10-recurs-provider-auth-design.md`
 
-- [ ] Preserve historical research through Git-aware moves; do not rewrite its old terminology.
-- [ ] Replace root README, architecture, and product documents with concise descriptions of what exists, the package boundaries, known shell-sandbox limitation, and the next provider/sub-agent phases.
-- [ ] Add a documentation index and link the engine comparison, CLI guide, reviewed specs, plans, and historical research.
-- [ ] Correct the CLI permission table: Approved for Me asks for shell commands; Full Access trusts credentials and the host environment.
-- [ ] Update stale cross-document paths and mark reviewed specs as design inputs rather than completed code.
-- [ ] Run stale-term, broken-relative-link, and placeholder scans, then `npm run check`.
-- [ ] Commit as `docs: consolidate the Recurs foundation`.
+- [x] Preserve historical research through Git-aware moves; do not rewrite its old terminology.
+- [x] Replace root README, architecture, and product documents with concise descriptions of what exists, the package boundaries, known shell-sandbox limitation, and the next provider/sub-agent phases.
+- [x] Add a documentation index and link the engine comparison, CLI guide, reviewed specs, plans, and historical research.
+- [x] Correct the CLI permission table: Approved for Me asks for shell commands; Full Access trusts credentials and the host environment.
+- [x] Update stale cross-document paths and mark reviewed specs as design inputs rather than completed code.
+- [x] Run stale-term, broken-relative-link, and placeholder scans, then `npm run check`.
+- [x] Commit as `docs: consolidate the Recurs foundation`.
+
+## Task 6: Resolve independent review findings
+
+- [x] Move the in-process session run lock to the session-store boundary so all loop entry points share it.
+- [x] Isolate permission modes and reusable grants by session; cover sequential grant leakage and interleaved Full Access/Ask Always runs.
+- [x] Derive unresolved tool outcomes from durable completed/failed records and reuse the real output during recovery.
+- [x] Keep tool execution errors separate from terminal persistence/event failures so one call cannot receive contradictory terminal records.
+- [x] Normalize malformed usage values before arithmetic.
+- [x] Correct the Core v0 design snapshot's status and permission descriptions.
 
 ## Final verification and integration
 

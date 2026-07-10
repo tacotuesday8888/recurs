@@ -24,7 +24,7 @@ The future desktop app and sub-agent orchestrator should consume these public bo
 
 For one prompt, `AgentLoop`:
 
-1. rejects a concurrent run for the same session;
+1. acquires the store-scoped in-process run lock and rejects another run for the same session, even through a different loop entry point;
 2. loads and reduces the append-only session log;
 3. closes pending tool records and inserts missing interrupted tool results;
 4. records the user message and turn start;
@@ -56,7 +56,7 @@ The registry parses tool input, evaluates every permission intent, asks when req
 
 Plan mode removes mutating tools from the provider-visible registry and rejects them if called directly. It is an enforced capability boundary, not a prompt convention.
 
-The three presets are:
+Permission engines and reusable grants are isolated by session. The three presets are:
 
 - **Ask Always:** normal project reads run; writes and shell commands ask.
 - **Approved for Me:** normal guarded project reads and writes run; all shell, network, sensitive, credential, external, deployment, and destructive actions ask.
