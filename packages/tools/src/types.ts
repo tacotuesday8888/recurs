@@ -68,10 +68,15 @@ export type ToolErrorCode =
   | "not_a_directory"
   | "output_limit"
   | "process_failed"
+  | "command_timeout"
   | "unread_file"
   | "stale_file"
   | "patch_files_mismatch"
-  | "patch_failed";
+  | "patch_failed"
+  | "checkpoint_storage"
+  | "checkpoint_not_found"
+  | "checkpoint_conflict"
+  | "checkpoint_corrupt";
 
 export class ToolError extends Error {
   constructor(

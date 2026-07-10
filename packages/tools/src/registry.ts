@@ -4,6 +4,7 @@ import {
   permissionIntentKey,
   type PermissionEngine,
 } from "./permissions.js";
+import type { CheckpointStore } from "./checkpoints.js";
 import {
   ToolError,
   type ApprovalHandler,
@@ -34,7 +35,10 @@ function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
 export class ToolRegistry {
   readonly #tools = new Map<string, RegisteredTool>();
 
-  constructor(tools: readonly Tool<never>[] = []) {
+  constructor(
+    tools: readonly Tool<never>[] = [],
+    private readonly options: { checkpoints?: CheckpointStore } = {},
+  ) {
     for (const tool of tools) {
       this.register(tool);
     }
@@ -116,6 +120,32 @@ export class ToolRegistry {
       (context.approvedIntents ??= new Set()).add(permissionIntentKey(intent));
     }
 
-    return tool.execute(input, context);
+    if (!tool.mutating || this.options.checkpoints === undefined) {
+      return tool.execute(input, context);
+    }
+
+    const checkpoint = await this.options.checkpoints.captureBefore(
+      context.sessionId,
+      call.id,
+      context.cwd,
+    );
+    let result: ToolResult;
+    try {
+      result = await tool.execute(input, context);
+    } catch (error) {
+      await this.options.checkpoints.captureAfter(checkpoint, context.cwd);
+      throw error;
+    }
+    const completed = await this.options.checkpoints.captureAfter(
+      checkpoint,
+      context.cwd,
+    );
+    return {
+      ...result,
+      metadata: {
+        ...result.metadata,
+        checkpointId: completed.id,
+      },
+    };
   }
 }
