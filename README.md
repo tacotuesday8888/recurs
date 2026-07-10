@@ -12,7 +12,7 @@ The repository contains a usable single-agent base:
 - Ask Always, Approved for Me, Full Access, enforced Plan mode, and temporary read-only review;
 - durable `/goal` state, append-only JSONL sessions, interrupted-tool recovery, compaction, checkpoints, and conflict-safe undo;
 - interactive and non-interactive CLI paths with text or normalized JSONL output;
-- one `npm run check` path covering lint, type checking, 106 tests, and build output.
+- one `npm run check` path covering lint, type checking, 100+ tests, and build output.
 
 The standalone CLI does not yet bundle a live LLM provider. Hosts can inject the public `ModelProvider` interface; local slash commands remain available without one.
 
