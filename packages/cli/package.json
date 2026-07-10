@@ -1,0 +1,22 @@
+{
+  "name": "@recurs/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@recurs/core": "0.0.0",
+    "@recurs/providers": "0.0.0",
+    "@recurs/tools": "0.0.0"
+  }
+}

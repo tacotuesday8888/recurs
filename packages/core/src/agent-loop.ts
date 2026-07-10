@@ -24,6 +24,7 @@ import type {
   Usage,
 } from "./events.js";
 import type { JsonlSessionStore } from "./jsonl-session-store.js";
+import { recordGoalProgress } from "./goal.js";
 import { LoopDetector } from "./loop-detector.js";
 import {
   reduceSessionRecord,
@@ -444,6 +445,24 @@ export async function runAgentLoop(
             "invalid_provider_response",
             `Provider stopped with ${modelTurn.stopReason} and no tool calls`,
           );
+        }
+
+        if (state.goal?.status === "active") {
+          const goalUpdatedAt = now();
+          const goalUpdated: SessionRecord = {
+            version: 1,
+            type: "goal_updated",
+            sessionId: input.sessionId,
+            at: goalUpdatedAt,
+            goal: recordGoalProgress(
+              state.goal,
+              modelTurn.text,
+              evidence,
+              goalUpdatedAt,
+            ),
+          };
+          await append(goalUpdated);
+          await emitPersistedEvent(deps, goalUpdated);
         }
 
         const terminalRecord: SessionRecord = {

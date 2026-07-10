@@ -20,6 +20,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AgentLoop,
   JsonlSessionStore,
+  activeGoal,
   type RecursEvent,
 } from "../src/index.js";
 
@@ -326,6 +327,13 @@ describe("AgentLoop", () => {
       evidence: ["npm test passed"],
     };
     const { loop, store } = await harness(provider, [echoTool([], metadata)]);
+    await store.append("s1", {
+      version: 1,
+      type: "goal_updated",
+      sessionId: "s1",
+      at: "2026-07-10T00:00:00.000Z",
+      goal: activeGoal("change a", "2026-07-10T00:00:00.000Z"),
+    });
 
     const result = await loop.run({ sessionId: "s1", prompt: "work" });
     const restored = await store.loadState("s1");
@@ -334,5 +342,9 @@ describe("AgentLoop", () => {
     expect(result.evidence).toEqual(["npm test passed"]);
     expect(restored.changedFiles).toEqual(["src/a.ts"]);
     expect(restored.evidence).toEqual(["npm test passed"]);
+    expect(restored.goal).toMatchObject({
+      progress: "done",
+      evidence: ["npm test passed"],
+    });
   });
 });

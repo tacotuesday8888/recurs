@@ -90,6 +90,25 @@ export interface GoalCompletion {
   evidence: string[];
 }
 
+export function recordGoalProgress(
+  goal: Goal,
+  progress: string,
+  evidence: readonly string[],
+  at: string,
+): Goal {
+  requireStatus(goal, "active");
+  const normalizedProgress = progress.trim();
+  const normalizedEvidence = evidence
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  return {
+    ...goal,
+    updatedAt: at,
+    progress: normalizedProgress.length === 0 ? goal.progress : normalizedProgress,
+    evidence: [...new Set([...goal.evidence, ...normalizedEvidence])],
+  };
+}
+
 export function completeGoal(
   goal: Goal,
   completion: GoalCompletion,
