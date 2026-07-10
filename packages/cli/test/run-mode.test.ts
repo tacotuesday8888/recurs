@@ -4,7 +4,6 @@ import type { EventSink } from "@recurs/core";
 import { AgentLoop, AgentLoopError, JsonlSessionStore } from "@recurs/core";
 import { ScriptedProvider } from "@recurs/providers";
 import {
-  PermissionEngine,
   ToolRegistry,
 } from "@recurs/tools";
 import { afterEach, describe, expect, it } from "vitest";
@@ -65,7 +64,6 @@ async function createRuntime(sink: EventSink): Promise<RecursRuntime> {
   const loop = new AgentLoop({
     provider,
     tools: new ToolRegistry(),
-    permissions: new PermissionEngine("ask_always"),
     approvals: { async request() { return "deny"; } },
     sessions,
     emit: sink.emit,

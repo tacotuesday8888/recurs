@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   PermissionEngine,
@@ -56,12 +56,13 @@ async function invoke(
   arguments_: unknown,
   toolContext = context(),
   mode: "ask_always" | "approved_for_me" | "full_access" = "full_access",
+  approvals: ApprovalHandler = deny,
 ): Promise<ToolResult> {
   return new ToolRegistry([tool]).invoke(
     { id: "call-1", name: tool.definition.name, arguments: arguments_ },
     toolContext,
     new PermissionEngine(mode),
-    deny,
+    approvals,
   );
 }
 
@@ -100,16 +101,21 @@ describe("command classification", () => {
 });
 
 describe("run_command", () => {
-  it("runs normal local work in Approved for Me", async () => {
+  it("runs normal local work only after approval in Approved for Me", async () => {
+    const request = vi.fn(async () => "allow_once" as const);
     const result = await invoke(
       createRunCommandTool(),
       { command: "printf recurs" },
       context(),
       "approved_for_me",
+      { request },
     );
 
     expect(result.output).toBe("recurs");
     expect(result.metadata).toMatchObject({ exitCode: 0 });
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({ category: "shell", risk: "normal" }),
+    );
   });
 
   it("requires approval for a destructive command", async () => {

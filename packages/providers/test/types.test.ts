@@ -37,6 +37,128 @@ describe("provider protocol", () => {
     });
   });
 
+  it("rejects events after the terminal event", async () => {
+    async function* events(): AsyncIterable<ProviderEvent> {
+      yield { type: "done", stopReason: "complete" };
+      yield { type: "text_delta", text: "late" };
+    }
+
+    await expect(collectProviderEvents(events())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
+  it("rejects invalid tool calls and usage", async () => {
+    async function* duplicateTools(): AsyncIterable<ProviderEvent> {
+      yield {
+        type: "tool_call",
+        call: { id: "same", name: "read_file", arguments: {} },
+      };
+      yield {
+        type: "tool_call",
+        call: { id: "same", name: "read_file", arguments: {} },
+      };
+      yield { type: "done", stopReason: "tool_calls" };
+    }
+    async function* emptyToolName(): AsyncIterable<ProviderEvent> {
+      yield {
+        type: "tool_call",
+        call: { id: "call-1", name: " ", arguments: {} },
+      };
+      yield { type: "done", stopReason: "tool_calls" };
+    }
+    async function* invalidUsage(): AsyncIterable<ProviderEvent> {
+      yield { type: "usage", inputTokens: -1, outputTokens: 0 };
+      yield { type: "done", stopReason: "complete" };
+    }
+
+    await expect(collectProviderEvents(duplicateTools())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    await expect(collectProviderEvents(emptyToolName())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    await expect(collectProviderEvents(invalidUsage())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
+  it("normalizes malformed runtime events as invalid responses", async () => {
+    async function* unknownEvent(): AsyncIterable<ProviderEvent> {
+      yield { type: "unknown" } as unknown as ProviderEvent;
+      yield { type: "done", stopReason: "complete" };
+    }
+    async function* invalidText(): AsyncIterable<ProviderEvent> {
+      yield { type: "text_delta", text: 42 } as unknown as ProviderEvent;
+    }
+    async function* invalidStopReason(): AsyncIterable<ProviderEvent> {
+      yield {
+        type: "done",
+        stopReason: "not-real",
+      } as unknown as ProviderEvent;
+    }
+    async function* invalidUsageType(): AsyncIterable<ProviderEvent> {
+      yield {
+        type: "usage",
+        inputTokens: 1n,
+        outputTokens: 0,
+      } as unknown as ProviderEvent;
+    }
+
+    await expect(collectProviderEvents(unknownEvent())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    await expect(collectProviderEvents(invalidText())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    await expect(collectProviderEvents(invalidStopReason())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    await expect(collectProviderEvents(invalidUsageType())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
+  it("bounds provider-controlled output and tool counts", async () => {
+    async function* tooMuchText(): AsyncIterable<ProviderEvent> {
+      yield { type: "text_delta", text: "x".repeat(4 * 1024 * 1024 + 1) };
+      yield { type: "done", stopReason: "complete" };
+    }
+    async function* tooManyTools(): AsyncIterable<ProviderEvent> {
+      for (let index = 0; index < 129; index += 1) {
+        yield {
+          type: "tool_call",
+          call: { id: `call-${index}`, name: "read_file", arguments: {} },
+        };
+      }
+      yield { type: "done", stopReason: "tool_calls" };
+    }
+
+    await expect(collectProviderEvents(tooMuchText())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    await expect(collectProviderEvents(tooManyTools())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
+  it("observes validated events while preserving the collected result", async () => {
+    const observed: string[] = [];
+    async function* events(): AsyncIterable<ProviderEvent> {
+      yield { type: "text_delta", text: "ok" };
+      yield { type: "done", stopReason: "complete" };
+    }
+
+    const result = await collectProviderEvents(events(), {
+      onEvent(event) {
+        observed.push(event.type);
+      },
+    });
+
+    expect(observed).toEqual(["text_delta", "done"]);
+    expect(result.text).toBe("ok");
+  });
+
   it("marks normalized provider failures as retryable or terminal", () => {
     expect(new ProviderError("rate_limit", "slow down", true).retryable).toBe(
       true,

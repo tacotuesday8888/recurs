@@ -16,6 +16,7 @@ Build and inspect the CLI:
 
 ```bash
 npm install
+npm run check
 npm run build
 node packages/cli/dist/main.js --help
 ```
@@ -70,8 +71,8 @@ Every tool reports normalized intent before execution. `/permissions` selects on
 | Mode | Behavior |
 | --- | --- |
 | Ask Always | Project reads run normally. Every write and shell command asks. Sensitive files, network, external paths, credentials, deployment, and destructive actions also ask. This is the default. |
-| Approved for Me | Normal project reads/writes and recognized local development commands run automatically. Elevated, network, external, sensitive, deployment, and destructive actions still ask. |
-| Full Access | Routine approval prompts are skipped, after explicit confirmation. Integrity controls—logging, cancellation, budgets, stale-write checks, path validation, and checkpoint conflict checks—remain enabled. |
+| Approved for Me | Normal guarded project reads/writes run automatically. Every shell command asks while Recurs has no OS sandbox. Network, external, sensitive, credential, deployment, and destructive actions also ask. |
+| Full Access | Routine prompts are skipped after explicit confirmation. The model may access credentials, inherited host environment values, the network, and external paths. Integrity controls—logging, cancellation, budgets, stale-write checks, path validation, and checkpoint conflict checks—remain enabled. |
 
 An explicit outside path can run after its external-path intent is approved or in Full Access. A hidden symlink escape remains blocked because the model did not request that outside path explicitly.
 
@@ -111,7 +112,7 @@ Replacing or clearing an unfinished goal requires confirmation. Each successful 
 | `/init` | Confirm and create a starter `AGENTS.md`; never overwrite an existing path. |
 | `/new` | Start a new durable session in the same workspace. |
 | `/resume [id]` | List sessions newest-first or resume one exact ID. Prefix matching is not used. |
-| `/compact` | Ask the injected provider for a continuation summary and retain the latest six messages. |
+| `/compact` | Ask the injected provider for a continuation summary and retain roughly the latest six messages without splitting tool-call/result groups. |
 | `/diff [--staged] [path]` | Show a bounded Git diff without external diff or text-conversion programs. |
 | `/review` | Submit staged/unstaged changes for a temporary read-only review. |
 | `/undo` | Restore the latest checkpoint that actually changed files. |
@@ -126,7 +127,7 @@ By default, project data lives under:
 ~/.recurs/projects/<workspace-hash>/
 ```
 
-Set `RECURS_HOME` to move the Recurs data root. Session logs are versioned, append-only JSONL. Completed messages and tool/permission/turn boundaries are flushed to disk. A partial final JSONL record is quarantined during recovery; committed corruption in the middle of a log fails loudly.
+Set `RECURS_HOME` to move the Recurs data root. Session logs are versioned, append-only JSONL. Completed messages and tool/permission/turn boundaries are flushed to disk. A partial final JSONL record is quarantined during recovery; committed corruption in the middle of a log fails loudly. Before the next turn, pending tool calls are closed as interrupted and any assistant tool call without a result receives a synthetic interrupted result so resumed provider history remains valid.
 
 Compaction is also append-only: the log keeps the audit history, while replay replaces active context with the summary plus retained recent messages.
 
@@ -139,7 +140,7 @@ Every potentially mutating tool is wrapped with before/after workspace snapshots
 ## Current safety limits
 
 - The current guard is application-level path/permission enforcement, not a strong OS sandbox or container.
-- Shell classification is conservative but cannot prove arbitrary scripts safe. Unknown commands require approval outside Full Access.
+- Shell classification is conservative but cannot prove arbitrary scripts safe. Every shell command requires approval outside Full Access until an enforceable sandbox exists.
 - Checkpoints enumerate Git tracked and non-ignored untracked files; ignored files are not restored by checkpoint undo.
 - Output, read, patch, command-time, and agent-step limits are bounded, but very large repositories can still make full snapshots expensive.
 - There is no secret vault, API-key flow, live provider transport, model picker, subscription adapter, plugin system, public MCP loading, multi-agent company runtime, desktop app, cloud worker, scheduler, or endless `/loop` in v0.

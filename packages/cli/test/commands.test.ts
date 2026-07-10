@@ -158,6 +158,8 @@ describe("foundation slash commands", () => {
     await registry.execute("/permissions full_access", accepted);
     expect(accepted.session.permissionMode).toBe("full_access");
     expect(acceptedConfirm).toHaveBeenCalledOnce();
+    expect(acceptedConfirm.mock.calls[0]?.[0]).toContain("credentials");
+    expect(acceptedConfirm.mock.calls[0]?.[0]).toContain("host environment");
   });
 
   it("reports status, cancellation, help, aliases, and unknown commands", async () => {

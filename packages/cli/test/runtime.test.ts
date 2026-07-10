@@ -9,7 +9,6 @@ import {
   type EventSink,
 } from "@recurs/core";
 import {
-  PermissionEngine,
   ToolRegistry,
   type ApprovalHandler,
 } from "@recurs/tools";
@@ -52,7 +51,6 @@ async function runtimeWith(provider: ScriptedProvider): Promise<RecursRuntime> {
   const loop = new AgentLoop({
     provider,
     tools: new ToolRegistry(),
-    permissions: new PermissionEngine("ask_always"),
     approvals,
     sessions,
     emit: sink.emit,

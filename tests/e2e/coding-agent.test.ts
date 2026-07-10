@@ -26,7 +26,6 @@ import {
 } from "@recurs/providers";
 import {
   FileCheckpointStore,
-  PermissionEngine,
   ToolRegistry,
   createApplyPatchTool,
   createGitDiffTool,
@@ -148,8 +147,7 @@ async function createTestRuntime(
   const loop = new AgentLoop({
     provider,
     tools,
-    permissions: new PermissionEngine(state.permissionMode),
-    approvals: { async request() { return "deny"; } },
+    approvals: { async request() { return "allow_once"; } },
     sessions,
     async emit(event) {
       events.push(event);

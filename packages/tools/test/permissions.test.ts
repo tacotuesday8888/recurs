@@ -42,7 +42,7 @@ describe("PermissionEngine", () => {
 
     expect(engine.evaluate(intents.read)).toBe("allow");
     expect(engine.evaluate(intents.write)).toBe("allow");
-    expect(engine.evaluate(intents.safeShell)).toBe("allow");
+    expect(engine.evaluate(intents.safeShell)).toBe("ask");
     expect(engine.evaluate(intents.network)).toBe("ask");
     expect(engine.evaluate(intents.destructive)).toBe("ask");
   });

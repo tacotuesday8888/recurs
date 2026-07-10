@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  collectProviderEvents,
   ProviderError,
   type ModelMessage,
   type ModelProvider,
@@ -9,10 +10,10 @@ import {
   type ToolCall,
 } from "@recurs/providers";
 import {
+  PermissionEngine,
   ToolError,
   type ApprovalHandler,
   type ExecutionMode,
-  type PermissionEngine,
   type ToolContext,
   type ToolRegistry,
   type ToolResult,
@@ -24,12 +25,16 @@ import type {
   SessionRecord,
   Usage,
 } from "./events.js";
-import type { JsonlSessionStore } from "./jsonl-session-store.js";
+import {
+  SessionStoreError,
+  type JsonlSessionStore,
+} from "./jsonl-session-store.js";
 import { recordGoalProgress } from "./goal.js";
 import { LoopDetector } from "./loop-detector.js";
 import {
   reduceSessionRecord,
   type SessionState,
+  type ToolOutcome,
 } from "./session.js";
 
 export interface RunInput {
@@ -51,7 +56,6 @@ export interface RunResult {
 export interface AgentLoopDependencies {
   provider: ModelProvider;
   tools: ToolRegistry;
-  permissions: PermissionEngine;
   approvals: ApprovalHandler;
   sessions: JsonlSessionStore;
   emit(event: RecursEvent): Promise<void>;
@@ -63,6 +67,7 @@ export type AgentLoopErrorCode =
   | "invalid_run_input"
   | "invalid_provider_response"
   | "provider_failed"
+  | "session_busy"
   | "step_budget_exceeded"
   | "stuck_loop";
 
@@ -177,75 +182,6 @@ function isRetryableProviderError(error: unknown): error is ProviderError {
   return error instanceof ProviderError && error.retryable;
 }
 
-async function streamModelTurn(
-  deps: AgentLoopDependencies,
-  request: ProviderRequest,
-  sessionId: string,
-  turnId: string,
-): Promise<ModelTurn> {
-  let text = "";
-  const toolCalls: ToolCall[] = [];
-  const usage: Usage = { inputTokens: 0, outputTokens: 0 };
-  let stopReason: StopReason | undefined;
-
-  for await (const event of deps.provider.stream(request)) {
-    throwIfAborted(request.signal);
-    switch (event.type) {
-      case "text_delta":
-        text += event.text;
-        await deps.emit({
-          type: "model_text_delta",
-          sessionId,
-          turnId,
-          at: now(),
-          text: event.text,
-        });
-        break;
-      case "reasoning_delta":
-        await deps.emit({
-          type: "model_reasoning_delta",
-          sessionId,
-          turnId,
-          at: now(),
-          text: event.text,
-        });
-        break;
-      case "tool_call":
-        toolCalls.push(event.call);
-        await deps.emit({
-          type: "tool_requested",
-          sessionId,
-          at: now(),
-          call: event.call,
-        });
-        break;
-      case "usage":
-        usage.inputTokens += event.inputTokens;
-        usage.outputTokens += event.outputTokens;
-        break;
-      case "done":
-        if (stopReason !== undefined) {
-          throw new ProviderError(
-            "invalid_response",
-            "Provider stream emitted more than one completion event",
-            false,
-          );
-        }
-        stopReason = event.stopReason;
-        break;
-    }
-  }
-
-  if (stopReason === undefined) {
-    throw new ProviderError(
-      "invalid_response",
-      "Provider stream ended without a completion event",
-      false,
-    );
-  }
-  return { text, toolCalls, usage, stopReason };
-}
-
 async function streamModelTurnWithRetries(
   deps: AgentLoopDependencies,
   request: ProviderRequest,
@@ -253,11 +189,47 @@ async function streamModelTurnWithRetries(
   turnId: string,
 ): Promise<ModelTurn> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    let semanticOutputSeen = false;
     try {
-      return await streamModelTurn(deps, request, sessionId, turnId);
+      return await collectProviderEvents(deps.provider.stream(request), {
+        onEvent: async (event) => {
+          throwIfAborted(request.signal);
+          if (event.type === "text_delta") {
+            semanticOutputSeen = true;
+            await deps.emit({
+              type: "model_text_delta",
+              sessionId,
+              turnId,
+              at: now(),
+              text: event.text,
+            });
+          } else if (event.type === "reasoning_delta") {
+            semanticOutputSeen = true;
+            await deps.emit({
+              type: "model_reasoning_delta",
+              sessionId,
+              turnId,
+              at: now(),
+              text: event.text,
+            });
+          } else if (event.type === "tool_call") {
+            semanticOutputSeen = true;
+            await deps.emit({
+              type: "tool_requested",
+              sessionId,
+              at: now(),
+              call: event.call,
+            });
+          }
+        },
+      });
     } catch (error) {
       throwIfAborted(request.signal);
-      if (!isRetryableProviderError(error) || attempt === 2) {
+      if (
+        !isRetryableProviderError(error) ||
+        semanticOutputSeen ||
+        attempt === 2
+      ) {
         throw error;
       }
       const retryAttempt = attempt + 1;
@@ -331,7 +303,56 @@ function toolFailureResult(error: unknown): ToolResult {
   };
 }
 
-export async function runAgentLoop(
+function unresolvedToolCalls(messages: readonly ModelMessage[]): ToolCall[] {
+  const unresolved = new Map<string, ToolCall>();
+  for (const message of messages) {
+    if (message.role === "assistant") {
+      for (const call of message.toolCalls ?? []) {
+        unresolved.set(call.id, call);
+      }
+    } else if (message.role === "tool" && message.toolCallId !== undefined) {
+      unresolved.delete(message.toolCallId);
+    }
+  }
+  return [...unresolved.values()];
+}
+
+function recoveredToolOutput(outcome: ToolOutcome | undefined): string {
+  if (outcome?.type === "completed") {
+    return outcome.result.output;
+  }
+  if (outcome?.type === "failed") {
+    return `Tool error [${outcome.error.code}]: ${outcome.error.message}`;
+  }
+  return "Tool error [interrupted]: execution ended before a durable result was recorded";
+}
+
+const permissionEngines = new WeakMap<
+  JsonlSessionStore,
+  Map<string, PermissionEngine>
+>();
+
+function permissionEngineFor(
+  sessions: JsonlSessionStore,
+  sessionId: string,
+  mode: PermissionEngine["mode"],
+): PermissionEngine {
+  let bySession = permissionEngines.get(sessions);
+  if (bySession === undefined) {
+    bySession = new Map();
+    permissionEngines.set(sessions, bySession);
+  }
+  let engine = bySession.get(sessionId);
+  if (engine === undefined) {
+    engine = new PermissionEngine(mode);
+    bySession.set(sessionId, engine);
+  } else {
+    engine.mode = mode;
+  }
+  return engine;
+}
+
+async function runAgentLoopUnlocked(
   deps: AgentLoopDependencies,
   input: RunInput,
 ): Promise<RunResult> {
@@ -350,7 +371,11 @@ export async function runAgentLoop(
   const signal = input.signal ?? new AbortController().signal;
   throwIfAborted(signal);
   let state = await deps.sessions.loadState(input.sessionId);
-  deps.permissions.mode = state.permissionMode;
+  const permissions = permissionEngineFor(
+    deps.sessions,
+    input.sessionId,
+    state.permissionMode,
+  );
   const executionMode = input.executionMode ?? state.executionMode;
   const executionState = (): SessionState =>
     executionMode === state.executionMode
@@ -367,6 +392,46 @@ export async function runAgentLoop(
   async function append(record: SessionRecord): Promise<void> {
     await deps.sessions.append(input.sessionId, record);
     state = reduceSessionRecord(state, record);
+  }
+
+  const unresolvedCalls = unresolvedToolCalls(state.messages);
+  const interruptedCalls = new Map(
+    state.pendingToolCalls.map((call) => [call.id, call]),
+  );
+  for (const call of unresolvedCalls) {
+    if (state.toolOutcomes[call.id] === undefined) {
+      interruptedCalls.set(call.id, call);
+    }
+  }
+  for (const call of interruptedCalls.values()) {
+    const failed: SessionRecord = {
+      version: 1,
+      type: "tool_failed",
+      sessionId: input.sessionId,
+      at: now(),
+      callId: call.id,
+      error: {
+        code: "interrupted",
+        message: "Tool execution ended before a durable result was recorded",
+        retryable: false,
+      },
+    };
+    await append(failed);
+    await emitPersistedEvent(deps, failed);
+  }
+  for (const call of unresolvedCalls) {
+    await append({
+      version: 1,
+      type: "message_appended",
+      sessionId: input.sessionId,
+      at: now(),
+      message: {
+        id: randomUUID(),
+        role: "tool",
+        content: recoveredToolOutput(state.toolOutcomes[call.id]),
+        toolCallId: call.id,
+      },
+    });
   }
 
   const userMessage: ModelMessage = {
@@ -518,6 +583,8 @@ export async function runAgentLoop(
         await emitPersistedEvent(deps, started);
 
         let result: ToolResult;
+        let terminalRecord: SessionRecord;
+        let cancelledDuringTool = false;
         try {
           const approvals: ApprovalHandler = {
             request: async (intent) => {
@@ -544,10 +611,10 @@ export async function runAgentLoop(
           result = await deps.tools.invoke(
             call,
             toolContext,
-            deps.permissions,
+            permissions,
             approvals,
           );
-          const completed: SessionRecord = {
+          terminalRecord = {
             version: 1,
             type: "tool_completed",
             sessionId: input.sessionId,
@@ -555,14 +622,16 @@ export async function runAgentLoop(
             callId: call.id,
             result,
           };
-          await append(completed);
-          await emitPersistedEvent(deps, completed);
         } catch (error) {
-          throwIfAborted(signal);
+          const failure = signal.aborted
+            ? new ToolError("cancelled", `Tool ${call.name} was cancelled`)
+            : error;
           const serialized = serializeError(
-            error instanceof Error ? error : new Error("Unknown tool failure"),
+            failure instanceof Error
+              ? failure
+              : new Error("Unknown tool failure"),
           );
-          const failed: SessionRecord = {
+          terminalRecord = {
             version: 1,
             type: "tool_failed",
             sessionId: input.sessionId,
@@ -570,10 +639,12 @@ export async function runAgentLoop(
             callId: call.id,
             error: serialized,
           };
-          await append(failed);
-          await emitPersistedEvent(deps, failed);
-          result = toolFailureResult(error);
+          result = toolFailureResult(failure);
+          cancelledDuringTool = signal.aborted;
         }
+
+        await append(terminalRecord);
+        await emitPersistedEvent(deps, terminalRecord);
 
         const toolMessage: ModelMessage = {
           id: randomUUID(),
@@ -588,6 +659,10 @@ export async function runAgentLoop(
           at: now(),
           message: toolMessage,
         });
+
+        if (cancelledDuringTool) {
+          throw new AgentLoopError("cancelled", "Agent run cancelled");
+        }
 
         const resultChangedFiles = metadataStrings(result, "changedFiles");
         if (resultChangedFiles.length > 0) {
@@ -645,6 +720,24 @@ export async function runAgentLoop(
     await append(failed);
     await emitPersistedEvent(deps, failed);
     throw normalized;
+  }
+}
+
+export async function runAgentLoop(
+  deps: AgentLoopDependencies,
+  input: RunInput,
+): Promise<RunResult> {
+  try {
+    return await deps.sessions.withSessionRun(input.sessionId, () =>
+      runAgentLoopUnlocked(deps, input),
+    );
+  } catch (error) {
+    if (error instanceof SessionStoreError && error.code === "session_busy") {
+      throw new AgentLoopError("session_busy", error.message, false, {
+        cause: error,
+      });
+    }
+    throw error;
   }
 }
 

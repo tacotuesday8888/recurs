@@ -125,7 +125,7 @@ function createResumeCommand(dependencies: CommandDependencies): Command {
 function createCompactCommand(dependencies: CommandDependencies): Command {
   return {
     name: "compact",
-    description: "Summarize earlier context and retain the latest six messages",
+    description: "Summarize earlier context and retain recent complete tool groups",
     usage: "/compact",
     async execute(args, context) {
       const invalid = requireNoArguments("/compact", args);

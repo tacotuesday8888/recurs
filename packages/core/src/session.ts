@@ -1,8 +1,20 @@
 import type { ModelMessage, ToolCall } from "@recurs/providers";
-import type { ExecutionMode, PermissionMode } from "@recurs/tools";
+import type {
+  ExecutionMode,
+  PermissionMode,
+  ToolResult,
+} from "@recurs/tools";
 
-import type { SessionRecord, Usage } from "./events.js";
+import type {
+  SerializableError,
+  SessionRecord,
+  Usage,
+} from "./events.js";
 import type { Goal } from "./goal.js";
+
+export type ToolOutcome =
+  | { type: "completed"; result: ToolResult }
+  | { type: "failed"; error: SerializableError };
 
 export interface SessionState {
   id: string;
@@ -18,6 +30,7 @@ export interface SessionState {
   evidence: string[];
   changedFiles: string[];
   pendingToolCalls: ToolCall[];
+  toolOutcomes: Record<string, ToolOutcome>;
 }
 
 export interface CreateSessionStateOptions {
@@ -43,6 +56,7 @@ export function createSessionState(
     evidence: [],
     changedFiles: [],
     pendingToolCalls: [],
+    toolOutcomes: {},
   };
 }
 
@@ -75,6 +89,31 @@ function withoutPendingCall(calls: ToolCall[], callId: string): ToolCall[] {
   return calls.filter((call) => call.id !== callId);
 }
 
+function withoutToolOutcomes(
+  outcomes: Readonly<Record<string, ToolOutcome>>,
+  callIds: readonly string[],
+): Record<string, ToolOutcome> {
+  const next = { ...outcomes };
+  for (const callId of callIds) {
+    delete next[callId];
+  }
+  return next;
+}
+
+function unresolvedToolCallIds(messages: readonly ModelMessage[]): Set<string> {
+  const unresolved = new Set<string>();
+  for (const message of messages) {
+    if (message.role === "assistant") {
+      for (const call of message.toolCalls ?? []) {
+        unresolved.add(call.id);
+      }
+    } else if (message.role === "tool" && message.toolCallId !== undefined) {
+      unresolved.delete(message.toolCallId);
+    }
+  }
+  return unresolved;
+}
+
 export function reduceSessionRecord(
   state: SessionState,
   record: SessionRecord,
@@ -89,24 +128,53 @@ export function reduceSessionRecord(
     case "session_created":
     case "turn_started":
       return state;
-    case "message_appended":
-      return { ...state, messages: [...state.messages, record.message] };
-    case "session_compacted":
+    case "message_appended": {
+      const resolvedIds = record.message.role === "tool" && record.message.toolCallId !== undefined
+        ? [record.message.toolCallId]
+        : record.message.role === "assistant"
+          ? (record.message.toolCalls ?? []).map((call) => call.id)
+          : [];
+      return {
+        ...state,
+        messages: [...state.messages, record.message],
+        toolOutcomes: withoutToolOutcomes(state.toolOutcomes, resolvedIds),
+      };
+    }
+    case "session_compacted": {
+      const retainedCallIds = unresolvedToolCallIds(record.retainedMessages);
       return {
         ...state,
         summary: record.summary,
         messages: [...record.retainedMessages],
+        toolOutcomes: Object.fromEntries(
+          Object.entries(state.toolOutcomes).filter(([callId]) =>
+            retainedCallIds.has(callId),
+          ),
+        ),
       };
+    }
     case "tool_started":
       return {
         ...state,
         pendingToolCalls: [...state.pendingToolCalls, record.call],
       };
     case "tool_completed":
+      return {
+        ...state,
+        pendingToolCalls: withoutPendingCall(state.pendingToolCalls, record.callId),
+        toolOutcomes: {
+          ...state.toolOutcomes,
+          [record.callId]: { type: "completed", result: record.result },
+        },
+      };
     case "tool_failed":
       return {
         ...state,
         pendingToolCalls: withoutPendingCall(state.pendingToolCalls, record.callId),
+        toolOutcomes: {
+          ...state.toolOutcomes,
+          [record.callId]: { type: "failed", error: record.error },
+        },
       };
     case "goal_updated":
       return { ...state, goal: record.goal };
