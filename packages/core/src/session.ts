@@ -9,6 +9,7 @@ export interface SessionState {
   cwd: string;
   model: string;
   messages: ModelMessage[];
+  summary: string | null;
   permissionMode: PermissionMode;
   executionMode: ExecutionMode;
   prePlanPermissionMode?: PermissionMode;
@@ -34,6 +35,7 @@ export function createSessionState(
     cwd: options.cwd,
     model: options.model,
     messages: [],
+    summary: null,
     permissionMode: options.permissionMode ?? "ask_always",
     executionMode: "act",
     goal: null,
@@ -89,6 +91,12 @@ export function reduceSessionRecord(
       return state;
     case "message_appended":
       return { ...state, messages: [...state.messages, record.message] };
+    case "session_compacted":
+      return {
+        ...state,
+        summary: record.summary,
+        messages: [...record.retainedMessages],
+      };
     case "tool_started":
       return {
         ...state,

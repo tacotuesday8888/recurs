@@ -11,6 +11,7 @@ import {
 import {
   ToolError,
   type ApprovalHandler,
+  type ExecutionMode,
   type PermissionEngine,
   type ToolContext,
   type ToolRegistry,
@@ -36,6 +37,7 @@ export interface RunInput {
   prompt: string;
   maxSteps?: number;
   signal?: AbortSignal;
+  executionMode?: ExecutionMode;
 }
 
 export interface RunResult {
@@ -91,8 +93,11 @@ async function emitPersistedEvent(
   deps: AgentLoopDependencies,
   record: SessionRecord,
 ): Promise<void> {
-  if (record.type === "message_appended") {
-    throw new TypeError("message_appended is persistence-only");
+  if (
+    record.type === "message_appended" ||
+    record.type === "session_compacted"
+  ) {
+    throw new TypeError(`${record.type} is persistence-only`);
   }
   const { version, ...event } = record;
   if (version !== 1) {
@@ -141,6 +146,7 @@ function systemContextMessage(
       executionMode: state.executionMode,
       permissionMode: state.permissionMode,
       cwd: state.cwd,
+      continuationSummary: state.summary,
       goal,
     }),
   };
@@ -345,7 +351,12 @@ export async function runAgentLoop(
   throwIfAborted(signal);
   let state = await deps.sessions.loadState(input.sessionId);
   deps.permissions.mode = state.permissionMode;
-  const toolContext = deps.createToolContext(state, signal);
+  const executionMode = input.executionMode ?? state.executionMode;
+  const executionState = (): SessionState =>
+    executionMode === state.executionMode
+      ? state
+      : { ...state, executionMode };
+  const toolContext = deps.createToolContext(executionState(), signal);
   const turnId = `${input.sessionId}:${randomUUID()}`;
   const loopDetector = new LoopDetector();
   const usage: Usage = { inputTokens: 0, outputTokens: 0 };
@@ -394,8 +405,11 @@ export async function runAgentLoop(
 
       const request: ProviderRequest = {
         model: state.model,
-        messages: [systemContextMessage(state, turnId, steps), ...state.messages],
-        tools: deps.tools.definitions(state.executionMode),
+        messages: [
+          systemContextMessage(executionState(), turnId, steps),
+          ...state.messages,
+        ],
+        tools: deps.tools.definitions(executionMode),
         signal,
       };
       const modelTurn = await streamModelTurnWithRetries(

@@ -3,6 +3,7 @@ import {
   mkdir,
   open,
   readFile,
+  readdir,
 } from "node:fs/promises";
 import path from "node:path";
 
@@ -31,6 +32,13 @@ export class SessionStoreError extends Error {
 export interface LoadedSessionRecords {
   records: SessionRecord[];
   recoveredPartialRecord: boolean;
+}
+
+export interface SessionListEntry {
+  id: string;
+  cwd: string;
+  model: string;
+  updatedAt: string;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -71,6 +79,12 @@ function isSessionRecord(value: unknown, sessionId: string): value is SessionRec
       return requireString(value, "turnId") && requireString(value, "prompt");
     case "message_appended":
       return isObject(value.message);
+    case "session_compacted":
+      return (
+        requireString(value, "summary") &&
+        Array.isArray(value.retainedMessages) &&
+        value.retainedMessages.every(isObject)
+      );
     case "tool_started":
       return isObject(value.call);
     case "tool_completed":
@@ -221,5 +235,41 @@ export class JsonlSessionStore {
         { cause: error },
       );
     }
+  }
+
+  async list(): Promise<SessionListEntry[]> {
+    let files: string[];
+    try {
+      files = (await readdir(this.directory))
+        .filter((file) => file.endsWith(".jsonl"))
+        .sort((left, right) => left.localeCompare(right));
+    } catch (error) {
+      if (isObject(error) && error.code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    }
+    const entries: SessionListEntry[] = [];
+    for (const file of files) {
+      const id = file.slice(0, -".jsonl".length);
+      const loaded = await this.load(id);
+      const first = loaded.records[0];
+      const last = loaded.records.at(-1);
+      if (first?.type !== "session_created" || last === undefined) {
+        throw new SessionStoreError(
+          "corrupt_log",
+          `Cannot list malformed session ${id}`,
+        );
+      }
+      entries.push({
+        id,
+        cwd: first.cwd,
+        model: first.model,
+        updatedAt: last.at,
+      });
+    }
+    return entries.sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt),
+    );
   }
 }

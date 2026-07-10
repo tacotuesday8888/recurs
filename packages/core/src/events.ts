@@ -67,6 +67,12 @@ export type SessionRecord =
   | ({ version: 1 } & Extract<RecursEvent, { type: "session_created" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "turn_started" }>)
   | ({ version: 1 } & EventBase & { type: "message_appended"; message: ModelMessage })
+  | ({ version: 1 } &
+      EventBase & {
+        type: "session_compacted";
+        summary: string;
+        retainedMessages: ModelMessage[];
+      })
   | ({ version: 1 } & Extract<RecursEvent, { type: "tool_started" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "tool_completed" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "tool_failed" }>)

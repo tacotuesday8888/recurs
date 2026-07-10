@@ -234,6 +234,31 @@ describe("AgentLoop", () => {
     expect(secondSawRevision).toBe(true);
   });
 
+  it("supports a temporary read-only override without changing session mode", async () => {
+    const provider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: "reviewed" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const base = echoTool();
+    const mutating: Tool<{ text: string }> = {
+      ...base,
+      definition: { ...base.definition, name: "write_text" },
+      mutating: true,
+    };
+    const { loop, store } = await harness(provider, [base, mutating]);
+
+    await loop.run({
+      sessionId: "s1",
+      prompt: "review",
+      executionMode: "plan",
+    });
+
+    expect(provider.requests[0]?.tools.map((tool) => tool.name)).toEqual(["echo"]);
+    expect((await store.loadState("s1")).executionMode).toBe("act");
+  });
+
   it("retries a retryable provider failure at most twice", async () => {
     const provider = new ScriptedProvider([
       new ProviderError("transport", "temporary", true),
