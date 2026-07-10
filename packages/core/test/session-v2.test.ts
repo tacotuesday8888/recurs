@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -120,6 +120,27 @@ describe("version 2 sessions", () => {
     await first;
   });
 
+  it("recovers a lock left by a process that no longer exists", async () => {
+    const store = await temporaryStore();
+    await store.createPinnedSession({
+      id: "s2",
+      cwd: "/workspace",
+      backend,
+      at,
+    });
+    const lock = path.join(store.directory, ".locks", "s2.lock");
+    await mkdir(lock, { recursive: true });
+    await writeFile(
+      path.join(lock, "owner"),
+      `${JSON.stringify({ owner: "crashed", pid: 2_147_483_647 })}\n`,
+      "utf8",
+    );
+
+    await expect(
+      store.withSessionMutation("s2", 0, async (lease) => lease.fencingToken),
+    ).resolves.toBeGreaterThan(1);
+  });
+
   it("rejects unknown fields in a committed version 2 record", async () => {
     const store = await temporaryStore();
     await writeFile(
@@ -139,6 +160,193 @@ describe("version 2 sessions", () => {
 
     await expect(store.load("s2")).rejects.toMatchObject({
       code: "invalid_record",
+    });
+  });
+
+  it("rejects nested backend fields that are not part of the pin schema", async () => {
+    const store = await temporaryStore();
+    await writeFile(
+      path.join(store.directory, "s2.jsonl"),
+      `${JSON.stringify({
+        version: 2,
+        type: "session_created",
+        sessionId: "s2",
+        sequence: 0,
+        at,
+        cwd: "/workspace",
+        backend: {
+          ...backend,
+          billingSelectionAtCreation: {
+            ...backend.billingSelectionAtCreation,
+            credentialRef: "must-not-be-accepted",
+          },
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    await expect(store.load("s2")).rejects.toMatchObject({
+      code: "invalid_record",
+    });
+  });
+
+  it("rejects overlapping turns before writing the invalid record", async () => {
+    const store = await temporaryStore();
+    await store.createPinnedSession({
+      id: "s2",
+      cwd: "/workspace",
+      backend,
+      at,
+    });
+
+    await expect(
+      store.withSessionMutation("s2", 0, async (lease) => {
+        await lease.append({
+          type: "turn_started",
+          turnId: "turn-1",
+          prompt: "first",
+          at,
+        });
+        await lease.append({
+          type: "turn_started",
+          turnId: "turn-2",
+          prompt: "second",
+          at,
+        });
+      }),
+    ).rejects.toThrow("already has an open turn");
+    expect((await store.load("s2")).records).toHaveLength(2);
+  });
+
+  it("rejects unknown fields inside durable model messages", async () => {
+    const store = await temporaryStore();
+    await store.createPinnedSession({
+      id: "s2",
+      cwd: "/workspace",
+      backend,
+      at,
+    });
+
+    await expect(
+      store.withSessionMutation("s2", 0, async (lease) => {
+        await lease.append({
+          type: "turn_started",
+          turnId: "turn-1",
+          prompt: "inspect",
+          at,
+        });
+        await lease.append({
+          type: "model_completed",
+          turnId: "turn-1",
+          at,
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: "done",
+            credentialRef: "must-not-be-accepted",
+          } as never,
+          usage: null,
+          stopReason: "complete",
+        });
+      }),
+    ).rejects.toMatchObject({ code: "invalid_record" });
+  });
+
+  it("rejects unknown fields inside durable failures", async () => {
+    const store = await temporaryStore();
+    await store.createPinnedSession({
+      id: "s2",
+      cwd: "/workspace",
+      backend,
+      at,
+    });
+    await expect(
+      store.withSessionMutation("s2", 0, async (lease) => {
+        await lease.append({
+          type: "turn_started",
+          turnId: "turn-1",
+          prompt: "inspect",
+          at,
+        });
+        await lease.append({
+          type: "turn_failed",
+          turnId: "turn-1",
+          at,
+          error: {
+            domain: "provider",
+            phase: "started",
+            code: "transport",
+            safeMessage: "failed",
+            diagnosticId: "diagnostic",
+            retryable: false,
+            rawToken: "must-not-be-accepted",
+          } as never,
+        });
+      }),
+    ).rejects.toMatchObject({ code: "invalid_record" });
+  });
+
+  it("keeps version 1 logs readable but refuses to mutate them", async () => {
+    const store = await temporaryStore();
+    const legacy = {
+      version: 1,
+      type: "session_created",
+      sessionId: "legacy",
+      at,
+      cwd: "/workspace",
+      model: "scripted",
+    } as const;
+    await writeFile(
+      path.join(store.directory, "legacy.jsonl"),
+      `${JSON.stringify(legacy)}\n`,
+      "utf8",
+    );
+
+    expect((await store.loadState("legacy")).backend).toEqual({
+      type: "legacy",
+      model: "scripted",
+    });
+    await expect(
+      store.append("legacy", {
+        version: 1,
+        type: "goal_updated",
+        sessionId: "legacy",
+        at,
+        goal: null,
+      }),
+    ).rejects.toMatchObject({ code: "legacy_read_only" });
+  });
+
+  it("closes an orphaned compaction locally without retrying provider work", async () => {
+    const store = await temporaryStore();
+    await store.createPinnedSession({
+      id: "s2",
+      cwd: "/workspace",
+      backend,
+      at,
+    });
+    await store.withSessionMutation("s2", 0, async (lease) => {
+      await lease.append({
+        type: "compaction_started",
+        operationId: "compact-1",
+        inputBaseSequence: 0,
+        at,
+      });
+    });
+
+    await expect(
+      store.recoverInterruptedOperations("s2", at),
+    ).resolves.toBe(true);
+    await expect(
+      store.recoverInterruptedOperations("s2", at),
+    ).resolves.toBe(false);
+    const state = await store.loadState("s2");
+    expect(state.pendingCompaction).toBeNull();
+    expect((await store.load("s2")).records.at(-1)).toMatchObject({
+      type: "compaction_interrupted",
+      operationId: "compact-1",
+      usage: null,
+      usageSource: "unknown",
     });
   });
 });

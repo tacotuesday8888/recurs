@@ -13,15 +13,21 @@ import {
   type RunResult,
 } from "@recurs/contracts";
 
-import type { JsonlSessionStore } from "./jsonl-session-store.js";
+import type {
+  JsonlSessionStore,
+  SessionMutationLease,
+} from "./jsonl-session-store.js";
+import { SessionStoreError } from "./jsonl-session-store.js";
 import { isPinnedSessionState, type PinnedSessionState } from "./session-v2.js";
 
 export interface DirectRunExecutorInput {
   session: PinnedSessionState;
   turnId: string;
   prompt: string;
+  executionMode: "act" | "plan";
   provider: ModelProvider;
   authorization: RunAuthorization;
+  mutation: SessionMutationLease;
   signal: AbortSignal;
 }
 
@@ -33,8 +39,10 @@ export interface DelegatedRunExecutorInput {
   session: PinnedSessionState;
   turnId: string;
   prompt: string;
+  executionMode: "act" | "plan";
   runtime: AgentRuntime;
   authorization: RunAuthorization;
+  mutation: SessionMutationLease;
   signal: AbortSignal;
 }
 
@@ -134,82 +142,98 @@ export class BackendRunCoordinator implements RunCoordinator {
     const operationId = this.#createId();
     const turnId = this.#createId();
     try {
-      const session = await this.dependencies.sessions.loadState(input.sessionId);
-      if (!isPinnedSessionState(session)) {
-        return {
-          ok: false,
-          failure: failure(
-            "continuation_incompatible",
-            "Legacy sessions are read-only; create a pinned session to continue",
+      return await this.dependencies.sessions.withSessionMutation(
+        input.sessionId,
+        input.expectedSessionRecordSequence,
+        async (mutation) => {
+          const session = await this.dependencies.sessions.loadState(
+            input.sessionId,
+          );
+          if (!isPinnedSessionState(session)) {
+            return {
+              ok: false,
+              failure: failure(
+                "continuation_incompatible",
+                "Legacy sessions are read-only; create a pinned session to continue",
+                operationId,
+              ),
+            } as const;
+          }
+          const context = deriveTrustedRunContext(input.invocation);
+          const resolved = await this.dependencies.resolver.resolve({
+            operation: "run",
             operationId,
-          ),
-        } as const;
-      }
-      if (session.lastSequence !== input.expectedSessionRecordSequence) {
-        return {
-          ok: false,
-          failure: failure(
-            "session_conflict",
-            `Session changed before the run started (expected ${input.expectedSessionRecordSequence}, current ${session.lastSequence})`,
-            operationId,
-          ),
-        } as const;
-      }
-      const context = deriveTrustedRunContext(input.invocation);
-      const resolved = await this.dependencies.resolver.resolve({
-        operation: "run",
-        operationId,
-        sessionId: input.sessionId,
-        turnId,
-        pin: session.backend.pin,
-        context,
-        signal: input.signal,
-      });
-      if (JSON.stringify(resolved.pin) !== JSON.stringify(session.backend.pin)) {
-        return {
-          ok: false,
-          failure: failure(
-            "session_conflict",
-            "The resolved backend does not match the immutable session pin",
-            operationId,
-          ),
-        } as const;
-      }
-      if (resolved.kind === "direct") {
-        const provider = await resolved.createProvider(input.signal);
-        const result = await this.dependencies.direct.run({
-          session,
-          turnId,
-          prompt,
-          provider,
-          authorization: resolved.authorization,
-          signal: input.signal,
-        });
-        return { ok: true, result } as const;
-      }
-      if (this.dependencies.delegated === undefined) {
-        return {
-          ok: false,
-          failure: failure(
-            "adapter_unavailable",
-            "The delegated runtime executor is unavailable",
-            operationId,
-          ),
-        } as const;
-      }
-      const runtime = await resolved.createRuntime(input.signal);
-      const result = await this.dependencies.delegated.run({
-        session,
-        turnId,
-        prompt,
-        runtime,
-        authorization: resolved.authorization,
-        signal: input.signal,
-      });
-      return { ok: true, result } as const;
+            sessionId: input.sessionId,
+            turnId,
+            pin: session.backend.pin,
+            context,
+            signal: input.signal,
+          });
+          if (
+            JSON.stringify(resolved.pin) !== JSON.stringify(session.backend.pin)
+          ) {
+            return {
+              ok: false,
+              failure: failure(
+                "session_conflict",
+                "The resolved backend does not match the immutable session pin",
+                operationId,
+              ),
+            } as const;
+          }
+          if (resolved.kind === "direct") {
+            const provider = await resolved.createProvider(input.signal);
+            const result = await this.dependencies.direct.run({
+              session,
+              turnId,
+              prompt,
+              executionMode: input.executionMode ?? session.executionMode,
+              provider,
+              authorization: resolved.authorization,
+              mutation,
+              signal: input.signal,
+            });
+            return { ok: true, result } as const;
+          }
+          if (this.dependencies.delegated === undefined) {
+            return {
+              ok: false,
+              failure: failure(
+                "adapter_unavailable",
+                "The delegated runtime executor is unavailable",
+                operationId,
+              ),
+            } as const;
+          }
+          const runtime = await resolved.createRuntime(input.signal);
+          const result = await this.dependencies.delegated.run({
+            session,
+            turnId,
+            prompt,
+            executionMode: input.executionMode ?? session.executionMode,
+            runtime,
+            authorization: resolved.authorization,
+            mutation,
+            signal: input.signal,
+          });
+          return { ok: true, result } as const;
+        },
+      );
     } catch (error) {
       if (isIntegrationFailure(error)) {
         return { ok: false, failure: error } as const;
+      }
+      if (error instanceof SessionStoreError) {
+        return {
+          ok: false,
+          failure: failure(
+            error.code === "legacy_read_only"
+              ? "continuation_incompatible"
+              : "session_conflict",
+            error.message,
+            operationId,
+          ),
+        } as const;
       }
       return {
         ok: false,

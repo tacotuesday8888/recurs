@@ -17,7 +17,10 @@ import type {
   SessionRecordInputV2,
   SessionRecordV2,
 } from "./session-v2.js";
-import { isPinnedSessionState } from "./session-v2.js";
+import {
+  isPinnedSessionState,
+  reduceSessionRecordV2,
+} from "./session-v2.js";
 import { reduceSessionRecords, type SessionState } from "./session.js";
 import { SessionStoreError } from "./session-store-error.js";
 
@@ -50,8 +53,6 @@ export interface SessionMutationLease {
   readonly currentSequence: number;
   append(record: SessionRecordInputV2): Promise<SessionRecordV2>;
 }
-
-const activeSessionRuns = new Set<string>();
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -174,15 +175,10 @@ export class JsonlSessionStore {
         `Cannot append record for ${record.sessionId} to ${sessionId}`,
       );
     }
-    const existing = await this.load(sessionId);
-    if (existing.records[0]?.version === 2) {
-      throw new SessionStoreError(
-        "legacy_read_only",
-        `Version 2 session ${sessionId} requires a mutation lease`,
-      );
-    }
-    await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    await appendAndSync(this.#file(sessionId), `${JSON.stringify(record)}\n`);
+    throw new SessionStoreError(
+      "legacy_read_only",
+      `Version 1 session writes are disabled; session ${sessionId} is read-only`,
+    );
   }
 
   async createPinnedSession(
@@ -258,6 +254,14 @@ export class JsonlSessionStore {
           `Expected session sequence ${expectedSequence}, received ${last.sequence}`,
         );
       }
+      const restored = reduceSessionRecords(loaded.records);
+      if (!isPinnedSessionState(restored)) {
+        throw new SessionStoreError(
+          "legacy_read_only",
+          `Legacy session ${sessionId} is read-only`,
+        );
+      }
+      let currentState = restored;
       let currentSequence = last.sequence;
       const lease: SessionMutationLease = {
         sessionId,
@@ -285,8 +289,10 @@ export class JsonlSessionStore {
             sequence: currentSequence + 1,
           } as SessionRecordV2;
           parseSessionRecordV2(record, sessionId);
+          const nextState = reduceSessionRecordV2(currentState, record);
           await appendAndSync(this.#file(sessionId), `${JSON.stringify(record)}\n`);
           currentSequence = record.sequence;
+          currentState = nextState;
           return record;
         },
       };
@@ -297,23 +303,30 @@ export class JsonlSessionStore {
     }
   }
 
-  async withSessionRun<T>(
+  async recoverInterruptedOperations(
     sessionId: string,
-    operation: () => Promise<T>,
-  ): Promise<T> {
-    const key = this.#file(sessionId);
-    if (activeSessionRuns.has(key)) {
-      throw new SessionStoreError(
-        "session_busy",
-        `Session ${sessionId} already has an active run`,
-      );
+    at: string,
+  ): Promise<boolean> {
+    const state = await this.loadState(sessionId);
+    if (!isPinnedSessionState(state) || state.pendingCompaction === null) {
+      return false;
     }
-    activeSessionRuns.add(key);
-    try {
-      return await operation();
-    } finally {
-      activeSessionRuns.delete(key);
-    }
+    const pending = state.pendingCompaction;
+    await this.withSessionMutation(
+      sessionId,
+      state.lastSequence,
+      async (lease) => {
+        await lease.append({
+          type: "compaction_interrupted",
+          operationId: pending.operationId,
+          at,
+          reason: "The process ended before compaction recorded a terminal result",
+          usage: null,
+          usageSource: "unknown",
+        });
+      },
+    );
+    return true;
   }
 
   async load(sessionId: string): Promise<LoadedSessionRecords> {

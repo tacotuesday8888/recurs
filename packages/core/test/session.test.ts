@@ -9,6 +9,7 @@ import {
   SessionStoreError,
   activeGoal,
 } from "../src/index.js";
+import { testBackendPin } from "../../../tests/support/backend.js";
 
 const createdAt = "2026-07-10T00:00:00.000Z";
 const temporaryDirectories: string[] = [];
@@ -33,20 +34,19 @@ describe("JsonlSessionStore", () => {
     const directory = await temporaryDirectory();
     const store = new JsonlSessionStore(directory);
 
-    await store.append("s1", {
-      version: 1,
-      type: "session_created",
-      sessionId: "s1",
+    await store.createPinnedSession({
+      id: "s1",
       at: createdAt,
       cwd: "/workspace",
-      model: "scripted",
+      backend: testBackendPin(),
     });
-    await store.append("s1", {
-      version: 1,
-      type: "goal_updated",
-      sessionId: "s1",
-      at: createdAt,
-      goal: activeGoal("Ship auth", createdAt),
+    await store.withSessionMutation("s1", 0, async (lease) => {
+      await lease.append({
+        type: "goal_updated",
+        source: "command",
+        at: createdAt,
+        goal: activeGoal("Ship auth", createdAt),
+      });
     });
 
     const serialized = await readFile(path.join(directory, "s1.jsonl"), "utf8");
@@ -79,31 +79,57 @@ describe("JsonlSessionStore", () => {
     const directory = await temporaryDirectory();
     const store = new JsonlSessionStore(directory);
     const call = { id: "call-1", name: "read_file", arguments: { path: "a.ts" } };
-    await store.append("s1", {
-      version: 1,
-      type: "session_created",
-      sessionId: "s1",
+    await store.createPinnedSession({
+      id: "s1",
       at: createdAt,
       cwd: "/workspace",
-      model: "scripted",
+      backend: testBackendPin(),
     });
-    await store.append("s1", {
-      version: 1,
-      type: "tool_started",
-      sessionId: "s1",
-      at: createdAt,
-      call,
+    await store.withSessionMutation("s1", 0, async (lease) => {
+      await lease.append({
+        type: "turn_started",
+        turnId: "turn-1",
+        prompt: "inspect",
+        at: createdAt,
+      });
+      await lease.append({
+        type: "model_completed",
+        turnId: "turn-1",
+        at: createdAt,
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          content: "",
+          toolCalls: [call],
+        },
+        usage: null,
+        stopReason: "tool_calls",
+      });
+      await lease.append({
+        type: "tool_started",
+        turnId: "turn-1",
+        at: createdAt,
+        call,
+      });
     });
 
     expect((await store.loadState("s1")).pendingToolCalls).toEqual([call]);
 
-    await store.append("s1", {
-      version: 1,
-      type: "tool_failed",
-      sessionId: "s1",
-      at: createdAt,
-      callId: call.id,
-      error: { code: "interrupted", message: "Interrupted", retryable: false },
+    await store.withSessionMutation("s1", 3, async (lease) => {
+      await lease.append({
+        type: "tool_failed",
+        turnId: "turn-1",
+        at: createdAt,
+        callId: call.id,
+        error: {
+          domain: "tool",
+          phase: "started",
+          code: "tool_failed",
+          safeMessage: "Tool error [interrupted]: Interrupted",
+          diagnosticId: "interrupted-test",
+          retryable: false,
+        },
+      });
     });
     expect((await store.loadState("s1")).pendingToolCalls).toEqual([]);
   });

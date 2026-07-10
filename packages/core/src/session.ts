@@ -43,6 +43,10 @@ export interface SessionState {
   pendingToolCalls: ToolCall[];
   toolOutcomes: Record<string, ToolOutcome>;
   openTurnId: string | null;
+  pendingCompaction: {
+    operationId: string;
+    inputBaseSequence: number;
+  } | null;
 }
 
 export interface CreateSessionStateOptions {
@@ -74,6 +78,7 @@ export function createSessionState(
     pendingToolCalls: [],
     toolOutcomes: {},
     openTurnId: null,
+    pendingCompaction: null,
   };
 }
 

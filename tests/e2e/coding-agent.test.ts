@@ -37,6 +37,8 @@ import {
 } from "@recurs/tools";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { testAt, testBackendPin } from "../support/backend.js";
+
 const execFileAsync = promisify(execFile);
 const roots: string[] = [];
 
@@ -125,13 +127,11 @@ async function createTestRuntime(
   const checkpoints = new FileCheckpointStore(path.join(root, "checkpoints"));
   const id = sessionId ?? "session-1";
   if (sessionId === undefined) {
-    await sessions.append(id, {
-      version: 1,
-      type: "session_created",
-      sessionId: id,
-      at: "2026-07-10T00:00:00.000Z",
+    await sessions.createPinnedSession({
+      id,
+      at: testAt,
       cwd: project,
-      model: "scripted",
+      backend: testBackendPin(),
     });
   }
   const state = await sessions.loadState(id);

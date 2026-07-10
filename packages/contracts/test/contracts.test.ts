@@ -34,6 +34,16 @@ describe("provider-neutral contracts", () => {
     });
   });
 
+  it("rejects a structurally forged host invocation at runtime", () => {
+    expect(() => deriveTrustedRunContext({
+      invocation: "one_shot",
+      userPresent: true,
+      remote: false,
+      scripted: false,
+      embedding: "cli",
+    } as never)).toThrow("trusted host");
+  });
+
   it("keeps contracts as a dependency leaf", async () => {
     const contracts = await packageManifest("../package.json");
     const providers = await packageManifest("../../providers/package.json");

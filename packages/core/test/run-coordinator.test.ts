@@ -187,4 +187,87 @@ describe("BackendRunCoordinator", () => {
     expect(providers).toBe(2);
     expect(seen).toEqual(["provider-1", "provider-2"]);
   });
+
+  it("holds the session mutation lease from preflight through execution", async () => {
+    const { sessions } = await setup();
+    let continueResolution!: () => void;
+    const resolutionGate = new Promise<void>((resolve) => {
+      continueResolution = resolve;
+    });
+    let enteredResolution!: () => void;
+    const resolving = new Promise<void>((resolve) => {
+      enteredResolution = resolve;
+    });
+    const resolver: BackendResolver = {
+      async resolve() {
+        enteredResolution();
+        await resolutionGate;
+        return {
+          kind: "direct",
+          pin,
+          authorization: {
+            kind: "run",
+            id: "authorization",
+            operation: "run",
+            sessionId: "s2",
+            operationId: "operation",
+            turnId: "turn",
+            connectionId: pin.connectionId,
+            modelId: pin.modelId,
+            backendFingerprint: "fingerprint",
+            connectionRevision: 1,
+            policyRevision: pin.policyRevisionAtCreation,
+            billingMode: "strict_primary_only",
+            billingSelectionDigest: "billing",
+            contextDigest: "context",
+            maxRequests: 1,
+            expiresAt: at,
+          },
+          async createProvider() {
+            return {
+              id: "provider",
+              async *stream() {
+                yield { type: "done", stopReason: "complete" } as const;
+              },
+            } satisfies ModelProvider;
+          },
+        };
+      },
+    };
+    const coordinator = new BackendRunCoordinator({
+      sessions,
+      resolver,
+      direct: { async run() { return result; } },
+    });
+    const active = await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 0,
+      prompt: "inspect",
+      invocation,
+      signal: new AbortController().signal,
+    });
+    await resolving;
+
+    await expect(
+      new JsonlSessionStore(sessions.directory).withSessionMutation(
+        "s2",
+        0,
+        async () => undefined,
+      ),
+    ).rejects.toMatchObject({ code: "session_busy" });
+    const competing = await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 0,
+      prompt: "competing",
+      invocation,
+      signal: new AbortController().signal,
+    });
+    await expect(competing.outcome).resolves.toMatchObject({
+      ok: false,
+      failure: { code: "session_conflict" },
+    });
+
+    continueResolution();
+    await expect(active.outcome).resolves.toMatchObject({ ok: true });
+  });
 });

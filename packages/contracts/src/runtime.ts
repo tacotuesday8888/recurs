@@ -32,6 +32,9 @@ export function createHostInvocation(input: HostInvocationInput): HostInvocation
 export function deriveTrustedRunContext(
   input: HostInvocation,
 ): TrustedRunContext {
+  if (input[hostInvocationBrand] !== true) {
+    throw new TypeError("Run context must come from a trusted host invocation");
+  }
   return Object.freeze({
     invocation: input.invocation,
     presence: input.userPresent ? "present" : "unattended",
@@ -157,6 +160,7 @@ export interface CoordinatedRunInput {
   expectedSessionRecordSequence: number;
   prompt: string;
   invocation: HostInvocation;
+  executionMode?: "act" | "plan";
   signal: AbortSignal;
 }
 

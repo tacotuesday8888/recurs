@@ -213,6 +213,55 @@ export function reduceSessionRecordV2(
       `Expected session sequence ${state.lastSequence + 1}, received ${record.sequence}`,
     );
   }
+  if (record.type === "turn_started") {
+    if (state.openTurnId !== null) {
+      throw new Error(
+        `Session ${state.id} already has an open turn ${state.openTurnId}`,
+      );
+    }
+    if (state.pendingCompaction !== null) {
+      throw new Error("Cannot start a turn while compaction is pending");
+    }
+  } else if ("turnId" in record && state.openTurnId !== record.turnId) {
+    throw new Error(`Record ${record.type} does not match the open turn`);
+  }
+  if (
+    record.type === "tool_started" &&
+    state.pendingToolCalls.some((call) => call.id === record.call.id)
+  ) {
+    throw new Error(`Tool call ${record.call.id} is already pending`);
+  }
+  if (
+    (record.type === "tool_completed" || record.type === "tool_failed") &&
+    !state.pendingToolCalls.some((call) => call.id === record.callId)
+  ) {
+    throw new Error(`Tool call ${record.callId} is not pending`);
+  }
+  if (
+    (record.type === "turn_completed" ||
+      record.type === "turn_failed" ||
+      record.type === "turn_cancelled" ||
+      record.type === "turn_interrupted") &&
+    state.pendingToolCalls.length > 0
+  ) {
+    throw new Error("Cannot close a turn with pending tool calls");
+  }
+  if (record.type === "compaction_started") {
+    if (state.openTurnId !== null || state.pendingCompaction !== null) {
+      throw new Error("Compaction requires an idle session");
+    }
+    if (record.inputBaseSequence !== state.lastSequence) {
+      throw new Error("Compaction input sequence is stale");
+    }
+  }
+  if (
+    (record.type === "session_compacted" ||
+      record.type === "compaction_failed" ||
+      record.type === "compaction_interrupted") &&
+    state.pendingCompaction?.operationId !== record.operationId
+  ) {
+    throw new Error("Compaction terminal does not match the pending operation");
+  }
   let next: PinnedSessionState;
   switch (record.type) {
     case "session_created":
@@ -282,7 +331,10 @@ export function reduceSessionRecordV2(
         {
           id: `${record.turnId}:tool:${record.callId}`,
           role: "tool",
-          content: `Tool error [${record.error.code}]: ${record.error.safeMessage}`,
+          content: record.error.domain === "tool" &&
+            record.error.safeMessage.startsWith("Tool error [")
+            ? record.error.safeMessage
+            : `Tool error [${record.error.code}]: ${record.error.safeMessage}`,
           toolCallId: record.callId,
         },
         record.turnId,
@@ -348,6 +400,7 @@ export function reduceSessionRecordV2(
       next = {
         ...state,
         summary: record.summary,
+        pendingCompaction: null,
         messages,
         messageTurnIds: Object.fromEntries(
           Object.entries(state.messageTurnIds).filter(([id]) => ids.has(id)),
@@ -356,10 +409,20 @@ export function reduceSessionRecordV2(
       break;
     }
     case "permission_resolved":
+      next = state;
+      break;
     case "compaction_started":
+      next = {
+        ...state,
+        pendingCompaction: {
+          operationId: record.operationId,
+          inputBaseSequence: record.inputBaseSequence,
+        },
+      };
+      break;
     case "compaction_failed":
     case "compaction_interrupted":
-      next = state;
+      next = { ...state, pendingCompaction: null };
       break;
   }
   return { ...next, lastSequence: record.sequence };
@@ -393,6 +456,7 @@ export function reduceSessionRecordsV2(
     pendingToolCalls: [],
     toolOutcomes: {},
     openTurnId: null,
+    pendingCompaction: null,
   };
   for (const record of records.slice(1)) {
     state = reduceSessionRecordV2(state, record);

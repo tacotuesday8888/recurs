@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import type { IntegrationFailure, RunResult as CoordinatedRunResult } from "@recurs/contracts";
+
 import {
   collectProviderEvents,
   ProviderError,
@@ -22,20 +24,25 @@ import {
 import type {
   RecursEvent,
   SerializableError,
-  SessionRecord,
   Usage,
 } from "./events.js";
 import {
   SessionStoreError,
   type JsonlSessionStore,
+  type SessionMutationLease,
 } from "./jsonl-session-store.js";
 import { recordGoalProgress } from "./goal.js";
 import { LoopDetector } from "./loop-detector.js";
 import {
-  reduceSessionRecord,
   type SessionState,
-  type ToolOutcome,
 } from "./session.js";
+import {
+  isPinnedSessionState,
+  reduceSessionRecordV2,
+  type PinnedSessionState,
+  type SessionRecordInputV2,
+  type SessionRecordV2,
+} from "./session-v2.js";
 
 export interface RunInput {
   sessionId: string;
@@ -96,19 +103,149 @@ function now(): string {
 
 async function emitPersistedEvent(
   deps: AgentLoopDependencies,
-  record: SessionRecord,
+  record: SessionRecordV2,
 ): Promise<void> {
-  if (
-    record.type === "message_appended" ||
-    record.type === "session_compacted"
-  ) {
-    throw new TypeError(`${record.type} is persistence-only`);
+  switch (record.type) {
+      case "turn_started":
+        await deps.emit({
+          type: "turn_started",
+          sessionId: record.sessionId,
+          at: record.at,
+          turnId: record.turnId,
+          prompt: record.prompt,
+        });
+        return;
+      case "model_completed":
+        await deps.emit({
+          type: "model_completed",
+          sessionId: record.sessionId,
+          at: record.at,
+          turnId: record.turnId,
+          message: record.message,
+          usage: record.usage ?? { inputTokens: 0, outputTokens: 0 },
+          stopReason: record.stopReason,
+        });
+        return;
+      case "tool_started":
+        await deps.emit({
+          type: "tool_started",
+          sessionId: record.sessionId,
+          at: record.at,
+          call: record.call,
+        });
+        return;
+      case "tool_completed":
+        await deps.emit({
+          type: "tool_completed",
+          sessionId: record.sessionId,
+          at: record.at,
+          callId: record.callId,
+          result: record.result,
+        });
+        return;
+      case "tool_failed":
+        await deps.emit({
+          type: "tool_failed",
+          sessionId: record.sessionId,
+          at: record.at,
+          callId: record.callId,
+          error: {
+            code: record.error.code,
+            message: record.error.safeMessage,
+            retryable: record.error.retryable,
+          },
+        });
+        return;
+      case "permission_resolved":
+        await deps.emit({
+          type: "permission_resolved",
+          sessionId: record.sessionId,
+          at: record.at,
+          intent: record.intent,
+          decision: record.decision,
+        });
+        return;
+      case "goal_updated":
+        await deps.emit({
+          type: "goal_updated",
+          sessionId: record.sessionId,
+          at: record.at,
+          goal: record.goal,
+        });
+        return;
+      case "mode_updated":
+        await deps.emit({
+          type: "mode_updated",
+          sessionId: record.sessionId,
+          at: record.at,
+          executionMode: record.executionMode,
+          permissionMode: record.permissionMode,
+          ...(record.prePlanPermissionMode === undefined
+            ? {}
+            : { prePlanPermissionMode: record.prePlanPermissionMode }),
+        });
+        return;
+      case "files_changed":
+        await deps.emit({
+          type: "files_changed",
+          sessionId: record.sessionId,
+          at: record.at,
+          paths: record.paths,
+        });
+        return;
+      case "verification_recorded":
+        await deps.emit({
+          type: "verification_recorded",
+          sessionId: record.sessionId,
+          at: record.at,
+          evidence: record.evidence,
+        });
+        return;
+      case "turn_completed":
+        await deps.emit({
+          type: "turn_completed",
+          sessionId: record.sessionId,
+          at: record.at,
+          usage: record.result.usage ?? { inputTokens: 0, outputTokens: 0 },
+          evidence: [...record.result.evidence],
+        });
+        return;
+      case "turn_failed":
+        await deps.emit({
+          type: "turn_failed",
+          sessionId: record.sessionId,
+          at: record.at,
+          error: {
+            code: record.error.code,
+            message: record.error.safeMessage,
+            retryable: record.error.retryable,
+          },
+        });
+        return;
+      case "turn_cancelled":
+        await deps.emit({
+          type: "turn_cancelled",
+          sessionId: record.sessionId,
+          at: record.at,
+          turnId: record.turnId,
+        });
+        return;
+      case "turn_interrupted":
+        await deps.emit({
+          type: "warning",
+          sessionId: record.sessionId,
+          at: record.at,
+          code: "turn_interrupted",
+          message: record.reason,
+        });
+        return;
+      case "session_created":
+      case "compaction_started":
+      case "session_compacted":
+      case "compaction_failed":
+      case "compaction_interrupted":
+        throw new TypeError(`${record.type} is persistence-only`);
   }
-  const { version, ...event } = record;
-  if (version !== 1) {
-    throw new TypeError("Unsupported event version");
-  }
-  await deps.emit(event);
 }
 
 function addUnique(target: string[], additions: readonly string[]): void {
@@ -294,6 +431,41 @@ function serializeError(error: Error & { code?: string; retryable?: boolean }): 
   };
 }
 
+function integrationFailure(
+  error: SerializableError,
+  domain: IntegrationFailure["domain"],
+): IntegrationFailure {
+  return {
+    domain,
+    phase: "started",
+    code: domain === "tool" ? "tool_failed" : "runtime_failed",
+    safeMessage: domain === "tool"
+      ? `Tool error [${error.code}]: ${error.message}`
+      : error.message,
+    diagnosticId: randomUUID(),
+    retryable: error.retryable,
+  };
+}
+
+function coordinatedResult(
+  finalText: string,
+  usage: Usage,
+  steps: number,
+  changedFiles: readonly string[],
+  evidence: readonly string[],
+): CoordinatedRunResult {
+  return {
+    finalText,
+    usage,
+    usageSource: "provider",
+    steps,
+    changedFiles,
+    changedFilesSource: "host_tools",
+    evidence,
+    evidenceSource: evidence.length > 0 ? "host_tools" : "none",
+  };
+}
+
 function toolFailureResult(error: unknown): ToolResult {
   const message = error instanceof Error ? error.message : "Unknown tool failure";
   const code = error instanceof ToolError ? error.code : "execution_failed";
@@ -315,16 +487,6 @@ function unresolvedToolCalls(messages: readonly ModelMessage[]): ToolCall[] {
     }
   }
   return [...unresolved.values()];
-}
-
-function recoveredToolOutput(outcome: ToolOutcome | undefined): string {
-  if (outcome?.type === "completed") {
-    return outcome.result.output;
-  }
-  if (outcome?.type === "failed") {
-    return `Tool error [${outcome.error.code}]: ${outcome.error.message}`;
-  }
-  return "Tool error [interrupted]: execution ended before a durable result was recorded";
 }
 
 const permissionEngines = new WeakMap<
@@ -355,6 +517,7 @@ function permissionEngineFor(
 async function runAgentLoopUnlocked(
   deps: AgentLoopDependencies,
   input: RunInput,
+  mutation: SessionMutationLease,
 ): Promise<RunResult> {
   const maxSteps = input.maxSteps ?? 40;
   if (!Number.isSafeInteger(maxSteps) || maxSteps <= 0) {
@@ -370,7 +533,14 @@ async function runAgentLoopUnlocked(
 
   const signal = input.signal ?? new AbortController().signal;
   throwIfAborted(signal);
-  let state = await deps.sessions.loadState(input.sessionId);
+  const loadedState = await deps.sessions.loadState(input.sessionId);
+  if (!isPinnedSessionState(loadedState)) {
+    throw new AgentLoopError(
+      "invalid_run_input",
+      `Legacy session ${input.sessionId} is read-only`,
+    );
+  }
+  let state: PinnedSessionState = loadedState;
   const permissions = permissionEngineFor(
     deps.sessions,
     input.sessionId,
@@ -389,9 +559,12 @@ async function runAgentLoopUnlocked(
   const evidence: string[] = [];
   let steps = 0;
 
-  async function append(record: SessionRecord): Promise<void> {
-    await deps.sessions.append(input.sessionId, record);
-    state = reduceSessionRecord(state, record);
+  async function appendPinned(
+    record: SessionRecordInputV2,
+  ): Promise<SessionRecordV2> {
+    const persisted = await mutation.append(record);
+    state = reduceSessionRecordV2(state, persisted);
+    return persisted;
   }
 
   const unresolvedCalls = unresolvedToolCalls(state.messages);
@@ -404,57 +577,43 @@ async function runAgentLoopUnlocked(
     }
   }
   for (const call of interruptedCalls.values()) {
-    const failed: SessionRecord = {
-      version: 1,
+    if (state.openTurnId === null) {
+      throw new AgentLoopError(
+        "invalid_run_input",
+        "A pinned session has a pending tool without an open turn",
+      );
+    }
+    const failed = await appendPinned({
       type: "tool_failed",
-      sessionId: input.sessionId,
+      turnId: state.openTurnId,
       at: now(),
       callId: call.id,
-      error: {
-        code: "interrupted",
-        message: "Tool execution ended before a durable result was recorded",
-        retryable: false,
-      },
-    };
-    await append(failed);
+      error: integrationFailure(
+        {
+          code: "interrupted",
+          message: "Tool execution ended before a durable result was recorded",
+          retryable: false,
+        },
+        "tool",
+      ),
+    });
     await emitPersistedEvent(deps, failed);
   }
-  for (const call of unresolvedCalls) {
-    await append({
-      version: 1,
-      type: "message_appended",
-      sessionId: input.sessionId,
+  if (state.openTurnId !== null) {
+    const interrupted = await appendPinned({
+      type: "turn_interrupted",
+      turnId: state.openTurnId,
       at: now(),
-      message: {
-        id: randomUUID(),
-        role: "tool",
-        content: recoveredToolOutput(state.toolOutcomes[call.id]),
-        toolCallId: call.id,
-      },
+      reason: "The previous turn ended before a durable terminal record",
     });
+    await emitPersistedEvent(deps, interrupted);
   }
-
-  const userMessage: ModelMessage = {
-    id: randomUUID(),
-    role: "user",
-    content: prompt,
-  };
-  await append({
-    version: 1,
-    type: "message_appended",
-    sessionId: input.sessionId,
-    at: now(),
-    message: userMessage,
-  });
-  const turnStarted: SessionRecord = {
-    version: 1,
+  const turnStarted = await appendPinned({
     type: "turn_started",
-    sessionId: input.sessionId,
     at: now(),
     turnId,
     prompt,
-  };
-  await append(turnStarted);
+  });
   await emitPersistedEvent(deps, turnStarted);
 
   try {
@@ -498,22 +657,15 @@ async function runAgentLoopUnlocked(
             content: modelTurn.text,
             toolCalls: modelTurn.toolCalls,
           };
-      await append({
-        version: 1,
-        type: "message_appended",
-        sessionId: input.sessionId,
-        at: now(),
-        message: assistantMessage,
-      });
-      await deps.emit({
+      const modelCompleted = await appendPinned({
         type: "model_completed",
-        sessionId: input.sessionId,
         at: now(),
         turnId,
         message: assistantMessage,
         usage: modelTurn.usage,
         stopReason: modelTurn.stopReason,
       });
+      await emitPersistedEvent(deps, modelCompleted);
 
       if (modelTurn.toolCalls.length === 0) {
         if (modelTurn.stopReason === "cancelled") {
@@ -528,31 +680,34 @@ async function runAgentLoopUnlocked(
 
         if (state.goal?.status === "active") {
           const goalUpdatedAt = now();
-          const goalUpdated: SessionRecord = {
-            version: 1,
+          const goal = recordGoalProgress(
+            state.goal,
+            modelTurn.text,
+            evidence,
+            goalUpdatedAt,
+          );
+          const goalUpdated = await appendPinned({
             type: "goal_updated",
-            sessionId: input.sessionId,
+            source: "turn",
+            turnId,
             at: goalUpdatedAt,
-            goal: recordGoalProgress(
-              state.goal,
-              modelTurn.text,
-              evidence,
-              goalUpdatedAt,
-            ),
-          };
-          await append(goalUpdated);
+            goal,
+          });
           await emitPersistedEvent(deps, goalUpdated);
         }
 
-        const terminalRecord: SessionRecord = {
-          version: 1,
+        const terminalRecord = await appendPinned({
           type: "turn_completed",
-          sessionId: input.sessionId,
+          turnId,
           at: now(),
-          usage,
-          evidence,
-        };
-        await append(terminalRecord);
+          result: coordinatedResult(
+            modelTurn.text,
+            usage,
+            steps,
+            changedFiles,
+            evidence,
+          ),
+        });
         await emitPersistedEvent(deps, terminalRecord);
         return {
           finalText: modelTurn.text,
@@ -572,18 +727,16 @@ async function runAgentLoopUnlocked(
 
       for (const call of modelTurn.toolCalls) {
         throwIfAborted(signal);
-        const started: SessionRecord = {
-          version: 1,
+        const started = await appendPinned({
           type: "tool_started",
-          sessionId: input.sessionId,
+          turnId,
           at: now(),
           call,
-        };
-        await append(started);
+        });
         await emitPersistedEvent(deps, started);
 
         let result: ToolResult;
-        let terminalRecord: SessionRecord;
+        let terminalInput: SessionRecordInputV2;
         let cancelledDuringTool = false;
         try {
           const approvals: ApprovalHandler = {
@@ -595,15 +748,13 @@ async function runAgentLoopUnlocked(
                 intent,
               });
               const decision = await deps.approvals.request(intent);
-              const resolved: SessionRecord = {
-                version: 1,
+              const resolved = await appendPinned({
                 type: "permission_resolved",
-                sessionId: input.sessionId,
+                turnId,
                 at: now(),
                 intent,
                 decision,
-              };
-              await append(resolved);
+              });
               await emitPersistedEvent(deps, resolved);
               return decision;
             },
@@ -614,10 +765,9 @@ async function runAgentLoopUnlocked(
             permissions,
             approvals,
           );
-          terminalRecord = {
-            version: 1,
+          terminalInput = {
             type: "tool_completed",
-            sessionId: input.sessionId,
+            turnId,
             at: now(),
             callId: call.id,
             result,
@@ -631,34 +781,19 @@ async function runAgentLoopUnlocked(
               ? failure
               : new Error("Unknown tool failure"),
           );
-          terminalRecord = {
-            version: 1,
+          terminalInput = {
             type: "tool_failed",
-            sessionId: input.sessionId,
+            turnId,
             at: now(),
             callId: call.id,
-            error: serialized,
+            error: integrationFailure(serialized, "tool"),
           };
           result = toolFailureResult(failure);
           cancelledDuringTool = signal.aborted;
         }
 
-        await append(terminalRecord);
-        await emitPersistedEvent(deps, terminalRecord);
-
-        const toolMessage: ModelMessage = {
-          id: randomUUID(),
-          role: "tool",
-          content: result.output,
-          toolCallId: call.id,
-        };
-        await append({
-          version: 1,
-          type: "message_appended",
-          sessionId: input.sessionId,
-          at: now(),
-          message: toolMessage,
-        });
+        const persistedTerminal = await appendPinned(terminalInput);
+        await emitPersistedEvent(deps, persistedTerminal);
 
         if (cancelledDuringTool) {
           throw new AgentLoopError("cancelled", "Agent run cancelled");
@@ -667,27 +802,23 @@ async function runAgentLoopUnlocked(
         const resultChangedFiles = metadataStrings(result, "changedFiles");
         if (resultChangedFiles.length > 0) {
           addUnique(changedFiles, resultChangedFiles);
-          const record: SessionRecord = {
-            version: 1,
+          const record = await appendPinned({
             type: "files_changed",
-            sessionId: input.sessionId,
+            turnId,
             at: now(),
             paths: resultChangedFiles,
-          };
-          await append(record);
+          });
           await emitPersistedEvent(deps, record);
         }
         const resultEvidence = metadataStrings(result, "evidence");
         if (resultEvidence.length > 0) {
           addUnique(evidence, resultEvidence);
-          const record: SessionRecord = {
-            version: 1,
+          const record = await appendPinned({
             type: "verification_recorded",
-            sessionId: input.sessionId,
+            turnId,
             at: now(),
             evidence: resultEvidence,
-          };
-          await append(record);
+          });
           await emitPersistedEvent(deps, record);
         }
 
@@ -702,23 +833,20 @@ async function runAgentLoopUnlocked(
   } catch (error) {
     const normalized = normalizeRunError(error, signal);
     const serialized = serializeError(normalized);
-    if (normalized.code === "cancelled") {
-      await deps.emit({
-        type: "turn_cancelled",
-        sessionId: input.sessionId,
-        at: now(),
-        turnId,
-      });
-    }
-    const failed: SessionRecord = {
-      version: 1,
-      type: "turn_failed",
-      sessionId: input.sessionId,
-      at: now(),
-      error: serialized,
-    };
-    await append(failed);
-    await emitPersistedEvent(deps, failed);
+    const terminal = normalized.code === "cancelled"
+      ? await appendPinned({
+          type: "turn_cancelled",
+          turnId,
+          at: now(),
+          reason: normalized.message,
+        })
+      : await appendPinned({
+          type: "turn_failed",
+          turnId,
+          at: now(),
+          error: integrationFailure(serialized, "provider"),
+        });
+    await emitPersistedEvent(deps, terminal);
     throw normalized;
   }
 }
@@ -728,11 +856,23 @@ export async function runAgentLoop(
   input: RunInput,
 ): Promise<RunResult> {
   try {
-    return await deps.sessions.withSessionRun(input.sessionId, () =>
-      runAgentLoopUnlocked(deps, input),
+    const state = await deps.sessions.loadState(input.sessionId);
+    if (isPinnedSessionState(state)) {
+      return await deps.sessions.withSessionMutation(
+        input.sessionId,
+        state.lastSequence,
+        (mutation) => runAgentLoopUnlocked(deps, input, mutation),
+      );
+    }
+    throw new AgentLoopError(
+      "invalid_run_input",
+      `Legacy session ${input.sessionId} is read-only; create a pinned session to continue`,
     );
   } catch (error) {
-    if (error instanceof SessionStoreError && error.code === "session_busy") {
+    if (
+      error instanceof SessionStoreError &&
+      (error.code === "session_busy" || error.code === "session_conflict")
+    ) {
       throw new AgentLoopError("session_busy", error.message, false, {
         cause: error,
       });
@@ -746,5 +886,18 @@ export class AgentLoop {
 
   async run(input: RunInput): Promise<RunResult> {
     return runAgentLoop(this.deps, input);
+  }
+
+  async runWithMutation(
+    input: RunInput,
+    mutation: SessionMutationLease,
+  ): Promise<RunResult> {
+    if (mutation.sessionId !== input.sessionId) {
+      throw new AgentLoopError(
+        "invalid_run_input",
+        "The session mutation lease does not match the requested session",
+      );
+    }
+    return runAgentLoopUnlocked(this.deps, input, mutation);
   }
 }
