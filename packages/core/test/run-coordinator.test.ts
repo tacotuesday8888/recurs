@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   createHostInvocation,
+  type AgentRuntime,
   type BackendResolver,
   type IntegrationFailure,
   type ModelProvider,
@@ -15,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BackendRunCoordinator,
   JsonlSessionStore,
+  type DelegatedRunExecutor,
   type DirectRunExecutor,
 } from "../src/index.js";
 
@@ -61,14 +63,14 @@ const invocation = createHostInvocation({
   embedding: "cli",
 });
 
-async function setup() {
+async function setup(backend: SessionBackendPin = pin) {
   const directory = await mkdtemp(path.join(tmpdir(), "recurs-coordinator-"));
   directories.push(directory);
   const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
   await sessions.createPinnedSession({
     id: "s2",
     cwd: directory,
-    backend: pin,
+    backend,
     at,
   });
   return { directory, sessions };
@@ -315,6 +317,81 @@ describe("BackendRunCoordinator", () => {
         safeMessage: "The model run failed",
       },
     });
+  });
+
+  it("dispatches agent-runtime pins through the delegated lane", async () => {
+    const runtimePin: SessionBackendPin = {
+      ...pin,
+      kind: "agent_runtime",
+      providerId: "official-runtime",
+      adapterId: "official-runtime-v1",
+      connectionId: "runtime-connection",
+      modelId: "runtime-model",
+    };
+    const { sessions } = await setup(runtimePin);
+    const runtime: AgentRuntime = {
+      adapterId: runtimePin.adapterId,
+      connectionId: runtimePin.connectionId,
+      async *run() {
+        yield { type: "done", finalText: "done", stopReason: "complete" };
+      },
+    };
+    const createRuntime = vi.fn(async () => runtime);
+    const resolver: BackendResolver = {
+      async resolve(input) {
+        return {
+          kind: "delegated",
+          pin: runtimePin,
+          authorization: {
+            kind: "run",
+            id: "authorization",
+            operation: "run",
+            sessionId: input.sessionId,
+            operationId: input.operationId,
+            turnId: input.turnId,
+            connectionId: runtimePin.connectionId,
+            modelId: runtimePin.modelId,
+            backendFingerprint: "fingerprint",
+            connectionRevision: 1,
+            policyRevision: runtimePin.policyRevisionAtCreation,
+            billingMode: "strict_primary_only",
+            billingSelectionDigest: "billing",
+            contextDigest: "context",
+            maxRequests: 1,
+            expiresAt: at,
+          },
+          createRuntime,
+        };
+      },
+    };
+    const direct: DirectRunExecutor = {
+      run: vi.fn(async () => result),
+    };
+    const delegated: DelegatedRunExecutor = {
+      run: vi.fn(async (input) => {
+        expect(input.runtime).toBe(runtime);
+        return result;
+      }),
+    };
+    const coordinator = new BackendRunCoordinator({
+      sessions,
+      resolver,
+      direct,
+      delegated,
+    });
+
+    const run = await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 0,
+      prompt: "inspect",
+      invocation,
+      signal: new AbortController().signal,
+    });
+
+    await expect(run.outcome).resolves.toMatchObject({ ok: true });
+    expect(createRuntime).toHaveBeenCalledOnce();
+    expect(direct.run).not.toHaveBeenCalled();
+    expect(delegated.run).toHaveBeenCalledOnce();
   });
 
   it("holds the session mutation lease from preflight through execution", async () => {
