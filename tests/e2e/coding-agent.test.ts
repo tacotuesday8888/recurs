@@ -149,7 +149,7 @@ async function createTestRuntime(
     provider,
     tools,
     permissions: new PermissionEngine(state.permissionMode),
-    approvals: { async request() { return "deny"; } },
+    approvals: { async request() { return "allow_once"; } },
     sessions,
     async emit(event) {
       events.push(event);

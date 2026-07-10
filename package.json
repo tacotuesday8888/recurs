@@ -14,6 +14,7 @@
   },
   "scripts": {
     "build": "tsc -b",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
     "test": "vitest run",
