@@ -87,6 +87,18 @@ describe("FileCheckpointStore", () => {
     expect(after.stdout).toBe(before.stdout);
   });
 
+  it("skips newer no-op checkpoints when selecting what to undo", async () => {
+    const changed = await store.captureBefore("s1", "change", cwd);
+    await writeFile(path.join(cwd, "a.txt"), "agent a\n", "utf8");
+    await store.captureAfter(changed, cwd);
+    const noOp = await store.captureBefore("s1", "verify", cwd);
+    await store.captureAfter(noOp, cwd);
+
+    await store.undoLatest("s1", cwd);
+
+    expect(await readFile(path.join(cwd, "a.txt"), "utf8")).toBe("before a\n");
+  });
+
   it("rejects checkpoint storage inside the project", async () => {
     const unsafeStore = new FileCheckpointStore(path.join(cwd, ".recurs"));
 

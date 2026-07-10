@@ -214,6 +214,14 @@ function entriesEqual(
   return left?.sha256 === right?.sha256;
 }
 
+function manifestsDiffer(
+  before: WorkspaceManifest,
+  after: WorkspaceManifest,
+): boolean {
+  const paths = new Set([...Object.keys(before), ...Object.keys(after)]);
+  return [...paths].some((file) => !entriesEqual(before[file], after[file]));
+}
+
 function isManifestEntry(value: unknown): value is WorkspaceManifestEntry {
   return (
     typeof value === "object" &&
@@ -457,7 +465,9 @@ export class FileCheckpointStore extends CheckpointStore {
     const candidates = checkpoints
       .filter(
         (checkpoint) =>
-          checkpoint.after !== undefined && checkpoint.undoneAt === undefined,
+          checkpoint.after !== undefined &&
+          checkpoint.undoneAt === undefined &&
+          manifestsDiffer(checkpoint.before, checkpoint.after),
       )
       .sort((left, right) =>
         (right.completedAt ?? "").localeCompare(left.completedAt ?? ""),

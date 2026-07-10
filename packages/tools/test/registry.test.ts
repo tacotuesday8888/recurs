@@ -131,6 +131,24 @@ describe("ToolRegistry", () => {
     expect(approvals.request).toHaveBeenCalledTimes(1);
   });
 
+  it("asks again after an allow-once approval", async () => {
+    const approvals: ApprovalHandler = {
+      request: vi.fn(async () => "allow_once" as const),
+    };
+    const registry = new ToolRegistry([textTool(true)]);
+    const engine = new PermissionEngine("ask_always");
+    const call: ToolCall = {
+      id: "1",
+      name: "write_text",
+      arguments: { text: "src/a.ts" },
+    };
+
+    await registry.invoke(call, context(), engine, approvals);
+    await registry.invoke({ ...call, id: "2" }, context(), engine, approvals);
+
+    expect(approvals.request).toHaveBeenCalledTimes(2);
+  });
+
   it("hides mutating definitions in Plan mode", () => {
     const registry = new ToolRegistry([textTool(), textTool(true)]);
 

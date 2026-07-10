@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "recurs": "packages/cli/dist/main.js"
+  },
   "workspaces": [
     "packages/*"
   ],
@@ -13,7 +16,8 @@
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "recurs": "node packages/cli/dist/main.js"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

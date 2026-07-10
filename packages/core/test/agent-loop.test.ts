@@ -82,6 +82,7 @@ const deny: ApprovalHandler = {
 async function harness(
   provider: ModelProvider,
   tools: Tool[] = [echoTool()],
+  approvals: ApprovalHandler = deny,
 ): Promise<{
   loop: AgentLoop;
   store: JsonlSessionStore;
@@ -106,7 +107,7 @@ async function harness(
       provider,
       tools: new ToolRegistry(tools),
       permissions: new PermissionEngine("full_access"),
-      approvals: deny,
+      approvals,
       sessions: store,
       async emit(event) {
         events.push(event);
@@ -232,6 +233,49 @@ describe("AgentLoop", () => {
     await loop.run({ sessionId: "s1", prompt: "work" });
 
     expect(secondSawRevision).toBe(true);
+  });
+
+  it("emits permission request and resolution events around approval", async () => {
+    const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: { id: "1", name: "write_text", arguments: { text: "a" } },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "done" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const base = echoTool();
+    const mutating: Tool<{ text: string }> = {
+      ...base,
+      definition: { ...base.definition, name: "write_text" },
+      mutating: true,
+      permissions(input) {
+        return [{ category: "write", resource: input.text, risk: "normal" }];
+      },
+    };
+    const approvals: ApprovalHandler = {
+      async request() {
+        return "allow_once";
+      },
+    };
+    const { loop, events } = await harness(provider, [mutating], approvals);
+
+    await loop.run({ sessionId: "s1", prompt: "write" });
+
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "permission_requested" }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "permission_resolved",
+        decision: "allow_once",
+      }),
+    );
   });
 
   it("supports a temporary read-only override without changing session mode", async () => {
