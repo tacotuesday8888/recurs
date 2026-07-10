@@ -144,7 +144,7 @@ Commit: `feat: add provider-neutral contracts`
 - Produces: `SessionRecordV2`, `SessionRecordInputV2`, `SessionStateV2`, `SessionBackendState`, `SessionMutationLease`, `JsonlSessionStore.createPinnedSession()`, `withSessionMutation()`, and `appendV2()`.
 - Preserves: `loadState()` for version-1 fixtures and historical logs; `list()` labels legacy and pinned sessions.
 
-- [ ] **Step 1: Write failing tests for pins, strict sequences, legacy immutability, and competing leases**
+- [x] **Step 1: Write failing tests for pins, strict sequences, legacy immutability, and competing leases**
 
 ```ts
 it("creates sequence-zero pinned sessions and appends only the exact next sequence", async () => {
@@ -166,12 +166,12 @@ it("loads version one as legacy and refuses every append", async () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify the missing v2 APIs fail**
+- [x] **Step 2: Run the focused test and verify the missing v2 APIs fail**
 
 Run: `npm test -- packages/core/test/session-v2.test.ts`
 Expected: FAIL because `createPinnedSession` and `withSessionMutation` do not exist.
 
-- [ ] **Step 3: Define exact v2 records and a strict validator**
+- [x] **Step 3: Define exact v2 records and a strict validator**
 
 The validator rejects unknown keys, wrong discriminants, missing turn IDs, unsafe sequences, mixed session IDs, and mixed versions. The first record must be `session_created` at sequence `0`; later records must increment by exactly one.
 
@@ -196,7 +196,7 @@ export type SessionRecordV2 =
   | (SessionRecordBaseV2 & { type: "turn_interrupted"; turnId: string; reason: string });
 ```
 
-- [ ] **Step 4: Implement one-version logs and atomic mutation leases**
+- [x] **Step 4: Implement one-version logs and atomic mutation leases**
 
 `withSessionMutation` atomically creates `.locks/<session>.lock`, verifies the caller's expected sequence under that lock, issues a private lease object with a monotonic fence, and removes only its own lock on exit. A competing process receives `session_busy`; a stale expected sequence receives `session_conflict`.
 

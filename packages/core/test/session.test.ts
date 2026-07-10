@@ -133,7 +133,7 @@ describe("JsonlSessionStore", () => {
     );
   });
 
-  it("rejects unsupported record versions", async () => {
+  it("rejects malformed version 2 records", async () => {
     const directory = await temporaryDirectory();
     const file = path.join(directory, "s1.jsonl");
     await writeFile(
@@ -143,7 +143,7 @@ describe("JsonlSessionStore", () => {
     );
 
     await expect(new JsonlSessionStore(directory).load("s1")).rejects.toMatchObject({
-      code: "unsupported_version",
+      code: "invalid_record",
     });
   });
 });

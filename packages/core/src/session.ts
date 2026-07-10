@@ -1,3 +1,4 @@
+import type { SessionBackendPin } from "@recurs/contracts";
 import type { ModelMessage, ToolCall } from "@recurs/providers";
 import type {
   ExecutionMode,
@@ -11,16 +12,26 @@ import type {
   Usage,
 } from "./events.js";
 import type { Goal } from "./goal.js";
+import {
+  reduceSessionRecordsV2,
+  type SessionRecordV2,
+} from "./session-v2.js";
 
 export type ToolOutcome =
   | { type: "completed"; result: ToolResult }
   | { type: "failed"; error: SerializableError };
 
 export interface SessionState {
+  version: 1 | 2;
   id: string;
   cwd: string;
   model: string;
+  backend:
+    | { type: "legacy"; model: string }
+    | { type: "pinned"; pin: SessionBackendPin };
+  lastSequence: number | null;
   messages: ModelMessage[];
+  messageTurnIds: Record<string, string>;
   summary: string | null;
   permissionMode: PermissionMode;
   executionMode: ExecutionMode;
@@ -31,6 +42,7 @@ export interface SessionState {
   changedFiles: string[];
   pendingToolCalls: ToolCall[];
   toolOutcomes: Record<string, ToolOutcome>;
+  openTurnId: string | null;
 }
 
 export interface CreateSessionStateOptions {
@@ -44,10 +56,14 @@ export function createSessionState(
   options: CreateSessionStateOptions,
 ): SessionState {
   return {
+    version: 1,
     id: options.id,
     cwd: options.cwd,
     model: options.model,
+    backend: { type: "legacy", model: options.model },
+    lastSequence: null,
     messages: [],
+    messageTurnIds: {},
     summary: null,
     permissionMode: options.permissionMode ?? "ask_always",
     executionMode: "act",
@@ -57,6 +73,7 @@ export function createSessionState(
     changedFiles: [],
     pendingToolCalls: [],
     toolOutcomes: {},
+    openTurnId: null,
   };
 }
 
@@ -217,9 +234,15 @@ export function reduceSessionRecord(
 }
 
 export function reduceSessionRecords(
-  records: readonly SessionRecord[],
+  records: readonly (SessionRecord | SessionRecordV2)[],
 ): SessionState {
   const first = records[0];
+  if (first?.version === 2) {
+    if (!records.every((record): record is SessionRecordV2 => record.version === 2)) {
+      throw new Error("A session log cannot mix record versions");
+    }
+    return reduceSessionRecordsV2(records);
+  }
   if (first?.type !== "session_created") {
     throw new Error("A session log must begin with session_created");
   }
@@ -229,6 +252,9 @@ export function reduceSessionRecords(
     model: first.model,
   });
   for (const record of records.slice(1)) {
+    if (record.version !== 1) {
+      throw new Error("A session log cannot mix record versions");
+    }
     state = reduceSessionRecord(state, record);
   }
   return state;
