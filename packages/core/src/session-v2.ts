@@ -278,7 +278,19 @@ export function reduceSessionRecordV2(
       );
       break;
     case "model_completed":
-      next = addMessage(state, record.message, record.turnId);
+      next = addMessage(
+        {
+          ...state,
+          usage: {
+            inputTokens:
+              state.usage.inputTokens + (record.usage?.inputTokens ?? 0),
+            outputTokens:
+              state.usage.outputTokens + (record.usage?.outputTokens ?? 0),
+          },
+        },
+        record.message,
+        record.turnId,
+      );
       break;
     case "tool_started":
       next = {
@@ -372,12 +384,6 @@ export function reduceSessionRecordV2(
       next = {
         ...state,
         openTurnId: null,
-        usage: {
-          inputTokens:
-            state.usage.inputTokens + (record.result.usage?.inputTokens ?? 0),
-          outputTokens:
-            state.usage.outputTokens + (record.result.usage?.outputTokens ?? 0),
-        },
         changedFiles: unique([
           ...state.changedFiles,
           ...record.result.changedFiles,

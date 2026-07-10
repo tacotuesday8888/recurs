@@ -42,8 +42,10 @@ describe("AgentLoopDirectExecutor", () => {
         { type: "done", stopReason: "complete" },
       ],
     ]);
+    let authorizedTurnId: string | null = null;
     const resolver: BackendResolver = {
       async resolve(input) {
+        authorizedTurnId = input.turnId;
         return {
           kind: "direct",
           pin,
@@ -112,5 +114,83 @@ describe("AgentLoopDirectExecutor", () => {
     });
     expect((await sessions.loadState("s2")).messages.map((message) => message.role))
       .toEqual(["user", "assistant"]);
+    expect(
+      (await sessions.load("s2")).records.find(
+        (record) => record.type === "turn_started",
+      ),
+    ).toMatchObject({ turnId: authorizedTurnId });
+  });
+
+  it("enforces the request budget carried by the run authorization", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-direct-budget-"));
+    directories.push(directory);
+    const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
+    const pin = testBackendPin();
+    const session = await sessions.createPinnedSession({
+      id: "s2",
+      cwd: directory,
+      backend: pin,
+      at: testAt,
+    });
+    const executor = new AgentLoopDirectExecutor({
+      tools: new ToolRegistry(),
+      approvals: { async request() { return "deny"; } },
+      sessions,
+      async emit() {},
+      createToolContext(state, signal) {
+        return {
+          sessionId: state.id,
+          cwd: state.cwd,
+          executionMode: state.executionMode,
+          signal,
+          readRevisions: new Map(),
+        };
+      },
+    });
+    const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: { id: "call-1", name: "missing", arguments: {} },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "must not reach a second request" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+
+    await expect(
+      sessions.withSessionMutation("s2", 0, (mutation) =>
+        executor.run({
+          session,
+          turnId: "turn-1",
+          prompt: "inspect",
+          executionMode: "act",
+          provider,
+          authorization: {
+            kind: "run",
+            id: "authorization",
+            operation: "run",
+            sessionId: "s2",
+            operationId: "operation-1",
+            turnId: "turn-1",
+            connectionId: pin.connectionId,
+            modelId: pin.modelId,
+            backendFingerprint: "fingerprint",
+            connectionRevision: 1,
+            policyRevision: pin.policyRevisionAtCreation,
+            billingMode: "strict_primary_only",
+            billingSelectionDigest: "billing",
+            contextDigest: "context",
+            maxRequests: 1,
+            expiresAt: testAt,
+          },
+          mutation,
+          signal: new AbortController().signal,
+        })
+      ),
+    ).rejects.toMatchObject({ code: "step_budget_exceeded" });
   });
 });

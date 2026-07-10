@@ -46,6 +46,7 @@ import {
 
 export interface RunInput {
   sessionId: string;
+  turnId?: string;
   prompt: string;
   maxSteps?: number;
   signal?: AbortSignal;
@@ -552,7 +553,10 @@ async function runAgentLoopUnlocked(
       ? state
       : { ...state, executionMode };
   const toolContext = deps.createToolContext(executionState(), signal);
-  const turnId = `${input.sessionId}:${randomUUID()}`;
+  const turnId = input.turnId ?? `${input.sessionId}:${randomUUID()}`;
+  if (turnId.trim().length === 0) {
+    throw new AgentLoopError("invalid_run_input", "A turn id is required");
+  }
   const loopDetector = new LoopDetector();
   const usage: Usage = { inputTokens: 0, outputTokens: 0 };
   const changedFiles: string[] = [];

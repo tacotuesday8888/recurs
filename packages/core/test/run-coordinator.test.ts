@@ -126,7 +126,7 @@ describe("BackendRunCoordinator", () => {
     const { sessions } = await setup();
     let providers = 0;
     const resolver: BackendResolver = {
-      async resolve() {
+      async resolve(input) {
         return {
           kind: "direct",
           pin,
@@ -134,9 +134,9 @@ describe("BackendRunCoordinator", () => {
             kind: "run",
             id: "authorization",
             operation: "run",
-            sessionId: "s2",
-            operationId: "operation",
-            turnId: "turn",
+            sessionId: input.sessionId,
+            operationId: input.operationId,
+            turnId: input.turnId,
             connectionId: pin.connectionId,
             modelId: pin.modelId,
             backendFingerprint: "fingerprint",
@@ -188,6 +188,135 @@ describe("BackendRunCoordinator", () => {
     expect(seen).toEqual(["provider-1", "provider-2"]);
   });
 
+  it("rejects authorization that is not bound to the resolved run", async () => {
+    const { sessions } = await setup();
+    const createProvider = vi.fn(async () => ({
+      id: "provider",
+      async *stream() {
+        yield { type: "done", stopReason: "complete" } as const;
+      },
+    } satisfies ModelProvider));
+    const resolver: BackendResolver = {
+      async resolve(input) {
+        return {
+          kind: "direct",
+          pin,
+          authorization: {
+            kind: "run",
+            id: "authorization",
+            operation: "run",
+            sessionId: "different-session",
+            operationId: input.operationId,
+            turnId: input.turnId,
+            connectionId: pin.connectionId,
+            modelId: pin.modelId,
+            backendFingerprint: "fingerprint",
+            connectionRevision: 1,
+            policyRevision: pin.policyRevisionAtCreation,
+            billingMode: "strict_primary_only",
+            billingSelectionDigest: "billing",
+            contextDigest: "context",
+            maxRequests: 1,
+            expiresAt: at,
+          },
+          createProvider,
+        };
+      },
+    };
+    const executor: DirectRunExecutor = {
+      run: vi.fn(async () => result),
+    };
+    const coordinator = new BackendRunCoordinator({
+      sessions,
+      resolver,
+      direct: executor,
+    });
+
+    const run = await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 0,
+      prompt: "inspect",
+      invocation,
+      signal: new AbortController().signal,
+    });
+
+    await expect(run.outcome).resolves.toMatchObject({
+      ok: false,
+      failure: {
+        phase: "preflight",
+        code: "authorization_denied",
+      },
+    });
+    expect(createProvider).not.toHaveBeenCalled();
+    expect(executor.run).not.toHaveBeenCalled();
+    expect((await sessions.load("s2")).records).toHaveLength(1);
+  });
+
+  it("reports executor failures as started-run failures", async () => {
+    const { sessions } = await setup();
+    const resolver: BackendResolver = {
+      async resolve(input) {
+        return {
+          kind: "direct",
+          pin,
+          authorization: {
+            kind: "run",
+            id: "authorization",
+            operation: "run",
+            sessionId: input.sessionId,
+            operationId: input.operationId,
+            turnId: input.turnId,
+            connectionId: pin.connectionId,
+            modelId: pin.modelId,
+            backendFingerprint: "fingerprint",
+            connectionRevision: 1,
+            policyRevision: pin.policyRevisionAtCreation,
+            billingMode: "strict_primary_only",
+            billingSelectionDigest: "billing",
+            contextDigest: "context",
+            maxRequests: 1,
+            expiresAt: at,
+          },
+          async createProvider() {
+            return {
+              id: "provider",
+              async *stream() {
+                yield { type: "done", stopReason: "complete" } as const;
+              },
+            } satisfies ModelProvider;
+          },
+        };
+      },
+    };
+    const coordinator = new BackendRunCoordinator({
+      sessions,
+      resolver,
+      direct: {
+        async run() {
+          throw new Error("provider transport included sensitive details");
+        },
+      },
+    });
+
+    const run = await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 0,
+      prompt: "inspect",
+      invocation,
+      signal: new AbortController().signal,
+    });
+
+    await expect(run.outcome).resolves.toMatchObject({
+      ok: false,
+      failure: {
+        domain: "runtime",
+        phase: "started",
+        code: "runtime_failed",
+        safeMessage: "The model run failed",
+      },
+    });
+  });
+
   it("holds the session mutation lease from preflight through execution", async () => {
     const { sessions } = await setup();
     let continueResolution!: () => void;
@@ -199,7 +328,7 @@ describe("BackendRunCoordinator", () => {
       enteredResolution = resolve;
     });
     const resolver: BackendResolver = {
-      async resolve() {
+      async resolve(input) {
         enteredResolution();
         await resolutionGate;
         return {
@@ -209,9 +338,9 @@ describe("BackendRunCoordinator", () => {
             kind: "run",
             id: "authorization",
             operation: "run",
-            sessionId: "s2",
-            operationId: "operation",
-            turnId: "turn",
+            sessionId: input.sessionId,
+            operationId: input.operationId,
+            turnId: input.turnId,
             connectionId: pin.connectionId,
             modelId: pin.modelId,
             backendFingerprint: "fingerprint",

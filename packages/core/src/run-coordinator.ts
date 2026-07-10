@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   deriveTrustedRunContext,
@@ -88,6 +89,46 @@ function failure(
   };
 }
 
+function authorizationMatches(
+  authorization: RunAuthorization,
+  input: {
+    sessionId: string;
+    operationId: string;
+    turnId: string;
+    session: PinnedSessionState;
+  },
+): boolean {
+  const pin = input.session.backend.pin;
+  return authorization.kind === "run" &&
+    authorization.operation === "run" &&
+    authorization.sessionId === input.sessionId &&
+    authorization.operationId === input.operationId &&
+    authorization.turnId === input.turnId &&
+    authorization.connectionId === pin.connectionId &&
+    authorization.modelId === pin.modelId &&
+    authorization.policyRevision === pin.policyRevisionAtCreation &&
+    authorization.billingMode === pin.billingSelectionAtCreation.mode &&
+    Number.isSafeInteger(authorization.maxRequests) &&
+    authorization.maxRequests > 0;
+}
+
+function startedFailure(
+  error: unknown,
+  signal: AbortSignal,
+  diagnosticId: string,
+): IntegrationFailure {
+  const cancelled = signal.aborted ||
+    (isObject(error) && error.code === "cancelled");
+  return {
+    domain: cancelled ? "provider" : "runtime",
+    phase: "started",
+    code: cancelled ? "cancelled" : "runtime_failed",
+    safeMessage: cancelled ? "The run was cancelled" : "The model run failed",
+    diagnosticId,
+    retryable: isObject(error) && error.retryable === true,
+  };
+}
+
 function noEvents(): AsyncIterable<never> {
   return {
     [Symbol.asyncIterator]() {
@@ -141,6 +182,7 @@ export class BackendRunCoordinator implements RunCoordinator {
     }
     const operationId = this.#createId();
     const turnId = this.#createId();
+    let executionStarted = false;
     try {
       return await this.dependencies.sessions.withSessionMutation(
         input.sessionId,
@@ -169,9 +211,7 @@ export class BackendRunCoordinator implements RunCoordinator {
             context,
             signal: input.signal,
           });
-          if (
-            JSON.stringify(resolved.pin) !== JSON.stringify(session.backend.pin)
-          ) {
+          if (!isDeepStrictEqual(resolved.pin, session.backend.pin)) {
             return {
               ok: false,
               failure: failure(
@@ -181,8 +221,28 @@ export class BackendRunCoordinator implements RunCoordinator {
               ),
             } as const;
           }
+          if (!authorizationMatches(resolved.authorization, {
+            sessionId: input.sessionId,
+            operationId,
+            turnId,
+            session,
+          })) {
+            return {
+              ok: false,
+              failure: {
+                domain: "policy",
+                phase: "preflight",
+                code: "authorization_denied",
+                safeMessage:
+                  "The backend authorization does not match this session run",
+                diagnosticId: operationId,
+                retryable: false,
+              },
+            } as const;
+          }
           if (resolved.kind === "direct") {
             const provider = await resolved.createProvider(input.signal);
+            executionStarted = true;
             const result = await this.dependencies.direct.run({
               session,
               turnId,
@@ -206,6 +266,7 @@ export class BackendRunCoordinator implements RunCoordinator {
             } as const;
           }
           const runtime = await resolved.createRuntime(input.signal);
+          executionStarted = true;
           const result = await this.dependencies.delegated.run({
             session,
             turnId,
@@ -224,6 +285,19 @@ export class BackendRunCoordinator implements RunCoordinator {
         return { ok: false, failure: error } as const;
       }
       if (error instanceof SessionStoreError) {
+        if (executionStarted) {
+          return {
+            ok: false,
+            failure: {
+              domain: "storage",
+              phase: "started",
+              code: "session_conflict",
+              safeMessage: error.message,
+              diagnosticId: operationId,
+              retryable: false,
+            },
+          } as const;
+        }
         return {
           ok: false,
           failure: failure(
@@ -233,6 +307,12 @@ export class BackendRunCoordinator implements RunCoordinator {
             error.message,
             operationId,
           ),
+        } as const;
+      }
+      if (executionStarted) {
+        return {
+          ok: false,
+          failure: startedFailure(error, input.signal, operationId),
         } as const;
       }
       return {

@@ -286,6 +286,47 @@ describe("version 2 sessions", () => {
     ).rejects.toMatchObject({ code: "invalid_record" });
   });
 
+  it("keeps committed model usage when a turn is later interrupted", async () => {
+    const store = await temporaryStore();
+    await store.createPinnedSession({
+      id: "s2",
+      cwd: "/workspace",
+      backend,
+      at,
+    });
+    await store.withSessionMutation("s2", 0, async (lease) => {
+      await lease.append({
+        type: "turn_started",
+        turnId: "turn-1",
+        prompt: "inspect",
+        at,
+      });
+      await lease.append({
+        type: "model_completed",
+        turnId: "turn-1",
+        at,
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          content: "partial result",
+        },
+        usage: { inputTokens: 7, outputTokens: 3 },
+        stopReason: "complete",
+      });
+      await lease.append({
+        type: "turn_interrupted",
+        turnId: "turn-1",
+        reason: "process ended before terminal bookkeeping",
+        at,
+      });
+    });
+
+    expect((await store.loadState("s2")).usage).toEqual({
+      inputTokens: 7,
+      outputTokens: 3,
+    });
+  });
+
   it("keeps version 1 logs readable but refuses to mutate them", async () => {
     const store = await temporaryStore();
     const legacy = {
