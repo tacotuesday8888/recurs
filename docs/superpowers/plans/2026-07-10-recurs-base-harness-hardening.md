@@ -127,7 +127,7 @@
 
 ## Final verification and integration
 
-- [ ] Review `git diff main...HEAD`, `git status`, and staged files for unrelated changes or secrets.
-- [ ] Run `npm run check` from a clean working tree.
-- [ ] Push the branch, open a pull request, monitor CI, address failures or comments, and merge when green.
-- [ ] Verify `main` after the merge, delete the merged branch, and remove the worktree.
+- [x] Review `git diff main...HEAD`, `git status`, and staged files for unrelated changes or secrets.
+- [x] Run `npm run check` from a clean working tree.
+- [x] Push the branch, open a pull request, monitor CI, address failures or comments, and merge when green.
+- [x] Verify `main` after the merge, delete the merged branch, and remove the worktree.
