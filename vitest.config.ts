@@ -11,6 +11,9 @@ export default defineConfig({
       "@recurs/tools": fileURLToPath(
         new URL("./packages/tools/src/index.ts", import.meta.url),
       ),
+      "@recurs/core": fileURLToPath(
+        new URL("./packages/core/src/index.ts", import.meta.url),
+      ),
     },
   },
   test: {
