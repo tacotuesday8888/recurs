@@ -6,7 +6,7 @@
 
 **Architecture:** Four TypeScript workspaces separate provider transport, tool execution, orchestration, and presentation. The core owns immutable turn snapshots and an append-only session log; the CLI and scripted tests consume the same event stream. Tools enforce path, permission, checkpoint, and read-before-write rules independently of model prompts.
 
-**Tech Stack:** Node.js 22.22+ (Node 24 LTS supported), TypeScript 7.0.2, npm workspaces, Vitest 4.1.10, ESLint 10.6.0, native `fetch`, native `readline`, and macOS `security` for Keychain integration.
+**Tech Stack:** Node.js 22.22+ (Node 24 LTS supported), TypeScript 6.0.3, npm workspaces, Vitest 4.1.10, ESLint 10.6.0, native `fetch`, native `readline`, and macOS `security` for Keychain integration.
 
 ## Global Constraints
 
@@ -112,7 +112,7 @@ Expected: FAIL because `package.json` and provider exports do not exist.
     "@eslint/js": "10.0.1",
     "@types/node": "22.20.1",
     "eslint": "10.6.0",
-    "typescript": "7.0.2",
+    "typescript": "6.0.3",
     "typescript-eslint": "8.63.0",
     "vitest": "4.1.10"
   }
