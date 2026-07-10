@@ -38,6 +38,7 @@ export interface ToolContext {
   signal: AbortSignal;
   executionMode: ExecutionMode;
   readRevisions: Map<string, string>;
+  approvedIntents?: Set<string>;
 }
 
 export interface ToolResult {
@@ -60,7 +61,17 @@ export type ToolErrorCode =
   | "permission_denied"
   | "plan_mode_denied"
   | "cancelled"
-  | "execution_failed";
+  | "execution_failed"
+  | "external_path"
+  | "sensitive_file"
+  | "not_found"
+  | "not_a_directory"
+  | "output_limit"
+  | "process_failed"
+  | "unread_file"
+  | "stale_file"
+  | "patch_files_mismatch"
+  | "patch_failed";
 
 export class ToolError extends Error {
   constructor(

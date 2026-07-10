@@ -187,6 +187,52 @@ describe("AgentLoop", () => {
     ]);
   });
 
+  it("shares current-turn read revisions across sequential tool calls", async () => {
+    let secondSawRevision = false;
+    const makeTool = (name: string, execute: Tool["execute"]): Tool => ({
+      definition: {
+        name,
+        description: name,
+        inputSchema: { type: "object", additionalProperties: false },
+      },
+      mutating: false,
+      parse() {
+        return {};
+      },
+      permissions() {
+        return [{ category: "read", resource: name, risk: "normal" }];
+      },
+      execute,
+    });
+    const remember = makeTool("remember", async (_input, context) => {
+      context.readRevisions.set("/workspace/a.ts", "hash");
+      return { output: "remembered" };
+    });
+    const requireRevision = makeTool("require_revision", async (_input, context) => {
+      secondSawRevision = context.readRevisions.get("/workspace/a.ts") === "hash";
+      return { output: secondSawRevision ? "found" : "missing" };
+    });
+    const provider = new ScriptedProvider([
+      [
+        { type: "tool_call", call: { id: "1", name: "remember", arguments: {} } },
+        {
+          type: "tool_call",
+          call: { id: "2", name: "require_revision", arguments: {} },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "done" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const { loop } = await harness(provider, [remember, requireRevision]);
+
+    await loop.run({ sessionId: "s1", prompt: "work" });
+
+    expect(secondSawRevision).toBe(true);
+  });
+
   it("retries a retryable provider failure at most twice", async () => {
     const provider = new ScriptedProvider([
       new ProviderError("transport", "temporary", true),

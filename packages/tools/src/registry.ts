@@ -1,6 +1,9 @@
 import type { ToolCall, ToolDefinition } from "@recurs/providers";
 
-import type { PermissionEngine } from "./permissions.js";
+import {
+  permissionIntentKey,
+  type PermissionEngine,
+} from "./permissions.js";
 import {
   ToolError,
   type ApprovalHandler,
@@ -96,6 +99,7 @@ export class ToolRegistry {
         );
       }
       if (decision === "allow") {
+        (context.approvedIntents ??= new Set()).add(permissionIntentKey(intent));
         continue;
       }
 
@@ -109,6 +113,7 @@ export class ToolRegistry {
       if (response === "allow_session") {
         permissions.grantForSession(intent);
       }
+      (context.approvedIntents ??= new Set()).add(permissionIntentKey(intent));
     }
 
     return tool.execute(input, context);

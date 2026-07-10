@@ -344,6 +344,7 @@ export async function runAgentLoop(
   throwIfAborted(signal);
   let state = await deps.sessions.loadState(input.sessionId);
   deps.permissions.mode = state.permissionMode;
+  const toolContext = deps.createToolContext(state, signal);
   const turnId = `${input.sessionId}:${randomUUID()}`;
   const loopDetector = new LoopDetector();
   const usage: Usage = { inputTokens: 0, outputTokens: 0 };
@@ -509,7 +510,7 @@ export async function runAgentLoop(
           };
           result = await deps.tools.invoke(
             call,
-            deps.createToolContext(state, signal),
+            toolContext,
             deps.permissions,
             approvals,
           );

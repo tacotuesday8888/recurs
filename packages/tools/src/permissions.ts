@@ -4,7 +4,7 @@ import type {
   PermissionMode,
 } from "./types.js";
 
-function grantKey(intent: PermissionIntent): string {
+export function permissionIntentKey(intent: PermissionIntent): string {
   return `${intent.category}\0${intent.resource}`;
 }
 
@@ -24,7 +24,7 @@ export class PermissionEngine {
   constructor(public mode: PermissionMode) {}
 
   evaluate(intent: PermissionIntent): PermissionDecision {
-    if (this.#sessionGrants.has(grantKey(intent))) {
+    if (this.#sessionGrants.has(permissionIntentKey(intent))) {
       return "allow";
     }
 
@@ -42,7 +42,7 @@ export class PermissionEngine {
   }
 
   grantForSession(intent: PermissionIntent): void {
-    this.#sessionGrants.add(grantKey(intent));
+    this.#sessionGrants.add(permissionIntentKey(intent));
   }
 
   clearSessionGrants(): void {
