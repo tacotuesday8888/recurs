@@ -3,6 +3,9 @@
   "references": [
     {
       "path": "./packages/providers"
+    },
+    {
+      "path": "./packages/tools"
     }
   ],
   "compilerOptions": {
