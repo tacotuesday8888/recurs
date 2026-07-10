@@ -12,9 +12,10 @@ The repository contains a usable single-agent base:
 - Ask Always, Approved for Me, Full Access, enforced Plan mode, and temporary read-only review;
 - durable `/goal` state, append-only JSONL sessions, interrupted-tool recovery, compaction, checkpoints, and conflict-safe undo;
 - interactive and non-interactive CLI paths with text or normalized JSONL output;
-- one `npm run check` path covering lint, type checking, 100+ tests, and build output.
+- immutable backend pins, strict version-2 session records, cross-process mutation leases, and typed preflight failures;
+- one `npm run check` path covering lint, type checking, tests, and build output.
 
-The standalone CLI does not yet bundle a live LLM provider. Hosts can inject the public `ModelProvider` interface; local slash commands remain available without one.
+The standalone CLI does not yet bundle a live LLM provider. Without one it starts a sessionless workspace shell, so local commands remain available without writing a fake session. Test hosts can inject the public `ModelProvider` interface through the same coordinator seam that future live connections will use.
 
 ## Quick start
 
@@ -32,6 +33,7 @@ After building, `npm link` exposes the local `recurs` command.
 ## Packages
 
 ```text
+packages/contracts   Dependency-leaf model, connection, backend, failure, and runtime contracts
 packages/providers   Normalized provider protocol and deterministic test provider
 packages/tools       Tool registry, permissions, path policy, Git, and checkpoints
 packages/core        Agent loop, events, sessions, goals, compaction, and recovery
@@ -47,8 +49,9 @@ File tools enforce workspace, symlink, stale-write, and output limits. Shell com
 
 ## Next
 
-1. Implement the reviewed provider, authentication, model-selection, and onboarding design.
-2. Build the heavy sub-agent/company runtime over the same events, tools, sessions, goals, and permissions.
-3. Add the desktop agent-manager client, plugins/MCP, signed releases, Homebrew, and curl installation in later slices.
+1. Add credential and tool-process isolation, safe diagnostics, and brokered provider transport.
+2. Implement connection metadata, catalogs, billing policy, model selection, and first-run onboarding.
+3. Add direct providers, then official delegated subscription runtimes through documented integrations.
+4. Build the heavy sub-agent/company runtime over these explicit backend capabilities.
 
 Start with the [documentation index](docs/README.md), [CLI guide](docs/CLI.md), [architecture](ARCHITECTURE.md), and [product direction](PRODUCT.md).

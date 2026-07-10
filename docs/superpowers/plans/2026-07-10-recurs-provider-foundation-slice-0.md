@@ -13,7 +13,7 @@
 - Do not accept, persist, import, or transmit any live provider credential in this slice.
 - Keep `@recurs/contracts` free of Node APIs and dependencies on other Recurs packages.
 - New durable sessions use version 2 and an immutable `SessionBackendPin`; version-1 logs remain readable and listable but cannot be mutated.
-- Repository files and model output cannot construct trusted invocation context, backend pins, or authorizations.
+- Repository files and model output are never parsed into trusted invocation context, backend pins, or authorizations. Hosts create invocations, resolvers supply pinned backend data and authorization, and the coordinator verifies exact run binding before execution.
 - Preserve the current scripted-provider coding flow and all existing permission, Plan mode, goal, checkpoint, and tool behavior.
 - Keep the current product name isolated to CLI copy; do not add new architecture identifiers derived from `Recurs` branding.
 
@@ -141,7 +141,7 @@ Commit: `feat: add provider-neutral contracts`
 - Modify: `packages/core/test/session.test.ts`
 
 **Interfaces:**
-- Produces: `SessionRecordV2`, `SessionRecordInputV2`, `SessionStateV2`, `SessionBackendState`, `SessionMutationLease`, `JsonlSessionStore.createPinnedSession()`, `withSessionMutation()`, and `appendV2()`.
+- Produces: `SessionRecordV2`, `SessionRecordInputV2`, `PinnedSessionState`, the explicit `SessionState.backend` union, `SessionMutationLease`, `JsonlSessionStore.createPinnedSession()`, and `withSessionMutation()` with lease-scoped `append()`.
 - Preserves: `loadState()` for version-1 fixtures and historical logs; `list()` labels legacy and pinned sessions.
 
 - [x] **Step 1: Write failing tests for pins, strict sequences, legacy immutability, and competing leases**
@@ -207,11 +207,11 @@ await store.withSessionMutation(sessionId, expectedSequence, async (lease) => {
 });
 ```
 
-- [ ] **Step 5: Reduce v2 records without weakening legacy behavior**
+- [x] **Step 5: Reduce v2 records without weakening legacy behavior**
 
 V2 replay derives the user message from `turn_started`, assistant messages from `model_completed`, tool messages from terminal tool records, and current mode/goal/result from their provenance-bearing records. V1 replay returns `backend: { type: "legacy", model }` and never accepts a new record.
 
-- [ ] **Step 6: Run session tests and commit**
+- [x] **Step 6: Run session tests and commit**
 
 Run: `npm test -- packages/core/test/session.test.ts packages/core/test/session-v2.test.ts && npm run typecheck`
 Expected: PASS.
@@ -223,16 +223,16 @@ Commit: `feat: add pinned version two sessions`
 ### Task 3: Add the backend-neutral run coordinator seam
 
 **Files:**
-- Create: `packages/core/src/run-context.ts`
 - Create: `packages/core/src/run-coordinator.ts`
 - Create: `packages/core/src/compatibility-coordinator.ts`
+- Create: `packages/core/src/direct-model-executor.ts`
 - Create: `packages/core/test/run-coordinator.test.ts`
 - Modify: `packages/core/src/agent-loop.ts`
 - Modify: `packages/core/src/index.ts`
 
 **Interfaces:**
 - Consumes: `BackendResolver`, `HostInvocation`, `RunCoordinator`, `RunOutcome`, `SessionBackendPin` from contracts.
-- Produces: `CompatibilityRunCoordinator`, preflight-before-persistence behavior, and a normalized event/outcome surface.
+- Produces: `BackendRunCoordinator`, `CompatibilityRunCoordinator`, preflight-before-persistence behavior, delegated dispatch port, and a normalized outcome/event contract.
 
 - [x] **Step 1: Write failing tests for preflight, immutable routing, and provider lifetime**
 
@@ -274,13 +274,13 @@ const resolved = await resolver.resolve({
 });
 ```
 
-No `turn_started` or prompt record is appended until this completes. The direct lane creates a provider for this run and wraps the existing `AgentLoop`; the runtime lane uses the injected fake `AgentRuntime` executor and normalizes its result. Both return typed failures as data.
+No `turn_started` or prompt record is appended until this completes. The direct lane creates a provider for this run and wraps the existing `AgentLoop`; the runtime lane dispatches to an injected `DelegatedRunExecutor` port, covered with a fake runtime in tests. Both return typed failures as data. A production delegated executor remains a later slice.
 
-- [ ] **Step 4: Add a compatibility coordinator for existing scripted-provider fixtures**
+- [x] **Step 4: Add a compatibility coordinator for existing scripted-provider fixtures**
 
-The compatibility coordinator adapts `AgentLoop.run()` to `RunOutcome`, while `AgentLoop` writes version-2 records under the coordinator's mutation lease. It makes no claim that a live credential is safe and exists only for injected/test providers until Slice 1 and the real resolver replace it.
+The compatibility coordinator adapts older `AgentLoop.run()` fixtures to `RunOutcome`; the loop acquires its normal version-2 mutation lease. Standalone injected providers use `BackendRunCoordinator` plus `AgentLoopDirectExecutor`. Neither path claims that a live credential is safe.
 
-- [ ] **Step 5: Run coordinator and agent-loop tests and commit**
+- [x] **Step 5: Run coordinator and agent-loop tests and commit**
 
 Run: `npm test -- packages/core/test/run-coordinator.test.ts packages/core/test/agent-loop.test.ts && npm run typecheck`
 Expected: PASS.
@@ -307,10 +307,10 @@ Commit: `feat: add backend-neutral run coordination`
 - Modify: `packages/cli/test/run-mode.test.ts`
 
 **Interfaces:**
-- Produces: `WorkspaceShellState`, `RuntimeState`, core-owned `RecursRuntime`, and CLI `RuntimeAdapter` command routing.
-- Preserves: public `RecursRuntime` compatibility export from `@recurs/cli`.
+- Produces: core-owned `WorkspaceShellState` and `CoordinatedRuntime`, plus CLI workspace/session command routing.
+- Preserves: the public `RecursRuntime` export from `@recurs/cli` as the CLI adapter.
 
-- [ ] **Step 1: Write failing tests for no fake session and shell command boundaries**
+- [x] **Step 1: Write failing tests for no fake session and shell command boundaries**
 
 ```ts
 it("starts without creating a session when no backend is configured", async () => {
@@ -328,30 +328,33 @@ it("keeps only local workspace commands available before connection", async () =
 });
 ```
 
-- [ ] **Step 2: Run runtime tests and verify the current eager session creation fails them**
+- [x] **Step 2: Run runtime tests and verify the current eager session creation fails them**
 
 Run: `npm test -- packages/core/test/runtime.test.ts packages/cli/test/runtime.test.ts`
 Expected: FAIL because assembly creates an `unconfigured` version-1 session.
 
-- [ ] **Step 3: Implement the core runtime state machine and CLI command adapter**
+- [x] **Step 3: Implement the core runtime state machine and CLI command adapter**
 
 ```ts
-export type RuntimeState =
-  | { type: "workspace"; shell: WorkspaceShellState }
-  | { type: "session"; session: SessionState };
+export interface WorkspaceShellState {
+  type: "workspace";
+  cwd: string;
+  permissionMode: PermissionMode;
+}
 
-export interface RuntimeCommandRouter {
-  execute(input: string, context: RuntimeCommandContext): Promise<RuntimeCommandResult>;
+export class CoordinatedRuntime {
+  session: SessionState;
+  run(prompt: string, invocation: HostInvocation, signal: AbortSignal): Promise<RunResult>;
 }
 ```
 
-The core runtime owns active cancellation, prompt coordination, session reload, and state transitions. The CLI registry implements the command port and checks command availability for workspace versus session state.
+Core owns coordinated prompt execution, typed outcomes, event draining, and session reload. The CLI adapter owns interactive cancellation and command routing, and checks command availability for workspace versus session state.
 
-- [ ] **Step 4: Stop eager session creation and render honest onboarding-ready copy**
+- [x] **Step 4: Stop eager session creation and render honest onboarding-ready copy**
 
 Without an injected provider, `createStandaloneRuntime` returns a workspace state and creates no JSONL. `/status`, `/help`, `/permissions`, `/resume`, `/init`, `/diff`, and exit commands remain local. A model prompt returns configuration exit `2` without persisting the prompt. With a scripted injected provider, assembly creates a pinned test connection/session and preserves the coding path.
 
-- [ ] **Step 5: Run CLI, core runtime, and end-to-end tests and commit**
+- [x] **Step 5: Run CLI, core runtime, and end-to-end tests and commit**
 
 Run: `npm test -- packages/core/test/runtime.test.ts packages/cli/test/runtime.test.ts packages/cli/test/run-mode.test.ts tests/e2e/coding-agent.test.ts && npm run typecheck`
 Expected: PASS.
@@ -373,23 +376,23 @@ Commit: `feat: add sessionless provider-ready runtime`
 **Interfaces:**
 - Documents: exact implemented state, explicit non-goals, legacy behavior, and next Slice 1 safety work.
 
-- [ ] **Step 1: Update docs without claiming live provider or credential support**
+- [x] **Step 1: Update docs without claiming live provider or credential support**
 
 Document that contracts, pins, trusted context, v2 logs, coordinator seam, and sessionless shell are implemented. Keep live API keys, secure storage, broker transport, onboarding, OpenAI/Anthropic network adapters, delegated subscriptions, and subagents explicitly unimplemented.
 
-- [ ] **Step 2: Mark every completed plan checkbox and self-review the full diff**
+- [x] **Step 2: Mark every completed plan checkbox and self-review the full diff**
 
 Run: `git diff --check && git status --short && git diff --stat && git diff`
 Expected: only intended provider-foundation files, no secret material, no swap files, and no whitespace errors.
 
-- [ ] **Step 3: Run the full repository gate from a clean build**
+- [x] **Step 3: Run the full repository gate from a clean build**
 
 Run: `rm -rf packages/*/dist && npm run check`
 Expected: lint, strict TypeScript, all tests, and build pass.
 
-- [ ] **Step 4: Request an independent code review and address every validated issue**
+- [x] **Step 4: Perform a separate read-only code review pass and address every validated issue**
 
-Review focus: package cycles, trusted-context forgery, session sequence/lock races, v1 mutation, prompt persistence before preflight, fake-session creation, cancellation, and compatibility regressions.
+Review focus: package cycles, trusted-context forgery, session sequence/lock races, v1 mutation, prompt persistence before preflight, authorization binding, request budgets, failure phases, durable usage, fake-session creation, cancellation, delegated dispatch, and compatibility regressions. Current workspace policy disallows a delegated reviewer, so this pass is performed separately from implementation and followed by PR CI.
 
 - [ ] **Step 5: Commit documentation, push, open PR, monitor CI, merge, and clean up**
 

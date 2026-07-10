@@ -10,7 +10,8 @@ Current documents:
 Reviewed specifications and implementation plans:
 
 - [Core v0 design](superpowers/specs/2026-07-10-recurs-core-v0-design.md) — implemented single-agent foundation.
-- [Provider, authentication, and onboarding design](superpowers/specs/2026-07-10-recurs-provider-auth-design.md) — reviewed future design, not implemented.
+- [Provider, authentication, and onboarding design](superpowers/specs/2026-07-10-recurs-provider-auth-design.md) — reviewed umbrella design; Slice 0 is implemented and later security, onboarding, provider, and runtime slices remain.
 - [Base harness hardening plan](superpowers/plans/2026-07-10-recurs-base-harness-hardening.md).
+- [Provider foundation Slice 0 plan](superpowers/plans/2026-07-10-recurs-provider-foundation-slice-0.md).
 
 Earlier exploration is preserved in [historical research](research/README.md). It may use the old “Subagents IDE” working name or describe options that are not current commitments.

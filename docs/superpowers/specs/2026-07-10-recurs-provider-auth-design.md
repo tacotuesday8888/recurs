@@ -1,10 +1,10 @@
 # Recurs Provider, Authentication, and Onboarding Design
 
 **Date:** 2026-07-10
-**Status:** Reviewed design — approved direction, not implemented
+**Status:** Reviewed umbrella design — Slice 0 implemented; Slices 1–5 pending
 **Scope:** CLI-first provider connectivity shared with the future desktop app
 
-This specification describes the next provider/authentication layer. The current repository still ships only the provider-neutral Core v0 boundary. See [the architecture](../../../ARCHITECTURE.md) for implemented behavior.
+This specification describes the provider/authentication program. The repository now implements Slice 0: dependency-leaf contracts, immutable backend pins, trusted host context, version-2 sessions and leases, backend-neutral coordination, and a sessionless workspace shell. It does not yet hold credentials or contact a live provider. See [the architecture](../../../ARCHITECTURE.md) for exact implemented behavior.
 
 ## 1. Decision
 
@@ -2993,7 +2993,7 @@ its own specification review, implementation plan, and one or more small PRs.
 After this umbrella specification is reviewed, planning begins with Slice 0
 only.
 
-### Slice 0: Contracts, session concurrency, and runtime seam
+### Slice 0: Contracts, session concurrency, and runtime seam — implemented
 
 - Add the dependency-leaf contracts package and enforce the acyclic graph.
 - Move backend-neutral runtime behavior from CLI to core.

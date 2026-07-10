@@ -21,7 +21,7 @@ It is not an IDE. Users may keep their editor of choice. Recurs manages the peop
 
 ## What exists now
 
-Core v0 is implemented and verified: a provider-neutral loop, seven tools, three permission presets, Plan and review modes, goals, append-only sessions, interrupted-tool recovery, compaction, checkpoints/undo, interactive and JSONL CLI paths, and a full end-to-end coding workflow.
+Core v0 and provider-foundation Slice 0 are implemented and verified: a provider-neutral loop, seven tools, three permission presets, Plan and review modes, goals, pinned version-2 sessions, cross-process mutation leases, trusted run context, a backend-neutral coordinator, interrupted-work recovery, compaction, checkpoints/undo, sessionless workspace shell, interactive and JSONL CLI paths, and a full end-to-end coding workflow.
 
 The CLI currently needs an injected `ModelProvider` for real prompts. It does not yet collect credentials, connect subscriptions, choose a model, or ship provider network adapters. Shell commands are not OS-sandboxed, so the default is cautious and Approved for Me asks before command execution.
 
@@ -29,7 +29,7 @@ The CLI currently needs an injected `ModelProvider` for real prompts. It does no
 
 ### 1. Provider and onboarding layer
 
-Implement the reviewed connection architecture: secure credential handling, documented API-key and subscription paths, model catalogs, billing disclosure, exact session backend pins, connection verification, and a first-run setup flow shared by CLI and desktop.
+Continue the reviewed connection architecture in order: credential/process isolation and brokered transport first; then connection metadata, model catalogs, billing disclosure, connection verification, and a first-run setup flow shared by CLI and desktop; then individual direct-provider and official delegated-runtime adapters.
 
 ### 2. Sub-agent company runtime
 
