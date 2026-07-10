@@ -17,5 +17,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes ripgrep
       - run: npm ci
       - run: npm run check
