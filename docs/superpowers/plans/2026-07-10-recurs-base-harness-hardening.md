@@ -28,7 +28,9 @@
 - Modify: `packages/providers/src/collect-provider-events.ts`
 - Test: `packages/providers/test/types.test.ts`
 - Modify: `packages/core/src/agent-loop.ts`
+- Modify: `packages/core/src/compaction.ts`
 - Test: `packages/core/test/agent-loop.test.ts`
+- Test: `packages/core/test/compaction.test.ts`
 
 - [ ] Add failing provider tests for events after `done`, duplicate or empty tool IDs/names, invalid usage, output/tool-count limits, and event observation.
 - [ ] Add a failing loop test proving that a retryable failure after text or a tool call is not retried.
@@ -51,6 +53,7 @@
 - [ ] On every tool failure, append `tool_failed` and a tool result message before propagating cancellation.
 - [ ] Before a new turn, reconcile pending calls and assistant tool calls without results. Persist an `interrupted` failure when needed and append a synthetic tool result so provider history remains valid.
 - [ ] Add `session_busy` to `AgentLoopErrorCode`; have `AgentLoop` reject a concurrent run for the same session and always release its in-memory guard in `finally`.
+- [ ] Preserve complete assistant-tool-call/result groups when selecting the recent compaction window.
 - [ ] Run focused tests and `npm run typecheck`.
 - [ ] Commit as `fix: recover interrupted tool calls`.
 

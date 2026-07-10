@@ -75,6 +75,8 @@ The loop repairs an interrupted protocol boundary before the next request:
 
 This keeps resumed provider history structurally valid. Multi-process file locking, indexed metadata, provenance-rich backend pins, and atomic grouped records remain part of the later session-v2/provider work.
 
+Compaction targets the latest six messages but extends the retained window when necessary so an assistant tool call is never separated from its tool results.
+
 ## Checkpoints
 
 Mutating tools capture content-addressed before/after workspace states outside the project. Undo chooses the newest checkpoint that changed files and verifies the current files still match the agent-produced after-state before restoring anything. Git is used for enumeration only; Recurs does not reset, clean, checkout, or commit the user's repository.

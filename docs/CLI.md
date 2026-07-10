@@ -112,7 +112,7 @@ Replacing or clearing an unfinished goal requires confirmation. Each successful 
 | `/init` | Confirm and create a starter `AGENTS.md`; never overwrite an existing path. |
 | `/new` | Start a new durable session in the same workspace. |
 | `/resume [id]` | List sessions newest-first or resume one exact ID. Prefix matching is not used. |
-| `/compact` | Ask the injected provider for a continuation summary and retain the latest six messages. |
+| `/compact` | Ask the injected provider for a continuation summary and retain roughly the latest six messages without splitting tool-call/result groups. |
 | `/diff [--staged] [path]` | Show a bounded Git diff without external diff or text-conversion programs. |
 | `/review` | Submit staged/unstaged changes for a temporary read-only review. |
 | `/undo` | Restore the latest checkpoint that actually changed files. |

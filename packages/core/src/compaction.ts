@@ -15,6 +15,27 @@ export interface CompactionResult {
   retainedMessages: ModelMessage[];
 }
 
+function retainedContinuation(
+  messages: readonly ModelMessage[],
+  targetCount: number,
+): ModelMessage[] {
+  let start = Math.max(0, messages.length - targetCount);
+  while (messages[start]?.role === "tool") {
+    const callId = messages[start]?.toolCallId;
+    let requestIndex = -1;
+    if (callId !== undefined) {
+      for (let index = start - 1; index >= 0; index -= 1) {
+        if (messages[index]?.toolCalls?.some((call) => call.id === callId)) {
+          requestIndex = index;
+          break;
+        }
+      }
+    }
+    start = requestIndex >= 0 ? requestIndex : start + 1;
+  }
+  return messages.slice(start);
+}
+
 function compactionContext(
   state: SessionState,
   retainedMessages: readonly ModelMessage[],
@@ -46,7 +67,7 @@ export async function compactSession(
   if (signal.aborted) {
     throw new ProviderError("cancelled", "Compaction cancelled", false);
   }
-  const retainedMessages = state.messages.slice(-6);
+  const retainedMessages = retainedContinuation(state.messages, 6);
   const request: ProviderRequest = {
     model: state.model,
     messages: [

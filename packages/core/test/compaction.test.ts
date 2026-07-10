@@ -72,4 +72,50 @@ describe("compactSession", () => {
       compactSession(longSession(), provider, new AbortController().signal),
     ).rejects.toMatchObject({ code: "invalid_response" });
   });
+
+  it("does not split a tool call from its retained results", async () => {
+    const state = {
+      ...longSession(),
+      messages: [
+        { id: "old", role: "user" as const, content: "old" },
+        {
+          id: "tool-request",
+          role: "assistant" as const,
+          content: "",
+          toolCalls: [
+            { id: "call-1", name: "read_file", arguments: { path: "a.ts" } },
+            { id: "call-2", name: "read_file", arguments: { path: "b.ts" } },
+          ],
+        },
+        { id: "result-1", role: "tool" as const, content: "a", toolCallId: "call-1" },
+        { id: "result-2", role: "tool" as const, content: "b", toolCallId: "call-2" },
+        { id: "answer", role: "assistant" as const, content: "read both" },
+        { id: "user-2", role: "user" as const, content: "next" },
+        { id: "answer-2", role: "assistant" as const, content: "next answer" },
+        { id: "user-3", role: "user" as const, content: "latest" },
+      ],
+    };
+    const provider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: "summary" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+
+    const compacted = await compactSession(
+      state,
+      provider,
+      new AbortController().signal,
+    );
+
+    expect(compacted.retainedMessages.map((message) => message.id)).toEqual([
+      "tool-request",
+      "result-1",
+      "result-2",
+      "answer",
+      "user-2",
+      "answer-2",
+      "user-3",
+    ]);
+  });
 });
