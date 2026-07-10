@@ -1,58 +1,21 @@
-export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+import type {
+  ProviderEvent,
+  StopReason,
+  ToolCall,
+} from "@recurs/contracts";
 
-export type MessageRole = "system" | "user" | "assistant" | "tool";
-
-export interface ToolCall {
-  id: string;
-  name: string;
-  arguments: unknown;
-}
-
-export interface ModelMessage {
-  id: string;
-  role: MessageRole;
-  content: string;
-  toolCallId?: string;
-  toolCalls?: ToolCall[];
-}
-
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  inputSchema: Record<string, JsonValue>;
-}
-
-export interface ProviderRequest {
-  model: string;
-  messages: readonly ModelMessage[];
-  tools: readonly ToolDefinition[];
-  signal: AbortSignal;
-}
-
-export type StopReason =
-  | "complete"
-  | "tool_calls"
-  | "length"
-  | "cancelled"
-  | "error";
-
-export type ProviderEvent =
-  | { type: "text_delta"; text: string }
-  | { type: "reasoning_delta"; text: string }
-  | { type: "tool_call"; call: ToolCall }
-  | { type: "usage"; inputTokens: number; outputTokens: number }
-  | { type: "done"; stopReason: StopReason };
-
-export interface ModelProvider {
-  readonly id: string;
-  stream(request: ProviderRequest): AsyncIterable<ProviderEvent>;
-}
+export type {
+  JsonValue,
+  MessageRole,
+  ModelMessage,
+  ModelProvider,
+  ProviderEvent,
+  ProviderRequest,
+  ProviderUsage,
+  StopReason,
+  ToolCall,
+  ToolDefinition,
+} from "@recurs/contracts";
 
 export type ProviderErrorCode =
   | "authentication"

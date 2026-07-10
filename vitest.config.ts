@@ -5,6 +5,9 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: {
+      "@recurs/contracts": fileURLToPath(
+        new URL("./packages/contracts/src/index.ts", import.meta.url),
+      ),
       "@recurs/providers": fileURLToPath(
         new URL("./packages/providers/src/index.ts", import.meta.url),
       ),

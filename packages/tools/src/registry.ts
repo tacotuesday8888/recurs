@@ -1,4 +1,4 @@
-import type { ToolCall, ToolDefinition } from "@recurs/providers";
+import type { ToolCall, ToolDefinition } from "@recurs/contracts";
 
 import {
   permissionIntentKey,
