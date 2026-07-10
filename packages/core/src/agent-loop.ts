@@ -64,6 +64,7 @@ export type AgentLoopErrorCode =
   | "invalid_run_input"
   | "invalid_provider_response"
   | "provider_failed"
+  | "session_busy"
   | "step_budget_exceeded"
   | "stuck_loop";
 
@@ -299,6 +300,20 @@ function toolFailureResult(error: unknown): ToolResult {
   };
 }
 
+function unresolvedToolCalls(messages: readonly ModelMessage[]): ToolCall[] {
+  const unresolved = new Map<string, ToolCall>();
+  for (const message of messages) {
+    if (message.role === "assistant") {
+      for (const call of message.toolCalls ?? []) {
+        unresolved.set(call.id, call);
+      }
+    } else if (message.role === "tool" && message.toolCallId !== undefined) {
+      unresolved.delete(message.toolCallId);
+    }
+  }
+  return [...unresolved.values()];
+}
+
 export async function runAgentLoop(
   deps: AgentLoopDependencies,
   input: RunInput,
@@ -335,6 +350,41 @@ export async function runAgentLoop(
   async function append(record: SessionRecord): Promise<void> {
     await deps.sessions.append(input.sessionId, record);
     state = reduceSessionRecord(state, record);
+  }
+
+  const interruptedCalls = new Map(
+    state.pendingToolCalls.map((call) => [call.id, call]),
+  );
+  for (const call of interruptedCalls.values()) {
+    const failed: SessionRecord = {
+      version: 1,
+      type: "tool_failed",
+      sessionId: input.sessionId,
+      at: now(),
+      callId: call.id,
+      error: {
+        code: "interrupted",
+        message: "Tool execution ended before a durable result was recorded",
+        retryable: false,
+      },
+    };
+    await append(failed);
+    await emitPersistedEvent(deps, failed);
+  }
+  for (const call of unresolvedToolCalls(state.messages)) {
+    await append({
+      version: 1,
+      type: "message_appended",
+      sessionId: input.sessionId,
+      at: now(),
+      message: {
+        id: randomUUID(),
+        role: "tool",
+        content:
+          "Tool error [interrupted]: execution ended before a durable result was recorded",
+        toolCallId: call.id,
+      },
+    });
   }
 
   const userMessage: ModelMessage = {
@@ -486,6 +536,7 @@ export async function runAgentLoop(
         await emitPersistedEvent(deps, started);
 
         let result: ToolResult;
+        let cancelledDuringTool = false;
         try {
           const approvals: ApprovalHandler = {
             request: async (intent) => {
@@ -526,9 +577,13 @@ export async function runAgentLoop(
           await append(completed);
           await emitPersistedEvent(deps, completed);
         } catch (error) {
-          throwIfAborted(signal);
+          const failure = signal.aborted
+            ? new ToolError("cancelled", `Tool ${call.name} was cancelled`)
+            : error;
           const serialized = serializeError(
-            error instanceof Error ? error : new Error("Unknown tool failure"),
+            failure instanceof Error
+              ? failure
+              : new Error("Unknown tool failure"),
           );
           const failed: SessionRecord = {
             version: 1,
@@ -540,7 +595,8 @@ export async function runAgentLoop(
           };
           await append(failed);
           await emitPersistedEvent(deps, failed);
-          result = toolFailureResult(error);
+          result = toolFailureResult(failure);
+          cancelledDuringTool = signal.aborted;
         }
 
         const toolMessage: ModelMessage = {
@@ -556,6 +612,10 @@ export async function runAgentLoop(
           at: now(),
           message: toolMessage,
         });
+
+        if (cancelledDuringTool) {
+          throw new AgentLoopError("cancelled", "Agent run cancelled");
+        }
 
         const resultChangedFiles = metadataStrings(result, "changedFiles");
         if (resultChangedFiles.length > 0) {
@@ -617,9 +677,22 @@ export async function runAgentLoop(
 }
 
 export class AgentLoop {
+  readonly #activeSessions = new Set<string>();
+
   constructor(private readonly deps: AgentLoopDependencies) {}
 
   async run(input: RunInput): Promise<RunResult> {
-    return runAgentLoop(this.deps, input);
+    if (this.#activeSessions.has(input.sessionId)) {
+      throw new AgentLoopError(
+        "session_busy",
+        `Session ${input.sessionId} already has an active run`,
+      );
+    }
+    this.#activeSessions.add(input.sessionId);
+    try {
+      return await runAgentLoop(this.deps, input);
+    } finally {
+      this.#activeSessions.delete(input.sessionId);
+    }
   }
 }

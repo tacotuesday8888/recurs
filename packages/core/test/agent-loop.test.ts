@@ -380,6 +380,139 @@ describe("AgentLoop", () => {
     await expect(running).rejects.toMatchObject({ code: "cancelled" });
   });
 
+  it("closes a started tool call when cancellation interrupts execution", async () => {
+    const started = vi.fn();
+    const waitingTool: Tool = {
+      definition: {
+        name: "wait",
+        description: "Wait for cancellation",
+        inputSchema: { type: "object", additionalProperties: false },
+      },
+      mutating: false,
+      parse() {
+        return {};
+      },
+      permissions() {
+        return [{ category: "read", resource: "wait", risk: "normal" }];
+      },
+      async execute(_input, context) {
+        started();
+        await new Promise<void>((_resolve, reject) => {
+          context.signal.addEventListener(
+            "abort",
+            () => reject(new ToolError("cancelled", "wait was cancelled")),
+            { once: true },
+          );
+        });
+        return { output: "unreachable" };
+      },
+    };
+    const provider = new ScriptedProvider([
+      [
+        { type: "tool_call", call: { id: "wait-1", name: "wait", arguments: {} } },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+    ]);
+    const { loop, store, events } = await harness(provider, [waitingTool]);
+    const controller = new AbortController();
+
+    const running = loop.run({ sessionId: "s1", prompt: "wait", signal: controller.signal });
+    await vi.waitFor(() => expect(started).toHaveBeenCalledOnce());
+    controller.abort();
+
+    await expect(running).rejects.toMatchObject({ code: "cancelled" });
+    const restored = await store.loadState("s1");
+    expect(restored.pendingToolCalls).toEqual([]);
+    expect(restored.messages.at(-1)).toMatchObject({
+      role: "tool",
+      toolCallId: "wait-1",
+      content: expect.stringContaining("cancelled"),
+    });
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "tool_failed", callId: "wait-1" }),
+        expect.objectContaining({ type: "turn_cancelled" }),
+      ]),
+    );
+  });
+
+  it("reconciles a missing tool result before the next provider request", async () => {
+    const provider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: "continued" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const { loop, store } = await harness(provider);
+    const call = { id: "orphan-1", name: "echo", arguments: { text: "lost" } };
+    await store.append("s1", {
+      version: 1,
+      type: "message_appended",
+      sessionId: "s1",
+      at: "2026-07-10T00:00:01.000Z",
+      message: {
+        id: "assistant-before-crash",
+        role: "assistant",
+        content: "",
+        toolCalls: [call],
+      },
+    });
+    await store.append("s1", {
+      version: 1,
+      type: "tool_started",
+      sessionId: "s1",
+      at: "2026-07-10T00:00:02.000Z",
+      call,
+    });
+
+    await loop.run({ sessionId: "s1", prompt: "continue" });
+
+    expect(provider.requests[0]?.messages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          role: "tool",
+          toolCallId: "orphan-1",
+          content: expect.stringContaining("interrupted"),
+        }),
+      ]),
+    );
+    expect((await store.loadState("s1")).pendingToolCalls).toEqual([]);
+  });
+
+  it("rejects concurrent runs for the same session", async () => {
+    const firstStarted = vi.fn();
+    let requestCount = 0;
+    const provider: ModelProvider = {
+      id: "concurrency",
+      async *stream(request: ProviderRequest): AsyncIterable<ProviderEvent> {
+        requestCount += 1;
+        if (requestCount === 1) {
+          firstStarted();
+          await new Promise<void>((_resolve, reject) => {
+            request.signal.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          });
+        }
+        yield { type: "text_delta", text: "second" };
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const { loop } = await harness(provider);
+    const controller = new AbortController();
+    const first = loop.run({ sessionId: "s1", prompt: "first", signal: controller.signal });
+    await vi.waitFor(() => expect(firstStarted).toHaveBeenCalledOnce());
+
+    await expect(loop.run({ sessionId: "s1", prompt: "second" })).rejects.toMatchObject({
+      code: "session_busy",
+    });
+    controller.abort();
+    await expect(first).rejects.toMatchObject({ code: "cancelled" });
+    expect(requestCount).toBe(1);
+  });
+
   it("stops when the provider exceeds the step budget", async () => {
     const provider = new ScriptedProvider([toolTurn("1", "a")]);
     const { loop } = await harness(provider);
