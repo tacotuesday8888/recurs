@@ -1,5 +1,9 @@
 # Recurs Core v0 Design
 
+**Status:** Implemented and verified. Live providers remain a separate layer.
+
+This document is the reviewed design input for Core v0. For the current implementation boundary and known limitations, see [the architecture](../../../ARCHITECTURE.md) and [CLI guide](../../CLI.md).
+
 ## Purpose
 
 Recurs Core v0 is the first usable foundation of the Recurs coding agent. It is a first-party harness that can accept a coding request, call an LLM, execute tools safely, preserve the session, and continue until the model returns a final response or the run reaches a defined limit.

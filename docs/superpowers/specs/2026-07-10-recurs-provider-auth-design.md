@@ -1,8 +1,10 @@
 # Recurs Provider, Authentication, and Onboarding Design
 
 **Date:** 2026-07-10
-**Status:** Draft specification — architecture approved; awaiting written-spec review
+**Status:** Reviewed design — approved direction, not implemented
 **Scope:** CLI-first provider connectivity shared with the future desktop app
+
+This specification describes the next provider/authentication layer. The current repository still ships only the provider-neutral Core v0 boundary. See [the architecture](../../../ARCHITECTURE.md) for implemented behavior.
 
 ## 1. Decision
 
@@ -82,7 +84,7 @@ The current boundary is useful but insufficient for real credentials:
 - Full Access currently permits credential and sensitive intents.
 - Provider, tool, and process errors can reach events and durable JSONL without
   a central redaction boundary.
-- Provider retries can occur after visible output, which can duplicate text.
+- Provider retries after visible output were blocked during Core v0 hardening.
 - Checkpointing can archive a tracked `.env` file.
 - Session roots and existing files are not comprehensively checked for owner,
   mode, symlink, or shared-directory safety.

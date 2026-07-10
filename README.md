@@ -1,66 +1,54 @@
 # Recurs
 
-Recurs is a provider-neutral coding-agent harness and agent manager. The first surface is a terminal CLI, built around a durable tool-calling loop, strong subagent-ready boundaries, explicit permissions, Plan mode, long-running goals, recoverable checkpoints, and resumable sessions.
+Recurs is a provider-neutral coding-agent harness that will grow into an agent manager. It is not an IDE: the CLI and future desktop app are clients over the same engine.
 
-It is not an IDE. The longer-term desktop product will feel closer to a coding-agent manager: open a project, see the working “company” of agents, follow conversations, goals, handoffs, approvals, reviews, and progress—while keeping chat as the primary interaction model.
+## Current foundation
 
-## What works now
+The repository contains a usable single-agent base:
 
-Recurs Core v0 includes:
+- one streaming tool-calling loop with bounded pre-output retries, cancellation, step limits, and repeated-loop detection;
+- strict provider-event validation and normalized text, reasoning, tool, usage, and completion events;
+- seven tools for file reading, listing, search, patching, bounded shell execution, Git status, and Git diff;
+- Ask Always, Approved for Me, Full Access, enforced Plan mode, and temporary read-only review;
+- durable `/goal` state, append-only JSONL sessions, interrupted-tool recovery, compaction, checkpoints, and conflict-safe undo;
+- interactive and non-interactive CLI paths with text or normalized JSONL output;
+- one `npm run check` path covering lint, type checking, 106 tests, and build output.
 
-- A first-party, provider-neutral streaming agent loop.
-- Deterministic scripted providers for tests and embedded development.
-- Sequential tool execution with cancellation, retry limits, step budgets, and repeated-loop detection.
-- Safe file read/list/search/patch tools with workspace, sensitive-path, output, current-turn read, and stale-write guards.
-- Bounded shell commands, conservative command-risk classification, and read-only Git inspection.
-- Ask Always, Approved for Me, and Full Access permission presets.
-- Enforced Plan mode and temporary read-only reviews.
-- Append-only JSONL sessions, crash-tail recovery, compaction, and exact-ID resume.
-- Durable `/goal` progress, blockers, and completion evidence.
-- Content-addressed before/after checkpoints and conflict-safe `/undo`.
-- Interactive and `recurs run` paths over the same runtime, with text or normalized JSONL events.
-
-The end-to-end test drives the public harness through read → patch → test → persist → resume → review → undo in a temporary Git repository.
+The standalone CLI does not yet bundle a live LLM provider. Hosts can inject the public `ModelProvider` interface; local slash commands remain available without one.
 
 ## Quick start
 
-Requirements: Node.js 22.22+, Git, and ripgrep.
+Requirements: Node.js 22.22 or newer, Git, and ripgrep.
 
 ```bash
 npm install
+npm run check
 npm run build
 node packages/cli/dist/main.js --help
-npm test
 ```
 
-After building, `npm link` can expose the local `recurs` binary. See the [CLI guide](docs/CLI.md) for commands, permissions, session storage, JSONL output, checkpoints, and safety limits.
-
-## LLM status
-
-Live LLM wiring is deliberately deferred. Recurs does not currently collect API keys, choose models, connect to hosted providers, or reuse Codex/Claude/other subscriptions. Hosts can inject the public `ModelProvider` contract today; the standalone CLI clearly reports that a provider is not configured when a coding prompt is submitted.
-
-This keeps the harness testable while provider transports, authentication, model routing, and subscription integrations are designed separately.
+After building, `npm link` exposes the local `recurs` command.
 
 ## Packages
 
 ```text
-packages/providers   Normalized model/provider protocol and ScriptedProvider
-packages/tools       Permissions, path policy, tools, commands, Git, checkpoints
-packages/core        Events, sessions, goals, compaction, loop detection, agent loop
-packages/cli         Slash commands, runtime assembly, renderers, REPL, executable
-tests/e2e            Public-interface coding-agent proof
+packages/providers   Normalized provider protocol and deterministic test provider
+packages/tools       Tool registry, permissions, path policy, Git, and checkpoints
+packages/core        Agent loop, events, sessions, goals, compaction, and recovery
+packages/cli         Runtime assembly, slash commands, renderers, REPL, and executable
+tests/e2e            Public-interface coding workflow proof
 ```
 
-The implementation is first-party. Open-source coding agents informed the architecture, but their code was not copied into this harness.
+The engine is first-party. Open-source agents informed its design; their source code was not copied into Recurs. See the [base-engine comparison](docs/BASE_ENGINE_COMPARISON.md).
 
-## Direction after Core v0
+## Trust boundary
 
-The next layers are intentionally separate extensions:
+File tools enforce workspace, symlink, stale-write, and output limits. Shell commands are bounded and cancellable, but they are not yet isolated by an OS sandbox. Approved for Me therefore asks before every shell command. Full Access is an explicit decision to trust the model with commands, credentials, external paths, network access, and inherited host environment values.
 
-1. Live provider transports, authentication, model selection, and subscription-backed adapters.
-2. A heavy subagent/company architecture over the same events, tools, goals, sessions, and permissions.
-3. Plugin and MCP integration with explicit trust and permission boundaries.
-4. Signed releases plus Homebrew and curl installation; Windows distribution later.
-5. A desktop agent-manager experience—not an IDE—that presents each project as a working software company while retaining the chat interface.
+## Next
 
-Product exploration and earlier research remain in [PRODUCT.md](PRODUCT.md), [ARCHITECTURE.md](ARCHITECTURE.md), [HARNESS_RESEARCH.md](HARNESS_RESEARCH.md), and [HARNESS_APPROACH.md](HARNESS_APPROACH.md). The approved Core v0 design is in [the design spec](docs/superpowers/specs/2026-07-10-recurs-core-v0-design.md).
+1. Implement the reviewed provider, authentication, model-selection, and onboarding design.
+2. Build the heavy sub-agent/company runtime over the same events, tools, sessions, goals, and permissions.
+3. Add the desktop agent-manager client, plugins/MCP, signed releases, Homebrew, and curl installation in later slices.
+
+Start with the [documentation index](docs/README.md), [CLI guide](docs/CLI.md), [architecture](ARCHITECTURE.md), and [product direction](PRODUCT.md).
