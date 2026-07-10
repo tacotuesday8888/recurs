@@ -10,6 +10,13 @@ import {
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const MAX_TOOL_CALLS = 128;
 const textEncoder = new TextEncoder();
+const stopReasons = new Set<StopReason>([
+  "complete",
+  "tool_calls",
+  "length",
+  "cancelled",
+  "error",
+]);
 
 function invalid(message: string): ProviderError {
   return new ProviderError("invalid_response", message, false);
@@ -17,6 +24,18 @@ function invalid(message: string): ProviderError {
 
 function validTokenCount(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0;
+}
+
+function isToolCall(value: unknown): value is ToolCall {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "id" in value &&
+    typeof value.id === "string" &&
+    "name" in value &&
+    typeof value.name === "string" &&
+    "arguments" in value
+  );
 }
 
 export async function collectProviderEvents(
@@ -31,11 +50,17 @@ export async function collectProviderEvents(
   let outputBytes = 0;
 
   for await (const event of events) {
+    if (typeof event !== "object" || event === null || !("type" in event)) {
+      throw invalid("Provider emitted a malformed event");
+    }
     if (stopReason !== undefined) {
       throw invalid("Provider stream emitted data after its completion event");
     }
     switch (event.type) {
       case "text_delta": {
+        if (typeof event.text !== "string") {
+          throw invalid("Provider emitted an invalid text delta");
+        }
         outputBytes += textEncoder.encode(event.text).byteLength;
         if (outputBytes > MAX_OUTPUT_BYTES) {
           throw invalid(`Provider output exceeded ${MAX_OUTPUT_BYTES} bytes`);
@@ -44,6 +69,9 @@ export async function collectProviderEvents(
         break;
       }
       case "reasoning_delta": {
+        if (typeof event.text !== "string") {
+          throw invalid("Provider emitted an invalid reasoning delta");
+        }
         outputBytes += textEncoder.encode(event.text).byteLength;
         if (outputBytes > MAX_OUTPUT_BYTES) {
           throw invalid(`Provider output exceeded ${MAX_OUTPUT_BYTES} bytes`);
@@ -51,6 +79,9 @@ export async function collectProviderEvents(
         break;
       }
       case "tool_call": {
+        if (!isToolCall(event.call)) {
+          throw invalid("Provider emitted a malformed tool call");
+        }
         if (event.call.id.trim().length === 0) {
           throw invalid("Provider emitted a tool call without an id");
         }
@@ -83,8 +114,13 @@ export async function collectProviderEvents(
         break;
       }
       case "done":
+        if (!stopReasons.has(event.stopReason)) {
+          throw invalid("Provider emitted an invalid stop reason");
+        }
         stopReason = event.stopReason;
         break;
+      default:
+        throw invalid("Provider emitted an unknown event type");
     }
     await options.onEvent?.(event);
   }

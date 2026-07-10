@@ -83,6 +83,32 @@ describe("provider protocol", () => {
     });
   });
 
+  it("normalizes malformed runtime events as invalid responses", async () => {
+    async function* unknownEvent(): AsyncIterable<ProviderEvent> {
+      yield { type: "unknown" } as unknown as ProviderEvent;
+      yield { type: "done", stopReason: "complete" };
+    }
+    async function* invalidText(): AsyncIterable<ProviderEvent> {
+      yield { type: "text_delta", text: 42 } as unknown as ProviderEvent;
+    }
+    async function* invalidStopReason(): AsyncIterable<ProviderEvent> {
+      yield {
+        type: "done",
+        stopReason: "not-real",
+      } as unknown as ProviderEvent;
+    }
+
+    await expect(collectProviderEvents(unknownEvent())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    await expect(collectProviderEvents(invalidText())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    await expect(collectProviderEvents(invalidStopReason())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
   it("bounds provider-controlled output and tool counts", async () => {
     async function* tooMuchText(): AsyncIterable<ProviderEvent> {
       yield { type: "text_delta", text: "x".repeat(4 * 1024 * 1024 + 1) };
