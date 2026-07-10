@@ -1,45 +1,96 @@
 import {
   ProviderError,
+  type CollectProviderEventsOptions,
   type CollectedProviderEvents,
   type ProviderEvent,
   type StopReason,
   type ToolCall,
 } from "./types.js";
 
+const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
+const MAX_TOOL_CALLS = 128;
+const textEncoder = new TextEncoder();
+
+function invalid(message: string): ProviderError {
+  return new ProviderError("invalid_response", message, false);
+}
+
+function validTokenCount(value: number): boolean {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
 export async function collectProviderEvents(
   events: AsyncIterable<ProviderEvent>,
+  options: CollectProviderEventsOptions = {},
 ): Promise<CollectedProviderEvents> {
   let text = "";
   const toolCalls: ToolCall[] = [];
+  const toolCallIds = new Set<string>();
   const usage = { inputTokens: 0, outputTokens: 0 };
   let stopReason: StopReason | undefined;
+  let outputBytes = 0;
 
   for await (const event of events) {
+    if (stopReason !== undefined) {
+      throw invalid("Provider stream emitted data after its completion event");
+    }
     switch (event.type) {
-      case "text_delta":
+      case "text_delta": {
+        outputBytes += textEncoder.encode(event.text).byteLength;
+        if (outputBytes > MAX_OUTPUT_BYTES) {
+          throw invalid(`Provider output exceeded ${MAX_OUTPUT_BYTES} bytes`);
+        }
         text += event.text;
         break;
-      case "reasoning_delta":
+      }
+      case "reasoning_delta": {
+        outputBytes += textEncoder.encode(event.text).byteLength;
+        if (outputBytes > MAX_OUTPUT_BYTES) {
+          throw invalid(`Provider output exceeded ${MAX_OUTPUT_BYTES} bytes`);
+        }
         break;
-      case "tool_call":
+      }
+      case "tool_call": {
+        if (event.call.id.trim().length === 0) {
+          throw invalid("Provider emitted a tool call without an id");
+        }
+        if (event.call.name.trim().length === 0) {
+          throw invalid("Provider emitted a tool call without a name");
+        }
+        if (toolCallIds.has(event.call.id)) {
+          throw invalid(`Provider emitted duplicate tool id: ${event.call.id}`);
+        }
+        if (toolCalls.length >= MAX_TOOL_CALLS) {
+          throw invalid(`Provider emitted more than ${MAX_TOOL_CALLS} tool calls`);
+        }
+        toolCallIds.add(event.call.id);
         toolCalls.push(event.call);
         break;
-      case "usage":
-        usage.inputTokens += event.inputTokens;
-        usage.outputTokens += event.outputTokens;
+      }
+      case "usage": {
+        const inputTokens = usage.inputTokens + event.inputTokens;
+        const outputTokens = usage.outputTokens + event.outputTokens;
+        if (
+          !validTokenCount(event.inputTokens) ||
+          !validTokenCount(event.outputTokens) ||
+          !validTokenCount(inputTokens) ||
+          !validTokenCount(outputTokens)
+        ) {
+          throw invalid("Provider emitted invalid token usage");
+        }
+        usage.inputTokens = inputTokens;
+        usage.outputTokens = outputTokens;
         break;
+      }
       case "done":
         stopReason = event.stopReason;
         break;
     }
+    await options.onEvent?.(event);
   }
 
   if (stopReason === undefined) {
-    throw new ProviderError(
-      "invalid_response",
-      "Provider stream ended without a completion event",
-      false,
-    );
+    throw invalid("Provider stream ended without a completion event");
   }
 
   return { text, toolCalls, usage, stopReason };

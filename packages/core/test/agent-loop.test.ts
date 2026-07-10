@@ -335,6 +335,25 @@ describe("AgentLoop", () => {
     expect(provider.requests).toHaveLength(3);
   });
 
+  it("does not retry after semantic provider output", async () => {
+    let requests = 0;
+    const provider: ModelProvider = {
+      id: "partial-failure",
+      async *stream(): AsyncIterable<ProviderEvent> {
+        requests += 1;
+        yield { type: "text_delta", text: "partial" };
+        throw new ProviderError("transport", "connection lost", true);
+      },
+    };
+    const { loop, events } = await harness(provider);
+
+    await expect(loop.run({ sessionId: "s1", prompt: "work" })).rejects.toMatchObject({
+      code: "provider_failed",
+    });
+    expect(requests).toBe(1);
+    expect(events.filter((event) => event.type === "retry_scheduled")).toEqual([]);
+  });
+
   it("cancels an in-flight provider request", async () => {
     const started = vi.fn();
     const provider: ModelProvider = {

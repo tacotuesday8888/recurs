@@ -83,3 +83,7 @@ export interface CollectedProviderEvents {
   };
   stopReason: StopReason;
 }
+
+export interface CollectProviderEventsOptions {
+  onEvent?(event: ProviderEvent): void | Promise<void>;
+}

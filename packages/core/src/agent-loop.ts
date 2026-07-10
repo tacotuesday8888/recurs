@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  collectProviderEvents,
   ProviderError,
   type ModelMessage,
   type ModelProvider,
@@ -177,75 +178,6 @@ function isRetryableProviderError(error: unknown): error is ProviderError {
   return error instanceof ProviderError && error.retryable;
 }
 
-async function streamModelTurn(
-  deps: AgentLoopDependencies,
-  request: ProviderRequest,
-  sessionId: string,
-  turnId: string,
-): Promise<ModelTurn> {
-  let text = "";
-  const toolCalls: ToolCall[] = [];
-  const usage: Usage = { inputTokens: 0, outputTokens: 0 };
-  let stopReason: StopReason | undefined;
-
-  for await (const event of deps.provider.stream(request)) {
-    throwIfAborted(request.signal);
-    switch (event.type) {
-      case "text_delta":
-        text += event.text;
-        await deps.emit({
-          type: "model_text_delta",
-          sessionId,
-          turnId,
-          at: now(),
-          text: event.text,
-        });
-        break;
-      case "reasoning_delta":
-        await deps.emit({
-          type: "model_reasoning_delta",
-          sessionId,
-          turnId,
-          at: now(),
-          text: event.text,
-        });
-        break;
-      case "tool_call":
-        toolCalls.push(event.call);
-        await deps.emit({
-          type: "tool_requested",
-          sessionId,
-          at: now(),
-          call: event.call,
-        });
-        break;
-      case "usage":
-        usage.inputTokens += event.inputTokens;
-        usage.outputTokens += event.outputTokens;
-        break;
-      case "done":
-        if (stopReason !== undefined) {
-          throw new ProviderError(
-            "invalid_response",
-            "Provider stream emitted more than one completion event",
-            false,
-          );
-        }
-        stopReason = event.stopReason;
-        break;
-    }
-  }
-
-  if (stopReason === undefined) {
-    throw new ProviderError(
-      "invalid_response",
-      "Provider stream ended without a completion event",
-      false,
-    );
-  }
-  return { text, toolCalls, usage, stopReason };
-}
-
 async function streamModelTurnWithRetries(
   deps: AgentLoopDependencies,
   request: ProviderRequest,
@@ -253,11 +185,47 @@ async function streamModelTurnWithRetries(
   turnId: string,
 ): Promise<ModelTurn> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    let semanticOutputSeen = false;
     try {
-      return await streamModelTurn(deps, request, sessionId, turnId);
+      return await collectProviderEvents(deps.provider.stream(request), {
+        onEvent: async (event) => {
+          throwIfAborted(request.signal);
+          if (event.type === "text_delta") {
+            semanticOutputSeen = true;
+            await deps.emit({
+              type: "model_text_delta",
+              sessionId,
+              turnId,
+              at: now(),
+              text: event.text,
+            });
+          } else if (event.type === "reasoning_delta") {
+            semanticOutputSeen = true;
+            await deps.emit({
+              type: "model_reasoning_delta",
+              sessionId,
+              turnId,
+              at: now(),
+              text: event.text,
+            });
+          } else if (event.type === "tool_call") {
+            semanticOutputSeen = true;
+            await deps.emit({
+              type: "tool_requested",
+              sessionId,
+              at: now(),
+              call: event.call,
+            });
+          }
+        },
+      });
     } catch (error) {
       throwIfAborted(request.signal);
-      if (!isRetryableProviderError(error) || attempt === 2) {
+      if (
+        !isRetryableProviderError(error) ||
+        semanticOutputSeen ||
+        attempt === 2
+      ) {
         throw error;
       }
       const retryAttempt = attempt + 1;
