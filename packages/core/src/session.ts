@@ -15,6 +15,7 @@ export interface SessionState {
   goal: Goal | null;
   usage: Usage;
   evidence: string[];
+  changedFiles: string[];
   pendingToolCalls: ToolCall[];
 }
 
@@ -38,6 +39,7 @@ export function createSessionState(
     goal: null,
     usage: { inputTokens: 0, outputTokens: 0 },
     evidence: [],
+    changedFiles: [],
     pendingToolCalls: [],
   };
 }
@@ -83,6 +85,7 @@ export function reduceSessionRecord(
 
   switch (record.type) {
     case "session_created":
+    case "turn_started":
       return state;
     case "message_appended":
       return { ...state, messages: [...state.messages, record.message] };
@@ -119,7 +122,17 @@ export function reduceSessionRecord(
           inputTokens: state.usage.inputTokens + record.usage.inputTokens,
           outputTokens: state.usage.outputTokens + record.usage.outputTokens,
         },
-        evidence: [...state.evidence, ...record.evidence],
+        evidence: [...new Set([...state.evidence, ...record.evidence])],
+      };
+    case "files_changed":
+      return {
+        ...state,
+        changedFiles: [...new Set([...state.changedFiles, ...record.paths])],
+      };
+    case "verification_recorded":
+      return {
+        ...state,
+        evidence: [...new Set([...state.evidence, ...record.evidence])],
       };
     case "permission_resolved":
     case "turn_failed":

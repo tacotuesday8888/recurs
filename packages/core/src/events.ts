@@ -29,6 +29,7 @@ export type RecursEvent =
   | (EventBase & { type: "session_created"; cwd: string; model: string })
   | (EventBase & { type: "turn_started"; turnId: string; prompt: string })
   | (EventBase & { type: "model_text_delta"; turnId: string; text: string })
+  | (EventBase & { type: "model_reasoning_delta"; turnId: string; text: string })
   | (EventBase & {
       type: "model_completed";
       turnId: string;
@@ -64,6 +65,7 @@ export type RecursEvent =
 
 export type SessionRecord =
   | ({ version: 1 } & Extract<RecursEvent, { type: "session_created" }>)
+  | ({ version: 1 } & Extract<RecursEvent, { type: "turn_started" }>)
   | ({ version: 1 } & EventBase & { type: "message_appended"; message: ModelMessage })
   | ({ version: 1 } & Extract<RecursEvent, { type: "tool_started" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "tool_completed" }>)
@@ -71,5 +73,7 @@ export type SessionRecord =
   | ({ version: 1 } & Extract<RecursEvent, { type: "permission_resolved" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "goal_updated" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "mode_updated" }>)
+  | ({ version: 1 } & Extract<RecursEvent, { type: "files_changed" }>)
+  | ({ version: 1 } & Extract<RecursEvent, { type: "verification_recorded" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "turn_completed" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "turn_failed" }>);

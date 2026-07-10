@@ -67,6 +67,8 @@ function isSessionRecord(value: unknown, sessionId: string): value is SessionRec
   switch (value.type) {
     case "session_created":
       return requireString(value, "cwd") && requireString(value, "model");
+    case "turn_started":
+      return requireString(value, "turnId") && requireString(value, "prompt");
     case "message_appended":
       return isObject(value.message);
     case "tool_started":
@@ -85,6 +87,13 @@ function isSessionRecord(value: unknown, sessionId: string): value is SessionRec
         (value.permissionMode === "ask_always" ||
           value.permissionMode === "approved_for_me" ||
           value.permissionMode === "full_access")
+      );
+    case "files_changed":
+      return Array.isArray(value.paths) && value.paths.every((item) => typeof item === "string");
+    case "verification_recorded":
+      return (
+        Array.isArray(value.evidence) &&
+        value.evidence.every((item) => typeof item === "string")
       );
     case "turn_completed":
       return isObject(value.usage) && Array.isArray(value.evidence);
