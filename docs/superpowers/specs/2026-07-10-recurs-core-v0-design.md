@@ -14,6 +14,13 @@ Recurs will not fork an existing coding agent. It will implement its own small h
 - [OpenCode](https://github.com/anomalyco/opencode) for permission rules, snapshots, recovery, agent-scoped capabilities, and stuck-loop detection.
 - [Codex CLI](https://github.com/openai/codex) for sandbox boundaries, approvals, durable goals, structured events, and separation between the engine and its clients.
 
+Secondary references strengthen specific foundation behavior:
+
+- [Cline](https://github.com/cline/cline) for enforced Plan/Act separation, auto-approval categories, and recoverable checkpoints.
+- [Qwen Code](https://github.com/QwenLM/qwen-code) for approval-mode restoration and read-before-write enforcement.
+- [Crush](https://github.com/charmbracelet/crush) for session permission grants and tool-call-plus-result loop detection.
+- [Gemini CLI](https://github.com/google-gemini/gemini-cli), [Goose](https://github.com/aaif-goose/goose), [Aider](https://github.com/Aider-AI/aider), and [OpenHands](https://github.com/OpenHands/OpenHands) for tool scheduling, portable clients, repository context, verification, and runtime isolation patterns.
+
 The implementation may reuse permissively licensed ideas and small components after license and provenance review, but Recurs owns its public interfaces, state model, prompts, commands, and behavior. No source is copied without attribution and compatibility review.
 
 ## Technical Direction
@@ -85,21 +92,32 @@ V0 provides a deliberately small tool set:
 
 Every tool has a stable name, description, input schema, result schema, timeout policy, output limit, and permission category. Tool output is truncated deterministically before it is sent back to the model, while the user-facing event may retain a larger bounded record.
 
+`apply_patch` enforces read-before-write. An existing file must have been read during the current turn, and the patch carries the observed content hash. If the file changed after that read, the patch fails instead of overwriting newer work.
+
 The tool registry is extensible internally, but there is no public plugin marketplace or third-party plugin loading in v0.
 
 ## Permissions and Execution Safety
 
-The default mode is conservative workspace access:
+V0 exposes three user-facing permission modes:
 
-- Reading is allowed inside the selected project except for sensitive-file patterns.
-- Writing is limited to the project workspace.
-- Shell commands are classified as allow, ask, or deny.
-- Network access, external paths, destructive commands, credential access, and deployment require approval or are denied.
-- Permission grants can apply once or to a narrow reusable command/path pattern.
+- **Ask Always**: the default. Normal project reads are allowed, but every file change and shell command requires confirmation. Sensitive-file reads, network access, external paths, destructive commands, credential access, and deployment are denied unless the user explicitly approves the individual action.
+- **Approved for Me**: normal project reads and writes plus recognized safe local development commands run automatically. Network access, external paths, sensitive files, destructive commands, credential access, and deployment still require confirmation or remain denied. This is the practical everyday mode.
+- **Full Access**: tools can read, write, execute commands, use the network, and access paths without routine approval prompts. Selecting this mode requires an explicit warning confirmation. Secret redaction, event logging, cancellation, and step/time/token limits remain active because they are integrity controls rather than permission restrictions.
+
+The active mode is session state and may be changed with `/permissions`. Permission grants in Ask Always or Approved for Me can apply once or to a narrow reusable command/path pattern for the current session. Full Access never silently becomes the default for a new project.
 
 The policy engine receives normalized tool intent rather than raw model prose. A model cannot bypass the policy by changing how it describes an action.
 
 V0 defines the permission interface and enforces workspace boundaries in the tools. Strong operating-system sandbox backends are a subsequent security slice because they require platform-specific implementation and validation.
+
+## Plan and Act Modes
+
+Recurs has two execution modes that are separate from the three permission modes:
+
+- **Act mode** is the normal coding mode. The active permission mode decides which reads, edits, commands, network actions, and external paths are allowed.
+- **Plan mode** is enforced read-only exploration. It exposes project reads, listing, text search, `git_status`, and `git_diff`; it hides or denies `apply_patch` and `run_command`. A system-prompt change alone is never considered sufficient enforcement.
+
+`/plan [prompt]` enters Plan mode and may immediately submit a planning request. `/plan exit` returns to Act mode and restores the permission mode that was active before planning. The conversation and active goal remain intact across the transition. V0 uses the same selected model in both modes; separate plan and act model routing is a later optimization.
 
 ## Sessions, Events, and Recovery
 
@@ -118,6 +136,8 @@ The event model includes:
 Streaming text deltas are sent to clients but do not need to be individually persisted. Completed messages and tool records are the durable source of truth.
 
 After an interruption, Recurs resumes from the last committed boundary. An interrupted tool call is marked incomplete and is never silently assumed to have succeeded.
+
+Before each mutating tool, Recurs creates a workspace checkpoint outside the project Git history. The checkpoint records the bounded file state and hashes needed to compare and restore agent changes. `/undo` restores the most recent agent checkpoint only when affected files still match the agent-produced hashes; if the user changed a file afterward, Recurs refuses to overwrite it and shows the conflict. Checkpoints never commit to, reset, or clean the user's Git repository.
 
 ## `/goal`
 
@@ -158,6 +178,7 @@ V0 commands are:
 - `/login` and `/logout`: configure or remove provider credentials through the credential interface.
 - `/model`: inspect or select the active provider and model.
 - `/goal`: manage the durable project goal.
+- `/plan`: enter enforced read-only planning or return to Act mode.
 - `/permissions`: inspect or change the current permission preset.
 - `/status`: show session, goal, model, context, usage, and permission state.
 - `/init`: create a minimal `AGENTS.md` when one does not exist.
@@ -166,10 +187,13 @@ V0 commands are:
 - `/compact`: summarize older context while retaining recent turns.
 - `/diff`: show current repository changes.
 - `/review`: ask the active model to review the current diff without automatically changing it.
+- `/undo`: restore the most recent safe agent checkpoint without changing conversation history.
 - `/cancel`: stop the active run at the next safe boundary.
 - `/quit` and `/exit`: close the CLI cleanly.
 
 Commands for agents, plugins, memory, session branching, background jobs, scheduling, themes, and branded aliases are deferred until their underlying capabilities exist.
+
+The CLI also exposes a non-interactive `recurs run <prompt> --format text|jsonl` path over the same command router, agent loop, permission engine, events, and session store. JSONL output emits normalized events for scripts without inventing a second execution path.
 
 ## Errors and User Feedback
 
@@ -184,10 +208,15 @@ The first implementation is test-driven around a scripted fake model. Required t
 - A text-only response completes one turn.
 - One and multiple tool calls execute and feed results back to the model.
 - Invalid tool names and arguments never execute.
-- Permission allow, ask, deny, once, and narrow persistent grants behave correctly.
+- Ask Always, Approved for Me, and Full Access enforce their exact read, write, shell, network, external-path, sensitive-file, and destructive-action behavior.
+- Permission allow, ask, deny, once, and narrow session grants behave correctly.
+- Plan mode hides and rejects mutating tools, then restores the previous permission mode on exit.
+- Read-before-write rejects a patch when the observed file hash is missing or stale.
 - Cancellation, timeout, retry, maximum-step, and repeated-call guards stop safely.
+- Loop detection includes normalized tool inputs and results rather than tool names alone.
 - Multiple tool calls preserve deterministic event and message ordering.
 - Sessions resume from committed boundaries after simulated interruption.
+- `/undo` restores agent changes but refuses to overwrite later user edits.
 - `/goal` persists and is injected into later turns.
 - Every initial slash command parses and dispatches correctly.
 - Compaction preserves the goal, recent work, changed files, and unresolved blockers.
