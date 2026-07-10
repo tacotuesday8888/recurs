@@ -20,6 +20,10 @@ export interface SerializableError {
   retryable: boolean;
 }
 
+export interface EventSink {
+  emit(event: RecursEvent): Promise<void>;
+}
+
 interface EventBase {
   sessionId: string;
   at: string;
