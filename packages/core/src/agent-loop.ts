@@ -869,13 +869,18 @@ async function runAgentLoopUnlocked(
     }
   } catch (error) {
     const normalized = normalizeRunError(error, signal);
-    const serialized = serializeError(normalized);
-    const terminal = normalized.code === "cancelled"
+    const safeError = new AgentLoopError(
+      normalized.code,
+      safeAgentLoopErrorMessage(normalized),
+      normalized.retryable,
+    );
+    const serialized = serializeError(safeError);
+    const terminal = safeError.code === "cancelled"
       ? await appendPinned({
           type: "turn_cancelled",
           turnId,
           at: now(),
-          reason: normalized.message,
+          reason: safeError.message,
         })
       : await appendPinned({
           type: "turn_failed",
@@ -884,7 +889,7 @@ async function runAgentLoopUnlocked(
           error: integrationFailure(serialized, "provider"),
         });
     await emitPersistedEvent(deps, terminal);
-    throw normalized;
+    throw safeError;
   }
 }
 

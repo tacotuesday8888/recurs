@@ -1022,6 +1022,43 @@ describe("AgentLoop", () => {
     ).rejects.toMatchObject({ code: "stuck_loop" });
   });
 
+  it("sanitizes provider-controlled stuck-loop details in terminal records", async () => {
+    const canary = "RECURS_STUCK_LOOP_TOOL_NAME_CANARY";
+    const baseTool = echoTool();
+    const tool: Tool<{ text: string }> = {
+      ...baseTool,
+      definition: { ...baseTool.definition, name: canary },
+    };
+    const turn = (id: string): ProviderEvent[] => [
+      {
+        type: "tool_call",
+        call: { id, name: canary, arguments: { text: "same" } },
+      },
+      { type: "done", stopReason: "tool_calls" },
+    ];
+    const provider = new ScriptedProvider([
+      turn("1"),
+      turn("2"),
+      turn("3"),
+    ]);
+    const { loop, store, events } = await harness(provider, [tool]);
+
+    await expect(
+      loop.run({ sessionId: "s1", prompt: "loop", maxSteps: 20 }),
+    ).rejects.toMatchObject({ code: "stuck_loop" });
+
+    const terminalEvents = events.filter((event) => event.type === "turn_failed");
+    const terminalRecords = (await store.load("s1")).records.filter(
+      (record) => record.type === "turn_failed",
+    );
+    const serializedTerminal = JSON.stringify({
+      events: terminalEvents,
+      records: terminalRecords,
+    });
+    expect(serializedTerminal).toContain("Repeated tool interaction detected");
+    expect(serializedTerminal).not.toContain(canary);
+  });
+
   it("returns and persists changed files and verification evidence", async () => {
     const provider = new ScriptedProvider([
       toolTurn("1", "changed"),
