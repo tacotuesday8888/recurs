@@ -138,6 +138,15 @@ export class ToolRegistry {
     }
 
     for (const intent of intents) {
+      if (permissions.evaluate(intent) === "deny") {
+        throw new ToolError(
+          "permission_denied",
+          `Permission denied for ${intent.category}: ${intent.resource}`,
+        );
+      }
+    }
+
+    for (const intent of intents) {
       const decision = permissions.evaluate(intent);
       if (decision === "deny") {
         throw new ToolError(

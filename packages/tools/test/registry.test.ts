@@ -174,6 +174,41 @@ describe("ToolRegistry", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("rejects denied intents before requesting any other approval", async () => {
+    const tool = textTool();
+    tool.permissions = () => [
+      {
+        category: "external_path",
+        resource: "/outside/.env",
+        risk: "elevated",
+      },
+      {
+        category: "credential",
+        resource: "/outside/.env",
+        risk: "elevated",
+      },
+    ];
+    const execute = vi.spyOn(tool, "execute");
+    const approvals: ApprovalHandler = {
+      request: vi.fn(async () => "allow_session" as const),
+    };
+    const registry = new ToolRegistry([tool]);
+
+    await expect(
+      registry.invoke(
+        { id: "1", name: "echo", arguments: { text: "/outside/.env" } },
+        context(),
+        new PermissionEngine("full_access"),
+        approvals,
+      ),
+    ).rejects.toMatchObject({
+      code: "permission_denied",
+      message: "Permission denied for credential: /outside/.env",
+    });
+    expect(approvals.request).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("normalizes unknown tool implementation failures before they escape", async () => {
     const canary = "RECURS_UNKNOWN_TOOL_CANARY";
     const tool = textTool();
