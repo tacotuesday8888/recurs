@@ -256,6 +256,126 @@ describe("ProcessScopedRuntimeContinuationStore", () => {
     })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
   });
 
+  it("recovers an exact staged handle after the runtime drops it", async () => {
+    const noPutStore = createStore();
+    const noPutAuthorization = authorization("no-put-turn");
+    const noPutWriter = await noPutStore.authority.mintWriter({
+      authorization: noPutAuthorization,
+      pin,
+      expectedSessionRecordSequence: 0,
+      previous: null,
+      stateVersion: 1,
+    });
+    await noPutStore.authority.release(noPutWriter);
+    await expect(noPutStore.authority.recoverStaged({
+      authorization: noPutAuthorization,
+      writer: noPutWriter,
+    })).resolves.toBeNull();
+
+    const store = createStore();
+    const auth = authorization("dropped-turn");
+    const writer = await store.authority.mintWriter({
+      authorization: auth,
+      pin,
+      expectedSessionRecordSequence: 0,
+      previous: null,
+      stateVersion: 1,
+    });
+
+    await expect(store.authority.recoverStaged({
+      authorization: auth,
+      writer,
+    })).resolves.toBeNull();
+    const staged = await store.runtimeStore.put({
+      writer,
+      payload: new TextEncoder().encode("dropped-runtime-canary"),
+    });
+    await store.authority.release(writer);
+
+    await expect(store.authority.recoverStaged({
+      authorization: auth,
+      writer,
+    })).resolves.toEqual(staged);
+    await expect(store.authority.recoverStaged({
+      authorization: auth,
+      writer,
+    })).resolves.toEqual(staged);
+    expect(JSON.stringify(staged)).not.toContain("dropped-runtime-canary");
+  });
+
+  it("fails closed for forged recovery and removes recovery on resolution", async () => {
+    const store = createStore();
+    const auth = authorization("recovery-turn");
+    const writer = await store.authority.mintWriter({
+      authorization: auth,
+      pin,
+      expectedSessionRecordSequence: 0,
+      previous: null,
+      stateVersion: 1,
+    });
+    await store.runtimeStore.put({
+      writer,
+      payload: new Uint8Array([1]),
+    });
+
+    await expect(store.authority.recoverStaged({
+      authorization: { ...auth, operationId: "wrong-operation" },
+      writer,
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+    await expect(store.authority.recoverStaged({
+      authorization: auth,
+      writer: { ...writer, id: "forged-writer" },
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+    await expect(store.authority.recoverStaged({
+      authorization: auth,
+      writer: { ...writer, expiresAt: "2026-07-11T00:00:01.000Z" },
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+
+    const recovered = await store.authority.recoverStaged({
+      authorization: auth,
+      writer,
+    });
+    if (recovered === null) {
+      throw new Error("Expected staged continuation recovery");
+    }
+    await store.authority.commit({ authorization: auth, handle: recovered });
+    await expect(store.authority.recoverStaged({
+      authorization: auth,
+      writer,
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+
+    const expiringStore = new ProcessScopedRuntimeContinuationStore({
+      now: () => new Date(time),
+      capabilityTtlMs: 5_000,
+      continuationTtlMs: 1_000,
+      maxPayloadBytes: 1,
+      maxStoredBytes: 1,
+      maxStoredContinuations: 1,
+    });
+    const expiringAuth = authorization("expiring-recovery");
+    const expiringWriter = await expiringStore.authority.mintWriter({
+      authorization: expiringAuth,
+      pin,
+      expectedSessionRecordSequence: 0,
+      previous: null,
+      stateVersion: 1,
+    });
+    await expiringStore.runtimeStore.put({
+      writer: expiringWriter,
+      payload: new Uint8Array([9]),
+    });
+    time += 1_001;
+    await expect(expiringStore.authority.recoverStaged({
+      authorization: expiringAuth,
+      writer: expiringWriter,
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+    expiringStore.dispose();
+    await expect(expiringStore.authority.recoverStaged({
+      authorization: expiringAuth,
+      writer: expiringWriter,
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+  });
+
   it("requires positive state versions and bounds aggregate retained bytes", async () => {
     const store = new ProcessScopedRuntimeContinuationStore({
       now: () => new Date(time),
@@ -380,10 +500,18 @@ describe("ProcessScopedRuntimeContinuationStore", () => {
       previous: first,
       stateVersion: 1,
     });
-    const secondUncertain = await goneStore.runtimeStore.put({
+    await goneStore.runtimeStore.put({
       writer: secondWriter,
       payload: new Uint8Array([2]),
     });
+    await goneStore.authority.release(secondWriter);
+    const secondUncertain = await goneStore.authority.recoverStaged({
+      authorization: secondAuthorization,
+      writer: secondWriter,
+    });
+    if (secondUncertain === null) {
+      throw new Error("Expected dropped staged handle recovery");
+    }
     const reconcileGone = reconcileAuthorization("reconcile-gone");
     const goneReader = await goneStore.authority.mintReader({
       authorization: reconcileGone,
@@ -400,6 +528,10 @@ describe("ProcessScopedRuntimeContinuationStore", () => {
       authorization: reconcileGone,
       handle: secondUncertain,
     });
+    await expect(goneStore.authority.recoverStaged({
+      authorization: secondAuthorization,
+      writer: secondWriter,
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
     await expect(goneStore.authority.mintWriter({
       authorization: authorization("gone-turn-3"),
       pin,

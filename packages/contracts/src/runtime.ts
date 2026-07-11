@@ -115,6 +115,10 @@ export interface RuntimeContinuationAuthority {
   mintReader(
     input: RuntimeContinuationReaderRequest,
   ): Promise<ContinuationReadCapability>;
+  recoverStaged(input: {
+    readonly authorization: RunAuthorization;
+    readonly writer: ContinuationWriteCapability;
+  }): Promise<RuntimeContinuationHandle | null>;
   commit(input: {
     readonly authorization: RunAuthorization;
     readonly handle: RuntimeContinuationHandle;

@@ -77,6 +77,13 @@ interface StoredContinuation {
   readonly expectedSessionRecordSequence: number;
   readonly lane: string;
   readonly previousId: string | null;
+  readonly writerId: string;
+}
+
+interface StagedRecovery {
+  readonly authorization: RunAuthorization;
+  readonly writer: ContinuationWriteCapability;
+  readonly handleId: string | null;
 }
 
 interface PendingReconciliation {
@@ -174,6 +181,7 @@ export class ProcessScopedRuntimeContinuationStore {
   readonly #writers = new Map<string, WriterBinding>();
   readonly #readers = new Map<string, ReaderBinding>();
   readonly #continuations = new Map<string, StoredContinuation>();
+  readonly #stagedByWriter = new Map<string, StagedRecovery>();
   readonly #latestByLane = new Map<string, string>();
   readonly #pendingReconciliations = new Map<string, PendingReconciliation>();
   readonly #authorityFacet: RuntimeContinuationAuthority;
@@ -204,6 +212,10 @@ export class ProcessScopedRuntimeContinuationStore {
         this.#mintWriter(input),
       mintReader: async (input: RuntimeContinuationReaderRequest) =>
         this.#mintReader(input),
+      recoverStaged: async (input: {
+        readonly authorization: RunAuthorization;
+        readonly writer: ContinuationWriteCapability;
+      }) => this.#recoverStaged(input.authorization, input.writer),
       commit: async (input: {
         readonly authorization: RunAuthorization;
         readonly handle: RuntimeContinuationHandle;
@@ -250,6 +262,7 @@ export class ProcessScopedRuntimeContinuationStore {
     this.#writers.clear();
     this.#readers.clear();
     this.#continuations.clear();
+    this.#stagedByWriter.clear();
     this.#latestByLane.clear();
     this.#pendingReconciliations.clear();
     this.#storedBytes = 0;
@@ -278,6 +291,12 @@ export class ProcessScopedRuntimeContinuationStore {
     stored.payload.fill(0);
     this.#storedBytes -= stored.payload.byteLength;
     this.#continuations.delete(id);
+    this.#stagedByWriter.delete(stored.writerId);
+    for (const [authorizationId, reconciliation] of this.#pendingReconciliations) {
+      if (reconciliation.handle.id === id) {
+        this.#pendingReconciliations.delete(authorizationId);
+      }
+    }
     if (this.#latestByLane.get(stored.lane) === id) {
       this.#latestByLane.delete(stored.lane);
     }
@@ -297,6 +316,15 @@ export class ProcessScopedRuntimeContinuationStore {
     for (const [id, reconciliation] of this.#pendingReconciliations) {
       if (!canonicalFuture(reconciliation.authorization.expiresAt, now)) {
         this.#pendingReconciliations.delete(id);
+      }
+    }
+    for (const [id, recovery] of this.#stagedByWriter) {
+      if (
+        recovery.handleId === null &&
+        (!canonicalFuture(recovery.writer.expiresAt, now) ||
+          !canonicalFuture(recovery.authorization.expiresAt, now))
+      ) {
+        this.#stagedByWriter.delete(id);
       }
     }
     for (const [id, continuation] of this.#continuations) {
@@ -417,8 +445,11 @@ export class ProcessScopedRuntimeContinuationStore {
       input.expectedSessionRecordSequence,
       now,
     );
+    if (this.#stagedByWriter.size >= this.#maxStoredContinuations) {
+      throw new RuntimeContinuationStoreError("continuation_capability_invalid");
+    }
     const capability = this.#mintCapability("runtime-write", input.authorization);
-    this.#writers.set(capability.id, {
+    const binding = {
       capability,
       authorization: clone(input.authorization),
       pin: clone(input.pin),
@@ -426,6 +457,12 @@ export class ProcessScopedRuntimeContinuationStore {
       previous: input.previous === null ? null : clone(input.previous),
       stateVersion: input.stateVersion,
       lane,
+    } satisfies WriterBinding;
+    this.#writers.set(capability.id, binding);
+    this.#stagedByWriter.set(capability.id, {
+      authorization: binding.authorization,
+      writer: binding.capability,
+      handleId: null,
     });
     return capability;
   }
@@ -549,10 +586,65 @@ export class ProcessScopedRuntimeContinuationStore {
       expectedSessionRecordSequence: binding.expectedSessionRecordSequence,
       lane: binding.lane,
       previousId: binding.previous?.id ?? null,
+      writerId: binding.capability.id,
     });
     this.#storedBytes += payload.byteLength;
+    const recovery = this.#stagedByWriter.get(binding.capability.id);
+    if (
+      recovery === undefined ||
+      recovery.handleId !== null ||
+      !isDeepStrictEqual(recovery.authorization, binding.authorization) ||
+      !isDeepStrictEqual(recovery.writer, binding.capability)
+    ) {
+      this.#deleteContinuation(handle.id);
+      throw new RuntimeContinuationStoreError("continuation_capability_invalid");
+    }
+    this.#stagedByWriter.set(binding.capability.id, {
+      ...recovery,
+      handleId: handle.id,
+    });
     this.#latestByLane.set(binding.lane, handle.id);
     return handle;
+  }
+
+  async #recoverStaged(
+    authorization: RunAuthorization,
+    writer: ContinuationWriteCapability,
+  ): Promise<RuntimeContinuationHandle | null> {
+    this.#assertAvailable();
+    const now = this.#currentTime();
+    const staged = this.#stagedByWriter.get(writer.id);
+    if (staged !== undefined) {
+      if (
+        !isDeepStrictEqual(writer, staged.writer) ||
+        !isDeepStrictEqual(authorization, staged.authorization) ||
+        !canonicalFuture(authorization.expiresAt, now)
+      ) {
+        throw new RuntimeContinuationStoreError(
+          "continuation_capability_invalid",
+        );
+      }
+      if (staged.handleId === null) {
+        if (!canonicalFuture(writer.expiresAt, now)) {
+          throw new RuntimeContinuationStoreError(
+            "continuation_capability_invalid",
+          );
+        }
+        return null;
+      }
+      const stored = this.#continuations.get(staged.handleId);
+      if (
+        stored === undefined ||
+        stored.writerId !== writer.id ||
+        stored.handle.status !== "uncertain" ||
+        this.#latestByLane.get(stored.lane) !== stored.handle.id
+      ) {
+        throw new RuntimeContinuationStoreError("continuation_handle_invalid");
+      }
+      this.#storedExact(stored.handle, now);
+      return stored.handle;
+    }
+    throw new RuntimeContinuationStoreError("continuation_capability_invalid");
   }
 
   async #commit(
@@ -583,6 +675,7 @@ export class ProcessScopedRuntimeContinuationStore {
       throw new RuntimeContinuationStoreError("continuation_handle_invalid");
     }
     stored.handle = frozenHandle({ ...handle, status: "committed" });
+    this.#stagedByWriter.delete(stored.writerId);
     if (stored.previousId !== null) {
       this.#deleteContinuation(stored.previousId);
     }
