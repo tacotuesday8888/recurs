@@ -11,6 +11,7 @@ export * from "./commands/types.js";
 export * from "./assembly.js";
 export * from "./codex-connection.js";
 export * from "./local-connection.js";
+export * from "./provider-account.js";
 export * from "./main.js";
 export * from "./render.js";
 export * from "./repl.js";

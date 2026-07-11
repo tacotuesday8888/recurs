@@ -25,6 +25,12 @@ import { CoordinatedRunError, type EventSink } from "@recurs/core";
 import { createStandaloneRuntime } from "./assembly.js";
 import { setupCodexSubscription } from "./codex-connection.js";
 import {
+  listAccountSummaries,
+  listProviderSummaries,
+  type AccountSummary,
+  type ProviderSummary,
+} from "./provider-account.js";
+import {
   LocalConnectionError,
   setupLocalConnection,
   type LocalConnectionConfiguration,
@@ -52,6 +58,8 @@ Usage:
   recurs run <prompt> --format text|jsonl
   recurs setup local --url <loopback-url> --model <model-id>
   recurs setup codex             Connect an existing ChatGPT Codex subscription
+  recurs provider list [--all] [--json]
+  recurs account list [--json]
   recurs --help                  Show this help
 
 Local setup supports credential-free OpenAI-compatible servers on literal loopback only.
@@ -72,6 +80,10 @@ export interface CliDependencies {
     interactive: true;
     billingSelection: "allow_declared_additional";
   }): Promise<Pick<CodexConnectionConfiguration, "label" | "modelId" | "planOnly">>;
+  listProviders?(input: {
+    includeBlocked: boolean;
+  }): Promise<readonly ProviderSummary[]>;
+  listAccounts?(): Promise<readonly AccountSummary[]>;
 }
 
 interface RunArguments {
@@ -119,6 +131,55 @@ function parseLocalSetupArguments(
   return baseUrl === undefined || modelId === undefined
     ? null
     : { baseUrl, modelId };
+}
+
+function parseListArguments(
+  args: readonly string[],
+  allowAll: boolean,
+): { json: boolean; includeBlocked: boolean } | null {
+  if (args[0] !== "list") return null;
+  let json = false;
+  let includeBlocked = false;
+  for (const flag of args.slice(1)) {
+    if (flag === "--json" && !json) json = true;
+    else if (flag === "--all" && allowAll && !includeBlocked) {
+      includeBlocked = true;
+    } else {
+      return null;
+    }
+  }
+  return { json, includeBlocked };
+}
+
+function providerText(providers: readonly ProviderSummary[]): string {
+  if (providers.length === 0) return "No provider paths are available.\n";
+  return `${providers.map((provider) => {
+    const sources = [
+      provider.billing.primarySource,
+      ...provider.billing.possibleAdditionalSources,
+    ].join(" + ");
+    return [
+      `${provider.id} — ${provider.displayName}`,
+      `  Status: ${provider.status} (${provider.supportStatus})`,
+      `  Access: ${provider.accessKind} · ${provider.adapterKind} · ${provider.protocol}`,
+      `  Credential owner: ${provider.connectionOwner}`,
+      `  Billing: ${sources} · fallback ${provider.billing.providerFallback}`,
+      ...provider.restrictions.slice(0, 2).map(
+        (restriction) => `  Restriction: ${restriction}`,
+      ),
+    ].join("\n");
+  }).join("\n\n")}\n`;
+}
+
+function accountText(accounts: readonly AccountSummary[]): string {
+  if (accounts.length === 0) return "No configured accounts.\n";
+  return `${accounts.map((account) => [
+    `${account.primary ? "*" : " "} ${account.id} — ${account.label}`,
+    `  Provider: ${account.providerId} · ${account.adapterId}`,
+    `  Model: ${account.modelId} · ${account.execution}`,
+    `  Account: ${account.account}`,
+    `  Billing: ${account.billingSources.join(" + ")}`,
+  ].join("\n")).join("\n\n")}\n`;
 }
 
 function isCommandResult(value: unknown): value is CommandResult {
@@ -191,6 +252,48 @@ export async function runCli(
         ...(dependencies.stdin === undefined ? {} : { input: dependencies.stdin }),
         output: dependencies.stdout,
       });
+      return 0;
+    } catch (error) {
+      await writeOutput(
+        dependencies.stderr,
+        `Error: ${safeCliErrorMessage(error)}\n`,
+      );
+      return exitCodeFor(error);
+    }
+  }
+
+  if (argv[0] === "provider" || argv[0] === "account") {
+    const providerCommand = argv[0] === "provider";
+    const parsed = parseListArguments(argv.slice(1), providerCommand);
+    const service = providerCommand
+      ? dependencies.listProviders
+      : dependencies.listAccounts;
+    if (parsed === null || service === undefined) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    try {
+      if (providerCommand) {
+        const providers = await (service as NonNullable<
+          CliDependencies["listProviders"]
+        >)({ includeBlocked: parsed.includeBlocked });
+        await writeOutput(
+          dependencies.stdout,
+          parsed.json
+            ? `${JSON.stringify({ version: 1, providers })}\n`
+            : providerText(providers),
+        );
+      } else {
+        const accounts = await (service as NonNullable<
+          CliDependencies["listAccounts"]
+        >)();
+        await writeOutput(
+          dependencies.stdout,
+          parsed.json
+            ? `${JSON.stringify({ version: 1, accounts })}\n`
+            : accountText(accounts),
+        );
+      }
       return 0;
     } catch (error) {
       await writeOutput(
@@ -338,6 +441,9 @@ async function main(): Promise<void> {
       input,
     ),
     setupCodex: (input) => setupCodexSubscription(dataDirectory, input),
+    listProviders: async ({ includeBlocked }) =>
+      listProviderSummaries(includeBlocked),
+    listAccounts: () => listAccountSummaries(dataDirectory),
   });
 }
 

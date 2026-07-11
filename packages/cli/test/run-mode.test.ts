@@ -228,6 +228,101 @@ describe("runCli", () => {
     }
   });
 
+  it("renders provider catalog text/JSON and redacted account JSON", async () => {
+    const provider = {
+      id: "openai-codex-chatgpt",
+      displayName: "Codex with ChatGPT",
+      status: "runnable" as const,
+      supportStatus: "conditional" as const,
+      adapterKind: "agent_runtime" as const,
+      accessKind: "subscription" as const,
+      protocol: "acp" as const,
+      connectionOwner: "vendor_runtime" as const,
+      billing: {
+        primarySource: "included_subscription" as const,
+        possibleAdditionalSources: ["prepaid_credits" as const],
+        providerFallback: "automatic" as const,
+      },
+      restrictions: ["Local, user-present use only."],
+    };
+    const account = {
+      id: "codex-1",
+      label: "Codex with ChatGPT",
+      providerId: "openai-codex-chatgpt",
+      adapterId: "codex-acp",
+      kind: "delegated_agent" as const,
+      modelId: "gpt-test",
+      primary: true,
+      account: "verified (identifier redacted)" as const,
+      execution: "Plan-only" as const,
+      billingSources: [
+        "included_subscription" as const,
+        "prepaid_credits" as const,
+      ],
+    };
+    for (const argv of [
+      ["provider", "list"],
+      ["provider", "list", "--all", "--json"],
+      ["account", "list", "--json"],
+    ]) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      let includeBlocked: boolean | undefined;
+      const code = await runCli(argv, {
+        stdout,
+        stderr,
+        async createRuntime() { throw new Error("runtime must not start"); },
+        async listProviders(input) {
+          includeBlocked = input.includeBlocked;
+          return [provider];
+        },
+        async listAccounts() { return [account]; },
+      });
+      expect(code).toBe(0);
+      expect(stderr.value).toBe("");
+      expect(stdout.value).toContain("openai-codex-chatgpt");
+      if (argv[0] === "provider") {
+        expect(stdout.value).toContain("vendor_runtime");
+      }
+      if (argv[0] === "provider" && argv.includes("--all")) {
+        expect(includeBlocked).toBe(true);
+        expect(JSON.parse(stdout.value)).toMatchObject({
+          version: 1,
+          providers: [{ status: "runnable" }],
+        });
+      }
+      if (argv[0] === "account") {
+        expect(JSON.parse(stdout.value)).toMatchObject({
+          version: 1,
+          accounts: [{ account: "verified (identifier redacted)" }],
+        });
+        expect(stdout.value).not.toContain("owner@example.com");
+        expect(stdout.value).not.toContain("accountSubjectFingerprint");
+      }
+    }
+  });
+
+  it("rejects malformed provider/account list flags without calling services", async () => {
+    for (const argv of [
+      ["provider", "list", "--bad"],
+      ["provider", "show"],
+      ["account", "list", "--all"],
+    ]) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      let called = false;
+      expect(await runCli(argv, {
+        stdout,
+        stderr,
+        async createRuntime() { throw new Error("runtime must not start"); },
+        async listProviders() { called = true; return []; },
+        async listAccounts() { called = true; return []; },
+      })).toBe(2);
+      expect(called).toBe(false);
+      expect(stderr.value).toContain("provider list");
+    }
+  });
+
   it("preserves a canonical provider failure through standalone coordination", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-provider-final-"));
     directories.push(root);
