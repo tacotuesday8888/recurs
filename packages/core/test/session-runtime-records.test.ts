@@ -205,7 +205,7 @@ describe("delegated runtime session records", () => {
         type: "runtime_approval_resolved",
         turnId: "turn-1",
         request: approvalRequest,
-        decision: { outcome: "selected", optionId: "yes-session" },
+        decision: { outcome: "selected", optionId: "yes-once" },
         scope: "allow_session",
         provenance: "user",
         at,
@@ -249,7 +249,7 @@ describe("delegated runtime session records", () => {
     expect((await store.load("runtime-session")).records[3]).toMatchObject({
       type: "runtime_approval_resolved",
       request: approvalRequest,
-      decision: { outcome: "selected", optionId: "yes-session" },
+      decision: { outcome: "selected", optionId: "yes-once" },
       scope: "allow_session",
       provenance: "user",
     });
@@ -436,11 +436,24 @@ describe("delegated runtime session records", () => {
           resource: "src/a.ts",
           risk: "normal",
           summary: "Update",
-          options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+          options: [{ optionId: "allow", name: "Always allow", kind: "allow_always" }],
         },
         decision: { outcome: "selected", optionId: "allow" },
         scope: "allow_session",
         provenance: "user",
+      },
+      {
+        request: {
+          requestId: "approval-1",
+          action: "write",
+          resource: "src/a.ts",
+          risk: "normal",
+          summary: "Update",
+          options: [{ optionId: "deny", name: "Always deny", kind: "reject_always" }],
+        },
+        decision: { outcome: "selected", optionId: "deny" },
+        scope: "deny",
+        provenance: "policy",
       },
       {
         request: {
@@ -506,7 +519,7 @@ describe("delegated runtime session records", () => {
     }
   });
 
-  it("accepts exact denial and cancellation approval combinations", async () => {
+  it("accepts exact one-shot, denial, and cancellation approval combinations", async () => {
     const store = await temporaryStore();
     await createRuntimeSession(store);
     const request = {
@@ -516,6 +529,7 @@ describe("delegated runtime session records", () => {
       risk: "elevated" as const,
       summary: "Run the focused tests",
       options: [
+        { optionId: "allow-once", name: "Allow", kind: "allow_once" as const },
         { optionId: "reject-once", name: "Reject", kind: "reject_once" as const },
         { optionId: "reject-session", name: "Always reject", kind: "reject_always" as const },
       ],
@@ -523,6 +537,15 @@ describe("delegated runtime session records", () => {
     };
     await store.withSessionMutation("runtime-session", 0, async (lease) => {
       await lease.append({ type: "turn_started", turnId: "turn-1", prompt: "test", at });
+      await lease.append({
+        type: "runtime_approval_resolved",
+        turnId: "turn-1",
+        request,
+        decision: { outcome: "selected", optionId: "allow-once" },
+        scope: "allow_once",
+        provenance: "user",
+        at,
+      });
       await lease.append({
         type: "runtime_approval_resolved",
         turnId: "turn-1",
@@ -548,7 +571,7 @@ describe("delegated runtime session records", () => {
         at,
       });
     });
-    expect((await store.load("runtime-session")).records).toHaveLength(5);
+    expect((await store.load("runtime-session")).records).toHaveLength(6);
   });
 
   it("rejects an unbounded timestamp on a runtime record", async () => {

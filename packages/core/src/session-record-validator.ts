@@ -465,12 +465,15 @@ function validRuntimeApprovalResolution(
   if (selected === undefined) {
     return false;
   }
-  const expectedScope = selected.kind === "allow_once"
-    ? "allow_once"
-    : selected.kind === "allow_always"
-      ? "allow_session"
-      : "deny";
-  return scope === expectedScope;
+  switch (selected.kind) {
+    case "allow_once":
+      return scope === "allow_once" || scope === "allow_session";
+    case "reject_once":
+      return scope === "deny";
+    case "allow_always":
+    case "reject_always":
+      return false;
+  }
 }
 
 function isRuntimeCompletionProvenance(value: unknown): boolean {
