@@ -1,6 +1,6 @@
 import { Readable, Writable } from "node:stream";
 
-import type { BackendResolver } from "@recurs/contracts";
+import type { BackendResolver, HostInvocation } from "@recurs/contracts";
 import type { EventSink } from "@recurs/core";
 import {
   AgentLoop,
@@ -24,6 +24,7 @@ import {
   RuntimeError,
   createCommandRegistry,
   createStandaloneRuntime,
+  isAutomationEnvironment,
   runCli,
   type CliDependencies,
 } from "../src/index.js";
@@ -101,6 +102,14 @@ function dependencies(stdout: TextOutput, stderr: TextOutput): CliDependencies {
 }
 
 describe("runCli", () => {
+  it("classifies common CI markers while honoring explicit false values", () => {
+    expect(isAutomationEnvironment({ CI: "true" })).toBe(true);
+    expect(isAutomationEnvironment({ GITHUB_ACTIONS: "1" })).toBe(true);
+    expect(isAutomationEnvironment({ CI: "false", GITHUB_ACTIONS: "0" }))
+      .toBe(false);
+    expect(isAutomationEnvironment({})).toBe(false);
+  });
+
   it("configures a verified local model through setup", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
@@ -199,9 +208,10 @@ describe("runCli", () => {
   });
 
   it("never launches Codex login from noninteractive or declined setup", async () => {
-    for (const [interactive, accepted] of [
-      [false, true],
-      [true, false],
+    for (const [interactive, automation, accepted] of [
+      [false, false, true],
+      [true, false, false],
+      [true, true, true],
     ] as const) {
       const stdout = new TextOutput();
       const stderr = new TextOutput();
@@ -211,6 +221,7 @@ describe("runCli", () => {
         stderr,
         cwd: "/tmp/workspace",
         interactive,
+        automation,
         async confirm() { return accepted; },
         async createRuntime() { throw new Error("runtime must not start"); },
         async setupCodex() {
@@ -536,6 +547,7 @@ describe("runCli", () => {
       stdin: Readable.from(["/quit\n"]),
       stdout,
       stderr,
+      interactive: true,
       createRuntime,
     });
 
@@ -543,6 +555,72 @@ describe("runCli", () => {
     expect(stdout.value).toContain("Recurs — local harness mode");
     expect(stderr.value).toBe("");
   });
+
+  it("marks an interactive REPL with exact user-present provenance", async () => {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      let invocation: HostInvocation | undefined;
+      const runtime = {
+        setConfirmHandler() {},
+        cancel() { return false; },
+        async submit(_input: string, received?: HostInvocation) {
+          invocation = received;
+          return {
+            finalText: "done",
+            stopReason: "complete",
+            usage: null,
+            changedFiles: [],
+            evidence: [],
+          };
+        },
+      } as unknown as RecursRuntime;
+
+      expect(await runCli([], {
+        stdin: Readable.from(["inspect\n"]),
+        stdout,
+        stderr,
+        interactive: true,
+        automation: false,
+        async createRuntime() { return runtime; },
+      })).toBe(0);
+
+      expect(invocation).toMatchObject({
+        invocation: "repl",
+        userPresent: true,
+        remote: false,
+        scripted: false,
+        embedding: "cli",
+      });
+      expect(stderr.value).toBe("");
+  });
+
+  it.each([
+    [false, false],
+    [true, true],
+  ] as const)(
+    "rejects interactive CLI startup for interactive=%s automation=%s",
+    async (interactive, automation) => {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      let created = false;
+
+      expect(await runCli([], {
+        stdin: Readable.from(["inspect\n"]),
+        stdout,
+        stderr,
+        interactive,
+        automation,
+        async createRuntime() {
+          created = true;
+          return await createRuntime({ async emit() {} });
+        },
+      })).toBe(2);
+      expect(created).toBe(false);
+      expect(stdout.value).toBe("");
+      expect(stderr.value).toContain("user-present local terminal");
+      expect(stderr.value).toContain("recurs run");
+    },
+  );
 
   it.each([
     [

@@ -279,6 +279,26 @@ describe("FileConnectionRegistry", () => {
     });
   });
 
+  it.each([
+    ["C1 terminal control", "\u009b31mspoofed"],
+    ["bidirectional override", "\u202espoofed"],
+    ["Unicode line separator", "spoofed\u2028line"],
+  ])("rejects %s in persisted display strings", async (_name, label) => {
+    const directory = await root();
+    await writePrivate(
+      connectionRegistryPath(directory),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        revision: 1,
+        primaryConnectionId: "local-generic",
+        connections: [{ ...local(), label }],
+      })}\n`,
+    );
+
+    await expect(new FileConnectionRegistry(directory).read()).rejects
+      .toMatchObject({ code: "registry_invalid" });
+  });
+
   it("rejects secret-shaped keys and high-confidence secret values without echoing them", async () => {
     const directory = await root();
     const filename = connectionRegistryPath(directory);

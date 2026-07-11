@@ -1,16 +1,23 @@
+import { createHash } from "node:crypto";
 import { realpathSync, statSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
 import type { NewSessionResponse, SessionConfigOption } from "@agentclientprotocol/sdk";
+import type {
+  AgentRuntime,
+  RuntimeContinuationStore,
+} from "@recurs/contracts";
 import { z } from "zod";
 
 import {
   authenticateAcpRuntime,
   inspectAcpRuntime,
   inspectAcpRuntimeExtension,
+  ManagedAcpRuntime,
   probeAcpRuntimeMapping,
   type AcpAuthenticationResult,
+  type AcpRuntimeSessionBinding,
   type AcpRuntimeInspection,
 } from "./acp-runtime.js";
 import {
@@ -353,6 +360,50 @@ const codexStatusSchema = z.discriminatedUnion("type", [
 ]);
 
 export type CodexAcpAuthenticationStatus = z.infer<typeof codexStatusSchema>;
+
+function accountFingerprint(accountLabel: string): string {
+  const digest = createHash("sha256")
+    .update(
+      `openai-codex-chatgpt\0${accountLabel.toLocaleLowerCase("en-US")}`,
+    )
+    .digest("hex");
+  return `sha256:${digest}`;
+}
+
+export function createAccountBoundCodexAcpRuntime(
+  profile: AcpRuntimeProfile,
+  expectedAccountSubjectFingerprint: string,
+  store: RuntimeContinuationStore,
+): AgentRuntime {
+  if (
+    profile.adapterId !== CODEX_ACP_ADAPTER_ID ||
+    profile.capabilityProfileRevision !== CODEX_ACP_PROFILE_REVISION ||
+    !/^sha256:[a-f0-9]{64}$/u.test(expectedAccountSubjectFingerprint)
+  ) {
+    throw new TypeError("Codex runtime account binding is invalid");
+  }
+  const binding: AcpRuntimeSessionBinding = {
+    expectedAgentInfo: {
+      name: "@agentclientprotocol/codex-acp",
+      version: CODEX_ACP_ADAPTER_VERSION,
+    },
+    extensionMethod: "authentication/status",
+    evaluate(value) {
+      const status = codexStatusSchema.parse(value);
+      if (status.type === "unauthenticated") return "authentication_required";
+      if (
+        status.type !== "chat-gpt" ||
+        status.email.length === 0 ||
+        status.email.trim() !== status.email ||
+        accountFingerprint(status.email) !== expectedAccountSubjectFingerprint
+      ) {
+        return "account_mismatch";
+      }
+      return "verified";
+    },
+  };
+  return new ManagedAcpRuntime(profile, store, binding);
+}
 
 export interface CodexAcpInspection {
   readonly inspection: AcpRuntimeInspection;

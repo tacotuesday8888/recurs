@@ -50,19 +50,36 @@ export interface RuntimeDependencies {
   promptUnavailableMessage?: string;
 }
 
+const MAX_CONFIRMATION_TEXT_LENGTH = 8_192;
+const TERMINAL_CONTROL = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u;
+
+function terminalSafeConfirmationText(message: string): string {
+  let safe = "";
+  for (const character of message) {
+    const rendered = TERMINAL_CONTROL.test(character)
+      ? `\\u{${character.codePointAt(0)!.toString(16).toUpperCase()}}`
+      : character;
+    if (safe.length + rendered.length > MAX_CONFIRMATION_TEXT_LENGTH) {
+      return `${safe}…`;
+    }
+    safe += rendered;
+  }
+  return safe;
+}
+
 function isWorkspaceShellState(
   state: SessionState | WorkspaceShellState,
 ): state is WorkspaceShellState {
   return "type" in state && state.type === "workspace";
 }
 
-function interactiveInvocation(): HostInvocation {
+function untrustedProgrammaticInvocation(): HostInvocation {
   return createHostInvocation({
-    invocation: "repl",
-    userPresent: true,
+    invocation: "one_shot",
+    userPresent: false,
     remote: false,
-    scripted: false,
-    embedding: "cli",
+    scripted: true,
+    embedding: "sdk",
   });
 }
 
@@ -127,7 +144,7 @@ export class RecursRuntime {
   }
 
   confirm(message: string): Promise<boolean> {
-    return this.#confirm(message);
+    return this.#confirm(terminalSafeConfirmationText(message));
   }
 
   currentSignal(): AbortSignal {
@@ -277,7 +294,7 @@ export class RecursRuntime {
   async #runPrompt(
     prompt: string,
     executionMode?: "act" | "plan",
-    invocation: HostInvocation = interactiveInvocation(),
+    invocation: HostInvocation = untrustedProgrammaticInvocation(),
   ): Promise<RunResult> {
     if (this.#activeController !== null) {
       throw new RuntimeError("busy", "An agent run is already active");
@@ -315,7 +332,7 @@ export class RecursRuntime {
 
   async submit(
     input: string,
-    invocation: HostInvocation = interactiveInvocation(),
+    invocation: HostInvocation = untrustedProgrammaticInvocation(),
   ): Promise<CommandResult | RunResult> {
     const trimmed = input.trim();
     if (trimmed.length === 0) {

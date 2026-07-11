@@ -100,6 +100,13 @@ function foundationFor(runtime: Awaited<ReturnType<typeof createStandaloneRuntim
   }
   const executorDependencies = Reflect.get(delegated, "dependencies") as {
     continuationAuthority: RuntimeContinuationAuthority;
+    approvals: {
+      request(intent: {
+        category: "write";
+        resource: string;
+        risk: "elevated";
+      }): Promise<unknown>;
+    };
     runtimeApprovals: {
       request(request: RuntimeApprovalRequest): Promise<unknown>;
     };
@@ -110,6 +117,7 @@ function foundationFor(runtime: Awaited<ReturnType<typeof createStandaloneRuntim
     runtimeStore,
     resolver: coordinator.dependencies.resolver,
     executorAuthority: executorDependencies.continuationAuthority,
+    toolApprovals: executorDependencies.approvals,
     runtimeApprovals: executorDependencies.runtimeApprovals,
   };
 }
@@ -199,6 +207,13 @@ describe("standalone assembly without a provider", () => {
     await expect(runtime.submit("/status")).resolves.toMatchObject({
       text: expect.stringContaining("Codex (Plan-only)"),
     });
+
+    await expect(runtime.submit("implicit programmatic request")).rejects
+      .toMatchObject({
+        failure: { domain: "policy", code: "policy_blocked" },
+      });
+    expect(runtimeRuns).toBe(0);
+    expect(runtime.session.messages).toEqual([]);
 
     const oneShot = createHostInvocation({
       invocation: "one_shot",
@@ -373,12 +388,23 @@ describe("standalone assembly without a provider", () => {
     });
     await expect(foundation.runtimeApprovals.request({
       ...request,
-      resource: "src/index.ts\n\u001b[31mspoofed",
-      summary: "Update\rthe source file",
+      resource: "src/index.ts\n\u001b[31m\u009b32mspoofed",
+      summary: "Update\rthe \u202esource file",
     })).resolves.toMatchObject({ scope: "allow_once" });
     expect(approvalPrompts.at(-1)).not.toContain("\n");
     expect(approvalPrompts.at(-1)).not.toContain("\r");
     expect(approvalPrompts.at(-1)).not.toContain("\u001b");
+    expect(approvalPrompts.at(-1)).not.toContain("\u009b");
+    expect(approvalPrompts.at(-1)).not.toContain("\u202e");
+    await expect(foundation.toolApprovals.request({
+      category: "write",
+      resource: "src/index.ts\n\u001b]0;spoofed\u0007\u009b31m\u202etxt",
+      risk: "elevated",
+    })).resolves.toBe("allow_once");
+    expect(approvalPrompts.at(-1)).not.toMatch(
+      /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u,
+    );
+    expect(approvalPrompts.at(-1)).toContain("src/index.ts");
     const promptsBeforeCredential = approvalPrompts.length;
     await expect(foundation.runtimeApprovals.request({
       ...request,

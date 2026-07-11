@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { Readable } from "node:stream";
 
 import {
   FileConnectionRegistry,
@@ -164,7 +165,7 @@ describe("provider onboarding end to end", () => {
     expect(stderr.value).toBe("");
   });
 
-  it("selects a persisted Codex connection as a Plan-only delegated pin without starting it", async () => {
+  it("selects a Plan-only Codex pin and rejects piped prompts before starting it", async () => {
     const root = await temporaryRoot("recurs-codex-pin-e2e-");
     const project = path.join(root, "project");
     const dataDirectory = path.join(root, "data");
@@ -204,5 +205,19 @@ describe("provider onboarding end to end", () => {
         },
       },
     });
+
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    expect(await runCli([], {
+      stdin: Readable.from(["inspect the workspace\n"]),
+      stdout,
+      stderr,
+      interactive: false,
+      async createRuntime() { return runtime; },
+    })).toBe(2);
+    expect(runtimeStarted).toBe(false);
+    expect(runtime.session.messages).toEqual([]);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toContain("user-present local terminal");
   });
 });

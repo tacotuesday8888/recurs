@@ -1,4 +1,6 @@
 import { fileURLToPath } from "node:url";
+import { readFile, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type {
@@ -9,7 +11,7 @@ import type {
   RuntimeContinuationHandle,
   RuntimeContinuationStore,
 } from "@recurs/contracts";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   authenticateAcpRuntime,
@@ -24,6 +26,13 @@ const fixture = fileURLToPath(
 );
 
 const cwd = path.resolve(process.cwd());
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((directory) =>
+    rm(directory, { recursive: true, force: true })
+  ));
+});
 
 function profile(
   scenario = "happy",
@@ -36,6 +45,8 @@ function profile(
     startupTimeoutMs?: number;
     promptTimeoutMs?: number;
     cancelSettlementTimeoutMs?: number;
+    shutdownTimeoutMs?: number;
+    extraArgs?: readonly string[];
   } = {},
 ): AcpRuntimeProfile {
   return createAcpRuntimeProfile({
@@ -45,7 +56,13 @@ function profile(
     protocol: "acp",
     protocolVersion: 1,
     command: process.execPath,
-    args: [fixture, "--scenario", scenario, "--expect-client-info"],
+    args: [
+      fixture,
+      "--scenario",
+      scenario,
+      "--expect-client-info",
+      ...(options.extraArgs ?? []),
+    ],
     clientInfo: { name: "recurs", version: "0.0.0", title: "Recurs" },
     allowedEnvironmentKeys: [],
     usageSemantics: "prompt_response",
@@ -119,7 +136,7 @@ function profile(
       startupTimeoutMs: options.startupTimeoutMs ?? 1_000,
       promptTimeoutMs: options.promptTimeoutMs ?? 1_000,
       cancelSettlementTimeoutMs: options.cancelSettlementTimeoutMs ?? 500,
-      shutdownTimeoutMs: 300,
+      shutdownTimeoutMs: options.shutdownTimeoutMs ?? 300,
     },
   });
 }
@@ -220,7 +237,213 @@ async function collect(runtime: ManagedAcpRuntime, run: AgentRunRequest): Promis
   return events;
 }
 
+async function eventFixture(): Promise<{ directory: string; eventsFile: string }> {
+  const directory = await mkdtemp(path.join(tmpdir(), "recurs-acp-cancel-"));
+  temporaryDirectories.push(directory);
+  const eventsFile = path.join(directory, "events.jsonl");
+  await writeFile(eventsFile, "", { mode: 0o600 });
+  return { directory, eventsFile };
+}
+
+async function waitForMethod(eventsFile: string, method: string): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    const methods = (await readFile(eventsFile, "utf8"))
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => (JSON.parse(line) as { method: string }).method);
+    if (methods.includes(method)) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`fake ACP agent did not receive ${method}`);
+}
+
+async function recordedMethods(eventsFile: string): Promise<string[]> {
+  return (await readFile(eventsFile, "utf8"))
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => (JSON.parse(line) as { method: string }).method);
+}
+
+function continuation(
+  status: "committed" | "uncertain",
+): RuntimeContinuationHandle {
+  return {
+    kind: "runtime",
+    id: "runtime-handle-seed",
+    storageClass: "process_scoped",
+    ownerInstanceId: "owner-1",
+    expiresAt: "2099-01-01T00:00:00.000Z",
+    recursSessionId: "session-1",
+    connectionId: "connection-1",
+    adapterId: "fake-acp",
+    modelId: "test-model",
+    backendFingerprint: "sha256:test",
+    stateVersion: 1,
+    originTurnId: "turn-seed",
+    continuationSequence: 1,
+    status,
+    vendorTurnSequence: 1,
+  };
+}
+
+function seedContinuation(
+  store: MemoryRuntimeStore,
+  handle: RuntimeContinuationHandle,
+): void {
+  store.payloads.set(
+    handle.id,
+    new TextEncoder().encode(JSON.stringify({
+      schemaVersion: 1,
+      vendorSessionId: "vendor-session-secret-123",
+      cwd,
+    })),
+  );
+}
+
 describe("ManagedAcpRuntime", () => {
+  it.each([
+    ["initialize", "hang", "initialize", false],
+    ["new session", "new-hang", "session/new", false],
+    ["configuration", "config-hang", "session/set_mode", true],
+  ] as const)(
+    "cancels during %s without waiting for the operation timeout",
+    async (_phase, scenario, awaitedMethod, expectsSessionCancel) => {
+      const { eventsFile } = await eventFixture();
+      const runtime = new ManagedAcpRuntime(profile(scenario, {
+        startupTimeoutMs: 600,
+        promptTimeoutMs: 600,
+        cancelSettlementTimeoutMs: 50,
+        shutdownTimeoutMs: 50,
+        extraArgs: ["--event-file", eventsFile],
+      }), new MemoryRuntimeStore());
+      const controller = new AbortController();
+      const running = collect(runtime, request({}, controller.signal));
+      await waitForMethod(eventsFile, awaitedMethod);
+      const startedAt = Date.now();
+      controller.abort(new Error("test cancellation"));
+      const events = await running;
+
+      expect(Date.now() - startedAt).toBeLessThan(300);
+      expect(events.at(-1)).toMatchObject({ type: "cancelled" });
+      expect((await recordedMethods(eventsFile)).includes("session/cancel"))
+        .toBe(expectsSessionCancel);
+    },
+  );
+
+  it("cancels a resumed session before the resume timeout", async () => {
+    const { eventsFile } = await eventFixture();
+    const store = new MemoryRuntimeStore();
+    const committed = continuation("committed");
+    seedContinuation(store, committed);
+    const runtime = new ManagedAcpRuntime(profile("resume-hang", {
+      promptTimeoutMs: 600,
+      cancelSettlementTimeoutMs: 50,
+      shutdownTimeoutMs: 50,
+      extraArgs: ["--event-file", eventsFile],
+    }), store);
+    const controller = new AbortController();
+    const running = collect(runtime, request({
+      continuation: committed,
+      continuationReader: {
+        id: "reader-1",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      },
+    }, controller.signal));
+    await waitForMethod(eventsFile, "session/resume");
+    const startedAt = Date.now();
+    controller.abort(new Error("test cancellation"));
+    const events = await running;
+
+    expect(Date.now() - startedAt).toBeLessThan(300);
+    expect(events.at(-1)).toMatchObject({ type: "cancelled" });
+    expect(await recordedMethods(eventsFile)).toContain("session/cancel");
+  });
+
+  it("keeps cancellation dominant after setup but before a prompt is issued", async () => {
+    const { eventsFile } = await eventFixture();
+    const controller = new AbortController();
+    const store = new class extends MemoryRuntimeStore {
+      override async put(input: {
+        writer: ContinuationWriteCapability;
+        payload: Uint8Array;
+      }): Promise<RuntimeContinuationHandle> {
+        controller.abort(new Error("cancelled during continuation staging"));
+        throw new Error(`staging failed for ${String(input.payload.byteLength)} bytes`);
+      }
+    }();
+    const runtime = new ManagedAcpRuntime(profile("happy", {
+      extraArgs: ["--event-file", eventsFile],
+      cancelSettlementTimeoutMs: 50,
+      shutdownTimeoutMs: 50,
+    }), store);
+
+    const events = await collect(runtime, request({}, controller.signal));
+
+    expect(events.at(-1)).toMatchObject({ type: "cancelled" });
+    expect(await recordedMethods(eventsFile)).toContain("session/cancel");
+  });
+
+  it("cancels the vendor session when staging finishes after an abort", async () => {
+    const { eventsFile } = await eventFixture();
+    const controller = new AbortController();
+    const store = new class extends MemoryRuntimeStore {
+      override async put(input: {
+        writer: ContinuationWriteCapability;
+        payload: Uint8Array;
+      }): Promise<RuntimeContinuationHandle> {
+        controller.abort(new Error("cancelled while staging continuation"));
+        return await super.put(input);
+      }
+    }();
+    const runtime = new ManagedAcpRuntime(profile("happy", {
+      extraArgs: ["--event-file", eventsFile],
+      cancelSettlementTimeoutMs: 50,
+      shutdownTimeoutMs: 50,
+    }), store);
+
+    const events = await collect(runtime, request({}, controller.signal));
+
+    expect(events.at(-1)).toMatchObject({ type: "cancelled" });
+    expect(await recordedMethods(eventsFile)).toContain("session/cancel");
+  });
+
+  it("cancels reconciliation before the resume timeout", async () => {
+    const { eventsFile } = await eventFixture();
+    const store = new MemoryRuntimeStore();
+    const uncertain = continuation("uncertain");
+    seedContinuation(store, uncertain);
+    const runtime = new ManagedAcpRuntime(profile("reconcile-hang", {
+      promptTimeoutMs: 600,
+      cancelSettlementTimeoutMs: 50,
+      shutdownTimeoutMs: 50,
+      extraArgs: ["--event-file", eventsFile],
+    }), store);
+    const controller = new AbortController();
+    const running = runtime.reconcile({
+      continuation: uncertain,
+      reader: {
+        id: "reader-reconcile",
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      },
+      authorization: {
+        ...request().authorization,
+        operation: "runtime_reconcile",
+        turnId: null,
+      },
+      expectedSessionRecordSequence: 1,
+      signal: controller.signal,
+    });
+    await waitForMethod(eventsFile, "session/resume");
+    const startedAt = Date.now();
+    controller.abort(new Error("test cancellation"));
+
+    await expect(running).resolves.toBe("uncertain");
+    expect(Date.now() - startedAt).toBeLessThan(300);
+    expect(await recordedMethods(eventsFile)).toContain("session/cancel");
+  });
   it("initializes, enforces reviewed settings, translates updates, and echoes exact permissions", async () => {
     const store = new MemoryRuntimeStore();
     const runtime = new ManagedAcpRuntime(profile(), store);

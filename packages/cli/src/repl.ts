@@ -2,6 +2,8 @@ import { stdin as processStdin, stdout as processStdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import type { Readable, Writable } from "node:stream";
 
+import { createHostInvocation, type HostInvocation } from "@recurs/contracts";
+
 import type { CommandResult } from "./commands/types.js";
 import { safeCliErrorMessage } from "./error-rendering.js";
 import { renderCommandResult, writeOutput } from "./render.js";
@@ -11,6 +13,7 @@ export interface ReplOptions {
   input?: Readable;
   output?: Writable;
   terminal?: boolean;
+  invocation?: HostInvocation;
 }
 
 function isCommandResult(value: unknown): value is CommandResult {
@@ -30,6 +33,13 @@ export async function startRepl(
 ): Promise<void> {
   const input = options.input ?? processStdin;
   const output = options.output ?? processStdout;
+  const invocation = options.invocation ?? createHostInvocation({
+    invocation: "repl",
+    userPresent: false,
+    remote: false,
+    scripted: true,
+    embedding: "cli",
+  });
   const readline = createInterface({
     input,
     output,
@@ -60,7 +70,7 @@ export async function startRepl(
         continue;
       }
       try {
-        const result = await runtime.submit(inputLine);
+        const result = await runtime.submit(inputLine, invocation);
         if (isCommandResult(result)) {
           if (result.type === "quit") {
             break;

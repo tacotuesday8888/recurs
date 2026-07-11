@@ -3,7 +3,7 @@
 
 import readline from "node:readline";
 import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 
 const scenarioIndex = process.argv.indexOf("--scenario");
 const scenario = scenarioIndex >= 0 ? process.argv[scenarioIndex + 1] : "happy";
@@ -14,6 +14,9 @@ const expectedEnvironmentKey = process.argv.includes("--expect-env")
 const pidFile = process.argv.includes("--pid-file")
   ? process.argv[process.argv.indexOf("--pid-file") + 1]
   : null;
+const eventFile = process.argv.includes("--event-file")
+  ? process.argv[process.argv.indexOf("--event-file") + 1]
+  : null;
 
 let authenticated = false;
 let promptId = null;
@@ -23,6 +26,15 @@ let currentModel = "wrong-model";
 let currentMode = "unsafe";
 let currentApproval = "wrong-approval";
 const confirmedSelectors = new Set();
+
+function record(method) {
+  if (eventFile === null) return;
+  appendFileSync(
+    eventFile,
+    `${JSON.stringify({ pid: process.pid, method })}\n`,
+    { mode: 0o600 },
+  );
+}
 
 function send(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -524,6 +536,7 @@ rl.on("line", (line) => {
     process.exit(31);
     return;
   }
+  record(message.method ?? "response");
 
   if (message.method === "initialize") {
     initialize(message);
@@ -543,6 +556,7 @@ rl.on("line", (line) => {
     return;
   }
   if (message.method === "session/new") {
+    if (scenario === "new-hang") return;
     if (scenario === "secret-session-error") {
       secretError(message.id);
       return;
@@ -560,6 +574,7 @@ rl.on("line", (line) => {
     return;
   }
   if (message.method === "session/resume") {
+    if (scenario === "resume-hang" || scenario === "reconcile-hang") return;
     if (scenario === "resume-gone") {
       error(message.id, -32002, "resource not found");
       return;
@@ -572,6 +587,7 @@ rl.on("line", (line) => {
     return;
   }
   if (message.method === "session/set_mode") {
+    if (scenario === "config-hang") return;
     if (!["reviewed-act", "reviewed-plan"].includes(message.params?.modeId)) {
       error(message.id, -32602, "unreviewed mode");
       return;

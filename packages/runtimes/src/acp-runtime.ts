@@ -136,6 +136,39 @@ class RuntimePreflightError extends Error {
   }
 }
 
+class RuntimeCancelledError extends Error {
+  constructor() {
+    super("ACP operation cancelled");
+    this.name = "RuntimeCancelledError";
+  }
+}
+
+type AcpSessionBindingDecision =
+  | "verified"
+  | "authentication_required"
+  | "account_mismatch";
+
+export interface AcpRuntimeSessionBinding {
+  readonly expectedAgentInfo: {
+    readonly name: string;
+    readonly version: string;
+  };
+  readonly extensionMethod: string;
+  evaluate(value: unknown): AcpSessionBindingDecision;
+}
+
+class RuntimeSessionBindingError extends Error {
+  constructor(
+    readonly code:
+      | "authentication_required"
+      | "account_mismatch"
+      | "adapter_unavailable",
+  ) {
+    super("ACP runtime session binding failed");
+    this.name = "RuntimeSessionBindingError";
+  }
+}
+
 class RuntimeEventChannel implements AsyncIterable<AgentRuntimeEvent> {
   private readonly queue: { event: AgentRuntimeEvent; bytes: number }[] = [];
   private readonly waiters: Array<() => void> = [];
@@ -251,6 +284,35 @@ function terminalBoundFallback(): AgentRuntimeEvent {
 }
 
 function mapFailure(error: unknown, phase: "preflight" | "started"): IntegrationFailure {
+  if (error instanceof RuntimeSessionBindingError) {
+    if (error.code === "authentication_required") {
+      return failure(
+        phase,
+        "auth",
+        "authentication_required",
+        "The Codex connection requires ChatGPT sign-in",
+        { action: "reauthenticate" },
+      );
+    }
+    if (error.code === "account_mismatch") {
+      return failure(
+        phase,
+        "auth",
+        "account_mismatch",
+        "The active ChatGPT account does not match this Codex connection",
+        { action: "select_connection" },
+      );
+    }
+    return failure(
+      phase,
+      "connection",
+      "adapter_unavailable",
+      "The official Codex runtime could not be verified",
+    );
+  }
+  if (error instanceof RuntimeCancelledError) {
+    return failure(phase, "runtime", "cancelled", "The delegated runtime was cancelled");
+  }
   if (error instanceof RuntimePreflightError) {
     return failure(
       phase,
@@ -342,6 +404,164 @@ function raceTransport<T>(promise: Promise<T>, process: ManagedAcpProcess): Prom
     promise,
     process.failure.then((error) => Promise.reject(error)),
   ]);
+}
+
+async function sendSessionCancellation(
+  context: ClientContext,
+  process: ManagedAcpProcess,
+  sessionId: string,
+  timeoutMs: number,
+): Promise<void> {
+  try {
+    await raceTransport(
+      withTimeout(
+        context.notify(methods.agent.session.cancel, { sessionId }),
+        timeoutMs,
+        "cancel",
+      ),
+      process,
+    );
+  } catch {
+    // Process shutdown is the bounded fallback when protocol cancellation fails.
+  }
+}
+
+async function requestSessionOperation<T>(
+  start: (cancellationSignal: AbortSignal) => Promise<T>,
+  signal: AbortSignal,
+  context: ClientContext,
+  process: ManagedAcpProcess,
+  sessionId: string,
+  timeoutMs: number,
+  cancelSettlementTimeoutMs: number,
+): Promise<T> {
+  if (signal.aborted) {
+    await sendSessionCancellation(
+      context,
+      process,
+      sessionId,
+      cancelSettlementTimeoutMs,
+    );
+    throw new RuntimeCancelledError();
+  }
+  const requestCancellation = new AbortController();
+  const operation = raceTransport(
+    withTimeout(
+      start(requestCancellation.signal),
+      timeoutMs,
+      "prompt",
+    ),
+    process,
+  ).then(
+    (value) => ({ kind: "value" as const, value }),
+    (error: unknown) => ({ kind: "error" as const, error }),
+  );
+  let finishAbort: (() => void) | null = null;
+  const aborted = new Promise<{ readonly kind: "cancelled" }>((resolve) => {
+    finishAbort = () => resolve({ kind: "cancelled" });
+  });
+  const onAbort = (): void => finishAbort?.();
+  signal.addEventListener("abort", onAbort, { once: true });
+  if (signal.aborted) onAbort();
+  try {
+    const outcome = await Promise.race([operation, aborted]);
+    if (signal.aborted) {
+      requestCancellation.abort(new Error("ACP session operation cancelled"));
+      await sendSessionCancellation(
+        context,
+        process,
+        sessionId,
+        cancelSettlementTimeoutMs,
+      );
+      throw new RuntimeCancelledError();
+    }
+    if (outcome.kind === "value") return outcome.value;
+    if (outcome.kind === "error") throw outcome.error;
+    requestCancellation.abort(new Error("ACP session operation cancelled"));
+    await sendSessionCancellation(
+      context,
+      process,
+      sessionId,
+      cancelSettlementTimeoutMs,
+    );
+    throw new RuntimeCancelledError();
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+    finishAbort = null;
+  }
+}
+
+async function verifySessionBinding(
+  context: ClientContext,
+  initialized: InitializeResponse,
+  process: ManagedAcpProcess,
+  binding: AcpRuntimeSessionBinding | null,
+  signal: AbortSignal,
+  timeoutMs: number,
+  activeSession: {
+    readonly sessionId: string;
+    readonly cancelSettlementTimeoutMs: number;
+  } | null = null,
+): Promise<void> {
+  if (binding === null) return;
+  if (signal.aborted) {
+    if (activeSession !== null) {
+      await sendSessionCancellation(
+        context,
+        process,
+        activeSession.sessionId,
+        activeSession.cancelSettlementTimeoutMs,
+      );
+    }
+    throw new RuntimeCancelledError();
+  }
+  if (
+    initialized.agentInfo?.name !== binding.expectedAgentInfo.name ||
+    initialized.agentInfo.version !== binding.expectedAgentInfo.version
+  ) {
+    throw new RuntimeSessionBindingError("adapter_unavailable");
+  }
+  const response = activeSession === null
+    ? await raceTransport(
+        withTimeout(
+          context.request<unknown, Record<string, never>>(
+            binding.extensionMethod,
+            {},
+          ),
+          timeoutMs,
+          "prompt",
+        ),
+        process,
+      )
+    : await requestSessionOperation(
+        (cancellationSignal) =>
+          context.request<unknown, Record<string, never>>(
+            binding.extensionMethod,
+            {},
+            { cancellationSignal },
+          ),
+        signal,
+        context,
+        process,
+        activeSession.sessionId,
+        timeoutMs,
+        activeSession.cancelSettlementTimeoutMs,
+      );
+  if (signal.aborted) {
+    if (activeSession !== null) {
+      await sendSessionCancellation(
+        context,
+        process,
+        activeSession.sessionId,
+        activeSession.cancelSettlementTimeoutMs,
+      );
+    }
+    throw new RuntimeCancelledError();
+  }
+  const decision = binding.evaluate(response);
+  if (decision !== "verified") {
+    throw new RuntimeSessionBindingError(decision);
+  }
 }
 
 function parseInitialize(value: unknown, profile: AcpRuntimeProfile): InitializeResponse {
@@ -508,6 +728,8 @@ async function enforceSessionMapping(
   mapping: AcpSessionMapping,
   process: ManagedAcpProcess,
   timeoutMs: number,
+  cancelSettlementTimeoutMs: number,
+  signal: AbortSignal,
 ): Promise<void> {
   if (mapping.modeId !== null) {
     const modes = state.modes;
@@ -515,16 +737,18 @@ async function enforceSessionMapping(
       throw new RuntimePreflightError("reviewed ACP mode is unavailable");
     }
     if (modes.currentModeId !== mapping.modeId) {
-      const response = await raceTransport(
-        withTimeout(
+      const response = await requestSessionOperation(
+        (cancellationSignal) =>
           context.request(methods.agent.session.setMode, {
             sessionId,
             modeId: mapping.modeId,
-          }),
-          timeoutMs,
-          "prompt",
-        ),
+          }, { cancellationSignal }),
+        signal,
+        context,
         process,
+        sessionId,
+        timeoutMs,
+        cancelSettlementTimeoutMs,
       );
       emptyResponseSchema.parse(response);
     }
@@ -545,19 +769,21 @@ async function enforceSessionMapping(
       configValue(option) === selection.value &&
       !selectorsRequiringConfirmation.has(selection.configId)
     ) continue;
-    const response = await raceTransport(
-      withTimeout(
+    const response = await requestSessionOperation(
+      (cancellationSignal) =>
         context.request(methods.agent.session.setConfigOption, {
           sessionId,
           configId: selection.configId,
           ...(typeof selection.value === "boolean"
             ? { type: "boolean" as const, value: selection.value }
             : { value: selection.value }),
-        }),
-        timeoutMs,
-        "prompt",
-      ),
+        }, { cancellationSignal }),
+      signal,
+      context,
       process,
+      sessionId,
+      timeoutMs,
+      cancelSettlementTimeoutMs,
     );
     current = configResponseSchema.parse(response).configOptions as SessionConfigOption[];
     assertReviewedSelectors(current, mapping);
@@ -805,16 +1031,34 @@ export class ManagedAcpRuntime implements AgentRuntime {
   readonly connectionId: string;
   readonly capabilities: RuntimeCapabilities;
   readonly capabilityProfileRevision: string;
+  readonly #sessionBinding: AcpRuntimeSessionBinding | null;
 
   constructor(
     readonly profile: AcpRuntimeProfile,
     private readonly runtimeStore: RuntimeContinuationStore,
+    sessionBinding: AcpRuntimeSessionBinding | null = null,
   ) {
     this.profile = createAcpRuntimeProfile(profile);
     this.adapterId = this.profile.adapterId;
     this.connectionId = this.profile.connectionId;
     this.capabilities = this.profile.capabilities;
     this.capabilityProfileRevision = this.profile.capabilityProfileRevision;
+    if (
+      sessionBinding !== null &&
+      (!/^[a-z][a-z0-9._/-]{0,127}$/u.test(sessionBinding.extensionMethod) ||
+        containsSecretCanary(sessionBinding.extensionMethod) ||
+        containsSecretCanary(sessionBinding.expectedAgentInfo.name) ||
+        containsSecretCanary(sessionBinding.expectedAgentInfo.version))
+    ) {
+      throw new TypeError("ACP runtime session binding is invalid");
+    }
+    this.#sessionBinding = sessionBinding === null
+      ? null
+      : Object.freeze({
+          expectedAgentInfo: Object.freeze({ ...sessionBinding.expectedAgentInfo }),
+          extensionMethod: sessionBinding.extensionMethod,
+          evaluate: sessionBinding.evaluate,
+        });
   }
 
   run(request: AgentRunRequest, host: AgentRuntimeHost): AsyncIterable<AgentRuntimeEvent> {
@@ -847,6 +1091,7 @@ export class ManagedAcpRuntime implements AgentRuntime {
       reader: input.reader,
       handle: input.continuation,
     }));
+    if (input.signal.aborted) return "uncertain";
     const { vendorSessionId } = continuationPayload;
     let managed: ManagedAcpProcess | null = null;
     let connection: ClientConnection | null = null;
@@ -858,6 +1103,7 @@ export class ManagedAcpRuntime implements AgentRuntime {
         args: this.profile.args,
         allowedEnvironmentKeys: this.profile.allowedEnvironmentKeys,
         bounds: this.profile.bounds,
+        signal: input.signal,
       });
       connection = client({ name: "recurs" }).connect(
         sanitizeAcpStream(managed.stream, false),
@@ -867,18 +1113,29 @@ export class ManagedAcpRuntime implements AgentRuntime {
       const inspection = inspectionFromInitialize(initialized);
       supportsClose = inspection.sessionCapabilities.close;
       if (!inspection.sessionCapabilities.resume) return "uncertain";
-      const response = await raceTransport(
-        withTimeout(
-          context.request(methods.agent.session.resume, {
+      await verifySessionBinding(
+        context,
+        initialized,
+        managed,
+        this.#sessionBinding,
+        input.signal,
+        this.profile.bounds.startupTimeoutMs,
+      );
+      managed.detachAbortSignal();
+      const response = await requestSessionOperation(
+        (cancellationSignal) =>
+          context!.request(methods.agent.session.resume, {
             sessionId: vendorSessionId,
             cwd: continuationPayload.cwd,
             additionalDirectories: [],
             mcpServers: [],
-          }),
-          this.profile.bounds.promptTimeoutMs,
-          "prompt",
-        ),
+          }, { cancellationSignal }),
+        input.signal,
+        context,
         managed,
+        vendorSessionId,
+        this.profile.bounds.promptTimeoutMs,
+        this.profile.bounds.cancelSettlementTimeoutMs,
       );
       sessionStateSchema.parse(response);
       return "uncertain";
@@ -891,7 +1148,7 @@ export class ManagedAcpRuntime implements AgentRuntime {
         context,
         managed,
         vendorSessionId,
-        supportsClose,
+        supportsClose && !input.signal.aborted,
         this.profile.bounds.shutdownTimeoutMs,
         false,
       );
@@ -935,6 +1192,7 @@ export class ManagedAcpRuntime implements AgentRuntime {
     let finalText = "";
     let terminal: AgentRuntimeEvent | null = null;
     let promptActive = false;
+    let promptIssued = false;
     let callbackFailure: unknown = null;
     let activeCallbacks = 0;
     let resolveCallbackDrain: (() => void) | null = null;
@@ -971,6 +1229,7 @@ export class ManagedAcpRuntime implements AgentRuntime {
         args: this.profile.args,
         allowedEnvironmentKeys: this.profile.allowedEnvironmentKeys,
         bounds: this.profile.bounds,
+        signal: request.signal,
       });
 
       const app = client({ name: "recurs" })
@@ -1030,7 +1289,6 @@ export class ManagedAcpRuntime implements AgentRuntime {
       if (this.profile.capabilities.resume && !inspection.sessionCapabilities.resume) {
         throw new RuntimePreflightError("ACP agent did not advertise reviewed resume support");
       }
-
       let state: NewSessionResponse | ResumeSessionResponse;
       if (request.continuation !== null) {
         if (request.continuationReader === null || !inspection.sessionCapabilities.resume) {
@@ -1040,25 +1298,45 @@ export class ManagedAcpRuntime implements AgentRuntime {
           reader: request.continuationReader,
           handle: request.continuation,
         }));
+        if (request.signal.aborted) throw new RuntimeCancelledError();
         if (path.resolve(continuationPayload.cwd) !== path.resolve(request.cwd)) {
           throw new RuntimePreflightError("ACP continuation belongs to another workspace");
         }
+        await verifySessionBinding(
+          context,
+          initialized,
+          managed,
+          this.#sessionBinding,
+          request.signal,
+          this.profile.bounds.startupTimeoutMs,
+        );
         sessionId = continuationPayload.vendorSessionId;
-        const response = await raceTransport(
-          withTimeout(
-            context.request(methods.agent.session.resume, {
+        managed.detachAbortSignal();
+        const response = await requestSessionOperation(
+          (cancellationSignal) =>
+            context!.request(methods.agent.session.resume, {
               sessionId,
               cwd: request.cwd,
               additionalDirectories: [],
               mcpServers: [],
-            }),
-            this.profile.bounds.promptTimeoutMs,
-            "prompt",
-          ),
+            }, { cancellationSignal }),
+          request.signal,
+          context,
           managed,
+          sessionId,
+          this.profile.bounds.promptTimeoutMs,
+          this.profile.bounds.cancelSettlementTimeoutMs,
         );
         state = sessionStateSchema.parse(response) as ResumeSessionResponse;
       } else {
+        await verifySessionBinding(
+          context,
+          initialized,
+          managed,
+          this.#sessionBinding,
+          request.signal,
+          this.profile.bounds.startupTimeoutMs,
+        );
         const response = await raceTransport(
           withTimeout(
             context.request(methods.agent.session.new, {
@@ -1073,6 +1351,7 @@ export class ManagedAcpRuntime implements AgentRuntime {
         );
         const parsed = newSessionResponseSchema.parse(response);
         sessionId = parsed.sessionId;
+        managed.detachAbortSignal();
         state = parsed as NewSessionResponse;
       }
 
@@ -1083,8 +1362,33 @@ export class ManagedAcpRuntime implements AgentRuntime {
         mapping,
         managed,
         this.profile.bounds.promptTimeoutMs,
+        this.profile.bounds.cancelSettlementTimeoutMs,
+        request.signal,
       );
 
+      await verifySessionBinding(
+        context,
+        initialized,
+        managed,
+        this.#sessionBinding,
+        request.signal,
+        this.profile.bounds.startupTimeoutMs,
+        {
+          sessionId,
+          cancelSettlementTimeoutMs:
+            this.profile.bounds.cancelSettlementTimeoutMs,
+        },
+      );
+
+      if (request.signal.aborted) {
+        await sendSessionCancellation(
+          context,
+          managed,
+          sessionId,
+          this.profile.bounds.cancelSettlementTimeoutMs,
+        );
+        throw new RuntimeCancelledError();
+      }
       continuation = await this.runtimeStore.put({
         writer: request.continuationWriter,
         payload: encodeContinuation(sessionId, request.cwd),
@@ -1093,12 +1397,19 @@ export class ManagedAcpRuntime implements AgentRuntime {
       channel.push({ type: "continuation_updated", continuation });
 
       if (request.signal.aborted) {
+        await sendSessionCancellation(
+          context,
+          managed,
+          sessionId,
+          this.profile.bounds.cancelSettlementTimeoutMs,
+        );
         terminal = {
           type: "cancelled",
           reason: "The delegated runtime turn was cancelled",
           continuation,
         };
       } else {
+        promptIssued = true;
         promptActive = true;
         const requestCancellation = new AbortController();
         const promptPromise = context.request(
@@ -1249,7 +1560,7 @@ export class ManagedAcpRuntime implements AgentRuntime {
         context,
         managed,
         sessionId,
-        supportsClose,
+        supportsClose && !request.signal.aborted,
         this.profile.bounds.shutdownTimeoutMs,
         true,
       );
@@ -1267,12 +1578,27 @@ export class ManagedAcpRuntime implements AgentRuntime {
     } catch (error) {
       promptActive = false;
       cancelApprovals();
+      if (
+        request.signal.aborted &&
+        !promptIssued &&
+        context !== null &&
+        managed !== null &&
+        sessionId !== null &&
+        !(error instanceof RuntimeCancelledError)
+      ) {
+        await sendSessionCancellation(
+          context,
+          managed,
+          sessionId,
+          this.profile.bounds.cancelSettlementTimeoutMs,
+        );
+      }
       await boundedClose(
         connection,
         context,
         managed,
         sessionId,
-        supportsClose,
+        supportsClose && !request.signal.aborted,
         this.profile.bounds.shutdownTimeoutMs,
         false,
       );
@@ -1281,7 +1607,14 @@ export class ManagedAcpRuntime implements AgentRuntime {
         this.profile.bounds.cancelSettlementTimeoutMs,
         "cancel",
       ).catch(() => undefined);
-      const mapped = mapFailure(error, "started");
+      const mapped = request.signal.aborted && !promptIssued
+        ? failure(
+            "started",
+            "runtime",
+            "cancelled",
+            "The delegated runtime was cancelled",
+          )
+        : mapFailure(error, "started");
       if (mapped.code === "cancelled") {
         channel.finish({
           type: "cancelled",
@@ -1479,6 +1812,7 @@ export async function probeAcpRuntimeMapping(
           );
           const state = newSessionResponseSchema.parse(response) as NewSessionResponse;
           sessionId = state.sessionId;
+          process.detachAbortSignal();
           const selected = selectMapping(structuredClone(state));
           const reviewed = createAcpRuntimeProfile({
             ...profile,
@@ -1494,12 +1828,14 @@ export async function probeAcpRuntimeMapping(
             reviewed,
             process,
             profile.bounds.promptTimeoutMs,
+            profile.bounds.cancelSettlementTimeoutMs,
+            signal,
           );
           result = deepFreeze(structuredClone(reviewed));
         } catch (error) {
           operationError = error;
         }
-        if (sessionId !== null) {
+        if (sessionId !== null && !signal.aborted) {
           try {
             const response = await raceTransport(
               withTimeout(

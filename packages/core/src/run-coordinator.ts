@@ -33,6 +33,7 @@ import {
   verifyRunAuthorization,
 } from "./backend-authorization.js";
 import { SessionStoreError } from "./jsonl-session-store.js";
+import { restoredRuntimePredecessor } from "./runtime-continuation-lifecycle.js";
 import { isPinnedSessionState, type PinnedSessionState } from "./session-v2.js";
 
 export interface DirectRunExecutorInput {
@@ -438,7 +439,10 @@ export class BackendRunCoordinator implements RunCoordinator {
         outcome === "gone" &&
         !isDeepStrictEqual(
           finalization.activeHandle,
-          input.session.runtimeContinuationPredecessor,
+          restoredRuntimePredecessor(
+            input.session.runtimeContinuationPredecessor,
+            uncertain,
+          ),
         )
       ) {
         return {

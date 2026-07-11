@@ -974,6 +974,412 @@ describe("ProcessScopedRuntimeContinuationStore", () => {
     })).resolves.toMatchObject({ id: expect.any(String) });
   });
 
+  it("materializes a prepared committed predecessor before creating its successor", async () => {
+    const store = createStore();
+    const firstAuthorization = authorization("lazy-committed-1");
+    const firstWriter = await store.authority.mintWriter({
+      authorization: firstAuthorization,
+      pin,
+      expectedSessionRecordSequence: 0,
+      previous: null,
+      stateVersion: 1,
+    });
+    const firstUncertain = await store.runtimeStore.put({
+      writer: firstWriter,
+      payload: new Uint8Array([1]),
+    });
+    const firstPrepared = await store.authority.prepareFinalization({
+      authorization: firstAuthorization,
+      handle: firstUncertain,
+      outcome: "committed",
+      expectedSessionRecordSequence: 1,
+    });
+
+    const secondAuthorization = authorization("lazy-committed-2");
+    const secondWriter = await store.authority.mintWriter({
+      authorization: secondAuthorization,
+      pin,
+      expectedSessionRecordSequence: 2,
+      previous: firstPrepared.activeHandle,
+      stateVersion: 1,
+    });
+    const secondUncertain = await store.runtimeStore.put({
+      writer: secondWriter,
+      payload: new Uint8Array([2]),
+    });
+    const reconciliation = reconcileAuthorization("lazy-committed-gone");
+    const reader = await store.authority.mintReader({
+      authorization: reconciliation,
+      pin,
+      expectedSessionRecordSequence: 3,
+      purpose: "reconcile",
+      activeHandles: [secondUncertain],
+    });
+    await store.runtimeStore.load({ reader, handle: secondUncertain });
+    await expect(store.authority.prepareFinalization({
+      authorization: reconciliation,
+      handle: secondUncertain,
+      outcome: "gone",
+      expectedSessionRecordSequence: 3,
+    })).resolves.toMatchObject({ activeHandle: firstPrepared.activeHandle });
+    await expect(store.authority.acknowledgeFinalization({
+      authorization: firstAuthorization,
+      receipt: firstPrepared.receipt,
+      durableSessionRecordSequence: 2,
+    })).resolves.toBeUndefined();
+  });
+
+  it("preserves a prepared renewed expiry through a shorter-lived successor", async () => {
+    time = Date.parse("2026-07-11T00:00:00.000Z");
+    const startedAt = time;
+    const store = new ProcessScopedRuntimeContinuationStore({
+      now: () => new Date(time),
+      capabilityTtlMs: 5_000,
+      continuationTtlMs: 1_000,
+      maxPayloadBytes: 1,
+      maxStoredBytes: 2,
+      maxStoredContinuations: 2,
+    });
+    const first = await writeAndCommit(
+      store,
+      authorization("lazy-renewed-1"),
+      null,
+      new Uint8Array([1]),
+    );
+
+    time = startedAt + 900;
+    const secondAuthorization = authorization("lazy-renewed-2");
+    const secondWriter = await store.authority.mintWriter({
+      authorization: secondAuthorization,
+      pin,
+      expectedSessionRecordSequence: 2,
+      previous: first,
+      stateVersion: 1,
+    });
+    const second = await store.runtimeStore.put({
+      writer: secondWriter,
+      payload: new Uint8Array([2]),
+    });
+
+    time = startedAt + 1_001;
+    const firstReconciliation = reconcileAuthorization("lazy-renewed-gone-1");
+    const firstReader = await store.authority.mintReader({
+      authorization: firstReconciliation,
+      pin,
+      expectedSessionRecordSequence: 3,
+      purpose: "reconcile",
+      activeHandles: [second],
+    });
+    await store.runtimeStore.load({ reader: firstReader, handle: second });
+    const firstGone = await store.authority.prepareFinalization({
+      authorization: firstReconciliation,
+      handle: second,
+      outcome: "gone",
+      expectedSessionRecordSequence: 3,
+    });
+
+    time = startedAt + 1_100;
+    const thirdAuthorization = {
+      ...authorization("lazy-renewed-3"),
+      expiresAt: new Date(startedAt + 1_500).toISOString(),
+    };
+    const thirdWriter = await store.authority.mintWriter({
+      authorization: thirdAuthorization,
+      pin,
+      expectedSessionRecordSequence: 4,
+      previous: firstGone.activeHandle,
+      stateVersion: 1,
+    });
+    const third = await store.runtimeStore.put({
+      writer: thirdWriter,
+      payload: new Uint8Array([3]),
+    });
+    expect(Date.parse(third.expiresAt!)).toBeLessThan(
+      Date.parse(firstGone.activeHandle!.expiresAt!),
+    );
+
+    time = startedAt + 1_200;
+    const secondReconciliation = reconcileAuthorization("lazy-renewed-gone-2");
+    const secondReader = await store.authority.mintReader({
+      authorization: secondReconciliation,
+      pin,
+      expectedSessionRecordSequence: 5,
+      purpose: "reconcile",
+      activeHandles: [third],
+    });
+    await store.runtimeStore.load({ reader: secondReader, handle: third });
+    await expect(store.authority.prepareFinalization({
+      authorization: secondReconciliation,
+      handle: third,
+      outcome: "gone",
+      expectedSessionRecordSequence: 5,
+    })).resolves.toMatchObject({ activeHandle: firstGone.activeHandle });
+    await expect(store.authority.acknowledgeFinalization({
+      authorization: firstReconciliation,
+      receipt: firstGone.receipt,
+      durableSessionRecordSequence: 4,
+    })).resolves.toBeUndefined();
+  });
+
+  it("keeps a live prepared predecessor reachable after its successor expires", async () => {
+    time = Date.parse("2026-07-11T00:00:00.000Z");
+    const startedAt = time;
+    const store = new ProcessScopedRuntimeContinuationStore({
+      now: () => new Date(time),
+      capabilityTtlMs: 5_000,
+      continuationTtlMs: 10_000,
+      maxPayloadBytes: 1,
+      maxStoredBytes: 2,
+      maxStoredContinuations: 2,
+    });
+    const first = await writeAndCommit(
+      store,
+      authorization("lazy-pruned-1"),
+      null,
+      new Uint8Array([1]),
+    );
+
+    time = startedAt + 1_000;
+    const secondAuthorization = {
+      ...authorization("lazy-pruned-2"),
+      expiresAt: new Date(startedAt + 2_000).toISOString(),
+    };
+    const secondWriter = await store.authority.mintWriter({
+      authorization: secondAuthorization,
+      pin,
+      expectedSessionRecordSequence: 2,
+      previous: first,
+      stateVersion: 1,
+    });
+    const second = await store.runtimeStore.put({
+      writer: secondWriter,
+      payload: new Uint8Array([2]),
+    });
+
+    time = startedAt + 1_500;
+    const reconciliation = reconcileAuthorization("lazy-pruned-gone");
+    const reconcileReader = await store.authority.mintReader({
+      authorization: reconciliation,
+      pin,
+      expectedSessionRecordSequence: 3,
+      purpose: "reconcile",
+      activeHandles: [second],
+    });
+    await store.runtimeStore.load({ reader: reconcileReader, handle: second });
+    const prepared = await store.authority.prepareFinalization({
+      authorization: reconciliation,
+      handle: second,
+      outcome: "gone",
+      expectedSessionRecordSequence: 3,
+    });
+    expect(prepared.activeHandle).toEqual(first);
+
+    time = startedAt + 2_001;
+    const nextReader = await store.authority.mintReader({
+      authorization: authorization("lazy-pruned-3"),
+      pin,
+      expectedSessionRecordSequence: 4,
+      purpose: "run",
+      activeHandles: [first],
+    });
+    await expect(store.runtimeStore.load({
+      reader: nextReader,
+      handle: first,
+    })).resolves.toEqual(new Uint8Array([1]));
+  });
+
+  it("materializes a prepared empty lane before enforcing storage bounds", async () => {
+    const store = new ProcessScopedRuntimeContinuationStore({
+      now: () => new Date(time),
+      capabilityTtlMs: 5_000,
+      continuationTtlMs: 30_000,
+      maxPayloadBytes: 1,
+      maxStoredBytes: 1,
+      maxStoredContinuations: 1,
+    });
+    const firstAuthorization = authorization("lazy-empty-1");
+    const firstWriter = await store.authority.mintWriter({
+      authorization: firstAuthorization,
+      pin,
+      expectedSessionRecordSequence: 0,
+      previous: null,
+      stateVersion: 1,
+    });
+    const uncertain = await store.runtimeStore.put({
+      writer: firstWriter,
+      payload: new Uint8Array([1]),
+    });
+    const reconciliation = reconcileAuthorization("lazy-empty-gone");
+    const reader = await store.authority.mintReader({
+      authorization: reconciliation,
+      pin,
+      expectedSessionRecordSequence: 1,
+      purpose: "reconcile",
+      activeHandles: [uncertain],
+    });
+    await store.runtimeStore.load({ reader, handle: uncertain });
+    const prepared = await store.authority.prepareFinalization({
+      authorization: reconciliation,
+      handle: uncertain,
+      outcome: "gone",
+      expectedSessionRecordSequence: 1,
+    });
+    expect(prepared.activeHandle).toBeNull();
+
+    const nextAuthorization = authorization("lazy-empty-2");
+    const nextWriter = await store.authority.mintWriter({
+      authorization: nextAuthorization,
+      pin,
+      expectedSessionRecordSequence: 2,
+      previous: null,
+      stateVersion: 1,
+    });
+    await expect(store.authority.acknowledgeFinalization({
+      authorization: reconciliation,
+      receipt: prepared.receipt,
+      durableSessionRecordSequence: 2,
+    })).resolves.toBeUndefined();
+    await expect(store.runtimeStore.put({
+      writer: nextWriter,
+      payload: new Uint8Array([2]),
+    })).resolves.toMatchObject({ status: "uncertain" });
+  });
+
+  it("renews a gone predecessor transitively only through each live successor", async () => {
+    time = Date.parse("2026-07-11T00:00:00.000Z");
+    const startedAt = time;
+    const store = new ProcessScopedRuntimeContinuationStore({
+      now: () => new Date(time),
+      capabilityTtlMs: 5_000,
+      continuationTtlMs: 1_000,
+      maxPayloadBytes: 1,
+      maxStoredBytes: 2,
+      maxStoredContinuations: 2,
+    });
+    const first = await writeAndCommit(
+      store,
+      authorization("renewed-gone-1"),
+      null,
+      new Uint8Array([1]),
+    );
+
+    time = startedAt + 900;
+    const secondAuthorization = authorization("renewed-gone-2");
+    const secondWriter = await store.authority.mintWriter({
+      authorization: secondAuthorization,
+      pin,
+      expectedSessionRecordSequence: 2,
+      previous: first,
+      stateVersion: 1,
+    });
+    const second = await store.runtimeStore.put({
+      writer: secondWriter,
+      payload: new Uint8Array([2]),
+    });
+    expect(Date.parse(second.expiresAt!)).toBeGreaterThan(
+      Date.parse(first.expiresAt!),
+    );
+
+    time = startedAt + 1_001;
+    const firstReconciliation = reconcileAuthorization("renewed-gone-first");
+    const firstReader = await store.authority.mintReader({
+      authorization: firstReconciliation,
+      pin,
+      expectedSessionRecordSequence: 3,
+      purpose: "reconcile",
+      activeHandles: [second],
+    });
+    await store.runtimeStore.load({ reader: firstReader, handle: second });
+    const firstGone = await store.authority.prepareFinalization({
+      authorization: firstReconciliation,
+      handle: second,
+      outcome: "gone",
+      expectedSessionRecordSequence: 3,
+    });
+    expect(firstGone.activeHandle).toEqual({
+      ...first,
+      expiresAt: second.expiresAt,
+    });
+    const preparedReader = await store.authority.mintReader({
+      authorization: authorization("renewed-gone-prepared-view"),
+      pin,
+      expectedSessionRecordSequence: 4,
+      purpose: "run",
+      activeHandles: [firstGone.activeHandle!],
+    });
+    await expect(store.runtimeStore.load({
+      reader: preparedReader,
+      handle: firstGone.activeHandle!,
+    })).resolves.toEqual(new Uint8Array([1]));
+    await store.authority.acknowledgeFinalization({
+      authorization: firstReconciliation,
+      receipt: firstGone.receipt,
+      durableSessionRecordSequence: 4,
+    });
+    const firstRestored = firstGone.activeHandle!;
+
+    time = startedAt + 1_800;
+    const thirdAuthorization = authorization("renewed-gone-3");
+    const thirdWriter = await store.authority.mintWriter({
+      authorization: thirdAuthorization,
+      pin,
+      expectedSessionRecordSequence: 4,
+      previous: firstRestored,
+      stateVersion: 1,
+    });
+    const third = await store.runtimeStore.put({
+      writer: thirdWriter,
+      payload: new Uint8Array([3]),
+    });
+
+    time = startedAt + 1_901;
+    const secondReconciliation = reconcileAuthorization("renewed-gone-second");
+    const secondReader = await store.authority.mintReader({
+      authorization: secondReconciliation,
+      pin,
+      expectedSessionRecordSequence: 5,
+      purpose: "reconcile",
+      activeHandles: [third],
+    });
+    await store.runtimeStore.load({ reader: secondReader, handle: third });
+    const secondGone = await store.authority.prepareFinalization({
+      authorization: secondReconciliation,
+      handle: third,
+      outcome: "gone",
+      expectedSessionRecordSequence: 5,
+    });
+    expect(secondGone.activeHandle).toEqual({
+      ...firstRestored,
+      expiresAt: third.expiresAt,
+    });
+    await store.authority.acknowledgeFinalization({
+      authorization: secondReconciliation,
+      receipt: secondGone.receipt,
+      durableSessionRecordSequence: 6,
+    });
+    const secondRestored = secondGone.activeHandle!;
+    const restoredReader = await store.authority.mintReader({
+      authorization: authorization("renewed-gone-4"),
+      pin,
+      expectedSessionRecordSequence: 6,
+      purpose: "run",
+      activeHandles: [secondRestored],
+    });
+    await expect(store.runtimeStore.load({
+      reader: restoredReader,
+      handle: secondRestored,
+    })).resolves.toEqual(new Uint8Array([1]));
+
+    time = Date.parse(third.expiresAt!) + 1;
+    await expect(store.authority.mintWriter({
+      authorization: authorization("renewed-gone-after-expiry"),
+      pin,
+      expectedSessionRecordSequence: 6,
+      previous: null,
+      stateVersion: 1,
+    })).resolves.toMatchObject({ id: expect.any(String) });
+  });
+
   it("rejects expired state/capabilities, mismatched authorization, and oversized bytes safely", async () => {
     time = Date.parse("2026-07-11T00:00:00.000Z");
     const store = createStore(3);

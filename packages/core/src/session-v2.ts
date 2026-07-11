@@ -24,6 +24,7 @@ import type {
 import type { Goal } from "./goal.js";
 import type { SessionState } from "./session.js";
 import { createBackendFingerprint } from "./backend-authorization.js";
+import { restoredRuntimePredecessor } from "./runtime-continuation-lifecycle.js";
 
 export interface SessionRecordBaseV2 {
   version: 2;
@@ -595,7 +596,10 @@ export function reduceSessionRecordV2(
       } else if (
         !isDeepStrictEqual(
           record.activeHandle,
-          state.runtimeContinuationPredecessor,
+          restoredRuntimePredecessor(
+            state.runtimeContinuationPredecessor,
+            record.uncertainHandle,
+          ),
         )
       ) {
         throw new Error("Gone reconciliation did not restore the predecessor");

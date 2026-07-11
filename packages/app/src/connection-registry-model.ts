@@ -355,6 +355,8 @@ function rejectSecretMaterial(value: unknown): void {
   }
 }
 
+const UNSAFE_DISPLAY_CODE_POINT = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u;
+
 function boundedString(
   value: unknown,
   maximum: number,
@@ -364,10 +366,7 @@ function boundedString(
     typeof value !== "string" ||
     value.length === 0 ||
     value.length > maximum ||
-    [...value].some((character) => {
-      const code = character.codePointAt(0) ?? 0;
-      return code <= 0x1f || code === 0x7f;
-    }) ||
+    [...value].some((character) => UNSAFE_DISPLAY_CODE_POINT.test(character)) ||
     (options.trim === true && value.trim() !== value) ||
     (options.pattern !== undefined && !options.pattern.test(value))
   ) {

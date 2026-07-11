@@ -928,6 +928,14 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
     let resolution: RuntimeApprovalResolution | null = input.signal.aborted
       ? cancelledResolution("signal")
       : null;
+    if (
+      resolution === null &&
+      input.executionMode === "plan" &&
+      (request.action !== "read" || request.risk !== "normal")
+    ) {
+      resolution = exactPolicyResolution(request, "reject_once", "deny") ??
+        cancelledResolution("policy");
+    }
     if (resolution === null) {
       const cached = request.options.filter((option) =>
         option.kind === "allow_once" &&

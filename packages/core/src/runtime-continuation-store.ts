@@ -20,6 +20,7 @@ import {
   createBackendFingerprint,
   createBillingSelectionDigest,
 } from "./backend-authorization.js";
+import { restoredRuntimePredecessor } from "./runtime-continuation-lifecycle.js";
 
 export type RuntimeContinuationStoreErrorCode =
   | "continuation_capability_invalid"
@@ -67,6 +68,7 @@ interface WriterBinding {
 interface ReaderBinding {
   readonly capability: ContinuationReadCapability;
   readonly authorization: RunAuthorization;
+  readonly pin: SessionBackendPin & { readonly kind: "agent_runtime" };
   readonly expectedSessionRecordSequence: number;
   readonly purpose: "run" | "reconcile";
   readonly allowlist: ReadonlyMap<string, RuntimeContinuationHandle>;
@@ -321,6 +323,63 @@ export class ProcessScopedRuntimeContinuationStore {
     }
   }
 
+  #retainedByLiveSuccessor(id: string, now: Date): boolean {
+    for (const successor of this.#continuations.values()) {
+      if (
+        successor.previousId === id &&
+        successor.handle.expiresAt !== undefined &&
+        canonicalFuture(successor.handle.expiresAt, now)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  #backedPreparedGoneView(
+    finalization: PreparedFinalization,
+    now: Date,
+  ): boolean {
+    if (
+      finalization.status !== "prepared" ||
+      finalization.receipt.outcome !== "gone" ||
+      finalization.activeHandle === null ||
+      finalization.activeHandle.expiresAt === undefined ||
+      !canonicalFuture(finalization.activeHandle.expiresAt, now)
+    ) {
+      return false;
+    }
+    const uncertain = this.#continuations.get(
+      finalization.receipt.continuationId,
+    );
+    const active = this.#continuations.get(finalization.activeHandle.id);
+    return uncertain !== undefined &&
+      active !== undefined &&
+      uncertain.handle.status === "uncertain" &&
+      active.handle.status === "committed" &&
+      uncertain.previousId === active.handle.id &&
+      uncertain.lane === finalization.lane &&
+      active.lane === finalization.lane &&
+      this.#latestByLane.get(finalization.lane) === uncertain.handle.id &&
+      isDeepStrictEqual(uncertain.handle, finalization.uncertainHandle) &&
+      isDeepStrictEqual(
+        restoredRuntimePredecessor(active.handle, uncertain.handle),
+        finalization.activeHandle,
+      );
+  }
+
+  #retainedByPreparedGoneView(id: string, now: Date): boolean {
+    for (const finalization of this.#finalizations.values()) {
+      if (
+        finalization.receipt.continuationId === id &&
+        this.#backedPreparedGoneView(finalization, now)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   #pruneExpired(now: Date): void {
     for (const [id, writer] of this.#writers) {
       if (!canonicalFuture(writer.capability.expiresAt, now)) {
@@ -338,7 +397,10 @@ export class ProcessScopedRuntimeContinuationStore {
       }
     }
     for (const [id, finalization] of this.#finalizations) {
-      if (!canonicalFuture(finalization.receipt.expiresAt, now)) {
+      if (
+        !canonicalFuture(finalization.receipt.expiresAt, now) &&
+        !this.#backedPreparedGoneView(finalization, now)
+      ) {
         this.#finalizations.delete(id);
       }
     }
@@ -354,7 +416,9 @@ export class ProcessScopedRuntimeContinuationStore {
     for (const [id, continuation] of this.#continuations) {
       if (
         continuation.handle.expiresAt === undefined ||
-        !canonicalFuture(continuation.handle.expiresAt, now)
+        (!canonicalFuture(continuation.handle.expiresAt, now) &&
+          !this.#retainedByLiveSuccessor(id, now) &&
+          !this.#retainedByPreparedGoneView(id, now))
       ) {
         this.#deleteContinuation(id);
       }
@@ -407,7 +471,10 @@ export class ProcessScopedRuntimeContinuationStore {
   #preparedRunView(
     handle: RuntimeContinuationHandle,
     expectedSessionRecordSequence: number,
-  ): StoredContinuation | null {
+  ): {
+    readonly finalization: PreparedFinalization;
+    readonly active: StoredContinuation;
+  } | null {
     for (const finalization of this.#finalizations.values()) {
       if (
         finalization.status !== "prepared" ||
@@ -431,7 +498,7 @@ export class ProcessScopedRuntimeContinuationStore {
       ) {
         continue;
       }
-      return active;
+      return { finalization, active };
     }
     return null;
   }
@@ -440,6 +507,8 @@ export class ProcessScopedRuntimeContinuationStore {
     handle: RuntimeContinuationHandle,
     expectedSessionRecordSequence: number,
     now: Date,
+    authorization: RunAuthorization,
+    pin: SessionBackendPin & { readonly kind: "agent_runtime" },
   ): StoredContinuation {
     if (handle.status !== "committed") {
       throw new RuntimeContinuationStoreError("continuation_handle_invalid");
@@ -458,17 +527,36 @@ export class ProcessScopedRuntimeContinuationStore {
     );
     if (
       prepared === null ||
-      prepared.handle.expiresAt === undefined ||
-      !canonicalFuture(prepared.handle.expiresAt, now)
+      handle.expiresAt === undefined ||
+      !canonicalFuture(handle.expiresAt, now) ||
+      prepared.active.lane !== laneFor(authorization, pin) ||
+      prepared.active.authorization.sessionId !== authorization.sessionId ||
+      !isDeepStrictEqual(prepared.active.pin, pin) ||
+      expectedSessionRecordSequence <=
+        prepared.active.expectedSessionRecordSequence
     ) {
       throw new RuntimeContinuationStoreError("continuation_handle_invalid");
     }
-    return prepared;
+    const materialized = this.#materializePreparedFinalization(
+      prepared.finalization,
+      prepared.finalization.receipt.expectedSessionRecordSequence + 1,
+    );
+    if (
+      materialized === null ||
+      materialized.lane !== prepared.active.lane ||
+      !isDeepStrictEqual(materialized.handle, handle) ||
+      this.#latestByLane.get(materialized.lane) !== handle.id
+    ) {
+      throw new RuntimeContinuationStoreError("continuation_handle_invalid");
+    }
+    return this.#storedExact(handle, now);
   }
 
   #preparedEmptyLane(
     lane: string,
     expectedSessionRecordSequence: number,
+    authorization: RunAuthorization,
+    pin: SessionBackendPin & { readonly kind: "agent_runtime" },
   ): boolean {
     for (const finalization of this.#finalizations.values()) {
       if (
@@ -480,7 +568,24 @@ export class ProcessScopedRuntimeContinuationStore {
           finalization.receipt.expectedSessionRecordSequence &&
         this.#latestByLane.get(lane) === finalization.receipt.continuationId
       ) {
-        return true;
+        const uncertain = this.#continuations.get(
+          finalization.receipt.continuationId,
+        );
+        if (
+          uncertain === undefined ||
+          uncertain.lane !== lane ||
+          uncertain.authorization.sessionId !== authorization.sessionId ||
+          !isDeepStrictEqual(uncertain.pin, pin) ||
+          expectedSessionRecordSequence <=
+            uncertain.expectedSessionRecordSequence
+        ) {
+          continue;
+        }
+        this.#materializePreparedFinalization(
+          finalization,
+          finalization.receipt.expectedSessionRecordSequence + 1,
+        );
+        return this.#latestByLane.get(lane) === undefined;
       }
     }
     return false;
@@ -498,7 +603,12 @@ export class ProcessScopedRuntimeContinuationStore {
     if (previous === null) {
       if (
         latestId !== undefined &&
-        !this.#preparedEmptyLane(lane, expectedSessionRecordSequence)
+        !this.#preparedEmptyLane(
+          lane,
+          expectedSessionRecordSequence,
+          authorization,
+          pin,
+        )
       ) {
         throw new RuntimeContinuationStoreError("continuation_handle_invalid");
       }
@@ -508,6 +618,8 @@ export class ProcessScopedRuntimeContinuationStore {
       previous,
       expectedSessionRecordSequence,
       now,
+      authorization,
+      pin,
     );
     if (
       stored.lane !== lane ||
@@ -602,6 +714,8 @@ export class ProcessScopedRuntimeContinuationStore {
             handle,
             input.expectedSessionRecordSequence,
             now,
+            input.authorization,
+            input.pin,
           )
         : this.#storedExact(handle, now);
       if (
@@ -623,6 +737,7 @@ export class ProcessScopedRuntimeContinuationStore {
     this.#readers.set(capability.id, {
       capability,
       authorization: clone(input.authorization),
+      pin: clone(input.pin),
       expectedSessionRecordSequence: input.expectedSessionRecordSequence,
       purpose: input.purpose,
       allowlist,
@@ -864,7 +979,9 @@ export class ProcessScopedRuntimeContinuationStore {
       ) {
         throw new RuntimeContinuationStoreError("continuation_handle_invalid");
       }
-      activeHandle = previous.handle;
+      activeHandle = frozenHandle(
+        restoredRuntimePredecessor(previous.handle, input.handle)!,
+      );
     }
     if (input.handle.expiresAt === undefined) {
       throw new RuntimeContinuationStoreError("continuation_expired");
@@ -897,37 +1014,33 @@ export class ProcessScopedRuntimeContinuationStore {
     return Object.freeze({ receipt, activeHandle });
   }
 
-  async #acknowledgeFinalization(input: {
-    readonly authorization: RunAuthorization;
-    readonly receipt: RuntimeContinuationFinalizationReceipt;
-    readonly durableSessionRecordSequence: number;
-  }): Promise<void> {
-    this.#assertAvailable();
-    this.#currentTime();
-    const finalization = this.#finalizations.get(input.receipt.id);
+  #materializePreparedFinalization(
+    finalization: PreparedFinalization,
+    durableSessionRecordSequence: number,
+  ): StoredContinuation | null {
     if (
-      finalization === undefined ||
-      !isDeepStrictEqual(finalization.receipt, input.receipt) ||
-      !isDeepStrictEqual(finalization.authorization, input.authorization) ||
-      input.receipt.ownerInstanceId !== this.#ownerInstanceId ||
-      !safeInteger(input.durableSessionRecordSequence, 0) ||
-      input.durableSessionRecordSequence !==
-        input.receipt.expectedSessionRecordSequence + 1
+      !safeInteger(durableSessionRecordSequence, 0) ||
+      durableSessionRecordSequence !==
+        finalization.receipt.expectedSessionRecordSequence + 1
     ) {
       throw new RuntimeContinuationStoreError("continuation_capability_invalid");
     }
     if (finalization.status === "acknowledged") {
       if (
         finalization.durableSessionRecordSequence !==
-          input.durableSessionRecordSequence
+          durableSessionRecordSequence
       ) {
         throw new RuntimeContinuationStoreError(
           "continuation_capability_invalid",
         );
       }
-      return;
+      return finalization.activeHandle === null
+        ? null
+        : this.#continuations.get(finalization.activeHandle.id) ?? null;
     }
-    const stored = this.#continuations.get(input.receipt.continuationId);
+    const stored = this.#continuations.get(
+      finalization.receipt.continuationId,
+    );
     if (
       stored === undefined ||
       stored.lane !== finalization.lane ||
@@ -935,20 +1048,45 @@ export class ProcessScopedRuntimeContinuationStore {
     ) {
       throw new RuntimeContinuationStoreError("continuation_handle_invalid");
     }
+    let restoredPrevious: StoredContinuation | null = null;
+    if (finalization.receipt.outcome === "gone") {
+      if (stored.previousId === null) {
+        if (finalization.activeHandle !== null) {
+          throw new RuntimeContinuationStoreError("continuation_state_invalid");
+        }
+      } else {
+        const previous = this.#continuations.get(stored.previousId);
+        if (
+          previous === undefined ||
+          previous.handle.status !== "committed" ||
+          previous.lane !== stored.lane ||
+          finalization.activeHandle === null ||
+          !isDeepStrictEqual(
+            restoredRuntimePredecessor(previous.handle, stored.handle),
+            finalization.activeHandle,
+          )
+        ) {
+          throw new RuntimeContinuationStoreError("continuation_handle_invalid");
+        }
+        restoredPrevious = previous;
+      }
+    }
     for (const [id, candidate] of this.#finalizations) {
       if (
-        id !== input.receipt.id &&
-        candidate.receipt.continuationId === input.receipt.continuationId
+        id !== finalization.receipt.id &&
+        candidate.receipt.continuationId ===
+          finalization.receipt.continuationId
       ) {
         this.#finalizations.delete(id);
       }
     }
     for (const [id, pending] of this.#pendingReconciliations) {
-      if (pending.handle.id === input.receipt.continuationId) {
+      if (pending.handle.id === finalization.receipt.continuationId) {
         this.#pendingReconciliations.delete(id);
       }
     }
-    if (input.receipt.outcome === "committed") {
+    let active: StoredContinuation | null;
+    if (finalization.receipt.outcome === "committed") {
       if (finalization.activeHandle === null) {
         throw new RuntimeContinuationStoreError("continuation_state_invalid");
       }
@@ -957,19 +1095,47 @@ export class ProcessScopedRuntimeContinuationStore {
       if (stored.previousId !== null) {
         this.#deleteContinuation(stored.previousId);
       }
+      active = stored;
     } else {
       const wasLatest = this.#latestByLane.get(stored.lane) === stored.handle.id;
       const previousId = stored.previousId;
+      if (restoredPrevious !== null) {
+        restoredPrevious.handle = finalization.activeHandle!;
+      }
       this.#deleteContinuation(stored.handle.id);
-      if (wasLatest && previousId !== null &&
-        this.#continuations.has(previousId)) {
+      if (wasLatest && previousId !== null && restoredPrevious !== null) {
         this.#latestByLane.set(stored.lane, previousId);
       }
+      active = restoredPrevious;
     }
     finalization.status = "acknowledged";
-    finalization.durableSessionRecordSequence =
-      input.durableSessionRecordSequence;
-    this.#finalizations.set(input.receipt.id, finalization);
+    finalization.durableSessionRecordSequence = durableSessionRecordSequence;
+    this.#finalizations.set(finalization.receipt.id, finalization);
+    return active;
+  }
+
+  async #acknowledgeFinalization(input: {
+    readonly authorization: RunAuthorization;
+    readonly receipt: RuntimeContinuationFinalizationReceipt;
+    readonly durableSessionRecordSequence: number;
+  }): Promise<void> {
+    this.#assertAvailable();
+    const now = this.#currentTime();
+    const finalization = this.#finalizations.get(input.receipt.id);
+    if (
+      finalization === undefined ||
+      !isDeepStrictEqual(finalization.receipt, input.receipt) ||
+      !isDeepStrictEqual(finalization.authorization, input.authorization) ||
+      input.receipt.ownerInstanceId !== this.#ownerInstanceId ||
+      (finalization.status === "prepared" &&
+        !canonicalFuture(input.receipt.expiresAt, now))
+    ) {
+      throw new RuntimeContinuationStoreError("continuation_capability_invalid");
+    }
+    this.#materializePreparedFinalization(
+      finalization,
+      input.durableSessionRecordSequence,
+    );
   }
 
   #consumeReader(
@@ -1007,6 +1173,8 @@ export class ProcessScopedRuntimeContinuationStore {
           handle,
           binding.expectedSessionRecordSequence,
           now,
+          binding.authorization,
+          binding.pin,
         )
       : this.#storedExact(handle, now);
     if (

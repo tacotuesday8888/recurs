@@ -1238,6 +1238,131 @@ describe("DelegatedAgentExecutor", () => {
     ]);
   });
 
+  it.each(["write", "shell", "network", "external_path", "credential", "unknown"] as const)(
+    "rejects opaque runtime %s approval in Plan even under Full Access",
+    async (action) => {
+      let handlerCalls = 0;
+      const { sessions, session, executor } = await fixture({
+        runtimeApprovals: {
+          async request() {
+            handlerCalls += 1;
+            return {
+              decision: { outcome: "selected", optionId: "allow-exact" },
+              scope: "allow_once",
+            };
+          },
+        },
+      });
+      await sessions.withSessionMutation(
+        session.id,
+        session.lastSequence,
+        async (mutation) => {
+          await mutation.append({
+            type: "mode_updated",
+            source: "command",
+            at: now.toISOString(),
+            executionMode: "plan",
+            permissionMode: "full_access",
+            prePlanPermissionMode: "full_access",
+          });
+        },
+      );
+      const planSession = await sessions.loadState(session.id);
+      let decision: unknown;
+      const runtime = scriptedRuntime(async function* (_request, host) {
+        decision = await host.requestApproval!(approvalRequest({
+          requestId: `plan-${action}`,
+          action,
+          risk: "normal",
+        }));
+        yield { type: "done", finalText: "planned", stopReason: "complete" };
+      });
+
+      await sessions.withSessionMutation(
+        planSession.id,
+        planSession.lastSequence,
+        (mutation) => executor.run({
+          session: planSession,
+          turnId: `turn-plan-${action}`,
+          prompt: "plan safely",
+          executionMode: "plan",
+          runtime,
+          authorization: authorization(
+            planSession.id,
+            `turn-plan-${action}`,
+          ),
+          context,
+          mutation,
+          signal: new AbortController().signal,
+        }),
+      );
+
+      expect(handlerCalls).toBe(0);
+      expect(decision).toEqual({
+        outcome: "selected",
+        optionId: "reject-exact",
+      });
+      expect((await sessions.load(session.id)).records).toContainEqual(
+        expect.objectContaining({
+          type: "runtime_approval_resolved",
+          scope: "deny",
+          provenance: "policy",
+          decision: { outcome: "selected", optionId: "reject-exact" },
+        }),
+      );
+    },
+  );
+
+  it("allows only a normal read approval in Plan mode", async () => {
+    const { sessions, session, executor } = await fixture();
+    await sessions.withSessionMutation(
+      session.id,
+      session.lastSequence,
+      async (mutation) => {
+        await mutation.append({
+          type: "mode_updated",
+          source: "command",
+          at: now.toISOString(),
+          executionMode: "plan",
+          permissionMode: "ask_always",
+          prePlanPermissionMode: "ask_always",
+        });
+      },
+    );
+    const planSession = await sessions.loadState(session.id);
+    let decision: unknown;
+    const runtime = scriptedRuntime(async function* (_request, host) {
+      decision = await host.requestApproval!(approvalRequest({
+        requestId: "plan-read",
+        action: "read",
+        resource: "src/file.ts",
+        risk: "normal",
+      }));
+      yield { type: "done", finalText: "read safely", stopReason: "complete" };
+    });
+
+    await sessions.withSessionMutation(
+      planSession.id,
+      planSession.lastSequence,
+      (mutation) => executor.run({
+        session: planSession,
+        turnId: "turn-plan-read",
+        prompt: "read safely",
+        executionMode: "plan",
+        runtime,
+        authorization: authorization(planSession.id, "turn-plan-read"),
+        context,
+        mutation,
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect(decision).toEqual({
+      outcome: "selected",
+      optionId: "allow-exact",
+    });
+  });
+
   it("maps unknown actions to sensitive/elevated and never guesses among allow IDs", async () => {
     let handlerRequest: RuntimeApprovalRequest | null = null;
     const { sessions, session, executor } = await fixture({

@@ -25,6 +25,7 @@ export {
   CODEX_CLI_VERSION,
   CODEX_PLAN_MODE_ID,
   authenticateCodexAcpChatGpt,
+  createAccountBoundCodexAcpRuntime,
   createCodexAcpProfile,
   inspectCodexAcp,
   probeCodexAcp,

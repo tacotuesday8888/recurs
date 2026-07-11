@@ -72,6 +72,7 @@ export interface CliDependencies {
   stdin?: Readable;
   cwd?: string;
   interactive?: boolean;
+  automation?: boolean;
   confirm?(message: string): Promise<boolean>;
   createRuntime(events: EventSink): Promise<RecursRuntime>;
   setupLocal?(input: { baseUrl: string; modelId: string }): Promise<Pick<LocalConnectionConfiguration, "label" | "baseUrl" | "modelId">>;
@@ -245,12 +246,29 @@ export async function runCli(
   }
 
   if (argv.length === 0) {
+    if (
+      dependencies.interactive !== true ||
+      dependencies.automation === true
+    ) {
+      await writeOutput(
+        dependencies.stderr,
+        "Error: The interactive CLI requires a user-present local terminal. Use recurs run for supported noninteractive providers.\n",
+      );
+      return 2;
+    }
     const renderer = new TextEventRenderer(dependencies.stdout);
     try {
       const runtime = await dependencies.createRuntime(renderer);
       await startRepl(runtime, {
         ...(dependencies.stdin === undefined ? {} : { input: dependencies.stdin }),
         output: dependencies.stdout,
+        invocation: createHostInvocation({
+          invocation: "repl",
+          userPresent: true,
+          remote: false,
+          scripted: false,
+          embedding: "cli",
+        }),
       });
       return 0;
     } catch (error) {
@@ -308,6 +326,7 @@ export async function runCli(
     if (argv.length === 2 && argv[1] === "codex") {
       if (
         dependencies.interactive !== true ||
+        dependencies.automation === true ||
         dependencies.confirm === undefined ||
         dependencies.setupCodex === undefined
       ) {
@@ -413,6 +432,30 @@ export async function runCli(
   }
 }
 
+const AUTOMATION_ENVIRONMENT_KEYS = Object.freeze([
+  "CI",
+  "CONTINUOUS_INTEGRATION",
+  "GITHUB_ACTIONS",
+  "GITLAB_CI",
+  "BUILDKITE",
+  "CIRCLECI",
+  "TF_BUILD",
+  "TEAMCITY_VERSION",
+  "JENKINS_URL",
+  "BITBUCKET_BUILD_NUMBER",
+  "CODEBUILD_BUILD_ID",
+]);
+
+export function isAutomationEnvironment(
+  environment: Readonly<NodeJS.ProcessEnv>,
+): boolean {
+  return AUTOMATION_ENVIRONMENT_KEYS.some((key) => {
+    const value = environment[key]?.trim().toLowerCase();
+    return value !== undefined && value !== "" && value !== "0" &&
+      value !== "false" && value !== "no" && value !== "off";
+  });
+}
+
 async function main(): Promise<void> {
   const confirm = async (message: string): Promise<boolean> => {
     const terminal = createInterface({
@@ -434,6 +477,7 @@ async function main(): Promise<void> {
     stderr: processStderr,
     cwd: process.cwd(),
     interactive: processStdin.isTTY === true && processStdout.isTTY === true,
+    automation: isAutomationEnvironment(process.env),
     confirm,
     createRuntime: (events) => createStandaloneRuntime(events),
     setupLocal: (input) => setupLocalConnection(

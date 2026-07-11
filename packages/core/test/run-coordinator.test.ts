@@ -875,6 +875,167 @@ describe("BackendRunCoordinator", () => {
     },
   );
 
+  it("reconciles gone after renewing an expired predecessor through its live successor", async () => {
+    const { sessions } = await setup(delegatedPin);
+    let currentTime = Date.parse(at);
+    const continuations = new ProcessScopedRuntimeContinuationStore({
+      now: () => new Date(currentTime),
+      capabilityTtlMs: 5_000,
+      continuationTtlMs: 1_000,
+    });
+    const trustedContext = deriveTrustedRunContext(invocation);
+    const seedAuthorization = (turnId: string) => bindRunAuthorization({
+      id: `seed-${turnId}`,
+      operation: "run",
+      sessionId: "s2",
+      operationId: `seed-operation-${turnId}`,
+      turnId,
+      pin: delegatedPin,
+      connectionRevision: 1,
+      policyRevision: delegatedPin.policyRevisionAtCreation,
+      context: trustedContext,
+      maxRequests: 1,
+      expiresAt,
+    }, new Date(at));
+    const firstAuthorization = seedAuthorization("turn-1");
+    const firstWriter = await continuations.authority.mintWriter({
+      authorization: firstAuthorization,
+      pin: delegatedPin,
+      expectedSessionRecordSequence: 0,
+      previous: null,
+      stateVersion: 1,
+    });
+    const firstUncertain = await continuations.runtimeStore.put({
+      writer: firstWriter,
+      payload: new TextEncoder().encode("first-vendor-session"),
+    });
+    const firstFinalization = await continuations.authority.prepareFinalization({
+      authorization: firstAuthorization,
+      handle: firstUncertain,
+      outcome: "committed",
+      expectedSessionRecordSequence: 2,
+    });
+    await continuations.authority.acknowledgeFinalization({
+      authorization: firstAuthorization,
+      receipt: firstFinalization.receipt,
+      durableSessionRecordSequence: 3,
+    });
+    const firstCommitted = firstFinalization.activeHandle!;
+    const seededResult: CoordinatedRunResult = {
+      finalText: "first",
+      usage: null,
+      usageSource: "unavailable",
+      steps: null,
+      changedFiles: [],
+      changedFilesSource: "none",
+      evidence: [],
+      evidenceSource: "none",
+    };
+    await sessions.withSessionMutation("s2", 0, async (mutation) => {
+      await mutation.append({ type: "turn_started", turnId: "turn-1", prompt: "first", at });
+      await mutation.append({ type: "runtime_continuation_updated", turnId: "turn-1", continuation: firstUncertain, at });
+      await mutation.append({
+        type: "runtime_completed",
+        turnId: "turn-1",
+        result: seededResult,
+        stopReason: "complete",
+        continuation: firstCommitted,
+        provenance: {
+          adapterId: delegatedPin.adapterId,
+          connectionId: delegatedPin.connectionId,
+          modelId: delegatedPin.modelId,
+          backendFingerprint: firstCommitted.backendFingerprint,
+          capabilityProfileRevision: "capabilities-v1",
+        },
+        at,
+      });
+      await mutation.append({ type: "turn_completed", turnId: "turn-1", result: seededResult, at });
+    });
+
+    currentTime += 900;
+    const secondAuthorization = seedAuthorization("turn-2");
+    const secondWriter = await continuations.authority.mintWriter({
+      authorization: secondAuthorization,
+      pin: delegatedPin,
+      expectedSessionRecordSequence: 4,
+      previous: firstCommitted,
+      stateVersion: 1,
+    });
+    const secondUncertain = await continuations.runtimeStore.put({
+      writer: secondWriter,
+      payload: new TextEncoder().encode("second-vendor-session"),
+    });
+    const interrupted: IntegrationFailure = {
+      domain: "runtime",
+      phase: "started",
+      code: "runtime_failed",
+      safeMessage: "The delegated runtime stopped before completion",
+      diagnosticId: "seed-second-failure",
+      retryable: false,
+    };
+    await sessions.withSessionMutation("s2", 4, async (mutation) => {
+      await mutation.append({ type: "turn_started", turnId: "turn-2", prompt: "second", at });
+      await mutation.append({ type: "runtime_continuation_updated", turnId: "turn-2", continuation: secondUncertain, at });
+      await mutation.append({ type: "turn_failed", turnId: "turn-2", error: interrupted, continuation: secondUncertain, at });
+    });
+
+    currentTime += 101;
+    const runtime = runtimeFor(delegatedPin, {
+      async reconcile(input) {
+        await continuations.runtimeStore.load({
+          reader: input.reader,
+          handle: input.continuation,
+        });
+        return "gone";
+      },
+    });
+    const resolver: BackendResolver = {
+      async resolve(input) {
+        return {
+          kind: "delegated",
+          pin: delegatedPin,
+          authorization: authorizationFor(input, delegatedPin),
+          async createRuntime() {
+            return runtime;
+          },
+        };
+      },
+    };
+    const renewedPredecessor = {
+      ...firstCommitted,
+      expiresAt: secondUncertain.expiresAt,
+    };
+    const delegated: DelegatedRunExecutor = {
+      run: vi.fn(async (input) => {
+        expect(input.session.runtimeContinuation).toEqual(renewedPredecessor);
+        return result;
+      }),
+    };
+    const coordinator = new BackendRunCoordinator({
+      sessions,
+      resolver,
+      direct: { async run() { return result; } },
+      delegated,
+      continuationAuthority: continuations.authority,
+    });
+
+    const outcome = (await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 7,
+      prompt: "continue",
+      invocation,
+      signal: new AbortController().signal,
+    })).outcome;
+
+    await expect(outcome).resolves.toMatchObject({ ok: true });
+    expect(delegated.run).toHaveBeenCalledOnce();
+    expect((await sessions.load("s2")).records.at(-1)).toMatchObject({
+      type: "runtime_continuation_reconciled",
+      outcome: "gone",
+      activeHandle: renewedPredecessor,
+    });
+  });
+
   it.each(["committed", "gone"] as const)(
     "retries %s reconciliation after its durable append fails",
     async (reconciliationOutcome) => {

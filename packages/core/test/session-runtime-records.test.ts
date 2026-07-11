@@ -919,6 +919,72 @@ describe("delegated runtime session records", () => {
     });
   });
 
+  it("replays only the successor-bounded expiry renewal of a gone predecessor", async () => {
+    const store = await temporaryStore();
+    await createRuntimeSession(store);
+    const firstUncertain = continuation();
+    const firstCommitted = continuation({ status: "committed" });
+    const secondUncertain = continuation({
+      id: "runtime-continuation-2",
+      expiresAt: "2026-07-10T01:10:00.000Z",
+      originTurnId: "turn-2",
+      continuationSequence: 2,
+      vendorTurnSequence: 2,
+    });
+    const renewedPredecessor = {
+      ...firstCommitted,
+      expiresAt: secondUncertain.expiresAt,
+    };
+
+    await store.withSessionMutation("runtime-session", 0, async (lease) => {
+      await lease.append({ type: "turn_started", turnId: "turn-1", prompt: "first", at });
+      await lease.append({ type: "runtime_continuation_updated", turnId: "turn-1", continuation: firstUncertain, at });
+      await lease.append({
+        type: "runtime_completed",
+        turnId: "turn-1",
+        result,
+        stopReason: "complete",
+        continuation: firstCommitted,
+        provenance: {
+          adapterId: runtimeBackend.adapterId,
+          connectionId: runtimeBackend.connectionId,
+          modelId: runtimeBackend.modelId,
+          backendFingerprint: createBackendFingerprint(runtimeBackend),
+          capabilityProfileRevision: "capabilities-v1",
+        },
+        at,
+      });
+      await lease.append({ type: "turn_completed", turnId: "turn-1", result, at });
+      await lease.append({ type: "turn_started", turnId: "turn-2", prompt: "second", at });
+      await lease.append({ type: "runtime_continuation_updated", turnId: "turn-2", continuation: secondUncertain, at });
+      await lease.append({ type: "turn_failed", turnId: "turn-2", error: failure, continuation: secondUncertain, at });
+      await expect(lease.append({
+        type: "runtime_continuation_reconciled",
+        operationId: "reconcile-overextended-predecessor",
+        uncertainHandle: secondUncertain,
+        outcome: "gone",
+        activeHandle: {
+          ...renewedPredecessor,
+          expiresAt: "2026-07-10T01:10:00.001Z",
+        },
+        at,
+      })).rejects.toThrow("did not restore the predecessor");
+      await lease.append({
+        type: "runtime_continuation_reconciled",
+        operationId: "reconcile-renewed-predecessor",
+        uncertainHandle: secondUncertain,
+        outcome: "gone",
+        activeHandle: renewedPredecessor,
+        at,
+      });
+    });
+
+    expect(await store.loadState("runtime-session")).toMatchObject({
+      runtimeContinuation: renewedPredecessor,
+      runtimeContinuationPredecessor: null,
+    });
+  });
+
   it("recovers a crash after runtime completion by closing locally exactly once", async () => {
     const store = await temporaryStore();
     await createRuntimeSession(store);

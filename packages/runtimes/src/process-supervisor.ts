@@ -35,6 +35,7 @@ export interface ManagedAcpProcess {
   readonly environmentKeys: readonly string[];
   readonly exited: Promise<ManagedAcpProcessExit>;
   readonly failure: Promise<Error>;
+  detachAbortSignal(): void;
   shutdown(): Promise<void>;
 }
 
@@ -437,6 +438,10 @@ class ManagedProcessImpl implements ManagedAcpProcess {
   shutdown(): Promise<void> {
     this.shutdownPromise ??= this.performShutdown();
     return this.shutdownPromise;
+  }
+
+  detachAbortSignal(): void {
+    this.removeExternalAbortListener();
   }
 
   private async write(message: AnyMessage): Promise<void> {
