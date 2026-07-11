@@ -140,6 +140,10 @@ function normalizedPath(input: string): string {
   return input.split(path.sep).join("/");
 }
 
+function isCredentialAbsolute(root: string, candidate: string): boolean {
+  return isCredentialPath(normalizedPath(path.relative(root, candidate)));
+}
+
 async function workspaceAbsolute(cwd: string, relative: string): Promise<string> {
   const root = await realpath(cwd);
   const absolute = path.resolve(root, relative);
@@ -217,6 +221,17 @@ async function readWorkspaceContent(
     }
     throw error;
   }
+  const canonicalParent = await realpath(path.dirname(absolute));
+  const canonicalEntry = path.join(canonicalParent, path.basename(absolute));
+  if (!isWithin(root, canonicalEntry)) {
+    throw new ToolError(
+      "checkpoint_corrupt",
+      `Checkpoint path resolves outside the workspace: ${relative}`,
+    );
+  }
+  if (isCredentialAbsolute(root, canonicalEntry)) {
+    return null;
+  }
   let kind: WorkspaceManifestEntry["kind"];
   let bytes: Buffer;
   if (stats.isSymbolicLink()) {
@@ -229,6 +244,9 @@ async function readWorkspaceContent(
         "checkpoint_corrupt",
         `Checkpoint file resolves outside the workspace: ${relative}`,
       );
+    }
+    if (isCredentialAbsolute(root, resolved)) {
+      return null;
     }
     kind = "file";
     bytes = await readFile(resolved);

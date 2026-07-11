@@ -58,6 +58,26 @@ describe("FileCheckpointStore", () => {
     expect(storedFiles).not.toContain("CHECKPOINT_CANARY");
   });
 
+  it("never follows a tracked parent alias into a credential directory", async () => {
+    const alias = path.join(cwd, "alias");
+    await mkdir(alias);
+    await writeFile(path.join(alias, "key"), "safe placeholder\n");
+    await execFileAsync("git", ["add", "alias/key"], { cwd });
+    await rm(alias, { recursive: true });
+    await mkdir(path.join(cwd, ".ssh"));
+    await writeFile(
+      path.join(cwd, ".ssh", "key"),
+      "CHECKPOINT_ALIAS_CANARY=never-store\n",
+    );
+    await symlink(".ssh", alias);
+
+    const checkpoint = await store.captureBefore("s1", "call-1", cwd);
+    const storedFiles = await allStoredFileText(dataDirectory);
+
+    expect(checkpoint.before).not.toHaveProperty("alias/key");
+    expect(storedFiles).not.toContain("CHECKPOINT_ALIAS_CANARY");
+  });
+
   it("rejects a nonempty unversioned legacy store without mutating it", async () => {
     await mkdir(path.join(dataDirectory, "sessions", "s1"), { recursive: true });
     const legacy = path.join(dataDirectory, "sessions", "s1", "legacy.json");
