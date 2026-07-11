@@ -360,6 +360,67 @@ describe("run_command", () => {
     }
   });
 
+  it("bounds settlement when an escaped descendant retains the output pipes", async () => {
+    const stateFile = path.join(cwd, "escaped-descendant.json");
+    const escapedCode = "setInterval(() => {}, 1000);";
+    const parentCode = [
+      'const { spawn } = require("node:child_process");',
+      'const { writeFileSync } = require("node:fs");',
+      `const child = spawn(${JSON.stringify(process.execPath)}, ["-e", ${JSON.stringify(escapedCode)}], { detached: true, stdio: ["ignore", "inherit", "inherit"] });`,
+      `writeFileSync(${JSON.stringify(stateFile)}, JSON.stringify({ pid: child.pid, home: process.env.HOME }));`,
+      "setInterval(() => {}, 1000);",
+    ].join("\n");
+    let descendantPid: number | undefined;
+    let privateHome: string | undefined;
+    const running = toolExports.runProcess(
+      process.execPath,
+      ["-e", parentCode],
+      { cwd, timeoutMs: 500 },
+    );
+    const settled = running.then(
+      (value) => ({ status: "resolved" as const, value }),
+      (error: unknown) => ({ status: "rejected" as const, error }),
+    );
+
+    try {
+      await vi.waitFor(async () => {
+        const state = JSON.parse(await readFile(stateFile, "utf8")) as {
+          pid?: unknown;
+          home?: unknown;
+        };
+        expect(state.pid).toEqual(expect.any(Number));
+        expect(state.home).toEqual(expect.any(String));
+      });
+      const state = JSON.parse(await readFile(stateFile, "utf8")) as {
+        pid: number;
+        home: string;
+      };
+      descendantPid = state.pid;
+      privateHome = state.home;
+
+      const outcome = await Promise.race([
+        settled,
+        new Promise<{ status: "pending" }>((resolve) => {
+          const deadline = setTimeout(
+            () => resolve({ status: "pending" }),
+            2_000,
+          );
+          void settled.then(() => clearTimeout(deadline));
+        }),
+      ]);
+
+      expect(outcome).toMatchObject({
+        status: "rejected",
+        error: { code: "command_timeout" },
+      });
+      expect(processExists(descendantPid)).toBe(true);
+      await expect(access(privateHome)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      forceKillForTest(descendantPid);
+      await settled;
+    }
+  });
+
   it("caps combined output at one MiB", async () => {
     await expect(
       invoke(createRunCommandTool(), {

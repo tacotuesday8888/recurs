@@ -57,3 +57,9 @@ the default `local_guarded` tool profile is not an OS sandbox. No live cloud or
 subscription credential may enter this process until the separately reviewed
 native broker, hardened storage, and tool sandbox boundary is implemented and
 tested.
+
+Recurs bounds process-group cleanup and closes its own output pipes so inherited
+pipes alone cannot hold run settlement open before synthetic-directory cleanup.
+An arbitrary child can still create a different process group or session and
+survive or race that application-level cleanup. Preventing or accounting for
+detached descendants is part of the required OS containment boundary.

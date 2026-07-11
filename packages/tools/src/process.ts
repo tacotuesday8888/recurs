@@ -6,6 +6,7 @@ import { ToolError } from "./types.js";
 const PROCESS_GROUP_TERM_GRACE_MS = 250;
 const PROCESS_GROUP_KILL_WAIT_MS = 1_000;
 const PROCESS_GROUP_POLL_MS = 10;
+const PROCESS_PIPE_DRAIN_GRACE_MS = 250;
 
 export interface RunProcessOptions {
   cwd: string;
@@ -171,9 +172,18 @@ export async function runProcess(
       const stderr: Buffer[] = [];
       let outputBytes = 0;
       let outputExceeded = false;
-      let settlementStarted = false;
       let timedOut = false;
+      let spawnFailed = false;
+      let streamFailed = false;
+      let exitCode: number | undefined;
+      let stdoutClosed = false;
+      let stderrClosed = false;
+      let finalizationStarted = false;
       let terminationPromise: Promise<void> | undefined;
+      let resolveOutputPipesClosed: () => void = () => {};
+      const outputPipesClosed = new Promise<void>((resolvePipes) => {
+        resolveOutputPipesClosed = resolvePipes;
+      });
 
       const startTermination = (): Promise<void> => {
         if (terminationPromise === undefined) {
@@ -185,17 +195,135 @@ export async function runProcess(
         return terminationPromise;
       };
 
-      const onAbort = (): void => {
-        void startTermination();
+      const destroyPipes = (): void => {
+        child.stdin.destroy();
+        child.stdout.destroy();
+        child.stderr.destroy();
       };
+
+      const markOutputPipeClosed = (pipe: "stdout" | "stderr"): void => {
+        if (pipe === "stdout") {
+          stdoutClosed = true;
+        } else {
+          stderrClosed = true;
+        }
+        if (stdoutClosed && stderrClosed) {
+          resolveOutputPipesClosed();
+        }
+      };
+
+      const waitForPipeDrain = async (): Promise<void> => {
+        if (stdoutClosed && stderrClosed) {
+          return;
+        }
+        await new Promise<void>((resolveDrain) => {
+          const drainTimeout = setTimeout(
+            resolveDrain,
+            PROCESS_PIPE_DRAIN_GRACE_MS,
+          );
+          void outputPipesClosed.then(() => {
+            clearTimeout(drainTimeout);
+            resolveDrain();
+          });
+        });
+      };
+
+      const finalize = async (): Promise<ProcessResult> => {
+        let cleanupFailed = false;
+        try {
+          await startTermination();
+        } catch {
+          cleanupFailed = true;
+        }
+        try {
+          await waitForPipeDrain();
+        } finally {
+          destroyPipes();
+          clearTimeout(timeout);
+          options.signal?.removeEventListener("abort", onAbort);
+        }
+
+        if (cleanupFailed) {
+          throw new ToolError(
+            "process_failed",
+            "The child process group could not be cleaned up",
+          );
+        }
+        if (spawnFailed) {
+          throw new ToolError(
+            "process_failed",
+            `Failed to start ${command}`,
+          );
+        }
+        if (isAborted(options.signal)) {
+          throw new ToolError("cancelled", `${command} was cancelled`);
+        }
+        if (timedOut) {
+          throw new ToolError(
+            "command_timeout",
+            `${command} exceeded the ${options.timeoutMs ?? 0}ms timeout`,
+          );
+        }
+        if (outputExceeded) {
+          throw new ToolError(
+            "output_limit",
+            `${command} exceeded the ${maxOutputBytes}-byte output limit`,
+          );
+        }
+        if (streamFailed) {
+          throw new ToolError(
+            "process_failed",
+            `${command} output could not be read`,
+          );
+        }
+
+        const completedExitCode = exitCode ?? -1;
+        const result = {
+          stdout: Buffer.concat(stdout).toString("utf8"),
+          stderr: Buffer.concat(stderr).toString("utf8"),
+          exitCode: completedExitCode,
+        };
+        if (!acceptableExitCodes.includes(completedExitCode)) {
+          throw new ToolError(
+            "process_failed",
+            `${command} exited with ${completedExitCode}`,
+          );
+        }
+        return result;
+      };
+
+      const beginFinalization = (): void => {
+        if (finalizationStarted) {
+          return;
+        }
+        finalizationStarted = true;
+        void finalize().then(resolve, (error: unknown) => {
+          reject(
+            error instanceof ToolError
+              ? error
+              : new ToolError(
+                  "process_failed",
+                  "The child process could not be finalized",
+                ),
+          );
+        });
+      };
+
+      function onAbort(): void {
+        beginFinalization();
+      }
+
       options.signal?.addEventListener("abort", onAbort, { once: true });
       const timeout = options.timeoutMs === undefined
         ? undefined
         : setTimeout(() => {
             timedOut = true;
-            void startTermination();
+            beginFinalization();
           }, options.timeoutMs);
       timeout?.unref();
+      if (isAborted(options.signal)) {
+        beginFinalization();
+      }
 
       const capture = (target: Buffer[], chunk: Buffer): void => {
         if (outputExceeded) {
@@ -204,98 +332,34 @@ export async function runProcess(
         outputBytes += chunk.byteLength;
         if (outputBytes > maxOutputBytes) {
           outputExceeded = true;
-          void startTermination();
+          beginFinalization();
           return;
         }
         target.push(chunk);
       };
       child.stdout.on("data", (chunk: Buffer) => capture(stdout, chunk));
       child.stderr.on("data", (chunk: Buffer) => capture(stderr, chunk));
-      child.on("exit", () => {
-        void startTermination();
+      child.stdout.once("close", () => markOutputPipeClosed("stdout"));
+      child.stderr.once("close", () => markOutputPipeClosed("stderr"));
+      child.stdout.on("error", () => {
+        streamFailed = true;
+        beginFinalization();
+      });
+      child.stderr.on("error", () => {
+        streamFailed = true;
+        beginFinalization();
+      });
+      child.on("exit", (code) => {
+        exitCode = code ?? -1;
+        beginFinalization();
       });
       child.on("error", () => {
-        if (settlementStarted) {
-          return;
-        }
-        settlementStarted = true;
-        clearTimeout(timeout);
-        options.signal?.removeEventListener("abort", onAbort);
-        void (async () => {
-          try {
-            await startTermination();
-          } catch {
-            reject(
-              new ToolError(
-                "process_failed",
-                "The child process group could not be cleaned up",
-              ),
-            );
-            return;
-          }
-          reject(
-            new ToolError("process_failed", `Failed to start ${command}`),
-          );
-        })();
+        spawnFailed = true;
+        beginFinalization();
       });
       child.on("close", (code) => {
-        if (settlementStarted) {
-          return;
-        }
-        settlementStarted = true;
-        clearTimeout(timeout);
-        options.signal?.removeEventListener("abort", onAbort);
-        void (async () => {
-          try {
-            await startTermination();
-          } catch {
-            reject(
-              new ToolError(
-                "process_failed",
-                "The child process group could not be cleaned up",
-              ),
-            );
-            return;
-          }
-          if (isAborted(options.signal)) {
-            reject(new ToolError("cancelled", `${command} was cancelled`));
-            return;
-          }
-          if (timedOut) {
-            reject(
-              new ToolError(
-                "command_timeout",
-                `${command} exceeded the ${options.timeoutMs ?? 0}ms timeout`,
-              ),
-            );
-            return;
-          }
-          if (outputExceeded) {
-            reject(
-              new ToolError(
-                "output_limit",
-                `${command} exceeded the ${maxOutputBytes}-byte output limit`,
-              ),
-            );
-            return;
-          }
-          const exitCode = code ?? -1;
-          const result = {
-            stdout: Buffer.concat(stdout).toString("utf8"),
-            stderr: Buffer.concat(stderr).toString("utf8"),
-            exitCode,
-          };
-          if (!acceptableExitCodes.includes(exitCode)) {
-            reject(
-              new ToolError(
-                "process_failed",
-                `${command} exited with ${exitCode}`,
-              ),
-            );
-            return;
-          }
-          resolve(result);
-        })();
+        exitCode ??= code ?? -1;
+        beginFinalization();
       });
 
       child.stdin.on("error", () => {

@@ -290,6 +290,85 @@ describe("ToolRegistry", () => {
     expect(approvals.request).toHaveBeenCalledTimes(2);
   });
 
+  it("runs preflight after approval and before checkpoint capture", async () => {
+    const events: string[] = [];
+    const tool = textTool(true);
+    tool.preflight = async () => {
+      events.push("preflight");
+    };
+    const checkpoint = {
+      id: "checkpoint-1",
+      sessionId: "session-1",
+      toolCallId: "1",
+      before: {},
+    };
+    const checkpoints = {
+      captureBefore: vi.fn(async () => {
+        events.push("captureBefore");
+        return checkpoint;
+      }),
+      captureAfter: vi.fn(async () => {
+        events.push("captureAfter");
+        return { ...checkpoint, after: {} };
+      }),
+      undoLatest: vi.fn(),
+    } as unknown as CheckpointStore;
+    const execute = vi.spyOn(tool, "execute").mockImplementation(async (input) => {
+      events.push("execute");
+      return { output: input.text };
+    });
+    const approvals: ApprovalHandler = {
+      request: vi.fn(async () => {
+        events.push("approval");
+        return "allow_once" as const;
+      }),
+    };
+    const registry = new ToolRegistry([tool], { checkpoints });
+
+    await registry.invoke(
+      { id: "1", name: "write_text", arguments: { text: "src/a.ts" } },
+      context(),
+      new PermissionEngine("ask_always"),
+      approvals,
+    );
+
+    expect(events).toEqual([
+      "approval",
+      "preflight",
+      "captureBefore",
+      "execute",
+      "captureAfter",
+    ]);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not checkpoint or execute when preflight rejects", async () => {
+    const tool = textTool(true);
+    tool.preflight = async () => {
+      throw new ToolError("permission_denied", "canonical target denied");
+    };
+    const execute = vi.spyOn(tool, "execute");
+    const checkpoints = {
+      captureBefore: vi.fn(),
+      captureAfter: vi.fn(),
+      undoLatest: vi.fn(),
+    } as unknown as CheckpointStore;
+    const registry = new ToolRegistry([tool], { checkpoints });
+
+    await expect(
+      registry.invoke(
+        { id: "1", name: "write_text", arguments: { text: "src/a.ts" } },
+        context(),
+        new PermissionEngine("full_access"),
+        deny,
+      ),
+    ).rejects.toMatchObject({ code: "permission_denied" });
+
+    expect(checkpoints.captureBefore).not.toHaveBeenCalled();
+    expect(checkpoints.captureAfter).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("hides mutating definitions in Plan mode", () => {
     const registry = new ToolRegistry([textTool(), textTool(true)]);
 

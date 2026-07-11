@@ -57,6 +57,8 @@ export interface Tool<Input = unknown> {
   readonly mutating: boolean;
   parse(input: unknown): Input;
   permissions(input: Input, context: ToolContext): PermissionIntent[];
+  /** Validate without mutating workspace or external state. */
+  preflight?(input: Input, context: ToolContext): Promise<void>;
   execute(input: Input, context: ToolContext): Promise<ToolResult>;
 }
 
@@ -76,6 +78,7 @@ export type ToolErrorCode =
   | "output_limit"
   | "process_failed"
   | "unsupported_platform"
+  | "unsupported_git_version"
   | "command_timeout"
   | "unread_file"
   | "stale_file"

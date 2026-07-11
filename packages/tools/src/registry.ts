@@ -18,6 +18,7 @@ import {
 type RegisteredTool = Tool<unknown>;
 
 function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
+  const preflight = tool.preflight?.bind(tool);
   return {
     definition: tool.definition,
     executionClass: tool.executionClass,
@@ -28,6 +29,13 @@ function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
     permissions(input, context) {
       return tool.permissions(input as Input, context);
     },
+    ...(preflight === undefined
+      ? {}
+      : {
+          preflight(input: unknown, context: ToolContext) {
+            return preflight(input as Input, context);
+          },
+        }),
     execute(input, context) {
       return tool.execute(input as Input, context);
     },
@@ -42,6 +50,25 @@ async function executeTool(
 ): Promise<ToolResult> {
   try {
     return await tool.execute(input, context);
+  } catch (error) {
+    if (error instanceof ToolError) {
+      throw error;
+    }
+    throw new ToolError("execution_failed", `Tool ${name} failed`);
+  }
+}
+
+async function preflightTool(
+  tool: RegisteredTool,
+  name: string,
+  input: unknown,
+  context: ToolContext,
+): Promise<void> {
+  if (tool.preflight === undefined) {
+    return;
+  }
+  try {
+    await tool.preflight(input, context);
   } catch (error) {
     if (error instanceof ToolError) {
       throw error;
@@ -171,6 +198,8 @@ export class ToolRegistry {
       }
       (context.approvedIntents ??= new Set()).add(permissionIntentKey(intent));
     }
+
+    await preflightTool(tool, call.name, input, context);
 
     if (!tool.mutating || this.#checkpoints === undefined) {
       return executeTool(tool, call.name, input, context);

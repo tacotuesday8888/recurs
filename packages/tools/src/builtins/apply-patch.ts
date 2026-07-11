@@ -52,6 +52,10 @@ function parseApplyPatchInput(value: unknown): ApplyPatchInput {
       file === null ||
       !("path" in file) ||
       typeof file.path !== "string" ||
+      file.path.length === 0 ||
+      file.path !== file.path.trim() ||
+      file.path.includes("\\") ||
+      file.path.includes("\0") ||
       !("expected_hash" in file) ||
       (file.expected_hash !== null &&
         (typeof file.expected_hash !== "string" ||
@@ -186,9 +190,9 @@ async function assertFresh(
   }
 }
 
-function normalizedDeclaredFiles(input: ApplyPatchInput): string[] {
+function declaredFiles(input: ApplyPatchInput): string[] {
   return input.files
-    .map((file) => file.path.replaceAll("\\", "/"))
+    .map((file) => file.path)
     .sort((left, right) => left.localeCompare(right));
 }
 
@@ -210,8 +214,27 @@ function assertSameDeclaredFiles(
 function assertDeclaredFiles(input: ApplyPatchInput): void {
   assertSameDeclaredFiles(
     extractPatchFiles(input.patch),
-    normalizedDeclaredFiles(input),
+    declaredFiles(input),
   );
+}
+
+async function resolveValidatedRevisions(
+  input: ApplyPatchInput,
+  context: ToolContext,
+  options: PathPolicyOptions,
+): Promise<ResolvedRevision[]> {
+  assertDeclaredFiles(input);
+  const policy = new WorkspacePathPolicy(context.cwd, options);
+  const revisions: ResolvedRevision[] = [];
+  for (const declared of input.files) {
+    const resolved = await policy.resolveWritable(
+      declared.path,
+      isExternalPathApproved(context, declared.path),
+    );
+    assertNonCredentialPath(resolved.relative);
+    revisions.push({ declared, resolved });
+  }
+  return revisions;
 }
 
 export function createApplyPatchTool(
@@ -254,21 +277,15 @@ export function createApplyPatchTool(
         ),
       );
     },
+    async preflight(input, context) {
+      await resolveValidatedRevisions(input, context, options);
+    },
     async execute(input, context) {
-      assertDeclaredFiles(input);
-      const policy = new WorkspacePathPolicy(context.cwd, options);
-      const revisions: ResolvedRevision[] = [];
-      for (const declared of input.files) {
-        const resolved = await policy.resolveWritable(
-          declared.path,
-          isExternalPathApproved(context, declared.path),
-        );
-        assertNonCredentialPath(resolved.relative);
-        revisions.push({
-          declared,
-          resolved,
-        });
-      }
+      const revisions = await resolveValidatedRevisions(
+        input,
+        context,
+        options,
+      );
       await assertFresh(revisions, context);
       const safeGitPrefix = await safeGitArguments(
         context.cwd,
@@ -297,7 +314,7 @@ export function createApplyPatchTool(
       }
       assertSameDeclaredFiles(
         parseNumstatPaths(numstat),
-        normalizedDeclaredFiles(input),
+        declaredFiles(input),
       );
       try {
         await runProcess("git", [
@@ -334,9 +351,7 @@ export function createApplyPatchTool(
           cause: error,
         });
       }
-      const changedFiles = input.files.map((file) =>
-        file.path.replaceAll("\\", "/"),
-      );
+      const changedFiles = input.files.map((file) => file.path);
       return {
         output: `Applied patch to ${changedFiles.length} file${changedFiles.length === 1 ? "" : "s"}\n`,
         metadata: { changedFiles },
