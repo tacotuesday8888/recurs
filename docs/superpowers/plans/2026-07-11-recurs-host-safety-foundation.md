@@ -20,7 +20,7 @@
 - `tools_disabled` exposes no model-callable tools and rejects direct invocation before parsing or checkpoint capture. It is a fail-closed composition option, not a useful coding profile.
 - A `credential` permission intent is never approvable in any preset. This protects built-in classified surfaces, not indirect shell behavior.
 - Built-in aggregate tools exclude the normative credential-path set even when invoked on `.` or a parent directory.
-- New checkpoint stores carry a format marker proving credential exclusion was active from their first capture. Nonempty unversioned legacy stores are rejected and require an explicit manual reset; this slice performs no destructive automatic migration.
+- New checkpoint stores carry a format marker recording the version-2 credential-exclusion contract used for new captures. The marker is an unauthenticated upgrade assertion, not proof about storage contents. Nonempty unversioned legacy stores are rejected and require an explicit manual reset; this slice performs no destructive automatic migration.
 - Every child process gets a synthetic private home and allowlisted environment. This does not restrict its filesystem, network, IPC, or process-inspection authority.
 - Unknown and provider-originated raw error text never enters durable events or terminal output.
 - Windows subprocess use fails at the shared process boundary with a typed error.
@@ -203,7 +203,7 @@ Filter `git ls-files` results through `isCredentialPath()` before `readWorkspace
 
 - [ ] **Step 4: Implement an idempotent version gate**
 
-Fresh/empty stores receive an atomically created mode-`0600` marker declaring checkpoint format version 2 and credential exclusion. A valid marker means every blob was created by code that filtered credential paths before reads and writes. A nonempty store without the marker, an invalid/symlinked marker, or an unknown version throws `ToolError("checkpoint_migration_required", "Legacy checkpoint storage must be reset before it can be used safely")`; add that code to `ToolErrorCode`. Never scan, rewrite, delete, or automatically bless ambiguous legacy data.
+Fresh/empty stores receive an atomically created mode-`0600` marker declaring checkpoint format version 2 and credential exclusion before the implementation performs its first capture. The marker records the expected format; because it is not authenticated, it does not prove that an operator has not copied it into or modified a legacy store. A nonempty store without the marker, an invalid/symlinked marker, or an unknown version throws `ToolError("checkpoint_migration_required", "Legacy checkpoint storage must be reset before it can be used safely")`; add that code to `ToolErrorCode`. Never scan, rewrite, delete, or automatically bless ambiguous legacy data, and document that users must not create or copy a marker to bypass the gate.
 
 Two processes racing to initialize an empty store use exclusive marker creation plus a bounded empty-directory retry so both either observe the same valid marker or fail closed; neither performs garbage collection. Capture and undo await a memoized initialization promise so direct callers cannot bypass the gate. The documented reset is acceptable only because Recurs is unreleased `0.0.0`; it must be explicit and user-initiated. The marker is an upgrade-safety invariant, not a hostile-user security boundary, and the path-based store remains unsuitable for auth secrets.
 

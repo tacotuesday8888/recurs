@@ -160,20 +160,50 @@ Compaction is also append-only: the log keeps the audit history, while replay re
 
 Every potentially mutating tool is wrapped with before/after workspace snapshots. Checkpoint data is content-addressed and kept outside the project and outside `.git`. Git is used only to enumerate tracked and non-ignored untracked project files; credential-classified paths are removed before Recurs reads a workspace file or writes a blob. Recurs never creates commits, resets, cleans, or checks out the user's repository for checkpointing.
 
-Fresh checkpoint stores contain a private `.format.json` marker for format version 2 with credential exclusion enabled. A nonempty unversioned store, invalid or symlinked marker, or unknown marker version is rejected without scanning, rewriting, deleting, or blessing its contents. This prevents an older checkpoint that may contain credentials from being treated as safe.
+Fresh checkpoint stores contain a private `.format.json` marker for format version 2 with credential exclusion enabled. A nonempty unversioned store, invalid or symlinked marker, or unknown marker version is rejected without scanning, rewriting, deleting, or blessing its contents. Recurs creates the marker before the first version-2 capture, but the marker is an unauthenticated upgrade assertion rather than proof about the store's contents. Do not copy or create a marker in a legacy store.
 
 For this unreleased `0.0.0` format, recovery is an explicit manual reset:
 
 1. Exit every Recurs process using the project.
-2. Find the affected project directory under `~/.recurs/projects/`, or under `$RECURS_HOME/projects/` when that override is set.
+2. From the exact workspace root, derive and verify its checkpoint directory with the command below.
 3. Move its `checkpoints` directory to a private backup outside any repository. Do not attach, publish, or inspect it with model tools; legacy data may contain secrets.
 4. Restart Recurs. The next mutating tool creates a fresh marked store.
 
-For example, after replacing the placeholder with the exact project hash:
+The CLI derives the project ID from the SHA-256 digest of the canonical workspace path. This command reproduces that calculation and honors `RECURS_HOME`:
 
 ```bash
-mv ~/.recurs/projects/<workspace-hash>/checkpoints \
-  ~/.recurs/projects/<workspace-hash>/checkpoints.legacy-backup
+CHECKPOINT_DIR="$(
+  node --input-type=module -e '
+    import { createHash } from "node:crypto";
+    import { realpathSync } from "node:fs";
+    import { homedir } from "node:os";
+    import path from "node:path";
+
+    const workspace = realpathSync(process.cwd());
+    const projectId = createHash("sha256")
+      .update(workspace)
+      .digest("hex")
+      .slice(0, 24);
+    const root = process.env.RECURS_HOME ?? path.join(homedir(), ".recurs");
+    process.stdout.write(path.join(root, "projects", projectId, "checkpoints"));
+  '
+)"
+printf 'Checkpoint directory for this workspace:\n%s\n' "$CHECKPOINT_DIR"
+```
+
+Inspect the printed path before moving anything. If an embedding application supplies `dataDirectory` programmatically, substitute that directory for the data root because the shell command cannot discover it. Choose a backup root outside every repository; the default below is independent of `RECURS_HOME`. Then create a private directory and collision-resistant backup name before moving the rejected store:
+
+```bash
+umask 077
+BACKUP_ROOT="${RECURS_CHECKPOINT_BACKUP_ROOT:-$HOME/.recurs-legacy-backups}"
+mkdir -p "$BACKUP_ROOT"
+chmod 700 "$BACKUP_ROOT"
+BACKUP="$BACKUP_ROOT/checkpoints-legacy-$(node --input-type=module -e '
+  import { randomUUID } from "node:crypto";
+  process.stdout.write(randomUUID());
+')"
+mv "$CHECKPOINT_DIR" "$BACKUP"
+printf 'Moved legacy checkpoints to:\n%s\n' "$BACKUP"
 ```
 
 Recurs does not perform this move automatically. The marker is an upgrade-safety invariant, not hardened secret storage.
