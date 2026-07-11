@@ -80,7 +80,7 @@ Every tool reports normalized intent before execution. `/permissions` selects on
 
 An explicit outside path can run only after its external-path intent is approved, including in Full Access. A hidden symlink escape remains blocked because the model did not request that outside path explicitly.
 
-Credential classification is shared across direct and aggregate built-in operations. It covers `.env` and `.env.*`, common private-key and credential filenames, certificate/key suffixes, and auth directories such as `.ssh`, `.aws`, `.azure`, `.docker`, `.gnupg`, `.kube`, and `.config/gcloud`, case-insensitively. Direct or canonical classified targets are denied. List, search, Git status/diff, and checkpoint enumeration exclude them; patch rejects a classified declared target before invoking Git. Configured `sensitivePatterns` remain a separate approvable policy.
+Credential classification is shared across direct and aggregate built-in operations. It covers `.env` and `.env.*`, common private-key and credential filenames, certificate/key suffixes, and auth directories such as `.ssh`, `.aws`, `.azure`, `.docker`, `.gnupg`, `.kube`, and `.config/gcloud`, case-insensitively. Slash and literal-backslash path variants use the same exclusions. Direct or canonical classified targets are denied. List, search, Git status/diff, and checkpoint enumeration exclude them; patch rejects a classified declared target before invoking Git. Configured `sensitivePatterns` remain a separate approvable policy.
 
 This protects the built-in interfaces only. A permitted shell script can spell, discover, or open any host path available to the current user, regardless of the path classifier.
 
@@ -94,6 +94,8 @@ The embedding assembly option `toolSecurityProfile` has two values:
 | `tools_disabled` | Advertises no model tools and rejects every direct model-tool invocation before parsing, permissions, or checkpoint capture. This is fail-closed but is not a useful coding profile. |
 
 Every fixed or arbitrary child process receives a fresh private home, config, cache, and temporary directory plus only a filtered absolute `PATH` and selected locale/terminal variables. It does not inherit the real home, parent `SHELL`, cloud/provider variables, proxies, sockets, Git config variables, or workspace-contained `PATH` entries. `/bin/sh -c` is used for `run_command` on macOS and Linux; it is not a login shell. Recurs terminates the process group on completion, cancellation, timeout, or output overflow and removes the synthetic tree afterward. Subprocess tools fail with a typed unsupported-platform error on Windows.
+
+Fixed Git operations additionally disable optional index writes, repository hooks, fsmonitor commands, external diff/text conversion, configured clean/smudge/process filters, and expanded dirty-submodule diffs. Recurs enumerates filter key names only and replaces their commands with empty command-line overrides before status, diff, patch, or checkpoint Git work; configured command values are never returned to the harness. This preflight is not protection against a hostile same-user process racing repository configuration.
 
 Environment cleanup prevents direct inheritance, but it is not an OS sandbox. A child can still use the user's filesystem, network, IPC, and process-inspection authority. No live provider credential may enter the current Recurs process under either profile.
 
@@ -134,7 +136,7 @@ Replacing or clearing an unfinished goal requires confirmation. Each successful 
 | `/new` | Start a new durable session in the same workspace. |
 | `/resume [id]` | List sessions newest-first or resume one exact ID. Prefix matching is not used. |
 | `/compact` | Ask the injected provider for a continuation summary and retain roughly the latest six messages without splitting tool-call/result groups. |
-| `/diff [--staged] [path]` | Show a bounded Git diff without external diff or text-conversion programs. |
+| `/diff [--staged] [path]` | Show a bounded Git diff without repository hooks, filters, external diff/text conversion, or expanded dirty-submodule content. |
 | `/review` | Submit staged/unstaged changes for a temporary read-only review. |
 | `/undo` | Restore the latest checkpoint that actually changed files. |
 | `/cancel` | Abort the current provider/tool run. |
@@ -158,7 +160,7 @@ Compaction is also append-only: the log keeps the audit history, while replay re
 
 ## Checkpoints and undo
 
-Every potentially mutating tool is wrapped with before/after workspace snapshots. Checkpoint data is content-addressed and kept outside the project and outside `.git`. Git is used only to enumerate tracked and non-ignored untracked project files; credential-classified paths are removed before Recurs reads a workspace file or writes a blob. Recurs never creates commits, resets, cleans, or checks out the user's repository for checkpointing.
+Every potentially mutating tool is wrapped with before/after workspace snapshots. Checkpoint data is content-addressed and kept outside the project and outside `.git`. Git is used only to enumerate tracked and non-ignored untracked project files; raw Git names plus canonical parent and regular-file targets are classified before Recurs reads workspace content or writes a blob. Recurs never creates commits, resets, cleans, or checks out the user's repository for checkpointing.
 
 Fresh checkpoint stores contain a private `.format.json` marker for format version 2 with credential exclusion enabled. A nonempty unversioned store, invalid or symlinked marker, or unknown marker version is rejected without scanning, rewriting, deleting, or blessing its contents. Recurs creates the marker before the first version-2 capture, but the marker is an unauthenticated upgrade assertion rather than proof about the store's contents. Do not copy or create a marker in a legacy store.
 
