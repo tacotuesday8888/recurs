@@ -56,7 +56,7 @@ class FakeCodexRuntime implements CodexOnboardingRuntime {
   readonly adapterId = "codex-acp";
   readonly adapterVersion = "1.1.2";
   readonly capabilityProfileRevision =
-    "codex-acp-1.1.2-codex-0.144.0-plan-only-v1";
+    "codex-acp-1.1.2-codex-0.144.0-plan-only-v2";
   readonly inspections: CodexRuntimeVerification[];
   readonly probeResult: CodexRuntimeProbeResult;
   inspectCalls = 0;

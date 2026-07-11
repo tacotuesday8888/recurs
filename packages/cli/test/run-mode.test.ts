@@ -160,6 +160,74 @@ describe("runCli", () => {
     expect(stderr.value).not.toContain("diagnostic");
   });
 
+  it("runs interactive Codex onboarding only after the billing disclosure is accepted", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const workspace = "/tmp/recurs-codex-workspace";
+    let received: unknown;
+    const exitCode = await runCli(["setup", "codex"], {
+      stdout,
+      stderr,
+      cwd: workspace,
+      interactive: true,
+      async confirm(message) {
+        expect(message).toContain("prepaid credits");
+        expect(message).toContain("automatically");
+        return true;
+      },
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async setupCodex(input) {
+        received = input;
+        return {
+          label: "Codex with ChatGPT",
+          modelId: "gpt-test",
+          planOnly: true,
+        };
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(received).toEqual({
+      cwd: workspace,
+      interactive: true,
+      billingSelection: "allow_declared_additional",
+    });
+    expect(stdout.value).toContain("Codex with ChatGPT · gpt-test");
+    expect(stdout.value).toContain("Plan-only");
+    expect(stdout.value).not.toContain("owner@example.com");
+    expect(stderr.value).toBe("");
+  });
+
+  it("never launches Codex login from noninteractive or declined setup", async () => {
+    for (const [interactive, accepted] of [
+      [false, true],
+      [true, false],
+    ] as const) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      let setupCalls = 0;
+      const exitCode = await runCli(["setup", "codex"], {
+        stdout,
+        stderr,
+        cwd: "/tmp/workspace",
+        interactive,
+        async confirm() { return accepted; },
+        async createRuntime() { throw new Error("runtime must not start"); },
+        async setupCodex() {
+          setupCalls += 1;
+          return {
+            label: "Codex with ChatGPT",
+            modelId: "gpt-test",
+            planOnly: true,
+          };
+        },
+      });
+      expect(exitCode).toBe(2);
+      expect(setupCalls).toBe(0);
+      expect(stderr.value).not.toContain("owner@example.com");
+    }
+  });
+
   it("preserves a canonical provider failure through standalone coordination", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-provider-final-"));
     directories.push(root);

@@ -178,6 +178,27 @@ describe("session commands", () => {
     });
   });
 
+  it("preserves Plan and permission safety when creating another session", async () => {
+    const original = await storeSession("s1");
+    const registry = createCommandRegistry({ sessions });
+    const commandContext = context(original);
+    await registry.execute("/permissions approved", commandContext);
+    await registry.execute("/plan", commandContext);
+
+    await registry.execute("/new", commandContext);
+
+    expect(commandContext.session).toMatchObject({
+      executionMode: "plan",
+      permissionMode: "approved_for_me",
+      prePlanPermissionMode: "approved_for_me",
+    });
+    await expect(sessions.loadState(commandContext.session.id)).resolves
+      .toMatchObject({
+        executionMode: "plan",
+        permissionMode: "approved_for_me",
+      });
+  });
+
   it("lists resumable sessions newest first", async () => {
     const older = await storeSession("older", "2026-07-10T00:00:00.000Z");
     await storeSession("newer", "2026-07-10T01:00:00.000Z");

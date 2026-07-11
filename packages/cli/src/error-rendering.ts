@@ -10,6 +10,7 @@ import {
   ProviderError,
   safeProviderErrorMessage,
 } from "@recurs/providers";
+import { CodexOnboardingError } from "@recurs/app";
 
 import { RuntimeError } from "./runtime.js";
 import { LocalConnectionError } from "./local-connection.js";
@@ -28,6 +29,7 @@ export function safeCliErrorMessage(error: unknown): string {
   if (
     error instanceof RuntimeError ||
     error instanceof LocalConnectionError ||
+    error instanceof CodexOnboardingError ||
     error instanceof CoordinatedRunError
   ) {
     return error.message;

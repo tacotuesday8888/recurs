@@ -39,6 +39,10 @@ function createStatusCommand(): Command {
       const goal = context.session.goal === null
         ? "None"
         : `${context.session.goal.status}: ${context.session.goal.objective}`;
+      const backend = context.session.backend.type === "pinned" &&
+          context.session.backend.pin.kind === "agent_runtime"
+        ? `Runtime: ${context.session.backend.pin.adapterId === "codex-acp" ? "Codex (Plan-only)" : "Delegated agent"}`
+        : null;
       return message(
         [
           `Session: ${context.session.id}`,
@@ -49,6 +53,7 @@ function createStatusCommand(): Command {
           `Goal: ${goal}`,
           `Usage: ${context.session.usage.inputTokens} input / ${context.session.usage.outputTokens} output tokens`,
           `Pending tools: ${context.session.pendingToolCalls.length}`,
+          ...(backend === null ? [] : [backend]),
         ].join("\n"),
       );
     },

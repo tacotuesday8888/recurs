@@ -10,14 +10,20 @@ import {
   stdout as processStdout,
 } from "node:process";
 import type { Readable, Writable } from "node:stream";
+import { createInterface } from "node:readline/promises";
 
 import {
   createHostInvocation,
   type IntegrationFailure,
 } from "@recurs/contracts";
+import {
+  CodexOnboardingError,
+  type CodexConnectionConfiguration,
+} from "@recurs/app";
 import { CoordinatedRunError, type EventSink } from "@recurs/core";
 
 import { createStandaloneRuntime } from "./assembly.js";
+import { setupCodexSubscription } from "./codex-connection.js";
 import {
   LocalConnectionError,
   setupLocalConnection,
@@ -45,17 +51,27 @@ Usage:
   recurs run <prompt>            Run one prompt
   recurs run <prompt> --format text|jsonl
   recurs setup local --url <loopback-url> --model <model-id>
+  recurs setup codex             Connect an existing ChatGPT Codex subscription
   recurs --help                  Show this help
 
 Local setup supports credential-free OpenAI-compatible servers on literal loopback only.
+Codex setup is interactive and Plan-only. It never imports or stores vendor credentials.
 `;
 
 export interface CliDependencies {
   stdout: Writable;
   stderr: Writable;
   stdin?: Readable;
+  cwd?: string;
+  interactive?: boolean;
+  confirm?(message: string): Promise<boolean>;
   createRuntime(events: EventSink): Promise<RecursRuntime>;
   setupLocal?(input: { baseUrl: string; modelId: string }): Promise<Pick<LocalConnectionConfiguration, "label" | "baseUrl" | "modelId">>;
+  setupCodex?(input: {
+    cwd: string;
+    interactive: true;
+    billingSelection: "allow_declared_additional";
+  }): Promise<Pick<CodexConnectionConfiguration, "label" | "modelId" | "planOnly">>;
 }
 
 interface RunArguments {
@@ -127,6 +143,7 @@ function exitCodeFor(error: unknown): number {
     return 2;
   }
   if (error instanceof LocalConnectionError) return 2;
+  if (error instanceof CodexOnboardingError) return 2;
   if (error instanceof CoordinatedRunError && error.failure.phase === "preflight") {
     return 2;
   }
@@ -185,6 +202,47 @@ export async function runCli(
   }
 
   if (argv[0] === "setup") {
+    if (argv.length === 2 && argv[1] === "codex") {
+      if (
+        dependencies.interactive !== true ||
+        dependencies.confirm === undefined ||
+        dependencies.setupCodex === undefined
+      ) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: Codex setup requires an interactive local terminal\n",
+        );
+        return 2;
+      }
+      const accepted = await dependencies.confirm(
+        "OpenAI documents Codex as included with eligible ChatGPT plans. After included limits, Codex may automatically use prepaid credits when available. Continue and allow both included subscription usage and that declared prepaid-credit fallback?",
+      );
+      if (!accepted) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: Codex billing disclosure was not accepted\n",
+        );
+        return 2;
+      }
+      try {
+        const connection = await dependencies.setupCodex({
+          cwd: dependencies.cwd ?? process.cwd(),
+          interactive: true,
+          billingSelection: "allow_declared_additional",
+        });
+        await writeOutput(
+          dependencies.stdout,
+          `Ready — ${connection.label} · ${connection.modelId}\nMode: Plan-only (read-only Codex runtime)\nAccount: verified by the vendor runtime; credentials remain vendor-owned\n`,
+        );
+        return 0;
+      } catch (error) {
+        await writeOutput(
+          dependencies.stderr,
+          `Error: ${safeCliErrorMessage(error)}\n`,
+        );
+        return exitCodeFor(error);
+      }
+    }
     const input = parseLocalSetupArguments(argv.slice(1));
     if (input === null || dependencies.setupLocal === undefined) {
       await writeOutput(dependencies.stderr, help);
@@ -253,15 +311,33 @@ export async function runCli(
 }
 
 async function main(): Promise<void> {
+  const confirm = async (message: string): Promise<boolean> => {
+    const terminal = createInterface({
+      input: processStdin,
+      output: processStdout,
+    });
+    try {
+      const answer = await terminal.question(`${message}\nContinue? [y/N] `);
+      return answer.trim().toLowerCase() === "y" ||
+        answer.trim().toLowerCase() === "yes";
+    } finally {
+      terminal.close();
+    }
+  };
+  const dataDirectory = process.env.RECURS_HOME ?? path.join(homedir(), ".recurs");
   process.exitCode = await runCli(process.argv.slice(2), {
     stdin: processStdin,
     stdout: processStdout,
     stderr: processStderr,
+    cwd: process.cwd(),
+    interactive: processStdin.isTTY === true && processStdout.isTTY === true,
+    confirm,
     createRuntime: (events) => createStandaloneRuntime(events),
     setupLocal: (input) => setupLocalConnection(
-      process.env.RECURS_HOME ?? path.join(homedir(), ".recurs"),
+      dataDirectory,
       input,
     ),
+    setupCodex: (input) => setupCodexSubscription(dataDirectory, input),
   });
 }
 

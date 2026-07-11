@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type {
+  AgentRuntime,
   BackendResolver,
   RuntimeApprovalRequest,
   RuntimeContinuationAuthority,
@@ -10,8 +11,14 @@ import type {
   SessionBackendPin,
   TrustedRunContext,
 } from "@recurs/contracts";
+import { createHostInvocation } from "@recurs/contracts";
+import {
+  FileConnectionRegistry,
+  type DelegatedConnectionRecord,
+} from "@recurs/app";
 import {
   bindRunAuthorization,
+  CoordinatedRunError,
   DelegatedAgentExecutor,
   verifyRunAuthorization,
 } from "@recurs/core";
@@ -25,6 +32,48 @@ import {
 } from "../src/index.js";
 
 const directories: string[] = [];
+
+const codexConnection: DelegatedConnectionRecord = {
+  kind: "delegated_agent",
+  id: "codex-connection",
+  providerId: "openai-codex-chatgpt",
+  adapterId: "codex-acp",
+  label: "Codex with ChatGPT",
+  accountLabel: "owner@example.com",
+  organizationLabel: null,
+  modelId: "gpt-test",
+  accountSubjectFingerprint:
+    "sha256:51ad6241d1bfb3fbf43e889bf15530e6ca0c985d6a816d3358c3d356b0a768fa",
+  policyRevision: "openai-codex-chatgpt-2026-07-11",
+  billingPolicy: {
+    revision: "billing:openai-codex-chatgpt:2026-07-11",
+    disclosureRevision:
+      "billing-disclosure:openai-codex-chatgpt:2026-07-11",
+    primarySource: "included_subscription",
+    possibleAdditionalSources: ["prepaid_credits"],
+    providerFallback: "automatic",
+    availableSelections: ["allow_declared_additional"],
+  },
+  billingSelection: {
+    mode: "allow_declared_additional",
+    policyRevision: "billing:openai-codex-chatgpt:2026-07-11",
+    disclosureRevision:
+      "billing-disclosure:openai-codex-chatgpt:2026-07-11",
+    allowedSources: ["included_subscription", "prepaid_credits"],
+    acknowledgedAt: "2026-07-11T00:00:00.000Z",
+  },
+  verifiedAt: "2026-07-11T00:00:00.000Z",
+  createdAt: "2026-07-11T00:00:00.000Z",
+  updatedAt: "2026-07-11T00:00:00.000Z",
+};
+
+async function writeCodexConnection(directory: string): Promise<void> {
+  const registry = new FileConnectionRegistry(directory);
+  await registry.commit(0, (draft) => {
+    draft.connections.push(structuredClone(codexConnection));
+    draft.primaryConnectionId = codexConnection.id;
+  });
+}
 
 function foundationFor(runtime: Awaited<ReturnType<typeof createStandaloneRuntime>>) {
   const dependencies = Reflect.get(runtime, "dependencies") as {
@@ -74,6 +123,104 @@ afterEach(async () => {
 });
 
 describe("standalone assembly without a provider", () => {
+  it("loads a delegated Codex record into a Plan-only immutable runtime pin", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-codex-assembly-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    await writeCodexConnection(dataDirectory);
+    let runtimeRuns = 0;
+    const fakeRuntime: AgentRuntime = {
+      adapterId: "codex-acp",
+      connectionId: codexConnection.id,
+      capabilityProfileRevision:
+        "codex-acp-1.1.2-codex-0.144.0-plan-only-v2",
+      capabilities: {
+        resume: true,
+        cancellation: "protocol",
+        fileEvents: true,
+        usageEvents: true,
+        supportedPermissionModes: [
+          "ask_always",
+          "approved_for_me",
+          "full_access",
+        ],
+        approvalControl: "host",
+        planMode: "enforced",
+        toolExecution: "opaque",
+        checkpointing: "none",
+      },
+      async *run() {
+        runtimeRuns += 1;
+        yield {
+          type: "failed",
+          failure: {
+            domain: "runtime",
+            phase: "started",
+            code: "runtime_failed",
+            safeMessage: "Fake delegated runtime stopped",
+            diagnosticId: "fake-runtime",
+            retryable: false,
+          },
+        };
+      },
+      async reconcile() { return "uncertain"; },
+    };
+
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory,
+        delegatedRuntimeFactory() { return fakeRuntime; },
+      },
+    );
+
+    expect(runtime.state).toMatchObject({
+      type: "session",
+      session: {
+        executionMode: "plan",
+        model: "gpt-test",
+        backend: {
+          type: "pinned",
+          pin: {
+            kind: "agent_runtime",
+            providerId: "openai-codex-chatgpt",
+            adapterId: "codex-acp",
+            connectionId: codexConnection.id,
+            primaryBillingSourceAtCreation: "included_subscription",
+            runtimeCapabilityProfileRevisionAtCreation:
+              "codex-acp-1.1.2-codex-0.144.0-plan-only-v2",
+          },
+        },
+      },
+    });
+    await expect(runtime.submit("/status")).resolves.toMatchObject({
+      text: expect.stringContaining("Codex (Plan-only)"),
+    });
+
+    const oneShot = createHostInvocation({
+      invocation: "one_shot",
+      userPresent: false,
+      remote: false,
+      scripted: true,
+      embedding: "cli",
+    });
+    await expect(runtime.submit("unattended request", oneShot)).rejects
+      .toMatchObject({
+        failure: { domain: "policy", code: "policy_blocked" },
+      });
+    expect(runtimeRuns).toBe(0);
+    expect(runtime.session.messages).toEqual([]);
+
+    await runtime.submit("/plan exit");
+    await expect(runtime.submit("unsafe Act request")).rejects
+      .toBeInstanceOf(CoordinatedRunError);
+    expect(runtimeRuns).toBe(0);
+    expect(runtime.session.messages).toEqual([]);
+  });
+
   it("loads a configured local connection into an exact pinned session", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-local-assembly-"));
     directories.push(root);

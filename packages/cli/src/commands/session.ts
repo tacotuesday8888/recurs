@@ -85,13 +85,42 @@ function createNewCommand(dependencies: CommandDependencies): Command {
           "error",
         );
       }
-      await dependencies.sessions.createPinnedSession({
+      let next = await dependencies.sessions.createPinnedSession({
         id,
         cwd: context.session.cwd,
         backend: context.session.backend.pin,
         at: context.now(),
       });
-      context.session = await dependencies.sessions.loadState(id);
+      if (
+        next.executionMode !== context.session.executionMode ||
+        next.permissionMode !== context.session.permissionMode
+      ) {
+        await dependencies.sessions.withSessionMutation(
+          id,
+          next.lastSequence,
+          async (mutation) => {
+            await mutation.append({
+              type: "mode_updated",
+              source: "command",
+              at: context.now(),
+              executionMode: context.session.executionMode,
+              permissionMode: context.session.permissionMode,
+              ...(context.session.prePlanPermissionMode === undefined
+                ? {}
+                : {
+                    prePlanPermissionMode:
+                      context.session.prePlanPermissionMode,
+                  }),
+            });
+          },
+        );
+        const loaded = await dependencies.sessions.loadState(id);
+        if (!isPinnedSessionState(loaded)) {
+          return message("The new pinned session could not be loaded", "error");
+        }
+        next = loaded;
+      }
+      context.session = next;
       return message(`Started session ${id}`);
     },
   };

@@ -19,6 +19,9 @@
       "path": "../providers"
     },
     {
+      "path": "../runtimes"
+    },
+    {
       "path": "../tools"
     },
     {

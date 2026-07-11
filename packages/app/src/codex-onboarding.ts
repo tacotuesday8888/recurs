@@ -14,7 +14,7 @@ const PROVIDER_ID = "openai-codex-chatgpt";
 export const CODEX_ONBOARDING_ADAPTER_ID = "codex-acp";
 export const CODEX_ONBOARDING_ADAPTER_VERSION = "1.1.2";
 export const CODEX_ONBOARDING_CAPABILITY_PROFILE_REVISION =
-  "codex-acp-1.1.2-codex-0.144.0-plan-only-v1";
+  "codex-acp-1.1.2-codex-0.144.0-plan-only-v2";
 const SAFE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/u;
 
 export type CodexOnboardingErrorCode =
