@@ -64,12 +64,13 @@ async function invoke(
   arguments_: unknown,
   toolContext = context(),
   mode: "ask_always" | "approved_for_me" | "full_access" = "full_access",
+  approvals: ApprovalHandler = deny,
 ): Promise<ToolResult> {
   return new ToolRegistry([tool]).invoke(
     { id: "call-1", name: tool.definition.name, arguments: arguments_ },
     toolContext,
     new PermissionEngine(mode),
-    deny,
+    approvals,
   );
 }
 
@@ -123,7 +124,7 @@ describe("workspace file tools", () => {
     expect(toolContext.readRevisions.get(absolute)).toBe(result.metadata?.sha256);
   });
 
-  it("requires approval for an explicit external path and honors Full Access", async () => {
+  it("requires explicit approval for an external path in every preset", async () => {
     const externalFile = path.join(outside, "secret.txt");
 
     await expect(
@@ -134,8 +135,19 @@ describe("workspace file tools", () => {
         "approved_for_me",
       ),
     ).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(
+      invoke(createReadFileTool(), { path: externalFile }),
+    ).rejects.toMatchObject({ code: "permission_denied" });
     expect(
-      (await invoke(createReadFileTool(), { path: externalFile })).output,
+      (
+        await invoke(
+          createReadFileTool(),
+          { path: externalFile },
+          context(),
+          "full_access",
+          { async request() { return "allow_once"; } },
+        )
+      ).output,
     ).toBe("outside\n");
   });
 
