@@ -188,9 +188,42 @@ describe("OnboardingCatalog", () => {
     ]));
 
     const codex = entries.find((entry) => entry.id === "openai-codex-chatgpt");
+    expect(codex?.billing).toEqual({
+      revision: "billing:openai-codex-chatgpt:2026-07-11",
+      disclosureRevision:
+        "billing-disclosure:openai-codex-chatgpt:2026-07-11",
+      primarySource: "included_subscription",
+      possibleAdditionalSources: ["prepaid_credits"],
+      providerFallback: "automatic",
+      availableSelections: ["allow_declared_additional"],
+    });
     expect(codex?.restrictions.join(" ")).toContain("local user-present workflows");
+    expect(codex?.restrictions.join(" ")).toContain(
+      "plan tier is not reported by the adapter",
+    );
+    expect(codex?.restrictions.join(" ")).toContain(
+      "explicit acceptance of possible prepaid-credit use",
+    );
     expect(codex?.policy.officialRuntimeRequired).toBe(true);
-    expect(codex?.policy.rules).toHaveLength(2);
+    expect(codex?.policy.rules).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        condition: expect.objectContaining({
+          type: "all",
+          conditions: expect.arrayContaining([
+            {
+              type: "entitlement_claim",
+              claimId: "openai.codex.chatgpt_session_usable",
+              allowedValues: [true],
+            },
+            {
+              type: "billing_selection",
+              allowedModes: ["allow_declared_additional"],
+            },
+          ]),
+        }),
+      }),
+    ]));
+    expect(JSON.stringify(codex)).not.toContain("chatgpt_plan_active");
   });
 
   it("contains no credential entry surface or secret material", () => {

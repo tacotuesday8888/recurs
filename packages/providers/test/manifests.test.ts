@@ -47,6 +47,11 @@ const REGION_AND_BILLING_MATRIX = [
     billingPolicy: expectedBillingPolicy(
       "openai-codex-chatgpt",
       "included_subscription",
+      {
+        possibleAdditionalSources: ["prepaid_credits"],
+        providerFallback: "automatic",
+        availableSelections: ["allow_declared_additional"],
+      },
     ),
   },
   {
@@ -516,6 +521,89 @@ describe("bundled provider manifests", () => {
       type: "billing_selection",
       allowedModes: ["allow_declared_additional"],
     });
+  });
+
+  it("models usable ChatGPT Codex sessions without claiming plan visibility", () => {
+    const codex = bundled("openai-codex-chatgpt");
+
+    expect(codex.billingPolicy).toEqual(expectedBillingPolicy(
+      "openai-codex-chatgpt",
+      "included_subscription",
+      {
+        possibleAdditionalSources: ["prepaid_credits"],
+        providerFallback: "automatic",
+        availableSelections: ["allow_declared_additional"],
+      },
+    ));
+    expect(codex.usagePolicy.sourceUrls).toEqual(expect.arrayContaining([
+      "https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan",
+      "https://help.openai.com/en/articles/12642688-using-credits-for-flexible-usage-in-chatgpt-plus-pro",
+    ]));
+
+    const serialized = JSON.stringify(codex);
+    expect(serialized).not.toContain("openai.codex.chatgpt_plan_active");
+    expect(serialized).not.toMatch(/verified plan entitlement|report an active ChatGPT plan/i);
+    expect(codex.usagePolicy.evidenceSummary).toContain(
+      "codex-acp 1.1.2 does not report plan tier, organization, or billing source",
+    );
+    expect(codex.usagePolicy.evidenceSummary).toContain(
+      "automatically draws from the credit balance",
+    );
+
+    expect(codex.usagePolicy.rules).toEqual([
+      {
+        when: {
+          presence: "present",
+          location: "local",
+          automation: "manual",
+          embedding: "cli",
+        },
+        decision: "conditional",
+        condition: {
+          type: "all",
+          conditions: [
+            {
+              type: "entitlement_claim",
+              claimId: "openai.codex.chatgpt_session_usable",
+              allowedValues: [true],
+            },
+            {
+              type: "billing_selection",
+              allowedModes: ["allow_declared_additional"],
+            },
+          ],
+        },
+        reason: expect.stringMatching(
+          /successful Codex session\/model\/mode check.*plan tier is not reported by the adapter/i,
+        ),
+      },
+      {
+        when: {
+          presence: "present",
+          location: "local",
+          automation: "manual",
+          embedding: "desktop",
+        },
+        decision: "conditional",
+        condition: {
+          type: "all",
+          conditions: [
+            {
+              type: "entitlement_claim",
+              claimId: "openai.codex.chatgpt_session_usable",
+              allowedValues: [true],
+            },
+            {
+              type: "billing_selection",
+              allowedModes: ["allow_declared_additional"],
+            },
+          ],
+        },
+        reason: expect.stringMatching(
+          /successful Codex session\/model\/mode check.*plan tier is not reported by the adapter/i,
+        ),
+      },
+    ]);
   });
 
   it("uses only legal credential-owner, lane, access, and auth combinations", () => {

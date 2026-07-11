@@ -136,6 +136,11 @@ const bundled = [
     billingPolicy: billingPolicy(
       "openai-codex-chatgpt",
       "included_subscription",
+      {
+        possibleAdditionalSources: ["prepaid_credits"],
+        providerFallback: "automatic",
+        availableSelections: ["allow_declared_additional"],
+      },
     ),
     supportStatus: "conditional",
     runnable: true,
@@ -143,30 +148,62 @@ const bundled = [
       "https://developers.openai.com/codex/auth",
       "https://developers.openai.com/codex/sdk",
       "https://developers.openai.com/codex/app-server",
+      "https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan",
+      "https://help.openai.com/en/articles/12642688-using-credits-for-flexible-usage-in-chatgpt-plus-pro",
     ],
     evidenceSummary:
-      "ChatGPT-plan access is delegated to the official Codex runtime and restricted to local user-present workflows with a verified plan entitlement.",
+      "OpenAI documents Codex as included with eligible ChatGPT plans; after included limits, where credits are available, usage automatically draws from the credit balance. Activation is restricted to local user-present workflows and requires structured ChatGPT authentication plus a usable Codex session/model/mode; codex-acp 1.1.2 does not report plan tier, organization, or billing source.",
     rules: [
-      claimRule(
-        "openai.codex.chatgpt_plan_active",
-        "The official runtime must report an active ChatGPT plan before local CLI use.",
-        {
+      {
+        when: {
           presence: "present",
           location: "local",
           automation: "manual",
           embedding: "cli",
         },
-      ),
-      claimRule(
-        "openai.codex.chatgpt_plan_active",
-        "The official runtime must report an active ChatGPT plan before local desktop use.",
-        {
+        decision: "conditional",
+        condition: {
+          type: "all",
+          conditions: [
+            {
+              type: "entitlement_claim",
+              claimId: "openai.codex.chatgpt_session_usable",
+              allowedValues: [true],
+            },
+            {
+              type: "billing_selection",
+              allowedModes: ["allow_declared_additional"],
+            },
+          ],
+        },
+        reason:
+          "Local CLI use requires structured chat-gpt authentication, a successful Codex session/model/mode check, and explicit acceptance of possible prepaid-credit use; plan tier is not reported by the adapter.",
+      },
+      {
+        when: {
           presence: "present",
           location: "local",
           automation: "manual",
           embedding: "desktop",
         },
-      ),
+        decision: "conditional",
+        condition: {
+          type: "all",
+          conditions: [
+            {
+              type: "entitlement_claim",
+              claimId: "openai.codex.chatgpt_session_usable",
+              allowedValues: [true],
+            },
+            {
+              type: "billing_selection",
+              allowedModes: ["allow_declared_additional"],
+            },
+          ],
+        },
+        reason:
+          "Local desktop use requires structured chat-gpt authentication, a successful Codex session/model/mode check, and explicit acceptance of possible prepaid-credit use; plan tier is not reported by the adapter.",
+      },
     ],
   }),
   manifest({
