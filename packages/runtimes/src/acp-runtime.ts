@@ -1200,7 +1200,7 @@ export class ManagedAcpRuntime implements AgentRuntime {
   }
 }
 
-async function withInspectionConnection<T>(
+export async function withAcpInspectionConnection<T>(
   profileInput: AcpRuntimeProfile,
   signal: AbortSignal,
   operation: (
@@ -1239,7 +1239,7 @@ export async function inspectAcpRuntime(
   profile: AcpRuntimeProfile,
   signal: AbortSignal,
 ): Promise<AcpRuntimeInspection> {
-  return await withInspectionConnection(
+  return await withAcpInspectionConnection(
     profile,
     signal,
     async (_context, initialized) => inspectionFromInitialize(initialized),
@@ -1251,7 +1251,7 @@ export async function authenticateAcpRuntime(
   advertisedMethodId: string,
   signal: AbortSignal,
 ): Promise<AcpAuthenticationResult> {
-  return await withInspectionConnection(
+  return await withAcpInspectionConnection(
     profile,
     signal,
     async (context, initialized, process) => {
@@ -1273,6 +1273,116 @@ export async function authenticateAcpRuntime(
       );
       authResponseSchema.parse(response);
       return deepFreeze({ ...inspection, authenticatedMethodId: advertisedMethodId });
+    },
+  );
+}
+
+export async function inspectAcpRuntimeExtension<T>(
+  profile: AcpRuntimeProfile,
+  method: string,
+  parse: (value: unknown) => T,
+  signal: AbortSignal,
+): Promise<T> {
+  if (
+    !/^[a-z][a-z0-9._/-]{0,127}$/u.test(method) ||
+    containsSecretCanary(method)
+  ) {
+    throw new TypeError("ACP extension method is invalid");
+  }
+  return await withAcpInspectionConnection(
+    profile,
+    signal,
+    async (context, _initialized, process) => {
+      const response = await raceTransport(
+        withTimeout(
+          context.request<unknown, Record<string, never>>(method, {}),
+          profile.bounds.promptTimeoutMs,
+          "prompt",
+        ),
+        process,
+      );
+      return parse(response);
+    },
+  );
+}
+
+export async function probeAcpRuntimeMapping(
+  profile: AcpRuntimeProfile,
+  cwd: string,
+  selectMapping: (state: NewSessionResponse) => AcpSessionMapping,
+  signal: AbortSignal,
+): Promise<AcpSessionMapping> {
+  if (!path.isAbsolute(cwd) || cwd.includes("\0")) {
+    throw new TypeError("ACP probe cwd must be absolute");
+  }
+  return await withAcpInspectionConnection(
+    profile,
+    signal,
+    async (context, initialized, process) => {
+      const inspection = inspectionFromInitialize(initialized);
+      if (!inspection.sessionCapabilities.close) {
+        throw new RuntimePreflightError(
+          "ACP probe requires session close capability",
+        );
+      }
+      let sessionId: string | null = null;
+      let operationError: unknown = null;
+      let result: AcpSessionMapping | null = null;
+      try {
+        const response = await raceTransport(
+          withTimeout(
+            context.request(methods.agent.session.new, {
+              cwd,
+              additionalDirectories: [],
+              mcpServers: [],
+            }),
+            profile.bounds.promptTimeoutMs,
+            "prompt",
+          ),
+          process,
+        );
+        const state = newSessionResponseSchema.parse(response) as NewSessionResponse;
+        sessionId = state.sessionId;
+        const selected = selectMapping(structuredClone(state));
+        const reviewed = createAcpRuntimeProfile({
+          ...profile,
+          mappings: [selected],
+        }).mappings[0];
+        if (reviewed === undefined) {
+          throw new RuntimePreflightError("ACP probe mapping is missing");
+        }
+        await enforceSessionMapping(
+          context,
+          sessionId,
+          state,
+          reviewed,
+          process,
+          profile.bounds.promptTimeoutMs,
+        );
+        result = deepFreeze(structuredClone(reviewed));
+      } catch (error) {
+        operationError = error;
+      }
+      if (sessionId !== null) {
+        try {
+          const response = await raceTransport(
+            withTimeout(
+              context.request(methods.agent.session.close, { sessionId }),
+              profile.bounds.shutdownTimeoutMs,
+              "shutdown",
+            ),
+            process,
+          );
+          emptyResponseSchema.parse(response);
+        } catch (error) {
+          operationError ??= error;
+        }
+      }
+      if (operationError !== null) throw operationError;
+      if (result === null) {
+        throw new RuntimePreflightError("ACP probe did not produce a mapping");
+      }
+      return result;
     },
   );
 }
