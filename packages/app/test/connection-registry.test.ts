@@ -72,7 +72,7 @@ function delegated(
     accountLabel: "Personal ChatGPT account",
     organizationLabel: null,
     modelId: "gpt-5-codex",
-    accountSubjectFingerprint: "a".repeat(64),
+    accountSubjectFingerprint: `sha256:${"a".repeat(64)}`,
     policyRevision: "openai-codex-chatgpt-2026-07-11",
     billingPolicy: {
       revision: "billing:openai-codex-chatgpt:2026-07-11",
@@ -404,6 +404,135 @@ describe("FileConnectionRegistry", () => {
     expect((await registry.read()).connections[0]?.label).toBe("Codex");
   });
 
+  it("rejects delegated billing policies whose fallback semantics are inconsistent", async () => {
+    const directory = await root();
+    const registry = new FileConnectionRegistry(directory);
+    const invalidRecords: DelegatedConnectionRecord[] = [];
+
+    const unknown = structuredClone(delegated());
+    unknown.billingPolicy.providerFallback = "unknown";
+    unknown.billingPolicy.possibleAdditionalSources = [];
+    unknown.billingPolicy.availableSelections = ["strict_primary_only"];
+    unknown.billingSelection.mode = "strict_primary_only";
+    unknown.billingSelection.allowedSources = ["included_subscription"];
+    invalidRecords.push(unknown);
+
+    const automaticStrict = structuredClone(delegated());
+    automaticStrict.billingPolicy.availableSelections = ["strict_primary_only"];
+    automaticStrict.billingSelection.mode = "strict_primary_only";
+    automaticStrict.billingSelection.allowedSources = ["included_subscription"];
+    invalidRecords.push(automaticStrict);
+
+    const automaticWithoutAdditional = structuredClone(delegated());
+    automaticWithoutAdditional.billingPolicy.possibleAdditionalSources = [];
+    automaticWithoutAdditional.billingPolicy.availableSelections = [
+      "provider_default",
+    ];
+    automaticWithoutAdditional.billingSelection.mode = "provider_default";
+    automaticWithoutAdditional.billingSelection.allowedSources = [
+      "included_subscription",
+    ];
+    invalidRecords.push(automaticWithoutAdditional);
+
+    const noneWithAdditional = structuredClone(delegated());
+    noneWithAdditional.billingPolicy.providerFallback = "none";
+    invalidRecords.push(noneWithAdditional);
+
+    const userConfiguredWithoutAdditional = structuredClone(delegated());
+    userConfiguredWithoutAdditional.billingPolicy.providerFallback =
+      "user_configured";
+    userConfiguredWithoutAdditional.billingPolicy.possibleAdditionalSources = [];
+    userConfiguredWithoutAdditional.billingPolicy.availableSelections = [
+      "strict_primary_only",
+    ];
+    userConfiguredWithoutAdditional.billingSelection.mode =
+      "strict_primary_only";
+    userConfiguredWithoutAdditional.billingSelection.allowedSources = [
+      "included_subscription",
+    ];
+    invalidRecords.push(userConfiguredWithoutAdditional);
+
+    const providerDefaultWithoutAutomatic = structuredClone(delegated());
+    providerDefaultWithoutAutomatic.billingPolicy.providerFallback =
+      "user_configured";
+    providerDefaultWithoutAutomatic.billingPolicy.availableSelections = [
+      "provider_default",
+    ];
+    providerDefaultWithoutAutomatic.billingSelection.mode = "provider_default";
+    invalidRecords.push(providerDefaultWithoutAutomatic);
+
+    for (const record of invalidRecords) {
+      await expect(registry.commit(0, (draft) => {
+        draft.connections.push(record);
+        draft.primaryConnectionId = record.id;
+      })).rejects.toMatchObject({
+        code: "registry_invalid",
+        message: "Connection registry is invalid",
+      });
+    }
+  });
+
+  it("requires full declared billing-source acceptance and canonicalizes its set", async () => {
+    const partialRoot = await root();
+    const partial = structuredClone(delegated());
+    partial.billingPolicy.possibleAdditionalSources = [
+      "prepaid_credits",
+      "metered_api",
+    ];
+    partial.billingSelection.allowedSources = [
+      "included_subscription",
+      "prepaid_credits",
+    ];
+    await expect(
+      new FileConnectionRegistry(partialRoot).commit(0, (draft) => {
+        draft.connections.push(partial);
+        draft.primaryConnectionId = partial.id;
+      }),
+    ).rejects.toMatchObject({ code: "registry_invalid" });
+
+    const canonicalRoot = await root();
+    const reversed = structuredClone(delegated());
+    reversed.billingSelection.allowedSources = [
+      "prepaid_credits",
+      "included_subscription",
+    ];
+    const saved = await new FileConnectionRegistry(canonicalRoot).commit(
+      0,
+      (draft) => {
+        draft.connections.push(reversed);
+        draft.primaryConnectionId = reversed.id;
+      },
+    );
+    expect(saved.connections[0]).toMatchObject({
+      billingSelection: {
+        allowedSources: ["included_subscription", "prepaid_credits"],
+      },
+    });
+  });
+
+  it("accepts only canonical non-authorizing account fingerprints", async () => {
+    const directory = await root();
+    const registry = new FileConnectionRegistry(directory);
+    const canary = `ghp_${"A".repeat(40)}`;
+    for (const fingerprint of ["a".repeat(64), canary]) {
+      const record = delegated({ accountSubjectFingerprint: fingerprint });
+      let caught: unknown;
+      try {
+        await registry.commit(0, (draft) => {
+          draft.connections.push(record);
+          draft.primaryConnectionId = record.id;
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toMatchObject({
+        code: "registry_invalid",
+        message: "Connection registry is invalid",
+      });
+      expect(JSON.stringify(caught)).not.toContain(canary);
+    }
+  });
+
   it("breaks only a proven-dead stale lock and never a live stale lock", async () => {
     const directory = await root();
     const lock = path.join(directory, "config", ".connections.lock");
@@ -525,6 +654,33 @@ describe("legacy local migration", () => {
     expect(results[0]).toEqual(results[1]);
     expect(results[0]?.revision).toBe(1);
     expect(results[0]?.connections).toHaveLength(1);
+  });
+
+  it("atomically selects an exact preexisting legacy record when primary is absent", async () => {
+    const directory = await root();
+    const registry = new FileConnectionRegistry(directory);
+    await registry.commit(0, (draft) => {
+      draft.connections.push(local({
+        id: "legacy-local",
+        label: "Compatible local endpoint",
+        baseUrl: "http://127.0.0.1:8080/v1",
+        modelId: "legacy-model",
+        createdAt: AT,
+        updatedAt: LATER,
+      }));
+    });
+    await seedLegacy(directory);
+
+    const migrated = await registry.migrateLegacyLocal();
+
+    expect(migrated).toMatchObject({
+      revision: 2,
+      primaryConnectionId: "legacy-local",
+    });
+    expect(migrated.connections).toHaveLength(1);
+    await expect(lstat(legacyLocalConnectionPath(directory))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it("rejects a same-id content collision and retains the valid legacy file", async () => {

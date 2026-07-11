@@ -105,6 +105,12 @@ export class FileConnectionRegistry {
           "migration_conflict",
           MIGRATION_CONFLICT,
         );
+      } else if (current.document.primaryConnectionId === null) {
+        result = nextRegistryDocument(current.document, {
+          primaryConnectionId: legacy.record.id,
+          connections: current.document.connections,
+        });
+        await access.writeRegistry(result, current.identity);
       }
       await access.removeLegacy(legacy.identity);
       return immutableRegistryDocument(result);

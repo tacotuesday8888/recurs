@@ -19,6 +19,7 @@ export const MAX_REVISION = Number.MAX_SAFE_INTEGER - 1;
 
 const MAX_CONNECTIONS = 256;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u;
+const ACCOUNT_FINGERPRINT_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const BILLING_SOURCES = new Set<BillingSource>([
   "metered_api",
   "included_subscription",
@@ -310,7 +311,7 @@ function exactKeys(
   }
 }
 
-function looksSecret(value: string, allowOpaqueFingerprint: boolean): boolean {
+function looksSecret(value: string): boolean {
   if (/-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----/u.test(value)) return true;
   if (
     /(?:sk-(?:proj-)?|gh[pousr]_|github_pat_|AIza|xox[baprs]-|AKIA|ASIA)[A-Za-z0-9_-]{16,}/u.test(
@@ -323,7 +324,6 @@ function looksSecret(value: string, allowOpaqueFingerprint: boolean): boolean {
     return true;
   }
   if (/^(?:Bearer|Basic)\s+\S{12,}$/iu.test(value)) return true;
-  if (allowOpaqueFingerprint) return false;
   if (/^[A-Fa-f0-9]{48,}$/u.test(value)) return true;
   return (
     value.length >= 48 &&
@@ -335,15 +335,13 @@ function looksSecret(value: string, allowOpaqueFingerprint: boolean): boolean {
   );
 }
 
-function rejectSecretMaterial(value: unknown, field = ""): void {
+function rejectSecretMaterial(value: unknown): void {
   if (typeof value === "string") {
-    if (looksSecret(value, field === "accountsubjectfingerprint")) {
-      throw invalidRegistry();
-    }
+    if (looksSecret(value)) throw invalidRegistry();
     return;
   }
   if (Array.isArray(value)) {
-    for (const entry of value) rejectSecretMaterial(entry, field);
+    for (const entry of value) rejectSecretMaterial(entry);
     return;
   }
   if (!isRecord(value)) return;
@@ -353,7 +351,7 @@ function rejectSecretMaterial(value: unknown, field = ""): void {
       .replace(/[^a-zA-Z0-9]/gu, "")
       .toLowerCase();
     if (FORBIDDEN_KEYS.has(normalized)) throw invalidRegistry();
-    rejectSecretMaterial(entry, normalized);
+    rejectSecretMaterial(entry);
   }
 }
 
@@ -444,6 +442,25 @@ function parseBillingPolicy(value: unknown): BillingPolicy {
     BILLING_SELECTION_MODES.size,
   );
   if (availableSelections.length === 0) throw invalidRegistry();
+  const providerFallback = value.providerFallback;
+  if (
+    providerFallback === "unknown" ||
+    (providerFallback === "automatic" &&
+      availableSelections.includes("strict_primary_only")) ||
+    (providerFallback === "none" &&
+      possibleAdditionalSources.length > 0) ||
+    ((providerFallback === "user_configured" ||
+      providerFallback === "automatic") &&
+      possibleAdditionalSources.length === 0) ||
+    (possibleAdditionalSources.length > 0 &&
+      !availableSelections.includes("allow_declared_additional")) ||
+    (possibleAdditionalSources.length === 0 &&
+      availableSelections.includes("allow_declared_additional")) ||
+    (availableSelections.includes("provider_default") &&
+      providerFallback !== "automatic")
+  ) {
+    throw invalidRegistry();
+  }
   return {
     revision: boundedString(value.revision, 256, { trim: true }),
     disclosureRevision: boundedString(value.disclosureRevision, 256, {
@@ -451,7 +468,7 @@ function parseBillingPolicy(value: unknown): BillingPolicy {
     }),
     primarySource,
     possibleAdditionalSources,
-    providerFallback: value.providerFallback,
+    providerFallback,
     availableSelections,
   };
 }
@@ -497,6 +514,9 @@ function parseBillingSelection(
     policy.primarySource,
     ...policy.possibleAdditionalSources,
   ]);
+  const acceptsAllDeclared =
+    allowedSources.length === declared.size &&
+    [...declared].every((source) => allowedSources.includes(source));
   if (
     allowedSources.length === 0 ||
     !allowedSources.includes(policy.primarySource) ||
@@ -504,7 +524,8 @@ function parseBillingSelection(
     (mode === "strict_primary_only" &&
       (allowedSources.length !== 1 ||
         allowedSources[0] !== policy.primarySource)) ||
-    (mode === "allow_declared_additional" && allowedSources.length <= 1)
+    ((mode === "allow_declared_additional" || mode === "provider_default") &&
+      !acceptsAllDeclared)
   ) {
     throw invalidRegistry();
   }
@@ -512,7 +533,9 @@ function parseBillingSelection(
     mode,
     policyRevision,
     disclosureRevision,
-    allowedSources,
+    allowedSources: mode === "strict_primary_only"
+      ? [policy.primarySource]
+      : [policy.primarySource, ...policy.possibleAdditionalSources],
     acknowledgedAt: timestamp(value.acknowledgedAt),
   };
 }
@@ -618,8 +641,8 @@ function parseDelegated(
     modelId: boundedString(value.modelId, 512, { trim: true }),
     accountSubjectFingerprint: boundedString(
       value.accountSubjectFingerprint,
-      128,
-      { trim: true, pattern: ID_PATTERN },
+      71,
+      { trim: true, pattern: ACCOUNT_FINGERPRINT_PATTERN },
     ),
     policyRevision: boundedString(value.policyRevision, 256, { trim: true }),
     billingPolicy,
