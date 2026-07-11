@@ -235,6 +235,47 @@ describe("FileCheckpointStore", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("refuses undo through a parent alias into a credential directory", async () => {
+    const alias = path.join(cwd, "alias");
+    await mkdir(alias);
+    await writeFile(path.join(alias, "key"), "safe before\n");
+    await execFileAsync("git", ["add", "alias/key"], { cwd });
+    const checkpoint = await store.captureBefore("s1", "call-1", cwd);
+    await rm(path.join(alias, "key"));
+    await store.captureAfter(checkpoint, cwd);
+    await rm(alias, { recursive: true });
+    await mkdir(path.join(cwd, ".ssh"));
+    await writeFile(path.join(cwd, ".ssh", "key"), "CREDENTIAL_CURRENT\n");
+    await symlink(".ssh", alias);
+
+    await expect(store.undoLatest("s1", cwd)).rejects.toMatchObject({
+      code: "checkpoint_conflict",
+    });
+    expect(await readFile(path.join(cwd, ".ssh", "key"), "utf8")).toBe(
+      "CREDENTIAL_CURRENT\n",
+    );
+  });
+
+  it("refuses undo into a missing target below a credential parent alias", async () => {
+    const alias = path.join(cwd, "alias");
+    await mkdir(alias);
+    await writeFile(path.join(alias, "key"), "safe before\n");
+    await execFileAsync("git", ["add", "alias/key"], { cwd });
+    const checkpoint = await store.captureBefore("s1", "call-1", cwd);
+    await rm(path.join(alias, "key"));
+    await store.captureAfter(checkpoint, cwd);
+    await rm(alias, { recursive: true });
+    await mkdir(path.join(cwd, ".ssh"));
+    await symlink(".ssh", alias);
+
+    await expect(store.undoLatest("s1", cwd)).rejects.toMatchObject({
+      code: "checkpoint_conflict",
+    });
+    await expect(access(path.join(cwd, ".ssh", "key"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it("wraps mutating registry tools with a recoverable checkpoint", async () => {
     const tool: Tool = {
       definition: {

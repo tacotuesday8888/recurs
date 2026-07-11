@@ -145,6 +145,19 @@ function isCredentialAbsolute(root: string, candidate: string): boolean {
   return isCredentialPath(normalizedPath(path.relative(root, candidate)));
 }
 
+type UnsafeCheckpointPathCode =
+  | "checkpoint_conflict"
+  | "checkpoint_corrupt";
+
+function rejectOrExcludeCredential(code: UnsafeCheckpointPathCode): void {
+  if (code === "checkpoint_conflict") {
+    throw new ToolError(
+      code,
+      "Undo refused because a checkpoint path resolves to credential storage",
+    );
+  }
+}
+
 async function workspaceAbsolute(cwd: string, relative: string): Promise<string> {
   const root = await realpath(cwd);
   const absolute = path.resolve(root, relative);
@@ -157,23 +170,24 @@ async function workspaceAbsolute(cwd: string, relative: string): Promise<string>
   return absolute;
 }
 
-async function assertSafeParent(
-  cwd: string,
+async function canonicalWorkspaceEntry(
+  root: string,
   absolute: string,
-  code: "checkpoint_conflict" | "checkpoint_corrupt",
-): Promise<void> {
-  const root = await realpath(cwd);
+  code: UnsafeCheckpointPathCode,
+): Promise<string> {
   let ancestor = path.dirname(absolute);
+  const suffix = [path.basename(absolute)];
   for (;;) {
     try {
-      const resolved = await realpath(ancestor);
+      const resolvedAncestor = await realpath(ancestor);
+      const resolved = path.resolve(resolvedAncestor, ...suffix);
       if (!isWithin(root, resolved)) {
         throw new ToolError(
           code,
           `Checkpoint path has an external parent: ${absolute}`,
         );
       }
-      return;
+      return resolved;
     } catch (error) {
       if (!isMissing(error)) {
         throw error;
@@ -182,8 +196,21 @@ async function assertSafeParent(
       if (parent === ancestor) {
         throw new ToolError(code, `Cannot resolve checkpoint path: ${absolute}`);
       }
+      suffix.unshift(path.basename(ancestor));
       ancestor = parent;
     }
+  }
+}
+
+async function assertSafeCheckpointTarget(
+  cwd: string,
+  absolute: string,
+  code: UnsafeCheckpointPathCode,
+): Promise<void> {
+  const root = await realpath(cwd);
+  const canonical = await canonicalWorkspaceEntry(root, absolute, code);
+  if (isCredentialAbsolute(root, canonical)) {
+    rejectOrExcludeCredential(code);
   }
 }
 
@@ -208,11 +235,19 @@ function hashBlob(bytes: Buffer): string {
 async function readWorkspaceContent(
   cwd: string,
   relative: string,
-  unsafePathCode: "checkpoint_conflict" | "checkpoint_corrupt" = "checkpoint_corrupt",
+  unsafePathCode: UnsafeCheckpointPathCode = "checkpoint_corrupt",
 ): Promise<WorkspaceContent | null> {
   const root = await realpath(cwd);
   const absolute = await workspaceAbsolute(root, relative);
-  await assertSafeParent(root, absolute, unsafePathCode);
+  const canonicalEntry = await canonicalWorkspaceEntry(
+    root,
+    absolute,
+    unsafePathCode,
+  );
+  if (isCredentialAbsolute(root, canonicalEntry)) {
+    rejectOrExcludeCredential(unsafePathCode);
+    return null;
+  }
   let stats;
   try {
     stats = await lstat(absolute);
@@ -221,17 +256,6 @@ async function readWorkspaceContent(
       return null;
     }
     throw error;
-  }
-  const canonicalParent = await realpath(path.dirname(absolute));
-  const canonicalEntry = path.join(canonicalParent, path.basename(absolute));
-  if (!isWithin(root, canonicalEntry)) {
-    throw new ToolError(
-      "checkpoint_corrupt",
-      `Checkpoint path resolves outside the workspace: ${relative}`,
-    );
-  }
-  if (isCredentialAbsolute(root, canonicalEntry)) {
-    return null;
   }
   let kind: WorkspaceManifestEntry["kind"];
   let bytes: Buffer;
@@ -242,11 +266,12 @@ async function readWorkspaceContent(
     const resolved = await realpath(absolute);
     if (!isWithin(root, resolved)) {
       throw new ToolError(
-        "checkpoint_corrupt",
+        unsafePathCode,
         `Checkpoint file resolves outside the workspace: ${relative}`,
       );
     }
     if (isCredentialAbsolute(root, resolved)) {
+      rejectOrExcludeCredential(unsafePathCode);
       return null;
     }
     kind = "file";
@@ -689,14 +714,14 @@ export class FileCheckpointStore extends CheckpointStore {
     }
     for (const file of paths) {
       const absolute = await workspaceAbsolute(cwd, file);
-      await assertSafeParent(cwd, absolute, "checkpoint_conflict");
+      await assertSafeCheckpointTarget(cwd, absolute, "checkpoint_conflict");
     }
 
     const restored: string[] = [];
     const deleted: string[] = [];
     for (const file of paths) {
       const absolute = await workspaceAbsolute(cwd, file);
-      await assertSafeParent(cwd, absolute, "checkpoint_conflict");
+      await assertSafeCheckpointTarget(cwd, absolute, "checkpoint_conflict");
       const before = checkpoint.before[file];
       if (before === undefined) {
         await rm(absolute, { force: true });

@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import {
   access,
   chmod,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -215,6 +216,69 @@ describe("credential-safe Git inspection", () => {
     await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("pins fixed Git inspection to the requested workspace", async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), "recurs-core-worktree-"));
+    try {
+      await writeFile(path.join(cwd, "safe.txt"), "safe baseline\n");
+      await execFileAsync("git", ["add", "safe.txt"], { cwd });
+      await writeFile(
+        path.join(outside, "safe.txt"),
+        "RECURS_CORE_WORKTREE_CANARY\n",
+      );
+      await writeFile(path.join(outside, "outside-only.txt"), "outside\n");
+      await execFileAsync("git", ["config", "core.worktree", outside], {
+        cwd,
+      });
+
+      const diff = await invoke(createGitDiffTool(), {});
+      const status = await invoke(createGitStatusTool(), {});
+
+      expect(diff.output).not.toContain("RECURS_CORE_WORKTREE_CANARY");
+      expect(status.output).not.toContain("outside-only.txt");
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("disables lazy object fetching during fixed Git inspection", async () => {
+    await writeFile(path.join(cwd, "safe.txt"), "baseline\n");
+    await execFileAsync("git", ["add", "safe.txt"], { cwd });
+    const blob = (await execFileAsync("git", ["rev-parse", ":safe.txt"], {
+      cwd,
+    })).stdout.trim();
+    await rm(path.join(cwd, ".git", "objects", blob.slice(0, 2), blob.slice(2)));
+    const marker = path.join(cwd, ".git", "lazy-fetch-invoked");
+    const helper = path.join(cwd, ".git", "lazy-fetch-helper");
+    await writeFile(
+      helper,
+      `#!/bin/sh\nprintf invoked > ${shellQuote(marker)}\nexit 1\n`,
+    );
+    await chmod(helper, 0o700);
+    await execFileAsync(
+      "git",
+      ["config", "core.repositoryformatversion", "1"],
+      { cwd },
+    );
+    await execFileAsync("git", ["config", "extensions.partialClone", "origin"], {
+      cwd,
+    });
+    await execFileAsync("git", ["config", "remote.origin.promisor", "true"], {
+      cwd,
+    });
+    await execFileAsync("git", ["config", "remote.origin.url", `ext::${helper}`], {
+      cwd,
+    });
+    await execFileAsync("git", ["config", "protocol.ext.allow", "always"], {
+      cwd,
+    });
+    await writeFile(path.join(cwd, "safe.txt"), "changed\n");
+
+    await expect(invoke(createGitDiffTool(), {})).rejects.toMatchObject({
+      code: "process_failed",
+    });
+    await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it.each(["clean", "process"] as const)(
     "neutralizes configured %s filters while forming a worktree diff",
     async (kind) => {
@@ -353,6 +417,117 @@ describe("credential-safe Git inspection", () => {
       await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
     },
   );
+
+  it("rejects markerless credential renames hidden beside a declared hunk", async () => {
+    await writeFile(path.join(cwd, "safe.txt"), "before\n");
+    await writeFile(path.join(cwd, ".env"), "TRACKED_CREDENTIAL_CANARY\n");
+    await execFileAsync("git", ["add", "--force", "safe.txt", ".env"], {
+      cwd,
+    });
+    const toolContext = context();
+    const registry = new ToolRegistry([
+      createReadFileTool(),
+      createApplyPatchTool(),
+    ]);
+    const permissions = new PermissionEngine("full_access");
+    const read = await registry.invoke(
+      { id: "read", name: "read_file", arguments: { path: "safe.txt" } },
+      toolContext,
+      permissions,
+      deny,
+    );
+    const expectedHash = read.metadata?.sha256;
+    if (typeof expectedHash !== "string") {
+      throw new TypeError("read_file did not return a revision hash");
+    }
+    const patch = [
+      "--- a/safe.txt",
+      "+++ b/safe.txt",
+      "@@ -1 +1 @@",
+      "-before",
+      "+after",
+      "diff --git a/.env b/leaked.txt",
+      "similarity index 100%",
+      "rename from .env",
+      "rename to leaked.txt",
+      "",
+    ].join("\n");
+
+    await expect(
+      registry.invoke(
+        {
+          id: "patch",
+          name: "apply_patch",
+          arguments: {
+            patch,
+            files: [{ path: "safe.txt", expected_hash: expectedHash }],
+          },
+        },
+        toolContext,
+        permissions,
+        deny,
+      ),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    expect(await readFile(path.join(cwd, ".env"), "utf8")).toBe(
+      "TRACKED_CREDENTIAL_CANARY\n",
+    );
+    await expect(access(path.join(cwd, "leaked.txt"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
+  it("rejects markerless credential mode changes omitted from declarations", async () => {
+    await writeFile(path.join(cwd, "safe.txt"), "before\n");
+    await writeFile(path.join(cwd, ".env"), "TRACKED_MODE_CANARY\n");
+    await chmod(path.join(cwd, ".env"), 0o600);
+    await execFileAsync("git", ["add", "--force", "safe.txt", ".env"], {
+      cwd,
+    });
+    const toolContext = context();
+    const registry = new ToolRegistry([
+      createReadFileTool(),
+      createApplyPatchTool(),
+    ]);
+    const permissions = new PermissionEngine("full_access");
+    const read = await registry.invoke(
+      { id: "read", name: "read_file", arguments: { path: "safe.txt" } },
+      toolContext,
+      permissions,
+      deny,
+    );
+    const expectedHash = read.metadata?.sha256;
+    if (typeof expectedHash !== "string") {
+      throw new TypeError("read_file did not return a revision hash");
+    }
+    const patch = [
+      "--- a/safe.txt",
+      "+++ b/safe.txt",
+      "@@ -1 +1 @@",
+      "-before",
+      "+after",
+      "diff --git a/.env b/.env",
+      "old mode 100644",
+      "new mode 100755",
+      "",
+    ].join("\n");
+
+    await expect(
+      registry.invoke(
+        {
+          id: "patch",
+          name: "apply_patch",
+          arguments: {
+            patch,
+            files: [{ path: "safe.txt", expected_hash: expectedHash }],
+          },
+        },
+        toolContext,
+        permissions,
+        deny,
+      ),
+    ).rejects.toMatchObject({ code: "patch_files_mismatch" });
+    expect((await lstat(path.join(cwd, ".env"))).mode & 0o111).toBe(0);
+  });
 
   it("does not expand configured submodule diffs into credential content", async () => {
     const source = await mkdtemp(path.join(tmpdir(), "recurs-git-submodule-"));

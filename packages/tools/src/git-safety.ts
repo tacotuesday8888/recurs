@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { runProcess } from "./process.js";
 import { ToolError } from "./types.js";
 
@@ -5,9 +7,11 @@ const FILTER_KEY_PATTERN = /^filter\.(.+)\.(clean|smudge|process|required)$/u;
 const SAFE_FILTER_DRIVER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const MAX_FILTER_DRIVERS = 64;
 
-export function safeGitGlobalArguments(): string[] {
+export function safeGitGlobalArguments(cwd: string): string[] {
   return [
     "--no-optional-locks",
+    "--no-lazy-fetch",
+    `--work-tree=${path.resolve(cwd)}`,
     "-c",
     "core.fsmonitor=false",
     "-c",
@@ -22,7 +26,7 @@ async function configuredFilterDrivers(
   const result = await runProcess(
     "git",
     [
-      ...safeGitGlobalArguments(),
+      ...safeGitGlobalArguments(cwd),
       "config",
       "--null",
       "--name-only",
@@ -79,7 +83,7 @@ export async function safeGitArguments(
     ],
   );
   return [
-    ...safeGitGlobalArguments(),
+    ...safeGitGlobalArguments(cwd),
     ...filterOverrides,
     ...command,
   ];

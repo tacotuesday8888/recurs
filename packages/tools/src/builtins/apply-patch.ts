@@ -99,6 +99,17 @@ function decodePatchMarker(raw: string): string | null {
 function extractPatchFiles(patch: string): string[] {
   const paths = new Set<string>();
   for (const line of patch.split("\n")) {
+    if (
+      line.startsWith("rename from ") ||
+      line.startsWith("rename to ") ||
+      line.startsWith("copy from ") ||
+      line.startsWith("copy to ")
+    ) {
+      throw new ToolError(
+        "invalid_input",
+        "Rename and copy patches are unsupported",
+      );
+    }
     if (line.startsWith("--- ") || line.startsWith("+++ ")) {
       const decoded = decodePatchMarker(line.slice(4));
       if (decoded !== null) {
@@ -108,6 +119,23 @@ function extractPatchFiles(patch: string): string[] {
   }
   if (paths.size === 0) {
     throw new ToolError("invalid_input", "Patch does not declare any file paths");
+  }
+  return [...paths].sort((left, right) => left.localeCompare(right));
+}
+
+function parseNumstatPaths(output: string): string[] {
+  const paths = new Set<string>();
+  for (const record of output.split("\0")) {
+    if (record.length === 0) {
+      continue;
+    }
+    const firstTab = record.indexOf("\t");
+    const secondTab = firstTab < 0 ? -1 : record.indexOf("\t", firstTab + 1);
+    const file = secondTab < 0 ? "" : record.slice(secondTab + 1);
+    if (firstTab < 1 || secondTab <= firstTab + 1 || file.length === 0) {
+      throw new ToolError("invalid_input", "Patch paths could not be verified");
+    }
+    paths.add(file);
   }
   return [...paths].sort((left, right) => left.localeCompare(right));
 }
@@ -158,11 +186,16 @@ async function assertFresh(
   }
 }
 
-function assertDeclaredFiles(input: ApplyPatchInput): void {
-  const actual = extractPatchFiles(input.patch);
-  const declared = input.files
+function normalizedDeclaredFiles(input: ApplyPatchInput): string[] {
+  return input.files
     .map((file) => file.path.replaceAll("\\", "/"))
     .sort((left, right) => left.localeCompare(right));
+}
+
+function assertSameDeclaredFiles(
+  actual: readonly string[],
+  declared: readonly string[],
+): void {
   if (
     actual.length !== declared.length ||
     actual.some((file, index) => file !== declared[index])
@@ -172,6 +205,13 @@ function assertDeclaredFiles(input: ApplyPatchInput): void {
       `Patch paths (${actual.join(", ")}) do not match declared files (${declared.join(", ")})`,
     );
   }
+}
+
+function assertDeclaredFiles(input: ApplyPatchInput): void {
+  assertSameDeclaredFiles(
+    extractPatchFiles(input.patch),
+    normalizedDeclaredFiles(input),
+  );
 }
 
 export function createApplyPatchTool(
@@ -234,6 +274,30 @@ export function createApplyPatchTool(
         context.cwd,
         [],
         context.signal,
+      );
+      let numstat: string;
+      try {
+        numstat = (await runProcess("git", [
+          ...safeGitPrefix,
+          "apply",
+          "--numstat",
+          "-z",
+          "-",
+        ], {
+          cwd: context.cwd,
+          stdin: input.patch,
+          signal: context.signal,
+          maxOutputBytes: MAX_PATCH_BYTES,
+        })).stdout;
+      } catch (error) {
+        if (error instanceof ToolError && error.code === "cancelled") {
+          throw error;
+        }
+        throw new ToolError("invalid_input", "Patch could not be parsed");
+      }
+      assertSameDeclaredFiles(
+        parseNumstatPaths(numstat),
+        normalizedDeclaredFiles(input),
       );
       try {
         await runProcess("git", [
