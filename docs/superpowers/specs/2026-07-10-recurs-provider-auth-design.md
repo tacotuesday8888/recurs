@@ -1,10 +1,10 @@
 # Recurs Provider, Authentication, and Onboarding Design
 
 **Date:** 2026-07-10
-**Status:** Reviewed umbrella design — Slice 0 implemented; Slices 1–5 pending
+**Status:** Reviewed umbrella design — Slice 0 and the TypeScript safety precursor implemented; native Slice 1 authority boundary and Slices 2–5 pending
 **Scope:** CLI-first provider connectivity shared with the future desktop app
 
-This specification describes the provider/authentication program. The repository now implements Slice 0: dependency-leaf contracts, immutable backend pins, trusted host context, version-2 sessions and leases, backend-neutral coordination, and a sessionless workspace shell. It does not yet hold credentials or contact a live provider. See [the architecture](../../../ARCHITECTURE.md) for exact implemented behavior.
+This specification describes the provider/authentication program. The repository now implements Slice 0 plus a TypeScript safety precursor: dependency-leaf contracts, immutable backend pins, trusted host context, version-2 sessions and leases, backend-neutral coordination, a sessionless workspace shell, unified built-in credential exclusions, checkpoint format gating, clean child state, tool security profiles, and sanitized runtime failures. It does not hold credentials or contact a live provider. The precursor does not complete Slice 1 because the native storage/broker and OS sandbox authority boundary is still absent. See [the architecture](../../../ARCHITECTURE.md) for exact implemented behavior.
 
 ## 1. Decision
 
@@ -72,22 +72,46 @@ Recurs Core v0 has a provider-neutral agent loop, tools, permission modes, Plan
 mode, goals, durable sessions, checkpoints, and CLI. It currently accepts one
 injected `ModelProvider` at process assembly.
 
-The current boundary is useful but insufficient for real credentials:
+The current live assembly is still an injected/test seam:
 
-- `ModelProvider.id` and the selected model are conflated.
-- A session stores only `model: string`; it does not record a connection,
-  account, billing path, adapter, catalog revision, or policy revision.
-- `RecursRuntime` depends directly on one `AgentLoop`, so it cannot route a
-  resumed session to its own backend.
-- `/compact` assumes every backend exposes a raw model stream.
-- The process runner inherits the Recurs environment and real home directory.
-- Full Access currently permits credential and sensitive intents.
-- Provider, tool, and process errors can reach events and durable JSONL without
-  a central redaction boundary.
-- Provider retries after visible output were blocked during Core v0 hardening.
-- Checkpointing can archive a tracked `.env` file.
-- Session roots and existing files are not comprehensively checked for owner,
-  mode, symlink, or shared-directory safety.
+- The standalone runtime derives synthetic connection and adapter IDs from
+  `ModelProvider.id`; it has no real connection registry or verified account.
+- Version-2 sessions carry immutable backend-pin fields, but there is no live
+  catalog, entitlement, billing-policy, or account source behind those fields.
+- `BackendRunCoordinator` currently has only the injected direct-model executor;
+  no production delegated executor exists.
+- `/compact` still receives the injected raw provider; delegated-runtime context
+  behavior is not implemented.
+
+The TypeScript safety precursor adds these implemented defenses:
+
+- Direct and aggregate built-in tools share one case-insensitive credential-path
+  policy; classified intents are permanently denied in every preset.
+- New checkpoint stores exclude classified paths before file reads or blob
+  writes and carry a version-2 format marker; ambiguous legacy stores fail
+  closed and require an explicit manual reset.
+- Fixed and arbitrary children receive a synthetic private home and an
+  allowlisted environment, and process groups are bounded and cleaned up.
+- Provider, tool, process, and unexpected CLI failures cross durable or
+  user-visible boundaries through safe messages rather than raw stderr, causes,
+  or provider text.
+- Runtime composition exposes the default `local_guarded` profile and a
+  fail-closed `tools_disabled` profile that advertises no model tools.
+
+Those defenses remain insufficient for real credentials:
+
+- The path-based Node implementation cannot remove check-then-open symlink races
+  or provide descriptor-relative no-follow access.
+- `local_guarded` arbitrary commands retain the Recurs user's filesystem,
+  network, IPC, and process-inspection authority; clean environment variables do
+  not prevent indirect access to Recurs data or vendor auth state.
+- `tools_disabled` is not a useful coding profile and does not create a broker
+  or isolate the main process.
+- Session/checkpoint roots and their full parent chains are not validated as a
+  hardened secret store for ownership, mode, ACL, filesystem semantics, and
+  concurrent no-follow access.
+- No separate non-exporting broker, origin-bound credential transport, or OS
+  sandbox exists.
 
 No live cloud credential may ship until the credential and execution isolation
 gates in this specification are proven.
@@ -204,6 +228,31 @@ or process-inspection rights. The main agent process receives sanitized
 transport events, not long-lived refresh tokens. An in-process fake broker is
 permitted only in tests that use canary credentials.
 
+### 6.2 Implementation note: native authority is required
+
+Review of the TypeScript safety precursor established that Node pathname
+validation plus an opaque or branded TypeScript object cannot satisfy hardened
+storage semantics. A check-then-open pathname remains subject to symlink races,
+and a compile-time brand carries no operating-system authority. Environment
+cleanup also cannot prevent a child with the same user identity from opening
+other paths, contacting local services, or inspecting accessible processes.
+
+Before direct cloud, coding-plan, subscription, OAuth, or cloud-identity
+credentials, Recurs must design and test a narrow native broker/storage
+boundary with descriptor-relative no-follow I/O, owner/mode/ACL and full-parent
+validation, filesystem capability checks, and an OS sandbox that denies tool
+children access to Recurs data, vendor auth state, broker IPC, unrelated
+processes, and non-approved network destinations. A small Rust or
+platform-native component is appropriate for this authority boundary. The
+TypeScript agent loop, coordinator, session engine, and CLI do not need a
+wholesale rewrite.
+
+Do not create `@recurs/auth` merely to wrap path strings in an opaque type. Its
+public capability must be backed by the real native authority boundary. The
+next usable provider slice may instead onboard a credential-free server bound
+to an exact literal-loopback endpoint; that slice must not collect a key or
+weaken this gate.
+
 ## 7. Package Boundaries
 
 The implementation should preserve the current small monorepo structure.
@@ -235,9 +284,9 @@ flowchart TD
   handles, `ModelProvider`, `AgentRuntime`, and injected port interfaces.
 - No Node APIs, storage, network, UI, provider implementations, or internal
   package dependencies.
-- `ProviderTransport`, `BackendResolver`, and validated data-root capability
-  types are consumer-owned ports, preventing providers and auth from importing
-  each other.
+- `ProviderTransport`, `BackendResolver`, and native authority-handle ports are
+  consumer-owned contracts, preventing providers and auth from importing each
+  other. A TypeScript-only branded path is not an authority handle.
 
 ### `@recurs/providers`
 
@@ -248,15 +297,19 @@ flowchart TD
   injected ports; providers never import `@recurs/auth`.
 - No Keychain implementation and no CLI prompts.
 
-### `@recurs/auth` (new)
+### `@recurs/auth` (planned; blocked on the native authority boundary)
 
-- Hardened Recurs data-root validation.
+- Native-backed hardened Recurs data-root authority.
 - Secure-store abstraction and platform implementations.
 - Credential broker and origin-bound provider transport.
 - OAuth/device-flow primitives and cross-process refresh coordination.
 - Secret redaction and safe diagnostic errors.
 - Connection metadata registry with transactional updates.
-- The only public factory for an opened `ValidatedDataRoot` capability.
+- The only public factory for an opened, native-backed data-root capability.
+
+This package must not be created as a pathname validator or opaque TypeScript
+wrapper. It lands only when the descriptor-relative storage and OS isolation
+authority described in section 6.2 exists.
 
 ### `@recurs/runtimes` (new)
 
@@ -273,16 +326,18 @@ flowchart TD
 - Delegated-agent executor normalizing runtime activity into Recurs events.
 - Pinned session backend and vendor continuation state.
 - No provider-specific auth logic and no dependency on auth implementations.
-- Session/checkpoint stores accept an opened validated-root/directory
-  capability, never an arbitrary path string.
+- Credential-bearing session/continuation stores eventually accept a
+  native-backed opened-directory authority, never an arbitrary path string.
+  The current session/checkpoint implementations still use path strings and are
+  not auth-secret stores.
 
 ### `@recurs/tools`
 
-- Clean and isolated tool-process execution.
+- Clean child-process state now; OS-isolated tool execution before credentials.
 - Permanent hard denial for credential/internal-secret access.
 - Existing workspace policies, checkpointing, and stale-write protection.
-- Checkpoint stores accept a validated directory capability, not an arbitrary
-  path string.
+- Checkpoints use an exclusion format gate but remain pathname-based and
+  unsuitable for auth secrets.
 - No ability to query the connection registry or broker.
 
 ### `@recurs/cli`
@@ -2990,8 +3045,8 @@ trusted contexts and accounts owned by the tester.
 This architecture is too large and security-sensitive for one implementation
 PR. It is delivered as six independently testable slices. Each slice receives
 its own specification review, implementation plan, and one or more small PRs.
-After this umbrella specification is reviewed, planning begins with Slice 0
-only.
+Delivery began with Slice 0 and now includes the separately reviewed TypeScript
+safety precursor described below.
 
 ### Slice 0: Contracts, session concurrency, and runtime seam — implemented
 
@@ -3006,22 +3061,35 @@ only.
 - Keep every existing scripted-provider behavior passing through compatibility
   fixtures; no live credential is introduced.
 
-### Slice 1: Credential and execution safety
+### Slice 1: Credential and execution safety — TypeScript precursor implemented; native boundary pending
 
-- Harden Recurs data root and file modes.
-- Add secret redaction and safe diagnostics.
-- Add the separately sandboxed secure-store/credential-broker service with a
-  fake connection lookup port.
-- Create origin-bound transport, scoped run authorizations, continuation store,
-  durable refresh transactions, and volatile Use-once cleanup.
-- Isolate tool subprocess environment/home/process access.
-- Permanently deny credential/internal-secret intents.
-- Exclude sensitive files from checkpoints.
-- Pass end-to-end canary tests.
+- Implemented precursor: unify classified credential exclusions across built-in
+  tools, permanently deny those intents, and gate new checkpoint storage with a
+  credential-excluding format marker.
+- Implemented precursor: clean the environment/home of every fixed and arbitrary
+  child, terminate bounded process groups, expose `local_guarded` and
+  `tools_disabled`, and sanitize provider/tool/process/CLI failures.
+- Pending: harden the Recurs data root and secret-bearing files through the
+  native descriptor-relative authority boundary.
+- Pending: add the separately sandboxed secure-store/credential-broker service
+  with a fake connection lookup port.
+- Pending: create origin-bound transport, scoped run authorizations,
+  continuation storage, durable refresh transactions, and volatile Use-once
+  cleanup.
+- Pending: enforce an OS sandbox that denies tool children Recurs/vendor auth,
+  broker IPC, process inspection, and unapproved network access.
+- Pending: pass native storage, sandbox-escape, and end-to-end credential canary
+  tests.
 
-No live cloud adapter ships before this slice passes.
+The implemented precursor is not Slice 1 completion. No live cloud credential
+ships before every pending native item passes.
 
 ### Slice 2: Connections, catalogs, sessions, and onboarding
+
+The first bounded follow-up may implement credential-free onboarding for an
+exact literal-loopback local provider. It must use no secret, auth package,
+cloud identity, consumer subscription, or non-loopback discovery. All
+credential-bearing Slice 2 work remains blocked on Slice 1 completion.
 
 - Add connection registry and transaction protocol.
 - Add provider manifests, model catalogs, typed entitlement claims, usage

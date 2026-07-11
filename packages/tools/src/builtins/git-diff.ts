@@ -1,7 +1,10 @@
 import {
+  assertNonCredentialPath,
+  credentialGitPathspecs,
   pathPermissionIntents,
   WorkspacePathPolicy,
 } from "../path-policy.js";
+import { safeGitArguments } from "../git-safety.js";
 import { runProcess } from "../process.js";
 import { ToolError, type Tool } from "../types.js";
 
@@ -44,6 +47,7 @@ export function createGitDiffTool(): Tool<GitDiffInput> {
         additionalProperties: false,
       },
     },
+    executionClass: "fixed_process",
     mutating: false,
     parse: parseGitDiffInput,
     permissions(input) {
@@ -52,17 +56,28 @@ export function createGitDiffTool(): Tool<GitDiffInput> {
         : pathPermissionIntents("read", input.path);
     },
     async execute(input, context) {
-      const args = ["diff", "--no-ext-diff", "--no-textconv", "--no-color"];
+      const args = [
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--submodule=short",
+        "--ignore-submodules=dirty",
+      ];
       if (input.staged) {
         args.push("--cached");
       }
+      let target = ".";
       if (input.path !== undefined) {
         const resolved = await new WorkspacePathPolicy(
           context.cwd,
         ).resolveWritable(input.path);
-        args.push("--", resolved.relative);
+        assertNonCredentialPath(resolved.relative);
+        target = resolved.relative;
       }
-      const result = await runProcess("git", args, {
+      args.push("--", target, ...credentialGitPathspecs());
+      const safeArgs = await safeGitArguments(context.cwd, args, context.signal);
+      const result = await runProcess("git", safeArgs, {
         cwd: context.cwd,
         signal: context.signal,
         maxOutputBytes: 1024 * 1024,

@@ -18,6 +18,11 @@ import type {
   JsonlSessionStore,
   SessionMutationLease,
 } from "./jsonl-session-store.js";
+import {
+  AgentLoopError,
+  safeAgentLoopErrorMessage,
+  unexpectedFailureMessage,
+} from "./agent-loop.js";
 import { SessionStoreError } from "./jsonl-session-store.js";
 import { isPinnedSessionState, type PinnedSessionState } from "./session-v2.js";
 
@@ -119,11 +124,19 @@ function startedFailure(
 ): IntegrationFailure {
   const cancelled = signal.aborted ||
     (isObject(error) && error.code === "cancelled");
+  const agentLoopError = error instanceof AgentLoopError ? error : null;
+  const safeMessage = cancelled
+    ? agentLoopError === null
+      ? "The run was cancelled"
+      : safeAgentLoopErrorMessage(agentLoopError)
+    : agentLoopError === null
+      ? unexpectedFailureMessage(diagnosticId)
+      : safeAgentLoopErrorMessage(agentLoopError);
   return {
     domain: cancelled ? "provider" : "runtime",
     phase: "started",
     code: cancelled ? "cancelled" : "runtime_failed",
-    safeMessage: cancelled ? "The run was cancelled" : "The model run failed",
+    safeMessage,
     diagnosticId,
     retryable: isObject(error) && error.retryable === true,
   };

@@ -12,13 +12,16 @@ import {
   type Tool,
   type ToolContext,
   type ToolResult,
+  type ToolSecurityProfile,
 } from "./types.js";
 
 type RegisteredTool = Tool<unknown>;
 
 function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
+  const preflight = tool.preflight?.bind(tool);
   return {
     definition: tool.definition,
+    executionClass: tool.executionClass,
     mutating: tool.mutating,
     parse(input) {
       return tool.parse(input);
@@ -26,19 +29,68 @@ function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
     permissions(input, context) {
       return tool.permissions(input as Input, context);
     },
+    ...(preflight === undefined
+      ? {}
+      : {
+          preflight(input: unknown, context: ToolContext) {
+            return preflight(input as Input, context);
+          },
+        }),
     execute(input, context) {
       return tool.execute(input as Input, context);
     },
   };
 }
 
+async function executeTool(
+  tool: RegisteredTool,
+  name: string,
+  input: unknown,
+  context: ToolContext,
+): Promise<ToolResult> {
+  try {
+    return await tool.execute(input, context);
+  } catch (error) {
+    if (error instanceof ToolError) {
+      throw error;
+    }
+    throw new ToolError("execution_failed", `Tool ${name} failed`);
+  }
+}
+
+async function preflightTool(
+  tool: RegisteredTool,
+  name: string,
+  input: unknown,
+  context: ToolContext,
+): Promise<void> {
+  if (tool.preflight === undefined) {
+    return;
+  }
+  try {
+    await tool.preflight(input, context);
+  } catch (error) {
+    if (error instanceof ToolError) {
+      throw error;
+    }
+    throw new ToolError("execution_failed", `Tool ${name} failed`);
+  }
+}
+
 export class ToolRegistry {
   readonly #tools = new Map<string, RegisteredTool>();
+  readonly #checkpoints: CheckpointStore | undefined;
+  readonly #securityProfile: ToolSecurityProfile;
 
   constructor(
     tools: readonly Tool<never>[] = [],
-    private readonly options: { checkpoints?: CheckpointStore } = {},
+    options: {
+      checkpoints?: CheckpointStore;
+      securityProfile?: ToolSecurityProfile;
+    } = {},
   ) {
+    this.#checkpoints = options.checkpoints;
+    this.#securityProfile = options.securityProfile ?? "local_guarded";
     for (const tool of tools) {
       this.register(tool);
     }
@@ -53,6 +105,9 @@ export class ToolRegistry {
   }
 
   definitions(executionMode: ExecutionMode): ToolDefinition[] {
+    if (this.#securityProfile === "tools_disabled") {
+      return [];
+    }
     return [...this.#tools.values()]
       .filter((tool) => executionMode === "act" || !tool.mutating)
       .map((tool) => tool.definition);
@@ -64,6 +119,12 @@ export class ToolRegistry {
     permissions: PermissionEngine,
     approvals: ApprovalHandler,
   ): Promise<ToolResult> {
+    if (this.#securityProfile === "tools_disabled") {
+      throw new ToolError(
+        "tool_unavailable",
+        "Model tools are disabled for this runtime",
+      );
+    }
     const tool = this.#tools.get(call.name);
     if (tool === undefined) {
       throw new ToolError("unknown_tool", `Unknown tool: ${call.name}`);
@@ -90,11 +151,29 @@ export class ToolRegistry {
       throw new ToolError(
         "invalid_input",
         `Invalid input for tool ${call.name}`,
-        { cause: error },
       );
     }
 
-    for (const intent of tool.permissions(input, context)) {
+    let intents: ReturnType<RegisteredTool["permissions"]>;
+    try {
+      intents = tool.permissions(input, context);
+    } catch (error) {
+      if (error instanceof ToolError) {
+        throw error;
+      }
+      throw new ToolError("execution_failed", `Tool ${call.name} failed`);
+    }
+
+    for (const intent of intents) {
+      if (permissions.evaluate(intent) === "deny") {
+        throw new ToolError(
+          "permission_denied",
+          `Permission denied for ${intent.category}: ${intent.resource}`,
+        );
+      }
+    }
+
+    for (const intent of intents) {
       const decision = permissions.evaluate(intent);
       if (decision === "deny") {
         throw new ToolError(
@@ -120,23 +199,25 @@ export class ToolRegistry {
       (context.approvedIntents ??= new Set()).add(permissionIntentKey(intent));
     }
 
-    if (!tool.mutating || this.options.checkpoints === undefined) {
-      return tool.execute(input, context);
+    await preflightTool(tool, call.name, input, context);
+
+    if (!tool.mutating || this.#checkpoints === undefined) {
+      return executeTool(tool, call.name, input, context);
     }
 
-    const checkpoint = await this.options.checkpoints.captureBefore(
+    const checkpoint = await this.#checkpoints.captureBefore(
       context.sessionId,
       call.id,
       context.cwd,
     );
     let result: ToolResult;
     try {
-      result = await tool.execute(input, context);
+      result = await executeTool(tool, call.name, input, context);
     } catch (error) {
-      await this.options.checkpoints.captureAfter(checkpoint, context.cwd);
+      await this.#checkpoints.captureAfter(checkpoint, context.cwd);
       throw error;
     }
-    const completed = await this.options.checkpoints.captureAfter(
+    const completed = await this.#checkpoints.captureAfter(
       checkpoint,
       context.cwd,
     );

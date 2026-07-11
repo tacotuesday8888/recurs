@@ -1,18 +1,23 @@
 import { execFile } from "node:child_process";
 import {
+  access,
+  chmod,
   mkdtemp,
   readFile,
   rm,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as toolExports from "../src/index.js";
+
 import {
   PermissionEngine,
+  ToolError,
   ToolRegistry,
   classifyCommand,
   createGitDiffTool,
@@ -49,6 +54,34 @@ function context(signal = new AbortController().signal): ToolContext {
     executionMode: "act",
     readRevisions: new Map(),
   };
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ESRCH"
+    ) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function forceKillForTest(pid: number | undefined): void {
+  if (pid === undefined || !processExists(pid)) {
+    return;
+  }
+  process.kill(pid, "SIGKILL");
 }
 
 async function invoke(
@@ -101,6 +134,138 @@ describe("command classification", () => {
 });
 
 describe("run_command", () => {
+  it("does not expose child stderr or a cause when a process exits nonzero", async () => {
+    const canary = "RECURS_CHILD_STDERR_CANARY";
+    let thrown: unknown;
+
+    try {
+      await toolExports.runProcess(
+        "/bin/sh",
+        ["-c", `printf '%s' '${canary}' >&2; exit 23`],
+        { cwd },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ToolError);
+    expect(thrown).toMatchObject({
+      code: "process_failed",
+      message: "/bin/sh exited with 23",
+    });
+    expect((thrown as Error & { cause?: unknown }).cause).toBeUndefined();
+    expect(String((thrown as Error).message)).not.toContain(canary);
+  });
+
+  it("does not pass parent secrets or the real home to descendants", async () => {
+    const parentEnvironment = {
+      GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+      HTTP_PROXY: process.env.HTTP_PROXY,
+      PATH: process.env.PATH,
+      RECURS_PROCESS_CANARY: process.env.RECURS_PROCESS_CANARY,
+      SHELL: process.env.SHELL,
+      TEMP: process.env.TEMP,
+      TMP: process.env.TMP,
+      TMPDIR: process.env.TMPDIR,
+    };
+    const parentTemp = path.join(cwd, "parent-temp");
+    process.env.GITHUB_TOKEN = "github-secret";
+    process.env.HTTP_PROXY = "http://proxy-secret.invalid";
+    process.env.RECURS_PROCESS_CANARY = "parent-secret";
+    process.env.SHELL = "/definitely/not/the/child/shell";
+    process.env.TMPDIR = parentTemp;
+    process.env.TMP = parentTemp;
+    process.env.TEMP = parentTemp;
+    process.env.PATH = [
+      "relative-bin",
+      path.join(cwd, "workspace-bin"),
+      path.dirname(process.execPath),
+      "",
+    ].join(path.delimiter);
+
+    try {
+      const script = [
+        "process.stdout.write(JSON.stringify({",
+        "canary: process.env.RECURS_PROCESS_CANARY ?? null,",
+        "github: process.env.GITHUB_TOKEN ?? null,",
+        "proxy: process.env.HTTP_PROXY ?? null,",
+        "shell: process.env.SHELL ?? null,",
+        "home: process.env.HOME,",
+        "config: process.env.XDG_CONFIG_HOME,",
+        "cache: process.env.XDG_CACHE_HOME,",
+        "tmp: process.env.TMPDIR,",
+        "path: process.env.PATH,",
+        "}));",
+      ].join("");
+      const result = await invoke(createRunCommandTool(), {
+        command: `${shellQuote(process.execPath)} -e ${shellQuote(script)}`,
+      });
+      const child = JSON.parse(result.output) as Record<string, string | null>;
+
+      expect(child).toMatchObject({
+        canary: null,
+        github: null,
+        proxy: null,
+        shell: null,
+      });
+      expect(child.home).not.toBe(homedir());
+      expect(child.home).not.toContain(cwd);
+      expect(child.tmp).not.toBe(parentTemp);
+      expect(child.tmp).not.toContain(cwd);
+      for (const key of ["home", "config", "cache", "tmp"] as const) {
+        expect(path.isAbsolute(child[key] ?? "")).toBe(true);
+      }
+      const childPath = (child.path ?? "").split(path.delimiter);
+      expect(childPath).toContain(path.dirname(process.execPath));
+      expect(childPath.every((entry) => path.isAbsolute(entry))).toBe(true);
+      expect(childPath.some((entry) => entry.startsWith(cwd))).toBe(false);
+
+      const privateRoot = path.dirname(child.home ?? "");
+      await expect(access(privateRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      for (const [key, value] of Object.entries(parentEnvironment)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+  });
+
+  it("does not search the workspace when every parent PATH entry is removed", async () => {
+    const executable = path.join(cwd, "recurs-path-canary");
+    await writeFile(executable, "#!/bin/sh\nprintf unsafe", "utf8");
+    await chmod(executable, 0o700);
+    const parentPath = process.env.PATH;
+    process.env.PATH = [cwd, "relative-bin", ""].join(path.delimiter);
+
+    try {
+      await expect(
+        toolExports.runProcess("recurs-path-canary", [], { cwd }),
+      ).rejects.toMatchObject({ code: "process_failed" });
+    } finally {
+      if (parentPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = parentPath;
+      }
+    }
+  });
+
+  it.each([
+    "fixed helper",
+    "arbitrary command",
+  ] as const)("rejects %s subprocesses on Windows", () => {
+    expect(toolExports.assertSupportedProcessPlatform).toBeTypeOf("function");
+    if (typeof toolExports.assertSupportedProcessPlatform !== "function") {
+      return;
+    }
+    expect(() => toolExports.assertSupportedProcessPlatform("win32")).toThrow(
+      expect.objectContaining({ code: "unsupported_platform" }),
+    );
+  });
+
   it("runs normal local work only after approval in Approved for Me", async () => {
     const request = vi.fn(async () => "allow_once" as const);
     const result = await invoke(
@@ -142,6 +307,118 @@ describe("run_command", () => {
     await expect(
       invoke(createRunCommandTool(), { command: "sleep 5", timeoutMs: 25 }),
     ).rejects.toMatchObject({ code: "command_timeout" });
+  });
+
+  it("eliminates same-group descendants before a cancelled run settles", async () => {
+    const pidFile = path.join(cwd, "cancelled-descendant.pid");
+    const controller = new AbortController();
+    let descendantPid: number | undefined;
+    const script = [
+      "(trap '' TERM; exec /bin/sleep 60) >/dev/null 2>&1 &",
+      `printf '%s\\n' "$!" > ${shellQuote(pidFile)};`,
+      "wait \"$!\"",
+    ].join(" ");
+    const running = toolExports.runProcess("/bin/sh", ["-c", script], {
+      cwd,
+      signal: controller.signal,
+    });
+
+    try {
+      await vi.waitFor(async () => {
+        const stored = await readFile(pidFile, "utf8");
+        expect(stored.trim()).toMatch(/^[1-9][0-9]*$/u);
+      });
+      descendantPid = Number.parseInt(await readFile(pidFile, "utf8"), 10);
+      expect(processExists(descendantPid)).toBe(true);
+
+      controller.abort();
+
+      await expect(running).rejects.toMatchObject({ code: "cancelled" });
+      expect(processExists(descendantPid)).toBe(false);
+    } finally {
+      controller.abort();
+      forceKillForTest(descendantPid);
+    }
+  });
+
+  it("eliminates same-group descendants before a successful run settles", async () => {
+    let descendantPid: number | undefined;
+    const script = [
+      "(trap '' TERM; exec /bin/sleep 60) >/dev/null 2>&1 &",
+      "printf '%s\\n' \"$!\"",
+    ].join(" ");
+
+    try {
+      const result = await toolExports.runProcess("/bin/sh", ["-c", script], {
+        cwd,
+      });
+      descendantPid = Number.parseInt(result.stdout, 10);
+      expect(descendantPid).toBeGreaterThan(0);
+      expect(processExists(descendantPid)).toBe(false);
+    } finally {
+      forceKillForTest(descendantPid);
+    }
+  });
+
+  it("bounds settlement when an escaped descendant retains the output pipes", async () => {
+    const stateFile = path.join(cwd, "escaped-descendant.json");
+    const escapedCode = "setInterval(() => {}, 1000);";
+    const parentCode = [
+      'const { spawn } = require("node:child_process");',
+      'const { writeFileSync } = require("node:fs");',
+      `const child = spawn(${JSON.stringify(process.execPath)}, ["-e", ${JSON.stringify(escapedCode)}], { detached: true, stdio: ["ignore", "inherit", "inherit"] });`,
+      `writeFileSync(${JSON.stringify(stateFile)}, JSON.stringify({ pid: child.pid, home: process.env.HOME }));`,
+      "setInterval(() => {}, 1000);",
+    ].join("\n");
+    let descendantPid: number | undefined;
+    let privateHome: string | undefined;
+    const running = toolExports.runProcess(
+      process.execPath,
+      ["-e", parentCode],
+      { cwd, timeoutMs: 500 },
+    );
+    const settled = running.then(
+      (value) => ({ status: "resolved" as const, value }),
+      (error: unknown) => ({ status: "rejected" as const, error }),
+    );
+
+    try {
+      await vi.waitFor(async () => {
+        const state = JSON.parse(await readFile(stateFile, "utf8")) as {
+          pid?: unknown;
+          home?: unknown;
+        };
+        expect(state.pid).toEqual(expect.any(Number));
+        expect(state.home).toEqual(expect.any(String));
+      });
+      const state = JSON.parse(await readFile(stateFile, "utf8")) as {
+        pid: number;
+        home: string;
+      };
+      descendantPid = state.pid;
+      privateHome = state.home;
+
+      const outcome = await Promise.race([
+        settled,
+        new Promise<{ status: "pending" }>((resolve) => {
+          const deadline = setTimeout(
+            () => resolve({ status: "pending" }),
+            2_000,
+          );
+          void settled.then(() => clearTimeout(deadline));
+        }),
+      ]);
+
+      expect(outcome).toMatchObject({
+        status: "rejected",
+        error: { code: "command_timeout" },
+      });
+      expect(processExists(descendantPid)).toBe(true);
+      await expect(access(privateHome)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      forceKillForTest(descendantPid);
+      await settled;
+    }
   });
 
   it("caps combined output at one MiB", async () => {

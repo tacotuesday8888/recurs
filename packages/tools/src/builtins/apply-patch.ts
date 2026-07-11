@@ -2,12 +2,14 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import {
+  assertNonCredentialPath,
   isExternalPathApproved,
   pathPermissionIntents,
   WorkspacePathPolicy,
   type PathPolicyOptions,
   type ResolvedWorkspacePath,
 } from "../path-policy.js";
+import { safeGitArguments } from "../git-safety.js";
 import { runProcess } from "../process.js";
 import { ToolError, type Tool, type ToolContext } from "../types.js";
 
@@ -50,6 +52,10 @@ function parseApplyPatchInput(value: unknown): ApplyPatchInput {
       file === null ||
       !("path" in file) ||
       typeof file.path !== "string" ||
+      file.path.length === 0 ||
+      file.path !== file.path.trim() ||
+      file.path.includes("\\") ||
+      file.path.includes("\0") ||
       !("expected_hash" in file) ||
       (file.expected_hash !== null &&
         (typeof file.expected_hash !== "string" ||
@@ -97,6 +103,17 @@ function decodePatchMarker(raw: string): string | null {
 function extractPatchFiles(patch: string): string[] {
   const paths = new Set<string>();
   for (const line of patch.split("\n")) {
+    if (
+      line.startsWith("rename from ") ||
+      line.startsWith("rename to ") ||
+      line.startsWith("copy from ") ||
+      line.startsWith("copy to ")
+    ) {
+      throw new ToolError(
+        "invalid_input",
+        "Rename and copy patches are unsupported",
+      );
+    }
     if (line.startsWith("--- ") || line.startsWith("+++ ")) {
       const decoded = decodePatchMarker(line.slice(4));
       if (decoded !== null) {
@@ -106,6 +123,23 @@ function extractPatchFiles(patch: string): string[] {
   }
   if (paths.size === 0) {
     throw new ToolError("invalid_input", "Patch does not declare any file paths");
+  }
+  return [...paths].sort((left, right) => left.localeCompare(right));
+}
+
+function parseNumstatPaths(output: string): string[] {
+  const paths = new Set<string>();
+  for (const record of output.split("\0")) {
+    if (record.length === 0) {
+      continue;
+    }
+    const firstTab = record.indexOf("\t");
+    const secondTab = firstTab < 0 ? -1 : record.indexOf("\t", firstTab + 1);
+    const file = secondTab < 0 ? "" : record.slice(secondTab + 1);
+    if (firstTab < 1 || secondTab <= firstTab + 1 || file.length === 0) {
+      throw new ToolError("invalid_input", "Patch paths could not be verified");
+    }
+    paths.add(file);
   }
   return [...paths].sort((left, right) => left.localeCompare(right));
 }
@@ -156,11 +190,16 @@ async function assertFresh(
   }
 }
 
-function assertDeclaredFiles(input: ApplyPatchInput): void {
-  const actual = extractPatchFiles(input.patch);
-  const declared = input.files
-    .map((file) => file.path.replaceAll("\\", "/"))
+function declaredFiles(input: ApplyPatchInput): string[] {
+  return input.files
+    .map((file) => file.path)
     .sort((left, right) => left.localeCompare(right));
+}
+
+function assertSameDeclaredFiles(
+  actual: readonly string[],
+  declared: readonly string[],
+): void {
   if (
     actual.length !== declared.length ||
     actual.some((file, index) => file !== declared[index])
@@ -170,6 +209,32 @@ function assertDeclaredFiles(input: ApplyPatchInput): void {
       `Patch paths (${actual.join(", ")}) do not match declared files (${declared.join(", ")})`,
     );
   }
+}
+
+function assertDeclaredFiles(input: ApplyPatchInput): void {
+  assertSameDeclaredFiles(
+    extractPatchFiles(input.patch),
+    declaredFiles(input),
+  );
+}
+
+async function resolveValidatedRevisions(
+  input: ApplyPatchInput,
+  context: ToolContext,
+  options: PathPolicyOptions,
+): Promise<ResolvedRevision[]> {
+  assertDeclaredFiles(input);
+  const policy = new WorkspacePathPolicy(context.cwd, options);
+  const revisions: ResolvedRevision[] = [];
+  for (const declared of input.files) {
+    const resolved = await policy.resolveWritable(
+      declared.path,
+      isExternalPathApproved(context, declared.path),
+    );
+    assertNonCredentialPath(resolved.relative);
+    revisions.push({ declared, resolved });
+  }
+  return revisions;
 }
 
 export function createApplyPatchTool(
@@ -200,6 +265,7 @@ export function createApplyPatchTool(
         additionalProperties: false,
       },
     },
+    executionClass: "fixed_process",
     mutating: true,
     parse: parseApplyPatchInput,
     permissions(input) {
@@ -211,28 +277,63 @@ export function createApplyPatchTool(
         ),
       );
     },
+    async preflight(input, context) {
+      await resolveValidatedRevisions(input, context, options);
+    },
     async execute(input, context) {
-      assertDeclaredFiles(input);
-      const policy = new WorkspacePathPolicy(context.cwd, options);
-      const revisions: ResolvedRevision[] = [];
-      for (const declared of input.files) {
-        revisions.push({
-          declared,
-          resolved: await policy.resolveWritable(
-            declared.path,
-            isExternalPathApproved(context, declared.path),
-          ),
-        });
-      }
+      const revisions = await resolveValidatedRevisions(
+        input,
+        context,
+        options,
+      );
       await assertFresh(revisions, context);
+      const safeGitPrefix = await safeGitArguments(
+        context.cwd,
+        [],
+        context.signal,
+      );
+      let numstat: string;
       try {
-        await runProcess("git", ["apply", "--check", "-"], {
+        numstat = (await runProcess("git", [
+          ...safeGitPrefix,
+          "apply",
+          "--numstat",
+          "-z",
+          "-",
+        ], {
+          cwd: context.cwd,
+          stdin: input.patch,
+          signal: context.signal,
+          maxOutputBytes: MAX_PATCH_BYTES,
+        })).stdout;
+      } catch (error) {
+        if (error instanceof ToolError && error.code === "cancelled") {
+          throw error;
+        }
+        throw new ToolError("invalid_input", "Patch could not be parsed");
+      }
+      assertSameDeclaredFiles(
+        parseNumstatPaths(numstat),
+        declaredFiles(input),
+      );
+      try {
+        await runProcess("git", [
+          ...safeGitPrefix,
+          "apply",
+          "--check",
+          "-",
+        ], {
           cwd: context.cwd,
           stdin: input.patch,
           signal: context.signal,
         });
         await assertFresh(revisions, context);
-        await runProcess("git", ["apply", "--whitespace=nowarn", "-"], {
+        await runProcess("git", [
+          ...safeGitPrefix,
+          "apply",
+          "--whitespace=nowarn",
+          "-",
+        ], {
           cwd: context.cwd,
           stdin: input.patch,
           signal: context.signal,
@@ -250,9 +351,7 @@ export function createApplyPatchTool(
           cause: error,
         });
       }
-      const changedFiles = input.files.map((file) =>
-        file.path.replaceAll("\\", "/"),
-      );
+      const changedFiles = input.files.map((file) => file.path);
       return {
         output: `Applied patch to ${changedFiles.length} file${changedFiles.length === 1 ? "" : "s"}\n`,
         metadata: { changedFiles },

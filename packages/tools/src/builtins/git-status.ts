@@ -1,3 +1,5 @@
+import { credentialGitPathspecs } from "../path-policy.js";
+import { safeGitArguments } from "../git-safety.js";
 import { runProcess } from "../process.js";
 import { ToolError, type Tool } from "../types.js";
 
@@ -8,6 +10,7 @@ export function createGitStatusTool(): Tool<Record<string, never>> {
       description: "Show concise Git workspace status",
       inputSchema: { type: "object", additionalProperties: false },
     },
+    executionClass: "fixed_process",
     mutating: false,
     parse(value) {
       if (
@@ -23,16 +26,23 @@ export function createGitStatusTool(): Tool<Record<string, never>> {
       return [{ category: "read", resource: ".git/status", risk: "normal" }];
     },
     async execute(_input, context) {
-      const result = await runProcess(
-        "git",
+      const args = await safeGitArguments(
+        context.cwd,
         [
-          "-c",
-          "core.fsmonitor=false",
           "status",
           "--short",
           "--branch",
           "--untracked-files=all",
+          "--ignore-submodules=dirty",
+          "--",
+          ".",
+          ...credentialGitPathspecs(),
         ],
+        context.signal,
+      );
+      const result = await runProcess(
+        "git",
+        args,
         {
           cwd: context.cwd,
           signal: context.signal,

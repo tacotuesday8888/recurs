@@ -7,8 +7,10 @@ import {
   type SessionRecord,
   type SessionState,
 } from "@recurs/core";
+import { ProviderError } from "@recurs/providers";
 
 import {
+  CommandRegistry,
   createCommandRegistry,
   parseCommand,
   type CommandContext,
@@ -61,6 +63,58 @@ describe("parseCommand", () => {
 });
 
 describe("foundation slash commands", () => {
+  it("sanitizes unknown slash-command exceptions with a diagnostic id", async () => {
+    const registry = new CommandRegistry([
+      {
+        name: "explode",
+        description: "Fail unsafely",
+        usage: "/explode",
+        async execute() {
+          throw new Error("RECURS_SLASH_COMMAND_CANARY", {
+            cause: new Error("RECURS_SLASH_COMMAND_CAUSE_CANARY"),
+          });
+        },
+      },
+    ]);
+
+    const result = await registry.execute("/explode", commandContext());
+
+    expect(result).toMatchObject({
+      type: "message",
+      level: "error",
+      text: expect.stringMatching(
+        /^Unexpected failure \(diagnostic [0-9a-f-]{36}\)$/u,
+      ),
+    });
+    expect(JSON.stringify(result)).not.toContain("RECURS_SLASH_COMMAND_CANARY");
+    expect(JSON.stringify(result)).not.toContain(
+      "RECURS_SLASH_COMMAND_CAUSE_CANARY",
+    );
+  });
+
+  it("renders typed provider failures canonically in slash commands", async () => {
+    const registry = new CommandRegistry([
+      {
+        name: "compact",
+        description: "Compact",
+        usage: "/compact",
+        async execute() {
+          throw new ProviderError(
+            "authentication",
+            "RECURS_COMPACT_COMMAND_CANARY",
+            false,
+          );
+        },
+      },
+    ]);
+
+    expect(await registry.execute("/compact", commandContext())).toMatchObject({
+      type: "message",
+      level: "error",
+      text: "Provider authentication failed",
+    });
+  });
+
   it("creates, shows, pauses, and resumes a durable goal", async () => {
     const registry = createCommandRegistry();
     const context = commandContext();
@@ -158,8 +212,12 @@ describe("foundation slash commands", () => {
     await registry.execute("/permissions full_access", accepted);
     expect(accepted.session.permissionMode).toBe("full_access");
     expect(acceptedConfirm).toHaveBeenCalledOnce();
-    expect(acceptedConfirm.mock.calls[0]?.[0]).toContain("credentials");
-    expect(acceptedConfirm.mock.calls[0]?.[0]).toContain("host environment");
+    expect(acceptedConfirm.mock.calls[0]?.[0]).toContain(
+      "Direct credential requests remain blocked",
+    );
+    expect(acceptedConfirm.mock.calls[0]?.[0]).toContain(
+      "shell commands are not isolated",
+    );
   });
 
   it("reports status, cancellation, help, aliases, and unknown commands", async () => {

@@ -3,14 +3,17 @@ import {
   mkdtemp,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  type Checkpoint,
+  type CheckpointStore,
   PermissionEngine,
   ToolRegistry,
   createApplyPatchTool,
@@ -136,5 +139,92 @@ describe("apply_patch", () => {
       }),
     ).rejects.toMatchObject({ code: "patch_files_mismatch" });
     expect(read.metadata?.sha256).toBeDefined();
+  });
+
+  it("rejects a POSIX backslash declaration instead of checking a decoy file", async () => {
+    if (path.sep !== "/") {
+      return;
+    }
+    const decoy = String.raw`src\a.ts`;
+    await writeFile(path.join(cwd, decoy), "decoy revision\n", "utf8");
+    const read = await invoke(createReadFileTool(), { path: decoy });
+
+    await expect(
+      invoke(createApplyPatchTool(), {
+        patch: updatePatch,
+        files: [{ path: decoy, expected_hash: read.metadata?.sha256 }],
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+
+    expect(await readFile(path.join(cwd, decoy), "utf8")).toBe(
+      "decoy revision\n",
+    );
+    expect(await readFile(path.join(cwd, "src", "a.ts"), "utf8")).toBe(
+      "export const value = 1;\n",
+    );
+  });
+
+  it.each([" src/a.ts", "src/a.ts "])(
+    "rejects transformed patch declaration %j",
+    async (declaredPath) => {
+      await expect(
+        invoke(createApplyPatchTool(), {
+          patch: updatePatch,
+          files: [{ path: declaredPath, expected_hash: null }],
+        }),
+      ).rejects.toMatchObject({ code: "invalid_input" });
+      expect(await readFile(path.join(cwd, "src", "a.ts"), "utf8")).toBe(
+        "export const value = 1;\n",
+      );
+    },
+  );
+
+  it("denies a canonical credential alias before checkpoint capture", async () => {
+    await writeFile(path.join(cwd, ".env"), "TOKEN=before\n", "utf8");
+    await symlink(".env", path.join(cwd, "settings.txt"));
+    const checkpoint: Checkpoint = {
+      id: "checkpoint-1",
+      sessionId: "s1",
+      toolCallId: "patch",
+      before: {},
+    };
+    const checkpoints = {
+      captureBefore: vi.fn(async () => checkpoint),
+      captureAfter: vi.fn(async () => ({ ...checkpoint, after: {} })),
+      undoLatest: vi.fn(),
+    } as unknown as CheckpointStore;
+    const registry = new ToolRegistry([createApplyPatchTool()], {
+      checkpoints,
+    });
+    const patch = [
+      "--- a/settings.txt",
+      "+++ b/settings.txt",
+      "@@ -1 +1 @@",
+      "-TOKEN=before",
+      "+TOKEN=after",
+      "",
+    ].join("\n");
+
+    await expect(
+      registry.invoke(
+        {
+          id: "patch",
+          name: "apply_patch",
+          arguments: {
+            patch,
+            files: [{ path: "settings.txt", expected_hash: "0".repeat(64) }],
+          },
+        },
+        toolContext,
+        new PermissionEngine("full_access"),
+        deny,
+      ),
+    ).rejects.toMatchObject({ code: "permission_denied" });
+
+    expect(checkpoints.captureBefore).not.toHaveBeenCalled();
+    expect(checkpoints.captureAfter).not.toHaveBeenCalled();
+    expect(await readFile(path.join(cwd, ".env"), "utf8")).toBe(
+      "TOKEN=before\n",
+    );
   });
 });

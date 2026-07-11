@@ -16,7 +16,17 @@ const intents = {
   },
   sensitive: {
     category: "sensitive",
+    resource: "private-notes.txt",
+    risk: "elevated",
+  },
+  credential: {
+    category: "credential",
     resource: ".env",
+    risk: "elevated",
+  },
+  external: {
+    category: "external_path",
+    resource: "../outside.txt",
     risk: "elevated",
   },
   destructive: {
@@ -52,8 +62,20 @@ describe("PermissionEngine", () => {
 
     expect(engine.evaluate(intents.destructive)).toBe("allow");
     expect(engine.evaluate(intents.network)).toBe("allow");
+    expect(engine.evaluate(intents.sensitive)).toBe("ask");
+    expect(engine.evaluate(intents.external)).toBe("ask");
     expect(engine.integrityGuardsEnabled).toBe(true);
   });
+
+  it.each(["ask_always", "approved_for_me", "full_access"] as const)(
+    "permanently denies credential intents in %s",
+    (mode) => {
+      const engine = new PermissionEngine(mode);
+      engine.grantForSession(intents.credential);
+
+      expect(engine.evaluate(intents.credential)).toBe("deny");
+    },
+  );
 
   it("limits reusable grants to an exact session resource", () => {
     const engine = new PermissionEngine("ask_always");

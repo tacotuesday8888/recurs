@@ -3,6 +3,7 @@ import { createInterface } from "node:readline/promises";
 import type { Readable, Writable } from "node:stream";
 
 import type { CommandResult } from "./commands/types.js";
+import { safeCliErrorMessage } from "./error-rendering.js";
 import { renderCommandResult, writeOutput } from "./render.js";
 import { isCancellation, type RecursRuntime } from "./runtime.js";
 
@@ -73,7 +74,7 @@ export async function startRepl(
         }
         await writeOutput(
           output,
-          `Error: ${error instanceof Error ? error.message : "Unknown failure"}\n`,
+          `Error: ${safeCliErrorMessage(error)}\n`,
         );
       }
     }

@@ -23,12 +23,17 @@ export class PermissionEngine {
   constructor(public mode: PermissionMode) {}
 
   evaluate(intent: PermissionIntent): PermissionDecision {
+    if (intent.category === "credential") {
+      return "deny";
+    }
     if (this.#sessionGrants.has(permissionIntentKey(intent))) {
       return "allow";
     }
 
     if (this.mode === "full_access") {
-      return "allow";
+      const needsExplicitPathApproval =
+        intent.category === "external_path" || intent.category === "sensitive";
+      return needsExplicitPathApproval ? "ask" : "allow";
     }
 
     if (this.mode === "approved_for_me") {
@@ -41,6 +46,9 @@ export class PermissionEngine {
   }
 
   grantForSession(intent: PermissionIntent): void {
+    if (intent.category === "credential") {
+      return;
+    }
     this.#sessionGrants.add(permissionIntentKey(intent));
   }
 

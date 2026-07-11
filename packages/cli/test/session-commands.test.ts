@@ -250,10 +250,14 @@ describe("repository commands", () => {
     checkpoints.undo.mockRejectedValueOnce(
       new ToolError("checkpoint_conflict", "user changed a.txt"),
     );
-    expect(await registry.execute("/undo", commandContext)).toMatchObject({
+    const conflict = await registry.execute("/undo", commandContext);
+    expect(conflict).toMatchObject({
       level: "error",
-      text: expect.stringContaining("user changed a.txt"),
+      text: expect.stringMatching(
+        /^Unexpected failure \(diagnostic [0-9a-f-]{36}\)$/u,
+      ),
     });
+    expect(JSON.stringify(conflict)).not.toContain("user changed a.txt");
   });
 
   it("blocks workspace mutations while Plan mode is active", async () => {

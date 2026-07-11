@@ -14,8 +14,17 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
+import { isCredentialPath } from "./path-policy.js";
+import { safeGitArguments } from "./git-safety.js";
 import { runProcess } from "./process.js";
 import { ToolError } from "./types.js";
+
+const CHECKPOINT_FORMAT_FILE = ".format.json";
+const CHECKPOINT_FORMAT = {
+  version: 2,
+  credentialPathsExcluded: true,
+} as const;
+const FORMAT_INITIALIZATION_ATTEMPTS = 20;
 
 export interface WorkspaceManifestEntry {
   sha256: string;
@@ -71,6 +80,39 @@ function isMissing(error: unknown): boolean {
   );
 }
 
+function isAlreadyExists(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "EEXIST"
+  );
+}
+
+function migrationRequired(): ToolError {
+  return new ToolError(
+    "checkpoint_migration_required",
+    "Legacy checkpoint storage must be reset before it can be used safely",
+  );
+}
+
+function validCheckpointFormat(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 2 &&
+    "version" in value &&
+    value.version === CHECKPOINT_FORMAT.version &&
+    "credentialPathsExcluded" in value &&
+    value.credentialPathsExcluded === CHECKPOINT_FORMAT.credentialPathsExcluded
+  );
+}
+
+async function initializationDelay(): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, 5));
+}
+
 function isWithin(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
   return (
@@ -99,6 +141,23 @@ function normalizedPath(input: string): string {
   return input.split(path.sep).join("/");
 }
 
+function isCredentialAbsolute(root: string, candidate: string): boolean {
+  return isCredentialPath(normalizedPath(path.relative(root, candidate)));
+}
+
+type UnsafeCheckpointPathCode =
+  | "checkpoint_conflict"
+  | "checkpoint_corrupt";
+
+function rejectOrExcludeCredential(code: UnsafeCheckpointPathCode): void {
+  if (code === "checkpoint_conflict") {
+    throw new ToolError(
+      code,
+      "Undo refused because a checkpoint path resolves to credential storage",
+    );
+  }
+}
+
 async function workspaceAbsolute(cwd: string, relative: string): Promise<string> {
   const root = await realpath(cwd);
   const absolute = path.resolve(root, relative);
@@ -111,23 +170,24 @@ async function workspaceAbsolute(cwd: string, relative: string): Promise<string>
   return absolute;
 }
 
-async function assertSafeParent(
-  cwd: string,
+async function canonicalWorkspaceEntry(
+  root: string,
   absolute: string,
-  code: "checkpoint_conflict" | "checkpoint_corrupt",
-): Promise<void> {
-  const root = await realpath(cwd);
+  code: UnsafeCheckpointPathCode,
+): Promise<string> {
   let ancestor = path.dirname(absolute);
+  const suffix = [path.basename(absolute)];
   for (;;) {
     try {
-      const resolved = await realpath(ancestor);
+      const resolvedAncestor = await realpath(ancestor);
+      const resolved = path.resolve(resolvedAncestor, ...suffix);
       if (!isWithin(root, resolved)) {
         throw new ToolError(
           code,
           `Checkpoint path has an external parent: ${absolute}`,
         );
       }
-      return;
+      return resolved;
     } catch (error) {
       if (!isMissing(error)) {
         throw error;
@@ -136,8 +196,21 @@ async function assertSafeParent(
       if (parent === ancestor) {
         throw new ToolError(code, `Cannot resolve checkpoint path: ${absolute}`);
       }
+      suffix.unshift(path.basename(ancestor));
       ancestor = parent;
     }
+  }
+}
+
+async function assertSafeCheckpointTarget(
+  cwd: string,
+  absolute: string,
+  code: UnsafeCheckpointPathCode,
+): Promise<void> {
+  const root = await realpath(cwd);
+  const canonical = await canonicalWorkspaceEntry(root, absolute, code);
+  if (isCredentialAbsolute(root, canonical)) {
+    rejectOrExcludeCredential(code);
   }
 }
 
@@ -162,11 +235,19 @@ function hashBlob(bytes: Buffer): string {
 async function readWorkspaceContent(
   cwd: string,
   relative: string,
-  unsafePathCode: "checkpoint_conflict" | "checkpoint_corrupt" = "checkpoint_corrupt",
+  unsafePathCode: UnsafeCheckpointPathCode = "checkpoint_corrupt",
 ): Promise<WorkspaceContent | null> {
   const root = await realpath(cwd);
   const absolute = await workspaceAbsolute(root, relative);
-  await assertSafeParent(root, absolute, unsafePathCode);
+  const canonicalEntry = await canonicalWorkspaceEntry(
+    root,
+    absolute,
+    unsafePathCode,
+  );
+  if (isCredentialAbsolute(root, canonicalEntry)) {
+    rejectOrExcludeCredential(unsafePathCode);
+    return null;
+  }
   let stats;
   try {
     stats = await lstat(absolute);
@@ -185,9 +266,13 @@ async function readWorkspaceContent(
     const resolved = await realpath(absolute);
     if (!isWithin(root, resolved)) {
       throw new ToolError(
-        "checkpoint_corrupt",
+        unsafePathCode,
         `Checkpoint file resolves outside the workspace: ${relative}`,
       );
+    }
+    if (isCredentialAbsolute(root, resolved)) {
+      rejectOrExcludeCredential(unsafePathCode);
+      return null;
     }
     kind = "file";
     bytes = await readFile(resolved);
@@ -285,8 +370,91 @@ function parseStoredCheckpoint(value: unknown): StoredCheckpoint {
 }
 
 export class FileCheckpointStore extends CheckpointStore {
+  #initialization: Promise<void> | undefined;
+
   constructor(private readonly dataDirectory: string) {
     super();
+  }
+
+  initialize(): Promise<void> {
+    this.#initialization ??= this.#initialize();
+    return this.#initialization;
+  }
+
+  async #initialize(): Promise<void> {
+    await mkdir(this.dataDirectory, { recursive: true, mode: 0o700 });
+    const directoryStats = await lstat(this.dataDirectory);
+    if (!directoryStats.isDirectory() || directoryStats.isSymbolicLink()) {
+      throw migrationRequired();
+    }
+
+    const marker = path.join(this.dataDirectory, CHECKPOINT_FORMAT_FILE);
+    for (
+      let attempt = 0;
+      attempt < FORMAT_INITIALIZATION_ATTEMPTS;
+      attempt += 1
+    ) {
+      try {
+        const markerStats = await lstat(marker);
+        if (
+          !markerStats.isFile() ||
+          markerStats.isSymbolicLink() ||
+          (markerStats.mode & 0o077) !== 0
+        ) {
+          throw migrationRequired();
+        }
+        try {
+          const value: unknown = JSON.parse(await readFile(marker, "utf8"));
+          if (validCheckpointFormat(value)) {
+            return;
+          }
+        } catch (error) {
+          if (error instanceof ToolError) {
+            throw error;
+          }
+        }
+        if (attempt + 1 < FORMAT_INITIALIZATION_ATTEMPTS) {
+          await initializationDelay();
+          continue;
+        }
+        throw migrationRequired();
+      } catch (error) {
+        if (!isMissing(error)) {
+          throw error;
+        }
+      }
+
+      const entries = await readdir(this.dataDirectory);
+      if (entries.length > 0) {
+        if (
+          entries.length === 1 &&
+          entries[0] === CHECKPOINT_FORMAT_FILE &&
+          attempt + 1 < FORMAT_INITIALIZATION_ATTEMPTS
+        ) {
+          await initializationDelay();
+          continue;
+        }
+        throw migrationRequired();
+      }
+
+      let handle;
+      try {
+        handle = await open(marker, "wx", 0o600);
+        await handle.writeFile(`${JSON.stringify(CHECKPOINT_FORMAT)}\n`, "utf8");
+        await handle.sync();
+        return;
+      } catch (error) {
+        if (!isAlreadyExists(error)) {
+          throw error;
+        }
+        if (attempt + 1 < FORMAT_INITIALIZATION_ATTEMPTS) {
+          await initializationDelay();
+        }
+      } finally {
+        await handle?.close();
+      }
+    }
+    throw migrationRequired();
   }
 
   #sessionDirectory(sessionId: string): string {
@@ -356,12 +524,22 @@ export class FileCheckpointStore extends CheckpointStore {
   }
 
   async #captureManifest(cwd: string): Promise<WorkspaceManifest> {
+    const args = await safeGitArguments(cwd, [
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "-z",
+    ]);
     const listed = await runProcess(
       "git",
-      ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+      args,
       { cwd, maxOutputBytes: 16 * 1024 * 1024 },
     );
-    const files = listed.stdout.split("\0").filter((file) => file.length > 0);
+    const files = listed.stdout
+      .split("\0")
+      .filter((file) => file.length > 0)
+      .filter((file) => !isCredentialPath(file));
     const manifest = Object.create(null) as WorkspaceManifest;
     for (const file of files) {
       const content = await readWorkspaceContent(cwd, file);
@@ -409,6 +587,7 @@ export class FileCheckpointStore extends CheckpointStore {
     cwd: string,
   ): Promise<Checkpoint> {
     await this.#assertStorageLocation(cwd);
+    await this.initialize();
     const stored: StoredCheckpoint = {
       id: randomUUID(),
       sessionId,
@@ -425,6 +604,7 @@ export class FileCheckpointStore extends CheckpointStore {
     cwd: string,
   ): Promise<Checkpoint> {
     await this.#assertStorageLocation(cwd);
+    await this.initialize();
     const stored = await this.#readCheckpoint(
       this.#checkpointFile(checkpoint.sessionId, checkpoint.id),
     );
@@ -487,6 +667,7 @@ export class FileCheckpointStore extends CheckpointStore {
     cwd: string,
   ): Promise<{ restored: string[]; deleted: string[] }> {
     await this.#assertStorageLocation(cwd);
+    await this.initialize();
     const checkpoint = await this.#latest(sessionId);
     const after = checkpoint.after;
     if (after === undefined) {
@@ -533,14 +714,14 @@ export class FileCheckpointStore extends CheckpointStore {
     }
     for (const file of paths) {
       const absolute = await workspaceAbsolute(cwd, file);
-      await assertSafeParent(cwd, absolute, "checkpoint_conflict");
+      await assertSafeCheckpointTarget(cwd, absolute, "checkpoint_conflict");
     }
 
     const restored: string[] = [];
     const deleted: string[] = [];
     for (const file of paths) {
       const absolute = await workspaceAbsolute(cwd, file);
-      await assertSafeParent(cwd, absolute, "checkpoint_conflict");
+      await assertSafeCheckpointTarget(cwd, absolute, "checkpoint_conflict");
       const before = checkpoint.before[file];
       if (before === undefined) {
         await rm(absolute, { force: true });

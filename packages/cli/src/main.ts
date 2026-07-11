@@ -24,6 +24,7 @@ import {
   renderCommandResult,
   writeOutput,
 } from "./render.js";
+import { safeCliErrorMessage } from "./error-rendering.js";
 import { startRepl } from "./repl.js";
 import {
   RuntimeError,
@@ -149,7 +150,7 @@ export async function runCli(
     } catch (error) {
       await writeOutput(
         dependencies.stderr,
-        `Error: ${error instanceof Error ? error.message : "Unknown failure"}\n`,
+        `Error: ${safeCliErrorMessage(error)}\n`,
       );
       return exitCodeFor(error);
     }
@@ -198,7 +199,7 @@ export async function runCli(
     }
     await writeOutput(
       dependencies.stderr,
-      `Error: ${error instanceof Error ? error.message : "Unknown failure"}\n`,
+      `Error: ${safeCliErrorMessage(error)}\n`,
     );
     return exitCodeFor(error);
   }

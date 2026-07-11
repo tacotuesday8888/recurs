@@ -8,7 +8,12 @@ import type {
   RunOutcome,
 } from "@recurs/contracts";
 
-import { AgentLoopError, type AgentLoop } from "./agent-loop.js";
+import {
+  AgentLoopError,
+  safeAgentLoopErrorMessage,
+  unexpectedFailureMessage,
+  type AgentLoop,
+} from "./agent-loop.js";
 
 function noEvents(): AsyncIterable<never> {
   return {
@@ -23,13 +28,14 @@ function noEvents(): AsyncIterable<never> {
 }
 
 function compatibilityFailure(error: unknown): IntegrationFailure {
+  const diagnosticId = randomUUID();
   if (error instanceof AgentLoopError) {
     return {
       domain: "provider",
       phase: error.code === "invalid_run_input" ? "preflight" : "started",
       code: error.code === "cancelled" ? "cancelled" : "runtime_failed",
-      safeMessage: error.message,
-      diagnosticId: randomUUID(),
+      safeMessage: safeAgentLoopErrorMessage(error),
+      diagnosticId,
       retryable: false,
     };
   }
@@ -37,8 +43,8 @@ function compatibilityFailure(error: unknown): IntegrationFailure {
     domain: "provider",
     phase: "started",
     code: "runtime_failed",
-    safeMessage: "The compatibility provider run failed",
-    diagnosticId: randomUUID(),
+    safeMessage: unexpectedFailureMessage(diagnosticId),
+    diagnosticId,
     retryable: false,
   };
 }

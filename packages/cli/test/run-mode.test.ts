@@ -1,8 +1,14 @@
 import { Readable, Writable } from "node:stream";
 
+import type { BackendResolver } from "@recurs/contracts";
 import type { EventSink } from "@recurs/core";
-import { AgentLoop, AgentLoopError, JsonlSessionStore } from "@recurs/core";
-import { ScriptedProvider } from "@recurs/providers";
+import {
+  AgentLoop,
+  AgentLoopError,
+  BackendRunCoordinator,
+  JsonlSessionStore,
+} from "@recurs/core";
+import { ProviderError, ScriptedProvider } from "@recurs/providers";
 import {
   ToolRegistry,
 } from "@recurs/tools";
@@ -15,6 +21,7 @@ import {
   RecursRuntime,
   RuntimeError,
   createCommandRegistry,
+  createStandaloneRuntime,
   runCli,
   type CliDependencies,
 } from "../src/index.js";
@@ -92,6 +99,146 @@ function dependencies(stdout: TextOutput, stderr: TextOutput): CliDependencies {
 }
 
 describe("runCli", () => {
+  it("preserves a canonical provider failure through standalone coordination", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-provider-final-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const canary = "RECURS_STANDALONE_PROVIDER_CANARY";
+    const provider = new ScriptedProvider([
+      new ProviderError("authentication", canary, false),
+    ]);
+
+    const exitCode = await runCli(["run", "inspect"], {
+      stdout,
+      stderr,
+      createRuntime: (events) => createStandaloneRuntime(events, {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        provider,
+      }),
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stderr.value).toBe("Error: Provider authentication failed\n");
+    expect(`${stdout.value}${stderr.value}`).not.toContain(canary);
+  });
+
+  it("renders an unknown started failure with the coordinator diagnostic id", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-started-final-"));
+    directories.push(root);
+    const sessions = new JsonlSessionStore(path.join(root, "sessions"));
+    const pin = testBackendPin();
+    await sessions.createPinnedSession({
+      id: "s1",
+      at: testAt,
+      cwd: root,
+      backend: pin,
+    });
+    const diagnosticId = "00000000-0000-4000-8000-000000000123";
+    const canary = "RECURS_UNKNOWN_STARTED_CANARY";
+    const resolver: BackendResolver = {
+      async resolve(input) {
+        return {
+          kind: "direct",
+          pin,
+          authorization: {
+            kind: "run",
+            id: "authorization",
+            operation: "run",
+            sessionId: input.sessionId,
+            operationId: input.operationId,
+            turnId: input.turnId,
+            connectionId: pin.connectionId,
+            modelId: pin.modelId,
+            backendFingerprint: "fingerprint",
+            connectionRevision: 1,
+            policyRevision: pin.policyRevisionAtCreation,
+            billingMode: pin.billingSelectionAtCreation.mode,
+            billingSelectionDigest: "billing",
+            contextDigest: "context",
+            maxRequests: 1,
+            expiresAt: testAt,
+          },
+          async createProvider() {
+            return new ScriptedProvider([]);
+          },
+        };
+      },
+    };
+    const coordinator = new BackendRunCoordinator({
+      sessions,
+      resolver,
+      direct: {
+        async run() {
+          throw new Error(canary, { cause: new Error(`${canary}_CAUSE`) });
+        },
+      },
+      createId: () => diagnosticId,
+    });
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+
+    const exitCode = await runCli(["run", "inspect"], {
+      stdout,
+      stderr,
+      async createRuntime() {
+        return new RecursRuntime(
+          {
+            commands: createCommandRegistry({ sessions }),
+            coordinator,
+            sessions,
+            confirm: async () => false,
+          },
+          await sessions.loadState("s1"),
+        );
+      },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toBe(
+      `Error: Unexpected failure (diagnostic ${diagnosticId})\n`,
+    );
+    expect(stderr.value.match(new RegExp(diagnosticId, "gu"))).toHaveLength(1);
+    expect(stderr.value).not.toContain(canary);
+  });
+
+  it.each(["text", "jsonl"] as const)(
+    "renders unknown one-shot %s failures with one diagnostic and no raw message",
+    async (format) => {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      const canary = `RECURS_ONE_SHOT_${format.toUpperCase()}_CANARY`;
+
+      const exitCode = await runCli(
+        ["run", "inspect", "--format", format],
+        {
+          stdout,
+          stderr,
+          async createRuntime() {
+            throw new Error(canary, {
+              cause: new Error("RECURS_ONE_SHOT_CAUSE_CANARY"),
+            });
+          },
+        },
+      );
+
+      expect(exitCode).toBe(1);
+      expect(stdout.value).toBe("");
+      expect(stderr.value).toMatch(
+        /^Error: Unexpected failure \(diagnostic [0-9a-f-]{36}\)\n$/u,
+      );
+      expect(`${stdout.value}${stderr.value}`).not.toContain(canary);
+      expect(`${stdout.value}${stderr.value}`).not.toContain(
+        "RECURS_ONE_SHOT_CAUSE_CANARY",
+      );
+      expect(stderr.value.match(/diagnostic/gu)).toHaveLength(1);
+    },
+  );
+
   it("emits normalized JSONL events in run mode", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
@@ -179,10 +326,31 @@ describe("runCli", () => {
   });
 
   it.each([
-    [new RuntimeError("provider_not_configured", "provider missing"), 2],
-    [new AgentLoopError("cancelled", "cancelled"), 130],
-    [new AgentLoopError("provider_failed", "provider failed"), 1],
-  ] as const)("maps terminal errors to documented exit codes", async (error, code) => {
+    [
+      new RuntimeError("provider_not_configured", "provider missing"),
+      2,
+      "provider missing",
+    ],
+    [
+      new AgentLoopError("cancelled", "RECURS_AGENT_CANCEL_CANARY"),
+      130,
+      "Agent run cancelled",
+    ],
+    [
+      new AgentLoopError("provider_failed", "RECURS_AGENT_PROVIDER_CANARY"),
+      1,
+      "Provider request failed",
+    ],
+    [
+      new AgentLoopError("stuck_loop", "RECURS_AGENT_TOOL_NAME_CANARY"),
+      1,
+      "Repeated tool interaction detected",
+    ],
+  ] as const)("maps terminal errors to documented exit codes", async (
+    error,
+    code,
+    safeMessage,
+  ) => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
 
@@ -199,7 +367,10 @@ describe("runCli", () => {
     });
 
     expect(exitCode).toBe(code);
-    expect(stderr.value).toContain(error.message);
+    expect(stderr.value).toContain(safeMessage);
+    if (error.message !== safeMessage) {
+      expect(stderr.value).not.toContain(error.message);
+    }
   });
 
   it("emits a machine-readable configuration error in JSONL mode", async () => {

@@ -1,8 +1,12 @@
 import { execFile } from "node:child_process";
 import {
+  access,
+  chmod,
   mkdir,
+  lstat,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   symlink,
   writeFile,
@@ -44,7 +48,111 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
 describe("FileCheckpointStore", () => {
+  it("never reads or stores a tracked credential file", async () => {
+    await writeFile(path.join(cwd, ".env"), "CHECKPOINT_CANARY=never-store\n");
+    await execFileAsync("git", ["add", "--force", ".env"], { cwd });
+
+    const checkpoint = await store.captureBefore("s1", "call-1", cwd);
+    const storedFiles = await allStoredFileText(dataDirectory);
+
+    expect(checkpoint.before).not.toHaveProperty(".env");
+    expect(storedFiles).not.toContain("CHECKPOINT_CANARY");
+  });
+
+  it("never follows a tracked parent alias into a credential directory", async () => {
+    const alias = path.join(cwd, "alias");
+    await mkdir(alias);
+    await writeFile(path.join(alias, "key"), "safe placeholder\n");
+    await execFileAsync("git", ["add", "alias/key"], { cwd });
+    await rm(alias, { recursive: true });
+    await mkdir(path.join(cwd, ".ssh"));
+    await writeFile(
+      path.join(cwd, ".ssh", "key"),
+      "CHECKPOINT_ALIAS_CANARY=never-store\n",
+    );
+    await symlink(".ssh", alias);
+
+    const checkpoint = await store.captureBefore("s1", "call-1", cwd);
+    const storedFiles = await allStoredFileText(dataDirectory);
+
+    expect(checkpoint.before).not.toHaveProperty("alias/key");
+    expect(storedFiles).not.toContain("CHECKPOINT_ALIAS_CANARY");
+  });
+
+  it("disables repository fsmonitor execution during capture", async () => {
+    const marker = path.join(cwd, ".git", "fsmonitor-invoked");
+    const hook = path.join(cwd, ".git", "fsmonitor-hook");
+    await writeFile(
+      hook,
+      `#!/bin/sh\nprintf invoked > ${shellQuote(marker)}\nexit 0\n`,
+    );
+    await chmod(hook, 0o700);
+    await execFileAsync("git", ["config", "core.fsmonitor", hook], { cwd });
+
+    try {
+      await store.captureBefore("s1", "call-1", cwd);
+    } catch {
+      // An invalid hook response still proves execution if the marker exists.
+    }
+
+    await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("rejects a nonempty unversioned legacy store without mutating it", async () => {
+    await mkdir(path.join(dataDirectory, "sessions", "s1"), { recursive: true });
+    const legacy = path.join(dataDirectory, "sessions", "s1", "legacy.json");
+    await writeFile(legacy, "LEGACY_CHECKPOINT_CANARY\n");
+
+    await expect(store.initialize()).rejects.toMatchObject({
+      code: "checkpoint_migration_required",
+    });
+    expect(await readFile(legacy, "utf8")).toBe("LEGACY_CHECKPOINT_CANARY\n");
+  });
+
+  it("rejects an orphan blob in an unversioned store", async () => {
+    await mkdir(path.join(dataDirectory, "blobs"), { recursive: true });
+    const orphan = path.join(dataDirectory, "blobs", "a".repeat(64));
+    await writeFile(orphan, "ORPHAN_CHECKPOINT_CANARY\n");
+
+    await expect(store.initialize()).rejects.toMatchObject({
+      code: "checkpoint_migration_required",
+    });
+    expect(await readFile(orphan, "utf8")).toBe("ORPHAN_CHECKPOINT_CANARY\n");
+  });
+
+  it("converges concurrent initialization on one valid format marker", async () => {
+    const first = new FileCheckpointStore(dataDirectory);
+    const second = new FileCheckpointStore(dataDirectory);
+
+    await Promise.all([first.initialize(), second.initialize()]);
+
+    expect(await readdir(dataDirectory)).toEqual([".format.json"]);
+    expect(JSON.parse(await readFile(path.join(dataDirectory, ".format.json"), "utf8")))
+      .toEqual({ version: 2, credentialPathsExcluded: true });
+    expect((await lstat(path.join(dataDirectory, ".format.json"))).mode & 0o777)
+      .toBe(0o600);
+  });
+
+  it("rejects a symlinked format marker", async () => {
+    const outsideMarker = path.join(root, "outside-format.json");
+    await mkdir(dataDirectory);
+    await writeFile(
+      outsideMarker,
+      `${JSON.stringify({ version: 2, credentialPathsExcluded: true })}\n`,
+    );
+    await symlink(outsideMarker, path.join(dataDirectory, ".format.json"));
+
+    await expect(store.initialize()).rejects.toMatchObject({
+      code: "checkpoint_migration_required",
+    });
+    expect(await readFile(outsideMarker, "utf8")).toContain('"version":2');
+  });
+
   it("restores modified/deleted files and deletes files created by the agent", async () => {
     const checkpoint = await store.captureBefore("s1", "call-1", cwd);
     await writeFile(path.join(cwd, "a.txt"), "agent a\n", "utf8");
@@ -127,6 +235,47 @@ describe("FileCheckpointStore", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("refuses undo through a parent alias into a credential directory", async () => {
+    const alias = path.join(cwd, "alias");
+    await mkdir(alias);
+    await writeFile(path.join(alias, "key"), "safe before\n");
+    await execFileAsync("git", ["add", "alias/key"], { cwd });
+    const checkpoint = await store.captureBefore("s1", "call-1", cwd);
+    await rm(path.join(alias, "key"));
+    await store.captureAfter(checkpoint, cwd);
+    await rm(alias, { recursive: true });
+    await mkdir(path.join(cwd, ".ssh"));
+    await writeFile(path.join(cwd, ".ssh", "key"), "CREDENTIAL_CURRENT\n");
+    await symlink(".ssh", alias);
+
+    await expect(store.undoLatest("s1", cwd)).rejects.toMatchObject({
+      code: "checkpoint_conflict",
+    });
+    expect(await readFile(path.join(cwd, ".ssh", "key"), "utf8")).toBe(
+      "CREDENTIAL_CURRENT\n",
+    );
+  });
+
+  it("refuses undo into a missing target below a credential parent alias", async () => {
+    const alias = path.join(cwd, "alias");
+    await mkdir(alias);
+    await writeFile(path.join(alias, "key"), "safe before\n");
+    await execFileAsync("git", ["add", "alias/key"], { cwd });
+    const checkpoint = await store.captureBefore("s1", "call-1", cwd);
+    await rm(path.join(alias, "key"));
+    await store.captureAfter(checkpoint, cwd);
+    await rm(alias, { recursive: true });
+    await mkdir(path.join(cwd, ".ssh"));
+    await symlink(".ssh", alias);
+
+    await expect(store.undoLatest("s1", cwd)).rejects.toMatchObject({
+      code: "checkpoint_conflict",
+    });
+    await expect(access(path.join(cwd, ".ssh", "key"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it("wraps mutating registry tools with a recoverable checkpoint", async () => {
     const tool: Tool = {
       definition: {
@@ -134,6 +283,7 @@ describe("FileCheckpointStore", () => {
         description: "write a",
         inputSchema: { type: "object", additionalProperties: false },
       },
+      executionClass: "in_process",
       mutating: true,
       parse() {
         return {};
@@ -178,6 +328,7 @@ describe("FileCheckpointStore", () => {
         description: "write then fail",
         inputSchema: { type: "object", additionalProperties: false },
       },
+      executionClass: "in_process",
       mutating: true,
       parse() {
         return {};
@@ -199,16 +350,37 @@ describe("FileCheckpointStore", () => {
     };
     const registry = new ToolRegistry([tool], { checkpoints: store });
 
-    await expect(
-      registry.invoke(
+    let thrown: unknown;
+    try {
+      await registry.invoke(
         { id: "call-1", name: "partial_write", arguments: {} },
         context,
         new PermissionEngine("full_access"),
         { async request() { return "deny"; } },
-      ),
-    ).rejects.toThrow("tool failed");
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      code: "execution_failed",
+      message: "Tool partial_write failed",
+    });
+    expect((thrown as Error & { cause?: unknown }).cause).toBeUndefined();
     await store.undoLatest("s1", cwd);
 
     expect(await readFile(path.join(cwd, "a.txt"), "utf8")).toBe("before a\n");
   });
 });
+
+async function allStoredFileText(directory: string): Promise<string> {
+  let output = "";
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const target = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      output += await allStoredFileText(target);
+    } else if (entry.isFile()) {
+      output += await readFile(target, "utf8");
+    }
+  }
+  return output;
+}

@@ -25,6 +25,7 @@ import {
   createReadFileTool,
   createRunCommandTool,
   createSearchTextTool,
+  type ToolSecurityProfile,
 } from "@recurs/tools";
 
 import { createCommandRegistry } from "./commands/create.js";
@@ -35,6 +36,7 @@ export interface StandaloneRuntimeOptions {
   dataDirectory?: string;
   provider?: ModelProvider;
   model?: string;
+  toolSecurityProfile?: ToolSecurityProfile;
 }
 
 function injectedBackendPin(
@@ -117,7 +119,10 @@ export async function createStandaloneRuntime(
     }
   }
 
-  const tools = new ToolRegistry([], { checkpoints });
+  const tools = new ToolRegistry([], {
+    checkpoints,
+    securityProfile: options.toolSecurityProfile ?? "local_guarded",
+  });
   tools.register(createReadFileTool());
   tools.register(createListFilesTool());
   tools.register(createSearchTextTool());

@@ -14,9 +14,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   PermissionEngine,
   ToolRegistry,
+  createApplyPatchTool,
   createListFilesTool,
   createReadFileTool,
   createSearchTextTool,
+  isCredentialPath,
   type ApprovalHandler,
   type Tool,
   type ToolContext,
@@ -62,16 +64,47 @@ async function invoke(
   arguments_: unknown,
   toolContext = context(),
   mode: "ask_always" | "approved_for_me" | "full_access" = "full_access",
+  approvals: ApprovalHandler = deny,
 ): Promise<ToolResult> {
   return new ToolRegistry([tool]).invoke(
     { id: "call-1", name: tool.definition.name, arguments: arguments_ },
     toolContext,
     new PermissionEngine(mode),
-    deny,
+    approvals,
   );
 }
 
 describe("workspace file tools", () => {
+  it.each([
+    ".env",
+    "config/.ENV.local",
+    "id_rsa",
+    "keys/ID_ED25519",
+    "nested/credentials",
+    ".netrc",
+    ".npmrc",
+    ".pypirc",
+    "certs/client.PEM",
+    "certs/client.key",
+    "certs/client.p12",
+    ".ssh/config",
+    "home\\.AWS\\credentials",
+    ".azure/profile.json",
+    ".docker/config.json",
+    ".gnupg/pubring.kbx",
+    ".kube/config",
+    "home/.config/gcloud/application_default_credentials.json",
+  ])("classifies %s as a credential path", (candidate) => {
+    expect(isCredentialPath(candidate)).toBe(true);
+  });
+
+  it.each(["safe.env", "environment.ts", "keys/public.crt", "src/config.ts"])(
+    "does not over-classify %s",
+    (candidate) => {
+      expect(isCredentialPath(candidate)).toBe(false);
+    },
+  );
+
   it("reads bounded line ranges and records the exact file revision", async () => {
     const toolContext = context();
     const result = await invoke(
@@ -91,7 +124,7 @@ describe("workspace file tools", () => {
     expect(toolContext.readRevisions.get(absolute)).toBe(result.metadata?.sha256);
   });
 
-  it("requires approval for an explicit external path and honors Full Access", async () => {
+  it("requires explicit approval for an external path in every preset", async () => {
     const externalFile = path.join(outside, "secret.txt");
 
     await expect(
@@ -102,8 +135,19 @@ describe("workspace file tools", () => {
         "approved_for_me",
       ),
     ).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(
+      invoke(createReadFileTool(), { path: externalFile }),
+    ).rejects.toMatchObject({ code: "permission_denied" });
     expect(
-      (await invoke(createReadFileTool(), { path: externalFile })).output,
+      (
+        await invoke(
+          createReadFileTool(),
+          { path: externalFile },
+          context(),
+          "full_access",
+          { async request() { return "allow_once"; } },
+        )
+      ).output,
     ).toBe("outside\n");
   });
 
@@ -120,6 +164,33 @@ describe("workspace file tools", () => {
 
     await expect(
       invoke(createReadFileTool(), { path: ".env" }, context(), "approved_for_me"),
+    ).rejects.toMatchObject({ code: "permission_denied" });
+  });
+
+  it("denies a readable symlink alias whose canonical target is a credential", async () => {
+    await writeFile(path.join(cwd, ".env"), "TOKEN=secret\n", "utf8");
+    await symlink(".env", path.join(cwd, "innocent.txt"));
+
+    await expect(
+      invoke(createReadFileTool(), { path: "innocent.txt" }),
+    ).rejects.toMatchObject({ code: "permission_denied" });
+  });
+
+  it("denies creating a file beneath a symlinked credential directory", async () => {
+    await mkdir(path.join(cwd, ".ssh"));
+    await symlink(".ssh", path.join(cwd, "innocent-dir"));
+
+    await expect(
+      invoke(createApplyPatchTool(), {
+        patch: [
+          "--- /dev/null",
+          "+++ b/innocent-dir/new-key",
+          "@@ -0,0 +1 @@",
+          "+secret",
+          "",
+        ].join("\n"),
+        files: [{ path: "innocent-dir/new-key", expected_hash: null }],
+      }),
     ).rejects.toMatchObject({ code: "permission_denied" });
   });
 
@@ -146,5 +217,60 @@ describe("workspace file tools", () => {
     await expect(
       import("node:fs/promises").then(({ access }) => access(path.join(cwd, "nope"))),
     ).rejects.toBeDefined();
+  });
+
+  it("excludes credential descendants from listing and search", async () => {
+    await writeFile(path.join(cwd, "src", "credentials"), "AGGREGATE_CANARY\n");
+    await writeFile(path.join(cwd, "src", "safe.txt"), "AGGREGATE_CANARY\n");
+
+    const listed = await invoke(createListFilesTool(), { path: "." });
+    const searched = await invoke(createSearchTextTool(), {
+      query: "AGGREGATE_CANARY",
+      path: ".",
+    });
+
+    expect(listed.output).toContain("src/safe.txt");
+    expect(listed.output).not.toContain("src/credentials");
+    expect(searched.output).toContain("src/safe.txt");
+    expect(searched.output).not.toContain("src/credentials");
+  });
+
+  it("excludes POSIX names containing credential-like backslash segments", async () => {
+    if (path.sep !== "/") {
+      return;
+    }
+    const names = [String.raw`nested\.env`, String.raw`nested\\.env`];
+    for (const [index, name] of names.entries()) {
+      expect(isCredentialPath(name)).toBe(true);
+      await writeFile(
+        path.join(cwd, name),
+        `BACKSLASH_AGGREGATE_CANARY_${index}\n`,
+      );
+    }
+
+    const listed = await invoke(createListFilesTool(), { path: "." });
+    const searched = await invoke(createSearchTextTool(), {
+      query: "BACKSLASH_AGGREGATE_CANARY",
+      path: ".",
+    });
+
+    for (const name of names) {
+      expect(listed.output).not.toContain(name);
+      expect(searched.output).not.toContain(name);
+    }
+    expect(searched.output).not.toContain("BACKSLASH_AGGREGATE_CANARY");
+  });
+
+  it("keeps deny-last credential exclusions after a model include glob", async () => {
+    await writeFile(path.join(cwd, ".env"), "REINCLUDE_CANARY\n");
+    await writeFile(path.join(cwd, "safe.env"), "REINCLUDE_CANARY\n");
+
+    const searched = await invoke(createSearchTextTool(), {
+      query: "REINCLUDE_CANARY",
+      path: ".",
+      glob: ".env",
+    });
+
+    expect(searched.output).not.toContain("REINCLUDE_CANARY");
   });
 });

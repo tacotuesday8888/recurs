@@ -17,6 +17,74 @@ export interface PathPolicyOptions {
   sensitivePatterns?: readonly RegExp[];
 }
 
+const CREDENTIAL_BASENAMES = [
+  ".env",
+  "id_rsa",
+  "id_ed25519",
+  "credentials",
+  ".netrc",
+  ".npmrc",
+  ".pypirc",
+] as const;
+const CREDENTIAL_BASENAME_PREFIXES = [".env."] as const;
+const CREDENTIAL_BASENAME_SUFFIXES = [".pem", ".key", ".p12"] as const;
+const CREDENTIAL_DIRECTORIES = [
+  ".ssh",
+  ".aws",
+  ".azure",
+  ".docker",
+  ".gnupg",
+  ".kube",
+] as const;
+const CREDENTIAL_DIRECTORY_PATHS = [".config/gcloud"] as const;
+const LITERAL_BACKSLASH_GLOB = "[\\\\]";
+
+function separatorVariants(pattern: string): string[] {
+  return pattern.split("/").reduce<string[]>(
+    (variants, segment, index) =>
+      index === 0
+        ? [segment]
+        : variants.flatMap((variant) => [
+            `${variant}/${segment}`,
+            `${variant}${LITERAL_BACKSLASH_GLOB}${segment}`,
+          ]),
+    [],
+  );
+}
+
+function rootAndNested(pattern: string): string[] {
+  return separatorVariants(pattern).flatMap((variant) => [
+    variant,
+    `**/${variant}`,
+    `**${LITERAL_BACKSLASH_GLOB}${variant}`,
+  ]);
+}
+
+function directoryAndDescendants(pattern: string): string[] {
+  return separatorVariants(pattern).flatMap((variant) =>
+    ["", "**/", `**${LITERAL_BACKSLASH_GLOB}`].flatMap((prefix) =>
+      ["", "/**", `${LITERAL_BACKSLASH_GLOB}**`].map(
+        (suffix) => `${prefix}${variant}${suffix}`,
+      ),
+    ),
+  );
+}
+
+function credentialGlobPatterns(): string[] {
+  const patterns = [
+    ...CREDENTIAL_BASENAMES.flatMap(rootAndNested),
+    ...CREDENTIAL_BASENAME_PREFIXES.flatMap((prefix) =>
+      rootAndNested(`${prefix}*`),
+    ),
+    ...CREDENTIAL_BASENAME_SUFFIXES.flatMap((suffix) =>
+      rootAndNested(`*${suffix}`),
+    ),
+    ...CREDENTIAL_DIRECTORIES.flatMap(directoryAndDescendants),
+    ...CREDENTIAL_DIRECTORY_PATHS.flatMap(directoryAndDescendants),
+  ];
+  return [...new Set(patterns)];
+}
+
 function isWithin(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
   return (
@@ -49,39 +117,58 @@ function isMissing(error: unknown): boolean {
   );
 }
 
+function matchesSensitivePattern(
+  input: string,
+  patterns: readonly RegExp[],
+): boolean {
+  return patterns.some((pattern) => {
+    pattern.lastIndex = 0;
+    return pattern.test(input);
+  });
+}
+
+export function isCredentialPath(input: string): boolean {
+  const normalized = input.replaceAll("\\", "/").toLowerCase();
+  const parts = normalized.split("/").filter(Boolean);
+  const basename = parts.at(-1) ?? "";
+  const segmented = `/${parts.join("/")}/`;
+  return (
+    CREDENTIAL_BASENAMES.some((candidate) => basename === candidate) ||
+    CREDENTIAL_BASENAME_PREFIXES.some((prefix) =>
+      basename.startsWith(prefix),
+    ) ||
+    CREDENTIAL_BASENAME_SUFFIXES.some((suffix) => basename.endsWith(suffix)) ||
+    CREDENTIAL_DIRECTORIES.some((directory) => parts.includes(directory)) ||
+    CREDENTIAL_DIRECTORY_PATHS.some((directory) =>
+      segmented.includes(`/${directory}/`),
+    )
+  );
+}
+
+export function credentialRipgrepGlobs(): readonly string[] {
+  return credentialGlobPatterns().map((pattern) => `!${pattern}`);
+}
+
+export function credentialGitPathspecs(): readonly string[] {
+  return credentialGlobPatterns().map(
+    (pattern) => `:(glob,icase,exclude)${pattern}`,
+  );
+}
+
+export function assertNonCredentialPath(input: string): void {
+  if (isCredentialPath(input)) {
+    throw new ToolError(
+      "permission_denied",
+      "Credential paths are unavailable to model tools",
+    );
+  }
+}
+
 export function isSensitivePath(
   input: string,
   patterns: readonly RegExp[] = [],
 ): boolean {
-  const normalized = input.replaceAll("\\", "/").toLowerCase();
-  const parts = normalized.split("/").filter(Boolean);
-  const basename = parts.at(-1) ?? "";
-  const builtIn =
-    basename === ".env" ||
-    basename.startsWith(".env.") ||
-    basename === "id_rsa" ||
-    basename === "id_ed25519" ||
-    basename === "credentials" ||
-    basename === ".netrc" ||
-    basename === ".npmrc" ||
-    basename === ".pypirc" ||
-    basename.endsWith(".pem") ||
-    basename.endsWith(".key") ||
-    basename.endsWith(".p12") ||
-    parts.includes(".ssh") ||
-    parts.includes(".aws") ||
-    parts.includes(".azure") ||
-    parts.includes(".docker") ||
-    parts.includes(".gnupg") ||
-    parts.includes(".kube") ||
-    normalized.includes(".config/gcloud/");
-  return (
-    builtIn ||
-    patterns.some((pattern) => {
-      pattern.lastIndex = 0;
-      return pattern.test(input);
-    })
-  );
+  return isCredentialPath(input) || matchesSensitivePattern(input, patterns);
 }
 
 export function pathPermissionIntents(
@@ -97,7 +184,9 @@ export function pathPermissionIntents(
       risk: "elevated",
     });
   }
-  if (isSensitivePath(input, patterns)) {
+  if (isCredentialPath(input)) {
+    intents.push({ category: "credential", resource: input, risk: "elevated" });
+  } else if (matchesSensitivePattern(input, patterns)) {
     intents.push({ category: "sensitive", resource: input, risk: "elevated" });
   }
   if (intents.length === 0) {
@@ -194,17 +283,22 @@ export class WorkspacePathPolicy {
       }
     }
 
-    let ancestor = path.dirname(lexical.absolute);
+    let ancestor = lexical.absolute;
+    const suffix: string[] = [];
     for (;;) {
       try {
         const resolvedAncestor = await realpath(ancestor);
-        if (!allowExternal && !isWithin(root, resolvedAncestor)) {
+        const resolved = path.resolve(resolvedAncestor, ...suffix);
+        if (!allowExternal && !isWithin(root, resolved)) {
           throw new ToolError(
             "external_path",
             `Path resolves outside the workspace: ${input}`,
           );
         }
-        return lexical;
+        return {
+          absolute: resolved,
+          relative: normalizedRelative(root, resolved),
+        };
       } catch (error) {
         if (!isMissing(error)) {
           throw error;
@@ -213,6 +307,7 @@ export class WorkspacePathPolicy {
         if (parent === ancestor) {
           throw new ToolError("external_path", `Cannot resolve path: ${input}`);
         }
+        suffix.unshift(path.basename(ancestor));
         ancestor = parent;
       }
     }

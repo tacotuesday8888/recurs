@@ -43,7 +43,7 @@ export function createRunCommandTool(): Tool<RunCommandInput> {
   return {
     definition: {
       name: "run_command",
-      description: "Run a bounded command through the user's configured shell",
+      description: "Run a bounded command through the system shell",
       inputSchema: {
         type: "object",
         properties: {
@@ -54,16 +54,14 @@ export function createRunCommandTool(): Tool<RunCommandInput> {
         additionalProperties: false,
       },
     },
+    executionClass: "arbitrary_process",
     mutating: true,
     parse: parseRunCommandInput,
     permissions(input) {
       return classifyCommand(input.command);
     },
     async execute(input, context) {
-      const shell = process.env.SHELL?.startsWith("/") === true
-        ? process.env.SHELL
-        : "/bin/sh";
-      const result = await runProcess(shell, ["-lc", input.command], {
+      const result = await runProcess("/bin/sh", ["-c", input.command], {
         cwd: context.cwd,
         signal: context.signal,
         timeoutMs: input.timeoutMs,

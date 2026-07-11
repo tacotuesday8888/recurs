@@ -3,9 +3,17 @@ import { describe, expect, it, vi } from "vitest";
 import type { ToolCall } from "@recurs/providers";
 
 import {
+  type CheckpointStore,
   PermissionEngine,
   ToolError,
   ToolRegistry,
+  createApplyPatchTool,
+  createGitDiffTool,
+  createGitStatusTool,
+  createListFilesTool,
+  createReadFileTool,
+  createRunCommandTool,
+  createSearchTextTool,
   type ApprovalHandler,
   type Tool,
   type ToolContext,
@@ -33,6 +41,7 @@ function textTool(mutating = false): Tool<{ text: string }> {
         additionalProperties: false,
       },
     },
+    executionClass: "in_process",
     mutating,
     parse(input) {
       if (
@@ -67,6 +76,74 @@ const deny: ApprovalHandler = {
 };
 
 describe("ToolRegistry", () => {
+  it("records the actual execution class of every built-in tool", () => {
+    expect([
+      createReadFileTool(),
+      createListFilesTool(),
+      createSearchTextTool(),
+      createApplyPatchTool(),
+      createGitStatusTool(),
+      createGitDiffTool(),
+      createRunCommandTool(),
+    ].map((tool) => [tool.definition.name, tool.executionClass])).toEqual([
+      ["read_file", "in_process"],
+      ["list_files", "fixed_process"],
+      ["search_text", "fixed_process"],
+      ["apply_patch", "fixed_process"],
+      ["git_status", "fixed_process"],
+      ["git_diff", "fixed_process"],
+      ["run_command", "arbitrary_process"],
+    ]);
+  });
+
+  it("tools_disabled advertises and executes no model tools", async () => {
+    const tool = textTool(true);
+    const parse = vi.spyOn(tool, "parse");
+    const permissions = vi.spyOn(tool, "permissions");
+    const execute = vi.spyOn(tool, "execute");
+    const checkpoints = {
+      captureBefore: vi.fn(),
+      captureAfter: vi.fn(),
+      undoLatest: vi.fn(),
+    } as unknown as CheckpointStore;
+    const approvals: ApprovalHandler = { request: vi.fn() };
+    const registry = new ToolRegistry([tool], {
+      checkpoints,
+      securityProfile: "tools_disabled",
+    });
+
+    expect(registry.definitions("act")).toEqual([]);
+    expect(registry.definitions("plan")).toEqual([]);
+    await expect(
+      registry.invoke(
+        { id: "1", name: "write_text", arguments: { text: 42 } },
+        context(),
+        new PermissionEngine("ask_always"),
+        approvals,
+      ),
+    ).rejects.toMatchObject({
+      code: "tool_unavailable",
+      message: "Model tools are disabled for this runtime",
+    });
+    expect(parse).not.toHaveBeenCalled();
+    expect(permissions).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(approvals.request).not.toHaveBeenCalled();
+    expect(checkpoints.captureBefore).not.toHaveBeenCalled();
+    expect(checkpoints.captureAfter).not.toHaveBeenCalled();
+  });
+
+  it("snapshots the disabled profile at construction", () => {
+    const options: {
+      securityProfile: "local_guarded" | "tools_disabled";
+    } = { securityProfile: "tools_disabled" };
+    const registry = new ToolRegistry([textTool()], options);
+
+    options.securityProfile = "local_guarded";
+
+    expect(registry.definitions("act")).toEqual([]);
+  });
+
   it("rejects unknown tools before execution", async () => {
     const registry = new ToolRegistry([textTool()]);
     const call: ToolCall = { id: "1", name: "missing", arguments: {} };
@@ -95,6 +172,70 @@ describe("ToolRegistry", () => {
       ),
     ).rejects.toMatchObject({ code: "invalid_input" });
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("rejects denied intents before requesting any other approval", async () => {
+    const tool = textTool();
+    tool.permissions = () => [
+      {
+        category: "external_path",
+        resource: "/outside/.env",
+        risk: "elevated",
+      },
+      {
+        category: "credential",
+        resource: "/outside/.env",
+        risk: "elevated",
+      },
+    ];
+    const execute = vi.spyOn(tool, "execute");
+    const approvals: ApprovalHandler = {
+      request: vi.fn(async () => "allow_session" as const),
+    };
+    const registry = new ToolRegistry([tool]);
+
+    await expect(
+      registry.invoke(
+        { id: "1", name: "echo", arguments: { text: "/outside/.env" } },
+        context(),
+        new PermissionEngine("full_access"),
+        approvals,
+      ),
+    ).rejects.toMatchObject({
+      code: "permission_denied",
+      message: "Permission denied for credential: /outside/.env",
+    });
+    expect(approvals.request).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("normalizes unknown tool implementation failures before they escape", async () => {
+    const canary = "RECURS_UNKNOWN_TOOL_CANARY";
+    const tool = textTool();
+    tool.execute = async () => {
+      throw new Error(canary, { cause: new Error("RECURS_TOOL_CAUSE_CANARY") });
+    };
+    const registry = new ToolRegistry([tool]);
+
+    let thrown: unknown;
+    try {
+      await registry.invoke(
+        { id: "1", name: "echo", arguments: { text: "safe" } },
+        context(),
+        new PermissionEngine("full_access"),
+        deny,
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ToolError);
+    expect(thrown).toMatchObject({
+      code: "execution_failed",
+      message: "Tool echo failed",
+    });
+    expect((thrown as Error & { cause?: unknown }).cause).toBeUndefined();
+    expect(String((thrown as Error).message)).not.toContain(canary);
   });
 
   it("enforces Plan mode independently of the prompt", async () => {
@@ -147,6 +288,85 @@ describe("ToolRegistry", () => {
     await registry.invoke({ ...call, id: "2" }, context(), engine, approvals);
 
     expect(approvals.request).toHaveBeenCalledTimes(2);
+  });
+
+  it("runs preflight after approval and before checkpoint capture", async () => {
+    const events: string[] = [];
+    const tool = textTool(true);
+    tool.preflight = async () => {
+      events.push("preflight");
+    };
+    const checkpoint = {
+      id: "checkpoint-1",
+      sessionId: "session-1",
+      toolCallId: "1",
+      before: {},
+    };
+    const checkpoints = {
+      captureBefore: vi.fn(async () => {
+        events.push("captureBefore");
+        return checkpoint;
+      }),
+      captureAfter: vi.fn(async () => {
+        events.push("captureAfter");
+        return { ...checkpoint, after: {} };
+      }),
+      undoLatest: vi.fn(),
+    } as unknown as CheckpointStore;
+    const execute = vi.spyOn(tool, "execute").mockImplementation(async (input) => {
+      events.push("execute");
+      return { output: input.text };
+    });
+    const approvals: ApprovalHandler = {
+      request: vi.fn(async () => {
+        events.push("approval");
+        return "allow_once" as const;
+      }),
+    };
+    const registry = new ToolRegistry([tool], { checkpoints });
+
+    await registry.invoke(
+      { id: "1", name: "write_text", arguments: { text: "src/a.ts" } },
+      context(),
+      new PermissionEngine("ask_always"),
+      approvals,
+    );
+
+    expect(events).toEqual([
+      "approval",
+      "preflight",
+      "captureBefore",
+      "execute",
+      "captureAfter",
+    ]);
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not checkpoint or execute when preflight rejects", async () => {
+    const tool = textTool(true);
+    tool.preflight = async () => {
+      throw new ToolError("permission_denied", "canonical target denied");
+    };
+    const execute = vi.spyOn(tool, "execute");
+    const checkpoints = {
+      captureBefore: vi.fn(),
+      captureAfter: vi.fn(),
+      undoLatest: vi.fn(),
+    } as unknown as CheckpointStore;
+    const registry = new ToolRegistry([tool], { checkpoints });
+
+    await expect(
+      registry.invoke(
+        { id: "1", name: "write_text", arguments: { text: "src/a.ts" } },
+        context(),
+        new PermissionEngine("full_access"),
+        deny,
+      ),
+    ).rejects.toMatchObject({ code: "permission_denied" });
+
+    expect(checkpoints.captureBefore).not.toHaveBeenCalled();
+    expect(checkpoints.captureAfter).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("hides mutating definitions in Plan mode", () => {

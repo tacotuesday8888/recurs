@@ -5,6 +5,7 @@ import type { IntegrationFailure, RunResult as CoordinatedRunResult } from "@rec
 import {
   collectProviderEvents,
   ProviderError,
+  safeProviderErrorMessage,
   type ModelMessage,
   type ModelProvider,
   type ProviderRequest,
@@ -89,6 +90,42 @@ export class AgentLoopError extends Error {
     super(message, options);
     this.name = "AgentLoopError";
   }
+}
+
+const safeProviderFailureMessages = new Set([
+  safeProviderErrorMessage("authentication"),
+  safeProviderErrorMessage("rate_limit"),
+  safeProviderErrorMessage("context_overflow"),
+  safeProviderErrorMessage("transport"),
+]);
+
+export function safeAgentLoopErrorMessage(error: AgentLoopError): string {
+  switch (error.code) {
+    case "cancelled": {
+      const providerCancelled = safeProviderErrorMessage("cancelled");
+      return error.message === providerCancelled
+        ? providerCancelled
+        : "Agent run cancelled";
+    }
+    case "invalid_run_input":
+      return "Agent run input is invalid";
+    case "invalid_provider_response":
+      return safeProviderErrorMessage("invalid_response");
+    case "provider_failed":
+      return safeProviderFailureMessages.has(error.message)
+        ? error.message
+        : safeProviderErrorMessage("transport");
+    case "session_busy":
+      return "Session is busy";
+    case "step_budget_exceeded":
+      return "Agent step limit exceeded";
+    case "stuck_loop":
+      return "Repeated tool interaction detected";
+  }
+}
+
+export function unexpectedFailureMessage(diagnosticId: string): string {
+  return `Unexpected failure (diagnostic ${diagnosticId})`;
 }
 
 interface ModelTurn {
@@ -377,7 +414,7 @@ async function streamModelTurnWithRetries(
         sessionId,
         at: now(),
         code: error.code,
-        message: error.message,
+        message: safeProviderErrorMessage(error),
       });
       await deps.emit({
         type: "retry_scheduled",
@@ -394,34 +431,28 @@ async function streamModelTurnWithRetries(
 
 function normalizeRunError(error: unknown, signal: AbortSignal): AgentLoopError {
   if (signal.aborted) {
-    return new AgentLoopError("cancelled", "Agent run cancelled", false, {
-      cause: error,
-    });
+    return new AgentLoopError("cancelled", "Agent run cancelled");
   }
   if (error instanceof AgentLoopError) {
     return error;
   }
   if (error instanceof ProviderError) {
     if (error.code === "cancelled") {
-      return new AgentLoopError("cancelled", error.message, false, {
-        cause: error,
-      });
+      return new AgentLoopError("cancelled", safeProviderErrorMessage(error));
     }
     if (error.code === "invalid_response") {
       return new AgentLoopError(
         "invalid_provider_response",
-        error.message,
-        false,
-        { cause: error },
+        safeProviderErrorMessage(error),
       );
     }
-    return new AgentLoopError("provider_failed", error.message, error.retryable, {
-      cause: error,
-    });
+    return new AgentLoopError(
+      "provider_failed",
+      safeProviderErrorMessage(error),
+      error.retryable,
+    );
   }
-  return new AgentLoopError("provider_failed", "Agent run failed", false, {
-    cause: error,
-  });
+  return new AgentLoopError("provider_failed", "Agent run failed");
 }
 
 function serializeError(error: Error & { code?: string; retryable?: boolean }): SerializableError {
@@ -779,7 +810,9 @@ async function runAgentLoopUnlocked(
         } catch (error) {
           const failure = signal.aborted
             ? new ToolError("cancelled", `Tool ${call.name} was cancelled`)
-            : error;
+            : error instanceof ToolError
+              ? error
+              : new ToolError("execution_failed", `Tool ${call.name} failed`);
           const serialized = serializeError(
             failure instanceof Error
               ? failure
@@ -836,13 +869,18 @@ async function runAgentLoopUnlocked(
     }
   } catch (error) {
     const normalized = normalizeRunError(error, signal);
-    const serialized = serializeError(normalized);
-    const terminal = normalized.code === "cancelled"
+    const safeError = new AgentLoopError(
+      normalized.code,
+      safeAgentLoopErrorMessage(normalized),
+      normalized.retryable,
+    );
+    const serialized = serializeError(safeError);
+    const terminal = safeError.code === "cancelled"
       ? await appendPinned({
           type: "turn_cancelled",
           turnId,
           at: now(),
-          reason: normalized.message,
+          reason: safeError.message,
         })
       : await appendPinned({
           type: "turn_failed",
@@ -851,7 +889,7 @@ async function runAgentLoopUnlocked(
           error: integrationFailure(serialized, "provider"),
         });
     await emitPersistedEvent(deps, terminal);
-    throw normalized;
+    throw safeError;
   }
 }
 
