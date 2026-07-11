@@ -388,15 +388,27 @@ describe("credential-safe Git inspection", () => {
         { cwd },
       );
       await execFileAsync("git", ["config", "diff.submodule", "diff"], { cwd });
+      const marker = path.join(source, "submodule-fsmonitor-invoked");
+      const hook = path.join(source, "submodule-fsmonitor-hook");
+      await writeFile(
+        hook,
+        `#!/bin/sh\nprintf invoked > ${shellQuote(marker)}\nexit 0\n`,
+      );
+      await chmod(hook, 0o700);
+      await execFileAsync("git", ["config", "core.fsmonitor", hook], {
+        cwd: path.join(cwd, "vendor"),
+      });
       await writeFile(
         path.join(cwd, "vendor", ".env"),
         "SUBMODULE_CANARY=after\n",
       );
 
       const diff = await invoke(createGitDiffTool(), {});
+      await invoke(createGitStatusTool(), {});
 
       expect(diff.output).not.toContain("SUBMODULE_CANARY");
       expect(diff.output).not.toContain(".env");
+      await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       await rm(source, { recursive: true, force: true });
     }
