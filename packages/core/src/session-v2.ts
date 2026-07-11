@@ -1,9 +1,14 @@
+import { isDeepStrictEqual } from "node:util";
+
 import type {
   IntegrationFailure,
   ModelMessage,
   ProviderBackedMessage,
   ProviderUsage,
   RunResult,
+  RuntimeApprovalDecision,
+  RuntimeApprovalRequest,
+  RuntimeContinuationHandle,
   SessionBackendPin,
   StopReason,
   ToolCall,
@@ -18,6 +23,7 @@ import type {
 
 import type { Goal } from "./goal.js";
 import type { SessionState } from "./session.js";
+import { createBackendFingerprint } from "./backend-authorization.js";
 
 export interface SessionRecordBaseV2 {
   version: 2;
@@ -56,6 +62,62 @@ type ModeRecordV2 =
       prePlanPermissionMode?: PermissionMode;
     });
 
+export type RuntimeApprovalScope =
+  | "allow_once"
+  | "allow_session"
+  | "deny"
+  | "cancel";
+
+export type RuntimeRecordProvenance = "user" | "policy" | "signal";
+
+export interface RuntimeCompletionProvenance {
+  adapterId: string;
+  connectionId: string;
+  modelId: string;
+  backendFingerprint: string;
+  capabilityProfileRevision: string;
+}
+
+export interface PendingRuntimeCompletion {
+  turnId: string;
+  result: RunResult;
+  stopReason: "complete" | "length";
+  continuation?: RuntimeContinuationHandle;
+  provenance: RuntimeCompletionProvenance;
+}
+
+type RuntimeContinuationUpdatedRecordV2 = SessionRecordBaseV2 & {
+  type: "runtime_continuation_updated";
+  turnId: string;
+  continuation: RuntimeContinuationHandle;
+};
+
+type RuntimeApprovalResolvedRecordV2 = SessionRecordBaseV2 & {
+  type: "runtime_approval_resolved";
+  turnId: string;
+  request: RuntimeApprovalRequest;
+  decision: RuntimeApprovalDecision;
+  scope: RuntimeApprovalScope;
+  provenance: RuntimeRecordProvenance;
+};
+
+type RuntimeCompletedRecordV2 = SessionRecordBaseV2 & {
+  type: "runtime_completed";
+  turnId: string;
+  result: RunResult;
+  stopReason: "complete" | "length";
+  continuation?: RuntimeContinuationHandle;
+  provenance: RuntimeCompletionProvenance;
+};
+
+type RuntimeContinuationReconciledRecordV2 = SessionRecordBaseV2 & {
+  type: "runtime_continuation_reconciled";
+  operationId: string;
+  uncertainHandle: RuntimeContinuationHandle;
+  outcome: "committed" | "gone";
+  activeHandle: RuntimeContinuationHandle | null;
+};
+
 export type SessionRecordV2 =
   | (SessionRecordBaseV2 & {
       type: "session_created";
@@ -67,6 +129,10 @@ export type SessionRecordV2 =
       turnId: string;
       prompt: string;
     })
+  | RuntimeContinuationUpdatedRecordV2
+  | RuntimeApprovalResolvedRecordV2
+  | RuntimeCompletedRecordV2
+  | RuntimeContinuationReconciledRecordV2
   | (SessionRecordBaseV2 & {
       type: "model_completed";
       turnId: string;
@@ -118,11 +184,13 @@ export type SessionRecordV2 =
       type: "turn_failed";
       turnId: string;
       error: IntegrationFailure;
+      continuation?: RuntimeContinuationHandle;
     })
   | (SessionRecordBaseV2 & {
       type: "turn_cancelled";
       turnId: string;
       reason: string;
+      continuation?: RuntimeContinuationHandle;
     })
   | (SessionRecordBaseV2 & {
       type: "turn_interrupted";
@@ -169,6 +237,9 @@ export interface PinnedSessionState extends SessionState {
   version: 2;
   backend: { type: "pinned"; pin: SessionBackendPin };
   lastSequence: number;
+  runtimeContinuation: RuntimeContinuationHandle | null;
+  runtimeContinuationPredecessor: RuntimeContinuationHandle | null;
+  pendingRuntimeCompletion: PendingRuntimeCompletion | null;
 }
 
 export function isPinnedSessionState(
@@ -199,6 +270,144 @@ function addMessage(
   };
 }
 
+const optionalUsageFields = [
+  "cachedInputTokens",
+  "cacheWriteInputTokens",
+  "reasoningTokens",
+  "costUsd",
+] as const;
+
+function addUsage(
+  current: ProviderUsage,
+  addition: ProviderUsage | null,
+): ProviderUsage {
+  if (addition === null) {
+    return current;
+  }
+  const next: ProviderUsage = {
+    inputTokens: current.inputTokens + addition.inputTokens,
+    outputTokens: current.outputTokens + addition.outputTokens,
+  };
+  for (const field of optionalUsageFields) {
+    const currentValue = current[field];
+    const additionValue = addition[field];
+    if (currentValue !== undefined || additionValue !== undefined) {
+      next[field] = (currentValue ?? 0) + (additionValue ?? 0);
+    }
+  }
+  return next;
+}
+
+function addRuntimeUsage(
+  current: ProviderUsage,
+  addition: ProviderUsage | null,
+): ProviderUsage {
+  const next = addUsage(current, addition);
+  const tokenFields = [
+    "inputTokens",
+    "outputTokens",
+    "cachedInputTokens",
+    "cacheWriteInputTokens",
+    "reasoningTokens",
+  ] as const;
+  if (
+    tokenFields.some((field) =>
+      next[field] !== undefined && !Number.isSafeInteger(next[field])
+    ) ||
+    (next.costUsd !== undefined && !Number.isFinite(next.costUsd))
+  ) {
+    throw new Error("Runtime usage exceeds the safe numeric range");
+  }
+  return next;
+}
+
+function runtimePin(
+  state: PinnedSessionState,
+): SessionBackendPin & { kind: "agent_runtime" } {
+  const pin = state.backend.pin;
+  if (pin.kind !== "agent_runtime") {
+    throw new Error("Runtime records require an agent-runtime backend pin");
+  }
+  return pin as SessionBackendPin & { kind: "agent_runtime" };
+}
+
+function assertRuntimeHandleBinding(
+  state: PinnedSessionState,
+  handle: RuntimeContinuationHandle,
+): void {
+  const pin = runtimePin(state);
+  if (
+    handle.recursSessionId !== state.id ||
+    handle.adapterId !== pin.adapterId ||
+    handle.connectionId !== pin.connectionId ||
+    handle.modelId !== pin.modelId ||
+    handle.backendFingerprint !== createBackendFingerprint(pin)
+  ) {
+    throw new Error("Runtime continuation does not match the pinned session");
+  }
+}
+
+function sameRuntimeHandleWithStatus(
+  uncertain: RuntimeContinuationHandle,
+  active: RuntimeContinuationHandle,
+): boolean {
+  return uncertain.status === "uncertain" &&
+    active.status === "committed" &&
+    isDeepStrictEqual({ ...uncertain, status: "committed" }, active);
+}
+
+function assertRuntimeContinuationSuccessor(
+  state: PinnedSessionState,
+  turnId: string,
+  continuation: RuntimeContinuationHandle,
+): void {
+  assertRuntimeHandleBinding(state, continuation);
+  const previous = state.runtimeContinuation;
+  if (
+    continuation.status !== "uncertain" ||
+    continuation.originTurnId !== turnId ||
+    state.runtimeContinuationPredecessor !== null ||
+    previous?.status === "uncertain" ||
+    continuation.continuationSequence !==
+      (previous?.continuationSequence ?? 0) + 1 ||
+    continuation.vendorTurnSequence !==
+      (previous?.vendorTurnSequence ?? 0) + 1 ||
+    (previous !== null &&
+      (continuation.id === previous.id ||
+        continuation.storageClass !== previous.storageClass ||
+        continuation.ownerInstanceId !== previous.ownerInstanceId))
+  ) {
+    throw new Error("Runtime continuation is not the next committed successor");
+  }
+}
+
+function assertExactUncertainTerminal(
+  state: PinnedSessionState,
+  continuation: RuntimeContinuationHandle,
+): void {
+  assertRuntimeHandleBinding(state, continuation);
+  if (
+    continuation.status !== "uncertain" ||
+    !isDeepStrictEqual(state.runtimeContinuation, continuation)
+  ) {
+    throw new Error("Runtime terminal continuation does not match the uncertain tip");
+  }
+}
+
+function pendingRuntimeCompletion(
+  record: RuntimeCompletedRecordV2,
+): PendingRuntimeCompletion {
+  return structuredClone({
+    turnId: record.turnId,
+    result: record.result,
+    stopReason: record.stopReason,
+    ...(record.continuation === undefined
+      ? {}
+      : { continuation: record.continuation }),
+    provenance: record.provenance,
+  });
+}
+
 export function reduceSessionRecordV2(
   state: PinnedSessionState,
   record: SessionRecordV2,
@@ -221,6 +430,12 @@ export function reduceSessionRecordV2(
     }
     if (state.pendingCompaction !== null) {
       throw new Error("Cannot start a turn while compaction is pending");
+    }
+    if (
+      state.pendingRuntimeCompletion !== null ||
+      state.runtimeContinuation?.status === "uncertain"
+    ) {
+      throw new Error("An uncertain delegated runtime turn must be resolved first");
     }
   } else if ("turnId" in record && state.openTurnId !== record.turnId) {
     throw new Error(`Record ${record.type} does not match the open turn`);
@@ -262,6 +477,13 @@ export function reduceSessionRecordV2(
   ) {
     throw new Error("Compaction terminal does not match the pending operation");
   }
+  if (
+    record.type === "runtime_continuation_reconciled" &&
+    (state.openTurnId !== null || state.pendingCompaction !== null ||
+      state.pendingRuntimeCompletion !== null)
+  ) {
+    throw new Error("Runtime continuation reconciliation requires an idle session");
+  }
   let next: PinnedSessionState;
   switch (record.type) {
     case "session_created":
@@ -277,6 +499,114 @@ export function reduceSessionRecordV2(
         record.turnId,
       );
       break;
+    case "runtime_continuation_updated":
+      if (state.pendingRuntimeCompletion !== null) {
+        throw new Error("Runtime completion is already pending");
+      }
+      assertRuntimeContinuationSuccessor(
+        state,
+        record.turnId,
+        record.continuation,
+      );
+      next = {
+        ...state,
+        runtimeContinuationPredecessor: state.runtimeContinuation,
+        runtimeContinuation: structuredClone(record.continuation),
+      };
+      break;
+    case "runtime_approval_resolved":
+      runtimePin(state);
+      if (state.pendingRuntimeCompletion !== null) {
+        throw new Error("Runtime completion is already pending");
+      }
+      next = state;
+      break;
+    case "runtime_completed": {
+      const pin = runtimePin(state);
+      if (
+        state.pendingRuntimeCompletion !== null ||
+        record.provenance.adapterId !== pin.adapterId ||
+        record.provenance.connectionId !== pin.connectionId ||
+        record.provenance.modelId !== pin.modelId ||
+        record.provenance.backendFingerprint !== createBackendFingerprint(pin)
+      ) {
+        throw new Error("Runtime completion provenance does not match the session");
+      }
+      let activeContinuation = state.runtimeContinuation;
+      if (record.continuation === undefined) {
+        if (activeContinuation?.status === "uncertain") {
+          throw new Error("Runtime completion did not resolve the uncertain tip");
+        }
+      } else {
+        if (
+          activeContinuation === null ||
+          !sameRuntimeHandleWithStatus(activeContinuation, record.continuation)
+        ) {
+          throw new Error("Runtime completion did not commit the uncertain tip");
+        }
+        assertRuntimeHandleBinding(state, record.continuation);
+        activeContinuation = structuredClone(record.continuation);
+      }
+      next = addMessage(
+        {
+          ...state,
+          usage: addRuntimeUsage(state.usage, record.result.usage),
+          changedFiles: unique([
+            ...state.changedFiles,
+            ...record.result.changedFiles,
+          ]),
+          evidence: unique([...state.evidence, ...record.result.evidence]),
+          runtimeContinuation: activeContinuation,
+          runtimeContinuationPredecessor: null,
+          pendingRuntimeCompletion: pendingRuntimeCompletion(record),
+        },
+        {
+          id: `${record.turnId}:runtime:assistant`,
+          role: "assistant",
+          content: record.result.finalText,
+        },
+        record.turnId,
+      );
+      break;
+    }
+    case "runtime_continuation_reconciled": {
+      runtimePin(state);
+      if (
+        state.runtimeContinuation === null ||
+        state.runtimeContinuation.status !== "uncertain" ||
+        !isDeepStrictEqual(state.runtimeContinuation, record.uncertainHandle)
+      ) {
+        throw new Error("Runtime reconciliation does not match the uncertain tip");
+      }
+      assertRuntimeHandleBinding(state, record.uncertainHandle);
+      if (record.outcome === "committed") {
+        if (
+          record.activeHandle === null ||
+          !sameRuntimeHandleWithStatus(
+            record.uncertainHandle,
+            record.activeHandle,
+          )
+        ) {
+          throw new Error("Committed reconciliation changed the runtime handle");
+        }
+        assertRuntimeHandleBinding(state, record.activeHandle);
+      } else if (
+        !isDeepStrictEqual(
+          record.activeHandle,
+          state.runtimeContinuationPredecessor,
+        )
+      ) {
+        throw new Error("Gone reconciliation did not restore the predecessor");
+      }
+      next = {
+        ...state,
+        runtimeContinuation: record.activeHandle === null
+          ? null
+          : structuredClone(record.activeHandle),
+        runtimeContinuationPredecessor: null,
+      };
+      break;
+    }
     case "model_completed":
       next = addMessage(
         {
@@ -381,19 +711,53 @@ export function reduceSessionRecordV2(
       };
       break;
     case "turn_completed":
-      next = {
-        ...state,
-        openTurnId: null,
-        changedFiles: unique([
-          ...state.changedFiles,
-          ...record.result.changedFiles,
-        ]),
-        evidence: unique([...state.evidence, ...record.result.evidence]),
-      };
+      if (state.pendingRuntimeCompletion !== null) {
+        if (
+          state.pendingRuntimeCompletion.turnId !== record.turnId ||
+          !isDeepStrictEqual(state.pendingRuntimeCompletion.result, record.result)
+        ) {
+          throw new Error("Turn completion does not match runtime completion");
+        }
+        next = {
+          ...state,
+          openTurnId: null,
+          pendingRuntimeCompletion: null,
+        };
+      } else {
+        if (state.backend.pin.kind === "agent_runtime") {
+          throw new Error("Delegated turns require a durable runtime completion");
+        }
+        next = {
+          ...state,
+          openTurnId: null,
+          changedFiles: unique([
+            ...state.changedFiles,
+            ...record.result.changedFiles,
+          ]),
+          evidence: unique([...state.evidence, ...record.result.evidence]),
+        };
+      }
       break;
     case "turn_failed":
     case "turn_cancelled":
+      if (state.pendingRuntimeCompletion !== null) {
+        throw new Error("A completed runtime turn cannot fail or cancel");
+      }
+      if (
+        state.runtimeContinuation?.status === "uncertain" &&
+        record.continuation === undefined
+      ) {
+        throw new Error("A runtime terminal must preserve the uncertain tip");
+      }
+      if (record.continuation !== undefined) {
+        assertExactUncertainTerminal(state, record.continuation);
+      }
+      next = { ...state, openTurnId: null };
+      break;
     case "turn_interrupted":
+      if (state.pendingRuntimeCompletion !== null) {
+        throw new Error("A completed runtime turn must close successfully");
+      }
       next = { ...state, openTurnId: null };
       break;
     case "session_compacted": {
@@ -463,6 +827,9 @@ export function reduceSessionRecordsV2(
     toolOutcomes: {},
     openTurnId: null,
     pendingCompaction: null,
+    runtimeContinuation: null,
+    runtimeContinuationPredecessor: null,
+    pendingRuntimeCompletion: null,
   };
   for (const record of records.slice(1)) {
     state = reduceSessionRecordV2(state, record);

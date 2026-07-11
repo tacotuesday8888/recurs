@@ -1,4 +1,4 @@
-import type { SessionBackendPin } from "@recurs/contracts";
+import type { ProviderUsage, SessionBackendPin } from "@recurs/contracts";
 import type { ModelMessage, ToolCall } from "@recurs/providers";
 import type {
   ExecutionMode,
@@ -9,7 +9,6 @@ import type {
 import type {
   SerializableError,
   SessionRecord,
-  Usage,
 } from "./events.js";
 import type { Goal } from "./goal.js";
 import {
@@ -37,7 +36,7 @@ export interface SessionState {
   executionMode: ExecutionMode;
   prePlanPermissionMode?: PermissionMode;
   goal: Goal | null;
-  usage: Usage;
+  usage: ProviderUsage;
   evidence: string[];
   changedFiles: string[];
   pendingToolCalls: ToolCall[];

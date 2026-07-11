@@ -308,22 +308,52 @@ export class JsonlSessionStore {
     at: string,
   ): Promise<boolean> {
     const state = await this.loadState(sessionId);
-    if (!isPinnedSessionState(state) || state.pendingCompaction === null) {
+    if (!isPinnedSessionState(state)) {
       return false;
     }
-    const pending = state.pendingCompaction;
+    if (state.pendingCompaction !== null) {
+      const pending = state.pendingCompaction;
+      await this.withSessionMutation(
+        sessionId,
+        state.lastSequence,
+        async (lease) => {
+          await lease.append({
+            type: "compaction_interrupted",
+            operationId: pending.operationId,
+            at,
+            reason: "The process ended before compaction recorded a terminal result",
+            usage: null,
+            usageSource: "unknown",
+          });
+        },
+      );
+      return true;
+    }
+    if (
+      state.backend.pin.kind !== "agent_runtime" ||
+      state.openTurnId === null
+    ) {
+      return false;
+    }
+    const turnId = state.openTurnId;
+    const pending = state.pendingRuntimeCompletion;
     await this.withSessionMutation(
       sessionId,
       state.lastSequence,
       async (lease) => {
-        await lease.append({
-          type: "compaction_interrupted",
-          operationId: pending.operationId,
-          at,
-          reason: "The process ended before compaction recorded a terminal result",
-          usage: null,
-          usageSource: "unknown",
-        });
+        await lease.append(pending === null
+          ? {
+              type: "turn_interrupted",
+              turnId,
+              at,
+              reason: "The process ended before the delegated runtime recorded a terminal result",
+            }
+          : {
+              type: "turn_completed",
+              turnId,
+              at,
+              result: pending.result,
+            });
       },
     );
     return true;

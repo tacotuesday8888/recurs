@@ -1,4 +1,11 @@
-import type { SessionBackendPin } from "@recurs/contracts";
+import { isDeepStrictEqual } from "node:util";
+
+import type {
+  RuntimeApprovalDecision,
+  RuntimeApprovalRequest,
+  RuntimeContinuationHandle,
+  SessionBackendPin,
+} from "@recurs/contracts";
 
 import { SessionStoreError } from "./session-store-error.js";
 import type { SessionRecordV2 } from "./session-v2.js";
@@ -19,6 +26,85 @@ function hasExactKeys(
 
 function strings(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+const MAX_RUNTIME_ID_LENGTH = 512;
+const MAX_RUNTIME_TEXT_LENGTH = 262_144;
+const MAX_RUNTIME_ITEM_LENGTH = 16_384;
+const MAX_RUNTIME_ITEMS = 1_024;
+const MAX_RUNTIME_APPROVAL_OPTIONS = 64;
+const MAX_RUNTIME_JSON_DEPTH = 16;
+const MAX_RUNTIME_JSON_NODES = 4_096;
+const MAX_RUNTIME_JSON_CHARACTERS = 131_072;
+const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/;
+
+function boundedString(value: unknown, maximum: number): value is string {
+  return typeof value === "string" && value.length <= maximum;
+}
+
+function boundedNonEmptyString(
+  value: unknown,
+  maximum: number,
+): value is string {
+  return boundedString(value, maximum) &&
+    value.length > 0 && value === value.trim();
+}
+
+function boundedStrings(
+  value: unknown,
+  maximumItems = MAX_RUNTIME_ITEMS,
+): value is string[] {
+  return Array.isArray(value) && value.length <= maximumItems &&
+    value.every((item) => boundedNonEmptyString(item, MAX_RUNTIME_ITEM_LENGTH));
+}
+
+interface JsonBudget {
+  nodes: number;
+  characters: number;
+}
+
+function isBoundedJsonValue(
+  value: unknown,
+  budget: JsonBudget,
+  depth = 0,
+): boolean {
+  budget.nodes += 1;
+  if (depth > MAX_RUNTIME_JSON_DEPTH || budget.nodes > MAX_RUNTIME_JSON_NODES) {
+    return false;
+  }
+  if (value === null || typeof value === "boolean") {
+    return true;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value);
+  }
+  if (typeof value === "string") {
+    budget.characters += value.length;
+    return value.length <= MAX_RUNTIME_ITEM_LENGTH &&
+      budget.characters <= MAX_RUNTIME_JSON_CHARACTERS;
+  }
+  if (Array.isArray(value)) {
+    return value.length <= MAX_RUNTIME_ITEMS &&
+      value.every((item) => isBoundedJsonValue(item, budget, depth + 1));
+  }
+  if (!isObject(value)) {
+    return false;
+  }
+  const entries = Object.entries(value);
+  if (entries.length > MAX_RUNTIME_ITEMS) {
+    return false;
+  }
+  for (const [key, item] of entries) {
+    budget.characters += key.length;
+    if (
+      !boundedNonEmptyString(key, MAX_RUNTIME_ID_LENGTH) ||
+      budget.characters > MAX_RUNTIME_JSON_CHARACTERS ||
+      !isBoundedJsonValue(item, budget, depth + 1)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function isJsonValue(value: unknown, depth = 0): boolean {
@@ -50,7 +136,7 @@ function isToolCall(value: unknown): boolean {
     isJsonValue(value.arguments);
 }
 
-function isContinuationHandle(value: unknown): boolean {
+function isDirectContinuationHandle(value: unknown): boolean {
   return isObject(value) &&
     hasExactKeys(
       value,
@@ -75,6 +161,72 @@ function isContinuationHandle(value: unknown): boolean {
     (value.expiresAt === undefined || typeof value.expiresAt === "string");
 }
 
+function canonicalIso(value: unknown): value is string {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const milliseconds = Date.parse(value);
+  return Number.isFinite(milliseconds) &&
+    new Date(milliseconds).toISOString() === value;
+}
+
+function canonicalExpiryAfterRecord(value: unknown, at: unknown): boolean {
+  return canonicalIso(value) && canonicalIso(at) &&
+    Date.parse(value) > Date.parse(at);
+}
+
+function isRuntimeContinuationHandle(
+  value: unknown,
+  at: unknown,
+  allowExpired = false,
+): value is RuntimeContinuationHandle {
+  if (!(isObject(value) && hasExactKeys(
+    value,
+    [
+      "kind", "id", "storageClass", "recursSessionId", "connectionId",
+      "adapterId", "modelId", "backendFingerprint", "stateVersion",
+      "originTurnId", "continuationSequence", "status",
+      "vendorTurnSequence",
+    ],
+    ["ownerInstanceId", "expiresAt"],
+  ))) {
+    return false;
+  }
+  if (
+    value.kind !== "runtime" ||
+    (value.storageClass !== "persistent_broker" &&
+      value.storageClass !== "process_scoped") ||
+    !boundedNonEmptyString(value.id, MAX_RUNTIME_ID_LENGTH) ||
+    !boundedNonEmptyString(value.recursSessionId, MAX_RUNTIME_ID_LENGTH) ||
+    !boundedNonEmptyString(value.connectionId, MAX_RUNTIME_ID_LENGTH) ||
+    !boundedNonEmptyString(value.adapterId, MAX_RUNTIME_ID_LENGTH) ||
+    !boundedNonEmptyString(value.modelId, MAX_RUNTIME_ID_LENGTH) ||
+    typeof value.backendFingerprint !== "string" ||
+    !SHA256_DIGEST.test(value.backendFingerprint) ||
+    !Number.isSafeInteger(value.stateVersion) ||
+    (value.stateVersion as number) <= 0 ||
+    !boundedNonEmptyString(value.originTurnId, MAX_RUNTIME_ID_LENGTH) ||
+    !Number.isSafeInteger(value.continuationSequence) ||
+    (value.continuationSequence as number) <= 0 ||
+    (value.status !== "committed" && value.status !== "uncertain") ||
+    !Number.isSafeInteger(value.vendorTurnSequence) ||
+    (value.vendorTurnSequence as number) <= 0
+  ) {
+    return false;
+  }
+  if (value.storageClass === "process_scoped") {
+    return boundedNonEmptyString(value.ownerInstanceId, MAX_RUNTIME_ID_LENGTH) &&
+      (allowExpired
+        ? canonicalIso(value.expiresAt)
+        : canonicalExpiryAfterRecord(value.expiresAt, at));
+  }
+  return value.ownerInstanceId === undefined &&
+    (value.expiresAt === undefined ||
+      (allowExpired
+        ? canonicalIso(value.expiresAt)
+        : canonicalExpiryAfterRecord(value.expiresAt, at)));
+}
+
 function isModelMessage(value: unknown): boolean {
   if (!(isObject(value) &&
     hasExactKeys(
@@ -89,7 +241,7 @@ function isModelMessage(value: unknown): boolean {
     (value.toolCalls === undefined ||
       (Array.isArray(value.toolCalls) && value.toolCalls.every(isToolCall))) &&
     (value.providerStateHandle === undefined ||
-      isContinuationHandle(value.providerStateHandle)))) {
+      isDirectContinuationHandle(value.providerStateHandle)))) {
     return false;
   }
   if (value.role === "tool") {
@@ -196,6 +348,153 @@ function isRunResult(value: unknown): boolean {
     (value.evidenceSource === "host_tools" || value.evidenceSource === "runtime" ||
       value.evidenceSource === "independent_verification" ||
       value.evidenceSource === "none");
+}
+
+function isBoundedRuntimeRunResult(value: unknown): boolean {
+  if (!isRunResult(value) || !isObject(value)) {
+    return false;
+  }
+  return boundedString(value.finalText, MAX_RUNTIME_TEXT_LENGTH) &&
+    boundedStrings(value.changedFiles) &&
+    boundedStrings(value.evidence) &&
+    (value.usage === null
+      ? value.usageSource === "unavailable"
+      : value.usageSource === "runtime" && isSafeRuntimeUsage(value.usage));
+}
+
+function isSafeRuntimeUsage(value: unknown): boolean {
+  if (!isUsage(value) || !isObject(value)) {
+    return false;
+  }
+  return [
+    value.inputTokens,
+    value.outputTokens,
+    value.cachedInputTokens,
+    value.cacheWriteInputTokens,
+    value.reasoningTokens,
+  ].every((item) => item === undefined || Number.isSafeInteger(item));
+}
+
+const runtimeApprovalActions = new Set([
+  "read", "write", "shell", "network", "external_path", "sensitive",
+  "credential", "deploy", "unknown",
+]);
+const runtimeApprovalKinds = new Set([
+  "allow_once", "allow_always", "reject_once", "reject_always",
+]);
+
+function isRuntimeApprovalRequest(
+  value: unknown,
+): value is RuntimeApprovalRequest {
+  if (!(isObject(value) && hasExactKeys(
+    value,
+    ["requestId", "action", "resource", "risk", "summary", "options"],
+    ["details"],
+  ))) {
+    return false;
+  }
+  if (
+    !boundedNonEmptyString(value.requestId, MAX_RUNTIME_ID_LENGTH) ||
+    typeof value.action !== "string" ||
+    !runtimeApprovalActions.has(value.action) ||
+    !boundedNonEmptyString(value.resource, MAX_RUNTIME_ITEM_LENGTH) ||
+    (value.risk !== "normal" && value.risk !== "elevated" &&
+      value.risk !== "destructive") ||
+    !boundedString(value.summary, MAX_RUNTIME_ITEM_LENGTH) ||
+    !Array.isArray(value.options) || value.options.length === 0 ||
+    value.options.length > MAX_RUNTIME_APPROVAL_OPTIONS
+  ) {
+    return false;
+  }
+  const optionIds = new Set<string>();
+  for (const option of value.options) {
+    if (!(isObject(option) && hasExactKeys(
+      option,
+      ["optionId", "name", "kind"],
+    )) ||
+      !boundedNonEmptyString(option.optionId, MAX_RUNTIME_ID_LENGTH) ||
+      !boundedNonEmptyString(option.name, MAX_RUNTIME_ITEM_LENGTH) ||
+      typeof option.kind !== "string" ||
+      !runtimeApprovalKinds.has(option.kind) ||
+      optionIds.has(option.optionId)) {
+      return false;
+    }
+    optionIds.add(option.optionId);
+  }
+  return value.details === undefined ||
+    (isObject(value.details) && isBoundedJsonValue(
+      value.details,
+      { nodes: 0, characters: 0 },
+    ));
+}
+
+function isRuntimeApprovalDecision(
+  value: unknown,
+): value is RuntimeApprovalDecision {
+  return isObject(value) &&
+    (value.outcome === "cancelled"
+      ? hasExactKeys(value, ["outcome"])
+      : value.outcome === "selected" &&
+        hasExactKeys(value, ["outcome", "optionId"]) &&
+        boundedNonEmptyString(value.optionId, MAX_RUNTIME_ID_LENGTH));
+}
+
+function validRuntimeApprovalResolution(
+  request: unknown,
+  decision: unknown,
+  scope: unknown,
+  provenance: unknown,
+): boolean {
+  if (
+    !isRuntimeApprovalRequest(request) ||
+    !isRuntimeApprovalDecision(decision) ||
+    (provenance !== "user" && provenance !== "policy" &&
+      provenance !== "signal")
+  ) {
+    return false;
+  }
+  if (decision.outcome === "cancelled") {
+    return scope === "cancel" && provenance !== "policy";
+  }
+  if (provenance === "signal") {
+    return false;
+  }
+  const selected = request.options.find(
+    (option) => option.optionId === decision.optionId,
+  );
+  if (selected === undefined) {
+    return false;
+  }
+  const expectedScope = selected.kind === "allow_once"
+    ? "allow_once"
+    : selected.kind === "allow_always"
+      ? "allow_session"
+      : "deny";
+  return scope === expectedScope;
+}
+
+function isRuntimeCompletionProvenance(value: unknown): boolean {
+  return isObject(value) && hasExactKeys(value, [
+    "adapterId", "connectionId", "modelId", "backendFingerprint",
+    "capabilityProfileRevision",
+  ]) &&
+    boundedNonEmptyString(value.adapterId, MAX_RUNTIME_ID_LENGTH) &&
+    boundedNonEmptyString(value.connectionId, MAX_RUNTIME_ID_LENGTH) &&
+    boundedNonEmptyString(value.modelId, MAX_RUNTIME_ID_LENGTH) &&
+    typeof value.backendFingerprint === "string" &&
+    SHA256_DIGEST.test(value.backendFingerprint) &&
+    boundedNonEmptyString(
+      value.capabilityProfileRevision,
+      MAX_RUNTIME_ID_LENGTH,
+    );
+}
+
+function isCommittedVersionOf(
+  uncertain: RuntimeContinuationHandle,
+  active: RuntimeContinuationHandle,
+): boolean {
+  return uncertain.status === "uncertain" && active.status === "committed" &&
+    isDeepStrictEqual({ ...uncertain, status: "committed" }, active);
 }
 
 function isGoal(value: unknown): boolean {
@@ -323,6 +622,61 @@ export function parseSessionRecordV2(
         typeof value.turnId === "string" &&
         typeof value.prompt === "string";
       break;
+    case "runtime_continuation_updated":
+      valid = recordKeys(value, ["turnId", "continuation"]) && canonicalIso(value.at) &&
+        boundedNonEmptyString(value.turnId, MAX_RUNTIME_ID_LENGTH) &&
+        isRuntimeContinuationHandle(value.continuation, value.at) &&
+        value.continuation.status === "uncertain";
+      break;
+    case "runtime_approval_resolved":
+      valid = recordKeys(value, [
+        "turnId", "request", "decision", "scope", "provenance",
+      ]) && canonicalIso(value.at) &&
+        boundedNonEmptyString(value.turnId, MAX_RUNTIME_ID_LENGTH) &&
+        validRuntimeApprovalResolution(
+          value.request,
+          value.decision,
+          value.scope,
+          value.provenance,
+        );
+      break;
+    case "runtime_completed":
+      valid = recordKeys(
+        value,
+        ["turnId", "result", "stopReason", "provenance"],
+        ["continuation"],
+      ) && canonicalIso(value.at) &&
+        boundedNonEmptyString(value.turnId, MAX_RUNTIME_ID_LENGTH) &&
+        isBoundedRuntimeRunResult(value.result) &&
+        (value.stopReason === "complete" || value.stopReason === "length") &&
+        isRuntimeCompletionProvenance(value.provenance) &&
+        (value.continuation === undefined ||
+          (isRuntimeContinuationHandle(value.continuation, value.at) &&
+            value.continuation.status === "committed"));
+      break;
+    case "runtime_continuation_reconciled":
+      valid = recordKeys(value, [
+        "operationId", "uncertainHandle", "outcome", "activeHandle",
+      ]) && canonicalIso(value.at) &&
+        boundedNonEmptyString(value.operationId, MAX_RUNTIME_ID_LENGTH) &&
+        isRuntimeContinuationHandle(
+          value.uncertainHandle,
+          value.at,
+          value.outcome === "gone",
+        ) &&
+        value.uncertainHandle.status === "uncertain" &&
+        (value.outcome === "committed" || value.outcome === "gone") &&
+        (value.activeHandle === null ||
+          (isRuntimeContinuationHandle(
+            value.activeHandle,
+            value.at,
+            value.outcome === "gone",
+          ) &&
+            value.activeHandle.status === "committed")) &&
+        (value.outcome !== "committed" ||
+          (value.activeHandle !== null &&
+            isCommittedVersionOf(value.uncertainHandle, value.activeHandle)));
+      break;
     case "model_completed":
       valid = recordKeys(value, ["turnId", "message", "usage", "stopReason"]) &&
         typeof value.turnId === "string" && isModelMessage(value.message) &&
@@ -388,10 +742,19 @@ export function parseSessionRecordV2(
         typeof value.turnId === "string" && isRunResult(value.result);
       break;
     case "turn_failed":
-      valid = recordKeys(value, ["turnId", "error"]) &&
-        typeof value.turnId === "string" && isIntegrationFailure(value.error);
+      valid = recordKeys(value, ["turnId", "error"], ["continuation"]) &&
+        typeof value.turnId === "string" && isIntegrationFailure(value.error) &&
+        (value.continuation === undefined ||
+          (isRuntimeContinuationHandle(value.continuation, value.at) &&
+            value.continuation.status === "uncertain"));
       break;
     case "turn_cancelled":
+      valid = recordKeys(value, ["turnId", "reason"], ["continuation"]) &&
+        typeof value.turnId === "string" && typeof value.reason === "string" &&
+        (value.continuation === undefined ||
+          (isRuntimeContinuationHandle(value.continuation, value.at) &&
+            value.continuation.status === "uncertain"));
+      break;
     case "turn_interrupted":
       valid = recordKeys(value, ["turnId", "reason"]) &&
         typeof value.turnId === "string" && typeof value.reason === "string";

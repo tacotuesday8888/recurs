@@ -278,6 +278,10 @@ async function emitPersistedEvent(
         });
         return;
       case "session_created":
+      case "runtime_continuation_updated":
+      case "runtime_approval_resolved":
+      case "runtime_completed":
+      case "runtime_continuation_reconciled":
       case "compaction_started":
       case "session_compacted":
       case "compaction_failed":
