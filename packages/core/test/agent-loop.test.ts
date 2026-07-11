@@ -1043,9 +1043,16 @@ describe("AgentLoop", () => {
     ]);
     const { loop, store, events } = await harness(provider, [tool]);
 
-    await expect(
-      loop.run({ sessionId: "s1", prompt: "loop", maxSteps: 20 }),
-    ).rejects.toMatchObject({ code: "stuck_loop" });
+    let thrown: unknown;
+    try {
+      await loop.run({ sessionId: "s1", prompt: "loop", maxSteps: 20 });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      code: "stuck_loop",
+      message: "Repeated tool interaction detected",
+    });
 
     const terminalEvents = events.filter((event) => event.type === "turn_failed");
     const terminalRecords = (await store.load("s1")).records.filter(
