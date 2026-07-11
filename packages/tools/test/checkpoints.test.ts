@@ -1,8 +1,10 @@
 import { execFile } from "node:child_process";
 import {
   mkdir,
+  lstat,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   symlink,
   writeFile,
@@ -45,6 +47,67 @@ afterEach(async () => {
 });
 
 describe("FileCheckpointStore", () => {
+  it("never reads or stores a tracked credential file", async () => {
+    await writeFile(path.join(cwd, ".env"), "CHECKPOINT_CANARY=never-store\n");
+    await execFileAsync("git", ["add", "--force", ".env"], { cwd });
+
+    const checkpoint = await store.captureBefore("s1", "call-1", cwd);
+    const storedFiles = await allStoredFileText(dataDirectory);
+
+    expect(checkpoint.before).not.toHaveProperty(".env");
+    expect(storedFiles).not.toContain("CHECKPOINT_CANARY");
+  });
+
+  it("rejects a nonempty unversioned legacy store without mutating it", async () => {
+    await mkdir(path.join(dataDirectory, "sessions", "s1"), { recursive: true });
+    const legacy = path.join(dataDirectory, "sessions", "s1", "legacy.json");
+    await writeFile(legacy, "LEGACY_CHECKPOINT_CANARY\n");
+
+    await expect(store.initialize()).rejects.toMatchObject({
+      code: "checkpoint_migration_required",
+    });
+    expect(await readFile(legacy, "utf8")).toBe("LEGACY_CHECKPOINT_CANARY\n");
+  });
+
+  it("rejects an orphan blob in an unversioned store", async () => {
+    await mkdir(path.join(dataDirectory, "blobs"), { recursive: true });
+    const orphan = path.join(dataDirectory, "blobs", "a".repeat(64));
+    await writeFile(orphan, "ORPHAN_CHECKPOINT_CANARY\n");
+
+    await expect(store.initialize()).rejects.toMatchObject({
+      code: "checkpoint_migration_required",
+    });
+    expect(await readFile(orphan, "utf8")).toBe("ORPHAN_CHECKPOINT_CANARY\n");
+  });
+
+  it("converges concurrent initialization on one valid format marker", async () => {
+    const first = new FileCheckpointStore(dataDirectory);
+    const second = new FileCheckpointStore(dataDirectory);
+
+    await Promise.all([first.initialize(), second.initialize()]);
+
+    expect(await readdir(dataDirectory)).toEqual([".format.json"]);
+    expect(JSON.parse(await readFile(path.join(dataDirectory, ".format.json"), "utf8")))
+      .toEqual({ version: 2, credentialPathsExcluded: true });
+    expect((await lstat(path.join(dataDirectory, ".format.json"))).mode & 0o777)
+      .toBe(0o600);
+  });
+
+  it("rejects a symlinked format marker", async () => {
+    const outsideMarker = path.join(root, "outside-format.json");
+    await mkdir(dataDirectory);
+    await writeFile(
+      outsideMarker,
+      `${JSON.stringify({ version: 2, credentialPathsExcluded: true })}\n`,
+    );
+    await symlink(outsideMarker, path.join(dataDirectory, ".format.json"));
+
+    await expect(store.initialize()).rejects.toMatchObject({
+      code: "checkpoint_migration_required",
+    });
+    expect(await readFile(outsideMarker, "utf8")).toContain('"version":2');
+  });
+
   it("restores modified/deleted files and deletes files created by the agent", async () => {
     const checkpoint = await store.captureBefore("s1", "call-1", cwd);
     await writeFile(path.join(cwd, "a.txt"), "agent a\n", "utf8");
@@ -212,3 +275,16 @@ describe("FileCheckpointStore", () => {
     expect(await readFile(path.join(cwd, "a.txt"), "utf8")).toBe("before a\n");
   });
 });
+
+async function allStoredFileText(directory: string): Promise<string> {
+  let output = "";
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const target = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      output += await allStoredFileText(target);
+    } else if (entry.isFile()) {
+      output += await readFile(target, "utf8");
+    }
+  }
+  return output;
+}

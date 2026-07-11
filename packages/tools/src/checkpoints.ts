@@ -14,8 +14,16 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
+import { isCredentialPath } from "./path-policy.js";
 import { runProcess } from "./process.js";
 import { ToolError } from "./types.js";
+
+const CHECKPOINT_FORMAT_FILE = ".format.json";
+const CHECKPOINT_FORMAT = {
+  version: 2,
+  credentialPathsExcluded: true,
+} as const;
+const FORMAT_INITIALIZATION_ATTEMPTS = 20;
 
 export interface WorkspaceManifestEntry {
   sha256: string;
@@ -69,6 +77,39 @@ function isMissing(error: unknown): boolean {
     "code" in error &&
     error.code === "ENOENT"
   );
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "EEXIST"
+  );
+}
+
+function migrationRequired(): ToolError {
+  return new ToolError(
+    "checkpoint_migration_required",
+    "Legacy checkpoint storage must be reset before it can be used safely",
+  );
+}
+
+function validCheckpointFormat(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === 2 &&
+    "version" in value &&
+    value.version === CHECKPOINT_FORMAT.version &&
+    "credentialPathsExcluded" in value &&
+    value.credentialPathsExcluded === CHECKPOINT_FORMAT.credentialPathsExcluded
+  );
+}
+
+async function initializationDelay(): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, 5));
 }
 
 function isWithin(root: string, candidate: string): boolean {
@@ -285,8 +326,91 @@ function parseStoredCheckpoint(value: unknown): StoredCheckpoint {
 }
 
 export class FileCheckpointStore extends CheckpointStore {
+  #initialization: Promise<void> | undefined;
+
   constructor(private readonly dataDirectory: string) {
     super();
+  }
+
+  initialize(): Promise<void> {
+    this.#initialization ??= this.#initialize();
+    return this.#initialization;
+  }
+
+  async #initialize(): Promise<void> {
+    await mkdir(this.dataDirectory, { recursive: true, mode: 0o700 });
+    const directoryStats = await lstat(this.dataDirectory);
+    if (!directoryStats.isDirectory() || directoryStats.isSymbolicLink()) {
+      throw migrationRequired();
+    }
+
+    const marker = path.join(this.dataDirectory, CHECKPOINT_FORMAT_FILE);
+    for (
+      let attempt = 0;
+      attempt < FORMAT_INITIALIZATION_ATTEMPTS;
+      attempt += 1
+    ) {
+      try {
+        const markerStats = await lstat(marker);
+        if (
+          !markerStats.isFile() ||
+          markerStats.isSymbolicLink() ||
+          (markerStats.mode & 0o077) !== 0
+        ) {
+          throw migrationRequired();
+        }
+        try {
+          const value: unknown = JSON.parse(await readFile(marker, "utf8"));
+          if (validCheckpointFormat(value)) {
+            return;
+          }
+        } catch (error) {
+          if (error instanceof ToolError) {
+            throw error;
+          }
+        }
+        if (attempt + 1 < FORMAT_INITIALIZATION_ATTEMPTS) {
+          await initializationDelay();
+          continue;
+        }
+        throw migrationRequired();
+      } catch (error) {
+        if (!isMissing(error)) {
+          throw error;
+        }
+      }
+
+      const entries = await readdir(this.dataDirectory);
+      if (entries.length > 0) {
+        if (
+          entries.length === 1 &&
+          entries[0] === CHECKPOINT_FORMAT_FILE &&
+          attempt + 1 < FORMAT_INITIALIZATION_ATTEMPTS
+        ) {
+          await initializationDelay();
+          continue;
+        }
+        throw migrationRequired();
+      }
+
+      let handle;
+      try {
+        handle = await open(marker, "wx", 0o600);
+        await handle.writeFile(`${JSON.stringify(CHECKPOINT_FORMAT)}\n`, "utf8");
+        await handle.sync();
+        return;
+      } catch (error) {
+        if (!isAlreadyExists(error)) {
+          throw error;
+        }
+        if (attempt + 1 < FORMAT_INITIALIZATION_ATTEMPTS) {
+          await initializationDelay();
+        }
+      } finally {
+        await handle?.close();
+      }
+    }
+    throw migrationRequired();
   }
 
   #sessionDirectory(sessionId: string): string {
@@ -361,7 +485,10 @@ export class FileCheckpointStore extends CheckpointStore {
       ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
       { cwd, maxOutputBytes: 16 * 1024 * 1024 },
     );
-    const files = listed.stdout.split("\0").filter((file) => file.length > 0);
+    const files = listed.stdout
+      .split("\0")
+      .filter((file) => file.length > 0)
+      .filter((file) => !isCredentialPath(file));
     const manifest = Object.create(null) as WorkspaceManifest;
     for (const file of files) {
       const content = await readWorkspaceContent(cwd, file);
@@ -409,6 +536,7 @@ export class FileCheckpointStore extends CheckpointStore {
     cwd: string,
   ): Promise<Checkpoint> {
     await this.#assertStorageLocation(cwd);
+    await this.initialize();
     const stored: StoredCheckpoint = {
       id: randomUUID(),
       sessionId,
@@ -425,6 +553,7 @@ export class FileCheckpointStore extends CheckpointStore {
     cwd: string,
   ): Promise<Checkpoint> {
     await this.#assertStorageLocation(cwd);
+    await this.initialize();
     const stored = await this.#readCheckpoint(
       this.#checkpointFile(checkpoint.sessionId, checkpoint.id),
     );
@@ -487,6 +616,7 @@ export class FileCheckpointStore extends CheckpointStore {
     cwd: string,
   ): Promise<{ restored: string[]; deleted: string[] }> {
     await this.#assertStorageLocation(cwd);
+    await this.initialize();
     const checkpoint = await this.#latest(sessionId);
     const after = checkpoint.after;
     if (after === undefined) {

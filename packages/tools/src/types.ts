@@ -74,6 +74,7 @@ export type ToolErrorCode =
   | "patch_files_mismatch"
   | "patch_failed"
   | "checkpoint_storage"
+  | "checkpoint_migration_required"
   | "checkpoint_not_found"
   | "checkpoint_conflict"
   | "checkpoint_corrupt";
