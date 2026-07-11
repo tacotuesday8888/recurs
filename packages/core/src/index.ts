@@ -1,4 +1,5 @@
 export * from "./agent-loop.js";
+export * from "./backend-authorization.js";
 export * from "./compaction.js";
 export * from "./compatibility-coordinator.js";
 export * from "./direct-model-executor.js";
@@ -8,6 +9,7 @@ export * from "./jsonl-session-store.js";
 export * from "./loop-detector.js";
 export * from "./run-coordinator.js";
 export * from "./runtime.js";
+export * from "./runtime-continuation-store.js";
 export * from "./session.js";
 export * from "./session-v2.js";
 export * from "./workspace-shell.js";

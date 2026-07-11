@@ -2,6 +2,12 @@ import { mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import type {
+  BackendResolver,
+  SessionBackendPin,
+  TrustedRunContext,
+} from "@recurs/contracts";
+import { verifyRunAuthorization } from "@recurs/core";
 import { ScriptedProvider } from "@recurs/providers";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -125,6 +131,65 @@ describe("standalone assembly without a provider", () => {
       objective: "inspect safely",
       progress: "done",
     });
+  });
+
+  it("issues canonical authorizations accepted for reordered pinned data", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-auth-assembly-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        provider: new ScriptedProvider([], "canonical-provider"),
+      },
+    );
+    if (runtime.session.backend.type !== "pinned") {
+      throw new Error("Expected a pinned test session");
+    }
+    const pin = runtime.session.backend.pin;
+    const reorderedPin = Object.fromEntries(
+      Object.entries(pin).reverse(),
+    ) as unknown as SessionBackendPin;
+    reorderedPin.billingSelectionAtCreation = Object.fromEntries(
+      Object.entries(pin.billingSelectionAtCreation).reverse(),
+    ) as unknown as SessionBackendPin["billingSelectionAtCreation"];
+    const context: TrustedRunContext = {
+      embedding: "cli",
+      automation: "manual",
+      location: "local",
+      presence: "present",
+      invocation: "repl",
+    };
+    const dependencies = Reflect.get(runtime, "dependencies") as {
+      coordinator: { dependencies: { resolver: BackendResolver } };
+    };
+    const startedAt = new Date();
+    const resolved = await dependencies.coordinator.dependencies.resolver.resolve({
+      operation: "run",
+      operationId: "operation-canonical",
+      sessionId: runtime.session.id,
+      turnId: "turn-canonical",
+      pin,
+      context,
+      signal: new AbortController().signal,
+    });
+
+    expect(() => verifyRunAuthorization(resolved.authorization, {
+      id: resolved.authorization.id,
+      operation: "run",
+      sessionId: runtime.session.id,
+      operationId: "operation-canonical",
+      turnId: "turn-canonical",
+      pin: reorderedPin,
+      connectionRevision: 1,
+      policyRevision: pin.policyRevisionAtCreation,
+      context,
+      maxRequests: 40,
+      expiresAt: resolved.authorization.expiresAt,
+    }, startedAt)).not.toThrow();
   });
 
   it("composes a provider runtime with no model tools when tools are disabled", async () => {

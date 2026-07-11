@@ -11,6 +11,7 @@ import {
   AgentLoopDirectExecutor,
   BackendRunCoordinator,
   JsonlSessionStore,
+  bindRunAuthorization,
   createWorkspaceShell,
   type EventSink,
 } from "@recurs/core";
@@ -235,30 +236,19 @@ export async function createStandaloneRuntime(
           return {
             kind: "direct",
             pin: input.pin,
-            authorization: {
-              kind: "run",
+            authorization: bindRunAuthorization({
               id: randomUUID(),
               operation: input.operation,
               sessionId: input.sessionId,
               operationId: input.operationId,
               turnId: input.turnId,
-              connectionId: input.pin.connectionId,
-              modelId: input.pin.modelId,
-              backendFingerprint: createHash("sha256")
-                .update(JSON.stringify(input.pin))
-                .digest("hex"),
+              pin: input.pin,
               connectionRevision: 1,
               policyRevision: input.pin.policyRevisionAtCreation,
-              billingMode: input.pin.billingSelectionAtCreation.mode,
-              billingSelectionDigest: createHash("sha256")
-                .update(JSON.stringify(input.pin.billingSelectionAtCreation))
-                .digest("hex"),
-              contextDigest: createHash("sha256")
-                .update(JSON.stringify(input.context))
-                .digest("hex"),
+              context: input.context,
               maxRequests: 40,
               expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-            },
+            }),
             async createProvider() {
               return backend.createProvider();
             },

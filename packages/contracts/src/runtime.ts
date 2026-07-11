@@ -45,58 +45,128 @@ export function deriveTrustedRunContext(
 }
 
 export interface RunAuthorization {
-  kind: "run";
-  id: string;
-  operation: "run" | "compact" | "runtime_reconcile";
-  sessionId: string;
-  operationId: string;
-  turnId: string | null;
-  connectionId: string;
-  modelId: string;
-  backendFingerprint: string;
-  connectionRevision: number;
-  policyRevision: string;
-  billingMode: BillingSelectionMode;
-  billingSelectionDigest: string;
-  contextDigest: string;
-  maxRequests: number;
-  expiresAt: string;
+  readonly kind: "run";
+  readonly id: string;
+  readonly operation: "run" | "compact" | "runtime_reconcile";
+  readonly sessionId: string;
+  readonly operationId: string;
+  readonly turnId: string | null;
+  readonly connectionId: string;
+  readonly modelId: string;
+  readonly backendFingerprint: string;
+  readonly connectionRevision: number;
+  readonly policyRevision: string;
+  readonly billingMode: BillingSelectionMode;
+  readonly billingSelectionDigest: string;
+  readonly contextDigest: string;
+  readonly maxRequests: number;
+  readonly expiresAt: string;
 }
 
 export interface RuntimeContinuationHandle {
-  kind: "runtime";
-  id: string;
-  storageClass: "persistent_broker" | "process_scoped";
-  ownerInstanceId?: string;
-  expiresAt?: string;
-  recursSessionId: string;
-  connectionId: string;
-  adapterId: string;
-  modelId: string;
-  backendFingerprint: string;
-  stateVersion: number;
-  originTurnId: string;
-  continuationSequence: number;
-  status: "committed" | "uncertain";
-  vendorTurnSequence: number;
+  readonly kind: "runtime";
+  readonly id: string;
+  readonly storageClass: "persistent_broker" | "process_scoped";
+  readonly ownerInstanceId?: string;
+  readonly expiresAt?: string;
+  readonly recursSessionId: string;
+  readonly connectionId: string;
+  readonly adapterId: string;
+  readonly modelId: string;
+  readonly backendFingerprint: string;
+  readonly stateVersion: number;
+  readonly originTurnId: string;
+  readonly continuationSequence: number;
+  readonly status: "committed" | "uncertain";
+  readonly vendorTurnSequence: number;
+}
+
+export interface ContinuationWriteCapability {
+  readonly id: string;
+  readonly expiresAt: string;
+}
+
+export interface ContinuationReadCapability {
+  readonly id: string;
+  readonly expiresAt: string;
+}
+
+export interface RuntimeContinuationWriterRequest {
+  readonly authorization: RunAuthorization;
+  readonly pin: SessionBackendPin & { readonly kind: "agent_runtime" };
+  readonly expectedSessionRecordSequence: number;
+  readonly previous: RuntimeContinuationHandle | null;
+  readonly stateVersion: number;
+}
+
+export interface RuntimeContinuationReaderRequest {
+  readonly authorization: RunAuthorization;
+  readonly pin: SessionBackendPin & { readonly kind: "agent_runtime" };
+  readonly expectedSessionRecordSequence: number;
+  readonly purpose: "run" | "reconcile";
+  readonly activeHandles: readonly RuntimeContinuationHandle[];
+}
+
+export interface RuntimeContinuationAuthority {
+  readonly ownerInstanceId: string;
+  mintWriter(
+    input: RuntimeContinuationWriterRequest,
+  ): Promise<ContinuationWriteCapability>;
+  mintReader(
+    input: RuntimeContinuationReaderRequest,
+  ): Promise<ContinuationReadCapability>;
+  commit(input: {
+    readonly authorization: RunAuthorization;
+    readonly handle: RuntimeContinuationHandle;
+  }): Promise<RuntimeContinuationHandle>;
+  discard(input: {
+    readonly authorization: RunAuthorization;
+    readonly handle: RuntimeContinuationHandle;
+  }): Promise<void>;
+  release(
+    capability: ContinuationReadCapability | ContinuationWriteCapability,
+  ): Promise<void>;
+}
+
+export interface RuntimeContinuationStore {
+  put(input: {
+    readonly writer: ContinuationWriteCapability;
+    readonly payload: Uint8Array;
+  }): Promise<RuntimeContinuationHandle>;
+  load(input: {
+    readonly reader: ContinuationReadCapability;
+    readonly handle: RuntimeContinuationHandle;
+  }): Promise<Uint8Array>;
 }
 
 export interface AgentRunRequest {
-  sessionId: string;
-  turnId: string;
-  prompt: string;
-  cwd: string;
-  modelId: string;
-  executionMode: "act" | "plan";
-  permissionMode: "ask_always" | "approved_for_me" | "full_access";
-  authorization: RunAuthorization;
-  continuation: RuntimeContinuationHandle | null;
-  signal: AbortSignal;
+  readonly sessionId: string;
+  readonly turnId: string;
+  readonly prompt: string;
+  readonly cwd: string;
+  readonly modelId: string;
+  readonly executionMode: "act" | "plan";
+  readonly permissionMode: "ask_always" | "approved_for_me" | "full_access";
+  readonly authorization: RunAuthorization;
+  readonly continuationReader: ContinuationReadCapability | null;
+  readonly continuationWriter: ContinuationWriteCapability;
+  readonly continuation: RuntimeContinuationHandle | null;
+  readonly signal: AbortSignal;
+}
+
+export interface RuntimeApprovalOption {
+  readonly optionId: string;
+  readonly name: string;
+  readonly kind:
+    | "allow_once"
+    | "allow_always"
+    | "reject_once"
+    | "reject_always";
 }
 
 export interface RuntimeApprovalRequest {
-  requestId: string;
-  action:
+  readonly requestId: string;
+  readonly action:
     | "read"
     | "write"
     | "shell"
@@ -106,38 +176,94 @@ export interface RuntimeApprovalRequest {
     | "credential"
     | "deploy"
     | "unknown";
-  resource: string;
-  risk: "normal" | "elevated" | "destructive";
-  summary: string;
-  details?: Readonly<Record<string, JsonValue>>;
+  readonly resource: string;
+  readonly risk: "normal" | "elevated" | "destructive";
+  readonly summary: string;
+  readonly options: readonly RuntimeApprovalOption[];
+  readonly details?: Readonly<Record<string, JsonValue>>;
 }
 
 export type RuntimeApprovalDecision =
-  | "allow_once"
-  | "allow_session"
-  | "deny"
-  | "cancel";
+  | { readonly outcome: "selected"; readonly optionId: string }
+  | { readonly outcome: "cancelled" };
 
 export interface AgentRuntimeHost {
   requestApproval(request: RuntimeApprovalRequest): Promise<RuntimeApprovalDecision>;
   executeTool(call: ToolCall, signal: AbortSignal): Promise<{ output: string }>;
 }
 
+export interface RuntimeCapabilities {
+  readonly resume: boolean;
+  readonly cancellation: "protocol" | "os_containment" | "unsupported";
+  readonly fileEvents: boolean;
+  readonly usageEvents: boolean;
+  readonly supportedPermissionModes: readonly (
+    | "ask_always"
+    | "approved_for_me"
+    | "full_access"
+  )[];
+  readonly approvalControl: "host" | "recurs_policy_bridge" | "none";
+  readonly planMode: "enforced" | "advisory" | "unsupported";
+  readonly toolExecution: "host_tools" | "recurs_os_containment" | "opaque";
+  readonly checkpointing: "host_tools" | "turn_snapshot" | "none";
+  readonly containmentProfileId?: string;
+}
+
+export interface RuntimeActivity {
+  readonly id: string;
+  readonly kind: "tool" | "command" | "file_change" | "subagent" | "other";
+  readonly name: string;
+  readonly status: "started" | "running" | "completed" | "failed" | "declined";
+  readonly summary?: string;
+}
+
 export type AgentRuntimeEvent =
+  | {
+      readonly type: "continuation_updated";
+      readonly continuation: RuntimeContinuationHandle;
+    }
   | { type: "text_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
-  | { type: "usage"; usage: ProviderUsage }
-  | { type: "done"; finalText: string; stopReason: "complete" | "length" }
-  | { type: "cancelled"; reason: string }
-  | { type: "failed"; failure: IntegrationFailure };
+  | { readonly type: "activity"; readonly activity: RuntimeActivity }
+  | { readonly type: "files_changed"; readonly paths: readonly string[] }
+  | { readonly type: "evidence"; readonly items: readonly string[] }
+  | { readonly type: "usage"; readonly usage: ProviderUsage }
+  | {
+      readonly type: "done";
+      readonly finalText: string;
+      readonly stopReason: "complete" | "length";
+      readonly continuation?: RuntimeContinuationHandle;
+    }
+  | {
+      readonly type: "cancelled";
+      readonly reason: string;
+      readonly continuation?: RuntimeContinuationHandle;
+    }
+  | {
+      readonly type: "failed";
+      readonly failure: IntegrationFailure;
+      readonly continuation?: RuntimeContinuationHandle;
+    };
 
 export interface AgentRuntime {
   readonly adapterId: string;
   readonly connectionId: string;
+  readonly capabilities: RuntimeCapabilities;
+  readonly capabilityProfileRevision: string;
   run(
     request: AgentRunRequest,
     host: AgentRuntimeHost,
   ): AsyncIterable<AgentRuntimeEvent>;
+  reconcile(input: {
+    readonly continuation: RuntimeContinuationHandle;
+    readonly reader: ContinuationReadCapability;
+    readonly authorization: RunAuthorization & {
+      readonly operation: "runtime_reconcile";
+      readonly turnId: null;
+    };
+    readonly expectedSessionRecordSequence: number;
+    readonly signal: AbortSignal;
+  }): Promise<"committed" | "uncertain" | "gone">;
 }
 
 export interface RunResult {
