@@ -550,7 +550,7 @@ function isBackendPin(value: unknown): value is SessionBackendPin {
   if (!isObject(value)) {
     return false;
   }
-  return hasExactKeys(value, [
+  const required = [
     "kind",
     "providerId",
     "adapterId",
@@ -564,7 +564,11 @@ function isBackendPin(value: unknown): value is SessionBackendPin {
     "primaryBillingSourceAtCreation",
     "billingSelectionAtCreation",
     "accountSubjectFingerprint",
-  ]) &&
+  ];
+  if (value.kind === "agent_runtime") {
+    required.push("runtimeCapabilityProfileRevisionAtCreation");
+  }
+  return hasExactKeys(value, required) &&
     (value.kind === "model_provider" || value.kind === "agent_runtime") &&
     typeof value.providerId === "string" &&
     typeof value.adapterId === "string" &&
@@ -581,7 +585,13 @@ function isBackendPin(value: unknown): value is SessionBackendPin {
     typeof value.primaryBillingSourceAtCreation === "string" &&
     billingSources.has(value.primaryBillingSourceAtCreation) &&
     isBillingSelection(value.billingSelectionAtCreation) &&
-    typeof value.accountSubjectFingerprint === "string";
+    typeof value.accountSubjectFingerprint === "string" &&
+    (value.kind === "agent_runtime"
+      ? boundedNonEmptyString(
+          value.runtimeCapabilityProfileRevisionAtCreation,
+          MAX_RUNTIME_ID_LENGTH,
+        )
+      : value.runtimeCapabilityProfileRevisionAtCreation === undefined);
 }
 
 const base = ["version", "sessionId", "sequence", "at", "type"] as const;
@@ -745,14 +755,14 @@ export function parseSessionRecordV2(
       valid = recordKeys(value, ["turnId", "error"], ["continuation"]) &&
         typeof value.turnId === "string" && isIntegrationFailure(value.error) &&
         (value.continuation === undefined ||
-          (isRuntimeContinuationHandle(value.continuation, value.at) &&
+          (isRuntimeContinuationHandle(value.continuation, value.at, true) &&
             value.continuation.status === "uncertain"));
       break;
     case "turn_cancelled":
       valid = recordKeys(value, ["turnId", "reason"], ["continuation"]) &&
         typeof value.turnId === "string" && typeof value.reason === "string" &&
         (value.continuation === undefined ||
-          (isRuntimeContinuationHandle(value.continuation, value.at) &&
+          (isRuntimeContinuationHandle(value.continuation, value.at, true) &&
             value.continuation.status === "uncertain"));
       break;
     case "turn_interrupted":

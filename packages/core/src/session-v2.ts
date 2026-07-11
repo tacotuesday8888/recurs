@@ -528,7 +528,9 @@ export function reduceSessionRecordV2(
         record.provenance.adapterId !== pin.adapterId ||
         record.provenance.connectionId !== pin.connectionId ||
         record.provenance.modelId !== pin.modelId ||
-        record.provenance.backendFingerprint !== createBackendFingerprint(pin)
+        record.provenance.backendFingerprint !== createBackendFingerprint(pin) ||
+        record.provenance.capabilityProfileRevision !==
+          pin.runtimeCapabilityProfileRevisionAtCreation
       ) {
         throw new Error("Runtime completion provenance does not match the session");
       }

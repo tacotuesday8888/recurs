@@ -333,6 +333,7 @@ describe("BackendRunCoordinator", () => {
     const runtimePin: SessionBackendPin = {
       ...pin,
       kind: "agent_runtime",
+      runtimeCapabilityProfileRevisionAtCreation: "capabilities-v1",
       providerId: "official-runtime",
       adapterId: "official-runtime-v1",
       connectionId: "runtime-connection",

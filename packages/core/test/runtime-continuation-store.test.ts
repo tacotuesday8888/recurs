@@ -12,6 +12,7 @@ import {
 
 const pin: SessionBackendPin = {
   kind: "agent_runtime",
+  runtimeCapabilityProfileRevisionAtCreation: "capabilities-v1",
   providerId: "agent",
   adapterId: "agent-v1",
   connectionId: "connection-1",

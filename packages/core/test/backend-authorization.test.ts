@@ -22,6 +22,7 @@ const expiresAt = "2026-07-11T00:01:00.000Z";
 
 const pin: SessionBackendPin = {
   kind: "agent_runtime",
+  runtimeCapabilityProfileRevisionAtCreation: "capabilities-v1",
   providerId: "official-agent",
   adapterId: "official-agent-v1",
   connectionId: "connection-1",
@@ -92,6 +93,8 @@ describe("backend authorization binding", () => {
       adapterId: pin.adapterId,
       providerId: pin.providerId,
       kind: pin.kind,
+      runtimeCapabilityProfileRevisionAtCreation:
+        pin.runtimeCapabilityProfileRevisionAtCreation,
     } satisfies SessionBackendPin;
     const reorderedContext = {
       embedding: context.embedding,
@@ -110,6 +113,10 @@ describe("backend authorization binding", () => {
     expect(createBackendFingerprint({ ...pin, modelId: "model-2" })).not.toBe(
       createBackendFingerprint(pin),
     );
+    expect(createBackendFingerprint({
+      ...pin,
+      runtimeCapabilityProfileRevisionAtCreation: "capabilities-v2",
+    })).not.toBe(createBackendFingerprint(pin));
     expect(createBillingSelectionDigest({
       ...pin.billingSelectionAtCreation,
       mode: "provider_default",

@@ -39,12 +39,16 @@ const runtimeBackend: SessionBackendPin & { kind: "agent_runtime" } = {
     acknowledgedAt: at,
   },
   accountSubjectFingerprint: "test-account",
+  runtimeCapabilityProfileRevisionAtCreation: "capabilities-v1",
 };
 
-const directBackend: SessionBackendPin = {
-  ...runtimeBackend,
-  kind: "model_provider",
-};
+function asDirectBackend(): SessionBackendPin {
+  const direct: SessionBackendPin = { ...runtimeBackend, kind: "model_provider" };
+  delete direct.runtimeCapabilityProfileRevisionAtCreation;
+  return direct;
+}
+
+const directBackend = asDirectBackend();
 
 const result: RunResult = {
   finalText: "delegated result",
@@ -123,6 +127,53 @@ afterEach(async () => {
 });
 
 describe("delegated runtime session records", () => {
+  it("requires a bounded capability profile only on delegated backend pins", async () => {
+    const validStore = await temporaryStore();
+    await expect(
+      validStore.createPinnedSession({
+        id: "valid-runtime-profile",
+        cwd: "/workspace",
+        backend: {
+          ...runtimeBackend,
+          runtimeCapabilityProfileRevisionAtCreation: "capabilities-v1",
+        },
+        at,
+      }),
+    ).resolves.toMatchObject({ backend: { type: "pinned" } });
+
+    const missingStore = await temporaryStore();
+    const missingProfileBackend: SessionBackendPin = { ...runtimeBackend };
+    delete missingProfileBackend.runtimeCapabilityProfileRevisionAtCreation;
+    await expect(
+      missingStore.createPinnedSession({
+        id: "missing-runtime-profile",
+        cwd: "/workspace",
+        backend: missingProfileBackend,
+        at,
+      }),
+    ).rejects.toMatchObject({ code: "invalid_record" });
+
+    for (const [id, backend] of [
+      ["empty-runtime-profile", {
+        ...runtimeBackend,
+        runtimeCapabilityProfileRevisionAtCreation: "",
+      }],
+      ["oversized-runtime-profile", {
+        ...runtimeBackend,
+        runtimeCapabilityProfileRevisionAtCreation: "x".repeat(10_000),
+      }],
+      ["direct-runtime-profile", {
+        ...directBackend,
+        runtimeCapabilityProfileRevisionAtCreation: "capabilities-v1",
+      }],
+    ] as const) {
+      const store = await temporaryStore();
+      await expect(
+        store.createPinnedSession({ id, cwd: "/workspace", backend, at }),
+      ).rejects.toMatchObject({ code: "invalid_record" });
+    }
+  });
+
   it("replays one completed runtime result with exact approval and continuation provenance", async () => {
     const store = await temporaryStore();
     await createRuntimeSession(store);
@@ -272,6 +323,30 @@ describe("delegated runtime session records", () => {
       inputTokens: 0,
       outputTokens: 0,
     });
+  });
+
+  it("rejects runtime completion from a different capability profile", async () => {
+    const store = await temporaryStore();
+    await createRuntimeSession(store);
+    await expect(
+      store.withSessionMutation("runtime-session", 0, async (lease) => {
+        await lease.append({ type: "turn_started", turnId: "turn-1", prompt: "inspect", at });
+        await lease.append({
+          type: "runtime_completed",
+          turnId: "turn-1",
+          result,
+          stopReason: "complete",
+          provenance: {
+            adapterId: runtimeBackend.adapterId,
+            connectionId: runtimeBackend.connectionId,
+            modelId: runtimeBackend.modelId,
+            backendFingerprint: createBackendFingerprint(runtimeBackend),
+            capabilityProfileRevision: "capabilities-v2",
+          },
+          at,
+        });
+      }),
+    ).rejects.toThrow("provenance does not match");
   });
 
   it("rejects runtime usage aggregation outside the safe numeric range", async () => {
@@ -661,6 +736,38 @@ describe("delegated runtime session records", () => {
             : { type: terminal, turnId: "turn-1", reason: "cancelled", at });
         }),
       ).rejects.toThrow("must preserve the uncertain tip");
+    }
+  });
+
+  it("persists exact failure and cancellation tips after process expiry", async () => {
+    for (const terminal of ["turn_failed", "turn_cancelled"] as const) {
+      const store = await temporaryStore();
+      const id = `expired-${terminal}`;
+      await createRuntimeSession(store, id);
+      const uncertain = continuation({ recursSessionId: id });
+      await store.withSessionMutation(id, 0, async (lease) => {
+        await lease.append({ type: "turn_started", turnId: "turn-1", prompt: "inspect", at });
+        await lease.append({ type: "runtime_continuation_updated", turnId: "turn-1", continuation: uncertain, at });
+        await lease.append(terminal === "turn_failed"
+          ? {
+              type: terminal,
+              turnId: "turn-1",
+              error: failure,
+              continuation: uncertain,
+              at: "2026-07-10T02:00:00.000Z",
+            }
+          : {
+              type: terminal,
+              turnId: "turn-1",
+              reason: "cancelled",
+              continuation: uncertain,
+              at: "2026-07-10T02:00:00.000Z",
+            });
+      });
+      expect(await store.loadState(id)).toMatchObject({
+        openTurnId: null,
+        runtimeContinuation: uncertain,
+      });
     }
   });
 
