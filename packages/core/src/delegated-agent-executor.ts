@@ -115,6 +115,37 @@ interface TerminalFailed {
 
 type RuntimeTerminal = TerminalDone | TerminalCancelled | TerminalFailed;
 
+const approvalAborted = Symbol("approval-aborted");
+
+async function raceAgainstAbort<T>(
+  operation: () => Promise<T>,
+  signal: AbortSignal,
+): Promise<T | typeof approvalAborted> {
+  if (signal.aborted) {
+    return approvalAborted;
+  }
+  return await new Promise<T | typeof approvalAborted>((resolve, reject) => {
+    let settled = false;
+    const finish = (result: () => void): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      result();
+    };
+    const onAbort = (): void => finish(() => resolve(approvalAborted));
+    signal.addEventListener("abort", onAbort, { once: true });
+    const pending: Promise<T | typeof approvalAborted> = (async () =>
+      signal.aborted ? approvalAborted : await operation()
+    )();
+    void pending.then(
+      (value) => finish(() => resolve(value)),
+      (error: unknown) => finish(() => reject(error)),
+    );
+  });
+}
+
 class SerialQueue {
   #tail: Promise<void> = Promise.resolve();
 
@@ -185,13 +216,14 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
         prompt: input.prompt,
       }));
       started = true;
-      await this.dependencies.emit({
+      await this.#emitPresentation({
         type: "turn_started",
         sessionId: startedRecord.sessionId,
         at: startedRecord.at,
         turnId: input.turnId,
         prompt: input.prompt,
       });
+      this.#throwIfAborted(input.signal, diagnosticId);
 
       let terminal: RuntimeTerminal | null = null;
       let protocolInvalid = false;
@@ -223,7 +255,12 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
         executionState,
         input.signal,
       );
-      const hostArtifacts: HostArtifacts = { changedFiles, evidence };
+      const hostArtifacts: HostArtifacts = {
+        changedFiles,
+        evidence,
+        changedFilesContributed: false,
+        evidenceContributed: false,
+      };
       const requestApproval = (rawRequest: RuntimeApprovalRequest) => {
         const pending = queue.run(async () => {
           this.#assertRuntimeStable(
@@ -355,7 +392,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
                     protocolInvalid = true;
                     return;
                   }
-                  await this.dependencies.emit({
+                  await this.#emitPresentation({
                     type: "model_text_delta",
                     sessionId: input.session.id,
                     turnId: input.turnId,
@@ -375,7 +412,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
                     protocolInvalid = true;
                     return;
                   }
-                  await this.dependencies.emit({
+                  await this.#emitPresentation({
                     type: "model_reasoning_delta",
                     sessionId: input.session.id,
                     turnId: input.turnId,
@@ -400,19 +437,21 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
                 case "files_changed":
                   if (!capabilities.fileEvents ||
                     !exactKeys(raw, ["type", "paths"]) ||
+                    !Array.isArray(raw.paths) ||
                     !addUniqueBounded(changedFiles, raw.paths, this.#limits)) {
                     protocolInvalid = true;
                     return;
                   }
-                  runtimeFileEventSeen = true;
+                  runtimeFileEventSeen ||= raw.paths.length > 0;
                   return;
                 case "evidence":
                   if (!exactKeys(raw, ["type", "items"]) ||
+                    !Array.isArray(raw.items) ||
                     !addUniqueBounded(evidence, raw.items, this.#limits)) {
                     protocolInvalid = true;
                     return;
                   }
-                  runtimeEvidenceSeen = true;
+                  runtimeEvidenceSeen ||= raw.items.length > 0;
                   return;
                 case "activity": {
                   if (!exactKeys(raw, ["type", "activity"]) ||
@@ -511,6 +550,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
         iteratorError = error;
       }
       await queue.drain();
+      this.#throwIfAborted(input.signal, diagnosticId);
       this.#assertRuntimeStable(
         input.runtime,
         capabilities,
@@ -536,6 +576,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
           protocolInvalid = true;
         }
       }
+      this.#throwIfAborted(input.signal, diagnosticId);
 
       const completedTerminal = terminal as RuntimeTerminal | null;
       if (protocolInvalid) {
@@ -576,6 +617,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
 
       let committed: RuntimeContinuationHandle | undefined;
       if (uncertain !== null) {
+        this.#throwIfAborted(input.signal, diagnosticId);
         const candidate = await this.dependencies.continuationAuthority.commit({
           authorization: input.authorization,
           handle: uncertain,
@@ -596,13 +638,17 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
         usageSource: usage === null ? "unavailable" : "runtime",
         steps: null,
         changedFiles,
-        changedFilesSource: runtimeFileEventSeen ? "runtime" : "host_tools",
+        changedFilesSource: artifactSource(
+          changedFiles.length,
+          runtimeFileEventSeen,
+          hostArtifacts.changedFilesContributed,
+        ),
         evidence,
-        evidenceSource: evidence.length === 0
-          ? "none"
-          : runtimeEvidenceSeen
-            ? "runtime"
-            : "host_tools",
+        evidenceSource: artifactSource(
+          evidence.length,
+          runtimeEvidenceSeen,
+          hostArtifacts.evidenceContributed,
+        ),
       });
       await queue.run(() => input.mutation.append({
         type: "runtime_completed",
@@ -627,7 +673,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
       }));
       closed = true;
       try {
-        await this.dependencies.emit({
+        await this.#emitPresentation({
           type: "turn_completed",
           sessionId: input.session.id,
           at: completed.at,
@@ -719,7 +765,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
                 ...(uncertain === null ? {} : { continuation: uncertain }),
               }));
           closed = true;
-          await this.dependencies.emit(failure.code === "cancelled"
+          await this.#emitPresentation(failure.code === "cancelled"
             ? {
                 type: "turn_cancelled",
                 sessionId: input.session.id,
@@ -855,28 +901,30 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
       this.#runtimeApprovalGrants.set(input.session.id, grants);
     }
 
-    let resolution: RuntimeApprovalResolution | null = null;
-    const cached = request.options.filter((option) =>
-      option.kind === "allow_once" &&
-      grants.has(runtimeGrantKey(request, option.optionId))
-    );
-    if (cached.length === 1) {
-      resolution = {
-        decision: { outcome: "selected", optionId: cached[0]!.optionId },
-        scope: "allow_session",
-        provenance: "policy",
-      };
-    }
+    let resolution: RuntimeApprovalResolution | null = input.signal.aborted
+      ? cancelledResolution("signal")
+      : null;
+    if (resolution === null) {
+      const cached = request.options.filter((option) =>
+        option.kind === "allow_once" &&
+        grants.has(runtimeGrantKey(request, option.optionId))
+      );
+      if (cached.length === 1) {
+        resolution = {
+          decision: { outcome: "selected", optionId: cached[0]!.optionId },
+          scope: "allow_session",
+          provenance: "policy",
+        };
+      }
 
-    const intent = runtimePermissionIntent(request);
-    const policy = permissions.evaluate(intent);
-    if (resolution === null && policy === "allow") {
-      resolution = exactPolicyResolution(request, "allow_once", "allow_once");
-    }
-    if (resolution === null && policy === "deny") {
-      resolution = exactPolicyResolution(request, "reject_once", "deny");
-      if (resolution === null) {
-        throw new RuntimeProtocolError();
+      const intent = runtimePermissionIntent(request);
+      const policy = permissions.evaluate(intent);
+      if (resolution === null && policy === "allow") {
+        resolution = exactPolicyResolution(request, "allow_once", "allow_once");
+      }
+      if (resolution === null && policy === "deny") {
+        resolution = exactPolicyResolution(request, "reject_once", "deny") ??
+          cancelledResolution("policy");
       }
     }
 
@@ -886,7 +934,10 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
       } else {
         let handled: unknown;
         try {
-          handled = await this.dependencies.runtimeApprovals.request(request);
+          handled = await raceAgainstAbort(
+            () => this.dependencies.runtimeApprovals.request(request),
+            input.signal,
+          );
         } catch (error) {
           if (input.signal.aborted) {
             resolution = cancelledResolution("signal");
@@ -895,7 +946,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
           }
         }
         if (resolution === null) {
-          if (input.signal.aborted) {
+          if (input.signal.aborted || handled === approvalAborted) {
             resolution = cancelledResolution("signal");
           } else {
             const candidate = validHandlerResolution(handled);
@@ -917,6 +968,10 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
           }
         }
       }
+    }
+
+    if (input.signal.aborted) {
+      resolution = cancelledResolution("signal");
     }
 
     await input.mutation.append({
@@ -957,7 +1012,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
       ? input.signal
       : AbortSignal.any([input.signal, runtimeSignal]);
     const context: ToolContext = { ...baseContext, signal };
-    await this.dependencies.emit({
+    await this.#emitPresentation({
       type: "tool_requested",
       sessionId: input.session.id,
       at: this.#timestamp(),
@@ -969,7 +1024,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
       at: this.#timestamp(),
       call,
     });
-    await this.dependencies.emit({
+    await this.#emitPresentation({
       type: "tool_started",
       sessionId: input.session.id,
       at: started.at,
@@ -982,17 +1037,22 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
     try {
       const approvals: ApprovalHandler = {
         request: async (intent) => {
-          await this.dependencies.emit({
+          await this.#emitPresentation({
             type: "permission_requested",
             sessionId: input.session.id,
             at: this.#timestamp(),
             intent,
           });
-          const candidate = await this.dependencies.approvals.request(intent);
-          const decision = candidate === "allow_once" ||
-              candidate === "allow_session" || candidate === "deny"
-            ? candidate
-            : "deny";
+          const candidate = await raceAgainstAbort(
+            () => this.dependencies.approvals.request(intent),
+            signal,
+          );
+          const decision = signal.aborted || candidate === approvalAborted
+            ? "deny"
+            : candidate === "allow_once" || candidate === "allow_session" ||
+                candidate === "deny"
+              ? candidate
+              : "deny";
           const persisted = await input.mutation.append({
             type: "permission_resolved",
             turnId: input.turnId,
@@ -1000,7 +1060,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
             intent,
             decision,
           });
-          await this.dependencies.emit({
+          await this.#emitPresentation({
             type: "permission_resolved",
             sessionId: input.session.id,
             at: persisted.at,
@@ -1036,6 +1096,8 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
       }
       resultChangedFiles = changedFiles;
       resultEvidence = evidence;
+      artifacts.changedFilesContributed ||= changedFiles.length > 0;
+      artifacts.evidenceContributed ||= evidence.length > 0;
     } catch (error) {
       const normalized = safeToolFailure(error, diagnosticId);
       const failed = await input.mutation.append({
@@ -1045,7 +1107,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
         callId: call.id,
         error: normalized.failure,
       });
-      await this.dependencies.emit({
+      await this.#emitPresentation({
         type: "tool_failed",
         sessionId: input.session.id,
         at: failed.at,
@@ -1073,7 +1135,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
       callId: call.id,
       result,
     });
-    await this.dependencies.emit({
+    await this.#emitPresentation({
       type: "tool_completed",
       sessionId: input.session.id,
       at: completed.at,
@@ -1087,7 +1149,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
         at: this.#timestamp(),
         paths: resultChangedFiles,
       });
-      await this.dependencies.emit({
+      await this.#emitPresentation({
         type: "files_changed",
         sessionId: input.session.id,
         at: files.at,
@@ -1101,7 +1163,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
         at: this.#timestamp(),
         evidence: resultEvidence,
       });
-      await this.dependencies.emit({
+      await this.#emitPresentation({
         type: "verification_recorded",
         sessionId: input.session.id,
         at: verification.at,
@@ -1121,6 +1183,24 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
       !isDeepStrictEqual(runtime.capabilities, capabilities)
     ) {
       throw new RuntimeProtocolError();
+    }
+  }
+
+  #throwIfAborted(signal: AbortSignal, diagnosticId: string): void {
+    if (signal.aborted) {
+      throw startedFailure(
+        "cancelled",
+        "The delegated runtime turn was cancelled",
+        diagnosticId,
+      );
+    }
+  }
+
+  async #emitPresentation(event: RecursEvent): Promise<void> {
+    try {
+      await this.dependencies.emit(event);
+    } catch {
+      // Session records, not presentation sinks, are authoritative.
     }
   }
 
@@ -1173,4 +1253,24 @@ function isIntegrationFailure(value: unknown): value is IntegrationFailure {
     typeof value.safeMessage === "string" &&
     typeof value.diagnosticId === "string" &&
     typeof value.retryable === "boolean";
+}
+
+function artifactSource(
+  itemCount: number,
+  runtimeContributed: boolean,
+  hostContributed: boolean,
+): "runtime" | "host_tools" | "mixed" | "none" {
+  if (itemCount === 0) {
+    return "none";
+  }
+  if (runtimeContributed && hostContributed) {
+    return "mixed";
+  }
+  if (runtimeContributed) {
+    return "runtime";
+  }
+  if (hostContributed) {
+    return "host_tools";
+  }
+  throw new RuntimeProtocolError();
 }

@@ -126,6 +126,68 @@ interface JsonBudget {
   readonly seen: WeakSet<object>;
 }
 
+function plainJsonEntries(
+  value: object,
+  maximumItems: number,
+): readonly (readonly [string, unknown])[] | null {
+  try {
+    if (Object.getPrototypeOf(value) !== Object.prototype) {
+      return null;
+    }
+    const keys = Reflect.ownKeys(value);
+    if (keys.length > maximumItems ||
+      keys.some((key) => typeof key !== "string")) {
+      return null;
+    }
+    const entries: [string, unknown][] = [];
+    for (const key of keys as string[]) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined || !descriptor.enumerable ||
+        !("value" in descriptor)) {
+        return null;
+      }
+      entries.push([key, descriptor.value]);
+    }
+    return entries;
+  } catch {
+    return null;
+  }
+}
+
+function plainJsonArrayItems(
+  value: readonly unknown[],
+  maximumItems: number,
+): readonly unknown[] | null {
+  try {
+    if (Object.getPrototypeOf(value) !== Array.prototype ||
+      value.length > maximumItems) {
+      return null;
+    }
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== value.length + 1 ||
+      keys.some((key) => typeof key !== "string")) {
+      return null;
+    }
+    const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+    if (lengthDescriptor === undefined || !("value" in lengthDescriptor) ||
+      lengthDescriptor.value !== value.length) {
+      return null;
+    }
+    const items: unknown[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (descriptor === undefined || !descriptor.enumerable ||
+        !("value" in descriptor)) {
+        return null;
+      }
+      items.push(descriptor.value);
+    }
+    return items;
+  } catch {
+    return null;
+  }
+}
+
 function boundedJsonValue(
   value: unknown,
   limits: Readonly<DelegatedAgentExecutorLimits>,
@@ -141,7 +203,7 @@ function boundedJsonValue(
     return true;
   }
   if (typeof value === "number") {
-    return Number.isFinite(value);
+    return Number.isFinite(value) && !Object.is(value, -0);
   }
   if (typeof value === "string") {
     budget.bytes += utf8Bytes(value);
@@ -153,12 +215,13 @@ function boundedJsonValue(
   }
   budget.seen.add(value);
   if (Array.isArray(value)) {
-    return value.length <= limits.maxDistinctItems && value.every((item) =>
+    const items = plainJsonArrayItems(value, limits.maxDistinctItems);
+    return items !== null && items.every((item) =>
       boundedJsonValue(item, limits, budget, depth + 1)
     );
   }
-  const entries = Object.entries(value);
-  if (entries.length > limits.maxDistinctItems) {
+  const entries = plainJsonEntries(value, limits.maxDistinctItems);
+  if (entries === null) {
     return false;
   }
   for (const [key, item] of entries) {
@@ -297,6 +360,8 @@ export function boundedMetadataStrings(
 export interface HostArtifacts {
   readonly changedFiles: string[];
   readonly evidence: string[];
+  changedFilesContributed: boolean;
+  evidenceContributed: boolean;
 }
 
 export function preflightFailure(

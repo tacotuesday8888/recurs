@@ -113,6 +113,7 @@ type ExecutorOverrides = Partial<Pick<
   | "tools"
   | "approvals"
   | "runtimeApprovals"
+  | "emit"
   | "limits"
 >>;
 
@@ -142,6 +143,7 @@ async function fixture(overrides: ExecutorOverrides = {}) {
     },
     async emit(event) {
       emitted.push(event);
+      await overrides.emit?.(event);
     },
     createToolContext(state, signal) {
       return {
@@ -231,6 +233,22 @@ function toolRegistry(
   return registry;
 }
 
+async function settleWithin<T>(promise: Promise<T>, milliseconds = 250): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("operation timed out")), milliseconds);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 describe("DelegatedAgentExecutor", () => {
   it("persists a fragmented runtime turn and reloads its exact committed result", async () => {
     const { sessions, session, continuations, executor, emitted } = await fixture();
@@ -292,7 +310,7 @@ describe("DelegatedAgentExecutor", () => {
       usageSource: "runtime",
       steps: null,
       changedFiles: [],
-      changedFilesSource: "host_tools",
+      changedFilesSource: "none",
       evidence: [],
       evidenceSource: "none",
     });
@@ -1919,5 +1937,450 @@ describe("DelegatedAgentExecutor", () => {
     expect(output).not.toContain(canary);
     expect(JSON.stringify((await sessions.load(session.id)).records))
       .not.toContain(canary);
+  });
+
+  it("accepts only serialization-stable plain JSON in runtime approvals", async () => {
+    let accessorReads = 0;
+    const malformedDetails: readonly [string, () => object][] = [
+      ["Date", () => ({ value: new Date("2026-07-11T00:00:00.000Z") })],
+      ["Map", () => ({ value: new Map([["key", "value"]]) })],
+      ["custom prototype", () => ({ value: Object.assign(Object.create({ inherited: true }), { own: true }) })],
+      ["sparse array", () => ({ value: Array(1) })],
+      ["undefined", () => ({ value: undefined })],
+      ["accessor", () => {
+        const value = {};
+        Object.defineProperty(value, "secret", {
+          enumerable: true,
+          get() {
+            accessorReads += 1;
+            return "must-not-be-read";
+          },
+        });
+        return { value };
+      }],
+      ["symbol property", () => ({ value: { visible: true, [Symbol("lost")]: true } })],
+      ["bigint", () => ({ value: 1n })],
+      ["non-finite number", () => ({ value: Number.POSITIVE_INFINITY })],
+      ["negative zero", () => ({ value: -0 })],
+      ["non-enumerable property", () => {
+        const value = { visible: true };
+        Object.defineProperty(value, "lost", { value: true, enumerable: false });
+        return { value };
+      }],
+      ["array property", () => {
+        const value = ["item"] as string[] & { extra?: string };
+        value.extra = "lost";
+        return { value };
+      }],
+      ["cycle", () => {
+        const value: { self?: unknown } = {};
+        value.self = value;
+        return { value };
+      }],
+    ];
+
+    for (const [name, createDetails] of malformedDetails) {
+      const { sessions, session, executor } = await fixture();
+      const runtime = scriptedRuntime(async function* (_run, host) {
+        await host.requestApproval!({
+          ...approvalRequest(),
+          requestId: `malformed-${name}`,
+          details: createDetails() as never,
+        });
+        yield { type: "done", finalText: "must fail", stopReason: "complete" };
+      });
+      await expect(sessions.withSessionMutation(session.id, 0, (mutation) =>
+        executor.run({
+          session,
+          turnId: `turn-malformed-json-${name}`,
+          prompt: "inspect",
+          executionMode: "act",
+          runtime,
+          authorization: authorization(session.id, `turn-malformed-json-${name}`),
+          context,
+          mutation,
+          signal: new AbortController().signal,
+        })
+      ), name).rejects.toMatchObject({ code: "invalid_response", phase: "started" });
+      expect((await sessions.load(session.id)).records.some(
+        (record) => record.type === "runtime_approval_resolved",
+      )).toBe(false);
+    }
+    expect(accessorReads).toBe(0);
+  });
+
+  it("reloads a plain JSON approval request exactly as persisted", async () => {
+    const request = approvalRequest({
+      details: {
+        argv: ["npm", "test"],
+        environment: { ci: true, retries: 2, note: null },
+      },
+    });
+    const { sessions, session, executor } = await fixture({
+      runtimeApprovals: {
+        async request() {
+          return {
+            decision: { outcome: "selected", optionId: "allow-exact" },
+            scope: "allow_once",
+          };
+        },
+      },
+    });
+    const runtime = scriptedRuntime(async function* (_run, host) {
+      await host.requestApproval!(request);
+      yield { type: "done", finalText: "persisted", stopReason: "complete" };
+    });
+    await sessions.withSessionMutation(session.id, 0, (mutation) => executor.run({
+      session,
+      turnId: "turn-plain-json",
+      prompt: "inspect",
+      executionMode: "act",
+      runtime,
+      authorization: authorization(session.id, "turn-plain-json"),
+      context,
+      mutation,
+      signal: new AbortController().signal,
+    }));
+    const approval = (await sessions.load(session.id)).records.find(
+      (record) => record.type === "runtime_approval_resolved",
+    );
+    expect(approval?.type).toBe("runtime_approval_resolved");
+    if (approval?.type === "runtime_approval_resolved") {
+      expect(approval.request).toEqual(request);
+      expect(JSON.parse(JSON.stringify(approval.request))).toEqual(request);
+    }
+  });
+
+  it("returns a policy cancellation when deny has no unique reject_once option", async () => {
+    let decision: unknown;
+    let handlerCalls = 0;
+    const { sessions, session, executor } = await fixture({
+      runtimeApprovals: {
+        async request() {
+          handlerCalls += 1;
+          return { decision: { outcome: "cancelled" }, scope: "cancel" };
+        },
+      },
+    });
+    const runtime = scriptedRuntime(async function* (_run, host) {
+      decision = await host.requestApproval!(approvalRequest({
+        action: "credential",
+        resource: "credential-store",
+        options: [
+          { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+          { optionId: "reject-always", name: "Always reject", kind: "reject_always" },
+        ],
+      }));
+      yield { type: "done", finalText: "declined safely", stopReason: "complete" };
+    });
+    await expect(sessions.withSessionMutation(session.id, 0, (mutation) =>
+      executor.run({
+        session,
+        turnId: "turn-policy-no-reject-once",
+        prompt: "inspect",
+        executionMode: "act",
+        runtime,
+        authorization: authorization(session.id, "turn-policy-no-reject-once"),
+        context,
+        mutation,
+        signal: new AbortController().signal,
+      })
+    )).resolves.toMatchObject({ finalText: "declined safely" });
+    expect(handlerCalls).toBe(0);
+    expect(decision).toEqual({ outcome: "cancelled" });
+    expect((await sessions.load(session.id)).records).toContainEqual(
+      expect.objectContaining({
+        type: "runtime_approval_resolved",
+        decision: { outcome: "cancelled" },
+        scope: "cancel",
+        provenance: "policy",
+      }),
+    );
+  });
+
+  it("lets abort dominate a cached grant and a later done terminal", async () => {
+    const controller = new AbortController();
+    let handlerCalls = 0;
+    const decisions: unknown[] = [];
+    const { sessions, session, executor } = await fixture({
+      runtimeApprovals: {
+        async request() {
+          handlerCalls += 1;
+          return {
+            decision: { outcome: "selected", optionId: "cache-allow" },
+            scope: "allow_session",
+          };
+        },
+      },
+    });
+    const base = approvalRequest({
+      requestId: "cache-1",
+      options: [{ optionId: "cache-allow", name: "Allow", kind: "allow_once" }],
+    });
+    const runtime = scriptedRuntime(async function* (_run, host) {
+      decisions.push(await host.requestApproval!(base));
+      controller.abort();
+      decisions.push(await host.requestApproval!({ ...base, requestId: "cache-2" }));
+      yield { type: "done", finalText: "must not commit", stopReason: "complete" };
+    });
+    await expect(sessions.withSessionMutation(session.id, 0, (mutation) =>
+      executor.run({
+        session,
+        turnId: "turn-abort-cached",
+        prompt: "inspect",
+        executionMode: "act",
+        runtime,
+        authorization: authorization(session.id, "turn-abort-cached"),
+        context,
+        mutation,
+        signal: controller.signal,
+      })
+    )).rejects.toMatchObject({ code: "cancelled", phase: "started" });
+    expect(handlerCalls).toBe(1);
+    expect(decisions).toEqual([
+      { outcome: "selected", optionId: "cache-allow" },
+      { outcome: "cancelled" },
+    ]);
+    const records = (await sessions.load(session.id)).records;
+    expect(records).toContainEqual(expect.objectContaining({
+      type: "runtime_approval_resolved",
+      request: expect.objectContaining({ requestId: "cache-2" }),
+      decision: { outcome: "cancelled" },
+      provenance: "signal",
+    }));
+    expect(records.some((record) => record.type === "runtime_completed" ||
+      record.type === "turn_completed")).toBe(false);
+    expect(records.at(-1)?.type).toBe("turn_cancelled");
+  });
+
+  it("cancels a never-settling exact approval UI without leaking its late rejection", async () => {
+    const controller = new AbortController();
+    let rejectLate: ((reason: unknown) => void) | undefined;
+    let decision: unknown;
+    const { sessions, session, executor } = await fixture({
+      runtimeApprovals: {
+        async request() {
+          queueMicrotask(() => controller.abort());
+          return await new Promise((_resolve, reject) => {
+            rejectLate = reject;
+          });
+        },
+      },
+    });
+    const runtime = scriptedRuntime(async function* (_run, host) {
+      decision = await host.requestApproval!(approvalRequest());
+      yield { type: "done", finalText: "must not complete", stopReason: "complete" };
+    });
+    const run = sessions.withSessionMutation(session.id, 0, (mutation) =>
+      executor.run({
+        session,
+        turnId: "turn-hanging-runtime-approval",
+        prompt: "inspect",
+        executionMode: "act",
+        runtime,
+        authorization: authorization(session.id, "turn-hanging-runtime-approval"),
+        context,
+        mutation,
+        signal: controller.signal,
+      })
+    );
+    await expect(settleWithin(run)).rejects.toMatchObject({
+      code: "cancelled",
+      phase: "started",
+    });
+    rejectLate?.(new Error("late sensitive UI failure"));
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(decision).toEqual({ outcome: "cancelled" });
+    expect((await sessions.load(session.id)).records).toContainEqual(
+      expect.objectContaining({
+        type: "runtime_approval_resolved",
+        provenance: "signal",
+        decision: { outcome: "cancelled" },
+      }),
+    );
+  });
+
+  it("cancels a never-settling ordinary tool approval and closes the pending tool", async () => {
+    const controller = new AbortController();
+    const tool: Tool<Record<string, unknown>> = {
+      definition: { name: "needs_approval", description: "Ask", inputSchema: { type: "object" } },
+      executionClass: "in_process",
+      mutating: false,
+      parse(input) { return input as Record<string, unknown>; },
+      permissions() {
+        return [{ category: "write", resource: "src/file.ts", risk: "elevated" }];
+      },
+      async execute() { return { output: "must not execute" }; },
+    };
+    const { sessions, session, executor } = await fixture({
+      tools: toolRegistry(tool),
+      approvals: {
+        async request() {
+          queueMicrotask(() => controller.abort());
+          return await new Promise(() => undefined);
+        },
+      },
+    });
+    const runtime = scriptedRuntime(async function* (_run, host) {
+      try {
+        await host.executeTool!({
+          id: "hanging-tool-approval",
+          name: "needs_approval",
+          arguments: {},
+        }, controller.signal);
+      } catch {
+        // The host cancellation is reflected by the runtime terminal.
+      }
+      yield { type: "done", finalText: "must not complete", stopReason: "complete" };
+    });
+    const run = sessions.withSessionMutation(session.id, 0, (mutation) =>
+      executor.run({
+        session,
+        turnId: "turn-hanging-tool-approval",
+        prompt: "inspect",
+        executionMode: "act",
+        runtime,
+        authorization: authorization(session.id, "turn-hanging-tool-approval"),
+        context,
+        mutation,
+        signal: controller.signal,
+      })
+    );
+    await expect(settleWithin(run)).rejects.toMatchObject({
+      code: "cancelled",
+      phase: "started",
+    });
+    expect((await sessions.load(session.id)).records.map((record) => record.type))
+      .toEqual([
+        "session_created",
+        "turn_started",
+        "tool_started",
+        "permission_resolved",
+        "tool_failed",
+        "turn_cancelled",
+      ]);
+  });
+
+  it("reports mixed runtime and host artifacts without crediting empty events", async () => {
+    const tool: Tool<Record<string, unknown>> = {
+      definition: { name: "artifacts", description: "Artifacts", inputSchema: { type: "object" } },
+      executionClass: "in_process",
+      mutating: false,
+      parse(input) { return input as Record<string, unknown>; },
+      permissions() { return []; },
+      async execute() {
+        return {
+          output: "host artifacts",
+          metadata: { changedFiles: ["host.ts"], evidence: ["host evidence"] },
+        };
+      },
+    };
+    const { sessions, session, executor } = await fixture({ tools: toolRegistry(tool) });
+    const runtime = scriptedRuntime(async function* (_run, host) {
+      await host.executeTool!({ id: "artifact-call", name: "artifacts", arguments: {} },
+        new AbortController().signal);
+      yield { type: "files_changed", paths: [] };
+      yield { type: "evidence", items: [] };
+      yield { type: "files_changed", paths: ["runtime.ts"] };
+      yield { type: "evidence", items: ["runtime evidence"] };
+      yield { type: "done", finalText: "mixed", stopReason: "complete" };
+    });
+    const result = await sessions.withSessionMutation(session.id, 0, (mutation) =>
+      executor.run({
+        session,
+        turnId: "turn-mixed-artifacts",
+        prompt: "inspect",
+        executionMode: "act",
+        runtime,
+        authorization: authorization(session.id, "turn-mixed-artifacts"),
+        context,
+        mutation,
+        signal: new AbortController().signal,
+      })
+    );
+    expect(result).toMatchObject({
+      changedFiles: ["host.ts", "runtime.ts"],
+      changedFilesSource: "mixed",
+      evidence: ["host evidence", "runtime evidence"],
+      evidenceSource: "mixed",
+    });
+
+    const reloaded = await sessions.load(session.id);
+    expect(reloaded.records).toContainEqual(expect.objectContaining({
+      type: "runtime_completed",
+      result: expect.objectContaining({
+        changedFilesSource: "mixed",
+        evidenceSource: "mixed",
+      }),
+    }));
+  });
+
+  it("uses none when empty runtime artifact events contribute nothing", async () => {
+    const { sessions, session, executor } = await fixture();
+    const runtime = scriptedRuntime(async function* () {
+      yield { type: "files_changed", paths: [] };
+      yield { type: "evidence", items: [] };
+      yield { type: "done", finalText: "empty", stopReason: "complete" };
+    });
+    await expect(sessions.withSessionMutation(session.id, 0, (mutation) =>
+      executor.run({
+        session,
+        turnId: "turn-empty-artifacts",
+        prompt: "inspect",
+        executionMode: "act",
+        runtime,
+        authorization: authorization(session.id, "turn-empty-artifacts"),
+        context,
+        mutation,
+        signal: new AbortController().signal,
+      })
+    )).resolves.toMatchObject({
+      changedFiles: [],
+      changedFilesSource: "none",
+      evidence: [],
+      evidenceSource: "none",
+    });
+  });
+
+  it("treats presentation sink failures after tool_started as non-authoritative", async () => {
+    const tool: Tool<Record<string, unknown>> = {
+      definition: { name: "sink_safe", description: "Sink safe", inputSchema: { type: "object" } },
+      executionClass: "in_process",
+      mutating: false,
+      parse(input) { return input as Record<string, unknown>; },
+      permissions() { return []; },
+      async execute() { return { output: "completed" }; },
+    };
+    const { sessions, session, executor } = await fixture({
+      tools: toolRegistry(tool),
+      async emit(event) {
+        if (event.type === "tool_started") {
+          throw new Error("presentation sink unavailable");
+        }
+      },
+    });
+    const runtime = scriptedRuntime(async function* (_run, host) {
+      await host.executeTool!({ id: "sink-call", name: "sink_safe", arguments: {} },
+        new AbortController().signal);
+      yield { type: "done", finalText: "durable", stopReason: "complete" };
+    });
+    await expect(sessions.withSessionMutation(session.id, 0, (mutation) =>
+      executor.run({
+        session,
+        turnId: "turn-sink-failure",
+        prompt: "inspect",
+        executionMode: "act",
+        runtime,
+        authorization: authorization(session.id, "turn-sink-failure"),
+        context,
+        mutation,
+        signal: new AbortController().signal,
+      })
+    )).resolves.toMatchObject({ finalText: "durable" });
+    const records = (await sessions.load(session.id)).records;
+    expect(records.filter((record) => record.type === "tool_started")).toHaveLength(1);
+    expect(records.filter((record) => record.type === "tool_completed")).toHaveLength(1);
+    expect(records.some((record) => record.type === "tool_failed")).toBe(false);
+    expect(records.at(-1)?.type).toBe("turn_completed");
   });
 });

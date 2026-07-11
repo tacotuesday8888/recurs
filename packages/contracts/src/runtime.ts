@@ -276,9 +276,14 @@ export interface RunResult {
   usageSource: "provider" | "runtime" | "unavailable";
   steps: number | null;
   changedFiles: readonly string[];
-  changedFilesSource: "host_tools" | "runtime" | "workspace_diff";
+  changedFilesSource: "host_tools" | "runtime" | "mixed" | "workspace_diff" | "none";
   evidence: readonly string[];
-  evidenceSource: "host_tools" | "runtime" | "independent_verification" | "none";
+  evidenceSource:
+    | "host_tools"
+    | "runtime"
+    | "mixed"
+    | "independent_verification"
+    | "none";
 }
 
 export type RunOutcome =

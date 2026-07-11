@@ -38,7 +38,7 @@ export function runtimePermissionIntent(
 }
 
 export function cancelledResolution(
-  provenance: "user" | "signal",
+  provenance: "user" | "policy" | "signal",
 ): RuntimeApprovalResolution {
   return {
     decision: { outcome: "cancelled" },

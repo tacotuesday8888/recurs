@@ -61,6 +61,69 @@ function boundedStrings(
 interface JsonBudget {
   nodes: number;
   characters: number;
+  readonly seen: WeakSet<object>;
+}
+
+function plainJsonEntries(
+  value: object,
+  maximumItems: number,
+): readonly (readonly [string, unknown])[] | null {
+  try {
+    if (Object.getPrototypeOf(value) !== Object.prototype) {
+      return null;
+    }
+    const keys = Reflect.ownKeys(value);
+    if (keys.length > maximumItems ||
+      keys.some((key) => typeof key !== "string")) {
+      return null;
+    }
+    const entries: [string, unknown][] = [];
+    for (const key of keys as string[]) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor === undefined || !descriptor.enumerable ||
+        !("value" in descriptor)) {
+        return null;
+      }
+      entries.push([key, descriptor.value]);
+    }
+    return entries;
+  } catch {
+    return null;
+  }
+}
+
+function plainJsonArrayItems(
+  value: readonly unknown[],
+  maximumItems: number,
+): readonly unknown[] | null {
+  try {
+    if (Object.getPrototypeOf(value) !== Array.prototype ||
+      value.length > maximumItems) {
+      return null;
+    }
+    const keys = Reflect.ownKeys(value);
+    if (keys.length !== value.length + 1 ||
+      keys.some((key) => typeof key !== "string")) {
+      return null;
+    }
+    const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+    if (lengthDescriptor === undefined || !("value" in lengthDescriptor) ||
+      lengthDescriptor.value !== value.length) {
+      return null;
+    }
+    const items: unknown[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (descriptor === undefined || !descriptor.enumerable ||
+        !("value" in descriptor)) {
+        return null;
+      }
+      items.push(descriptor.value);
+    }
+    return items;
+  } catch {
+    return null;
+  }
 }
 
 function isBoundedJsonValue(
@@ -76,22 +139,24 @@ function isBoundedJsonValue(
     return true;
   }
   if (typeof value === "number") {
-    return Number.isFinite(value);
+    return Number.isFinite(value) && !Object.is(value, -0);
   }
   if (typeof value === "string") {
     budget.characters += value.length;
     return value.length <= MAX_RUNTIME_ITEM_LENGTH &&
       budget.characters <= MAX_RUNTIME_JSON_CHARACTERS;
   }
-  if (Array.isArray(value)) {
-    return value.length <= MAX_RUNTIME_ITEMS &&
-      value.every((item) => isBoundedJsonValue(item, budget, depth + 1));
-  }
-  if (!isObject(value)) {
+  if (typeof value !== "object" || value === null || budget.seen.has(value)) {
     return false;
   }
-  const entries = Object.entries(value);
-  if (entries.length > MAX_RUNTIME_ITEMS) {
+  budget.seen.add(value);
+  if (Array.isArray(value)) {
+    const items = plainJsonArrayItems(value, MAX_RUNTIME_ITEMS);
+    return items !== null &&
+      items.every((item) => isBoundedJsonValue(item, budget, depth + 1));
+  }
+  const entries = plainJsonEntries(value, MAX_RUNTIME_ITEMS);
+  if (entries === null) {
     return false;
   }
   for (const [key, item] of entries) {
@@ -343,9 +408,12 @@ function isRunResult(value: unknown): boolean {
     strings(value.changedFiles) &&
     (value.changedFilesSource === "host_tools" ||
       value.changedFilesSource === "runtime" ||
+      value.changedFilesSource === "mixed" ||
+      value.changedFilesSource === "none" ||
       value.changedFilesSource === "workspace_diff") &&
     strings(value.evidence) &&
     (value.evidenceSource === "host_tools" || value.evidenceSource === "runtime" ||
+      value.evidenceSource === "mixed" ||
       value.evidenceSource === "independent_verification" ||
       value.evidenceSource === "none");
 }
@@ -424,7 +492,7 @@ function isRuntimeApprovalRequest(
   return value.details === undefined ||
     (isObject(value.details) && isBoundedJsonValue(
       value.details,
-      { nodes: 0, characters: 0 },
+      { nodes: 0, characters: 0, seen: new WeakSet() },
     ));
 }
 
@@ -454,7 +522,7 @@ function validRuntimeApprovalResolution(
     return false;
   }
   if (decision.outcome === "cancelled") {
-    return scope === "cancel" && provenance !== "policy";
+    return scope === "cancel";
   }
   if (provenance === "signal") {
     return false;
