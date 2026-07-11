@@ -254,7 +254,7 @@ describe("BackendRunCoordinator", () => {
     expect((await sessions.load("s2")).records).toHaveLength(1);
   });
 
-  it("reports executor failures as started-run failures", async () => {
+  it("reports unknown executor failures with the existing diagnostic id", async () => {
     const { sessions } = await setup();
     const resolver: BackendResolver = {
       async resolve(input) {
@@ -298,6 +298,7 @@ describe("BackendRunCoordinator", () => {
           throw new Error("provider transport included sensitive details");
         },
       },
+      createId: () => "coordinator-diagnostic",
     });
 
     const run = await coordinator.start({
@@ -314,9 +315,18 @@ describe("BackendRunCoordinator", () => {
         domain: "runtime",
         phase: "started",
         code: "runtime_failed",
-        safeMessage: "The model run failed",
+        safeMessage:
+          "Unexpected failure (diagnostic coordinator-diagnostic)",
+        diagnosticId: "coordinator-diagnostic",
       },
     });
+    await expect(run.outcome).resolves.not.toEqual(
+      expect.objectContaining({
+        failure: expect.objectContaining({
+          safeMessage: expect.stringContaining("sensitive details"),
+        }),
+      }),
+    );
   });
 
   it("dispatches agent-runtime pins through the delegated lane", async () => {

@@ -19,9 +19,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   AgentLoop,
+  AgentLoopError,
   JsonlSessionStore,
   activeGoal,
   runAgentLoop,
+  safeAgentLoopErrorMessage,
   type RecursEvent,
 } from "../src/index.js";
 import { testAt, testBackendPin } from "../../../tests/support/backend.js";
@@ -216,6 +218,30 @@ async function seedInterruptedTool(
 }
 
 describe("AgentLoop", () => {
+  it("allowlists only code-compatible canonical AgentLoop messages", () => {
+    expect(safeAgentLoopErrorMessage(
+      new AgentLoopError("provider_failed", "Provider authentication failed"),
+    )).toBe("Provider authentication failed");
+    expect(safeAgentLoopErrorMessage(
+      new AgentLoopError("provider_failed", "RECURS_AGENT_LOOP_CANARY"),
+    )).toBe("Provider request failed");
+    expect(safeAgentLoopErrorMessage(
+      new AgentLoopError("provider_failed", "Provider request cancelled"),
+    )).toBe("Provider request failed");
+    expect(safeAgentLoopErrorMessage(
+      new AgentLoopError(
+        "invalid_provider_response",
+        "Provider returned an invalid response",
+      ),
+    )).toBe("Provider returned an invalid response");
+    expect(safeAgentLoopErrorMessage(
+      new AgentLoopError("cancelled", "Provider request cancelled"),
+    )).toBe("Provider request cancelled");
+    expect(safeAgentLoopErrorMessage(
+      new AgentLoopError("stuck_loop", "Repeated tool for hostile-name"),
+    )).toBe("Repeated tool interaction detected");
+  });
+
   it("streams and persists a final assistant response", async () => {
     const provider = new ScriptedProvider([
       [

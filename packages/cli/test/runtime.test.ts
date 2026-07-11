@@ -76,6 +76,37 @@ async function runtimeWith(provider: ScriptedProvider): Promise<RecursRuntime> {
 }
 
 describe("RecursRuntime", () => {
+  it("sanitizes an AgentLoop failure after compatibility wrapping", async () => {
+    const canary = "RECURS_COMPATIBILITY_TOOL_NAME_CANARY";
+    const provider = new ScriptedProvider(
+      ["one", "two", "three"].map((id) => [
+        {
+          type: "tool_call" as const,
+          call: { id, name: canary, arguments: { value: "same" } },
+        },
+        { type: "done" as const, stopReason: "tool_calls" as const },
+      ]),
+    );
+    const runtime = await runtimeWith(provider);
+    let thrown: unknown;
+
+    try {
+      await runtime.submit("repeat");
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      message: "Repeated tool interaction detected",
+      failure: {
+        phase: "started",
+        code: "runtime_failed",
+        safeMessage: "Repeated tool interaction detected",
+      },
+    });
+    expect(JSON.stringify(thrown)).not.toContain(canary);
+  });
+
   it("routes slash commands locally and prompts through the same loop", async () => {
     const provider = new ScriptedProvider([
       [

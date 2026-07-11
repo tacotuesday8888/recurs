@@ -92,6 +92,42 @@ export class AgentLoopError extends Error {
   }
 }
 
+const safeProviderFailureMessages = new Set([
+  safeProviderErrorMessage("authentication"),
+  safeProviderErrorMessage("rate_limit"),
+  safeProviderErrorMessage("context_overflow"),
+  safeProviderErrorMessage("transport"),
+]);
+
+export function safeAgentLoopErrorMessage(error: AgentLoopError): string {
+  switch (error.code) {
+    case "cancelled": {
+      const providerCancelled = safeProviderErrorMessage("cancelled");
+      return error.message === providerCancelled
+        ? providerCancelled
+        : "Agent run cancelled";
+    }
+    case "invalid_run_input":
+      return "Agent run input is invalid";
+    case "invalid_provider_response":
+      return safeProviderErrorMessage("invalid_response");
+    case "provider_failed":
+      return safeProviderFailureMessages.has(error.message)
+        ? error.message
+        : safeProviderErrorMessage("transport");
+    case "session_busy":
+      return "Session is busy";
+    case "step_budget_exceeded":
+      return "Agent step limit exceeded";
+    case "stuck_loop":
+      return "Repeated tool interaction detected";
+  }
+}
+
+export function unexpectedFailureMessage(diagnosticId: string): string {
+  return `Unexpected failure (diagnostic ${diagnosticId})`;
+}
+
 interface ModelTurn {
   text: string;
   toolCalls: ToolCall[];
