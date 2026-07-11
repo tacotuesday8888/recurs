@@ -11,6 +11,9 @@
       "path": "./packages/app"
     },
     {
+      "path": "./packages/runtimes"
+    },
+    {
       "path": "./packages/tools"
     },
     {
