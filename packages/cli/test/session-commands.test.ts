@@ -10,6 +10,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { ScriptedProvider } from "@recurs/providers";
+import type { ModelProvider, SessionBackendPin } from "@recurs/contracts";
 import {
   JsonlSessionStore,
   createSessionState,
@@ -49,12 +50,13 @@ async function storeSession(
   id: string,
   createdAt = at,
   messages: SessionState["messages"] = [],
+  backend: SessionBackendPin = testBackendPin(),
 ): Promise<SessionState> {
   await sessions.createPinnedSession({
     id,
     at: createdAt,
     cwd,
-    backend: testBackendPin(),
+    backend,
   });
   if (messages.length > 0) {
     await sessions.withSessionMutation(id, 0, async (lease) => {
@@ -211,6 +213,29 @@ describe("session commands", () => {
     expect(commandContext.session.summary).toBe("Earlier work summarized");
     expect(commandContext.session.messages).toEqual(durableMessages.slice(-6));
     expect((await sessions.loadState("s1")).summary).toBe("Earlier work summarized");
+  });
+
+  it("rejects delegated compaction before invoking a provider", async () => {
+    const backend: SessionBackendPin = {
+      ...testBackendPin(),
+      kind: "agent_runtime",
+      runtimeCapabilityProfileRevisionAtCreation: "runtime-capabilities-v1",
+    };
+    const state = await storeSession("delegated", at, [], backend);
+    const stream = vi.fn(async function* () {
+      yield { type: "done", stopReason: "complete" } as const;
+    });
+    const provider: ModelProvider = { id: "must-not-run", stream };
+    const registry = createCommandRegistry({ sessions, provider });
+    const commandContext = context(state);
+
+    await expect(registry.execute("/compact", commandContext)).resolves.toMatchObject({
+      type: "message",
+      level: "error",
+      text: expect.stringMatching(/delegated/iu),
+    });
+    expect(stream).not.toHaveBeenCalled();
+    expect((await sessions.load("delegated")).records).toHaveLength(1);
   });
 });
 

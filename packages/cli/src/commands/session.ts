@@ -137,6 +137,13 @@ function createCompactCommand(dependencies: CommandDependencies): Command {
       if (invalid !== null) {
         return invalid;
       }
+      if (isPinnedSessionState(context.session) &&
+        context.session.backend.pin.kind === "agent_runtime") {
+        return message(
+          "Delegated sessions cannot be compacted in this release",
+          "error",
+        );
+      }
       if (dependencies.provider === undefined) {
         return message("No provider is available for compaction", "error");
       }

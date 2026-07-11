@@ -11,6 +11,7 @@ import {
   AgentLoopDirectExecutor,
   BackendRunCoordinator,
   JsonlSessionStore,
+  bindRunAuthorization,
 } from "../src/index.js";
 import { testAt, testBackendPin } from "../../../tests/support/backend.js";
 
@@ -49,24 +50,19 @@ describe("AgentLoopDirectExecutor", () => {
         return {
           kind: "direct",
           pin,
-          authorization: {
-            kind: "run",
+          authorization: bindRunAuthorization({
             id: "authorization",
             operation: "run",
             sessionId: input.sessionId,
             operationId: input.operationId,
             turnId: input.turnId,
-            connectionId: pin.connectionId,
-            modelId: pin.modelId,
-            backendFingerprint: "fingerprint",
+            pin,
             connectionRevision: 1,
             policyRevision: pin.policyRevisionAtCreation,
-            billingMode: "strict_primary_only",
-            billingSelectionDigest: "billing",
-            contextDigest: "context",
+            context: input.context,
             maxRequests: 4,
-            expiresAt: testAt,
-          },
+            expiresAt: "2099-01-01T00:00:00.000Z",
+          }, new Date(testAt)),
           async createProvider() {
             return provider;
           },

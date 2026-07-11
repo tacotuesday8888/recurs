@@ -7,6 +7,7 @@ import {
   AgentLoopError,
   BackendRunCoordinator,
   JsonlSessionStore,
+  bindRunAuthorization,
 } from "@recurs/core";
 import { ProviderError, ScriptedProvider } from "@recurs/providers";
 import {
@@ -204,24 +205,19 @@ describe("runCli", () => {
         return {
           kind: "direct",
           pin,
-          authorization: {
-            kind: "run",
+          authorization: bindRunAuthorization({
             id: "authorization",
             operation: "run",
             sessionId: input.sessionId,
             operationId: input.operationId,
             turnId: input.turnId,
-            connectionId: pin.connectionId,
-            modelId: pin.modelId,
-            backendFingerprint: "fingerprint",
+            pin,
             connectionRevision: 1,
             policyRevision: pin.policyRevisionAtCreation,
-            billingMode: pin.billingSelectionAtCreation.mode,
-            billingSelectionDigest: "billing",
-            contextDigest: "context",
+            context: input.context,
             maxRequests: 1,
-            expiresAt: testAt,
-          },
+            expiresAt: "2099-01-01T00:00:00.000Z",
+          }, new Date(testAt)),
           async createProvider() {
             return new ScriptedProvider([]);
           },
