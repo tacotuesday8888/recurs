@@ -1,6 +1,10 @@
 import type {
+  BillingPolicy,
+  BillingSelectionMode,
+  BillingSource,
   ProviderManifest,
   ProviderEndpoint,
+  ProviderRegionAvailability,
   SupportStatus,
   UsagePolicyRule,
 } from "@recurs/contracts";
@@ -20,12 +24,33 @@ interface ManifestDefinition {
   protocol: ProviderManifest["protocol"];
   endpoints: readonly ProviderEndpoint[];
   endpointEvidence?: string;
+  regionAvailability: ProviderRegionAvailability;
+  billingPolicy: BillingPolicy;
   supportStatus: SupportStatus;
   runnable: boolean;
   sourceUrls: readonly string[];
   evidenceSummary: string;
   rules?: readonly UsagePolicyRule[];
   accountSharingForbidden?: boolean;
+}
+
+function billingPolicy(
+  id: string,
+  primarySource: BillingSource,
+  options: {
+    possibleAdditionalSources?: readonly BillingSource[];
+    providerFallback?: BillingPolicy["providerFallback"];
+    availableSelections?: readonly BillingSelectionMode[];
+  } = {},
+): BillingPolicy {
+  return {
+    revision: `billing:${id}:2026-07-11`,
+    disclosureRevision: `billing-disclosure:${id}:2026-07-11`,
+    primarySource,
+    possibleAdditionalSources: options.possibleAdditionalSources ?? [],
+    providerFallback: options.providerFallback ?? "none",
+    availableSelections: options.availableSelections ?? ["strict_primary_only"],
+  };
 }
 
 function claimRule(
@@ -59,6 +84,8 @@ function manifest(definition: ManifestDefinition): ProviderManifest {
     ...(definition.endpointEvidence === undefined
       ? {}
       : { endpointEvidence: definition.endpointEvidence }),
+    regionAvailability: definition.regionAvailability,
+    billingPolicy: definition.billingPolicy,
     supportStatus: definition.supportStatus,
     runnable: definition.runnable,
     usagePolicy: {
@@ -86,6 +113,8 @@ const bundled = [
     credentialOwner: "recurs_broker",
     protocol: "openai_responses",
     endpoints: [{ kind: "origin", value: "https://api.openai.com/v1" }],
+    regionAvailability: { kind: "global" },
+    billingPolicy: billingPolicy("openai-api", "metered_api"),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: ["https://developers.openai.com/api/docs/models"],
@@ -103,6 +132,11 @@ const bundled = [
     endpoints: [],
     endpointEvidence:
       "The official Codex runtime owns transport and authentication instead of exposing an HTTP origin to Recurs.",
+    regionAvailability: { kind: "global" },
+    billingPolicy: billingPolicy(
+      "openai-codex-chatgpt",
+      "included_subscription",
+    ),
     supportStatus: "conditional",
     runnable: true,
     sourceUrls: [
@@ -144,6 +178,8 @@ const bundled = [
     credentialOwner: "recurs_broker",
     protocol: "anthropic_messages",
     endpoints: [{ kind: "origin", value: "https://api.anthropic.com/v1" }],
+    regionAvailability: { kind: "global" },
+    billingPolicy: billingPolicy("anthropic-api", "metered_api"),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: [
@@ -163,6 +199,11 @@ const bundled = [
     endpoints: [],
     endpointEvidence:
       "No Recurs-owned endpoint is permitted for this blocked delegated subscription path.",
+    regionAvailability: { kind: "global" },
+    billingPolicy: billingPolicy(
+      "anthropic-claude-subscription",
+      "included_subscription",
+    ),
     supportStatus: "blocked",
     runnable: false,
     sourceUrls: [
@@ -183,6 +224,11 @@ const bundled = [
     endpoints: [],
     endpointEvidence:
       "The official Copilot SDK owns its network endpoints and authentication flow.",
+    regionAvailability: { kind: "global" },
+    billingPolicy: billingPolicy(
+      "github-copilot-subscription",
+      "included_subscription",
+    ),
     supportStatus: "conditional",
     runnable: false,
     sourceUrls: [
@@ -207,6 +253,8 @@ const bundled = [
     credentialOwner: "recurs_broker",
     protocol: "openai_chat",
     endpoints: [{ kind: "origin", value: "https://openrouter.ai/api/v1" }],
+    regionAvailability: { kind: "global" },
+    billingPolicy: billingPolicy("openrouter-api", "prepaid_credits"),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: ["https://openrouter.ai/docs/api/reference/authentication"],
@@ -222,6 +270,8 @@ const bundled = [
     credentialOwner: "recurs_broker",
     protocol: "openai_responses",
     endpoints: [{ kind: "origin", value: "https://opencode.ai/zen/v1" }],
+    regionAvailability: { kind: "global" },
+    billingPolicy: billingPolicy("opencode-zen", "prepaid_credits"),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: ["https://opencode.ai/docs/zen/"],
@@ -237,6 +287,18 @@ const bundled = [
     credentialOwner: "recurs_broker",
     protocol: "openai_chat",
     endpoints: [{ kind: "origin", value: "https://opencode.ai/zen/go/v1" }],
+    regionAvailability: {
+      kind: "fixed",
+      regions: ["us", "eu", "singapore"],
+    },
+    billingPolicy: billingPolicy("opencode-go", "included_subscription", {
+      possibleAdditionalSources: ["prepaid_credits"],
+      providerFallback: "user_configured",
+      availableSelections: [
+        "strict_primary_only",
+        "allow_declared_additional",
+      ],
+    }),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: ["https://opencode.ai/docs/go"],
@@ -252,6 +314,8 @@ const bundled = [
     credentialOwner: "recurs_broker",
     protocol: "openai_chat",
     endpoints: [{ kind: "origin", value: "https://api.kilo.ai/api/gateway" }],
+    regionAvailability: { kind: "global" },
+    billingPolicy: billingPolicy("kilo-gateway", "prepaid_credits"),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: ["https://kilo.ai/docs/gateway"],
@@ -269,6 +333,8 @@ const bundled = [
     endpoints: [],
     endpointEvidence:
       "No stable official public origin was accepted during the 2026-07-11 policy review.",
+    regionAvailability: { kind: "global" },
+    billingPolicy: billingPolicy("nous-portal", "included_subscription"),
     supportStatus: "conditional",
     runnable: false,
     sourceUrls: ["https://portal.nousresearch.com/api-docs"],
@@ -295,6 +361,11 @@ const bundled = [
         value: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
       },
     ],
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: billingPolicy(
+      "alibaba-model-studio-api",
+      "metered_api",
+    ),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: ["https://www.alibabacloud.com/help/en/model-studio/models"],
@@ -319,6 +390,11 @@ const bundled = [
         value: "https://coding-intl.dashscope.aliyuncs.com/apps/anthropic",
       },
     ],
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: billingPolicy(
+      "alibaba-coding-plan",
+      "included_subscription",
+    ),
     supportStatus: "conditional",
     runnable: false,
     sourceUrls: [
@@ -359,6 +435,8 @@ const bundled = [
     credentialOwner: "recurs_broker",
     protocol: "openai_chat",
     endpoints: [{ kind: "origin", value: "https://api.moonshot.ai/v1" }],
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: billingPolicy("kimi-platform-api", "metered_api"),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: ["https://platform.kimi.ai/docs/api/chat"],
@@ -377,6 +455,8 @@ const bundled = [
       { kind: "origin", value: "https://api.kimi.com/coding/v1" },
       { kind: "origin", value: "https://api.kimi.com/coding/" },
     ],
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: billingPolicy("kimi-code", "included_subscription"),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: ["https://www.kimi.com/code/docs/en/"],
@@ -395,6 +475,8 @@ const bundled = [
       { kind: "origin", value: "https://api.minimax.io/v1" },
       { kind: "origin", value: "https://api.minimax.io/anthropic" },
     ],
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: billingPolicy("minimax-api", "metered_api"),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: ["https://platform.minimax.io/docs/pricing/overview"],
@@ -413,6 +495,19 @@ const bundled = [
       { kind: "origin", value: "https://api.minimax.io/v1" },
       { kind: "origin", value: "https://api.minimax.io/anthropic" },
     ],
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: billingPolicy(
+      "minimax-token-plan",
+      "included_subscription",
+      {
+        possibleAdditionalSources: ["prepaid_credits"],
+        providerFallback: "automatic",
+        availableSelections: [
+          "strict_primary_only",
+          "allow_declared_additional",
+        ],
+      },
+    ),
     supportStatus: "conditional",
     runnable: false,
     sourceUrls: [
@@ -443,6 +538,8 @@ const bundled = [
     credentialOwner: "recurs_broker",
     protocol: "openai_chat",
     endpoints: [{ kind: "origin", value: "https://api.z.ai/api/paas/v4" }],
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: billingPolicy("zai-api", "metered_api"),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: ["https://docs.z.ai/api-reference/introduction"],
@@ -461,6 +558,11 @@ const bundled = [
       { kind: "origin", value: "https://api.z.ai/api/coding/paas/v4" },
       { kind: "origin", value: "https://api.z.ai/api/anthropic" },
     ],
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: billingPolicy(
+      "zai-glm-coding-plan",
+      "included_subscription",
+    ),
     supportStatus: "blocked_pending_written_approval",
     runnable: false,
     sourceUrls: [
@@ -482,6 +584,8 @@ const bundled = [
       { kind: "origin", value: "https://api.deepseek.com" },
       { kind: "origin", value: "https://api.deepseek.com/anthropic" },
     ],
+    regionAvailability: { kind: "global" },
+    billingPolicy: billingPolicy("deepseek-api", "metered_api"),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: ["https://api-docs.deepseek.com/"],
@@ -502,6 +606,8 @@ const bundled = [
         value: "https://bedrock-mantle.{region}.api.aws/v1",
       },
     ],
+    regionAvailability: { kind: "provider_catalog", catalog: "aws" },
+    billingPolicy: billingPolicy("aws-bedrock", "cloud_account"),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: ["https://docs.aws.amazon.com/bedrock/latest/userguide/apis.html"],
@@ -522,6 +628,8 @@ const bundled = [
         value: "https://generativelanguage.googleapis.com/v1beta",
       },
     ],
+    regionAvailability: { kind: "global" },
+    billingPolicy: billingPolicy("google-gemini-api", "metered_api"),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: [
@@ -542,6 +650,8 @@ const bundled = [
     endpoints: [
       { kind: "origin", value: "https://aiplatform.googleapis.com/v1" },
     ],
+    regionAvailability: { kind: "provider_catalog", catalog: "gcp" },
+    billingPolicy: billingPolicy("google-vertex-ai", "cloud_account"),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: [
@@ -564,6 +674,8 @@ const bundled = [
         value: "https://{resource}.openai.azure.com/openai/v1",
       },
     ],
+    regionAvailability: { kind: "provider_catalog", catalog: "azure" },
+    billingPolicy: billingPolicy("azure-openai", "cloud_account"),
     supportStatus: "supported",
     runnable: false,
     sourceUrls: [
@@ -581,6 +693,8 @@ const bundled = [
     credentialOwner: "none",
     protocol: "local_openai",
     endpoints: [{ kind: "origin", value: "http://127.0.0.1:11434/v1" }],
+    regionAvailability: { kind: "local" },
+    billingPolicy: billingPolicy("ollama-local", "local_compute"),
     supportStatus: "supported",
     runnable: true,
     sourceUrls: ["https://docs.ollama.com/api/openai-compatibility"],
@@ -597,6 +711,8 @@ const bundled = [
     credentialOwner: "none",
     protocol: "local_openai",
     endpoints: [{ kind: "origin", value: "http://127.0.0.1:1234/v1" }],
+    regionAvailability: { kind: "local" },
+    billingPolicy: billingPolicy("lm-studio-local", "local_compute"),
     supportStatus: "supported",
     runnable: true,
     sourceUrls: ["https://lmstudio.ai/docs/developer/core/server"],

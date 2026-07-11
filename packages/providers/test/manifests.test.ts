@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { ProviderManifest } from "@recurs/contracts";
+import type {
+  BillingPolicy,
+  BillingSelectionMode,
+  BillingSource,
+  ProviderManifest,
+} from "@recurs/contracts";
 
 import {
   BUNDLED_PROVIDER_MANIFESTS,
@@ -10,6 +15,202 @@ import {
 
 const REVIEWED_AT = "2026-07-11";
 const EXPIRES_AT = "2026-10-11T00:00:00.000Z";
+
+function expectedBillingPolicy(
+  id: string,
+  primarySource: BillingSource,
+  options: {
+    possibleAdditionalSources?: readonly BillingSource[];
+    providerFallback?: BillingPolicy["providerFallback"];
+    availableSelections?: readonly BillingSelectionMode[];
+  } = {},
+): BillingPolicy {
+  return {
+    revision: `billing:${id}:2026-07-11`,
+    disclosureRevision: `billing-disclosure:${id}:2026-07-11`,
+    primarySource,
+    possibleAdditionalSources: options.possibleAdditionalSources ?? [],
+    providerFallback: options.providerFallback ?? "none",
+    availableSelections: options.availableSelections ?? ["strict_primary_only"],
+  };
+}
+
+const REGION_AND_BILLING_MATRIX = [
+  {
+    id: "openai-api",
+    regionAvailability: { kind: "global" },
+    billingPolicy: expectedBillingPolicy("openai-api", "metered_api"),
+  },
+  {
+    id: "openai-codex-chatgpt",
+    regionAvailability: { kind: "global" },
+    billingPolicy: expectedBillingPolicy(
+      "openai-codex-chatgpt",
+      "included_subscription",
+    ),
+  },
+  {
+    id: "anthropic-api",
+    regionAvailability: { kind: "global" },
+    billingPolicy: expectedBillingPolicy("anthropic-api", "metered_api"),
+  },
+  {
+    id: "anthropic-claude-subscription",
+    regionAvailability: { kind: "global" },
+    billingPolicy: expectedBillingPolicy(
+      "anthropic-claude-subscription",
+      "included_subscription",
+    ),
+  },
+  {
+    id: "github-copilot-subscription",
+    regionAvailability: { kind: "global" },
+    billingPolicy: expectedBillingPolicy(
+      "github-copilot-subscription",
+      "included_subscription",
+    ),
+  },
+  {
+    id: "openrouter-api",
+    regionAvailability: { kind: "global" },
+    billingPolicy: expectedBillingPolicy("openrouter-api", "prepaid_credits"),
+  },
+  {
+    id: "opencode-zen",
+    regionAvailability: { kind: "global" },
+    billingPolicy: expectedBillingPolicy("opencode-zen", "prepaid_credits"),
+  },
+  {
+    id: "opencode-go",
+    regionAvailability: {
+      kind: "fixed",
+      regions: ["us", "eu", "singapore"],
+    },
+    billingPolicy: expectedBillingPolicy(
+      "opencode-go",
+      "included_subscription",
+      {
+        possibleAdditionalSources: ["prepaid_credits"],
+        providerFallback: "user_configured",
+        availableSelections: [
+          "strict_primary_only",
+          "allow_declared_additional",
+        ],
+      },
+    ),
+  },
+  {
+    id: "kilo-gateway",
+    regionAvailability: { kind: "global" },
+    billingPolicy: expectedBillingPolicy("kilo-gateway", "prepaid_credits"),
+  },
+  {
+    id: "nous-portal",
+    regionAvailability: { kind: "global" },
+    billingPolicy: expectedBillingPolicy(
+      "nous-portal",
+      "included_subscription",
+    ),
+  },
+  {
+    id: "alibaba-model-studio-api",
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: expectedBillingPolicy(
+      "alibaba-model-studio-api",
+      "metered_api",
+    ),
+  },
+  {
+    id: "alibaba-coding-plan",
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: expectedBillingPolicy(
+      "alibaba-coding-plan",
+      "included_subscription",
+    ),
+  },
+  {
+    id: "kimi-platform-api",
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: expectedBillingPolicy("kimi-platform-api", "metered_api"),
+  },
+  {
+    id: "kimi-code",
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: expectedBillingPolicy(
+      "kimi-code",
+      "included_subscription",
+    ),
+  },
+  {
+    id: "minimax-api",
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: expectedBillingPolicy("minimax-api", "metered_api"),
+  },
+  {
+    id: "minimax-token-plan",
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: expectedBillingPolicy(
+      "minimax-token-plan",
+      "included_subscription",
+      {
+        possibleAdditionalSources: ["prepaid_credits"],
+        providerFallback: "automatic",
+        availableSelections: [
+          "strict_primary_only",
+          "allow_declared_additional",
+        ],
+      },
+    ),
+  },
+  {
+    id: "zai-api",
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: expectedBillingPolicy("zai-api", "metered_api"),
+  },
+  {
+    id: "zai-glm-coding-plan",
+    regionAvailability: { kind: "fixed", regions: ["international"] },
+    billingPolicy: expectedBillingPolicy(
+      "zai-glm-coding-plan",
+      "included_subscription",
+    ),
+  },
+  {
+    id: "deepseek-api",
+    regionAvailability: { kind: "global" },
+    billingPolicy: expectedBillingPolicy("deepseek-api", "metered_api"),
+  },
+  {
+    id: "aws-bedrock",
+    regionAvailability: { kind: "provider_catalog", catalog: "aws" },
+    billingPolicy: expectedBillingPolicy("aws-bedrock", "cloud_account"),
+  },
+  {
+    id: "google-gemini-api",
+    regionAvailability: { kind: "global" },
+    billingPolicy: expectedBillingPolicy("google-gemini-api", "metered_api"),
+  },
+  {
+    id: "google-vertex-ai",
+    regionAvailability: { kind: "provider_catalog", catalog: "gcp" },
+    billingPolicy: expectedBillingPolicy("google-vertex-ai", "cloud_account"),
+  },
+  {
+    id: "azure-openai",
+    regionAvailability: { kind: "provider_catalog", catalog: "azure" },
+    billingPolicy: expectedBillingPolicy("azure-openai", "cloud_account"),
+  },
+  {
+    id: "ollama-local",
+    regionAvailability: { kind: "local" },
+    billingPolicy: expectedBillingPolicy("ollama-local", "local_compute"),
+  },
+  {
+    id: "lm-studio-local",
+    regionAvailability: { kind: "local" },
+    billingPolicy: expectedBillingPolicy("lm-studio-local", "local_compute"),
+  },
+] as const;
 
 const CANONICAL_MATRIX = [
   {
@@ -264,6 +465,19 @@ function cloneManifest(manifest: ProviderManifest): Record<string, unknown> {
   return structuredClone(manifest) as unknown as Record<string, unknown>;
 }
 
+function cloneManifestWithExpectedMetadata(
+  manifest: ProviderManifest,
+): Record<string, unknown> {
+  const clone = cloneManifest(manifest);
+  const expected = REGION_AND_BILLING_MATRIX.find(
+    (candidate) => candidate.id === manifest.id,
+  );
+  expect(expected, `missing region/billing fixture ${manifest.id}`).toBeDefined();
+  clone["regionAvailability"] = structuredClone(expected!.regionAvailability);
+  clone["billingPolicy"] = structuredClone(expected!.billingPolicy);
+  return clone;
+}
+
 function bundled(id: string): ProviderManifest {
   const manifest = BUNDLED_PROVIDER_MANIFESTS.find((candidate) => candidate.id === id);
   expect(manifest, `missing bundled manifest ${id}`).toBeDefined();
@@ -283,6 +497,14 @@ describe("bundled provider manifests", () => {
 
     const ids = BUNDLED_PROVIDER_MANIFESTS.map((manifest) => manifest.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("declares the exact region availability and billing policy for all 25 paths", () => {
+    expect(BUNDLED_PROVIDER_MANIFESTS.map((manifest) => ({
+      id: manifest.id,
+      regionAvailability: manifest.regionAvailability,
+      billingPolicy: manifest.billingPolicy,
+    }))).toEqual(REGION_AND_BILLING_MATRIX);
   });
 
   it("uses only legal credential-owner, lane, access, and auth combinations", () => {
@@ -386,6 +608,218 @@ describe("validateProviderManifest", () => {
     expect(() => validateProviderManifest(policy)).toThrow(/unknown field.*userCanOverride/i);
   });
 
+  it("strictly validates region availability and billing-policy fields and types", () => {
+    const regionUnknown = cloneManifestWithExpectedMetadata(bundled("openai-api"));
+    const region = regionUnknown["regionAvailability"] as Record<string, unknown>;
+    region["fallbackRegion"] = "us";
+    expect(() => validateProviderManifest(regionUnknown)).toThrow(
+      /region availability.*unknown field.*fallbackRegion/i,
+    );
+
+    const emptyFixedRegions = cloneManifestWithExpectedMetadata(
+      bundled("alibaba-coding-plan"),
+    );
+    const fixedRegion = emptyFixedRegions["regionAvailability"] as Record<
+      string,
+      unknown
+    >;
+    fixedRegion["regions"] = [];
+    expect(() => validateProviderManifest(emptyFixedRegions)).toThrow(
+      /fixed regions.*nonempty/i,
+    );
+
+    const billingUnknown = cloneManifestWithExpectedMetadata(bundled("openai-api"));
+    const billing = billingUnknown["billingPolicy"] as Record<string, unknown>;
+    billing["warningOnly"] = true;
+    expect(() => validateProviderManifest(billingUnknown)).toThrow(
+      /billing policy.*unknown field.*warningOnly/i,
+    );
+
+    const billingWrongType = cloneManifestWithExpectedMetadata(bundled("openai-api"));
+    const wrongType = billingWrongType["billingPolicy"] as Record<string, unknown>;
+    wrongType["possibleAdditionalSources"] = "prepaid_credits";
+    expect(() => validateProviderManifest(billingWrongType)).toThrow(
+      /possible additional sources.*array/i,
+    );
+
+    const emptyDisclosure = cloneManifestWithExpectedMetadata(bundled("openai-api"));
+    const disclosure = emptyDisclosure["billingPolicy"] as Record<string, unknown>;
+    disclosure["disclosureRevision"] = "";
+    expect(() => validateProviderManifest(emptyDisclosure)).toThrow(
+      /billing policy disclosure revision.*nonempty/i,
+    );
+  });
+
+  it("binds cloud region catalogs to their protocol families", () => {
+    const bedrock = cloneManifestWithExpectedMetadata(bundled("aws-bedrock"));
+    const bedrockRegion = bedrock["regionAvailability"] as Record<string, unknown>;
+    bedrockRegion["catalog"] = "azure";
+    expect(() => validateProviderManifest(bedrock)).toThrow(
+      /bedrock.*AWS region catalog/i,
+    );
+
+    const vertex = cloneManifestWithExpectedMetadata(bundled("google-vertex-ai"));
+    const vertexRegion = vertex["regionAvailability"] as Record<string, unknown>;
+    vertexRegion["catalog"] = "aws";
+    expect(() => validateProviderManifest(vertex)).toThrow(
+      /Gemini.*GCP region catalog/i,
+    );
+
+    const azure = cloneManifestWithExpectedMetadata(bundled("azure-openai"));
+    const azureRegion = azure["regionAvailability"] as Record<string, unknown>;
+    azureRegion["catalog"] = "gcp";
+    expect(() => validateProviderManifest(azure)).toThrow(
+      /Azure OpenAI.*Azure region catalog/i,
+    );
+  });
+
+  it("binds primary billing sources to access lanes", () => {
+    const local = cloneManifestWithExpectedMetadata(bundled("ollama-local"));
+    const localBilling = local["billingPolicy"] as Record<string, unknown>;
+    localBilling["primarySource"] = "metered_api";
+    expect(() => validateProviderManifest(local)).toThrow(/local-compute billing/i);
+
+    const codingPlan = cloneManifestWithExpectedMetadata(
+      bundled("alibaba-coding-plan"),
+    );
+    const codingBilling = codingPlan["billingPolicy"] as Record<string, unknown>;
+    codingBilling["primarySource"] = "metered_api";
+    expect(() => validateProviderManifest(codingPlan)).toThrow(
+      /coding-plan.*included-subscription billing/i,
+    );
+
+    const cloud = cloneManifestWithExpectedMetadata(bundled("aws-bedrock"));
+    const cloudBilling = cloud["billingPolicy"] as Record<string, unknown>;
+    cloudBilling["primarySource"] = "metered_api";
+    expect(() => validateProviderManifest(cloud)).toThrow(/cloud-account billing/i);
+
+    const api = cloneManifestWithExpectedMetadata(bundled("openai-api"));
+    const apiBilling = api["billingPolicy"] as Record<string, unknown>;
+    apiBilling["primarySource"] = "included_subscription";
+    expect(() => validateProviderManifest(api)).toThrow(
+      /metered-API or prepaid-credit billing/i,
+    );
+  });
+
+  it("rejects impossible calendar review dates", () => {
+    const invalidDate = cloneManifestWithExpectedMetadata(bundled("openai-api"));
+    const policy = invalidDate["usagePolicy"] as Record<string, unknown>;
+    policy["reviewedAt"] = "2026-02-30";
+
+    expect(() => validateProviderManifest(invalidDate)).toThrow(
+      /review date.*real calendar date/i,
+    );
+  });
+
+  it("requires conditional manifests to default to denied", () => {
+    const conditional = cloneManifestWithExpectedMetadata(
+      bundled("openai-codex-chatgpt"),
+    );
+    const policy = conditional["usagePolicy"] as Record<string, unknown>;
+    policy["defaultDecision"] = "allowed";
+
+    expect(() => validateProviderManifest(conditional)).toThrow(
+      /conditional provider manifests must default to denied/i,
+    );
+  });
+
+  it("keeps unknown provider fallback non-runnable and default-denied", () => {
+    const defaultAllowed = cloneManifestWithExpectedMetadata(bundled("openai-api"));
+    const defaultAllowedBilling = defaultAllowed["billingPolicy"] as Record<
+      string,
+      unknown
+    >;
+    defaultAllowedBilling["providerFallback"] = "unknown";
+    defaultAllowedBilling["availableSelections"] = [];
+    expect(() => validateProviderManifest(defaultAllowed)).toThrow(
+      /unknown provider fallback.*default to denied/i,
+    );
+
+    const runnable = cloneManifestWithExpectedMetadata(bundled("ollama-local"));
+    const runnableBilling = runnable["billingPolicy"] as Record<string, unknown>;
+    runnableBilling["providerFallback"] = "unknown";
+    runnableBilling["availableSelections"] = [];
+    const runnablePolicy = runnable["usagePolicy"] as Record<string, unknown>;
+    runnablePolicy["defaultDecision"] = "denied";
+    expect(() => validateProviderManifest(runnable)).toThrow(
+      /unknown provider fallback.*cannot be runnable/i,
+    );
+  });
+
+  it("makes unknown provider fallback unselectable", () => {
+    const unknown = cloneManifestWithExpectedMetadata(bundled("openai-api"));
+    const billing = unknown["billingPolicy"] as Record<string, unknown>;
+    billing["providerFallback"] = "unknown";
+    const policy = unknown["usagePolicy"] as Record<string, unknown>;
+    policy["defaultDecision"] = "denied";
+
+    expect(() => validateProviderManifest(unknown)).toThrow(
+      /unknown provider fallback.*available selections/i,
+    );
+  });
+
+  it("rejects fallback without declared additional billing sources", () => {
+    const undeclared = cloneManifestWithExpectedMetadata(bundled("openai-api"));
+    const billing = undeclared["billingPolicy"] as Record<string, unknown>;
+    billing["providerFallback"] = "automatic";
+    const policy = undeclared["usagePolicy"] as Record<string, unknown>;
+    policy["defaultDecision"] = "denied";
+
+    expect(() => validateProviderManifest(undeclared)).toThrow(
+      /fallback.*declared additional billing source/i,
+    );
+  });
+
+  it("rejects additional billing sources without matching fallback and selection", () => {
+    const noFallback = cloneManifestWithExpectedMetadata(bundled("openai-api"));
+    const noFallbackBilling = noFallback["billingPolicy"] as Record<
+      string,
+      unknown
+    >;
+    noFallbackBilling["possibleAdditionalSources"] = ["prepaid_credits"];
+    noFallbackBilling["availableSelections"] = [
+      "strict_primary_only",
+      "allow_declared_additional",
+    ];
+    expect(() => validateProviderManifest(noFallback)).toThrow(
+      /additional billing sources.*provider fallback/i,
+    );
+
+    const noSelection = cloneManifestWithExpectedMetadata(bundled("opencode-go"));
+    const noSelectionBilling = noSelection["billingPolicy"] as Record<
+      string,
+      unknown
+    >;
+    noSelectionBilling["availableSelections"] = ["strict_primary_only"];
+    expect(() => validateProviderManifest(noSelection)).toThrow(
+      /additional billing sources.*allow_declared_additional/i,
+    );
+  });
+
+  it("requires automatic additional billing fallback to be gated by denied-by-default policy", () => {
+    const automatic = cloneManifestWithExpectedMetadata(bundled("opencode-go"));
+    const billing = automatic["billingPolicy"] as Record<string, unknown>;
+    billing["providerFallback"] = "automatic";
+
+    expect(() => validateProviderManifest(automatic)).toThrow(
+      /automatic billing fallback.*default to denied/i,
+    );
+  });
+
+  it("limits billing-selection conditions to selections declared by billing policy", () => {
+    const mismatch = cloneManifestWithExpectedMetadata(
+      bundled("minimax-token-plan"),
+    );
+    const policy = mismatch["usagePolicy"] as Record<string, unknown>;
+    const rules = policy["rules"] as Array<Record<string, unknown>>;
+    const condition = rules[0]!["condition"] as Record<string, unknown>;
+    condition["allowedModes"] = ["provider_default"];
+
+    expect(() => validateProviderManifest(mismatch)).toThrow(
+      /billing-selection condition.*billing policy/i,
+    );
+  });
+
   it("rejects illegal lane ownership and conditional prose without a machine condition", () => {
     const delegated = cloneManifest(bundled("openai-codex-chatgpt"));
     delegated["credentialOwner"] = "recurs_broker";
@@ -478,6 +912,10 @@ describe("ProviderManifestRegistry", () => {
     expect(Object.isFrozen(first)).toBe(true);
     expect(Object.isFrozen(first?.endpoints)).toBe(true);
     expect(Object.isFrozen(first?.endpoints[0])).toBe(true);
+    expect(Object.isFrozen(first?.regionAvailability)).toBe(true);
+    expect(Object.isFrozen(first?.billingPolicy)).toBe(true);
+    expect(Object.isFrozen(first?.billingPolicy.possibleAdditionalSources)).toBe(true);
+    expect(Object.isFrozen(first?.billingPolicy.availableSelections)).toBe(true);
     expect(Object.isFrozen(first?.usagePolicy)).toBe(true);
     expect(Object.isFrozen(first?.usagePolicy.rules)).toBe(true);
     expect(() => {

@@ -1,6 +1,10 @@
 import type {
+  BillingPolicy,
+  BillingSelectionMode,
+  PolicyCondition,
   ProviderEndpoint,
   ProviderManifest,
+  ProviderRegionAvailability,
   ProviderUsagePolicy,
   UsagePolicyRule,
 } from "@recurs/contracts";
@@ -46,6 +50,20 @@ const BILLING_SELECTION_MODES = [
   "strict_primary_only",
   "allow_declared_additional",
 ] as const;
+const BILLING_SOURCES = [
+  "metered_api",
+  "included_subscription",
+  "prepaid_credits",
+  "cloud_account",
+  "local_compute",
+] as const;
+const PROVIDER_FALLBACKS = [
+  "none",
+  "user_configured",
+  "automatic",
+  "unknown",
+] as const;
+const REGION_CATALOGS = ["aws", "gcp", "azure"] as const;
 
 const MANIFEST_FIELDS = [
   "schemaVersion",
@@ -58,9 +76,19 @@ const MANIFEST_FIELDS = [
   "protocol",
   "endpoints",
   "endpointEvidence",
+  "regionAvailability",
+  "billingPolicy",
   "supportStatus",
   "runnable",
   "usagePolicy",
+] as const;
+const BILLING_POLICY_FIELDS = [
+  "revision",
+  "disclosureRevision",
+  "primarySource",
+  "possibleAdditionalSources",
+  "providerFallback",
+  "availableSelections",
 ] as const;
 const POLICY_FIELDS = [
   "revision",
@@ -150,11 +178,15 @@ function uniqueEnumArray<const T extends readonly string[]>(
   value: unknown,
   allowed: T,
   label: string,
+  options: { allowEmpty?: boolean } = {},
 ): T[number][] {
   const values = arrayValue(value, label).map((entry) =>
     enumValue(entry, allowed, label),
   );
-  if (values.length === 0 || new Set(values).size !== values.length) {
+  if (
+    (options.allowEmpty !== true && values.length === 0) ||
+    new Set(values).size !== values.length
+  ) {
     fail(`${label} must contain unique supported values`);
   }
   return values;
@@ -163,6 +195,173 @@ function uniqueEnumArray<const T extends readonly string[]>(
 function exactValues(actual: readonly string[], expected: readonly string[]): boolean {
   return actual.length === expected.length &&
     actual.every((value, index) => value === expected[index]);
+}
+
+function validateRegionAvailability(
+  value: unknown,
+  accessKind: string,
+  protocol: string,
+): ProviderRegionAvailability {
+  const availability = record(value, "Provider region availability");
+  const kind = enumValue(
+    availability["kind"],
+    ["global", "fixed", "provider_catalog", "local"] as const,
+    "Provider region availability kind",
+  );
+
+  if (kind === "fixed") {
+    noUnknownFields(
+      availability,
+      ["kind", "regions"],
+      "Provider region availability",
+    );
+    const regions = arrayValue(
+      availability["regions"],
+      "Provider fixed regions",
+    ).map((region) => nonemptyString(region, "Provider fixed region"));
+    if (regions.length === 0 || new Set(regions).size !== regions.length) {
+      fail("Provider fixed regions must be nonempty and unique");
+    }
+    for (const region of regions) {
+      if (!/^[a-z0-9]+(?:[-_][a-z0-9]+)*$/.test(region)) {
+        fail("Provider fixed regions must use lowercase region identifiers");
+      }
+    }
+  } else if (kind === "provider_catalog") {
+    noUnknownFields(
+      availability,
+      ["kind", "catalog"],
+      "Provider region availability",
+    );
+    enumValue(
+      availability["catalog"],
+      REGION_CATALOGS,
+      "Provider region catalog",
+    );
+  } else {
+    noUnknownFields(availability, ["kind"], "Provider region availability");
+  }
+
+  if (accessKind === "local") {
+    if (kind !== "local") {
+      fail("Local manifests require local region availability");
+    }
+  } else if (kind === "local") {
+    fail("Remote manifests cannot declare local region availability");
+  }
+
+  if (accessKind === "cloud_identity") {
+    if (kind !== "provider_catalog") {
+      fail("Cloud-identity manifests require provider-catalog region availability");
+    }
+  } else if (kind === "provider_catalog") {
+    fail("Provider-catalog regions are limited to cloud-identity manifests");
+  }
+
+  if (kind === "provider_catalog") {
+    const catalog = availability["catalog"];
+    if (protocol === "bedrock" && catalog !== "aws") {
+      fail("Bedrock manifests require the AWS region catalog");
+    }
+    if (protocol === "gemini_generate_content" && catalog !== "gcp") {
+      fail("Gemini cloud manifests require the GCP region catalog");
+    }
+    if (protocol === "azure_openai" && catalog !== "azure") {
+      fail("Azure OpenAI manifests require the Azure region catalog");
+    }
+    if (
+      protocol !== "bedrock" &&
+      protocol !== "gemini_generate_content" &&
+      protocol !== "azure_openai"
+    ) {
+      fail("Cloud-identity manifest protocol has no region-catalog binding");
+    }
+  }
+
+  return availability as unknown as ProviderRegionAvailability;
+}
+
+function validateBillingPolicy(value: unknown): BillingPolicy {
+  const policy = record(value, "Provider billing policy");
+  noUnknownFields(policy, BILLING_POLICY_FIELDS, "Provider billing policy");
+  nonemptyString(policy["revision"], "Provider billing policy revision");
+  nonemptyString(
+    policy["disclosureRevision"],
+    "Provider billing policy disclosure revision",
+  );
+  const primarySource = enumValue(
+    policy["primarySource"],
+    BILLING_SOURCES,
+    "Provider billing policy primary source",
+  );
+  const possibleAdditionalSources = uniqueEnumArray(
+    policy["possibleAdditionalSources"],
+    BILLING_SOURCES,
+    "Provider billing policy possible additional sources",
+    { allowEmpty: true },
+  );
+  if (possibleAdditionalSources.includes(primarySource)) {
+    fail("Provider billing policy additional sources cannot repeat its primary source");
+  }
+  const providerFallback = enumValue(
+    policy["providerFallback"],
+    PROVIDER_FALLBACKS,
+    "Provider billing policy fallback",
+  );
+  const availableSelections = uniqueEnumArray(
+    policy["availableSelections"],
+    BILLING_SELECTION_MODES,
+    "Provider billing policy available selections",
+    { allowEmpty: true },
+  );
+
+  if (providerFallback === "unknown") {
+    if (possibleAdditionalSources.length > 0) {
+      fail("Unknown provider fallback cannot claim known additional billing sources");
+    }
+    if (availableSelections.length > 0) {
+      fail("Unknown provider fallback cannot expose available selections");
+    }
+    return policy as unknown as BillingPolicy;
+  }
+
+  if (availableSelections.length === 0) {
+    fail("Known provider billing policy must expose an available selection");
+  }
+  if (
+    providerFallback === "none" &&
+    possibleAdditionalSources.length > 0
+  ) {
+    fail("Additional billing sources require a declared provider fallback");
+  }
+  if (
+    (providerFallback === "user_configured" || providerFallback === "automatic") &&
+    possibleAdditionalSources.length === 0
+  ) {
+    fail("Provider fallback requires a declared additional billing source");
+  }
+  if (
+    possibleAdditionalSources.length > 0 &&
+    !availableSelections.includes("allow_declared_additional")
+  ) {
+    fail(
+      "Additional billing sources require an allow_declared_additional selection",
+    );
+  }
+  if (
+    possibleAdditionalSources.length === 0 &&
+    availableSelections.includes("allow_declared_additional")
+  ) {
+    fail("allow_declared_additional requires an additional billing source");
+  }
+  if (
+    availableSelections.includes("provider_default") &&
+    providerFallback !== "automatic"
+  ) {
+    fail("provider_default requires a documented automatic provider fallback");
+  }
+
+  return policy as unknown as BillingPolicy;
 }
 
 function validateCondition(value: unknown, ancestors = new WeakSet<object>()): void {
@@ -296,6 +495,13 @@ function validatePolicy(value: unknown): ProviderUsagePolicy {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(reviewedAt)) {
     fail("Provider usage policy review date must use YYYY-MM-DD");
   }
+  const reviewedTimestamp = Date.parse(`${reviewedAt}T00:00:00.000Z`);
+  if (
+    !Number.isFinite(reviewedTimestamp) ||
+    new Date(reviewedTimestamp).toISOString() !== `${reviewedAt}T00:00:00.000Z`
+  ) {
+    fail("Provider usage policy review date must be a real calendar date");
+  }
   const expiresAt = nonemptyString(
     policy["expiresAt"],
     "Provider usage policy expiry",
@@ -304,7 +510,7 @@ function validatePolicy(value: unknown): ProviderUsagePolicy {
   if (!Number.isFinite(expiresDate.getTime()) || expiresDate.toISOString() !== expiresAt) {
     fail("Provider usage policy expiry must be an exact ISO timestamp");
   }
-  if (expiresDate.getTime() <= Date.parse(`${reviewedAt}T00:00:00.000Z`)) {
+  if (expiresDate.getTime() <= reviewedTimestamp) {
     fail("Provider usage policy expiry must be after its review date");
   }
   enumValue(
@@ -482,6 +688,88 @@ function validateLaneAndCredentials(manifest: UnknownRecord): void {
   }
 }
 
+function billingSelectionModes(
+  condition: PolicyCondition,
+): readonly BillingSelectionMode[] {
+  if (condition.type === "billing_selection") {
+    return condition.allowedModes;
+  }
+  if (condition.type === "all") {
+    return condition.conditions.flatMap((child) => billingSelectionModes(child));
+  }
+  return [];
+}
+
+function validateBillingAndPolicy(
+  manifest: UnknownRecord,
+  billingPolicy: BillingPolicy,
+  usagePolicy: ProviderUsagePolicy,
+): void {
+  const accessKind = manifest["accessKind"] as string;
+  const runnable = manifest["runnable"] as boolean;
+
+  if (
+    (accessKind === "coding_plan" || accessKind === "subscription") &&
+    billingPolicy.primarySource !== "included_subscription"
+  ) {
+    fail("Subscription and coding-plan manifests require included-subscription billing");
+  }
+  if (
+    accessKind === "api" &&
+    billingPolicy.primarySource !== "metered_api" &&
+    billingPolicy.primarySource !== "prepaid_credits"
+  ) {
+    fail("API manifests require metered-API or prepaid-credit billing");
+  }
+  if (
+    accessKind === "cloud_identity" &&
+    billingPolicy.primarySource !== "cloud_account"
+  ) {
+    fail("Cloud-identity manifests require cloud-account billing");
+  }
+  if (accessKind === "local" && billingPolicy.primarySource !== "local_compute") {
+    fail("Local manifests require local-compute billing");
+  }
+
+  const availableSelections = new Set(billingPolicy.availableSelections);
+  let explicitlyAllowsAdditional = false;
+  for (const rule of usagePolicy.rules) {
+    if (rule.condition === undefined) {
+      continue;
+    }
+    for (const mode of billingSelectionModes(rule.condition)) {
+      if (!availableSelections.has(mode)) {
+        fail(
+          "A billing-selection condition cannot allow a mode absent from the billing policy",
+        );
+      }
+      if (mode === "allow_declared_additional") {
+        explicitlyAllowsAdditional = true;
+      }
+    }
+  }
+
+  if (billingPolicy.providerFallback === "unknown") {
+    if (usagePolicy.defaultDecision !== "denied") {
+      fail("Unknown provider fallback requires manifests to default to denied");
+    }
+    if (runnable) {
+      fail("Unknown provider fallback cannot be runnable");
+    }
+  }
+
+  if (billingPolicy.providerFallback === "automatic") {
+    if (usagePolicy.defaultDecision !== "denied") {
+      fail("Automatic billing fallback requires manifests to default to denied");
+    }
+    if (!explicitlyAllowsAdditional) {
+      fail(
+        "Automatic billing fallback requires an explicit billing-selection condition",
+      );
+    }
+  }
+}
+
 function assertNoSecretMaterial(value: unknown, seen = new WeakSet<object>()): void {
   if (typeof value === "string") {
     if (/\b(?:sk|key|token)-[A-Za-z0-9_-]{16,}\b/.test(value)) {
@@ -539,7 +827,11 @@ export function validateProviderManifest(value: unknown): ProviderManifest {
     CREDENTIAL_OWNERS,
     "Provider credential owner",
   );
-  enumValue(manifest["protocol"], PROTOCOLS, "Provider protocol");
+  const protocol = enumValue(
+    manifest["protocol"],
+    PROTOCOLS,
+    "Provider protocol",
+  );
   const endpoints = arrayValue(manifest["endpoints"], "Provider endpoints").map(
     (endpoint) => validateEndpoint(endpoint, accessKind),
   );
@@ -550,6 +842,12 @@ export function validateProviderManifest(value: unknown): ProviderManifest {
   if (adapterKind === "agent_runtime" && endpoints.length > 0) {
     fail("A delegated runtime manifest cannot declare an HTTP endpoint");
   }
+  validateRegionAvailability(
+    manifest["regionAvailability"],
+    accessKind,
+    protocol,
+  );
+  const billingPolicy = validateBillingPolicy(manifest["billingPolicy"]);
   const status = enumValue(
     manifest["supportStatus"],
     SUPPORT_STATUSES,
@@ -571,6 +869,9 @@ export function validateProviderManifest(value: unknown): ProviderManifest {
     fail("Blocked provider manifests cannot be runnable");
   }
   const policy = validatePolicy(manifest["usagePolicy"]);
+  if (status === "conditional" && policy.defaultDecision !== "denied") {
+    fail("Conditional provider manifests must default to denied");
+  }
   if (
     status === "conditional" &&
     !policy.rules.some(
@@ -586,6 +887,7 @@ export function validateProviderManifest(value: unknown): ProviderManifest {
     fail("Blocked provider manifests must default to denied");
   }
   validateLaneAndCredentials(manifest);
+  validateBillingAndPolicy(manifest, billingPolicy, policy);
   if (runnable && credentialOwner === "recurs_broker") {
     fail("Broker-owned provider paths cannot run before the native credential broker exists");
   }

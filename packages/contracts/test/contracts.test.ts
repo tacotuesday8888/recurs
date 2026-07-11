@@ -34,6 +34,15 @@ describe("provider-neutral contracts", () => {
       endpoints: [
         { kind: "origin", value: "http://127.0.0.1:1234/v1" },
       ],
+      regionAvailability: { kind: "local" },
+      billingPolicy: {
+        revision: "billing:fixture-local:2026-07-11",
+        disclosureRevision: "billing-disclosure:fixture-local:2026-07-11",
+        primarySource: "local_compute",
+        possibleAdditionalSources: [],
+        providerFallback: "none",
+        availableSelections: ["strict_primary_only"],
+      },
       supportStatus: "supported",
       runnable: true,
       usagePolicy: {
@@ -53,6 +62,8 @@ describe("provider-neutral contracts", () => {
     expect(manifest.endpoints).toEqual([
       { kind: "origin", value: "http://127.0.0.1:1234/v1" },
     ]);
+    expect(manifest.regionAvailability).toEqual({ kind: "local" });
+    expect(manifest.billingPolicy.primarySource).toBe("local_compute");
   });
 
   it("derives every trusted context dimension from a host-only invocation", () => {

@@ -2,6 +2,7 @@ import type {
   AccessKind,
   AdapterKind,
   AuthKind,
+  BillingPolicy,
   BillingSelectionMode,
 } from "./connections.js";
 import type { TrustedRunContext } from "./runtime.js";
@@ -26,6 +27,12 @@ export type ProviderProtocol =
 export type ProviderEndpoint =
   | { kind: "origin"; value: string }
   | { kind: "template"; value: string };
+
+export type ProviderRegionAvailability =
+  | { kind: "global" }
+  | { kind: "fixed"; regions: readonly string[] }
+  | { kind: "provider_catalog"; catalog: "aws" | "gcp" | "azure" }
+  | { kind: "local" };
 
 export type PolicyDecision = "allowed" | "conditional" | "denied" | "unknown";
 
@@ -71,6 +78,8 @@ export interface ProviderManifest {
   protocol: ProviderProtocol;
   endpoints: readonly ProviderEndpoint[];
   endpointEvidence?: string;
+  regionAvailability: ProviderRegionAvailability;
+  billingPolicy: BillingPolicy;
   supportStatus: SupportStatus;
   runnable: boolean;
   usagePolicy: ProviderUsagePolicy;
