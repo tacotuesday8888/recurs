@@ -1,11 +1,22 @@
 # Security Policy
 
-Recurs is pre-release software at version `0.0.0`. It does not yet accept or
-store live provider credentials, and it must not be used as a credential-safe
-sandbox. The current TypeScript safeguards reduce accidental disclosure through
-built-in tools, checkpoints, child environments, and error messages; arbitrary
-commands still run with the user's host filesystem, network, IPC, and process
-authority.
+Recurs is pre-release software at version `0.0.0`. The Recurs TypeScript process
+does not accept, import, expose, or store provider credential bytes, and it must
+not be used as a credential-safe sandbox. The current safeguards reduce
+accidental disclosure through built-in tools, checkpoints, child environments,
+and error messages; arbitrary commands still run with the user's host
+filesystem, network, IPC, and process authority.
+
+The one implemented subscription path is deliberately narrower than a Recurs-
+owned credential flow: Recurs launches the pinned official Codex ACP adapter as
+a vendor-authenticated child runtime and lets that runtime use an existing
+ChatGPT login. Recurs never reads or stores the login token, auth-file contents,
+or browser cookies. This path is local, manual, user-present, and Plan-only;
+one-shot, unattended, recognized CI (including CI with a TTY), remote,
+scripted, implicit SDK, and Act-mode use fails closed. The active account is
+verified on the exact ACP child before session work and again immediately
+before prompting. Plan mode rejects every non-read runtime approval even under
+`Approved for Me` or `Full Access`.
 
 ## Supported versions
 
@@ -53,10 +64,12 @@ credential.
 The permanent built-in credential-path denial and clean subprocess environment
 are defense in depth. They are not a promise that model-selected code cannot
 reach host credentials indirectly. `Full Access` is not credential-safe, and
-the default `local_guarded` tool profile is not an OS sandbox. No live cloud or
-subscription credential may enter this process until the separately reviewed
-native broker, hardened storage, and tool sandbox boundary is implemented and
-tested.
+the default `local_guarded` tool profile is not an OS sandbox. Direct API,
+coding-plan, OAuth, and cloud-identity credential flows remain disabled until a
+separately reviewed native broker, hardened storage, origin-bound transport,
+and tool sandbox boundary is implemented and tested. The official Codex child-
+runtime path above does not make the TypeScript process credential-safe or
+authorize other subscription adapters.
 
 Recurs bounds process-group cleanup and closes its own output pipes so inherited
 pipes alone cannot hold run settlement open before synthetic-directory cleanup.

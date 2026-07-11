@@ -1,8 +1,8 @@
 # Recurs CLI
 
-Recurs Core v0 is a provider-neutral coding-agent harness. The CLI, agent loop, tools, permissions, Plan mode, durable sessions, goals, checkpoints, structured output, and a credential-free local model transport are implemented.
+Recurs Core v0 is a provider-neutral coding-agent harness. The CLI, direct agent loop, delegated-runtime executor, tools, permissions, Plan mode, durable sessions, goals, checkpoints, structured output, credential-free local transport, and first official Codex ACP path are implemented.
 
-The executable starts in a sessionless workspace shell when no provider is available. Coding prompts require a configured literal-loopback local server or an injected `ModelProvider`; no fake `unconfigured` session is written.
+The executable starts in a sessionless workspace shell when no provider is available. Coding prompts require a configured literal-loopback local server, an eligible interactive Codex connection, or an injected test/embedding `ModelProvider`; no fake `unconfigured` session is written.
 
 ## Install from source
 
@@ -28,9 +28,25 @@ The repository does not yet contain a license. Although it is intended to become
 
 ## Provider boundary
 
-Recurs does not currently ask for an API key or connect to Codex, Claude, GLM, Gemini, or another hosted service. It also does not attempt to reuse coding-agent subscriptions.
+Recurs exposes a validated catalog of 25 provider/authentication paths. Three are runnable today: credential-free literal-loopback Ollama, credential-free literal-loopback LM Studio, and an existing ChatGPT account through the pinned official `@agentclientprotocol/codex-acp` 1.1.2 adapter and `@openai/codex` 0.144.0. The other entries describe truthful provider, access, protocol, billing, region, and restriction metadata; they are not live transports.
 
-The CLI can verify and save one credential-free OpenAI-compatible server bound to literal `127.0.0.1` or `[::1]`. It refuses DNS names, LAN/remote addresses, HTTPS, URL credentials, queries, fragments, and redirects. Direct, coding-plan, subscription, OAuth, and cloud-identity connections remain blocked on the separately tested native broker/storage and OS tool-sandbox boundary.
+The CLI never asks for an API key, coding-plan key, OAuth token, copied vendor token, browser cookie, or vendor auth-file path. Direct API, coding-plan, OAuth, and cloud-identity entries remain `requires_native_broker` or blocked until their native authority and provider adapter exist. A shared protocol label does not make a catalog entry runnable.
+
+Inspect the catalog and configured accounts without revealing account labels, account fingerprints, local endpoints, or credential material:
+
+```bash
+recurs provider list
+recurs provider list --all
+recurs provider list --json
+recurs account list
+recurs account list --json
+```
+
+The normal provider list hides blocked paths; `--all` includes them. Both text and JSON distinguish runnable, native-broker-required, and blocked paths and report structured billing and restrictions. Account output marks the primary connection and redacts delegated identity.
+
+### Local setup
+
+The CLI can verify and save a credential-free OpenAI-compatible server bound to literal `127.0.0.1` or `[::1]`. It refuses DNS names, LAN/remote addresses, HTTPS, URL credentials, queries, fragments, and redirects.
 
 For Ollama, start the server, ensure the model is installed, then run:
 
@@ -46,6 +62,18 @@ recurs setup local --url http://127.0.0.1:1234/v1 --model <model-id>
 
 Setup reads `/models`, requires an exact model match, and writes only non-secret endpoint/model metadata under `RECURS_HOME`. Restart Recurs after changing the configured local model.
 
+### Codex with ChatGPT
+
+Run Codex setup from a local interactive terminal:
+
+```bash
+recurs setup codex
+```
+
+Before starting, the CLI requires explicit acknowledgement that eligible ChatGPT plans include Codex usage but the provider may automatically consume available prepaid credits after included limits. The pinned official adapter reports authentication status; Recurs accepts only a structured `chat-gpt` account, uses only a currently advertised `chat-gpt` login method when sign-in is needed, rechecks status after login, and verifies a temporary session exposes the selected model and Codex `read-only` mode. Adapter 1.1.2 does not report plan tier, organization, or remaining allowance, so Recurs claims only ChatGPT authentication and session usability. The non-secret registry retains the verified account label and a canonical one-way fingerprint so later runs can detect an account change. Public account output omits both; session pins retain only the non-authorizing fingerprint, not the account label. Recurs never imports or stores the token, auth-file contents, or browser cookie. Vendor session IDs are kept only as bounded process-scoped continuation payloads and never enter the registry, JSONL session log, or public account output.
+
+Every Codex run rereads the registry and current billing/usage policy. The active account is then verified against the saved fingerprint on the exact initialized ACP child, after continuation loading when resuming, and again after configuration immediately before continuation staging and prompting. Codex runs only in a local manual CLI REPL with the user present. It is Plan-only/read-only: Act mode, remote or scripted use, recognized CI even with a TTY, implicit programmatic submission, `recurs run`, unattended/background work, and automatic continuation while account or policy state is uncertain all fail closed. Core also rejects every non-read opaque runtime approval in Plan mode regardless of Ask Always, Approved for Me, or Full Access.
+
 A host injects a provider that implements:
 
 ```ts
@@ -57,7 +85,7 @@ interface ModelProvider {
 
 The normalized request contains the model name, immutable message snapshot, visible tool definitions, and an abort signal. The stream returns text/reasoning deltas, normalized tool calls, usage, and one terminal event. `ScriptedProvider` supplies deterministic responses for tests and embedded development.
 
-`createStandaloneRuntime(eventSink, { provider, model })` is the current test/embedding assembly point for an injected provider. It creates an immutable version-2 backend pin and resolves that exact pin before each run. Launching the compiled CLI without one keeps workspace commands available, but `recurs run <prompt>` exits with configuration code `2` before persisting the prompt. JSONL mode emits one `configuration_error` object without prose on standard output.
+`createStandaloneRuntime(eventSink, { provider, model })` remains the test/embedding assembly point for an injected provider. Normal standalone assembly also resolves saved local and Codex records into immutable version-2 backend pins. Launching the compiled CLI without a connection keeps workspace commands available, but `recurs run <prompt>` exits with configuration code `2` before persisting the prompt. JSONL mode emits one `configuration_error` object without prose on standard output.
 
 ## Start and run
 
@@ -74,7 +102,7 @@ node packages/cli/dist/main.js run "inspect the repository" --format text
 node packages/cli/dist/main.js run "inspect the repository" --format jsonl
 ```
 
-The prompt examples require a configured local provider or an injected provider. `--format jsonl` emits the same normalized events used by the interactive runtime; it is not a separate agent path.
+The no-argument interactive CLI requires a user-present local terminal and rejects recognized automation even when it allocates a TTY. The one-shot prompt examples require a configured local provider or an injected provider. Codex deliberately rejects this unattended path; use the interactive CLI for user-present Codex Plan work. `--format jsonl` emits the same normalized events used by the interactive runtime; it is not a separate agent path.
 
 Exit codes:
 
@@ -112,7 +140,7 @@ Every fixed or arbitrary child process receives a fresh private home, config, ca
 
 Fixed Git operations first require Git 2.45 or newer, then pin the requested worktree and disable optional index writes, lazy object fetching, repository hooks, fsmonitor commands, external diff/text conversion, configured clean/smudge/process filters, and expanded dirty-submodule diffs. Recurs enumerates filter key names only and replaces their commands with empty command-line overrides before status, diff, patch, or checkpoint Git work; configured command values are never returned to the harness. This preflight is not protection against a hostile same-user process racing repository configuration.
 
-Environment cleanup prevents direct inheritance, but it is not an OS sandbox. A child can still use the user's filesystem, network, IPC, and process-inspection authority. No live provider credential may enter the current Recurs process under either profile.
+Environment cleanup prevents direct inheritance, but it is not an OS sandbox. A child can still use the user's filesystem, network, IPC, and process-inspection authority. No Recurs-owned API, coding-plan, OAuth, or cloud credential may enter the TypeScript process under either profile. The Codex adapter remains vendor-authenticated and Recurs neither imports nor stores its credential.
 
 ## Plan and Act modes
 
@@ -122,6 +150,8 @@ Act mode is normal coding. Plan mode is enforced read-only at the tool registry:
 - Hidden and denied: patching and shell commands.
 
 `/plan [prompt]` enters Plan mode and can immediately submit a planning prompt. `/plan exit` restores the permission preset that was active before planning. `/review` uses a temporary read-only override without changing the stored Act/Plan mode.
+
+Codex sessions are permanently constrained by their runtime profile to Plan mode and Codex `read-only` mode. Exiting Plan may update the local session mode, but the next delegated run is rejected before provider work; it cannot turn Codex into an Act-capable connection.
 
 ## Goals
 
@@ -150,14 +180,14 @@ Replacing or clearing an unfinished goal requires confirmation. Each successful 
 | `/init` | Confirm and create a starter `AGENTS.md`; never overwrite an existing path. |
 | `/new` | Start a new durable session in the same workspace. |
 | `/resume [id]` | List sessions newest-first or resume one exact ID. Prefix matching is not used. |
-| `/compact` | Ask the injected provider for a continuation summary and retain roughly the latest six messages without splitting tool-call/result groups. |
+| `/compact` | Ask a direct provider for a continuation summary and retain roughly the latest six messages without splitting tool-call/result groups. Delegated Codex sessions reject this because the vendor runtime owns its transcript. |
 | `/diff [--staged] [path]` | Show a bounded Git diff without repository hooks, filters, external diff/text conversion, or expanded dirty-submodule content. |
 | `/review` | Submit staged/unstaged changes for a temporary read-only review. |
 | `/undo` | Restore the latest checkpoint that actually changed files. |
 | `/cancel` | Abort the current provider/tool run. |
 | `/quit`, `/exit`, `/q` | Exit the interactive CLI. |
 
-Before a provider is configured, the workspace shell exposes only `/help`, `/connect`, `/model`, `/permissions`, `/status`, `/resume` listing, `/init`, `/diff`, and exit commands. `/connect` gives the credential-free local setup command; `/model` reports that no connection is active.
+Before a provider is configured, the workspace shell exposes only `/help`, `/connect`, `/model`, `/permissions`, `/status`, `/resume` listing, `/init`, `/diff`, and exit commands. `/connect` gives both `recurs setup codex` and the credential-free local setup command; `/model` reports that no connection is active.
 
 ## Sessions and recovery
 
@@ -170,6 +200,8 @@ By default, project data lives under:
 Set `RECURS_HOME` to move the Recurs data root. New session logs use strict version-2 append-only JSONL. Sequence zero pins the provider lane, connection, adapter, account fingerprint, model identity, billing choice, catalog, and policy revisions. Every mutation holds a cross-process lock and exact sequence; stale or concurrent writers fail. Version-1 logs remain readable and listable but cannot be changed.
 
 Completed messages and tool/permission/turn boundaries are flushed to disk. A partial final JSONL record is quarantined during recovery; committed corruption in the middle fails loudly. Before the next turn, pending tools receive durable failure results and the prior open turn is closed as interrupted. An orphaned compaction is closed locally with unknown usage and never retried automatically.
+
+Delegated turns persist normalized results, usage, changed files, evidence, failures/cancellation, and opaque continuation handles. Vendor session IDs stay in a bounded process-scoped continuation store rather than JSONL. A new continuation is recorded as uncertain before terminal settlement and committed only alongside the matching durable terminal. While its process-scoped payload remains available, a later prompt first probes the uncertain tip with separate authorization. Core can record a runtime-proven committed or gone result, but the current ACP path treats an existing resumable vendor session as still uncertain and proceeds only when the session is proven gone; it never repeats remote work automatically. After process loss the payload cannot be resumed, so the durable uncertain record blocks unsafe replay. This is durable lifecycle accounting and fail-closed recovery, not persistent vendor-session storage.
 
 Compaction is also append-only: the log keeps the audit history, while replay replaces active context with the summary plus retained recent messages.
 
@@ -231,8 +263,8 @@ Recurs does not perform this move automatically. The marker is an upgrade-safety
 
 - The current guard is application-level path/permission enforcement and clean child state, not a strong OS sandbox or container.
 - `local_guarded` arbitrary commands have host filesystem, network, IPC, and process authority. Shell classification is conservative but cannot prove scripts safe. Every shell command requires approval outside Full Access until an enforceable sandbox exists.
-- Permanent credential-path denial covers built-in tools, not indirect shell access. Neither Full Access nor `tools_disabled` makes this process safe to hold a live provider credential.
-- Node pathname validation and an opaque TypeScript object cannot provide hardened auth storage. Credential-bearing providers require descriptor-relative no-follow I/O, ownership/mode/ACL/full-parent validation, filesystem capability checks, a native non-exporting broker, and an OS tool sandbox.
+- Permanent credential-path denial covers built-in tools, not indirect shell access. Neither Full Access nor `tools_disabled` makes the TypeScript process safe to hold a Recurs-owned provider credential.
+- Node pathname validation and an opaque TypeScript object cannot provide hardened auth storage. Direct API, coding-plan, OAuth, and cloud-identity providers require descriptor-relative no-follow I/O, ownership/mode/ACL/full-parent validation, filesystem capability checks, a native non-exporting broker, origin-bound transport, and an OS tool sandbox.
 - Checkpoints enumerate Git tracked and non-ignored untracked files; ignored files are not restored by checkpoint undo.
 - Output, read, patch, command-time, and agent-step limits are bounded, but very large repositories can still make full snapshots expensive.
-- There is no secret vault, API-key flow, live provider transport, model picker, subscription adapter, plugin system, public MCP loading, multi-agent company runtime, desktop app, cloud worker, scheduler, or endless `/loop` in v0.
+- There is no secret vault, API-key/coding-plan/cloud-identity flow, direct hosted-model transport, general model picker, second subscription adapter, plugin system, public MCP loading, multi-agent company runtime, desktop app, cloud worker, scheduler, or endless `/loop` in v0.

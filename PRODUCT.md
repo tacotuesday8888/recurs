@@ -21,11 +21,13 @@ It is not an IDE. Users may keep their editor of choice. Recurs manages the peop
 
 ## What exists now
 
-Core v0, provider-foundation Slice 0, and the TypeScript tool-safety precursor are implemented: a provider-neutral loop, seven tools, three permission presets, Plan and review modes, goals, pinned version-2 sessions, cross-process mutation leases, trusted run context, a backend-neutral coordinator, interrupted-work recovery, compaction, checkpoints/undo, sessionless workspace shell, interactive and JSONL CLI paths, and a full end-to-end coding workflow.
+Core v0, the provider/authentication catalog foundation, and the TypeScript tool-safety precursor are implemented: a provider-neutral loop, seven tools, three permission presets, Plan and review modes, goals, pinned version-2 sessions, cross-process mutation leases, trusted run context, direct and delegated coordinator lanes, interrupted-work recovery, compaction, checkpoints/undo, sessionless workspace shell, interactive and JSONL CLI paths, and a full end-to-end coding workflow.
 
 Built-in tools now share a permanent credential-path denial, aggregate tools and new checkpoints exclude those paths, child processes receive clean synthetic state, and provider/tool/CLI failures are sanitized before durable or user-visible boundaries. Hosts may choose the default `local_guarded` tool profile or a fail-closed `tools_disabled` profile that exposes no model tools.
 
-The CLI still needs an injected `ModelProvider` for real prompts. It does not collect credentials, connect subscriptions, choose a model, or ship provider network adapters. `local_guarded` arbitrary commands are not OS-sandboxed and retain the user's filesystem, network, IPC, and process authority, so no live credential may enter this process. `tools_disabled` avoids model tools but is not a usable coding profile and does not replace the future credential boundary.
+The CLI now has a validated 25-path catalog and non-secret connection registry. Three paths are runnable: literal-loopback Ollama, literal-loopback LM Studio, and an existing ChatGPT account through the pinned official Codex ACP adapter. Codex setup and every Codex turn recheck vendor-reported authentication/account identity; each turn binds the account on the same ACP child before session work and again immediately before prompting. The connection is local, manual, user-present, and Plan-only, and its disclosed billing can include automatic prepaid-credit use after included limits. Recurs does not import or store the vendor credential. All direct API, coding-plan, OAuth, and cloud-identity entries still require native-broker and provider-adapter work.
+
+`local_guarded` arbitrary commands are not OS-sandboxed and retain the user's filesystem, network, IPC, and process authority. `tools_disabled` avoids model tools but is not a usable coding profile and does not replace the future credential boundary.
 
 The repository is intended to become open source, but it has no license yet and cannot legally be described as open source until the owner adds one. It is source-installable only; no npm, Bun, Homebrew, curl, or binary release has been published.
 
@@ -33,11 +35,11 @@ The repository is intended to become open source, but it has no license yet and 
 
 ### 1. Provider and onboarding layer
 
-Credential-free onboarding for a literal-loopback OpenAI-compatible local provider is implemented. It collects no key, refuses non-loopback endpoints and redirects, and persists only endpoint/model metadata.
+Credential-free onboarding for literal-loopback OpenAI-compatible local providers is implemented. It collects no key, refuses non-loopback endpoints and redirects, and persists only endpoint/model metadata. The 25-path catalog, billing/restriction projection, redacted provider/account commands, and official Codex-with-ChatGPT delegated path are also implemented.
 
-In parallel, design and prove the narrow native authority boundary required before credential-bearing providers: descriptor-relative no-follow storage, owner/mode/ACL/full-parent validation, filesystem capability checks, a non-exporting broker, origin-bound transport, and an OS sandbox that prevents tool children from reaching Recurs or vendor auth state. A small Rust or platform-native component fits this boundary; rewriting the TypeScript harness wholesale does not.
+In parallel, design and prove the narrow native authority boundary required before Recurs-owned direct provider credentials: descriptor-relative no-follow storage, owner/mode/ACL/full-parent validation, filesystem capability checks, a non-exporting broker, origin-bound transport, and an OS sandbox that prevents tool children from reaching broker authority. A small Rust or platform-native component fits this boundary; rewriting the TypeScript harness wholesale does not.
 
-Only after that gate should Recurs add credential-bearing connection metadata, model catalogs, billing disclosure, connection verification, first-run setup shared by CLI and desktop, direct providers, and official delegated runtimes.
+The next provider work is the native authority boundary and the direct adapters that can safely consume it. Additional delegated runtimes remain provider-specific integrations; a manifest or shared wire protocol alone does not make a path runnable.
 
 ### 2. Sub-agent company runtime
 

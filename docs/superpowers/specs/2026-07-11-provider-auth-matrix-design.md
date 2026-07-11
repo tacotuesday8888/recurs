@@ -1,14 +1,14 @@
 # Provider Authentication Matrix Design
 
 **Date:** 2026-07-11
-**Status:** Approved for implementation by the repository owner
+**Status:** Implemented foundation; direct credential-bearing activations and additional delegated adapters remain deferred
 **Scope:** Broad provider metadata and onboarding foundation, shared protocol seams, and the first official delegated subscription runtime
 
 ## Outcome
 
-Recurs will expose a broad provider catalog without building a separate engine for every vendor. Provider entries are manifests over a small set of protocol and authentication families. The first production subscription path is Codex through the official `@agentclientprotocol/codex-acp` adapter, which is maintained by the Agent Client Protocol organization and delegates authentication to Codex instead of importing its credential files.
+Recurs exposes a broad provider catalog without building a separate engine for every vendor. Provider entries are manifests over a small set of protocol and authentication families. The first production subscription path is Codex through the pinned official `@agentclientprotocol/codex-acp` 1.1.2 adapter, which delegates authentication to Codex instead of importing its credential files.
 
-This phase makes every major provider path accurately discoverable and makes local and Codex subscription paths runnable. Direct API and coding-plan entries become complete, validated activation recipes but remain unavailable for credential entry until the native credential broker and tool-containment boundary exists. A provider is never labeled ready merely because its endpoint is OpenAI-compatible.
+This phase implements 25 discoverable paths. Exactly three are runnable: literal-loopback Ollama, literal-loopback LM Studio, and Codex with an existing ChatGPT account. Direct API, coding-plan, OAuth, and cloud-identity entries are validated activation recipes but remain unavailable for credential entry until the native credential broker, tool-containment boundary, and required adapter exist. A provider is never labeled ready merely because its endpoint is OpenAI-compatible.
 
 ## Decision and alternatives
 
@@ -48,17 +48,16 @@ Protocol identifiers are data, not claims of activation. Existing local OpenAI-c
 
 A schema-versioned non-secret connection registry replaces the single local-connection file. It uses atomic revisioned writes, preserves the existing local configuration through a one-time migration, and stores no API key, OAuth token, browser cookie, vendor auth path, or credential reference that a model can dereference.
 
-The CLI gains:
+The CLI exposes:
 
 ```text
-recurs setup
 recurs setup local --url <loopback-url> --model <model-id>
 recurs setup codex
 recurs provider list [--all] [--json]
 recurs account list [--json]
 ```
 
-Interactive setup presents source, provider, billing/restriction disclosure, verification, model/mode selection, and confirmation. Direct key-based entries explain that the native broker is required and do not request a key yet. This is a truthful blocked state, not a placeholder connection.
+Local setup verifies an exact loopback model. Codex setup presents the automatic prepaid-credit disclosure, delegates any currently advertised `chat-gpt` login flow to the official adapter, rechecks structured account status, probes the selected model and `read-only` mode, and commits non-secret linkage. Direct key-based entries are listable as native-broker-required and do not request a key. This is a truthful blocked state, not a placeholder connection.
 
 ### Delegated runtime foundation
 
@@ -79,9 +78,13 @@ The ACP client:
 
 Codex ACP currently wraps the official Codex App Server and ships a compatible Codex dependency. ChatGPT authentication is owned by that adapter and Codex. Setup may open the official login flow, but Recurs persists only non-secret runtime linkage and verified account labels returned by the adapter.
 
+Standalone Codex execution is limited to a local, manual, user-present CLI REPL and the enforced Codex `read-only`/Plan profile. Every run rereads the connection and current policy, then binds structured ChatGPT authentication and account identity on the exact ACP child before session work and again immediately before prompting. Core rejects all non-read runtime approvals in Plan mode. Act, one-shot, unattended, recognized-CI, implicit-SDK, remote, and scripted contexts fail closed. Included subscription usage may automatically consume available prepaid credits after limits, so setup requires explicit acknowledgement of both declared sources.
+
 ### Core delegated execution
 
-The core gains a real `DelegatedAgentExecutor`. It validates that the resolved lane, adapter, connection, model, authorization, and runtime capability profile match the immutable session pin. It maps runtime output into durable version-2 results, changed-file/evidence metadata, usage, failure/cancellation, and continuation state without pretending unavailable data is zero.
+Core includes a real `DelegatedAgentExecutor`. It validates that the resolved lane, adapter, connection, model, authorization, and runtime capability profile match the immutable session pin. It maps runtime output into durable version-2 results, changed-file/evidence metadata, usage, failure/cancellation, and continuation state without pretending unavailable data is zero.
+
+Vendor session IDs remain behind process-scoped continuation capabilities rather than in JSONL. A staged uncertain continuation is committed only with its matching durable terminal. While the process-scoped payload remains available, a later attempt must reconcile an uncertain tip before any new work. Core supports runtime-proven committed or gone outcomes; the current ACP path conservatively leaves an existing resumable session uncertain and advances only when it is proven gone. Still-uncertain state—and process loss that makes the payload unavailable—fails closed; remote work is never repeated automatically.
 
 Delegated `/compact` is rejected explicitly in this phase because the runtime owns its transcript. A runtime that cannot enforce the requested permission or plan mode is rejected before the prompt is persisted.
 
@@ -90,7 +93,7 @@ Delegated `/compact` is rejected explicitly in this phase because the runtime ow
 - Browser cookies, copied tokens, private vendor auth files, desktop credential extraction, and shared subscription credentials are never accepted.
 - API/coding-plan credentials remain disabled until a separately reviewed native broker captures and stores them outside the TypeScript harness and tools are denied access to broker authority.
 - Codex runs only through the official adapter and retains ownership of its authentication.
-- Subscription access is restricted to local, user-present, manual CLI/desktop contexts unless official policy and runtime capabilities explicitly allow more.
+- The implemented Codex subscription access is restricted to local, user-present, manual CLI context. Desktop and unattended contexts are not implemented.
 - Coding-plan manifests retain dedicated endpoints, credential kinds, billing disclosures, regions, and usage restrictions even when the wire protocol matches another provider.
 - Alibaba Coding Plan is foreground-interactive only. Z.ai GLM Coding Plan remains hidden pending written approval. MiniMax Token Plan requires explicit additional-spend disclosure. Unknown fallback billing is blocked.
 - Unsupported or stale policy never degrades into a warning-and-continue path.
@@ -105,7 +108,7 @@ The implementation uses test-first slices:
 - hostile fake ACP processes for malformed frames, oversized output, permission requests, cancellation, timeout, early exit, duplicate terminal, and process cleanup;
 - fake runtime contract tests for durable delegated results, failures, usage, changed files, evidence, and exact pin validation;
 - CLI setup/account/provider rendering in text and JSON;
-- one opt-in live Codex ACP smoke test that never runs in the default suite and never requires a credential in CI;
+- focused fake-process Codex ACP setup/run coverage; no live credential is required in CI;
 - the existing full `npm run check` gate.
 
 ## Explicitly deferred

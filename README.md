@@ -11,16 +11,18 @@ The repository contains a usable single-agent base:
 - one streaming tool-calling loop with bounded pre-output retries, cancellation, step limits, and repeated-loop detection;
 - strict provider-event validation and normalized text, reasoning, tool, usage, and completion events;
 - credential-free OpenAI-compatible local model setup for literal-loopback Ollama and LM Studio servers;
+- a validated 25-path provider/authentication catalog, a revisioned non-secret connection registry, and redacted provider/account listings;
+- an official Codex ACP path for an existing ChatGPT login, constrained to local, interactive, user-present, Plan-only work;
 - seven tools for file reading, listing, search, patching, bounded shell execution, Git status, and Git diff;
 - Ask Always, Approved for Me, Full Access, enforced Plan mode, and temporary read-only review;
 - durable `/goal` state, append-only JSONL sessions, interrupted-tool recovery, compaction, checkpoints, and conflict-safe undo;
 - interactive and non-interactive CLI paths with text or normalized JSONL output;
-- immutable backend pins, strict version-2 session records, cross-process mutation leases, and typed preflight failures;
+- immutable backend pins, strict version-2 session records, cross-process mutation leases, typed preflight failures, and durable delegated-runtime results and recovery;
 - one credential-path policy enforced across direct and aggregate built-in tools, permanent denial of classified credential intents, and checkpoint capture that excludes those paths;
 - clean per-child environments, bounded process-group cleanup, safe provider/tool/CLI failures, and explicit `local_guarded` or fail-closed `tools_disabled` composition;
 - one `npm run check` path covering lint, type checking, tests, and build output.
 
-The standalone CLI can use a credential-free OpenAI-compatible server on literal `127.0.0.1` or `[::1]`. Without a configured local server it starts a sessionless workspace shell, so local commands remain available without writing a fake session. Test hosts can also inject the public `ModelProvider` interface through the same coordinator seam that future live connections will use.
+The standalone CLI can use a credential-free OpenAI-compatible server on literal `127.0.0.1` or `[::1]`, or the pinned official `@agentclientprotocol/codex-acp` adapter with an existing ChatGPT account. Codex is read-only/Plan-only, local, manual, and user-present: one-shot and unattended runs fail closed. Without a configured connection the CLI starts a sessionless workspace shell, so local commands remain available without writing a fake session. Test hosts can also inject the public `ModelProvider` interface.
 
 ## Quick start
 
@@ -31,7 +33,11 @@ npm install
 npm run check
 npm run build
 node packages/cli/dist/main.js --help
+node packages/cli/dist/main.js provider list
+node packages/cli/dist/main.js account list
 node packages/cli/dist/main.js setup local --url http://127.0.0.1:11434/v1 --model qwen2.5-coder:7b
+# Or, from a local interactive terminal, connect an existing ChatGPT account:
+# node packages/cli/dist/main.js setup codex
 node packages/cli/dist/main.js
 ```
 
@@ -43,9 +49,11 @@ This is currently the only installation path. An npm package is the likely first
 
 ```text
 packages/contracts   Dependency-leaf model, connection, backend, failure, and runtime contracts
-packages/providers   Normalized provider protocol and deterministic test provider
+packages/providers   Validated provider manifests, protocol metadata, and direct-provider implementations
+packages/app         Non-secret connection registry, onboarding catalog, and Codex setup policy
+packages/runtimes    Bounded ACP transport and the pinned official Codex runtime profile
 packages/tools       Tool registry, permissions, path policy, Git, and checkpoints
-packages/core        Agent loop, events, sessions, goals, compaction, and recovery
+packages/core        Direct/delegated execution, events, sessions, goals, compaction, and recovery
 packages/cli         Runtime assembly, slash commands, renderers, REPL, and executable
 tests/e2e            Public-interface coding workflow proof
 ```
@@ -60,15 +68,15 @@ Fixed Git inspection requires Git 2.45 or newer, pins the requested worktree, an
 
 All fixed and arbitrary child processes receive a fresh private home, config, cache, and temporary tree plus an allowlisted environment. They do not inherit provider/cloud variables, the real home, `SHELL`, proxy variables, sockets, or workspace-contained `PATH` entries. Process-group cleanup and output-pipe draining are bounded so inherited pipes alone cannot hold Recurs settlement open before synthetic-state cleanup, but preventing an escaped descendant requires the later OS containment boundary. Provider, tool, process, and unexpected CLI failures cross durable/user-visible boundaries through safe typed messages instead of raw causes or stderr.
 
-These are application-level defenses, not an OS security boundary. The default `local_guarded` profile still lets approved arbitrary commands use the user's host filesystem, network, IPC, and process authority. `Full Access` remains unsafe for credentials. The optional `tools_disabled` profile exposes no model-callable tools at all; it is a fail-closed composition option, not a coding sandbox. No live cloud or subscription credential may enter this process.
+These are application-level defenses, not an OS security boundary. The default `local_guarded` profile still lets approved arbitrary commands use the user's host filesystem, network, IPC, and process authority. `Full Access` remains unsafe for credentials. The optional `tools_disabled` profile exposes no model-callable tools at all; it is a fail-closed composition option, not a coding sandbox. No API key, coding-plan key, cloud credential, copied token, or imported vendor auth file may enter the Recurs TypeScript process. The Codex path is a narrow exception only in the sense that the official vendor runtime keeps ownership of its existing ChatGPT authentication; Recurs never reads or stores that credential.
 
-Before credential-bearing providers, Recurs needs a separately tested native broker/storage boundary with descriptor-relative no-follow I/O, ownership/mode/ACL and full-parent validation, filesystem capability checks, and an OS sandbox that prevents tool children from reaching Recurs or vendor authentication state. A small Rust or native component is appropriate for that authority boundary; the TypeScript harness does not need a wholesale rewrite.
+Before Recurs can own direct API, coding-plan, OAuth, or cloud-identity credentials, it needs a separately tested native broker/storage boundary with descriptor-relative no-follow I/O, ownership/mode/ACL and full-parent validation, filesystem capability checks, origin-bound transport, and an OS sandbox that prevents tool children from reaching broker authority. A small Rust or native component is appropriate for that boundary; the TypeScript harness does not need a wholesale rewrite.
 
 ## Next
 
-1. Design and prove the native broker, hardened storage, origin-bound transport, and OS tool sandbox before any direct cloud or subscription credential.
-2. Implement the full connection registry, catalogs, billing policy, and shared interactive onboarding over that authority boundary.
-3. Add direct providers and official delegated subscription runtimes through documented integrations.
+1. Design and prove the native broker, hardened storage, origin-bound transport, and OS tool sandbox before any Recurs-owned provider credential.
+2. Activate reviewed direct API, coding-plan, OAuth, and cloud-identity paths over that authority boundary; catalog-only entries remain unavailable until their broker/adapter work lands.
+3. Expand official delegated runtimes only through documented integrations and provider-specific policy review.
 4. Build the heavy sub-agent/company runtime over these explicit backend capabilities.
 
 Start with the [documentation index](docs/README.md), [CLI guide](docs/CLI.md), [architecture](ARCHITECTURE.md), [security policy](SECURITY.md), and [product direction](PRODUCT.md).

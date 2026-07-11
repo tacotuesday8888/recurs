@@ -4,9 +4,24 @@
 
 **Goal:** Build a broad, truthful provider/authentication catalog, reusable onboarding foundation, and the first official delegated ChatGPT/Codex subscription path.
 
-**Architecture:** Dependency-leaf contracts describe provider manifests, policy, billing, and delegated runtime capabilities. `@recurs/providers` owns immutable bundled manifests and protocol-family metadata; a new `@recurs/app` package owns non-secret connections and onboarding; core owns durable delegated execution; a new `@recurs/runtimes` package uses the official ACP SDK and Codex ACP adapter. Local and Codex connections are runnable in this phase; credential-bearing direct entries remain activation recipes until the native broker exists.
+**Architecture:** Dependency-leaf contracts describe provider manifests, policy, billing, and delegated runtime capabilities. `@recurs/providers` owns immutable bundled manifests and protocol-family metadata; `@recurs/app` owns non-secret connections and onboarding; core owns durable delegated execution; `@recurs/runtimes` uses the official ACP SDK and Codex ACP adapter. Local and Codex connections are runnable in this phase; credential-bearing direct entries remain activation recipes until the native broker exists.
 
 **Tech Stack:** TypeScript 6, Node.js 22.22+, npm workspaces, Vitest 4, `@agentclientprotocol/sdk` 1.2.1, `@agentclientprotocol/codex-acp` 1.1.2, ACP protocol version 1, append-only JSONL sessions.
+
+## Delivery status (2026-07-11)
+
+Tasks 1–6 are implemented, including the 25-path catalog, non-secret registry,
+delegated executor and recovery, bounded ACP runtime, the Plan-only official
+Codex-with-ChatGPT path, and provider/account CLI commands. The repository-wide
+verification gate passes with 41 test files and 570 tests, and independent final
+review found no remaining Critical or Important issue. The historical step
+checkboxes below record the original execution plan; this status section is
+authoritative.
+
+- [x] Task 6 provider/account command implementation and E2E test.
+- [x] Task 6 public documentation update.
+- [x] Task 6 repository-wide lint, typecheck, 570-test, and build verification.
+- [x] Task 6 final re-read and commit.
 
 ## Global Constraints
 

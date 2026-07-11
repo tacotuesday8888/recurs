@@ -1,10 +1,10 @@
 # Recurs Provider, Authentication, and Onboarding Design
 
 **Date:** 2026-07-10
-**Status:** Reviewed umbrella design — Slice 0, the TypeScript safety precursor, and the credential-free local subset of Slice 2 implemented; native Slice 1 and credential-bearing Slices 2–5 pending
+**Status:** Reviewed umbrella design — Slice 0, the TypeScript safety precursor, the 25-path/non-secret subset of Slice 2, and the Codex foundation of Slice 4 implemented; native Slice 1, direct credential-bearing Slice 3, and later runtime/policy work pending
 **Scope:** CLI-first provider connectivity shared with the future desktop app
 
-This specification describes the provider/authentication program. The repository now implements Slice 0, a TypeScript safety precursor, and a credential-free local subset of Slice 2: dependency-leaf contracts, immutable backend pins, trusted host context, version-2 sessions and leases, backend-neutral coordination, a sessionless workspace shell, unified built-in credential exclusions, checkpoint format gating, clean child state, tool security profiles, sanitized runtime failures, and literal-loopback OpenAI-compatible model setup. It holds no provider credential and refuses non-loopback endpoints. The precursor does not complete Slice 1 because the native storage/broker and OS sandbox authority boundary is still absent. See [the architecture](../../../ARCHITECTURE.md) for exact implemented behavior.
+This specification describes the provider/authentication program. The repository now implements dependency-leaf contracts, immutable backend pins, trusted host context, version-2 sessions and leases, direct/delegated coordination, durable delegated results and recovery, a sessionless workspace shell, unified built-in credential exclusions, checkpoint format gating, clean child state, tool security profiles, sanitized failures, a strict 25-path manifest catalog, a non-secret connection registry, literal-loopback OpenAI-compatible setup, and the first official Codex-with-ChatGPT ACP path. Recurs imports or stores no vendor credential; Codex authentication remains owned by the pinned official runtime. The native storage/broker and OS sandbox authority boundary is still absent, so direct API, coding-plan, OAuth, and cloud-identity activation remains blocked. See [the architecture](../../../ARCHITECTURE.md) for exact implemented behavior.
 
 ## 1. Decision
 
@@ -69,19 +69,31 @@ This design does not include:
 ## 4. Current State and Required Corrections
 
 Recurs Core v0 has a provider-neutral agent loop, tools, permission modes, Plan
-mode, goals, durable sessions, checkpoints, and CLI. It currently accepts one
-injected `ModelProvider` at process assembly.
+mode, goals, durable sessions, checkpoints, and CLI. Standalone assembly now
+loads a strict non-secret connection registry and resolves either a local direct
+model or the first production delegated runtime. The injected `ModelProvider`
+remains available as a test/embedding seam.
 
-The current live assembly is still an injected/test seam:
+The current live provider foundation is deliberately narrow:
 
-- The standalone runtime derives synthetic connection and adapter IDs from
-  `ModelProvider.id`; it has no real connection registry or verified account.
-- Version-2 sessions carry immutable backend-pin fields, but there is no live
-  catalog, entitlement, billing-policy, or account source behind those fields.
-- `BackendRunCoordinator` currently has only the injected direct-model executor;
-  no production delegated executor exists.
-- `/compact` still receives the injected raw provider; delegated-runtime context
-  behavior is not implemented.
+- A validated manifest registry describes 25 distinct provider/authentication
+  paths. Only literal-loopback Ollama, literal-loopback LM Studio, and Codex
+  with ChatGPT through the official ACP adapter are runnable.
+- Version-2 sessions pin the exact connection, adapter, model, account
+  fingerprint, policy, and acknowledged billing source set. Provider and
+  account list commands project redacted registry/application data.
+- `BackendRunCoordinator` has separate direct and delegated executors. Delegated
+  results, failures, usage, file/evidence data, and continuation transitions are
+  durable; uncertain continuations are reconciled before new work rather than
+  replayed.
+- Codex is restricted to local, manual, user-present CLI use and an enforced
+  `read-only`/Plan profile. Setup checks structured ChatGPT authentication;
+  each run binds that account on the exact ACP child before session work and
+  again immediately before prompting. Core rejects non-read opaque runtime
+  approvals in Plan. Included usage may fall through to automatic prepaid-
+  credit use only after explicit revision-bound acceptance.
+- Delegated `/compact` is explicitly unavailable because the vendor runtime
+  owns its transcript.
 
 The TypeScript safety precursor adds these implemented defenses:
 
@@ -237,8 +249,8 @@ and a compile-time brand carries no operating-system authority. Environment
 cleanup also cannot prevent a child with the same user identity from opening
 other paths, contacting local services, or inspecting accessible processes.
 
-Before direct cloud, coding-plan, subscription, OAuth, or cloud-identity
-credentials, Recurs must design and test a narrow native broker/storage
+Before Recurs owns a direct API, coding-plan, OAuth, or cloud-identity
+credential, it must design and test a narrow native broker/storage
 boundary with descriptor-relative no-follow I/O, owner/mode/ACL and full-parent
 validation, filesystem capability checks, and an OS sandbox that denies tool
 children access to Recurs data, vendor auth state, broker IPC, unrelated
@@ -277,7 +289,7 @@ flowchart TD
     Desktop["Future desktop"] --> App
 ```
 
-### `@recurs/contracts` (new dependency leaf)
+### `@recurs/contracts` (implemented dependency leaf)
 
 - `JsonValue`, messages, tools, normalized events, failures, connection
   variants, billing/policy types, model catalogs, backend pins, continuation
@@ -311,7 +323,7 @@ This package must not be created as a pathname validator or opaque TypeScript
 wrapper. It lands only when the descriptor-relative storage and OS isolation
 authority described in section 6.2 exists.
 
-### `@recurs/runtimes` (new)
+### `@recurs/runtimes` (implemented ACP/Codex foundation)
 
 - Managed subprocess/IPC launcher for authenticated official runtimes.
 - Codex app-server/SDK, Copilot SDK, Mistral Vibe ACP, Grok Build ACP, and
@@ -347,7 +359,7 @@ authority described in section 6.2 exists.
 - Argument parsing, REPL handling, and the CLI composition entrypoint.
 - No direct secure-store or vendor-token parsing.
 
-### `@recurs/app` (new shared application layer)
+### `@recurs/app` (implemented non-secret foundation; broader layer planned)
 
 - Owns `OnboardingService`, connection/account commands, model selection,
   `BackendResolver`, provider/runtime factories, and application assembly.
@@ -2187,7 +2199,13 @@ The final actions are **Start using Recurs** and **Add another connection**.
 
 ## 15. Later Connection Management
 
-Top-level CLI commands:
+The implemented read-only inventory commands are:
+
+- `recurs provider list [--all] [--json]`
+- `recurs account list [--json]`
+
+The broader management surface below remains a target design, not current CLI
+behavior:
 
 ```text
 recurs setup
@@ -3084,12 +3102,14 @@ safety precursor described below.
 The implemented precursor is not Slice 1 completion. No live cloud credential
 ships before every pending native item passes.
 
-### Slice 2: Connections, catalogs, sessions, and onboarding
+### Slice 2: Connections, catalogs, sessions, and onboarding — bounded non-secret subset implemented
 
-The first bounded follow-up may implement credential-free onboarding for an
-exact literal-loopback local provider. It must use no secret, auth package,
-cloud identity, consumer subscription, or non-loopback discovery. All
-credential-bearing Slice 2 work remains blocked on Slice 1 completion.
+The implemented subset contains the 25-path manifest catalog, strict non-secret
+connection registry and migration, billing/restriction projection, literal-
+loopback local onboarding, Codex delegated metadata, and redacted provider and
+account listings. It collects no key, cloud identity, copied token, browser
+cookie, or vendor auth path. General secret-bearing onboarding and model catalog
+work remains blocked on Slice 1 completion.
 
 - Add connection registry and transaction protocol.
 - Add provider manifests, model catalogs, typed entitlement claims, usage
@@ -3112,13 +3132,17 @@ credential-bearing Slice 2 work remains blocked on Slice 1 completion.
   source enforcement.
 - Add Alibaba and Volcengine only with signed foreground-only policies.
 
-### Slice 4: Official delegated subscription runtimes
+### Slice 4: Official delegated subscription runtimes — foundation and Codex path implemented
 
-- Land the managed runtime process/IPC boundary and fake runtime contract first.
-- Add Codex SDK/app-server, GitHub Copilot SDK, Mistral Vibe ACP, Grok Build
-  ACP, Kiro CLI, and conditional Claude Agent SDK in separate PRs.
-- Verify permissions, Plan mode, resume, cancellation, and file/evidence events
-  independently for every runtime.
+- Implemented: bounded managed ACP process/protocol handling, the delegated
+  executor, process-scoped continuation lifecycle/reconciliation, and hostile
+  fake-runtime coverage.
+- Implemented: the pinned official Codex ACP adapter with dynamic ChatGPT auth,
+  same-child account binding, Plan-only approval enforcement, bounded
+  cancellation across setup/prompt/reconciliation, resume, and normalized
+  runtime output.
+- Pending: GitHub Copilot, Mistral Vibe, Grok Build, Kiro, and conditional Claude
+  integrations, each requiring its own policy and capability verification.
 
 ### Slice 5: Policy follow-up and routing readiness
 

@@ -7,19 +7,20 @@ Recurs has one small coding-agent engine and multiple future clients. The termin
 Dependencies point inward:
 
 ```text
-packages/contracts
-      ▲       ▲       ▲
-      │       │       │
- providers  tools    core ◄──── cli
-      ▲       ▲       ▲          │
-      └───────┴───────┴──────────┘
+contracts ◄── providers ◄── app
+    ▲             ▲          ▲
+    ├── runtimes  │          │
+    ├── tools ◄── core       │
+    └─────────────┴────────── cli
 ```
 
 - `@recurs/contracts` owns dependency-free model, connection, billing, backend-pin, trusted-invocation, failure, direct-provider, delegated-runtime, and coordinator contracts.
-- `@recurs/providers` owns normalized stream collection, safe provider-error mapping, and deterministic provider fixtures. It has no authentication or network implementation.
+- `@recurs/providers` owns strict provider manifests, the immutable 25-path catalog, normalized direct-provider streams, safe provider-error mapping, and deterministic fixtures. It has no credential implementation.
+- `@recurs/app` owns the non-secret connection registry, onboarding projection, and Codex onboarding policy. It depends on contracts and providers, never on the CLI.
+- `@recurs/runtimes` owns bounded ACP process/protocol handling and the pinned official Codex ACP profile. It receives opaque continuation-store capabilities and does not import vendor credentials.
 - `@recurs/tools` owns tool definitions and execution, permission intents, the unified credential/workspace path policy, command classification, clean child-process setup and bounds, Git inspection, and checkpoint format gates.
-- `@recurs/core` owns the turn loop, backend-neutral coordinator/runtime, trusted preflight handoff, normalized runtime events, durable goals, session reduction, JSONL persistence, compaction, and loop detection.
-- `@recurs/cli` owns runtime assembly, slash commands, rendering, interactive input, non-interactive execution, and process exit behavior.
+- `@recurs/core` owns the direct agent loop, delegated executor, backend-neutral coordinator, trusted preflight handoff, normalized runtime events, process-scoped continuation authority, durable goals, session reduction, JSONL persistence, compaction, and recovery.
+- `@recurs/cli` composes app, providers, runtimes, core, and tools; it owns slash commands, rendering, interactive input, non-interactive execution, and process exit behavior.
 
 The future desktop app and sub-agent orchestrator should consume these public boundaries rather than reimplementing the loop.
 
@@ -51,7 +52,9 @@ Provider retries are bounded to two attempts and are allowed only before text, r
 
 The collector rejects malformed usage, duplicate or empty tool identities, data after completion, oversized output, excessive tool calls, and missing completion. `ScriptedProvider` makes the full engine deterministic in tests.
 
-`BackendRunCoordinator` selects the immutable session pin's direct-model or delegated-runtime lane. It rejects a resolver whose run authorization is bound to a different operation, turn, session, connection, model, policy, billing mode, or invalid request budget. Direct providers are instantiated per run and enter `AgentLoop` through `AgentLoopDirectExecutor`; the authorization's request budget limits model steps. Delegated runtimes have a separate contract and dispatch port rather than being disguised as raw models. The current injected provider is a test/embedding path, not live credential support, and no production delegated executor exists yet.
+`BackendRunCoordinator` selects the immutable session pin's direct-model or delegated-runtime lane. It rejects a resolver whose run authorization is bound to a different operation, turn, session, connection, model, policy, billing mode, or invalid request budget. Direct providers are instantiated per run and enter `AgentLoop` through `AgentLoopDirectExecutor`; the authorization's request budget limits model steps. `DelegatedAgentExecutor` separately validates bounded runtime events, approval option IDs, capabilities, continuation provenance, and one terminal result.
+
+The live direct transports are credential-free literal-loopback Ollama/LM Studio plus the injected test/embedding seam. The live delegated transport is the pinned official `@agentclientprotocol/codex-acp` 1.1.2 profile with `@openai/codex` 0.144.0. It enforces Codex `read-only`/Plan mode and local, manual, user-present CLI context. Before every run or reconciliation, assembly rereads the connection and current policy. The runtime verifies structured ChatGPT authentication and the canonical account fingerprint on the exact ACP child that will perform the work, after continuation loading when resuming, and again after session configuration immediately before continuation staging and prompting. One-shot, unattended, recognized CI, remote, scripted, implicit SDK, Act-mode, stale-policy, changed-account, or changed-connection use fails before delegated work continues. In Plan mode, core rejects every opaque runtime approval except a normal read, regardless of the permission preset.
 
 ## Tools and permissions
 
@@ -89,6 +92,8 @@ The loop repairs an interrupted protocol boundary before the next request:
 
 The mutation lease uses an atomic lock directory, owner-process recovery, and monotonic fence. A concurrent or stale writer fails before provider work. Version-1 logs remain readable and listable but are permanently read-only; continuing them will require the later explicit generic fork flow. Partial trailing records are quarantined, while committed corruption fails loudly.
 
+Delegated turns persist normalized text, usage, changed files, evidence, failure/cancellation, and provenance-bearing continuation updates in the same version-2 log. Vendor session identifiers remain behind bounded process-scoped continuation capabilities and are not written to JSONL. A continuation is staged as uncertain before terminal settlement and committed only with the matching durable terminal. On a later attempt while that process-scoped payload remains available, the coordinator asks the runtime to reconcile the uncertain tip before any new prompt. Core can record a proven committed or gone outcome, but the current ACP implementation conservatively reports an existing resumable vendor session as still uncertain and advances only when the session is proven gone; it never repeats remote work. After process loss the opaque payload is unavailable, so the durable uncertain record blocks unsafe replay rather than promising cross-process vendor-session recovery. The current continuation store is not a persistent broker.
+
 An orphaned compaction start is closed locally as interrupted with unknown usage and is never retried automatically. The agent loop closes incomplete tool boundaries and the previous open turn before beginning another request. Model-call usage is accounted when its durable completion record is replayed, so a later interrupted turn does not erase already incurred usage.
 
 Compaction targets the latest six messages but extends the retained window when necessary so an assistant tool call is never separated from its tool results.
@@ -99,11 +104,11 @@ Mutating tools capture content-addressed before/after workspace states outside t
 
 Undo chooses the newest checkpoint that changed files and verifies the current files still match the agent-produced after-state before restoring anything. Credential-classified canonical parents and targets are conflicts—even when the expected after-state is absent—and are checked again before each restore. Git is used for enumeration only; Recurs does not reset, clean, checkout, or commit the user's repository. The format marker protects upgrade semantics; the Node pathname-based store is not suitable for authentication secrets.
 
-## Native authority boundary before credentials
+## Native authority boundary before Recurs-owned credentials
 
 The TypeScript safety precursor closes several direct leak paths, but package boundaries, pathname validation, environment cleanup, and opaque TypeScript types are not hardened storage or an OS sandbox. An approved arbitrary command can still inspect any host resource available to the Recurs user, including Recurs data or vendor auth state through paths, IPC, networking, or process inspection.
 
-Before a direct cloud, coding-plan, subscription, OAuth, or cloud-identity credential enters Recurs, a separately reviewed native broker/storage boundary must provide:
+Before a direct API, coding-plan, OAuth, or cloud-identity credential enters the Recurs TypeScript process, a separately reviewed native broker/storage boundary must provide:
 
 - descriptor-relative, no-follow filesystem operations rather than check-then-open pathnames;
 - owner, mode, ACL, and full-parent-chain validation;
@@ -113,17 +118,19 @@ Before a direct cloud, coding-plan, subscription, OAuth, or cloud-identity crede
 
 A small Rust or platform-native component is an appropriate implementation for this narrow authority boundary. Rewriting the agent loop, session engine, or CLI wholesale in Rust would not create those guarantees and is not required. `@recurs/auth` must not be added until its public capability is backed by this real boundary.
 
+The existing Codex path does not weaken that gate: Recurs launches the pinned official adapter, delegates any advertised `chat-gpt` login flow to it, and stores only non-secret linkage, verified account label/fingerprint, policy/billing acknowledgement, and model metadata. Recurs never reads `auth.json`, browser cookies, copied tokens, or credential values. The adapter/runtime remains vendor-authenticated, and the current path is deliberately Plan-only and foreground-only.
+
 ## Verification and extension order
 
 `npm run check` is the repository gate: lint, strict TypeScript, all tests, and build. GitHub Actions runs the same command.
 
-Without a provider, the CLI remains in a `WorkspaceShellState` and creates no durable session. A configured credential-free OpenAI-compatible server is accepted only at literal HTTP loopback, is verified through `/models`, and is pinned to an exact connection/model before a session is created. Local configuration contains no key and is revalidated on load. Noninteractive model prompts without a connection fail before persistence with exit code `2`; JSONL mode emits a structured `configuration_error`. Provider, tool, process, and unexpected CLI failures cross user-visible or durable boundaries through allowlisted messages; unknown CLI faults receive a diagnostic UUID rather than raw error text.
+Without a provider, the CLI remains in a `WorkspaceShellState` and creates no durable session. A configured credential-free OpenAI-compatible server is accepted only at literal HTTP loopback, is verified through `/models`, and is pinned to an exact connection/model before a session is created. A Codex connection is established only through interactive billing acknowledgement, structured ChatGPT authentication/status checks, a read-only capability probe, and non-secret registry commit. `recurs provider list [--all] [--json]` projects the 25-path catalog; `recurs account list [--json]` reports configured local/delegated records without account labels, fingerprints, endpoints, or credentials. Empty-argument REPL startup requires a user-present local TTY and rejects recognized automation even when it has a TTY; supported noninteractive direct-model work uses the explicit `recurs run` command. Noninteractive prompts without a connection—and all noninteractive Codex prompts—fail before provider work. Provider, tool, process, and unexpected CLI failures cross user-visible or durable boundaries through allowlisted messages; unknown CLI faults receive a diagnostic UUID rather than raw error text.
 
 The remaining extension order is deliberate:
 
-1. the native broker/storage authority, origin-bound transport, and enforceable OS tool sandbox required for credentials;
-2. connection registry, richer catalogs, billing policy, and credential-bearing onboarding;
-3. direct API/coding-plan providers and official delegated subscription runtimes;
+1. the native broker/storage authority, origin-bound transport, and enforceable OS tool sandbox required for Recurs-owned credentials;
+2. direct API, coding-plan, OAuth, and cloud-identity activations over that authority;
+3. additional official delegated runtimes with provider-specific capability and policy proof;
 4. the sub-agent/company coordinator, isolated workspaces, handoffs, and budgets;
 5. desktop, plugins/MCP, and distribution.
 
