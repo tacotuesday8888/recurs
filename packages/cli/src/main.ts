@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
@@ -17,6 +18,11 @@ import {
 import { CoordinatedRunError, type EventSink } from "@recurs/core";
 
 import { createStandaloneRuntime } from "./assembly.js";
+import {
+  LocalConnectionError,
+  setupLocalConnection,
+  type LocalConnectionConfiguration,
+} from "./local-connection.js";
 import type { CommandResult } from "./commands/types.js";
 import {
   JsonlEventRenderer,
@@ -38,9 +44,10 @@ Usage:
   recurs                         Open the interactive CLI
   recurs run <prompt>            Run one prompt
   recurs run <prompt> --format text|jsonl
+  recurs setup local --url <loopback-url> --model <model-id>
   recurs --help                  Show this help
 
-The core harness is provider-neutral. Live LLM provider configuration is deferred.
+Local setup supports credential-free OpenAI-compatible servers on literal loopback only.
 `;
 
 export interface CliDependencies {
@@ -48,6 +55,7 @@ export interface CliDependencies {
   stderr: Writable;
   stdin?: Readable;
   createRuntime(events: EventSink): Promise<RecursRuntime>;
+  setupLocal?(input: { baseUrl: string; modelId: string }): Promise<Pick<LocalConnectionConfiguration, "label" | "baseUrl" | "modelId">>;
 }
 
 interface RunArguments {
@@ -78,6 +86,25 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
   return joined.length === 0 ? null : { prompt: joined, format };
 }
 
+function parseLocalSetupArguments(
+  args: readonly string[],
+): { baseUrl: string; modelId: string } | null {
+  if (args[0] !== "local") return null;
+  let baseUrl: string | undefined;
+  let modelId: string | undefined;
+  for (let index = 1; index < args.length; index += 2) {
+    const flag = args[index];
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith("--")) return null;
+    if (flag === "--url" && baseUrl === undefined) baseUrl = value;
+    else if (flag === "--model" && modelId === undefined) modelId = value;
+    else return null;
+  }
+  return baseUrl === undefined || modelId === undefined
+    ? null
+    : { baseUrl, modelId };
+}
+
 function isCommandResult(value: unknown): value is CommandResult {
   return (
     typeof value === "object" &&
@@ -99,6 +126,7 @@ function exitCodeFor(error: unknown): number {
   ) {
     return 2;
   }
+  if (error instanceof LocalConnectionError) return 2;
   if (error instanceof CoordinatedRunError && error.failure.phase === "preflight") {
     return 2;
   }
@@ -152,6 +180,25 @@ export async function runCli(
         dependencies.stderr,
         `Error: ${safeCliErrorMessage(error)}\n`,
       );
+      return exitCodeFor(error);
+    }
+  }
+
+  if (argv[0] === "setup") {
+    const input = parseLocalSetupArguments(argv.slice(1));
+    if (input === null || dependencies.setupLocal === undefined) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    try {
+      const connection = await dependencies.setupLocal(input);
+      await writeOutput(
+        dependencies.stdout,
+        `Ready — ${connection.label} · ${connection.modelId}\nEndpoint: ${connection.baseUrl}\n`,
+      );
+      return 0;
+    } catch (error) {
+      await writeOutput(dependencies.stderr, `Error: ${safeCliErrorMessage(error)}\n`);
       return exitCodeFor(error);
     }
   }
@@ -211,6 +258,10 @@ async function main(): Promise<void> {
     stdout: processStdout,
     stderr: processStderr,
     createRuntime: (events) => createStandaloneRuntime(events),
+    setupLocal: (input) => setupLocalConnection(
+      process.env.RECURS_HOME ?? path.join(homedir(), ".recurs"),
+      input,
+    ),
   });
 }
 

@@ -1,10 +1,10 @@
 # Recurs Provider, Authentication, and Onboarding Design
 
 **Date:** 2026-07-10
-**Status:** Reviewed umbrella design — Slice 0 and the TypeScript safety precursor implemented; native Slice 1 authority boundary and Slices 2–5 pending
+**Status:** Reviewed umbrella design — Slice 0, the TypeScript safety precursor, and the credential-free local subset of Slice 2 implemented; native Slice 1 and credential-bearing Slices 2–5 pending
 **Scope:** CLI-first provider connectivity shared with the future desktop app
 
-This specification describes the provider/authentication program. The repository now implements Slice 0 plus a TypeScript safety precursor: dependency-leaf contracts, immutable backend pins, trusted host context, version-2 sessions and leases, backend-neutral coordination, a sessionless workspace shell, unified built-in credential exclusions, checkpoint format gating, clean child state, tool security profiles, and sanitized runtime failures. It does not hold credentials or contact a live provider. The precursor does not complete Slice 1 because the native storage/broker and OS sandbox authority boundary is still absent. See [the architecture](../../../ARCHITECTURE.md) for exact implemented behavior.
+This specification describes the provider/authentication program. The repository now implements Slice 0, a TypeScript safety precursor, and a credential-free local subset of Slice 2: dependency-leaf contracts, immutable backend pins, trusted host context, version-2 sessions and leases, backend-neutral coordination, a sessionless workspace shell, unified built-in credential exclusions, checkpoint format gating, clean child state, tool security profiles, sanitized runtime failures, and literal-loopback OpenAI-compatible model setup. It holds no provider credential and refuses non-loopback endpoints. The precursor does not complete Slice 1 because the native storage/broker and OS sandbox authority boundary is still absent. See [the architecture](../../../ARCHITECTURE.md) for exact implemented behavior.
 
 ## 1. Decision
 

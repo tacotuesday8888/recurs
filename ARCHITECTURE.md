@@ -117,15 +117,14 @@ A small Rust or platform-native component is an appropriate implementation for t
 
 `npm run check` is the repository gate: lint, strict TypeScript, all tests, and build. GitHub Actions runs the same command.
 
-Without a provider, the CLI remains in a `WorkspaceShellState` and creates no durable session. Its local help, status, permissions default, history listing, initialization, and diff commands remain available. Noninteractive model prompts fail before persistence with exit code `2`; JSONL mode emits a structured `configuration_error`. Provider, tool, process, and unexpected CLI failures cross user-visible or durable boundaries through allowlisted messages; unknown CLI faults receive a diagnostic UUID rather than raw error text.
+Without a provider, the CLI remains in a `WorkspaceShellState` and creates no durable session. A configured credential-free OpenAI-compatible server is accepted only at literal HTTP loopback, is verified through `/models`, and is pinned to an exact connection/model before a session is created. Local configuration contains no key and is revalidated on load. Noninteractive model prompts without a connection fail before persistence with exit code `2`; JSONL mode emits a structured `configuration_error`. Provider, tool, process, and unexpected CLI failures cross user-visible or durable boundaries through allowlisted messages; unknown CLI faults receive a diagnostic UUID rather than raw error text.
 
 The remaining extension order is deliberate:
 
-1. credential-free onboarding for a literal-loopback local provider, with no key, cloud identity, auth package, or subscription reuse;
-2. the native broker/storage authority, origin-bound transport, and enforceable OS tool sandbox required for credentials;
-3. connection registry, catalogs, billing policy, model selection, and credential-bearing onboarding;
-4. direct API/coding-plan providers and official delegated subscription runtimes;
-5. the sub-agent/company coordinator, isolated workspaces, handoffs, and budgets;
-6. desktop, plugins/MCP, and distribution.
+1. the native broker/storage authority, origin-bound transport, and enforceable OS tool sandbox required for credentials;
+2. connection registry, richer catalogs, billing policy, and credential-bearing onboarding;
+3. direct API/coding-plan providers and official delegated subscription runtimes;
+4. the sub-agent/company coordinator, isolated workspaces, handoffs, and budgets;
+5. desktop, plugins/MCP, and distribution.
 
 See [the engine comparison](docs/BASE_ENGINE_COMPARISON.md), [the Core v0 design](docs/superpowers/specs/2026-07-10-recurs-core-v0-design.md), and [the provider design](docs/superpowers/specs/2026-07-10-recurs-provider-auth-design.md).

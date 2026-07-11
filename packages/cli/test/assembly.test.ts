@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   RuntimeError,
   createStandaloneRuntime,
+  writeLocalConnection,
 } from "../src/index.js";
 
 const directories: string[] = [];
@@ -21,6 +22,40 @@ afterEach(async () => {
 });
 
 describe("standalone assembly without a provider", () => {
+  it("loads a configured local connection into an exact pinned session", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-local-assembly-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    const connection = await writeLocalConnection(dataDirectory, {
+      baseUrl: "http://127.0.0.1:11434/v1",
+      modelId: "qwen-coder",
+      now: "2026-07-11T00:00:00.000Z",
+    });
+
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: workspace, dataDirectory },
+    );
+
+    expect(runtime.state).toMatchObject({
+      type: "session",
+      session: {
+        model: "qwen-coder",
+        backend: {
+          type: "pinned",
+          pin: {
+            providerId: "local-openai-compatible",
+            adapterId: "openai-chat-completions",
+            connectionId: connection.id,
+            primaryBillingSourceAtCreation: "local_compute",
+          },
+        },
+      },
+    });
+  });
+
   it("starts in a workspace shell without creating a fake session", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-workspace-shell-"));
     directories.push(root);

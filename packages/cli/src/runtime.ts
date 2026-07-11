@@ -201,7 +201,7 @@ export class RecursRuntime {
         level: "info",
         text: [
           "/help                         Show workspace commands",
-          "/connect                      Set up a model connection (coming next)",
+          "/connect                      Show local model setup instructions",
           "/model                        Inspect model configuration",
           "/permissions [mode]           Set the next-session permission default",
           "/status                       Show workspace configuration",
@@ -228,14 +228,14 @@ export class RecursRuntime {
       return {
         type: "message",
         level: "warning",
-        text: "Provider onboarding is the next implementation slice; no credential was requested or stored.",
+        text: "Run: recurs setup local --url http://127.0.0.1:11434/v1 --model <model-id>\nThen restart Recurs. No API key is requested or stored.",
       };
     }
     if (name === "model") {
       return {
         type: "message",
         level: "warning",
-        text: "No model connection is configured. Run recurs setup after onboarding is available.",
+        text: "No model connection is configured. Use /connect for credential-free local setup instructions.",
       };
     }
     if (name === "resume" && args.trim().length > 0) {

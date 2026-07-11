@@ -33,7 +33,7 @@ The repository is intended to become open source, but it has no license yet and 
 
 ### 1. Provider and onboarding layer
 
-The next bounded product slice is credential-free onboarding for a literal-loopback local provider. It must not collect a key, reuse another product's auth, add `@recurs/auth`, or imply that the current process is safe for cloud credentials.
+Credential-free onboarding for a literal-loopback OpenAI-compatible local provider is implemented. It collects no key, refuses non-loopback endpoints and redirects, and persists only endpoint/model metadata.
 
 In parallel, design and prove the narrow native authority boundary required before credential-bearing providers: descriptor-relative no-follow storage, owner/mode/ACL/full-parent validation, filesystem capability checks, a non-exporting broker, origin-bound transport, and an OS sandbox that prevents tool children from reaching Recurs or vendor auth state. A small Rust or platform-native component fits this boundary; rewriting the TypeScript harness wholesale does not.
 

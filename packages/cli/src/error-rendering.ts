@@ -12,6 +12,7 @@ import {
 } from "@recurs/providers";
 
 import { RuntimeError } from "./runtime.js";
+import { LocalConnectionError } from "./local-connection.js";
 
 export function unexpectedFailureMessage(): string {
   return coreUnexpectedFailureMessage(randomUUID());
@@ -26,6 +27,7 @@ export function safeCliErrorMessage(error: unknown): string {
   }
   if (
     error instanceof RuntimeError ||
+    error instanceof LocalConnectionError ||
     error instanceof CoordinatedRunError
   ) {
     return error.message;

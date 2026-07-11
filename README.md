@@ -10,6 +10,7 @@ The repository contains a usable single-agent base:
 
 - one streaming tool-calling loop with bounded pre-output retries, cancellation, step limits, and repeated-loop detection;
 - strict provider-event validation and normalized text, reasoning, tool, usage, and completion events;
+- credential-free OpenAI-compatible local model setup for literal-loopback Ollama and LM Studio servers;
 - seven tools for file reading, listing, search, patching, bounded shell execution, Git status, and Git diff;
 - Ask Always, Approved for Me, Full Access, enforced Plan mode, and temporary read-only review;
 - durable `/goal` state, append-only JSONL sessions, interrupted-tool recovery, compaction, checkpoints, and conflict-safe undo;
@@ -19,7 +20,7 @@ The repository contains a usable single-agent base:
 - clean per-child environments, bounded process-group cleanup, safe provider/tool/CLI failures, and explicit `local_guarded` or fail-closed `tools_disabled` composition;
 - one `npm run check` path covering lint, type checking, tests, and build output.
 
-The standalone CLI does not yet bundle a live LLM provider. Without one it starts a sessionless workspace shell, so local commands remain available without writing a fake session. Test hosts can inject the public `ModelProvider` interface through the same coordinator seam that future live connections will use.
+The standalone CLI can use a credential-free OpenAI-compatible server on literal `127.0.0.1` or `[::1]`. Without a configured local server it starts a sessionless workspace shell, so local commands remain available without writing a fake session. Test hosts can also inject the public `ModelProvider` interface through the same coordinator seam that future live connections will use.
 
 ## Quick start
 
@@ -30,6 +31,8 @@ npm install
 npm run check
 npm run build
 node packages/cli/dist/main.js --help
+node packages/cli/dist/main.js setup local --url http://127.0.0.1:11434/v1 --model qwen2.5-coder:7b
+node packages/cli/dist/main.js
 ```
 
 After building, `npm link` exposes the local `recurs` command.
@@ -63,10 +66,9 @@ Before credential-bearing providers, Recurs needs a separately tested native bro
 
 ## Next
 
-1. Add credential-free onboarding for a literal-loopback local provider, without collecting a key or creating `@recurs/auth`.
-2. Design and prove the native broker, hardened storage, origin-bound transport, and OS tool sandbox before any direct cloud or subscription credential.
-3. Implement connection metadata, catalogs, billing policy, model selection, and credential-bearing onboarding over that authority boundary.
-4. Add direct providers and official delegated subscription runtimes through documented integrations.
-5. Build the heavy sub-agent/company runtime over these explicit backend capabilities.
+1. Design and prove the native broker, hardened storage, origin-bound transport, and OS tool sandbox before any direct cloud or subscription credential.
+2. Implement the full connection registry, catalogs, billing policy, and shared interactive onboarding over that authority boundary.
+3. Add direct providers and official delegated subscription runtimes through documented integrations.
+4. Build the heavy sub-agent/company runtime over these explicit backend capabilities.
 
 Start with the [documentation index](docs/README.md), [CLI guide](docs/CLI.md), [architecture](ARCHITECTURE.md), [security policy](SECURITY.md), and [product direction](PRODUCT.md).

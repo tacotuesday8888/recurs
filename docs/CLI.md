@@ -1,8 +1,8 @@
 # Recurs CLI
 
-Recurs Core v0 is a provider-neutral coding-agent harness. The CLI, agent loop, tools, permissions, Plan mode, durable sessions, goals, checkpoints, and structured output are implemented. A live LLM transport is intentionally not bundled yet.
+Recurs Core v0 is a provider-neutral coding-agent harness. The CLI, agent loop, tools, permissions, Plan mode, durable sessions, goals, checkpoints, structured output, and a credential-free local model transport are implemented.
 
-The executable starts in a sessionless workspace shell when no provider is available. Coding prompts require a host application or test harness to inject an implementation of the `ModelProvider` interface; no fake `unconfigured` session is written.
+The executable starts in a sessionless workspace shell when no provider is available. Coding prompts require a configured literal-loopback local server or an injected `ModelProvider`; no fake `unconfigured` session is written.
 
 ## Install from source
 
@@ -28,9 +28,23 @@ The repository does not yet contain a license. Although it is intended to become
 
 ## Provider boundary
 
-Recurs does not currently ask for an API key, select a model, or connect to Codex, Claude, GLM, Gemini, or another hosted service. It also does not attempt to reuse coding-agent subscriptions.
+Recurs does not currently ask for an API key or connect to Codex, Claude, GLM, Gemini, or another hosted service. It also does not attempt to reuse coding-agent subscriptions.
 
-The next provider slice is credential-free onboarding for a server bound to a literal loopback address. It will not authorize cloud credentials. Direct, coding-plan, subscription, OAuth, and cloud-identity connections remain blocked on the separately tested native broker/storage and OS tool-sandbox boundary.
+The CLI can verify and save one credential-free OpenAI-compatible server bound to literal `127.0.0.1` or `[::1]`. It refuses DNS names, LAN/remote addresses, HTTPS, URL credentials, queries, fragments, and redirects. Direct, coding-plan, subscription, OAuth, and cloud-identity connections remain blocked on the separately tested native broker/storage and OS tool-sandbox boundary.
+
+For Ollama, start the server, ensure the model is installed, then run:
+
+```bash
+recurs setup local --url http://127.0.0.1:11434/v1 --model qwen2.5-coder:7b
+```
+
+For LM Studio, enable its local server and use its displayed model identifier:
+
+```bash
+recurs setup local --url http://127.0.0.1:1234/v1 --model <model-id>
+```
+
+Setup reads `/models`, requires an exact model match, and writes only non-secret endpoint/model metadata under `RECURS_HOME`. Restart Recurs after changing the configured local model.
 
 A host injects a provider that implements:
 
@@ -60,7 +74,7 @@ node packages/cli/dist/main.js run "inspect the repository" --format text
 node packages/cli/dist/main.js run "inspect the repository" --format jsonl
 ```
 
-The standalone prompt examples require an injected provider. `--format jsonl` emits the same normalized events used by the interactive runtime; it is not a separate agent path.
+The prompt examples require a configured local provider or an injected provider. `--format jsonl` emits the same normalized events used by the interactive runtime; it is not a separate agent path.
 
 Exit codes:
 
@@ -143,7 +157,7 @@ Replacing or clearing an unfinished goal requires confirmation. Each successful 
 | `/cancel` | Abort the current provider/tool run. |
 | `/quit`, `/exit`, `/q` | Exit the interactive CLI. |
 
-Before a provider is configured, the workspace shell exposes only `/help`, `/connect`, `/model`, `/permissions`, `/status`, `/resume` listing, `/init`, `/diff`, and exit commands. `/connect` and `/model` currently explain that onboarding is the next slice; they do not request or store a credential.
+Before a provider is configured, the workspace shell exposes only `/help`, `/connect`, `/model`, `/permissions`, `/status`, `/resume` listing, `/init`, `/diff`, and exit commands. `/connect` gives the credential-free local setup command; `/model` reports that no connection is active.
 
 ## Sessions and recovery
 

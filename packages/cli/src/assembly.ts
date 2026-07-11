@@ -14,7 +14,10 @@ import {
   createWorkspaceShell,
   type EventSink,
 } from "@recurs/core";
-import type { ModelProvider } from "@recurs/providers";
+import {
+  LocalOpenAICompatibleProvider,
+  type ModelProvider,
+} from "@recurs/providers";
 import {
   FileCheckpointStore,
   ToolRegistry,
@@ -29,6 +32,10 @@ import {
 } from "@recurs/tools";
 
 import { createCommandRegistry } from "./commands/create.js";
+import {
+  readLocalConnection,
+  type LocalConnectionConfiguration,
+} from "./local-connection.js";
 import { RecursRuntime } from "./runtime.js";
 
 export interface StandaloneRuntimeOptions {
@@ -67,6 +74,39 @@ function injectedBackendPin(
   };
 }
 
+function localBackendPin(
+  connection: LocalConnectionConfiguration,
+  at: string,
+): SessionBackendPin {
+  return {
+    kind: "model_provider",
+    providerId: "local-openai-compatible",
+    adapterId: "openai-chat-completions",
+    connectionId: connection.id,
+    modelId: connection.modelId,
+    modelIdentityKind: "mutable_alias",
+    providerResolvedModelRevisionAtCreation: null,
+    catalogRevision: null,
+    policyRevisionAtCreation: "local-loopback-v1",
+    billingPolicyRevisionAtCreation: "local-compute-v1",
+    primaryBillingSourceAtCreation: "local_compute",
+    billingSelectionAtCreation: {
+      mode: "strict_primary_only",
+      policyRevision: "local-compute-v1",
+      disclosureRevision: "local-model-v1",
+      allowedSources: ["local_compute"],
+      acknowledgedAt: at,
+    },
+    accountSubjectFingerprint: connection.id,
+  };
+}
+
+interface RuntimeBackend {
+  pin(at: string): SessionBackendPin;
+  commandProvider: ModelProvider;
+  createProvider(): ModelProvider;
+}
+
 export async function createStandaloneRuntime(
   events: EventSink,
   options: StandaloneRuntimeOptions = {},
@@ -82,21 +122,45 @@ export async function createStandaloneRuntime(
   const checkpoints = new FileCheckpointStore(
     path.join(projectData, "checkpoints"),
   );
-  const provider = options.provider;
+  const injected = options.provider;
+  const localConnection = injected === undefined
+    ? await readLocalConnection(root)
+    : null;
+  const backend: RuntimeBackend | undefined = injected !== undefined
+    ? {
+        pin: (at) => injectedBackendPin(
+          injected,
+          options.model ?? injected.id,
+          at,
+        ),
+        commandProvider: injected,
+        createProvider: () => injected,
+      }
+    : localConnection === null
+      ? undefined
+      : {
+          pin: (at) => localBackendPin(localConnection, at),
+          commandProvider: new LocalOpenAICompatibleProvider({
+            baseUrl: localConnection.baseUrl,
+          }),
+          createProvider: () => new LocalOpenAICompatibleProvider({
+            baseUrl: localConnection.baseUrl,
+          }),
+        };
   const existing = await sessions.list();
   let state;
-  if (provider === undefined) {
+  if (backend === undefined) {
     state = createWorkspaceShell(cwd);
   } else {
-    const model = options.model ?? provider.id;
+    const pin = backend.pin(new Date().toISOString());
     let matching = null;
     for (const entry of existing) {
       const candidate = await sessions.loadState(entry.id);
       if (
         candidate.backend.type === "pinned" &&
-        candidate.backend.pin.connectionId === `injected:${provider.id}` &&
-        candidate.backend.pin.adapterId === `injected:${provider.id}` &&
-        candidate.backend.pin.modelId === model
+        candidate.backend.pin.connectionId === pin.connectionId &&
+        candidate.backend.pin.adapterId === pin.adapterId &&
+        candidate.backend.pin.modelId === pin.modelId
       ) {
         matching = candidate;
         break;
@@ -107,7 +171,7 @@ export async function createStandaloneRuntime(
       state = await sessions.createPinnedSession({
         id: randomUUID(),
         cwd,
-        backend: injectedBackendPin(provider, model, createdAt),
+        backend: backend.pin(createdAt),
         at: createdAt,
       });
     } else {
@@ -132,7 +196,7 @@ export async function createStandaloneRuntime(
   tools.register(createGitDiffTool());
 
   const runtimeReference: { current?: RecursRuntime } = {};
-  const direct = provider === undefined ? undefined : new AgentLoopDirectExecutor({
+  const direct = backend === undefined ? undefined : new AgentLoopDirectExecutor({
     tools,
     approvals: {
       async request(intent) {
@@ -157,15 +221,16 @@ export async function createStandaloneRuntime(
       };
     },
   });
-  const resolver: BackendResolver | undefined = provider === undefined
+  const resolver: BackendResolver | undefined = backend === undefined
     ? undefined
     : {
         async resolve(input) {
           if (
-            input.pin.connectionId !== `injected:${provider.id}` ||
-            input.pin.adapterId !== `injected:${provider.id}`
+            input.pin.connectionId !== backend.pin(input.pin.billingSelectionAtCreation.acknowledgedAt).connectionId ||
+            input.pin.adapterId !== backend.pin(input.pin.billingSelectionAtCreation.acknowledgedAt).adapterId ||
+            input.pin.modelId !== backend.pin(input.pin.billingSelectionAtCreation.acknowledgedAt).modelId
           ) {
-            throw new Error("The injected provider does not match the session pin");
+            throw new Error("The configured provider does not match the session pin");
           }
           return {
             kind: "direct",
@@ -195,7 +260,7 @@ export async function createStandaloneRuntime(
               expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
             },
             async createProvider() {
-              return provider;
+              return backend.createProvider();
             },
           };
         },
@@ -205,7 +270,7 @@ export async function createStandaloneRuntime(
     : new BackendRunCoordinator({ sessions, resolver, direct });
   const commands = createCommandRegistry({
     sessions,
-    ...(provider === undefined ? {} : { provider }),
+    ...(backend === undefined ? {} : { provider: backend.commandProvider }),
     checkpoints,
     signal: () =>
       runtimeReference.current?.currentSignal() ?? new AbortController().signal,
@@ -216,7 +281,7 @@ export async function createStandaloneRuntime(
       ...(coordinator === undefined ? {} : { coordinator }),
       sessions,
       confirm: async () => false,
-      ...(options.provider === undefined
+      ...(backend === undefined
         ? {
             promptUnavailableMessage:
               "No model connection is ready. Run recurs setup in an interactive terminal, then try again.",

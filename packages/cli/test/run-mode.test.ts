@@ -19,6 +19,7 @@ import path from "node:path";
 
 import {
   RecursRuntime,
+  LocalConnectionError,
   RuntimeError,
   createCommandRegistry,
   createStandaloneRuntime,
@@ -99,6 +100,65 @@ function dependencies(stdout: TextOutput, stderr: TextOutput): CliDependencies {
 }
 
 describe("runCli", () => {
+  it("configures a verified local model through setup", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let received: { baseUrl: string; modelId: string } | undefined;
+
+    const exitCode = await runCli([
+      "setup", "local", "--url", "http://127.0.0.1:11434/v1", "--model", "qwen-coder",
+    ], {
+      stdout,
+      stderr,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async setupLocal(input) {
+        received = input;
+        return { label: "Local model", ...input };
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(received).toEqual({
+      baseUrl: "http://127.0.0.1:11434/v1",
+      modelId: "qwen-coder",
+    });
+    expect(stdout.value).toContain("Ready — Local model · qwen-coder");
+    expect(stderr.value).toBe("");
+  });
+
+  it("rejects incomplete local setup without writing configuration", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let called = false;
+    const exitCode = await runCli(["setup", "local", "--url", "http://127.0.0.1:11434/v1"], {
+      stdout,
+      stderr,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async setupLocal() { called = true; throw new Error("unexpected"); },
+    });
+    expect(exitCode).toBe(2);
+    expect(called).toBe(false);
+    expect(stderr.value).toContain("recurs setup local --url");
+  });
+
+  it("renders local setup failures without an opaque diagnostic", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const exitCode = await runCli([
+      "setup", "local", "--url", "http://127.0.0.1:11434/v1", "--model", "missing",
+    ], {
+      stdout,
+      stderr,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async setupLocal() {
+        throw new LocalConnectionError("model_unavailable", "Selected local model was not reported by the server");
+      },
+    });
+    expect(exitCode).toBe(2);
+    expect(stderr.value).toBe("Error: Selected local model was not reported by the server\n");
+    expect(stderr.value).not.toContain("diagnostic");
+  });
+
   it("preserves a canonical provider failure through standalone coordination", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-provider-final-"));
     directories.push(root);
