@@ -51,12 +51,14 @@ function credentialGlobPatterns(): string[] {
     ...CREDENTIAL_BASENAME_SUFFIXES.flatMap((suffix) =>
       rootAndNested(`*${suffix}`),
     ),
-    ...CREDENTIAL_DIRECTORIES.flatMap((directory) =>
-      rootAndNested(`${directory}/**`),
-    ),
-    ...CREDENTIAL_DIRECTORY_PATHS.flatMap((directory) =>
-      rootAndNested(`${directory}/**`),
-    ),
+    ...CREDENTIAL_DIRECTORIES.flatMap((directory) => [
+      ...rootAndNested(directory),
+      ...rootAndNested(`${directory}/**`),
+    ]),
+    ...CREDENTIAL_DIRECTORY_PATHS.flatMap((directory) => [
+      ...rootAndNested(directory),
+      ...rootAndNested(`${directory}/**`),
+    ]),
   ];
 }
 
