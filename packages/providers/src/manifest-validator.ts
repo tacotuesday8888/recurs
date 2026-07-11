@@ -6,6 +6,7 @@ import type {
   ProviderManifest,
   ProviderRegionAvailability,
   ProviderUsagePolicy,
+  TrustedRunContext,
   UsagePolicyRule,
 } from "@recurs/contracts";
 
@@ -327,6 +328,14 @@ function validateBillingPolicy(value: unknown): BillingPolicy {
 
   if (availableSelections.length === 0) {
     fail("Known provider billing policy must expose an available selection");
+  }
+  if (
+    providerFallback === "automatic" &&
+    availableSelections.includes("strict_primary_only")
+  ) {
+    fail(
+      "Automatic provider fallback cannot offer strict_primary_only without enforceable proof",
+    );
   }
   if (
     providerFallback === "none" &&
@@ -700,6 +709,15 @@ function billingSelectionModes(
   return [];
 }
 
+function contextRuleCovers(
+  gate: Partial<TrustedRunContext>,
+  candidate: Partial<TrustedRunContext>,
+): boolean {
+  return CONTEXT_FIELDS.every((field) =>
+    gate[field] === undefined || gate[field] === candidate[field]
+  );
+}
+
 function validateBillingAndPolicy(
   manifest: UnknownRecord,
   billingPolicy: BillingPolicy,
@@ -732,20 +750,21 @@ function validateBillingAndPolicy(
   }
 
   const availableSelections = new Set(billingPolicy.availableSelections);
-  let explicitlyAllowsAdditional = false;
+  const additionalBillingGates: UsagePolicyRule[] = [];
   for (const rule of usagePolicy.rules) {
     if (rule.condition === undefined) {
       continue;
     }
-    for (const mode of billingSelectionModes(rule.condition)) {
+    const modes = billingSelectionModes(rule.condition);
+    for (const mode of modes) {
       if (!availableSelections.has(mode)) {
         fail(
           "A billing-selection condition cannot allow a mode absent from the billing policy",
         );
       }
-      if (mode === "allow_declared_additional") {
-        explicitlyAllowsAdditional = true;
-      }
+    }
+    if (modes.includes("allow_declared_additional")) {
+      additionalBillingGates.push(rule);
     }
   }
 
@@ -762,10 +781,22 @@ function validateBillingAndPolicy(
     if (usagePolicy.defaultDecision !== "denied") {
       fail("Automatic billing fallback requires manifests to default to denied");
     }
-    if (!explicitlyAllowsAdditional) {
+    if (additionalBillingGates.length === 0) {
       fail(
         "Automatic billing fallback requires an explicit billing-selection condition",
       );
+    }
+    for (const rule of usagePolicy.rules) {
+      if (
+        rule.decision !== "denied" &&
+        !additionalBillingGates.some((gate) =>
+          contextRuleCovers(gate.when, rule.when)
+        )
+      ) {
+        fail(
+          "Automatic billing fallback requires every potentially allowing context to be covered by a billing-selection gate",
+        );
+      }
     }
   }
 }

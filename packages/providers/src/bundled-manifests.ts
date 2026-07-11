@@ -502,10 +502,7 @@ const bundled = [
       {
         possibleAdditionalSources: ["prepaid_credits"],
         providerFallback: "automatic",
-        availableSelections: [
-          "strict_primary_only",
-          "allow_declared_additional",
-        ],
+        availableSelections: ["allow_declared_additional"],
       },
     ),
     supportStatus: "conditional",
@@ -522,10 +519,10 @@ const bundled = [
         decision: "conditional",
         condition: {
           type: "billing_selection",
-          allowedModes: ["strict_primary_only", "allow_declared_additional"],
+          allowedModes: ["allow_declared_additional"],
         },
         reason:
-          "The user must select a provable plan-only path or explicitly allow the documented prepaid-credit source.",
+          "The user must explicitly allow the documented prepaid-credit source.",
       },
     ],
   }),

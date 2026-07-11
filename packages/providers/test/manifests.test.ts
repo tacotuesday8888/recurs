@@ -155,10 +155,7 @@ const REGION_AND_BILLING_MATRIX = [
       {
         possibleAdditionalSources: ["prepaid_credits"],
         providerFallback: "automatic",
-        availableSelections: [
-          "strict_primary_only",
-          "allow_declared_additional",
-        ],
+        availableSelections: ["allow_declared_additional"],
       },
     ),
   },
@@ -507,6 +504,20 @@ describe("bundled provider manifests", () => {
     }))).toEqual(REGION_AND_BILLING_MATRIX);
   });
 
+  it("offers MiniMax automatic fallback only through explicit additional billing", () => {
+    const minimax = bundled("minimax-token-plan");
+    expect(minimax.billingPolicy.providerFallback).toBe("automatic");
+    expect(minimax.billingPolicy.availableSelections).toEqual([
+      "allow_declared_additional",
+    ]);
+    expect(minimax.usagePolicy.rules).toHaveLength(1);
+    expect(minimax.usagePolicy.rules[0]?.when).toEqual({});
+    expect(minimax.usagePolicy.rules[0]?.condition).toEqual({
+      type: "billing_selection",
+      allowedModes: ["allow_declared_additional"],
+    });
+  });
+
   it("uses only legal credential-owner, lane, access, and auth combinations", () => {
     for (const manifest of BUNDLED_PROVIDER_MANIFESTS) {
       if (manifest.adapterKind === "agent_runtime") {
@@ -762,6 +773,7 @@ describe("validateProviderManifest", () => {
     const undeclared = cloneManifestWithExpectedMetadata(bundled("openai-api"));
     const billing = undeclared["billingPolicy"] as Record<string, unknown>;
     billing["providerFallback"] = "automatic";
+    billing["availableSelections"] = ["allow_declared_additional"];
     const policy = undeclared["usagePolicy"] as Record<string, unknown>;
     policy["defaultDecision"] = "denied";
 
@@ -800,10 +812,104 @@ describe("validateProviderManifest", () => {
     const automatic = cloneManifestWithExpectedMetadata(bundled("opencode-go"));
     const billing = automatic["billingPolicy"] as Record<string, unknown>;
     billing["providerFallback"] = "automatic";
+    billing["availableSelections"] = ["allow_declared_additional"];
 
     expect(() => validateProviderManifest(automatic)).toThrow(
       /automatic billing fallback.*default to denied/i,
     );
+  });
+
+  it("rejects strict-primary selection for automatic fallback without enforceable proof", () => {
+    const automatic = cloneManifestWithExpectedMetadata(
+      bundled("minimax-token-plan"),
+    );
+    const billing = automatic["billingPolicy"] as Record<string, unknown>;
+    billing["availableSelections"] = [
+      "strict_primary_only",
+      "allow_declared_additional",
+    ];
+
+    expect(() => validateProviderManifest(automatic)).toThrow(
+      /automatic.*strict_primary_only.*enforceable proof/i,
+    );
+  });
+
+  it("rejects a context-specific billing gate that does not cover another allowing rule", () => {
+    for (const decision of ["allowed", "conditional"] as const) {
+      const candidate = cloneManifestWithExpectedMetadata(
+        bundled("minimax-token-plan"),
+      );
+      const policy = candidate["usagePolicy"] as Record<string, unknown>;
+      policy["rules"] = [
+        {
+          when: { embedding: "ci" },
+          decision: "conditional",
+          condition: {
+            type: "billing_selection",
+            allowedModes: ["allow_declared_additional"],
+          },
+          reason: "CI requires explicit additional billing selection.",
+        },
+        {
+          when: { embedding: "cli" },
+          decision,
+          ...(decision === "conditional"
+            ? {
+                condition: {
+                  type: "entitlement_claim",
+                  claimId: "minimax.token_plan.active",
+                  allowedValues: [true],
+                },
+              }
+            : {}),
+          reason: "CLI can potentially allow Token Plan work.",
+        },
+      ];
+
+      expect(() => validateProviderManifest(candidate)).toThrow(
+        /automatic billing fallback.*every potentially allowing context.*billing-selection gate/i,
+      );
+    }
+  });
+
+  it("accepts a broader billing gate nested in an all condition", () => {
+    const candidate = cloneManifestWithExpectedMetadata(
+      bundled("minimax-token-plan"),
+    );
+    const policy = candidate["usagePolicy"] as Record<string, unknown>;
+    policy["rules"] = [
+      {
+        when: {},
+        decision: "conditional",
+        condition: {
+          type: "all",
+          conditions: [
+            {
+              type: "entitlement_claim",
+              claimId: "minimax.token_plan.active",
+              allowedValues: [true],
+            },
+            {
+              type: "all",
+              conditions: [
+                {
+                  type: "billing_selection",
+                  allowedModes: ["allow_declared_additional"],
+                },
+              ],
+            },
+          ],
+        },
+        reason: "All contexts require entitlement and explicit additional billing.",
+      },
+      {
+        when: { embedding: "cli" },
+        decision: "allowed",
+        reason: "CLI is allowed only through the broader intersecting gate.",
+      },
+    ];
+
+    expect(() => validateProviderManifest(candidate)).not.toThrow();
   });
 
   it("limits billing-selection conditions to selections declared by billing policy", () => {
