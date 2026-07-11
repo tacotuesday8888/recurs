@@ -381,6 +381,13 @@ describe("BackendRunCoordinator", () => {
     const delegated: DelegatedRunExecutor = {
       run: vi.fn(async (input) => {
         expect(input.runtime).toBe(runtime);
+        expect(input.context).toEqual({
+          invocation: "one_shot",
+          presence: "unattended",
+          location: "local",
+          automation: "scripted",
+          embedding: "cli",
+        });
         return result;
       }),
     };

@@ -3,6 +3,7 @@ export * from "./backend-authorization.js";
 export * from "./compaction.js";
 export * from "./compatibility-coordinator.js";
 export * from "./direct-model-executor.js";
+export * from "./delegated-agent-executor.js";
 export * from "./events.js";
 export * from "./goal.js";
 export * from "./jsonl-session-store.js";

@@ -65,7 +65,7 @@ export type RecursEvent =
   | (EventBase & { type: "turn_cancelled"; turnId: string })
   | (EventBase & { type: "files_changed"; paths: string[] })
   | (EventBase & { type: "verification_recorded"; evidence: string[] })
-  | (EventBase & { type: "turn_completed"; usage: Usage; evidence: string[] })
+  | (EventBase & { type: "turn_completed"; usage: Usage | null; evidence: string[] })
   | (EventBase & { type: "turn_failed"; error: SerializableError });
 
 export type SessionRecord =
@@ -86,7 +86,11 @@ export type SessionRecord =
   | ({ version: 1 } & Extract<RecursEvent, { type: "mode_updated" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "files_changed" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "verification_recorded" }>)
-  | ({ version: 1 } & Extract<RecursEvent, { type: "turn_completed" }>)
+  | ({ version: 1 } & EventBase & {
+      type: "turn_completed";
+      usage: Usage;
+      evidence: string[];
+    })
   | ({ version: 1 } & Extract<RecursEvent, { type: "turn_failed" }>);
 
 export type AnySessionRecord = SessionRecord | SessionRecordV2;

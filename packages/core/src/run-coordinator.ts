@@ -12,6 +12,7 @@ import {
   type RunAuthorization,
   type RunCoordinator,
   type RunResult,
+  type TrustedRunContext,
 } from "@recurs/contracts";
 
 import type {
@@ -48,6 +49,7 @@ export interface DelegatedRunExecutorInput {
   executionMode: "act" | "plan";
   runtime: AgentRuntime;
   authorization: RunAuthorization;
+  context: TrustedRunContext;
   mutation: SessionMutationLease;
   signal: AbortSignal;
 }
@@ -287,6 +289,7 @@ export class BackendRunCoordinator implements RunCoordinator {
             executionMode: input.executionMode ?? session.executionMode,
             runtime,
             authorization: resolved.authorization,
+            context,
             mutation,
             signal: input.signal,
           });
