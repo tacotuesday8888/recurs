@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import {
+  assertNonCredentialPath,
   isExternalPathApproved,
   pathPermissionIntents,
   WorkspacePathPolicy,
@@ -216,12 +217,14 @@ export function createApplyPatchTool(
       const policy = new WorkspacePathPolicy(context.cwd, options);
       const revisions: ResolvedRevision[] = [];
       for (const declared of input.files) {
+        const resolved = await policy.resolveWritable(
+          declared.path,
+          isExternalPathApproved(context, declared.path),
+        );
+        assertNonCredentialPath(resolved.relative);
         revisions.push({
           declared,
-          resolved: await policy.resolveWritable(
-            declared.path,
-            isExternalPathApproved(context, declared.path),
-          ),
+          resolved,
         });
       }
       await assertFresh(revisions, context);

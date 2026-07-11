@@ -1,6 +1,8 @@
 import { stat } from "node:fs/promises";
 
 import {
+  assertNonCredentialPath,
+  credentialRipgrepGlobs,
   isExternalPathApproved,
   pathPermissionIntents,
   WorkspacePathPolicy,
@@ -57,12 +59,18 @@ export function createListFilesTool(
         context.cwd,
         options,
       ).resolveReadable(input.path, isExternalPathApproved(context, input.path));
+      assertNonCredentialPath(resolved.relative);
       if (!(await stat(resolved.absolute)).isDirectory()) {
         throw new ToolError("not_a_directory", `Not a directory: ${input.path}`);
       }
+      const args = ["--files"];
+      for (const glob of credentialRipgrepGlobs()) {
+        args.push("--iglob", glob);
+      }
+      args.push("--", resolved.relative);
       const process = await runProcess(
         "rg",
-        ["--files", "--", resolved.relative],
+        args,
         {
           cwd: context.cwd,
           signal: context.signal,

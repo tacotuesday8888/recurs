@@ -1,4 +1,6 @@
 import {
+  assertNonCredentialPath,
+  credentialGitPathspecs,
   pathPermissionIntents,
   WorkspacePathPolicy,
 } from "../path-policy.js";
@@ -56,12 +58,15 @@ export function createGitDiffTool(): Tool<GitDiffInput> {
       if (input.staged) {
         args.push("--cached");
       }
+      let target = ".";
       if (input.path !== undefined) {
         const resolved = await new WorkspacePathPolicy(
           context.cwd,
         ).resolveWritable(input.path);
-        args.push("--", resolved.relative);
+        assertNonCredentialPath(resolved.relative);
+        target = resolved.relative;
       }
+      args.push("--", target, ...credentialGitPathspecs());
       const result = await runProcess("git", args, {
         cwd: context.cwd,
         signal: context.signal,

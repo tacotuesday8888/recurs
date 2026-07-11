@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import type { Tool } from "../types.js";
 import { ToolError } from "../types.js";
 import {
+  assertNonCredentialPath,
   isExternalPathApproved,
   pathPermissionIntents,
   WorkspacePathPolicy,
@@ -90,6 +91,7 @@ export function createReadFileTool(
         context.cwd,
         options,
       ).resolveReadable(input.path, isExternalPathApproved(context, input.path));
+      assertNonCredentialPath(resolved.relative);
       const bytes = await readFile(resolved.absolute);
       if (bytes.includes(0)) {
         throw new ToolError("invalid_input", `Cannot read binary file: ${input.path}`);

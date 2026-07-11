@@ -1,6 +1,8 @@
 import { stat } from "node:fs/promises";
 
 import {
+  assertNonCredentialPath,
+  credentialRipgrepGlobs,
   isExternalPathApproved,
   pathPermissionIntents,
   WorkspacePathPolicy,
@@ -70,6 +72,7 @@ export function createSearchTextTool(
         context.cwd,
         options,
       ).resolveReadable(input.path, isExternalPathApproved(context, input.path));
+      assertNonCredentialPath(resolved.relative);
       const targetStat = await stat(resolved.absolute);
       const args = [
         "--line-number",
@@ -79,6 +82,9 @@ export function createSearchTextTool(
       ];
       if (input.glob !== undefined) {
         args.push("--glob", input.glob);
+      }
+      for (const glob of credentialRipgrepGlobs()) {
+        args.push("--iglob", glob);
       }
       args.push("--", input.query, resolved.relative);
       const process = await runProcess("rg", args, {

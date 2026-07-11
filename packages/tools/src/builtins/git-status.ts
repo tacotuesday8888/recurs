@@ -1,3 +1,4 @@
+import { credentialGitPathspecs } from "../path-policy.js";
 import { runProcess } from "../process.js";
 import { ToolError, type Tool } from "../types.js";
 
@@ -32,6 +33,9 @@ export function createGitStatusTool(): Tool<Record<string, never>> {
           "--short",
           "--branch",
           "--untracked-files=all",
+          "--",
+          ".",
+          ...credentialGitPathspecs(),
         ],
         {
           cwd: context.cwd,
