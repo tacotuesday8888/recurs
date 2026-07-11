@@ -92,6 +92,34 @@ describe("standalone assembly without a provider", () => {
     });
   });
 
+  it("composes a provider runtime with no model tools when tools are disabled", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-tools-disabled-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const provider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: "done without tools" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        provider,
+        toolSecurityProfile: "tools_disabled",
+      },
+    );
+
+    await expect(runtime.submit("inspect without tools")).resolves.toMatchObject({
+      finalText: "done without tools",
+    });
+    expect(provider.requests).toHaveLength(1);
+    expect(provider.requests[0]?.tools).toEqual([]);
+  });
+
   it("starts a new pinned session instead of rebinding history to another provider", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-provider-pin-"));
     directories.push(root);

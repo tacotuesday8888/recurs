@@ -49,6 +49,7 @@ export function createListFilesTool(
         additionalProperties: false,
       },
     },
+    executionClass: "fixed_process",
     mutating: false,
     parse: parseListFilesInput,
     permissions(input) {

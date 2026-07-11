@@ -46,6 +46,7 @@ export function createGitDiffTool(): Tool<GitDiffInput> {
         additionalProperties: false,
       },
     },
+    executionClass: "fixed_process",
     mutating: false,
     parse: parseGitDiffInput,
     permissions(input) {

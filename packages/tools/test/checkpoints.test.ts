@@ -197,6 +197,7 @@ describe("FileCheckpointStore", () => {
         description: "write a",
         inputSchema: { type: "object", additionalProperties: false },
       },
+      executionClass: "in_process",
       mutating: true,
       parse() {
         return {};
@@ -241,6 +242,7 @@ describe("FileCheckpointStore", () => {
         description: "write then fail",
         inputSchema: { type: "object", additionalProperties: false },
       },
+      executionClass: "in_process",
       mutating: true,
       parse() {
         return {};

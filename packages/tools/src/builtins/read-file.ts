@@ -77,6 +77,7 @@ export function createReadFileTool(
         additionalProperties: false,
       },
     },
+    executionClass: "in_process",
     mutating: false,
     parse: parseReadFileInput,
     permissions(input) {

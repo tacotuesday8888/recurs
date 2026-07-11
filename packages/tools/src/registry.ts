@@ -12,6 +12,7 @@ import {
   type Tool,
   type ToolContext,
   type ToolResult,
+  type ToolSecurityProfile,
 } from "./types.js";
 
 type RegisteredTool = Tool<unknown>;
@@ -19,6 +20,7 @@ type RegisteredTool = Tool<unknown>;
 function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
   return {
     definition: tool.definition,
+    executionClass: tool.executionClass,
     mutating: tool.mutating,
     parse(input) {
       return tool.parse(input);
@@ -34,11 +36,18 @@ function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
 
 export class ToolRegistry {
   readonly #tools = new Map<string, RegisteredTool>();
+  readonly #checkpoints: CheckpointStore | undefined;
+  readonly #securityProfile: ToolSecurityProfile;
 
   constructor(
     tools: readonly Tool<never>[] = [],
-    private readonly options: { checkpoints?: CheckpointStore } = {},
+    options: {
+      checkpoints?: CheckpointStore;
+      securityProfile?: ToolSecurityProfile;
+    } = {},
   ) {
+    this.#checkpoints = options.checkpoints;
+    this.#securityProfile = options.securityProfile ?? "local_guarded";
     for (const tool of tools) {
       this.register(tool);
     }
@@ -53,6 +62,9 @@ export class ToolRegistry {
   }
 
   definitions(executionMode: ExecutionMode): ToolDefinition[] {
+    if (this.#securityProfile === "tools_disabled") {
+      return [];
+    }
     return [...this.#tools.values()]
       .filter((tool) => executionMode === "act" || !tool.mutating)
       .map((tool) => tool.definition);
@@ -64,6 +76,12 @@ export class ToolRegistry {
     permissions: PermissionEngine,
     approvals: ApprovalHandler,
   ): Promise<ToolResult> {
+    if (this.#securityProfile === "tools_disabled") {
+      throw new ToolError(
+        "tool_unavailable",
+        "Model tools are disabled for this runtime",
+      );
+    }
     const tool = this.#tools.get(call.name);
     if (tool === undefined) {
       throw new ToolError("unknown_tool", `Unknown tool: ${call.name}`);
@@ -120,11 +138,11 @@ export class ToolRegistry {
       (context.approvedIntents ??= new Set()).add(permissionIntentKey(intent));
     }
 
-    if (!tool.mutating || this.options.checkpoints === undefined) {
+    if (!tool.mutating || this.#checkpoints === undefined) {
       return tool.execute(input, context);
     }
 
-    const checkpoint = await this.options.checkpoints.captureBefore(
+    const checkpoint = await this.#checkpoints.captureBefore(
       context.sessionId,
       call.id,
       context.cwd,
@@ -133,10 +151,10 @@ export class ToolRegistry {
     try {
       result = await tool.execute(input, context);
     } catch (error) {
-      await this.options.checkpoints.captureAfter(checkpoint, context.cwd);
+      await this.#checkpoints.captureAfter(checkpoint, context.cwd);
       throw error;
     }
-    const completed = await this.options.checkpoints.captureAfter(
+    const completed = await this.#checkpoints.captureAfter(
       checkpoint,
       context.cwd,
     );

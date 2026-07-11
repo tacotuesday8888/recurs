@@ -50,6 +50,7 @@ function echoTool(
         additionalProperties: false,
       },
     },
+    executionClass: "in_process",
     mutating: false,
     parse(input) {
       if (
@@ -308,6 +309,7 @@ describe("AgentLoop", () => {
         description: name,
         inputSchema: { type: "object", additionalProperties: false },
       },
+      executionClass: "in_process",
       mutating: false,
       parse() {
         return {};
@@ -499,6 +501,7 @@ describe("AgentLoop", () => {
         description: "Wait for cancellation",
         inputSchema: { type: "object", additionalProperties: false },
       },
+      executionClass: "in_process",
       mutating: false,
       parse() {
         return {};

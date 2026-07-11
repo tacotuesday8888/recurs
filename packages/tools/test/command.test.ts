@@ -1,15 +1,19 @@
 import { execFile } from "node:child_process";
 import {
+  access,
+  chmod,
   mkdtemp,
   readFile,
   rm,
   writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import * as toolExports from "../src/index.js";
 
 import {
   PermissionEngine,
@@ -49,6 +53,10 @@ function context(signal = new AbortController().signal): ToolContext {
     executionMode: "act",
     readRevisions: new Map(),
   };
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 async function invoke(
@@ -101,6 +109,115 @@ describe("command classification", () => {
 });
 
 describe("run_command", () => {
+  it("does not pass parent secrets or the real home to descendants", async () => {
+    const parentEnvironment = {
+      GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+      HTTP_PROXY: process.env.HTTP_PROXY,
+      PATH: process.env.PATH,
+      RECURS_PROCESS_CANARY: process.env.RECURS_PROCESS_CANARY,
+      SHELL: process.env.SHELL,
+      TEMP: process.env.TEMP,
+      TMP: process.env.TMP,
+      TMPDIR: process.env.TMPDIR,
+    };
+    const parentTemp = path.join(cwd, "parent-temp");
+    process.env.GITHUB_TOKEN = "github-secret";
+    process.env.HTTP_PROXY = "http://proxy-secret.invalid";
+    process.env.RECURS_PROCESS_CANARY = "parent-secret";
+    process.env.SHELL = "/definitely/not/the/child/shell";
+    process.env.TMPDIR = parentTemp;
+    process.env.TMP = parentTemp;
+    process.env.TEMP = parentTemp;
+    process.env.PATH = [
+      "relative-bin",
+      path.join(cwd, "workspace-bin"),
+      path.dirname(process.execPath),
+      "",
+    ].join(path.delimiter);
+
+    try {
+      const script = [
+        "process.stdout.write(JSON.stringify({",
+        "canary: process.env.RECURS_PROCESS_CANARY ?? null,",
+        "github: process.env.GITHUB_TOKEN ?? null,",
+        "proxy: process.env.HTTP_PROXY ?? null,",
+        "shell: process.env.SHELL ?? null,",
+        "home: process.env.HOME,",
+        "config: process.env.XDG_CONFIG_HOME,",
+        "cache: process.env.XDG_CACHE_HOME,",
+        "tmp: process.env.TMPDIR,",
+        "path: process.env.PATH,",
+        "}));",
+      ].join("");
+      const result = await invoke(createRunCommandTool(), {
+        command: `${shellQuote(process.execPath)} -e ${shellQuote(script)}`,
+      });
+      const child = JSON.parse(result.output) as Record<string, string | null>;
+
+      expect(child).toMatchObject({
+        canary: null,
+        github: null,
+        proxy: null,
+        shell: null,
+      });
+      expect(child.home).not.toBe(homedir());
+      expect(child.home).not.toContain(cwd);
+      expect(child.tmp).not.toBe(parentTemp);
+      expect(child.tmp).not.toContain(cwd);
+      for (const key of ["home", "config", "cache", "tmp"] as const) {
+        expect(path.isAbsolute(child[key] ?? "")).toBe(true);
+      }
+      const childPath = (child.path ?? "").split(path.delimiter);
+      expect(childPath).toContain(path.dirname(process.execPath));
+      expect(childPath.every((entry) => path.isAbsolute(entry))).toBe(true);
+      expect(childPath.some((entry) => entry.startsWith(cwd))).toBe(false);
+
+      const privateRoot = path.dirname(child.home ?? "");
+      await expect(access(privateRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      for (const [key, value] of Object.entries(parentEnvironment)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+  });
+
+  it("does not search the workspace when every parent PATH entry is removed", async () => {
+    const executable = path.join(cwd, "recurs-path-canary");
+    await writeFile(executable, "#!/bin/sh\nprintf unsafe", "utf8");
+    await chmod(executable, 0o700);
+    const parentPath = process.env.PATH;
+    process.env.PATH = [cwd, "relative-bin", ""].join(path.delimiter);
+
+    try {
+      await expect(
+        toolExports.runProcess("recurs-path-canary", [], { cwd }),
+      ).rejects.toMatchObject({ code: "process_failed" });
+    } finally {
+      if (parentPath === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = parentPath;
+      }
+    }
+  });
+
+  it.each([
+    "fixed helper",
+    "arbitrary command",
+  ] as const)("rejects %s subprocesses on Windows", () => {
+    expect(toolExports.assertSupportedProcessPlatform).toBeTypeOf("function");
+    if (typeof toolExports.assertSupportedProcessPlatform !== "function") {
+      return;
+    }
+    expect(() => toolExports.assertSupportedProcessPlatform("win32")).toThrow(
+      expect.objectContaining({ code: "unsupported_platform" }),
+    );
+  });
+
   it("runs normal local work only after approval in Approved for Me", async () => {
     const request = vi.fn(async () => "allow_once" as const);
     const result = await invoke(

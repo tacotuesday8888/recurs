@@ -62,6 +62,7 @@ export function createSearchTextTool(
         additionalProperties: false,
       },
     },
+    executionClass: "fixed_process",
     mutating: false,
     parse: parseSearchTextInput,
     permissions(input) {

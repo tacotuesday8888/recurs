@@ -7,6 +7,11 @@ export type PermissionMode =
 
 export type ExecutionMode = "act" | "plan";
 export type PermissionDecision = "allow" | "ask" | "deny";
+export type ToolExecutionClass =
+  | "in_process"
+  | "fixed_process"
+  | "arbitrary_process";
+export type ToolSecurityProfile = "local_guarded" | "tools_disabled";
 
 export type PermissionCategory =
   | "read"
@@ -48,6 +53,7 @@ export interface ToolResult {
 
 export interface Tool<Input = unknown> {
   readonly definition: ToolDefinition;
+  readonly executionClass: ToolExecutionClass;
   readonly mutating: boolean;
   parse(input: unknown): Input;
   permissions(input: Input, context: ToolContext): PermissionIntent[];
@@ -56,6 +62,7 @@ export interface Tool<Input = unknown> {
 
 export type ToolErrorCode =
   | "unknown_tool"
+  | "tool_unavailable"
   | "duplicate_tool"
   | "invalid_input"
   | "permission_denied"
@@ -68,6 +75,7 @@ export type ToolErrorCode =
   | "not_a_directory"
   | "output_limit"
   | "process_failed"
+  | "unsupported_platform"
   | "command_timeout"
   | "unread_file"
   | "stale_file"

@@ -3,9 +3,17 @@ import { describe, expect, it, vi } from "vitest";
 import type { ToolCall } from "@recurs/providers";
 
 import {
+  type CheckpointStore,
   PermissionEngine,
   ToolError,
   ToolRegistry,
+  createApplyPatchTool,
+  createGitDiffTool,
+  createGitStatusTool,
+  createListFilesTool,
+  createReadFileTool,
+  createRunCommandTool,
+  createSearchTextTool,
   type ApprovalHandler,
   type Tool,
   type ToolContext,
@@ -33,6 +41,7 @@ function textTool(mutating = false): Tool<{ text: string }> {
         additionalProperties: false,
       },
     },
+    executionClass: "in_process",
     mutating,
     parse(input) {
       if (
@@ -67,6 +76,74 @@ const deny: ApprovalHandler = {
 };
 
 describe("ToolRegistry", () => {
+  it("records the actual execution class of every built-in tool", () => {
+    expect([
+      createReadFileTool(),
+      createListFilesTool(),
+      createSearchTextTool(),
+      createApplyPatchTool(),
+      createGitStatusTool(),
+      createGitDiffTool(),
+      createRunCommandTool(),
+    ].map((tool) => [tool.definition.name, tool.executionClass])).toEqual([
+      ["read_file", "in_process"],
+      ["list_files", "fixed_process"],
+      ["search_text", "fixed_process"],
+      ["apply_patch", "fixed_process"],
+      ["git_status", "fixed_process"],
+      ["git_diff", "fixed_process"],
+      ["run_command", "arbitrary_process"],
+    ]);
+  });
+
+  it("tools_disabled advertises and executes no model tools", async () => {
+    const tool = textTool(true);
+    const parse = vi.spyOn(tool, "parse");
+    const permissions = vi.spyOn(tool, "permissions");
+    const execute = vi.spyOn(tool, "execute");
+    const checkpoints = {
+      captureBefore: vi.fn(),
+      captureAfter: vi.fn(),
+      undoLatest: vi.fn(),
+    } as unknown as CheckpointStore;
+    const approvals: ApprovalHandler = { request: vi.fn() };
+    const registry = new ToolRegistry([tool], {
+      checkpoints,
+      securityProfile: "tools_disabled",
+    });
+
+    expect(registry.definitions("act")).toEqual([]);
+    expect(registry.definitions("plan")).toEqual([]);
+    await expect(
+      registry.invoke(
+        { id: "1", name: "write_text", arguments: { text: 42 } },
+        context(),
+        new PermissionEngine("ask_always"),
+        approvals,
+      ),
+    ).rejects.toMatchObject({
+      code: "tool_unavailable",
+      message: "Model tools are disabled for this runtime",
+    });
+    expect(parse).not.toHaveBeenCalled();
+    expect(permissions).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(approvals.request).not.toHaveBeenCalled();
+    expect(checkpoints.captureBefore).not.toHaveBeenCalled();
+    expect(checkpoints.captureAfter).not.toHaveBeenCalled();
+  });
+
+  it("snapshots the disabled profile at construction", () => {
+    const options: {
+      securityProfile: "local_guarded" | "tools_disabled";
+    } = { securityProfile: "tools_disabled" };
+    const registry = new ToolRegistry([textTool()], options);
+
+    options.securityProfile = "local_guarded";
+
+    expect(registry.definitions("act")).toEqual([]);
+  });
+
   it("rejects unknown tools before execution", async () => {
     const registry = new ToolRegistry([textTool()]);
     const call: ToolCall = { id: "1", name: "missing", arguments: {} };

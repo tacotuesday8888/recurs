@@ -201,6 +201,7 @@ export function createApplyPatchTool(
         additionalProperties: false,
       },
     },
+    executionClass: "fixed_process",
     mutating: true,
     parse: parseApplyPatchInput,
     permissions(input) {

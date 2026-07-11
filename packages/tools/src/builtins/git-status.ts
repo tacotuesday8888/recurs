@@ -9,6 +9,7 @@ export function createGitStatusTool(): Tool<Record<string, never>> {
       description: "Show concise Git workspace status",
       inputSchema: { type: "object", additionalProperties: false },
     },
+    executionClass: "fixed_process",
     mutating: false,
     parse(value) {
       if (
