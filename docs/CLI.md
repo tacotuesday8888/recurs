@@ -70,11 +70,11 @@ Every tool reports normalized intent before execution. `/permissions` selects on
 
 | Mode | Behavior |
 | --- | --- |
-| Ask Always | Project reads run normally. Every write and shell command asks. Sensitive files, network, external paths, credentials, deployment, and destructive actions also ask. This is the default. |
-| Approved for Me | Normal guarded project reads/writes run automatically. Every shell command asks while Recurs has no OS sandbox. Network, external, sensitive, credential, deployment, and destructive actions also ask. |
-| Full Access | Routine prompts are skipped after explicit confirmation. The model may access credentials, inherited host environment values, the network, and external paths. Integrity controls—logging, cancellation, budgets, stale-write checks, path validation, and checkpoint conflict checks—remain enabled. |
+| Ask Always | Project reads run normally. Every write and shell command asks. Sensitive files, network, external paths, deployment, and destructive actions also ask. Classified credential paths are denied. This is the default. |
+| Approved for Me | Normal guarded project reads/writes run automatically. Every shell command asks while Recurs has no OS sandbox. Network, external, sensitive, deployment, and destructive actions also ask. Classified credential paths are denied. |
+| Full Access | Routine workspace, command, network, deployment, and destructive prompts are skipped after explicit confirmation. Sensitive and external paths still ask, and classified credential paths are denied. Integrity controls remain enabled. Arbitrary shell commands are not OS-isolated and may still access host files or the network indirectly, so this preset is not credential-safe. |
 
-An explicit outside path can run after its external-path intent is approved or in Full Access. A hidden symlink escape remains blocked because the model did not request that outside path explicitly.
+An explicit outside path can run only after its external-path intent is approved, including in Full Access. A hidden symlink escape remains blocked because the model did not request that outside path explicitly.
 
 ## Plan and Act modes
 

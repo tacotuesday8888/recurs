@@ -158,8 +158,12 @@ describe("foundation slash commands", () => {
     await registry.execute("/permissions full_access", accepted);
     expect(accepted.session.permissionMode).toBe("full_access");
     expect(acceptedConfirm).toHaveBeenCalledOnce();
-    expect(acceptedConfirm.mock.calls[0]?.[0]).toContain("credentials");
-    expect(acceptedConfirm.mock.calls[0]?.[0]).toContain("host environment");
+    expect(acceptedConfirm.mock.calls[0]?.[0]).toContain(
+      "Direct credential requests remain blocked",
+    );
+    expect(acceptedConfirm.mock.calls[0]?.[0]).toContain(
+      "shell commands are not isolated",
+    );
   });
 
   it("reports status, cancellation, help, aliases, and unknown commands", async () => {
