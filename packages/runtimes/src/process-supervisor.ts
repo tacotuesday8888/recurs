@@ -49,10 +49,63 @@ type InboundItem = { readonly message: AnyMessage; readonly bytes: number };
 
 const forbiddenEnvironmentKey =
   /(api.?key|token|secret|password|credential|cookie|auth|proxy|certificate|private.?key)/iu;
-const hazardousEnvironmentKey =
-  /^(?:NODE_OPTIONS|NODE_PATH|BASH_ENV|ENV|SHELLOPTS|PROMPT_COMMAND|IFS|DYLD_.+|LD_.+)$/u;
+const hazardousEnvironmentKeys = new Set([
+  "BASH_ENV",
+  "BUN_OPTIONS",
+  "BUNDLE_GEMFILE",
+  "CDPATH",
+  "CLASSPATH",
+  "DOTNET_ADDITIONAL_DEPS",
+  "DOTNET_SHARED_STORE",
+  "DOTNET_STARTUP_HOOKS",
+  "ENV",
+  "ELECTRON_RUN_AS_NODE",
+  "GEM_HOME",
+  "GEM_PATH",
+  "IFS",
+  "JAVA_TOOL_OPTIONS",
+  "JDK_JAVA_OPTIONS",
+  "LUA_CPATH",
+  "LUA_PATH",
+  "NODE_OPTIONS",
+  "NODE_PATH",
+  "NPM_CONFIG_NODE_OPTIONS",
+  "PERL5LIB",
+  "PERL5OPT",
+  "PHPRC",
+  "PHP_INI_SCAN_DIR",
+  "PROMPT_COMMAND",
+  "PSMODULEPATH",
+  "PYTHONBREAKPOINT",
+  "PYTHONHOME",
+  "PYTHONINSPECT",
+  "PYTHONPATH",
+  "PYTHONSTARTUP",
+  "PYTHONUSERBASE",
+  "PYTHONWARNINGS",
+  "RUBYLIB",
+  "RUBYOPT",
+  "SHELLOPTS",
+  "SSLKEYLOGFILE",
+  "ZDOTDIR",
+  "_JAVA_OPTIONS",
+]);
+const hazardousEnvironmentKeyFamily =
+  /^(?:CORECLR_|COR_|COMPLUS_|DYLD_|GIT_CONFIG_|LD_)/u;
 const secretEnvironmentValue =
   /(-----BEGIN [A-Z ]*PRIVATE KEY-----|\bsk-[A-Za-z0-9_-]{8,}|\b(?:api[_ -]?key|token|secret|password|credential|cookie)\s*[:=])/iu;
+const credentialFlag =
+  /^--?(?:[a-z0-9]+[-_.])*(?:api[-_.]?key|access[-_.]?key|auth|authentication|authorization|bearer|token|secret|password|passwd|credential|cookie|private[-_.]?key|certificate)(?:$|[=:.])/iu;
+
+export function isUnsafeAcpEnvironmentKey(key: string): boolean {
+  return forbiddenEnvironmentKey.test(key) ||
+    hazardousEnvironmentKeys.has(key) ||
+    hazardousEnvironmentKeyFamily.test(key);
+}
+
+export function isUnsafeAcpArgument(argument: string): boolean {
+  return secretEnvironmentValue.test(argument) || credentialFlag.test(argument);
+}
 
 function assertPositiveSafeInteger(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
@@ -95,7 +148,7 @@ function validateSpawnOptions(options: SpawnManagedAcpProcessOptions): void {
     if (
       argument.includes("\0") ||
       Buffer.byteLength(argument) > 8_192 ||
-      secretEnvironmentValue.test(argument)
+      isUnsafeAcpArgument(argument)
     ) {
       throw new TypeError("ACP argument is invalid or oversized");
     }
@@ -104,8 +157,7 @@ function validateSpawnOptions(options: SpawnManagedAcpProcessOptions): void {
   for (const key of options.allowedEnvironmentKeys) {
     if (
       !/^[A-Z_][A-Z0-9_]*$/u.test(key) ||
-      forbiddenEnvironmentKey.test(key) ||
-      hazardousEnvironmentKey.test(key) ||
+      isUnsafeAcpEnvironmentKey(key) ||
       uniqueKeys.has(key)
     ) {
       throw new TypeError("ACP environment allowlist contains an unsafe key");
@@ -287,6 +339,7 @@ class ManagedProcessImpl implements ManagedAcpProcess {
   private stderrBytes = 0;
   private frameCount = 0;
   private promptResponded = false;
+  private leaderExited = false;
   private state: "starting" | "open" | "closing" | "closed" | "failed" =
     "starting";
   private failedError: Error | null = null;
@@ -347,6 +400,7 @@ class ManagedProcessImpl implements ManagedAcpProcess {
       this.fail(new AcpTransportError("ACP process could not be started"));
     });
     child.once("close", (code, signal) => {
+      this.leaderExited = true;
       this.removeExternalAbortListener();
       clearTimeout(this.startupTimer);
       this.resolveExit({ exited: true, code, signal });
@@ -412,16 +466,32 @@ class ManagedProcessImpl implements ManagedAcpProcess {
       throw safeError;
     }
     this.stdinBytes += bytes.byteLength;
-    await new Promise<void>((resolve, reject) => {
-      this.child.stdin.write(bytes, (error) => {
-        if (error) reject(new AcpTransportError("ACP stdin transport failed"));
-        else resolve();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        this.child.stdin.write(bytes, (error) => {
+          if (error) reject(new AcpTransportError("ACP stdin transport failed"));
+          else resolve();
+        });
       });
-    });
+    } catch (error) {
+      const safeError = error instanceof AcpTransportError
+        ? error
+        : new AcpTransportError("ACP stdin transport failed");
+      this.fail(safeError);
+      throw safeError;
+    }
   }
 
   private trackOutbound(message: AnyMessage): void {
     const record = message as unknown as Record<string, unknown>;
+    if (typeof record.method === "string") {
+      const hasId = hasOwn(record, "id");
+      const notification = record.method === "session/cancel" ||
+        record.method === "$/cancel_request";
+      if ((notification && hasId) || (!notification && !hasId)) {
+        throw new AcpTransportError("ACP client produced an invalid method shape");
+      }
+    }
     if (this.state === "starting" && record.method !== "initialize") {
       throw new AcpTransportError("ACP initialize must be the first request");
     }
@@ -512,7 +582,7 @@ class ManagedProcessImpl implements ManagedAcpProcess {
       if (this.state !== "open") {
         throw new AcpTransportError("ACP agent sent traffic outside the open state");
       }
-      if (record.method === "session/update" && this.promptResponded) {
+      if (record.method.startsWith("session/") && this.promptResponded) {
         throw new AcpTransportError("ACP agent sent traffic after prompt completion");
       }
       const allowed = record.method === "session/update" ||
@@ -521,7 +591,12 @@ class ManagedProcessImpl implements ManagedAcpProcess {
       if (!allowed) {
         throw new AcpTransportError("ACP agent sent an unsupported inbound method");
       }
-      if (hasOwn(record, "id")) {
+      const hasId = hasOwn(record, "id");
+      const expectsId = record.method === "session/request_permission";
+      if (hasId !== expectsId) {
+        throw new AcpTransportError("ACP agent sent an invalid method shape");
+      }
+      if (hasId) {
         if (!validateId(record.id)) {
           throw new AcpTransportError("ACP agent sent an invalid request ID");
         }
@@ -585,33 +660,51 @@ class ManagedProcessImpl implements ManagedAcpProcess {
     this.removeExternalAbortListener();
     clearTimeout(this.startupTimer);
     if (!this.child.stdin.destroyed) this.child.stdin.end();
-    const slice = Math.max(10, Math.floor(this.bounds.shutdownTimeoutMs / 3));
-    if (await this.waitForExit(slice)) {
-      // The group leader may exit after stdin closes while descendants remain.
-      this.terminateGroup("SIGTERM");
+    const deadline = Date.now() + this.bounds.shutdownTimeoutMs;
+    const phaseBudget = Math.max(
+      1,
+      Math.floor(this.bounds.shutdownTimeoutMs / 3),
+    );
+    const remaining = (): number => Math.max(0, deadline - Date.now());
+    if (await this.waitForProcessTreeExit(Math.min(phaseBudget, remaining()))) {
       this.throwIfFailed();
       return;
     }
     this.terminateGroup("SIGTERM");
-    if (await this.waitForExit(slice)) {
+    if (await this.waitForProcessTreeExit(Math.min(phaseBudget, remaining()))) {
       this.throwIfFailed();
       return;
     }
     this.terminateGroup("SIGKILL");
-    if (!(await this.waitForExit(slice))) {
-      throw new AcpTransportError("ACP process did not exit after bounded shutdown");
+    if (!(await this.waitForProcessTreeExit(remaining()))) {
+      throw new AcpTransportError(
+        "ACP process tree did not exit after bounded shutdown",
+      );
     }
     this.throwIfFailed();
   }
 
-  private async waitForExit(timeoutMs: number): Promise<boolean> {
-    return await Promise.race([
-      this.exited.then(() => true),
-      new Promise<boolean>((resolve) => {
-        const timer = setTimeout(() => resolve(false), timeoutMs);
-        timer.unref?.();
-      }),
-    ]);
+  private async waitForProcessTreeExit(timeoutMs: number): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const groupExited = process.platform === "win32" || !this.isGroupAlive();
+      if (this.leaderExited && groupExited) return true;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return false;
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, Math.min(10, remaining));
+      });
+    }
+  }
+
+  private isGroupAlive(): boolean {
+    if (process.platform === "win32") return !this.leaderExited;
+    try {
+      process.kill(-this.pid, 0);
+      return true;
+    } catch (error) {
+      return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    }
   }
 
   private terminateGroup(signal: NodeJS.Signals): void {

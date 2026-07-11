@@ -61,6 +61,24 @@ async function initialize(process: ManagedAcpProcess): Promise<unknown> {
   return (await reader.read()).value;
 }
 
+async function initializationFailure(process: ManagedAcpProcess): Promise<unknown> {
+  try {
+    await initialize(process);
+    return await Promise.race([
+      process.failure,
+      new Promise<never>((_resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error("expected ACP process failure")),
+          500,
+        );
+        timer.unref?.();
+      }),
+    ]);
+  } catch (error) {
+    return error;
+  }
+}
+
 describe("bounded ACP process supervision", () => {
   it("accepts fragmented CRLF frames after validating the envelope", async () => {
     const process = await spawnScenario("fragmented");
@@ -108,10 +126,13 @@ describe("bounded ACP process supervision", () => {
     ["null-id", "invalid JSON-RPC response"],
     ["result-and-error", "invalid JSON-RPC response"],
     ["unknown-method", "unsupported inbound method"],
+    ["request-shaped-update", "invalid method shape"],
+    ["notification-shaped-permission", "invalid method shape"],
+    ["request-shaped-cancel", "invalid method shape"],
     ["partial-frame", "partial frame"],
   ])("fails closed for %s without returning raw bytes", async (scenario, safeText) => {
     const process = await spawnScenario(scenario);
-    await expect(initialize(process)).rejects.toThrow(safeText);
+    expect(String(await initializationFailure(process))).toContain(safeText);
   });
 
   it("enforces independent frame and stdout bounds", async () => {
@@ -234,8 +255,22 @@ describe("bounded ACP process supervision", () => {
 
     await expect(spawnManagedAcpProcess({
       command: process.execPath,
+      args: [fixture, "--api-key", "opaque-value"],
+      allowedEnvironmentKeys: [],
+      bounds,
+    })).rejects.toThrow("argument is invalid");
+
+    await expect(spawnManagedAcpProcess({
+      command: process.execPath,
       args: [fixture, "--scenario", "happy"],
       allowedEnvironmentKeys: ["NODE_OPTIONS"],
+      bounds,
+    })).rejects.toThrow("unsafe key");
+
+    await expect(spawnManagedAcpProcess({
+      command: process.execPath,
+      args: [fixture, "--scenario", "happy"],
+      allowedEnvironmentKeys: ["PYTHONPATH"],
       bounds,
     })).rejects.toThrow("unsafe key");
 
@@ -268,7 +303,13 @@ describe("bounded ACP process supervision", () => {
       try {
         const managed = await spawnManagedAcpProcess({
           command: process.execPath,
-          args: [fixture, "--scenario", "descendant", "--pid-file", pidFile],
+          args: [
+            fixture,
+            "--scenario",
+            "resistant-descendant",
+            "--pid-file",
+            pidFile,
+          ],
           allowedEnvironmentKeys: [],
           bounds: { ...bounds, shutdownTimeoutMs: 120 },
         });

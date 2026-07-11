@@ -83,6 +83,32 @@ export interface AcpAuthenticationResult extends AcpRuntimeInspection {
   readonly authenticatedMethodId: string;
 }
 
+export type AcpOperationErrorCode =
+  | "authentication_required"
+  | "cancelled"
+  | "session_unavailable"
+  | "request_rejected";
+
+function acpOperationErrorMessage(code: AcpOperationErrorCode): string {
+  switch (code) {
+    case "authentication_required":
+      return "The ACP operation requires authentication";
+    case "cancelled":
+      return "The ACP operation was cancelled";
+    case "session_unavailable":
+      return "The ACP session is unavailable";
+    case "request_rejected":
+      return "The ACP agent rejected the operation";
+  }
+}
+
+export class AcpOperationError extends Error {
+  constructor(readonly code: AcpOperationErrorCode) {
+    super(acpOperationErrorMessage(code));
+    this.name = "AcpOperationError";
+  }
+}
+
 const continuationPayloadSchema = z.object({
   schemaVersion: z.literal(1),
   vendorSessionId: z.string().min(1).max(1_024),
@@ -227,7 +253,7 @@ function terminalBoundFallback(): AgentRuntimeEvent {
 function mapFailure(error: unknown, phase: "preflight" | "started"): IntegrationFailure {
   if (error instanceof RuntimePreflightError) {
     return failure(
-      "preflight",
+      phase,
       "runtime",
       "runtime_capability_missing",
       "The delegated runtime does not support this model, mode, or permission profile",
@@ -449,6 +475,28 @@ function optionContainsValue(option: SessionConfigOption, value: string | boolea
   );
 }
 
+function assertReviewedSelectors(
+  options: readonly SessionConfigOption[],
+  mapping: AcpSessionMapping,
+): void {
+  for (const selector of [
+    mapping.modelSelector,
+    mapping.executionModeSelector,
+  ]) {
+    const option = options.find((candidate) => candidate.id === selector.configId);
+    if (
+      option === undefined ||
+      option.type === "boolean" ||
+      option.category !== selector.category ||
+      !optionContainsValue(option, selector.value)
+    ) {
+      throw new RuntimePreflightError(
+        `reviewed ACP ${selector.category} selector is unavailable`,
+      );
+    }
+  }
+}
+
 function configValue(option: SessionConfigOption): string | boolean {
   return option.currentValue;
 }
@@ -483,12 +531,20 @@ async function enforceSessionMapping(
   }
 
   let current = [...(state.configOptions ?? [])] as SessionConfigOption[];
+  assertReviewedSelectors(current, mapping);
+  const selectorsRequiringConfirmation = new Set([
+    mapping.modelSelector.configId,
+    mapping.executionModeSelector.configId,
+  ]);
   for (const selection of mapping.configOptions) {
     const option = current.find((candidate) => candidate.id === selection.configId);
     if (!option || !optionContainsValue(option, selection.value)) {
       throw new RuntimePreflightError("reviewed ACP configuration is unavailable");
     }
-    if (configValue(option) === selection.value) continue;
+    if (
+      configValue(option) === selection.value &&
+      !selectorsRequiringConfirmation.has(selection.configId)
+    ) continue;
     const response = await raceTransport(
       withTimeout(
         context.request(methods.agent.session.setConfigOption, {
@@ -504,6 +560,7 @@ async function enforceSessionMapping(
       process,
     );
     current = configResponseSchema.parse(response).configOptions as SessionConfigOption[];
+    assertReviewedSelectors(current, mapping);
     if (!configSelectionsMatch(current, [selection])) {
       throw new AcpTransportError("ACP configuration change did not take effect");
     }
@@ -511,6 +568,7 @@ async function enforceSessionMapping(
   if (!configSelectionsMatch(current, mapping.configOptions)) {
     throw new AcpTransportError("ACP session configuration drifted during setup");
   }
+  assertReviewedSelectors(current, mapping);
 }
 
 function encodeContinuation(vendorSessionId: string, cwd: string): Uint8Array {
@@ -878,6 +936,27 @@ export class ManagedAcpRuntime implements AgentRuntime {
     let terminal: AgentRuntimeEvent | null = null;
     let promptActive = false;
     let callbackFailure: unknown = null;
+    let activeCallbacks = 0;
+    let resolveCallbackDrain: (() => void) | null = null;
+    let callbackDrain: Promise<void> = Promise.resolve();
+    const beginCallback = (): (() => void) => {
+      if (activeCallbacks === 0) {
+        callbackDrain = new Promise<void>((resolve) => {
+          resolveCallbackDrain = resolve;
+        });
+      }
+      activeCallbacks += 1;
+      let finished = false;
+      return () => {
+        if (finished) return;
+        finished = true;
+        activeCallbacks -= 1;
+        if (activeCallbacks === 0) {
+          resolveCallbackDrain?.();
+          resolveCallbackDrain = null;
+        }
+      };
+    };
     const activities = new Map();
     const approvalCancellation = new AbortController();
     const cancelApprovals = (): void => {
@@ -896,6 +975,7 @@ export class ManagedAcpRuntime implements AgentRuntime {
 
       const app = client({ name: "recurs" })
         .onRequest(methods.client.session.requestPermission, async (handler) => {
+          const finishCallback = beginCallback();
           try {
             if (!promptActive || sessionId === null) {
               throw new AcpUpdateError("ACP permission arrived outside an active prompt");
@@ -912,11 +992,14 @@ export class ManagedAcpRuntime implements AgentRuntime {
           } catch (error) {
             callbackFailure ??= error;
             return { outcome: { outcome: "cancelled" as const } };
+          } finally {
+            finishCallback();
           }
         })
         .onNotification(methods.client.session.update, (handler) => {
-          if (callbackFailure !== null) return;
+          const finishCallback = beginCallback();
           try {
+            if (callbackFailure !== null) return;
             if (!promptActive || sessionId === null) {
               throw new AcpUpdateError("ACP update arrived outside an active prompt");
             }
@@ -934,6 +1017,8 @@ export class ManagedAcpRuntime implements AgentRuntime {
             }
           } catch (error) {
             callbackFailure ??= error;
+          } finally {
+            finishCallback();
           }
         });
 
@@ -1089,6 +1174,11 @@ export class ManagedAcpRuntime implements AgentRuntime {
         const response = promptResponseSchema.parse(rawResponse);
         promptActive = false;
         cancelApprovals();
+        await withTimeout(
+          callbackDrain,
+          this.profile.bounds.cancelSettlementTimeoutMs,
+          "cancel",
+        );
         if (callbackFailure !== null) throw callbackFailure;
         if ((request.signal.aborted || outcome.kind === "aborted") && response.stopReason !== "cancelled") {
           throw new AcpTransportError("ACP cancellation settled with a normal completion");
@@ -1166,6 +1256,12 @@ export class ManagedAcpRuntime implements AgentRuntime {
       connection = null;
       context = null;
       managed = null;
+      await withTimeout(
+        callbackDrain,
+        this.profile.bounds.cancelSettlementTimeoutMs,
+        "cancel",
+      );
+      if (callbackFailure !== null) throw callbackFailure;
       if (!terminal) throw new AcpTransportError("ACP prompt ended without a terminal result");
       channel.finish(terminal, terminalBoundFallback());
     } catch (error) {
@@ -1180,6 +1276,11 @@ export class ManagedAcpRuntime implements AgentRuntime {
         this.profile.bounds.shutdownTimeoutMs,
         false,
       );
+      await withTimeout(
+        callbackDrain,
+        this.profile.bounds.cancelSettlementTimeoutMs,
+        "cancel",
+      ).catch(() => undefined);
       const mapped = mapFailure(error, "started");
       if (mapped.code === "cancelled") {
         channel.finish({
@@ -1200,7 +1301,7 @@ export class ManagedAcpRuntime implements AgentRuntime {
   }
 }
 
-export async function withAcpInspectionConnection<T>(
+async function withAcpInspectionConnection<T>(
   profileInput: AcpRuntimeProfile,
   signal: AbortSignal,
   operation: (
@@ -1235,14 +1336,35 @@ export async function withAcpInspectionConnection<T>(
   }
 }
 
+function normalizePublicAcpError(error: unknown): unknown {
+  if (error instanceof z.ZodError) {
+    return new AcpOperationError("request_rejected");
+  }
+  if (!(error instanceof RequestError)) return error;
+  if (error.code === -32000) return new AcpOperationError("authentication_required");
+  if (error.code === -32800) return new AcpOperationError("cancelled");
+  if (error.code === -32002) return new AcpOperationError("session_unavailable");
+  return new AcpOperationError("request_rejected");
+}
+
+async function runPublicAcpOperation<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    throw normalizePublicAcpError(error);
+  }
+}
+
 export async function inspectAcpRuntime(
   profile: AcpRuntimeProfile,
   signal: AbortSignal,
 ): Promise<AcpRuntimeInspection> {
-  return await withAcpInspectionConnection(
-    profile,
-    signal,
-    async (_context, initialized) => inspectionFromInitialize(initialized),
+  return await runPublicAcpOperation(() =>
+    withAcpInspectionConnection(
+      profile,
+      signal,
+      async (_context, initialized) => inspectionFromInitialize(initialized),
+    ),
   );
 }
 
@@ -1251,29 +1373,40 @@ export async function authenticateAcpRuntime(
   advertisedMethodId: string,
   signal: AbortSignal,
 ): Promise<AcpAuthenticationResult> {
-  return await withAcpInspectionConnection(
-    profile,
-    signal,
-    async (context, initialized, process) => {
-      const inspection = inspectionFromInitialize(initialized);
-      const method = (initialized.authMethods ?? []).find(
-        (candidate: AuthMethod) => candidate.id === advertisedMethodId,
-      );
-      if (!method) throw new TypeError("ACP authentication method was not advertised");
-      if ("type" in method) {
-        throw new TypeError("ACP authentication method requires an unsupported credential channel");
-      }
-      const response = await raceTransport(
-        withTimeout(
-          context.request(methods.agent.authenticate, { methodId: advertisedMethodId }),
-          profile.bounds.promptTimeoutMs,
-          "prompt",
-        ),
-        process,
-      );
-      authResponseSchema.parse(response);
-      return deepFreeze({ ...inspection, authenticatedMethodId: advertisedMethodId });
-    },
+  return await runPublicAcpOperation(() =>
+    withAcpInspectionConnection(
+      profile,
+      signal,
+      async (context, initialized, process) => {
+        const inspection = inspectionFromInitialize(initialized);
+        const method = (initialized.authMethods ?? []).find(
+          (candidate: AuthMethod) => candidate.id === advertisedMethodId,
+        );
+        if (!method) {
+          throw new TypeError("ACP authentication method was not advertised");
+        }
+        if ("type" in method) {
+          throw new TypeError(
+            "ACP authentication method requires an unsupported credential channel",
+          );
+        }
+        const response = await raceTransport(
+          withTimeout(
+            context.request(methods.agent.authenticate, {
+              methodId: advertisedMethodId,
+            }),
+            profile.bounds.promptTimeoutMs,
+            "prompt",
+          ),
+          process,
+        );
+        authResponseSchema.parse(response);
+        return deepFreeze({
+          ...inspection,
+          authenticatedMethodId: advertisedMethodId,
+        });
+      },
+    ),
   );
 }
 
@@ -1289,20 +1422,22 @@ export async function inspectAcpRuntimeExtension<T>(
   ) {
     throw new TypeError("ACP extension method is invalid");
   }
-  return await withAcpInspectionConnection(
-    profile,
-    signal,
-    async (context, _initialized, process) => {
-      const response = await raceTransport(
-        withTimeout(
-          context.request<unknown, Record<string, never>>(method, {}),
-          profile.bounds.promptTimeoutMs,
-          "prompt",
-        ),
-        process,
-      );
-      return parse(response);
-    },
+  return await runPublicAcpOperation(() =>
+    withAcpInspectionConnection(
+      profile,
+      signal,
+      async (context, _initialized, process) => {
+        const response = await raceTransport(
+          withTimeout(
+            context.request<unknown, Record<string, never>>(method, {}),
+            profile.bounds.promptTimeoutMs,
+            "prompt",
+          ),
+          process,
+        );
+        return parse(response);
+      },
+    ),
   );
 }
 
@@ -1315,74 +1450,76 @@ export async function probeAcpRuntimeMapping(
   if (!path.isAbsolute(cwd) || cwd.includes("\0")) {
     throw new TypeError("ACP probe cwd must be absolute");
   }
-  return await withAcpInspectionConnection(
-    profile,
-    signal,
-    async (context, initialized, process) => {
-      const inspection = inspectionFromInitialize(initialized);
-      if (!inspection.sessionCapabilities.close) {
-        throw new RuntimePreflightError(
-          "ACP probe requires session close capability",
-        );
-      }
-      let sessionId: string | null = null;
-      let operationError: unknown = null;
-      let result: AcpSessionMapping | null = null;
-      try {
-        const response = await raceTransport(
-          withTimeout(
-            context.request(methods.agent.session.new, {
-              cwd,
-              additionalDirectories: [],
-              mcpServers: [],
-            }),
-            profile.bounds.promptTimeoutMs,
-            "prompt",
-          ),
-          process,
-        );
-        const state = newSessionResponseSchema.parse(response) as NewSessionResponse;
-        sessionId = state.sessionId;
-        const selected = selectMapping(structuredClone(state));
-        const reviewed = createAcpRuntimeProfile({
-          ...profile,
-          mappings: [selected],
-        }).mappings[0];
-        if (reviewed === undefined) {
-          throw new RuntimePreflightError("ACP probe mapping is missing");
+  return await runPublicAcpOperation(() =>
+    withAcpInspectionConnection(
+      profile,
+      signal,
+      async (context, initialized, process) => {
+        const inspection = inspectionFromInitialize(initialized);
+        if (!inspection.sessionCapabilities.close) {
+          throw new RuntimePreflightError(
+            "ACP probe requires session close capability",
+          );
         }
-        await enforceSessionMapping(
-          context,
-          sessionId,
-          state,
-          reviewed,
-          process,
-          profile.bounds.promptTimeoutMs,
-        );
-        result = deepFreeze(structuredClone(reviewed));
-      } catch (error) {
-        operationError = error;
-      }
-      if (sessionId !== null) {
+        let sessionId: string | null = null;
+        let operationError: unknown = null;
+        let result: AcpSessionMapping | null = null;
         try {
           const response = await raceTransport(
             withTimeout(
-              context.request(methods.agent.session.close, { sessionId }),
-              profile.bounds.shutdownTimeoutMs,
-              "shutdown",
+              context.request(methods.agent.session.new, {
+                cwd,
+                additionalDirectories: [],
+                mcpServers: [],
+              }),
+              profile.bounds.promptTimeoutMs,
+              "prompt",
             ),
             process,
           );
-          emptyResponseSchema.parse(response);
+          const state = newSessionResponseSchema.parse(response) as NewSessionResponse;
+          sessionId = state.sessionId;
+          const selected = selectMapping(structuredClone(state));
+          const reviewed = createAcpRuntimeProfile({
+            ...profile,
+            mappings: [selected],
+          }).mappings[0];
+          if (reviewed === undefined) {
+            throw new RuntimePreflightError("ACP probe mapping is missing");
+          }
+          await enforceSessionMapping(
+            context,
+            sessionId,
+            state,
+            reviewed,
+            process,
+            profile.bounds.promptTimeoutMs,
+          );
+          result = deepFreeze(structuredClone(reviewed));
         } catch (error) {
-          operationError ??= error;
+          operationError = error;
         }
-      }
-      if (operationError !== null) throw operationError;
-      if (result === null) {
-        throw new RuntimePreflightError("ACP probe did not produce a mapping");
-      }
-      return result;
-    },
+        if (sessionId !== null) {
+          try {
+            const response = await raceTransport(
+              withTimeout(
+                context.request(methods.agent.session.close, { sessionId }),
+                profile.bounds.shutdownTimeoutMs,
+                "shutdown",
+              ),
+              process,
+            );
+            emptyResponseSchema.parse(response);
+          } catch (error) {
+            operationError ??= error;
+          }
+        }
+        if (operationError !== null) throw operationError;
+        if (result === null) {
+          throw new RuntimePreflightError("ACP probe did not produce a mapping");
+        }
+        return result;
+      },
+    ),
   );
 }

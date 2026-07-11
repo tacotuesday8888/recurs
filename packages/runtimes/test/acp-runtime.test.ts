@@ -54,9 +54,20 @@ function profile(
         modelId: "test-model",
         executionMode: "plan",
         permissionMode: "ask_always",
+        modelSelector: {
+          configId: "model",
+          value: "test-model",
+          category: "model",
+        },
+        executionModeSelector: {
+          configId: "mode",
+          value: "reviewed-plan",
+          category: "mode",
+        },
         modeId: "reviewed-plan",
         configOptions: [
-          { configId: "model", value: "reviewed-model" },
+          { configId: "model", value: "test-model" },
+          { configId: "mode", value: "reviewed-plan" },
           { configId: "approval", value: "ask" },
         ],
       },
@@ -64,9 +75,20 @@ function profile(
         modelId: "test-model",
         executionMode: "act",
         permissionMode: "full_access",
+        modelSelector: {
+          configId: "model",
+          value: "test-model",
+          category: "model",
+        },
+        executionModeSelector: {
+          configId: "mode",
+          value: "reviewed-act",
+          category: "mode",
+        },
         modeId: "reviewed-act",
         configOptions: [
-          { configId: "model", value: "reviewed-model" },
+          { configId: "model", value: "test-model" },
+          { configId: "mode", value: "reviewed-act" },
           { configId: "approval", value: "auto" },
         ],
       },
@@ -388,6 +410,15 @@ describe("ManagedAcpRuntime", () => {
       type: "failed",
       failure: expect.objectContaining({ code: "protocol_mismatch" }),
     });
+
+    const latePermission = new ManagedAcpRuntime(
+      profile("post-terminal-permission"),
+      new MemoryRuntimeStore(),
+    );
+    expect((await collect(latePermission, request())).at(-1)).toMatchObject({
+      type: "failed",
+      failure: expect.objectContaining({ code: "protocol_mismatch" }),
+    });
   });
 
   it("ignores bounded future display updates but rejects reviewed mode drift", async () => {
@@ -452,7 +483,10 @@ describe("ManagedAcpRuntime", () => {
     );
     expect((await collect(unsupported, request())).at(-1)).toMatchObject({
       type: "failed",
-      failure: expect.objectContaining({ code: "runtime_capability_missing" }),
+      failure: expect.objectContaining({
+        phase: "started",
+        code: "runtime_capability_missing",
+      }),
     });
 
     const oneShot = new ManagedAcpRuntime(
@@ -554,6 +588,90 @@ describe("ManagedAcpRuntime", () => {
     )).rejects.toThrow("not advertised");
   });
 
+  it("normalizes agent RequestError messages and data at public operation boundaries", async () => {
+    for (const operation of [
+      () => inspectAcpRuntime(
+        profile("secret-initialize-error"),
+        new AbortController().signal,
+      ),
+      () => authenticateAcpRuntime(
+        profile("secret-auth-error"),
+        "browser-login",
+        new AbortController().signal,
+      ),
+    ]) {
+      let caught: unknown;
+      try {
+        await operation();
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toMatchObject({
+        name: "AcpOperationError",
+        code: "request_rejected",
+        message: "The ACP agent rejected the operation",
+      });
+      expect(String(caught)).not.toContain("SUPER_SECRET");
+      expect(JSON.stringify(caught)).not.toContain("SUPER_SECRET");
+      expect(caught).not.toHaveProperty("data");
+      expect(caught).not.toHaveProperty("cause");
+    }
+  });
+
+  it.each([
+    "duplicate-mode-id",
+    "duplicate-config-id",
+    "duplicate-select-value",
+    "duplicate-group-value",
+    "duplicate-group-id",
+  ])("rejects ambiguous %s session metadata before matching", async (scenario) => {
+    const runtime = new ManagedAcpRuntime(profile(scenario), new MemoryRuntimeStore());
+    const events = await collect(runtime, request());
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      failure: expect.objectContaining({
+        phase: "started",
+        code: "invalid_response",
+      }),
+    });
+  });
+
+  it("requires explicit model and execution-mode selectors and validates categories", async () => {
+    const base = profile();
+    const mapping = base.mappings[0];
+    if (!mapping) throw new Error("missing test mapping");
+
+    expect(() => createAcpRuntimeProfile({
+      ...base,
+      mappings: [{ ...mapping, modelSelector: undefined }],
+    } as unknown as AcpRuntimeProfile)).toThrow("model selector");
+    expect(() => createAcpRuntimeProfile({
+      ...base,
+      mappings: [{ ...mapping, executionModeSelector: undefined }],
+    } as unknown as AcpRuntimeProfile)).toThrow("execution-mode selector");
+
+    const runtime = new ManagedAcpRuntime(
+      profile("wrong-selector-category"),
+      new MemoryRuntimeStore(),
+    );
+    expect((await collect(runtime, request())).at(-1)).toMatchObject({
+      type: "failed",
+      failure: expect.objectContaining({
+        phase: "started",
+        code: "runtime_capability_missing",
+      }),
+    });
+
+    const confirmation = new ManagedAcpRuntime(
+      profile("selector-confirmation"),
+      new MemoryRuntimeStore(),
+    );
+    expect((await collect(confirmation, request())).at(-1)).toMatchObject({
+      type: "done",
+      stopReason: "complete",
+    });
+  });
+
   it("reconciliation returns gone for a missing vendor session and otherwise remains uncertain", async () => {
     const store = new MemoryRuntimeStore();
     const seed = new ManagedAcpRuntime(profile("simple"), store);
@@ -600,5 +718,13 @@ describe("ManagedAcpRuntime", () => {
       ...frozen,
       args: [fixture, "token=must-not-leak"],
     })).toThrow("arguments");
+    expect(() => createAcpRuntimeProfile({
+      ...frozen,
+      args: [fixture, "--token", "opaque-value"],
+    })).toThrow("arguments");
+    expect(() => createAcpRuntimeProfile({
+      ...frozen,
+      allowedEnvironmentKeys: ["PYTHONPATH"],
+    })).toThrow("environment");
   });
 });

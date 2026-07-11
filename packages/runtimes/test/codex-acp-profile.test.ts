@@ -41,6 +41,16 @@ function fakeProfile(scenario = "existing-chatgpt"): AcpRuntimeProfile {
         modelId: "gpt-test",
         executionMode: "plan",
         permissionMode: "ask_always",
+        modelSelector: {
+          configId: "model",
+          value: "gpt-test",
+          category: "model",
+        },
+        executionModeSelector: {
+          configId: "mode",
+          value: "read-only",
+          category: "mode",
+        },
         modeId: "read-only",
         configOptions: [
           { configId: "mode", value: "read-only" },
@@ -142,6 +152,10 @@ describe("official Codex ACP profile", () => {
     expect(profile.mappings.every((mapping) =>
       mapping.executionMode === "plan" &&
       mapping.modeId === "read-only" &&
+      mapping.modelSelector.category === "model" &&
+      mapping.modelSelector.value === "gpt-test" &&
+      mapping.executionModeSelector.category === "mode" &&
+      mapping.executionModeSelector.value === "read-only" &&
       mapping.configOptions.some((option) =>
         option.configId === "mode" && option.value === "read-only"
       )
@@ -201,5 +215,43 @@ describe("official Codex ACP profile", () => {
       cwd: path.resolve(process.cwd()),
       modelId: "missing-model",
     }, new AbortController().signal)).rejects.toThrow("model");
+  });
+
+  it("normalizes secret-bearing errors from status, authentication, and probe operations", async () => {
+    const operations = [
+      () => inspectCodexAcp(
+        fakeProfile("secret-status-error"),
+        new AbortController().signal,
+      ),
+      () => inspectCodexAcp(
+        fakeProfile("invalid-secret-status"),
+        new AbortController().signal,
+      ),
+      () => authenticateCodexAcpChatGpt(
+        fakeProfile("secret-auth-error"),
+        new AbortController().signal,
+      ),
+      () => probeCodexAcp({
+        profile: fakeProfile("secret-session-error"),
+        cwd: path.resolve(process.cwd()),
+      }, new AbortController().signal),
+    ];
+    for (const operation of operations) {
+      let caught: unknown;
+      try {
+        await operation();
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toMatchObject({
+        name: "AcpOperationError",
+        code: "request_rejected",
+        message: "The ACP agent rejected the operation",
+      });
+      expect(String(caught)).not.toContain("SUPER_SECRET");
+      expect(JSON.stringify(caught)).not.toContain("SUPER_SECRET");
+      expect(caught).not.toHaveProperty("data");
+      expect(caught).not.toHaveProperty("cause");
+    }
   });
 });

@@ -39,7 +39,12 @@ const modeStateSchema = z.object({
     id: z.string().min(1).max(256),
     name: z.string().min(1).max(256),
   }).passthrough()).max(128),
-}).passthrough();
+}).passthrough().superRefine((state, context) => {
+  const ids = state.availableModes.map((mode) => mode.id);
+  if (new Set(ids).size !== ids.length) {
+    context.addIssue({ code: "custom", message: "mode IDs must be unique" });
+  }
+});
 
 const selectOptionSchema = z.object({
   value: z.string().min(1).max(256),
@@ -50,30 +55,69 @@ const selectGroupSchema = z.object({
   group: z.string().min(1).max(256),
   name: z.string().min(1).max(256),
   options: z.array(selectOptionSchema).max(256),
-}).passthrough();
+}).passthrough().superRefine((group, context) => {
+  const values = group.options.map((option) => option.value);
+  if (new Set(values).size !== values.length) {
+    context.addIssue({ code: "custom", message: "group values must be unique" });
+  }
+});
+
+const selectOptionsSchema = z.union([
+  z.array(selectOptionSchema).max(256),
+  z.array(selectGroupSchema).max(64),
+]).superRefine((options, context) => {
+  const values: string[] = [];
+  const groups: string[] = [];
+  for (const candidate of options) {
+    const directValue = (candidate as { readonly value?: unknown }).value;
+    if (typeof directValue === "string") {
+      values.push(directValue);
+    } else {
+      const group = candidate as unknown as {
+        readonly group: string;
+        readonly options: readonly { readonly value: string }[];
+      };
+      groups.push(group.group);
+      values.push(...group.options.map((option) => option.value));
+    }
+  }
+  if (new Set(groups).size !== groups.length) {
+    context.addIssue({ code: "custom", message: "select groups must be unique" });
+  }
+  if (new Set(values).size !== values.length) {
+    context.addIssue({ code: "custom", message: "select values must be unique" });
+  }
+});
 
 export const configOptionSchema = z.discriminatedUnion("type", [
   z.object({
     id: z.string().min(1).max(256),
     name: z.string().min(1).max(256),
+    category: z.string().min(1).max(128).nullish(),
     type: z.literal("boolean"),
     currentValue: z.boolean(),
   }).passthrough(),
   z.object({
     id: z.string().min(1).max(256),
     name: z.string().min(1).max(256),
+    category: z.string().min(1).max(128).nullish(),
     type: z.literal("select"),
     currentValue: z.string().min(1).max(256),
-    options: z.union([
-      z.array(selectOptionSchema).max(256),
-      z.array(selectGroupSchema).max(64),
-    ]),
+    options: selectOptionsSchema,
   }).passthrough(),
 ]);
 
+const configOptionsSchema = z.array(configOptionSchema).max(128)
+  .superRefine((options, context) => {
+    const ids = options.map((option) => option.id);
+    if (new Set(ids).size !== ids.length) {
+      context.addIssue({ code: "custom", message: "config IDs must be unique" });
+    }
+  });
+
 export const sessionStateSchema = z.object({
   modes: modeStateSchema.nullish(),
-  configOptions: z.array(configOptionSchema).max(128).nullish(),
+  configOptions: configOptionsSchema.nullish(),
 }).passthrough();
 
 export const newSessionResponseSchema = sessionStateSchema.extend({
@@ -81,7 +125,7 @@ export const newSessionResponseSchema = sessionStateSchema.extend({
 });
 
 export const configResponseSchema = z.object({
-  configOptions: z.array(configOptionSchema).max(128),
+  configOptions: configOptionsSchema,
 }).passthrough();
 
 const usageSchema = z.object({
@@ -232,7 +276,7 @@ function parseTolerantSessionNotification(value: unknown): SessionNotification |
   if (discriminator === "config_option_update") {
     const update = z.object({
       sessionUpdate: z.literal("config_option_update"),
-      configOptions: z.array(configOptionSchema).max(128),
+      configOptions: configOptionsSchema,
     }).passthrough().parse(base.update);
     return { sessionId: base.sessionId, update } as SessionNotification;
   }

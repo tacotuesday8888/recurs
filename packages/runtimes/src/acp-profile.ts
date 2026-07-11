@@ -5,6 +5,8 @@ import type { RuntimeCapabilities } from "@recurs/contracts";
 
 import type { AcpConfigSelection } from "./acp-updates.js";
 import {
+  isUnsafeAcpArgument,
+  isUnsafeAcpEnvironmentKey,
   validateAcpProcessBounds,
   type AcpProcessBounds,
 } from "./process-supervisor.js";
@@ -14,10 +16,22 @@ export type AcpPermissionMode =
   | "approved_for_me"
   | "full_access";
 
+export interface AcpReviewedConfigSelector {
+  readonly configId: string;
+  readonly value: string;
+  readonly category: "model" | "mode";
+}
+
 export interface AcpSessionMapping {
   readonly modelId: string;
   readonly executionMode: "act" | "plan";
   readonly permissionMode: AcpPermissionMode;
+  readonly modelSelector: AcpReviewedConfigSelector & {
+    readonly category: "model";
+  };
+  readonly executionModeSelector: AcpReviewedConfigSelector & {
+    readonly category: "mode";
+  };
   readonly modeId: string | null;
   readonly configOptions: readonly AcpConfigSelection[];
 }
@@ -113,7 +127,8 @@ export function createAcpRuntimeProfile(input: AcpRuntimeProfile): AcpRuntimePro
     input.args.some((argument) =>
       argument.includes("\0") ||
       Buffer.byteLength(argument) > 8_192 ||
-      containsSecretCanary(argument)
+      containsSecretCanary(argument) ||
+      isUnsafeAcpArgument(argument)
     )
   ) {
     throw new TypeError("ACP profile arguments are invalid or oversized");
@@ -197,6 +212,40 @@ export function createAcpRuntimeProfile(input: AcpRuntimeProfile): AcpRuntimePro
     if (mapping.modeId !== null) {
       assertSafeIdentifier(mapping.modeId, "mapping modeId");
     }
+    if (
+      mapping.modelSelector === null ||
+      typeof mapping.modelSelector !== "object" ||
+      mapping.modelSelector.category !== "model"
+    ) {
+      throw new TypeError("ACP mapping model selector is invalid");
+    }
+    if (
+      mapping.executionModeSelector === null ||
+      typeof mapping.executionModeSelector !== "object" ||
+      mapping.executionModeSelector.category !== "mode"
+    ) {
+      throw new TypeError("ACP mapping execution-mode selector is invalid");
+    }
+    for (const [label, selector] of [
+      ["model", mapping.modelSelector],
+      ["execution-mode", mapping.executionModeSelector],
+    ] as const) {
+      if (
+        typeof selector.configId !== "string" ||
+        typeof selector.value !== "string"
+      ) {
+        throw new TypeError(`ACP mapping ${label} selector is invalid`);
+      }
+      assertSafeIdentifier(selector.configId, `${label} selector configId`);
+      assertSafeIdentifier(selector.value, `${label} selector value`);
+    }
+    if (
+      mapping.modelSelector.configId ===
+        mapping.executionModeSelector.configId ||
+      mapping.modelSelector.value !== mapping.modelId
+    ) {
+      throw new TypeError("ACP mapping reviewed selectors are inconsistent");
+    }
     const key = `${mapping.modelId}\0${mapping.executionMode}\0${mapping.permissionMode}`;
     if (mappingKeys.has(key)) throw new TypeError("ACP profile has duplicate mappings");
     mappingKeys.add(key);
@@ -209,6 +258,17 @@ export function createAcpRuntimeProfile(input: AcpRuntimeProfile): AcpRuntimePro
       configIds.add(config.configId);
       if (typeof config.value === "string") {
         assertSafeIdentifier(config.value, "mapping config value");
+      }
+    }
+    for (const selector of [
+      mapping.modelSelector,
+      mapping.executionModeSelector,
+    ]) {
+      if (!mapping.configOptions.some((selection) =>
+        selection.configId === selector.configId &&
+        selection.value === selector.value
+      )) {
+        throw new TypeError("ACP mapping selector is not enforced by configuration");
       }
     }
   }
@@ -234,6 +294,8 @@ export function createAcpRuntimeProfile(input: AcpRuntimeProfile): AcpRuntimePro
       modelId: mapping.modelId,
       executionMode: mapping.executionMode,
       permissionMode: mapping.permissionMode,
+      modelSelector: { ...mapping.modelSelector },
+      executionModeSelector: { ...mapping.executionModeSelector },
       modeId: mapping.modeId,
       configOptions: mapping.configOptions.map((option) => ({ ...option })),
     })),
@@ -244,8 +306,7 @@ export function createAcpRuntimeProfile(input: AcpRuntimeProfile): AcpRuntimePro
   for (const key of cloned.allowedEnvironmentKeys) {
     if (
       !/^[A-Z_][A-Z0-9_]*$/u.test(key) ||
-      /(api.?key|token|secret|password|credential|cookie|auth|proxy)/iu.test(key) ||
-      /^(?:NODE_OPTIONS|NODE_PATH|BASH_ENV|ENV|SHELLOPTS|PROMPT_COMMAND|IFS|DYLD_.+|LD_.+)$/u.test(key)
+      isUnsafeAcpEnvironmentKey(key)
     ) {
       throw new TypeError("ACP profile environment allowlist is unsafe");
     }

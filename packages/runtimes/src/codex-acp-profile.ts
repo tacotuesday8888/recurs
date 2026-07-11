@@ -27,7 +27,7 @@ export const CODEX_CLI_VERSION = "0.144.0";
 export const CODEX_CLI_INTEGRITY =
   "sha512-QFh6f+v5QUx/Vg0HjIl9HB94p7aDLBDkZjc4IXX5RXUcXHPVCZNb6Hl2R49Og/fqW7orgZkeDcgWfRANUa1WoQ==";
 export const CODEX_ACP_PROFILE_REVISION =
-  "codex-acp-1.1.2-codex-0.144.0-plan-only-v1";
+  "codex-acp-1.1.2-codex-0.144.0-plan-only-v2";
 export const CODEX_ACP_ADAPTER_ID = "codex-acp";
 export const CODEX_PLAN_MODE_ID = "read-only";
 
@@ -265,6 +265,16 @@ function codexMapping(
     modelId,
     executionMode: "plan",
     permissionMode,
+    modelSelector: {
+      configId: "model",
+      value: modelId,
+      category: "model",
+    },
+    executionModeSelector: {
+      configId: "mode",
+      value: CODEX_PLAN_MODE_ID,
+      category: "mode",
+    },
     modeId: CODEX_PLAN_MODE_ID,
     configOptions: [
       { configId: "mode", value: CODEX_PLAN_MODE_ID },

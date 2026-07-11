@@ -23,6 +23,18 @@ function error(id, code, message) {
   send({ jsonrpc: "2.0", id, error: { code, message } });
 }
 
+function secretError(id) {
+  send({
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code: -32603,
+      message: "SUPER_SECRET_AGENT_MESSAGE",
+      data: { token: "SUPER_SECRET_AGENT_DATA" },
+    },
+  });
+}
+
 function configOptions() {
   return [
     {
@@ -75,6 +87,18 @@ rl.on("line", (line) => {
     return;
   }
   if (message.method === "authentication/status") {
+    if (scenario === "secret-status-error") {
+      secretError(message.id);
+      return;
+    }
+    if (scenario === "invalid-secret-status") {
+      result(message.id, {
+        type: "chat-gpt",
+        email: "owner@example.com",
+        SUPER_SECRET_FIELD: "SUPER_SECRET_AGENT_DATA",
+      });
+      return;
+    }
     const status = scenario === "unauthenticated" || scenario === "no-browser"
       ? { type: "unauthenticated" }
       : scenario === "api-key"
@@ -90,10 +114,18 @@ rl.on("line", (line) => {
       error(message.id, -32602, "unsupported authentication method");
       return;
     }
+    if (scenario === "secret-auth-error") {
+      secretError(message.id);
+      return;
+    }
     result(message.id, {});
     return;
   }
   if (message.method === "session/new") {
+    if (scenario === "secret-session-error") {
+      secretError(message.id);
+      return;
+    }
     result(message.id, {
       sessionId: "temporary-vendor-session",
       modes: {

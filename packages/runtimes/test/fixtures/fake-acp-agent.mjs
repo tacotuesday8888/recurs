@@ -20,7 +20,9 @@ let promptId = null;
 let promptSessionId = null;
 let permissionRequestId = null;
 let currentModel = "wrong-model";
+let currentMode = "unsafe";
 let currentApproval = "wrong-approval";
+const confirmedSelectors = new Set();
 
 function send(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
@@ -32,6 +34,18 @@ function result(id, value) {
 
 function error(id, code, message) {
   send({ jsonrpc: "2.0", id, error: { code, message } });
+}
+
+function secretError(id) {
+  send({
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code: -32603,
+      message: "SUPER_SECRET_AGENT_MESSAGE",
+      data: { token: "SUPER_SECRET_AGENT_DATA" },
+    },
+  });
 }
 
 function update(sessionId, value) {
@@ -53,6 +67,10 @@ function initialize(message) {
   }
   if (scenario === "protocol-version") {
     result(message.id, { protocolVersion: 999, agentCapabilities: {} });
+    return;
+  }
+  if (scenario === "secret-initialize-error") {
+    secretError(message.id);
     return;
   }
   const response = {
@@ -130,6 +148,51 @@ function initialize(message) {
     );
     return;
   }
+  if (scenario === "request-shaped-update") {
+    process.stdout.write(
+      `${JSON.stringify({ jsonrpc: "2.0", id: message.id, result: response })}\n` +
+      `${JSON.stringify({
+        jsonrpc: "2.0",
+        id: "invalid-update-shape",
+        method: "session/update",
+        params: {
+          sessionId: "shape",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "invalid" },
+          },
+        },
+      })}\n`,
+    );
+    return;
+  }
+  if (scenario === "notification-shaped-permission") {
+    process.stdout.write(
+      `${JSON.stringify({ jsonrpc: "2.0", id: message.id, result: response })}\n` +
+      `${JSON.stringify({
+        jsonrpc: "2.0",
+        method: "session/request_permission",
+        params: {
+          sessionId: "shape",
+          toolCall: { toolCallId: "shape", title: "Shape", kind: "read" },
+          options: [{ optionId: "deny", name: "Deny", kind: "reject_once" }],
+        },
+      })}\n`,
+    );
+    return;
+  }
+  if (scenario === "request-shaped-cancel") {
+    process.stdout.write(
+      `${JSON.stringify({ jsonrpc: "2.0", id: message.id, result: response })}\n` +
+      `${JSON.stringify({
+        jsonrpc: "2.0",
+        id: "invalid-cancel-shape",
+        method: "$/cancel_request",
+        params: { requestId: "shape" },
+      })}\n`,
+    );
+    return;
+  }
   if (scenario === "frame-burst") {
     const frames = [
       { jsonrpc: "2.0", id: message.id, result: response },
@@ -195,9 +258,15 @@ function initialize(message) {
 }
 
 function sessionState() {
-  return {
+  const reportedModel = scenario === "selector-confirmation"
+    ? "test-model"
+    : currentModel;
+  const reportedMode = scenario === "selector-confirmation"
+    ? "reviewed-plan"
+    : currentMode;
+  const state = {
     modes: {
-      currentModeId: "unsafe",
+      currentModeId: reportedMode,
       availableModes: [
         { id: "unsafe", name: "Unsafe" },
         { id: "reviewed-plan", name: "Reviewed plan" },
@@ -208,11 +277,24 @@ function sessionState() {
       {
         id: "model",
         name: "Model",
+        category: scenario === "wrong-selector-category" ? "mode" : "model",
         type: "select",
-        currentValue: currentModel,
+        currentValue: reportedModel,
         options: [
           { value: "wrong-model", name: "Wrong" },
-          { value: "reviewed-model", name: "Reviewed" },
+          { value: "test-model", name: "Reviewed" },
+        ],
+      },
+      {
+        id: "mode",
+        name: "Mode",
+        category: "mode",
+        type: "select",
+        currentValue: reportedMode,
+        options: [
+          { value: "unsafe", name: "Unsafe" },
+          { value: "reviewed-plan", name: "Reviewed plan" },
+          { value: "reviewed-act", name: "Reviewed act" },
         ],
       },
       {
@@ -228,6 +310,44 @@ function sessionState() {
       },
     ],
   };
+  if (scenario === "duplicate-mode-id") {
+    state.modes.availableModes.push({ id: "reviewed-plan", name: "Duplicate" });
+  }
+  if (scenario === "duplicate-config-id") {
+    state.configOptions.push({ ...state.configOptions[0], name: "Duplicate model" });
+  }
+  if (scenario === "duplicate-select-value") {
+    state.configOptions[0].options.push({ value: "test-model", name: "Duplicate" });
+  }
+  if (scenario === "duplicate-group-value") {
+    state.configOptions[0].options = [
+      {
+        group: "first",
+        name: "First",
+        options: [{ value: "test-model", name: "Reviewed" }],
+      },
+      {
+        group: "second",
+        name: "Second",
+        options: [{ value: "test-model", name: "Duplicate" }],
+      },
+    ];
+  }
+  if (scenario === "duplicate-group-id") {
+    state.configOptions[0].options = [
+      {
+        group: "same",
+        name: "First",
+        options: [{ value: "wrong-model", name: "Wrong" }],
+      },
+      {
+        group: "same",
+        name: "Second",
+        options: [{ value: "test-model", name: "Reviewed" }],
+      },
+    ];
+  }
+  return state;
 }
 
 function startPrompt(message) {
@@ -236,6 +356,13 @@ function startPrompt(message) {
   const prompt = message.params?.prompt;
   if (!Array.isArray(prompt) || prompt.length !== 1 || prompt[0]?.type !== "text") {
     error(message.id, -32602, "invalid prompt");
+    return;
+  }
+  if (
+    scenario === "selector-confirmation" &&
+    (!confirmedSelectors.has("model") || !confirmedSelectors.has("mode"))
+  ) {
+    error(message.id, -32602, "reviewed selectors were not confirmed");
     return;
   }
 
@@ -312,6 +439,7 @@ function startPrompt(message) {
     "mode-drift",
     "terminal-large",
     "delayed-post-terminal",
+    "post-terminal-permission",
   ].includes(scenario)) {
     result(promptId, {
       stopReason: "end_turn",
@@ -406,11 +534,19 @@ rl.on("line", (line) => {
       error(message.id, -32602, "unknown auth method");
       return;
     }
+    if (scenario === "secret-auth-error") {
+      secretError(message.id);
+      return;
+    }
     authenticated = true;
     result(message.id, { content: "authenticated" });
     return;
   }
   if (message.method === "session/new") {
+    if (scenario === "secret-session-error") {
+      secretError(message.id);
+      return;
+    }
     if (scenario === "auth-required" && !authenticated) {
       error(message.id, -32000, "authentication required");
       return;
@@ -440,17 +576,23 @@ rl.on("line", (line) => {
       error(message.id, -32602, "unreviewed mode");
       return;
     }
+    currentMode = message.params.modeId;
     result(message.id, {});
     return;
   }
   if (message.method === "session/set_config_option") {
     const { configId, value } = message.params ?? {};
-    if ((configId === "model" && value !== "reviewed-model") ||
+    if ((configId === "model" && value !== "test-model") ||
+        (configId === "mode" && !["reviewed-plan", "reviewed-act"].includes(value)) ||
         (configId === "approval" && !["ask", "auto"].includes(value))) {
       error(message.id, -32602, "unreviewed config");
       return;
     }
     if (configId === "model") currentModel = value;
+    if (configId === "mode") currentMode = value;
+    if (configId === "model" || configId === "mode") {
+      confirmedSelectors.add(configId);
+    }
     if (configId === "approval") currentApproval = value;
     const state = sessionState().configOptions;
     result(message.id, { configOptions: state });
@@ -474,6 +616,18 @@ rl.on("line", (line) => {
     return;
   }
   if (message.method === "session/close") {
+    if (scenario === "post-terminal-permission") {
+      send({
+        jsonrpc: "2.0",
+        id: "late-permission",
+        method: "session/request_permission",
+        params: {
+          sessionId: promptSessionId,
+          toolCall: { toolCallId: "late", title: "Late", kind: "read" },
+          options: [{ optionId: "deny", name: "Deny", kind: "reject_once" }],
+        },
+      });
+    }
     result(message.id, {});
     return;
   }
@@ -490,8 +644,11 @@ rl.on("close", () => {
   }
 });
 
-if (scenario === "descendant") {
-  const descendant = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+if (scenario === "descendant" || scenario === "resistant-descendant") {
+  const script = scenario === "resistant-descendant"
+    ? "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"
+    : "setInterval(() => {}, 1000)";
+  const descendant = spawn(process.execPath, ["-e", script], {
     stdio: "ignore",
   });
   if (pidFile) writeFileSync(pidFile, String(descendant.pid), { mode: 0o600 });

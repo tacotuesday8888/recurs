@@ -1,13 +1,16 @@
 export {
   ManagedAcpRuntime,
+  AcpOperationError,
   authenticateAcpRuntime,
   inspectAcpRuntime,
   type AcpAuthenticationResult,
+  type AcpOperationErrorCode,
   type AcpRuntimeInspection,
 } from "./acp-runtime.js";
 export {
   createAcpRuntimeProfile,
   type AcpPermissionMode,
+  type AcpReviewedConfigSelector,
   type AcpRuntimeBounds,
   type AcpRuntimeProfile,
   type AcpSessionMapping,
