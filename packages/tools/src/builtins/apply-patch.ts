@@ -9,6 +9,7 @@ import {
   type PathPolicyOptions,
   type ResolvedWorkspacePath,
 } from "../path-policy.js";
+import { safeGitArguments } from "../git-safety.js";
 import { runProcess } from "../process.js";
 import { ToolError, type Tool, type ToolContext } from "../types.js";
 
@@ -229,14 +230,29 @@ export function createApplyPatchTool(
         });
       }
       await assertFresh(revisions, context);
+      const safeGitPrefix = await safeGitArguments(
+        context.cwd,
+        [],
+        context.signal,
+      );
       try {
-        await runProcess("git", ["apply", "--check", "-"], {
+        await runProcess("git", [
+          ...safeGitPrefix,
+          "apply",
+          "--check",
+          "-",
+        ], {
           cwd: context.cwd,
           stdin: input.patch,
           signal: context.signal,
         });
         await assertFresh(revisions, context);
-        await runProcess("git", ["apply", "--whitespace=nowarn", "-"], {
+        await runProcess("git", [
+          ...safeGitPrefix,
+          "apply",
+          "--whitespace=nowarn",
+          "-",
+        ], {
           cwd: context.cwd,
           stdin: input.patch,
           signal: context.signal,

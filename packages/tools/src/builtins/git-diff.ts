@@ -4,6 +4,7 @@ import {
   pathPermissionIntents,
   WorkspacePathPolicy,
 } from "../path-policy.js";
+import { safeGitArguments } from "../git-safety.js";
 import { runProcess } from "../process.js";
 import { ToolError, type Tool } from "../types.js";
 
@@ -55,7 +56,14 @@ export function createGitDiffTool(): Tool<GitDiffInput> {
         : pathPermissionIntents("read", input.path);
     },
     async execute(input, context) {
-      const args = ["diff", "--no-ext-diff", "--no-textconv", "--no-color"];
+      const args = [
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-color",
+        "--submodule=short",
+        "--ignore-submodules=dirty",
+      ];
       if (input.staged) {
         args.push("--cached");
       }
@@ -68,7 +76,8 @@ export function createGitDiffTool(): Tool<GitDiffInput> {
         target = resolved.relative;
       }
       args.push("--", target, ...credentialGitPathspecs());
-      const result = await runProcess("git", args, {
+      const safeArgs = await safeGitArguments(context.cwd, args, context.signal);
+      const result = await runProcess("git", safeArgs, {
         cwd: context.cwd,
         signal: context.signal,
         maxOutputBytes: 1024 * 1024,

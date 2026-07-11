@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
 import {
+  access,
+  chmod,
   mkdir,
   lstat,
   mkdtemp,
@@ -46,6 +48,10 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
 describe("FileCheckpointStore", () => {
   it("never reads or stores a tracked credential file", async () => {
     await writeFile(path.join(cwd, ".env"), "CHECKPOINT_CANARY=never-store\n");
@@ -76,6 +82,25 @@ describe("FileCheckpointStore", () => {
 
     expect(checkpoint.before).not.toHaveProperty("alias/key");
     expect(storedFiles).not.toContain("CHECKPOINT_ALIAS_CANARY");
+  });
+
+  it("disables repository fsmonitor execution during capture", async () => {
+    const marker = path.join(cwd, ".git", "fsmonitor-invoked");
+    const hook = path.join(cwd, ".git", "fsmonitor-hook");
+    await writeFile(
+      hook,
+      `#!/bin/sh\nprintf invoked > ${shellQuote(marker)}\nexit 0\n`,
+    );
+    await chmod(hook, 0o700);
+    await execFileAsync("git", ["config", "core.fsmonitor", hook], { cwd });
+
+    try {
+      await store.captureBefore("s1", "call-1", cwd);
+    } catch {
+      // An invalid hook response still proves execution if the marker exists.
+    }
+
+    await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("rejects a nonempty unversioned legacy store without mutating it", async () => {

@@ -15,6 +15,7 @@ import {
 import path from "node:path";
 
 import { isCredentialPath } from "./path-policy.js";
+import { safeGitArguments } from "./git-safety.js";
 import { runProcess } from "./process.js";
 import { ToolError } from "./types.js";
 
@@ -498,9 +499,16 @@ export class FileCheckpointStore extends CheckpointStore {
   }
 
   async #captureManifest(cwd: string): Promise<WorkspaceManifest> {
+    const args = await safeGitArguments(cwd, [
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "-z",
+    ]);
     const listed = await runProcess(
       "git",
-      ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+      args,
       { cwd, maxOutputBytes: 16 * 1024 * 1024 },
     );
     const files = listed.stdout

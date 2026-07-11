@@ -37,13 +37,41 @@ const CREDENTIAL_DIRECTORIES = [
   ".kube",
 ] as const;
 const CREDENTIAL_DIRECTORY_PATHS = [".config/gcloud"] as const;
+const LITERAL_BACKSLASH_GLOB = "[\\\\]";
+
+function separatorVariants(pattern: string): string[] {
+  return pattern.split("/").reduce<string[]>(
+    (variants, segment, index) =>
+      index === 0
+        ? [segment]
+        : variants.flatMap((variant) => [
+            `${variant}/${segment}`,
+            `${variant}${LITERAL_BACKSLASH_GLOB}${segment}`,
+          ]),
+    [],
+  );
+}
 
 function rootAndNested(pattern: string): string[] {
-  return [pattern, `**/${pattern}`];
+  return separatorVariants(pattern).flatMap((variant) => [
+    variant,
+    `**/${variant}`,
+    `**${LITERAL_BACKSLASH_GLOB}${variant}`,
+  ]);
+}
+
+function directoryAndDescendants(pattern: string): string[] {
+  return separatorVariants(pattern).flatMap((variant) =>
+    ["", "**/", `**${LITERAL_BACKSLASH_GLOB}`].flatMap((prefix) =>
+      ["", "/**", `${LITERAL_BACKSLASH_GLOB}**`].map(
+        (suffix) => `${prefix}${variant}${suffix}`,
+      ),
+    ),
+  );
 }
 
 function credentialGlobPatterns(): string[] {
-  return [
+  const patterns = [
     ...CREDENTIAL_BASENAMES.flatMap(rootAndNested),
     ...CREDENTIAL_BASENAME_PREFIXES.flatMap((prefix) =>
       rootAndNested(`${prefix}*`),
@@ -51,15 +79,10 @@ function credentialGlobPatterns(): string[] {
     ...CREDENTIAL_BASENAME_SUFFIXES.flatMap((suffix) =>
       rootAndNested(`*${suffix}`),
     ),
-    ...CREDENTIAL_DIRECTORIES.flatMap((directory) => [
-      ...rootAndNested(directory),
-      ...rootAndNested(`${directory}/**`),
-    ]),
-    ...CREDENTIAL_DIRECTORY_PATHS.flatMap((directory) => [
-      ...rootAndNested(directory),
-      ...rootAndNested(`${directory}/**`),
-    ]),
+    ...CREDENTIAL_DIRECTORIES.flatMap(directoryAndDescendants),
+    ...CREDENTIAL_DIRECTORY_PATHS.flatMap(directoryAndDescendants),
   ];
+  return [...new Set(patterns)];
 }
 
 function isWithin(root: string, candidate: string): boolean {

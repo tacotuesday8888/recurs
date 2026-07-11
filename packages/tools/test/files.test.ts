@@ -235,6 +235,32 @@ describe("workspace file tools", () => {
     expect(searched.output).not.toContain("src/credentials");
   });
 
+  it("excludes POSIX names containing credential-like backslash segments", async () => {
+    if (path.sep !== "/") {
+      return;
+    }
+    const names = [String.raw`nested\.env`, String.raw`nested\\.env`];
+    for (const [index, name] of names.entries()) {
+      expect(isCredentialPath(name)).toBe(true);
+      await writeFile(
+        path.join(cwd, name),
+        `BACKSLASH_AGGREGATE_CANARY_${index}\n`,
+      );
+    }
+
+    const listed = await invoke(createListFilesTool(), { path: "." });
+    const searched = await invoke(createSearchTextTool(), {
+      query: "BACKSLASH_AGGREGATE_CANARY",
+      path: ".",
+    });
+
+    for (const name of names) {
+      expect(listed.output).not.toContain(name);
+      expect(searched.output).not.toContain(name);
+    }
+    expect(searched.output).not.toContain("BACKSLASH_AGGREGATE_CANARY");
+  });
+
   it("keeps deny-last credential exclusions after a model include glob", async () => {
     await writeFile(path.join(cwd, ".env"), "REINCLUDE_CANARY\n");
     await writeFile(path.join(cwd, "safe.env"), "REINCLUDE_CANARY\n");
