@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { ScriptedProvider } from "@recurs/providers";
+import {
+  ProviderError,
+  ScriptedProvider,
+  type ProviderErrorCode,
+} from "@recurs/providers";
 
 import {
   activeGoal,
@@ -71,6 +75,65 @@ describe("compactSession", () => {
     await expect(
       compactSession(longSession(), provider, new AbortController().signal),
     ).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it.each([
+    ["authentication", "Provider authentication failed"],
+    ["rate_limit", "Provider rate limit reached"],
+    ["context_overflow", "Provider context limit exceeded"],
+    ["transport", "Provider request failed"],
+    ["cancelled", "Provider request cancelled"],
+    ["invalid_response", "Provider returned an invalid response"],
+  ] as const)("sanitizes %s compaction failures", async (
+    code: ProviderErrorCode,
+    expected,
+  ) => {
+    const canary = `RECURS_COMPACTION_${code}_CANARY`;
+    const provider = new ScriptedProvider([
+      new ProviderError(code, canary, false, {
+        cause: new Error(`RECURS_COMPACTION_${code}_CAUSE_CANARY`),
+      }),
+    ]);
+    let thrown: unknown;
+
+    try {
+      await compactSession(
+        longSession(),
+        provider,
+        new AbortController().signal,
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({ code, message: expected });
+    expect((thrown as Error & { cause?: unknown }).cause).toBeUndefined();
+    expect(String((thrown as Error).message)).not.toContain(canary);
+  });
+
+  it("maps unknown compaction failures to a safe provider error", async () => {
+    const provider = new ScriptedProvider([
+      new Error("RECURS_UNKNOWN_COMPACTION_CANARY", {
+        cause: new Error("RECURS_UNKNOWN_COMPACTION_CAUSE_CANARY"),
+      }),
+    ]);
+
+    let thrown: unknown;
+    try {
+      await compactSession(
+        longSession(),
+        provider,
+        new AbortController().signal,
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      code: "transport",
+      message: "Provider request failed",
+    });
+    expect((thrown as Error & { cause?: unknown }).cause).toBeUndefined();
   });
 
   it("does not split a tool call from its retained results", async () => {

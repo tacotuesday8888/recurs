@@ -264,14 +264,22 @@ describe("FileCheckpointStore", () => {
     };
     const registry = new ToolRegistry([tool], { checkpoints: store });
 
-    await expect(
-      registry.invoke(
+    let thrown: unknown;
+    try {
+      await registry.invoke(
         { id: "call-1", name: "partial_write", arguments: {} },
         context,
         new PermissionEngine("full_access"),
         { async request() { return "deny"; } },
-      ),
-    ).rejects.toThrow("tool failed");
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      code: "execution_failed",
+      message: "Tool partial_write failed",
+    });
+    expect((thrown as Error & { cause?: unknown }).cause).toBeUndefined();
     await store.undoLatest("s1", cwd);
 
     expect(await readFile(path.join(cwd, "a.txt"), "utf8")).toBe("before a\n");

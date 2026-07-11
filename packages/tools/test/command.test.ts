@@ -17,6 +17,7 @@ import * as toolExports from "../src/index.js";
 
 import {
   PermissionEngine,
+  ToolError,
   ToolRegistry,
   classifyCommand,
   createGitDiffTool,
@@ -133,6 +134,29 @@ describe("command classification", () => {
 });
 
 describe("run_command", () => {
+  it("does not expose child stderr or a cause when a process exits nonzero", async () => {
+    const canary = "RECURS_CHILD_STDERR_CANARY";
+    let thrown: unknown;
+
+    try {
+      await toolExports.runProcess(
+        "/bin/sh",
+        ["-c", `printf '%s' '${canary}' >&2; exit 23`],
+        { cwd },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ToolError);
+    expect(thrown).toMatchObject({
+      code: "process_failed",
+      message: "/bin/sh exited with 23",
+    });
+    expect((thrown as Error & { cause?: unknown }).cause).toBeUndefined();
+    expect(String((thrown as Error).message)).not.toContain(canary);
+  });
+
   it("does not pass parent secrets or the real home to descendants", async () => {
     const parentEnvironment = {
       GITHUB_TOKEN: process.env.GITHUB_TOKEN,

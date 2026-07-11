@@ -5,6 +5,7 @@ import type { IntegrationFailure, RunResult as CoordinatedRunResult } from "@rec
 import {
   collectProviderEvents,
   ProviderError,
+  safeProviderErrorMessage,
   type ModelMessage,
   type ModelProvider,
   type ProviderRequest,
@@ -377,7 +378,7 @@ async function streamModelTurnWithRetries(
         sessionId,
         at: now(),
         code: error.code,
-        message: error.message,
+        message: safeProviderErrorMessage(error),
       });
       await deps.emit({
         type: "retry_scheduled",
@@ -394,34 +395,28 @@ async function streamModelTurnWithRetries(
 
 function normalizeRunError(error: unknown, signal: AbortSignal): AgentLoopError {
   if (signal.aborted) {
-    return new AgentLoopError("cancelled", "Agent run cancelled", false, {
-      cause: error,
-    });
+    return new AgentLoopError("cancelled", "Agent run cancelled");
   }
   if (error instanceof AgentLoopError) {
     return error;
   }
   if (error instanceof ProviderError) {
     if (error.code === "cancelled") {
-      return new AgentLoopError("cancelled", error.message, false, {
-        cause: error,
-      });
+      return new AgentLoopError("cancelled", safeProviderErrorMessage(error));
     }
     if (error.code === "invalid_response") {
       return new AgentLoopError(
         "invalid_provider_response",
-        error.message,
-        false,
-        { cause: error },
+        safeProviderErrorMessage(error),
       );
     }
-    return new AgentLoopError("provider_failed", error.message, error.retryable, {
-      cause: error,
-    });
+    return new AgentLoopError(
+      "provider_failed",
+      safeProviderErrorMessage(error),
+      error.retryable,
+    );
   }
-  return new AgentLoopError("provider_failed", "Agent run failed", false, {
-    cause: error,
-  });
+  return new AgentLoopError("provider_failed", "Agent run failed");
 }
 
 function serializeError(error: Error & { code?: string; retryable?: boolean }): SerializableError {
@@ -779,7 +774,9 @@ async function runAgentLoopUnlocked(
         } catch (error) {
           const failure = signal.aborted
             ? new ToolError("cancelled", `Tool ${call.name} was cancelled`)
-            : error;
+            : error instanceof ToolError
+              ? error
+              : new ToolError("execution_failed", `Tool ${call.name} failed`);
           const serialized = serializeError(
             failure instanceof Error
               ? failure

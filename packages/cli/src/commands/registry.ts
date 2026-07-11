@@ -1,4 +1,5 @@
 import { parseCommand } from "./parser.js";
+import { safeCliErrorMessage } from "../error-rendering.js";
 import {
   message,
   type Command,
@@ -53,10 +54,7 @@ export class CommandRegistry {
     try {
       return await command.execute(parsed.args, context);
     } catch (error) {
-      return message(
-        error instanceof Error ? error.message : "Command failed",
-        "error",
-      );
+      return message(safeCliErrorMessage(error), "error");
     }
   }
 }

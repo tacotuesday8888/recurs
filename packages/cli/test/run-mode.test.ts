@@ -92,6 +92,39 @@ function dependencies(stdout: TextOutput, stderr: TextOutput): CliDependencies {
 }
 
 describe("runCli", () => {
+  it.each(["text", "jsonl"] as const)(
+    "renders unknown one-shot %s failures with one diagnostic and no raw message",
+    async (format) => {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      const canary = `RECURS_ONE_SHOT_${format.toUpperCase()}_CANARY`;
+
+      const exitCode = await runCli(
+        ["run", "inspect", "--format", format],
+        {
+          stdout,
+          stderr,
+          async createRuntime() {
+            throw new Error(canary, {
+              cause: new Error("RECURS_ONE_SHOT_CAUSE_CANARY"),
+            });
+          },
+        },
+      );
+
+      expect(exitCode).toBe(1);
+      expect(stdout.value).toBe("");
+      expect(stderr.value).toMatch(
+        /^Error: Unexpected failure \(diagnostic [0-9a-f-]{36}\)\n$/u,
+      );
+      expect(`${stdout.value}${stderr.value}`).not.toContain(canary);
+      expect(`${stdout.value}${stderr.value}`).not.toContain(
+        "RECURS_ONE_SHOT_CAUSE_CANARY",
+      );
+      expect(stderr.value.match(/diagnostic/gu)).toHaveLength(1);
+    },
+  );
+
   it("emits normalized JSONL events in run mode", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
@@ -179,10 +212,31 @@ describe("runCli", () => {
   });
 
   it.each([
-    [new RuntimeError("provider_not_configured", "provider missing"), 2],
-    [new AgentLoopError("cancelled", "cancelled"), 130],
-    [new AgentLoopError("provider_failed", "provider failed"), 1],
-  ] as const)("maps terminal errors to documented exit codes", async (error, code) => {
+    [
+      new RuntimeError("provider_not_configured", "provider missing"),
+      2,
+      "provider missing",
+    ],
+    [
+      new AgentLoopError("cancelled", "RECURS_AGENT_CANCEL_CANARY"),
+      130,
+      "Agent run cancelled",
+    ],
+    [
+      new AgentLoopError("provider_failed", "RECURS_AGENT_PROVIDER_CANARY"),
+      1,
+      "Provider request failed",
+    ],
+    [
+      new AgentLoopError("stuck_loop", "RECURS_AGENT_TOOL_NAME_CANARY"),
+      1,
+      "Repeated tool interaction detected",
+    ],
+  ] as const)("maps terminal errors to documented exit codes", async (
+    error,
+    code,
+    safeMessage,
+  ) => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
 
@@ -199,7 +253,10 @@ describe("runCli", () => {
     });
 
     expect(exitCode).toBe(code);
-    expect(stderr.value).toContain(error.message);
+    expect(stderr.value).toContain(safeMessage);
+    if (error.message !== safeMessage) {
+      expect(stderr.value).not.toContain(error.message);
+    }
   });
 
   it("emits a machine-readable configuration error in JSONL mode", async () => {

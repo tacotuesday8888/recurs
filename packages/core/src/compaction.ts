@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   ProviderError,
   collectProviderEvents,
+  safeProviderErrorMessage,
   type ModelMessage,
   type ModelProvider,
   type ProviderRequest,
@@ -64,39 +65,51 @@ export async function compactSession(
   provider: ModelProvider,
   signal: AbortSignal,
 ): Promise<CompactionResult> {
-  if (signal.aborted) {
-    throw new ProviderError("cancelled", "Compaction cancelled", false);
+  try {
+    if (signal.aborted) {
+      throw new ProviderError("cancelled", "Compaction cancelled", false);
+    }
+    const retainedMessages = retainedContinuation(state.messages, 6);
+    const request: ProviderRequest = {
+      model: state.model,
+      messages: [
+        {
+          id: randomUUID(),
+          role: "system",
+          content:
+            "Produce a concise, factual continuation summary. Do not request tools and do not claim unverified work.",
+        },
+        {
+          id: randomUUID(),
+          role: "user",
+          content: compactionContext(state, retainedMessages),
+        },
+      ],
+      tools: [],
+      signal,
+    };
+    const collected = await collectProviderEvents(provider.stream(request));
+    if (
+      collected.stopReason !== "complete" ||
+      collected.toolCalls.length > 0 ||
+      collected.text.trim().length === 0
+    ) {
+      throw new ProviderError(
+        "invalid_response",
+        "Compaction provider did not return a final text summary",
+        false,
+      );
+    }
+    return { summary: collected.text.trim(), retainedMessages };
+  } catch (error) {
+    if (error instanceof ProviderError) {
+      throw new ProviderError(
+        error.code,
+        safeProviderErrorMessage(error),
+        error.retryable,
+      );
+    }
+    const code = signal.aborted ? "cancelled" : "transport";
+    throw new ProviderError(code, safeProviderErrorMessage(code), false);
   }
-  const retainedMessages = retainedContinuation(state.messages, 6);
-  const request: ProviderRequest = {
-    model: state.model,
-    messages: [
-      {
-        id: randomUUID(),
-        role: "system",
-        content:
-          "Produce a concise, factual continuation summary. Do not request tools and do not claim unverified work.",
-      },
-      {
-        id: randomUUID(),
-        role: "user",
-        content: compactionContext(state, retainedMessages),
-      },
-    ],
-    tools: [],
-    signal,
-  };
-  const collected = await collectProviderEvents(provider.stream(request));
-  if (
-    collected.stopReason !== "complete" ||
-    collected.toolCalls.length > 0 ||
-    collected.text.trim().length === 0
-  ) {
-    throw new ProviderError(
-      "invalid_response",
-      "Compaction provider did not return a final text summary",
-      false,
-    );
-  }
-  return { summary: collected.text.trim(), retainedMessages };
 }

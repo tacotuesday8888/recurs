@@ -214,7 +214,7 @@ export async function runProcess(
       child.on("exit", () => {
         void startTermination();
       });
-      child.on("error", (error) => {
+      child.on("error", () => {
         if (settlementStarted) {
           return;
         }
@@ -234,9 +234,7 @@ export async function runProcess(
             return;
           }
           reject(
-            new ToolError("process_failed", `Failed to start ${command}`, {
-              cause: error,
-            }),
+            new ToolError("process_failed", `Failed to start ${command}`),
           );
         })();
       });
@@ -291,7 +289,7 @@ export async function runProcess(
             reject(
               new ToolError(
                 "process_failed",
-                `${command} exited with ${exitCode}: ${result.stderr.trim()}`,
+                `${command} exited with ${exitCode}`,
               ),
             );
             return;

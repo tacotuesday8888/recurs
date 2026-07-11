@@ -34,6 +34,22 @@ function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
   };
 }
 
+async function executeTool(
+  tool: RegisteredTool,
+  name: string,
+  input: unknown,
+  context: ToolContext,
+): Promise<ToolResult> {
+  try {
+    return await tool.execute(input, context);
+  } catch (error) {
+    if (error instanceof ToolError) {
+      throw error;
+    }
+    throw new ToolError("execution_failed", `Tool ${name} failed`);
+  }
+}
+
 export class ToolRegistry {
   readonly #tools = new Map<string, RegisteredTool>();
   readonly #checkpoints: CheckpointStore | undefined;
@@ -108,11 +124,20 @@ export class ToolRegistry {
       throw new ToolError(
         "invalid_input",
         `Invalid input for tool ${call.name}`,
-        { cause: error },
       );
     }
 
-    for (const intent of tool.permissions(input, context)) {
+    let intents: ReturnType<RegisteredTool["permissions"]>;
+    try {
+      intents = tool.permissions(input, context);
+    } catch (error) {
+      if (error instanceof ToolError) {
+        throw error;
+      }
+      throw new ToolError("execution_failed", `Tool ${call.name} failed`);
+    }
+
+    for (const intent of intents) {
       const decision = permissions.evaluate(intent);
       if (decision === "deny") {
         throw new ToolError(
@@ -139,7 +164,7 @@ export class ToolRegistry {
     }
 
     if (!tool.mutating || this.#checkpoints === undefined) {
-      return tool.execute(input, context);
+      return executeTool(tool, call.name, input, context);
     }
 
     const checkpoint = await this.#checkpoints.captureBefore(
@@ -149,7 +174,7 @@ export class ToolRegistry {
     );
     let result: ToolResult;
     try {
-      result = await tool.execute(input, context);
+      result = await executeTool(tool, call.name, input, context);
     } catch (error) {
       await this.#checkpoints.captureAfter(checkpoint, context.cwd);
       throw error;

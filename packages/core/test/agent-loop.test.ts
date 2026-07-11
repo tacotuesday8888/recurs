@@ -6,6 +6,7 @@ import type { ModelProvider, ProviderRequest } from "@recurs/providers";
 import {
   ProviderError,
   ScriptedProvider,
+  type ProviderErrorCode,
   type ProviderEvent,
 } from "@recurs/providers";
 import {
@@ -431,6 +432,104 @@ describe("AgentLoop", () => {
     );
     expect(provider.requests).toHaveLength(2);
     expect(events).toContainEqual(expect.objectContaining({ type: "retry_scheduled", attempt: 1 }));
+  });
+
+  it.each([
+    ["authentication", "Provider authentication failed"],
+    ["rate_limit", "Provider rate limit reached"],
+    ["context_overflow", "Provider context limit exceeded"],
+    ["transport", "Provider request failed"],
+    ["cancelled", "Provider request cancelled"],
+    ["invalid_response", "Provider returned an invalid response"],
+  ] as const)("uses a canonical %s message in retry warnings", async (
+    code: ProviderErrorCode,
+    expected,
+  ) => {
+    const canary = `RECURS_RETRY_WARNING_${code}_CANARY`;
+    const provider = new ScriptedProvider([
+      new ProviderError(code, canary, true, {
+        cause: new Error("RECURS_RETRY_CAUSE_CANARY"),
+      }),
+      [
+        { type: "text_delta", text: "recovered" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const { loop, events } = await harness(provider);
+
+    await loop.run({ sessionId: "s1", prompt: "work" });
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "warning",
+      code,
+      message: expected,
+    }));
+    expect(JSON.stringify(events)).not.toContain(canary);
+  });
+
+  it.each([
+    ["authentication", "Provider authentication failed", "provider_failed"],
+    ["rate_limit", "Provider rate limit reached", "provider_failed"],
+    ["context_overflow", "Provider context limit exceeded", "provider_failed"],
+    ["transport", "Provider request failed", "provider_failed"],
+    ["cancelled", "Provider request cancelled", "cancelled"],
+    ["invalid_response", "Provider returned an invalid response", "invalid_provider_response"],
+  ] as const)(
+    "sanitizes %s failures before errors, events, and session records",
+    async (code: ProviderErrorCode, expected, loopCode) => {
+      const canary = `RECURS_PROVIDER_${code}_CANARY`;
+      const provider = new ScriptedProvider([
+        new ProviderError(code, canary, false, {
+          cause: new Error(`RECURS_PROVIDER_${code}_CAUSE_CANARY`),
+        }),
+      ]);
+      const { loop, store, events } = await harness(provider);
+      let thrown: unknown;
+
+      try {
+        await loop.run({ sessionId: "s1", prompt: "work" });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toMatchObject({ code: loopCode, message: expected });
+      expect((thrown as Error & { cause?: unknown }).cause).toBeUndefined();
+      expect(JSON.stringify(events)).not.toContain(canary);
+      expect(JSON.stringify(await store.load("s1"))).not.toContain(canary);
+      if (code !== "cancelled") {
+        expect(JSON.stringify(events)).toContain(expected);
+      }
+      expect(JSON.stringify(await store.load("s1"))).toContain(expected);
+    },
+  );
+
+  it("sanitizes unknown tool failures before persistence and provider feedback", async () => {
+    const canary = "RECURS_UNKNOWN_TOOL_PERSISTENCE_CANARY";
+    const tool = echoTool();
+    tool.execute = async () => {
+      throw new Error(canary, {
+        cause: new Error("RECURS_UNKNOWN_TOOL_CAUSE_CANARY"),
+      });
+    };
+    const provider = new ScriptedProvider([
+      toolTurn("unsafe-tool", "safe"),
+      [
+        { type: "text_delta", text: "continued" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const { loop, store, events } = await harness(provider, [tool]);
+
+    await loop.run({ sessionId: "s1", prompt: "work" });
+
+    const serialized = JSON.stringify({
+      events,
+      session: await store.load("s1"),
+      request: provider.requests[1],
+    });
+    expect(serialized).not.toContain(canary);
+    expect(serialized).not.toContain("RECURS_UNKNOWN_TOOL_CAUSE_CANARY");
+    expect(serialized).toContain("Tool error [execution_failed]: Tool echo failed");
   });
 
   it("does not make a fourth request after exhausting two retries", async () => {

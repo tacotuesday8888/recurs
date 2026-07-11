@@ -174,6 +174,35 @@ describe("ToolRegistry", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("normalizes unknown tool implementation failures before they escape", async () => {
+    const canary = "RECURS_UNKNOWN_TOOL_CANARY";
+    const tool = textTool();
+    tool.execute = async () => {
+      throw new Error(canary, { cause: new Error("RECURS_TOOL_CAUSE_CANARY") });
+    };
+    const registry = new ToolRegistry([tool]);
+
+    let thrown: unknown;
+    try {
+      await registry.invoke(
+        { id: "1", name: "echo", arguments: { text: "safe" } },
+        context(),
+        new PermissionEngine("full_access"),
+        deny,
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ToolError);
+    expect(thrown).toMatchObject({
+      code: "execution_failed",
+      message: "Tool echo failed",
+    });
+    expect((thrown as Error & { cause?: unknown }).cause).toBeUndefined();
+    expect(String((thrown as Error).message)).not.toContain(canary);
+  });
+
   it("enforces Plan mode independently of the prompt", async () => {
     const tool = textTool(true);
     const execute = vi.spyOn(tool, "execute");

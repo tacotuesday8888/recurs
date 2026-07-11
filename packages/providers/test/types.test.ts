@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectProviderEvents,
   ProviderError,
+  safeProviderErrorMessage,
   type ProviderEvent,
 } from "../src/index.js";
 
@@ -166,5 +167,24 @@ describe("provider protocol", () => {
     expect(
       new ProviderError("authentication", "bad key", false).retryable,
     ).toBe(false);
+  });
+
+  it.each([
+    ["authentication", "Provider authentication failed"],
+    ["rate_limit", "Provider rate limit reached"],
+    ["context_overflow", "Provider context limit exceeded"],
+    ["transport", "Provider request failed"],
+    ["cancelled", "Provider request cancelled"],
+    ["invalid_response", "Provider returned an invalid response"],
+  ] as const)("maps %s failures without exposing provider details", (code, expected) => {
+    const error = new ProviderError(
+      code,
+      "RECURS_PROVIDER_ERROR_CANARY",
+      false,
+      { cause: new Error("RECURS_PROVIDER_CAUSE_CANARY") },
+    );
+
+    expect(safeProviderErrorMessage(error)).toBe(expected);
+    expect(safeProviderErrorMessage(code)).toBe(expected);
   });
 });
