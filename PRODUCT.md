@@ -21,15 +21,23 @@ It is not an IDE. Users may keep their editor of choice. Recurs manages the peop
 
 ## What exists now
 
-Core v0 and provider-foundation Slice 0 are implemented and verified: a provider-neutral loop, seven tools, three permission presets, Plan and review modes, goals, pinned version-2 sessions, cross-process mutation leases, trusted run context, a backend-neutral coordinator, interrupted-work recovery, compaction, checkpoints/undo, sessionless workspace shell, interactive and JSONL CLI paths, and a full end-to-end coding workflow.
+Core v0, provider-foundation Slice 0, and the TypeScript tool-safety precursor are implemented: a provider-neutral loop, seven tools, three permission presets, Plan and review modes, goals, pinned version-2 sessions, cross-process mutation leases, trusted run context, a backend-neutral coordinator, interrupted-work recovery, compaction, checkpoints/undo, sessionless workspace shell, interactive and JSONL CLI paths, and a full end-to-end coding workflow.
 
-The CLI currently needs an injected `ModelProvider` for real prompts. It does not yet collect credentials, connect subscriptions, choose a model, or ship provider network adapters. Shell commands are not OS-sandboxed, so the default is cautious and Approved for Me asks before command execution.
+Built-in tools now share a permanent credential-path denial, aggregate tools and new checkpoints exclude those paths, child processes receive clean synthetic state, and provider/tool/CLI failures are sanitized before durable or user-visible boundaries. Hosts may choose the default `local_guarded` tool profile or a fail-closed `tools_disabled` profile that exposes no model tools.
+
+The CLI still needs an injected `ModelProvider` for real prompts. It does not collect credentials, connect subscriptions, choose a model, or ship provider network adapters. `local_guarded` arbitrary commands are not OS-sandboxed and retain the user's filesystem, network, IPC, and process authority, so no live credential may enter this process. `tools_disabled` avoids model tools but is not a usable coding profile and does not replace the future credential boundary.
+
+The repository is intended to become open source, but it has no license yet and cannot legally be described as open source until the owner adds one. It is source-installable only; no npm, Bun, Homebrew, curl, or binary release has been published.
 
 ## Roadmap
 
 ### 1. Provider and onboarding layer
 
-Continue the reviewed connection architecture in order: credential/process isolation and brokered transport first; then connection metadata, model catalogs, billing disclosure, connection verification, and a first-run setup flow shared by CLI and desktop; then individual direct-provider and official delegated-runtime adapters.
+The next bounded product slice is credential-free onboarding for a literal-loopback local provider. It must not collect a key, reuse another product's auth, add `@recurs/auth`, or imply that the current process is safe for cloud credentials.
+
+In parallel, design and prove the narrow native authority boundary required before credential-bearing providers: descriptor-relative no-follow storage, owner/mode/ACL/full-parent validation, filesystem capability checks, a non-exporting broker, origin-bound transport, and an OS sandbox that prevents tool children from reaching Recurs or vendor auth state. A small Rust or platform-native component fits this boundary; rewriting the TypeScript harness wholesale does not.
+
+Only after that gate should Recurs add credential-bearing connection metadata, model catalogs, billing disclosure, connection verification, first-run setup shared by CLI and desktop, direct providers, and official delegated runtimes.
 
 ### 2. Sub-agent company runtime
 
@@ -45,7 +53,7 @@ Before unattended local workers run arbitrary commands, add an enforceable proce
 
 ### 3. Product surfaces and ecosystem
 
-Add the company-style desktop client, plugins and MCP with trust boundaries, background/cloud execution, signed binaries, Homebrew and curl installation, and Windows distribution.
+Add the company-style desktop client, plugins and MCP with trust boundaries, background/cloud execution, and distribution. An npm package is the likely first preview channel; Bun may later install it while Node remains the runtime. Homebrew and curl wait for versioned signed artifacts, and Windows support remains later work.
 
 ## Not current commitments
 

@@ -21,11 +21,15 @@ npm run build
 node packages/cli/dist/main.js --help
 ```
 
-You can expose the root package's `recurs` binary locally with `npm link` after building. Homebrew, curl installers, signed release artifacts, and Windows packaging are later distribution work; they are not available in v0.
+You can expose the root package's `recurs` binary locally with `npm link` after building. No package or installer is published today. An npm package is the likely first preview channel. Bun may later install that npm package, but Node remains the supported runtime and Bun runtime compatibility has not been implemented. Homebrew and curl wait for versioned, signed artifacts; Windows packaging remains later work.
+
+The repository does not yet contain a license. Although it is intended to become open source, it remains source-available rather than legally open source until the owner selects and adds a license.
 
 ## Provider boundary
 
 Recurs does not currently ask for an API key, select a model, or connect to Codex, Claude, GLM, Gemini, or another hosted service. It also does not attempt to reuse coding-agent subscriptions.
+
+The next provider slice is credential-free onboarding for a server bound to a literal loopback address. It will not authorize cloud credentials. Direct, coding-plan, subscription, OAuth, and cloud-identity connections remain blocked on the separately tested native broker/storage and OS tool-sandbox boundary.
 
 A host injects a provider that implements:
 
@@ -75,6 +79,23 @@ Every tool reports normalized intent before execution. `/permissions` selects on
 | Full Access | Routine workspace, command, network, deployment, and destructive prompts are skipped after explicit confirmation. Sensitive and external paths still ask, and classified credential paths are denied. Integrity controls remain enabled. Arbitrary shell commands are not OS-isolated and may still access host files or the network indirectly, so this preset is not credential-safe. |
 
 An explicit outside path can run only after its external-path intent is approved, including in Full Access. A hidden symlink escape remains blocked because the model did not request that outside path explicitly.
+
+Credential classification is shared across direct and aggregate built-in operations. It covers `.env` and `.env.*`, common private-key and credential filenames, certificate/key suffixes, and auth directories such as `.ssh`, `.aws`, `.azure`, `.docker`, `.gnupg`, `.kube`, and `.config/gcloud`, case-insensitively. Direct or canonical classified targets are denied. List, search, Git status/diff, and checkpoint enumeration exclude them; patch rejects a classified declared target before invoking Git. Configured `sensitivePatterns` remain a separate approvable policy.
+
+This protects the built-in interfaces only. A permitted shell script can spell, discover, or open any host path available to the current user, regardless of the path classifier.
+
+## Tool security profiles
+
+The embedding assembly option `toolSecurityProfile` has two values:
+
+| Profile | Behavior |
+| --- | --- |
+| `local_guarded` | Default. Advertises the registered tools and applies Plan mode, permission evaluation, path checks, process bounds, and checkpoints. Arbitrary commands still retain host authority. |
+| `tools_disabled` | Advertises no model tools and rejects every direct model-tool invocation before parsing, permissions, or checkpoint capture. This is fail-closed but is not a useful coding profile. |
+
+Every fixed or arbitrary child process receives a fresh private home, config, cache, and temporary directory plus only a filtered absolute `PATH` and selected locale/terminal variables. It does not inherit the real home, parent `SHELL`, cloud/provider variables, proxies, sockets, Git config variables, or workspace-contained `PATH` entries. `/bin/sh -c` is used for `run_command` on macOS and Linux; it is not a login shell. Recurs terminates the process group on completion, cancellation, timeout, or output overflow and removes the synthetic tree afterward. Subprocess tools fail with a typed unsupported-platform error on Windows.
+
+Environment cleanup prevents direct inheritance, but it is not an OS sandbox. A child can still use the user's filesystem, network, IPC, and process-inspection authority. No live provider credential may enter the current Recurs process under either profile.
 
 ## Plan and Act modes
 
@@ -137,14 +158,34 @@ Compaction is also append-only: the log keeps the audit history, while replay re
 
 ## Checkpoints and undo
 
-Every potentially mutating tool is wrapped with before/after workspace snapshots. Checkpoint data is content-addressed and kept outside the project and outside `.git`. Git is used only to enumerate tracked and non-ignored untracked project files; Recurs never creates commits, resets, cleans, or checks out the user's repository for checkpointing.
+Every potentially mutating tool is wrapped with before/after workspace snapshots. Checkpoint data is content-addressed and kept outside the project and outside `.git`. Git is used only to enumerate tracked and non-ignored untracked project files; credential-classified paths are removed before Recurs reads a workspace file or writes a blob. Recurs never creates commits, resets, cleans, or checks out the user's repository for checkpointing.
+
+Fresh checkpoint stores contain a private `.format.json` marker for format version 2 with credential exclusion enabled. A nonempty unversioned store, invalid or symlinked marker, or unknown marker version is rejected without scanning, rewriting, deleting, or blessing its contents. This prevents an older checkpoint that may contain credentials from being treated as safe.
+
+For this unreleased `0.0.0` format, recovery is an explicit manual reset:
+
+1. Exit every Recurs process using the project.
+2. Find the affected project directory under `~/.recurs/projects/`, or under `$RECURS_HOME/projects/` when that override is set.
+3. Move its `checkpoints` directory to a private backup outside any repository. Do not attach, publish, or inspect it with model tools; legacy data may contain secrets.
+4. Restart Recurs. The next mutating tool creates a fresh marked store.
+
+For example, after replacing the placeholder with the exact project hash:
+
+```bash
+mv ~/.recurs/projects/<workspace-hash>/checkpoints \
+  ~/.recurs/projects/<workspace-hash>/checkpoints.legacy-backup
+```
+
+Recurs does not perform this move automatically. The marker is an upgrade-safety invariant, not hardened secret storage.
 
 `/undo` skips newer no-op checkpoints and selects the latest checkpoint that changed files. Before writing anything, it verifies that every affected path still matches the agent-produced after-state. If the user changed one path—or replaced a parent with an outside-pointing symlink—the entire undo is refused before restoration begins.
 
 ## Current safety limits
 
-- The current guard is application-level path/permission enforcement, not a strong OS sandbox or container.
-- Shell classification is conservative but cannot prove arbitrary scripts safe. Every shell command requires approval outside Full Access until an enforceable sandbox exists.
+- The current guard is application-level path/permission enforcement and clean child state, not a strong OS sandbox or container.
+- `local_guarded` arbitrary commands have host filesystem, network, IPC, and process authority. Shell classification is conservative but cannot prove scripts safe. Every shell command requires approval outside Full Access until an enforceable sandbox exists.
+- Permanent credential-path denial covers built-in tools, not indirect shell access. Neither Full Access nor `tools_disabled` makes this process safe to hold a live provider credential.
+- Node pathname validation and an opaque TypeScript object cannot provide hardened auth storage. Credential-bearing providers require descriptor-relative no-follow I/O, ownership/mode/ACL/full-parent validation, filesystem capability checks, a native non-exporting broker, and an OS tool sandbox.
 - Checkpoints enumerate Git tracked and non-ignored untracked files; ignored files are not restored by checkpoint undo.
 - Output, read, patch, command-time, and agent-step limits are bounded, but very large repositories can still make full snapshots expensive.
 - There is no secret vault, API-key flow, live provider transport, model picker, subscription adapter, plugin system, public MCP loading, multi-agent company runtime, desktop app, cloud worker, scheduler, or endless `/loop` in v0.

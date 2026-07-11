@@ -8,6 +8,10 @@
 
 **Tech Stack:** TypeScript 6, Node.js 22.22+, npm workspaces, Vitest 4, Node filesystem/process APIs, append-only JSONL.
 
+**Implementation status:** The implementation, documentation, clean repository gate, and focused canary suite are complete on the feature branch. Whole-branch correctness/security review and GitHub integration remain. This plan delivers a TypeScript safety precursor, not provider-security Slice 1 completion.
+
+**Reviewed boundary:** An earlier pathname-capability direction was rejected during plan review. The implemented result deliberately does not add `@recurs/auth` or claim hardened storage. Node pathname checks and TypeScript opacity cannot replace descriptor-relative no-follow I/O or OS authority separation; the native broker/storage and sandbox work remains a separately reviewed future milestone.
+
 ## Global Constraints
 
 - Do not accept, persist, import, or transmit a live provider credential.

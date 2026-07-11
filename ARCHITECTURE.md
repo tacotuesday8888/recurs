@@ -16,8 +16,8 @@ packages/contracts
 ```
 
 - `@recurs/contracts` owns dependency-free model, connection, billing, backend-pin, trusted-invocation, failure, direct-provider, delegated-runtime, and coordinator contracts.
-- `@recurs/providers` owns normalized stream collection and deterministic provider fixtures. It has no authentication or network implementation.
-- `@recurs/tools` owns tool definitions and execution, permission intents, workspace path policy, command classification, process bounds, Git inspection, and checkpoints.
+- `@recurs/providers` owns normalized stream collection, safe provider-error mapping, and deterministic provider fixtures. It has no authentication or network implementation.
+- `@recurs/tools` owns tool definitions and execution, permission intents, the unified credential/workspace path policy, command classification, clean child-process setup and bounds, Git inspection, and checkpoint format gates.
 - `@recurs/core` owns the turn loop, backend-neutral coordinator/runtime, trusted preflight handoff, normalized runtime events, durable goals, session reduction, JSONL persistence, compaction, and loop detection.
 - `@recurs/cli` owns runtime assembly, slash commands, rendering, interactive input, non-interactive execution, and process exit behavior.
 
@@ -55,17 +55,26 @@ The collector rejects malformed usage, duplicate or empty tool identities, data 
 
 ## Tools and permissions
 
-The registry parses tool input, evaluates every permission intent, asks when required, records exact session grants, creates checkpoints around mutating tools, and executes the tool.
+The registry parses tool input, evaluates every permission intent, asks when required, records exact session grants, creates checkpoints around mutating tools, and executes the tool. Unknown implementation errors are converted to safe typed tool failures before they can enter events or session storage.
 
 Plan mode removes mutating tools from the provider-visible registry and rejects them if called directly. It is an enforced capability boundary, not a prompt convention.
 
 Permission engines and reusable grants are isolated by session. The three presets are:
 
-- **Ask Always:** normal project reads run; writes and shell commands ask.
-- **Approved for Me:** normal guarded project reads and writes run; all shell, network, sensitive, credential, external, deployment, and destructive actions ask.
-- **Full Access:** routine prompts are skipped after explicit confirmation; logging, cancellation, limits, path validation, stale-write checks, and checkpoint conflict checks remain.
+- **Ask Always:** normal project reads run; writes and shell commands ask; classified credential paths are denied.
+- **Approved for Me:** normal guarded project reads and writes run; all shell, network, sensitive, external, deployment, and destructive actions ask; classified credential paths are denied.
+- **Full Access:** routine workspace, shell, network, deployment, and destructive prompts are skipped after explicit confirmation; sensitive and external paths still ask; classified credential paths are denied.
 
-File tools enforce workspace containment after symlink resolution. Patches require a current-turn read hash. Shell execution has command-risk classification, timeout, cancellation, process-group termination, and output bounds, but no OS filesystem/network sandbox. Full Access therefore trusts the host environment; the middle preset does not auto-run shell commands.
+Built-in file, search, patch, Git, and checkpoint operations derive their case-insensitive credential exclusions from one path policy. Direct and canonical classified targets fail before tool execution, and aggregate `rg`/Git operations exclude them. This path-based defense does not eliminate adversarial symlink-swap races and does not constrain arbitrary shell scripts.
+
+Every fixed or arbitrary child process receives a mode-`0700` synthetic home, config, cache, and temporary tree under the canonical root-owned sticky system temporary directory. Its environment contains those paths, a filtered absolute `PATH`, and selected locale/terminal values only; it does not inherit provider/cloud variables, the real home, `SHELL`, proxy variables, sockets, or workspace-contained `PATH` entries. Shell execution has command-risk classification, timeout, cancellation, process-group termination, and output bounds. Nonzero exits expose the command and exit code, not stderr. Windows subprocess use fails with a typed unsupported-platform error.
+
+The current security profiles are:
+
+- `local_guarded` (default): all registered tools are available subject to Plan mode and permissions. Arbitrary commands still have the user's host filesystem, network, IPC, and process authority.
+- `tools_disabled`: no model tool definitions are advertised, and every direct invocation is rejected before parsing, permissions, or checkpoint capture. It is a fail-closed composition option, not a useful coding profile or sandbox.
+
+Neither profile makes this process safe for live credentials. Full Access does not change that boundary.
 
 ## Sessions and recovery
 
@@ -84,20 +93,37 @@ Compaction targets the latest six messages but extends the retained window when 
 
 ## Checkpoints
 
-Mutating tools capture content-addressed before/after workspace states outside the project. Undo chooses the newest checkpoint that changed files and verifies the current files still match the agent-produced after-state before restoring anything. Git is used for enumeration only; Recurs does not reset, clean, checkout, or commit the user's repository.
+Mutating tools capture content-addressed before/after workspace states outside the project. Credential-classified paths are removed before any workspace read or blob write. Fresh stores receive a private version-2 format marker asserting that this exclusion was active from the first capture. A nonempty unversioned store, invalid or symlinked marker, or unknown format fails with `checkpoint_migration_required`; Recurs never blesses, rewrites, or deletes it automatically. Because this is unreleased `0.0.0` data, the supported migration is an explicit user-initiated move of the legacy checkpoint directory so a fresh store can be created.
+
+Undo chooses the newest checkpoint that changed files and verifies the current files still match the agent-produced after-state before restoring anything. Git is used for enumeration only; Recurs does not reset, clean, checkout, or commit the user's repository. The format marker protects upgrade semantics; the Node pathname-based store is not suitable for authentication secrets.
+
+## Native authority boundary before credentials
+
+The TypeScript safety precursor closes several direct leak paths, but package boundaries, pathname validation, environment cleanup, and opaque TypeScript types are not hardened storage or an OS sandbox. An approved arbitrary command can still inspect any host resource available to the Recurs user, including Recurs data or vendor auth state through paths, IPC, networking, or process inspection.
+
+Before a direct cloud, coding-plan, subscription, OAuth, or cloud-identity credential enters Recurs, a separately reviewed native broker/storage boundary must provide:
+
+- descriptor-relative, no-follow filesystem operations rather than check-then-open pathnames;
+- owner, mode, ACL, and full-parent-chain validation;
+- filesystem capability checks for required atomic and no-follow semantics;
+- a broker or OS service that never exports long-lived credentials to the TypeScript harness; and
+- an OS sandbox that denies tool processes access to Recurs storage, vendor authentication state, broker IPC, unrelated processes, and non-approved network destinations.
+
+A small Rust or platform-native component is an appropriate implementation for this narrow authority boundary. Rewriting the agent loop, session engine, or CLI wholesale in Rust would not create those guarantees and is not required. `@recurs/auth` must not be added until its public capability is backed by this real boundary.
 
 ## Verification and extension order
 
 `npm run check` is the repository gate: lint, strict TypeScript, all tests, and build. GitHub Actions runs the same command.
 
-Without a provider, the CLI remains in a `WorkspaceShellState` and creates no durable session. Its local help, status, permissions default, history listing, initialization, and diff commands remain available. Noninteractive model prompts fail before persistence with exit code `2`; JSONL mode emits a structured `configuration_error`.
+Without a provider, the CLI remains in a `WorkspaceShellState` and creates no durable session. Its local help, status, permissions default, history listing, initialization, and diff commands remain available. Noninteractive model prompts fail before persistence with exit code `2`; JSONL mode emits a structured `configuration_error`. Provider, tool, process, and unexpected CLI failures cross user-visible or durable boundaries through allowlisted messages; unknown CLI faults receive a diagnostic UUID rather than raw error text.
 
 The remaining extension order is deliberate:
 
-1. credential broker, origin-bound transport, safe diagnostics, and enforceable tool-process isolation;
-2. connection registry, catalogs, billing policy, model selection, and onboarding;
-3. direct API/coding-plan providers and official delegated subscription runtimes;
-4. the sub-agent/company coordinator, isolated workspaces, handoffs, and budgets;
-5. desktop, plugins/MCP, and distribution.
+1. credential-free onboarding for a literal-loopback local provider, with no key, cloud identity, auth package, or subscription reuse;
+2. the native broker/storage authority, origin-bound transport, and enforceable OS tool sandbox required for credentials;
+3. connection registry, catalogs, billing policy, model selection, and credential-bearing onboarding;
+4. direct API/coding-plan providers and official delegated subscription runtimes;
+5. the sub-agent/company coordinator, isolated workspaces, handoffs, and budgets;
+6. desktop, plugins/MCP, and distribution.
 
 See [the engine comparison](docs/BASE_ENGINE_COMPARISON.md), [the Core v0 design](docs/superpowers/specs/2026-07-10-recurs-core-v0-design.md), and [the provider design](docs/superpowers/specs/2026-07-10-recurs-provider-auth-design.md).
