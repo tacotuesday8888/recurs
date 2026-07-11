@@ -6,6 +6,10 @@ import {
   createHostInvocation,
   deriveTrustedRunContext,
 } from "../src/index.js";
+import type {
+  ProviderManifest,
+  ProviderProtocol,
+} from "../src/index.js";
 
 async function packageManifest(
   relativePath: string,
@@ -16,6 +20,41 @@ async function packageManifest(
 }
 
 describe("provider-neutral contracts", () => {
+  it("describes a dependency-free provider manifest contract", () => {
+    const protocol: ProviderProtocol = "local_openai";
+    const manifest: ProviderManifest = {
+      schemaVersion: 1,
+      id: "fixture-local",
+      displayName: "Fixture Local",
+      adapterKind: "model_provider",
+      accessKind: "local",
+      authKinds: ["local_endpoint"],
+      credentialOwner: "none",
+      protocol,
+      endpoints: [
+        { kind: "origin", value: "http://127.0.0.1:1234/v1" },
+      ],
+      supportStatus: "supported",
+      runnable: true,
+      usagePolicy: {
+        revision: "fixture-local-2026-07-11",
+        reviewedAt: "2026-07-11",
+        expiresAt: "2026-10-11T00:00:00.000Z",
+        defaultDecision: "allowed",
+        rules: [],
+        officialRuntimeRequired: false,
+        accountSharingForbidden: true,
+        sourceUrls: ["https://example.com/official-docs"],
+        evidenceSummary: "The documented loopback endpoint needs no credential.",
+      },
+    };
+
+    expect(manifest.protocol).toBe("local_openai");
+    expect(manifest.endpoints).toEqual([
+      { kind: "origin", value: "http://127.0.0.1:1234/v1" },
+    ]);
+  });
+
   it("derives every trusted context dimension from a host-only invocation", () => {
     const invocation = createHostInvocation({
       invocation: "one_shot",
