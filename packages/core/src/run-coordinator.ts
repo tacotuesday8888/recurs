@@ -217,6 +217,22 @@ export class BackendRunCoordinator implements RunCoordinator {
     return value;
   }
 
+  #throwIfPreflightAborted(
+    signal: AbortSignal,
+    diagnosticId: string,
+  ): void {
+    if (signal.aborted) {
+      throw {
+        domain: "provider",
+        phase: "preflight",
+        code: "cancelled",
+        safeMessage: "The run was cancelled before it started",
+        diagnosticId,
+        retryable: false,
+      } satisfies IntegrationFailure;
+    }
+  }
+
   #validateResolution(
     resolved: ResolvedBackend,
     input: {
@@ -313,6 +329,7 @@ export class BackendRunCoordinator implements RunCoordinator {
         ),
       };
     }
+    this.#throwIfPreflightAborted(input.signal, operationId);
     const resolved = await this.dependencies.resolver.resolve({
       operation: "runtime_reconcile",
       operationId,
@@ -322,6 +339,7 @@ export class BackendRunCoordinator implements RunCoordinator {
       context: input.context,
       signal: input.signal,
     });
+    this.#throwIfPreflightAborted(input.signal, operationId);
     const resolutionFailure = this.#validateResolution(resolved, {
       session: input.session,
       operation: "runtime_reconcile",
@@ -348,11 +366,14 @@ export class BackendRunCoordinator implements RunCoordinator {
       readonly operation: "runtime_reconcile";
       readonly turnId: null;
     };
+    this.#throwIfPreflightAborted(input.signal, operationId);
     const runtime = await resolved.createRuntime(input.signal);
+    this.#throwIfPreflightAborted(input.signal, operationId);
     const identityFailure = this.#runtimeIdentityFailure(runtime, pin, operationId);
     if (identityFailure !== null) {
       return { ok: false, failure: identityFailure };
     }
+    this.#throwIfPreflightAborted(input.signal, operationId);
     const reader = await authority.mintReader({
       authorization,
       pin,
@@ -362,6 +383,7 @@ export class BackendRunCoordinator implements RunCoordinator {
     });
     let outcome: "committed" | "uncertain" | "gone";
     try {
+      this.#throwIfPreflightAborted(input.signal, operationId);
       outcome = await runtime.reconcile({
         continuation: uncertain,
         reader,
@@ -369,6 +391,7 @@ export class BackendRunCoordinator implements RunCoordinator {
         expectedSessionRecordSequence: input.mutation.currentSequence,
         signal: input.signal,
       });
+      this.#throwIfPreflightAborted(input.signal, operationId);
     } finally {
       try {
         await authority.release(reader);
@@ -376,6 +399,7 @@ export class BackendRunCoordinator implements RunCoordinator {
         // Capability expiry is the final cleanup fallback.
       }
     }
+    this.#throwIfPreflightAborted(input.signal, operationId);
     if (outcome === "uncertain") {
       return {
         ok: false,
@@ -386,13 +410,21 @@ export class BackendRunCoordinator implements RunCoordinator {
         ),
       };
     }
-    let activeHandle: RuntimeContinuationHandle | null;
-    if (outcome === "committed") {
-      const committed = await authority.commit({
+    let finalization: Awaited<ReturnType<
+      RuntimeContinuationAuthority["prepareFinalization"]
+    >>;
+    if (outcome === "committed" || outcome === "gone") {
+      finalization = await authority.prepareFinalization({
         authorization,
         handle: uncertain,
+        outcome,
+        expectedSessionRecordSequence: input.mutation.currentSequence,
       });
-      if (!committedVersion(uncertain, committed)) {
+      if (
+        outcome === "committed" &&
+        (finalization.activeHandle === null ||
+          !committedVersion(uncertain, finalization.activeHandle))
+      ) {
         return {
           ok: false,
           failure: runtimeFailure(
@@ -402,13 +434,22 @@ export class BackendRunCoordinator implements RunCoordinator {
           ),
         };
       }
-      activeHandle = committed;
-    } else if (outcome === "gone") {
-      await authority.discard({
-        authorization,
-        handle: uncertain,
-      });
-      activeHandle = input.session.runtimeContinuationPredecessor;
+      if (
+        outcome === "gone" &&
+        !isDeepStrictEqual(
+          finalization.activeHandle,
+          input.session.runtimeContinuationPredecessor,
+        )
+      ) {
+        return {
+          ok: false,
+          failure: runtimeFailure(
+            "continuation_incompatible",
+            "The continuation store returned an invalid reconciliation result",
+            operationId,
+          ),
+        };
+      }
     } else {
       return {
         ok: false,
@@ -419,7 +460,9 @@ export class BackendRunCoordinator implements RunCoordinator {
         ),
       };
     }
-    await input.mutation.append({
+    const activeHandle = finalization.activeHandle;
+    this.#throwIfPreflightAborted(input.signal, operationId);
+    const reconciliationRecord = await input.mutation.append({
       type: "runtime_continuation_reconciled",
       operationId,
       uncertainHandle: uncertain,
@@ -427,7 +470,18 @@ export class BackendRunCoordinator implements RunCoordinator {
       activeHandle,
       at: this.#now(),
     });
+    try {
+      await authority.acknowledgeFinalization({
+        authorization,
+        receipt: finalization.receipt,
+        durableSessionRecordSequence: reconciliationRecord.sequence,
+      });
+    } catch {
+      // A prepared active view remains valid from the durable next sequence.
+    }
+    this.#throwIfPreflightAborted(input.signal, operationId);
     const reloaded = await this.dependencies.sessions.loadState(input.session.id);
+    this.#throwIfPreflightAborted(input.signal, operationId);
     if (!isPinnedSessionState(reloaded) ||
       reloaded.lastSequence !== input.mutation.currentSequence ||
       reloaded.runtimeContinuation?.status === "uncertain") {
@@ -479,6 +533,7 @@ export class BackendRunCoordinator implements RunCoordinator {
           const loadedSession = await this.dependencies.sessions.loadState(
             input.sessionId,
           );
+          this.#throwIfPreflightAborted(input.signal, operationId);
           if (!isPinnedSessionState(loadedSession)) {
             return {
               ok: false,
@@ -490,16 +545,19 @@ export class BackendRunCoordinator implements RunCoordinator {
             } as const;
           }
           const context = deriveTrustedRunContext(input.invocation);
+          this.#throwIfPreflightAborted(input.signal, operationId);
           const reconciled = await this.#reconcileRuntimeContinuation({
             session: loadedSession,
             mutation,
             context,
             signal: input.signal,
           });
+          this.#throwIfPreflightAborted(input.signal, operationId);
           if (!reconciled.ok) {
             return { ok: false, failure: reconciled.failure } as const;
           }
           const session = reconciled.session;
+          this.#throwIfPreflightAborted(input.signal, operationId);
           const resolved = await this.dependencies.resolver.resolve({
             operation: "run",
             operationId,
@@ -509,6 +567,7 @@ export class BackendRunCoordinator implements RunCoordinator {
             context,
             signal: input.signal,
           });
+          this.#throwIfPreflightAborted(input.signal, operationId);
           const resolutionFailure = this.#validateResolution(resolved, {
             session,
             operation: "run",
@@ -520,7 +579,9 @@ export class BackendRunCoordinator implements RunCoordinator {
             return { ok: false, failure: resolutionFailure } as const;
           }
           if (resolved.kind === "direct") {
+            this.#throwIfPreflightAborted(input.signal, operationId);
             const provider = await resolved.createProvider(input.signal);
+            this.#throwIfPreflightAborted(input.signal, operationId);
             executionStarted = true;
             const result = await this.dependencies.direct.run({
               session,
@@ -555,7 +616,9 @@ export class BackendRunCoordinator implements RunCoordinator {
               ),
             } as const;
           }
+          this.#throwIfPreflightAborted(input.signal, operationId);
           const runtime = await resolved.createRuntime(input.signal);
+          this.#throwIfPreflightAborted(input.signal, operationId);
           const identityFailure = this.#runtimeIdentityFailure(
             runtime,
             runtimePin,
@@ -564,6 +627,7 @@ export class BackendRunCoordinator implements RunCoordinator {
           if (identityFailure !== null) {
             return { ok: false, failure: identityFailure } as const;
           }
+          this.#throwIfPreflightAborted(input.signal, operationId);
           executionStarted = true;
           const result = await this.dependencies.delegated.run({
             session,
@@ -580,6 +644,19 @@ export class BackendRunCoordinator implements RunCoordinator {
         },
       );
     } catch (error) {
+      if (!executionStarted && input.signal.aborted) {
+        return {
+          ok: false,
+          failure: {
+            domain: "provider",
+            phase: "preflight",
+            code: "cancelled",
+            safeMessage: "The run was cancelled before it started",
+            diagnosticId: operationId,
+            retryable: false,
+          },
+        } as const;
+      }
       if (isIntegrationFailure(error)) {
         return {
           ok: false,

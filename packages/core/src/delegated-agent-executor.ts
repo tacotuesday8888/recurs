@@ -616,12 +616,24 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
       }
 
       let committed: RuntimeContinuationHandle | undefined;
+      let finalization:
+        | Awaited<ReturnType<
+          RuntimeContinuationAuthority["prepareFinalization"]
+        >>
+        | undefined;
       if (uncertain !== null) {
         this.#throwIfAborted(input.signal, diagnosticId);
-        const candidate = await this.dependencies.continuationAuthority.commit({
+        finalization = await this.dependencies.continuationAuthority
+          .prepareFinalization({
           authorization: input.authorization,
           handle: uncertain,
+          outcome: "committed",
+          expectedSessionRecordSequence: input.mutation.currentSequence,
         });
+        const candidate = finalization.activeHandle;
+        if (candidate === null) {
+          throw new RuntimeProtocolError();
+        }
         if (!committedVersion(uncertain, candidate)) {
           throw new RuntimeProtocolError();
         }
@@ -650,7 +662,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
           hostArtifacts.evidenceContributed,
         ),
       });
-      await queue.run(() => input.mutation.append({
+      const runtimeCompleted = await queue.run(() => input.mutation.append({
         type: "runtime_completed",
         at: this.#timestamp(),
         turnId: input.turnId,
@@ -665,6 +677,18 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
           capabilityProfileRevision: input.runtime.capabilityProfileRevision,
         },
       }));
+      if (finalization !== undefined) {
+        try {
+          await this.dependencies.continuationAuthority
+            .acknowledgeFinalization({
+              authorization: input.authorization,
+              receipt: finalization.receipt,
+              durableSessionRecordSequence: runtimeCompleted.sequence,
+            });
+        } catch {
+          // The prepared view remains readable from the durable next sequence.
+        }
+      }
       const completed = await queue.run(() => input.mutation.append({
         type: "turn_completed",
         at: this.#timestamp(),

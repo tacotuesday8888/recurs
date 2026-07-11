@@ -5,12 +5,16 @@ import { realpath } from "node:fs/promises";
 
 import type {
   BackendResolver,
+  RuntimeApprovalRequest,
+  RuntimeContinuationStore,
   SessionBackendPin,
 } from "@recurs/contracts";
 import {
   AgentLoopDirectExecutor,
   BackendRunCoordinator,
+  DelegatedAgentExecutor,
   JsonlSessionStore,
+  ProcessScopedRuntimeContinuationStore,
   bindRunAuthorization,
   createWorkspaceShell,
   type EventSink,
@@ -108,6 +112,27 @@ interface RuntimeBackend {
   createProvider(): ModelProvider;
 }
 
+interface StandaloneBackendResolver extends BackendResolver {
+  readonly runtimeContinuationStore: RuntimeContinuationStore;
+}
+
+function exactRuntimeOption(
+  request: RuntimeApprovalRequest,
+  kind: "allow_once" | "reject_once",
+) {
+  const options = request.options.filter((option) => option.kind === kind);
+  return options.length === 1 ? options[0]! : null;
+}
+
+function runtimeApprovalPrompt(request: RuntimeApprovalRequest): string {
+  return `Allow delegated runtime request? ${JSON.stringify({
+    action: request.action,
+    resource: request.resource,
+    risk: request.risk,
+    summary: request.summary,
+  })}`;
+}
+
 export async function createStandaloneRuntime(
   events: EventSink,
   options: StandaloneRuntimeOptions = {},
@@ -197,17 +222,75 @@ export async function createStandaloneRuntime(
   tools.register(createGitDiffTool());
 
   const runtimeReference: { current?: RecursRuntime } = {};
-  const direct = backend === undefined ? undefined : new AgentLoopDirectExecutor({
+  const approvals = {
+    async request(intent: {
+      readonly category: string;
+      readonly resource: string;
+    }) {
+      const allowed =
+        (await runtimeReference.current?.confirm(
+          `Allow ${intent.category} access to ${intent.resource}?`,
+        )) ?? false;
+      return allowed ? "allow_once" as const : "deny" as const;
+    },
+  };
+  const continuations = new ProcessScopedRuntimeContinuationStore();
+  const delegated = new DelegatedAgentExecutor({
+    continuationAuthority: continuations.authority,
     tools,
-    approvals: {
-      async request(intent) {
+    approvals,
+    runtimeApprovals: {
+      async request(request) {
+        const reject = exactRuntimeOption(request, "reject_once");
+        if (request.action === "credential") {
+          return reject === null
+            ? { decision: { outcome: "cancelled" as const }, scope: "cancel" as const }
+            : {
+                decision: {
+                  outcome: "selected" as const,
+                  optionId: reject.optionId,
+                },
+                scope: "deny" as const,
+              };
+        }
         const allowed =
           (await runtimeReference.current?.confirm(
-            `Allow ${intent.category} access to ${intent.resource}?`,
+            runtimeApprovalPrompt(request),
           )) ?? false;
-        return allowed ? "allow_once" : "deny";
+        const selected = allowed
+          ? exactRuntimeOption(request, "allow_once")
+          : reject;
+        if (selected === null) {
+          return {
+            decision: { outcome: "cancelled" as const },
+            scope: "cancel" as const,
+          };
+        }
+        return {
+          decision: {
+            outcome: "selected" as const,
+            optionId: selected.optionId,
+          },
+          scope: allowed ? "allow_once" as const : "deny" as const,
+        };
       },
     },
+    emit(event) {
+      return events.emit(event);
+    },
+    createToolContext(session, signal) {
+      return {
+        sessionId: session.id,
+        cwd: session.cwd,
+        signal,
+        executionMode: session.executionMode,
+        readRevisions: new Map(),
+      };
+    },
+  });
+  const direct = backend === undefined ? undefined : new AgentLoopDirectExecutor({
+    tools,
+    approvals,
     sessions,
     emit(event) {
       return events.emit(event);
@@ -222,9 +305,10 @@ export async function createStandaloneRuntime(
       };
     },
   });
-  const resolver: BackendResolver | undefined = backend === undefined
+  const resolver: StandaloneBackendResolver | undefined = backend === undefined
     ? undefined
     : {
+        runtimeContinuationStore: continuations.runtimeStore,
         async resolve(input) {
           if (
             input.pin.connectionId !== backend.pin(input.pin.billingSelectionAtCreation.acknowledgedAt).connectionId ||
@@ -257,7 +341,13 @@ export async function createStandaloneRuntime(
       };
   const coordinator = direct === undefined || resolver === undefined
     ? undefined
-    : new BackendRunCoordinator({ sessions, resolver, direct });
+    : new BackendRunCoordinator({
+        sessions,
+        resolver,
+        direct,
+        delegated,
+        continuationAuthority: continuations.authority,
+      });
   const commands = createCommandRegistry({
     sessions,
     ...(backend === undefined ? {} : { provider: backend.commandProvider }),

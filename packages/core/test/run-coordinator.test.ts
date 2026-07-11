@@ -11,6 +11,7 @@ import {
   type IntegrationFailure,
   type ModelProvider,
   type RunResult as CoordinatedRunResult,
+  type RuntimeContinuationAuthority,
   type SessionBackendPin,
 } from "@recurs/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -252,6 +253,120 @@ describe("BackendRunCoordinator", () => {
 
     await expect(run.outcome).resolves.toEqual({ ok: false, failure });
     expect(executor.run).not.toHaveBeenCalled();
+    expect((await sessions.load("s2")).records).toHaveLength(1);
+  });
+
+  it("lets cancellation after resolution prevent a backend factory", async () => {
+    const { sessions } = await setup();
+    const controller = new AbortController();
+    const createProvider = vi.fn(async () => ({
+      id: "provider",
+      async *stream() {
+        yield { type: "done", stopReason: "complete" } as const;
+      },
+    } satisfies ModelProvider));
+    const resolver: BackendResolver = {
+      async resolve(input) {
+        controller.abort();
+        return {
+          kind: "direct",
+          pin,
+          authorization: authorizationFor(input, pin),
+          createProvider,
+        };
+      },
+    };
+    const direct: DirectRunExecutor = {
+      run: vi.fn(async () => result),
+    };
+    const coordinator = new BackendRunCoordinator({ sessions, resolver, direct });
+
+    const outcome = (await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 0,
+      prompt: "inspect",
+      invocation,
+      signal: controller.signal,
+    })).outcome;
+
+    await expect(outcome).resolves.toMatchObject({
+      ok: false,
+      failure: { phase: "preflight", code: "cancelled" },
+    });
+    expect(createProvider).not.toHaveBeenCalled();
+    expect(direct.run).not.toHaveBeenCalled();
+    expect((await sessions.load("s2")).records).toHaveLength(1);
+  });
+
+  it("normalizes a resolver rejection after cancellation as preflight cancellation", async () => {
+    const { sessions } = await setup();
+    const controller = new AbortController();
+    const resolver: BackendResolver = {
+      async resolve() {
+        controller.abort();
+        throw new Error("resolver transport details must not win over abort");
+      },
+    };
+    const direct: DirectRunExecutor = {
+      run: vi.fn(async () => result),
+    };
+    const coordinator = new BackendRunCoordinator({ sessions, resolver, direct });
+
+    const outcome = (await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 0,
+      prompt: "inspect",
+      invocation,
+      signal: controller.signal,
+    })).outcome;
+
+    await expect(outcome).resolves.toMatchObject({
+      ok: false,
+      failure: { phase: "preflight", code: "cancelled" },
+    });
+    expect(direct.run).not.toHaveBeenCalled();
+    expect((await sessions.load("s2")).records).toHaveLength(1);
+  });
+
+  it("lets cancellation during a backend factory prevent executor dispatch", async () => {
+    const { sessions } = await setup();
+    const controller = new AbortController();
+    const resolver: BackendResolver = {
+      async resolve(input) {
+        return {
+          kind: "direct",
+          pin,
+          authorization: authorizationFor(input, pin),
+          async createProvider() {
+            controller.abort();
+            return {
+              id: "provider",
+              async *stream() {
+                yield { type: "done", stopReason: "complete" } as const;
+              },
+            } satisfies ModelProvider;
+          },
+        };
+      },
+    };
+    const direct: DirectRunExecutor = {
+      run: vi.fn(async () => result),
+    };
+    const coordinator = new BackendRunCoordinator({ sessions, resolver, direct });
+
+    const outcome = (await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 0,
+      prompt: "inspect",
+      invocation,
+      signal: controller.signal,
+    })).outcome;
+
+    await expect(outcome).resolves.toMatchObject({
+      ok: false,
+      failure: { phase: "preflight", code: "cancelled" },
+    });
+    expect(direct.run).not.toHaveBeenCalled();
     expect((await sessions.load("s2")).records).toHaveLength(1);
   });
 
@@ -759,6 +874,250 @@ describe("BackendRunCoordinator", () => {
       });
     },
   );
+
+  it.each(["committed", "gone"] as const)(
+    "retries %s reconciliation after its durable append fails",
+    async (reconciliationOutcome) => {
+      const { sessions } = await setup(delegatedPin);
+      const continuations = new ProcessScopedRuntimeContinuationStore();
+      const uncertain = await seedUncertainContinuation(sessions, continuations);
+      let failReconciliationAppend = true;
+      const realWithSessionMutation = sessions.withSessionMutation.bind(sessions);
+      vi.spyOn(sessions, "withSessionMutation").mockImplementation(
+        async (sessionId, expectedSequence, operation) =>
+          realWithSessionMutation(
+            sessionId,
+            expectedSequence,
+            async (mutation) => operation({
+              sessionId: mutation.sessionId,
+              fencingToken: mutation.fencingToken,
+              get currentSequence() {
+                return mutation.currentSequence;
+              },
+              async append(record) {
+                if (
+                  failReconciliationAppend &&
+                  record.type === "runtime_continuation_reconciled"
+                ) {
+                  throw new Error("reconciliation append unavailable");
+                }
+                return mutation.append(record);
+              },
+            }),
+          ),
+      );
+      const runtime = runtimeFor(delegatedPin, {
+        async reconcile(input) {
+          await continuations.runtimeStore.load({
+            reader: input.reader,
+            handle: input.continuation,
+          });
+          return reconciliationOutcome;
+        },
+      });
+      const resolver: BackendResolver = {
+        async resolve(input) {
+          return {
+            kind: "delegated",
+            pin: delegatedPin,
+            authorization: authorizationFor(input, delegatedPin),
+            async createRuntime() {
+              return runtime;
+            },
+          };
+        },
+      };
+      const delegated: DelegatedRunExecutor = {
+        run: vi.fn(async () => result),
+      };
+      const coordinator = new BackendRunCoordinator({
+        sessions,
+        resolver,
+        direct: { async run() { return result; } },
+        delegated,
+        continuationAuthority: continuations.authority,
+      });
+      const input = {
+        sessionId: "s2",
+        expectedSessionRecordSequence: 3,
+        prompt: "continue",
+        invocation,
+        signal: new AbortController().signal,
+      } as const;
+
+      await expect((await coordinator.start(input)).outcome).resolves
+        .toMatchObject({ ok: false });
+      expect((await sessions.load("s2")).records).toHaveLength(4);
+
+      const retryAuthorization = bindRunAuthorization({
+        id: `retry-${reconciliationOutcome}`,
+        operation: "runtime_reconcile",
+        sessionId: "s2",
+        operationId: `retry-operation-${reconciliationOutcome}`,
+        turnId: null,
+        pin: delegatedPin,
+        connectionRevision: 1,
+        policyRevision: delegatedPin.policyRevisionAtCreation,
+        context: deriveTrustedRunContext(invocation),
+        maxRequests: 1,
+        expiresAt,
+      }, new Date(at));
+      const retryReader = await continuations.authority.mintReader({
+        authorization: retryAuthorization,
+        pin: delegatedPin,
+        expectedSessionRecordSequence: 3,
+        purpose: "reconcile",
+        activeHandles: [uncertain],
+      });
+      await expect(continuations.runtimeStore.load({
+        reader: retryReader,
+        handle: uncertain,
+      })).resolves.toEqual(new TextEncoder().encode("vendor-session"));
+
+      failReconciliationAppend = false;
+      await expect((await coordinator.start(input)).outcome).resolves
+        .toMatchObject({ ok: true });
+      expect(delegated.run).toHaveBeenCalledOnce();
+      expect((await sessions.load("s2")).records).toHaveLength(5);
+    },
+  );
+
+  it("lets cancellation during reconciliation prevent durable resolution and a fresh run", async () => {
+    const { sessions } = await setup(delegatedPin);
+    const continuations = new ProcessScopedRuntimeContinuationStore();
+    const uncertain = await seedUncertainContinuation(sessions, continuations);
+    const controller = new AbortController();
+    const operations: string[] = [];
+    const createRuntime = vi.fn(async () => runtimeFor(delegatedPin, {
+      async reconcile(input) {
+        await continuations.runtimeStore.load({
+          reader: input.reader,
+          handle: input.continuation,
+        });
+        controller.abort();
+        return "committed";
+      },
+    }));
+    const resolver: BackendResolver = {
+      async resolve(input) {
+        operations.push(input.operation);
+        return {
+          kind: "delegated",
+          pin: delegatedPin,
+          authorization: authorizationFor(input, delegatedPin),
+          createRuntime,
+        };
+      },
+    };
+    const delegated: DelegatedRunExecutor = {
+      run: vi.fn(async () => result),
+    };
+    const coordinator = new BackendRunCoordinator({
+      sessions,
+      resolver,
+      direct: { async run() { return result; } },
+      delegated,
+      continuationAuthority: continuations.authority,
+    });
+
+    const outcome = (await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 3,
+      prompt: "continue",
+      invocation,
+      signal: controller.signal,
+    })).outcome;
+
+    await expect(outcome).resolves.toMatchObject({
+      ok: false,
+      failure: { phase: "preflight", code: "cancelled" },
+    });
+    expect(operations).toEqual(["runtime_reconcile"]);
+    expect(createRuntime).toHaveBeenCalledOnce();
+    expect(delegated.run).not.toHaveBeenCalled();
+    expect((await sessions.load("s2")).records).toHaveLength(4);
+
+    const retryAuthorization = authorizationFor({
+      operation: "runtime_reconcile",
+      operationId: "retry-after-abort",
+      sessionId: "s2",
+      turnId: null,
+      pin: delegatedPin,
+      context: deriveTrustedRunContext(invocation),
+      signal: new AbortController().signal,
+    }, delegatedPin);
+    const retryReader = await continuations.authority.mintReader({
+      authorization: retryAuthorization,
+      pin: delegatedPin,
+      expectedSessionRecordSequence: 3,
+      purpose: "reconcile",
+      activeHandles: [uncertain],
+    });
+    await expect(continuations.runtimeStore.load({
+      reader: retryReader,
+      handle: uncertain,
+    })).resolves.toEqual(new TextEncoder().encode("vendor-session"));
+  });
+
+  it("releases a reconciliation reader when cancellation wins its mint await", async () => {
+    const { sessions } = await setup(delegatedPin);
+    const continuations = new ProcessScopedRuntimeContinuationStore();
+    await seedUncertainContinuation(sessions, continuations);
+    const controller = new AbortController();
+    let releases = 0;
+    const authority: RuntimeContinuationAuthority = {
+      ...continuations.authority,
+      async mintReader(input) {
+        const reader = await continuations.authority.mintReader(input);
+        controller.abort();
+        return reader;
+      },
+      async release(capability) {
+        releases += 1;
+        await continuations.authority.release(capability);
+      },
+    };
+    const reconcile = vi.fn(async () => "committed" as const);
+    const resolver: BackendResolver = {
+      async resolve(input) {
+        return {
+          kind: "delegated",
+          pin: delegatedPin,
+          authorization: authorizationFor(input, delegatedPin),
+          async createRuntime() {
+            return runtimeFor(delegatedPin, { reconcile });
+          },
+        };
+      },
+    };
+    const delegated: DelegatedRunExecutor = {
+      run: vi.fn(async () => result),
+    };
+    const coordinator = new BackendRunCoordinator({
+      sessions,
+      resolver,
+      direct: { async run() { return result; } },
+      delegated,
+      continuationAuthority: authority,
+    });
+
+    const outcome = (await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 3,
+      prompt: "continue",
+      invocation,
+      signal: controller.signal,
+    })).outcome;
+
+    await expect(outcome).resolves.toMatchObject({
+      ok: false,
+      failure: { phase: "preflight", code: "cancelled" },
+    });
+    expect(reconcile).not.toHaveBeenCalled();
+    expect(releases).toBe(1);
+    expect(delegated.run).not.toHaveBeenCalled();
+    expect((await sessions.load("s2")).records).toHaveLength(4);
+  });
 
   it("keeps an uncertain continuation fail-closed without starting a new run", async () => {
     const { sessions } = await setup(delegatedPin);

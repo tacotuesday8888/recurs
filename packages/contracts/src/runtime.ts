@@ -107,6 +107,27 @@ export interface RuntimeContinuationReaderRequest {
   readonly activeHandles: readonly RuntimeContinuationHandle[];
 }
 
+export type RuntimeContinuationFinalizationOutcome = "committed" | "gone";
+
+export interface RuntimeContinuationFinalizationReceipt {
+  readonly kind: "runtime_continuation_finalization";
+  readonly id: string;
+  readonly ownerInstanceId: string;
+  readonly authorizationId: string;
+  readonly sessionId: string;
+  readonly backendFingerprint: string;
+  readonly continuationId: string;
+  readonly continuationSequence: number;
+  readonly expectedSessionRecordSequence: number;
+  readonly outcome: RuntimeContinuationFinalizationOutcome;
+  readonly expiresAt: string;
+}
+
+export interface RuntimeContinuationFinalization {
+  readonly receipt: RuntimeContinuationFinalizationReceipt;
+  readonly activeHandle: RuntimeContinuationHandle | null;
+}
+
 export interface RuntimeContinuationAuthority {
   readonly ownerInstanceId: string;
   mintWriter(
@@ -119,13 +140,16 @@ export interface RuntimeContinuationAuthority {
     readonly authorization: RunAuthorization;
     readonly writer: ContinuationWriteCapability;
   }): Promise<RuntimeContinuationHandle | null>;
-  commit(input: {
+  prepareFinalization(input: {
     readonly authorization: RunAuthorization;
     readonly handle: RuntimeContinuationHandle;
-  }): Promise<RuntimeContinuationHandle>;
-  discard(input: {
+    readonly outcome: RuntimeContinuationFinalizationOutcome;
+    readonly expectedSessionRecordSequence: number;
+  }): Promise<RuntimeContinuationFinalization>;
+  acknowledgeFinalization(input: {
     readonly authorization: RunAuthorization;
-    readonly handle: RuntimeContinuationHandle;
+    readonly receipt: RuntimeContinuationFinalizationReceipt;
+    readonly durableSessionRecordSequence: number;
   }): Promise<void>;
   release(
     capability: ContinuationReadCapability | ContinuationWriteCapability,

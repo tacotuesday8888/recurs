@@ -6,6 +6,9 @@ import type {
   ContinuationWriteCapability,
   RunAuthorization,
   RuntimeContinuationAuthority,
+  RuntimeContinuationFinalization,
+  RuntimeContinuationFinalizationOutcome,
+  RuntimeContinuationFinalizationReceipt,
   RuntimeContinuationHandle,
   RuntimeContinuationReaderRequest,
   RuntimeContinuationStore,
@@ -89,6 +92,17 @@ interface StagedRecovery {
 interface PendingReconciliation {
   readonly authorization: RunAuthorization;
   readonly handle: RuntimeContinuationHandle;
+  readonly expectedSessionRecordSequence: number;
+}
+
+interface PreparedFinalization {
+  readonly receipt: RuntimeContinuationFinalizationReceipt;
+  readonly authorization: RunAuthorization;
+  readonly uncertainHandle: RuntimeContinuationHandle;
+  readonly activeHandle: RuntimeContinuationHandle | null;
+  readonly lane: string;
+  status: "prepared" | "acknowledged";
+  durableSessionRecordSequence: number | null;
 }
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 64 * 1024;
@@ -184,6 +198,7 @@ export class ProcessScopedRuntimeContinuationStore {
   readonly #stagedByWriter = new Map<string, StagedRecovery>();
   readonly #latestByLane = new Map<string, string>();
   readonly #pendingReconciliations = new Map<string, PendingReconciliation>();
+  readonly #finalizations = new Map<string, PreparedFinalization>();
   readonly #authorityFacet: RuntimeContinuationAuthority;
   #storedBytes = 0;
   #disposed = false;
@@ -216,14 +231,17 @@ export class ProcessScopedRuntimeContinuationStore {
         readonly authorization: RunAuthorization;
         readonly writer: ContinuationWriteCapability;
       }) => this.#recoverStaged(input.authorization, input.writer),
-      commit: async (input: {
+      prepareFinalization: async (input: {
         readonly authorization: RunAuthorization;
         readonly handle: RuntimeContinuationHandle;
-      }) => this.#commit(input.authorization, input.handle),
-      discard: async (input: {
+        readonly outcome: RuntimeContinuationFinalizationOutcome;
+        readonly expectedSessionRecordSequence: number;
+      }) => this.#prepareFinalization(input),
+      acknowledgeFinalization: async (input: {
         readonly authorization: RunAuthorization;
-        readonly handle: RuntimeContinuationHandle;
-      }) => this.#discard(input.authorization, input.handle),
+        readonly receipt: RuntimeContinuationFinalizationReceipt;
+        readonly durableSessionRecordSequence: number;
+      }) => this.#acknowledgeFinalization(input),
       release: async (
         capability: ContinuationReadCapability | ContinuationWriteCapability,
       ) => this.#release(capability),
@@ -265,6 +283,7 @@ export class ProcessScopedRuntimeContinuationStore {
     this.#stagedByWriter.clear();
     this.#latestByLane.clear();
     this.#pendingReconciliations.clear();
+    this.#finalizations.clear();
     this.#storedBytes = 0;
   }
 
@@ -316,6 +335,11 @@ export class ProcessScopedRuntimeContinuationStore {
     for (const [id, reconciliation] of this.#pendingReconciliations) {
       if (!canonicalFuture(reconciliation.authorization.expiresAt, now)) {
         this.#pendingReconciliations.delete(id);
+      }
+    }
+    for (const [id, finalization] of this.#finalizations) {
+      if (!canonicalFuture(finalization.receipt.expiresAt, now)) {
+        this.#finalizations.delete(id);
       }
     }
     for (const [id, recovery] of this.#stagedByWriter) {
@@ -380,6 +404,88 @@ export class ProcessScopedRuntimeContinuationStore {
     return stored;
   }
 
+  #preparedRunView(
+    handle: RuntimeContinuationHandle,
+    expectedSessionRecordSequence: number,
+  ): StoredContinuation | null {
+    for (const finalization of this.#finalizations.values()) {
+      if (
+        finalization.status !== "prepared" ||
+        expectedSessionRecordSequence <=
+          finalization.receipt.expectedSessionRecordSequence ||
+        finalization.activeHandle === null ||
+        !isDeepStrictEqual(finalization.activeHandle, handle)
+      ) {
+        continue;
+      }
+      const uncertain = this.#continuations.get(
+        finalization.receipt.continuationId,
+      );
+      const active = this.#continuations.get(handle.id);
+      if (
+        uncertain === undefined ||
+        active === undefined ||
+        uncertain.lane !== finalization.lane ||
+        active.lane !== finalization.lane ||
+        this.#latestByLane.get(finalization.lane) !== uncertain.handle.id
+      ) {
+        continue;
+      }
+      return active;
+    }
+    return null;
+  }
+
+  #storedRunView(
+    handle: RuntimeContinuationHandle,
+    expectedSessionRecordSequence: number,
+    now: Date,
+  ): StoredContinuation {
+    if (handle.status !== "committed") {
+      throw new RuntimeContinuationStoreError("continuation_handle_invalid");
+    }
+    const stored = this.#continuations.get(handle.id);
+    if (
+      stored !== undefined &&
+      isDeepStrictEqual(stored.handle, handle) &&
+      this.#latestByLane.get(stored.lane) === handle.id
+    ) {
+      return this.#storedExact(handle, now);
+    }
+    const prepared = this.#preparedRunView(
+      handle,
+      expectedSessionRecordSequence,
+    );
+    if (
+      prepared === null ||
+      prepared.handle.expiresAt === undefined ||
+      !canonicalFuture(prepared.handle.expiresAt, now)
+    ) {
+      throw new RuntimeContinuationStoreError("continuation_handle_invalid");
+    }
+    return prepared;
+  }
+
+  #preparedEmptyLane(
+    lane: string,
+    expectedSessionRecordSequence: number,
+  ): boolean {
+    for (const finalization of this.#finalizations.values()) {
+      if (
+        finalization.status === "prepared" &&
+        finalization.lane === lane &&
+        finalization.receipt.outcome === "gone" &&
+        finalization.activeHandle === null &&
+        expectedSessionRecordSequence >
+          finalization.receipt.expectedSessionRecordSequence &&
+        this.#latestByLane.get(lane) === finalization.receipt.continuationId
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   #validatePredecessor(
     previous: RuntimeContinuationHandle | null,
     lane: string,
@@ -390,15 +496,20 @@ export class ProcessScopedRuntimeContinuationStore {
   ): void {
     const latestId = this.#latestByLane.get(lane);
     if (previous === null) {
-      if (latestId !== undefined) {
+      if (
+        latestId !== undefined &&
+        !this.#preparedEmptyLane(lane, expectedSessionRecordSequence)
+      ) {
         throw new RuntimeContinuationStoreError("continuation_handle_invalid");
       }
       return;
     }
-    const stored = this.#storedExact(previous, now);
+    const stored = this.#storedRunView(
+      previous,
+      expectedSessionRecordSequence,
+      now,
+    );
     if (
-      previous.status !== "committed" ||
-      latestId !== previous.id ||
       stored.lane !== lane ||
       stored.authorization.sessionId !== authorization.sessionId ||
       !isDeepStrictEqual(stored.pin, pin) ||
@@ -486,11 +597,18 @@ export class ProcessScopedRuntimeContinuationStore {
     }
     const allowlist = new Map<string, RuntimeContinuationHandle>();
     for (const handle of input.activeHandles) {
-      const stored = this.#storedExact(handle, now);
+      const stored = input.purpose === "run"
+        ? this.#storedRunView(
+            handle,
+            input.expectedSessionRecordSequence,
+            now,
+          )
+        : this.#storedExact(handle, now);
       if (
         handle.status !== (input.purpose === "run" ? "committed" : "uncertain") ||
         stored.lane !== laneFor(input.authorization, input.pin) ||
-        this.#latestByLane.get(stored.lane) !== handle.id ||
+        (input.purpose === "reconcile" &&
+          this.#latestByLane.get(stored.lane) !== handle.id) ||
         stored.authorization.sessionId !== input.authorization.sessionId ||
         !isDeepStrictEqual(stored.pin, input.pin) ||
         input.expectedSessionRecordSequence <=
@@ -647,81 +765,211 @@ export class ProcessScopedRuntimeContinuationStore {
     throw new RuntimeContinuationStoreError("continuation_capability_invalid");
   }
 
-  async #commit(
+  #matchingReconciliation(
     authorization: RunAuthorization,
     handle: RuntimeContinuationHandle,
-  ): Promise<RuntimeContinuationHandle> {
-    this.#assertAvailable();
-    const now = this.#currentTime();
-    const stored = this.#storedExact(handle, now);
-    const originalAuthorization = isDeepStrictEqual(
-      authorization,
-      stored.authorization,
-    );
-    const reconciled = originalAuthorization
-      ? false
-      : this.#consumeReconciliation(authorization, handle);
-    if (
-      (!originalAuthorization && !reconciled) ||
-      !canonicalFuture(authorization.expiresAt, now) ||
-      this.#latestByLane.get(stored.lane) !== handle.id
-    ) {
-      throw new RuntimeContinuationStoreError("continuation_handle_invalid");
-    }
-    if (handle.status === "committed") {
-      return handle;
-    }
-    if (handle.status !== "uncertain") {
-      throw new RuntimeContinuationStoreError("continuation_handle_invalid");
-    }
-    stored.handle = frozenHandle({ ...handle, status: "committed" });
-    this.#stagedByWriter.delete(stored.writerId);
-    if (stored.previousId !== null) {
-      this.#deleteContinuation(stored.previousId);
-    }
-    return stored.handle;
-  }
-
-  #consumeReconciliation(
-    authorization: RunAuthorization,
-    handle: RuntimeContinuationHandle,
+    expectedSessionRecordSequence: number,
   ): boolean {
     const pending = this.#pendingReconciliations.get(authorization.id);
-    if (
-      pending === undefined ||
-      !isDeepStrictEqual(pending.authorization, authorization) ||
-      !isDeepStrictEqual(pending.handle, handle)
-    ) {
-      return false;
-    }
-    this.#pendingReconciliations.delete(authorization.id);
-    return true;
+    return pending !== undefined &&
+      isDeepStrictEqual(pending.authorization, authorization) &&
+      isDeepStrictEqual(pending.handle, handle) &&
+      pending.expectedSessionRecordSequence === expectedSessionRecordSequence;
   }
 
-  async #discard(
-    authorization: RunAuthorization,
-    handle: RuntimeContinuationHandle,
-  ): Promise<void> {
+  async #prepareFinalization(input: {
+    readonly authorization: RunAuthorization;
+    readonly handle: RuntimeContinuationHandle;
+    readonly outcome: RuntimeContinuationFinalizationOutcome;
+    readonly expectedSessionRecordSequence: number;
+  }): Promise<RuntimeContinuationFinalization> {
     this.#assertAvailable();
     const now = this.#currentTime();
-    const stored = this.#storedExact(handle, now);
+    const stored = this.#storedExact(input.handle, now);
+    let existing: PreparedFinalization | null = null;
+    for (const finalization of this.#finalizations.values()) {
+      if (
+        finalization.status === "prepared" &&
+        isDeepStrictEqual(finalization.authorization, input.authorization) &&
+        isDeepStrictEqual(finalization.uncertainHandle, input.handle) &&
+        finalization.receipt.outcome === input.outcome &&
+        finalization.receipt.expectedSessionRecordSequence ===
+          input.expectedSessionRecordSequence
+      ) {
+        existing = finalization;
+        break;
+      }
+    }
+    const originalAuthorization = isDeepStrictEqual(
+      input.authorization,
+      stored.authorization,
+    );
+    const reconciliation = this.#matchingReconciliation(
+      input.authorization,
+      input.handle,
+      input.expectedSessionRecordSequence,
+    );
     if (
-      handle.status !== "uncertain" ||
-      this.#latestByLane.get(stored.lane) !== handle.id ||
-      !canonicalFuture(authorization.expiresAt, now) ||
-      !this.#consumeReconciliation(authorization, handle)
+      input.handle.status !== "uncertain" ||
+      this.#latestByLane.get(stored.lane) !== input.handle.id ||
+      !safeInteger(input.expectedSessionRecordSequence, 0) ||
+      input.expectedSessionRecordSequence <=
+        stored.expectedSessionRecordSequence ||
+      !canonicalFuture(input.authorization.expiresAt, now) ||
+      (!(originalAuthorization && input.outcome === "committed") &&
+        !reconciliation && existing === null)
     ) {
       throw new RuntimeContinuationStoreError("continuation_handle_invalid");
     }
-    const previousId = stored.previousId;
-    this.#deleteContinuation(handle.id);
-    if (previousId === null) {
+    if (existing !== null) {
+      return Object.freeze({
+        receipt: existing.receipt,
+        activeHandle: existing.activeHandle,
+      });
+    }
+    for (const [id, finalization] of this.#finalizations) {
+      if (
+        finalization.status === "prepared" &&
+        finalization.receipt.continuationId === input.handle.id &&
+        finalization.receipt.expectedSessionRecordSequence ===
+          input.expectedSessionRecordSequence
+      ) {
+        this.#finalizations.delete(id);
+      }
+    }
+    if (this.#finalizations.size >= this.#maxStoredContinuations) {
+      for (const [id, finalization] of this.#finalizations) {
+        if (finalization.status === "acknowledged") {
+          this.#finalizations.delete(id);
+          if (this.#finalizations.size < this.#maxStoredContinuations) {
+            break;
+          }
+        }
+      }
+    }
+    if (this.#finalizations.size >= this.#maxStoredContinuations) {
+      throw new RuntimeContinuationStoreError("continuation_state_invalid");
+    }
+    let activeHandle: RuntimeContinuationHandle | null;
+    if (input.outcome === "committed") {
+      activeHandle = frozenHandle({ ...input.handle, status: "committed" });
+    } else if (stored.previousId === null) {
+      activeHandle = null;
+    } else {
+      const previous = this.#continuations.get(stored.previousId);
+      if (
+        previous === undefined ||
+        previous.handle.status !== "committed" ||
+        previous.lane !== stored.lane
+      ) {
+        throw new RuntimeContinuationStoreError("continuation_handle_invalid");
+      }
+      activeHandle = previous.handle;
+    }
+    if (input.handle.expiresAt === undefined) {
+      throw new RuntimeContinuationStoreError("continuation_expired");
+    }
+    const receipt = Object.freeze({
+      kind: "runtime_continuation_finalization" as const,
+      id: opaqueId("runtime-finalization"),
+      ownerInstanceId: this.#ownerInstanceId,
+      authorizationId: input.authorization.id,
+      sessionId: input.authorization.sessionId,
+      backendFingerprint: input.authorization.backendFingerprint,
+      continuationId: input.handle.id,
+      continuationSequence: input.handle.continuationSequence,
+      expectedSessionRecordSequence: input.expectedSessionRecordSequence,
+      outcome: input.outcome,
+      expiresAt: input.handle.expiresAt,
+    } satisfies RuntimeContinuationFinalizationReceipt);
+    this.#finalizations.set(receipt.id, {
+      receipt,
+      authorization: clone(input.authorization),
+      uncertainHandle: clone(input.handle),
+      activeHandle,
+      lane: stored.lane,
+      status: "prepared",
+      durableSessionRecordSequence: null,
+    });
+    if (reconciliation) {
+      this.#pendingReconciliations.delete(input.authorization.id);
+    }
+    return Object.freeze({ receipt, activeHandle });
+  }
+
+  async #acknowledgeFinalization(input: {
+    readonly authorization: RunAuthorization;
+    readonly receipt: RuntimeContinuationFinalizationReceipt;
+    readonly durableSessionRecordSequence: number;
+  }): Promise<void> {
+    this.#assertAvailable();
+    this.#currentTime();
+    const finalization = this.#finalizations.get(input.receipt.id);
+    if (
+      finalization === undefined ||
+      !isDeepStrictEqual(finalization.receipt, input.receipt) ||
+      !isDeepStrictEqual(finalization.authorization, input.authorization) ||
+      input.receipt.ownerInstanceId !== this.#ownerInstanceId ||
+      !safeInteger(input.durableSessionRecordSequence, 0) ||
+      input.durableSessionRecordSequence !==
+        input.receipt.expectedSessionRecordSequence + 1
+    ) {
+      throw new RuntimeContinuationStoreError("continuation_capability_invalid");
+    }
+    if (finalization.status === "acknowledged") {
+      if (
+        finalization.durableSessionRecordSequence !==
+          input.durableSessionRecordSequence
+      ) {
+        throw new RuntimeContinuationStoreError(
+          "continuation_capability_invalid",
+        );
+      }
       return;
     }
-    const previous = this.#continuations.get(previousId);
-    if (previous !== undefined && previous.handle.status === "committed") {
-      this.#latestByLane.set(stored.lane, previousId);
+    const stored = this.#continuations.get(input.receipt.continuationId);
+    if (
+      stored === undefined ||
+      stored.lane !== finalization.lane ||
+      !isDeepStrictEqual(stored.handle, finalization.uncertainHandle)
+    ) {
+      throw new RuntimeContinuationStoreError("continuation_handle_invalid");
     }
+    for (const [id, candidate] of this.#finalizations) {
+      if (
+        id !== input.receipt.id &&
+        candidate.receipt.continuationId === input.receipt.continuationId
+      ) {
+        this.#finalizations.delete(id);
+      }
+    }
+    for (const [id, pending] of this.#pendingReconciliations) {
+      if (pending.handle.id === input.receipt.continuationId) {
+        this.#pendingReconciliations.delete(id);
+      }
+    }
+    if (input.receipt.outcome === "committed") {
+      if (finalization.activeHandle === null) {
+        throw new RuntimeContinuationStoreError("continuation_state_invalid");
+      }
+      stored.handle = finalization.activeHandle;
+      this.#stagedByWriter.delete(stored.writerId);
+      if (stored.previousId !== null) {
+        this.#deleteContinuation(stored.previousId);
+      }
+    } else {
+      const wasLatest = this.#latestByLane.get(stored.lane) === stored.handle.id;
+      const previousId = stored.previousId;
+      this.#deleteContinuation(stored.handle.id);
+      if (wasLatest && previousId !== null &&
+        this.#continuations.has(previousId)) {
+        this.#latestByLane.set(stored.lane, previousId);
+      }
+    }
+    finalization.status = "acknowledged";
+    finalization.durableSessionRecordSequence =
+      input.durableSessionRecordSequence;
+    this.#finalizations.set(input.receipt.id, finalization);
   }
 
   #consumeReader(
@@ -754,20 +1002,31 @@ export class ProcessScopedRuntimeContinuationStore {
     if (allowed === undefined || !isDeepStrictEqual(allowed, handle)) {
       throw new RuntimeContinuationStoreError("continuation_handle_invalid");
     }
-    const stored = this.#storedExact(handle, now);
+    const stored = binding.purpose === "run"
+      ? this.#storedRunView(
+          handle,
+          binding.expectedSessionRecordSequence,
+          now,
+        )
+      : this.#storedExact(handle, now);
     if (
       handle.status !== (binding.purpose === "run" ? "committed" : "uncertain") ||
-      this.#latestByLane.get(stored.lane) !== handle.id
+      (binding.purpose === "reconcile" &&
+        this.#latestByLane.get(stored.lane) !== handle.id)
     ) {
       throw new RuntimeContinuationStoreError("continuation_handle_invalid");
     }
     if (binding.purpose === "reconcile") {
-      if (this.#pendingReconciliations.has(binding.authorization.id)) {
+      if (
+        this.#pendingReconciliations.has(binding.authorization.id) ||
+        this.#pendingReconciliations.size >= this.#maxStoredContinuations
+      ) {
         throw new RuntimeContinuationStoreError("continuation_capability_invalid");
       }
       this.#pendingReconciliations.set(binding.authorization.id, {
         authorization: binding.authorization,
         handle: clone(handle),
+        expectedSessionRecordSequence: binding.expectedSessionRecordSequence,
       });
     }
     return new Uint8Array(stored.payload);

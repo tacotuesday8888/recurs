@@ -10,6 +10,7 @@ import type {
   RuntimeCapabilities,
   RuntimeApprovalRequest,
   RuntimeContinuationAuthority,
+  RuntimeContinuationHandle,
   SessionBackendPin,
   TrustedRunContext,
 } from "@recurs/contracts";
@@ -905,14 +906,14 @@ describe("DelegatedAgentExecutor", () => {
     },
   );
 
-  it("turns a continuation commit failure into a durable started failure", async () => {
+  it("turns a continuation preparation failure into a durable started failure", async () => {
     const base = new ProcessScopedRuntimeContinuationStore({
       now: () => new Date(now),
     });
     const authority: RuntimeContinuationAuthority = {
       ...base.authority,
-      async commit() {
-        throw new Error("commit unavailable");
+      async prepareFinalization() {
+        throw new Error("finalization preparation unavailable");
       },
     };
     const { sessions, session, executor } = await fixture({
@@ -949,6 +950,138 @@ describe("DelegatedAgentExecutor", () => {
         "runtime_continuation_updated",
         "turn_failed",
       ]);
+  });
+
+  it("keeps an uncertain continuation retryable when runtime completion cannot append", async () => {
+    const { sessions, session, continuations, executor } = await fixture();
+    let uncertain: RuntimeContinuationHandle | null = null;
+    const runtime = scriptedRuntime(async function* (request) {
+      uncertain = await continuations.runtimeStore.put({
+        writer: request.continuationWriter,
+        payload: new TextEncoder().encode("retryable-after-append-failure"),
+      });
+      yield { type: "continuation_updated", continuation: uncertain };
+      yield { type: "done", finalText: "not durable", stopReason: "complete" };
+    });
+
+    await expect(sessions.withSessionMutation(session.id, 0, (mutation) =>
+      executor.run({
+        session,
+        turnId: "turn-append-failure",
+        prompt: "inspect",
+        executionMode: "act",
+        runtime,
+        authorization: authorization(session.id, "turn-append-failure"),
+        context,
+        mutation: {
+          sessionId: mutation.sessionId,
+          fencingToken: mutation.fencingToken,
+          get currentSequence() {
+            return mutation.currentSequence;
+          },
+          async append(record) {
+            if (record.type === "runtime_completed") {
+              throw new Error("durable append unavailable");
+            }
+            return mutation.append(record);
+          },
+        },
+        signal: new AbortController().signal,
+      })
+    )).rejects.toMatchObject({ phase: "started", code: "runtime_failed" });
+    if (uncertain === null) {
+      throw new Error("Expected an uncertain continuation");
+    }
+    const records = (await sessions.load(session.id)).records;
+    expect(records.map((record) => record.type)).toEqual([
+      "session_created",
+      "turn_started",
+      "runtime_continuation_updated",
+      "turn_failed",
+    ]);
+    const retryAuthorization = bindRunAuthorization({
+      id: "authorization-append-failure-retry",
+      operation: "runtime_reconcile",
+      sessionId: session.id,
+      operationId: "operation-append-failure-retry",
+      turnId: null,
+      pin,
+      connectionRevision: 1,
+      policyRevision: pin.policyRevisionAtCreation,
+      context,
+      maxRequests: 1,
+      expiresAt: "2026-07-11T00:05:00.000Z",
+    }, now);
+    const reader = await continuations.authority.mintReader({
+      authorization: retryAuthorization,
+      pin,
+      expectedSessionRecordSequence: 3,
+      purpose: "reconcile",
+      activeHandles: [uncertain],
+    });
+    await expect(continuations.runtimeStore.load({
+      reader,
+      handle: uncertain,
+    })).resolves.toEqual(
+      new TextEncoder().encode("retryable-after-append-failure"),
+    );
+  });
+
+  it("keeps a durably committed continuation readable when cleanup fails", async () => {
+    const base = new ProcessScopedRuntimeContinuationStore({
+      now: () => new Date(now),
+    });
+    let acknowledgements = 0;
+    const authority: RuntimeContinuationAuthority = {
+      ...base.authority,
+      async acknowledgeFinalization() {
+        acknowledgements += 1;
+        throw new Error("cleanup unavailable after durable append");
+      },
+    };
+    const { sessions, session, executor } = await fixture({
+      continuationAuthority: authority,
+    });
+    const runtime = scriptedRuntime(async function* (request) {
+      const staged = await base.runtimeStore.put({
+        writer: request.continuationWriter,
+        payload: new TextEncoder().encode("durable-before-cleanup"),
+      });
+      yield { type: "continuation_updated", continuation: staged };
+      yield { type: "done", finalText: "durable", stopReason: "complete" };
+    });
+
+    await expect(sessions.withSessionMutation(session.id, 0, (mutation) =>
+      executor.run({
+        session,
+        turnId: "turn-cleanup-failure",
+        prompt: "inspect",
+        executionMode: "act",
+        runtime,
+        authorization: authorization(session.id, "turn-cleanup-failure"),
+        context,
+        mutation,
+        signal: new AbortController().signal,
+      })
+    )).resolves.toMatchObject({ finalText: "durable" });
+    expect(acknowledgements).toBe(1);
+    const reloaded = await sessions.loadState(session.id);
+    if (!("runtimeContinuation" in reloaded) ||
+      reloaded.runtimeContinuation === null) {
+      throw new Error("Expected committed runtime continuation");
+    }
+    const nextAuthorization = authorization(session.id, "turn-after-cleanup");
+    const reader = await base.authority.mintReader({
+      authorization: nextAuthorization,
+      pin,
+      expectedSessionRecordSequence: reloaded.lastSequence,
+      purpose: "run",
+      activeHandles: [reloaded.runtimeContinuation],
+    });
+    await expect(base.runtimeStore.load({
+      reader,
+      handle: reloaded.runtimeContinuation,
+    })).resolves.toEqual(new TextEncoder().encode("durable-before-cleanup"));
   });
 
   it("attempts capability release without rewriting a durable success", async () => {

@@ -4,10 +4,17 @@ import path from "node:path";
 
 import type {
   BackendResolver,
+  RuntimeApprovalRequest,
+  RuntimeContinuationAuthority,
+  RuntimeContinuationStore,
   SessionBackendPin,
   TrustedRunContext,
 } from "@recurs/contracts";
-import { verifyRunAuthorization } from "@recurs/core";
+import {
+  bindRunAuthorization,
+  DelegatedAgentExecutor,
+  verifyRunAuthorization,
+} from "@recurs/core";
 import { ScriptedProvider } from "@recurs/providers";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -18,6 +25,45 @@ import {
 } from "../src/index.js";
 
 const directories: string[] = [];
+
+function foundationFor(runtime: Awaited<ReturnType<typeof createStandaloneRuntime>>) {
+  const dependencies = Reflect.get(runtime, "dependencies") as {
+    coordinator?: {
+      dependencies: {
+        delegated?: DelegatedAgentExecutor;
+        continuationAuthority?: RuntimeContinuationAuthority;
+        resolver: BackendResolver & {
+          runtimeContinuationStore?: RuntimeContinuationStore;
+        };
+      };
+    };
+  };
+  const coordinator = dependencies.coordinator;
+  const delegated = coordinator?.dependencies.delegated;
+  const authority = coordinator?.dependencies.continuationAuthority;
+  const runtimeStore = coordinator?.dependencies.resolver
+    .runtimeContinuationStore;
+  if (
+    delegated === undefined || authority === undefined ||
+    runtimeStore === undefined
+  ) {
+    throw new Error("Expected delegated runtime foundation");
+  }
+  const executorDependencies = Reflect.get(delegated, "dependencies") as {
+    continuationAuthority: RuntimeContinuationAuthority;
+    runtimeApprovals: {
+      request(request: RuntimeApprovalRequest): Promise<unknown>;
+    };
+  };
+  return {
+    delegated,
+    authority,
+    runtimeStore,
+    resolver: coordinator.dependencies.resolver,
+    executorAuthority: executorDependencies.continuationAuthority,
+    runtimeApprovals: executorDependencies.runtimeApprovals,
+  };
+}
 
 afterEach(async () => {
   await Promise.all(
@@ -130,6 +176,109 @@ describe("standalone assembly without a provider", () => {
     expect(runtime.session.goal).toMatchObject({
       objective: "inspect safely",
       progress: "done",
+    });
+  });
+
+  it("assembles one shared delegated continuation foundation per runtime", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-delegated-foundation-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const options = {
+      cwd: workspace,
+      dataDirectory: path.join(root, "data"),
+      provider: new ScriptedProvider([], "foundation-provider"),
+    };
+    const runtime = await createStandaloneRuntime({ async emit() {} }, options);
+    const secondRuntime = await createStandaloneRuntime(
+      { async emit() {} },
+      { ...options, dataDirectory: path.join(root, "data-2") },
+    );
+    const foundation = foundationFor(runtime);
+    const secondFoundation = foundationFor(secondRuntime);
+
+    expect(foundation.delegated).toBeInstanceOf(DelegatedAgentExecutor);
+    expect(foundation.executorAuthority).toBe(foundation.authority);
+    expect(foundation.authority.ownerInstanceId).not.toBe(
+      secondFoundation.authority.ownerInstanceId,
+    );
+
+    const approvalPrompts: string[] = [];
+    runtime.setConfirmHandler(async (message) => {
+      approvalPrompts.push(message);
+      return true;
+    });
+    const request: RuntimeApprovalRequest = {
+      requestId: "approval-1",
+      action: "write",
+      resource: "src/index.ts",
+      risk: "elevated",
+      summary: "Update a source file",
+      options: [
+        { optionId: "always", name: "Always", kind: "allow_always" },
+        { optionId: "allow-exact", name: "Allow once", kind: "allow_once" },
+        { optionId: "reject-exact", name: "Reject", kind: "reject_once" },
+      ],
+    };
+    await expect(foundation.runtimeApprovals.request(request)).resolves.toEqual({
+      decision: { outcome: "selected", optionId: "allow-exact" },
+      scope: "allow_once",
+    });
+    await expect(foundation.runtimeApprovals.request({
+      ...request,
+      resource: "src/index.ts\n\u001b[31mspoofed",
+      summary: "Update\rthe source file",
+    })).resolves.toMatchObject({ scope: "allow_once" });
+    expect(approvalPrompts.at(-1)).not.toContain("\n");
+    expect(approvalPrompts.at(-1)).not.toContain("\r");
+    expect(approvalPrompts.at(-1)).not.toContain("\u001b");
+    const promptsBeforeCredential = approvalPrompts.length;
+    await expect(foundation.runtimeApprovals.request({
+      ...request,
+      action: "credential",
+    })).resolves.toEqual({
+      decision: { outcome: "selected", optionId: "reject-exact" },
+      scope: "deny",
+    });
+    expect(approvalPrompts).toHaveLength(promptsBeforeCredential);
+
+    const delegatedPin: SessionBackendPin & { kind: "agent_runtime" } = {
+      ...runtime.session.backend.pin,
+      kind: "agent_runtime",
+      runtimeCapabilityProfileRevisionAtCreation: "foundation-v1",
+    };
+    const context: TrustedRunContext = {
+      invocation: "one_shot",
+      presence: "present",
+      location: "local",
+      automation: "manual",
+      embedding: "cli",
+    };
+    const delegatedAuthorization = bindRunAuthorization({
+      id: "foundation-authorization",
+      operation: "run",
+      operationId: "foundation-operation",
+      sessionId: runtime.session.id,
+      turnId: "foundation-turn",
+      pin: delegatedPin,
+      connectionRevision: 1,
+      policyRevision: delegatedPin.policyRevisionAtCreation,
+      context,
+      maxRequests: 1,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const writer = await foundation.authority.mintWriter({
+      authorization: delegatedAuthorization,
+      pin: delegatedPin,
+      expectedSessionRecordSequence: 0,
+      previous: null,
+      stateVersion: 1,
+    });
+    await expect(foundation.runtimeStore.put({
+      writer,
+      payload: new Uint8Array([1]),
+    })).resolves.toMatchObject({
+      ownerInstanceId: foundation.authority.ownerInstanceId,
     });
   });
 

@@ -119,7 +119,22 @@ async function writeAndCommit(
     writer,
     payload,
   });
-  return store.authority.commit({ authorization: auth, handle: uncertain });
+  const expectedSessionRecordSequence = previous === null ? 1 : 3;
+  const prepared = await store.authority.prepareFinalization({
+    authorization: auth,
+    handle: uncertain,
+    outcome: "committed",
+    expectedSessionRecordSequence,
+  });
+  await store.authority.acknowledgeFinalization({
+    authorization: auth,
+    receipt: prepared.receipt,
+    durableSessionRecordSequence: expectedSessionRecordSequence + 1,
+  });
+  if (prepared.activeHandle === null) {
+    throw new Error("Expected committed continuation");
+  }
+  return prepared.activeHandle;
 }
 
 describe("ProcessScopedRuntimeContinuationStore", () => {
@@ -146,10 +161,18 @@ describe("ProcessScopedRuntimeContinuationStore", () => {
       vendorTurnSequence: 1,
       originTurnId: "turn-1",
     });
-    const committed = await store.authority.commit({
+    const prepared = await store.authority.prepareFinalization({
       authorization: auth1,
       handle: uncertain,
+      outcome: "committed",
+      expectedSessionRecordSequence: 1,
     });
+    await store.authority.acknowledgeFinalization({
+      authorization: auth1,
+      receipt: prepared.receipt,
+      durableSessionRecordSequence: 2,
+    });
+    const committed = prepared.activeHandle!;
     const auth2 = authorization("turn-2");
     const reader = await store.authority.mintReader({
       authorization: auth2,
@@ -225,10 +248,18 @@ describe("ProcessScopedRuntimeContinuationStore", () => {
       activeHandles: [uncertain],
     })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
 
-    const committed = await store.authority.commit({
+    const prepared = await store.authority.prepareFinalization({
       authorization: auth1,
       handle: uncertain,
+      outcome: "committed",
+      expectedSessionRecordSequence: 1,
     });
+    await store.authority.acknowledgeFinalization({
+      authorization: auth1,
+      receipt: prepared.receipt,
+      durableSessionRecordSequence: 2,
+    });
+    const committed = prepared.activeHandle!;
     const reader = await store.authority.mintReader({
       authorization: authorization("turn-2"),
       pin,
@@ -339,7 +370,17 @@ describe("ProcessScopedRuntimeContinuationStore", () => {
     if (recovered === null) {
       throw new Error("Expected staged continuation recovery");
     }
-    await store.authority.commit({ authorization: auth, handle: recovered });
+    const prepared = await store.authority.prepareFinalization({
+      authorization: auth,
+      handle: recovered,
+      outcome: "committed",
+      expectedSessionRecordSequence: 1,
+    });
+    await store.authority.acknowledgeFinalization({
+      authorization: auth,
+      receipt: prepared.receipt,
+      durableSessionRecordSequence: 2,
+    });
     await expect(store.authority.recoverStaged({
       authorization: auth,
       writer,
@@ -437,10 +478,18 @@ describe("ProcessScopedRuntimeContinuationStore", () => {
       payload: new Uint8Array([7]),
     })).rejects.toThrow("Continuation state is invalid");
 
-    const committedSecond = await store.authority.commit({
+    const preparedSecond = await store.authority.prepareFinalization({
       authorization: auth2,
       handle: second,
+      outcome: "committed",
+      expectedSessionRecordSequence: 3,
     });
+    await store.authority.acknowledgeFinalization({
+      authorization: auth2,
+      receipt: preparedSecond.receipt,
+      durableSessionRecordSequence: 4,
+    });
+    const committedSecond = preparedSecond.activeHandle!;
     const auth3 = authorization("turn-3");
     const writer3 = await store.authority.mintWriter({
       authorization: auth3,
@@ -481,10 +530,18 @@ describe("ProcessScopedRuntimeContinuationStore", () => {
       reader: reconcileReader,
       handle: uncertain,
     })).resolves.toEqual(new TextEncoder().encode("reconcile-canary"));
-    await expect(committedStore.authority.commit({
+    const preparedCommit = await committedStore.authority.prepareFinalization({
       authorization: reconcile,
       handle: uncertain,
-    })).resolves.toMatchObject({ status: "committed" });
+      outcome: "committed",
+      expectedSessionRecordSequence: 1,
+    });
+    expect(preparedCommit.activeHandle).toMatchObject({ status: "committed" });
+    await committedStore.authority.acknowledgeFinalization({
+      authorization: reconcile,
+      receipt: preparedCommit.receipt,
+      durableSessionRecordSequence: 2,
+    });
 
     const goneStore = createStore();
     const first = await writeAndCommit(
@@ -525,9 +582,16 @@ describe("ProcessScopedRuntimeContinuationStore", () => {
       reader: goneReader,
       handle: secondUncertain,
     });
-    await goneStore.authority.discard({
+    const preparedGone = await goneStore.authority.prepareFinalization({
       authorization: reconcileGone,
       handle: secondUncertain,
+      outcome: "gone",
+      expectedSessionRecordSequence: 3,
+    });
+    await goneStore.authority.acknowledgeFinalization({
+      authorization: reconcileGone,
+      receipt: preparedGone.receipt,
+      durableSessionRecordSequence: 4,
     });
     await expect(goneStore.authority.recoverStaged({
       authorization: secondAuthorization,
@@ -535,6 +599,374 @@ describe("ProcessScopedRuntimeContinuationStore", () => {
     })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
     await expect(goneStore.authority.mintWriter({
       authorization: authorization("gone-turn-3"),
+      pin,
+      expectedSessionRecordSequence: 4,
+      previous: first,
+      stateVersion: 1,
+    })).resolves.toMatchObject({ id: expect.any(String) });
+  });
+
+  it("prepares a retryable committed view before acknowledging durable completion", async () => {
+    const store = createStore();
+    const first = await writeAndCommit(
+      store,
+      authorization("prepared-commit-1"),
+      null,
+      new Uint8Array([1]),
+    );
+    const secondAuthorization = authorization("prepared-commit-2");
+    const writer = await store.authority.mintWriter({
+      authorization: secondAuthorization,
+      pin,
+      expectedSessionRecordSequence: 2,
+      previous: first,
+      stateVersion: 1,
+    });
+    const uncertain = await store.runtimeStore.put({
+      writer,
+      payload: new Uint8Array([2]),
+    });
+    const reconcile = reconcileAuthorization("prepared-commit");
+    const reconcileReader = await store.authority.mintReader({
+      authorization: reconcile,
+      pin,
+      expectedSessionRecordSequence: 3,
+      purpose: "reconcile",
+      activeHandles: [uncertain],
+    });
+    await store.runtimeStore.load({ reader: reconcileReader, handle: uncertain });
+
+    const prepared = await store.authority.prepareFinalization({
+      authorization: reconcile,
+      handle: uncertain,
+      outcome: "committed",
+      expectedSessionRecordSequence: 3,
+    });
+    await expect(store.authority.prepareFinalization({
+      authorization: reconcile,
+      handle: uncertain,
+      outcome: "committed",
+      expectedSessionRecordSequence: 3,
+    })).resolves.toEqual(prepared);
+    expect(prepared).toMatchObject({
+      activeHandle: { ...uncertain, status: "committed" },
+      receipt: {
+        ownerInstanceId: store.ownerInstanceId,
+        authorizationId: reconcile.id,
+        continuationId: uncertain.id,
+        expectedSessionRecordSequence: 3,
+        outcome: "committed",
+      },
+    });
+    await expect(store.authority.recoverStaged({
+      authorization: secondAuthorization,
+      writer,
+    })).resolves.toEqual(uncertain);
+
+    const retry = reconcileAuthorization("prepared-commit-retry");
+    const retryReader = await store.authority.mintReader({
+      authorization: retry,
+      pin,
+      expectedSessionRecordSequence: 3,
+      purpose: "reconcile",
+      activeHandles: [uncertain],
+    });
+    await expect(store.runtimeStore.load({
+      reader: retryReader,
+      handle: uncertain,
+    })).resolves.toEqual(new Uint8Array([2]));
+
+    const nextRun = authorization("prepared-commit-3");
+    await expect(store.authority.mintReader({
+      authorization: nextRun,
+      pin,
+      expectedSessionRecordSequence: 3,
+      purpose: "run",
+      activeHandles: [prepared.activeHandle!],
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+    const activeReader = await store.authority.mintReader({
+      authorization: nextRun,
+      pin,
+      expectedSessionRecordSequence: 4,
+      purpose: "run",
+      activeHandles: [prepared.activeHandle!],
+    });
+    await expect(store.runtimeStore.load({
+      reader: activeReader,
+      handle: prepared.activeHandle!,
+    })).resolves.toEqual(new Uint8Array([2]));
+
+    await expect(store.authority.acknowledgeFinalization({
+      authorization: reconcile,
+      receipt: prepared.receipt,
+      durableSessionRecordSequence: 5,
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+    await expect(store.authority.acknowledgeFinalization({
+      authorization: { ...reconcile, operationId: "forged-operation" },
+      receipt: prepared.receipt,
+      durableSessionRecordSequence: 4,
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+    await expect(store.authority.acknowledgeFinalization({
+      authorization: reconcile,
+      receipt: { ...prepared.receipt, ownerInstanceId: "forged-owner" },
+      durableSessionRecordSequence: 4,
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+
+    await store.authority.acknowledgeFinalization({
+      authorization: reconcile,
+      receipt: prepared.receipt,
+      durableSessionRecordSequence: 4,
+    });
+    await expect(store.authority.acknowledgeFinalization({
+      authorization: reconcile,
+      receipt: prepared.receipt,
+      durableSessionRecordSequence: 4,
+    })).resolves.toBeUndefined();
+    await expect(store.authority.recoverStaged({
+      authorization: secondAuthorization,
+      writer,
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+  });
+
+  it("bounds pending reconciliation proofs independently of reader release", async () => {
+    const store = new ProcessScopedRuntimeContinuationStore({
+      now: () => new Date(time),
+      capabilityTtlMs: 5_000,
+      continuationTtlMs: 30_000,
+      maxPayloadBytes: 1,
+      maxStoredBytes: 1,
+      maxStoredContinuations: 1,
+    });
+    const auth = authorization("bounded-proof");
+    const writer = await store.authority.mintWriter({
+      authorization: auth,
+      pin,
+      expectedSessionRecordSequence: 0,
+      previous: null,
+      stateVersion: 1,
+    });
+    const uncertain = await store.runtimeStore.put({
+      writer,
+      payload: new Uint8Array([1]),
+    });
+    const first = reconcileAuthorization("bounded-proof-1");
+    const firstReader = await store.authority.mintReader({
+      authorization: first,
+      pin,
+      expectedSessionRecordSequence: 1,
+      purpose: "reconcile",
+      activeHandles: [uncertain],
+    });
+    await store.runtimeStore.load({ reader: firstReader, handle: uncertain });
+    const second = reconcileAuthorization("bounded-proof-2");
+    const secondReader = await store.authority.mintReader({
+      authorization: second,
+      pin,
+      expectedSessionRecordSequence: 1,
+      purpose: "reconcile",
+      activeHandles: [uncertain],
+    });
+    await expect(store.runtimeStore.load({
+      reader: secondReader,
+      handle: uncertain,
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+  });
+
+  it("replaces a prepared receipt when the same uncertain sequence is retried", async () => {
+    const store = new ProcessScopedRuntimeContinuationStore({
+      now: () => new Date(time),
+      capabilityTtlMs: 5_000,
+      continuationTtlMs: 30_000,
+      maxPayloadBytes: 1,
+      maxStoredBytes: 1,
+      maxStoredContinuations: 1,
+    });
+    const auth = authorization("replace-receipt");
+    const writer = await store.authority.mintWriter({
+      authorization: auth,
+      pin,
+      expectedSessionRecordSequence: 0,
+      previous: null,
+      stateVersion: 1,
+    });
+    const uncertain = await store.runtimeStore.put({
+      writer,
+      payload: new Uint8Array([1]),
+    });
+    const firstAuthorization = reconcileAuthorization("replace-receipt-1");
+    const firstReader = await store.authority.mintReader({
+      authorization: firstAuthorization,
+      pin,
+      expectedSessionRecordSequence: 1,
+      purpose: "reconcile",
+      activeHandles: [uncertain],
+    });
+    await store.runtimeStore.load({ reader: firstReader, handle: uncertain });
+    const first = await store.authority.prepareFinalization({
+      authorization: firstAuthorization,
+      handle: uncertain,
+      outcome: "committed",
+      expectedSessionRecordSequence: 1,
+    });
+
+    const retryAuthorization = reconcileAuthorization("replace-receipt-2");
+    const retryReader = await store.authority.mintReader({
+      authorization: retryAuthorization,
+      pin,
+      expectedSessionRecordSequence: 1,
+      purpose: "reconcile",
+      activeHandles: [uncertain],
+    });
+    await expect(store.runtimeStore.load({
+      reader: retryReader,
+      handle: uncertain,
+    })).resolves.toEqual(new Uint8Array([1]));
+    const retry = await store.authority.prepareFinalization({
+      authorization: retryAuthorization,
+      handle: uncertain,
+      outcome: "gone",
+      expectedSessionRecordSequence: 1,
+    });
+    expect(retry.activeHandle).toBeNull();
+    await expect(store.authority.acknowledgeFinalization({
+      authorization: firstAuthorization,
+      receipt: first.receipt,
+      durableSessionRecordSequence: 2,
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+    await expect(store.authority.acknowledgeFinalization({
+      authorization: retryAuthorization,
+      receipt: retry.receipt,
+      durableSessionRecordSequence: 2,
+    })).resolves.toBeUndefined();
+  });
+
+  it("expires an unacknowledged receipt without poisoning its continuation lane", async () => {
+    const store = new ProcessScopedRuntimeContinuationStore({
+      now: () => new Date(time),
+      capabilityTtlMs: 5_000,
+      continuationTtlMs: 1_000,
+      maxPayloadBytes: 1,
+      maxStoredBytes: 1,
+      maxStoredContinuations: 1,
+    });
+    const auth = authorization("expiring-finalization");
+    const writer = await store.authority.mintWriter({
+      authorization: auth,
+      pin,
+      expectedSessionRecordSequence: 0,
+      previous: null,
+      stateVersion: 1,
+    });
+    const uncertain = await store.runtimeStore.put({
+      writer,
+      payload: new Uint8Array([1]),
+    });
+    const prepared = await store.authority.prepareFinalization({
+      authorization: auth,
+      handle: uncertain,
+      outcome: "committed",
+      expectedSessionRecordSequence: 1,
+    });
+
+    time += 1_001;
+    await expect(store.authority.acknowledgeFinalization({
+      authorization: auth,
+      receipt: prepared.receipt,
+      durableSessionRecordSequence: 2,
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+    await expect(store.authority.mintWriter({
+      authorization: authorization("after-expired-finalization"),
+      pin,
+      expectedSessionRecordSequence: 2,
+      previous: null,
+      stateVersion: 1,
+    })).resolves.toMatchObject({ id: expect.any(String) });
+  });
+
+  it("prepares gone without deleting the uncertain tip or its committed predecessor", async () => {
+    const store = createStore();
+    const first = await writeAndCommit(
+      store,
+      authorization("prepared-gone-1"),
+      null,
+      new Uint8Array([1]),
+    );
+    const secondAuthorization = authorization("prepared-gone-2");
+    const writer = await store.authority.mintWriter({
+      authorization: secondAuthorization,
+      pin,
+      expectedSessionRecordSequence: 2,
+      previous: first,
+      stateVersion: 1,
+    });
+    const uncertain = await store.runtimeStore.put({
+      writer,
+      payload: new Uint8Array([2]),
+    });
+    const reconcile = reconcileAuthorization("prepared-gone");
+    const reconcileReader = await store.authority.mintReader({
+      authorization: reconcile,
+      pin,
+      expectedSessionRecordSequence: 3,
+      purpose: "reconcile",
+      activeHandles: [uncertain],
+    });
+    await store.runtimeStore.load({ reader: reconcileReader, handle: uncertain });
+
+    const prepared = await store.authority.prepareFinalization({
+      authorization: reconcile,
+      handle: uncertain,
+      outcome: "gone",
+      expectedSessionRecordSequence: 3,
+    });
+    expect(prepared.activeHandle).toEqual(first);
+    await expect(store.authority.recoverStaged({
+      authorization: secondAuthorization,
+      writer,
+    })).resolves.toEqual(uncertain);
+
+    const retry = reconcileAuthorization("prepared-gone-retry");
+    const retryReader = await store.authority.mintReader({
+      authorization: retry,
+      pin,
+      expectedSessionRecordSequence: 3,
+      purpose: "reconcile",
+      activeHandles: [uncertain],
+    });
+    await expect(store.runtimeStore.load({
+      reader: retryReader,
+      handle: uncertain,
+    })).resolves.toEqual(new Uint8Array([2]));
+
+    const nextRun = authorization("prepared-gone-3");
+    const predecessorReader = await store.authority.mintReader({
+      authorization: nextRun,
+      pin,
+      expectedSessionRecordSequence: 4,
+      purpose: "run",
+      activeHandles: [first],
+    });
+    await expect(store.runtimeStore.load({
+      reader: predecessorReader,
+      handle: first,
+    })).resolves.toEqual(new Uint8Array([1]));
+
+    await store.authority.acknowledgeFinalization({
+      authorization: reconcile,
+      receipt: prepared.receipt,
+      durableSessionRecordSequence: 4,
+    });
+    await expect(store.authority.acknowledgeFinalization({
+      authorization: reconcile,
+      receipt: prepared.receipt,
+      durableSessionRecordSequence: 4,
+    })).resolves.toBeUndefined();
+    await expect(store.authority.recoverStaged({
+      authorization: secondAuthorization,
+      writer,
+    })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
+    await expect(store.authority.mintWriter({
+      authorization: authorization("prepared-gone-4"),
       pin,
       expectedSessionRecordSequence: 4,
       previous: first,
@@ -568,9 +1000,11 @@ describe("ProcessScopedRuntimeContinuationStore", () => {
       null,
       new Uint8Array([1, 2, 3]),
     );
-    await expect(store.authority.commit({
+    await expect(store.authority.prepareFinalization({
       authorization: { ...auth1, operationId: "wrong" },
       handle: committed,
+      outcome: "committed",
+      expectedSessionRecordSequence: 2,
     })).rejects.toBeInstanceOf(RuntimeContinuationStoreError);
     time += 31_000;
     await expect(store.authority.mintReader({
