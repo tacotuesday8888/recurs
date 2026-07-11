@@ -3,6 +3,10 @@ import { spawn } from "node:child_process";
 import { createIsolatedProcessEnvironment } from "./process-environment.js";
 import { ToolError } from "./types.js";
 
+const PROCESS_GROUP_TERM_GRACE_MS = 250;
+const PROCESS_GROUP_KILL_WAIT_MS = 1_000;
+const PROCESS_GROUP_POLL_MS = 10;
+
 export interface RunProcessOptions {
   cwd: string;
   stdin?: string;
@@ -31,6 +35,108 @@ export function assertSupportedProcessPlatform(
 
 function isAborted(signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true;
+}
+
+function isNoSuchProcess(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ESRCH"
+  );
+}
+
+function isPermissionDenied(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "EPERM"
+  );
+}
+
+function signalProcessGroup(
+  processGroupId: number,
+  signal: NodeJS.Signals,
+): boolean {
+  try {
+    process.kill(-processGroupId, signal);
+    return true;
+  } catch (error) {
+    if (isNoSuchProcess(error)) {
+      return false;
+    }
+    throw new ToolError(
+      "process_failed",
+      "The child process group could not be terminated",
+    );
+  }
+}
+
+function processGroupExists(processGroupId: number): boolean {
+  try {
+    process.kill(-processGroupId, 0);
+    return true;
+  } catch (error) {
+    if (isNoSuchProcess(error)) {
+      return false;
+    }
+    if (isPermissionDenied(error)) {
+      return true;
+    }
+    throw new ToolError(
+      "process_failed",
+      "The child process group could not be inspected",
+    );
+  }
+}
+
+async function delay(milliseconds: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function waitForProcessGroupExit(
+  processGroupId: number,
+  timeoutMs?: number,
+): Promise<boolean> {
+  const deadline = timeoutMs === undefined ? undefined : Date.now() + timeoutMs;
+  while (processGroupExists(processGroupId)) {
+    if (deadline !== undefined && Date.now() >= deadline) {
+      return false;
+    }
+    const waitMs = deadline === undefined
+      ? PROCESS_GROUP_POLL_MS
+      : Math.max(1, Math.min(PROCESS_GROUP_POLL_MS, deadline - Date.now()));
+    await delay(waitMs);
+  }
+  return true;
+}
+
+async function terminateProcessGroup(processGroupId: number): Promise<void> {
+  if (!signalProcessGroup(processGroupId, "SIGTERM")) {
+    return;
+  }
+  if (
+    await waitForProcessGroupExit(
+      processGroupId,
+      PROCESS_GROUP_TERM_GRACE_MS,
+    )
+  ) {
+    return;
+  }
+  if (!signalProcessGroup(processGroupId, "SIGKILL")) {
+    return;
+  }
+  const exitedAfterKill = await waitForProcessGroupExit(
+    processGroupId,
+    PROCESS_GROUP_KILL_WAIT_MS,
+  );
+  if (!exitedAfterKill) {
+    throw new ToolError(
+      "process_failed",
+      "The child process group did not exit after forced termination",
+    );
+  }
 }
 
 export async function runProcess(
@@ -65,41 +171,29 @@ export async function runProcess(
       const stderr: Buffer[] = [];
       let outputBytes = 0;
       let outputExceeded = false;
-      let settled = false;
-      let terminating = false;
+      let settlementStarted = false;
       let timedOut = false;
-      let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
+      let terminationPromise: Promise<void> | undefined;
 
-      const kill = (signal: NodeJS.Signals): void => {
-        if (child.pid === undefined) {
-          return;
+      const startTermination = (): Promise<void> => {
+        if (terminationPromise === undefined) {
+          terminationPromise = child.pid === undefined
+            ? Promise.resolve()
+            : terminateProcessGroup(child.pid);
+          void terminationPromise.catch(() => {});
         }
-        try {
-          process.kill(-child.pid, signal);
-        } catch {
-          child.kill(signal);
-        }
-      };
-
-      const terminate = (): void => {
-        if (terminating) {
-          return;
-        }
-        terminating = true;
-        kill("SIGTERM");
-        forceKillTimer = setTimeout(() => kill("SIGKILL"), 250);
-        forceKillTimer.unref();
+        return terminationPromise;
       };
 
       const onAbort = (): void => {
-        terminate();
+        void startTermination();
       };
       options.signal?.addEventListener("abort", onAbort, { once: true });
       const timeout = options.timeoutMs === undefined
         ? undefined
         : setTimeout(() => {
             timedOut = true;
-            terminate();
+            void startTermination();
           }, options.timeoutMs);
       timeout?.unref();
 
@@ -110,72 +204,100 @@ export async function runProcess(
         outputBytes += chunk.byteLength;
         if (outputBytes > maxOutputBytes) {
           outputExceeded = true;
-          terminate();
+          void startTermination();
           return;
         }
         target.push(chunk);
       };
       child.stdout.on("data", (chunk: Buffer) => capture(stdout, chunk));
       child.stderr.on("data", (chunk: Buffer) => capture(stderr, chunk));
+      child.on("exit", () => {
+        void startTermination();
+      });
       child.on("error", (error) => {
-        if (!settled) {
-          settled = true;
-          clearTimeout(timeout);
-          clearTimeout(forceKillTimer);
-          options.signal?.removeEventListener("abort", onAbort);
+        if (settlementStarted) {
+          return;
+        }
+        settlementStarted = true;
+        clearTimeout(timeout);
+        options.signal?.removeEventListener("abort", onAbort);
+        void (async () => {
+          try {
+            await startTermination();
+          } catch {
+            reject(
+              new ToolError(
+                "process_failed",
+                "The child process group could not be cleaned up",
+              ),
+            );
+            return;
+          }
           reject(
             new ToolError("process_failed", `Failed to start ${command}`, {
               cause: error,
             }),
           );
-        }
+        })();
       });
       child.on("close", (code) => {
-        if (settled) {
+        if (settlementStarted) {
           return;
         }
-        settled = true;
+        settlementStarted = true;
         clearTimeout(timeout);
-        clearTimeout(forceKillTimer);
         options.signal?.removeEventListener("abort", onAbort);
-        if (isAborted(options.signal)) {
-          reject(new ToolError("cancelled", `${command} was cancelled`));
-          return;
-        }
-        if (timedOut) {
-          reject(
-            new ToolError(
-              "command_timeout",
-              `${command} exceeded the ${options.timeoutMs ?? 0}ms timeout`,
-            ),
-          );
-          return;
-        }
-        if (outputExceeded) {
-          reject(
-            new ToolError(
-              "output_limit",
-              `${command} exceeded the ${maxOutputBytes}-byte output limit`,
-            ),
-          );
-          return;
-        }
-        const exitCode = code ?? -1;
-        const result = {
-          stdout: Buffer.concat(stdout).toString("utf8"),
-          stderr: Buffer.concat(stderr).toString("utf8"),
-          exitCode,
-        };
-        if (!acceptableExitCodes.includes(exitCode)) {
-          reject(
-            new ToolError(
-              "process_failed",
-              `${command} exited with ${exitCode}: ${result.stderr.trim()}`,
-            ),
-          );
-          return;
-        }
-        resolve(result);
+        void (async () => {
+          try {
+            await startTermination();
+          } catch {
+            reject(
+              new ToolError(
+                "process_failed",
+                "The child process group could not be cleaned up",
+              ),
+            );
+            return;
+          }
+          if (isAborted(options.signal)) {
+            reject(new ToolError("cancelled", `${command} was cancelled`));
+            return;
+          }
+          if (timedOut) {
+            reject(
+              new ToolError(
+                "command_timeout",
+                `${command} exceeded the ${options.timeoutMs ?? 0}ms timeout`,
+              ),
+            );
+            return;
+          }
+          if (outputExceeded) {
+            reject(
+              new ToolError(
+                "output_limit",
+                `${command} exceeded the ${maxOutputBytes}-byte output limit`,
+              ),
+            );
+            return;
+          }
+          const exitCode = code ?? -1;
+          const result = {
+            stdout: Buffer.concat(stdout).toString("utf8"),
+            stderr: Buffer.concat(stderr).toString("utf8"),
+            exitCode,
+          };
+          if (!acceptableExitCodes.includes(exitCode)) {
+            reject(
+              new ToolError(
+                "process_failed",
+                `${command} exited with ${exitCode}: ${result.stderr.trim()}`,
+              ),
+            );
+            return;
+          }
+          resolve(result);
+        })();
       });
 
       child.stdin.on("error", () => {

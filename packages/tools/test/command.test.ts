@@ -59,6 +59,30 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ESRCH"
+    ) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function forceKillForTest(pid: number | undefined): void {
+  if (pid === undefined || !processExists(pid)) {
+    return;
+  }
+  process.kill(pid, "SIGKILL");
+}
+
 async function invoke(
   tool: Tool,
   arguments_: unknown,
@@ -259,6 +283,57 @@ describe("run_command", () => {
     await expect(
       invoke(createRunCommandTool(), { command: "sleep 5", timeoutMs: 25 }),
     ).rejects.toMatchObject({ code: "command_timeout" });
+  });
+
+  it("eliminates same-group descendants before a cancelled run settles", async () => {
+    const pidFile = path.join(cwd, "cancelled-descendant.pid");
+    const controller = new AbortController();
+    let descendantPid: number | undefined;
+    const script = [
+      "(trap '' TERM; exec /bin/sleep 60) >/dev/null 2>&1 &",
+      `printf '%s\\n' "$!" > ${shellQuote(pidFile)};`,
+      "wait \"$!\"",
+    ].join(" ");
+    const running = toolExports.runProcess("/bin/sh", ["-c", script], {
+      cwd,
+      signal: controller.signal,
+    });
+
+    try {
+      await vi.waitFor(async () => {
+        const stored = await readFile(pidFile, "utf8");
+        expect(stored.trim()).toMatch(/^[1-9][0-9]*$/u);
+      });
+      descendantPid = Number.parseInt(await readFile(pidFile, "utf8"), 10);
+      expect(processExists(descendantPid)).toBe(true);
+
+      controller.abort();
+
+      await expect(running).rejects.toMatchObject({ code: "cancelled" });
+      expect(processExists(descendantPid)).toBe(false);
+    } finally {
+      controller.abort();
+      forceKillForTest(descendantPid);
+    }
+  });
+
+  it("eliminates same-group descendants before a successful run settles", async () => {
+    let descendantPid: number | undefined;
+    const script = [
+      "(trap '' TERM; exec /bin/sleep 60) >/dev/null 2>&1 &",
+      "printf '%s\\n' \"$!\"",
+    ].join(" ");
+
+    try {
+      const result = await toolExports.runProcess("/bin/sh", ["-c", script], {
+        cwd,
+      });
+      descendantPid = Number.parseInt(result.stdout, 10);
+      expect(descendantPid).toBeGreaterThan(0);
+      expect(processExists(descendantPid)).toBe(false);
+    } finally {
+      forceKillForTest(descendantPid);
+    }
   });
 
   it("caps combined output at one MiB", async () => {
