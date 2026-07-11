@@ -80,12 +80,16 @@
 
 **Files:**
 - Modify: `packages/contracts/src/runtime.ts`
+- Create: `packages/core/src/backend-authorization.ts`
+- Create: `packages/core/src/runtime-continuation-store.ts`
 - Modify: `packages/core/src/session-v2.ts`
 - Modify: `packages/core/src/session-record-validator.ts`
 - Modify: `packages/core/src/session.ts`
 - Create: `packages/core/src/delegated-agent-executor.ts`
 - Modify: `packages/core/src/run-coordinator.ts`
 - Modify: `packages/core/src/index.ts`
+- Create: `packages/core/test/backend-authorization.test.ts`
+- Create: `packages/core/test/runtime-continuation-store.test.ts`
 - Create: `packages/core/test/delegated-agent-executor.test.ts`
 - Modify: `packages/core/test/run-coordinator.test.ts`
 - Modify: `packages/core/test/session-v2.test.ts`
@@ -94,14 +98,18 @@
 
 **Interfaces:**
 - Adds immutable `RuntimeCapabilities`, `RuntimeActivity`, runtime `files_changed`, `evidence`, and `continuation_updated` events plus exactly one terminal event.
+- Adds exact offered runtime permission option IDs and selected-ID/cancelled outcomes. Neither core nor an ACP adapter may convert a generic decision kind into an option ID.
+- Adds split `RuntimeContinuationAuthority` and `RuntimeContinuationStore` facets plus a bounded `ProcessScopedRuntimeContinuationStore`; vendor session IDs remain only in the store while JSONL receives Recurs handles. A persistent native broker remains deferred.
+- Adds shared domain-separated canonical backend/billing/context digests and one authorization binder/verifier; the CLI raw-`JSON.stringify` fingerprint path is removed.
 - Adds a provenance-bearing `runtime_completed` session record and continuation-bearing failure/cancellation records; replay derives the assistant message, usage, changed files, evidence, and latest runtime continuation.
 - `DelegatedAgentExecutor` consumes `AgentRuntime.run()`, bridges approval decisions, enforces capability/mode compatibility, validates event bounds/order, and produces one normalized `RunResult`.
 
-- [ ] **Step 1: Write failing tests for text/usage aggregation, changed files/evidence, runtime continuation persistence, cancellation/failure, missing/duplicate/post-terminal events, unsupported modes, approval bridging, exact lane identity, and expired/mismatched authorization.**
+- [ ] **Step 1: Write failing tests for text/usage aggregation, changed files/evidence, process-scoped continuation staging/commit/owner expiry, cancellation/failure, missing/duplicate/post-terminal events, exact permission option IDs, unsupported modes, approval bridging, exact lane identity, canonical fingerprints, and expired/mismatched authorization.**
 - [ ] **Step 2: Run the focused core tests.** Expected: FAIL because the executor and record variants are absent.
 - [ ] **Step 3: Expand runtime contracts and strict v2 record validation/reduction without weakening v1 read-only compatibility.**
 - [ ] **Step 4: Implement the executor with bounded text/activity/file/evidence counts and exactly-one-terminal enforcement.** Never invent usage or evidence.
 - [ ] **Step 5: Harden coordinator preflight so direct pins cannot resolve delegated and vice versa; validate runtime adapter/connection identity, expiry, and authorization fingerprint.**
+- [ ] **Step 5a: Implement the process-scoped continuation store with single-use short-lived capabilities, copied bounded bytes, monotonic sequences, uncertain-to-committed transition, owner binding, and disposal.**
 - [ ] **Step 6: Reject delegated `/compact` explicitly before provider work.**
 - [ ] **Step 7: Run focused tests, the full core suite, and typecheck.** Expected: PASS.
 - [ ] **Step 8: Commit with `feat: execute delegated agent runtimes`.**
@@ -125,13 +133,14 @@
 
 **Interfaces:**
 - `ManagedAcpRuntime` implements `AgentRuntime` using `@agentclientprotocol/sdk` 1.2.1 and an injected immutable `AcpRuntimeProfile`.
-- `AcpRuntimeProfile` pins command, arguments, adapter ID, connection ID, protocol/version, startup/prompt/shutdown timeouts, output bounds, allowed environment keys, and capabilities.
+- `AcpRuntimeProfile` pins command, arguments, adapter ID, connection ID, protocol/version, reviewed model/config-option and act/plan/permission-mode mappings, separate frame/stdout/stderr/queue/event/time bounds, allowed environment keys, and capabilities.
+- `ManagedAcpRuntime` receives only the opaque runtime-store facet. It stores vendor session IDs as bytes behind process-scoped Recurs continuation handles and never emits them into JSONL.
 - Exposes `inspectAcpRuntime(profile, signal)` and `authenticateAcpRuntime(profile, advertisedMethodId, signal)` for onboarding.
 
-- [ ] **Step 1: Add pinned SDK dependency and write hostile fake-agent tests for initialize/new/resume/prompt, streamed updates, dynamic permission choices, auth-required retry, cancellation settlement, malformed/oversized NDJSON, stderr bounds, early exit, timeout, and process-group cleanup.**
+- [ ] **Step 1: Add exact SDK 1.2.1 and compatible exact Zod dependencies and write hostile raw fake-agent tests for initialize/new/resume/prompt, model/mode enforcement, streamed updates, exact dynamic permission option IDs, auth-required retry, cancellation settlement, malformed/oversized/invalid-UTF8 NDJSON, stderr/queue/event bounds, early exit, timeout, duplicate/post-terminal traffic, and process-group cleanup.**
 - [ ] **Step 2: Run `npm test -- packages/runtimes/test`.** Expected: FAIL because the package is absent.
-- [ ] **Step 3: Implement bounded child supervision with explicit executable/argv, direct stdio, process-group termination, stderr redaction, and a minimal environment allowlist.**
-- [ ] **Step 4: Implement the official SDK client.** Negotiate `PROTOCOL_VERSION`, consume advertised capabilities/auth methods, create/resume sessions with absolute cwd and empty MCP servers, translate updates tolerantly, and echo only received permission option IDs.
+- [ ] **Step 3: Implement bounded child supervision with explicit executable/argv, direct stdio, fatal UTF-8 and JSON-RPC envelope framing, process-group termination, stderr redaction, and a minimal environment allowlist.** Process-group cleanup is lifecycle hygiene, not OS containment.
+- [ ] **Step 4: Implement the official SDK client over the prevalidated bounded stream using raw request/notification APIs rather than the unbounded ActiveSession helper.** Runtime-validate every result, negotiate `PROTOCOL_VERSION`, consume advertised capabilities/auth methods, create/resume sessions with absolute cwd and empty MCP servers, enforce reviewed model/mode mappings, translate updates tolerantly, and echo only an exact received permission option ID.
 - [ ] **Step 5: Propagate abort through `session/cancel`, wait for the original prompt to settle as cancelled, then close the session/process within bounds.**
 - [ ] **Step 6: Run runtime tests, lint, and typecheck.** Expected: PASS with no warning output.
 - [ ] **Step 7: Commit with `feat: add bounded ACP runtime`.**
@@ -140,6 +149,8 @@
 
 **Files:**
 - Modify: `packages/runtimes/package.json`
+- Modify: `packages/providers/src/bundled-manifests.ts`
+- Modify: `packages/providers/test/manifests.test.ts`
 - Create: `packages/runtimes/src/codex-acp-profile.ts`
 - Create: `packages/runtimes/test/codex-acp-profile.test.ts`
 - Modify: `packages/app/src/connection-registry.ts`
@@ -154,15 +165,16 @@
 - Modify: `package-lock.json`
 
 **Interfaces:**
-- Resolves the installed `@agentclientprotocol/codex-acp` 1.1.2 entry point and spawns it with the current Node executable; no `npx`, shell, copied token, or auth-file read.
-- `setupCodexConnection()` initializes the adapter, uses an existing login when valid, otherwise selects only the currently advertised `chat-gpt` method, verifies session/model/modes, and commits non-secret delegated connection metadata.
+- Resolves the installed `@agentclientprotocol/codex-acp` 1.1.2 entry point without importing its side-effectful module and spawns it with the current Node executable; exact reviewed `@openai/codex` and platform artifacts are pinned too. No `npx`, shell, copied token, or auth-file read.
+- `setupCodexConnection()` initializes the adapter, uses an existing ChatGPT login when valid, otherwise selects only the currently advertised `chat-gpt` method, re-verifies structured ChatGPT auth status and session/model/modes, and commits non-secret delegated connection metadata. Adapter 1.1.2 does not expose plan tier or organization, so onboarding never claims that it does.
+- The Codex manifest uses a machine-verifiable ChatGPT-authenticated/session-usable claim rather than `chatgpt_plan_active`. Current official billing is included plan usage with possible automatic prepaid-credit usage after limits; no strict-only path is provable, so activation requires an explicit `allow_declared_additional` selection.
 - Standalone assembly resolves `agent_runtime` pins to a fresh `ManagedAcpRuntime` and installs `DelegatedAgentExecutor`.
 
-- [ ] **Step 1: Pin the official adapter dependency and write failing tests for exact package/version resolution, forbidden deprecated package, environment stripping, dynamic auth selection, no-browser failure, verified connection commit, pin creation, and delegated assembly.**
+- [ ] **Step 1: Pin the official adapter, exact Codex executable/platform artifacts, and write failing tests for package integrity/entry resolution without import, forbidden deprecated package, hazardous-environment stripping (including `CODEX_PATH` and logging/auth overrides), dynamic auth selection/status recheck, no-browser behavior, explicit billing acceptance, verified connection commit, pin creation, and delegated assembly.**
 - [ ] **Step 2: Run focused runtime/app/CLI tests.** Expected: FAIL because the Codex profile is absent.
-- [ ] **Step 3: Implement the immutable Codex runtime profile.** Keep `APP_SERVER_LOGS` and `DEFAULT_AUTH_REQUEST` unset; retain only vendor-required home/auth context and Recurs client identity.
+- [ ] **Step 3: Implement the immutable Codex runtime profile.** Keep `APP_SERVER_LOGS`, `DEFAULT_AUTH_REQUEST`, `CODEX_PATH`, provider/key/token/proxy overrides, and arbitrary secret-shaped environment entries unset; retain only reviewed platform/home context, and send Recurs identity through ACP `clientInfo`.
 - [ ] **Step 4: Implement Codex onboarding and non-secret connection persistence.** Do not store auth method secrets or vendor paths.
-- [ ] **Step 5: Generalize CLI assembly around registry records and create exact delegated pins with included-subscription billing and local/manual policy.**
+- [ ] **Step 5: Generalize CLI assembly around registry records and create exact delegated pins with the persisted included-plus-declared-credits selection and local/manual policy.**
 - [ ] **Step 6: Add `recurs setup codex` and useful `/connect`, `/model`, and `/status` copy.** Noninteractive prompts never trigger browser login.
 - [ ] **Step 7: Run focused suites, full CLI/core/runtimes suites, and typecheck.** Expected: PASS.
 - [ ] **Step 8: Commit with `feat: add Codex subscription onboarding`.**
