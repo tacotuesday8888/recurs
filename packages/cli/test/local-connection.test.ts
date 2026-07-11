@@ -48,6 +48,34 @@ describe("local connection configuration", () => {
     expect(await readLocalConnection(await root())).toBeNull();
   });
 
+  it("transactionally migrates the legacy local file into the shared registry", async () => {
+    const directory = await root();
+    const legacy = path.join(directory, "config", "local-connection.json");
+    await mkdir(path.dirname(legacy), { recursive: true });
+    await writeFile(legacy, JSON.stringify({
+      schemaVersion: 1,
+      kind: "local_openai_compatible",
+      id: "legacy-local",
+      label: "Legacy local",
+      baseUrl: "http://127.0.0.1:8080/v1",
+      modelId: "legacy-model",
+      createdAt: "2026-07-11T00:00:00.000Z",
+      updatedAt: "2026-07-11T00:01:00.000Z",
+    }));
+    await chmod(legacy, 0o600);
+
+    await expect(readLocalConnection(directory)).resolves.toMatchObject({
+      id: "legacy-local",
+      label: "Legacy local",
+      baseUrl: "http://127.0.0.1:8080/v1",
+      modelId: "legacy-model",
+      createdAt: "2026-07-11T00:00:00.000Z",
+      updatedAt: "2026-07-11T00:01:00.000Z",
+    });
+    await expect(lstat(legacy)).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await lstat(localConnectionPath(directory))).mode & 0o777).toBe(0o600);
+  });
+
   it("rejects unknown fields and remote origins when loading", async () => {
     const directory = await root();
     await mkdir(path.dirname(localConnectionPath(directory)), { recursive: true });

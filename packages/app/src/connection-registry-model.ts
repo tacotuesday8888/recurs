@@ -1,0 +1,794 @@
+import type {
+  BillingPolicy,
+  BillingSelection,
+  BillingSelectionMode,
+  BillingSource,
+} from "@recurs/contracts";
+import { normalizeLoopbackOpenAIBaseUrl } from "@recurs/providers";
+
+export const REGISTRY_INVALID = "Connection registry is invalid";
+export const STORAGE_UNSAFE = "Connection registry storage is unsafe";
+export const REVISION_CONFLICT = "Connection registry revision changed";
+export const LOCK_UNAVAILABLE =
+  "Connection registry lock could not be acquired";
+export const MIGRATION_CONFLICT =
+  "Legacy local connection conflicts with the registry";
+export const MAX_REGISTRY_BYTES = 256 * 1024;
+export const MAX_LEGACY_BYTES = 64 * 1024;
+export const MAX_REVISION = Number.MAX_SAFE_INTEGER - 1;
+
+const MAX_CONNECTIONS = 256;
+const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u;
+const BILLING_SOURCES = new Set<BillingSource>([
+  "metered_api",
+  "included_subscription",
+  "prepaid_credits",
+  "cloud_account",
+  "local_compute",
+]);
+const BILLING_SELECTION_MODES = new Set<BillingSelectionMode>([
+  "provider_default",
+  "strict_primary_only",
+  "allow_declared_additional",
+]);
+const FORBIDDEN_KEYS = new Set([
+  "settings",
+  "setting",
+  "headers",
+  "header",
+  "environment",
+  "env",
+  "argv",
+  "arguments",
+  "auth",
+  "authorization",
+  "credential",
+  "credentials",
+  "secret",
+  "secrets",
+  "token",
+  "tokens",
+  "apikey",
+  "accesskey",
+  "password",
+  "cookie",
+  "cookies",
+  "path",
+  "filepath",
+  "privatekey",
+]);
+
+export type ConnectionRegistryErrorCode =
+  | "registry_invalid"
+  | "storage_unsafe"
+  | "revision_conflict"
+  | "lock_timeout"
+  | "migration_conflict";
+
+export class ConnectionRegistryError extends Error {
+  constructor(
+    public readonly code: ConnectionRegistryErrorCode,
+    message: string,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "ConnectionRegistryError";
+  }
+}
+
+export interface LocalConnectionRecord {
+  kind: "local_openai_compatible";
+  id: string;
+  providerId: "local-openai-compatible";
+  adapterId: "openai-chat-completions";
+  label: string;
+  baseUrl: string;
+  modelId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DelegatedConnectionRecord {
+  kind: "delegated_agent";
+  id: string;
+  providerId: string;
+  adapterId: string;
+  label: string;
+  accountLabel: string;
+  organizationLabel: string | null;
+  modelId: string;
+  accountSubjectFingerprint: string;
+  policyRevision: string;
+  billingPolicy: BillingPolicy;
+  billingSelection: BillingSelection;
+  verifiedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ConnectionRecord =
+  | LocalConnectionRecord
+  | DelegatedConnectionRecord;
+
+export interface ConnectionRegistryDocument {
+  schemaVersion: 1;
+  revision: number;
+  primaryConnectionId: string | null;
+  connections: ConnectionRecord[];
+}
+
+export type ConnectionRegistryMutationResult =
+  | ConnectionRegistryDocument
+  | Pick<ConnectionRegistryDocument, "primaryConnectionId" | "connections">
+  | void;
+
+export type ConnectionRegistryMutation = (
+  draft: ConnectionRegistryDocument,
+) => ConnectionRegistryMutationResult | Promise<ConnectionRegistryMutationResult>;
+
+export type RegistryFaultPoint = "before_rename" | "after_rename";
+
+export interface FileConnectionRegistryOptions {
+  lockTimeoutMs?: number;
+  staleLockMs?: number;
+  faultInjector?: (point: RegistryFaultPoint) => void | Promise<void>;
+}
+
+export function invalidRegistry(cause?: unknown): ConnectionRegistryError {
+  return new ConnectionRegistryError(
+    "registry_invalid",
+    REGISTRY_INVALID,
+    cause === undefined ? undefined : { cause },
+  );
+}
+
+export function unsafeStorage(cause?: unknown): ConnectionRegistryError {
+  return new ConnectionRegistryError(
+    "storage_unsafe",
+    STORAGE_UNSAFE,
+    cause === undefined ? undefined : { cause },
+  );
+}
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+class StrictJsonParser {
+  #index = 0;
+  #depth = 0;
+
+  constructor(private readonly text: string) {}
+
+  parse(): unknown {
+    this.#space();
+    const value = this.#value();
+    this.#space();
+    if (this.#index !== this.text.length) throw invalidRegistry();
+    return value;
+  }
+
+  #value(): unknown {
+    if (this.#depth >= 32) throw invalidRegistry();
+    const character = this.text[this.#index];
+    if (character === "{") return this.#container(() => this.#object());
+    if (character === "[") return this.#container(() => this.#array());
+    if (character === '"') return this.#string();
+    if (character === "t") return this.#literal("true", true);
+    if (character === "f") return this.#literal("false", false);
+    if (character === "n") return this.#literal("null", null);
+    return this.#number();
+  }
+
+  #container<T>(parse: () => T): T {
+    this.#depth += 1;
+    try {
+      return parse();
+    } finally {
+      this.#depth -= 1;
+    }
+  }
+
+  #object(): Record<string, unknown> {
+    this.#index += 1;
+    this.#space();
+    const result = Object.create(null) as Record<string, unknown>;
+    const keys = new Set<string>();
+    if (this.text[this.#index] === "}") {
+      this.#index += 1;
+      return result;
+    }
+    while (true) {
+      if (this.text[this.#index] !== '"') throw invalidRegistry();
+      const key = this.#string();
+      if (keys.has(key)) throw invalidRegistry();
+      keys.add(key);
+      this.#space();
+      if (this.text[this.#index] !== ":") throw invalidRegistry();
+      this.#index += 1;
+      this.#space();
+      result[key] = this.#value();
+      this.#space();
+      const separator = this.text[this.#index];
+      this.#index += 1;
+      if (separator === "}") return result;
+      if (separator !== ",") throw invalidRegistry();
+      this.#space();
+    }
+  }
+
+  #array(): unknown[] {
+    this.#index += 1;
+    this.#space();
+    const result: unknown[] = [];
+    if (this.text[this.#index] === "]") {
+      this.#index += 1;
+      return result;
+    }
+    while (true) {
+      result.push(this.#value());
+      this.#space();
+      const separator = this.text[this.#index];
+      this.#index += 1;
+      if (separator === "]") return result;
+      if (separator !== ",") throw invalidRegistry();
+      this.#space();
+    }
+  }
+
+  #string(): string {
+    const start = this.#index;
+    this.#index += 1;
+    let escaped = false;
+    while (this.#index < this.text.length) {
+      const character = this.text[this.#index];
+      this.#index += 1;
+      if (!escaped && character === '"') {
+        try {
+          return JSON.parse(this.text.slice(start, this.#index)) as string;
+        } catch (error) {
+          throw invalidRegistry(error);
+        }
+      }
+      escaped = !escaped && character === "\\";
+    }
+    throw invalidRegistry();
+  }
+
+  #literal<T>(source: string, value: T): T {
+    if (this.text.slice(this.#index, this.#index + source.length) !== source) {
+      throw invalidRegistry();
+    }
+    this.#index += source.length;
+    return value;
+  }
+
+  #number(): number {
+    const match = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/.exec(
+      this.text.slice(this.#index),
+    );
+    if (match === null) throw invalidRegistry();
+    this.#index += match[0].length;
+    const value = Number(match[0]);
+    if (!Number.isFinite(value)) throw invalidRegistry();
+    return value;
+  }
+
+  #space(): void {
+    while (
+      this.text[this.#index] === " " ||
+      this.text[this.#index] === "\t" ||
+      this.text[this.#index] === "\r" ||
+      this.text[this.#index] === "\n"
+    ) {
+      this.#index += 1;
+    }
+  }
+}
+
+export function parseStrictJson(bytes: Buffer): unknown {
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return new StrictJsonParser(text).parse();
+  } catch (error) {
+    if (error instanceof ConnectionRegistryError) throw error;
+    throw invalidRegistry(error);
+  }
+}
+
+function exactKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+): void {
+  const actual = Object.keys(value).sort();
+  const sorted = [...expected].sort();
+  if (
+    actual.length !== sorted.length ||
+    actual.some((key, index) => key !== sorted[index])
+  ) {
+    throw invalidRegistry();
+  }
+}
+
+function looksSecret(value: string, allowOpaqueFingerprint: boolean): boolean {
+  if (/-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----/u.test(value)) return true;
+  if (
+    /(?:sk-(?:proj-)?|gh[pousr]_|github_pat_|AIza|xox[baprs]-|AKIA|ASIA)[A-Za-z0-9_-]{16,}/u.test(
+      value,
+    )
+  ) {
+    return true;
+  }
+  if (/^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$/u.test(value)) {
+    return true;
+  }
+  if (/^(?:Bearer|Basic)\s+\S{12,}$/iu.test(value)) return true;
+  if (allowOpaqueFingerprint) return false;
+  if (/^[A-Fa-f0-9]{48,}$/u.test(value)) return true;
+  return (
+    value.length >= 48 &&
+    /^[A-Za-z0-9_+/=-]+$/u.test(value) &&
+    /[a-z]/u.test(value) &&
+    /[A-Z]/u.test(value) &&
+    /\d/u.test(value) &&
+    new Set(value).size >= 12
+  );
+}
+
+function rejectSecretMaterial(value: unknown, field = ""): void {
+  if (typeof value === "string") {
+    if (looksSecret(value, field === "accountsubjectfingerprint")) {
+      throw invalidRegistry();
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) rejectSecretMaterial(entry, field);
+    return;
+  }
+  if (!isRecord(value)) return;
+  for (const [key, entry] of Object.entries(value)) {
+    const normalized = key
+      .normalize("NFKC")
+      .replace(/[^a-zA-Z0-9]/gu, "")
+      .toLowerCase();
+    if (FORBIDDEN_KEYS.has(normalized)) throw invalidRegistry();
+    rejectSecretMaterial(entry, normalized);
+  }
+}
+
+function boundedString(
+  value: unknown,
+  maximum: number,
+  options: { trim?: boolean; pattern?: RegExp } = {},
+): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maximum ||
+    [...value].some((character) => {
+      const code = character.codePointAt(0) ?? 0;
+      return code <= 0x1f || code === 0x7f;
+    }) ||
+    (options.trim === true && value.trim() !== value) ||
+    (options.pattern !== undefined && !options.pattern.test(value))
+  ) {
+    throw invalidRegistry();
+  }
+  return value;
+}
+
+function timestamp(value: unknown): string {
+  const text = boundedString(value, 32);
+  const milliseconds = Date.parse(text);
+  if (!Number.isFinite(milliseconds) || new Date(milliseconds).toISOString() !== text) {
+    throw invalidRegistry();
+  }
+  return text;
+}
+
+function uniqueEnumArray<T extends string>(
+  value: unknown,
+  allowed: ReadonlySet<T>,
+  maximum: number,
+): T[] {
+  if (!Array.isArray(value) || value.length > maximum) {
+    throw invalidRegistry();
+  }
+  const result: T[] = [];
+  const seen = new Set<T>();
+  for (const entry of value) {
+    if (typeof entry !== "string" || !allowed.has(entry as T)) {
+      throw invalidRegistry();
+    }
+    const typed = entry as T;
+    if (seen.has(typed)) throw invalidRegistry();
+    seen.add(typed);
+    result.push(typed);
+  }
+  return result;
+}
+
+function parseBillingPolicy(value: unknown): BillingPolicy {
+  if (!isRecord(value)) throw invalidRegistry();
+  exactKeys(value, [
+    "revision",
+    "disclosureRevision",
+    "primarySource",
+    "possibleAdditionalSources",
+    "providerFallback",
+    "availableSelections",
+  ]);
+  if (
+    typeof value.primarySource !== "string" ||
+    !BILLING_SOURCES.has(value.primarySource as BillingSource) ||
+    (value.providerFallback !== "none" &&
+      value.providerFallback !== "user_configured" &&
+      value.providerFallback !== "automatic" &&
+      value.providerFallback !== "unknown")
+  ) {
+    throw invalidRegistry();
+  }
+  const primarySource = value.primarySource as BillingSource;
+  const possibleAdditionalSources = uniqueEnumArray(
+    value.possibleAdditionalSources,
+    BILLING_SOURCES,
+    BILLING_SOURCES.size,
+  );
+  if (possibleAdditionalSources.includes(primarySource)) {
+    throw invalidRegistry();
+  }
+  const availableSelections = uniqueEnumArray(
+    value.availableSelections,
+    BILLING_SELECTION_MODES,
+    BILLING_SELECTION_MODES.size,
+  );
+  if (availableSelections.length === 0) throw invalidRegistry();
+  return {
+    revision: boundedString(value.revision, 256, { trim: true }),
+    disclosureRevision: boundedString(value.disclosureRevision, 256, {
+      trim: true,
+    }),
+    primarySource,
+    possibleAdditionalSources,
+    providerFallback: value.providerFallback,
+    availableSelections,
+  };
+}
+
+function parseBillingSelection(
+  value: unknown,
+  policy: BillingPolicy,
+): BillingSelection {
+  if (!isRecord(value)) throw invalidRegistry();
+  exactKeys(value, [
+    "mode",
+    "policyRevision",
+    "disclosureRevision",
+    "allowedSources",
+    "acknowledgedAt",
+  ]);
+  if (
+    typeof value.mode !== "string" ||
+    !BILLING_SELECTION_MODES.has(value.mode as BillingSelectionMode)
+  ) {
+    throw invalidRegistry();
+  }
+  const mode = value.mode as BillingSelectionMode;
+  const policyRevision = boundedString(value.policyRevision, 256, {
+    trim: true,
+  });
+  const disclosureRevision = boundedString(value.disclosureRevision, 256, {
+    trim: true,
+  });
+  if (
+    policyRevision !== policy.revision ||
+    disclosureRevision !== policy.disclosureRevision ||
+    !policy.availableSelections.includes(mode)
+  ) {
+    throw invalidRegistry();
+  }
+  const allowedSources = uniqueEnumArray(
+    value.allowedSources,
+    BILLING_SOURCES,
+    BILLING_SOURCES.size,
+  );
+  const declared = new Set([
+    policy.primarySource,
+    ...policy.possibleAdditionalSources,
+  ]);
+  if (
+    allowedSources.length === 0 ||
+    !allowedSources.includes(policy.primarySource) ||
+    allowedSources.some((source) => !declared.has(source)) ||
+    (mode === "strict_primary_only" &&
+      (allowedSources.length !== 1 ||
+        allowedSources[0] !== policy.primarySource)) ||
+    (mode === "allow_declared_additional" && allowedSources.length <= 1)
+  ) {
+    throw invalidRegistry();
+  }
+  return {
+    mode,
+    policyRevision,
+    disclosureRevision,
+    allowedSources,
+    acknowledgedAt: timestamp(value.acknowledgedAt),
+  };
+}
+
+function parseLocal(value: Record<string, unknown>): LocalConnectionRecord {
+  exactKeys(value, [
+    "kind",
+    "id",
+    "providerId",
+    "adapterId",
+    "label",
+    "baseUrl",
+    "modelId",
+    "createdAt",
+    "updatedAt",
+  ]);
+  if (
+    value.kind !== "local_openai_compatible" ||
+    value.providerId !== "local-openai-compatible" ||
+    value.adapterId !== "openai-chat-completions"
+  ) {
+    throw invalidRegistry();
+  }
+  const inputUrl = boundedString(value.baseUrl, 2_048);
+  let baseUrl: string;
+  try {
+    baseUrl = normalizeLoopbackOpenAIBaseUrl(inputUrl);
+  } catch (error) {
+    throw invalidRegistry(error);
+  }
+  if (baseUrl !== inputUrl) throw invalidRegistry();
+  const createdAt = timestamp(value.createdAt);
+  const updatedAt = timestamp(value.updatedAt);
+  if (createdAt > updatedAt) throw invalidRegistry();
+  return {
+    kind: "local_openai_compatible",
+    id: boundedString(value.id, 128, { trim: true, pattern: ID_PATTERN }),
+    providerId: "local-openai-compatible",
+    adapterId: "openai-chat-completions",
+    label: boundedString(value.label, 256, { trim: true }),
+    baseUrl,
+    modelId: boundedString(value.modelId, 512, { trim: true }),
+    createdAt,
+    updatedAt,
+  };
+}
+
+function parseDelegated(
+  value: Record<string, unknown>,
+): DelegatedConnectionRecord {
+  exactKeys(value, [
+    "kind",
+    "id",
+    "providerId",
+    "adapterId",
+    "label",
+    "accountLabel",
+    "organizationLabel",
+    "modelId",
+    "accountSubjectFingerprint",
+    "policyRevision",
+    "billingPolicy",
+    "billingSelection",
+    "verifiedAt",
+    "createdAt",
+    "updatedAt",
+  ]);
+  if (value.kind !== "delegated_agent") throw invalidRegistry();
+  const createdAt = timestamp(value.createdAt);
+  const updatedAt = timestamp(value.updatedAt);
+  const verifiedAt = timestamp(value.verifiedAt);
+  const billingPolicy = parseBillingPolicy(value.billingPolicy);
+  const billingSelection = parseBillingSelection(
+    value.billingSelection,
+    billingPolicy,
+  );
+  if (
+    createdAt > updatedAt ||
+    verifiedAt < createdAt ||
+    verifiedAt > updatedAt ||
+    billingSelection.acknowledgedAt < createdAt ||
+    billingSelection.acknowledgedAt > updatedAt
+  ) {
+    throw invalidRegistry();
+  }
+  const organizationLabel = value.organizationLabel === null
+    ? null
+    : boundedString(value.organizationLabel, 256, { trim: true });
+  return {
+    kind: "delegated_agent",
+    id: boundedString(value.id, 128, { trim: true, pattern: ID_PATTERN }),
+    providerId: boundedString(value.providerId, 128, {
+      trim: true,
+      pattern: ID_PATTERN,
+    }),
+    adapterId: boundedString(value.adapterId, 128, {
+      trim: true,
+      pattern: ID_PATTERN,
+    }),
+    label: boundedString(value.label, 256, { trim: true }),
+    accountLabel: boundedString(value.accountLabel, 256, { trim: true }),
+    organizationLabel,
+    modelId: boundedString(value.modelId, 512, { trim: true }),
+    accountSubjectFingerprint: boundedString(
+      value.accountSubjectFingerprint,
+      128,
+      { trim: true, pattern: ID_PATTERN },
+    ),
+    policyRevision: boundedString(value.policyRevision, 256, { trim: true }),
+    billingPolicy,
+    billingSelection,
+    verifiedAt,
+    createdAt,
+    updatedAt,
+  };
+}
+
+function parseConnection(value: unknown): ConnectionRecord {
+  if (!isRecord(value) || typeof value.kind !== "string") {
+    throw invalidRegistry();
+  }
+  if (value.kind === "local_openai_compatible") return parseLocal(value);
+  if (value.kind === "delegated_agent") return parseDelegated(value);
+  throw invalidRegistry();
+}
+
+export function parseRegistryDocument(
+  value: unknown,
+): ConnectionRegistryDocument {
+  rejectSecretMaterial(value);
+  if (!isRecord(value)) throw invalidRegistry();
+  exactKeys(value, [
+    "schemaVersion",
+    "revision",
+    "primaryConnectionId",
+    "connections",
+  ]);
+  if (
+    value.schemaVersion !== 1 ||
+    !Number.isSafeInteger(value.revision) ||
+    (value.revision as number) < 0 ||
+    (value.revision as number) > MAX_REVISION ||
+    !Array.isArray(value.connections) ||
+    value.connections.length > MAX_CONNECTIONS
+  ) {
+    throw invalidRegistry();
+  }
+  const connections = value.connections.map(parseConnection);
+  const ids = new Set<string>();
+  for (const connection of connections) {
+    if (ids.has(connection.id)) throw invalidRegistry();
+    ids.add(connection.id);
+  }
+  let primaryConnectionId: string | null;
+  if (value.primaryConnectionId === null) {
+    primaryConnectionId = null;
+  } else {
+    primaryConnectionId = boundedString(value.primaryConnectionId, 128, {
+      trim: true,
+      pattern: ID_PATTERN,
+    });
+    if (!ids.has(primaryConnectionId)) throw invalidRegistry();
+  }
+  return {
+    schemaVersion: 1,
+    revision: value.revision as number,
+    primaryConnectionId,
+    connections,
+  };
+}
+
+export function parseLegacyLocalRecord(value: unknown): LocalConnectionRecord {
+  rejectSecretMaterial(value);
+  if (!isRecord(value)) throw invalidRegistry();
+  exactKeys(value, [
+    "schemaVersion",
+    "kind",
+    "id",
+    "label",
+    "baseUrl",
+    "modelId",
+    "createdAt",
+    "updatedAt",
+  ]);
+  if (value.schemaVersion !== 1 || value.kind !== "local_openai_compatible") {
+    throw invalidRegistry();
+  }
+  const inputUrl = boundedString(value.baseUrl, 2_048);
+  let baseUrl: string;
+  try {
+    baseUrl = normalizeLoopbackOpenAIBaseUrl(inputUrl);
+  } catch (error) {
+    throw invalidRegistry(error);
+  }
+  return parseLocal({
+    kind: "local_openai_compatible",
+    id: value.id,
+    providerId: "local-openai-compatible",
+    adapterId: "openai-chat-completions",
+    label: value.label,
+    baseUrl,
+    modelId: value.modelId,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+  });
+}
+
+function cloneConnection(connection: ConnectionRecord): ConnectionRecord {
+  if (connection.kind === "local_openai_compatible") return { ...connection };
+  return {
+    ...connection,
+    billingPolicy: {
+      ...connection.billingPolicy,
+      possibleAdditionalSources: [
+        ...connection.billingPolicy.possibleAdditionalSources,
+      ],
+      availableSelections: [...connection.billingPolicy.availableSelections],
+    },
+    billingSelection: {
+      ...connection.billingSelection,
+      allowedSources: [...connection.billingSelection.allowedSources],
+    },
+  };
+}
+
+export function mutableRegistryDocument(
+  document: ConnectionRegistryDocument,
+): ConnectionRegistryDocument {
+  return {
+    schemaVersion: 1,
+    revision: document.revision,
+    primaryConnectionId: document.primaryConnectionId,
+    connections: document.connections.map(cloneConnection),
+  };
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== "object" || value === null || Object.isFrozen(value)) {
+    return value;
+  }
+  for (const child of Object.values(value)) deepFreeze(child);
+  return Object.freeze(value);
+}
+
+export function immutableRegistryDocument(
+  document: ConnectionRegistryDocument,
+): ConnectionRegistryDocument {
+  return deepFreeze(mutableRegistryDocument(document));
+}
+
+export function emptyRegistryDocument(): ConnectionRegistryDocument {
+  return {
+    schemaVersion: 1,
+    revision: 0,
+    primaryConnectionId: null,
+    connections: [],
+  };
+}
+
+export function nextRegistryDocument(
+  current: ConnectionRegistryDocument,
+  proposed: unknown,
+): ConnectionRegistryDocument {
+  if (!isRecord(proposed)) throw invalidRegistry();
+  return parseRegistryDocument({
+    schemaVersion: 1,
+    revision: current.revision + 1,
+    primaryConnectionId: proposed.primaryConnectionId,
+    connections: proposed.connections,
+  });
+}
+
+export function serializeRegistryDocument(
+  document: ConnectionRegistryDocument,
+): Buffer {
+  const bytes = Buffer.from(`${JSON.stringify(document, null, 2)}\n`, "utf8");
+  if (bytes.length > MAX_REGISTRY_BYTES) throw invalidRegistry();
+  return bytes;
+}

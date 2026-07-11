@@ -11,6 +11,9 @@ export default defineConfig({
       "@recurs/providers": fileURLToPath(
         new URL("./packages/providers/src/index.ts", import.meta.url),
       ),
+      "@recurs/app": fileURLToPath(
+        new URL("./packages/app/src/index.ts", import.meta.url),
+      ),
       "@recurs/tools": fileURLToPath(
         new URL("./packages/tools/src/index.ts", import.meta.url),
       ),

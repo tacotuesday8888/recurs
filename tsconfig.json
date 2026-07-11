@@ -8,6 +8,9 @@
       "path": "./packages/providers"
     },
     {
+      "path": "./packages/app"
+    },
+    {
       "path": "./packages/tools"
     },
     {

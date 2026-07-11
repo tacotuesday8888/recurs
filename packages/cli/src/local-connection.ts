@@ -1,8 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { constants } from "node:fs";
-import { mkdir, open, rename, rm } from "node:fs/promises";
-import path from "node:path";
 
+import {
+  ConnectionRegistryError,
+  FileConnectionRegistry,
+  connectionRegistryPath,
+  type ConnectionRegistryDocument,
+  type LocalConnectionRecord,
+} from "@recurs/app";
 import {
   listLocalOpenAIModels,
   normalizeLoopbackOpenAIBaseUrl,
@@ -47,61 +51,58 @@ export interface SetupLocalConnectionInput {
 }
 
 export function localConnectionPath(dataDirectory: string): string {
-  return path.join(dataDirectory, "config", "local-connection.json");
+  return connectionRegistryPath(dataDirectory);
 }
 
-function parse(value: unknown): LocalConnectionConfiguration {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new LocalConnectionError("configuration_invalid", INVALID);
-  }
-  const record = value as Record<string, unknown>;
-  const keys = Object.keys(record).sort();
-  const expected = ["baseUrl", "createdAt", "id", "kind", "label", "modelId", "schemaVersion", "updatedAt"].sort();
-  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
-    throw new LocalConnectionError("configuration_invalid", INVALID);
-  }
-  if (
-    record.schemaVersion !== 1 || record.kind !== "local_openai_compatible" ||
-    typeof record.id !== "string" || record.id.length === 0 ||
-    typeof record.label !== "string" || record.label.trim().length === 0 ||
-    typeof record.baseUrl !== "string" ||
-    typeof record.modelId !== "string" || record.modelId.trim().length === 0 ||
-    typeof record.createdAt !== "string" || !Number.isFinite(Date.parse(record.createdAt)) ||
-    typeof record.updatedAt !== "string" || !Number.isFinite(Date.parse(record.updatedAt))
-  ) throw new LocalConnectionError("configuration_invalid", INVALID);
-  let baseUrl: string;
-  try {
-    baseUrl = normalizeLoopbackOpenAIBaseUrl(record.baseUrl);
-  } catch (error) {
-    throw new LocalConnectionError("configuration_invalid", INVALID, { cause: error });
-  }
+function localRecord(
+  document: ConnectionRegistryDocument,
+): LocalConnectionRecord | null {
+  const primary = document.primaryConnectionId === null
+    ? undefined
+    : document.connections.find(
+        (connection) => connection.id === document.primaryConnectionId,
+      );
+  if (primary?.kind === "local_openai_compatible") return primary;
+  return (
+    document.connections.find(
+      (connection) => connection.kind === "local_openai_compatible",
+    ) ?? null
+  );
+}
+
+function configuration(
+  record: LocalConnectionRecord,
+): LocalConnectionConfiguration {
   return {
-    schemaVersion: 1, kind: "local_openai_compatible", id: record.id,
-    label: record.label, baseUrl, modelId: record.modelId,
-    createdAt: record.createdAt, updatedAt: record.updatedAt,
+    schemaVersion: 1,
+    kind: "local_openai_compatible",
+    id: record.id,
+    label: record.label,
+    baseUrl: record.baseUrl,
+    modelId: record.modelId,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
   };
 }
 
-export async function readLocalConnection(dataDirectory: string): Promise<LocalConnectionConfiguration | null> {
-  const filename = localConnectionPath(dataDirectory);
-  let handle;
+function localError(error: unknown): LocalConnectionError {
+  if (error instanceof LocalConnectionError) return error;
+  return new LocalConnectionError("configuration_invalid", INVALID, {
+    cause: error,
+  });
+}
+
+export async function readLocalConnection(
+  dataDirectory: string,
+): Promise<LocalConnectionConfiguration | null> {
   try {
-    handle = await open(filename, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const document = await new FileConnectionRegistry(
+      dataDirectory,
+    ).migrateLegacyLocal();
+    const record = localRecord(document);
+    return record === null ? null : configuration(record);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw new LocalConnectionError("configuration_invalid", INVALID, { cause: error });
-  }
-  try {
-    const stat = await handle.stat();
-    if (!stat.isFile() || stat.size > 64 * 1024) {
-      throw new LocalConnectionError("configuration_invalid", INVALID);
-    }
-    return parse(JSON.parse(await handle.readFile("utf8")));
-  } catch (error) {
-    if (error instanceof LocalConnectionError) throw error;
-    throw new LocalConnectionError("configuration_invalid", INVALID, { cause: error });
-  } finally {
-    await handle.close();
+    throw localError(error);
   }
 }
 
@@ -118,32 +119,51 @@ export async function writeLocalConnection(
     );
   }
   const now = input.now ?? new Date().toISOString();
-  const previous = await readLocalConnection(dataDirectory);
-  const value: LocalConnectionConfiguration = {
-    schemaVersion: 1, kind: "local_openai_compatible",
-    id: previous?.id ?? `local-${randomUUID()}`,
-    label: input.label?.trim() || "Local model", baseUrl, modelId,
-    createdAt: previous?.createdAt ?? now, updatedAt: now,
-  };
-  const filename = localConnectionPath(dataDirectory);
-  const directory = path.dirname(filename);
-  await mkdir(directory, { recursive: true, mode: 0o700 });
-  const temporary = `${filename}.${process.pid}.${randomUUID()}.tmp`;
-  let handle;
+  const registry = new FileConnectionRegistry(dataDirectory);
+  const newId = `local-${randomUUID()}`;
   try {
-    handle = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-    await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, "utf8");
-    await handle.sync();
-    await handle.close();
-    handle = undefined;
-    await rename(temporary, filename);
-    const parent = await open(directory, constants.O_RDONLY);
-    try { await parent.sync(); } finally { await parent.close(); }
-  } finally {
-    await handle?.close().catch(() => undefined);
-    await rm(temporary, { force: true }).catch(() => undefined);
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const current = await registry.migrateLegacyLocal();
+      const previous = localRecord(current);
+      const record: LocalConnectionRecord = {
+        kind: "local_openai_compatible",
+        id: previous?.id ?? newId,
+        providerId: "local-openai-compatible",
+        adapterId: "openai-chat-completions",
+        label: input.label?.trim() || "Local model",
+        baseUrl,
+        modelId,
+        createdAt: previous?.createdAt ?? now,
+        updatedAt: now,
+      };
+      try {
+        await registry.commit(current.revision, (draft) => {
+          const index = draft.connections.findIndex(
+            (connection) => connection.id === record.id,
+          );
+          if (index === -1) draft.connections.push(record);
+          else draft.connections[index] = record;
+          draft.primaryConnectionId = record.id;
+        });
+        return configuration(record);
+      } catch (error) {
+        if (
+          error instanceof ConnectionRegistryError &&
+          error.code === "revision_conflict" &&
+          attempt < 2
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new ConnectionRegistryError(
+      "revision_conflict",
+      "Connection registry revision changed",
+    );
+  } catch (error) {
+    throw localError(error);
   }
-  return value;
 }
 
 export async function setupLocalConnection(

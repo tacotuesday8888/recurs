@@ -1,13 +1,10 @@
 {
-  "name": "@recurs/cli",
+  "name": "@recurs/app",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "recurs": "./dist/main.js"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -18,10 +15,7 @@
     "dist"
   ],
   "dependencies": {
-    "@recurs/app": "0.0.0",
     "@recurs/contracts": "0.0.0",
-    "@recurs/core": "0.0.0",
-    "@recurs/providers": "0.0.0",
-    "@recurs/tools": "0.0.0"
+    "@recurs/providers": "0.0.0"
   }
 }

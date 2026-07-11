@@ -13,16 +13,10 @@
   ],
   "references": [
     {
-      "path": "../app"
+      "path": "../contracts"
     },
     {
       "path": "../providers"
-    },
-    {
-      "path": "../tools"
-    },
-    {
-      "path": "../core"
     }
   ]
 }
