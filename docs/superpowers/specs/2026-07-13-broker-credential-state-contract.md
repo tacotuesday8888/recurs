@@ -279,12 +279,14 @@ be repeated; the delete itself is idempotent.
 Before every store await, reserve one active mutation for that connection.
 Awaiting one connection does not block another connection.
 
-While an operation is actively awaiting, every concurrent call for that
-connection returns `.operationInProgress`; Task 4 provides no waiter fan-out.
-A rejected duplicate stage call erases its supplied secret.
+After terminal memo replay/conflict handling, every concurrent call for a
+connection with an actively awaiting operation returns
+`.operationInProgress`; Task 4 provides no waiter fan-out. A rejected duplicate
+stage call erases its supplied secret.
 
-While cleanup is paused, only the exact same operation ID and fingerprint may
-resume it. Every other operation returns `.cleanupPending`.
+After terminal memo replay/conflict handling, while cleanup is paused, only the
+exact same operation ID and fingerprint may resume it. Every other operation
+returns `.cleanupPending`.
 
 Cancellation and linearization follow this order:
 
