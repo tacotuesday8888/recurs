@@ -18,6 +18,9 @@ import {
 } from "@recurs/contracts";
 import {
   CodexOnboardingError,
+  ConnectionLifecycleError,
+  type ConnectionDisconnection,
+  type ConnectionVerification,
   type CodexConnectionConfiguration,
 } from "@recurs/app";
 import { CoordinatedRunError, type EventSink } from "@recurs/core";
@@ -27,6 +30,9 @@ import { setupCodexSubscription } from "./codex-connection.js";
 import {
   listAccountSummaries,
   listProviderSummaries,
+  disconnectAccount,
+  setPrimaryAccount,
+  verifyAccount,
   type AccountSummary,
   type ProviderSummary,
 } from "./provider-account.js";
@@ -60,6 +66,9 @@ Usage:
   recurs setup codex             Connect an existing ChatGPT Codex subscription
   recurs provider list [--all] [--json]
   recurs account list [--json]
+  recurs account set-primary <id>
+  recurs account verify <id>
+  recurs account disconnect <id>
   recurs --help                  Show this help
 
 Local setup supports credential-free OpenAI-compatible servers on literal loopback only.
@@ -75,16 +84,19 @@ export interface CliDependencies {
   automation?: boolean;
   confirm?(message: string): Promise<boolean>;
   createRuntime(events: EventSink): Promise<RecursRuntime>;
-  setupLocal?(input: { baseUrl: string; modelId: string }): Promise<Pick<LocalConnectionConfiguration, "label" | "baseUrl" | "modelId">>;
+  setupLocal?(input: { baseUrl: string; modelId: string }): Promise<Pick<LocalConnectionConfiguration, "id" | "label" | "baseUrl" | "modelId" | "primary">>;
   setupCodex?(input: {
     cwd: string;
     interactive: true;
     billingSelection: "allow_declared_additional";
-  }): Promise<Pick<CodexConnectionConfiguration, "label" | "modelId" | "planOnly">>;
+  }): Promise<Pick<CodexConnectionConfiguration, "id" | "label" | "modelId" | "planOnly" | "primary">>;
   listProviders?(input: {
     includeBlocked: boolean;
   }): Promise<readonly ProviderSummary[]>;
   listAccounts?(): Promise<readonly AccountSummary[]>;
+  setPrimaryAccount?(id: string): Promise<AccountSummary>;
+  verifyAccount?(id: string, cwd: string): Promise<ConnectionVerification>;
+  disconnectAccount?(id: string): Promise<ConnectionDisconnection>;
 }
 
 interface RunArguments {
@@ -152,6 +164,26 @@ function parseListArguments(
   return { json, includeBlocked };
 }
 
+type AccountCommand =
+  | { readonly kind: "list"; readonly json: boolean }
+  | { readonly kind: "set_primary"; readonly id: string }
+  | { readonly kind: "verify"; readonly id: string }
+  | { readonly kind: "disconnect"; readonly id: string };
+
+const ACCOUNT_CONNECTION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+
+function parseAccountCommand(args: readonly string[]): AccountCommand | null {
+  const listed = parseListArguments(args, false);
+  if (listed !== null) return { kind: "list", json: listed.json };
+  if (args.length !== 2) return null;
+  const [action, id] = args;
+  if (id === undefined || !ACCOUNT_CONNECTION_ID.test(id)) return null;
+  if (action === "set-primary") return { kind: "set_primary", id };
+  if (action === "verify") return { kind: "verify", id };
+  if (action === "disconnect") return { kind: "disconnect", id };
+  return null;
+}
+
 function providerText(providers: readonly ProviderSummary[]): string {
   if (providers.length === 0) return "No provider paths are available.\n";
   return `${providers.map((provider) => {
@@ -206,6 +238,9 @@ function exitCodeFor(error: unknown): number {
   }
   if (error instanceof LocalConnectionError) return 2;
   if (error instanceof CodexOnboardingError) return 2;
+  if (error instanceof ConnectionLifecycleError) {
+    return error.code === "cancelled" ? 130 : 2;
+  }
   if (error instanceof CoordinatedRunError && error.failure.phase === "preflight") {
     return 2;
   }
@@ -280,38 +315,112 @@ export async function runCli(
     }
   }
 
-  if (argv[0] === "provider" || argv[0] === "account") {
-    const providerCommand = argv[0] === "provider";
-    const parsed = parseListArguments(argv.slice(1), providerCommand);
-    const service = providerCommand
-      ? dependencies.listProviders
-      : dependencies.listAccounts;
-    if (parsed === null || service === undefined) {
+  if (argv[0] === "provider") {
+    const parsed = parseListArguments(argv.slice(1), true);
+    if (parsed === null || dependencies.listProviders === undefined) {
       await writeOutput(dependencies.stderr, help);
       return 2;
     }
     try {
-      if (providerCommand) {
-        const providers = await (service as NonNullable<
-          CliDependencies["listProviders"]
-        >)({ includeBlocked: parsed.includeBlocked });
+      const providers = await dependencies.listProviders({
+        includeBlocked: parsed.includeBlocked,
+      });
+      await writeOutput(
+        dependencies.stdout,
+        parsed.json
+          ? `${JSON.stringify({ version: 1, providers })}\n`
+          : providerText(providers),
+      );
+      return 0;
+    } catch (error) {
+      await writeOutput(
+        dependencies.stderr,
+        `Error: ${safeCliErrorMessage(error)}\n`,
+      );
+      return exitCodeFor(error);
+    }
+  }
+
+  if (argv[0] === "account") {
+    const command = parseAccountCommand(argv.slice(1));
+    if (command === null) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    try {
+      if (command.kind === "list") {
+        if (dependencies.listAccounts === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const accounts = await dependencies.listAccounts();
         await writeOutput(
           dependencies.stdout,
-          parsed.json
-            ? `${JSON.stringify({ version: 1, providers })}\n`
-            : providerText(providers),
-        );
-      } else {
-        const accounts = await (service as NonNullable<
-          CliDependencies["listAccounts"]
-        >)();
-        await writeOutput(
-          dependencies.stdout,
-          parsed.json
+          command.json
             ? `${JSON.stringify({ version: 1, accounts })}\n`
             : accountText(accounts),
         );
+        return 0;
       }
+      if (command.kind === "set_primary") {
+        if (dependencies.setPrimaryAccount === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const account = await dependencies.setPrimaryAccount(command.id);
+        await writeOutput(
+          dependencies.stdout,
+          `Primary connection — ${account.id} · ${account.modelId}\nProvider: ${account.providerId} · Billing: ${account.billingSources.join(" + ")}\nExisting sessions keep their pinned backend.\n`,
+        );
+        return 0;
+      }
+      if (
+        dependencies.interactive !== true ||
+        dependencies.automation === true
+      ) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: Account verification and disconnection require a user-present local terminal\n",
+        );
+        return 2;
+      }
+      if (command.kind === "verify") {
+        if (dependencies.verifyAccount === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const result = await dependencies.verifyAccount(
+          command.id,
+          dependencies.cwd ?? process.cwd(),
+        );
+        await writeOutput(
+          dependencies.stdout,
+          `Verified — ${result.connection.id} · ${result.connection.modelId}\nProvider: ${result.connection.providerId} · ${result.connection.execution}\n`,
+        );
+        return 0;
+      }
+      if (
+        dependencies.confirm === undefined ||
+        dependencies.disconnectAccount === undefined
+      ) {
+        await writeOutput(dependencies.stderr, help);
+        return 2;
+      }
+      const confirmed = await dependencies.confirm(
+        `Disconnect ${command.id} from Recurs? This removes Recurs metadata only; vendor authentication will not be changed.`,
+      );
+      if (!confirmed) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: Account disconnection was not confirmed\n",
+        );
+        return 2;
+      }
+      const result = await dependencies.disconnectAccount(command.id);
+      await writeOutput(
+        dependencies.stdout,
+        `Disconnected ${result.connectionId}. Vendor authentication was not changed.\n${result.primaryCleared ? "No primary connection is selected.\n" : ""}`,
+      );
       return 0;
     } catch (error) {
       await writeOutput(
@@ -354,7 +463,7 @@ export async function runCli(
         });
         await writeOutput(
           dependencies.stdout,
-          `Ready — ${connection.label} · ${connection.modelId}\nMode: Plan-only (read-only Codex runtime)\nAccount: verified by the vendor runtime; credentials remain vendor-owned\n`,
+          `Ready — ${connection.label} · ${connection.modelId}\nMode: Plan-only (read-only Codex runtime)\nAccount: verified by the vendor runtime; credentials remain vendor-owned\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}`,
         );
         return 0;
       } catch (error) {
@@ -374,7 +483,7 @@ export async function runCli(
       const connection = await dependencies.setupLocal(input);
       await writeOutput(
         dependencies.stdout,
-        `Ready — ${connection.label} · ${connection.modelId}\nEndpoint: ${connection.baseUrl}\n`,
+        `Ready — ${connection.label} · ${connection.modelId}\nEndpoint: ${connection.baseUrl}\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}`,
       );
       return 0;
     } catch (error) {
@@ -488,6 +597,9 @@ async function main(): Promise<void> {
     listProviders: async ({ includeBlocked }) =>
       listProviderSummaries(includeBlocked),
     listAccounts: () => listAccountSummaries(dataDirectory),
+    setPrimaryAccount: (id) => setPrimaryAccount(dataDirectory, id),
+    verifyAccount: (id, cwd) => verifyAccount(dataDirectory, id, cwd),
+    disconnectAccount: (id) => disconnectAccount(dataDirectory, id),
   });
 }
 

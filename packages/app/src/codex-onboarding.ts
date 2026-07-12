@@ -194,7 +194,7 @@ function normalizeAccountLabel(value: string): string {
   return trimmed;
 }
 
-function accountFingerprint(accountLabel: string): string {
+export function codexAccountSubjectFingerprint(accountLabel: string): string {
   const digest = createHash("sha256")
     .update(`${PROVIDER_ID}\0${accountLabel.toLocaleLowerCase("en-US")}`)
     .digest("hex");
@@ -360,7 +360,7 @@ export async function setupCodexConnection(
     );
   }
   const accountLabel = normalizeAccountLabel(inspected.status.email);
-  const fingerprint = accountFingerprint(accountLabel);
+  const fingerprint = codexAccountSubjectFingerprint(accountLabel);
 
   let probe: CodexRuntimeProbeResult;
   try {

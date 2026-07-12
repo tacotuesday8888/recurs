@@ -1,6 +1,7 @@
 import { Readable, Writable } from "node:stream";
 
 import type { BackendResolver, HostInvocation } from "@recurs/contracts";
+import { ConnectionLifecycleError } from "@recurs/app";
 import type { EventSink } from "@recurs/core";
 import {
   AgentLoop,
@@ -123,7 +124,7 @@ describe("runCli", () => {
       async createRuntime() { throw new Error("runtime must not start"); },
       async setupLocal(input) {
         received = input;
-        return { label: "Local model", ...input };
+        return { id: "local-1", label: "Local model", primary: true, ...input };
       },
     });
 
@@ -133,6 +134,7 @@ describe("runCli", () => {
       modelId: "qwen-coder",
     });
     expect(stdout.value).toContain("Ready — Local model · qwen-coder");
+    expect(stdout.value).toContain("Primary connection");
     expect(stderr.value).toBe("");
   });
 
@@ -188,9 +190,11 @@ describe("runCli", () => {
       async setupCodex(input) {
         received = input;
         return {
+          id: "codex-1",
           label: "Codex with ChatGPT",
           modelId: "gpt-test",
           planOnly: true,
+          primary: false,
         };
       },
     });
@@ -203,6 +207,8 @@ describe("runCli", () => {
     });
     expect(stdout.value).toContain("Codex with ChatGPT · gpt-test");
     expect(stdout.value).toContain("Plan-only");
+    expect(stdout.value).toContain("Saved as secondary");
+    expect(stdout.value).toContain("account set-primary");
     expect(stdout.value).not.toContain("owner@example.com");
     expect(stderr.value).toBe("");
   });
@@ -227,9 +233,11 @@ describe("runCli", () => {
         async setupCodex() {
           setupCalls += 1;
           return {
+            id: "codex-1",
             label: "Codex with ChatGPT",
             modelId: "gpt-test",
             planOnly: true,
+            primary: false,
           };
         },
       });
@@ -332,6 +340,206 @@ describe("runCli", () => {
       expect(called).toBe(false);
       expect(stderr.value).toContain("provider list");
     }
+  });
+
+  it("selects one exact primary account and renders pin-preserving copy", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let selected: string | undefined;
+
+    const code = await runCli(["account", "set-primary", "codex-1"], {
+      stdout,
+      stderr,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async setPrimaryAccount(id) {
+        selected = id;
+        return {
+          id,
+          label: "Codex with ChatGPT",
+          providerId: "openai-codex-chatgpt",
+          adapterId: "codex-acp",
+          kind: "delegated_agent",
+          modelId: "gpt-test",
+          primary: true,
+          account: "verified (identifier redacted)",
+          execution: "Plan-only",
+          billingSources: ["included_subscription", "prepaid_credits"],
+        };
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(selected).toBe("codex-1");
+    expect(stdout.value).toContain("Primary connection — codex-1");
+    expect(stdout.value).toContain("Existing sessions keep their pinned backend");
+    expect(stderr.value).toBe("");
+  });
+
+  it("verifies one exact account only from a local manual terminal", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let verified: string | undefined;
+
+    expect(await runCli(["account", "verify", "local-1"], {
+      stdout,
+      stderr,
+      cwd: "/tmp/workspace",
+      interactive: true,
+      automation: false,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async verifyAccount(id) {
+        verified = id;
+        return {
+          verified: true,
+          connection: {
+            id,
+            label: "Local model",
+            providerId: "local-openai-compatible",
+            adapterId: "openai-chat-completions",
+            kind: "local_openai_compatible",
+            modelId: "qwen",
+            primary: true,
+            account: "local endpoint (no credential)",
+            execution: "Act + Plan",
+            billingSources: ["local_compute"],
+          },
+        };
+      },
+    })).toBe(0);
+
+    expect(verified).toBe("local-1");
+    expect(stdout.value).toContain("Verified — local-1 · qwen");
+    expect(stderr.value).toBe("");
+
+    for (const [interactive, automation] of [
+      [false, false],
+      [true, true],
+    ] as const) {
+      let called = false;
+      expect(await runCli(["account", "verify", "local-1"], {
+        stdout: new TextOutput(),
+        stderr: new TextOutput(),
+        interactive,
+        automation,
+        async createRuntime() { throw new Error("runtime must not start"); },
+        async verifyAccount() { called = true; throw new Error("unexpected"); },
+      })).toBe(2);
+      expect(called).toBe(false);
+    }
+  });
+
+  it("disconnects metadata only after explicit local confirmation", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let disconnected: string | undefined;
+
+    expect(await runCli(["account", "disconnect", "codex-1"], {
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      async confirm(message) {
+        expect(message).toContain("vendor authentication");
+        expect(message).toContain("codex-1");
+        return true;
+      },
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async disconnectAccount(id) {
+        disconnected = id;
+        return {
+          connectionId: id,
+          primaryCleared: true,
+          remainingConnections: 1,
+        };
+      },
+    })).toBe(0);
+
+    expect(disconnected).toBe("codex-1");
+    expect(stdout.value).toContain("Disconnected codex-1");
+    expect(stdout.value).toContain("Vendor authentication was not changed");
+    expect(stderr.value).toBe("");
+
+    for (const [interactive, automation, accepted] of [
+      [false, false, true],
+      [true, true, true],
+      [true, false, false],
+    ] as const) {
+      let called = false;
+      expect(await runCli(["account", "disconnect", "codex-1"], {
+        stdout: new TextOutput(),
+        stderr: new TextOutput(),
+        interactive,
+        automation,
+        async confirm() { return accepted; },
+        async createRuntime() { throw new Error("runtime must not start"); },
+        async disconnectAccount() { called = true; throw new Error("unexpected"); },
+      })).toBe(2);
+      expect(called).toBe(false);
+    }
+  });
+
+  it("rejects malformed account mutations before calling lifecycle services", async () => {
+    for (const argv of [
+      ["account", "set-primary"],
+      ["account", "set-primary", "codex-1", "extra"],
+      ["account", "verify", "--json"],
+      ["account", "disconnect", "codex-1", "--yes"],
+      ["account", "disconnect", "bad\u001b[31m-id"],
+      ["account", "set-primary", "bad\u202e-id"],
+      ["account", "unknown", "codex-1"],
+    ]) {
+      let called = false;
+      let confirmCalls = 0;
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      expect(await runCli(argv, {
+        stdout,
+        stderr,
+        interactive: true,
+        automation: false,
+        async confirm() { confirmCalls += 1; return true; },
+        async createRuntime() { throw new Error("runtime must not start"); },
+        async setPrimaryAccount() { called = true; throw new Error("unexpected"); },
+        async verifyAccount() { called = true; throw new Error("unexpected"); },
+        async disconnectAccount() { called = true; throw new Error("unexpected"); },
+      })).toBe(2);
+      expect(called).toBe(false);
+      expect(confirmCalls).toBe(0);
+      expect(stdout.value).toBe("");
+      expect(stderr.value).toContain("account set-primary");
+    }
+  });
+
+  it("maps lifecycle configuration and cancellation failures to stable exit codes", async () => {
+    const configurationStderr = new TextOutput();
+    expect(await runCli(["account", "set-primary", "missing"], {
+      stdout: new TextOutput(),
+      stderr: configurationStderr,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async setPrimaryAccount() {
+        throw new ConnectionLifecycleError(
+          "connection_not_found",
+          "Connection not found",
+        );
+      },
+    })).toBe(2);
+    expect(configurationStderr.value).toBe("Error: Connection not found\n");
+
+    const cancellationStderr = new TextOutput();
+    expect(await runCli(["account", "verify", "codex-1"], {
+      stdout: new TextOutput(),
+      stderr: cancellationStderr,
+      interactive: true,
+      automation: false,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async verifyAccount() {
+        throw new ConnectionLifecycleError(
+          "cancelled",
+          "Connection operation was cancelled",
+        );
+      },
+    })).toBe(130);
+    expect(cancellationStderr.value).toContain("cancelled");
   });
 
   it("preserves a canonical provider failure through standalone coordination", async () => {

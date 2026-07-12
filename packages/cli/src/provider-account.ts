@@ -7,10 +7,18 @@ import type {
   SupportStatus,
 } from "@recurs/contracts";
 import {
+  ConnectionLifecycleService,
   FileConnectionRegistry,
   OnboardingCatalog,
+  verifyLocalConnection,
+  type ConnectionDisconnection,
+  type ConnectionSummary,
+  type ConnectionVerification,
+  type ConnectionVerifier,
   type OnboardingStatus,
 } from "@recurs/app";
+
+import { verifyCodexSubscriptionConnection } from "./codex-connection.js";
 
 export interface ProviderSummary {
   readonly id: string;
@@ -29,20 +37,7 @@ export interface ProviderSummary {
   readonly restrictions: readonly string[];
 }
 
-export interface AccountSummary {
-  readonly id: string;
-  readonly label: string;
-  readonly providerId: string;
-  readonly adapterId: string;
-  readonly kind: "local_openai_compatible" | "delegated_agent";
-  readonly modelId: string;
-  readonly primary: boolean;
-  readonly account:
-    | "verified (identifier redacted)"
-    | "local endpoint (no credential)";
-  readonly execution: "Plan-only" | "Act + Plan";
-  readonly billingSources: readonly BillingSource[];
-}
+export type AccountSummary = ConnectionSummary;
 
 function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
@@ -79,42 +74,55 @@ export function listProviderSummaries(
 export async function listAccountSummaries(
   dataDirectory: string,
 ): Promise<readonly AccountSummary[]> {
-  const document = await new FileConnectionRegistry(
-    dataDirectory,
-  ).migrateLegacyLocal();
-  const summaries = document.connections.map((connection): AccountSummary => {
-    if (connection.kind === "local_openai_compatible") {
-      return {
-        id: connection.id,
-        label: connection.label,
-        providerId: connection.providerId,
-        adapterId: connection.adapterId,
-        kind: connection.kind,
-        modelId: connection.modelId,
-        primary: document.primaryConnectionId === connection.id,
-        account: "local endpoint (no credential)",
-        execution: "Act + Plan",
-        billingSources: ["local_compute"],
-      };
-    }
-    return {
-      id: connection.id,
-      label: connection.label,
-      providerId: connection.providerId,
-      adapterId: connection.adapterId,
-      kind: connection.kind,
-      modelId: connection.modelId,
-      primary: document.primaryConnectionId === connection.id,
-      account: "verified (identifier redacted)",
-      execution: connection.adapterId === "codex-acp"
-        ? "Plan-only"
-        : "Act + Plan",
-      billingSources: [...connection.billingSelection.allowedSources],
-    };
-  });
-  summaries.sort((left, right) =>
-    Number(right.primary) - Number(left.primary) ||
-    left.id.localeCompare(right.id)
+  return await new ConnectionLifecycleService(
+    new FileConnectionRegistry(dataDirectory),
+  ).list();
+}
+
+export async function setPrimaryAccount(
+  dataDirectory: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<AccountSummary> {
+  return await new ConnectionLifecycleService(
+    new FileConnectionRegistry(dataDirectory),
+  ).setPrimary(id, signal === undefined ? {} : { signal });
+}
+
+export async function disconnectAccount(
+  dataDirectory: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<ConnectionDisconnection> {
+  return await new ConnectionLifecycleService(
+    new FileConnectionRegistry(dataDirectory),
+  ).disconnect(id, signal === undefined ? {} : { signal });
+}
+
+export function createConnectionVerifier(cwd: string): ConnectionVerifier {
+  return {
+    verifyLocal: (record, signal) => verifyLocalConnection(record, { signal }),
+    verifyDelegated: (record, signal) =>
+      verifyCodexSubscriptionConnection(record, cwd, signal),
+  };
+}
+
+export interface VerifyAccountDependencies {
+  readonly verifier?: ConnectionVerifier;
+}
+
+export async function verifyAccount(
+  dataDirectory: string,
+  id: string,
+  cwd: string,
+  signal?: AbortSignal,
+  dependencies: VerifyAccountDependencies = {},
+): Promise<ConnectionVerification> {
+  return await new ConnectionLifecycleService(
+    new FileConnectionRegistry(dataDirectory),
+  ).verify(
+    id,
+    dependencies.verifier ?? createConnectionVerifier(cwd),
+    signal === undefined ? {} : { signal },
   );
-  return deepFreeze(summaries);
 }
