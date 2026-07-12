@@ -10,6 +10,7 @@ import {
   CodexOnboardingError,
   OnboardingCatalog,
   codexAccountSubjectFingerprint,
+  matchesCodexOnboardingRuntimeProfile,
   setupCodexConnection,
   type CodexConnectionConfiguration,
   type CodexOnboardingRuntime,
@@ -155,22 +156,9 @@ export async function verifyCodexSubscriptionConnection(
     const runtime = dependencies.runtime ?? createCodexOnboardingRuntime(
       connection.id,
     );
-    if (
-      runtime.adapterId !== CODEX_ONBOARDING_ADAPTER_ID ||
-      runtime.adapterVersion !== CODEX_ONBOARDING_ADAPTER_VERSION ||
-      runtime.capabilityProfileRevision !==
-        CODEX_ONBOARDING_CAPABILITY_PROFILE_REVISION
-    ) {
-      return { status: "failed", reason: "adapter_unavailable" };
-    }
     const inspected = await runtime.inspect(signal);
     if (signal.aborted) throw new Error("cancelled");
-    if (
-      inspected.inspection.protocolVersion !== 1 ||
-      inspected.inspection.agentInfo?.name !==
-        "@agentclientprotocol/codex-acp" ||
-      inspected.inspection.agentInfo.version !== CODEX_ONBOARDING_ADAPTER_VERSION
-    ) {
+    if (!matchesCodexOnboardingRuntimeProfile(runtime, inspected)) {
       return { status: "failed", reason: "adapter_unavailable" };
     }
     if (inspected.status.type === "unauthenticated") {

@@ -152,12 +152,12 @@ function validTimestamp(value: string): boolean {
     new Date(milliseconds).toISOString() === value;
 }
 
-function validateAdapter(
+export function matchesCodexOnboardingRuntimeProfile(
   runtime: CodexOnboardingRuntime,
   inspection: CodexRuntimeVerification,
-): void {
+): boolean {
   const info = inspection.inspection.agentInfo;
-  if (
+  return !(
     runtime.adapterId !== CODEX_ONBOARDING_ADAPTER_ID ||
     runtime.adapterVersion !== CODEX_ONBOARDING_ADAPTER_VERSION ||
     runtime.capabilityProfileRevision !==
@@ -167,7 +167,14 @@ function validateAdapter(
     info.version !== CODEX_ONBOARDING_ADAPTER_VERSION ||
     !inspection.inspection.sessionCapabilities.resume ||
     !inspection.inspection.sessionCapabilities.close
-  ) {
+  );
+}
+
+function validateAdapter(
+  runtime: CodexOnboardingRuntime,
+  inspection: CodexRuntimeVerification,
+): void {
+  if (!matchesCodexOnboardingRuntimeProfile(runtime, inspection)) {
     throw new CodexOnboardingError(
       "adapter_unavailable",
       "The installed Codex adapter did not expose the reviewed capabilities",

@@ -214,6 +214,25 @@ describe("provider and account projections", () => {
       reason: "model_unavailable",
     });
 
+    const incompleteInspection = inspection("private-owner@example.com");
+    await expect(verifyCodexSubscriptionConnection(
+      record,
+      "/tmp/workspace",
+      new AbortController().signal,
+      {
+        runtime: new VerificationRuntime({
+          ...incompleteInspection,
+          inspection: {
+            ...incompleteInspection.inspection,
+            sessionCapabilities: { resume: false, close: true },
+          },
+        }),
+      },
+    )).resolves.toEqual({
+      status: "failed",
+      reason: "adapter_unavailable",
+    });
+
     const staleRuntime = new VerificationRuntime(
       inspection("private-owner@example.com"),
     );
