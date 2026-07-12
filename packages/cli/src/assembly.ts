@@ -99,6 +99,9 @@ function localBackendPin(
   connection: LocalConnectionConfiguration,
   at: string,
 ): SessionBackendPin {
+  const endpointFingerprint = createHash("sha256")
+    .update(`recurs:local-origin:v1\0${connection.baseUrl}`)
+    .digest("hex");
   return {
     kind: "model_provider",
     providerId: "local-openai-compatible",
@@ -108,7 +111,7 @@ function localBackendPin(
     modelIdentityKind: "mutable_alias",
     providerResolvedModelRevisionAtCreation: null,
     catalogRevision: null,
-    policyRevisionAtCreation: "local-loopback-v1",
+    policyRevisionAtCreation: "local-loopback-v2",
     billingPolicyRevisionAtCreation: "local-compute-v1",
     primaryBillingSourceAtCreation: "local_compute",
     billingSelectionAtCreation: {
@@ -118,7 +121,7 @@ function localBackendPin(
       allowedSources: ["local_compute"],
       acknowledgedAt: at,
     },
-    accountSubjectFingerprint: connection.id,
+    accountSubjectFingerprint: `sha256:${endpointFingerprint}`,
   };
 }
 
@@ -137,6 +140,9 @@ interface DelegatedRuntimeBackend {
 }
 
 type RuntimeBackend = DirectRuntimeBackend | DelegatedRuntimeBackend;
+type DelegatedRuntimeFactory = NonNullable<
+  StandaloneRuntimeOptions["delegatedRuntimeFactory"]
+>;
 
 interface StandaloneBackendResolver extends BackendResolver {
   readonly runtimeContinuationStore: RuntimeContinuationStore;
@@ -183,7 +189,7 @@ function selectedConnection(
       (connection) => connection.id === document.primaryConnectionId,
     ) ?? null;
   }
-  return document.connections[0] ?? null;
+  return null;
 }
 
 function delegatedBackendPin(
@@ -220,6 +226,18 @@ function policyBlocked(
     safeMessage: message,
     diagnosticId,
     retryable: false,
+  };
+}
+
+function connectionInvalid(diagnosticId: string): IntegrationFailure {
+  return {
+    domain: "connection",
+    phase: "preflight",
+    code: "connection_invalid",
+    safeMessage: "The session connection is missing or no longer matches its pin",
+    diagnosticId,
+    retryable: false,
+    action: "select_connection",
   };
 }
 
@@ -267,6 +285,33 @@ function assertCodexPolicy(
   }
 }
 
+function backendForConnection(
+  connection: ConnectionRecord,
+  delegatedRuntimeFactory: DelegatedRuntimeFactory,
+  diagnosticId: string,
+): RuntimeBackend {
+  if (connection.kind === "local_openai_compatible") {
+    const localConnection = localConfiguration(connection);
+    return {
+      kind: "direct",
+      pin: (at) => localBackendPin(localConnection, at),
+      commandProvider: new LocalOpenAICompatibleProvider({
+        baseUrl: localConnection.baseUrl,
+      }),
+      createProvider: () => new LocalOpenAICompatibleProvider({
+        baseUrl: localConnection.baseUrl,
+      }),
+    };
+  }
+  assertCodexPolicy(connection, diagnosticId);
+  return {
+    kind: "delegated",
+    connection,
+    pin: () => delegatedBackendPin(connection),
+    createRuntime: (store) => delegatedRuntimeFactory(connection, store),
+  };
+}
+
 export async function createStandaloneRuntime(
   events: EventSink,
   options: StandaloneRuntimeOptions = {},
@@ -290,7 +335,9 @@ export async function createStandaloneRuntime(
   const configuredConnection = registryDocument === null
     ? null
     : selectedConnection(registryDocument);
-  const backend: RuntimeBackend | undefined = injected !== undefined
+  const delegatedRuntimeFactory = options.delegatedRuntimeFactory ??
+    createCodexAgentRuntime;
+  const initialBackend: RuntimeBackend | undefined = injected !== undefined
     ? {
         kind: "direct",
         pin: (at) => injectedBackendPin(
@@ -303,38 +350,17 @@ export async function createStandaloneRuntime(
       }
     : configuredConnection === null
       ? undefined
-      : configuredConnection.kind === "local_openai_compatible"
-        ? (() => {
-            const localConnection = localConfiguration(configuredConnection);
-            return {
-              kind: "direct" as const,
-              pin: (at: string) => localBackendPin(localConnection, at),
-              commandProvider: new LocalOpenAICompatibleProvider({
-                baseUrl: localConnection.baseUrl,
-              }),
-              createProvider: () => new LocalOpenAICompatibleProvider({
-                baseUrl: localConnection.baseUrl,
-              }),
-            };
-          })()
-        : (() => {
-            assertCodexPolicy(configuredConnection, randomUUID());
-            const factory = options.delegatedRuntimeFactory ??
-              createCodexAgentRuntime;
-            return {
-              kind: "delegated" as const,
-              connection: configuredConnection,
-              pin: () => delegatedBackendPin(configuredConnection),
-              createRuntime: (store: RuntimeContinuationStore) =>
-                factory(configuredConnection, store),
-            };
-          })();
+      : backendForConnection(
+          configuredConnection,
+          delegatedRuntimeFactory,
+          randomUUID(),
+        );
   const existing = await sessions.list();
   let state: PinnedSessionState | WorkspaceShellState;
-  if (backend === undefined) {
+  if (initialBackend === undefined) {
     state = createWorkspaceShell(cwd);
   } else {
-    const pin = backend.pin(new Date().toISOString());
+    const pin = initialBackend.pin(new Date().toISOString());
     let matching: PinnedSessionState | null = null;
     for (const entry of existing) {
       const candidate = await sessions.loadState(entry.id);
@@ -354,7 +380,7 @@ export async function createStandaloneRuntime(
       pinnedState = await sessions.createPinnedSession({
         id: randomUUID(),
         cwd,
-        backend: backend.pin(createdAt),
+        backend: initialBackend.pin(createdAt),
         at: createdAt,
       });
     } else {
@@ -368,7 +394,7 @@ export async function createStandaloneRuntime(
       }
       pinnedState = loaded;
     }
-    if (backend.kind === "delegated") {
+    if (initialBackend.kind === "delegated") {
       if (pinnedState.executionMode !== "plan") {
         await sessions.withSessionMutation(
           pinnedState.id,
@@ -473,7 +499,7 @@ export async function createStandaloneRuntime(
       };
     },
   });
-  const direct = backend === undefined ? undefined : new AgentLoopDirectExecutor({
+  const direct = new AgentLoopDirectExecutor({
     tools,
     approvals,
     sessions,
@@ -490,102 +516,116 @@ export async function createStandaloneRuntime(
       };
     },
   });
-  const resolver: StandaloneBackendResolver | undefined = backend === undefined
-    ? undefined
-    : {
-        runtimeContinuationStore: continuations.runtimeStore,
-        async resolve(input) {
-          const expectedPin = backend.pin(
-            input.pin.billingSelectionAtCreation.acknowledgedAt,
+  const resolver: StandaloneBackendResolver = {
+    runtimeContinuationStore: continuations.runtimeStore,
+    async resolve(input) {
+      let selected: RuntimeBackend;
+      let connectionRevision: number;
+      if (injected !== undefined) {
+        if (initialBackend === undefined) throw connectionInvalid(input.operationId);
+        selected = initialBackend;
+        connectionRevision = 1;
+      } else {
+        let current;
+        try {
+          current = await connectionRegistry.read();
+        } catch {
+          throw connectionInvalid(input.operationId);
+        }
+        const connection = current.connections.find(
+          (candidate) => candidate.id === input.pin.connectionId,
+        );
+        if (connection === undefined) throw connectionInvalid(input.operationId);
+        try {
+          selected = backendForConnection(
+            connection,
+            delegatedRuntimeFactory,
+            input.operationId,
           );
-          if (!isDeepStrictEqual(input.pin, expectedPin)) {
-            throw new Error("The configured provider does not match the session pin");
+        } catch (error) {
+          if (
+            typeof error === "object" &&
+            error !== null &&
+            "domain" in error
+          ) {
+            throw error;
           }
-          if (backend.kind === "delegated") {
-            if (
-              input.context.presence !== "present" ||
-              input.context.location !== "local" ||
-              input.context.automation !== "manual" ||
-              input.context.embedding !== "cli"
-            ) {
-              throw policyBlocked(
-                input.operationId,
-                "This Codex subscription connection is limited to local, user-present, manual CLI use",
-              );
-            }
-            const current = await connectionRegistry.read();
-            const currentRecord = current.connections.find(
-              (connection): connection is DelegatedConnectionRecord =>
-                connection.kind === "delegated_agent" &&
-                connection.id === backend.connection.id,
-            );
-            if (
-              currentRecord === undefined ||
-              !isDeepStrictEqual(currentRecord, backend.connection)
-            ) {
-              throw policyBlocked(
-                input.operationId,
-                "The Codex connection changed after this session was pinned",
-                "policy_stale",
-              );
-            }
-            assertCodexPolicy(currentRecord, input.operationId);
-            return {
-              kind: "delegated" as const,
-              pin: input.pin,
-              authorization: bindRunAuthorization({
-                id: randomUUID(),
-                operation: input.operation,
-                sessionId: input.sessionId,
-                operationId: input.operationId,
-                turnId: input.turnId,
-                pin: input.pin,
-                connectionRevision: current.revision,
-                policyRevision: input.pin.policyRevisionAtCreation,
-                context: input.context,
-                maxRequests: 1,
-                expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-              }),
-              async createRuntime() {
-                return backend.createRuntime(continuations.runtimeStore);
-              },
-            };
-          }
-          return {
-            kind: "direct" as const,
+          throw connectionInvalid(input.operationId);
+        }
+        connectionRevision = current.revision;
+      }
+      const expectedPin = selected.pin(
+        input.pin.billingSelectionAtCreation.acknowledgedAt,
+      );
+      if (!isDeepStrictEqual(input.pin, expectedPin)) {
+        throw connectionInvalid(input.operationId);
+      }
+      if (selected.kind === "delegated") {
+        if (
+          input.context.presence !== "present" ||
+          input.context.location !== "local" ||
+          input.context.automation !== "manual" ||
+          input.context.embedding !== "cli"
+        ) {
+          throw policyBlocked(
+            input.operationId,
+            "This Codex subscription connection is limited to local, user-present, manual CLI use",
+          );
+        }
+        return {
+          kind: "delegated" as const,
+          pin: input.pin,
+          authorization: bindRunAuthorization({
+            id: randomUUID(),
+            operation: input.operation,
+            sessionId: input.sessionId,
+            operationId: input.operationId,
+            turnId: input.turnId,
             pin: input.pin,
-            authorization: bindRunAuthorization({
-              id: randomUUID(),
-              operation: input.operation,
-              sessionId: input.sessionId,
-              operationId: input.operationId,
-              turnId: input.turnId,
-              pin: input.pin,
-              connectionRevision: 1,
-              policyRevision: input.pin.policyRevisionAtCreation,
-              context: input.context,
-              maxRequests: 40,
-              expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-            }),
-            async createProvider() {
-              return backend.createProvider();
-            },
-          };
+            connectionRevision,
+            policyRevision: input.pin.policyRevisionAtCreation,
+            context: input.context,
+            maxRequests: 1,
+            expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+          }),
+          async createRuntime() {
+            return selected.createRuntime(continuations.runtimeStore);
+          },
+        };
+      }
+      return {
+        kind: "direct" as const,
+        pin: input.pin,
+        authorization: bindRunAuthorization({
+          id: randomUUID(),
+          operation: input.operation,
+          sessionId: input.sessionId,
+          operationId: input.operationId,
+          turnId: input.turnId,
+          pin: input.pin,
+          connectionRevision,
+          policyRevision: input.pin.policyRevisionAtCreation,
+          context: input.context,
+          maxRequests: 40,
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        }),
+        async createProvider() {
+          return selected.createProvider();
         },
       };
-  const coordinator = direct === undefined || resolver === undefined
-    ? undefined
-    : new BackendRunCoordinator({
-        sessions,
-        resolver,
-        direct,
-        delegated,
-        continuationAuthority: continuations.authority,
-      });
+    },
+  };
+  const coordinator = new BackendRunCoordinator({
+    sessions,
+    resolver,
+    direct,
+    delegated,
+    continuationAuthority: continuations.authority,
+  });
   const commands = createCommandRegistry({
     sessions,
-    ...(backend?.kind === "direct"
-      ? { provider: backend.commandProvider }
+    ...(initialBackend?.kind === "direct"
+      ? { provider: initialBackend.commandProvider }
       : {}),
     checkpoints,
     signal: () =>
@@ -594,10 +634,10 @@ export async function createStandaloneRuntime(
   const runtime = new RecursRuntime(
     {
       commands,
-      ...(coordinator === undefined ? {} : { coordinator }),
+      coordinator,
       sessions,
       confirm: async () => false,
-      ...(backend === undefined
+      ...(initialBackend === undefined
         ? {
             promptUnavailableMessage:
               "No model connection is ready. Run recurs setup in an interactive terminal, then try again.",

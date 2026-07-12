@@ -13,6 +13,7 @@ import type {
 } from "@recurs/contracts";
 import { createHostInvocation } from "@recurs/contracts";
 import {
+  ConnectionLifecycleService,
   FileConnectionRegistry,
   type DelegatedConnectionRecord,
 } from "@recurs/app";
@@ -119,6 +120,27 @@ function foundationFor(runtime: Awaited<ReturnType<typeof createStandaloneRuntim
     executorAuthority: executorDependencies.continuationAuthority,
     toolApprovals: executorDependencies.approvals,
     runtimeApprovals: executorDependencies.runtimeApprovals,
+  };
+}
+
+function resolverFor(
+  runtime: Awaited<ReturnType<typeof createStandaloneRuntime>>,
+): BackendResolver {
+  const dependencies = Reflect.get(runtime, "dependencies") as {
+    coordinator?: { dependencies: { resolver: BackendResolver } };
+  };
+  const resolver = dependencies.coordinator?.dependencies.resolver;
+  if (resolver === undefined) throw new Error("Expected backend resolver");
+  return resolver;
+}
+
+function localContext(): TrustedRunContext {
+  return {
+    invocation: "repl",
+    presence: "present",
+    location: "local",
+    automation: "manual",
+    embedding: "cli",
   };
 }
 
@@ -305,6 +327,127 @@ describe("standalone assembly without a provider", () => {
 
     const files = await readdir(dataDirectory, { recursive: true }).catch(() => []);
     expect(files.filter((file) => file.endsWith(".jsonl"))).toEqual([]);
+  });
+
+  it("does not choose a saved connection when no primary is explicit", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-no-primary-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    const registry = new FileConnectionRegistry(dataDirectory);
+    await registry.commit(0, (draft) => {
+      draft.connections.push({
+        kind: "local_openai_compatible",
+        id: "saved-secondary",
+        providerId: "local-openai-compatible",
+        adapterId: "openai-chat-completions",
+        label: "Saved secondary",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        modelId: "qwen",
+        createdAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      });
+    });
+
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: workspace, dataDirectory },
+    );
+
+    expect(runtime.state).toMatchObject({ type: "workspace" });
+    expect(await registry.read()).toMatchObject({
+      primaryConnectionId: null,
+      connections: [{ id: "saved-secondary" }],
+    });
+  });
+
+  it("resolves an old session by its immutable connection pin after primary changes", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-pin-routing-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    const firstConnection = await writeLocalConnection(dataDirectory, {
+      baseUrl: "http://127.0.0.1:11434/v1",
+      modelId: "model-a",
+      now: "2026-07-12T00:00:00.000Z",
+    });
+    const secondConnection = await writeLocalConnection(dataDirectory, {
+      baseUrl: "http://127.0.0.1:1234/v1",
+      modelId: "model-b",
+      now: "2026-07-12T00:01:00.000Z",
+    });
+    const firstRuntime = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: workspace, dataDirectory },
+    );
+    const firstPin = structuredClone(firstRuntime.session.backend.pin);
+    expect(firstPin).toMatchObject({
+      connectionId: firstConnection.id,
+      modelId: "model-a",
+      accountSubjectFingerprint: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+    });
+    expect(firstPin.accountSubjectFingerprint).not.toContain(firstConnection.id);
+
+    const registry = new FileConnectionRegistry(dataDirectory);
+    await new ConnectionLifecycleService(registry).setPrimary(
+      secondConnection.id,
+    );
+    const secondRuntime = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: workspace, dataDirectory },
+    );
+    expect(secondRuntime.session.backend.pin.connectionId).toBe(
+      secondConnection.id,
+    );
+    const resolver = resolverFor(secondRuntime);
+    const input = {
+      operation: "run" as const,
+      operationId: "old-session-operation",
+      sessionId: firstRuntime.session.id,
+      turnId: "old-session-turn",
+      pin: firstPin,
+      context: localContext(),
+      signal: new AbortController().signal,
+    };
+
+    await expect(resolver.resolve(input)).resolves.toMatchObject({
+      kind: "direct",
+      pin: firstPin,
+      authorization: {
+        connectionRevision: (await registry.read()).revision,
+      },
+    });
+
+    const original = await registry.read();
+    await registry.commit(original.revision, (draft) => {
+      const record = draft.connections.find(
+        (connection) => connection.id === firstConnection.id,
+      );
+      if (record?.kind !== "local_openai_compatible") {
+        throw new Error("missing local fixture");
+      }
+      record.baseUrl = "http://127.0.0.1:9999/v1";
+    });
+    await expect(resolver.resolve(input)).rejects.toMatchObject({
+      domain: "connection",
+      phase: "preflight",
+      code: "connection_invalid",
+    });
+
+    const changed = await registry.read();
+    await registry.commit(changed.revision, (draft) => {
+      const index = draft.connections.findIndex(
+        (connection) => connection.id === firstConnection.id,
+      );
+      draft.connections.splice(index, 1);
+    });
+    await expect(resolver.resolve(input)).rejects.toMatchObject({
+      domain: "connection",
+      phase: "preflight",
+      code: "connection_invalid",
+    });
   });
 
   it("uses pinned version 2 sessions for an explicitly injected provider", async () => {
