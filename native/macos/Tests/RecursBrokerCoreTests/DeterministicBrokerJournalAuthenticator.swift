@@ -71,6 +71,12 @@ actor DeterministicBrokerJournalAuthenticator:
     expected: BrokerJournalAnchor?,
     replacement: BrokerJournalAnchor
   ) async throws(BrokerJournalError) {
+    let initiallyValidated = try validatedAnchors()
+    _ = try Self.exactExpectedIndex(
+      expected: expected,
+      replacement: replacement,
+      in: initiallyValidated
+    )
     try Self.validateReplacement(expected: expected, replacement: replacement)
     await pauseIfRequested(at: .compareAndSwapBeforeSideEffect)
     if consumeFailure(at: .compareAndSwapBeforeSideEffect) {
@@ -78,20 +84,13 @@ actor DeterministicBrokerJournalAuthenticator:
     }
 
     var validated = try validatedAnchors()
-    if let expected {
-      guard
-        let index = validated.firstIndex(where: { $0.connectionID == expected.connectionID }),
-        validated[index] == expected
-      else {
-        throw .casConflict
-      }
+    if let index = try Self.exactExpectedIndex(
+      expected: expected,
+      replacement: replacement,
+      in: validated
+    ) {
       validated[index] = replacement
     } else {
-      guard
-        !validated.contains(where: { $0.connectionID == replacement.connectionID })
-      else {
-        throw .casConflict
-      }
       guard validated.count < Self.maximumAnchorCount else {
         throw .rollbackDetected
       }
@@ -103,6 +102,26 @@ actor DeterministicBrokerJournalAuthenticator:
     if consumeFailure(at: .compareAndSwapAfterSideEffect) {
       throw .mutationOutcomeUnknown
     }
+  }
+
+  private static func exactExpectedIndex(
+    expected: BrokerJournalAnchor?,
+    replacement: BrokerJournalAnchor,
+    in anchors: [BrokerJournalAnchor]
+  ) throws(BrokerJournalError) -> Int? {
+    guard let expected else {
+      guard !anchors.contains(where: { $0.connectionID == replacement.connectionID }) else {
+        throw .casConflict
+      }
+      return nil
+    }
+    guard
+      let index = anchors.firstIndex(where: { $0.connectionID == expected.connectionID }),
+      anchors[index] == expected
+    else {
+      throw .casConflict
+    }
+    return index
   }
 
   func pauseNext(at point: DeterministicJournalAuthenticatorBarrierPoint) {

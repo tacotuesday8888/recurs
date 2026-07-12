@@ -157,6 +157,48 @@ struct DeterministicBrokerJournalAuthenticatorTests {
   }
 
   @Test
+  func anchorCASChecksStoredExpectedIdentityBeforeRevisionOverflow() async throws {
+    let connectionID = UUID(uuidString: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")!
+    let nonexistentConnectionID = UUID(uuidString: "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff")!
+    let currentMaximum = try BrokerJournalAnchor(
+      connectionID: connectionID,
+      revision: .max,
+      authenticationTag: JournalAuthenticationTag(bytes: [UInt8](repeating: 1, count: 32))
+    )
+    let staleMaximum = try BrokerJournalAnchor(
+      connectionID: connectionID,
+      revision: .max,
+      authenticationTag: JournalAuthenticationTag(bytes: [UInt8](repeating: 2, count: 32))
+    )
+    let nonexistentMaximum = try BrokerJournalAnchor(
+      connectionID: nonexistentConnectionID,
+      revision: .max,
+      authenticationTag: JournalAuthenticationTag(bytes: [UInt8](repeating: 3, count: 32))
+    )
+    let authenticator = DeterministicBrokerJournalAuthenticator(anchors: [currentMaximum])
+
+    await #expect(throws: BrokerJournalError.casConflict) {
+      try await authenticator.compareAndSwapAnchor(
+        expected: staleMaximum,
+        replacement: staleMaximum
+      )
+    }
+    await #expect(throws: BrokerJournalError.casConflict) {
+      try await authenticator.compareAndSwapAnchor(
+        expected: nonexistentMaximum,
+        replacement: nonexistentMaximum
+      )
+    }
+    await #expect(throws: BrokerJournalError.revisionOverflow) {
+      try await authenticator.compareAndSwapAnchor(
+        expected: currentMaximum,
+        replacement: currentMaximum
+      )
+    }
+    #expect(try await authenticator.anchor(for: connectionID) == currentMaximum)
+  }
+
+  @Test
   func scriptedAnchorCASBarriersExposeTheExactSideEffectBoundary() async throws {
     let replacement = try anchor(
       "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
