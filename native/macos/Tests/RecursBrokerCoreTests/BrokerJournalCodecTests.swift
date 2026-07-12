@@ -456,6 +456,20 @@ struct BrokerJournalCodecTests {
   }
 
   @Test
+  func everyPhaseAndTerminalRecordMatchesIndependentExactBytes() throws {
+    let records = try phaseRecords() + terminalRecords()
+    let expected = exactCanonicalRecordOracles()
+    #expect(records.count == expected.count)
+
+    for (index, pair) in zip(records, expected).enumerated() {
+      #expect(
+        try BrokerJournalCodec.canonicalRecordData(for: pair.0) == pair.1,
+        Comment(rawValue: "canonical record oracle \(index)")
+      )
+    }
+  }
+
+  @Test
   func recordScannerRejectsForbiddenAndConfusableKeysAndSecretLikeValues() throws {
     let hostileRecords: [(name: String, bytes: Data)] = [
       ("forbidden key", Data(#"{"auth":"safe"}"#.utf8)),
@@ -499,6 +513,21 @@ struct BrokerJournalCodecTests {
     #expect(try BrokerJournalCodec.decode(encoded) == envelope)
   }
 
+  @Test
+  func recordScannerEnforcesTheExactMaximumDepth() throws {
+    func nestedArray(depth: Int) -> Data {
+      Data(
+        (String(repeating: "[", count: depth) + "0" + String(repeating: "]", count: depth))
+          .utf8
+      )
+    }
+
+    try BrokerJournalNonSecretScanner.validate(nestedArray(depth: 12))
+    #expect(throws: BrokerJournalError.invalidRecord) {
+      try BrokerJournalNonSecretScanner.validate(nestedArray(depth: 13))
+    }
+  }
+
   private func expectedRecord() -> Data {
     Data(
       #"{"schemaVersion":1,"revision":1,"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","phase":"vacant","fence":0,"lastGenerationOrdinal":0,"changedAt":"2026-07-13T00:00:00.000Z","payload":{},"terminalOperations":[]}"#
@@ -511,6 +540,22 @@ struct BrokerJournalCodecTests {
       #"{"previousAuthTag":"0000000000000000000000000000000000000000000000000000000000000000","authTag":"0101010101010101010101010101010101010101010101010101010101010101","record":{"schemaVersion":1,"revision":1,"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","phase":"vacant","fence":0,"lastGenerationOrdinal":0,"changedAt":"2026-07-13T00:00:00.000Z","payload":{},"terminalOperations":[]}}"#
         .utf8
     )
+  }
+
+  private func exactCanonicalRecordOracles() -> [Data] {
+    [
+      #"{"schemaVersion":1,"revision":1,"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","phase":"vacant","fence":0,"lastGenerationOrdinal":0,"changedAt":"2026-07-13T00:00:00.000Z","payload":{},"terminalOperations":[]}"#,
+      #"{"schemaVersion":1,"revision":2,"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","phase":"storePending","fence":2,"lastGenerationOrdinal":2,"changedAt":"2026-07-13T00:00:00.000Z","payload":{"attemptID":"00000000-0000-4000-8000-000000000012","operationID":"00000000-0000-4000-8000-000000000013","expectedFence":1,"candidate":{"generationID":"00000000-0000-4000-8000-000000000011","ordinal":2,"createdAt":"2026-07-13T00:00:00.000Z"},"previousReady":{"generation":{"generationID":"00000000-0000-4000-8000-000000000010","ordinal":1,"createdAt":"2026-07-13T00:00:00.000Z"},"committedAt":"2026-07-13T00:00:00.000Z"},"startedAt":"2026-07-13T00:00:00.000Z"},"terminalOperations":[]}"#,
+      #"{"schemaVersion":1,"revision":3,"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","phase":"staging","fence":2,"lastGenerationOrdinal":2,"changedAt":"2026-07-13T00:00:00.000Z","payload":{"attemptID":"00000000-0000-4000-8000-000000000012","operationID":"00000000-0000-4000-8000-000000000013","expectedFence":1,"candidate":{"generationID":"00000000-0000-4000-8000-000000000011","ordinal":2,"createdAt":"2026-07-13T00:00:00.000Z"},"previousReady":null,"startedAt":"2026-07-13T00:00:00.000Z"},"terminalOperations":[]}"#,
+      #"{"schemaVersion":1,"revision":4,"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","phase":"readyCleanupPending","fence":2,"lastGenerationOrdinal":2,"changedAt":"2026-07-13T00:00:00.000Z","payload":{"attemptID":"00000000-0000-4000-8000-000000000012","operationID":"00000000-0000-4000-8000-000000000013","expectedFence":2,"ready":{"generation":{"generationID":"00000000-0000-4000-8000-000000000011","ordinal":2,"createdAt":"2026-07-13T00:00:00.000Z"},"committedAt":"2026-07-13T00:00:00.000Z"},"previousReady":{"generation":{"generationID":"00000000-0000-4000-8000-000000000010","ordinal":1,"createdAt":"2026-07-13T00:00:00.000Z"},"committedAt":"2026-07-13T00:00:00.000Z"}},"terminalOperations":[]}"#,
+      #"{"schemaVersion":1,"revision":5,"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","phase":"ready","fence":2,"lastGenerationOrdinal":2,"changedAt":"2026-07-13T00:00:00.000Z","payload":{"ready":{"generation":{"generationID":"00000000-0000-4000-8000-000000000011","ordinal":2,"createdAt":"2026-07-13T00:00:00.000Z"},"committedAt":"2026-07-13T00:00:00.000Z"}},"terminalOperations":[]}"#,
+      #"{"schemaVersion":1,"revision":6,"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","phase":"stageCleanupPending","fence":2,"lastGenerationOrdinal":2,"changedAt":"2026-07-13T00:00:00.000Z","payload":{"attemptID":"00000000-0000-4000-8000-000000000012","operationID":"00000000-0000-4000-8000-000000000013","expectedFence":1,"candidate":{"generationID":"00000000-0000-4000-8000-000000000011","ordinal":2,"createdAt":"2026-07-13T00:00:00.000Z"},"restoredReady":{"generation":{"generationID":"00000000-0000-4000-8000-000000000010","ordinal":1,"createdAt":"2026-07-13T00:00:00.000Z"},"committedAt":"2026-07-13T00:00:00.000Z"},"error":"attemptNotCurrent"},"terminalOperations":[]}"#,
+      #"{"schemaVersion":1,"revision":7,"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","phase":"abortCleanupPending","fence":2,"lastGenerationOrdinal":2,"changedAt":"2026-07-13T00:00:00.000Z","payload":{"attemptID":"00000000-0000-4000-8000-000000000012","operationID":"00000000-0000-4000-8000-000000000013","expectedFence":2,"candidate":{"generationID":"00000000-0000-4000-8000-000000000011","ordinal":2,"createdAt":"2026-07-13T00:00:00.000Z"},"restoredReady":null},"terminalOperations":[]}"#,
+      #"{"schemaVersion":1,"revision":8,"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","phase":"disconnectFenced","fence":3,"lastGenerationOrdinal":2,"changedAt":"2026-07-13T00:00:00.000Z","payload":{"operationID":"00000000-0000-4000-8000-000000000013","expectedFence":2,"tombstonedAt":"2026-07-13T00:00:00.000Z","deleteGenerations":[{"generationID":"00000000-0000-4000-8000-000000000011","ordinal":2,"createdAt":"2026-07-13T00:00:00.000Z"},{"generationID":"00000000-0000-4000-8000-000000000010","ordinal":1,"createdAt":"2026-07-13T00:00:00.000Z"}]},"terminalOperations":[]}"#,
+      #"{"schemaVersion":1,"revision":9,"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","phase":"tombstoned","fence":3,"lastGenerationOrdinal":2,"changedAt":"2026-07-13T00:00:00.000Z","payload":{"tombstonedAt":"2026-07-13T00:00:00.000Z"},"terminalOperations":[]}"#,
+      #"{"schemaVersion":1,"revision":10,"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","phase":"ready","fence":2,"lastGenerationOrdinal":2,"changedAt":"2026-07-13T00:00:00.000Z","payload":{"ready":{"generation":{"generationID":"00000000-0000-4000-8000-000000000021","ordinal":2,"createdAt":"2026-07-13T00:00:00.000Z"},"committedAt":"2026-07-13T00:00:00.000Z"}},"terminalOperations":[{"operationID":"00000000-0000-4000-8000-000000000022","kind":"stageFailure","expectedFence":0,"result":{"error":"cancelled"}},{"operationID":"00000000-0000-4000-8000-000000000023","kind":"stageFailure","expectedFence":0,"result":{"error":"storeUnavailable"}},{"operationID":"00000000-0000-4000-8000-000000000024","kind":"stageFailure","expectedFence":0,"result":{"error":"attemptNotCurrent"}},{"operationID":"00000000-0000-4000-8000-000000000025","kind":"commit","expectedFence":1,"attemptID":"00000000-0000-4000-8000-000000000026","result":{"ready":{"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","fence":1,"ready":{"generation":{"generationID":"00000000-0000-4000-8000-000000000020","ordinal":1,"createdAt":"2026-07-13T00:00:00.000Z"},"committedAt":"2026-07-13T00:00:00.000Z"},"lastGenerationOrdinal":1}}},{"operationID":"00000000-0000-4000-8000-000000000027","kind":"abort","expectedFence":1,"attemptID":"00000000-0000-4000-8000-000000000028","result":{"restoredReady":{"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","fence":1,"ready":{"generation":{"generationID":"00000000-0000-4000-8000-000000000020","ordinal":1,"createdAt":"2026-07-13T00:00:00.000Z"},"committedAt":"2026-07-13T00:00:00.000Z"},"lastGenerationOrdinal":1}}},{"operationID":"00000000-0000-4000-8000-000000000029","kind":"abort","expectedFence":2,"attemptID":"00000000-0000-4000-8000-000000000030","result":{"restoredReady":null}}]}"#,
+      #"{"schemaVersion":1,"revision":11,"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","phase":"tombstoned","fence":3,"lastGenerationOrdinal":2,"changedAt":"2026-07-13T00:00:00.000Z","payload":{"tombstonedAt":"2026-07-13T00:00:00.000Z"},"terminalOperations":[{"operationID":"00000000-0000-4000-8000-000000000031","kind":"disconnect","expectedFence":2,"result":{"tombstone":{"connectionID":"aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee","fence":3,"lastGenerationOrdinal":2,"tombstonedAt":"2026-07-13T00:00:00.000Z"}}}]}"#,
+    ].map { Data($0.utf8) }
   }
 
   private func phaseRecords() throws -> [BrokerJournalRecord] {
