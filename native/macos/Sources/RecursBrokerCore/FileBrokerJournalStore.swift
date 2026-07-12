@@ -1,6 +1,6 @@
 import Foundation
 
-package actor FileBrokerJournalStore {
+package actor FileBrokerJournalStore: BrokerJournalStore {
   package static let maximumPendingOperationCount = 1_024
 
   private struct OperationGateWaiter {
@@ -147,6 +147,270 @@ package actor FileBrokerJournalStore {
       }
     }
     return snapshots
+  }
+
+  package func compareAndSwap(
+    expected: BrokerJournalSnapshot?,
+    replacement: BrokerJournalRecord
+  ) async throws(BrokerJournalError) -> BrokerJournalSnapshot {
+    try await enterOperationGate()
+    defer { leaveOperationGate() }
+
+    let authorityConnectionID = expected?.record.connectionID ?? replacement.connectionID
+    let currentAnchor = try await authenticator.anchor(for: authorityConnectionID)
+    let currentSnapshot: BrokerJournalSnapshot?
+    if let expected {
+      guard let currentAnchor else { throw .casConflict }
+      let loaded = try await loadSelected(
+        anchor: currentAnchor,
+        connectionID: authorityConnectionID
+      )
+      guard loaded == expected else { throw .casConflict }
+      currentSnapshot = loaded
+    } else {
+      guard currentAnchor == nil else { throw .casConflict }
+      currentSnapshot = nil
+    }
+
+    try BrokerJournalTransitionValidator.validate(
+      predecessor: currentSnapshot?.record,
+      successor: replacement
+    )
+    let previousTag = currentSnapshot?.authenticationTag ?? .zero
+    let canonicalRecord = try BrokerJournalCodec.canonicalRecordData(for: replacement)
+    let authenticationTag = try await authenticator.authenticate(
+      previousTag: previousTag,
+      canonicalRecord: canonicalRecord
+    )
+    let intendedAnchor = try BrokerJournalAnchor(
+      connectionID: replacement.connectionID,
+      revision: replacement.revision,
+      authenticationTag: authenticationTag
+    )
+    let intendedSnapshot = BrokerJournalSnapshot(
+      record: replacement,
+      authenticationTag: authenticationTag
+    )
+    let envelopeData = try BrokerJournalCodec.encode(
+      BrokerJournalEnvelope(
+        previousAuthTag: previousTag,
+        authTag: authenticationTag,
+        record: replacement
+      )
+    )
+    let intendedBasename =
+      "\(replacement.connectionID.uuidString.lowercased()).\(replacement.revision % 2).rcbj"
+    do {
+      try directory.writeAtomically(envelopeData, toSlotBasename: intendedBasename)
+    } catch let error {
+      switch error {
+      case .fileTooLarge:
+        throw .invalidRecord
+      case .durabilityUnknown:
+        return try await reconcileAnchorFailure(
+          originalError: .storageUnavailable,
+          previousAnchor: currentAnchor,
+          previousSnapshot: currentSnapshot,
+          intendedAnchor: intendedAnchor,
+          intendedSnapshot: intendedSnapshot,
+          intendedEnvelopeData: envelopeData,
+          intendedBasename: intendedBasename
+        )
+      default:
+        throw .storageUnavailable
+      }
+    }
+
+    guard
+      try await loadSelected(
+        anchor: intendedAnchor,
+        connectionID: replacement.connectionID
+      ) == intendedSnapshot
+    else {
+      throw .rollbackDetected
+    }
+    let selectedAnchor: BrokerJournalAnchor?
+    do {
+      try await authenticator.compareAndSwapAnchor(
+        expected: currentAnchor,
+        replacement: intendedAnchor
+      )
+      selectedAnchor = try await authenticator.anchor(for: replacement.connectionID)
+    } catch let error {
+      return try await reconcileAnchorFailure(
+        originalError: error,
+        previousAnchor: currentAnchor,
+        previousSnapshot: currentSnapshot,
+        intendedAnchor: intendedAnchor,
+        intendedSnapshot: intendedSnapshot,
+        intendedEnvelopeData: envelopeData,
+        intendedBasename: intendedBasename
+      )
+    }
+    guard selectedAnchor == intendedAnchor else {
+      return try await reconcileAnchorFailure(
+        originalError: .mutationOutcomeUnknown,
+        previousAnchor: currentAnchor,
+        previousSnapshot: currentSnapshot,
+        intendedAnchor: intendedAnchor,
+        intendedSnapshot: intendedSnapshot,
+        intendedEnvelopeData: envelopeData,
+        intendedBasename: intendedBasename
+      )
+    }
+    return try await verifyOrRepairIntendedSelection(
+      anchor: intendedAnchor,
+      snapshot: intendedSnapshot,
+      envelopeData: envelopeData,
+      basename: intendedBasename
+    )
+  }
+
+  private func reconcileAnchorFailure(
+    originalError: BrokerJournalError,
+    previousAnchor: BrokerJournalAnchor?,
+    previousSnapshot: BrokerJournalSnapshot?,
+    intendedAnchor: BrokerJournalAnchor,
+    intendedSnapshot: BrokerJournalSnapshot,
+    intendedEnvelopeData: Data,
+    intendedBasename: String
+  ) async throws(BrokerJournalError) -> BrokerJournalSnapshot {
+    let observedAnchor: BrokerJournalAnchor?
+    do {
+      observedAnchor = try await authenticator.anchor(for: intendedAnchor.connectionID)
+    } catch {
+      throw originalError == .casConflict ? .casConflict : .mutationOutcomeUnknown
+    }
+
+    if observedAnchor == intendedAnchor {
+      return try await verifyOrRepairIntendedSelection(
+        anchor: intendedAnchor,
+        snapshot: intendedSnapshot,
+        envelopeData: intendedEnvelopeData,
+        basename: intendedBasename
+      )
+    }
+
+    if observedAnchor == previousAnchor {
+      let previousIsExact: Bool
+      if let previousAnchor, let previousSnapshot {
+        do {
+          previousIsExact =
+            try await loadSelected(
+              anchor: previousAnchor,
+              connectionID: previousAnchor.connectionID
+            ) == previousSnapshot
+        } catch {
+          throw originalError == .casConflict ? .casConflict : .mutationOutcomeUnknown
+        }
+      } else {
+        previousIsExact = previousAnchor == nil && previousSnapshot == nil
+      }
+      guard previousIsExact else {
+        throw originalError == .casConflict ? .casConflict : .mutationOutcomeUnknown
+      }
+      if let previousAnchor {
+        let authorityAfterPreviousVerification: BrokerJournalAnchor?
+        do {
+          authorityAfterPreviousVerification = try await authenticator.anchor(
+            for: previousAnchor.connectionID
+          )
+        } catch {
+          throw originalError == .casConflict ? .casConflict : .mutationOutcomeUnknown
+        }
+        guard authorityAfterPreviousVerification == previousAnchor else {
+          throw originalError == .casConflict ? .casConflict : .mutationOutcomeUnknown
+        }
+      }
+      switch originalError {
+      case .storageUnavailable, .casConflict:
+        throw originalError
+      default:
+        throw .mutationOutcomeUnknown
+      }
+    }
+
+    throw originalError == .casConflict ? .casConflict : .mutationOutcomeUnknown
+  }
+
+  private func verifyOrRepairIntendedSelection(
+    anchor: BrokerJournalAnchor,
+    snapshot: BrokerJournalSnapshot,
+    envelopeData: Data,
+    basename: String
+  ) async throws(BrokerJournalError) -> BrokerJournalSnapshot {
+    do {
+      let selected = try await loadSelected(
+        anchor: anchor,
+        connectionID: anchor.connectionID
+      )
+      guard selected == snapshot else { throw BrokerJournalError.rollbackDetected }
+      return try await requireIntendedAuthorityAfterVerification(
+        selected,
+        anchor: anchor
+      )
+    } catch let error as BrokerJournalError {
+      switch error {
+      case .rollbackDetected, .invalidRecord, .nonCanonical, .unsupportedVersion,
+        .authenticationFailed:
+        // Selected bytes can be lost or damaged after the external anchor CAS
+        // succeeds. Repair only while that exact anchor remains authoritative.
+        break
+      default:
+        throw error
+      }
+    } catch {
+      throw .mutationOutcomeUnknown
+    }
+
+    let authorityBeforeRepair: BrokerJournalAnchor?
+    do {
+      authorityBeforeRepair = try await authenticator.anchor(for: anchor.connectionID)
+    } catch {
+      throw .mutationOutcomeUnknown
+    }
+    guard authorityBeforeRepair == anchor else { throw .mutationOutcomeUnknown }
+
+    do {
+      try directory.writeAtomically(envelopeData, toSlotBasename: basename)
+    } catch .fileTooLarge {
+      throw .invalidRecord
+    } catch .durabilityUnknown {
+      let exactBytesPersisted: Bool
+      do {
+        exactBytesPersisted =
+          try directory.readBoundedFileIfPresent(basename: basename) == envelopeData
+      } catch {
+        throw .mutationOutcomeUnknown
+      }
+      guard exactBytesPersisted else { throw .mutationOutcomeUnknown }
+    } catch {
+      throw .mutationOutcomeUnknown
+    }
+
+    let repaired = try await loadSelected(
+      anchor: anchor,
+      connectionID: anchor.connectionID
+    )
+    guard repaired == snapshot else { throw .rollbackDetected }
+    return try await requireIntendedAuthorityAfterVerification(
+      repaired,
+      anchor: anchor
+    )
+  }
+
+  private func requireIntendedAuthorityAfterVerification(
+    _ selected: BrokerJournalSnapshot,
+    anchor: BrokerJournalAnchor
+  ) async throws(BrokerJournalError) -> BrokerJournalSnapshot {
+    let authorityAfterVerification: BrokerJournalAnchor?
+    do {
+      authorityAfterVerification = try await authenticator.anchor(for: anchor.connectionID)
+    } catch {
+      throw .mutationOutcomeUnknown
+    }
+    guard authorityAfterVerification == anchor else { throw .mutationOutcomeUnknown }
+    return selected
   }
 
   private func validateAnchorIndexAndSelectedBasenames(

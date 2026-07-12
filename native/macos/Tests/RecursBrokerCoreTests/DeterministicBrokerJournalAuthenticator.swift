@@ -25,6 +25,8 @@ actor DeterministicBrokerJournalAuthenticator:
   private static let maximumAnchorCount = 1_024
 
   private var anchors: [BrokerJournalAnchor]
+  private var authenticateCalls = 0
+  private var anchorCASCalls = 0
   private var anchorLookupIDs: [UUID] = []
   private var anchorListCalls = 0
   private var verifyCalls = 0
@@ -49,6 +51,21 @@ actor DeterministicBrokerJournalAuthenticator:
     previousTag: JournalAuthenticationTag,
     canonicalRecord: Data
   ) async throws(BrokerJournalError) -> JournalAuthenticationTag {
+    authenticateCalls += 1
+    return try Self.authenticationTag(
+      previousTag: previousTag,
+      canonicalRecord: canonicalRecord
+    )
+  }
+
+  func authenticateCount() -> Int {
+    authenticateCalls
+  }
+
+  private static func authenticationTag(
+    previousTag: JournalAuthenticationTag,
+    canonicalRecord: Data
+  ) throws(BrokerJournalError) -> JournalAuthenticationTag {
     var input = Self.domainSeparator
     input.append(0)
     input.append(contentsOf: previousTag.copiedBytes())
@@ -67,7 +84,7 @@ actor DeterministicBrokerJournalAuthenticator:
     if consumeFailure(at: .verifyBeforeReturn) {
       throw .authenticationFailed
     }
-    let expected = try await authenticate(
+    let expected = try Self.authenticationTag(
       previousTag: previousTag,
       canonicalRecord: canonicalRecord
     )
@@ -122,6 +139,7 @@ actor DeterministicBrokerJournalAuthenticator:
     expected: BrokerJournalAnchor?,
     replacement: BrokerJournalAnchor
   ) async throws(BrokerJournalError) {
+    anchorCASCalls += 1
     let initiallyValidated = try validatedAnchors()
     _ = try Self.exactExpectedIndex(
       expected: expected,
@@ -153,6 +171,10 @@ actor DeterministicBrokerJournalAuthenticator:
     if consumeFailure(at: .compareAndSwapAfterSideEffect) {
       throw .mutationOutcomeUnknown
     }
+  }
+
+  func anchorCASCount() -> Int {
+    anchorCASCalls
   }
 
   private static func exactExpectedIndex(
