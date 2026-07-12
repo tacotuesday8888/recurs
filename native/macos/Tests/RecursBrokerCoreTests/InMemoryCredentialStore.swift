@@ -27,7 +27,7 @@ struct InMemoryCredentialStoreInspection: Sendable, CustomStringConvertible,
   }
 }
 
-actor InMemoryCredentialStore: CredentialStore {
+actor InMemoryCredentialStore: CredentialStore, CustomReflectable {
   private var retained: [CredentialStoreKey: SecretBytes] = [:]
   private var storeCounts: [CredentialStoreKey: Int] = [:]
   private var loadCounts: [CredentialStoreKey: Int] = [:]
@@ -36,6 +36,11 @@ actor InMemoryCredentialStore: CredentialStore {
   private var failureBudgets: [StoreBarrierPoint: Int] = [:]
   private var parked: [StoreBarrierPoint: [CheckedContinuation<Void, Never>]] = [:]
   private var arrivalWaiters: [StoreBarrierPoint: [CheckedContinuation<Void, Never>]] = [:]
+
+  nonisolated var customMirror: Mirror {
+    let children: [(label: String?, value: Any)] = []
+    return Mirror(self, children: children, displayStyle: .class)
+  }
 
   func store(
     _ secret: sending SecretBytes,

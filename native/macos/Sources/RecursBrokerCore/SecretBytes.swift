@@ -1,6 +1,11 @@
 import Foundation
 
-package final class SecretBytes: CustomStringConvertible, CustomDebugStringConvertible {
+package final class SecretBytes:
+  CustomStringConvertible,
+  CustomDebugStringConvertible,
+  CustomReflectable,
+  CustomPlaygroundDisplayConvertible
+{
   private var storage: Data
 
   package init(_ bytes: consuming Data) {
@@ -34,6 +39,15 @@ package final class SecretBytes: CustomStringConvertible, CustomDebugStringConve
   }
 
   package var debugDescription: String {
+    "<redacted>"
+  }
+
+  package var customMirror: Mirror {
+    let children: [(label: String?, value: Any)] = []
+    return Mirror(self, children: children, displayStyle: .class)
+  }
+
+  package var playgroundDescription: Any {
     "<redacted>"
   }
 }

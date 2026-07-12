@@ -67,6 +67,37 @@ struct BrokerCredentialStateTests {
   }
 
   @Test
+  func secretReflectionAndRecursiveStoreDumpExposeNoBytesOrLength() async throws {
+    let canary = "mirror-canary-593847201"
+    let canaryBytes = Array(canary.utf8)
+    let secret = SecretBytes(Data(canaryBytes))
+
+    #expect(Array(Mirror(reflecting: secret).children).isEmpty)
+    #expect(secret.playgroundDescription as? String == "<redacted>")
+    var secretDump = ""
+    dump(secret, to: &secretDump)
+    expectNoReflectedSecret(secretDump, canary: canary, bytes: canaryBytes)
+
+    let store = InMemoryCredentialStore()
+    let key = CredentialStoreKey(
+      connectionID: fixtureUUID(15),
+      generationID: fixtureUUID(16),
+      generationOrdinal: 1
+    )
+    try await store.store(secret, for: key)
+    #expect(Array(Mirror(reflecting: store).children).isEmpty)
+    var storeDump = ""
+    dump(store, to: &storeDump)
+    expectNoReflectedSecret(storeDump, canary: canary, bytes: canaryBytes)
+
+    let inspection = await store.inspection()
+    var inspectionDump = ""
+    dump(inspection, to: &inspectionDump)
+    expectNoReflectedSecret(inspectionDump, canary: canary, bytes: canaryBytes)
+    try await store.deleteIfPresent(key)
+  }
+
+  @Test
   func projectionsErrorsAndStoreInspectionAreCanaryFree() async throws {
     let canary = "secret-canary-encoded-9912"
     let generation = CredentialGeneration(
@@ -1374,7 +1405,7 @@ struct BrokerCredentialStateTests {
     let store = InMemoryCredentialStore()
     let harness = try makeHarness(store: store)
     let connectionID = fixtureUUID(230)
-    var latestAttempt: StagingAttempt?
+    var attempts: [StagingAttempt] = []
     for index in 0..<65 {
       let attempt = try await harness.state.stage(
         connectionID: connectionID,
@@ -1388,34 +1419,46 @@ struct BrokerCredentialStateTests {
         operationID: fixtureUUID(3_001 + index * 2),
         expectedFence: UInt64(index + 1)
       )
-      latestAttempt = attempt
+      attempts.append(attempt)
     }
     let storeCalls = (await store.inspection()).storeCallCounts.values.reduce(0, +)
     #expect(storeCalls == 65)
+    let generationCalls = harness.generationIDs.count()
+    let attemptCalls = harness.attemptIDs.count()
+    let clockCalls = harness.clock.count()
+    #expect((generationCalls, attemptCalls, clockCalls) == (65, 65, 130))
 
+    // Stage and abort alternate terminal insertions. Cycle 32's stage is
+    // insertion 64 and must be evicted after 130 total insertions.
     let evictedSecret = UncheckedSecretAlias(SecretBytes(Data("evicted".utf8)))
     await expectBrokerError(.staleFence) {
       try await harness.state.stage(
         connectionID: connectionID,
-        operationID: fixtureUUID(3_000),
-        expectedFence: 0,
+        operationID: fixtureUUID(3_000 + 32 * 2),
+        expectedFence: 32,
         secret: evictedSecret.value
       )
     }
     #expect(evictedSecret.isErased())
+    #expect((await store.inspection()).storeCallCounts.values.reduce(0, +) == storeCalls)
+    #expect(harness.generationIDs.count() == generationCalls)
+    #expect(harness.attemptIDs.count() == attemptCalls)
+    #expect(harness.clock.count() == clockCalls)
 
+    // Cycle 33's stage is insertion 66, the first retained stage result.
     let retainedSecret = UncheckedSecretAlias(SecretBytes(Data("retained".utf8)))
     let replay = try await harness.state.stage(
       connectionID: connectionID,
-      operationID: fixtureUUID(3_000 + 64 * 2),
-      expectedFence: 64,
+      operationID: fixtureUUID(3_000 + 33 * 2),
+      expectedFence: 33,
       secret: retainedSecret.value
     )
-    #expect(replay == latestAttempt)
+    #expect(replay == attempts[33])
     #expect(retainedSecret.isErased())
     #expect((await store.inspection()).storeCallCounts.values.reduce(0, +) == storeCalls)
-    #expect(harness.generationIDs.count() == 65)
-    #expect(harness.attemptIDs.count() == 65)
+    #expect(harness.generationIDs.count() == generationCalls)
+    #expect(harness.attemptIDs.count() == attemptCalls)
+    #expect(harness.clock.count() == clockCalls)
   }
 
   @Test
@@ -1586,5 +1629,49 @@ private func expectStoreError<Value>(
     #expect(error == expected)
   } catch {
     Issue.record("Unexpected error type: \(String(reflecting: error))")
+  }
+}
+
+private func expectNoReflectedSecret(
+  _ surface: String,
+  canary: String,
+  bytes: [UInt8]
+) {
+  let decimalBytes = bytes.map(String.init).joined(separator: ", ")
+  let compactDecimalBytes = bytes.map(String.init).joined(separator: ",")
+  let hexBytes = bytes.map { String(format: "%02x", $0) }.joined()
+  let numericLeaves = surface.split(separator: "\n").compactMap { line -> UInt8? in
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    guard trimmed.hasPrefix("- ") else {
+      return nil
+    }
+    return UInt8(trimmed.dropFirst(2))
+  }
+  #expect(!surface.contains(canary))
+  #expect(!surface.contains("\(bytes.count) bytes"))
+  #expect(!surface.contains(decimalBytes))
+  #expect(!surface.contains(compactDecimalBytes))
+  #expect(!surface.lowercased().contains(hexBytes))
+  #expect(!numericLeaves.containsContiguous(bytes))
+}
+
+extension Collection where Element: Equatable {
+  fileprivate func containsContiguous<Needle: Collection>(_ needle: Needle) -> Bool
+  where Needle.Element == Element {
+    guard !needle.isEmpty else {
+      return true
+    }
+    return indices.contains { start in
+      var haystackIndex = start
+      var needleIndex = needle.startIndex
+      while needleIndex != needle.endIndex, haystackIndex != endIndex {
+        guard self[haystackIndex] == needle[needleIndex] else {
+          return false
+        }
+        formIndex(after: &haystackIndex)
+        needle.formIndex(after: &needleIndex)
+      }
+      return needleIndex == needle.endIndex
+    }
   }
 }
