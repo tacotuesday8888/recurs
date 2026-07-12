@@ -5,6 +5,9 @@
       "path": "./packages/contracts"
     },
     {
+      "path": "./packages/auth"
+    },
+    {
       "path": "./packages/providers"
     },
     {
