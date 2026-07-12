@@ -40,9 +40,16 @@ recurs provider list --all
 recurs provider list --json
 recurs account list
 recurs account list --json
+recurs account verify <connection-id>
+recurs account set-primary <connection-id>
+recurs account disconnect <connection-id>
 ```
 
-The normal provider list hides blocked paths; `--all` includes them. Both text and JSON distinguish runnable, native-broker-required, and blocked paths and report structured billing and restrictions. Account output marks the primary connection and redacts delegated identity.
+The normal provider list hides blocked paths; `--all` includes them. Both text and JSON distinguish runnable, native-broker-required, and blocked paths and report structured billing and restrictions. Account output marks the primary connection and omits local endpoints, delegated account labels, fingerprints, and credentials.
+
+Account mutations require one full exact ID; prefixes, labels, indexes, extra flags, and control characters are rejected. `verify` is read-only and runs only from a local, user-present, non-automation terminal because Codex is one supported path. It rechecks the exact local model or official Codex account/model/read-only profile; it does not sign in, repair billing acknowledgement, or mutate the registry. Use `recurs setup codex` when Codex requires authentication or policy acknowledgement again.
+
+`set-primary` changes only the default for a future new session. Every existing session continues through its immutable connection/model/account/policy/billing pin. `disconnect` requires interactive confirmation and removes only Recurs metadata; it does not sign out, revoke, or delete vendor-owned authentication. Removing the primary leaves no primary instead of selecting another billing source implicitly.
 
 ### Local setup
 
@@ -60,7 +67,7 @@ For LM Studio, enable its local server and use its displayed model identifier:
 recurs setup local --url http://127.0.0.1:1234/v1 --model <model-id>
 ```
 
-Setup reads `/models`, requires an exact model match, and writes only non-secret endpoint/model metadata under `RECURS_HOME`. Restart Recurs after changing the configured local model.
+Setup reads `/models`, requires an exact model match, and writes only non-secret endpoint/model metadata under `RECURS_HOME`. A normalized loopback origin identifies one record, so changing that origin creates another connection instead of redirecting an existing pin. Only the first record in an empty registry becomes primary; later records remain secondary until `account set-primary` is explicit.
 
 ### Codex with ChatGPT
 
@@ -71,6 +78,8 @@ recurs setup codex
 ```
 
 Before starting, the CLI requires explicit acknowledgement that eligible ChatGPT plans include Codex usage but the provider may automatically consume available prepaid credits after included limits. The pinned official adapter reports authentication status; Recurs accepts only a structured `chat-gpt` account, uses only a currently advertised `chat-gpt` login method when sign-in is needed, rechecks status after login, and verifies a temporary session exposes the selected model and Codex `read-only` mode. Adapter 1.1.2 does not report plan tier, organization, or remaining allowance, so Recurs claims only ChatGPT authentication and session usability. The non-secret registry retains the verified account label and a canonical one-way fingerprint so later runs can detect an account change. Public account output omits both; session pins retain only the non-authorizing fingerprint, not the account label. Recurs never imports or stores the token, auth-file contents, or browser cookie. Vendor session IDs are kept only as bounded process-scoped continuation payloads and never enter the registry, JSONL session log, or public account output.
+
+Adding another ChatGPT account leaves the existing primary unchanged. Re-running setup for the same verified account updates that exact record without changing whether it is primary or secondary.
 
 Every Codex run rereads the registry and current billing/usage policy. The active account is then verified against the saved fingerprint on the exact initialized ACP child, after continuation loading when resuming, and again after configuration immediately before continuation staging and prompting. Codex runs only in a local manual CLI REPL with the user present. It is Plan-only/read-only: Act mode, remote or scripted use, recognized CI even with a TTY, implicit programmatic submission, `recurs run`, unattended/background work, and automatic continuation while account or policy state is uncertain all fail closed. Core also rejects every non-read opaque runtime approval in Plan mode regardless of Ask Always, Approved for Me, or Full Access.
 
@@ -187,7 +196,7 @@ Replacing or clearing an unfinished goal requires confirmation. Each successful 
 | `/cancel` | Abort the current provider/tool run. |
 | `/quit`, `/exit`, `/q` | Exit the interactive CLI. |
 
-Before a provider is configured, the workspace shell exposes only `/help`, `/connect`, `/model`, `/permissions`, `/status`, `/resume` listing, `/init`, `/diff`, and exit commands. `/connect` gives both `recurs setup codex` and the credential-free local setup command; `/model` reports that no connection is active.
+Without an explicit primary, the workspace shell exposes only `/help`, `/connect`, `/model`, `/permissions`, `/status`, `/resume`, `/init`, `/diff`, and exit commands. Secondary records are never selected by file order. `/resume <exact-id>` may load a historical pinned session for inspection and, when its exact connection still exists and matches, continued work. A changed or disconnected record fails preflight before provider/runtime work. `/connect` gives both `recurs setup codex` and the credential-free local setup command; `/model` reports that no connection is active.
 
 ## Sessions and recovery
 
@@ -197,7 +206,7 @@ By default, project data lives under:
 ~/.recurs/projects/<workspace-hash>/
 ```
 
-Set `RECURS_HOME` to move the Recurs data root. New session logs use strict version-2 append-only JSONL. Sequence zero pins the provider lane, connection, adapter, account fingerprint, model identity, billing choice, catalog, and policy revisions. Every mutation holds a cross-process lock and exact sequence; stale or concurrent writers fail. Version-1 logs remain readable and listable but cannot be changed.
+Set `RECURS_HOME` to move the Recurs data root. New session logs use strict version-2 append-only JSONL. Sequence zero pins the provider lane, connection, adapter, account fingerprint, model identity, billing choice, catalog, and policy revisions; local pins also bind a digest of the normalized loopback origin. Each run rereads the registry and reconstructs that complete pin. A primary switch cannot redirect history, while a changed or missing record fails closed. Every mutation holds a cross-process lock and exact sequence; stale or concurrent writers fail. Version-1 logs remain readable and listable but cannot be changed.
 
 Completed messages and tool/permission/turn boundaries are flushed to disk. A partial final JSONL record is quarantined during recovery; committed corruption in the middle fails loudly. Before the next turn, pending tools receive durable failure results and the prior open turn is closed as interrupted. An orphaned compaction is closed locally with unknown usage and never retried automatically.
 

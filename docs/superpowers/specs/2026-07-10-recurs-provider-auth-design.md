@@ -1,10 +1,10 @@
 # Recurs Provider, Authentication, and Onboarding Design
 
 **Date:** 2026-07-10
-**Status:** Reviewed umbrella design — Slice 0, the TypeScript safety precursor, the 25-path/non-secret subset of Slice 2, and the Codex foundation of Slice 4 implemented; native Slice 1, direct credential-bearing Slice 3, and later runtime/policy work pending
+**Status:** Reviewed umbrella design — Slice 0, the TypeScript safety precursor, the 25-path/non-secret connection lifecycle of Slice 2, and the Codex foundation of Slice 4 implemented; native Slice 1, direct credential-bearing Slice 3, and later runtime/policy work pending
 **Scope:** CLI-first provider connectivity shared with the future desktop app
 
-This specification describes the provider/authentication program. The repository now implements dependency-leaf contracts, immutable backend pins, trusted host context, version-2 sessions and leases, direct/delegated coordination, durable delegated results and recovery, a sessionless workspace shell, unified built-in credential exclusions, checkpoint format gating, clean child state, tool security profiles, sanitized failures, a strict 25-path manifest catalog, a non-secret connection registry, literal-loopback OpenAI-compatible setup, and the first official Codex-with-ChatGPT ACP path. Recurs imports or stores no vendor credential; Codex authentication remains owned by the pinned official runtime. The native storage/broker and OS sandbox authority boundary is still absent, so direct API, coding-plan, OAuth, and cloud-identity activation remains blocked. See [the architecture](../../../ARCHITECTURE.md) for exact implemented behavior.
+This specification describes the provider/authentication program. The repository now implements dependency-leaf contracts, immutable backend pins, trusted host context, version-2 sessions and leases, direct/delegated coordination, durable delegated results and recovery, a sessionless workspace shell, unified built-in credential exclusions, checkpoint format gating, clean child state, tool security profiles, sanitized failures, a strict 25-path manifest catalog, a non-secret connection registry and exact-ID lifecycle service, literal-loopback OpenAI-compatible setup, and the first official Codex-with-ChatGPT ACP path. Recurs imports or stores no vendor credential; Codex authentication remains owned by the pinned official runtime. The native storage/broker and OS sandbox authority boundary is still absent, so direct API, coding-plan, OAuth, and cloud-identity activation remains blocked. See [the architecture](../../../ARCHITECTURE.md) for exact implemented behavior.
 
 ## 1. Decision
 
@@ -80,8 +80,11 @@ The current live provider foundation is deliberately narrow:
   paths. Only literal-loopback Ollama, literal-loopback LM Studio, and Codex
   with ChatGPT through the official ACP adapter are runnable.
 - Version-2 sessions pin the exact connection, adapter, model, account
-  fingerprint, policy, and acknowledged billing source set. Provider and
-  account list commands project redacted registry/application data.
+  fingerprint, policy, and acknowledged billing source set. Local pins also
+  bind the normalized loopback origin. Each operation resolves that exact pin
+  from the current registry, so changing primary cannot redirect history and a
+  changed or disconnected record fails preflight. Exact-ID account commands
+  list, verify, select, and disconnect redacted registry/application data.
 - `BackendRunCoordinator` has separate direct and delegated executors. Delegated
   results, failures, usage, file/evidence data, and continuation transitions are
   durable; uncertain continuations are reconciled before new work rather than
@@ -2199,22 +2202,28 @@ The final actions are **Start using Recurs** and **Add another connection**.
 
 ## 15. Later Connection Management
 
-The implemented read-only inventory commands are:
+The implemented non-secret management commands are:
 
 - `recurs provider list [--all] [--json]`
 - `recurs account list [--json]`
+- `recurs account verify <id>`
+- `recurs account set-primary <id>`
+- `recurs account disconnect <id>`
 
-The broader management surface below remains a target design, not current CLI
-behavior:
+Verification is read-only. Only the first connection in an empty registry
+becomes primary; later records remain secondary. Disconnect removes current
+non-secret Recurs metadata after local interactive confirmation and never logs
+out of a vendor. Removing the primary leaves it unset. Existing sessions retain
+their immutable pin and fail closed if its record is removed or changed.
+
+The broader management surface below remains target design, not current CLI
+behavior; the implemented commands above are omitted from this remaining list:
 
 ```text
 recurs setup
 recurs account list [--all|--json]
 recurs account add [provider]
-recurs account verify <id>
 recurs account reconnect <id>
-recurs account set-primary <id>
-recurs account disconnect <id>
 recurs account vendor-logout <id>
 recurs model list [--connection <id>] [--for interactive|one-shot|background|ci|sdk] [--all]
 recurs model set <model> [--connection <id>] [--scope project|global]
@@ -2242,10 +2251,12 @@ It does not rewrite the current session's backend pin.
 spend mode and active billing source, verification status, and allowed run
 contexts without revealing credential references.
 
-`disconnect` always unlinks Recurs and tombstones the connection. For
-vendor-owned authentication it does not log the user out of the official
-client. `vendor-logout` is a separately confirmed operation because it may
-affect that client outside Recurs.
+The current non-secret `disconnect` unlinks Recurs by deleting the metadata
+record. Secret-bearing connections will require broker-side tombstones and
+revocation state once native Slice 1 exists. For vendor-owned authentication,
+disconnect does not log the user out of the official client. `vendor-logout`
+remains a separately confirmed target operation because it may affect that
+client outside Recurs.
 
 ## 16. Noninteractive Behavior
 
@@ -3106,10 +3117,12 @@ ships before every pending native item passes.
 
 The implemented subset contains the 25-path manifest catalog, strict non-secret
 connection registry and migration, billing/restriction projection, literal-
-loopback local onboarding, Codex delegated metadata, and redacted provider and
-account listings. It collects no key, cloud identity, copied token, browser
-cookie, or vendor auth path. General secret-bearing onboarding and model catalog
-work remains blocked on Slice 1 completion.
+loopback local onboarding, Codex delegated metadata, a redacted lifecycle
+service, exact-ID list/verify/set-primary/disconnect commands, first-only
+primary selection, and registry-backed immutable-pin routing for runs and
+compaction. It collects no key, cloud identity, copied token, browser cookie,
+or vendor auth path. General secret-bearing onboarding and model catalog work
+remains blocked on Slice 1 completion.
 
 - Add connection registry and transaction protocol.
 - Add provider manifests, model catalogs, typed entitlement claims, usage

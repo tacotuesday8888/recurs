@@ -11,7 +11,7 @@ The repository contains a usable single-agent base:
 - one streaming tool-calling loop with bounded pre-output retries, cancellation, step limits, and repeated-loop detection;
 - strict provider-event validation and normalized text, reasoning, tool, usage, and completion events;
 - credential-free OpenAI-compatible local model setup for literal-loopback Ollama and LM Studio servers;
-- a validated 25-path provider/authentication catalog, a revisioned non-secret connection registry, and redacted provider/account listings;
+- a validated 25-path provider/authentication catalog, a revisioned non-secret connection registry, and exact-ID account listing, verification, primary selection, and metadata-only disconnection;
 - an official Codex ACP path for an existing ChatGPT login, constrained to local, interactive, user-present, Plan-only work;
 - seven tools for file reading, listing, search, patching, bounded shell execution, Git status, and Git diff;
 - Ask Always, Approved for Me, Full Access, enforced Plan mode, and temporary read-only review;
@@ -22,7 +22,7 @@ The repository contains a usable single-agent base:
 - clean per-child environments, bounded process-group cleanup, safe provider/tool/CLI failures, and explicit `local_guarded` or fail-closed `tools_disabled` composition;
 - one `npm run check` path covering lint, type checking, tests, and build output.
 
-The standalone CLI can use a credential-free OpenAI-compatible server on literal `127.0.0.1` or `[::1]`, or the pinned official `@agentclientprotocol/codex-acp` adapter with an existing ChatGPT account. Codex is read-only/Plan-only, local, manual, and user-present: one-shot and unattended runs fail closed. Without a configured connection the CLI starts a sessionless workspace shell, so local commands remain available without writing a fake session. Test hosts can also inject the public `ModelProvider` interface.
+The standalone CLI can use credential-free OpenAI-compatible servers on literal `127.0.0.1` or `[::1]`, or the pinned official `@agentclientprotocol/codex-acp` adapter with an existing ChatGPT account. Only the first saved connection becomes primary; later connections remain secondary until selected explicitly. Historical sessions always resolve their own immutable pin rather than the current primary. Codex is read-only/Plan-only, local, manual, and user-present: one-shot and unattended runs fail closed. Without an explicit primary the CLI starts a sessionless workspace shell, so local commands remain available without writing a fake session. Test hosts can also inject the public `ModelProvider` interface.
 
 ## Quick start
 
@@ -35,6 +35,9 @@ npm run build
 node packages/cli/dist/main.js --help
 node packages/cli/dist/main.js provider list
 node packages/cli/dist/main.js account list
+node packages/cli/dist/main.js account verify <connection-id>
+node packages/cli/dist/main.js account set-primary <connection-id>
+node packages/cli/dist/main.js account disconnect <connection-id>
 node packages/cli/dist/main.js setup local --url http://127.0.0.1:11434/v1 --model qwen2.5-coder:7b
 # Or, from a local interactive terminal, connect an existing ChatGPT account:
 # node packages/cli/dist/main.js setup codex
@@ -50,7 +53,7 @@ This is currently the only installation path. An npm package is the likely first
 ```text
 packages/contracts   Dependency-leaf model, connection, backend, failure, and runtime contracts
 packages/providers   Validated provider manifests, protocol metadata, and direct-provider implementations
-packages/app         Non-secret connection registry, onboarding catalog, and Codex setup policy
+packages/app         Non-secret connection registry, lifecycle service, onboarding, and policy
 packages/runtimes    Bounded ACP transport and the pinned official Codex runtime profile
 packages/tools       Tool registry, permissions, path policy, Git, and checkpoints
 packages/core        Direct/delegated execution, events, sessions, goals, compaction, and recovery

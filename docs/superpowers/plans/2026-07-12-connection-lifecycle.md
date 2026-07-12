@@ -8,6 +8,12 @@
 
 **Tech Stack:** TypeScript 6, Node.js 22.22+, npm workspaces, Vitest 4, append-only JSONL sessions, revisioned atomic connection registry, existing provider and ACP runtime packages.
 
+**Delivery status:** Complete on 2026-07-12. Tasks 1–6 were delivered in
+focused commits. The clean repository gate passed with 43 test files and 597
+tests, and the built CLI smoke test confirmed redacted empty inventory plus the
+documented safe exit code for an unknown exact ID. Native credentials, new
+providers, and heavy sub-agent orchestration remain explicitly out of scope.
+
 ## Global Constraints
 
 - Do not collect, import, export, log, or persist any API key, coding-plan key, OAuth token, browser cookie, vendor auth file, or vendor session ID.
@@ -42,7 +48,7 @@
 - A normalized `baseUrl` identifies a local record. Same origin updates one record; a distinct origin creates another.
 - The CLI module re-exports application symbols and contains no registry mutation.
 
-- [ ] **Step 1: Write failing application tests for distinct origins and first-only primary selection**
+- [x] **Step 1: Write failing application tests for distinct origins and first-only primary selection**
 
 Add focused tests with two literal-loopback endpoints and deterministic fetch fixtures:
 
@@ -90,7 +96,7 @@ it("updates the exact normalized local origin without changing primary", async (
 
 Add a duplicate-origin fixture and assert setup fails closed rather than choosing one record. Add a registry-with-records-and-null-primary fixture and assert a new local record remains secondary.
 
-- [ ] **Step 2: Run the new application test and verify RED**
+- [x] **Step 2: Run the new application test and verify RED**
 
 Run:
 
@@ -100,7 +106,7 @@ npx vitest run packages/app/test/local-connection.test.ts
 
 Expected: FAIL because `@recurs/app` does not export local onboarding and current CLI setup overwrites one record and primary selection.
 
-- [ ] **Step 3: Move the implementation and make origin identity exact**
+- [x] **Step 3: Move the implementation and make origin identity exact**
 
 Implement the application-layer record lookup around normalized origin:
 
@@ -131,7 +137,7 @@ Generate a fresh ID only for a new origin. Preserve `createdAt` on update. Set p
 
 Replace `packages/cli/src/local-connection.ts` with explicit re-exports from `@recurs/app`.
 
-- [ ] **Step 4: Write failing Codex primary-preservation tests**
+- [x] **Step 4: Write failing Codex primary-preservation tests**
 
 Add tests proving a new account stays secondary and re-verifying an existing secondary account does not steal primary:
 
@@ -142,7 +148,7 @@ expect(reverifiedSecond).toMatchObject({ id: second.id, primary: false });
 expect((await registry.read()).primaryConnectionId).toBe(first.id);
 ```
 
-- [ ] **Step 5: Run the Codex test and verify RED**
+- [x] **Step 5: Run the Codex test and verify RED**
 
 Run:
 
@@ -152,7 +158,7 @@ npx vitest run packages/app/test/codex-onboarding.test.ts
 
 Expected: FAIL because Codex setup currently assigns every verified record as primary and does not return primary state.
 
-- [ ] **Step 6: Implement first-only Codex primary selection**
+- [x] **Step 6: Implement first-only Codex primary selection**
 
 Inside the existing revision-retry transaction, use the pre-mutation document:
 
@@ -171,7 +177,7 @@ await registry.commit(current.revision, (draft) => {
 
 Return `primary: committed.primaryConnectionId === record.id` from the saved result.
 
-- [ ] **Step 7: Run focused tests, typecheck, and commit**
+- [x] **Step 7: Run focused tests, typecheck, and commit**
 
 Run:
 
@@ -203,7 +209,7 @@ git commit -m "feat: centralize non-secret connection setup"
 - Uses `FileConnectionRegistry.migrateLegacyLocal()` and bounded three-attempt revision CAS.
 - All public results are redacted and deeply frozen.
 
-- [ ] **Step 1: Write failing summary/redaction tests**
+- [x] **Step 1: Write failing summary/redaction tests**
 
 Use one local and one delegated record containing endpoint/account canaries:
 
@@ -219,7 +225,7 @@ expect(JSON.stringify(summaries)).not.toContain(codex.accountSubjectFingerprint)
 expect(Object.isFrozen(summaries[0])).toBe(true);
 ```
 
-- [ ] **Step 2: Write failing exact-ID mutation tests**
+- [x] **Step 2: Write failing exact-ID mutation tests**
 
 Cover exact set-primary, prefix/label rejection, no-op preservation, disconnecting secondary, disconnecting primary to `null`, concurrent revision retry, exhausted revision conflicts, abort-before-mutation, and no implicit promotion:
 
@@ -236,7 +242,7 @@ expect(removed).toMatchObject({ connectionId: codex.id, primaryCleared: true });
 expect((await registry.read()).primaryConnectionId).toBeNull();
 ```
 
-- [ ] **Step 3: Write failing verifier-port tests**
+- [x] **Step 3: Write failing verifier-port tests**
 
 Prove the service passes an immutable clone of the exact record, returns only a redacted result, does not change registry revision, maps each declared verifier reason to canonical text, treats unknown throws as unavailable, and honors cancellation:
 
@@ -256,7 +262,7 @@ expect(result.connection).toMatchObject({ id: local.id });
 expect((await registry.read()).revision).toBe(before.revision);
 ```
 
-- [ ] **Step 4: Run the service test and verify RED**
+- [x] **Step 4: Run the service test and verify RED**
 
 Run:
 
@@ -266,7 +272,7 @@ npx vitest run packages/app/test/connection-lifecycle.test.ts
 
 Expected: FAIL because the service and types do not exist.
 
-- [ ] **Step 5: Implement lifecycle types and canonical errors**
+- [x] **Step 5: Implement lifecycle types and canonical errors**
 
 Define the public contracts:
 
@@ -297,7 +303,7 @@ export interface ConnectionVerifier {
 
 `ConnectionSummary` contains only the fields permitted by the design. Map each verification reason to one constant safe message. `ConnectionLifecycleError` exposes only `connection_not_found`, `registry_changed`, `verification_failed`, or `cancelled`.
 
-- [ ] **Step 6: Implement bounded atomic operations**
+- [x] **Step 6: Implement bounded atomic operations**
 
 Use one private retry loop for mutations:
 
@@ -319,7 +325,7 @@ throw new ConnectionLifecycleError("registry_changed");
 
 Return without committing when the selected connection is already primary. On disconnect, remove exactly one record and set primary to `null` only when it matched the removed ID.
 
-- [ ] **Step 7: Run focused tests, typecheck, and commit**
+- [x] **Step 7: Run focused tests, typecheck, and commit**
 
 Run:
 
@@ -355,7 +361,7 @@ git commit -m "feat: add connection lifecycle service"
 - Adds `recurs account set-primary <id>`, `recurs account verify <id>`, and `recurs account disconnect <id>`.
 - Disconnect requires interactive, manual, local confirmation before its dependency is called.
 
-- [ ] **Step 1: Write failing local/Codex verifier adapter tests**
+- [x] **Step 1: Write failing local/Codex verifier adapter tests**
 
 Test exact mapping without raw vendor details:
 
@@ -372,7 +378,7 @@ For Codex, assert official adapter/version, structured `chat-gpt` status,
 canonical fingerprint, exact model, and `read-only` mode. Do not call
 authentication from verification.
 
-- [ ] **Step 2: Run verifier tests and verify RED**
+- [x] **Step 2: Run verifier tests and verify RED**
 
 Run:
 
@@ -382,7 +388,7 @@ npx vitest run packages/cli/test/provider-account.test.ts packages/runtimes/test
 
 Expected: FAIL because verification composition does not exist.
 
-- [ ] **Step 3: Implement trusted verification adapters**
+- [x] **Step 3: Implement trusted verification adapters**
 
 Create a CLI-owned verifier:
 
@@ -400,7 +406,7 @@ The Codex function returns declared reasons and catches all unexpected adapter
 errors as `adapter_unavailable`. Cancellation is detected from the signal by the
 application service.
 
-- [ ] **Step 4: Write failing CLI parsing, trust-gate, output, and exit tests**
+- [x] **Step 4: Write failing CLI parsing, trust-gate, output, and exit tests**
 
 Cover:
 
@@ -429,7 +435,7 @@ Assert successful output contains exact ID/model and never endpoint, account
 label, fingerprint, or vendor path. Assert unknown IDs exit `2`; cancellation
 exits `130`; malformed extra flags never call a lifecycle dependency.
 
-- [ ] **Step 5: Run CLI tests and verify RED**
+- [x] **Step 5: Run CLI tests and verify RED**
 
 Run:
 
@@ -439,7 +445,7 @@ npx vitest run packages/cli/test/run-mode.test.ts packages/cli/test/provider-acc
 
 Expected: FAIL because only `account list` is parsed.
 
-- [ ] **Step 6: Implement exact account subcommands**
+- [x] **Step 6: Implement exact account subcommands**
 
 Parse the account command into a strict discriminated union:
 
@@ -460,7 +466,7 @@ Update setup success rendering to say either `Primary connection` or `Saved as
 secondary; use recurs account set-primary <id> to select it` from the returned
 `primary` field.
 
-- [ ] **Step 7: Run focused tests and commit**
+- [x] **Step 7: Run focused tests and commit**
 
 Run:
 
@@ -492,7 +498,7 @@ git commit -m "feat: manage configured accounts"
 - Local pins bind a SHA-256 digest of normalized endpoint origin rather than only a random connection ID.
 - No-primary registry state always creates `WorkspaceShellState`.
 
-- [ ] **Step 1: Write failing no-primary and multiple-connection startup tests**
+- [x] **Step 1: Write failing no-primary and multiple-connection startup tests**
 
 Create a registry with two valid records and `primaryConnectionId: null`:
 
@@ -505,7 +511,7 @@ expect(runtime.state).not.toHaveProperty("session");
 Create a primary local and secondary Codex record and assert startup selects
 only the explicit primary, independent of array order.
 
-- [ ] **Step 2: Write failing immutable-pin resolution tests**
+- [x] **Step 2: Write failing immutable-pin resolution tests**
 
 Create a session on connection A, change primary to connection B, then run the
 old session and assert provider/runtime A is created. Mutate A's pinned model,
@@ -520,7 +526,7 @@ expect(pin.accountSubjectFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/u);
 expect(pin.accountSubjectFingerprint).not.toContain(connection.id);
 ```
 
-- [ ] **Step 3: Run assembly tests and verify RED**
+- [x] **Step 3: Run assembly tests and verify RED**
 
 Run:
 
@@ -530,7 +536,7 @@ npx vitest run packages/cli/test/assembly.test.ts
 
 Expected: FAIL because no-primary falls back to the first record and the resolver closes over the startup primary.
 
-- [ ] **Step 4: Extract canonical backend construction**
+- [x] **Step 4: Extract canonical backend construction**
 
 Implement:
 
@@ -552,7 +558,7 @@ and resolves exactly. `localBackendPin()` hashes a domain-separated normalized
 base URL and uses a bumped local policy revision so pre-existing weaker pins
 fail closed rather than redirect.
 
-- [ ] **Step 5: Implement registry-backed resolution**
+- [x] **Step 5: Implement registry-backed resolution**
 
 For non-injected operation resolution:
 
@@ -574,7 +580,7 @@ delegated lanes. Create the provider/runtime only from `selected` after exact
 comparison. Keep the injected test/embedding provider as its own immutable
 resolver path.
 
-- [ ] **Step 6: Run assembly and coordinator tests, then commit**
+- [x] **Step 6: Run assembly and coordinator tests, then commit**
 
 Run:
 
@@ -610,7 +616,7 @@ git commit -m "fix: resolve sessions by immutable connection pin"
 - `CommandDependencies.resolveProvider(session, signal)` resolves direct compaction from the active pin.
 - Existing static `provider` remains a compatibility fallback for injected tests/hosts.
 
-- [ ] **Step 1: Write failing workspace resume tests**
+- [x] **Step 1: Write failing workspace resume tests**
 
 Start from `WorkspaceShellState` with a coordinator and a stored pinned session:
 
@@ -627,7 +633,7 @@ Then submit a prompt and assert the coordinator receives the stored session ID.
 With no matching connection in the resolver, assert prompt preflight fails
 without provider work. Keep legacy history inspectable but non-runnable.
 
-- [ ] **Step 2: Run runtime tests and verify RED**
+- [x] **Step 2: Run runtime tests and verify RED**
 
 Run:
 
@@ -637,7 +643,7 @@ npx vitest run packages/cli/test/runtime.test.ts packages/cli/test/session-comma
 
 Expected: FAIL because workspace resume with an ID is blocked and no runner is created from workspace state.
 
-- [ ] **Step 3: Implement lazy session activation**
+- [x] **Step 3: Implement lazy session activation**
 
 Store the normalized coordinator in `RecursRuntime` and replace `#setSession`
 with activation semantics:
@@ -661,7 +667,7 @@ Allow exact `/resume <id>` through the workspace command registry. After command
 execution, activate the loaded session when the context no longer contains the
 transient `workspace-shell` state. Listing sessions remains in workspace mode.
 
-- [ ] **Step 4: Write failing per-session compaction tests**
+- [x] **Step 4: Write failing per-session compaction tests**
 
 ```ts
 const result = await commands.execute("/compact", contextFor(sessionB));
@@ -673,7 +679,7 @@ expect(providerB.stream).toHaveBeenCalledOnce();
 Assert missing/changed/disconnected local connections produce a safe command
 error, and delegated sessions still reject before calling the resolver.
 
-- [ ] **Step 5: Run compaction tests and verify RED**
+- [x] **Step 5: Run compaction tests and verify RED**
 
 Run:
 
@@ -683,7 +689,7 @@ npx vitest run packages/cli/test/session-commands.test.ts packages/cli/test/asse
 
 Expected: FAIL because compaction uses one startup provider.
 
-- [ ] **Step 6: Implement provider-at-call-time compaction**
+- [x] **Step 6: Implement provider-at-call-time compaction**
 
 Extend dependencies:
 
@@ -699,7 +705,7 @@ session provider, falling back to the existing static provider only for
 compatibility. Standalone assembly reads the registry, reconstructs the exact
 local pin, and returns a provider only after complete pin comparison.
 
-- [ ] **Step 7: Run focused tests and commit**
+- [x] **Step 7: Run focused tests and commit**
 
 Run:
 
@@ -737,7 +743,7 @@ git commit -m "fix: preserve pinned sessions across account changes"
 - Documents exact implemented commands, first-only primary behavior, metadata-only disconnect, verification limits, and pin-based resume.
 - Leaves native credentials and heavy sub-agents explicitly pending.
 
-- [ ] **Step 1: Add an end-to-end multi-connection lifecycle test**
+- [x] **Step 1: Add an end-to-end multi-connection lifecycle test**
 
 The test must use temporary data/workspace directories and fake local/Codex
 verification ports. It performs:
@@ -758,7 +764,7 @@ restart -> workspace shell, no array-order fallback
 Assert all public text/JSON excludes endpoint, account-label, and fingerprint
 canaries.
 
-- [ ] **Step 2: Run the E2E test and verify GREEN**
+- [x] **Step 2: Run the E2E test and verify GREEN**
 
 Run:
 
@@ -768,7 +774,7 @@ npx vitest run tests/e2e/provider-onboarding.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 3: Update public and reviewed documentation**
+- [x] **Step 3: Update public and reviewed documentation**
 
 Document:
 
@@ -784,7 +790,7 @@ Document:
 Mark this plan's delivered checklist accurately. Do not call the native
 credential boundary or full onboarding state machine complete.
 
-- [ ] **Step 4: Scan the final diff and sensitive patterns**
+- [x] **Step 4: Scan the final diff and sensitive patterns**
 
 Run:
 
@@ -797,7 +803,7 @@ git diff main...HEAD | rg -n "(sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|BEGIN .*PR
 
 Expected: lifecycle code/tests/docs only; the final `rg` command returns no match.
 
-- [ ] **Step 5: Run the complete clean gate and built-CLI smoke test**
+- [x] **Step 5: Run the complete clean gate and built-CLI smoke test**
 
 Run:
 
@@ -811,7 +817,7 @@ RECURS_HOME="$(mktemp -d)" node packages/cli/dist/main.js account set-primary mi
 Expected: lint, strict typecheck, every test, and build pass; empty account JSON
 is redacted and versioned; unknown exact ID exits `2` with safe copy.
 
-- [ ] **Step 6: Commit documentation and prepare integration**
+- [x] **Step 6: Commit documentation and prepare integration**
 
 ```bash
 git add README.md ARCHITECTURE.md PRODUCT.md SECURITY.md docs tests/e2e/provider-onboarding.test.ts

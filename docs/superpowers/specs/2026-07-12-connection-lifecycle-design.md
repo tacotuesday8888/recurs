@@ -1,7 +1,7 @@
 # Recurs Non-Secret Connection Lifecycle Design
 
 **Date:** 2026-07-12
-**Status:** Approved implementation slice derived from the reviewed provider/authentication design
+**Status:** Implemented and verified on 2026-07-12
 **Scope:** The three currently runnable, non-secret connection paths; no native credential broker or sub-agent architecture
 
 ## 1. Decision

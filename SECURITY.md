@@ -18,6 +18,13 @@ verified on the exact ACP child before session work and again immediately
 before prompting. Plan mode rejects every non-read runtime approval even under
 `Approved for Me` or `Full Access`.
 
+Connection management stores and removes Recurs metadata only.
+`recurs account disconnect` does not revoke, sign out, or delete vendor
+authentication. Public account output omits local endpoints, vendor account
+labels, and one-way account fingerprints. Primary selection affects new
+sessions only; every existing session must still match its complete pinned
+connection before provider or runtime work begins.
+
 ## Supported versions
 
 Until Recurs reaches a tagged public preview, only the current `main` branch is
