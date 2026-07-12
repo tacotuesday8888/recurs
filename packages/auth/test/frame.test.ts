@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
+import { Buffer } from "node:buffer";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   NATIVE_FRAME_HEADER_BYTES,
@@ -187,6 +188,16 @@ async function loadGoldenFixture(): Promise<{
 }
 
 describe("native authority golden frames", () => {
+  it("declares exactly the single contract dependency", async () => {
+    const manifest = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { readonly dependencies?: unknown };
+
+    expect(manifest.dependencies).toStrictEqual({
+      "@recurs/contracts": "0.0.0",
+    });
+  });
+
   it("keeps the cross-language fixture canonical and explicit", async () => {
     const { fixture, source } = await loadGoldenFixture();
 
@@ -410,6 +421,148 @@ describe("bounded native frame decoder", () => {
     expect(frames[0]?.payload).toEqual(testU16(0));
   });
 
+  it("copies retained bytes from Node Buffers instead of retaining aliases", () => {
+    const bytes = rawFrame(NativeMessageType.health, 13, testU16(0));
+    const prefix = Buffer.from(bytes.subarray(0, 8));
+    const decoder = new NativeFrameDecoder();
+
+    expect(decoder.push(prefix)).toEqual([]);
+    prefix.fill(0);
+    const frames = decoder.push(bytes.subarray(8));
+    decoder.finish();
+
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.requestId).toBe(13);
+  });
+
+  it("rejects SharedArrayBuffer-backed chunks and poisons the decoder", () => {
+    const bytes = rawFrame(NativeMessageType.health, 14, testU16(0));
+    const shared = new SharedArrayBuffer(bytes.byteLength);
+    const sharedBytes = new Uint8Array(shared);
+    sharedBytes.set(bytes);
+    const decoder = new NativeFrameDecoder();
+
+    captureCodecError(() => decoder.push(sharedBytes), "invalid_frame");
+    captureCodecError(() => decoder.push(new Uint8Array()), "decoder_failed");
+    captureCodecError(() => decoder.finish(), "decoder_failed");
+  });
+
+  it("keeps maximum-frame one-byte fragmentation linearly bounded", () => {
+    const payload = new Uint8Array(NATIVE_FRAME_MAX_PAYLOAD_BYTES);
+    const bytes = rawFrame(NativeMessageType.health, 15, payload);
+    const decoder = new NativeFrameDecoder();
+    const NativeUint8Array = Uint8Array;
+    let allocatedBytes = 0;
+    const TrackingUint8Array = new Proxy(NativeUint8Array, {
+      construct(target, argumentsList, newTarget) {
+        const [source] = argumentsList;
+        if (typeof source === "number") {
+          allocatedBytes += source;
+        }
+        return Reflect.construct(target, argumentsList, newTarget) as Uint8Array;
+      },
+    });
+
+    vi.stubGlobal("Uint8Array", TrackingUint8Array);
+    try {
+      let decoded: readonly NativeFrame[] = [];
+      for (let offset = 0; offset < bytes.byteLength; offset += 1) {
+        const frames = decoder.push(bytes.subarray(offset, offset + 1));
+        if (frames.length !== 0) {
+          decoded = frames;
+        }
+      }
+      decoder.finish();
+      expect(decoded).toHaveLength(1);
+      expect(decoded[0]?.payload.byteLength).toBe(NATIVE_FRAME_MAX_PAYLOAD_BYTES);
+      expect(allocatedBytes).toBeLessThan(
+        4 * (NATIVE_FRAME_HEADER_BYTES + NATIVE_FRAME_MAX_PAYLOAD_BYTES),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("poisons on hostile input branding without leaking caller prose", () => {
+    const hostile = new Proxy(new Uint8Array(), {
+      getPrototypeOf() {
+        throw new Error("CALLER_PROSE_CANARY");
+      },
+    });
+    const decoder = new NativeFrameDecoder();
+
+    const error = captureCodecError(() => decoder.push(hostile), "invalid_frame");
+    expect(error.message).not.toContain("CALLER_PROSE_CANARY");
+    captureCodecError(() => decoder.push(new Uint8Array()), "decoder_failed");
+    captureCodecError(() => decoder.finish(), "decoder_failed");
+  });
+
+  it("accepts the exact maximum payload length", () => {
+    const payload = new Uint8Array(NATIVE_FRAME_MAX_PAYLOAD_BYTES);
+    payload[0] = 0xa5;
+    payload[payload.byteLength - 1] = 0x5a;
+    const bytes = encodeNativeFrame({
+      type: NativeMessageType.health,
+      requestId: 16,
+      payload,
+    });
+    const decoder = new NativeFrameDecoder();
+    const frames = decoder.push(bytes);
+    decoder.finish();
+
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.payload.byteLength).toBe(NATIVE_FRAME_MAX_PAYLOAD_BYTES);
+    expect(frames[0]?.payload[0]).toBe(0xa5);
+    expect(frames[0]?.payload[NATIVE_FRAME_MAX_PAYLOAD_BYTES - 1]).toBe(0x5a);
+  });
+
+  it("snapshots frame getters once before validation and encoding", () => {
+    let typeReads = 0;
+    let requestIdReads = 0;
+    let payloadReads = 0;
+    const encoded = encodeNativeFrame({
+      get type(): NativeMessageType {
+        typeReads += 1;
+        return typeReads === 1
+          ? NativeMessageType.health
+          : 6 as NativeMessageType;
+      },
+      get requestId(): number {
+        requestIdReads += 1;
+        return requestIdReads === 1 ? 17 : 0;
+      },
+      get payload(): Uint8Array {
+        payloadReads += 1;
+        return testU16(0);
+      },
+    });
+    const view = new DataView(encoded.buffer, encoded.byteOffset, encoded.byteLength);
+
+    expect(view.getUint16(6, false)).toBe(NativeMessageType.health);
+    expect(view.getUint32(12, false)).toBe(17);
+    expect(typeReads).toBe(1);
+    expect(requestIdReads).toBe(1);
+    expect(payloadReads).toBe(1);
+  });
+
+  it("maps malformed and throwing frame encoder inputs to fixed errors", () => {
+    captureCodecError(
+      () => encodeNativeFrame(null as never),
+      "invalid_frame",
+    );
+    const error = captureCodecError(
+      () => encodeNativeFrame({
+        get type(): NativeMessageType {
+          throw new Error("FRAME_GETTER_CANARY");
+        },
+        requestId: 1,
+        payload: testU16(0),
+      }),
+      "invalid_frame",
+    );
+    expect(error.message).not.toContain("FRAME_GETTER_CANARY");
+  });
+
   it("returns frozen frame containers whose payload getter always copies", () => {
     const bytes = rawFrame(NativeMessageType.health, 12, testU16(0));
     const decoder = new NativeFrameDecoder();
@@ -449,6 +602,94 @@ describe("bounded native frame decoder", () => {
 });
 
 describe("strict field tables and scalar codecs", () => {
+  it.each([
+    ["decodeU16", Uint8Array.of(0, 1), (value: Uint8Array) => decodeU16(value), "invalid_field"],
+    [
+      "encodeNonce",
+      new Uint8Array(32),
+      (value: Uint8Array) => encodeNonce(value),
+      "invalid_field",
+    ],
+    [
+      "decodeVersionText",
+      Uint8Array.of(0x61),
+      (value: Uint8Array) => decodeVersionText(value),
+      "invalid_field",
+    ],
+    [
+      "decodeFieldTable",
+      Uint8Array.of(0, 0),
+      (value: Uint8Array) => decodeFieldTable(value),
+      "invalid_field_table",
+    ],
+  ] as const)("rejects SharedArrayBuffer-backed %s input", (
+    _name,
+    source,
+    decode,
+    code,
+  ) => {
+    const storage = new SharedArrayBuffer(source.byteLength);
+    const shared = new Uint8Array(storage);
+    shared.set(source);
+
+    captureCodecError(() => decode(shared), code);
+  });
+
+  it.each([
+    ["decodeU16", (value: Uint8Array) => decodeU16(value), "invalid_field"],
+    ["encodeNonce", (value: Uint8Array) => encodeNonce(value), "invalid_field"],
+    [
+      "decodeFieldTable",
+      (value: Uint8Array) => decodeFieldTable(value),
+      "invalid_field_table",
+    ],
+    [
+      "decodeVersionText",
+      (value: Uint8Array) => decodeVersionText(value),
+      "invalid_field",
+    ],
+  ] as const)("maps hostile %s branding to a fixed error", (_name, decode, code) => {
+    const hostile = new Proxy(new Uint8Array(32), {
+      getPrototypeOf() {
+        throw new Error("DIRECT_BRAND_CANARY");
+      },
+    });
+
+    const error = captureCodecError(() => decode(hostile), code);
+    expect(error.message).not.toContain("DIRECT_BRAND_CANARY");
+  });
+
+  it.each([
+    ["decodeU32", (value: Uint8Array) => decodeU32(value), "invalid_field"],
+    ["decodeNonce", (value: Uint8Array) => decodeNonce(value), "invalid_field"],
+    [
+      "decodeFieldTable",
+      (value: Uint8Array) => decodeFieldTable(value),
+      "invalid_field_table",
+    ],
+    [
+      "decodeVersionText",
+      (value: Uint8Array) => decodeVersionText(value),
+      "invalid_field",
+    ],
+  ] as const)("maps hostile %s byte length access to a fixed error", (
+    _name,
+    decode,
+    code,
+  ) => {
+    const hostile = new Proxy(new Uint8Array(32), {
+      get(target, property) {
+        if (property === "byteLength") {
+          throw new Error("DIRECT_LENGTH_CANARY");
+        }
+        return Reflect.get(target, property, target) as unknown;
+      },
+    });
+
+    const error = captureCodecError(() => decode(hostile), code);
+    expect(error.message).not.toContain("DIRECT_LENGTH_CANARY");
+  });
+
   it("round-trips exact big-endian unsigned integer boundaries", () => {
     expect(toHex(encodeU16(0xabcd))).toBe("abcd");
     expect(decodeU16(fromHex("abcd"))).toBe(0xabcd);
@@ -521,6 +762,24 @@ describe("strict field tables and scalar codecs", () => {
     );
   });
 
+  it("rejects overlong text before invoking TextEncoder", () => {
+    const encode = vi.fn(() => {
+      throw new Error("TEXT_ENCODER_CALLED");
+    });
+    vi.stubGlobal("TextEncoder", class {
+      encode = encode;
+    });
+    try {
+      captureCodecError(
+        () => encodeVersionText("a".repeat(NATIVE_TEXT_MAX_UTF8_BYTES + 1)),
+        "invalid_field",
+      );
+      expect(encode).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("encodes and decodes strictly ascending nonzero fields", () => {
     const firstValue = Uint8Array.of(1, 2, 3);
     const encoded = encodeFieldTable([
@@ -540,6 +799,51 @@ describe("strict field tables and scalar codecs", () => {
     exposed?.fill(0);
     expect(decoded[0]?.value).toEqual(Uint8Array.of(1, 2, 3));
     expect(decoded[0]?.value).not.toBe(exposed);
+  });
+
+  it("snapshots each field tag and value once before encoding", () => {
+    let tagReads = 0;
+    let valueReads = 0;
+    const encoded = encodeFieldTable([{
+      get tag(): number {
+        tagReads += 1;
+        return tagReads === 1 ? 1 : 0;
+      },
+      get value(): Uint8Array {
+        valueReads += 1;
+        return Uint8Array.of(0xa5);
+      },
+    }]);
+
+    expect(toHex(encoded)).toBe("0001000100000001a5");
+    expect(tagReads).toBe(1);
+    expect(valueReads).toBe(1);
+  });
+
+  it("maps malformed and throwing field encoder inputs to fixed errors", () => {
+    captureCodecError(
+      () => encodeFieldTable([null as never]),
+      "invalid_field_table",
+    );
+    const error = captureCodecError(
+      () => encodeFieldTable([{
+        get tag(): number {
+          throw new Error("FIELD_GETTER_CANARY");
+        },
+        value: new Uint8Array(),
+      }]),
+      "invalid_field_table",
+    );
+    expect(error.message).not.toContain("FIELD_GETTER_CANARY");
+  });
+
+  it("accepts exactly 64 ascending fields", () => {
+    const fields = Array.from({ length: 64 }, (_, index) => ({
+      tag: index + 1,
+      value: new Uint8Array(),
+    }));
+
+    expect(decodeFieldTable(encodeFieldTable(fields))).toHaveLength(64);
   });
 
   it.each([
@@ -809,6 +1113,20 @@ describe("strict semantic message codecs", () => {
     captureCodecError(() => encodeHealth(0), "invalid_frame");
     captureCodecError(() => encodeCancel(1, 0), "invalid_message");
     captureCodecError(() => encodeCancel(1, 0x1_0000_0000), "invalid_message");
+  });
+
+  it("maps malformed and throwing hello inputs to fixed errors", () => {
+    captureCodecError(() => encodeHello(1, null as never), "invalid_message");
+    const error = captureCodecError(
+      () => encodeHello(1, {
+        get engineVersion(): string {
+          throw new Error("HELLO_GETTER_CANARY");
+        },
+        nonce,
+      }),
+      "invalid_message",
+    );
+    expect(error.message).not.toContain("HELLO_GETTER_CANARY");
   });
 
   it("freezes semantic results and protects echoed nonce storage", () => {

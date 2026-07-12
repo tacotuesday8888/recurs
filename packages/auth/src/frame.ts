@@ -3,6 +3,8 @@ import { NATIVE_AUTHORITY_PROTOCOL_VERSION } from "@recurs/contracts";
 export const NATIVE_FRAME_MAGIC = 0x52_43_55_52;
 export const NATIVE_FRAME_HEADER_BYTES = 16;
 export const NATIVE_FRAME_MAX_PAYLOAD_BYTES = 64 * 1024;
+const NATIVE_FRAME_MAX_BYTES =
+  NATIVE_FRAME_HEADER_BYTES + NATIVE_FRAME_MAX_PAYLOAD_BYTES;
 
 export enum NativeMessageType {
   hello = 1,
@@ -72,6 +74,14 @@ function isU32(value: number): boolean {
   return Number.isInteger(value) && value >= 0 && value <= 0xffff_ffff;
 }
 
+function hasSharedByteStorage(value: Uint8Array): boolean {
+  const storage = value.buffer;
+  return (
+    typeof SharedArrayBuffer !== "undefined" &&
+    storage instanceof SharedArrayBuffer
+  );
+}
+
 function validateFrameParts(
   type: number,
   requestId: number,
@@ -105,21 +115,36 @@ function createNativeFrame(
 }
 
 export function encodeNativeFrame(frame: NativeFrame): Uint8Array {
-  const payload = frame.payload;
-  if (!(payload instanceof Uint8Array)) {
+  try {
+    const type = frame.type;
+    const requestId = frame.requestId;
+    const inputPayload = frame.payload;
+    if (
+      !(inputPayload instanceof Uint8Array) ||
+      hasSharedByteStorage(inputPayload)
+    ) {
+      failNativeCodec("invalid_frame");
+    }
+    const payload = new Uint8Array(inputPayload);
+    validateFrameParts(type, requestId, payload.byteLength);
+
+    const encoded = new Uint8Array(
+      NATIVE_FRAME_HEADER_BYTES + payload.byteLength,
+    );
+    const view = new DataView(encoded.buffer);
+    view.setUint32(0, NATIVE_FRAME_MAGIC, false);
+    view.setUint16(4, NATIVE_AUTHORITY_PROTOCOL_VERSION, false);
+    view.setUint16(6, type, false);
+    view.setUint32(8, payload.byteLength, false);
+    view.setUint32(12, requestId, false);
+    encoded.set(payload, NATIVE_FRAME_HEADER_BYTES);
+    return encoded;
+  } catch (error) {
+    if (error instanceof NativeCodecError && error.code === "invalid_frame") {
+      throw error;
+    }
     failNativeCodec("invalid_frame");
   }
-  validateFrameParts(frame.type, frame.requestId, payload.byteLength);
-
-  const encoded = new Uint8Array(NATIVE_FRAME_HEADER_BYTES + payload.byteLength);
-  const view = new DataView(encoded.buffer);
-  view.setUint32(0, NATIVE_FRAME_MAGIC, false);
-  view.setUint16(4, NATIVE_AUTHORITY_PROTOCOL_VERSION, false);
-  view.setUint16(6, frame.type, false);
-  view.setUint32(8, payload.byteLength, false);
-  view.setUint32(12, frame.requestId, false);
-  encoded.set(payload, NATIVE_FRAME_HEADER_BYTES);
-  return encoded;
 }
 
 interface ParsedHeader {
@@ -156,83 +181,77 @@ function parseHeader(bytes: Uint8Array, offset: number): ParsedHeader {
   });
 }
 
-function appendBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
-  const result = new Uint8Array(left.byteLength + right.byteLength);
-  result.set(left);
-  result.set(right, left.byteLength);
-  return result;
-}
-
 type DecoderState = "open" | "finished" | "failed";
 
 export class NativeFrameDecoder {
   #state: DecoderState = "open";
-  #buffer: Uint8Array = new Uint8Array();
+  #buffer: Uint8Array | undefined;
+  #bufferedLength = 0;
 
   push(chunk: Uint8Array): readonly NativeFrame[] {
     this.#ensureOpen();
-    if (!(chunk instanceof Uint8Array)) {
-      this.#poison();
-      failNativeCodec("invalid_frame");
-    }
-
     const frames: NativeFrame[] = [];
-    let offset = 0;
     try {
-      while (offset < chunk.byteLength || this.#buffer.byteLength > 0) {
-        if (this.#buffer.byteLength > 0) {
-          if (this.#buffer.byteLength < NATIVE_FRAME_HEADER_BYTES) {
+      if (
+        !(chunk instanceof Uint8Array) ||
+        hasSharedByteStorage(chunk)
+      ) {
+        failNativeCodec("invalid_frame");
+      }
+      const inputLength = chunk.byteLength;
+      let offset = 0;
+      while (offset < inputLength || this.#bufferedLength > 0) {
+        if (this.#bufferedLength > 0) {
+          if (this.#bufferedLength < NATIVE_FRAME_HEADER_BYTES) {
             const take = Math.min(
-              NATIVE_FRAME_HEADER_BYTES - this.#buffer.byteLength,
-              chunk.byteLength - offset,
+              NATIVE_FRAME_HEADER_BYTES - this.#bufferedLength,
+              inputLength - offset,
             );
             if (take > 0) {
-              this.#buffer = appendBytes(
-                this.#buffer,
-                chunk.subarray(offset, offset + take),
-              );
+              this.#appendBuffered(chunk, offset, take);
               offset += take;
             }
-            if (this.#buffer.byteLength < NATIVE_FRAME_HEADER_BYTES) {
+            if (this.#bufferedLength < NATIVE_FRAME_HEADER_BYTES) {
               break;
             }
           }
 
-          const header = parseHeader(this.#buffer, 0);
+          const buffer = this.#buffer;
+          if (buffer === undefined) {
+            failNativeCodec("invalid_frame");
+          }
+          const header = parseHeader(buffer, 0);
           const take = Math.min(
-            header.frameLength - this.#buffer.byteLength,
-            chunk.byteLength - offset,
+            header.frameLength - this.#bufferedLength,
+            inputLength - offset,
           );
           if (take > 0) {
-            this.#buffer = appendBytes(
-              this.#buffer,
-              chunk.subarray(offset, offset + take),
-            );
+            this.#appendBuffered(chunk, offset, take);
             offset += take;
           }
-          if (this.#buffer.byteLength < header.frameLength) {
+          if (this.#bufferedLength < header.frameLength) {
             break;
           }
           frames.push(createNativeFrame(
             header.type,
             header.requestId,
-            this.#buffer.subarray(NATIVE_FRAME_HEADER_BYTES, header.frameLength),
+            buffer.subarray(NATIVE_FRAME_HEADER_BYTES, header.frameLength),
           ));
-          this.#buffer = new Uint8Array();
+          this.#clearBuffered(false);
           continue;
         }
 
-        const remaining = chunk.byteLength - offset;
+        const remaining = inputLength - offset;
         if (remaining < NATIVE_FRAME_HEADER_BYTES) {
-          this.#buffer = chunk.slice(offset);
-          offset = chunk.byteLength;
+          this.#appendBuffered(chunk, offset, remaining);
+          offset = inputLength;
           break;
         }
 
         const header = parseHeader(chunk, offset);
         if (remaining < header.frameLength) {
-          this.#buffer = chunk.slice(offset);
-          offset = chunk.byteLength;
+          this.#appendBuffered(chunk, offset, remaining);
+          offset = inputLength;
           break;
         }
         frames.push(createNativeFrame(
@@ -258,11 +277,45 @@ export class NativeFrameDecoder {
 
   finish(): void {
     this.#ensureOpen();
-    if (this.#buffer.byteLength !== 0) {
+    if (this.#bufferedLength !== 0) {
       this.#poison();
       failNativeCodec("truncated_frame");
     }
+    this.#clearBuffered(true);
     this.#state = "finished";
+  }
+
+  #appendBuffered(source: Uint8Array, offset: number, length: number): void {
+    if (
+      !Number.isInteger(offset) ||
+      !Number.isInteger(length) ||
+      offset < 0 ||
+      length < 0 ||
+      offset + length > source.byteLength ||
+      this.#bufferedLength + length > NATIVE_FRAME_MAX_BYTES
+    ) {
+      failNativeCodec("invalid_frame");
+    }
+    if (length === 0) {
+      return;
+    }
+    const buffer = this.#buffer ?? new Uint8Array(NATIVE_FRAME_MAX_BYTES);
+    this.#buffer = buffer;
+    buffer.set(
+      source.subarray(offset, offset + length),
+      this.#bufferedLength,
+    );
+    this.#bufferedLength += length;
+  }
+
+  #clearBuffered(release: boolean): void {
+    if (this.#buffer !== undefined && this.#bufferedLength > 0) {
+      this.#buffer.fill(0, 0, this.#bufferedLength);
+    }
+    this.#bufferedLength = 0;
+    if (release) {
+      this.#buffer = undefined;
+    }
   }
 
   #ensureOpen(): void {
@@ -275,7 +328,7 @@ export class NativeFrameDecoder {
   }
 
   #poison(): void {
-    this.#buffer = new Uint8Array();
+    this.#clearBuffered(true);
     this.#state = "failed";
   }
 }

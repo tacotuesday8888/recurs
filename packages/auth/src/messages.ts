@@ -88,11 +88,24 @@ function decodeSemanticMessage<T>(decode: () => T): T {
 }
 
 export function encodeHello(requestId: number, hello: NativeHello): Uint8Array {
-  const payload = encodeFieldTable([
-    { tag: 1, value: encodeVersionText(hello.engineVersion) },
-    { tag: 2, value: encodeNonce(hello.nonce) },
-  ]);
-  return encodeNativeFrame({ type: NativeMessageType.hello, requestId, payload });
+  try {
+    const engineVersion = hello.engineVersion;
+    const nonce = hello.nonce;
+    const payload = encodeFieldTable([
+      { tag: 1, value: encodeVersionText(engineVersion) },
+      { tag: 2, value: encodeNonce(nonce) },
+    ]);
+    return encodeNativeFrame({
+      type: NativeMessageType.hello,
+      requestId,
+      payload,
+    });
+  } catch (error) {
+    if (error instanceof NativeCodecError) {
+      throw error;
+    }
+    failNativeCodec("invalid_message");
+  }
 }
 
 export function decodeHelloResult(frame: NativeFrame): NativeHelloResult {
