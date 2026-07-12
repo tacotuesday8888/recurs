@@ -6,6 +6,88 @@ import Testing
 @Suite("File broker journal store CAS")
 struct FileBrokerJournalStoreCASTests {
   @Test
+  func unknownAnchorCASWithoutSideEffectCollapsesToDefiniteStorageFailure() async throws {
+    let fixture = try await createdFixture(id: 48)
+    let anchorCASCalls = await fixture.authenticator.anchorCASCount()
+    await fixture.authenticator.failNext(at: .compareAndSwapUnknownBeforeSideEffect)
+
+    await #expect(throws: BrokerJournalError.storageUnavailable) {
+      _ = try await fixture.store.compareAndSwap(
+        expected: fixture.current,
+        replacement: fixture.staging
+      )
+    }
+
+    #expect(
+      try await fixture.authenticator.anchor(for: fixture.pending.connectionID)
+        == fixture.currentAnchor
+    )
+    #expect(await fixture.authenticator.anchorCASCount() == anchorCASCalls + 1)
+    #expect(
+      try await fixture.store.load(connectionID: fixture.pending.connectionID)
+        == fixture.current
+    )
+  }
+
+  @Test
+  func authorityAdvanceDuringAuthenticateCannotOverwriteCompetingSelectedSlot() async throws {
+    let fixture = try await createdFixture(id: 46)
+    let competitor = try stagingRecord(
+      from: fixture.pending,
+      revision: 2,
+      changedAt: JournalTimestamp(canonicalText: "2026-07-13T00:00:00.001Z")
+    )
+    let signer = DeterministicBrokerJournalAuthenticator()
+    let competitorTag = try await signer.authenticate(
+      previousTag: fixture.current.authenticationTag,
+      canonicalRecord: BrokerJournalCodec.canonicalRecordData(for: competitor)
+    )
+    let competitorEnvelope = try BrokerJournalCodec.encode(
+      BrokerJournalEnvelope(
+        previousAuthTag: fixture.current.authenticationTag,
+        authTag: competitorTag,
+        record: competitor
+      )
+    )
+    let competitorAnchor = try BrokerJournalAnchor(
+      connectionID: competitor.connectionID,
+      revision: competitor.revision,
+      authenticationTag: competitorTag
+    )
+    let competitorSnapshot = BrokerJournalSnapshot(
+      record: competitor,
+      authenticationTag: competitorTag
+    )
+    let writeCalls = fixture.backend.calls.filter { $0 == .write }.count
+    let renameCalls = fixture.backend.renamedPairs.count
+    await fixture.authenticator.pauseNext(at: .authenticateBeforeReturn)
+    let operation = Task {
+      try await fixture.store.compareAndSwap(
+        expected: fixture.current,
+        replacement: fixture.staging
+      )
+    }
+    await fixture.authenticator.waitUntilPaused(at: .authenticateBeforeReturn)
+    fixture.backend.replaceFile(fixture.stagingPath, data: competitorEnvelope)
+    try await fixture.authenticator.compareAndSwapAnchor(
+      expected: fixture.currentAnchor,
+      replacement: competitorAnchor
+    )
+    await fixture.authenticator.releaseOne(at: .authenticateBeforeReturn)
+
+    await #expect(throws: BrokerJournalError.casConflict) {
+      _ = try await operation.value
+    }
+
+    #expect(fixture.backend.calls.filter { $0 == .write }.count == writeCalls)
+    #expect(fixture.backend.renamedPairs.count == renameCalls)
+    #expect(
+      try await fixture.store.load(connectionID: competitor.connectionID)
+        == competitorSnapshot
+    )
+  }
+
+  @Test
   func missingIntendedSlotAfterAnchorCASIsRepairedFromRetainedEnvelope() async throws {
     let fixture = try await createdFixture(id: 39)
     await fixture.authenticator.pauseNext(at: .compareAndSwapAfterSideEffect)
@@ -211,6 +293,42 @@ struct FileBrokerJournalStoreCASTests {
       try await fixture.authenticator.anchor(for: fixture.staging.connectionID)
         == competingAnchor
     )
+  }
+
+  @Test
+  func intendedAnchorAdvanceDuringPreviousVerificationRedispatchesToSuccess() async throws {
+    let fixture = try await createdFixture(id: 47)
+    await fixture.authenticator.pauseNext(at: .compareAndSwapBeforeSideEffect)
+    await fixture.authenticator.failNext(at: .compareAndSwapBeforeSideEffect)
+    let operation = Task {
+      try await fixture.store.compareAndSwap(
+        expected: fixture.current,
+        replacement: fixture.staging
+      )
+    }
+    await fixture.authenticator.waitUntilPaused(at: .compareAndSwapBeforeSideEffect)
+    let intendedEnvelope = try BrokerJournalCodec.decode(
+      try #require(fixture.backend.node(fixture.stagingPath)?.content)
+    )
+    let intendedAnchor = try BrokerJournalAnchor(
+      connectionID: fixture.staging.connectionID,
+      revision: fixture.staging.revision,
+      authenticationTag: intendedEnvelope.authTag
+    )
+    await fixture.authenticator.pauseNext(at: .verifyBeforeReturn)
+    await fixture.authenticator.releaseOne(at: .compareAndSwapBeforeSideEffect)
+    await fixture.authenticator.waitUntilPaused(at: .verifyBeforeReturn)
+    try await fixture.authenticator.compareAndSwapAnchor(
+      expected: fixture.currentAnchor,
+      replacement: intendedAnchor
+    )
+    await fixture.authenticator.releaseOne(at: .verifyBeforeReturn)
+
+    let result = try await operation.value
+
+    #expect(result.record == fixture.staging)
+    #expect(result.authenticationTag == intendedEnvelope.authTag)
+    #expect(try await fixture.store.load(connectionID: fixture.staging.connectionID) == result)
   }
 
   @Test
@@ -623,7 +741,8 @@ struct FileBrokerJournalStoreCASTests {
   private func stagingRecord(
     from pending: BrokerJournalRecord,
     revision: UInt64,
-    connectionID: UUID? = nil
+    connectionID: UUID? = nil,
+    changedAt: JournalTimestamp? = nil
   ) throws -> BrokerJournalRecord {
     guard case .storePending(let payload) = pending.payload else {
       throw BrokerJournalError.invalidRecord
@@ -633,7 +752,7 @@ struct FileBrokerJournalStoreCASTests {
       connectionID: connectionID ?? pending.connectionID,
       fence: pending.fence,
       lastGenerationOrdinal: pending.lastGenerationOrdinal,
-      changedAt: pending.changedAt,
+      changedAt: changedAt ?? pending.changedAt,
       payload: .staging(
         BrokerJournalStagingPayload(
           attemptID: payload.attemptID,

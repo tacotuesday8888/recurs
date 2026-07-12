@@ -200,6 +200,19 @@ package actor FileBrokerJournalStore: BrokerJournalStore {
     )
     let intendedBasename =
       "\(replacement.connectionID.uuidString.lowercased()).\(replacement.revision % 2).rcbj"
+    if let currentAnchor, let currentSnapshot {
+      guard
+        try await loadSelected(
+          anchor: currentAnchor,
+          connectionID: authorityConnectionID
+        ) == currentSnapshot
+      else {
+        throw .casConflict
+      }
+    }
+    guard try await authenticator.anchor(for: authorityConnectionID) == currentAnchor else {
+      throw .casConflict
+    }
     do {
       try directory.writeAtomically(envelopeData, toSlotBasename: intendedBasename)
     } catch let error {
@@ -318,13 +331,23 @@ package actor FileBrokerJournalStore: BrokerJournalStore {
         } catch {
           throw originalError == .casConflict ? .casConflict : .mutationOutcomeUnknown
         }
+        if authorityAfterPreviousVerification == intendedAnchor {
+          return try await verifyOrRepairIntendedSelection(
+            anchor: intendedAnchor,
+            snapshot: intendedSnapshot,
+            envelopeData: intendedEnvelopeData,
+            basename: intendedBasename
+          )
+        }
         guard authorityAfterPreviousVerification == previousAnchor else {
           throw originalError == .casConflict ? .casConflict : .mutationOutcomeUnknown
         }
       }
       switch originalError {
-      case .storageUnavailable, .casConflict:
-        throw originalError
+      case .storageUnavailable, .mutationOutcomeUnknown:
+        throw .storageUnavailable
+      case .casConflict:
+        throw .casConflict
       default:
         throw .mutationOutcomeUnknown
       }

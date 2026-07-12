@@ -4,9 +4,11 @@ import Foundation
 @testable import RecursBrokerCore
 
 enum DeterministicJournalAuthenticatorBarrierPoint: Sendable, Hashable {
+  case authenticateBeforeReturn
   case anchorListBeforeReturn
   case anchorLookupBeforeReturn
   case compareAndSwapBeforeSideEffect
+  case compareAndSwapUnknownBeforeSideEffect
   case compareAndSwapAfterSideEffect
   case verifyBeforeReturn
 }
@@ -52,10 +54,12 @@ actor DeterministicBrokerJournalAuthenticator:
     canonicalRecord: Data
   ) async throws(BrokerJournalError) -> JournalAuthenticationTag {
     authenticateCalls += 1
-    return try Self.authenticationTag(
+    let tag = try Self.authenticationTag(
       previousTag: previousTag,
       canonicalRecord: canonicalRecord
     )
+    await pauseIfRequested(at: .authenticateBeforeReturn)
+    return tag
   }
 
   func authenticateCount() -> Int {
@@ -150,6 +154,9 @@ actor DeterministicBrokerJournalAuthenticator:
     await pauseIfRequested(at: .compareAndSwapBeforeSideEffect)
     if consumeFailure(at: .compareAndSwapBeforeSideEffect) {
       throw .storageUnavailable
+    }
+    if consumeFailure(at: .compareAndSwapUnknownBeforeSideEffect) {
+      throw .mutationOutcomeUnknown
     }
 
     var validated = try validatedAnchors()
