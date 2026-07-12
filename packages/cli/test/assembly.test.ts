@@ -292,6 +292,52 @@ describe("standalone assembly without a provider", () => {
     });
   });
 
+  it("starts a current session when stored connection metadata changed", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-current-pin-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    const connection = await writeLocalConnection(dataDirectory, {
+      baseUrl: "http://127.0.0.1:11434/v1",
+      modelId: "qwen-coder",
+      now: "2026-07-11T00:00:00.000Z",
+    });
+    const historical = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: workspace, dataDirectory },
+    );
+    const historicalFingerprint =
+      historical.session.backend.pin.accountSubjectFingerprint;
+
+    const registry = new FileConnectionRegistry(dataDirectory);
+    const current = await registry.read();
+    await registry.commit(current.revision, (draft) => {
+      const record = draft.connections.find(
+        (candidate) => candidate.id === connection.id,
+      );
+      if (record?.kind !== "local_openai_compatible") {
+        throw new Error("missing local fixture");
+      }
+      record.baseUrl = "http://127.0.0.1:1234/v1";
+      record.updatedAt = "2026-07-12T00:00:00.000Z";
+    });
+
+    const restarted = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: workspace, dataDirectory },
+    );
+
+    expect(restarted.session.id).not.toBe(historical.session.id);
+    expect(restarted.session.backend.pin).toMatchObject({
+      connectionId: connection.id,
+      modelId: "qwen-coder",
+    });
+    expect(restarted.session.backend.pin.accountSubjectFingerprint).not.toBe(
+      historicalFingerprint,
+    );
+  });
+
   it("starts in a workspace shell without creating a fake session", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-workspace-shell-"));
     directories.push(root);

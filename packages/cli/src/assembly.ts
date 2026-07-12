@@ -361,15 +361,17 @@ export async function createStandaloneRuntime(
   if (initialBackend === undefined) {
     state = createWorkspaceShell(cwd);
   } else {
-    const pin = initialBackend.pin(new Date().toISOString());
     let matching: PinnedSessionState | null = null;
     for (const entry of existing) {
       const candidate = await sessions.loadState(entry.id);
       if (
         isPinnedSessionState(candidate) &&
-        candidate.backend.pin.connectionId === pin.connectionId &&
-        candidate.backend.pin.adapterId === pin.adapterId &&
-        candidate.backend.pin.modelId === pin.modelId
+        isDeepStrictEqual(
+          candidate.backend.pin,
+          initialBackend.pin(
+            candidate.backend.pin.billingSelectionAtCreation.acknowledgedAt,
+          ),
+        )
       ) {
         matching = candidate;
         break;
