@@ -1,8 +1,9 @@
 import type { NativeAuthorityUnavailableReason } from "@recurs/contracts";
 
 import {
-  NativeCodecError,
   NativeMessageType,
+  allocateNativeBytes,
+  copyNativeBytes,
   encodeNativeFrame,
   failNativeCodec,
 } from "./frame.js";
@@ -79,33 +80,29 @@ function requireExactFields(
 function decodeSemanticMessage<T>(decode: () => T): T {
   try {
     return decode();
-  } catch (error) {
-    if (error instanceof NativeCodecError && error.code === "invalid_message") {
-      throw error;
-    }
+  } catch {
     failNativeCodec("invalid_message");
   }
 }
 
 export function encodeHello(requestId: number, hello: NativeHello): Uint8Array {
+  let engineVersion: string;
+  let nonce: Uint8Array;
   try {
-    const engineVersion = hello.engineVersion;
-    const nonce = hello.nonce;
-    const payload = encodeFieldTable([
-      { tag: 1, value: encodeVersionText(engineVersion) },
-      { tag: 2, value: encodeNonce(nonce) },
-    ]);
-    return encodeNativeFrame({
-      type: NativeMessageType.hello,
-      requestId,
-      payload,
-    });
-  } catch (error) {
-    if (error instanceof NativeCodecError) {
-      throw error;
-    }
+    engineVersion = hello.engineVersion;
+    nonce = hello.nonce;
+  } catch {
     failNativeCodec("invalid_message");
   }
+  const payload = encodeFieldTable([
+    { tag: 1, value: encodeVersionText(engineVersion) },
+    { tag: 2, value: encodeNonce(nonce) },
+  ]);
+  return encodeNativeFrame({
+    type: NativeMessageType.hello,
+    requestId,
+    payload,
+  });
 }
 
 export function decodeHelloResult(frame: NativeFrame): NativeHelloResult {
@@ -115,26 +112,34 @@ export function decodeHelloResult(frame: NativeFrame): NativeHelloResult {
       NativeMessageType.helloResult,
       [1, 2, 3, 4, 5, 6],
     );
-    const launcherVersion = decodeVersionText(fields[0]?.value ?? new Uint8Array());
-    const brokerVersion = decodeVersionText(fields[1]?.value ?? new Uint8Array());
-    const echoedNonce = decodeNonce(fields[2]?.value ?? new Uint8Array());
-    const productionSigned = decodeBoolean(fields[3]?.value ?? new Uint8Array());
+    const launcherVersion = decodeVersionText(
+      fields[0]?.value ?? allocateNativeBytes(0),
+    );
+    const brokerVersion = decodeVersionText(
+      fields[1]?.value ?? allocateNativeBytes(0),
+    );
+    const echoedNonce = decodeNonce(
+      fields[2]?.value ?? allocateNativeBytes(0),
+    );
+    const productionSigned = decodeBoolean(
+      fields[3]?.value ?? allocateNativeBytes(0),
+    );
     const persistentCredentials = decodeBoolean(
-      fields[4]?.value ?? new Uint8Array(),
+      fields[4]?.value ?? allocateNativeBytes(0),
     );
     const minimumMacosVersion = decodeVersionText(
-      fields[5]?.value ?? new Uint8Array(),
+      fields[5]?.value ?? allocateNativeBytes(0),
     );
     if (minimumMacosVersion !== "14.4") {
       failNativeCodec("invalid_message");
     }
 
-    const storedNonce = new Uint8Array(echoedNonce);
+    const storedNonce = copyNativeBytes(echoedNonce);
     return Object.freeze({
       launcherVersion,
       brokerVersion,
       get echoedNonce(): Uint8Array {
-        return new Uint8Array(storedNonce);
+        return copyNativeBytes(storedNonce);
       },
       productionSigned,
       persistentCredentials,
@@ -164,12 +169,16 @@ export function decodeHealthResult(frame: NativeFrame): NativeHealthResult {
       NativeMessageType.healthResult,
       [1, 2],
     );
-    const keychainCode = decodeU16(fields[0]?.value ?? new Uint8Array());
+    const keychainCode = decodeU16(
+      fields[0]?.value ?? allocateNativeBytes(0),
+    );
     const keychain = keychainValues[keychainCode as keyof typeof keychainValues];
     if (keychain === undefined) {
       failNativeCodec("invalid_message");
     }
-    const peerVerified = decodeBoolean(fields[1]?.value ?? new Uint8Array());
+    const peerVerified = decodeBoolean(
+      fields[1]?.value ?? allocateNativeBytes(0),
+    );
     return Object.freeze({ keychain, peerVerified });
   });
 }
@@ -214,7 +223,7 @@ export function decodeSafeFailure(
       NativeMessageType.safeFailure,
       [1],
     );
-    const code = decodeU16(fields[0]?.value ?? new Uint8Array());
+    const code = decodeU16(fields[0]?.value ?? allocateNativeBytes(0));
     const reason = safeFailureValues[code];
     if (reason === undefined) {
       failNativeCodec("invalid_message");

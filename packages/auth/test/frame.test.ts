@@ -64,6 +64,40 @@ const messageTypesByFixtureName = {
   safeFailure: NativeMessageType.safeFailure,
 } as const;
 
+class HostileByteSubclass extends Uint8Array {
+  override subarray(): Uint8Array {
+    return new Uint8Array();
+  }
+
+  override slice(): Uint8Array {
+    return new Uint8Array();
+  }
+}
+
+function addHostileByteAccessors<T extends Uint8Array>(value: T): T {
+  Object.defineProperties(value, {
+    buffer: {
+      configurable: true,
+      get() {
+        throw new Error("HOSTILE_BUFFER_ACCESSOR");
+      },
+    },
+    byteLength: {
+      configurable: true,
+      get() {
+        return 0;
+      },
+    },
+    byteOffset: {
+      configurable: true,
+      get() {
+        throw new Error("HOSTILE_OFFSET_ACCESSOR");
+      },
+    },
+  });
+  return value;
+}
+
 function fromHex(hex: string): Uint8Array {
   expect(hex).toMatch(/^(?:[0-9a-f]{2})+$/u);
   return Uint8Array.from(
@@ -171,6 +205,15 @@ function captureCodecError(
     return codecError;
   }
   throw new Error(`expected NativeCodecError ${code}`);
+}
+
+function mutatedCodecError(
+  code: NativeCodecErrorCode,
+  message: string,
+): NativeCodecError {
+  const error = new NativeCodecError(code);
+  error.message = message;
+  return error;
 }
 
 async function loadGoldenFixture(): Promise<{
@@ -435,6 +478,46 @@ describe("bounded native frame decoder", () => {
     expect(frames[0]?.requestId).toBe(13);
   });
 
+  it("uses intrinsic views for complete hostile typed-array subclasses", () => {
+    const wire = encodeHealth(18);
+    const decoder = new NativeFrameDecoder();
+
+    const frames = decoder.push(new HostileByteSubclass(wire));
+    decoder.finish();
+
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.requestId).toBe(18);
+    expect(frames[0]?.payload).toEqual(testU16(0));
+  });
+
+  it("uses intrinsic copies for fragmented hostile typed-array subclasses", () => {
+    const wire = encodeHealth(19);
+    const decoder = new NativeFrameDecoder();
+
+    expect(decoder.push(new HostileByteSubclass(wire.subarray(0, 8))))
+      .toEqual([]);
+    const frames = decoder.push(new HostileByteSubclass(wire.subarray(8)));
+    decoder.finish();
+
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.requestId).toBe(19);
+    expect(frames[0]?.payload).toEqual(testU16(0));
+  });
+
+  it("bypasses deceptive typed-array accessors with captured intrinsics", () => {
+    const wire = addHostileByteAccessors(
+      new HostileByteSubclass(encodeHealth(20)),
+    );
+    const decoder = new NativeFrameDecoder();
+
+    const frames = decoder.push(wire);
+    decoder.finish();
+
+    expect(frames).toHaveLength(1);
+    expect(frames[0]?.requestId).toBe(20);
+    expect(frames[0]?.payload).toEqual(testU16(0));
+  });
+
   it("rejects SharedArrayBuffer-backed chunks and poisons the decoder", () => {
     const bytes = rawFrame(NativeMessageType.health, 14, testU16(0));
     const shared = new SharedArrayBuffer(bytes.byteLength);
@@ -447,10 +530,9 @@ describe("bounded native frame decoder", () => {
     captureCodecError(() => decoder.finish(), "decoder_failed");
   });
 
-  it("keeps maximum-frame one-byte fragmentation linearly bounded", () => {
+  it("keeps maximum-frame one-byte fragmentation linearly bounded", async () => {
     const payload = new Uint8Array(NATIVE_FRAME_MAX_PAYLOAD_BYTES);
     const bytes = rawFrame(NativeMessageType.health, 15, payload);
-    const decoder = new NativeFrameDecoder();
     const NativeUint8Array = Uint8Array;
     let allocatedBytes = 0;
     const TrackingUint8Array = new Proxy(NativeUint8Array, {
@@ -465,6 +547,11 @@ describe("bounded native frame decoder", () => {
 
     vi.stubGlobal("Uint8Array", TrackingUint8Array);
     try {
+      vi.resetModules();
+      const { NativeFrameDecoder: IsolatedNativeFrameDecoder } = await import(
+        "../src/frame.js"
+      );
+      const decoder = new IsolatedNativeFrameDecoder();
       let decoded: readonly NativeFrame[] = [];
       for (let offset = 0; offset < bytes.byteLength; offset += 1) {
         const frames = decoder.push(bytes.subarray(offset, offset + 1));
@@ -475,11 +562,15 @@ describe("bounded native frame decoder", () => {
       decoder.finish();
       expect(decoded).toHaveLength(1);
       expect(decoded[0]?.payload.byteLength).toBe(NATIVE_FRAME_MAX_PAYLOAD_BYTES);
+      expect(allocatedBytes).toBeGreaterThanOrEqual(
+        NATIVE_FRAME_HEADER_BYTES + NATIVE_FRAME_MAX_PAYLOAD_BYTES,
+      );
       expect(allocatedBytes).toBeLessThan(
         4 * (NATIVE_FRAME_HEADER_BYTES + NATIVE_FRAME_MAX_PAYLOAD_BYTES),
       );
     } finally {
       vi.unstubAllGlobals();
+      vi.resetModules();
     }
   });
 
@@ -494,6 +585,24 @@ describe("bounded native frame decoder", () => {
     const error = captureCodecError(() => decoder.push(hostile), "invalid_frame");
     expect(error.message).not.toContain("CALLER_PROSE_CANARY");
     captureCodecError(() => decoder.push(new Uint8Array()), "decoder_failed");
+    captureCodecError(() => decoder.finish(), "decoder_failed");
+  });
+
+  it("replaces caller-owned matching decoder errors before poisoning", () => {
+    const callerError = mutatedCodecError(
+      "invalid_frame",
+      "DECODER_NATIVE_ERROR_CANARY",
+    );
+    const hostile = new Proxy(new Uint8Array(), {
+      getPrototypeOf() {
+        throw callerError;
+      },
+    });
+    const decoder = new NativeFrameDecoder();
+
+    const error = captureCodecError(() => decoder.push(hostile), "invalid_frame");
+    expect(error).not.toBe(callerError);
+    expect(error.message).not.toContain("DECODER_NATIVE_ERROR_CANARY");
     captureCodecError(() => decoder.finish(), "decoder_failed");
   });
 
@@ -561,6 +670,23 @@ describe("bounded native frame decoder", () => {
       "invalid_frame",
     );
     expect(error.message).not.toContain("FRAME_GETTER_CANARY");
+
+    const callerError = mutatedCodecError(
+      "invalid_frame",
+      "FRAME_NATIVE_ERROR_CANARY",
+    );
+    const replaced = captureCodecError(
+      () => encodeNativeFrame({
+        get type(): NativeMessageType {
+          throw callerError;
+        },
+        requestId: 1,
+        payload: testU16(0),
+      }),
+      "invalid_frame",
+    );
+    expect(replaced).not.toBe(callerError);
+    expect(replaced.message).not.toContain("FRAME_NATIVE_ERROR_CANARY");
   });
 
   it("returns frozen frame containers whose payload getter always copies", () => {
@@ -602,6 +728,24 @@ describe("bounded native frame decoder", () => {
 });
 
 describe("strict field tables and scalar codecs", () => {
+  it("snapshots hostile typed-array subclasses before scalar decoding", () => {
+    const encoded = addHostileByteAccessors(
+      new HostileByteSubclass(Uint8Array.of(0x12, 0x34)),
+    );
+
+    expect(decodeU16(encoded)).toBe(0x1234);
+  });
+
+  it("uses owned base-array snapshots while decoding field tables", () => {
+    const encoded = new HostileByteSubclass(rawFieldTable([
+      { tag: 1, value: Uint8Array.of(0xa5) },
+    ]));
+
+    expect(decodeFieldTable(encoded)).toEqual([
+      { tag: 1, value: Uint8Array.of(0xa5) },
+    ]);
+  });
+
   it.each([
     ["decodeU16", Uint8Array.of(0, 1), (value: Uint8Array) => decodeU16(value), "invalid_field"],
     [
@@ -657,6 +801,30 @@ describe("strict field tables and scalar codecs", () => {
 
     const error = captureCodecError(() => decode(hostile), code);
     expect(error.message).not.toContain("DIRECT_BRAND_CANARY");
+  });
+
+  it.each([
+    ["scalar", "invalid_field", (value: Uint8Array) => decodeU16(value)],
+    [
+      "table",
+      "invalid_field_table",
+      (value: Uint8Array) => decodeFieldTable(value),
+    ],
+  ] as const)("replaces caller-owned matching %s codec errors", (
+    _name,
+    code,
+    decode,
+  ) => {
+    const callerError = mutatedCodecError(code, "FIELD_NATIVE_ERROR_CANARY");
+    const hostile = new Proxy(new Uint8Array(32), {
+      getPrototypeOf() {
+        throw callerError;
+      },
+    });
+
+    const error = captureCodecError(() => decode(hostile), code);
+    expect(error).not.toBe(callerError);
+    expect(error.message).not.toContain("FIELD_NATIVE_ERROR_CANARY");
   });
 
   it.each([
@@ -1127,6 +1295,43 @@ describe("strict semantic message codecs", () => {
       "invalid_message",
     );
     expect(error.message).not.toContain("HELLO_GETTER_CANARY");
+
+    const callerError = mutatedCodecError(
+      "invalid_message",
+      "HELLO_NATIVE_ERROR_CANARY",
+    );
+    const replaced = captureCodecError(
+      () => encodeHello(1, {
+        get engineVersion(): string {
+          throw callerError;
+        },
+        nonce,
+      }),
+      "invalid_message",
+    );
+    expect(replaced).not.toBe(callerError);
+    expect(replaced.message).not.toContain("HELLO_NATIVE_ERROR_CANARY");
+  });
+
+  it("replaces caller-owned matching semantic decoder errors", () => {
+    const callerError = mutatedCodecError(
+      "invalid_message",
+      "SEMANTIC_NATIVE_ERROR_CANARY",
+    );
+    const frame = {
+      get type(): NativeMessageType {
+        throw callerError;
+      },
+      requestId: 1,
+      payload: testU16(0),
+    };
+
+    const error = captureCodecError(
+      () => decodeHealthResult(frame),
+      "invalid_message",
+    );
+    expect(error).not.toBe(callerError);
+    expect(error.message).not.toContain("SEMANTIC_NATIVE_ERROR_CANARY");
   });
 
   it("freezes semantic results and protects echoed nonce storage", () => {
@@ -1148,5 +1353,27 @@ describe("strict semantic message codecs", () => {
       rawFieldTable(healthResultFields),
     ));
     expect(Object.isFrozen(health)).toBe(true);
+  });
+
+  it("uses captured intrinsic copies for semantic nonce storage", () => {
+    const frame = nativeFrame(
+      NativeMessageType.helloResult,
+      3,
+      rawFieldTable(helloResultFields),
+    );
+    const NativeUint8Array = Uint8Array;
+    const HostileUint8Array = new Proxy(NativeUint8Array, {
+      construct() {
+        throw new Error("DYNAMIC_UINT8ARRAY_CANARY");
+      },
+    });
+
+    vi.stubGlobal("Uint8Array", HostileUint8Array);
+    try {
+      const result = decodeHelloResult(frame);
+      expect(result.echoedNonce).toEqual(nonce);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

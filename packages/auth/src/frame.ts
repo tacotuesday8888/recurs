@@ -5,6 +5,24 @@ export const NATIVE_FRAME_HEADER_BYTES = 16;
 export const NATIVE_FRAME_MAX_PAYLOAD_BYTES = 64 * 1024;
 const NATIVE_FRAME_MAX_BYTES =
   NATIVE_FRAME_HEADER_BYTES + NATIVE_FRAME_MAX_PAYLOAD_BYTES;
+const NativeUint8Array = Uint8Array;
+const nativeTypedArrayPrototype = Object.getPrototypeOf(
+  NativeUint8Array.prototype,
+) as object;
+const nativeBufferGetter = Object.getOwnPropertyDescriptor(
+  nativeTypedArrayPrototype,
+  "buffer",
+)?.get as (this: Uint8Array) => ArrayBufferLike;
+const nativeByteLengthGetter = Object.getOwnPropertyDescriptor(
+  nativeTypedArrayPrototype,
+  "byteLength",
+)?.get as (this: Uint8Array) => number;
+const nativeByteOffsetGetter = Object.getOwnPropertyDescriptor(
+  nativeTypedArrayPrototype,
+  "byteOffset",
+)?.get as (this: Uint8Array) => number;
+const nativeSet = NativeUint8Array.prototype.set;
+const nativeFill = NativeUint8Array.prototype.fill;
 
 export enum NativeMessageType {
   hello = 1,
@@ -50,6 +68,72 @@ export function failNativeCodec(code: NativeCodecErrorCode): never {
   throw new NativeCodecError(code);
 }
 
+export function isNativeByteArray(value: unknown): value is Uint8Array {
+  return value instanceof NativeUint8Array;
+}
+
+export function nativeByteStorage(value: Uint8Array): ArrayBufferLike {
+  return Reflect.apply(nativeBufferGetter, value, []) as ArrayBufferLike;
+}
+
+export function nativeByteLength(value: Uint8Array): number {
+  return Reflect.apply(nativeByteLengthGetter, value, []) as number;
+}
+
+export function nativeByteOffset(value: Uint8Array): number {
+  return Reflect.apply(nativeByteOffsetGetter, value, []) as number;
+}
+
+export function nativeByteView(
+  value: Uint8Array,
+  begin = 0,
+  end = nativeByteLength(value),
+): Uint8Array {
+  const length = nativeByteLength(value);
+  if (
+    !Number.isInteger(begin) ||
+    !Number.isInteger(end) ||
+    begin < 0 ||
+    end < begin ||
+    end > length
+  ) {
+    throw new RangeError("Invalid native byte view.");
+  }
+  return new NativeUint8Array(
+    nativeByteStorage(value),
+    nativeByteOffset(value) + begin,
+    end - begin,
+  );
+}
+
+export function copyNativeBytes(
+  value: Uint8Array,
+  begin = 0,
+  end = nativeByteLength(value),
+): Uint8Array {
+  return new NativeUint8Array(nativeByteView(value, begin, end));
+}
+
+export function allocateNativeBytes(length: number): Uint8Array {
+  return new NativeUint8Array(length);
+}
+
+export function writeNativeBytes(
+  target: Uint8Array,
+  source: Uint8Array,
+  offset = 0,
+): void {
+  Reflect.apply(nativeSet, target, [source, offset]);
+}
+
+function zeroNativeBytes(
+  target: Uint8Array,
+  begin: number,
+  end: number,
+): void {
+  Reflect.apply(nativeFill, target, [0, begin, end]);
+}
+
 export interface NativeFrame {
   readonly type: NativeMessageType;
   readonly requestId: number;
@@ -75,7 +159,7 @@ function isU32(value: number): boolean {
 }
 
 function hasSharedByteStorage(value: Uint8Array): boolean {
-  const storage = value.buffer;
+  const storage = nativeByteStorage(value);
   return (
     typeof SharedArrayBuffer !== "undefined" &&
     storage instanceof SharedArrayBuffer
@@ -104,12 +188,12 @@ function createNativeFrame(
   requestId: number,
   payload: Uint8Array,
 ): NativeFrame {
-  const storedPayload = new Uint8Array(payload);
+  const storedPayload = copyNativeBytes(payload);
   return Object.freeze({
     type,
     requestId,
     get payload(): Uint8Array {
-      return new Uint8Array(storedPayload);
+      return copyNativeBytes(storedPayload);
     },
   });
 }
@@ -120,29 +204,27 @@ export function encodeNativeFrame(frame: NativeFrame): Uint8Array {
     const requestId = frame.requestId;
     const inputPayload = frame.payload;
     if (
-      !(inputPayload instanceof Uint8Array) ||
+      !isNativeByteArray(inputPayload) ||
       hasSharedByteStorage(inputPayload)
     ) {
       failNativeCodec("invalid_frame");
     }
-    const payload = new Uint8Array(inputPayload);
-    validateFrameParts(type, requestId, payload.byteLength);
+    const payload = copyNativeBytes(inputPayload);
+    const payloadLength = nativeByteLength(payload);
+    validateFrameParts(type, requestId, payloadLength);
 
-    const encoded = new Uint8Array(
-      NATIVE_FRAME_HEADER_BYTES + payload.byteLength,
+    const encoded = allocateNativeBytes(
+      NATIVE_FRAME_HEADER_BYTES + payloadLength,
     );
-    const view = new DataView(encoded.buffer);
+    const view = new DataView(nativeByteStorage(encoded));
     view.setUint32(0, NATIVE_FRAME_MAGIC, false);
     view.setUint16(4, NATIVE_AUTHORITY_PROTOCOL_VERSION, false);
     view.setUint16(6, type, false);
-    view.setUint32(8, payload.byteLength, false);
+    view.setUint32(8, payloadLength, false);
     view.setUint32(12, requestId, false);
-    encoded.set(payload, NATIVE_FRAME_HEADER_BYTES);
+    writeNativeBytes(encoded, payload, NATIVE_FRAME_HEADER_BYTES);
     return encoded;
-  } catch (error) {
-    if (error instanceof NativeCodecError && error.code === "invalid_frame") {
-      throw error;
-    }
+  } catch {
     failNativeCodec("invalid_frame");
   }
 }
@@ -156,8 +238,8 @@ interface ParsedHeader {
 
 function parseHeader(bytes: Uint8Array, offset: number): ParsedHeader {
   const view = new DataView(
-    bytes.buffer,
-    bytes.byteOffset + offset,
+    nativeByteStorage(bytes),
+    nativeByteOffset(bytes) + offset,
     NATIVE_FRAME_HEADER_BYTES,
   );
   const magic = view.getUint32(0, false);
@@ -193,12 +275,12 @@ export class NativeFrameDecoder {
     const frames: NativeFrame[] = [];
     try {
       if (
-        !(chunk instanceof Uint8Array) ||
+        !isNativeByteArray(chunk) ||
         hasSharedByteStorage(chunk)
       ) {
         failNativeCodec("invalid_frame");
       }
-      const inputLength = chunk.byteLength;
+      const inputLength = nativeByteLength(chunk);
       let offset = 0;
       while (offset < inputLength || this.#bufferedLength > 0) {
         if (this.#bufferedLength > 0) {
@@ -235,7 +317,11 @@ export class NativeFrameDecoder {
           frames.push(createNativeFrame(
             header.type,
             header.requestId,
-            buffer.subarray(NATIVE_FRAME_HEADER_BYTES, header.frameLength),
+            nativeByteView(
+              buffer,
+              NATIVE_FRAME_HEADER_BYTES,
+              header.frameLength,
+            ),
           ));
           this.#clearBuffered(false);
           continue;
@@ -257,18 +343,16 @@ export class NativeFrameDecoder {
         frames.push(createNativeFrame(
           header.type,
           header.requestId,
-          chunk.subarray(
+          nativeByteView(
+            chunk,
             offset + NATIVE_FRAME_HEADER_BYTES,
             offset + header.frameLength,
           ),
         ));
         offset += header.frameLength;
       }
-    } catch (error) {
+    } catch {
       this.#poison();
-      if (error instanceof NativeCodecError) {
-        throw error;
-      }
       failNativeCodec("invalid_frame");
     }
 
@@ -291,7 +375,7 @@ export class NativeFrameDecoder {
       !Number.isInteger(length) ||
       offset < 0 ||
       length < 0 ||
-      offset + length > source.byteLength ||
+      offset + length > nativeByteLength(source) ||
       this.#bufferedLength + length > NATIVE_FRAME_MAX_BYTES
     ) {
       failNativeCodec("invalid_frame");
@@ -299,10 +383,11 @@ export class NativeFrameDecoder {
     if (length === 0) {
       return;
     }
-    const buffer = this.#buffer ?? new Uint8Array(NATIVE_FRAME_MAX_BYTES);
+    const buffer = this.#buffer ?? allocateNativeBytes(NATIVE_FRAME_MAX_BYTES);
     this.#buffer = buffer;
-    buffer.set(
-      source.subarray(offset, offset + length),
+    writeNativeBytes(
+      buffer,
+      nativeByteView(source, offset, offset + length),
       this.#bufferedLength,
     );
     this.#bufferedLength += length;
@@ -310,7 +395,7 @@ export class NativeFrameDecoder {
 
   #clearBuffered(release: boolean): void {
     if (this.#buffer !== undefined && this.#bufferedLength > 0) {
-      this.#buffer.fill(0, 0, this.#bufferedLength);
+      zeroNativeBytes(this.#buffer, 0, this.#bufferedLength);
     }
     this.#bufferedLength = 0;
     if (release) {
