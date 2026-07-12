@@ -10,6 +10,8 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 
 import {
   FileConnectionRegistry,
@@ -18,14 +20,19 @@ import {
 } from "@recurs/app";
 import {
   createStandaloneRuntime,
+  disconnectAccount,
   listAccountSummaries,
   listProviderSummaries,
   runCli,
+  setPrimaryAccount,
+  verifyAccount,
+  writeLocalConnection,
 } from "@recurs/cli";
 import { afterEach, describe, expect, it } from "vitest";
 
 const AT = "2026-07-11T00:00:00.000Z";
 const roots: string[] = [];
+const servers: Server[] = [];
 
 class TextOutput {
   value = "";
@@ -39,12 +46,63 @@ class TextOutput {
 }
 
 afterEach(async () => {
+  await Promise.all(servers.splice(0).map((server) =>
+    new Promise<void>((resolve, reject) => {
+      server.close((error) => error === undefined ? resolve() : reject(error));
+    })
+  ));
   await Promise.all(
     roots.splice(0).map((root) =>
       rm(root, { recursive: true, force: true }),
     ),
   );
 });
+
+async function localModelServer(
+  modelId: string,
+  responseText: string,
+): Promise<{ baseUrl: string; promptRequests(): number }> {
+  let prompts = 0;
+  const server = createServer((request, response) => {
+    if (request.method === "GET" && request.url === "/v1/models") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        object: "list",
+        data: [{ id: modelId, object: "model", owned_by: "local" }],
+      }));
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      request.url === "/v1/chat/completions"
+    ) {
+      prompts += 1;
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end(
+        `data: ${JSON.stringify({
+          choices: [{
+            delta: { content: responseText },
+            finish_reason: "stop",
+          }],
+          usage: { prompt_tokens: 3, completion_tokens: 2 },
+        })}\n\ndata: [DONE]\n\n`,
+      );
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  servers.push(server);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address() as AddressInfo;
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    promptRequests: () => prompts,
+  };
+}
 
 async function temporaryRoot(prefix: string): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), prefix));
@@ -219,5 +277,124 @@ describe("provider onboarding end to end", () => {
     expect(runtime.session.messages).toEqual([]);
     expect(stdout.value).toBe("");
     expect(stderr.value).toContain("user-present local terminal");
+  });
+
+  it("keeps historical sessions pinned across selection, verification, and disconnection", async () => {
+    const root = await temporaryRoot("recurs-lifecycle-e2e-");
+    const project = path.join(root, "project");
+    const dataDirectory = path.join(root, "data");
+    await mkdir(project);
+    const serverA = await localModelServer("model-a", "from connection A");
+    const serverB = await localModelServer("model-b", "from connection B");
+    const connectionA = await writeLocalConnection(dataDirectory, {
+      baseUrl: serverA.baseUrl,
+      modelId: "model-a",
+      now: "2026-07-12T00:00:00.000Z",
+    });
+    const connectionB = await writeLocalConnection(dataDirectory, {
+      baseUrl: serverB.baseUrl,
+      modelId: "model-b",
+      now: "2026-07-12T00:01:00.000Z",
+    });
+    expect(connectionA.primary).toBe(true);
+    expect(connectionB.primary).toBe(false);
+
+    const runtimeA = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: project, dataDirectory },
+    );
+    await expect(runtimeA.submit("first run")).resolves.toMatchObject({
+      finalText: "from connection A",
+    });
+    const historicalSessionId = runtimeA.session.id;
+    expect(serverA.promptRequests()).toBe(1);
+    expect(serverB.promptRequests()).toBe(0);
+
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const lifecycleDependencies = {
+      stdout,
+      stderr,
+      cwd: project,
+      interactive: true,
+      automation: false,
+      async confirm() { return true; },
+      async createRuntime() {
+        throw new Error("account commands must not start a runtime");
+      },
+      setPrimaryAccount: (id: string) => setPrimaryAccount(dataDirectory, id),
+      verifyAccount: (id: string, cwd: string) =>
+        verifyAccount(dataDirectory, id, cwd),
+      disconnectAccount: (id: string) => disconnectAccount(dataDirectory, id),
+      listAccounts: () => listAccountSummaries(dataDirectory),
+    };
+
+    expect(await runCli(
+      ["account", "set-primary", connectionB.id],
+      lifecycleDependencies,
+    )).toBe(0);
+    const beforeVerification = await new FileConnectionRegistry(
+      dataDirectory,
+    ).read();
+    expect(await runCli(
+      ["account", "verify", connectionB.id],
+      lifecycleDependencies,
+    )).toBe(0);
+    expect((await new FileConnectionRegistry(dataDirectory).read()).revision)
+      .toBe(beforeVerification.revision);
+
+    const runtimeB = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: project, dataDirectory },
+    );
+    expect(runtimeB.session.backend.pin.connectionId).toBe(connectionB.id);
+    await expect(runtimeB.submit("new primary run")).resolves.toMatchObject({
+      finalText: "from connection B",
+    });
+    expect(serverB.promptRequests()).toBe(1);
+
+    await expect(runtimeB.submit(`/resume ${historicalSessionId}`)).resolves
+      .toMatchObject({ text: `Resumed session ${historicalSessionId}` });
+    await expect(runtimeB.submit("continue old work")).resolves.toMatchObject({
+      finalText: "from connection A",
+    });
+    expect(runtimeB.session.backend.pin.connectionId).toBe(connectionA.id);
+    expect(serverA.promptRequests()).toBe(2);
+
+    expect(await runCli(
+      ["account", "disconnect", connectionA.id],
+      lifecycleDependencies,
+    )).toBe(0);
+    await expect(runtimeB.submit("must fail closed")).rejects.toMatchObject({
+      failure: {
+        domain: "connection",
+        phase: "preflight",
+        code: "connection_invalid",
+      },
+    });
+    expect(serverA.promptRequests()).toBe(2);
+
+    expect(await runCli(
+      ["account", "disconnect", connectionB.id],
+      lifecycleDependencies,
+    )).toBe(0);
+    const restarted = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: project, dataDirectory },
+    );
+    expect(restarted.state).toMatchObject({ type: "workspace" });
+
+    const accountJson = new TextOutput();
+    expect(await runCli(
+      ["account", "list", "--json"],
+      { ...lifecycleDependencies, stdout: accountJson },
+    )).toBe(0);
+    expect(accountJson.value).not.toContain(serverA.baseUrl);
+    expect(accountJson.value).not.toContain(serverB.baseUrl);
+    expect(JSON.parse(accountJson.value)).toEqual({
+      version: 1,
+      accounts: [],
+    });
+    expect(stderr.value).toBe("");
   });
 });
