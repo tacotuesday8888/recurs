@@ -236,6 +236,44 @@ describe("session commands", () => {
     expect((await sessions.loadState("s1")).summary).toBe("Earlier work summarized");
   });
 
+  it("resolves the compaction provider from the active session pin", async () => {
+    const messages = Array.from({ length: 8 }, (_, index) => ({
+      id: `dynamic-${index}`,
+      role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      content: `dynamic message ${index}`,
+    }));
+    const state = await storeSession("dynamic", at, messages);
+    const startupProvider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: "wrong provider" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ], "startup-provider");
+    const pinnedProvider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: "pinned provider summary" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ], "pinned-provider");
+    const resolveProvider = vi.fn(async (session: SessionState) => {
+      expect(session.id).toBe("dynamic");
+      return pinnedProvider;
+    });
+    const registry = createCommandRegistry({
+      sessions,
+      provider: startupProvider,
+      resolveProvider,
+    });
+    const commandContext = context(state);
+
+    await registry.execute("/compact", commandContext);
+
+    expect(resolveProvider).toHaveBeenCalledOnce();
+    expect(startupProvider.requests).toHaveLength(0);
+    expect(pinnedProvider.requests).toHaveLength(1);
+    expect(commandContext.session.summary).toBe("pinned provider summary");
+  });
+
   it("rejects delegated compaction before invoking a provider", async () => {
     const backend: SessionBackendPin = {
       ...testBackendPin(),
@@ -247,7 +285,12 @@ describe("session commands", () => {
       yield { type: "done", stopReason: "complete" } as const;
     });
     const provider: ModelProvider = { id: "must-not-run", stream };
-    const registry = createCommandRegistry({ sessions, provider });
+    const resolveProvider = vi.fn(async () => provider);
+    const registry = createCommandRegistry({
+      sessions,
+      provider,
+      resolveProvider,
+    });
     const commandContext = context(state);
 
     await expect(registry.execute("/compact", commandContext)).resolves.toMatchObject({
@@ -256,6 +299,7 @@ describe("session commands", () => {
       text: expect.stringMatching(/delegated/iu),
     });
     expect(stream).not.toHaveBeenCalled();
+    expect(resolveProvider).not.toHaveBeenCalled();
     expect((await sessions.load("delegated")).records).toHaveLength(1);
   });
 });

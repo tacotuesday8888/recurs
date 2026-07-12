@@ -30,6 +30,7 @@ import {
   isPinnedSessionState,
   type EventSink,
   type PinnedSessionState,
+  type SessionState,
   type WorkspaceShellState,
 } from "@recurs/core";
 import {
@@ -622,11 +623,52 @@ export async function createStandaloneRuntime(
     delegated,
     continuationAuthority: continuations.authority,
   });
+  const resolveCommandProvider = async (
+    session: SessionState,
+    signal: AbortSignal,
+  ): Promise<ModelProvider | null> => {
+    if (
+      signal.aborted ||
+      !isPinnedSessionState(session) ||
+      session.backend.pin.kind !== "model_provider"
+    ) {
+      return null;
+    }
+    let selected: RuntimeBackend;
+    if (injected !== undefined) {
+      if (initialBackend === undefined) return null;
+      selected = initialBackend;
+    } else {
+      let current;
+      try {
+        current = await connectionRegistry.read();
+        const connection = current.connections.find(
+          (candidate) => candidate.id === session.backend.pin.connectionId,
+        );
+        if (connection === undefined) return null;
+        selected = backendForConnection(
+          connection,
+          delegatedRuntimeFactory,
+          randomUUID(),
+        );
+      } catch {
+        return null;
+      }
+    }
+    const expected = selected.pin(
+      session.backend.pin.billingSelectionAtCreation.acknowledgedAt,
+    );
+    return selected.kind === "direct" &&
+        isDeepStrictEqual(expected, session.backend.pin)
+      ? selected.createProvider()
+      : null;
+  };
   const commands = createCommandRegistry({
     sessions,
     ...(initialBackend?.kind === "direct"
       ? { provider: initialBackend.commandProvider }
       : {}),
+    resolveProvider: resolveCommandProvider,
     checkpoints,
     signal: () =>
       runtimeReference.current?.currentSignal() ?? new AbortController().signal,

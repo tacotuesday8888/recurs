@@ -27,6 +27,10 @@ export interface CommandContext {
 export interface CommandDependencies {
   sessions?: JsonlSessionStore;
   provider?: ModelProvider;
+  resolveProvider?(
+    session: SessionState,
+    signal: AbortSignal,
+  ): Promise<ModelProvider | null>;
   checkpoints?: CheckpointStore;
   signal?(): AbortSignal;
 }

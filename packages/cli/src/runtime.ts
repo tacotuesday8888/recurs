@@ -89,12 +89,17 @@ export class RecursRuntime {
   #session: SessionState | null;
   #workspace: WorkspaceShellState | null;
   #runner: CoordinatedRuntime | null;
+  readonly #coordinator: RunCoordinator | null;
 
   constructor(
     private readonly dependencies: RuntimeDependencies,
     initialState: SessionState | WorkspaceShellState,
   ) {
     this.#confirm = dependencies.confirm;
+    this.#coordinator = dependencies.coordinator ??
+      (dependencies.loop === undefined
+        ? null
+        : new CompatibilityRunCoordinator(dependencies.loop));
     if (isWorkspaceShellState(initialState)) {
       this.#session = null;
       this.#workspace = initialState;
@@ -102,22 +107,28 @@ export class RecursRuntime {
     } else {
       this.#session = initialState;
       this.#workspace = null;
-      const coordinator = dependencies.coordinator ??
-        (dependencies.loop === undefined
-          ? null
-          : new CompatibilityRunCoordinator(dependencies.loop));
-      this.#runner = coordinator === null
+      this.#runner = this.#coordinator === null
         ? null
         : new CoordinatedRuntime(
-            { sessions: dependencies.sessions, coordinator },
+            { sessions: dependencies.sessions, coordinator: this.#coordinator },
             initialState,
           );
     }
   }
 
-  #setSession(session: SessionState): void {
+  #activateSession(session: SessionState): void {
     this.#session = session;
-    this.#runner?.replaceSession(session);
+    this.#workspace = null;
+    if (this.#coordinator === null) {
+      this.#runner = null;
+    } else if (this.#runner === null) {
+      this.#runner = new CoordinatedRuntime(
+        { sessions: this.dependencies.sessions, coordinator: this.#coordinator },
+        session,
+      );
+    } else {
+      this.#runner.replaceSession(session);
+    }
   }
 
   get state():
@@ -171,7 +182,7 @@ export class RecursRuntime {
           context.session,
           record,
         );
-        this.#setSession(context.session);
+        this.#activateSession(context.session);
       },
     };
     return context;
@@ -260,13 +271,6 @@ export class RecursRuntime {
         text: "No model connection is configured. Use /connect for Codex subscription or credential-free local setup instructions.",
       };
     }
-    if (name === "resume" && args.trim().length > 0) {
-      return {
-        type: "message",
-        level: "error",
-        text: "Resuming model work requires a configured provider connection",
-      };
-    }
     const allowed = new Set([
       "help",
       "permissions",
@@ -285,10 +289,15 @@ export class RecursRuntime {
         text: `/${name} requires an active model session`,
       };
     }
-    return this.dependencies.commands.execute(
+    const context = this.#workspaceContext();
+    const result = await this.dependencies.commands.execute(
       { name, args },
-      this.#workspaceContext(),
+      context,
     );
+    if (context.session.id !== "workspace-shell") {
+      this.#activateSession(context.session);
+    }
+    return result;
   }
 
   async #runPrompt(
@@ -318,7 +327,7 @@ export class RecursRuntime {
       return result;
     } catch (error) {
       try {
-        this.#setSession(
+        this.#activateSession(
           await this.dependencies.sessions.loadState(this.#session.id),
         );
       } catch {
@@ -363,7 +372,7 @@ export class RecursRuntime {
       let result: CommandResult;
       try {
         result = await this.dependencies.commands.execute(parsed, context);
-        this.#setSession(context.session);
+        this.#activateSession(context.session);
       } finally {
         if (ownsController) {
           this.#activeController = null;

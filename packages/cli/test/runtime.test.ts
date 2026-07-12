@@ -4,8 +4,14 @@ import path from "node:path";
 
 import { ScriptedProvider } from "@recurs/providers";
 import {
+  createHostInvocation,
+  type CoordinatedRunInput,
+  type RunCoordinator,
+} from "@recurs/contracts";
+import {
   AgentLoop,
   JsonlSessionStore,
+  createWorkspaceShell,
   type EventSink,
 } from "@recurs/core";
 import {
@@ -153,5 +159,70 @@ describe("RecursRuntime", () => {
     expect(provider.requests[0]?.messages[0]?.content).toContain(
       '"executionMode":"plan"',
     );
+  });
+
+  it("resumes exact pinned history from the workspace shell and activates its coordinator", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-workspace-resume-"));
+    directories.push(directory);
+    const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
+    await sessions.createPinnedSession({
+      id: "historical",
+      at: testAt,
+      cwd: directory,
+      backend: testBackendPin(),
+    });
+    const started: CoordinatedRunInput[] = [];
+    const coordinator: RunCoordinator = {
+      async start(input) {
+        started.push(input);
+        return {
+          events: (async function* () {})(),
+          outcome: Promise.resolve({
+            ok: true,
+            result: {
+              finalText: "resumed run",
+              usage: null,
+              usageSource: "unavailable",
+              steps: null,
+              changedFiles: [],
+              changedFilesSource: "none",
+              evidence: [],
+              evidenceSource: "none",
+            },
+          }),
+        };
+      },
+    };
+    const runtime = new RecursRuntime(
+      {
+        commands: createCommandRegistry({ sessions }),
+        coordinator,
+        sessions,
+        confirm: async () => true,
+      },
+      createWorkspaceShell(directory),
+    );
+
+    await expect(runtime.submit("/resume historical")).resolves.toMatchObject({
+      type: "message",
+      text: "Resumed session historical",
+    });
+    expect(runtime.state).toMatchObject({
+      type: "session",
+      session: { id: "historical" },
+    });
+
+    await expect(runtime.submit("continue", createHostInvocation({
+      invocation: "repl",
+      userPresent: true,
+      remote: false,
+      scripted: false,
+      embedding: "cli",
+    }))).resolves.toMatchObject({ finalText: "resumed run" });
+    expect(started).toHaveLength(1);
+    expect(started[0]).toMatchObject({
+      sessionId: "historical",
+      prompt: "continue",
+    });
   });
 });

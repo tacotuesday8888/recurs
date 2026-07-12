@@ -173,13 +173,17 @@ function createCompactCommand(dependencies: CommandDependencies): Command {
           "error",
         );
       }
-      if (dependencies.provider === undefined) {
+      const signal = dependencies.signal?.() ?? new AbortController().signal;
+      const provider = dependencies.resolveProvider === undefined
+        ? dependencies.provider
+        : await dependencies.resolveProvider(context.session, signal);
+      if (provider === undefined || provider === null) {
         return message("No provider is available for compaction", "error");
       }
       const compacted = await compactSession(
         context.session,
-        dependencies.provider,
-        dependencies.signal?.() ?? new AbortController().signal,
+        provider,
+        signal,
       );
       const record: SessionRecord = {
         version: 1,
