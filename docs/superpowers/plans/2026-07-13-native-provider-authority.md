@@ -465,15 +465,38 @@ git commit -m "feat: add fenced native credential state"
 
 **Files:**
 - Create: `native/macos/Sources/RecursBrokerCore/SecureDirectory.swift`
+- Create: `native/macos/Sources/RecursBrokerCore/DarwinFileSystemBackend.swift`
 - Create: `native/macos/Sources/RecursBrokerCore/BrokerJournal.swift`
+- Create: `native/macos/Sources/RecursBrokerCore/BrokerJournalModel.swift`
+- Create: `native/macos/Sources/RecursBrokerCore/BrokerJournalCodec.swift`
+- Create: `native/macos/Sources/RecursBrokerCore/BrokerJournalRecovery.swift`
+- Modify: `native/macos/Sources/RecursBrokerCore/BrokerCredentialState.swift`
 - Create: `native/macos/Tests/RecursBrokerCoreTests/SecureDirectoryTests.swift`
 - Create: `native/macos/Tests/RecursBrokerCoreTests/BrokerJournalTests.swift`
+- Create: `native/macos/Tests/RecursBrokerCoreTests/BrokerJournalCodecTests.swift`
+- Create: `native/macos/Tests/RecursBrokerCoreTests/BrokerJournalRecoveryTests.swift`
+- Create: `native/macos/Tests/RecursBrokerCoreTests/ScriptedDarwinFileSystemBackend.swift`
+- Create: `policy/non-secret-policy.v1.json`
+- Create: `scripts/generate-non-secret-policy.mjs`
+- Create: `packages/app/src/generated/non-secret-policy.ts`
+- Create: `native/macos/Sources/RecursBrokerCore/GeneratedNonSecretPolicy.swift`
+- Create: `tests/fixtures/non-secret-policy-cases.json`
+- Create: `native/macos/Tests/RecursBrokerCoreTests/Fixtures/non-secret-policy-cases.json`
+- Modify: `packages/app/src/connection-registry-model.ts`
+- Modify: `packages/app/test/connection-registry.test.ts`
+- Modify: `native/macos/Package.swift`
+- Modify: `package.json`
 
 **Interfaces:**
 - Produces `SecureDirectory`, `BrokerJournalStore`, `FileBrokerJournalStore`,
   `BrokerJournalRecord`, and `BrokerJournalPhase`.
-- Journal records are non-secret and contain attempt/connection/generation
-  UUIDs, fence, phase, and timestamp only.
+- Journal records contain only the safe lifecycle identities, counters,
+  timestamps, cleanup targets, and bounded fixed terminal results frozen in
+  the broker journal contract; envelope tags are not credential-derived.
+- Produces one generated cross-language non-secret policy and one
+  byte-identical behavioral fixture. The
+  broker journal contract is normative for the two-slot, exact-anchor schema
+  and supersedes the original three-phase sketch.
 
 - [ ] **Step 1: Write failing secure-directory tests**
 
@@ -486,20 +509,25 @@ inside the opened directory.
 
 - [ ] **Step 2: Write failing journal crash/recovery tests**
 
-Cover exact phases:
+Cover every exact broker-journal phase:
 
 ```text
-prepared -> secretStored -> committed
-prepared -> aborted
-committed -> disconnectFenced -> tombstoned
+vacant
+storePending -> staging
+storePending|staging -> stageCleanupPending -> vacant|ready
+staging -> readyCleanupPending -> ready
+staging -> abortCleanupPending -> vacant|ready
+vacant|ready|staging -> disconnectFenced -> tombstoned
 ```
 
-Power-loss fixtures after every durable step must recover deterministically:
-`prepared` deletes no nonexistent generation, `secretStored` deletes the
-uncommitted Keychain generation, `committed` stays ready,
-`disconnectFenced` finishes deletion and tombstoning, and no older fence can
-overwrite a newer record. Encode/decode rejects unknown fields, duplicate JSON
-keys, invalid UUID/timestamp/fence/phase, and credential-like fields or values.
+Crash fixtures after every inactive-slot write, rename, directory sync, anchor
+CAS, credential-store side effect, and cleanup step must recover
+deterministically. Only the exact externally anchored parity slot supplies
+authority; abandoned valid successors stay inert. Exercise the closed
+predecessor matrix, stale actor/lifetime-lease exclusion, reconnect cleanup,
+store/staging crash cleanup, disconnect fencing, and exact retry memo.
+Encode/decode rejects unknown fields, duplicate JSON keys, invalid
+UUID/timestamp/fence/phase, and credential-like fields or values.
 
 - [ ] **Step 3: Run focused tests and verify RED**
 
@@ -514,28 +542,32 @@ Expected: FAIL because secure storage/journal files are absent.
 
 - [ ] **Step 4: Implement descriptor-relative storage**
 
-Open the configured broker data directory once with
-`O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC`, verify every parent using
-descriptor-relative `openat`/`fstat`, require the current uid and mode `0700`,
-and retain the directory descriptor. Atomic writes create a random sibling with
-`openat(O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600)`, write
-fully, `fsync` the file, `renameat` within the same directory, then `fsync` the
-directory. Reads use `openat` plus `fstat` and reject link count other than one.
+Implement the descriptor-relative ancestor, APFS, ACL, ownership, mode, link,
+device, entry-count, and lifetime authority-lease contract in the broker
+journal specification. Writes full-sync a verified temp, rename it to the
+inactive parity slot, sync the directory, reverify it, and only then CAS the
+external anchor. Reads open only the exact anchor-selected slot. No path is
+reopened after the final directory descriptor is retained.
 
 - [ ] **Step 5: Implement strict non-secret journal records**
 
-Use a deterministic, schema-versioned encoding with an explicit exact-key
-decoder. Before writing or after reading, recursively reject forbidden key
-names and credential-like value patterns using the same policy as the
-TypeScript non-secret registry. CAS accepts exact base fence and phase only.
-Recovery returns typed actions for `BrokerCredentialState`; it never returns
-Keychain data.
+Use the two-slot, exact-anchor deterministic encoding and closed semantic CAS
+matrix in the broker journal contract. Add a duplicate-aware exact-key decoder.
+Before writing or after reading, recursively reject forbidden key names and
+credential-like values using definitions generated from the shared declarative
+production policy; run the byte-identical behavioral cases in both languages
+and refactor the TypeScript registry matcher to consume the generated policy.
+Add `generate:non-secret-policy` and drift-check it from the root `check` gate.
+Recovery integrates safe bootstrap and resumable cleanup with
+`BrokerCredentialState`; it never returns Keychain data. Task 5 uses only a
+deterministic test authenticator and keeps production recovery disabled.
 
 - [ ] **Step 6: Run native tests and commit**
 
 ```bash
+npm run check
 npm run check:native
-git add native/macos
+git add native/macos policy scripts/generate-non-secret-policy.mjs tests/fixtures/non-secret-policy-cases.json packages/app package.json
 git commit -m "feat: add durable broker journal"
 ```
 
@@ -546,12 +578,17 @@ git commit -m "feat: add durable broker journal"
 **Files:**
 - Create: `native/macos/Sources/RecursNativeSecurity/KeychainClient.swift`
 - Create: `native/macos/Sources/RecursNativeSecurity/DataProtectionCredentialStore.swift`
+- Create: `native/macos/Sources/RecursNativeSecurity/KeychainJournalAuthenticator.swift`
 - Create: `native/macos/Tests/RecursNativeSecurityTests/KeychainStoreTests.swift`
+- Create: `native/macos/Tests/RecursNativeSecurityTests/KeychainJournalAuthenticatorTests.swift`
 - Modify: `native/macos/Package.swift`
 
 **Interfaces:**
 - Consumes `CredentialStore` from Task 4.
-- Produces `DataProtectionCredentialStore` and `KeychainStoreConfiguration`.
+- Consumes the journal authenticator/anchor protocol from Task 5.
+- Produces `DataProtectionCredentialStore`, `KeychainStoreConfiguration`, and
+  the production HMAC-SHA256 journal authenticator with bounded anchor
+  enumeration and exact anchor CAS.
 - Links Security.framework; no command-line `security` invocation.
 
 - [ ] **Step 1: Write failing query and status-mapping tests**
@@ -573,12 +610,20 @@ empty/whitespace access group before calling Security. Map locked,
 interaction-not-allowed, duplicate, missing, and unexpected `OSStatus` values
 to fixed errors with no Security message text.
 
+Add query tests for a random 256-bit broker-private journal HMAC key and one
+anchor item per connection. Assert anchor list/read/CAS is bounded, exact,
+connection-bound, retains tombstone anchors, and maps outcome-unknown writes by
+re-reading fixed data rather than guessing. Test the exact domain-separated
+input and two-slot rule from the broker journal contract. No test touches the
+user's real Keychain.
+
 - [ ] **Step 2: Run the security tests and verify RED**
 
 Run:
 
 ```bash
 swift test --package-path native/macos --filter KeychainStoreTests
+swift test --package-path native/macos --filter KeychainJournalAuthenticatorTests
 ```
 
 Expected: FAIL because the target is absent.
@@ -589,6 +634,12 @@ Expected: FAIL because the target is absent.
 `SecItemUpdate`, and `SecItemDelete`. Copy results into `SecretBytes`, release
 Core Foundation results immediately, and never call `SecCopyErrorMessageString`
 on a boundary that can reach Node.
+
+`KeychainJournalAuthenticator` owns the nonexportable HMAC key, computes tags
+without converting key bytes to `String`, and stores typed anchors in the same
+broker-private Data Protection Keychain boundary. It exposes no key, persistent
+reference, raw Keychain account, or arbitrary query result. Its actor and the
+broker-lifetime journal lease serialize exact read/compare/update anchor CAS.
 
 - [ ] **Step 4: Implement fail-closed production configuration**
 
@@ -622,13 +673,19 @@ git commit -m "feat: add broker-only keychain storage"
 **Files:**
 - Create: `native/macos/Sources/RecursBrokerCore/EndpointPolicy.swift`
 - Create: `native/macos/Sources/RecursBrokerCore/DeliveryState.swift`
+- Create: `native/macos/Sources/RecursBrokerCore/CredentialUseReservation.swift`
 - Create: `native/macos/Sources/RecursBrokerCore/StreamingSecretFilter.swift`
+- Modify: `native/macos/Sources/RecursBrokerCore/BrokerCredentialState.swift`
 - Create: `native/macos/Tests/RecursBrokerCoreTests/EndpointPolicyTests.swift`
+- Create: `native/macos/Tests/RecursBrokerCoreTests/CredentialUseReservationTests.swift`
 - Create: `native/macos/Tests/RecursBrokerCoreTests/StreamingSecretFilterTests.swift`
 
 **Interfaces:**
 - Produces immutable `EndpointProfile`, `AllowedRoute`, `DeliveryState`, and
   `StreamingSecretFilter` for later provider transport work.
+- Produces a broker-only fenced credential-use reservation that spans
+  pre-load journal validation, credential load, post-load validation,
+  cancellation, and the `notSent -> requestStarted` boundary.
 - Does not perform a network request in this task.
 
 - [ ] **Step 1: Write failing endpoint-policy tests**
@@ -650,6 +707,13 @@ Test overlapping patterns, secret-at-EOF, empty secret rejection, bounded
 lookbehind, exact completion, cancellation, and a nonmatching stream preserved
 byte-for-byte.
 
+Add reservation tests with fake journal/store barriers. Disconnect or
+generation change before load, during load, or after load but before
+`requestStarted` must erase loaded bytes and produce no send transition. Exact
+unchanged anchor/generation may advance once. Cancellation before send erases;
+cancellation after send is advisory. No reservation/token is Codable,
+XPC-facing, or exposed to TypeScript.
+
 - [ ] **Step 3: Run broker-core tests and verify RED**
 
 Run:
@@ -666,6 +730,14 @@ Use `URLComponents` only as an initial parse; reconstruct and compare the exact
 canonical URL, then apply explicit host/address classification. `DeliveryState`
 permits `notSent -> requestStarted -> responseStarted -> terminal`; no reverse
 or duplicate transition. Only `notSent` is retry-safe.
+
+Place credential-use reservation and revocation state inside the existing
+`BrokerCredentialState` actor. One native operation must atomically bind the
+exact journal snapshot/fence/generation, reserve the connection, load through
+`CredentialStore`, revalidate after the await, and hold the reservation through
+the final `notSent -> requestStarted` decision. Disconnect/tombstone revocation
+is serialized in that same actor and erases any loaded bytes before send.
+Release/cancellation is idempotent and leaves no Codable/XPC/TypeScript token.
 
 - [ ] **Step 5: Implement rolling exact-secret filtering**
 
