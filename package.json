@@ -15,9 +15,12 @@
   "scripts": {
     "build": "tsc -b",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
+    "check:native": "npm run native:test && npm run native:build",
     "typecheck": "tsc -b --pretty false && npm run typecheck:contract-tests",
     "typecheck:contract-tests": "tsc -p packages/contracts/tsconfig.type-tests.json --pretty false",
     "lint": "eslint .",
+    "native:build": "swift build --package-path native/macos",
+    "native:test": "swift test --package-path native/macos",
     "test": "vitest run",
     "recurs": "node packages/cli/dist/main.js"
   },

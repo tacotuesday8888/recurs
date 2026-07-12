@@ -260,6 +260,25 @@ describe("native authority golden frames", () => {
       .toBe(true);
   });
 
+  it("keeps the Swift fixture copy byte-identical to the canonical fixture", async () => {
+    const [canonical, swiftCopy] = await Promise.all([
+      readFile(
+        new URL(
+          "../../../tests/fixtures/native-authority/frames.json",
+          import.meta.url,
+        ),
+      ),
+      readFile(
+        new URL(
+          "../../../native/macos/Tests/Fixtures/frames.json",
+          import.meta.url,
+        ),
+      ),
+    ]);
+
+    expect(Buffer.compare(swiftCopy, canonical)).toBe(0);
+  });
+
   it("decodes and re-encodes every fixture at every split point", async () => {
     const { fixture } = await loadGoldenFixture();
 
