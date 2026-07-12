@@ -247,8 +247,26 @@ extension SecureDirectory {
   }
 
   package func readBoundedFile(basename: String) throws(SecureDirectoryError) -> Data {
+    guard let data = try readBoundedFileIfPresent(basename: basename) else {
+      throw .ioUnavailable
+    }
+    return data
+  }
+
+  package func readBoundedFileIfPresent(
+    basename: String
+  ) throws(SecureDirectoryError) -> Data? {
     try Self.validateComponent(basename)
-    let fileDescriptor = try openReadOnly(basename: basename)
+    let fileDescriptor: Int32
+    do {
+      fileDescriptor = try backend.openReadOnlyFile(at: descriptor, basename: basename)
+    } catch .notFound {
+      return nil
+    } catch .symlink {
+      throw .symlink
+    } catch {
+      throw .ioUnavailable
+    }
     defer { backend.close(descriptor: fileDescriptor) }
     let initial = try validatedRegularFile(descriptor: fileDescriptor)
     guard initial.size <= UInt64(Self.maximumEnvelopeBytes) else { throw .fileTooLarge }

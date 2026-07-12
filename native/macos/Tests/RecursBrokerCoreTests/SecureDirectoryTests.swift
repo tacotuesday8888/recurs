@@ -284,6 +284,45 @@ struct SecureDirectoryTests {
     #expect(backend.calls.filter { $0 == .read }.count > 3)
   }
 
+  @Test
+  func optionalBoundedReadReturnsNilOnlyForDescriptorRelativeNotFound() throws {
+    let backend = ScriptedDarwinFileSystemBackend()
+    let directory = try opened(backend)
+    let name = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.0.rcbj"
+    let activeDescriptors = backend.activeOwnedDescriptorCount
+
+    #expect(try directory.readBoundedFileIfPresent(basename: name) == nil)
+    #expect(backend.activeOwnedDescriptorCount == activeDescriptors)
+    #expect(throws: SecureDirectoryError.ioUnavailable) {
+      _ = try directory.readBoundedFile(basename: name)
+    }
+  }
+
+  @Test
+  func optionalBoundedReadPreservesPresentBytesAndEveryNonNotFoundFailure() throws {
+    let backend = ScriptedDarwinFileSystemBackend()
+    let directory = try opened(backend)
+    let name = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.0.rcbj"
+    let expected = Data("selected journal".utf8)
+    let file = backend.addFile("\(journalPath)/\(name)", data: expected)
+    backend.maximumReadCount = 2
+    #expect(try directory.readBoundedFileIfPresent(basename: name) == expected)
+
+    file.mode = 0o644
+    #expect(throws: SecureDirectoryError.wrongMode) {
+      _ = try directory.readBoundedFileIfPresent(basename: name)
+    }
+    file.mode = 0o600
+    backend.failNext(.openReadOnly, with: .unavailable)
+    #expect(throws: SecureDirectoryError.ioUnavailable) {
+      _ = try directory.readBoundedFileIfPresent(basename: name)
+    }
+    file.kind = .symbolicLink
+    #expect(throws: SecureDirectoryError.symlink) {
+      _ = try directory.readBoundedFileIfPresent(basename: name)
+    }
+  }
+
   @Test(arguments: ["inode", "size", "device", "link"])
   func boundedReadRejectsPostOpenMetadataChanges(_ mutation: String) throws {
     let backend = ScriptedDarwinFileSystemBackend()
