@@ -20,7 +20,38 @@ package enum NonSecretPolicy {
       || scalar == "=" || scalar == "-"
   }
 
-  package static func normalizedKey(_ value: String) -> String {
+  private static func isFrozenAssignedKeyScalar(_ scalar: Unicode.Scalar) -> Bool {
+    var lowerIndex = 0
+    var upperIndex = GeneratedNonSecretPolicy.keyAssignedCodePointRanges.count - 1
+    while lowerIndex <= upperIndex {
+      let middle = lowerIndex + (upperIndex - lowerIndex) / 2
+      let range = GeneratedNonSecretPolicy.keyAssignedCodePointRanges[middle]
+      if scalar.value < range.lower {
+        upperIndex = middle - 1
+      } else if scalar.value > range.upper {
+        lowerIndex = middle + 1
+      } else {
+        return true
+      }
+    }
+    return false
+  }
+
+  private static func hasOnlyFrozenAssignedKeyScalars(_ value: String) -> Bool {
+    var count = 0
+    for scalar in value.unicodeScalars {
+      count += 1
+      guard
+        count <= GeneratedNonSecretPolicy.keyMaximumUnicodeScalars,
+        isFrozenAssignedKeyScalar(scalar)
+      else {
+        return false
+      }
+    }
+    return true
+  }
+
+  private static func normalizeFrozenAssignedKey(_ value: String) -> String {
     let normalized = value.precomposedStringWithCompatibilityMapping
     let scalars = normalized.unicodeScalars.compactMap { scalar -> Unicode.Scalar? in
       guard isASCIIAlphanumeric(scalar) else { return nil }
@@ -32,8 +63,15 @@ package enum NonSecretPolicy {
     return String(String.UnicodeScalarView(scalars))
   }
 
+  package static func normalizedKey(_ value: String) -> String {
+    hasOnlyFrozenAssignedKeyScalars(value) ? normalizeFrozenAssignedKey(value) : ""
+  }
+
   package static func isForbiddenKey(_ value: String) -> Bool {
-    GeneratedNonSecretPolicy.forbiddenNormalizedKeys.contains(normalizedKey(value))
+    !hasOnlyFrozenAssignedKeyScalars(value)
+      || GeneratedNonSecretPolicy.forbiddenNormalizedKeys.contains(
+        normalizeFrozenAssignedKey(value)
+      )
   }
 
   private static func hasPrivateKeyMarker(_ value: String) -> Bool {

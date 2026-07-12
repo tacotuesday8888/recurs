@@ -646,9 +646,15 @@ the exact key order in their table. Arrays preserve their normative FIFO or
 descending-ordinal order. UUIDs, phase/kind/error strings, and timestamps are
 the only JSON strings admitted by the record schema.
 
-Before writing and after reading, apply the shared NFKC forbidden-name and
-credential-like-value fixtures used by the TypeScript non-secret registry to
-the canonical **record**. A record may contain no path, Keychain
+Before writing and after reading, apply the shared frozen-repertoire NFKC
+forbidden-name and credential-like-value fixtures used by the TypeScript
+non-secret registry to the canonical **record**. Key normalization accepts at
+most 4,096 Unicode scalars, admits only scalars assigned by Unicode 15.0.0
+according to the committed `DerivedAge.txt` ranges, and fails closed before
+NFKC when a key contains a surrogate, unassigned scalar, or later-version
+scalar. Unicode normalization stability then makes NFKC deterministic across
+the TypeScript and Foundation implementations for every admitted scalar. A
+record may contain no path, Keychain
 service/account/access-group name, persistent reference, endpoint, header,
 provider message, credential bytes, credential-derived hash, or diagnostic
 prose.
@@ -659,10 +665,12 @@ and their exact names, position, lowercase alphabet, and 32-byte decoded length
 are enforced directly. No other envelope string or field is accepted.
 
 Task 5 creates one complete declarative production policy source at
-`policy/non-secret-policy.v1.json`. It defines normalized forbidden-key values
-and typed value-rule parameters (private-key marker, provider-token prefixes
-and alphabets, JWT segments, authorization schemes, long hex, and mixed-class
-high-entropy bounds) without JavaScript- or ICU-specific regular expressions.
+`policy/non-secret-policy.v1.json`. It defines the frozen Unicode version,
+source URL and SHA-256, sorted merged assigned-scalar ranges, normalized
+forbidden-key values, and typed value-rule parameters (private-key marker,
+provider-token prefixes and alphabets, JWT segments, authorization schemes,
+long hex, and mixed-class high-entropy bounds) without JavaScript- or
+ICU-specific regular expressions.
 `scripts/generate-non-secret-policy.mjs` deterministically generates
 `packages/app/src/generated/non-secret-policy.ts` and
 `native/macos/Sources/RecursBrokerCore/GeneratedNonSecretPolicy.swift`; a

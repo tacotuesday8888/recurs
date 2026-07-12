@@ -83,4 +83,8 @@ describe("shared non-secret policy", () => {
       ).toBe(true);
     }
   });
+
+  it("fails closed outside the frozen Unicode repertoire", () => {
+    expect(isForbiddenNonSecretKey("\ud800operationID")).toBe(true);
+  });
 });

@@ -10,16 +10,62 @@ const mixedEntropyAlphabet = /^[A-Za-z0-9_+/=-]+$/u;
 const whitespace = new Set<number>(
   NON_SECRET_POLICY.valueRules.authorization.whitespaceCodePoints,
 );
+const assignedKeyScalarRanges =
+  NON_SECRET_POLICY.keyNormalization.assignedCodePointRanges;
 
-export function normalizeNonSecretKey(value: string): string {
+function isFrozenAssignedKeyScalar(codePoint: number): boolean {
+  let lowerIndex = 0;
+  let upperIndex = assignedKeyScalarRanges.length - 1;
+  while (lowerIndex <= upperIndex) {
+    const middle = lowerIndex + Math.floor((upperIndex - lowerIndex) / 2);
+    const range = assignedKeyScalarRanges[middle];
+    if (range === undefined) return false;
+    const [lower, upper] = range;
+    if (codePoint < lower) {
+      upperIndex = middle - 1;
+    } else if (codePoint > upper) {
+      lowerIndex = middle + 1;
+    } else {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasOnlyFrozenAssignedKeyScalars(value: string): boolean {
+  let count = 0;
+  for (const character of value) {
+    count += 1;
+    const codePoint = character.codePointAt(0);
+    if (
+      count > NON_SECRET_POLICY.keyNormalization.maximumUnicodeScalars ||
+      codePoint === undefined ||
+      !isFrozenAssignedKeyScalar(codePoint)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function normalizeFrozenAssignedKey(value: string): string {
   return value
     .normalize(NON_SECRET_POLICY.keyNormalization.unicodeForm)
     .replace(/[^a-zA-Z0-9]/gu, "")
     .toLowerCase();
 }
 
+export function normalizeNonSecretKey(value: string): string {
+  return hasOnlyFrozenAssignedKeyScalars(value)
+    ? normalizeFrozenAssignedKey(value)
+    : "";
+}
+
 export function isForbiddenNonSecretKey(value: string): boolean {
-  return forbiddenKeys.has(normalizeNonSecretKey(value));
+  return (
+    !hasOnlyFrozenAssignedKeyScalars(value) ||
+    forbiddenKeys.has(normalizeFrozenAssignedKey(value))
+  );
 }
 
 function hasPrivateKeyMarker(value: string): boolean {
