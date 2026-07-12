@@ -19,7 +19,8 @@ let package = Package(
     .target(name: "RecursNativeProtocol"),
     .testTarget(
       name: "RecursBrokerCoreTests",
-      dependencies: ["RecursBrokerCore"]
+      dependencies: ["RecursBrokerCore"],
+      resources: [.copy("Fixtures/non-secret-policy-cases.json")]
     ),
     .testTarget(
       name: "RecursNativeProtocolTests",

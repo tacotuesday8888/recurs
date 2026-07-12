@@ -6,6 +6,11 @@ import type {
 } from "@recurs/contracts";
 import { normalizeLoopbackOpenAIBaseUrl } from "@recurs/providers";
 
+import {
+  isForbiddenNonSecretKey,
+  looksLikeSecretValue,
+} from "./non-secret-policy.js";
+
 export const REGISTRY_INVALID = "Connection registry is invalid";
 export const STORAGE_UNSAFE = "Connection registry storage is unsafe";
 export const REVISION_CONFLICT = "Connection registry revision changed";
@@ -32,33 +37,6 @@ const BILLING_SELECTION_MODES = new Set<BillingSelectionMode>([
   "strict_primary_only",
   "allow_declared_additional",
 ]);
-const FORBIDDEN_KEYS = new Set([
-  "settings",
-  "setting",
-  "headers",
-  "header",
-  "environment",
-  "env",
-  "argv",
-  "arguments",
-  "auth",
-  "authorization",
-  "credential",
-  "credentials",
-  "secret",
-  "secrets",
-  "token",
-  "tokens",
-  "apikey",
-  "accesskey",
-  "password",
-  "cookie",
-  "cookies",
-  "path",
-  "filepath",
-  "privatekey",
-]);
-
 export type ConnectionRegistryErrorCode =
   | "registry_invalid"
   | "storage_unsafe"
@@ -311,33 +289,9 @@ function exactKeys(
   }
 }
 
-function looksSecret(value: string): boolean {
-  if (/-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----/u.test(value)) return true;
-  if (
-    /(?:sk-(?:proj-)?|gh[pousr]_|github_pat_|AIza|xox[baprs]-|AKIA|ASIA)[A-Za-z0-9_-]{16,}/u.test(
-      value,
-    )
-  ) {
-    return true;
-  }
-  if (/^eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$/u.test(value)) {
-    return true;
-  }
-  if (/^(?:Bearer|Basic)\s+\S{12,}$/iu.test(value)) return true;
-  if (/^[A-Fa-f0-9]{48,}$/u.test(value)) return true;
-  return (
-    value.length >= 48 &&
-    /^[A-Za-z0-9_+/=-]+$/u.test(value) &&
-    /[a-z]/u.test(value) &&
-    /[A-Z]/u.test(value) &&
-    /\d/u.test(value) &&
-    new Set(value).size >= 12
-  );
-}
-
 function rejectSecretMaterial(value: unknown): void {
   if (typeof value === "string") {
-    if (looksSecret(value)) throw invalidRegistry();
+    if (looksLikeSecretValue(value)) throw invalidRegistry();
     return;
   }
   if (Array.isArray(value)) {
@@ -346,11 +300,7 @@ function rejectSecretMaterial(value: unknown): void {
   }
   if (!isRecord(value)) return;
   for (const [key, entry] of Object.entries(value)) {
-    const normalized = key
-      .normalize("NFKC")
-      .replace(/[^a-zA-Z0-9]/gu, "")
-      .toLowerCase();
-    if (FORBIDDEN_KEYS.has(normalized)) throw invalidRegistry();
+    if (isForbiddenNonSecretKey(key)) throw invalidRegistry();
     rejectSecretMaterial(entry);
   }
 }
