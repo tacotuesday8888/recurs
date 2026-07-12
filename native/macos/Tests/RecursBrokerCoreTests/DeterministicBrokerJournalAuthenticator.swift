@@ -4,8 +4,15 @@ import Foundation
 @testable import RecursBrokerCore
 
 enum DeterministicJournalAuthenticatorBarrierPoint: Sendable, Hashable {
+  case anchorListBeforeReturn
+  case anchorLookupBeforeReturn
   case compareAndSwapBeforeSideEffect
   case compareAndSwapAfterSideEffect
+}
+
+enum DeterministicJournalAuthenticatorReadEvent: Sendable, Hashable {
+  case anchor(UUID)
+  case listAnchors
 }
 
 actor DeterministicBrokerJournalAuthenticator:
@@ -16,6 +23,9 @@ actor DeterministicBrokerJournalAuthenticator:
   private static let maximumAnchorCount = 1_024
 
   private var anchors: [BrokerJournalAnchor]
+  private var anchorLookupIDs: [UUID] = []
+  private var anchorListCalls = 0
+  private var authorityReads: [DeterministicJournalAuthenticatorReadEvent] = []
   private var pauseBudgets: [DeterministicJournalAuthenticatorBarrierPoint: Int] = [:]
   private var failureBudgets: [DeterministicJournalAuthenticatorBarrierPoint: Int] = [:]
   private var parked:
@@ -60,11 +70,39 @@ actor DeterministicBrokerJournalAuthenticator:
   func anchor(
     for connectionID: UUID
   ) async throws(BrokerJournalError) -> BrokerJournalAnchor? {
-    try validatedAnchors().first { $0.connectionID == connectionID }
+    anchorLookupIDs.append(connectionID)
+    authorityReads.append(.anchor(connectionID))
+    await pauseIfRequested(at: .anchorLookupBeforeReturn)
+    if consumeFailure(at: .anchorLookupBeforeReturn) {
+      throw .storageUnavailable
+    }
+    return try validatedAnchors().first { $0.connectionID == connectionID }
+  }
+
+  func anchorLookupCount() -> Int {
+    anchorLookupIDs.count
+  }
+
+  func anchorLookupConnectionIDs() -> [UUID] {
+    anchorLookupIDs
   }
 
   func listAnchors() async throws(BrokerJournalError) -> [BrokerJournalAnchor] {
-    try validatedAnchors()
+    anchorListCalls += 1
+    authorityReads.append(.listAnchors)
+    await pauseIfRequested(at: .anchorListBeforeReturn)
+    if consumeFailure(at: .anchorListBeforeReturn) {
+      throw .storageUnavailable
+    }
+    return try validatedAnchors()
+  }
+
+  func anchorListCount() -> Int {
+    anchorListCalls
+  }
+
+  func authorityReadEvents() -> [DeterministicJournalAuthenticatorReadEvent] {
+    authorityReads
   }
 
   func compareAndSwapAnchor(
