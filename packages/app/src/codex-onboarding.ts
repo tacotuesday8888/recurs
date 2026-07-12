@@ -123,6 +123,7 @@ export interface CodexConnectionConfiguration {
     typeof CODEX_ONBOARDING_CAPABILITY_PROFILE_REVISION;
   readonly executionMode: "plan";
   readonly planOnly: true;
+  readonly primary: boolean;
   readonly verifiedAt: string;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -202,6 +203,7 @@ function accountFingerprint(accountLabel: string): string {
 
 function configuration(
   record: DelegatedConnectionRecord,
+  primaryConnectionId: string | null,
 ): CodexConnectionConfiguration {
   return deepFreeze({
     schemaVersion: 1,
@@ -213,6 +215,7 @@ function configuration(
       CODEX_ONBOARDING_CAPABILITY_PROFILE_REVISION,
     executionMode: "plan",
     planOnly: true,
+    primary: primaryConnectionId === record.id,
   });
 }
 
@@ -430,16 +433,19 @@ export async function setupCodexConnection(
         createdAt: previous?.createdAt ?? now,
         updatedAt: now,
       };
+      const makePrimary = previous === undefined &&
+        current.connections.length === 0 &&
+        current.primaryConnectionId === null;
       try {
-        await registry.commit(current.revision, (draft) => {
+        const committed = await registry.commit(current.revision, (draft) => {
           const index = draft.connections.findIndex(
             (connection) => connection.id === record.id,
           );
           if (index === -1) draft.connections.push(record);
           else draft.connections[index] = record;
-          draft.primaryConnectionId = record.id;
+          if (makePrimary) draft.primaryConnectionId = record.id;
         }, { signal });
-        return configuration(record);
+        return configuration(record, committed.primaryConnectionId);
       } catch (error) {
         if (
           error instanceof ConnectionRegistryError &&

@@ -169,6 +169,7 @@ function localConfiguration(
     label: connection.label,
     baseUrl: connection.baseUrl,
     modelId: connection.modelId,
+    primary: false,
     createdAt: connection.createdAt,
     updatedAt: connection.updatedAt,
   };

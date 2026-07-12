@@ -125,6 +125,7 @@ describe("Codex subscription onboarding", () => {
       modelId: "gpt-test",
       executionMode: "plan",
       planOnly: true,
+      primary: true,
       billingSelection: {
         mode: "allow_declared_additional",
         allowedSources: ["included_subscription", "prepaid_credits"],
@@ -151,6 +152,84 @@ describe("Codex subscription onboarding", () => {
     ]) {
       expect(serialized).not.toContain(forbidden);
     }
+  });
+
+  it("keeps later accounts secondary and preserves that state on re-verification", async () => {
+    const directory = await root();
+    const workspace = path.join(directory, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+
+    const first = await setupCodexConnection(directory, {
+      cwd: workspace,
+      interactive: false,
+      billingSelection: "allow_declared_additional",
+      now: "2026-07-12T00:00:00.000Z",
+    }, {
+      runtime: new FakeCodexRuntime([
+        inspection({ type: "chat-gpt", email: "first@example.com" }),
+      ]),
+    });
+    const second = await setupCodexConnection(directory, {
+      cwd: workspace,
+      interactive: false,
+      billingSelection: "allow_declared_additional",
+      now: "2026-07-12T00:01:00.000Z",
+    }, {
+      runtime: new FakeCodexRuntime([
+        inspection({ type: "chat-gpt", email: "second@example.com" }),
+      ]),
+    });
+    const reverified = await setupCodexConnection(directory, {
+      cwd: workspace,
+      interactive: false,
+      billingSelection: "allow_declared_additional",
+      now: "2026-07-12T00:02:00.000Z",
+    }, {
+      runtime: new FakeCodexRuntime([
+        inspection({ type: "chat-gpt", email: "second@example.com" }),
+      ]),
+    });
+
+    expect(first.primary).toBe(true);
+    expect(second.primary).toBe(false);
+    expect(reverified).toMatchObject({ id: second.id, primary: false });
+    const document = await new FileConnectionRegistry(directory).read();
+    expect(document.primaryConnectionId).toBe(first.id);
+    expect(document.connections).toHaveLength(2);
+  });
+
+  it("does not choose a Codex primary when other records exist without one", async () => {
+    const directory = await root();
+    const workspace = path.join(directory, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    await new FileConnectionRegistry(directory).commit(0, (draft) => {
+      draft.connections.push({
+        kind: "local_openai_compatible",
+        id: "local-existing",
+        providerId: "local-openai-compatible",
+        adapterId: "openai-chat-completions",
+        label: "Local model",
+        baseUrl: "http://127.0.0.1:11434/v1",
+        modelId: "qwen",
+        createdAt: "2026-07-12T00:00:00.000Z",
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      });
+    });
+
+    const connection = await setupCodexConnection(directory, {
+      cwd: workspace,
+      interactive: false,
+      billingSelection: "allow_declared_additional",
+      now: "2026-07-12T00:01:00.000Z",
+    }, {
+      runtime: new FakeCodexRuntime([
+        inspection({ type: "chat-gpt", email: "owner@example.com" }),
+      ]),
+    });
+
+    expect(connection.primary).toBe(false);
+    expect((await new FileConnectionRegistry(directory).read()).primaryConnectionId)
+      .toBeNull();
   });
 
   it("uses only dynamically advertised ChatGPT auth and rechecks status", async () => {
