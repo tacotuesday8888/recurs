@@ -92,28 +92,43 @@ func stage(
     operationID: UUID,
     expectedFence: UInt64,
     secret: sending SecretBytes
-) async throws -> StagingAttempt
+) async throws(BrokerStateError) -> StagingAttempt
+
+func resumeStage(
+    connectionID: UUID,
+    operationID: UUID,
+    expectedFence: UInt64
+) async throws(BrokerStateError) -> StagingAttempt
 
 func commit(
     connectionID: UUID,
     attemptID: UUID,
     operationID: UUID,
     expectedFence: UInt64
-) async throws -> ReadyProjection
+) async throws(BrokerStateError) -> ReadyProjection
 
 func abort(
     connectionID: UUID,
     attemptID: UUID,
     operationID: UUID,
     expectedFence: UInt64
-) async throws -> ReadyProjection?
+) async throws(BrokerStateError) -> ReadyProjection?
 
 func disconnect(
     connectionID: UUID,
     operationID: UUID,
     expectedFence: UInt64
-) async throws -> TombstoneProjection
+) async throws(BrokerStateError) -> TombstoneProjection
 ```
+
+`resumeStage` never accepts credential material. It exists only to replay a
+retained stage result or resume cleanup for an already-reserved stage
+operation. If no matching active, paused, or terminal stage operation exists,
+it returns `.attemptNotCurrent` after normal connection and fence validation.
+An initial `stage` call that reuses an existing operation ID erases its newly
+supplied `SecretBytes` before it performs memo, active-operation, conflict, or
+cleanup handling; those bytes are never substituted into the existing
+operation.
 
 ## Secret and store ownership
 
@@ -151,6 +166,22 @@ prose:
 the consuming store call. Neither actor projections nor store inspection may
 expose the secret or a store reference.
 
+Every `stage` exit that occurs before the consuming store call synchronously
+erases the supplied secret, including cancellation, stale fence, overflow,
+tombstone, invalid transition, operation-ID conflict, active/paused-operation
+rejection, and terminal replay. After ownership transfer, the store must do
+exactly one of the following before returning or throwing:
+
+- retain the same owned value as the stored generation;
+- erase it and retain no reference; or
+- for `.mutationOutcomeUnknown`, either retain it as the stored generation or
+  erase it and retain no reference.
+
+`.unavailable` guarantees that the value was erased and no reference was
+retained. A successful or outcome-unknown delete that removed a stored value
+erases that value before returning or throwing. These requirements apply to
+every production and test store implementation.
+
 ## Identity, counters, and overflow
 
 - A missing/new connection starts with fence `0` and last ordinal `0`.
@@ -187,6 +218,44 @@ Notation: `V(f,o)` is vacant, `R(r,f,o)` ready, `S(c,p?,a,f,o)` staging, and
 
 Only metadata is linearized. A stage candidate is not visible until its store
 operation succeeds; a disconnect tombstone revokes authority before deletion.
+
+### Complete operation matrix and precedence
+
+A missing record is distinct from an internal vacant record. `stage` treats a
+missing record as proposed `V(0,0)`. `commit`, `abort`, and `disconnect` on a
+missing record return `.connectionNotFound`. An internal vacant record can be
+staged or disconnected.
+
+After erasing any stage secret that will not be transferred, mutation checks
+use this exact precedence:
+
+1. replay an exact terminal memo entry, or return `.operationIDConflict` for a
+   retained operation ID with a different fingerprint;
+2. return `.operationInProgress` while any operation is actively awaiting;
+3. for paused cleanup, resume only the exact operation/fingerprint and return
+   `.cleanupPending` for every other operation;
+4. return `.cancelled` if the calling task is cancelled;
+5. apply missing-record behavior;
+6. return `.connectionTombstoned` for a tombstoned record;
+7. compare the expected fence and return `.staleFence` on mismatch;
+8. validate the state/attempt transition; and
+9. apply fence overflow before generation overflow where those checks are
+   relevant.
+
+The state-specific transition results after those shared checks are:
+
+| State | `stage` | `commit` / `abort` | `disconnect` |
+| --- | --- | --- | --- |
+| missing | propose first stage from `V(0,0)` | `.connectionNotFound` | `.connectionNotFound` |
+| vacant | valid | `.attemptNotCurrent` | valid |
+| ready | valid reconnect | `.attemptNotCurrent` | valid |
+| staging | `.invalidTransition` | exact attempt is valid; another attempt is `.attemptNotCurrent` | valid |
+| tombstoned | `.connectionTombstoned` | `.connectionTombstoned` | `.connectionTombstoned` |
+
+While a first-stage store is pending, `projection(for:)` returns `nil`. While
+a reconnect store is pending, it returns a `ready` projection containing the
+previous generation and the already-consumed fence/last ordinal. The candidate
+remains absent. After store success it returns `.staging`.
 
 ### Store and cleanup outcomes
 
@@ -275,13 +344,38 @@ Its description, debug description, and localized description all come from
 one exhaustive fixed switch. They never retain or interpolate an underlying
 error.
 
+Every mutation and bootstrap API uses typed `throws(BrokerStateError)`.
+Injected store failures are mapped at the actor boundary. Clock and UUID
+sources are synchronous, nonthrowing package closures, so arbitrary source
+errors cannot cross the API.
+
 ## Restart and bootstrap
 
-Provide a package-only bootstrap enum containing exactly:
+Provide this package-only `CredentialBootstrap` enum containing exactly:
 
 - `vacant(connectionID, fence, lastGenerationOrdinal)`;
 - `ready(ReadyProjection)`; and
 - `tombstoned(TombstoneProjection)`.
+
+The actor has a throwing initializer shaped as follows (additional injected
+nonthrowing clock/UUID arguments may have defaults):
+
+```swift
+init(
+    store: any CredentialStore,
+    bootstrap: [CredentialBootstrap]
+) throws(BrokerStateError)
+```
+
+Bootstrap validation is all-or-nothing and occurs before actor state becomes
+observable. Connection IDs must be unique and every nested connection ID must
+match its containing value. For vacant and ready records, `fence` must equal
+`lastGenerationOrdinal` and must be less than `UInt64.max`. A ready generation
+ordinal must be nonzero and no greater than `lastGenerationOrdinal`. For a
+tombstone, checked addition must prove
+`fence == lastGenerationOrdinal + 1`. All timestamps must be finite. Any
+violation, duplicate, arithmetic overflow, or non-tombstone fence at
+`UInt64.max` throws `.invalidBootstrap` and installs no records.
 
 There is deliberately no staging bootstrap. Each actor initialization creates
 a new volatile incarnation with empty reservation state and an empty terminal
@@ -333,10 +427,22 @@ metadata with this state machine by adding:
   and last ordinal;
 - committed reconnect recovery that restores the candidate as ready and
   idempotently deletes the recorded previous ready generation;
-- disconnect-fenced recovery that completes all deletions before tombstoning;
+- disconnect-fenced recovery that restores the higher-fence tombstone
+  authority before completing deletions, then persists the final tombstoned
+  phase;
 - canonical encoding, descriptor-relative storage, locking, sync semantics,
   corruption handling, and recovery; and
 - any cross-restart operation-result replay.
+
+Descriptor-relative I/O, ownership/mode checks, canonical encoding, and file
+locking do not authenticate same-UID-writable journal state and cannot prevent
+rollback to an older valid record. Task 5 therefore may exercise recovered
+bootstrap only in tests. Production recovered bootstrap remains fail-closed
+until Task 6 supplies a broker-private Keychain integrity key plus an external
+monotonic revision/tag anchor. A journal MAC without that external anchor is
+insufficient because an older valid record can be replayed.
+
+Disconnect recovery must never delete first and fence afterward.
 
 Task 4 promises authority safety across restart, not exact idempotent response
 replay across restart.
