@@ -74,6 +74,19 @@ package struct LiveDarwinFileSystemBackend: DarwinFileSystemBackend, Sendable {
     return result
   }
 
+  package func createExclusiveLockFile(at descriptor: Int32, basename: String, mode: UInt16)
+    throws(DarwinFileSystemBackendError) -> Int32
+  {
+    let result = Darwin.openat(
+      descriptor,
+      basename,
+      O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
+      mode_t(mode)
+    )
+    guard result >= 0 else { throw mappedErrno() }
+    return result
+  }
+
   package func setMode(descriptor: Int32, mode: UInt16) throws(DarwinFileSystemBackendError) {
     guard Darwin.fchmod(descriptor, mode_t(mode)) == 0 else { throw mappedErrno() }
   }
@@ -130,13 +143,23 @@ package struct LiveDarwinFileSystemBackend: DarwinFileSystemBackend, Sendable {
     )
   }
 
-  package func directoryEntries(descriptor: Int32)
+  package func openDirectoryForEnumeration(at descriptor: Int32)
+    throws(DarwinFileSystemBackendError) -> Int32
+  {
+    let result = Darwin.openat(
+      descriptor,
+      ".",
+      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC
+    )
+    guard result >= 0 else { throw mappedErrno() }
+    return result
+  }
+
+  package func directoryEntries(consuming descriptor: Int32)
     throws(DarwinFileSystemBackendError) -> [String]
   {
-    let duplicate = Darwin.dup(descriptor)
-    guard duplicate >= 0 else { throw mappedErrno() }
-    guard let directory = fdopendir(duplicate) else {
-      Darwin.close(duplicate)
+    guard let directory = fdopendir(descriptor) else {
+      Darwin.close(descriptor)
       throw mappedErrno()
     }
     defer { closedir(directory) }
@@ -192,6 +215,24 @@ package struct LiveDarwinFileSystemBackend: DarwinFileSystemBackend, Sendable {
     to destinationBasename: String
   ) throws(DarwinFileSystemBackendError) {
     guard Darwin.renameat(descriptor, sourceBasename, descriptor, destinationBasename) == 0 else {
+      throw mappedErrno()
+    }
+  }
+
+  package func renameExclusive(
+    in descriptor: Int32,
+    from sourceBasename: String,
+    to destinationBasename: String
+  ) throws(DarwinFileSystemBackendError) {
+    guard
+      Darwin.renameatx_np(
+        descriptor,
+        sourceBasename,
+        descriptor,
+        destinationBasename,
+        UInt32(RENAME_EXCL)
+      ) == 0
+    else {
       throw mappedErrno()
     }
   }

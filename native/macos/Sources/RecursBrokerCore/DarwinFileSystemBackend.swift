@@ -71,11 +71,17 @@ package protocol DarwinFileSystemBackend: Sendable {
     throws(DarwinFileSystemBackendError) -> Int32
   func createExclusiveFile(at descriptor: Int32, basename: String, mode: UInt16)
     throws(DarwinFileSystemBackendError) -> Int32
+  func createExclusiveLockFile(at descriptor: Int32, basename: String, mode: UInt16)
+    throws(DarwinFileSystemBackendError) -> Int32
   func setMode(descriptor: Int32, mode: UInt16) throws(DarwinFileSystemBackendError)
   func metadata(descriptor: Int32) throws(DarwinFileSystemBackendError) -> DarwinNodeMetadata
   func fileSystemIdentity(descriptor: Int32)
     throws(DarwinFileSystemBackendError) -> DarwinFileSystemIdentity
-  func directoryEntries(descriptor: Int32) throws(DarwinFileSystemBackendError) -> [String]
+  func openDirectoryForEnumeration(at descriptor: Int32)
+    throws(DarwinFileSystemBackendError) -> Int32
+  /// Always consumes and closes `descriptor`, including on failure.
+  func directoryEntries(consuming descriptor: Int32)
+    throws(DarwinFileSystemBackendError) -> [String]
   func read(descriptor: Int32, maximumCount: Int)
     throws(DarwinFileSystemBackendError) -> Data
   func write(descriptor: Int32, data: Data)
@@ -83,6 +89,11 @@ package protocol DarwinFileSystemBackend: Sendable {
   func fullSync(descriptor: Int32) throws(DarwinFileSystemBackendError)
   func syncDirectory(descriptor: Int32) throws(DarwinFileSystemBackendError)
   func rename(
+    in descriptor: Int32,
+    from sourceBasename: String,
+    to destinationBasename: String
+  ) throws(DarwinFileSystemBackendError)
+  func renameExclusive(
     in descriptor: Int32,
     from sourceBasename: String,
     to destinationBasename: String

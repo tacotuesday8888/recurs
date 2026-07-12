@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -167,6 +168,41 @@ struct SecureDirectoryTests {
     #expect(throws: SecureDirectoryError.invalidComponent) {
       _ = try directory.enumerateRecognizedEntries(selectedSlotBasenames: [selected])
     }
+  }
+
+  @Test
+  func repeatedEnumerationUsesIndependentCloseOnExecHandles() throws {
+    let backend = ScriptedDarwinFileSystemBackend()
+    let directory = try opened(backend)
+    let connection = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.0.rcbj"
+    backend.addFile("\(journalPath)/\(connection)")
+
+    let first = try directory.enumerateRecognizedEntries(selectedSlotBasenames: [])
+    let second = try directory.enumerateRecognizedEntries(selectedSlotBasenames: [])
+    #expect(first == second)
+    #expect(backend.calls.filter { $0 == .openEnumerationDirectory }.count == 2)
+    #expect(backend.activeOwnedDescriptorCount == 1)
+  }
+
+  @Test
+  func liveEnumerationDescriptorIsIndependentAndCloseOnExec() throws {
+    let backend = LiveDarwinFileSystemBackend()
+    let root = try backend.openRootDirectory()
+    defer { backend.close(descriptor: root) }
+
+    let firstDescriptor = try backend.openDirectoryForEnumeration(at: root)
+    let firstFlags = Darwin.fcntl(firstDescriptor, F_GETFD)
+    #expect(firstFlags >= 0)
+    #expect(firstFlags & FD_CLOEXEC != 0)
+    let first = try backend.directoryEntries(consuming: firstDescriptor)
+
+    let secondDescriptor = try backend.openDirectoryForEnumeration(at: root)
+    let secondFlags = Darwin.fcntl(secondDescriptor, F_GETFD)
+    #expect(secondFlags >= 0)
+    #expect(secondFlags & FD_CLOEXEC != 0)
+    let second = try backend.directoryEntries(consuming: secondDescriptor)
+    #expect(first == second)
+    #expect(!first.isEmpty)
   }
 
   @Test
@@ -417,6 +453,76 @@ struct SecureDirectoryTests {
   }
 
   @Test
+  func temporaryCleanupRejectsAnySelectedAuthorityInodeAlias() throws {
+    let backend = ScriptedDarwinFileSystemBackend()
+    let directory = try opened(backend)
+    let temp = ".tmp.11111111-2222-4333-8444-555555555555.rcbj"
+    let selected = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.0.rcbj"
+    backend.addFile("\(journalPath)/\(temp)")
+    backend.aliasName("\(journalPath)/\(selected)", to: "\(journalPath)/\(temp)")
+
+    #expect(throws: SecureDirectoryError.ioUnavailable) {
+      try directory.removeVerifiedTemporary(
+        basename: temp,
+        selectedSlotBasenames: [selected],
+        quarantineID: UUID(uuidString: "99999999-2222-4333-8444-555555555555")!
+      )
+    }
+    #expect(backend.node("\(journalPath)/\(temp)") != nil)
+    #expect(backend.node("\(journalPath)/\(selected)") != nil)
+    #expect(backend.unlinkedBasenames.isEmpty)
+  }
+
+  @Test
+  func temporaryCleanupQuarantinesThenLeavesAuthoritySubstitutionUntouched() throws {
+    let backend = ScriptedDarwinFileSystemBackend()
+    let directory = try opened(backend)
+    let temp = ".tmp.11111111-2222-4333-8444-555555555555.rcbj"
+    let selected = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.0.rcbj"
+    let quarantineID = UUID(uuidString: "99999999-2222-4333-8444-555555555555")!
+    let quarantine = ".tmp.\(quarantineID.uuidString.lowercased()).rcbj"
+    backend.addFile("\(journalPath)/\(temp)")
+    backend.addFile("\(journalPath)/\(selected)")
+    backend.beforeExclusiveRename = {
+      backend.aliasName("\(self.journalPath)/\(selected)", to: "\(self.journalPath)/\(temp)")
+    }
+
+    #expect(throws: SecureDirectoryError.ioUnavailable) {
+      try directory.removeVerifiedTemporary(
+        basename: temp,
+        selectedSlotBasenames: [selected],
+        quarantineID: quarantineID
+      )
+    }
+    #expect(backend.node("\(journalPath)/\(quarantine)") != nil)
+    #expect(backend.node("\(journalPath)/\(selected)") != nil)
+    #expect(backend.unlinkedBasenames.isEmpty)
+  }
+
+  @Test
+  func temporaryCleanupLeavesANameSubstitutionInQuarantineWithoutUnlinking() throws {
+    let backend = ScriptedDarwinFileSystemBackend()
+    let directory = try opened(backend)
+    let temp = ".tmp.11111111-2222-4333-8444-555555555555.rcbj"
+    let quarantineID = UUID(uuidString: "99999999-2222-4333-8444-555555555555")!
+    let quarantine = ".tmp.\(quarantineID.uuidString.lowercased()).rcbj"
+    backend.addFile("\(journalPath)/\(temp)", data: Data("original".utf8))
+    backend.beforeExclusiveRename = {
+      _ = backend.replaceFile("\(self.journalPath)/\(temp)", data: Data("substitute".utf8))
+    }
+
+    #expect(throws: SecureDirectoryError.ioUnavailable) {
+      try directory.removeVerifiedTemporary(
+        basename: temp,
+        selectedSlotBasenames: [],
+        quarantineID: quarantineID
+      )
+    }
+    #expect(backend.node("\(journalPath)/\(quarantine)")?.content == Data("substitute".utf8))
+    #expect(backend.unlinkedBasenames.isEmpty)
+  }
+
+  @Test
   func lockLeaseIsExactLifetimeAndExistingLockIsNeverChmodded() throws {
     let backend = ScriptedDarwinFileSystemBackend()
     let directory = try opened(backend)
@@ -458,6 +564,71 @@ struct SecureDirectoryTests {
     #expect(throws: SecureDirectoryError.ioUnavailable) {
       _ = try contentionDirectory.acquireAuthorityLease()
     }
+  }
+
+  @Test
+  func freshLockUsesDedicatedReadWriteCreation() throws {
+    let backend = ScriptedDarwinFileSystemBackend()
+    let directory = try opened(backend)
+    do {
+      _ = try directory.acquireAuthorityLease()
+    }
+    #expect(backend.calls.contains(.createLockFile))
+    #expect(!backend.calls.contains(.createFile))
+  }
+
+  @Test
+  func losingLockCreatorNeverUnlinksThePublishedSharedInode() throws {
+    let backend = ScriptedDarwinFileSystemBackend()
+    let directory = try opened(backend)
+    var winnerDescriptor: Int32?
+    backend.afterCreateLock = {
+      let descriptor = try! backend.openReadWriteFile(
+        at: backend.finalJournalDescriptor,
+        basename: SecureDirectory.lockBasename
+      )
+      try! backend.lockExclusiveNonblocking(descriptor: descriptor)
+      winnerDescriptor = descriptor
+    }
+
+    #expect(throws: SecureDirectoryError.ioUnavailable) {
+      _ = try directory.acquireAuthorityLease()
+    }
+    let publishedInode = try #require(
+      backend.node("\(journalPath)/\(SecureDirectory.lockBasename)")?.inode
+    )
+    #expect(!backend.unlinkedBasenames.contains(SecureDirectory.lockBasename))
+
+    #expect(throws: SecureDirectoryError.ioUnavailable) {
+      _ = try directory.acquireAuthorityLease()
+    }
+    #expect(
+      backend.node("\(journalPath)/\(SecureDirectory.lockBasename)")?.inode == publishedInode
+    )
+    #expect(backend.successfulLockCreations == 1)
+
+    if let winnerDescriptor {
+      backend.unlock(descriptor: winnerDescriptor)
+      backend.close(descriptor: winnerDescriptor)
+    }
+  }
+
+  @Test
+  func lockNameSubstitutionFailsClosedWithoutUnlinkingEitherInode() throws {
+    let backend = ScriptedDarwinFileSystemBackend()
+    let directory = try opened(backend)
+    backend.afterCreateLock = {
+      _ = backend.replaceFile(
+        "\(self.journalPath)/\(SecureDirectory.lockBasename)",
+        data: Data()
+      )
+    }
+
+    #expect(throws: SecureDirectoryError.ioUnavailable) {
+      _ = try directory.acquireAuthorityLease()
+    }
+    #expect(backend.node("\(journalPath)/\(SecureDirectory.lockBasename)") != nil)
+    #expect(!backend.unlinkedBasenames.contains(SecureDirectory.lockBasename))
   }
 
   @Test

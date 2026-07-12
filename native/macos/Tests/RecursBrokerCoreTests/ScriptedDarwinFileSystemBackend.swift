@@ -10,15 +10,18 @@ final class ScriptedDarwinFileSystemBackend: DarwinFileSystemBackend, @unchecked
     case openReadOnly
     case openReadWrite
     case createFile
+    case createLockFile
     case setMode
     case metadata
     case fileSystem
+    case openEnumerationDirectory
     case entries
     case read
     case write
     case fullSync
     case directorySync
     case rename
+    case renameExclusive
     case unlink
     case lock
   }
@@ -65,14 +68,18 @@ final class ScriptedDarwinFileSystemBackend: DarwinFileSystemBackend, @unchecked
   private(set) var closedDescriptors: [Int32] = []
   private(set) var unlinkedBasenames: [String] = []
   private(set) var renamedPairs: [(String, String)] = []
+  private(set) var exclusiveRenamedPairs: [(String, String)] = []
   var maximumReadCount = Int.max
   var maximumWriteCount = Int.max
   var afterOpenReadOnly: ((Int) -> Void)?
   var afterRead: ((Int) -> Void)?
   var beforeFullSync: (() -> Void)?
   var afterFullSync: (() -> Void)?
+  var afterCreateLock: (() -> Void)?
+  var beforeExclusiveRename: (() -> Void)?
   private(set) var openReadOnlyCount = 0
   private(set) var readCount = 0
+  private(set) var successfulLockCreations = 0
 
   private var nextDescriptor: Int32 = 11
   private var nextInode: UInt64 = 100
@@ -172,8 +179,21 @@ final class ScriptedDarwinFileSystemBackend: DarwinFileSystemBackend, @unchecked
     return current
   }
 
+  func aliasName(_ path: String, to targetPath: String) {
+    let components = path.split(separator: "/").map(String.init)
+    let parent = addDirectory(components.dropLast().joined(separator: "/"))
+    parent.children[components.last!] = node(targetPath)!
+  }
+
   var activeOwnedDescriptorCount: Int {
     handles.keys.filter { $0 != rootDescriptor }.count
+  }
+
+  var finalJournalDescriptor: Int32 {
+    let journal =
+      node("Library/Application Support/com.recurs.cli/broker/journal-v1")
+      ?? node("Users/alice/Library/Application Support/com.recurs.cli/broker/journal-v1")
+    return handles.first(where: { $0.value.node === journal })!.key
   }
 
   @discardableResult
@@ -302,6 +322,26 @@ final class ScriptedDarwinFileSystemBackend: DarwinFileSystemBackend, @unchecked
     return allocateHandle(node)
   }
 
+  func createExclusiveLockFile(at descriptor: Int32, basename: String, mode: UInt16)
+    throws(DarwinFileSystemBackendError) -> Int32
+  {
+    try scripted(.createLockFile)
+    let parent = try handle(descriptor).node
+    guard parent.children[basename] == nil else { throw .alreadyExists }
+    let node = Node(
+      kind: .regularFile,
+      owner: currentUID,
+      mode: mode,
+      device: parent.device,
+      inode: allocateInode()
+    )
+    parent.children[basename] = node
+    successfulLockCreations += 1
+    let result = allocateHandle(node)
+    afterCreateLock?()
+    return result
+  }
+
   func setMode(descriptor: Int32, mode: UInt16) throws(DarwinFileSystemBackendError) {
     try scripted(.setMode)
     try handle(descriptor).node.mode = mode
@@ -332,9 +372,17 @@ final class ScriptedDarwinFileSystemBackend: DarwinFileSystemBackend, @unchecked
     return DarwinFileSystemIdentity(isLocal: node.isLocal, typeName: node.fileSystemType)
   }
 
-  func directoryEntries(descriptor: Int32)
+  func openDirectoryForEnumeration(at descriptor: Int32)
+    throws(DarwinFileSystemBackendError) -> Int32
+  {
+    try scripted(.openEnumerationDirectory)
+    return allocateHandle(try handle(descriptor).node)
+  }
+
+  func directoryEntries(consuming descriptor: Int32)
     throws(DarwinFileSystemBackendError) -> [String]
   {
+    defer { close(descriptor: descriptor) }
     try scripted(.entries)
     return [".", ".."] + (try handle(descriptor).node.children.keys.sorted())
   }
@@ -398,6 +446,22 @@ final class ScriptedDarwinFileSystemBackend: DarwinFileSystemBackend, @unchecked
     }
     parent.children[destinationBasename] = source
     renamedPairs.append((sourceBasename, destinationBasename))
+  }
+
+  func renameExclusive(
+    in descriptor: Int32,
+    from sourceBasename: String,
+    to destinationBasename: String
+  ) throws(DarwinFileSystemBackendError) {
+    beforeExclusiveRename?()
+    try scripted(.renameExclusive)
+    let parent = try handle(descriptor).node
+    guard parent.children[destinationBasename] == nil else { throw .alreadyExists }
+    guard let source = parent.children.removeValue(forKey: sourceBasename) else {
+      throw .notFound
+    }
+    parent.children[destinationBasename] = source
+    exclusiveRenamedPairs.append((sourceBasename, destinationBasename))
   }
 
   func unlink(at descriptor: Int32, basename: String) throws(DarwinFileSystemBackendError) {

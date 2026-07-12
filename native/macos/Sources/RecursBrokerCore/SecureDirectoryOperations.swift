@@ -1,5 +1,15 @@
 import Foundation
 
+private struct BrokerFileIdentity: Sendable, Hashable {
+  let device: UInt64
+  let inode: UInt64
+
+  init(_ metadata: DarwinNodeMetadata) {
+    device = metadata.device
+    inode = metadata.inode
+  }
+}
+
 extension SecureDirectory {
   private static var userComponents: [String] { ["Library", "Application Support"] }
   private static var privateComponents: [String] { ["com.recurs.cli", "broker", "journal-v1"] }
@@ -198,8 +208,11 @@ extension SecureDirectory {
       throw .fileTooLarge
     }
 
+    let enumerationDescriptor = try Self.mapBackend {
+      try backend.openDirectoryForEnumeration(at: descriptor)
+    }
     let rawEntries = try Self.mapBackend {
-      try backend.directoryEntries(descriptor: descriptor)
+      try backend.directoryEntries(consuming: enumerationDescriptor)
     }
     var slots: [String] = []
     var temporaries: [String] = []
@@ -272,22 +285,59 @@ extension SecureDirectory {
 
   package func removeVerifiedTemporary(
     basename: String,
-    selectedSlotBasenames: Set<String>
+    selectedSlotBasenames: Set<String>,
+    quarantineID: UUID = UUID()
   ) throws(SecureDirectoryError) {
     guard try Self.isTemporaryBasename(basename) else { throw .invalidComponent }
-    guard !selectedSlotBasenames.contains(basename) else { throw .invalidComponent }
+    let quarantineBasename = ".tmp.\(quarantineID.uuidString.lowercased()).rcbj"
+    guard
+      try Self.isTemporaryBasename(quarantineBasename),
+      quarantineBasename != basename
+    else {
+      throw .invalidComponent
+    }
+    let selectedAuthorities = try selectedAuthorityIdentities(
+      selectedSlotBasenames: selectedSlotBasenames
+    )
     let firstDescriptor = try openReadOnly(basename: basename)
     defer { backend.close(descriptor: firstDescriptor) }
     let first = try validatedRegularFile(descriptor: firstDescriptor)
+    let expected = BrokerFileIdentity(first)
+    guard !selectedAuthorities.values.contains(expected) else {
+      throw .ioUnavailable
+    }
+    guard
+      nameHasIdentity(basename: basename, expected: first),
+      selectedAuthoritiesStillMatch(selectedAuthorities)
+    else {
+      throw .ioUnavailable
+    }
 
-    let secondDescriptor = try openReadOnly(basename: basename)
-    defer { backend.close(descriptor: secondDescriptor) }
-    let second = try validatedRegularFile(descriptor: secondDescriptor)
-    guard first.device == second.device, first.inode == second.inode else {
+    do {
+      try backend.renameExclusive(
+        in: descriptor,
+        from: basename,
+        to: quarantineBasename
+      )
+    } catch {
+      throw .ioUnavailable
+    }
+    guard nameHasIdentity(basename: quarantineBasename, expected: first) else {
+      // The exclusive rename confines uncertainty to a recognized non-authority
+      // quarantine name. A mismatch is left for later inspection; nothing is unlinked.
+      throw .ioUnavailable
+    }
+    guard
+      nameHasIdentity(basename: quarantineBasename, expected: first),
+      selectedAuthoritiesStillMatch(selectedAuthorities)
+    else {
       throw .ioUnavailable
     }
     do {
-      try backend.unlink(at: descriptor, basename: basename)
+      // Darwin has no inode-conditional unlink. This final destructive step is
+      // allowed only after exclusive quarantine plus immediate identity and
+      // authority revalidation. The same-UID advisory-race limitation remains.
+      try backend.unlink(at: descriptor, basename: quarantineBasename)
     } catch {
       throw .ioUnavailable
     }
@@ -391,7 +441,70 @@ extension SecureDirectory {
     expected: DarwinNodeMetadata
   ) {
     guard nameHasIdentity(basename: basename, expected: expected) else { return }
-    try? backend.unlink(at: descriptor, basename: basename)
+    let quarantineBasename = ".tmp.\(UUID().uuidString.lowercased()).rcbj"
+    guard quarantineBasename != basename else { return }
+    do {
+      try backend.renameExclusive(
+        in: descriptor,
+        from: basename,
+        to: quarantineBasename
+      )
+    } catch {
+      return
+    }
+    guard nameHasIdentity(basename: quarantineBasename, expected: expected) else { return }
+    try? backend.unlink(at: descriptor, basename: quarantineBasename)
+  }
+
+  private func selectedAuthorityIdentities(
+    selectedSlotBasenames: Set<String>
+  ) throws(SecureDirectoryError) -> [String: BrokerFileIdentity] {
+    guard selectedSlotBasenames.count <= Self.maximumAnchoredConnections else {
+      throw .fileTooLarge
+    }
+    var connectionIDs = Set<UUID>()
+    var identities: [String: BrokerFileIdentity] = [:]
+    var uniqueIdentities = Set<BrokerFileIdentity>()
+    for basename in selectedSlotBasenames.sorted() {
+      guard let slot = try Self.slotIdentity(for: basename) else {
+        throw .invalidComponent
+      }
+      guard connectionIDs.insert(slot.connectionID).inserted else {
+        throw .invalidComponent
+      }
+      let selectedDescriptor = try openReadOnly(basename: basename)
+      defer { backend.close(descriptor: selectedDescriptor) }
+      let identity = BrokerFileIdentity(
+        try validatedRegularFile(descriptor: selectedDescriptor)
+      )
+      guard uniqueIdentities.insert(identity).inserted else { throw .ioUnavailable }
+      identities[basename] = identity
+    }
+    return identities
+  }
+
+  private func selectedAuthoritiesStillMatch(
+    _ expected: [String: BrokerFileIdentity]
+  ) -> Bool {
+    for basename in expected.keys.sorted() {
+      guard
+        let expectedIdentity = expected[basename],
+        let selectedDescriptor = try? backend.openReadOnlyFile(
+          at: descriptor,
+          basename: basename
+        )
+      else {
+        return false
+      }
+      defer { backend.close(descriptor: selectedDescriptor) }
+      guard
+        let metadata = try? validatedRegularFile(descriptor: selectedDescriptor),
+        BrokerFileIdentity(metadata) == expectedIdentity
+      else {
+        return false
+      }
+    }
+    return true
   }
 
   private func nameHasIdentity(
@@ -421,7 +534,7 @@ extension SecureDirectory {
     let lockDescriptor: Int32
     var created = false
     do {
-      lockDescriptor = try backend.createExclusiveFile(
+      lockDescriptor = try backend.createExclusiveLockFile(
         at: descriptor,
         basename: Self.lockBasename,
         mode: 0o600
@@ -445,15 +558,21 @@ extension SecureDirectory {
       if created { try backend.setMode(descriptor: lockDescriptor, mode: 0o600) }
       let metadata = try validatedRegularFile(descriptor: lockDescriptor)
       guard metadata.size == 0 else { throw SecureDirectoryError.wrongMode }
+      guard nameHasIdentity(basename: Self.lockBasename, expected: metadata) else {
+        throw SecureDirectoryError.ioUnavailable
+      }
       do {
         try backend.lockExclusiveNonblocking(descriptor: lockDescriptor)
       } catch {
         throw SecureDirectoryError.ioUnavailable
       }
+      guard nameHasIdentity(basename: Self.lockBasename, expected: metadata) else {
+        backend.unlock(descriptor: lockDescriptor)
+        throw SecureDirectoryError.ioUnavailable
+      }
       return BrokerAuthorityLease(descriptor: lockDescriptor, backend: backend)
     } catch {
       backend.close(descriptor: lockDescriptor)
-      if created { try? backend.unlink(at: descriptor, basename: Self.lockBasename) }
       if let error = error as? SecureDirectoryError { throw error }
       throw .ioUnavailable
     }
