@@ -9,21 +9,10 @@ import {
 } from "../src/index.js";
 import type {
   NativeAuthorityStatus,
-  NativeAuthorityUnavailableReason,
   ProviderManifest,
   ProviderProtocol,
 } from "../src/index.js";
-
-const nativeAuthorityUnavailableReasons = [
-  "unsupported_platform",
-  "unsupported_os_version",
-  "launcher_unavailable",
-  "broker_unavailable",
-  "protocol_mismatch",
-  "peer_identity_unverified",
-  "production_signing_required",
-  "keychain_unavailable",
-] as const satisfies readonly NativeAuthorityUnavailableReason[];
+import { nativeAuthorityUnavailableReasons } from "./native-authority-fixtures.js";
 
 async function packageManifest(
   relativePath: string,
