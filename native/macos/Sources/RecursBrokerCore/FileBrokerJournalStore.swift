@@ -1,11 +1,22 @@
 import Foundation
 
 package actor FileBrokerJournalStore {
+  package static let maximumPendingOperationCount = 1_024
+
+  private struct OperationGateWaiter {
+    let continuation: CheckedContinuation<Bool, Never>
+    var previousToken: UInt64?
+    var nextToken: UInt64?
+  }
+
   private let directory: SecureDirectory
   private let authenticator: any BrokerJournalAuthenticator
   private let authorityLease: BrokerAuthorityLease
   private var operationGateIsHeld = false
-  private var operationGateWaiters: [CheckedContinuation<Void, Never>] = []
+  private var operationGateWaiters: [UInt64: OperationGateWaiter] = [:]
+  private var operationGateHeadToken: UInt64?
+  private var operationGateTailToken: UInt64?
+  private var nextOperationGateToken: UInt64 = 0
 
   private init(
     directory: SecureDirectory,
@@ -37,7 +48,7 @@ package actor FileBrokerJournalStore {
   package func load(
     connectionID: UUID
   ) async throws(BrokerJournalError) -> BrokerJournalSnapshot? {
-    await enterOperationGate()
+    try await enterOperationGate()
     defer { leaveOperationGate() }
 
     guard let anchor = try await authenticator.anchor(for: connectionID) else {
@@ -101,7 +112,7 @@ package actor FileBrokerJournalStore {
   }
 
   package func list() async throws(BrokerJournalError) -> [BrokerJournalSnapshot] {
-    await enterOperationGate()
+    try await enterOperationGate()
     defer { leaveOperationGate() }
 
     let anchors = try await authenticator.listAnchors()
@@ -161,21 +172,101 @@ package actor FileBrokerJournalStore {
     return basenames
   }
 
-  private func enterOperationGate() async {
+  package func pendingOperationCount() -> Int {
+    operationGateWaiters.count
+  }
+
+  private func enterOperationGate() async throws(BrokerJournalError) {
+    guard !Task.isCancelled else { throw .storageUnavailable }
     if !operationGateIsHeld {
       operationGateIsHeld = true
       return
     }
-    await withCheckedContinuation { continuation in
-      operationGateWaiters.append(continuation)
+
+    guard operationGateWaiters.count < Self.maximumPendingOperationCount else {
+      throw .storageUnavailable
+    }
+    let token = try allocateOperationGateToken()
+    let entered: Bool = await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        appendOperationGateWaiter(token: token, continuation: continuation)
+        if Task.isCancelled {
+          cancelOperationGateWaiter(token: token)
+        }
+      }
+    } onCancel: {
+      Task {
+        await self.cancelOperationGateWaiter(token: token)
+      }
+    }
+    guard entered else { throw .storageUnavailable }
+    guard !Task.isCancelled else {
+      leaveOperationGate()
+      throw .storageUnavailable
     }
   }
 
   private func leaveOperationGate() {
-    guard !operationGateWaiters.isEmpty else {
+    guard
+      let headToken = operationGateHeadToken,
+      let waiter = unlinkOperationGateWaiter(token: headToken)
+    else {
       operationGateIsHeld = false
       return
     }
-    operationGateWaiters.removeFirst().resume()
+    waiter.continuation.resume(returning: true)
+  }
+
+  private func allocateOperationGateToken() throws(BrokerJournalError) -> UInt64 {
+    let token = nextOperationGateToken
+    let (next, overflow) = token.addingReportingOverflow(1)
+    guard !overflow else { throw .storageUnavailable }
+    nextOperationGateToken = next
+    return token
+  }
+
+  private func appendOperationGateWaiter(
+    token: UInt64,
+    continuation: CheckedContinuation<Bool, Never>
+  ) {
+    let previousToken = operationGateTailToken
+    operationGateWaiters[token] = OperationGateWaiter(
+      continuation: continuation,
+      previousToken: previousToken,
+      nextToken: nil
+    )
+    if let previousToken, var previous = operationGateWaiters[previousToken] {
+      previous.nextToken = token
+      operationGateWaiters[previousToken] = previous
+    } else {
+      operationGateHeadToken = token
+    }
+    operationGateTailToken = token
+  }
+
+  private func cancelOperationGateWaiter(token: UInt64) {
+    guard let waiter = unlinkOperationGateWaiter(token: token) else { return }
+    waiter.continuation.resume(returning: false)
+  }
+
+  private func unlinkOperationGateWaiter(token: UInt64) -> OperationGateWaiter? {
+    guard let waiter = operationGateWaiters.removeValue(forKey: token) else {
+      return nil
+    }
+    if let previousToken = waiter.previousToken,
+      var previous = operationGateWaiters[previousToken]
+    {
+      previous.nextToken = waiter.nextToken
+      operationGateWaiters[previousToken] = previous
+    } else {
+      operationGateHeadToken = waiter.nextToken
+    }
+    if let nextToken = waiter.nextToken, var next = operationGateWaiters[nextToken] {
+      next.previousToken = waiter.previousToken
+      operationGateWaiters[nextToken] = next
+    } else {
+      operationGateTailToken = waiter.previousToken
+    }
+    return waiter
   }
 }

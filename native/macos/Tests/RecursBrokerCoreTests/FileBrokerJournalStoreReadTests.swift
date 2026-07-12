@@ -6,6 +6,135 @@ import Testing
 @Suite("File broker journal store read path")
 struct FileBrokerJournalStoreReadTests {
   @Test
+  func cancelingAMiddleGateWaiterSkipsItAndPreservesLaterFIFOProgress() async throws {
+    let backend = ScriptedDarwinFileSystemBackend()
+    let directory = try openedDirectory(backend)
+    let authenticator = DeterministicBrokerJournalAuthenticator()
+    let store = try FileBrokerJournalStore.open(
+      directory: directory,
+      authenticator: authenticator
+    )
+    let activeID = uuid(401)
+    let canceledID = uuid(402)
+    let laterID = uuid(403)
+
+    await authenticator.pauseNext(at: .anchorLookupBeforeReturn)
+    let active = Task { try await store.load(connectionID: activeID) }
+    await authenticator.waitUntilPaused(at: .anchorLookupBeforeReturn)
+    let canceled = Task { try await store.load(connectionID: canceledID) }
+    await waitForPendingCount(1, store: store)
+    let later = Task { try await store.load(connectionID: laterID) }
+    await waitForPendingCount(2, store: store)
+
+    canceled.cancel()
+    await #expect(throws: BrokerJournalError.storageUnavailable) {
+      _ = try await canceled.value
+    }
+    await waitForPendingCount(1, store: store)
+    #expect(await authenticator.anchorLookupCount() == 1)
+
+    await authenticator.releaseOne(at: .anchorLookupBeforeReturn)
+    #expect(try await active.value == nil)
+    #expect(try await later.value == nil)
+    #expect(
+      await authenticator.anchorLookupConnectionIDs() == [activeID, laterID]
+    )
+  }
+
+  @Test
+  func operationGateRejectsOverflowThenDrainsCanceledWaitersAndRecovers() async throws {
+    let backend = ScriptedDarwinFileSystemBackend()
+    let directory = try openedDirectory(backend)
+    let authenticator = DeterministicBrokerJournalAuthenticator()
+    let store = try FileBrokerJournalStore.open(
+      directory: directory,
+      authenticator: authenticator
+    )
+    let activeID = uuid(410)
+
+    await authenticator.pauseNext(at: .anchorLookupBeforeReturn)
+    let active = Task { try await store.load(connectionID: activeID) }
+    await authenticator.waitUntilPaused(at: .anchorLookupBeforeReturn)
+
+    var waiters: [Task<BrokerJournalSnapshot?, Error>] = []
+    waiters.reserveCapacity(FileBrokerJournalStore.maximumPendingOperationCount)
+    for index in 0..<FileBrokerJournalStore.maximumPendingOperationCount {
+      waiters.append(
+        Task { try await store.load(connectionID: uuid(500 + index)) }
+      )
+      await waitForPendingCount(index + 1, store: store)
+    }
+
+    await #expect(throws: BrokerJournalError.storageUnavailable) {
+      _ = try await store.load(connectionID: uuid(2_000))
+    }
+    #expect(await authenticator.anchorLookupCount() == 1)
+
+    for waiter in waiters { waiter.cancel() }
+    for waiter in waiters {
+      await #expect(throws: BrokerJournalError.storageUnavailable) {
+        _ = try await waiter.value
+      }
+    }
+    await waitForPendingCount(0, store: store)
+
+    await authenticator.releaseOne(at: .anchorLookupBeforeReturn)
+    #expect(try await active.value == nil)
+    let recoveredID = uuid(2_001)
+    #expect(try await store.load(connectionID: recoveredID) == nil)
+    #expect(
+      await authenticator.anchorLookupConnectionIDs() == [activeID, recoveredID]
+    )
+  }
+
+  @Test
+  func loadGateRemainsHeldThroughAuthenticatorVerification() async throws {
+    let fixture = try await selectedFixture(anchorRevision: 1)
+    let queuedLoadID = uuid(301)
+
+    await fixture.authenticator.pauseNext(at: .verifyBeforeReturn)
+    let selectedLoad = Task {
+      try await fixture.store.load(connectionID: fixture.connectionID)
+    }
+    await fixture.authenticator.waitUntilPaused(at: .verifyBeforeReturn)
+    let queuedLoad = Task {
+      try await fixture.store.load(connectionID: queuedLoadID)
+    }
+    for _ in 0..<20 { await Task.yield() }
+    let queuedList = Task { try await fixture.store.list() }
+    for _ in 0..<20 { await Task.yield() }
+
+    #expect(await fixture.authenticator.verifyCount() == 1)
+    #expect(await fixture.authenticator.anchorLookupCount() == 1)
+    #expect(await fixture.authenticator.anchorListCount() == 0)
+
+    await fixture.authenticator.releaseOne(at: .verifyBeforeReturn)
+    #expect(try await selectedLoad.value == fixture.snapshot)
+    #expect(try await queuedLoad.value == nil)
+    #expect(try await queuedList.value == [fixture.snapshot])
+    #expect(
+      await fixture.authenticator.authorityReadEvents()
+        == [
+          .anchor(fixture.connectionID), .verify,
+          .anchor(queuedLoadID), .listAnchors, .verify,
+        ]
+    )
+  }
+
+  @Test
+  func verifyErrorReleasesTheLoadGate() async throws {
+    let fixture = try await selectedFixture(anchorRevision: 1)
+
+    await fixture.authenticator.failNext(at: .verifyBeforeReturn)
+    await #expect(throws: BrokerJournalError.authenticationFailed) {
+      _ = try await fixture.store.load(connectionID: fixture.connectionID)
+    }
+    #expect(try await fixture.store.load(connectionID: uuid(302)) == nil)
+    #expect(await fixture.authenticator.verifyCount() == 1)
+    #expect(await fixture.authenticator.anchorLookupCount() == 2)
+  }
+
+  @Test
   func listEnumeratesEvenWhenAnchorsAreEmptyAndIgnoresOrphanSlots() async throws {
     let backend = ScriptedDarwinFileSystemBackend()
     let directory = try openedDirectory(backend)
@@ -73,12 +202,16 @@ struct FileBrokerJournalStoreReadTests {
   func listValidatesAllSelectedAuthorityBeforeRemovingTemporaries() async throws {
     let missingBackend = ScriptedDarwinFileSystemBackend()
     let missingDirectory = try openedDirectory(missingBackend)
+    let validBeforeMissing = try await anchoredSlot(connectionID: uuid(204), revision: 1)
     let missing = try await anchoredSlot(connectionID: uuid(205), revision: 1)
+    install(validBeforeMissing, in: missingBackend)
     let missingTemporary = temporaryBasename(205)
     missingBackend.addFile("\(journalPath)/\(missingTemporary)")
     let missingStore = try FileBrokerJournalStore.open(
       directory: missingDirectory,
-      authenticator: DeterministicBrokerJournalAuthenticator(anchors: [missing.anchor])
+      authenticator: DeterministicBrokerJournalAuthenticator(
+        anchors: [missing.anchor, validBeforeMissing.anchor]
+      )
     )
     await #expect(throws: BrokerJournalError.rollbackDetected) {
       _ = try await missingStore.list()
@@ -109,16 +242,20 @@ struct FileBrokerJournalStoreReadTests {
   func listRemovesVerifiedTemporariesOnlyAfterAllSnapshotsValidate() async throws {
     let backend = ScriptedDarwinFileSystemBackend()
     let directory = try openedDirectory(backend)
-    let selected = try await anchoredSlot(connectionID: uuid(208), revision: 1)
-    install(selected, in: backend)
+    let first = try await anchoredSlot(connectionID: uuid(208), revision: 1)
+    let second = try await anchoredSlot(connectionID: uuid(209), revision: 2)
+    install(first, in: backend)
+    install(second, in: backend)
     let temporary = temporaryBasename(208)
     backend.addFile("\(journalPath)/\(temporary)")
     let store = try FileBrokerJournalStore.open(
       directory: directory,
-      authenticator: DeterministicBrokerJournalAuthenticator(anchors: [selected.anchor])
+      authenticator: DeterministicBrokerJournalAuthenticator(
+        anchors: [second.anchor, first.anchor]
+      )
     )
 
-    #expect(try await store.list().count == 1)
+    #expect(try await store.list().count == 2)
     #expect(backend.node("\(journalPath)/\(temporary)") == nil)
   }
 
@@ -507,6 +644,7 @@ struct FileBrokerJournalStoreReadTests {
   private struct SelectedFixture {
     let backend: ScriptedDarwinFileSystemBackend
     let store: FileBrokerJournalStore
+    let authenticator: DeterministicBrokerJournalAuthenticator
     let connectionID: UUID
     let record: BrokerJournalRecord
     let authenticationTag: JournalAuthenticationTag
@@ -582,6 +720,7 @@ struct FileBrokerJournalStoreReadTests {
         directory: directory,
         authenticator: authenticator
       ),
+      authenticator: authenticator,
       connectionID: connectionID,
       record: record,
       authenticationTag: anchorTag,
@@ -643,6 +782,19 @@ struct FileBrokerJournalStoreReadTests {
 
   private func temporaryBasename(_ value: Int) -> String {
     ".tmp.00000000-0000-4000-8000-\(String(format: "%012d", value)).rcbj"
+  }
+
+  private func waitForPendingCount(
+    _ expected: Int,
+    store: FileBrokerJournalStore
+  ) async {
+    for _ in 0..<10_000 {
+      if await store.pendingOperationCount() == expected {
+        return
+      }
+      await Task.yield()
+    }
+    Issue.record("Timed out waiting for \(expected) pending broker journal operations.")
   }
 }
 

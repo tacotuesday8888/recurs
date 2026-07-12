@@ -8,11 +8,13 @@ enum DeterministicJournalAuthenticatorBarrierPoint: Sendable, Hashable {
   case anchorLookupBeforeReturn
   case compareAndSwapBeforeSideEffect
   case compareAndSwapAfterSideEffect
+  case verifyBeforeReturn
 }
 
 enum DeterministicJournalAuthenticatorReadEvent: Sendable, Hashable {
   case anchor(UUID)
   case listAnchors
+  case verify
 }
 
 actor DeterministicBrokerJournalAuthenticator:
@@ -25,6 +27,7 @@ actor DeterministicBrokerJournalAuthenticator:
   private var anchors: [BrokerJournalAnchor]
   private var anchorLookupIDs: [UUID] = []
   private var anchorListCalls = 0
+  private var verifyCalls = 0
   private var authorityReads: [DeterministicJournalAuthenticatorReadEvent] = []
   private var pauseBudgets: [DeterministicJournalAuthenticatorBarrierPoint: Int] = [:]
   private var failureBudgets: [DeterministicJournalAuthenticatorBarrierPoint: Int] = [:]
@@ -58,6 +61,12 @@ actor DeterministicBrokerJournalAuthenticator:
     canonicalRecord: Data,
     tag: JournalAuthenticationTag
   ) async throws(BrokerJournalError) {
+    verifyCalls += 1
+    authorityReads.append(.verify)
+    await pauseIfRequested(at: .verifyBeforeReturn)
+    if consumeFailure(at: .verifyBeforeReturn) {
+      throw .authenticationFailed
+    }
     let expected = try await authenticate(
       previousTag: previousTag,
       canonicalRecord: canonicalRecord
@@ -65,6 +74,10 @@ actor DeterministicBrokerJournalAuthenticator:
     guard expected == tag else {
       throw .authenticationFailed
     }
+  }
+
+  func verifyCount() -> Int {
+    verifyCalls
   }
 
   func anchor(
