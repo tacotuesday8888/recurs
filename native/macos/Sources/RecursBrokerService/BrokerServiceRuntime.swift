@@ -16,7 +16,34 @@ struct BrokerServiceRuntimeDependencies<KeychainConfiguration: Sendable> {
   let makeKeychainConfiguration: () throws -> KeychainConfiguration
   let recoverAuthority: (KeychainConfiguration) async throws -> BrokerCredentialAuthority
   let makeKeychainStatusSource: (KeychainConfiguration) -> @Sendable () -> KeychainStatusCode
+  let makeOpenAIOnboardingDependencies:
+    (
+      (KeychainConfiguration, BrokerCredentialAuthority) ->
+        BrokerServiceOpenAIOnboardingDependencies
+    )?
   let makeListener: (String) -> any BrokerServiceListenerHandle
+
+  init(
+    makePeerRequirement: @escaping () throws -> String,
+    makeKeychainConfiguration: @escaping () throws -> KeychainConfiguration,
+    recoverAuthority: @escaping (KeychainConfiguration) async throws -> BrokerCredentialAuthority,
+    makeKeychainStatusSource:
+      @escaping (KeychainConfiguration) ->
+      @Sendable () -> KeychainStatusCode,
+    makeOpenAIOnboardingDependencies:
+      (
+        (KeychainConfiguration, BrokerCredentialAuthority) ->
+          BrokerServiceOpenAIOnboardingDependencies
+      )? = nil,
+    makeListener: @escaping (String) -> any BrokerServiceListenerHandle
+  ) {
+    self.makePeerRequirement = makePeerRequirement
+    self.makeKeychainConfiguration = makeKeychainConfiguration
+    self.recoverAuthority = recoverAuthority
+    self.makeKeychainStatusSource = makeKeychainStatusSource
+    self.makeOpenAIOnboardingDependencies = makeOpenAIOnboardingDependencies
+    self.makeListener = makeListener
+  }
 }
 
 package final class BrokerServiceRuntime {
@@ -57,6 +84,17 @@ package final class BrokerServiceRuntime {
         return {
           protocolStatus(for: probe.status())
         }
+      },
+      makeOpenAIOnboardingDependencies: { configuration, authority in
+        BrokerServiceOpenAIOnboardingDependencies(
+          sessionFactory: BrokerOpenAIOnboardingSessionFactoryLive(
+            authority: authority,
+            network: BrokerOpenAIModelCatalogURLSessionNetworking()
+          ),
+          credentialIdentityFingerprinter: KeychainCredentialIdentityFingerprinter(
+            configuration: configuration
+          )
+        )
       },
       makeListener: { name in
         NSXPCListener(machServiceName: name)
@@ -100,12 +138,28 @@ package final class BrokerServiceRuntime {
     let keychainConfiguration = try dependencies.makeKeychainConfiguration()
     let authority = try await dependencies.recoverAuthority(keychainConfiguration)
     let keychainStatus = dependencies.makeKeychainStatusSource(keychainConfiguration)
-    let configuration = try BrokerServiceConfiguration.recoveredCredentialService(
-      launcherVersion: launcherVersion,
-      brokerVersion: brokerVersion,
-      authority: authority,
-      keychainStatus: keychainStatus
+    let openAIOnboarding = dependencies.makeOpenAIOnboardingDependencies?(
+      keychainConfiguration,
+      authority
     )
+    let configuration: BrokerServiceConfiguration
+    if let openAIOnboarding {
+      configuration = try BrokerServiceConfiguration.recoveredOpenAIService(
+        launcherVersion: launcherVersion,
+        brokerVersion: brokerVersion,
+        authority: authority,
+        sessionFactory: openAIOnboarding.sessionFactory,
+        credentialIdentityFingerprinter: openAIOnboarding.credentialIdentityFingerprinter,
+        keychainStatus: keychainStatus
+      )
+    } else {
+      configuration = try BrokerServiceConfiguration.recoveredCredentialService(
+        launcherVersion: launcherVersion,
+        brokerVersion: brokerVersion,
+        authority: authority,
+        keychainStatus: keychainStatus
+      )
+    }
     let delegate = BrokerServiceListenerDelegate(
       exactPeerRequirement: peerRequirement,
       configuration: configuration

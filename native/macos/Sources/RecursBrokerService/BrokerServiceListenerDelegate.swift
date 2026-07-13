@@ -39,14 +39,18 @@ final class BrokerServiceListenerDelegate: NSObject, NSXPCListenerDelegate,
   func configure(_ connection: any BrokerServiceConnection) {
     connection.setCodeSigningRequirement(exactPeerRequirement)
 
-    let interface = NSXPCInterface(
-      with: configuration.exportsCredentialLifecycle
-        ? BrokerCredentialLifecycleXPCProtocol.self
-        : BrokerXPCProtocol.self
-    )
+    let interface: NSXPCInterface
+    if configuration.exportsOpenAIOnboarding {
+      interface = NSXPCInterface(with: BrokerOpenAIOnboardingXPCProtocol.self)
+    } else if configuration.exportsCredentialLifecycle {
+      interface = NSXPCInterface(with: BrokerCredentialLifecycleXPCProtocol.self)
+    } else {
+      interface = NSXPCInterface(with: BrokerXPCProtocol.self)
+    }
     let dataClasses = NSSet(object: NSData.self) as! Set<AnyHashable>
     let registrations = Self.dataClassRegistrations(
-      includesCredentialLifecycle: configuration.exportsCredentialLifecycle
+      includesCredentialLifecycle: configuration.exportsCredentialLifecycle,
+      includesOpenAIOnboarding: configuration.exportsOpenAIOnboarding
     )
     for registration in registrations {
       interface.setClasses(
@@ -66,7 +70,8 @@ final class BrokerServiceListenerDelegate: NSObject, NSXPCListenerDelegate,
   }
 
   private static func dataClassRegistrations(
-    includesCredentialLifecycle: Bool
+    includesCredentialLifecycle: Bool,
+    includesOpenAIOnboarding: Bool
   ) -> [(selector: Selector, argumentIndex: Int, ofReply: Bool)] {
     var registrations: [(selector: Selector, argumentIndex: Int, ofReply: Bool)] = [
       (#selector(BrokerXPCProtocol.exchange(_:reply:)), 0, false),
@@ -101,6 +106,46 @@ final class BrokerServiceListenerDelegate: NSObject, NSXPCListenerDelegate,
       ),
     ]
     registrations.append(contentsOf: lifecycleRegistrations)
+    guard includesOpenAIOnboarding else { return registrations }
+    let onboardingRegistrations:
+      [(
+        selector: Selector,
+        argumentIndex: Int,
+        ofReply: Bool
+      )] = [
+        (
+          #selector(
+            BrokerOpenAIOnboardingXPCProtocol.beginOpenAIOnboarding(_:secret:reply:)
+          ),
+          0,
+          false
+        ),
+        (
+          #selector(
+            BrokerOpenAIOnboardingXPCProtocol.beginOpenAIOnboarding(_:secret:reply:)
+          ),
+          1,
+          false
+        ),
+        (
+          #selector(
+            BrokerOpenAIOnboardingXPCProtocol.beginOpenAIOnboarding(_:secret:reply:)
+          ),
+          0,
+          true
+        ),
+        (
+          #selector(BrokerOpenAIOnboardingXPCProtocol.openAIOnboardingControl(_:reply:)),
+          0,
+          false
+        ),
+        (
+          #selector(BrokerOpenAIOnboardingXPCProtocol.openAIOnboardingControl(_:reply:)),
+          0,
+          true
+        ),
+      ]
+    registrations.append(contentsOf: onboardingRegistrations)
     return registrations
   }
 }

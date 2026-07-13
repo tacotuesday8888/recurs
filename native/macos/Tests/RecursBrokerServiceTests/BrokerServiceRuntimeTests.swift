@@ -1,4 +1,5 @@
 import Foundation
+import ObjectiveC
 import RecursBrokerXPC
 import RecursNativeProtocol
 import Testing
@@ -22,6 +23,7 @@ struct BrokerServiceRuntimeTests {
           "keychain",
           "recover:73",
           "health-source:73",
+          "onboarding:73",
           "listener:com.recurs.cli.broker",
           "requirement:anchor apple generic and identifier \"com.recurs.cli\"",
           "delegate",
@@ -30,6 +32,14 @@ struct BrokerServiceRuntimeTests {
     #expect(fixture.retention.listener != nil)
     #expect(fixture.retention.delegate != nil)
     #expect(fixture.retention.listener?.activationCount == 0)
+    let connection = TestBrokerConnection()
+    try #require(fixture.retention.delegate).configure(connection)
+    #expect(
+      protocol_isEqual(
+        try #require(connection.exportedInterface).protocol,
+        BrokerOpenAIOnboardingXPCProtocol.self
+      )
+    )
 
     let activation = RuntimeActivationProbe(runtime: fixture.runtime)
     let startGate = RuntimeActivationStartGate(expectedArrivals: 32)
@@ -297,6 +307,13 @@ struct BrokerServiceRuntimeTests {
         events.record("health-source:\(token.value)")
         return { .available }
       },
+      makeOpenAIOnboardingDependencies: { token, _ in
+        events.record("onboarding:\(token.value)")
+        return BrokerServiceOpenAIOnboardingDependencies(
+          sessionFactory: RuntimeOpenAIOnboardingFactory(),
+          credentialIdentityFingerprinter: RuntimeCredentialIdentityFingerprinter()
+        )
+      },
       makeListener: { name in
         events.record("listener:\(name)")
         let listener = RecordingRuntimeListener(events: events, retention: retention)
@@ -317,6 +334,26 @@ struct BrokerServiceRuntimeTests {
     let frames = try decoder.push(data)
     try decoder.finish()
     return try #require(frames.count == 1 ? frames[0] : nil)
+  }
+}
+
+private struct RuntimeCredentialIdentityFingerprinter: CredentialIdentityFingerprinting {
+  func fingerprint(
+    credential: UnsafeRawBufferPointer,
+    binding: ProviderProfileBinding
+  ) throws(CredentialIdentityFingerprintError) -> CredentialIdentityFingerprint {
+    try CredentialIdentityFingerprint(
+      validating: "sha256:" + String(repeating: "2", count: 64)
+    )
+  }
+}
+
+private struct RuntimeOpenAIOnboardingFactory: BrokerOpenAIOnboardingSessionFactory {
+  func makeSession(
+    context: BrokerOpenAIOnboardingStagingContext,
+    abortOperationID: UUID
+  ) throws(BrokerOpenAIOnboardingError) -> any BrokerOpenAIOnboardingSessionProtocol {
+    throw .invalidState
   }
 }
 

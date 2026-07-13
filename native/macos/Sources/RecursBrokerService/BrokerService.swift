@@ -9,12 +9,18 @@ enum BrokerServiceConfigurationError: Error, Equatable, Sendable {
   case invalidConfiguration
 }
 
+struct BrokerServiceOpenAIOnboardingDependencies: Sendable {
+  let sessionFactory: any BrokerOpenAIOnboardingSessionFactory
+  let credentialIdentityFingerprinter: any CredentialIdentityFingerprinting
+}
+
 struct BrokerServiceConfiguration: Sendable {
   let launcherVersion: String
   let brokerVersion: String
   let productionSigned: Bool
   let keychainStatus: @Sendable () -> KeychainStatusCode
   private let credentialAuthority: (any BrokerCredentialLifecycleAuthority)?
+  private let openAIOnboarding: BrokerServiceOpenAIOnboardingDependencies?
 
   init(
     launcherVersion: String,
@@ -27,7 +33,8 @@ struct BrokerServiceConfiguration: Sendable {
       brokerVersion: brokerVersion,
       productionSigned: productionSigned,
       keychainStatus: { keychain },
-      credentialAuthority: nil
+      credentialAuthority: nil,
+      openAIOnboarding: nil
     )
   }
 
@@ -42,7 +49,8 @@ struct BrokerServiceConfiguration: Sendable {
       brokerVersion: brokerVersion,
       productionSigned: productionSigned,
       keychainStatus: keychainStatus,
-      credentialAuthority: nil
+      credentialAuthority: nil,
+      openAIOnboarding: nil
     )
   }
 
@@ -51,7 +59,8 @@ struct BrokerServiceConfiguration: Sendable {
     brokerVersion: String,
     productionSigned: Bool,
     keychainStatus: @escaping @Sendable () -> KeychainStatusCode,
-    credentialAuthority: (any BrokerCredentialLifecycleAuthority)?
+    credentialAuthority: (any BrokerCredentialLifecycleAuthority)?,
+    openAIOnboarding: BrokerServiceOpenAIOnboardingDependencies?
   ) throws {
     do {
       _ = try FieldTable.encodeVersionText(launcherVersion)
@@ -59,11 +68,15 @@ struct BrokerServiceConfiguration: Sendable {
     } catch {
       throw BrokerServiceConfigurationError.invalidConfiguration
     }
+    guard openAIOnboarding == nil || (productionSigned && credentialAuthority != nil) else {
+      throw BrokerServiceConfigurationError.invalidConfiguration
+    }
     self.launcherVersion = launcherVersion
     self.brokerVersion = brokerVersion
     self.productionSigned = productionSigned
     self.keychainStatus = keychainStatus
     self.credentialAuthority = credentialAuthority
+    self.openAIOnboarding = openAIOnboarding
   }
 
   static func recoveredCredentialService(
@@ -77,7 +90,29 @@ struct BrokerServiceConfiguration: Sendable {
       brokerVersion: brokerVersion,
       productionSigned: true,
       keychainStatus: keychainStatus,
-      credentialAuthority: authority
+      credentialAuthority: authority,
+      openAIOnboarding: nil
+    )
+  }
+
+  static func recoveredOpenAIService(
+    launcherVersion: String,
+    brokerVersion: String,
+    authority: any BrokerCredentialLifecycleAuthority,
+    sessionFactory: any BrokerOpenAIOnboardingSessionFactory,
+    credentialIdentityFingerprinter: any CredentialIdentityFingerprinting,
+    keychainStatus: @escaping @Sendable () -> KeychainStatusCode
+  ) throws -> BrokerServiceConfiguration {
+    try BrokerServiceConfiguration(
+      launcherVersion: launcherVersion,
+      brokerVersion: brokerVersion,
+      productionSigned: true,
+      keychainStatus: keychainStatus,
+      credentialAuthority: authority,
+      openAIOnboarding: BrokerServiceOpenAIOnboardingDependencies(
+        sessionFactory: sessionFactory,
+        credentialIdentityFingerprinter: credentialIdentityFingerprinter
+      )
     )
   }
 
@@ -92,7 +127,8 @@ struct BrokerServiceConfiguration: Sendable {
       brokerVersion: brokerVersion,
       productionSigned: productionSigned,
       keychainStatus: keychainStatus,
-      credentialAuthority: nil
+      credentialAuthority: nil,
+      openAIOnboarding: nil
     )
   }
 
@@ -100,8 +136,21 @@ struct BrokerServiceConfiguration: Sendable {
     credentialAuthority != nil
   }
 
+  var exportsOpenAIOnboarding: Bool {
+    openAIOnboarding != nil
+  }
+
   func makeCredentialLifecycleGateway() -> BrokerCredentialLifecycleGateway? {
     credentialAuthority.map(BrokerCredentialLifecycleGateway.init(authority:))
+  }
+
+  func makeOpenAIOnboardingGateway() -> BrokerOpenAIOnboardingGateway? {
+    guard let credentialAuthority, let openAIOnboarding else { return nil }
+    return BrokerOpenAIOnboardingGateway(
+      authority: credentialAuthority,
+      factory: openAIOnboarding.sessionFactory,
+      credentialIdentityFingerprinter: openAIOnboarding.credentialIdentityFingerprinter
+    )
   }
 }
 
@@ -214,16 +263,18 @@ struct BrokerServiceSession: Sendable {
   }
 }
 
-final class BrokerService: NSObject, BrokerCredentialLifecycleXPCProtocol,
+final class BrokerService: NSObject, BrokerOpenAIOnboardingXPCProtocol,
   @unchecked Sendable
 {
   private let lock = NSLock()
   private var session: BrokerServiceSession
   private let credentialGateway: BrokerCredentialLifecycleGateway?
+  private let openAIOnboardingGateway: BrokerOpenAIOnboardingGateway?
 
   init(configuration: BrokerServiceConfiguration) {
     self.session = BrokerServiceSession(configuration: configuration)
     self.credentialGateway = configuration.makeCredentialLifecycleGateway()
+    self.openAIOnboardingGateway = configuration.makeOpenAIOnboardingGateway()
     super.init()
   }
 
@@ -236,8 +287,10 @@ final class BrokerService: NSObject, BrokerCredentialLifecycleXPCProtocol,
       break
     case .authorize:
       credentialGateway?.authorizeAfterHello()
+      openAIOnboardingGateway?.authorizeAfterHello()
     case .close:
       credentialGateway?.close()
+      openAIOnboardingGateway?.close()
     }
     reply(exchange.response)
   }
@@ -269,12 +322,41 @@ final class BrokerService: NSObject, BrokerCredentialLifecycleXPCProtocol,
     credentialGateway.submitControl(request, reply: reply)
   }
 
+  func beginOpenAIOnboarding(
+    _ request: Data,
+    secret: Data,
+    reply: @escaping @Sendable (Data) -> Void
+  ) {
+    let ownedSecretData = secret.withUnsafeBytes { Data($0) }
+    guard let openAIOnboardingGateway else {
+      let ownedSecret = SecretBytes(ownedSecretData)
+      let byteCount = ownedSecret.withUnsafeBytes(\.count)
+      ownedSecret.erase()
+      reply(Self.unavailableOpenAIBegin(request, secretByteCount: byteCount))
+      return
+    }
+    openAIOnboardingGateway.submitBegin(request, secret: ownedSecretData, reply: reply)
+  }
+
+  func openAIOnboardingControl(
+    _ request: Data,
+    reply: @escaping @Sendable (Data) -> Void
+  ) {
+    guard let openAIOnboardingGateway else {
+      reply(Self.unavailableOpenAIControl(request))
+      return
+    }
+    openAIOnboardingGateway.submitControl(request, reply: reply)
+  }
+
   func close() {
     credentialGateway?.close()
+    openAIOnboardingGateway?.close()
   }
 
   func transportTeardown() {
     credentialGateway?.transportTeardown()
+    openAIOnboardingGateway?.transportTeardown()
   }
 
   private static func unavailableStage(_ data: Data, secretByteCount: Int) -> Data {
@@ -320,6 +402,59 @@ final class BrokerService: NSObject, BrokerCredentialLifecycleXPCProtocol,
     code: BrokerCredentialLifecycleFailureCode
   ) -> Data {
     (try? BrokerCredentialLifecycleReply.failure(requestID: requestID, code).encode()) ?? Data()
+  }
+
+  private static func unavailableOpenAIBegin(
+    _ data: Data,
+    secretByteCount: Int
+  ) -> Data {
+    do {
+      let request = try BrokerOpenAIOnboardingRequest.decode(data)
+      guard
+        case .begin = request,
+        (1...brokerCredentialMaximumSecretBytes).contains(secretByteCount)
+      else {
+        return openAIFailure(requestID: request.requestID, code: .invalidRequest)
+      }
+      return openAIFailure(requestID: request.requestID, code: .operationUnavailable)
+    } catch let error as BrokerOpenAIOnboardingCodecError {
+      return openAIFailure(
+        requestID: error.requestID ?? brokerOpenAIOnboardingMalformedRequestID,
+        code: .invalidRequest
+      )
+    } catch {
+      return openAIFailure(
+        requestID: brokerOpenAIOnboardingMalformedRequestID,
+        code: .invalidRequest
+      )
+    }
+  }
+
+  private static func unavailableOpenAIControl(_ data: Data) -> Data {
+    do {
+      let request = try BrokerOpenAIOnboardingRequest.decode(data)
+      guard case .begin = request else {
+        return openAIFailure(requestID: request.requestID, code: .operationUnavailable)
+      }
+      return openAIFailure(requestID: request.requestID, code: .invalidRequest)
+    } catch let error as BrokerOpenAIOnboardingCodecError {
+      return openAIFailure(
+        requestID: error.requestID ?? brokerOpenAIOnboardingMalformedRequestID,
+        code: .invalidRequest
+      )
+    } catch {
+      return openAIFailure(
+        requestID: brokerOpenAIOnboardingMalformedRequestID,
+        code: .invalidRequest
+      )
+    }
+  }
+
+  private static func openAIFailure(
+    requestID: UInt64,
+    code: BrokerOpenAIOnboardingFailureCode
+  ) -> Data {
+    (try? BrokerOpenAIOnboardingReply.failure(requestID: requestID, code).encode()) ?? Data()
   }
 }
 

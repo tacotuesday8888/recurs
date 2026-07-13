@@ -362,6 +362,43 @@ struct BrokerServiceTests {
   }
 
   @Test
+  func healthOnlyServiceRejectsOpenAIOnboardingAndPreservesCallerSecret() throws {
+    let service = BrokerService(
+      configuration: try BrokerServiceConfiguration.healthOnlyForTesting(
+        launcherVersion: "0.1.0",
+        brokerVersion: "0.1.0",
+        productionSigned: true,
+        keychainStatus: { .available }
+      )
+    )
+    let alias = Data("onboarding-secret-canary".utf8)
+    let transferred = alias
+    let beginReply = LockedServiceReplyProbe()
+
+    service.beginOpenAIOnboarding(
+      try BrokerOpenAIOnboardingRequest.begin(requestID: 1).encode(),
+      secret: transferred,
+      reply: beginReply.receive
+    )
+
+    #expect(alias == Data("onboarding-secret-canary".utf8))
+    #expect(
+      try BrokerOpenAIOnboardingReply.decode(try #require(beginReply.first))
+        == .failure(requestID: 1, .operationUnavailable)
+    )
+
+    let controlReply = LockedServiceReplyProbe()
+    service.openAIOnboardingControl(
+      try BrokerOpenAIOnboardingRequest.verify(requestID: 2).encode(),
+      reply: controlReply.receive
+    )
+    #expect(
+      try BrokerOpenAIOnboardingReply.decode(try #require(controlReply.first))
+        == .failure(requestID: 2, .operationUnavailable)
+    )
+  }
+
+  @Test
   func listenerDelegatePinsIdentityAndDataClassesBeforeActivation() throws {
     let configuration = try BrokerServiceConfiguration(
       launcherVersion: "0.1.0",

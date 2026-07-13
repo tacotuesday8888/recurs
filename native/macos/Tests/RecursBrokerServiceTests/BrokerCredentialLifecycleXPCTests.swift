@@ -15,10 +15,12 @@ struct BrokerCredentialLifecycleXPCTests {
   private let operationID = UUID(uuidString: "50000000-0000-4000-8000-000000000011")!
 
   @Test
-  func exportedProtocolsAndSevenDataAllowlistsAreExact() throws {
+  func exportedProtocolsAndDataAllowlistsAreExact() throws {
     let baseProtocol: Protocol = BrokerXPCProtocol.self
     let lifecycleProtocol: Protocol = BrokerCredentialLifecycleXPCProtocol.self
+    let onboardingProtocol: Protocol = BrokerOpenAIOnboardingXPCProtocol.self
     #expect(protocol_conformsToProtocol(lifecycleProtocol, baseProtocol))
+    #expect(protocol_conformsToProtocol(onboardingProtocol, lifecycleProtocol))
     #expect(
       protocolSurface(declaredBy: baseProtocol)
         == ProtocolSurface(
@@ -45,6 +47,21 @@ struct BrokerCredentialLifecycleXPCTests {
           optionalClass: []
         )
     )
+    #expect(
+      protocolSurface(declaredBy: onboardingProtocol)
+        == ProtocolSurface(
+          requiredInstance: [
+            NSStringFromSelector(
+              #selector(
+                BrokerOpenAIOnboardingXPCProtocol.beginOpenAIOnboarding(_:secret:reply:))),
+            NSStringFromSelector(
+              #selector(BrokerOpenAIOnboardingXPCProtocol.openAIOnboardingControl(_:reply:))),
+          ],
+          optionalInstance: [],
+          requiredClass: [],
+          optionalClass: []
+        )
+    )
 
     let authority = XPCFakeAuthority()
     let recovered = try recoveredConfiguration(authority: authority)
@@ -64,6 +81,27 @@ struct BrokerCredentialLifecycleXPCTests {
     #expect(protocol_isEqual(composite.protocol, lifecycleProtocol))
     assertExactDataAllowlists(composite, includesLifecycle: true)
 
+    let openAI = try BrokerServiceConfiguration.recoveredOpenAIService(
+      launcherVersion: "0.1.0",
+      brokerVersion: "0.1.0",
+      authority: authority,
+      sessionFactory: XPCOpenAIOnboardingFactory(),
+      credentialIdentityFingerprinter: XPCOpenAIIdentityFingerprinter(),
+      keychainStatus: { .available }
+    )
+    let openAIConnection = TestBrokerConnection()
+    BrokerServiceListenerDelegate(
+      exactPeerRequirement: "true",
+      configuration: openAI
+    ).configure(openAIConnection)
+    let onboarding = try #require(openAIConnection.exportedInterface)
+    #expect(protocol_isEqual(onboarding.protocol, onboardingProtocol))
+    assertExactDataAllowlists(
+      onboarding,
+      includesLifecycle: true,
+      includesOnboarding: true
+    )
+
     let healthOnly = try BrokerServiceConfiguration.healthOnlyForTesting(
       launcherVersion: "0.1.0",
       brokerVersion: "0.1.0",
@@ -82,6 +120,76 @@ struct BrokerCredentialLifecycleXPCTests {
       healthConnection.events
         == ["requirement", "interface", "object", "interruption", "invalidation", "activate"]
     )
+  }
+
+  @Test
+  func anonymousXPCExercisesOpenAIOnboardingBeginControlAndInvalidation() async throws {
+    let authority = XPCFakeAuthority(expectedSecret: Data("openai-onboarding-secret".utf8))
+    let factory = XPCOpenAIOnboardingFactory()
+    let configuration = try BrokerServiceConfiguration.recoveredOpenAIService(
+      launcherVersion: "0.1.0",
+      brokerVersion: "0.1.0",
+      authority: authority,
+      sessionFactory: factory,
+      credentialIdentityFingerprinter: XPCOpenAIIdentityFingerprinter(),
+      keychainStatus: { .available }
+    )
+    let productionDelegate = BrokerServiceListenerDelegate(
+      exactPeerRequirement: "true",
+      configuration: configuration
+    )
+    let listenerDelegate = AnonymousListenerDelegate(wrapped: productionDelegate)
+    let listener = NSXPCListener.anonymous()
+    listener.delegate = listenerDelegate
+    listener.activate()
+
+    let connection = NSXPCConnection(listenerEndpoint: listener.endpoint)
+    connection.remoteObjectInterface = makeClientOpenAIOnboardingInterface()
+    let invalidated = LockedSignal()
+    connection.invalidationHandler = invalidated.signal
+    connection.activate()
+    let remoteObject = connection.remoteObjectProxyWithErrorHandler { _ in }
+    let proxy = try #require(remoteObject as? BrokerOpenAIOnboardingXPCProtocol)
+
+    let hello = LockedDataProbe()
+    proxy.exchange(try helloFrame(requestID: 1), reply: hello.receive)
+    #expect(try HelloResultMessage.decode(decodeNativeFrame(hello.wait())).persistentCredentials)
+
+    let begun = LockedDataProbe()
+    proxy.beginOpenAIOnboarding(
+      try BrokerOpenAIOnboardingRequest.begin(requestID: 1).encode(),
+      secret: Data("openai-onboarding-secret".utf8),
+      reply: begun.receive
+    )
+    guard
+      case .begun(_, _, _, let fingerprint) =
+        try BrokerOpenAIOnboardingReply.decode(begun.wait())
+    else {
+      Issue.record("Expected an OpenAI onboarding begun reply")
+      return
+    }
+    #expect(fingerprint == XPCOpenAIIdentityFingerprinter.rawFingerprint)
+    #expect(authority.receivedExpectedSecret)
+
+    let verified = LockedDataProbe()
+    proxy.openAIOnboardingControl(
+      try BrokerOpenAIOnboardingRequest.verify(requestID: 2).encode(),
+      reply: verified.receive
+    )
+    guard
+      case .catalogPage(_, let page) =
+        try BrokerOpenAIOnboardingReply.decode(verified.wait())
+    else {
+      Issue.record("Expected an OpenAI catalog page")
+      return
+    }
+    #expect(page.modelIDs == ["gpt-5"])
+
+    connection.invalidate()
+    #expect(invalidated.wait())
+    #expect(factory.session.waitUntilClosed())
+    listener.invalidate()
+    withExtendedLifetime((listener, listenerDelegate, connection, remoteObject, proxy)) {}
   }
 
   @Test
@@ -529,7 +637,8 @@ private func selectors(
 
 private func assertExactDataAllowlists(
   _ interface: NSXPCInterface,
-  includesLifecycle: Bool
+  includesLifecycle: Bool,
+  includesOnboarding: Bool = false
 ) {
   let exchange = #selector(BrokerXPCProtocol.exchange(_:reply:))
   assertNSDataOnly(interface.classes(for: exchange, argumentIndex: 0, ofReply: false))
@@ -543,6 +652,21 @@ private func assertExactDataAllowlists(
   let control = #selector(BrokerCredentialLifecycleXPCProtocol.credentialControl(_:reply:))
   assertNSDataOnly(interface.classes(for: control, argumentIndex: 0, ofReply: false))
   assertNSDataOnly(interface.classes(for: control, argumentIndex: 0, ofReply: true))
+  guard includesOnboarding else { return }
+
+  let begin =
+    #selector(BrokerOpenAIOnboardingXPCProtocol.beginOpenAIOnboarding(_:secret:reply:))
+  assertNSDataOnly(interface.classes(for: begin, argumentIndex: 0, ofReply: false))
+  assertNSDataOnly(interface.classes(for: begin, argumentIndex: 1, ofReply: false))
+  assertNSDataOnly(interface.classes(for: begin, argumentIndex: 0, ofReply: true))
+  let onboardingControl =
+    #selector(BrokerOpenAIOnboardingXPCProtocol.openAIOnboardingControl(_:reply:))
+  assertNSDataOnly(
+    interface.classes(for: onboardingControl, argumentIndex: 0, ofReply: false)
+  )
+  assertNSDataOnly(
+    interface.classes(for: onboardingControl, argumentIndex: 0, ofReply: true)
+  )
 }
 
 private func assertNSDataOnly(_ classes: Set<AnyHashable>) {
@@ -564,6 +688,49 @@ private func makeClientLifecycleInterface() -> NSXPCInterface {
     (#selector(BrokerCredentialLifecycleXPCProtocol.stageCredential(_:secret:reply:)), 0, true),
     (#selector(BrokerCredentialLifecycleXPCProtocol.credentialControl(_:reply:)), 0, false),
     (#selector(BrokerCredentialLifecycleXPCProtocol.credentialControl(_:reply:)), 0, true),
+  ]
+  for (selector, index, reply) in registrations {
+    interface.setClasses(dataClasses, for: selector, argumentIndex: index, ofReply: reply)
+  }
+  return interface
+}
+
+private func makeClientOpenAIOnboardingInterface() -> NSXPCInterface {
+  let interface = NSXPCInterface(with: BrokerOpenAIOnboardingXPCProtocol.self)
+  let dataClasses = NSSet(object: NSData.self) as! Set<AnyHashable>
+  let registrations: [(Selector, Int, Bool)] = [
+    (#selector(BrokerXPCProtocol.exchange(_:reply:)), 0, false),
+    (#selector(BrokerXPCProtocol.exchange(_:reply:)), 0, true),
+    (#selector(BrokerCredentialLifecycleXPCProtocol.stageCredential(_:secret:reply:)), 0, false),
+    (#selector(BrokerCredentialLifecycleXPCProtocol.stageCredential(_:secret:reply:)), 1, false),
+    (#selector(BrokerCredentialLifecycleXPCProtocol.stageCredential(_:secret:reply:)), 0, true),
+    (#selector(BrokerCredentialLifecycleXPCProtocol.credentialControl(_:reply:)), 0, false),
+    (#selector(BrokerCredentialLifecycleXPCProtocol.credentialControl(_:reply:)), 0, true),
+    (
+      #selector(BrokerOpenAIOnboardingXPCProtocol.beginOpenAIOnboarding(_:secret:reply:)),
+      0,
+      false
+    ),
+    (
+      #selector(BrokerOpenAIOnboardingXPCProtocol.beginOpenAIOnboarding(_:secret:reply:)),
+      1,
+      false
+    ),
+    (
+      #selector(BrokerOpenAIOnboardingXPCProtocol.beginOpenAIOnboarding(_:secret:reply:)),
+      0,
+      true
+    ),
+    (
+      #selector(BrokerOpenAIOnboardingXPCProtocol.openAIOnboardingControl(_:reply:)),
+      0,
+      false
+    ),
+    (
+      #selector(BrokerOpenAIOnboardingXPCProtocol.openAIOnboardingControl(_:reply:)),
+      0,
+      true
+    ),
   ]
   for (selector, index, reply) in registrations {
     interface.setClasses(dataClasses, for: selector, argumentIndex: index, ofReply: reply)
@@ -911,6 +1078,57 @@ private final class AnonymousListenerDelegate: NSObject, NSXPCListenerDelegate,
 
   func waitForAcceptance() -> Bool { accepted.wait() }
   func waitForInvalidation() -> Bool { invalidated.wait() }
+}
+
+private struct XPCOpenAIIdentityFingerprinter: CredentialIdentityFingerprinting {
+  static let rawFingerprint = "sha256:" + String(repeating: "1", count: 64)
+
+  func fingerprint(
+    credential: UnsafeRawBufferPointer,
+    binding: ProviderProfileBinding
+  ) throws(CredentialIdentityFingerprintError) -> CredentialIdentityFingerprint {
+    guard !credential.isEmpty, binding == .openAI else { throw .invalidCredential }
+    return try CredentialIdentityFingerprint(validating: Self.rawFingerprint)
+  }
+}
+
+private final class XPCOpenAIOnboardingFactory:
+  BrokerOpenAIOnboardingSessionFactory,
+  @unchecked Sendable
+{
+  let session = XPCOpenAIOnboardingSession()
+
+  func makeSession(
+    context: BrokerOpenAIOnboardingStagingContext,
+    abortOperationID: UUID
+  ) throws(BrokerOpenAIOnboardingError) -> any BrokerOpenAIOnboardingSessionProtocol {
+    guard context.providerBinding == .openAI else { throw .invalidContext }
+    return session
+  }
+}
+
+private final class XPCOpenAIOnboardingSession:
+  BrokerOpenAIOnboardingSessionProtocol,
+  @unchecked Sendable
+{
+  private let closed = LockedSignal()
+
+  func verify() async throws(BrokerOpenAIOnboardingError) -> BrokerOpenAIModelCatalog {
+    BrokerOpenAIModelCatalog(modelIDs: ["gpt-5"], requestID: "request-id")
+  }
+
+  func finalize(
+    exactModelID: String,
+    operationID: UUID
+  ) async throws(BrokerOpenAIOnboardingError) -> BrokerOpenAIOnboardingReceipt {
+    throw .invalidState
+  }
+
+  func close() async throws(BrokerOpenAIOnboardingError) {
+    closed.signal()
+  }
+
+  func waitUntilClosed() -> Bool { closed.wait() }
 }
 
 extension BrokerCredentialLifecycleReply {
