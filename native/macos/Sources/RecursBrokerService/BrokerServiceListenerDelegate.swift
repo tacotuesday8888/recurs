@@ -13,13 +13,13 @@ protocol BrokerServiceConnection: AnyObject {
 
 extension NSXPCConnection: BrokerServiceConnection {}
 
-package final class BrokerServiceListenerDelegate: NSObject, NSXPCListenerDelegate,
+final class BrokerServiceListenerDelegate: NSObject, NSXPCListenerDelegate,
   @unchecked Sendable
 {
   private let exactPeerRequirement: String
   private let configuration: BrokerServiceConfiguration
 
-  package init(
+  init(
     exactPeerRequirement: String,
     configuration: BrokerServiceConfiguration
   ) {
@@ -28,7 +28,7 @@ package final class BrokerServiceListenerDelegate: NSObject, NSXPCListenerDelega
     super.init()
   }
 
-  package func listener(
+  func listener(
     _ listener: NSXPCListener,
     shouldAcceptNewConnection newConnection: NSXPCConnection
   ) -> Bool {

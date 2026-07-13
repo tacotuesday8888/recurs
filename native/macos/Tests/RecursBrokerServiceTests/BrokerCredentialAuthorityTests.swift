@@ -184,7 +184,7 @@ struct BrokerCredentialAuthorityTests {
   }
 }
 
-private actor AuthorityCredentialStore: CredentialStore {
+actor AuthorityCredentialStore: CredentialStore {
   private let failingDeleteConnectionID: UUID?
   private var retained: [CredentialStoreKey: SecretBytes] = [:]
   private var loads = 0
@@ -216,7 +216,7 @@ private actor AuthorityCredentialStore: CredentialStore {
   func loadCount() -> Int { loads }
 }
 
-private actor AuthorityJournalStore: BrokerJournalStore {
+actor AuthorityJournalStore: BrokerJournalStore {
   private var snapshots: [UUID: BrokerJournalSnapshot]
   private let listFailure: BrokerJournalError?
 

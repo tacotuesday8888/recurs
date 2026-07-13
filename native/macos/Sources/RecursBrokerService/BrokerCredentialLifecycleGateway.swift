@@ -2,9 +2,9 @@ import Foundation
 import RecursBrokerCore
 import RecursBrokerXPC
 
-package final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
-  package static let maximumInflightRequests = 8
-  package static let maximumSecretBytes = 4_096
+final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
+  static let maximumInflightRequests = 8
+  static let maximumSecretBytes = 4_096
 
   private struct Entry {
     let task: Task<Void, Never>
@@ -23,18 +23,18 @@ package final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
   private var greatestSeenRequestID: UInt64 = 0
   private var entries: [UInt64: Entry] = [:]
 
-  package init(authority: any BrokerCredentialLifecycleAuthority) {
+  init(authority: any BrokerCredentialLifecycleAuthority) {
     self.authority = authority
   }
 
-  package func authorizeAfterHello() {
+  func authorizeAfterHello() {
     lock.withLock {
       guard !isClosed else { return }
       isAuthorized = true
     }
   }
 
-  package func submitStage(
+  func submitStage(
     metadata: Data,
     secret: consuming Data,
     reply: @escaping @Sendable (Data) -> Void
@@ -82,7 +82,7 @@ package final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
     }
   }
 
-  package func submitControl(
+  func submitControl(
     _ requestData: Data,
     reply: @escaping @Sendable (Data) -> Void
   ) {
@@ -131,7 +131,7 @@ package final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
     }
   }
 
-  package func close() {
+  func close() {
     let owned: [Entry] = lock.withLock {
       guard !isClosed else { return [] }
       isClosed = true

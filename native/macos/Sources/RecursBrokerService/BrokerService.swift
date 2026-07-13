@@ -5,18 +5,18 @@ import RecursNativeProtocol
 
 let brokerMalformedFrameRequestID = UInt32.max
 
-package enum BrokerServiceConfigurationError: Error, Equatable, Sendable {
+enum BrokerServiceConfigurationError: Error, Equatable, Sendable {
   case invalidConfiguration
 }
 
-package struct BrokerServiceConfiguration: Sendable {
+struct BrokerServiceConfiguration: Sendable {
   let launcherVersion: String
   let brokerVersion: String
   let productionSigned: Bool
   let keychainStatus: @Sendable () -> KeychainStatusCode
   private let credentialAuthority: (any BrokerCredentialLifecycleAuthority)?
 
-  package init(
+  init(
     launcherVersion: String,
     brokerVersion: String,
     productionSigned: Bool,
@@ -26,24 +26,21 @@ package struct BrokerServiceConfiguration: Sendable {
       launcherVersion: launcherVersion,
       brokerVersion: brokerVersion,
       productionSigned: productionSigned,
-      initialKeychain: keychain,
       keychainStatus: { keychain },
       credentialAuthority: nil
     )
   }
 
-  package init(
+  init(
     launcherVersion: String,
     brokerVersion: String,
     productionSigned: Bool,
-    initialKeychain: KeychainStatusCode,
     keychainStatus: @escaping @Sendable () -> KeychainStatusCode
   ) throws {
     try self.init(
       launcherVersion: launcherVersion,
       brokerVersion: brokerVersion,
       productionSigned: productionSigned,
-      initialKeychain: initialKeychain,
       keychainStatus: keychainStatus,
       credentialAuthority: nil
     )
@@ -53,7 +50,6 @@ package struct BrokerServiceConfiguration: Sendable {
     launcherVersion: String,
     brokerVersion: String,
     productionSigned: Bool,
-    initialKeychain: KeychainStatusCode,
     keychainStatus: @escaping @Sendable () -> KeychainStatusCode,
     credentialAuthority: (any BrokerCredentialLifecycleAuthority)?
   ) throws {
@@ -70,77 +66,57 @@ package struct BrokerServiceConfiguration: Sendable {
     self.credentialAuthority = credentialAuthority
   }
 
-  package static func recoveredCredentialService(
+  static func recoveredCredentialService(
     launcherVersion: String,
     brokerVersion: String,
     authority: any BrokerCredentialLifecycleAuthority,
-    initialKeychain: KeychainStatusCode,
     keychainStatus: @escaping @Sendable () -> KeychainStatusCode
   ) throws -> BrokerServiceConfiguration {
     try BrokerServiceConfiguration(
       launcherVersion: launcherVersion,
       brokerVersion: brokerVersion,
       productionSigned: true,
-      initialKeychain: initialKeychain,
       keychainStatus: keychainStatus,
       credentialAuthority: authority
     )
   }
 
-  package static func healthOnlyForTesting(
+  static func healthOnlyForTesting(
     launcherVersion: String,
     brokerVersion: String,
     productionSigned: Bool,
-    initialKeychain: KeychainStatusCode,
     keychainStatus: @escaping @Sendable () -> KeychainStatusCode
   ) throws -> BrokerServiceConfiguration {
     try BrokerServiceConfiguration(
       launcherVersion: launcherVersion,
       brokerVersion: brokerVersion,
       productionSigned: productionSigned,
-      initialKeychain: initialKeychain,
       keychainStatus: keychainStatus,
       credentialAuthority: nil
     )
   }
 
-  package static func productionHandshakeHealthOnly(
-    launcherVersion: String,
-    brokerVersion: String,
-    initialKeychain: KeychainStatusCode,
-    keychainStatus: @escaping @Sendable () -> KeychainStatusCode
-  ) throws -> BrokerServiceConfiguration {
-    try BrokerServiceConfiguration(
-      launcherVersion: launcherVersion,
-      brokerVersion: brokerVersion,
-      productionSigned: true,
-      initialKeychain: initialKeychain,
-      keychainStatus: keychainStatus,
-      credentialAuthority: nil
-    )
-  }
-
-  package var exportsCredentialLifecycle: Bool {
+  var exportsCredentialLifecycle: Bool {
     credentialAuthority != nil
   }
 
-  package func makeCredentialLifecycleGateway() -> BrokerCredentialLifecycleGateway? {
+  func makeCredentialLifecycleGateway() -> BrokerCredentialLifecycleGateway? {
     credentialAuthority.map(BrokerCredentialLifecycleGateway.init(authority:))
   }
 }
 
-package enum BrokerServiceLifecycleAction: Sendable {
+enum BrokerServiceLifecycleAction: Sendable {
   case none
   case authorize
   case close
 }
 
-package struct BrokerServiceExchange: Sendable {
-  package let response: Data
-  package let lifecycleAction: BrokerServiceLifecycleAction
+struct BrokerServiceExchange: Sendable {
+  let response: Data
+  let lifecycleAction: BrokerServiceLifecycleAction
 }
 
-package struct BrokerServiceSession: Sendable {
+struct BrokerServiceSession: Sendable {
   private enum Phase: Sendable {
     case awaitingHello
     case ready
@@ -151,11 +127,11 @@ package struct BrokerServiceSession: Sendable {
   private var phase = Phase.awaitingHello
   private var greatestRequestID: UInt32 = 0
 
-  package init(configuration: BrokerServiceConfiguration) {
+  init(configuration: BrokerServiceConfiguration) {
     self.configuration = configuration
   }
 
-  package mutating func exchange(_ frame: Data) -> BrokerServiceExchange {
+  mutating func exchange(_ frame: Data) -> BrokerServiceExchange {
     var failureRequestID = brokerMalformedFrameRequestID
     do {
       var decoder = NativeFrameDecoder()
@@ -238,20 +214,20 @@ package struct BrokerServiceSession: Sendable {
   }
 }
 
-package final class BrokerService: NSObject, BrokerCredentialLifecycleXPCProtocol,
+final class BrokerService: NSObject, BrokerCredentialLifecycleXPCProtocol,
   @unchecked Sendable
 {
   private let lock = NSLock()
   private var session: BrokerServiceSession
   private let credentialGateway: BrokerCredentialLifecycleGateway?
 
-  package init(configuration: BrokerServiceConfiguration) {
+  init(configuration: BrokerServiceConfiguration) {
     self.session = BrokerServiceSession(configuration: configuration)
     self.credentialGateway = configuration.makeCredentialLifecycleGateway()
     super.init()
   }
 
-  package func exchange(_ frame: Data, reply: @escaping @Sendable (Data) -> Void) {
+  func exchange(_ frame: Data, reply: @escaping @Sendable (Data) -> Void) {
     let exchange = lock.withLock {
       session.exchange(frame)
     }
@@ -266,7 +242,7 @@ package final class BrokerService: NSObject, BrokerCredentialLifecycleXPCProtoco
     reply(exchange.response)
   }
 
-  package func stageCredential(
+  func stageCredential(
     _ metadata: Data,
     secret: Data,
     reply: @escaping @Sendable (Data) -> Void
@@ -282,7 +258,7 @@ package final class BrokerService: NSObject, BrokerCredentialLifecycleXPCProtoco
     credentialGateway.submitStage(metadata: metadata, secret: ownedSecretData, reply: reply)
   }
 
-  package func credentialControl(
+  func credentialControl(
     _ request: Data,
     reply: @escaping @Sendable (Data) -> Void
   ) {
@@ -293,7 +269,7 @@ package final class BrokerService: NSObject, BrokerCredentialLifecycleXPCProtoco
     credentialGateway.submitControl(request, reply: reply)
   }
 
-  package func close() {
+  func close() {
     credentialGateway?.close()
   }
 

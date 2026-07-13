@@ -230,6 +230,11 @@ struct BrokerCredentialLifecycleGatewayTests {
       try decoded(overflowReplay.wait()) == .failure(requestID: overflowID, .invalidRequest)
     )
 
+    #expect(
+      await authority.waitForCallCount(
+        BrokerCredentialLifecycleGateway.maximumInflightRequests
+      )
+    )
     gateway.close()
     for (offset, probe) in accepted.enumerated() {
       #expect(try decoded(probe.wait()) == .failure(requestID: UInt64(offset + 1), .cancelled))
@@ -256,7 +261,7 @@ struct BrokerCredentialLifecycleGatewayTests {
         reply: replies.receive
       )
     }
-    while await authority.callCount() < 2 { await Task.yield() }
+    #expect(await authority.waitForCallCount(2))
 
     let close = Task.detached { gateway.close() }
     #expect(replies.waitForCount(1) == 1)
@@ -488,6 +493,19 @@ private struct GatewayAuthority: BrokerCredentialLifecycleAuthority {
 
   func receivedExpectedSecret() async -> Bool { await state.receivedExpectedSecret() }
   func callCount() async -> Int { await state.callCount() }
+
+  func waitForCallCount(
+    _ expected: Int,
+    timeout: Duration = .seconds(3)
+  ) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while await state.callCount() < expected {
+      guard clock.now < deadline else { return false }
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    return true
+  }
 
   private nonisolated func stagingAttempt(connectionID: UUID, fence: UInt64) -> StagingAttempt {
     StagingAttempt(

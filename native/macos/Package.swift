@@ -54,7 +54,6 @@ let package = Package(
       dependencies: [
         "RecursBrokerService",
         "RecursNativeProtocol",
-        "RecursNativeSecurity",
       ]
     ),
     .executableTarget(

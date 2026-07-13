@@ -7,31 +7,36 @@ accidental disclosure through built-in tools, checkpoints, child environments,
 and error messages; arbitrary commands still run with the user's host
 filesystem, network, IPC, and process authority.
 
-The repository now includes a macOS 14.4+ health-only native process boundary.
-It has tested Data Protection Keychain and credential-state/journal libraries,
-exact-peer identity checks, a handshake/health XPC broker, bounded native
-frames, fixed signed-bundle path validation, an exact-descriptor child
-lifecycle, and redacted diagnostics. The production-gated launcher creates one
+The repository now includes a macOS 14.4+ native process boundary. It has tested
+Data Protection Keychain, credential-state/journal recovery, exact-peer identity
+checks, a private lifecycle/health XPC broker, bounded native frames, fixed
+signed-bundle path validation, an exact-descriptor child lifecycle, and redacted
+diagnostics. Production broker startup derives and validates the exact launcher
+signing requirement and Keychain configuration, completely recovers one
+credential authority, and only then
+constructs and activates its listener. That recovered path advertises
+`persistentCredentials: true` and shares the recovered actor with the private
+lifecycle service. Separately, the production-gated launcher creates one
 anonymous socketpair, directly spawns only its fixed sealed Node engine, maps
 the child endpoint to descriptor 3, wires bounded `hello`/`health`/`cancel`
-frame handling, and reaps the exact child. The current live broker deliberately
-advertises `persistentCredentials: false`, so the launcher rejects its hello as
-`production_signing_required` before entering the ready/health phase; cancel is
-handled inside the launcher session rather than as an XPC operation. Fake-peer
-tests exercise the full health frame path. The public npm/source CLI deletes an
+frame handling, and reaps the exact child; cancel remains a launcher-session
+operation rather than broker XPC. Fake-peer tests exercise the full health frame
+path. The public npm/source CLI deletes an
 injected native marker and writes zero bytes to that descriptor. Source,
 unsigned, and ad-hoc launchers cannot select an engine through `PATH`, cwd,
 environment, or arguments and fail the engine path with fixed exit `78` and
 empty output.
 
-This is not an operational credential authority. No signed/notarized installed
-artifact exists, credential operations are not connected to the broker service,
-and the handshake/health-only broker advertises `persistentCredentials: false`. A
-directly injected descriptor and its peer's self-attestation cannot prove
+This is not yet a shipped or provider-usable credential authority. No
+signed/notarized installed artifact or successful production broker smoke
+exists, and source/npm or ad-hoc builds cannot activate the authority. The
+launcher does not collect secrets or call the broker lifecycle; staged
+candidates cannot be provider-verified, provider metadata is not durably bound
+to credential generations, and no broker-owned provider HTTP transport exists.
+A directly injected descriptor and its peer's self-attestation cannot prove
 native provenance, so a claimed ready result is still downgraded to
 peer-identity-unverified without a JavaScript or environment bypass. There is
-no plaintext fallback. No current CLI command collects a direct-provider secret
-and all broker-owned providers remain disabled.
+no plaintext fallback. Every broker-owned provider remains disabled.
 
 The one implemented subscription path is deliberately narrower than a Recurs-
 owned credential flow: Recurs launches the pinned official Codex ACP adapter as
@@ -116,9 +121,12 @@ authority.
 Direct API, coding-plan, OAuth, and cloud-identity credential flows remain
 disabled until a complete provider vertical supplies a reviewed native request
 codec and endpoint profile, hidden-input onboarding and fenced connection
-lifecycle, policy/runtime binding, broker credential-service wiring, a
-compatible signed artifact, and installed-artifact credential-canary
-tests. A manifest boolean cannot bypass that gate.
+lifecycle, provider verification and durable generation metadata binding,
+policy/runtime binding, broker-owned HTTPS, a compatible signed artifact, and
+installed-artifact credential-canary tests. A manifest boolean cannot bypass
+that gate. The production broker release smoke must use an ephemeral macOS user
+and a dedicated production test Keychain access group; overriding `HOME` cannot
+safely redirect its live journal root or Keychain configuration.
 The future native HTTPS transport will ignore repository proxy/CA environment
 variables while trusting macOS system proxy and root configuration as host
 policy. That trust must be disclosed; it is not equivalent to certificate or

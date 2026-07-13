@@ -52,7 +52,6 @@ struct BrokerCredentialLifecycleXPCTests {
       launcherVersion: "0.1.0",
       brokerVersion: "0.1.0",
       authority: authority,
-      initialKeychain: .unavailable,
       keychainStatus: { .unavailable }
     )
     #expect(dynamicallyUnavailable != nil)
@@ -69,7 +68,6 @@ struct BrokerCredentialLifecycleXPCTests {
       launcherVersion: "0.1.0",
       brokerVersion: "0.1.0",
       productionSigned: true,
-      initialKeychain: .available,
       keychainStatus: { .available }
     )
     let healthConnection = TestBrokerConnection()
@@ -92,7 +90,6 @@ struct BrokerCredentialLifecycleXPCTests {
       launcherVersion: "0.1.0",
       brokerVersion: "0.1.0",
       productionSigned: true,
-      initialKeychain: .available,
       keychainStatus: { .available }
     )
     let service = BrokerService(configuration: configuration)
@@ -184,7 +181,6 @@ struct BrokerCredentialLifecycleXPCTests {
         launcherVersion: "0.1.0",
         brokerVersion: "0.1.0",
         productionSigned: true,
-        initialKeychain: .available,
         keychainStatus: { .available }
       )
     )
@@ -432,7 +428,6 @@ struct BrokerCredentialLifecycleXPCTests {
       launcherVersion: "0.1.0",
       brokerVersion: "0.1.0",
       authority: authority,
-      initialKeychain: .available,
       keychainStatus: { .available }
     )
   }
@@ -547,7 +542,7 @@ private func decodeNativeFrame(_ data: Data) throws -> NativeFrame {
   return try #require(frames.count == 1 ? frames[0] : nil)
 }
 
-private final class TestBrokerConnection: BrokerServiceConnection, @unchecked Sendable {
+final class TestBrokerConnection: BrokerServiceConnection, @unchecked Sendable {
   private let lock = NSLock()
   private var storedInterface: NSXPCInterface?
   private var storedObject: Any?
@@ -616,7 +611,7 @@ private final class TestBrokerConnection: BrokerServiceConnection, @unchecked Se
   }
 }
 
-private final class LockedDataProbe: @unchecked Sendable {
+final class LockedDataProbe: @unchecked Sendable {
   private let condition = NSCondition()
   private var values: [Data] = []
 

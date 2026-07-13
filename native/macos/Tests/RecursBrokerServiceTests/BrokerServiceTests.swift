@@ -34,28 +34,6 @@ struct BrokerServiceTests {
   }
 
   @Test
-  func productionHandshakeHealthConfigurationDoesNotClaimCredentialOperations() throws {
-    var session = BrokerServiceSession(
-      configuration: try BrokerServiceConfiguration.productionHandshakeHealthOnly(
-        launcherVersion: "0.1.0",
-        brokerVersion: "0.1.0",
-        initialKeychain: .available,
-        keychainStatus: { .available }
-      )
-    )
-    let nonce = Data(repeating: 6, count: nativeNonceByteCount)
-
-    let response = session.exchange(
-      try HelloMessage(engineVersion: "0.1.0", nonce: nonce)
-        .encodedFrame(requestID: 1)
-    ).response
-
-    let result = try HelloResultMessage.decode(try decodeSingleFrame(response))
-    #expect(result.productionSigned)
-    #expect(!result.persistentCredentials)
-  }
-
-  @Test
   func healthSucceedsOnlyAfterAValidHello() throws {
     var session = BrokerServiceSession(
       configuration: try BrokerServiceConfiguration(
@@ -117,7 +95,6 @@ struct BrokerServiceTests {
         launcherVersion: "0.1.0",
         brokerVersion: "0.1.0",
         productionSigned: true,
-        initialKeychain: .available,
         keychainStatus: { statuses.next() }
       )
     )
