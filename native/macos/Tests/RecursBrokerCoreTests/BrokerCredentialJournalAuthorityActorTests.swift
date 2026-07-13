@@ -471,7 +471,7 @@ struct BrokerCredentialJournalAuthorityActorTests {
     #expect(rejected.isErased())
     #expect((await harness.store.inspection()).deleteCallCounts == storeBefore.deleteCallCounts)
 
-    let restarted = try await BrokerCredentialState.recoveringForTests(
+    let restarted = try await BrokerCredentialState.recovering(
       store: harness.store,
       journal: harness.journal,
       clock: { fixture.time.date }
@@ -571,7 +571,7 @@ private struct AuthorityActorFixture: Sendable {
     let clock = LockedSequence(dates ?? Array(repeating: time.date, count: 64))
     let generationIDs = LockedSequence((20..<40).map(authorityActorUUID))
     let attemptIDs = LockedSequence((40..<60).map(authorityActorUUID))
-    let state = try await BrokerCredentialState.recoveringForTests(
+    let state = try await BrokerCredentialState.recovering(
       store: store,
       journal: journal,
       clock: clock.next,

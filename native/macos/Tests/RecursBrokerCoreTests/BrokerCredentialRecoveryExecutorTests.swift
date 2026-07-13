@@ -10,7 +10,7 @@ struct BrokerCredentialRecoveryExecutorTests {
     let fixture = try RecoveryExecutorFixture()
     let emptyJournal = try InMemoryBrokerJournalStore()
     let emptyClock = LockedSequence([fixture.recoveryDate])
-    let empty = try await BrokerCredentialState.recoveringForTests(
+    let empty = try await BrokerCredentialState.recovering(
       store: InMemoryCredentialStore(),
       journal: emptyJournal,
       clock: emptyClock.next
@@ -22,7 +22,7 @@ struct BrokerCredentialRecoveryExecutorTests {
     let tombstone = try fixture.snapshot(fixture.tombstoneRecord(id: 2))
     let journal = try InMemoryBrokerJournalStore(snapshots: [tombstone, ready])
     let clock = LockedSequence([fixture.recoveryDate])
-    let state = try await BrokerCredentialState.recoveringForTests(
+    let state = try await BrokerCredentialState.recovering(
       store: InMemoryCredentialStore(),
       journal: journal,
       clock: clock.next
@@ -52,7 +52,7 @@ struct BrokerCredentialRecoveryExecutorTests {
     let store = InMemoryCredentialStore()
     let clock = LockedSequence(Array(repeating: fixture.recoveryDate, count: 5))
 
-    let state = try await BrokerCredentialState.recoveringForTests(
+    let state = try await BrokerCredentialState.recovering(
       store: store,
       journal: journal,
       clock: clock.next
@@ -99,7 +99,7 @@ struct BrokerCredentialRecoveryExecutorTests {
     await store.failNext(at: .deleteBeforeSideEffect)
     let clock = LockedSequence(Array(repeating: fixture.recoveryDate, count: 3))
 
-    let state = try await BrokerCredentialState.recoveringForTests(
+    let state = try await BrokerCredentialState.recovering(
       store: store,
       journal: journal,
       clock: clock.next
@@ -112,7 +112,13 @@ struct BrokerCredentialRecoveryExecutorTests {
     #expect(await state.projection(for: first.connectionID) == nil)
     #expect(await state.projection(for: second.connectionID) == fixture.readyProjection(id: 21))
 
-    _ = try await state.resumeRecoveredCleanupForTests(connectionID: first.connectionID)
+    await expectRecoveryBrokerError(.cancelled) {
+      try await state.resumeStage(
+        connectionID: first.connectionID,
+        operationID: recoveryExecutorUUID(20, 2),
+        expectedFence: 1
+      )
+    }
     #expect(
       (try await journal.load(connectionID: first.connectionID))?.record.phase == .vacant
     )
@@ -127,7 +133,7 @@ struct BrokerCredentialRecoveryExecutorTests {
     await store.failNext(at: .deleteAfterSideEffect)
     let clock = LockedSequence(Array(repeating: fixture.recoveryDate, count: 3))
 
-    let state = try await BrokerCredentialState.recoveringForTests(
+    let state = try await BrokerCredentialState.recovering(
       store: store,
       journal: journal,
       clock: clock.next
@@ -140,7 +146,13 @@ struct BrokerCredentialRecoveryExecutorTests {
     ).credentialKeys[0]
     #expect(await store.deleteCallCount(for: key) == 1)
 
-    _ = try await state.resumeRecoveredCleanupForTests(connectionID: record.connectionID)
+    await expectRecoveryBrokerError(.cancelled) {
+      try await state.resumeStage(
+        connectionID: record.connectionID,
+        operationID: recoveryExecutorUUID(30, 2),
+        expectedFence: 1
+      )
+    }
 
     #expect(await store.deleteCallCount(for: key) == 2)
     #expect((try await journal.load(connectionID: record.connectionID))?.record.phase == .vacant)
@@ -156,7 +168,7 @@ struct BrokerCredentialRecoveryExecutorTests {
     let clock = LockedSequence(Array(repeating: fixture.recoveryDate, count: 4))
 
     await #expect(throws: BrokerJournalError.storageUnavailable) {
-      _ = try await BrokerCredentialState.recoveringForTests(
+      _ = try await BrokerCredentialState.recovering(
         store: store,
         journal: journal,
         clock: clock.next
@@ -173,7 +185,7 @@ struct BrokerCredentialRecoveryExecutorTests {
     }
     #expect((try await journal.load(connectionID: record.connectionID))?.record == record)
 
-    _ = try await BrokerCredentialState.recoveringForTests(
+    _ = try await BrokerCredentialState.recovering(
       store: store,
       journal: journal,
       clock: clock.next
@@ -197,7 +209,7 @@ struct BrokerCredentialRecoveryExecutorTests {
     let clock = LockedSequence(Array(repeating: fixture.recoveryDate, count: 2))
 
     await #expect(throws: failure) {
-      _ = try await BrokerCredentialState.recoveringForTests(
+      _ = try await BrokerCredentialState.recovering(
         store: InMemoryCredentialStore(),
         journal: journal,
         clock: clock.next
@@ -217,7 +229,7 @@ struct BrokerCredentialRecoveryExecutorTests {
     ])
 
     await #expect(throws: BrokerJournalError.invalidRecord) {
-      _ = try await BrokerCredentialState.recoveringForTests(
+      _ = try await BrokerCredentialState.recovering(
         store: store,
         journal: journal,
         clock: clock.next
@@ -243,7 +255,7 @@ struct BrokerCredentialRecoveryExecutorTests {
     await store.pauseNext(at: .deleteBeforeSideEffect)
     let clock = LockedSequence(Array(repeating: fixture.recoveryDate, count: 2))
     let operation = Task {
-      try await BrokerCredentialState.recoveringForTests(
+      try await BrokerCredentialState.recovering(
         store: store,
         journal: journal,
         clock: clock.next
@@ -263,7 +275,7 @@ struct BrokerCredentialRecoveryExecutorTests {
     let ready = try fixture.readyRecordWithStageFailure(id: 60)
     let journal = try InMemoryBrokerJournalStore(snapshots: [try fixture.snapshot(ready)])
     let store = InMemoryCredentialStore()
-    let state = try await BrokerCredentialState.recoveringForTests(
+    let state = try await BrokerCredentialState.recovering(
       store: store,
       journal: journal,
       clock: { fixture.recoveryDate }
@@ -305,7 +317,7 @@ struct BrokerCredentialRecoveryExecutorTests {
     let ready = try fixture.readyRecord(id: 61)
     let journal = try InMemoryBrokerJournalStore(snapshots: [try fixture.snapshot(ready)])
     let store = InMemoryCredentialStore()
-    let state = try await BrokerCredentialState.recoveringForTests(
+    let state = try await BrokerCredentialState.recovering(
       store: store,
       journal: journal,
       clock: { fixture.recoveryDate }
@@ -336,7 +348,7 @@ struct BrokerCredentialRecoveryExecutorTests {
     let ready = try fixture.readyRecord(id: 62)
     let journal = try InMemoryBrokerJournalStore(snapshots: [try fixture.snapshot(ready)])
     let store = InMemoryCredentialStore()
-    let state = try await BrokerCredentialState.recoveringForTests(
+    let state = try await BrokerCredentialState.recovering(
       store: store,
       journal: journal,
       clock: { fixture.recoveryDate }

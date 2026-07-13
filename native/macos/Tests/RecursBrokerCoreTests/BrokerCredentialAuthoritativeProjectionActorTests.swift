@@ -358,7 +358,7 @@ private struct AuthoritativeProjectionActorFixture: Sendable {
       authoritativeProjectionActorUUID(40),
       authoritativeProjectionActorUUID(41),
     ])
-    let state = try await BrokerCredentialState.recoveringForTests(
+    let state = try await BrokerCredentialState.recovering(
       store: store,
       journal: journal,
       clock: { time.date },

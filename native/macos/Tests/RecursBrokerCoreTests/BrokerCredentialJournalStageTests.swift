@@ -746,7 +746,7 @@ struct BrokerCredentialJournalStageTests {
       fixture.secondDate,
       fixture.secondDate.addingTimeInterval(1),
     ])
-    let restarted = try await BrokerCredentialState.recoveringForTests(
+    let restarted = try await BrokerCredentialState.recovering(
       store: store,
       journal: journal,
       clock: recoveryClock.next
@@ -1048,7 +1048,7 @@ private struct JournalStageActorFixture {
           secondDate.addingTimeInterval(Double(offset))
         }
     )
-    let state = try await BrokerCredentialState.recoveringForTests(
+    let state = try await BrokerCredentialState.recovering(
       store: store,
       journal: journal,
       clock: clock.next,

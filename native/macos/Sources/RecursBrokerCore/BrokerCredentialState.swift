@@ -182,7 +182,7 @@ package actor BrokerCredentialState {
   private let journal: (any BrokerJournalStore)?
   private var machine: BrokerCredentialStateMachine
 
-  package init(
+  init(
     store: any CredentialStore,
     bootstrap: [CredentialBootstrap] = [],
     clock: @escaping @Sendable () -> Date = { Date() },
@@ -215,7 +215,7 @@ package actor BrokerCredentialState {
     self.attemptIDSource = attemptIDSource
   }
 
-  static func recoveringForTests(
+  package static func recovering(
     store: any CredentialStore,
     journal: any BrokerJournalStore,
     clock: @escaping @Sendable () -> Date = { Date() },
@@ -236,7 +236,7 @@ package actor BrokerCredentialState {
     )
     for entry in prepared where entry.plan.cleanup != nil {
       do {
-        _ = try await state.resumeRecoveredCleanupForTests(
+        _ = try await state.resumeRecoveredCleanup(
           connectionID: entry.snapshot.record.connectionID
         )
       } catch let error as BrokerStateError {
@@ -903,7 +903,7 @@ package actor BrokerCredentialState {
     }
   }
 
-  func resumeRecoveredCleanupForTests(
+  private func resumeRecoveredCleanup(
     connectionID: UUID
   ) async throws -> BrokerCredentialStateMachine.TerminalOutcome {
     try await continueRecoveredCleanup(connectionID: connectionID)
