@@ -109,8 +109,7 @@ struct TTYSecretAccumulator {
   }
 }
 
-// The process coordinator owns this; onboarding remains blocked on real
-// controlling-PTY signal and restoration tests.
+// The process coordinator owns this; onboarding intentionally does not expose it.
 final class TTYSecretCaptureSession: @unchecked Sendable {
   private enum Phase {
     case open
@@ -164,6 +163,8 @@ final class TTYSecretCaptureSession: @unchecked Sendable {
       throw .terminalUnavailable
     }
     guard
+      terminalDescriptor < FD_SETSIZE,
+      descriptors[0] < FD_SETSIZE,
       fcntl(descriptors[0], F_SETFD, FD_CLOEXEC) == 0,
       fcntl(descriptors[1], F_SETFD, FD_CLOEXEC) == 0
     else {
@@ -315,21 +316,25 @@ final class TTYSecretCaptureSession: @unchecked Sendable {
     }
 
     while true {
-      var descriptors = [
-        pollfd(fd: terminalDescriptor, events: Int16(POLLIN), revents: 0),
-        pollfd(
-          fd: cancellationReadDescriptor,
-          events: Int16(POLLIN),
-          revents: 0
-        ),
-      ]
-      let ready = Darwin.poll(&descriptors, nfds_t(descriptors.count), -1)
+      // Darwin's /dev/tty proxy is selectable but reports POLLNVAL to poll.
+      var readDescriptors = fd_set()
+      __darwin_fd_set(terminalDescriptor, &readDescriptors)
+      __darwin_fd_set(cancellationReadDescriptor, &readDescriptors)
+      let ready = Darwin.select(
+        max(terminalDescriptor, cancellationReadDescriptor) + 1,
+        &readDescriptors,
+        nil,
+        nil,
+        nil
+      )
       if ready < 0 {
         if errno == EINTR { continue }
         throw .inputOutputFailure
       }
-      if descriptors[1].revents != 0 { throw .cancelled }
-      guard descriptors[0].revents & Int16(POLLIN) != 0 else {
+      if __darwin_fd_isset(cancellationReadDescriptor, &readDescriptors) != 0 {
+        throw .cancelled
+      }
+      guard __darwin_fd_isset(terminalDescriptor, &readDescriptors) != 0 else {
         throw .inputOutputFailure
       }
       let count = buffer.withUnsafeMutableBytes { bytes in
