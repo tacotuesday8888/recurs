@@ -284,10 +284,30 @@ package actor BrokerCredentialState {
     case .replay(let outcome):
       secret.erase()
       return try machine.resolveStage(outcome)
+    case .resumeStageResolutionRequest:
+      secret.erase()
+      return try machine.resolveStage(
+        await continueJournalStageResolutionRequest(
+          connectionID: connectionID,
+          operationID: operationID,
+          fingerprint: fingerprint
+        )
+      )
+    case .resumeStageResolution:
+      secret.erase()
+      return try machine.resolveStage(
+        await continueJournalStageResolution(
+          connectionID: connectionID,
+          operationID: operationID,
+          fingerprint: fingerprint
+        )
+      )
     case .resumeCleanup:
       secret.erase()
-      guard journal == nil else {
-        throw .cleanupPending
+      if journal != nil {
+        return try machine.resolveStage(
+          await continueJournalStageCleanup(connectionID: connectionID)
+        )
       }
       return try machine.resolveStage(
         await continueCleanup(
@@ -304,11 +324,6 @@ package actor BrokerCredentialState {
       secret.erase()
       throw .cancelled
     }
-    guard journal == nil else {
-      secret.erase()
-      throw .storeUnavailable
-    }
-
     let proposal: BrokerCredentialStateMachine.StageProposal
     do {
       proposal = try machine.stageProposal(
@@ -318,6 +333,16 @@ package actor BrokerCredentialState {
     } catch let error {
       secret.erase()
       throw error
+    }
+
+    if let journal {
+      return try await stageWithJournal(
+        journal: journal,
+        proposal: proposal,
+        operationID: operationID,
+        fingerprint: fingerprint,
+        secret: secret
+      )
     }
 
     let generationID = generationIDSource()
@@ -371,6 +396,169 @@ package actor BrokerCredentialState {
     return try machine.publishStaging(token)
   }
 
+  private func stageWithJournal(
+    journal: any BrokerJournalStore,
+    proposal: BrokerCredentialStateMachine.StageProposal,
+    operationID: UUID,
+    fingerprint: BrokerCredentialStateMachine.OperationFingerprint,
+    secret: sending SecretBytes
+  ) async throws(BrokerStateError) -> StagingAttempt {
+    let reservation: BrokerCredentialStateMachine.JournalStageReservationAwaitToken
+    do {
+      reservation = try machine.reserveJournalStage(
+        proposal: proposal,
+        operationID: operationID,
+        fingerprint: fingerprint,
+        generationID: generationIDSource(),
+        attemptID: attemptIDSource(),
+        capturedAt: BrokerJournalRecordAdapter.captureTimestamp(from: clock())
+      )
+    } catch {
+      secret.erase()
+      throw .storeUnavailable
+    }
+
+    let pendingResult: Result<BrokerJournalSnapshot, BrokerJournalError>
+    do {
+      pendingResult = .success(
+        try await journal.compareAndSwap(
+          expected: reservation.expected,
+          replacement: reservation.replacement
+        )
+      )
+    } catch let error {
+      pendingResult = .failure(error)
+    }
+
+    let storing: BrokerCredentialStateMachine.JournalStageStoreToken
+    do {
+      storing = try machine.finishJournalStageReservation(
+        reservation,
+        result: pendingResult
+      )
+    } catch {
+      secret.erase()
+      throw .storeUnavailable
+    }
+
+    if Task.isCancelled {
+      secret.erase()
+      return try await finishJournalStageCleanup(
+        journal: journal,
+        storing: storing,
+        terminalError: .cancelled
+      )
+    }
+
+    do {
+      try await store.store(secret, for: storing.candidateKey)
+    } catch let error {
+      switch error {
+      case .unavailable:
+        if Task.isCancelled {
+          return try await finishJournalStageCleanup(
+            journal: journal,
+            storing: storing,
+            terminalError: .cancelled
+          )
+        }
+        return try await finishJournalStableStoreFailure(
+          journal: journal,
+          storing: storing
+        )
+      case .mutationOutcomeUnknown:
+        return try await finishJournalStageCleanup(
+          journal: journal,
+          storing: storing,
+          terminalError: Task.isCancelled ? .cancelled : .storeUnavailable
+        )
+      }
+    }
+
+    if Task.isCancelled {
+      return try await finishJournalStageCleanup(
+        journal: journal,
+        storing: storing,
+        terminalError: .cancelled
+      )
+    }
+
+    let stagingChangedAt: JournalTimestamp
+    do {
+      stagingChangedAt = try journalStageTimestamp()
+    } catch {
+      _ = try? machine.pauseJournalStageCleanupRequest(
+        storing,
+        terminalError: .storeUnavailable
+      )
+      throw .cleanupPending
+    }
+    let transition: BrokerCredentialStateMachine.JournalStageTransitionAwaitToken
+    do {
+      transition = try machine.beginJournalStaging(
+        storing,
+        changedAt: stagingChangedAt
+      )
+    } catch {
+      _ = try? machine.pauseJournalStageCleanupRequest(
+        storing,
+        terminalError: .storeUnavailable
+      )
+      throw .cleanupPending
+    }
+    let selectedStaging: BrokerJournalSnapshot
+    do {
+      selectedStaging = try await journal.compareAndSwap(
+        expected: transition.expected,
+        replacement: transition.replacement
+      )
+    } catch {
+      return try await recoverFromJournalStagingFailure(
+        journal: journal,
+        transition: transition,
+        fingerprint: fingerprint
+      )
+    }
+    if Task.isCancelled {
+      let cleanupChangedAt: JournalTimestamp
+      do {
+        cleanupChangedAt = try journalStageTimestamp()
+      } catch {
+        _ = try? machine.pauseJournalStageCleanupRequestAfterStaging(
+          transition,
+          selectedStaging: selectedStaging,
+          terminalError: .cancelled
+        )
+        throw .cleanupPending
+      }
+      do {
+        try machine.prepareJournalStageCleanupAfterStaging(
+          transition,
+          selectedStaging: selectedStaging,
+          terminalError: .cancelled,
+          changedAt: cleanupChangedAt
+        )
+      } catch {
+        throw .cleanupPending
+      }
+      return try machine.resolveStage(
+        await continueJournalStageResolution(
+          connectionID: transition.connectionID,
+          operationID: transition.reservation.operationID,
+          fingerprint: transition.reservation.fingerprint
+        )
+      )
+    }
+    do {
+      return try machine.finishJournalStaging(
+        transition,
+        result: .success(selectedStaging)
+      )
+    } catch {
+      throw .cleanupPending
+    }
+  }
+
   package func resumeStage(
     connectionID: UUID,
     operationID: UUID,
@@ -388,9 +576,27 @@ package actor BrokerCredentialState {
     ) {
     case .replay(let outcome):
       return try machine.resolveStage(outcome)
+    case .resumeStageResolutionRequest:
+      return try machine.resolveStage(
+        await continueJournalStageResolutionRequest(
+          connectionID: connectionID,
+          operationID: operationID,
+          fingerprint: fingerprint
+        )
+      )
+    case .resumeStageResolution:
+      return try machine.resolveStage(
+        await continueJournalStageResolution(
+          connectionID: connectionID,
+          operationID: operationID,
+          fingerprint: fingerprint
+        )
+      )
     case .resumeCleanup:
-      guard journal == nil else {
-        throw .cleanupPending
+      if journal != nil {
+        return try machine.resolveStage(
+          await continueJournalStageCleanup(connectionID: connectionID)
+        )
       }
       return try machine.resolveStage(
         await continueCleanup(
@@ -404,9 +610,6 @@ package actor BrokerCredentialState {
     }
     guard !Task.isCancelled else {
       throw .cancelled
-    }
-    guard journal == nil else {
-      throw .storeUnavailable
     }
     try machine.validateResumeStage(
       connectionID: connectionID,
@@ -433,6 +636,10 @@ package actor BrokerCredentialState {
     ) {
     case .replay(let outcome):
       return try machine.resolveCommit(outcome)
+    case .resumeStageResolutionRequest:
+      throw .cleanupPending
+    case .resumeStageResolution:
+      throw .cleanupPending
     case .resumeCleanup:
       return try machine.resolveCommit(
         await continueCleanup(
@@ -484,6 +691,10 @@ package actor BrokerCredentialState {
     ) {
     case .replay(let outcome):
       return try machine.resolveAbort(outcome)
+    case .resumeStageResolutionRequest:
+      throw .cleanupPending
+    case .resumeStageResolution:
+      throw .cleanupPending
     case .resumeCleanup:
       return try machine.resolveAbort(
         await continueCleanup(
@@ -528,6 +739,10 @@ package actor BrokerCredentialState {
     ) {
     case .replay(let outcome):
       return try machine.resolveDisconnect(outcome)
+    case .resumeStageResolutionRequest:
+      throw .cleanupPending
+    case .resumeStageResolution:
+      throw .cleanupPending
     case .resumeCleanup:
       return try machine.resolveDisconnect(
         await continueCleanup(
@@ -604,6 +819,253 @@ package actor BrokerCredentialState {
     }
   }
 
+  private func finishJournalStableStoreFailure(
+    journal: any BrokerJournalStore,
+    storing: BrokerCredentialStateMachine.JournalStageStoreToken
+  ) async throws(BrokerStateError) -> StagingAttempt {
+    let changedAt: JournalTimestamp
+    do {
+      changedAt = try journalStageTimestamp()
+    } catch {
+      _ = try? machine.pauseJournalStableStoreFailureRequest(storing)
+      throw .cleanupPending
+    }
+    let transition: BrokerCredentialStateMachine.JournalStageTransitionAwaitToken
+    do {
+      transition = try machine.beginJournalStableStoreFailure(
+        storing,
+        changedAt: changedAt
+      )
+    } catch {
+      throw .cleanupPending
+    }
+    let selected: BrokerJournalSnapshot
+    do {
+      selected = try await journal.compareAndSwap(
+        expected: transition.expected,
+        replacement: transition.replacement
+      )
+    } catch {
+      do {
+        try machine.pauseJournalStageTransition(transition)
+      } catch {
+        throw .cleanupPending
+      }
+      throw .cleanupPending
+    }
+    let outcome: BrokerCredentialStateMachine.TerminalOutcome
+    do {
+      outcome = try machine.finishJournalStableStoreFailure(
+        transition,
+        result: .success(selected)
+      )
+    } catch {
+      throw .cleanupPending
+    }
+    return try machine.resolveStage(outcome)
+  }
+
+  private func finishJournalStageCleanup(
+    journal: any BrokerJournalStore,
+    storing: BrokerCredentialStateMachine.JournalStageStoreToken,
+    terminalError: BrokerStateError
+  ) async throws(BrokerStateError) -> StagingAttempt {
+    let changedAt: JournalTimestamp
+    do {
+      changedAt = try journalStageTimestamp()
+    } catch {
+      _ = try? machine.pauseJournalStageCleanupRequest(
+        storing,
+        terminalError: terminalError
+      )
+      throw .cleanupPending
+    }
+    let transition: BrokerCredentialStateMachine.JournalStageTransitionAwaitToken
+    do {
+      transition = try machine.beginJournalStageCleanup(
+        storing,
+        terminalError: terminalError,
+        changedAt: changedAt
+      )
+    } catch {
+      throw .cleanupPending
+    }
+    do {
+      let selected = try await journal.compareAndSwap(
+        expected: transition.expected,
+        replacement: transition.replacement
+      )
+      try machine.finishJournalStageCleanup(
+        transition,
+        result: .success(selected)
+      )
+    } catch {
+      do {
+        try machine.pauseJournalStageTransition(transition)
+      } catch {
+        throw .cleanupPending
+      }
+      throw .cleanupPending
+    }
+    return try machine.resolveStage(
+      await continueJournalStageCleanup(connectionID: transition.connectionID)
+    )
+  }
+
+  private func recoverFromJournalStagingFailure(
+    journal: any BrokerJournalStore,
+    transition: BrokerCredentialStateMachine.JournalStageTransitionAwaitToken,
+    fingerprint: BrokerCredentialStateMachine.OperationFingerprint
+  ) async throws(BrokerStateError) -> StagingAttempt {
+    let selected: BrokerJournalSnapshot?
+    do {
+      selected = try await journal.load(connectionID: transition.connectionID)
+    } catch {
+      selected = nil
+    }
+    let terminalError: BrokerStateError =
+      Task.isCancelled ? .cancelled : .storeUnavailable
+    let cleanupChangedAt: JournalTimestamp
+    do {
+      cleanupChangedAt = try journalStageTimestamp()
+    } catch {
+      _ = try? machine.pauseJournalStageCleanupRequestAfterStaging(
+        transition,
+        selectedStaging: nil,
+        terminalError: terminalError
+      )
+      throw .cleanupPending
+    }
+    do {
+      try machine.prepareJournalStageCleanupAfterStaging(
+        transition,
+        selectedStaging: nil,
+        terminalError: terminalError,
+        changedAt: cleanupChangedAt
+      )
+    } catch {
+      throw .cleanupPending
+    }
+    guard selected == transition.expected else {
+      throw .cleanupPending
+    }
+    return try machine.resolveStage(
+      await continueJournalStageResolution(
+        connectionID: transition.connectionID,
+        operationID: transition.reservation.operationID,
+        fingerprint: fingerprint
+      )
+    )
+  }
+
+  private func continueJournalStageResolution(
+    connectionID: UUID,
+    operationID: UUID,
+    fingerprint: BrokerCredentialStateMachine.OperationFingerprint
+  ) async throws(BrokerStateError) -> BrokerCredentialStateMachine.TerminalOutcome {
+    guard let journal else {
+      throw .cleanupPending
+    }
+    let token: BrokerCredentialStateMachine.JournalStageResolutionAwaitToken
+    do {
+      token = try machine.beginJournalStageResolution(
+        connectionID: connectionID,
+        operationID: operationID,
+        fingerprint: fingerprint
+      )
+    } catch {
+      throw .cleanupPending
+    }
+
+    let selected: BrokerJournalSnapshot?
+    do {
+      selected = try await journal.load(connectionID: connectionID)
+    } catch let error {
+      _ = try? machine.finishJournalStageResolution(token, result: .failure(error))
+      throw .cleanupPending
+    }
+    let selection: BrokerCredentialStateMachine.JournalStageResolutionSelection
+    do {
+      selection = try machine.classifyJournalStageResolutionSelection(
+        token,
+        selected: selected
+      )
+    } catch {
+      _ = try? machine.finishJournalStageResolution(token, result: .failure(.casConflict))
+      throw .cleanupPending
+    }
+    guard selection == .expected else {
+      _ = try? machine.finishJournalStageResolution(token, result: .failure(.casConflict))
+      throw .cleanupPending
+    }
+
+    let replacement: BrokerJournalSnapshot
+    do {
+      replacement = try await journal.compareAndSwap(
+        expected: token.expected,
+        replacement: token.replacement
+      )
+    } catch let error {
+      _ = try? machine.finishJournalStageResolution(token, result: .failure(error))
+      throw .cleanupPending
+    }
+    let completion: BrokerCredentialStateMachine.JournalStageResolutionCompletion
+    do {
+      completion = try machine.finishJournalStageResolution(
+        token,
+        result: .success(replacement)
+      )
+    } catch {
+      throw .cleanupPending
+    }
+    switch completion {
+    case .terminal(let outcome):
+      return outcome
+    case .cleanup:
+      return try await continueJournalStageCleanup(connectionID: connectionID)
+    }
+  }
+
+  private func continueJournalStageResolutionRequest(
+    connectionID: UUID,
+    operationID: UUID,
+    fingerprint: BrokerCredentialStateMachine.OperationFingerprint
+  ) async throws(BrokerStateError) -> BrokerCredentialStateMachine.TerminalOutcome {
+    let request: BrokerCredentialStateMachine.JournalStageResolutionRequestToken
+    do {
+      request = try machine.beginJournalStageResolutionRequest(
+        connectionID: connectionID,
+        operationID: operationID,
+        fingerprint: fingerprint
+      )
+      try machine.finishJournalStageResolutionRequest(
+        request,
+        changedAt: journalStageTimestamp()
+      )
+    } catch {
+      throw .cleanupPending
+    }
+    return try await continueJournalStageResolution(
+      connectionID: connectionID,
+      operationID: operationID,
+      fingerprint: fingerprint
+    )
+  }
+
+  private func continueJournalStageCleanup(
+    connectionID: UUID
+  ) async throws(BrokerStateError) -> BrokerCredentialStateMachine.TerminalOutcome {
+    do {
+      return try await continueRecoveredCleanup(connectionID: connectionID)
+    } catch {
+      throw .cleanupPending
+    }
+  }
+
+  private func journalStageTimestamp() throws(BrokerJournalError) -> JournalTimestamp {
+    try BrokerJournalRecordAdapter.captureTimestamp(from: clock())
+  }
+
   private func preflight(
     connectionID: UUID,
     operationID: UUID,
@@ -617,6 +1079,10 @@ package actor BrokerCredentialState {
     switch disposition {
     case .replay:
       return disposition
+    case .resumeStageResolutionRequest:
+      throw .cleanupPending
+    case .resumeStageResolution:
+      throw .cleanupPending
     case .resumeCleanup:
       if journal != nil {
         throw .cleanupPending

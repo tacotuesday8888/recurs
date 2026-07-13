@@ -371,6 +371,85 @@ struct BrokerCredentialStateMachineStageJournalTests {
     )
     #expect(retry.replacement == transition.replacement)
   }
+
+  @Test
+  func failedStableResolutionRetainsExactIntentForNormalStageResume() throws {
+    let fixture = try StageJournalMachineFixture()
+    var prepared = try fixture.storingMachine(fromReady: false)
+    let transition = try prepared.machine.beginJournalStableStoreFailure(
+      prepared.storing,
+      changedAt: fixture.finishedAt
+    )
+
+    try prepared.machine.pauseJournalStageTransition(transition)
+
+    #expect(
+      try prepared.machine.preflight(
+        connectionID: fixture.connectionID,
+        operationID: fixture.operationID,
+        fingerprint: prepared.fingerprint
+      ) == .resumeStageResolution
+    )
+    #expect(throws: BrokerStateError.cleanupPending) {
+      _ = try prepared.machine.preflight(
+        connectionID: fixture.connectionID,
+        operationID: fixture.otherOperationID,
+        fingerprint: prepared.fingerprint
+      )
+    }
+
+    let resolution = try prepared.machine.beginJournalStageResolution(
+      connectionID: fixture.connectionID,
+      operationID: fixture.operationID,
+      fingerprint: prepared.fingerprint
+    )
+    #expect(resolution.expected == prepared.storing.expected)
+    #expect(resolution.replacement == transition.replacement)
+    #expect(
+      try prepared.machine.classifyJournalStageResolutionSelection(
+        resolution,
+        selected: prepared.storing.expected
+      ) == .expected
+    )
+    let selected = try fixture.snapshot(record: resolution.replacement, tagByte: 0x75)
+    #expect(
+      try prepared.machine.finishJournalStageResolution(
+        resolution,
+        result: .success(selected)
+      ) == .terminal(.stage(.failure(.storeUnavailable)))
+    )
+  }
+
+  @Test
+  func failedStagingCASBecomesAnExactStoreUnavailableCleanupResolution() throws {
+    let fixture = try StageJournalMachineFixture()
+    var prepared = try fixture.storingMachine(fromReady: true)
+    let staging = try prepared.machine.beginJournalStaging(
+      prepared.storing,
+      changedAt: fixture.finishedAt
+    )
+    let cleanupTime = try JournalTimestamp(canonicalText: "2026-07-13T00:00:02.000Z")
+
+    try prepared.machine.prepareJournalStageCleanupAfterStaging(
+      staging,
+      selectedStaging: nil,
+      terminalError: .storeUnavailable,
+      changedAt: cleanupTime
+    )
+
+    let resolution = try prepared.machine.beginJournalStageResolution(
+      connectionID: fixture.connectionID,
+      operationID: fixture.operationID,
+      fingerprint: prepared.fingerprint
+    )
+    #expect(resolution.expected == prepared.storing.expected)
+    guard case .stageCleanupPending(let payload) = resolution.replacement.payload else {
+      Issue.record("expected cleanup resolution")
+      return
+    }
+    #expect(payload.error == .storeUnavailable)
+    #expect(payload.candidate.generationID == fixture.candidateID)
+  }
 }
 
 private struct StageJournalMachineFixture {

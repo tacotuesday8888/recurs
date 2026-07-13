@@ -258,7 +258,7 @@ struct BrokerCredentialRecoveryExecutorTests {
   }
 
   @Test
-  func recoveredActorsFailClosedForNewMutationsAndEraseRejectedSecrets() async throws {
+  func recoveredActorsAllowJournaledStageButGuardOtherNewMutations() async throws {
     let fixture = try RecoveryExecutorFixture()
     let ready = try fixture.readyRecordWithStageFailure(id: 60)
     let journal = try InMemoryBrokerJournalStore(snapshots: [try fixture.snapshot(ready)])
@@ -270,15 +270,14 @@ struct BrokerCredentialRecoveryExecutorTests {
     )
     let alias = UncheckedSecretAlias(SecretBytes(Data("must-erase".utf8)))
 
-    await expectRecoveryBrokerError(.storeUnavailable) {
-      try await state.stage(
-        connectionID: ready.connectionID,
-        operationID: recoveryExecutorUUID(60, 90),
-        expectedFence: ready.fence,
-        secret: alias.value
-      )
-    }
-    #expect(alias.isErased())
+    let attempt = try await state.stage(
+      connectionID: ready.connectionID,
+      operationID: recoveryExecutorUUID(60, 90),
+      expectedFence: ready.fence,
+      secret: alias.value
+    )
+    #expect(!alias.isErased())
+    #expect(await state.projection(for: ready.connectionID) == .staging(attempt))
     let replayAlias = UncheckedSecretAlias(SecretBytes(Data("replay-erase".utf8)))
     await expectRecoveryBrokerError(.cancelled) {
       try await state.stage(
@@ -296,7 +295,7 @@ struct BrokerCredentialRecoveryExecutorTests {
         expectedFence: ready.fence
       )
     }
-    #expect(await store.inspection().storeCallCounts.isEmpty)
+    #expect(await store.inspection().storeCallCounts.count == 1)
     #expect(await store.inspection().deleteCallCounts.isEmpty)
   }
 

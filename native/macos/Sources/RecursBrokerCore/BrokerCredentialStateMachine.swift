@@ -71,6 +71,8 @@ struct BrokerCredentialStateMachine: Sendable {
   enum PreflightDisposition: Sendable, Equatable {
     case proceed
     case replay(TerminalOutcome)
+    case resumeStageResolutionRequest
+    case resumeStageResolution
     case resumeCleanup
   }
 
@@ -141,6 +143,31 @@ struct BrokerCredentialStateMachine: Sendable {
     let fallback: Record
     let expected: BrokerJournalSnapshot
     let replacement: BrokerJournalRecord
+  }
+
+  struct JournalStageResolutionAwaitToken: Sendable, Equatable {
+    let connectionID: UUID
+    let reservation: Reservation
+    let fallback: Record
+    let expected: BrokerJournalSnapshot
+    let replacement: BrokerJournalRecord
+  }
+
+  struct JournalStageResolutionRequestToken: Sendable, Equatable {
+    let connectionID: UUID
+    let reservation: Reservation
+    let fallback: Record
+    let expected: BrokerJournalSnapshot
+  }
+
+  enum JournalStageResolutionSelection: Sendable, Equatable {
+    case expected
+    case unrelated
+  }
+
+  enum JournalStageResolutionCompletion: Sendable, Equatable {
+    case terminal(TerminalOutcome)
+    case cleanup
   }
 
   struct CommitProposal: Sendable, Equatable {
@@ -242,6 +269,25 @@ struct BrokerCredentialStateMachine: Sendable {
     let kind: JournalStageTransitionKind
   }
 
+  enum JournalStageResolutionKind: Sendable, Equatable {
+    case stableStoreFailure
+    case cleanup(BrokerStateError)
+  }
+
+  struct JournalStageResolutionContext: Sendable, Equatable {
+    let stage: StageContext
+    let expected: BrokerJournalSnapshot
+    let replacement: BrokerJournalRecord
+    let kind: JournalStageResolutionKind
+    var isAwaiting: Bool
+  }
+
+  struct JournalStageResolutionRequestContext: Sendable, Equatable {
+    let stage: StageContext
+    let expected: BrokerJournalSnapshot
+    let kind: JournalStageResolutionKind
+  }
+
   struct CleanupContext: Sendable, Equatable {
     let terminalOutcome: TerminalOutcome
     let linearizedRecord: Record
@@ -258,6 +304,8 @@ struct BrokerCredentialStateMachine: Sendable {
     case journalStageReservation(JournalStageReservationContext)
     case storing(StageContext)
     case journalStageTransition(JournalStageTransitionContext)
+    case journalStageResolutionRequest(JournalStageResolutionRequestContext)
+    case journalStageResolution(JournalStageResolutionContext)
     case cleanup(CleanupContext)
   }
 
@@ -275,6 +323,8 @@ struct BrokerCredentialStateMachine: Sendable {
 
   private enum ReservationDisposition {
     case none
+    case resumeStageResolutionRequest
+    case resumeStageResolution
     case resumeCleanup
     case reject(BrokerStateError)
   }
@@ -474,6 +524,10 @@ struct BrokerCredentialStateMachine: Sendable {
       throw error
     case .resumeCleanup:
       return .resumeCleanup
+    case .resumeStageResolutionRequest:
+      return .resumeStageResolutionRequest
+    case .resumeStageResolution:
+      return .resumeStageResolution
     case .none:
       return .proceed
     }
@@ -855,6 +909,293 @@ struct BrokerCredentialStateMachine: Sendable {
       keys: [completion.context.stage.candidateKey],
       journal: JournalCleanupContext(snapshot: completion.selected)
     )
+  }
+
+  mutating func pauseJournalStageTransition(
+    _ token: JournalStageTransitionAwaitToken
+  ) throws(BrokerJournalError) {
+    let context = try validatedJournalStageTransition(token)
+    let kind: JournalStageResolutionKind
+    switch context.kind {
+    case .stableStoreFailure:
+      kind = .stableStoreFailure
+    case .cleanup(let terminalError):
+      kind = .cleanup(terminalError)
+    case .staging:
+      throw .invalidRecord
+    }
+    reservations[token.connectionID] = Reservation(
+      operationID: token.reservation.operationID,
+      fingerprint: token.reservation.fingerprint,
+      phase: .journalStageResolution(
+        JournalStageResolutionContext(
+          stage: context.stage,
+          expected: token.expected,
+          replacement: token.replacement,
+          kind: kind,
+          isAwaiting: false
+        )
+      )
+    )
+  }
+
+  mutating func pauseJournalStableStoreFailureRequest(
+    _ token: JournalStageStoreToken
+  ) throws(BrokerJournalError) {
+    try pauseJournalStageResolutionRequest(token, kind: .stableStoreFailure)
+  }
+
+  mutating func pauseJournalStageCleanupRequest(
+    _ token: JournalStageStoreToken,
+    terminalError: BrokerStateError
+  ) throws(BrokerJournalError) {
+    guard terminalError == .cancelled || terminalError == .storeUnavailable else {
+      throw .invalidRecord
+    }
+    try pauseJournalStageResolutionRequest(token, kind: .cleanup(terminalError))
+  }
+
+  mutating func pauseJournalStageCleanupRequestAfterStaging(
+    _ token: JournalStageTransitionAwaitToken,
+    selectedStaging: BrokerJournalSnapshot?,
+    terminalError: BrokerStateError
+  ) throws(BrokerJournalError) {
+    let context = try validatedJournalStageTransition(token)
+    guard
+      context.kind == .staging,
+      terminalError == .cancelled || terminalError == .storeUnavailable
+    else {
+      throw .invalidRecord
+    }
+    let expected: BrokerJournalSnapshot
+    if let selectedStaging {
+      guard selectedStaging.record == token.replacement else {
+        throw .casConflict
+      }
+      expected = selectedStaging
+      journalSnapshots[token.connectionID] = selectedStaging
+    } else {
+      expected = token.expected
+    }
+    reservations[token.connectionID] = Reservation(
+      operationID: token.reservation.operationID,
+      fingerprint: token.reservation.fingerprint,
+      phase: .journalStageResolutionRequest(
+        JournalStageResolutionRequestContext(
+          stage: context.stage,
+          expected: expected,
+          kind: .cleanup(terminalError)
+        )
+      )
+    )
+  }
+
+  func beginJournalStageResolutionRequest(
+    connectionID: UUID,
+    operationID: UUID,
+    fingerprint: OperationFingerprint
+  ) throws(BrokerJournalError) -> JournalStageResolutionRequestToken {
+    guard
+      let reservation = reservations[connectionID],
+      reservation.operationID == operationID,
+      reservation.fingerprint == fingerprint,
+      case .journalStageResolutionRequest(let context) = reservation.phase,
+      records[connectionID] == context.stage.fallback,
+      journalSnapshots[connectionID] == context.expected
+    else {
+      throw .casConflict
+    }
+    return JournalStageResolutionRequestToken(
+      connectionID: connectionID,
+      reservation: reservation,
+      fallback: context.stage.fallback,
+      expected: context.expected
+    )
+  }
+
+  mutating func finishJournalStageResolutionRequest(
+    _ token: JournalStageResolutionRequestToken,
+    changedAt: JournalTimestamp
+  ) throws(BrokerJournalError) {
+    guard
+      reservations[token.connectionID] == token.reservation,
+      case .journalStageResolutionRequest(let context) = token.reservation.phase,
+      context.stage.fallback == token.fallback,
+      context.expected == token.expected,
+      records[token.connectionID] == token.fallback,
+      journalSnapshots[token.connectionID] == token.expected
+    else {
+      throw .casConflict
+    }
+    let replacement: BrokerJournalRecord
+    switch context.kind {
+    case .stableStoreFailure:
+      replacement = try BrokerJournalRecordAdapter.makeStableStoreFailure(
+        predecessor: token.expected.record,
+        changedAt: changedAt
+      )
+    case .cleanup(let terminalError):
+      let journalError: BrokerJournalStageError
+      switch terminalError {
+      case .cancelled:
+        journalError = .cancelled
+      case .storeUnavailable:
+        journalError = .storeUnavailable
+      default:
+        throw .invalidRecord
+      }
+      replacement = try BrokerJournalRecordAdapter.makeStageCleanupPending(
+        predecessor: token.expected.record,
+        error: journalError,
+        changedAt: changedAt
+      )
+    }
+    reservations[token.connectionID] = Reservation(
+      operationID: token.reservation.operationID,
+      fingerprint: token.reservation.fingerprint,
+      phase: .journalStageResolution(
+        JournalStageResolutionContext(
+          stage: context.stage,
+          expected: token.expected,
+          replacement: replacement,
+          kind: context.kind,
+          isAwaiting: false
+        )
+      )
+    )
+  }
+
+  mutating func prepareJournalStageCleanupAfterStaging(
+    _ token: JournalStageTransitionAwaitToken,
+    selectedStaging: BrokerJournalSnapshot?,
+    terminalError: BrokerStateError,
+    changedAt: JournalTimestamp
+  ) throws(BrokerJournalError) {
+    let context = try validatedJournalStageTransition(token)
+    guard context.kind == .staging else {
+      throw .invalidRecord
+    }
+    let journalError: BrokerJournalStageError
+    switch terminalError {
+    case .cancelled:
+      journalError = .cancelled
+    case .storeUnavailable:
+      journalError = .storeUnavailable
+    default:
+      throw .invalidRecord
+    }
+
+    let expected: BrokerJournalSnapshot
+    if let selectedStaging {
+      guard selectedStaging.record == token.replacement else {
+        throw .casConflict
+      }
+      expected = selectedStaging
+      journalSnapshots[token.connectionID] = selectedStaging
+    } else {
+      expected = token.expected
+    }
+    let replacement = try BrokerJournalRecordAdapter.makeStageCleanupPending(
+      predecessor: expected.record,
+      error: journalError,
+      changedAt: changedAt
+    )
+    reservations[token.connectionID] = Reservation(
+      operationID: token.reservation.operationID,
+      fingerprint: token.reservation.fingerprint,
+      phase: .journalStageResolution(
+        JournalStageResolutionContext(
+          stage: context.stage,
+          expected: expected,
+          replacement: replacement,
+          kind: .cleanup(terminalError),
+          isAwaiting: false
+        )
+      )
+    )
+  }
+
+  mutating func beginJournalStageResolution(
+    connectionID: UUID,
+    operationID: UUID,
+    fingerprint: OperationFingerprint
+  ) throws(BrokerJournalError) -> JournalStageResolutionAwaitToken {
+    guard
+      var reservation = reservations[connectionID],
+      reservation.operationID == operationID,
+      reservation.fingerprint == fingerprint,
+      case .journalStageResolution(var context) = reservation.phase,
+      !context.isAwaiting,
+      records[connectionID] == context.stage.fallback,
+      journalSnapshots[connectionID] == context.expected
+    else {
+      throw .casConflict
+    }
+    context.isAwaiting = true
+    reservation.phase = .journalStageResolution(context)
+    reservations[connectionID] = reservation
+    return JournalStageResolutionAwaitToken(
+      connectionID: connectionID,
+      reservation: reservation,
+      fallback: context.stage.fallback,
+      expected: context.expected,
+      replacement: context.replacement
+    )
+  }
+
+  func classifyJournalStageResolutionSelection(
+    _ token: JournalStageResolutionAwaitToken,
+    selected: BrokerJournalSnapshot?
+  ) throws(BrokerJournalError) -> JournalStageResolutionSelection {
+    _ = try validatedJournalStageResolution(token)
+    if selected == token.expected {
+      return .expected
+    }
+    return .unrelated
+  }
+
+  mutating func finishJournalStageResolution(
+    _ token: JournalStageResolutionAwaitToken,
+    result: Result<BrokerJournalSnapshot, BrokerJournalError>
+  ) throws(BrokerJournalError) -> JournalStageResolutionCompletion {
+    let context = try validatedJournalStageResolution(token)
+    let selected: BrokerJournalSnapshot
+    switch result {
+    case .failure(let error):
+      restoreJournalStageResolution(token: token, context: context)
+      throw error
+    case .success(let value):
+      guard value.record == token.replacement else {
+        restoreJournalStageResolution(token: token, context: context)
+        throw .casConflict
+      }
+      selected = value
+    }
+
+    journalSnapshots[token.connectionID] = selected
+    switch context.kind {
+    case .stableStoreFailure:
+      let outcome = TerminalOutcome.stage(.failure(.storeUnavailable))
+      reservations.removeValue(forKey: token.connectionID)
+      memoize(
+        connectionID: token.connectionID,
+        operationID: token.reservation.operationID,
+        fingerprint: token.reservation.fingerprint,
+        outcome: outcome
+      )
+      return .terminal(outcome)
+
+    case .cleanup(let terminalError):
+      reservations[token.connectionID] = cleanupReservation(
+        operationID: token.reservation.operationID,
+        fingerprint: token.reservation.fingerprint,
+        outcome: .stage(.failure(terminalError)),
+        linearizedRecord: token.fallback,
+        keys: [context.stage.candidateKey],
+        journal: JournalCleanupContext(snapshot: selected)
+      )
+      return .cleanup
+    }
   }
 
   mutating func cancelStageBeforeStore(
@@ -1398,6 +1739,25 @@ struct BrokerCredentialStateMachine: Sendable {
     switch reservation.phase {
     case .journalStageReservation, .storing, .journalStageTransition:
       return .reject(.operationInProgress)
+    case .journalStageResolutionRequest:
+      guard
+        reservation.operationID == operationID,
+        reservation.fingerprint == fingerprint
+      else {
+        return .reject(.cleanupPending)
+      }
+      return .resumeStageResolutionRequest
+    case .journalStageResolution(let resolution):
+      if resolution.isAwaiting {
+        return .reject(.operationInProgress)
+      }
+      guard
+        reservation.operationID == operationID,
+        reservation.fingerprint == fingerprint
+      else {
+        return .reject(.cleanupPending)
+      }
+      return .resumeStageResolution
     case .cleanup(let cleanup):
       if cleanup.isAwaiting {
         return .reject(.operationInProgress)
@@ -1460,6 +1820,32 @@ struct BrokerCredentialStateMachine: Sendable {
     )
   }
 
+  private mutating func pauseJournalStageResolutionRequest(
+    _ token: JournalStageStoreToken,
+    kind: JournalStageResolutionKind
+  ) throws(BrokerJournalError) {
+    guard
+      reservations[token.connectionID] == token.reservation,
+      case .storing(let stage) = token.reservation.phase,
+      stage.fallback == token.fallback,
+      records[token.connectionID] == token.fallback,
+      journalSnapshots[token.connectionID] == token.expected
+    else {
+      throw .casConflict
+    }
+    reservations[token.connectionID] = Reservation(
+      operationID: token.reservation.operationID,
+      fingerprint: token.reservation.fingerprint,
+      phase: .journalStageResolutionRequest(
+        JournalStageResolutionRequestContext(
+          stage: stage,
+          expected: token.expected,
+          kind: kind
+        )
+      )
+    )
+  }
+
   private mutating func selectJournalStageTransition(
     _ token: JournalStageTransitionAwaitToken,
     result: Result<BrokerJournalSnapshot, BrokerJournalError>,
@@ -1504,6 +1890,54 @@ struct BrokerCredentialStateMachine: Sendable {
       operationID: token.reservation.operationID,
       fingerprint: token.reservation.fingerprint,
       phase: .storing(context.stage)
+    )
+  }
+
+  private func validatedJournalStageTransition(
+    _ token: JournalStageTransitionAwaitToken
+  ) throws(BrokerJournalError) -> JournalStageTransitionContext {
+    guard
+      reservations[token.connectionID] == token.reservation,
+      case .journalStageTransition(let context) = token.reservation.phase,
+      context.expected == token.expected,
+      context.replacement == token.replacement,
+      context.stage.fallback == token.fallback,
+      records[token.connectionID] == token.fallback,
+      journalSnapshots[token.connectionID] == token.expected
+    else {
+      throw .casConflict
+    }
+    return context
+  }
+
+  private func validatedJournalStageResolution(
+    _ token: JournalStageResolutionAwaitToken
+  ) throws(BrokerJournalError) -> JournalStageResolutionContext {
+    guard
+      reservations[token.connectionID] == token.reservation,
+      case .journalStageResolution(let context) = token.reservation.phase,
+      context.isAwaiting,
+      context.expected == token.expected,
+      context.replacement == token.replacement,
+      context.stage.fallback == token.fallback,
+      records[token.connectionID] == token.fallback,
+      journalSnapshots[token.connectionID] == token.expected
+    else {
+      throw .casConflict
+    }
+    return context
+  }
+
+  private mutating func restoreJournalStageResolution(
+    token: JournalStageResolutionAwaitToken,
+    context: JournalStageResolutionContext
+  ) {
+    var paused = context
+    paused.isAwaiting = false
+    reservations[token.connectionID] = Reservation(
+      operationID: token.reservation.operationID,
+      fingerprint: token.reservation.fingerprint,
+      phase: .journalStageResolution(paused)
     )
   }
 
