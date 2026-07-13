@@ -379,7 +379,8 @@ package actor BrokerCredentialState {
 
   package func reserveCredentialUse(
     connectionID: UUID,
-    expectedBinding: ProviderProfileBinding
+    expectedBinding: ProviderProfileBinding,
+    purpose: CredentialUsePurpose = .usableReady
   ) async throws(CredentialUseError) -> CredentialUseReservation {
     guard !Task.isCancelled else {
       throw .cancelled
@@ -390,14 +391,17 @@ package actor BrokerCredentialState {
 
     let authority: BrokerCredentialStateMachine.CredentialUseAuthority
     do {
-      authority = try machine.credentialUseAuthority(connectionID: connectionID)
+      authority = try machine.credentialUseAuthority(
+        connectionID: connectionID,
+        purpose: purpose
+      )
     } catch let error {
       throw Self.mapCredentialUseStateError(error)
     }
     guard authority.snapshot.record.providerBinding == expectedBinding else {
       throw .invalidReservation
     }
-    let generation = authority.ready.generation
+    let generation = authority.identity.credentialGeneration
     let binding = CredentialUseBinding(
       authority: authority,
       key: CredentialStoreKey(
@@ -412,7 +416,11 @@ package actor BrokerCredentialState {
         await self.removeAbandonedCredentialUse(abandoned)
       }
     }
-    let reservation = CredentialUseReservation(lifetime: lifetime)
+    let reservation = CredentialUseReservation(
+      lifetime: lifetime,
+      identity: authority.identity,
+      providerBinding: expectedBinding
+    )
     let identifier = ObjectIdentifier(lifetime)
     let firstSequence = try allocateCredentialUseSequence()
     credentialUses[identifier] = CredentialUseContext(

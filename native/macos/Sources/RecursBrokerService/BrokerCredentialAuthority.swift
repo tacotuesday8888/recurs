@@ -35,8 +35,26 @@ protocol BrokerCredentialLifecycleAuthority: Sendable {
   ) async throws(BrokerStateError) -> TombstoneProjection
 }
 
+protocol BrokerProviderCredentialUseAuthority: Sendable {
+  func reserveCredentialUse(
+    connectionID: UUID,
+    expectedBinding: ProviderProfileBinding,
+    purpose: CredentialUsePurpose
+  ) async throws(CredentialUseError) -> CredentialUseReservation
+
+  func startCredentialUse<Prepared: Sendable>(
+    _ reservation: CredentialUseReservation,
+    prepare: @Sendable (UnsafeRawBufferPointer) -> Prepared,
+    start: @Sendable (Prepared) -> Void
+  ) async throws(CredentialUseError) -> DeliveryState
+
+  func cancelCredentialUse(_ reservation: CredentialUseReservation) async
+  func releaseCredentialUse(_ reservation: CredentialUseReservation) async
+}
+
 struct BrokerCredentialAuthority:
   BrokerCredentialLifecycleAuthority,
+  BrokerProviderCredentialUseAuthority,
   BrokerProviderRouteProjectionReader,
   Sendable
 {
@@ -78,6 +96,38 @@ struct BrokerCredentialAuthority:
     for connectionID: UUID
   ) async throws(BrokerJournalError) -> BrokerCredentialBoundProjection? {
     try await state.authoritativeBoundProjection(for: connectionID)
+  }
+
+  func reserveCredentialUse(
+    connectionID: UUID,
+    expectedBinding: ProviderProfileBinding,
+    purpose: CredentialUsePurpose
+  ) async throws(CredentialUseError) -> CredentialUseReservation {
+    try await state.reserveCredentialUse(
+      connectionID: connectionID,
+      expectedBinding: expectedBinding,
+      purpose: purpose
+    )
+  }
+
+  func cancelCredentialUse(_ reservation: CredentialUseReservation) async {
+    await state.cancelCredentialUse(reservation)
+  }
+
+  func startCredentialUse<Prepared: Sendable>(
+    _ reservation: CredentialUseReservation,
+    prepare: @Sendable (UnsafeRawBufferPointer) -> Prepared,
+    start: @Sendable (Prepared) -> Void
+  ) async throws(CredentialUseError) -> DeliveryState {
+    try await state.startCredentialUse(
+      reservation,
+      prepare: prepare,
+      start: start
+    )
+  }
+
+  func releaseCredentialUse(_ reservation: CredentialUseReservation) async {
+    await state.releaseCredentialUse(reservation)
   }
 
   func stage(

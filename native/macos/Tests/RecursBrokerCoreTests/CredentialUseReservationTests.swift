@@ -6,6 +6,60 @@ import Testing
 @Suite("Broker credential-use reservation")
 struct CredentialUseReservationTests {
   @Test
+  func purposeSelectsStagingCandidateOrPreviousReadyWithoutCallerGeneration() async throws {
+    let fixture = try CredentialUseFixture()
+    let harness = try await fixture.harness()
+    let candidateSecret = Array("RECURS_STAGING_CANDIDATE_SECRET_8A31".utf8)
+    let attempt = try await harness.state.stage(
+      connectionID: fixture.connectionID,
+      operationID: fixture.stageOperationID,
+      expectedFence: 1,
+      secret: SecretBytes(Data(candidateSecret))
+    )
+    let candidateKey = CredentialStoreKey(
+      connectionID: fixture.connectionID,
+      generationID: attempt.candidate.generationID,
+      generationOrdinal: attempt.candidate.ordinal
+    )
+
+    let setup = try await harness.state.reserveCredentialUse(
+      connectionID: fixture.connectionID,
+      expectedBinding: .openAI,
+      purpose: .stagingCandidate
+    )
+    let run = try await harness.state.reserveCredentialUse(
+      connectionID: fixture.connectionID,
+      expectedBinding: .openAI,
+      purpose: .usableReady
+    )
+    let setupProbe = StartProbe()
+    let runProbe = StartProbe()
+
+    #expect(
+      try await harness.state.startCredentialUse(
+        setup,
+        prepare: { $0.elementsEqual(candidateSecret) },
+        start: setupProbe.record
+      ) == .requestStarted
+    )
+    #expect(
+      try await harness.state.startCredentialUse(
+        run,
+        prepare: { $0.elementsEqual(fixture.secret) },
+        start: runProbe.record
+      ) == .requestStarted
+    )
+    #expect(setupProbe.snapshot() == (1, true))
+    #expect(runProbe.snapshot() == (1, true))
+    #expect(await harness.store.loadCallCount(for: candidateKey) == 1)
+    #expect(await harness.store.loadCallCount(for: fixture.readyKey) == 1)
+    #expect(await harness.store.lastLoadedCopyIsErased(for: candidateKey) == true)
+    #expect(await harness.store.lastLoadedCopyIsErased(for: fixture.readyKey) == true)
+    await harness.state.releaseCredentialUse(setup)
+    await harness.state.releaseCredentialUse(run)
+  }
+
+  @Test
   func mismatchedExpectedBindingFailsBeforeJournalOrCredentialLoad() async throws {
     let fixture = try CredentialUseFixture()
     let harness = try await fixture.harness()

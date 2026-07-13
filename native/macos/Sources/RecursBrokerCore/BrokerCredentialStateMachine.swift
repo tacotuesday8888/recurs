@@ -100,7 +100,7 @@ struct BrokerCredentialStateMachine: Sendable {
     let connectionID: UUID
     let record: Record
     let snapshot: BrokerJournalSnapshot
-    let ready: ReadyGeneration
+    let identity: CredentialUseIdentity
   }
 
   enum FinalizationDisposition<Value: Sendable>: Sendable {
@@ -567,7 +567,8 @@ struct BrokerCredentialStateMachine: Sendable {
   }
 
   func credentialUseAuthority(
-    connectionID: UUID
+    connectionID: UUID,
+    purpose: CredentialUsePurpose
   ) throws(BrokerStateError) -> CredentialUseAuthority {
     guard !journalHealthUnavailable, !unavailableConnections.contains(connectionID) else {
       throw .storeUnavailable
@@ -584,17 +585,39 @@ struct BrokerCredentialStateMachine: Sendable {
     if case .tombstoned = record {
       throw .connectionTombstoned
     }
-    guard
-      let snapshot = journalSnapshots[connectionID],
-      let ready = record.projection?.usableReady
-    else {
+    guard let snapshot = journalSnapshots[connectionID], let projection = record.projection else {
+      throw .invalidTransition
+    }
+    let identity: CredentialUseIdentity
+    switch (purpose, projection) {
+    case (.stagingCandidate, .staging(let attempt)):
+      identity = .stagingCandidate(
+        connectionID: connectionID,
+        fence: attempt.fence,
+        attemptID: attempt.attemptID,
+        generation: attempt.candidate
+      )
+    case (.usableReady, .staging(let attempt)):
+      guard let ready = attempt.previousReady else { throw .invalidTransition }
+      identity = .usableReady(
+        connectionID: connectionID,
+        fence: attempt.fence,
+        generation: ready
+      )
+    case (.usableReady, .ready(let ready)):
+      identity = .usableReady(
+        connectionID: connectionID,
+        fence: ready.fence,
+        generation: ready.ready
+      )
+    case (.stagingCandidate, .ready), (_, .tombstoned):
       throw .invalidTransition
     }
     return CredentialUseAuthority(
       connectionID: connectionID,
       record: record,
       snapshot: snapshot,
-      ready: ready
+      identity: identity
     )
   }
 

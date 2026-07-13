@@ -10,7 +10,7 @@ struct BrokerProviderRouteAuthorityTests {
   private let now = Date(timeIntervalSince1970: 1_000)
 
   @Test
-  func handlesAndReceiptsAreOpaqueAndScopeIsExactBeforeRead() async throws {
+  func handlesAndReservationsAreOpaqueAndScopeIsExactBeforeRead() async throws {
     let reader = RouteProjectionReader(
       projection: bound(.openAI, .staging(stagingAttempt()))
     )
@@ -25,7 +25,7 @@ struct BrokerProviderRouteAuthorityTests {
     let readsAfterIssue = await reader.readCount
 
     await #expect(throws: BrokerProviderRouteAuthorityError.wrongScope) {
-      _ = try await authority.authorize(
+      _ = try await authority.reserveCredentialUse(
         handle,
         expectedScope: .run,
         requestBytes: 1
@@ -33,21 +33,21 @@ struct BrokerProviderRouteAuthorityTests {
     }
     #expect(await reader.readCount == readsAfterIssue)
 
-    let receipt = try await authority.authorize(
+    let reservation = try await authority.reserveCredentialUse(
       handle,
       expectedScope: .setup,
       requestBytes: 1
     )
     #expect(Array(Mirror(reflecting: handle).children).isEmpty)
-    #expect(Array(Mirror(reflecting: receipt).children).isEmpty)
+    #expect(Array(Mirror(reflecting: reservation).children).isEmpty)
     #expect(String(describing: handle) == "Broker provider route capability.")
     #expect(String(reflecting: handle) == "Broker provider route capability.")
-    #expect(String(describing: receipt) == "Broker provider route authorization receipt.")
-    #expect(String(reflecting: receipt) == "Broker provider route authorization receipt.")
+    #expect(String(describing: reservation) == "<provider-route-reservation>")
+    #expect(String(reflecting: reservation) == "<provider-route-reservation>")
     #expect(!((handle as Any) is any Encodable))
     #expect(!((handle as Any) is AnyHashable))
-    #expect(!((receipt as Any) is any Encodable))
-    #expect(!((receipt as Any) is AnyHashable))
+    #expect(!((reservation as Any) is any Encodable))
+    #expect(!((reservation as Any) is AnyHashable))
   }
 
   @Test
@@ -59,18 +59,26 @@ struct BrokerProviderRouteAuthorityTests {
       previousReady: prior
     )
     let reader = RouteProjectionReader(projection: bound(.anthropic, .staging(reconnect)))
-    let authority = routeAuthority(reader: reader)
+    let credentialAuthority = RouteCredentialAuthority(reader: reader)
+    let authority = routeAuthority(
+      reader: reader,
+      credentialAuthority: credentialAuthority
+    )
 
     let setup = try await issue(.setup, from: authority)
     let run = try await issue(.run, from: authority)
     let maintenance = try await issue(.maintenance, from: authority)
 
-    _ = try await authority.authorize(setup, expectedScope: .setup, requestBytes: 1)
-    _ = try await authority.authorize(run, expectedScope: .run, requestBytes: 1)
-    _ = try await authority.authorize(
+    _ = try await authority.reserveCredentialUse(setup, expectedScope: .setup, requestBytes: 1)
+    _ = try await authority.reserveCredentialUse(run, expectedScope: .run, requestBytes: 1)
+    _ = try await authority.reserveCredentialUse(
       maintenance,
       expectedScope: .maintenance,
       requestBytes: 1
+    )
+    #expect(
+      await credentialAuthority.purposes
+        == [.stagingCandidate, .usableReady, .usableReady]
     )
 
     await reader.setProjection(
@@ -86,13 +94,24 @@ struct BrokerProviderRouteAuthorityTests {
       )
     )
     await #expect(throws: BrokerProviderRouteAuthorityError.staleCapability) {
-      _ = try await authority.authorize(setup, expectedScope: .setup, requestBytes: 1)
+      _ = try await authority.reserveCredentialUse(
+        setup,
+        expectedScope: .setup,
+        requestBytes: 1
+      )
     }
-    _ = try await authority.authorize(run, expectedScope: .run, requestBytes: 1)
-    _ = try await authority.authorize(
+    _ = try await authority.reserveCredentialUse(run, expectedScope: .run, requestBytes: 1)
+    _ = try await authority.reserveCredentialUse(
       maintenance,
       expectedScope: .maintenance,
       requestBytes: 1
+    )
+    #expect(
+      await credentialAuthority.purposes
+        == [
+          .stagingCandidate, .usableReady, .usableReady,
+          .usableReady, .usableReady,
+        ]
     )
 
     let noReadyReader = RouteProjectionReader(
@@ -124,7 +143,7 @@ struct BrokerProviderRouteAuthorityTests {
     }
     for scope in [BrokerProviderRouteScope.run, .maintenance] {
       let handle = try await issue(scope, from: authority)
-      _ = try await authority.authorize(
+      _ = try await authority.reserveCredentialUse(
         handle,
         expectedScope: scope,
         requestBytes: 1
@@ -150,7 +169,11 @@ struct BrokerProviderRouteAuthorityTests {
       _ = try await issue(.maintenance, from: authority)
     }
     let run = try await issue(.run, from: authority)
-    _ = try await authority.authorize(run, expectedScope: .run, requestBytes: 1)
+    _ = try await authority.reserveCredentialUse(
+      run,
+      expectedScope: .run,
+      requestBytes: 1
+    )
   }
 
   @Test
@@ -163,7 +186,11 @@ struct BrokerProviderRouteAuthorityTests {
       await reader.blockNextReads(1)
 
       let task = Task {
-        try await authority.authorize(handle, expectedScope: .setup, requestBytes: 1)
+        try await authority.reserveCredentialUse(
+          handle,
+          expectedScope: .setup,
+          requestBytes: 1
+        )
       }
       await reader.waitUntilBlocked()
       await reader.setProjection(mutation.apply(to: original, connectionID: connectionID))
@@ -192,7 +219,11 @@ struct BrokerProviderRouteAuthorityTests {
         await reader.blockNextReads(1)
 
         let task = Task {
-          try await authority.authorize(handle, expectedScope: scope, requestBytes: 1)
+          try await authority.reserveCredentialUse(
+            handle,
+            expectedScope: scope,
+            requestBytes: 1
+          )
         }
         await reader.waitUntilBlocked()
         await reader.setProjection(mutation.apply(to: original, connectionID: connectionID))
@@ -216,25 +247,35 @@ struct BrokerProviderRouteAuthorityTests {
       let reader = RouteProjectionReader(
         projection: bound(.openAI, .staging(stagingAttempt()))
       )
-      let authority = BrokerProviderRouteAuthority(reader: reader, clock: clock.now)
+      let authority = BrokerProviderRouteAuthority(
+        reader: reader,
+        credentialAuthority: RouteCredentialAuthority(reader: reader),
+        clock: clock.now
+      )
       let handle = try await issue(.setup, from: authority)
       await reader.blockNextReads(1)
       let task = Task {
-        try await authority.authorize(handle, expectedScope: .setup, requestBytes: 1)
+        try await authority.reserveCredentialUse(
+          handle,
+          expectedScope: .setup,
+          requestBytes: 1
+        )
       }
       await reader.waitUntilBlocked()
 
+      var interruptionTask: Task<Void, Never>?
       switch interruption {
       case .capabilityCancellation:
-        await authority.cancel(handle)
+        interruptionTask = Task { await authority.cancel(handle) }
       case .taskCancellation:
         task.cancel()
       case .expiry:
         clock.set(now.addingTimeInterval(61))
       case .close:
-        await authority.close()
+        interruptionTask = Task { await authority.close() }
       }
       await reader.releaseBlockedReads()
+      await interruptionTask?.value
 
       await #expect(throws: interruption.expectedError) {
         _ = try await task.value
@@ -249,7 +290,11 @@ struct BrokerProviderRouteAuthorityTests {
       let reader = RouteProjectionReader(
         projection: bound(.openAI, .staging(stagingAttempt()))
       )
-      let authority = BrokerProviderRouteAuthority(reader: reader, clock: clock.now)
+      let authority = BrokerProviderRouteAuthority(
+        reader: reader,
+        credentialAuthority: RouteCredentialAuthority(reader: reader),
+        clock: clock.now
+      )
       await reader.blockNextReads(1)
       let task = Task {
         try await authority.issue(
@@ -317,10 +362,18 @@ struct BrokerProviderRouteAuthorityTests {
       requestBudget: 1,
       byteBudget: 8
     )
-    _ = try await authority.authorize(requests, expectedScope: .setup, requestBytes: 1)
+    _ = try await authority.reserveCredentialUse(
+      requests,
+      expectedScope: .setup,
+      requestBytes: 1
+    )
     let readsAfterRequest = await reader.readCount
     await #expect(throws: BrokerProviderRouteAuthorityError.requestBudgetExceeded) {
-      _ = try await authority.authorize(requests, expectedScope: .setup, requestBytes: 1)
+      _ = try await authority.reserveCredentialUse(
+        requests,
+        expectedScope: .setup,
+        requestBytes: 1
+      )
     }
     #expect(await reader.readCount == readsAfterRequest)
 
@@ -331,12 +384,634 @@ struct BrokerProviderRouteAuthorityTests {
       requestBudget: 3,
       byteBudget: .max
     )
-    _ = try await authority.authorize(bytes, expectedScope: .setup, requestBytes: 1)
+    _ = try await authority.reserveCredentialUse(
+      bytes,
+      expectedScope: .setup,
+      requestBytes: 1
+    )
     let readsAfterByte = await reader.readCount
     await #expect(throws: BrokerProviderRouteAuthorityError.byteBudgetExceeded) {
-      _ = try await authority.authorize(bytes, expectedScope: .setup, requestBytes: .max)
+      _ = try await authority.reserveCredentialUse(
+        bytes,
+        expectedScope: .setup,
+        requestBytes: .max
+      )
     }
     #expect(await reader.readCount == readsAfterByte)
+  }
+
+  @Test
+  func credentialReserveFailureDoesNotDebitAndTheSinglePermitCanRetry() async throws {
+    let reader = RouteProjectionReader(
+      projection: bound(.openAI, .staging(stagingAttempt()))
+    )
+    let credentialAuthority = RouteCredentialAuthority(reader: reader)
+    let authority = routeAuthority(
+      reader: reader,
+      credentialAuthority: credentialAuthority
+    )
+    let handle = try await authority.issue(
+      scope: .setup,
+      connectionID: connectionID,
+      expiresAt: now.addingTimeInterval(60),
+      requestBudget: 1,
+      byteBudget: 1
+    )
+
+    await credentialAuthority.setReserveError(.credentialUnavailable)
+    await #expect(throws: BrokerProviderRouteAuthorityError.authorityUnavailable) {
+      _ = try await authority.reserveCredentialUse(
+        handle,
+        expectedScope: .setup,
+        requestBytes: 1
+      )
+    }
+    await credentialAuthority.setReserveError(nil)
+
+    let reservation = try await authority.reserveCredentialUse(
+      handle,
+      expectedScope: .setup,
+      requestBytes: 1
+    )
+    await #expect(throws: BrokerProviderRouteAuthorityError.requestBudgetExceeded) {
+      _ = try await authority.reserveCredentialUse(
+        handle,
+        expectedScope: .setup,
+        requestBytes: 0
+      )
+    }
+    #expect(await credentialAuthority.purposes == [.stagingCandidate, .stagingCandidate])
+    #expect(await credentialAuthority.cancelCount == 0)
+    #expect(await credentialAuthority.releaseCount == 0)
+    await authority.cancel(handle)
+    _ = reservation
+  }
+
+  @Test
+  func mismatchedCredentialReservationIsCleanedAndDoesNotDebit() async throws {
+    for mismatch in [
+      RouteCredentialAuthority.ReservationMismatch.identity,
+      .providerBinding,
+    ] {
+      let reader = RouteProjectionReader(
+        projection: bound(.openAI, .staging(stagingAttempt()))
+      )
+      let credentialAuthority = RouteCredentialAuthority(reader: reader)
+      let authority = routeAuthority(
+        reader: reader,
+        credentialAuthority: credentialAuthority
+      )
+      let handle = try await authority.issue(
+        scope: .setup,
+        connectionID: connectionID,
+        expiresAt: now.addingTimeInterval(60),
+        requestBudget: 1,
+        byteBudget: 1
+      )
+
+      await credentialAuthority.setMismatch(mismatch)
+      await #expect(throws: BrokerProviderRouteAuthorityError.staleCapability) {
+        _ = try await authority.reserveCredentialUse(
+          handle,
+          expectedScope: .setup,
+          requestBytes: 1
+        )
+      }
+      #expect(await credentialAuthority.cancelCount == 1)
+      #expect(await credentialAuthority.releaseCount == 1)
+      #expect(await credentialAuthority.lastSecretIsErased() == true)
+
+      await credentialAuthority.setMismatch(nil)
+      let retry = try await authority.reserveCredentialUse(
+        handle,
+        expectedScope: .setup,
+        requestBytes: 1
+      )
+      _ = retry
+      await authority.cancel(handle)
+    }
+  }
+
+  @Test
+  func postReservationProjectionMutationCleansSecretWithoutDebiting() async throws {
+    let original = stagingAttempt()
+    let reader = RouteProjectionReader(
+      projection: bound(.openAI, .staging(original))
+    )
+    let credentialAuthority = RouteCredentialAuthority(reader: reader)
+    let authority = routeAuthority(
+      reader: reader,
+      credentialAuthority: credentialAuthority
+    )
+    let handle = try await authority.issue(
+      scope: .setup,
+      connectionID: connectionID,
+      expiresAt: now.addingTimeInterval(60),
+      requestBudget: 1,
+      byteBudget: 1
+    )
+    await credentialAuthority.pauseNextReservation()
+
+    let task = Task {
+      try await authority.reserveCredentialUse(
+        handle,
+        expectedScope: .setup,
+        requestBytes: 1
+      )
+    }
+    await credentialAuthority.waitUntilReservationPaused()
+    await reader.setProjection(
+      SetupMutation.candidate.apply(to: original, connectionID: connectionID))
+    await credentialAuthority.releasePausedReservation()
+
+    await #expect(throws: BrokerProviderRouteAuthorityError.staleCapability) {
+      _ = try await task.value
+    }
+    #expect(await credentialAuthority.cancelCount == 1)
+    #expect(await credentialAuthority.releaseCount == 1)
+    #expect(await credentialAuthority.lastSecretIsErased() == true)
+
+    await reader.setProjection(bound(.openAI, .staging(original)))
+    let retry = try await authority.reserveCredentialUse(
+      handle,
+      expectedScope: .setup,
+      requestBytes: 1
+    )
+    _ = retry
+    await authority.cancel(handle)
+  }
+
+  @Test
+  func interruptionAfterReservationAlwaysCleansBeforeAnyDebit() async throws {
+    for interruption in Interruption.allCases {
+      let clock = RouteTestClock(now)
+      let reader = RouteProjectionReader(
+        projection: bound(.openAI, .staging(stagingAttempt()))
+      )
+      let credentialAuthority = RouteCredentialAuthority(reader: reader)
+      let authority = BrokerProviderRouteAuthority(
+        reader: reader,
+        credentialAuthority: credentialAuthority,
+        clock: clock.now
+      )
+      let handle = try await authority.issue(
+        scope: .setup,
+        connectionID: connectionID,
+        expiresAt: now.addingTimeInterval(60),
+        requestBudget: 1,
+        byteBudget: 1
+      )
+      await credentialAuthority.pauseNextReservation()
+      let task = Task {
+        try await authority.reserveCredentialUse(
+          handle,
+          expectedScope: .setup,
+          requestBytes: 1
+        )
+      }
+      await credentialAuthority.waitUntilReservationPaused()
+
+      var interruptionTask: Task<Void, Never>?
+      switch interruption {
+      case .capabilityCancellation:
+        interruptionTask = Task { await authority.cancel(handle) }
+      case .taskCancellation:
+        task.cancel()
+      case .expiry:
+        clock.set(now.addingTimeInterval(61))
+      case .close:
+        interruptionTask = Task { await authority.close() }
+      }
+      await credentialAuthority.releasePausedReservation()
+      await interruptionTask?.value
+
+      await #expect(throws: interruption.expectedError) {
+        _ = try await task.value
+      }
+      #expect(await credentialAuthority.cancelCount == 1)
+      #expect(await credentialAuthority.releaseCount == 1)
+      #expect(await credentialAuthority.lastSecretIsErased() == true)
+
+      switch interruption {
+      case .taskCancellation:
+        let retry = try await authority.reserveCredentialUse(
+          handle,
+          expectedScope: .setup,
+          requestBytes: 1
+        )
+        _ = retry
+        await authority.cancel(handle)
+      case .expiry:
+        clock.set(now)
+        let retry = try await authority.reserveCredentialUse(
+          handle,
+          expectedScope: .setup,
+          requestBytes: 1
+        )
+        _ = retry
+        await authority.cancel(handle)
+      case .capabilityCancellation, .close:
+        break
+      }
+    }
+  }
+
+  @Test
+  func returnedReservationCannotStartAfterCancelCloseOrExpiry() async throws {
+    for interruption in PostReturnInterruption.allCases {
+      let clock = RouteTestClock(now)
+      let reader = RouteProjectionReader(
+        projection: bound(.openAI, .staging(stagingAttempt()))
+      )
+      let credentialAuthority = RouteCredentialAuthority(reader: reader)
+      let authority = BrokerProviderRouteAuthority(
+        reader: reader,
+        credentialAuthority: credentialAuthority,
+        clock: clock.now
+      )
+      let handle = try await authority.issue(
+        scope: .setup,
+        connectionID: connectionID,
+        expiresAt: now.addingTimeInterval(60),
+        requestBudget: 1,
+        byteBudget: 1
+      )
+      let reservation: BrokerProviderRouteReservation =
+        try await authority
+        .reserveCredentialUse(handle, expectedScope: .setup, requestBytes: 1)
+      let probe = RouteStartProbe()
+
+      switch interruption {
+      case .cancel:
+        await authority.cancel(handle)
+      case .close:
+        await authority.close()
+      case .expiry:
+        clock.set(now.addingTimeInterval(61))
+      }
+
+      await #expect(throws: interruption.expectedError) {
+        _ = try await startRouteUse(
+          reservation,
+          handle: handle,
+          authority: authority,
+          probe: probe
+        )
+      }
+      #expect(probe.count == 0)
+      #expect(await credentialAuthority.startCount == 0)
+      #expect(await credentialAuthority.cancelCount == 1)
+      #expect(await credentialAuthority.releaseCount == 1)
+      #expect(await credentialAuthority.lastSecretIsErased() == true)
+    }
+  }
+
+  @Test
+  func droppingAnUnconsumedRouteReservationErasesAndAbandonsTheCredential() async throws {
+    let reader = RouteProjectionReader(
+      projection: bound(.openAI, .staging(stagingAttempt()))
+    )
+    let credentialAuthority = RouteCredentialAuthority(reader: reader)
+    let authority = routeAuthority(
+      reader: reader,
+      credentialAuthority: credentialAuthority
+    )
+    let handle = try await issue(.setup, from: authority)
+    var reservation: BrokerProviderRouteReservation? =
+      try await authority
+      .reserveCredentialUse(handle, expectedScope: .setup, requestBytes: 1)
+    weak let weakReservation = reservation
+
+    #expect(await credentialAuthority.lastSecretIsErased() == false)
+    reservation = nil
+    await credentialAuthority.waitUntilAbandoned()
+
+    #expect(weakReservation == nil)
+    #expect(await credentialAuthority.abandonCount == 1)
+    #expect(await credentialAuthority.lastSecretIsErased() == true)
+  }
+
+  @Test
+  func stableUseIDsIsolateAReplacementFromADroppedReservation() async throws {
+    let reader = RouteProjectionReader(
+      projection: bound(.openAI, .staging(stagingAttempt()))
+    )
+    let credentialAuthority = RouteCredentialAuthority(reader: reader)
+    let useIDs = ScriptedRouteUseIDAllocator([41, 41, 42])
+    let authority = BrokerProviderRouteAuthority(
+      reader: reader,
+      credentialAuthority: credentialAuthority,
+      useIDAllocator: useIDs.next,
+      clock: { now }
+    )
+    let droppedHandle = try await issue(.setup, from: authority)
+    let replacementHandle = try await authority.issue(
+      scope: .setup,
+      connectionID: connectionID,
+      expiresAt: now.addingTimeInterval(60),
+      requestBudget: 1,
+      byteBudget: 1
+    )
+    var dropped: BrokerProviderRouteReservation? =
+      try await authority.reserveCredentialUse(
+        droppedHandle,
+        expectedScope: .setup,
+        requestBytes: 1
+      )
+    weak let weakDropped = dropped
+    #expect(weakDropped != nil)
+    dropped = nil
+    await credentialAuthority.waitUntilAbandoned()
+    #expect(weakDropped == nil)
+
+    let readsBeforeDuplicate = await reader.readCount
+    await #expect(throws: BrokerProviderRouteAuthorityError.authorityUnavailable) {
+      _ = try await authority.reserveCredentialUse(
+        replacementHandle,
+        expectedScope: .setup,
+        requestBytes: 1
+      )
+    }
+    #expect(await reader.readCount == readsBeforeDuplicate)
+    #expect(await credentialAuthority.purposes == [.stagingCandidate])
+
+    let replacement = try await authority.reserveCredentialUse(
+      replacementHandle,
+      expectedScope: .setup,
+      requestBytes: 1
+    )
+    #expect(await credentialAuthority.lastSecretIsErased() == false)
+
+    await authority.cancel(droppedHandle)
+    #expect(await credentialAuthority.cancelCount == 0)
+    #expect(await credentialAuthority.releaseCount == 0)
+    #expect(await credentialAuthority.lastSecretIsErased() == false)
+
+    let probe = RouteStartProbe()
+    #expect(
+      try await startRouteUse(
+        replacement,
+        handle: replacementHandle,
+        authority: authority,
+        probe: probe
+      ) == .requestStarted
+    )
+    #expect(probe.count == 1)
+    #expect(await credentialAuthority.startCount == 1)
+    #expect(await credentialAuthority.cancelCount == 0)
+    #expect(await credentialAuthority.releaseCount == 1)
+    #expect(await credentialAuthority.lastSecretIsErased() == true)
+  }
+
+  @Test
+  func exhaustedUseIDAllocatorFailsBeforeReadSecretOrBudgetDebit() async throws {
+    let reader = RouteProjectionReader(
+      projection: bound(.openAI, .staging(stagingAttempt()))
+    )
+    let credentialAuthority = RouteCredentialAuthority(reader: reader)
+    let useIDs = ScriptedRouteUseIDAllocator([nil, 9])
+    let authority = BrokerProviderRouteAuthority(
+      reader: reader,
+      credentialAuthority: credentialAuthority,
+      useIDAllocator: useIDs.next,
+      clock: { now }
+    )
+    let handle = try await authority.issue(
+      scope: .setup,
+      connectionID: connectionID,
+      expiresAt: now.addingTimeInterval(60),
+      requestBudget: 1,
+      byteBudget: 1
+    )
+    let readsAfterIssue = await reader.readCount
+
+    await #expect(throws: BrokerProviderRouteAuthorityError.authorityUnavailable) {
+      _ = try await authority.reserveCredentialUse(
+        handle,
+        expectedScope: .setup,
+        requestBytes: 1
+      )
+    }
+    #expect(await reader.readCount == readsAfterIssue)
+    #expect(await credentialAuthority.purposes.isEmpty)
+    #expect(await credentialAuthority.cancelCount == 0)
+    #expect(await credentialAuthority.releaseCount == 0)
+    #expect(await credentialAuthority.lastSecretIsErased() == nil)
+
+    let retry = try await authority.reserveCredentialUse(
+      handle,
+      expectedScope: .setup,
+      requestBytes: 1
+    )
+    #expect(await credentialAuthority.purposes == [.stagingCandidate])
+    #expect(await credentialAuthority.lastSecretIsErased() == false)
+    await authority.cancel(handle)
+    #expect(await credentialAuthority.cancelCount == 1)
+    #expect(await credentialAuthority.releaseCount == 1)
+    #expect(await credentialAuthority.lastSecretIsErased() == true)
+    _ = retry
+  }
+
+  @Test
+  func concurrentCancelAndCloseWaitForTheSameCredentialCleanup() async throws {
+    for action in CleanupAction.allCases {
+      let reader = RouteProjectionReader(
+        projection: bound(.openAI, .staging(stagingAttempt()))
+      )
+      let credentialAuthority = RouteCredentialAuthority(reader: reader)
+      let authority = routeAuthority(
+        reader: reader,
+        credentialAuthority: credentialAuthority
+      )
+      let handle = try await issue(.setup, from: authority)
+      let reservation = try await authority.reserveCredentialUse(
+        handle,
+        expectedScope: .setup,
+        requestBytes: 1
+      )
+      await credentialAuthority.pauseNextCleanup()
+
+      let first = Task { await action.run(authority, handle: handle) }
+      await credentialAuthority.waitUntilCleanupPaused()
+      let completion = RouteCompletionProbe()
+      let invocation = RouteInvocationProbe()
+      let second = Task {
+        invocation.signal()
+        await action.run(authority, handle: handle)
+        completion.finish()
+      }
+      await invocation.wait()
+      await Task.yield()
+
+      #expect(!completion.isFinished)
+      #expect(await credentialAuthority.cancelCount == 1)
+      #expect(await credentialAuthority.releaseCount == 0)
+      #expect(await credentialAuthority.lastSecretIsErased() == false)
+
+      await credentialAuthority.releasePausedCleanup()
+      await first.value
+      await second.value
+      #expect(completion.isFinished)
+      #expect(await credentialAuthority.cancelCount == 1)
+      #expect(await credentialAuthority.releaseCount == 1)
+      #expect(await credentialAuthority.lastSecretIsErased() == true)
+      _ = reservation
+    }
+  }
+
+  @Test
+  func cancelAndCloseWaitForAnInFlightReserveToCleanItsCredential() async throws {
+    for action in CleanupAction.allCases {
+      let reader = RouteProjectionReader(
+        projection: bound(.openAI, .staging(stagingAttempt()))
+      )
+      let credentialAuthority = RouteCredentialAuthority(reader: reader)
+      let authority = routeAuthority(
+        reader: reader,
+        credentialAuthority: credentialAuthority
+      )
+      let handle = try await issue(.setup, from: authority)
+      await credentialAuthority.pauseNextReservation()
+      let reserve = Task {
+        try await authority.reserveCredentialUse(
+          handle,
+          expectedScope: .setup,
+          requestBytes: 1
+        )
+      }
+      await credentialAuthority.waitUntilReservationPaused()
+
+      let invocation = RouteInvocationProbe()
+      let completion = RouteCompletionProbe()
+      let interruption = Task {
+        invocation.signal()
+        await action.run(authority, handle: handle)
+        completion.finish()
+      }
+      await invocation.wait()
+      await Task.yield()
+      #expect(!completion.isFinished)
+      #expect(await credentialAuthority.cancelCount == 0)
+      #expect(await credentialAuthority.releaseCount == 0)
+      #expect(await credentialAuthority.lastSecretIsErased() == false)
+
+      await credentialAuthority.releasePausedReservation()
+      await interruption.value
+      await #expect(throws: action.expectedError) {
+        _ = try await reserve.value
+      }
+      #expect(completion.isFinished)
+      #expect(await credentialAuthority.cancelCount == 1)
+      #expect(await credentialAuthority.releaseCount == 1)
+      #expect(await credentialAuthority.lastSecretIsErased() == true)
+    }
+  }
+
+  @Test
+  func startRequiresTheExactReservedScopeAndChargedBytes() async throws {
+    for mismatch in StartMismatch.allCases {
+      let reader = RouteProjectionReader(
+        projection: bound(.openAI, .staging(stagingAttempt()))
+      )
+      let credentialAuthority = RouteCredentialAuthority(reader: reader)
+      let authority = routeAuthority(
+        reader: reader,
+        credentialAuthority: credentialAuthority
+      )
+      let handle = try await authority.issue(
+        scope: .setup,
+        connectionID: connectionID,
+        expiresAt: now.addingTimeInterval(60),
+        requestBudget: 1,
+        byteBudget: 2
+      )
+      let reservation: BrokerProviderRouteReservation =
+        try await authority
+        .reserveCredentialUse(handle, expectedScope: .setup, requestBytes: 1)
+      let probe = RouteStartProbe()
+
+      await #expect(throws: mismatch.expectedError) {
+        _ = try await startRouteUse(
+          reservation,
+          handle: handle,
+          authority: authority,
+          scope: mismatch.scope,
+          requestBytes: mismatch.requestBytes,
+          probe: probe
+        )
+      }
+      #expect(probe.count == 0)
+      #expect(await credentialAuthority.startCount == 0)
+      #expect(await credentialAuthority.cancelCount == 1)
+      #expect(await credentialAuthority.releaseCount == 1)
+      #expect(await credentialAuthority.lastSecretIsErased() == true)
+    }
+  }
+
+  @Test
+  func startIsOneShotAndDoesNotDebitTheReservedBudgetAgain() async throws {
+    let reader = RouteProjectionReader(
+      projection: bound(.openAI, .staging(stagingAttempt()))
+    )
+    let credentialAuthority = RouteCredentialAuthority(reader: reader)
+    let authority = routeAuthority(
+      reader: reader,
+      credentialAuthority: credentialAuthority
+    )
+    let handle = try await authority.issue(
+      scope: .setup,
+      connectionID: connectionID,
+      expiresAt: now.addingTimeInterval(60),
+      requestBudget: 1,
+      byteBudget: 1
+    )
+    let reservation: BrokerProviderRouteReservation =
+      try await authority
+      .reserveCredentialUse(handle, expectedScope: .setup, requestBytes: 1)
+    let probe = RouteStartProbe()
+    await reader.blockNextReads(1)
+
+    let first = Task {
+      try await startRouteUse(
+        reservation,
+        handle: handle,
+        authority: authority,
+        probe: probe
+      )
+    }
+    await reader.waitUntilBlocked()
+    await #expect(throws: BrokerProviderRouteAuthorityError.invalidCapability) {
+      _ = try await startRouteUse(
+        reservation,
+        handle: handle,
+        authority: authority,
+        probe: probe
+      )
+    }
+    await reader.releaseBlockedReads()
+
+    #expect(try await first.value == .requestStarted)
+    await #expect(throws: BrokerProviderRouteAuthorityError.invalidCapability) {
+      _ = try await startRouteUse(
+        reservation,
+        handle: handle,
+        authority: authority,
+        probe: probe
+      )
+    }
+    await #expect(throws: BrokerProviderRouteAuthorityError.requestBudgetExceeded) {
+      _ = try await authority.reserveCredentialUse(
+        handle,
+        expectedScope: .setup,
+        requestBytes: 0
+      )
+    }
+    #expect(probe.count == 1)
+    #expect(await credentialAuthority.purposes == [.stagingCandidate])
+    #expect(await credentialAuthority.startCount == 1)
+    #expect(await credentialAuthority.cancelCount == 0)
+    #expect(await credentialAuthority.releaseCount == 1)
+    #expect(await credentialAuthority.lastSecretIsErased() == true)
   }
 
   @Test
@@ -376,7 +1051,11 @@ struct BrokerProviderRouteAuthorityTests {
     await reader.setFailure(.authenticationFailed)
 
     await #expect(throws: BrokerProviderRouteAuthorityError.authorityUnavailable) {
-      _ = try await authority.authorize(handle, expectedScope: .setup, requestBytes: 1)
+      _ = try await authority.reserveCredentialUse(
+        handle,
+        expectedScope: .setup,
+        requestBytes: 1
+      )
     }
 
     let otherReader = RouteProjectionReader(
@@ -385,13 +1064,17 @@ struct BrokerProviderRouteAuthorityTests {
     let other = routeAuthority(reader: otherReader)
     let readsBeforeForeignHandle = await otherReader.readCount
     await #expect(throws: BrokerProviderRouteAuthorityError.invalidCapability) {
-      _ = try await other.authorize(handle, expectedScope: .setup, requestBytes: 1)
+      _ = try await other.reserveCredentialUse(
+        handle,
+        expectedScope: .setup,
+        requestBytes: 1
+      )
     }
     #expect(await otherReader.readCount == readsBeforeForeignHandle)
 
     let errors: [BrokerProviderRouteAuthorityError] = [
       .cancelled, .closed, .expired, .invalidCapability, .wrongScope,
-      .staleCapability, .authorityUnavailable, .routeUnavailable,
+      .wrongRequestBytes, .staleCapability, .authorityUnavailable, .routeUnavailable,
       .requestBudgetExceeded, .byteBudgetExceeded,
     ]
     for error in errors {
@@ -404,9 +1087,14 @@ struct BrokerProviderRouteAuthorityTests {
   }
 
   private func routeAuthority(
-    reader: RouteProjectionReader
+    reader: RouteProjectionReader,
+    credentialAuthority: RouteCredentialAuthority? = nil
   ) -> BrokerProviderRouteAuthority {
-    BrokerProviderRouteAuthority(reader: reader, clock: { now })
+    BrokerProviderRouteAuthority(
+      reader: reader,
+      credentialAuthority: credentialAuthority ?? RouteCredentialAuthority(reader: reader),
+      clock: { now }
+    )
   }
 
   private func issue(
@@ -462,14 +1150,36 @@ struct BrokerProviderRouteAuthorityTests {
   private func authorizationResult(
     _ authority: BrokerProviderRouteAuthority,
     _ handle: BrokerProviderRouteCapability
-  ) async -> Result<BrokerProviderRouteAuthorizationReceipt, BrokerProviderRouteAuthorityError> {
+  ) async -> Result<BrokerProviderRouteReservation, BrokerProviderRouteAuthorityError> {
     do {
       return .success(
-        try await authority.authorize(handle, expectedScope: .setup, requestBytes: 1)
+        try await authority.reserveCredentialUse(
+          handle,
+          expectedScope: .setup,
+          requestBytes: 1
+        )
       )
     } catch let error {
       return .failure(error)
     }
+  }
+
+  private func startRouteUse(
+    _ reservation: BrokerProviderRouteReservation,
+    handle: BrokerProviderRouteCapability,
+    authority: BrokerProviderRouteAuthority,
+    scope: BrokerProviderRouteScope = .setup,
+    requestBytes: UInt64 = 1,
+    probe: RouteStartProbe
+  ) async throws(BrokerProviderRouteAuthorityError) -> DeliveryState {
+    try await authority.startCredentialUse(
+      reservation,
+      capability: handle,
+      expectedScope: scope,
+      requestBytes: requestBytes,
+      prepare: { !$0.isEmpty },
+      start: probe.record
+    )
   }
 }
 
@@ -584,6 +1294,52 @@ private enum Interruption: CaseIterable {
   }
 }
 
+private enum PostReturnInterruption: CaseIterable {
+  case cancel
+  case close
+  case expiry
+
+  var expectedError: BrokerProviderRouteAuthorityError {
+    switch self {
+    case .cancel: .cancelled
+    case .close: .closed
+    case .expiry: .expired
+    }
+  }
+}
+
+private enum StartMismatch: CaseIterable {
+  case scope
+  case requestBytes
+
+  var scope: BrokerProviderRouteScope { self == .scope ? .run : .setup }
+  var requestBytes: UInt64 { self == .requestBytes ? 2 : 1 }
+  var expectedError: BrokerProviderRouteAuthorityError {
+    self == .scope ? .wrongScope : .wrongRequestBytes
+  }
+}
+
+private enum CleanupAction: CaseIterable {
+  case cancel
+  case close
+
+  var expectedError: BrokerProviderRouteAuthorityError {
+    self == .cancel ? .cancelled : .closed
+  }
+
+  func run(
+    _ authority: BrokerProviderRouteAuthority,
+    handle: BrokerProviderRouteCapability
+  ) async {
+    switch self {
+    case .cancel:
+      await authority.cancel(handle)
+    case .close:
+      await authority.close()
+    }
+  }
+}
+
 private actor RouteProjectionReader: BrokerProviderRouteProjectionReader {
   private(set) var readCount = 0
   private var projection: BrokerCredentialBoundProjection?
@@ -644,6 +1400,250 @@ private actor RouteProjectionReader: BrokerProviderRouteProjectionReader {
   }
 }
 
+private actor RouteCredentialAuthority: BrokerProviderCredentialUseAuthority {
+  enum ReservationMismatch {
+    case identity
+    case providerBinding
+  }
+
+  private let reader: RouteProjectionReader
+  private var reserveError: CredentialUseError?
+  private var mismatch: ReservationMismatch?
+  private var shouldPauseNextReservation = false
+  private var isReservationPaused = false
+  private var pauseArrivalContinuations: [CheckedContinuation<Void, Never>] = []
+  private var pauseReleaseContinuations: [CheckedContinuation<Void, Never>] = []
+  private var shouldPauseNextCleanup = false
+  private var isCleanupPaused = false
+  private var cleanupArrivalContinuations: [CheckedContinuation<Void, Never>] = []
+  private var cleanupReleaseContinuations: [CheckedContinuation<Void, Never>] = []
+  private var abandonContinuations: [CheckedContinuation<Void, Never>] = []
+  private var secrets: [SecretBytes] = []
+  private(set) var purposes: [CredentialUsePurpose] = []
+  private(set) var startCount = 0
+  private(set) var cancelCount = 0
+  private(set) var releaseCount = 0
+  private(set) var abandonCount = 0
+
+  init(reader: RouteProjectionReader) {
+    self.reader = reader
+  }
+
+  func reserveCredentialUse(
+    connectionID: UUID,
+    expectedBinding: ProviderProfileBinding,
+    purpose: CredentialUsePurpose
+  ) async throws(CredentialUseError) -> CredentialUseReservation {
+    purposes.append(purpose)
+    if let reserveError { throw reserveError }
+
+    let bound: BrokerCredentialBoundProjection
+    do {
+      guard let loaded = try await reader.authoritativeBoundProjection(for: connectionID) else {
+        throw CredentialUseError.noUsableCredential
+      }
+      bound = loaded
+    } catch let error as CredentialUseError {
+      throw error
+    } catch {
+      throw .authorityUnavailable
+    }
+    guard bound.providerBinding == expectedBinding else {
+      throw .invalidReservation
+    }
+
+    var identity = try Self.identity(
+      connectionID: connectionID,
+      projection: bound.projection,
+      purpose: purpose
+    )
+    var binding = expectedBinding
+    switch mismatch {
+    case .identity:
+      identity = Self.mismatched(identity)
+    case .providerBinding:
+      binding = expectedBinding == .anthropic ? .openAI : .anthropic
+    case nil:
+      break
+    }
+
+    let lifetime = CredentialUseLifetime { [weak self] _ in
+      guard let self else { return }
+      Task { await self.recordAbandon() }
+    }
+    let secret = SecretBytes(Data("ROUTE_TEST_SECRET_5D72".utf8))
+    guard lifetime.install(secret) else { throw .credentialUnavailable }
+    secrets.append(secret)
+    let reservation = CredentialUseReservation(
+      lifetime: lifetime,
+      identity: identity,
+      providerBinding: binding
+    )
+
+    if shouldPauseNextReservation {
+      shouldPauseNextReservation = false
+      isReservationPaused = true
+      let arrivals = pauseArrivalContinuations
+      pauseArrivalContinuations.removeAll()
+      for continuation in arrivals { continuation.resume() }
+      await withCheckedContinuation { pauseReleaseContinuations.append($0) }
+      isReservationPaused = false
+    }
+    return reservation
+  }
+
+  func startCredentialUse<Prepared: Sendable>(
+    _ reservation: CredentialUseReservation,
+    prepare: @Sendable (UnsafeRawBufferPointer) -> Prepared,
+    start: @Sendable (Prepared) -> Void
+  ) throws(CredentialUseError) -> DeliveryState {
+    guard
+      let prepared = reservation.lifetime.withSecret({ secret in
+        secret.withUnsafeBytes(prepare)
+      })
+    else {
+      throw .invalidReservation
+    }
+    reservation.lifetime.eraseSecret()
+    startCount += 1
+    start(prepared)
+    return .requestStarted
+  }
+
+  func cancelCredentialUse(_ reservation: CredentialUseReservation) async {
+    cancelCount += 1
+    if shouldPauseNextCleanup {
+      shouldPauseNextCleanup = false
+      isCleanupPaused = true
+      let arrivals = cleanupArrivalContinuations
+      cleanupArrivalContinuations.removeAll()
+      for continuation in arrivals { continuation.resume() }
+      await withCheckedContinuation { cleanupReleaseContinuations.append($0) }
+      isCleanupPaused = false
+    }
+    reservation.lifetime.eraseSecret()
+  }
+
+  func releaseCredentialUse(_ reservation: CredentialUseReservation) {
+    releaseCount += 1
+    reservation.lifetime.release()
+  }
+
+  func setReserveError(_ error: CredentialUseError?) {
+    reserveError = error
+  }
+
+  func setMismatch(_ value: ReservationMismatch?) {
+    mismatch = value
+  }
+
+  func pauseNextReservation() {
+    shouldPauseNextReservation = true
+  }
+
+  func waitUntilReservationPaused() async {
+    guard !isReservationPaused else { return }
+    await withCheckedContinuation { pauseArrivalContinuations.append($0) }
+  }
+
+  func releasePausedReservation() {
+    let releases = pauseReleaseContinuations
+    pauseReleaseContinuations.removeAll()
+    for continuation in releases { continuation.resume() }
+  }
+
+  func pauseNextCleanup() {
+    shouldPauseNextCleanup = true
+  }
+
+  func waitUntilCleanupPaused() async {
+    guard !isCleanupPaused else { return }
+    await withCheckedContinuation { cleanupArrivalContinuations.append($0) }
+  }
+
+  func releasePausedCleanup() {
+    let releases = cleanupReleaseContinuations
+    cleanupReleaseContinuations.removeAll()
+    for continuation in releases { continuation.resume() }
+  }
+
+  func lastSecretIsErased() -> Bool? {
+    secrets.last?.withUnsafeBytes { $0.isEmpty }
+  }
+
+  func waitUntilAbandoned() async {
+    guard abandonCount == 0 else { return }
+    await withCheckedContinuation { abandonContinuations.append($0) }
+  }
+
+  private func recordAbandon() {
+    abandonCount += 1
+    let continuations = abandonContinuations
+    abandonContinuations.removeAll()
+    for continuation in continuations { continuation.resume() }
+  }
+
+  private static func identity(
+    connectionID: UUID,
+    projection: CredentialProjection,
+    purpose: CredentialUsePurpose
+  ) throws(CredentialUseError) -> CredentialUseIdentity {
+    switch purpose {
+    case .stagingCandidate:
+      guard case .staging(let attempt) = projection,
+        attempt.connectionID == connectionID
+      else {
+        throw .noUsableCredential
+      }
+      return .stagingCandidate(
+        connectionID: connectionID,
+        fence: attempt.fence,
+        attemptID: attempt.attemptID,
+        generation: attempt.candidate
+      )
+    case .usableReady:
+      switch projection {
+      case .staging(let attempt):
+        guard attempt.connectionID == connectionID, let ready = attempt.previousReady else {
+          throw .noUsableCredential
+        }
+        return .usableReady(
+          connectionID: connectionID,
+          fence: attempt.fence,
+          generation: ready
+        )
+      case .ready(let ready):
+        guard ready.connectionID == connectionID else { throw .noUsableCredential }
+        return .usableReady(
+          connectionID: connectionID,
+          fence: ready.fence,
+          generation: ready.ready
+        )
+      case .tombstoned:
+        throw .noUsableCredential
+      }
+    }
+  }
+
+  private static func mismatched(_ identity: CredentialUseIdentity) -> CredentialUseIdentity {
+    switch identity {
+    case .stagingCandidate(let connectionID, let fence, let attemptID, let generation):
+      return .stagingCandidate(
+        connectionID: connectionID,
+        fence: fence &+ 1,
+        attemptID: attemptID,
+        generation: generation
+      )
+    case .usableReady(let connectionID, let fence, let generation):
+      return .usableReady(
+        connectionID: connectionID,
+        fence: fence &+ 1,
+        generation: generation
+      )
+    }
+  }
+}
+
 private final class RouteTestClock: @unchecked Sendable {
   private let lock = NSLock()
   private var value: Date
@@ -658,6 +1658,78 @@ private final class RouteTestClock: @unchecked Sendable {
 
   func set(_ value: Date) {
     lock.withLock { self.value = value }
+  }
+}
+
+private final class ScriptedRouteUseIDAllocator: @unchecked Sendable {
+  private let lock = NSLock()
+  private var values: [UInt64?]
+
+  init(_ values: [UInt64?]) {
+    self.values = values
+  }
+
+  func next() -> UInt64? {
+    lock.withLock {
+      guard !values.isEmpty else { return nil }
+      return values.removeFirst()
+    }
+  }
+}
+
+private final class RouteStartProbe: @unchecked Sendable {
+  private let lock = NSLock()
+  private var starts = 0
+
+  var count: Int {
+    lock.withLock { starts }
+  }
+
+  func record(_ prepared: Bool) {
+    lock.withLock {
+      if prepared { starts += 1 }
+    }
+  }
+}
+
+private final class RouteCompletionProbe: @unchecked Sendable {
+  private let lock = NSLock()
+  private var finished = false
+
+  var isFinished: Bool {
+    lock.withLock { finished }
+  }
+
+  func finish() {
+    lock.withLock { finished = true }
+  }
+}
+
+private final class RouteInvocationProbe: @unchecked Sendable {
+  private let lock = NSLock()
+  private var isSignalled = false
+  private var continuations: [CheckedContinuation<Void, Never>] = []
+
+  func signal() {
+    lock.lock()
+    isSignalled = true
+    let selected = continuations
+    continuations.removeAll()
+    lock.unlock()
+    for continuation in selected { continuation.resume() }
+  }
+
+  func wait() async {
+    await withCheckedContinuation { continuation in
+      lock.lock()
+      if isSignalled {
+        lock.unlock()
+        continuation.resume()
+      } else {
+        continuations.append(continuation)
+        lock.unlock()
+      }
+    }
   }
 }
 

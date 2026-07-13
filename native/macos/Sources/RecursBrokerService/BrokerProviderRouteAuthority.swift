@@ -14,6 +14,15 @@ enum BrokerProviderRouteScope: Sendable, Equatable {
       .generation
     }
   }
+
+  fileprivate var credentialUsePurpose: CredentialUsePurpose {
+    switch self {
+    case .setup:
+      .stagingCandidate
+    case .run, .maintenance:
+      .usableReady
+    }
+  }
 }
 
 enum BrokerProviderRouteAuthorityError:
@@ -29,6 +38,7 @@ enum BrokerProviderRouteAuthorityError:
   case expired
   case invalidCapability
   case wrongScope
+  case wrongRequestBytes
   case staleCapability
   case authorityUnavailable
   case routeUnavailable
@@ -47,6 +57,8 @@ enum BrokerProviderRouteAuthorityError:
       "The provider route capability is invalid."
     case .wrongScope:
       "The provider route scope is invalid."
+    case .wrongRequestBytes:
+      "The provider route request size is invalid."
     case .staleCapability:
       "The provider route capability is stale."
     case .authorityUnavailable:
@@ -81,20 +93,131 @@ final class BrokerProviderRouteCapability:
   var debugDescription: String { description }
 }
 
-final class BrokerProviderRouteAuthorizationReceipt:
-  Sendable,
+final class BrokerProviderRouteReservation:
+  @unchecked Sendable,
   CustomReflectable,
   CustomStringConvertible,
   CustomDebugStringConvertible
 {
-  fileprivate init() {}
+  private enum State {
+    case reserved(CredentialUseReservation)
+    case consuming(CredentialUseReservation)
+    case terminal(BrokerProviderRouteAuthorityError)
+  }
+
+  private let lock = NSLock()
+  private let useID: UInt64
+  private var state: State
+
+  fileprivate init(useID: UInt64, credential: CredentialUseReservation) {
+    self.useID = useID
+    state = .reserved(credential)
+  }
+
+  fileprivate var authorityUseID: UInt64 { useID }
+
+  fileprivate func claim() -> Result<CredentialUseReservation, BrokerProviderRouteAuthorityError> {
+    lock.withLock {
+      switch state {
+      case .reserved(let credential):
+        state = .consuming(credential)
+        return .success(credential)
+      case .consuming:
+        return .failure(.invalidCapability)
+      case .terminal(let error):
+        return .failure(error)
+      }
+    }
+  }
+
+  fileprivate func consumingError() -> BrokerProviderRouteAuthorityError? {
+    lock.withLock {
+      switch state {
+      case .consuming:
+        nil
+      case .reserved:
+        .invalidCapability
+      case .terminal(let error):
+        error
+      }
+    }
+  }
+
+  fileprivate func revoke(
+    with error: BrokerProviderRouteAuthorityError
+  ) -> CredentialUseReservation? {
+    lock.withLock {
+      switch state {
+      case .reserved(let credential), .consuming(let credential):
+        state = .terminal(error)
+        return credential
+      case .terminal:
+        return nil
+      }
+    }
+  }
+
+  fileprivate func complete() -> CredentialUseReservation? {
+    lock.withLock {
+      guard case .consuming(let credential) = state else { return nil }
+      state = .terminal(.invalidCapability)
+      return credential
+    }
+  }
+
+  fileprivate var terminalError: BrokerProviderRouteAuthorityError? {
+    lock.withLock {
+      guard case .terminal(let error) = state else { return nil }
+      return error
+    }
+  }
 
   var customMirror: Mirror {
     Mirror(self, children: EmptyCollection<(label: String?, value: Any)>(), displayStyle: .class)
   }
 
-  var description: String { "Broker provider route authorization receipt." }
+  var description: String { "<provider-route-reservation>" }
   var debugDescription: String { description }
+}
+
+private final class WeakProviderRouteReservation: @unchecked Sendable {
+  weak var value: BrokerProviderRouteReservation?
+
+  init(_ value: BrokerProviderRouteReservation) {
+    self.value = value
+  }
+}
+
+private final class ProviderRouteOperationLatch: @unchecked Sendable {
+  private let lock = NSLock()
+  private var isFinished = false
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+
+  func wait() async {
+    await withCheckedContinuation { continuation in
+      lock.lock()
+      if isFinished {
+        lock.unlock()
+        continuation.resume()
+      } else {
+        waiters.append(continuation)
+        lock.unlock()
+      }
+    }
+  }
+
+  func finish() {
+    lock.lock()
+    guard !isFinished else {
+      lock.unlock()
+      return
+    }
+    isFinished = true
+    let selected = waiters
+    waiters.removeAll()
+    lock.unlock()
+    for waiter in selected { waiter.resume() }
+  }
 }
 
 protocol BrokerProviderRouteProjectionReader: Sendable {
@@ -104,18 +227,16 @@ protocol BrokerProviderRouteProjectionReader: Sendable {
 }
 
 actor BrokerProviderRouteAuthority {
-  private enum FencedCredentialIdentity: Sendable, Equatable {
-    case setup(
-      connectionID: UUID,
-      fence: UInt64,
-      attemptID: UUID,
-      candidate: CredentialGeneration
-    )
-    case usableReady(
-      connectionID: UUID,
-      fence: UInt64,
-      ready: ReadyGeneration
-    )
+  private struct PendingReserve: Sendable {
+    let capabilityID: ObjectIdentifier
+    let latch: ProviderRouteOperationLatch
+  }
+
+  private struct ActiveUse: Sendable {
+    let reservation: WeakProviderRouteReservation
+    let capability: BrokerProviderRouteCapability
+    let scope: BrokerProviderRouteScope
+    let requestBytes: UInt64
   }
 
   private struct Entry: Sendable {
@@ -123,25 +244,36 @@ actor BrokerProviderRouteAuthority {
     let connectionID: UUID
     let scope: BrokerProviderRouteScope
     let providerBinding: ProviderProfileBinding
-    let identity: FencedCredentialIdentity
+    let identity: CredentialUseIdentity
     let expiresAt: Date
     let requestBudget: UInt64
     let byteBudget: UInt64
     var requestsUsed: UInt64
     var bytesUsed: UInt64
     var isCancelled: Bool
+    var activeUseIDs: Set<UInt64>
   }
 
   private let reader: any BrokerProviderRouteProjectionReader
+  private let credentialAuthority: any BrokerProviderCredentialUseAuthority
+  private let useIDAllocator: (@Sendable () -> UInt64?)?
   private let clock: @Sendable () -> Date
   private var entries: [ObjectIdentifier: Entry] = [:]
+  private var activeUses: [UInt64: ActiveUse] = [:]
+  private var pendingReserves: [ObjectIdentifier: PendingReserve] = [:]
+  private var cleanupTail: Task<Void, Never>?
+  private var lastUseID: UInt64 = 0
   private var isClosed = false
 
   init(
     reader: any BrokerProviderRouteProjectionReader,
+    credentialAuthority: any BrokerProviderCredentialUseAuthority,
+    useIDAllocator: (@Sendable () -> UInt64?)? = nil,
     clock: @escaping @Sendable () -> Date = { Date() }
   ) {
     self.reader = reader
+    self.credentialAuthority = credentialAuthority
+    self.useIDAllocator = useIDAllocator
     self.clock = clock
   }
 
@@ -187,34 +319,37 @@ actor BrokerProviderRouteAuthority {
       byteBudget: byteBudget,
       requestsUsed: 0,
       bytesUsed: 0,
-      isCancelled: false
+      isCancelled: false,
+      activeUseIDs: []
     )
     return handle
   }
 
-  func authorize(
+  func reserveCredentialUse(
     _ handle: BrokerProviderRouteCapability,
     expectedScope: BrokerProviderRouteScope,
     requestBytes: UInt64
   ) async throws(BrokerProviderRouteAuthorityError)
-    -> BrokerProviderRouteAuthorizationReceipt
+    -> BrokerProviderRouteReservation
   {
     let identifier = ObjectIdentifier(handle)
+    pruneAbandonedUses(identifier: identifier)
     let expected = try liveEntry(
       identifier: identifier,
       handle: handle,
       expectedScope: expectedScope,
       requestBytes: requestBytes
     )
-
-    let result: Result<BrokerCredentialBoundProjection?, BrokerJournalError>
-    do {
-      result = .success(
-        try await reader.authoritativeBoundProjection(for: expected.connectionID)
+    let routeReservationID = try allocateUseID()
+    let pendingReserve = beginReserveOperation(capabilityID: identifier)
+    defer {
+      finishReserveOperation(
+        pendingReserve.identifier,
+        latch: pendingReserve.latch
       )
-    } catch let error {
-      result = .failure(error)
     }
+
+    let result = await authoritativeProjection(for: expected.connectionID)
 
     var live = try liveEntry(
       identifier: identifier,
@@ -222,43 +357,203 @@ actor BrokerProviderRouteAuthority {
       expectedScope: expectedScope,
       requestBytes: requestBytes
     )
-    guard case .success(let bound?) = result else {
+    try Self.validate(result, against: live)
+
+    let reservation: CredentialUseReservation
+    do {
+      reservation = try await credentialAuthority.reserveCredentialUse(
+        connectionID: live.connectionID,
+        expectedBinding: live.providerBinding,
+        purpose: live.scope.credentialUsePurpose
+      )
+    } catch let error {
+      throw Self.mapCredentialUseError(error)
+    }
+
+    do {
+      live = try liveEntry(
+        identifier: identifier,
+        handle: handle,
+        expectedScope: expectedScope,
+        requestBytes: requestBytes
+      )
+      guard
+        reservation.isBound(
+          to: live.identity,
+          providerBinding: live.providerBinding
+        )
+      else {
+        throw BrokerProviderRouteAuthorityError.staleCapability
+      }
+
+      let finalResult = await authoritativeProjection(for: live.connectionID)
+      live = try liveEntry(
+        identifier: identifier,
+        handle: handle,
+        expectedScope: expectedScope,
+        requestBytes: requestBytes
+      )
+      try Self.validate(finalResult, against: live)
+      guard
+        reservation.isBound(
+          to: live.identity,
+          providerBinding: live.providerBinding
+        )
+      else {
+        throw BrokerProviderRouteAuthorityError.staleCapability
+      }
+
+      let usage = try Self.checkedUsage(entry: live, requestBytes: requestBytes)
+      live.requestsUsed = usage.requests
+      live.bytesUsed = usage.bytes
+      let routeReservation = BrokerProviderRouteReservation(
+        useID: routeReservationID,
+        credential: reservation
+      )
+      live.activeUseIDs.insert(routeReservationID)
+      entries[identifier] = live
+      activeUses[routeReservationID] = ActiveUse(
+        reservation: WeakProviderRouteReservation(routeReservation),
+        capability: handle,
+        scope: expectedScope,
+        requestBytes: requestBytes
+      )
+      return routeReservation
+    } catch let error as BrokerProviderRouteAuthorityError {
+      let cleanup = enqueueCleanup([reservation])
+      await cleanup.value
+      throw error
+    } catch {
+      let cleanup = enqueueCleanup([reservation])
+      await cleanup.value
       throw .authorityUnavailable
     }
-    guard bound.providerBinding == live.providerBinding else {
-      throw .staleCapability
-    }
-    let currentIdentity = try Self.identity(
-      scope: live.scope,
-      connectionID: live.connectionID,
-      projection: bound.projection,
-      stale: true
-    )
-    guard currentIdentity == live.identity else {
-      throw .staleCapability
-    }
-    try Self.requireRoute(live.scope.routeID, from: bound.providerBinding)
-
-    let usage = try Self.checkedUsage(entry: live, requestBytes: requestBytes)
-    live.requestsUsed = usage.requests
-    live.bytesUsed = usage.bytes
-    entries[identifier] = live
-    return BrokerProviderRouteAuthorizationReceipt()
   }
 
-  func cancel(_ handle: BrokerProviderRouteCapability) {
+  func startCredentialUse<Prepared: Sendable>(
+    _ reservation: BrokerProviderRouteReservation,
+    capability handle: BrokerProviderRouteCapability,
+    expectedScope: BrokerProviderRouteScope,
+    requestBytes: UInt64,
+    prepare: @Sendable (UnsafeRawBufferPointer) -> Prepared,
+    start: @Sendable (Prepared) -> Void
+  ) async throws(BrokerProviderRouteAuthorityError) -> DeliveryState {
+    let reservationID = reservation.authorityUseID
+    guard
+      let use = activeUses[reservationID],
+      use.reservation.value === reservation
+    else {
+      throw reservation.terminalError ?? .invalidCapability
+    }
+
+    let credential: CredentialUseReservation
+    switch reservation.claim() {
+    case .success(let claimed):
+      credential = claimed
+    case .failure(let error):
+      throw error
+    }
+
+    let initial: Entry
+    do {
+      initial = try validateClaimedUse(
+        use,
+        reservation: reservation,
+        capability: handle,
+        expectedScope: expectedScope,
+        requestBytes: requestBytes
+      )
+    } catch let error {
+      await terminateActiveUse(
+        reservationID,
+        reservation: reservation,
+        error: error
+      )
+      throw error
+    }
+
+    let result = await authoritativeProjection(for: initial.connectionID)
+    do {
+      let live = try validateClaimedUse(
+        use,
+        reservation: reservation,
+        capability: handle,
+        expectedScope: expectedScope,
+        requestBytes: requestBytes
+      )
+      try Self.validate(result, against: live)
+    } catch let error {
+      await terminateActiveUse(
+        reservationID,
+        reservation: reservation,
+        error: error
+      )
+      throw error
+    }
+
+    let delivery: DeliveryState
+    do {
+      delivery = try await credentialAuthority.startCredentialUse(
+        credential,
+        prepare: prepare,
+        start: start
+      )
+    } catch let error {
+      let mapped = reservation.terminalError ?? Self.mapCredentialUseError(error)
+      await terminateActiveUse(
+        reservationID,
+        reservation: reservation,
+        error: mapped
+      )
+      throw mapped
+    }
+
+    removeActiveUse(reservationID)
+    if let completed = reservation.complete() {
+      let cleanup = enqueueCleanup([completed], cancelBeforeRelease: false)
+      await cleanup.value
+    } else if let cleanupTail {
+      await cleanupTail.value
+    }
+    return delivery
+  }
+
+  func cancel(_ handle: BrokerProviderRouteCapability) async {
     let identifier = ObjectIdentifier(handle)
+    let pending = pendingReserveLatches(for: identifier)
     guard var entry = entries[identifier], entry.handle === handle else {
+      await waitForPendingReserves(pending)
+      if let cleanupTail { await cleanupTail.value }
       return
     }
     entry.isCancelled = true
+    let activeUseIDs = entry.activeUseIDs
+    entry.activeUseIDs.removeAll()
     entries[identifier] = entry
+    let credentials = revokeActiveUses(activeUseIDs, error: .cancelled)
+    if !credentials.isEmpty {
+      _ = enqueueCleanup(credentials)
+    }
+    await waitForPendingReserves(pending)
+    if let cleanupTail { await cleanupTail.value }
   }
 
-  func close() {
-    guard !isClosed else { return }
+  func close() async {
+    let pending = pendingReserveLatches()
+    guard !isClosed else {
+      await waitForPendingReserves(pending)
+      if let cleanupTail { await cleanupTail.value }
+      return
+    }
     isClosed = true
+    let activeUseIDs = Set(activeUses.keys)
     entries.removeAll()
+    let credentials = revokeActiveUses(activeUseIDs, error: .closed)
+    if !credentials.isEmpty {
+      _ = enqueueCleanup(credentials)
+    }
+    await waitForPendingReserves(pending)
+    if let cleanupTail { await cleanupTail.value }
   }
 
   private func checkSession(
@@ -275,6 +570,20 @@ actor BrokerProviderRouteAuthority {
     expectedScope: BrokerProviderRouteScope,
     requestBytes: UInt64
   ) throws(BrokerProviderRouteAuthorityError) -> Entry {
+    let entry = try liveEntry(
+      identifier: identifier,
+      handle: handle,
+      expectedScope: expectedScope
+    )
+    _ = try Self.checkedUsage(entry: entry, requestBytes: requestBytes)
+    return entry
+  }
+
+  private func liveEntry(
+    identifier: ObjectIdentifier,
+    handle: BrokerProviderRouteCapability,
+    expectedScope: BrokerProviderRouteScope
+  ) throws(BrokerProviderRouteAuthorityError) -> Entry {
     guard !isClosed else { throw .closed }
     guard !Task.isCancelled else { throw .cancelled }
     guard let entry = entries[identifier], entry.handle === handle else {
@@ -283,8 +592,158 @@ actor BrokerProviderRouteAuthority {
     guard entry.scope == expectedScope else { throw .wrongScope }
     guard !entry.isCancelled else { throw .cancelled }
     guard clock() < entry.expiresAt else { throw .expired }
-    _ = try Self.checkedUsage(entry: entry, requestBytes: requestBytes)
     return entry
+  }
+
+  private func validateClaimedUse(
+    _ expected: ActiveUse,
+    reservation: BrokerProviderRouteReservation,
+    capability: BrokerProviderRouteCapability,
+    expectedScope: BrokerProviderRouteScope,
+    requestBytes: UInt64
+  ) throws(BrokerProviderRouteAuthorityError) -> Entry {
+    let reservationID = reservation.authorityUseID
+    guard
+      let current = activeUses[reservationID],
+      current.reservation.value === reservation,
+      current.capability === expected.capability
+    else {
+      throw reservation.terminalError ?? .invalidCapability
+    }
+    guard current.capability === capability else { throw .invalidCapability }
+    guard current.scope == expectedScope else { throw .wrongScope }
+    guard current.requestBytes == requestBytes else { throw .wrongRequestBytes }
+    if let error = reservation.consumingError() { throw error }
+    return try liveEntry(
+      identifier: ObjectIdentifier(current.capability),
+      handle: current.capability,
+      expectedScope: current.scope
+    )
+  }
+
+  private func terminateActiveUse(
+    _ identifier: UInt64,
+    reservation: BrokerProviderRouteReservation,
+    error: BrokerProviderRouteAuthorityError
+  ) async {
+    removeActiveUse(identifier)
+    if let credential = reservation.revoke(with: error) {
+      let cleanup = enqueueCleanup([credential])
+      await cleanup.value
+    } else if let cleanupTail {
+      await cleanupTail.value
+    }
+  }
+
+  private func enqueueCleanup(
+    _ credentials: [CredentialUseReservation],
+    cancelBeforeRelease: Bool = true
+  ) -> Task<Void, Never> {
+    let previous = cleanupTail
+    let credentialAuthority = credentialAuthority
+    let cleanup = Task.detached {
+      if let previous { await previous.value }
+      for credential in credentials {
+        if cancelBeforeRelease {
+          await credentialAuthority.cancelCredentialUse(credential)
+        }
+        await credentialAuthority.releaseCredentialUse(credential)
+      }
+    }
+    cleanupTail = cleanup
+    return cleanup
+  }
+
+  private func removeActiveUse(_ identifier: UInt64) {
+    guard let use = activeUses.removeValue(forKey: identifier) else { return }
+    let capabilityID = ObjectIdentifier(use.capability)
+    guard var entry = entries[capabilityID] else { return }
+    entry.activeUseIDs.remove(identifier)
+    entries[capabilityID] = entry
+  }
+
+  private func revokeActiveUses(
+    _ identifiers: Set<UInt64>,
+    error: BrokerProviderRouteAuthorityError
+  ) -> [CredentialUseReservation] {
+    var credentials: [CredentialUseReservation] = []
+    credentials.reserveCapacity(identifiers.count)
+    for identifier in identifiers {
+      guard let use = activeUses.removeValue(forKey: identifier) else { continue }
+      let capabilityID = ObjectIdentifier(use.capability)
+      if var entry = entries[capabilityID] {
+        entry.activeUseIDs.remove(identifier)
+        entries[capabilityID] = entry
+      }
+      if let credential = use.reservation.value?.revoke(with: error) {
+        credentials.append(credential)
+      }
+    }
+    return credentials
+  }
+
+  private func pruneAbandonedUses(identifier: ObjectIdentifier) {
+    guard var entry = entries[identifier] else { return }
+    let abandoned = entry.activeUseIDs.filter {
+      activeUses[$0]?.reservation.value == nil
+    }
+    for activeUseID in abandoned {
+      entry.activeUseIDs.remove(activeUseID)
+      activeUses.removeValue(forKey: activeUseID)
+    }
+    entries[identifier] = entry
+  }
+
+  private func allocateUseID() throws(BrokerProviderRouteAuthorityError) -> UInt64 {
+    let candidate: UInt64
+    if let useIDAllocator {
+      guard let allocated = useIDAllocator() else { throw .authorityUnavailable }
+      candidate = allocated
+    } else {
+      let (allocated, overflow) = lastUseID.addingReportingOverflow(1)
+      guard !overflow else { throw .authorityUnavailable }
+      candidate = allocated
+    }
+    guard candidate > lastUseID else { throw .authorityUnavailable }
+    lastUseID = candidate
+    return candidate
+  }
+
+  private func beginReserveOperation(
+    capabilityID: ObjectIdentifier
+  ) -> (identifier: ObjectIdentifier, latch: ProviderRouteOperationLatch) {
+    let latch = ProviderRouteOperationLatch()
+    let identifier = ObjectIdentifier(latch)
+    pendingReserves[identifier] = PendingReserve(
+      capabilityID: capabilityID,
+      latch: latch
+    )
+    return (identifier, latch)
+  }
+
+  private func finishReserveOperation(
+    _ identifier: ObjectIdentifier,
+    latch: ProviderRouteOperationLatch
+  ) {
+    pendingReserves.removeValue(forKey: identifier)
+    latch.finish()
+  }
+
+  private func pendingReserveLatches(
+    for capabilityID: ObjectIdentifier? = nil
+  ) -> [ProviderRouteOperationLatch] {
+    pendingReserves.values.compactMap { pending in
+      guard capabilityID == nil || pending.capabilityID == capabilityID else {
+        return nil
+      }
+      return pending.latch
+    }
+  }
+
+  private func waitForPendingReserves(
+    _ latches: [ProviderRouteOperationLatch]
+  ) async {
+    for latch in latches { await latch.wait() }
   }
 
   private static func checkedUsage(
@@ -307,7 +766,7 @@ actor BrokerProviderRouteAuthority {
     connectionID: UUID,
     projection: CredentialProjection,
     stale: Bool
-  ) throws(BrokerProviderRouteAuthorityError) -> FencedCredentialIdentity {
+  ) throws(BrokerProviderRouteAuthorityError) -> CredentialUseIdentity {
     let failure: BrokerProviderRouteAuthorityError =
       stale ? .staleCapability : .authorityUnavailable
     switch scope {
@@ -317,11 +776,11 @@ actor BrokerProviderRouteAuthority {
       else {
         throw failure
       }
-      return .setup(
+      return .stagingCandidate(
         connectionID: connectionID,
         fence: attempt.fence,
         attemptID: attempt.attemptID,
-        candidate: attempt.candidate
+        generation: attempt.candidate
       )
 
     case .run, .maintenance:
@@ -336,18 +795,67 @@ actor BrokerProviderRouteAuthority {
         return .usableReady(
           connectionID: connectionID,
           fence: attempt.fence,
-          ready: ready
+          generation: ready
         )
       case .ready(let ready):
         guard ready.connectionID == connectionID else { throw failure }
         return .usableReady(
           connectionID: connectionID,
           fence: ready.fence,
-          ready: ready.ready
+          generation: ready.ready
         )
       case .tombstoned:
         throw failure
       }
+    }
+  }
+
+  private func authoritativeProjection(
+    for connectionID: UUID
+  ) async -> Result<BrokerCredentialBoundProjection?, BrokerJournalError> {
+    do {
+      return .success(
+        try await reader.authoritativeBoundProjection(for: connectionID)
+      )
+    } catch let error {
+      return .failure(error)
+    }
+  }
+
+  private static func validate(
+    _ result: Result<BrokerCredentialBoundProjection?, BrokerJournalError>,
+    against entry: Entry
+  ) throws(BrokerProviderRouteAuthorityError) {
+    guard case .success(let bound?) = result else {
+      throw .authorityUnavailable
+    }
+    guard bound.providerBinding == entry.providerBinding else {
+      throw .staleCapability
+    }
+    let currentIdentity = try identity(
+      scope: entry.scope,
+      connectionID: entry.connectionID,
+      projection: bound.projection,
+      stale: true
+    )
+    guard currentIdentity == entry.identity else {
+      throw .staleCapability
+    }
+    try requireRoute(entry.scope.routeID, from: bound.providerBinding)
+  }
+
+  private static func mapCredentialUseError(
+    _ error: CredentialUseError
+  ) -> BrokerProviderRouteAuthorityError {
+    switch error {
+    case .cancelled:
+      .cancelled
+    case .connectionNotFound, .connectionTombstoned, .noUsableCredential,
+      .invalidReservation:
+      .staleCapability
+    case .operationInProgress, .authorityUnavailable, .credentialUnavailable,
+      .invalidDeliveryTransition:
+      .authorityUnavailable
     }
   }
 

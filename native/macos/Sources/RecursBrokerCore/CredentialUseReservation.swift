@@ -1,5 +1,33 @@
 import Foundation
 
+package enum CredentialUsePurpose: Sendable, Equatable {
+  case stagingCandidate
+  case usableReady
+}
+
+package enum CredentialUseIdentity: Sendable, Equatable {
+  case stagingCandidate(
+    connectionID: UUID,
+    fence: UInt64,
+    attemptID: UUID,
+    generation: CredentialGeneration
+  )
+  case usableReady(
+    connectionID: UUID,
+    fence: UInt64,
+    generation: ReadyGeneration
+  )
+
+  package var credentialGeneration: CredentialGeneration {
+    switch self {
+    case .stagingCandidate(_, _, _, let generation):
+      generation
+    case .usableReady(_, _, let ready):
+      ready.generation
+    }
+  }
+}
+
 final class CredentialUseLifetime: @unchecked Sendable {
   typealias AbandonHandler = @Sendable (CredentialUseLifetime) -> Void
 
@@ -84,9 +112,17 @@ package final class CredentialUseReservation:
   CustomReflectable
 {
   let lifetime: CredentialUseLifetime
+  private let identity: CredentialUseIdentity
+  private let providerBinding: ProviderProfileBinding
 
-  init(lifetime: CredentialUseLifetime) {
+  init(
+    lifetime: CredentialUseLifetime,
+    identity: CredentialUseIdentity,
+    providerBinding: ProviderProfileBinding
+  ) {
     self.lifetime = lifetime
+    self.identity = identity
+    self.providerBinding = providerBinding
   }
 
   deinit {
@@ -99,6 +135,13 @@ package final class CredentialUseReservation:
   package var customMirror: Mirror {
     let children: [(label: String?, value: Any)] = []
     return Mirror(self, children: children, displayStyle: .class)
+  }
+
+  package func isBound(
+    to expectedIdentity: CredentialUseIdentity,
+    providerBinding expectedProviderBinding: ProviderProfileBinding
+  ) -> Bool {
+    identity == expectedIdentity && providerBinding == expectedProviderBinding
   }
 }
 
