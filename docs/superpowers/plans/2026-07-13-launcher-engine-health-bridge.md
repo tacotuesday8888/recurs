@@ -4,10 +4,9 @@
 
 **Goal:** Build the health-only signed-launcher-to-bundled-engine bridge, while keeping the public/source CLI unable to trust inherited descriptors and keeping every direct provider disabled.
 
-**Implementation status:** Tasks 1–4 and the scoped Task 5 implementation are
-landed and reviewed. The code provides health-only bridge evidence, not a
-signed/notarized release artifact or provider activation. The full clean
-checkout matrix in Task 5 Step 5 passed as written.
+**Implementation status:** Tasks 1–5 are landed, reviewed, clean-matrix
+verified, and boundary-scanned. The code provides health-only bridge evidence,
+not a signed/notarized release artifact or provider activation.
 
 **Architecture:** A typed Swift session translates only protocol `hello`, `health`, and `cancel` frames between one anonymous socket and the existing exact-peer `BrokerConnection`; it is not an XPC proxy. A private TypeScript engine host is the sole process entrypoint that can claim the inherited socket marker, while the npm/source CLI deletes that marker and returns a fixed unavailable result. The native launcher resolves Node and the engine only from fixed sealed-bundle locations, spawns them with one close-on-exec socket endpoint, serves the typed session, and propagates child termination. The sealed host substitutes a fixed denial for delegated Codex until its adapter and binary have their own reviewed fixed signed layout; the public npm/source Codex path is unchanged.
 
@@ -550,7 +549,7 @@ git diff --check main...HEAD
 
 Expected: all TypeScript lint/typecheck/tests/build, Swift tests/build, plist/entitlement lint, public/private bridge smoke, and source launcher smoke pass. The public source CLI reports only `launcher_unavailable` on Darwin, the private host remains provenance-downgraded, and no provider is runnable.
 
-- [ ] **Step 6: Scan for boundary drift and commit**
+- [x] **Step 6: Scan for boundary drift and commit**
 
 Confirm only `packages/native-engine/src/inherited-socket.ts` reads `RECURS_NATIVE_FD`; tool-child tests still prove descriptors `0`–`2` only; no `Authorization`, `x-api-key`, credential, token, endpoint, URL, or request-body field was added to the bridge; and broker-owned manifests remain denied.
 

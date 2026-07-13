@@ -13,15 +13,20 @@ exact-peer identity checks, a handshake/health XPC broker, bounded native
 frames, fixed signed-bundle path validation, an exact-descriptor child
 lifecycle, and redacted diagnostics. The production-gated launcher creates one
 anonymous socketpair, directly spawns only its fixed sealed Node engine, maps
-the child endpoint to descriptor 3, serves `hello`/`health`/`cancel`, and reaps
-the exact child. The public npm/source CLI deletes an injected native marker and
-writes zero bytes to that descriptor. Source, unsigned, and ad-hoc launchers
-cannot select an engine through `PATH`, cwd, environment, or arguments and fail
-the engine path with fixed exit `78` and empty output.
+the child endpoint to descriptor 3, wires bounded `hello`/`health`/`cancel`
+frame handling, and reaps the exact child. The current live broker deliberately
+advertises `persistentCredentials: false`, so the launcher rejects its hello as
+`production_signing_required` before entering the ready/health phase; cancel is
+handled inside the launcher session rather than as an XPC operation. Fake-peer
+tests exercise the full health frame path. The public npm/source CLI deletes an
+injected native marker and writes zero bytes to that descriptor. Source,
+unsigned, and ad-hoc launchers cannot select an engine through `PATH`, cwd,
+environment, or arguments and fail the engine path with fixed exit `78` and
+empty output.
 
 This is not an operational credential authority. No signed/notarized installed
 artifact exists, credential operations are not connected to the broker service,
-and the handshake-only broker advertises `persistentCredentials: false`. A
+and the handshake/health-only broker advertises `persistentCredentials: false`. A
 directly injected descriptor and its peer's self-attestation cannot prove
 native provenance, so a claimed ready result is still downgraded to
 peer-identity-unverified without a JavaScript or environment bypass. There is
