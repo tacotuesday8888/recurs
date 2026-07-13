@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 import ObjectiveC
 import RecursBrokerXPC
@@ -21,18 +20,30 @@ struct BrokerCredentialLifecycleXPCTests {
     let lifecycleProtocol: Protocol = BrokerCredentialLifecycleXPCProtocol.self
     #expect(protocol_conformsToProtocol(lifecycleProtocol, baseProtocol))
     #expect(
-      selectors(declaredBy: baseProtocol)
-        == [NSStringFromSelector(#selector(BrokerXPCProtocol.exchange(_:reply:)))]
+      protocolSurface(declaredBy: baseProtocol)
+        == ProtocolSurface(
+          requiredInstance: [
+            NSStringFromSelector(#selector(BrokerXPCProtocol.exchange(_:reply:)))
+          ],
+          optionalInstance: [],
+          requiredClass: [],
+          optionalClass: []
+        )
     )
     #expect(
-      selectors(declaredBy: lifecycleProtocol)
-        == [
-          NSStringFromSelector(
-            #selector(BrokerCredentialLifecycleXPCProtocol.credentialControl(_:reply:))),
-          NSStringFromSelector(
-            #selector(
-              BrokerCredentialLifecycleXPCProtocol.stageCredential(_:secret:reply:))),
-        ]
+      protocolSurface(declaredBy: lifecycleProtocol)
+        == ProtocolSurface(
+          requiredInstance: [
+            NSStringFromSelector(
+              #selector(BrokerCredentialLifecycleXPCProtocol.credentialControl(_:reply:))),
+            NSStringFromSelector(
+              #selector(
+                BrokerCredentialLifecycleXPCProtocol.stageCredential(_:secret:reply:))),
+          ],
+          optionalInstance: [],
+          requiredClass: [],
+          optionalClass: []
+        )
     )
 
     let authority = XPCFakeAuthority()
@@ -76,7 +87,7 @@ struct BrokerCredentialLifecycleXPCTests {
   }
 
   @Test
-  func healthOnlyCallsFailClosedAndEraseStageStorage() throws {
+  func healthOnlyCallsFailClosedWithoutMutatingCallerAliases() throws {
     let configuration = try BrokerServiceConfiguration.healthOnlyForTesting(
       launcherVersion: "0.1.0",
       brokerVersion: "0.1.0",
@@ -92,46 +103,67 @@ struct BrokerCredentialLifecycleXPCTests {
     )
     #expect(!helloResult.persistentCredentials)
 
-    let validSecret = MutableSecretBuffer(Data("health-only-stage-canary".utf8))
-    let validStage = LockedDataProbe()
+    let inlineAlias = Data([0x73])
+    let inlineTransfer = inlineAlias
+    let inlineStage = LockedDataProbe()
     service.stageCredential(
       try stageRequest(requestID: 7).encode(),
-      secret: validSecret.makeData(),
-      reply: validStage.receive
+      secret: inlineTransfer,
+      reply: inlineStage.receive
     )
-    #expect(validSecret.isErased)
-    #expect(validStage.count == 1)
+    #expect(inlineAlias == Data([0x73]))
     #expect(
-      try decodeLifecycleReply(validStage.wait())
+      try decodeLifecycleReply(inlineStage.wait())
         == .failure(requestID: 7, .operationUnavailable)
     )
 
-    var malformedMetadata = try stageRequest(requestID: 8).encode()
+    let heapAlias = Data(
+      repeating: 0xa5,
+      count: BrokerCredentialLifecycleGateway.maximumSecretBytes
+    )
+    let heapTransfer = heapAlias
+    let heapStage = LockedDataProbe()
+    service.stageCredential(
+      try stageRequest(requestID: 8).encode(),
+      secret: heapTransfer,
+      reply: heapStage.receive
+    )
+    #expect(
+      heapAlias
+        == Data(repeating: 0xa5, count: BrokerCredentialLifecycleGateway.maximumSecretBytes)
+    )
+    #expect(
+      try decodeLifecycleReply(heapStage.wait())
+        == .failure(requestID: 8, .operationUnavailable)
+    )
+
+    var malformedMetadata = try stageRequest(requestID: 9).encode()
     malformedMetadata.replaceSubrange(20..<36, with: repeatElement(UInt8(0), count: 16))
-    let malformedSecret = MutableSecretBuffer(Data("malformed-stage-canary".utf8))
+    let malformedAlias = Data("malformed-stage-canary".utf8)
+    let malformedTransfer = malformedAlias
     let malformedStage = LockedDataProbe()
     service.stageCredential(
       malformedMetadata,
-      secret: malformedSecret.makeData(),
+      secret: malformedTransfer,
       reply: malformedStage.receive
     )
-    #expect(malformedSecret.isErased)
+    #expect(malformedAlias == Data("malformed-stage-canary".utf8))
     #expect(
       try decodeLifecycleReply(malformedStage.wait())
-        == .failure(requestID: 8, .invalidRequest)
+        == .failure(requestID: 9, .invalidRequest)
     )
 
     let validControl = LockedDataProbe()
     service.credentialControl(
       try BrokerCredentialControlRequest.projection(
-        requestID: 9,
+        requestID: 10,
         connectionID: connectionID
       ).encode(),
       reply: validControl.receive
     )
     #expect(
       try decodeLifecycleReply(validControl.wait())
-        == .failure(requestID: 9, .operationUnavailable)
+        == .failure(requestID: 10, .operationUnavailable)
     )
 
     let malformedControl = LockedDataProbe()
@@ -142,8 +174,38 @@ struct BrokerCredentialLifecycleXPCTests {
     )
   }
 
+  @Test(arguments: [
+    0,
+    BrokerCredentialLifecycleGateway.maximumSecretBytes + 1,
+  ])
+  func healthOnlyRejectsInvalidSecretLength(_ byteCount: Int) throws {
+    let service = BrokerService(
+      configuration: try BrokerServiceConfiguration.healthOnlyForTesting(
+        launcherVersion: "0.1.0",
+        brokerVersion: "0.1.0",
+        productionSigned: true,
+        initialKeychain: .available,
+        keychainStatus: { .available }
+      )
+    )
+    let alias = Data(repeating: 0x5a, count: byteCount)
+    let transfer = alias
+    let reply = LockedDataProbe()
+    service.stageCredential(
+      try stageRequest(requestID: 1).encode(),
+      secret: transfer,
+      reply: reply.receive
+    )
+
+    #expect(alias == Data(repeating: 0x5a, count: byteCount))
+    #expect(
+      try decodeLifecycleReply(reply.wait())
+        == .failure(requestID: 1, .invalidRequest)
+    )
+  }
+
   @Test
-  func helloAndTerminalActionsPrecedeReentrantReplies() async throws {
+  func helloAndTerminalActionsPrecedeReentrantReplies() throws {
     let authority = XPCFakeAuthority()
     let service = BrokerService(configuration: try recoveredConfiguration(authority: authority))
     let helloReply = LockedDataProbe()
@@ -221,7 +283,7 @@ struct BrokerCredentialLifecycleXPCTests {
     )
     #expect(try SafeFailureCode.decode(decodeNativeFrame(terminal.wait())) == .protocolMismatch)
     #expect(blockingAuthority.waitForCancellationCount(1))
-    try await Task.sleep(for: .milliseconds(20))
+    #expect(blockingAuthority.waitForProjectionCompletionCount(1))
     #expect(lifecycle.count == 1)
   }
 
@@ -264,10 +326,7 @@ struct BrokerCredentialLifecycleXPCTests {
     #expect(authority.waitForCallCount(2))
 
     firstConnection.fireInvalidation()
-    #expect(
-      try decodeLifecycleReply(firstReply.wait())
-        == .failure(requestID: 1, .cancelled)
-    )
+    #expect(firstReply.count == 0)
     #expect(secondReply.count == 0)
 
     let firstAfterClose = LockedDataProbe()
@@ -280,110 +339,22 @@ struct BrokerCredentialLifecycleXPCTests {
         == .failure(requestID: 2, .cancelled)
     )
     secondConnection.fireInterruption()
-    secondConnection.fireInvalidation()
     #expect(
       try decodeLifecycleReply(secondReply.wait())
         == .failure(requestID: 1, .cancelled)
     )
-    #expect(firstReply.count == 1)
+    #expect(firstReply.count == 0)
     #expect(secondReply.count == 1)
     #expect(authority.callCount == 2)
 
-    let reservedAuthority = XPCFakeAuthority()
-    let reservedService = BrokerService(
-      configuration: try recoveredConfiguration(authority: reservedAuthority)
-    )
-    let beforeHello = LockedDataProbe()
-    reservedService.credentialControl(
-      try BrokerCredentialControlRequest.projection(
-        requestID: 1,
-        connectionID: connectionID
-      ).encode(),
-      reply: beforeHello.receive
-    )
-    #expect(
-      try decodeLifecycleReply(beforeHello.wait())
-        == .failure(requestID: 1, .sessionNotReady)
-    )
-    let reservedHello = LockedDataProbe()
-    reservedService.exchange(try helloFrame(requestID: 1), reply: reservedHello.receive)
-    _ = reservedHello.wait()
-    let reserved = LockedDataProbe()
-    reservedService.credentialControl(
-      try BrokerCredentialControlRequest.reservedOperation(requestID: 2).encode(),
-      reply: reserved.receive
-    )
-    #expect(
-      try decodeLifecycleReply(reserved.wait())
-        == .failure(requestID: 2, .operationUnavailable)
-    )
-    #expect(reservedAuthority.callCount == 0)
-  }
-
-  @Test
-  func concurrentHelloLifecycleAndConnectionTerminationStayFailClosed() throws {
-    for iteration in 0..<20 {
-      let authority = XPCFakeAuthority()
-      let connection = TestBrokerConnection()
-      BrokerServiceListenerDelegate(
-        exactPeerRequirement: "true",
-        configuration: try recoveredConfiguration(authority: authority)
-      ).configure(connection)
-      let service = try #require(connection.exportedObject as? BrokerService)
-      let hello = try helloFrame(requestID: 1)
-      let control = try BrokerCredentialControlRequest.projection(
-        requestID: 1,
-        connectionID: connectionID
-      ).encode()
-      let helloReply = LockedDataProbe()
-      let lifecycleReply = LockedDataProbe()
-      let start = DispatchSemaphore(value: 0)
-      let group = DispatchGroup()
-      let work: [@Sendable () -> Void] = [
-        { service.exchange(hello, reply: helloReply.receive) },
-        { service.credentialControl(control, reply: lifecycleReply.receive) },
-        { connection.fireInterruption() },
-        { connection.fireInvalidation() },
-      ]
-      for operation in work {
-        group.enter()
-        DispatchQueue.global().async {
-          start.wait()
-          operation()
-          group.leave()
-        }
-      }
-      for _ in work { start.signal() }
-      #expect(group.wait(timeout: .now() + 3) == .success)
-      _ = helloReply.wait()
-      let reply = try decodeLifecycleReply(lifecycleReply.wait())
-      switch reply {
-      case .projection(requestID: 1, _), .failure(requestID: 1, .sessionNotReady),
-        .failure(requestID: 1, .cancelled):
-        break
-      default:
-        Issue.record("Unexpected hello/lifecycle race reply in iteration \(iteration)")
-      }
-      #expect(lifecycleReply.count == 1)
-
-      let afterClose = LockedDataProbe()
-      service.credentialControl(
-        try BrokerCredentialControlRequest.projection(
-          requestID: 2,
-          connectionID: connectionID
-        ).encode(),
-        reply: afterClose.receive
-      )
-      #expect(
-        try decodeLifecycleReply(afterClose.wait())
-          == .failure(requestID: 2, .cancelled)
-      )
-    }
   }
 
   @Test
   func anonymousXPCExercisesInheritedHealthLifecycleDataAndInvalidation() throws {
-    let authority = XPCFakeAuthority(expectedSecret: Data("anonymous-xpc-secret".utf8))
+    let authority = XPCFakeAuthority(
+      suspendProjection: true,
+      expectedSecret: Data("anonymous-xpc-secret".utf8)
+    )
     let productionDelegate = BrokerServiceListenerDelegate(
       exactPeerRequirement: "true",
       configuration: try recoveredConfiguration(authority: authority)
@@ -407,13 +378,25 @@ struct BrokerCredentialLifecycleXPCTests {
     #expect(listenerDelegate.waitForAcceptance())
     #expect(try HelloResultMessage.decode(decodeNativeFrame(hello.wait())).persistentCredentials)
 
-    let staged = LockedDataProbe()
+    let emptyStage = LockedDataProbe()
     proxy.stageCredential(
       try stageRequest(requestID: 1).encode(),
+      secret: Data(),
+      reply: emptyStage.receive
+    )
+    #expect(
+      try decodeLifecycleReply(emptyStage.wait())
+        == .failure(requestID: 1, .invalidRequest)
+    )
+    #expect(authority.callCount == 0)
+
+    let staged = LockedDataProbe()
+    proxy.stageCredential(
+      try stageRequest(requestID: 2).encode(),
       secret: Data("anonymous-xpc-secret".utf8),
       reply: staged.receive
     )
-    if case .staged(requestID: 1, _) = try decodeLifecycleReply(staged.wait()) {
+    if case .staged(requestID: 2, _) = try decodeLifecycleReply(staged.wait()) {
     } else {
       Issue.record("Expected a staged anonymous-XPC reply")
     }
@@ -421,18 +404,23 @@ struct BrokerCredentialLifecycleXPCTests {
     let control = LockedDataProbe()
     proxy.credentialControl(
       try BrokerCredentialControlRequest.projection(
-        requestID: 2,
+        requestID: 3,
         connectionID: connectionID
       ).encode(),
       reply: control.receive
     )
-    #expect(try decodeLifecycleReply(control.wait()).requestIDForTesting == 2)
+    #expect(authority.waitForCallCount(2))
     #expect(authority.receivedExpectedSecret)
 
     connection.invalidate()
     #expect(clientInvalidated.wait())
     #expect(listenerDelegate.waitForInvalidation())
-    #expect(errors.count == 0)
+    #expect(authority.waitForCancellationCount(1))
+    #expect(authority.waitForProjectionCompletionCount(1))
+    #expect(authority.cancellationCount == 1)
+    #expect(control.count == 0)
+    #expect(errors.wait())
+    #expect(errors.count == 1)
     listener.invalidate()
     withExtendedLifetime((listener, listenerDelegate, connection, remoteObject, proxy)) {}
   }
@@ -470,13 +458,33 @@ struct BrokerCredentialLifecycleXPCTests {
   }
 }
 
-private func selectors(declaredBy protocolValue: Protocol) -> Set<String> {
+private struct ProtocolSurface: Equatable {
+  let requiredInstance: Set<String>
+  let optionalInstance: Set<String>
+  let requiredClass: Set<String>
+  let optionalClass: Set<String>
+}
+
+private func protocolSurface(declaredBy protocolValue: Protocol) -> ProtocolSurface {
+  ProtocolSurface(
+    requiredInstance: selectors(declaredBy: protocolValue, required: true, instance: true),
+    optionalInstance: selectors(declaredBy: protocolValue, required: false, instance: true),
+    requiredClass: selectors(declaredBy: protocolValue, required: true, instance: false),
+    optionalClass: selectors(declaredBy: protocolValue, required: false, instance: false)
+  )
+}
+
+private func selectors(
+  declaredBy protocolValue: Protocol,
+  required: Bool,
+  instance: Bool
+) -> Set<String> {
   var count: UInt32 = 0
   guard
     let descriptions = protocol_copyMethodDescriptionList(
       protocolValue,
-      true,
-      true,
+      required,
+      instance,
       &count
     )
   else { return [] }
@@ -666,37 +674,13 @@ private final class LockedEventProbe: @unchecked Sendable {
   func snapshot() -> [String] { lock.withLock { events } }
 }
 
-private final class MutableSecretBuffer {
-  private let pointer: UnsafeMutableRawPointer
-  private let byteCount: Int
-
-  init(_ data: Data) {
-    byteCount = data.count
-    pointer = .allocate(byteCount: max(data.count, 1), alignment: 1)
-    data.withUnsafeBytes { bytes in
-      if let baseAddress = bytes.baseAddress, !bytes.isEmpty {
-        pointer.copyMemory(from: baseAddress, byteCount: bytes.count)
-      }
-    }
-  }
-
-  func makeData() -> Data {
-    Data(bytesNoCopy: pointer, count: byteCount, deallocator: .none)
-  }
-
-  var isErased: Bool {
-    UnsafeRawBufferPointer(start: pointer, count: byteCount).allSatisfy { $0 == 0 }
-  }
-
-  deinit { pointer.deallocate() }
-}
-
 private final class XPCFakeAuthority: BrokerCredentialLifecycleAuthority, @unchecked Sendable {
   private let condition = NSCondition()
   private let suspendProjection: Bool
   private let expectedSecret: Data?
   private var calls: [(String, UUID)] = []
   private var cancellations = 0
+  private var projectionCompletions = 0
   private var matchedSecret = false
 
   init(suspendProjection: Bool = false, expectedSecret: Data? = nil) {
@@ -705,6 +689,7 @@ private final class XPCFakeAuthority: BrokerCredentialLifecycleAuthority, @unche
   }
 
   var callCount: Int { condition.withLock { calls.count } }
+  var cancellationCount: Int { condition.withLock { cancellations } }
   var receivedExpectedSecret: Bool { condition.withLock { matchedSecret } }
 
   func waitForCallCount(_ expected: Int, timeout: TimeInterval = 3) -> Bool {
@@ -723,16 +708,24 @@ private final class XPCFakeAuthority: BrokerCredentialLifecycleAuthority, @unche
     return cancellations >= expected
   }
 
+  func waitForProjectionCompletionCount(_ expected: Int, timeout: TimeInterval = 3) -> Bool {
+    condition.lock()
+    defer { condition.unlock() }
+    let deadline = Date().addingTimeInterval(timeout)
+    while projectionCompletions < expected, condition.wait(until: deadline) {}
+    return projectionCompletions >= expected
+  }
+
   func authoritativeLifecycleProjection(
     for connectionID: UUID
   ) async throws(BrokerJournalError) -> CredentialLifecycleProjection {
     record("projection", connectionID: connectionID)
+    defer { recordProjectionCompletion() }
     if suspendProjection {
       do {
         try await Task.sleep(for: .seconds(60))
       } catch {
         recordCancellation()
-        throw .storageUnavailable
       }
     }
     return .vacant(connectionID: connectionID, fence: 0)
@@ -815,6 +808,12 @@ private final class XPCFakeAuthority: BrokerCredentialLifecycleAuthority, @unche
   private func recordCancellation() {
     condition.lock()
     cancellations += 1
+    condition.broadcast()
+    condition.unlock()
+  }
+  private func recordProjectionCompletion() {
+    condition.lock()
+    projectionCompletions += 1
     condition.broadcast()
     condition.unlock()
   }

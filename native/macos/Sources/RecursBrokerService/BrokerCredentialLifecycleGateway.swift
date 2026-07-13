@@ -60,7 +60,7 @@ package final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
     case .rejected(let code):
       rejection = code
     case .accepted:
-      guard secretBox.byteCount <= Self.maximumSecretBytes else {
+      guard (1...Self.maximumSecretBytes).contains(secretBox.byteCount) else {
         rejection = .invalidRequest
         break
       }
@@ -145,6 +145,23 @@ package final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
     }
     for entry in owned {
       entry.gate.complete(Self.failure(requestID: entry.gate.requestID, code: .cancelled))
+    }
+  }
+
+  func transportTeardown() {
+    let owned: [Entry] = lock.withLock {
+      guard !isClosed else { return [] }
+      isClosed = true
+      isAuthorized = false
+      let owned = Array(entries.values)
+      entries.removeAll(keepingCapacity: false)
+      for entry in owned {
+        entry.gate.discard()
+      }
+      return owned
+    }
+    for entry in owned {
+      entry.task.cancel()
     }
   }
 
@@ -505,6 +522,10 @@ private final class ReplyGate: @unchecked Sendable {
       return reply
     }
     callback?(data)
+  }
+
+  func discard() {
+    lock.withLock { reply = nil }
   }
 }
 

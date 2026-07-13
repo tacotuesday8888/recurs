@@ -61,7 +61,7 @@ package final class BrokerServiceListenerDelegate: NSObject, NSXPCListenerDelega
     connection.exportedInterface = interface
     connection.exportedObject = service
     connection.interruptionHandler = { service.close() }
-    connection.invalidationHandler = { service.close() }
+    connection.invalidationHandler = { service.transportTeardown() }
     connection.activate()
   }
 

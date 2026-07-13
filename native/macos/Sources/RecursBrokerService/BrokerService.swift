@@ -1,5 +1,5 @@
-import Darwin
 import Foundation
+import RecursBrokerCore
 import RecursBrokerXPC
 import RecursNativeProtocol
 
@@ -271,12 +271,15 @@ package final class BrokerService: NSObject, BrokerCredentialLifecycleXPCProtoco
     secret: Data,
     reply: @escaping @Sendable (Data) -> Void
   ) {
+    let ownedSecretData = secret.withUnsafeBytes { Data($0) }
     guard let credentialGateway else {
-      erase(secret)
-      reply(Self.unavailableStage(metadata))
+      let ownedSecret = SecretBytes(ownedSecretData)
+      let byteCount = ownedSecret.withUnsafeBytes(\.count)
+      ownedSecret.erase()
+      reply(Self.unavailableStage(metadata, secretByteCount: byteCount))
       return
     }
-    credentialGateway.submitStage(metadata: metadata, secret: secret, reply: reply)
+    credentialGateway.submitStage(metadata: metadata, secret: ownedSecretData, reply: reply)
   }
 
   package func credentialControl(
@@ -294,9 +297,17 @@ package final class BrokerService: NSObject, BrokerCredentialLifecycleXPCProtoco
     credentialGateway?.close()
   }
 
-  private static func unavailableStage(_ data: Data) -> Data {
+  func transportTeardown() {
+    credentialGateway?.transportTeardown()
+  }
+
+  private static func unavailableStage(_ data: Data, secretByteCount: Int) -> Data {
     do {
       let request = try BrokerCredentialStageRequest.decode(data)
+      guard (1...BrokerCredentialLifecycleGateway.maximumSecretBytes).contains(secretByteCount)
+      else {
+        return lifecycleFailure(requestID: request.requestID, code: .invalidRequest)
+      }
       return lifecycleFailure(requestID: request.requestID, code: .operationUnavailable)
     } catch let error as BrokerCredentialLifecycleCodecError {
       return lifecycleFailure(
@@ -333,18 +344,6 @@ package final class BrokerService: NSObject, BrokerCredentialLifecycleXPCProtoco
     code: BrokerCredentialLifecycleFailureCode
   ) -> Data {
     (try? BrokerCredentialLifecycleReply.failure(requestID: requestID, code).encode()) ?? Data()
-  }
-}
-
-private func erase(_ data: Data) {
-  data.withUnsafeBytes { bytes in
-    guard let baseAddress = bytes.baseAddress, !bytes.isEmpty else { return }
-    _ = memset_s(
-      UnsafeMutableRawPointer(mutating: baseAddress),
-      bytes.count,
-      0,
-      bytes.count
-    )
   }
 }
 

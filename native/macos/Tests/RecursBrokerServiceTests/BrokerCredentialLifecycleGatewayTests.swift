@@ -244,7 +244,7 @@ struct BrokerCredentialLifecycleGatewayTests {
   func closeOwnsRepliesAfterClearingInflightEntries() async throws {
     let authority = GatewayAuthority(suspendProjection: true)
     let gateway = BrokerCredentialLifecycleGateway(authority: authority)
-    let replies = BlockingCloseReplyProbe()
+    let replies = BlockingReplyProbe()
     gateway.authorizeAfterHello()
 
     for requestID in UInt64(1)...2 {
@@ -256,24 +256,22 @@ struct BrokerCredentialLifecycleGatewayTests {
         reply: replies.receive
       )
     }
-    while await authority.callCount() < 2 {
-      await Task.yield()
-    }
+    while await authority.callCount() < 2 { await Task.yield() }
 
     let close = Task.detached { gateway.close() }
-    replies.waitUntilCancellationCallbackBlocks()
-    try await Task.sleep(for: .milliseconds(50))
+    #expect(replies.waitForCount(1) == 1)
 
-    #expect(replies.count == 1)
-    replies.releaseCancellationCallback()
+    let reentrant = LockedReplyProbe()
+    gateway.submitControl(
+      try BrokerCredentialControlRequest.reservedOperation(requestID: 3).encode(),
+      reply: reentrant.receive
+    )
+    #expect(try decoded(reentrant.wait()) == .failure(requestID: 3, .cancelled))
+
+    replies.releaseFirst()
     await close.value
     #expect(replies.waitForCount(2) == 2)
-    #expect(
-      replies.snapshot().allSatisfy {
-        if case .failure(_, .cancelled) = $0 { return true }
-        return false
-      }
-    )
+    #expect(replies.snapshot() == [.cancelled, .cancelled])
   }
 
   @Test(arguments: [
@@ -341,12 +339,17 @@ struct BrokerCredentialLifecycleGatewayTests {
     }
   }
 
-  @Test
-  func oversizedStageIsRejectedBeforeAuthorityAndConsumesItsID() async throws {
+  @Test(arguments: [
+    0,
+    BrokerCredentialLifecycleGateway.maximumSecretBytes + 1,
+  ])
+  func invalidStageLengthIsRejectedBeforeAuthorityAndConsumesItsID(
+    _ byteCount: Int
+  ) async throws {
     let authority = GatewayAuthority()
     let gateway = BrokerCredentialLifecycleGateway(authority: authority)
     gateway.authorizeAfterHello()
-    let oversized = LockedReplyProbe()
+    let rejected = LockedReplyProbe()
     gateway.submitStage(
       metadata: try BrokerCredentialStageRequest(
         requestID: 1,
@@ -354,10 +357,10 @@ struct BrokerCredentialLifecycleGatewayTests {
         operationID: operationID,
         expectedFence: 0
       ).encode(),
-      secret: Data(repeating: 0x5a, count: BrokerCredentialLifecycleGateway.maximumSecretBytes + 1),
-      reply: oversized.receive
+      secret: Data(repeating: 0x5a, count: byteCount),
+      reply: rejected.receive
     )
-    #expect(try decoded(oversized.wait()) == .failure(requestID: 1, .invalidRequest))
+    #expect(try decoded(rejected.wait()) == .failure(requestID: 1, .invalidRequest))
     #expect(await authority.callCount() == 0)
 
     let replay = LockedReplyProbe()
@@ -542,50 +545,20 @@ private final class LockedReplyProbe: @unchecked Sendable {
   }
 }
 
-private final class BlockingCloseReplyProbe: @unchecked Sendable {
+private final class BlockingReplyProbe: @unchecked Sendable {
   private let condition = NSCondition()
-  private var replies: [BrokerCredentialLifecycleReply] = []
-  private var isBlockingCancellation = false
-  private var mayReturnFromCancellation = false
-
-  var count: Int {
-    condition.lock()
-    defer { condition.unlock() }
-    return replies.count
-  }
+  private var codes: [BrokerCredentialLifecycleFailureCode] = []
+  private var firstMayReturn = false
 
   func receive(_ data: Data) {
-    guard let reply = try? BrokerCredentialLifecycleReply.decode(data) else {
-      Issue.record("Expected a canonical close-window reply")
+    guard case .failure(_, let code) = try? BrokerCredentialLifecycleReply.decode(data) else {
+      Issue.record("Expected a canonical close reply")
       return
     }
     condition.lock()
-    replies.append(reply)
-    if case .failure(_, .cancelled) = reply, !isBlockingCancellation {
-      isBlockingCancellation = true
-      condition.broadcast()
-      while !mayReturnFromCancellation {
-        condition.wait()
-      }
-    }
+    codes.append(code)
     condition.broadcast()
-    condition.unlock()
-  }
-
-  func waitUntilCancellationCallbackBlocks(timeout: TimeInterval = 3) {
-    condition.lock()
-    defer { condition.unlock() }
-    let deadline = Date().addingTimeInterval(timeout)
-    while !isBlockingCancellation, condition.wait(until: deadline) {}
-    if !isBlockingCancellation {
-      Issue.record("Timed out waiting for the close callback window")
-    }
-  }
-
-  func releaseCancellationCallback() {
-    condition.lock()
-    mayReturnFromCancellation = true
-    condition.broadcast()
+    while codes.count == 1, !firstMayReturn { condition.wait() }
     condition.unlock()
   }
 
@@ -593,14 +566,19 @@ private final class BlockingCloseReplyProbe: @unchecked Sendable {
     condition.lock()
     defer { condition.unlock() }
     let deadline = Date().addingTimeInterval(timeout)
-    while replies.count < expected, condition.wait(until: deadline) {}
-    return replies.count
+    while codes.count < expected, condition.wait(until: deadline) {}
+    return codes.count
   }
 
-  func snapshot() -> [BrokerCredentialLifecycleReply] {
-    condition.lock()
-    defer { condition.unlock() }
-    return replies
+  func releaseFirst() {
+    condition.withLock {
+      firstMayReturn = true
+      condition.broadcast()
+    }
+  }
+
+  func snapshot() -> [BrokerCredentialLifecycleFailureCode] {
+    condition.withLock { codes }
   }
 }
 
