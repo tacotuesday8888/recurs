@@ -256,6 +256,22 @@ package actor BrokerCredentialState {
     machine.projection(for: connectionID)
   }
 
+  package func authoritativeProjection(
+    for connectionID: UUID
+  ) async throws(BrokerJournalError) -> CredentialProjection? {
+    guard let journal else {
+      return machine.projection(for: connectionID)
+    }
+    let token = try machine.beginAuthoritativeProjection(connectionID: connectionID)
+    let result: Result<BrokerJournalSnapshot?, BrokerJournalError>
+    do {
+      result = .success(try await journal.load(connectionID: connectionID))
+    } catch let error {
+      result = .failure(error)
+    }
+    return try machine.finishAuthoritativeProjection(token, result: result)
+  }
+
   package func stage(
     connectionID: UUID,
     operationID: UUID,
@@ -427,6 +443,7 @@ package actor BrokerCredentialState {
         )
       )
     } catch let error {
+      machine.recordJournalFailure(error)
       pendingResult = .failure(error)
     }
 
@@ -512,7 +529,8 @@ package actor BrokerCredentialState {
         expected: transition.expected,
         replacement: transition.replacement
       )
-    } catch {
+    } catch let error {
+      machine.recordJournalFailure(error)
       return try await recoverFromJournalStagingFailure(
         journal: journal,
         transition: transition,
@@ -875,6 +893,7 @@ package actor BrokerCredentialState {
             )
           )
         } catch let error {
+          machine.recordJournalFailure(error)
           result = .failure(error)
         }
         return try machine.finishJournalFinalization(token, result: result)
@@ -895,6 +914,7 @@ package actor BrokerCredentialState {
         )
       )
     } catch let error {
+      machine.recordJournalFailure(error)
       result = .failure(error)
     }
 
@@ -943,7 +963,8 @@ package actor BrokerCredentialState {
         expected: transition.expected,
         replacement: transition.replacement
       )
-    } catch {
+    } catch let error {
+      machine.recordJournalFailure(error)
       do {
         try machine.pauseJournalStageTransition(transition)
       } catch {
@@ -988,21 +1009,27 @@ package actor BrokerCredentialState {
     } catch {
       throw .cleanupPending
     }
+    let selected: BrokerJournalSnapshot
     do {
-      let selected = try await journal.compareAndSwap(
+      selected = try await journal.compareAndSwap(
         expected: transition.expected,
         replacement: transition.replacement
       )
-      try machine.finishJournalStageCleanup(
-        transition,
-        result: .success(selected)
-      )
-    } catch {
+    } catch let error {
+      machine.recordJournalFailure(error)
       do {
         try machine.pauseJournalStageTransition(transition)
       } catch {
         throw .cleanupPending
       }
+      throw .cleanupPending
+    }
+    do {
+      try machine.finishJournalStageCleanup(
+        transition,
+        result: .success(selected)
+      )
+    } catch {
       throw .cleanupPending
     }
     return try machine.resolveStage(
@@ -1018,7 +1045,8 @@ package actor BrokerCredentialState {
     let selected: BrokerJournalSnapshot?
     do {
       selected = try await journal.load(connectionID: transition.connectionID)
-    } catch {
+    } catch let error {
+      machine.recordJournalFailure(error)
       selected = nil
     }
     let terminalError: BrokerStateError =
@@ -1079,6 +1107,7 @@ package actor BrokerCredentialState {
     do {
       selected = try await journal.load(connectionID: connectionID)
     } catch let error {
+      machine.recordJournalFailure(error)
       _ = try? machine.finishJournalStageResolution(token, result: .failure(error))
       throw .cleanupPending
     }
@@ -1104,6 +1133,7 @@ package actor BrokerCredentialState {
         replacement: token.replacement
       )
     } catch let error {
+      machine.recordJournalFailure(error)
       _ = try? machine.finishJournalStageResolution(token, result: .failure(error))
       throw .cleanupPending
     }
