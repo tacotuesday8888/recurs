@@ -46,8 +46,12 @@ export class FileConnectionRegistry {
     this.#store = new RegistryFileStore(dataDirectory, options);
   }
 
-  async read(): Promise<ConnectionRegistryDocument> {
-    return immutableRegistryDocument(await this.#store.read());
+  async read(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ConnectionRegistryDocument> {
+    return this.#store.transaction(options.signal, async (access) =>
+      immutableRegistryDocument((await access.readRegistry()).document)
+    );
   }
 
   async commit(

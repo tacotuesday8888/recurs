@@ -43,8 +43,10 @@ export class FileConnectionActivationStore {
     this.#store = new RegistryFileStore(dataDirectory, options);
   }
 
-  async read(): Promise<ConnectionActivationDocument> {
-    return this.#store.transaction(undefined, async (access) =>
+  async read(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ConnectionActivationDocument> {
+    return this.#store.transaction(options.signal, async (access) =>
       immutableConnectionActivationDocument(
         (await access.readActivation()).document,
       )
@@ -73,35 +75,31 @@ export class FileConnectionActivationStore {
   }
 
   async commitToRegistry(
-    connectionID: string,
+    expectedActivation: PendingConnectionActivation,
     options: { signal?: AbortSignal } = {},
   ): Promise<ConnectionRegistryDocument> {
+    const expected = canonicalActivation(expectedActivation);
     return this.#store.transaction(options.signal, async (access) => {
       const pending = await access.readActivation();
       const activation = pending.document.activation;
-      if (activation === null) {
-        const current = await access.readRegistry();
-        const completed = current.document.connections.find(
-          (candidate) =>
-            candidate.kind === "brokered_model_provider" &&
-            candidate.id === connectionID,
-        );
-        if (completed !== undefined) {
-          return immutableRegistryDocument(current.document);
-        }
-        throw new ConnectionActivationError(
-          "activation_not_found",
-          "Pending connection activation was not found",
-        );
-      }
-      if (activation.connection.id !== connectionID) throw conflict();
-
       const current = await access.readRegistry();
+      if (activation === null) {
+        const completed = current.document.connections.find(
+          (candidate) => candidate.id === expected.connection.id,
+        );
+        if (completed === undefined) throw notFound();
+        if (!isDeepStrictEqual(completed, expected.connection)) {
+          throw conflict();
+        }
+        return immutableRegistryDocument(current.document);
+      }
+      if (!isDeepStrictEqual(activation, expected)) throw conflict();
+
       const existing = current.document.connections.find(
-        (candidate) => candidate.id === connectionID,
+        (candidate) => candidate.id === expected.connection.id,
       );
       if (existing !== undefined) {
-        if (!isDeepStrictEqual(existing, activation.connection)) {
+        if (!isDeepStrictEqual(existing, expected.connection)) {
           throw conflict();
         }
         return immutableRegistryDocument(current.document);
@@ -111,11 +109,11 @@ export class FileConnectionActivationStore {
         primaryConnectionId:
           current.document.connections.length === 0 &&
               current.document.primaryConnectionId === null
-            ? connectionID
+            ? expected.connection.id
             : current.document.primaryConnectionId,
         connections: [
           ...current.document.connections,
-          activation.connection,
+          expected.connection,
         ],
       });
       await access.writeRegistry(next, current.identity);
@@ -124,24 +122,43 @@ export class FileConnectionActivationStore {
   }
 
   async discard(
-    connectionID: string,
+    expectedActivation: PendingConnectionActivation,
     options: { signal?: AbortSignal } = {},
   ): Promise<void> {
+    const expected = canonicalActivation(expectedActivation);
     await this.#store.transaction(options.signal, async (access) => {
       const current = await access.readActivation();
       const activation = current.document.activation;
       if (activation === null) return;
-      if (activation.connection.id !== connectionID) throw conflict();
+      if (!isDeepStrictEqual(activation, expected)) throw conflict();
       if (current.identity === null) throw conflict();
       await access.removeActivation(current.identity);
     });
   }
 }
 
+function canonicalActivation(
+  activation: PendingConnectionActivation,
+): PendingConnectionActivation {
+  const document = parseConnectionActivationDocument({
+    schemaVersion: 1,
+    activation,
+  });
+  if (document.activation === null) throw conflict();
+  return document.activation;
+}
+
 function conflict(): ConnectionActivationError {
   return new ConnectionActivationError(
     "activation_conflict",
     "Pending connection activation conflicts with this operation",
+  );
+}
+
+function notFound(): ConnectionActivationError {
+  return new ConnectionActivationError(
+    "activation_not_found",
+    "Pending connection activation was not found",
   );
 }
 

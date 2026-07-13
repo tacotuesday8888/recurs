@@ -178,6 +178,15 @@ describe("FileConnectionRegistry", () => {
     expect(await registry.read()).not.toBe(first);
   });
 
+  it("cancels a pre-aborted registry read through the shared lock", async () => {
+    const registry = new FileConnectionRegistry(await root());
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(registry.read({ signal: controller.signal })).rejects
+      .toMatchObject({ code: "lock_timeout" });
+  });
+
   it("commits an exact CAS revision and owns the next revision", async () => {
     const directory = await root();
     const registry = new FileConnectionRegistry(directory);

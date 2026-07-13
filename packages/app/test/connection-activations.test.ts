@@ -109,6 +109,15 @@ describe("FileConnectionActivationStore", () => {
       .toBe(0o600);
   });
 
+  it("cancels a pre-aborted sidecar read through the shared lock", async () => {
+    const store = new FileConnectionActivationStore(await root());
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(store.read({ signal: controller.signal })).rejects
+      .toMatchObject({ code: "lock_timeout" });
+  });
+
   it("replays only the exact pending activation and retains it on conflict", async () => {
     const directory = await root();
     const store = new FileConnectionActivationStore(directory);
@@ -237,7 +246,7 @@ describe("FileConnectionActivationStore", () => {
     const store = new FileConnectionActivationStore(directory);
     await store.prepare(activation());
 
-    const committed = await store.commitToRegistry(connection().id);
+    const committed = await store.commitToRegistry(activation());
 
     expect(committed).toMatchObject({
       revision: 1,
@@ -246,7 +255,7 @@ describe("FileConnectionActivationStore", () => {
     });
     expect((await store.read()).activation).toEqual(activation());
 
-    const replay = await store.commitToRegistry(connection().id);
+    const replay = await store.commitToRegistry(activation());
     expect(replay.revision).toBe(1);
     expect(replay).toEqual(committed);
   });
@@ -270,7 +279,7 @@ describe("FileConnectionActivationStore", () => {
     const store = new FileConnectionActivationStore(directory);
     await store.prepare(activation());
 
-    const committed = await store.commitToRegistry(connection().id);
+    const committed = await store.commitToRegistry(activation());
 
     expect(committed.primaryConnectionId).toBeNull();
     expect(committed.connections.map(({ id }) => id)).toEqual([
@@ -289,7 +298,7 @@ describe("FileConnectionActivationStore", () => {
     const store = new FileConnectionActivationStore(directory);
     await store.prepare(activation());
 
-    await expect(store.commitToRegistry(connection().id)).rejects.toMatchObject({
+    await expect(store.commitToRegistry(activation())).rejects.toMatchObject({
       code: "activation_conflict",
     });
     expect((await store.read()).activation).toEqual(activation());
@@ -298,19 +307,47 @@ describe("FileConnectionActivationStore", () => {
     });
   });
 
+  it("requires the exact activation for commit, discard, and completed replay", async () => {
+    const store = new FileConnectionActivationStore(await root());
+    const expected = activation();
+    const forged = activation({
+      connection: connection({
+        credentialIdentityFingerprint: `sha256:${"c".repeat(64)}`,
+      }),
+    });
+    await store.prepare(expected);
+
+    await expect(store.commitToRegistry(forged)).rejects.toMatchObject({
+      code: "activation_conflict",
+    });
+    await expect(store.discard(forged)).rejects.toMatchObject({
+      code: "activation_conflict",
+    });
+    await store.commitToRegistry(expected);
+    await store.discard(expected);
+    await expect(store.commitToRegistry(forged)).rejects.toMatchObject({
+      code: "activation_conflict",
+    });
+  });
+
   it("discards only the exact activation and makes exact replay idempotent", async () => {
     const directory = await root();
     const store = new FileConnectionActivationStore(directory);
     await store.prepare(activation());
 
-    await expect(store.discard("wrong-id")).rejects.toMatchObject({
+    const other = activation({
+      connection: connection({
+        id: "71000000-0000-4000-8000-000000000002",
+      }),
+    });
+    await expect(store.discard(other)).rejects.toMatchObject({
       code: "activation_conflict",
     });
     expect((await store.read()).activation).not.toBeNull();
 
-    await store.discard(connection().id);
+    await store.discard(activation());
     expect(await store.read()).toEqual({ schemaVersion: 1, activation: null });
-    await expect(store.discard(connection().id)).resolves.toBeUndefined();
+    await expect(store.discard(activation())).resolves.toBeUndefined();
     await expect(lstat(connectionActivationPath(directory))).rejects
       .toMatchObject({ code: "ENOENT" });
   });
@@ -319,13 +356,18 @@ describe("FileConnectionActivationStore", () => {
     const directory = await root();
     const store = new FileConnectionActivationStore(directory);
     await store.prepare(activation());
-    const committed = await store.commitToRegistry(connection().id);
-    await store.discard(connection().id);
+    const committed = await store.commitToRegistry(activation());
+    await store.discard(activation());
 
-    await expect(store.commitToRegistry(connection().id)).resolves.toEqual(
+    await expect(store.commitToRegistry(activation())).resolves.toEqual(
       committed,
     );
-    await expect(store.commitToRegistry("missing-id")).rejects.toMatchObject({
+    const missing = activation({
+      connection: connection({
+        id: "71000000-0000-4000-8000-000000000002",
+      }),
+    });
+    await expect(store.commitToRegistry(missing)).rejects.toMatchObject({
       code: "activation_not_found",
     });
   });
@@ -362,12 +404,12 @@ describe("FileConnectionActivationStore", () => {
       },
     });
 
-    await expect(uncertain.commitToRegistry(connection().id)).rejects
+    await expect(uncertain.commitToRegistry(activation())).rejects
       .toThrow("uncertain");
     const installed = await new FileConnectionRegistry(directory).read();
     expect(installed).toMatchObject({ revision: 1, connections: [connection()] });
     expect((await normal.read()).activation).toEqual(activation());
-    await expect(normal.commitToRegistry(connection().id)).resolves.toEqual(
+    await expect(normal.commitToRegistry(activation())).resolves.toEqual(
       installed,
     );
   });
@@ -381,7 +423,7 @@ describe("FileConnectionActivationStore", () => {
         if (point === "before_remove") throw new Error("before remove");
       },
     });
-    await expect(before.discard(connection().id)).rejects
+    await expect(before.discard(activation())).rejects
       .toThrow("before remove");
     expect((await beforeNormal.read()).activation).toEqual(activation());
 
@@ -396,7 +438,7 @@ describe("FileConnectionActivationStore", () => {
         if (point === "after_remove") throw new Error("after remove");
       },
     });
-    await expect(after.discard(connection().id)).rejects
+    await expect(after.discard(activation())).rejects
       .toThrow("after remove");
     expect((await afterNormal.read()).activation).toBeNull();
     const retirements = (await readdir(path.join(afterDirectory, "config")))
@@ -442,7 +484,7 @@ describe("FileConnectionActivationStore", () => {
       },
     });
 
-    await expect(adversarial.discard(connection().id)).rejects.toMatchObject({
+    await expect(adversarial.discard(activation())).rejects.toMatchObject({
       code: "storage_unsafe",
     });
 
@@ -496,7 +538,7 @@ describe("FileConnectionActivationStore", () => {
       },
     });
 
-    await expect(adversarial.discard(connection().id)).rejects.toMatchObject({
+    await expect(adversarial.discard(activation())).rejects.toMatchObject({
       code: "storage_unsafe",
     });
 
@@ -529,7 +571,7 @@ describe("FileConnectionActivationStore", () => {
       },
     });
 
-    await expect(crashing.discard(connection().id)).rejects.toBe(crash);
+    await expect(crashing.discard(activation())).rejects.toBe(crash);
 
     await expect(readFile(filename, "utf8")).rejects.toMatchObject({
       code: "ENOENT",
@@ -555,7 +597,7 @@ describe("FileConnectionActivationStore", () => {
     await expect(normal.prepare(fresh)).resolves.toMatchObject({
       activation: fresh,
     });
-    await expect(normal.commitToRegistry(fresh.connection.id)).resolves
+    await expect(normal.commitToRegistry(fresh)).resolves
       .toMatchObject({ connections: [fresh.connection] });
   });
 
@@ -569,7 +611,7 @@ describe("FileConnectionActivationStore", () => {
     const originalContents = await readFile(filename, "utf8");
     await chmod(filename, 0o400);
 
-    await expect(store.discard(connection().id)).rejects.toMatchObject({
+    await expect(store.discard(activation())).rejects.toMatchObject({
       code: "storage_unsafe",
     });
 
