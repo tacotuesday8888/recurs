@@ -38,15 +38,20 @@ CryptoKit-authenticated broker journal, APFS descriptor-relative storage.
 ## Global constraints
 
 - Production startup order is fixed: signed peer requirement, production
-  Keychain configuration, secure journal directory and authority lease,
-  Keychain journal authenticator, journal store, credential store, complete
-  state recovery, then listener activation. Any failure exits before listening.
+  Keychain configuration, secure journal directory, side-effect-free Keychain
+  journal authenticator construction, journal-store open (which acquires the
+  authority lease), credential store, complete state recovery, then listener
+  activation. Any failure exits before listening.
 - One recovered credential authority is shared across all accepted XPC
   connections. Per-connection handshake, monotonic request IDs, in-flight work,
-  and cancellation state are never shared.
+  and cancellation state are never shared. The gateway owns every lifecycle
+  task handle and exactly-once reply gate so invalidation performs real task
+  cancellation before any late result can reply.
 - The private credential wire is not the Node protocol and uses a distinct
   `RCCL` magic/version. It carries only request IDs, connection/operation/attempt
-  IDs, fences, redacted state, and fixed result/failure codes.
+  IDs, fences, redacted state, and fixed result/failure codes. Client request
+  IDs range from `1` through `UInt64.max - 1`; `UInt64.max` is reserved as the
+  malformed-request reply sentinel.
 - Replies never contain generation IDs or ordinals, Keychain accounts or
   references, store keys, credential-derived fingerprints, secret lengths,
   secret-derived values, native error text, file paths, or journal records.
@@ -81,15 +86,17 @@ magic "RCCL" u32 | version 1 u16 | kind u16 | bodyLength u32
 ```
 
 The body limit is 256 bytes. UUIDs are exactly their 16 RFC 4122 bytes and the
-all-zero UUID is invalid. Request IDs are nonzero `UInt64` values.
+all-zero UUID is invalid. Client request IDs are in `1...(UInt64.max - 1)`;
+`UInt64.max` is valid only in an encoded `.invalidRequest` failure reply for an
+input from which no canonical request ID could be decoded.
 
 Request kinds and exact bodies:
 
 ```text
 1 stage       requestID u64 | connectionID uuid | operationID uuid | expectedFence u64
 2 projection  requestID u64 | connectionID uuid
-3 resume      requestID u64 | connectionID uuid | expectedFence u64
-4 commit      requestID u64 | connectionID uuid | attemptID uuid | operationID uuid | expectedFence u64
+3 resume      requestID u64 | connectionID uuid | operationID uuid | expectedFence u64
+4 reserved     requestID u64; always returns operation_unavailable
 5 abort       requestID u64 | connectionID uuid | attemptID uuid | operationID uuid | expectedFence u64
 6 disconnect  requestID u64 | connectionID uuid | operationID uuid | expectedFence u64
 ```
@@ -104,13 +111,26 @@ Reply kinds:
 ```
 
 State values are `missing=1`, `vacant=2`, `staging=3`, `ready=4`, and
-`tombstoned=5`. `missing` requires fence zero and no usable ready credential;
-all other states require a nonzero fence. Only `staging` carries an attempt ID.
+`tombstoned=5`. `missing` requires fence zero and no usable ready credential.
+`vacant` permits fence zero for a durable bootstrap vacancy; staging, ready, and
+tombstoned require a nonzero fence. Only `staging` carries an attempt ID.
 `hasUsableReady` is true for ready, may be true for staging, and is false for
 missing, vacant, and tombstoned. Failure codes are fixed:
-`invalid_request`, `session_not_ready`, `capacity_exceeded`, `cancelled`,
-`not_found`, `disconnected`, `stale_fence`, `conflict`, `busy`,
-`credential_store_unavailable`, and `cleanup_pending`.
+
+```text
+1 invalid_request                 8 conflict
+2 session_not_ready               9 busy
+3 capacity_exceeded              10 credential_store_unavailable
+4 cancelled                      11 cleanup_pending
+5 not_found                      12 operation_unavailable
+6 disconnected                   13 authority_unavailable
+7 stale_fence
+```
+
+Kind 4 is deliberately unavailable: only a later broker-owned setup coordinator
+that has bound the provider/profile and successfully verified the staging
+candidate may commit a generation. The exact-peer launcher is trusted transport,
+not authority to mark arbitrary bytes ready.
 
 ---
 
@@ -149,15 +169,16 @@ extension BrokerCredentialState {
 }
 ```
 
-- [ ] **Step 1: Add focused failing tests**
+- [x] **Step 1: Add focused failing tests**
 
-Cover missing, durable vacant after initial abort, initial staging, reconnect
-staging with a previous ready generation, ready, tombstoned, and an authoritative
-journal mismatch. Assert the new projection contains no generation ID, ordinal,
+Cover missing, bootstrap vacant at fence zero, durable vacant after initial
+abort, initial staging, reconnect staging with a previous ready generation,
+ready, tombstoned, and an authoritative journal mismatch. Assert the new
+projection contains no generation ID, ordinal,
 timestamp, credential key, journal tag, or store identity through equality,
 reflection, descriptions, and encoded test canaries.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run:
 
@@ -169,7 +190,7 @@ swift test --package-path native/macos \
 Expected: compilation fails because `CredentialLifecycleProjection` and the two
 state methods do not exist.
 
-- [ ] **Step 3: Implement the minimum projection**
+- [x] **Step 3: Implement the minimum projection**
 
 Add a pure state-machine mapping from its private `Record`; keep the existing
 `CredentialProjection` API unchanged. For the authoritative method, reuse
@@ -177,7 +198,7 @@ Add a pure state-machine mapping from its private `Record`; keep the existing
 existing read token, then map the still-validated record without another await.
 Do not add a store/secret read.
 
-- [ ] **Step 4: Verify GREEN and regressions**
+- [x] **Step 4: Verify GREEN and regressions**
 
 ```bash
 swift test --package-path native/macos \
@@ -190,7 +211,7 @@ swift test --package-path native/macos \
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add native/macos/Sources/RecursBrokerCore/BrokerCredentialState.swift \
@@ -215,13 +236,20 @@ public struct BrokerCredentialStageRequest: Sendable, Equatable {
   public let connectionID: UUID
   public let operationID: UUID
   public let expectedFence: UInt64
+
+  public init(
+    requestID: UInt64,
+    connectionID: UUID,
+    operationID: UUID,
+    expectedFence: UInt64
+  ) throws
 }
 
 public enum BrokerCredentialControlRequest: Sendable, Equatable {
   case projection(requestID: UInt64, connectionID: UUID)
-  case resumeStage(requestID: UInt64, connectionID: UUID, expectedFence: UInt64)
-  case commit(requestID: UInt64, connectionID: UUID, attemptID: UUID,
-              operationID: UUID, expectedFence: UInt64)
+  case resumeStage(requestID: UInt64, connectionID: UUID,
+                   operationID: UUID, expectedFence: UInt64)
+  case reservedOperation(requestID: UInt64)
   case abort(requestID: UInt64, connectionID: UUID, attemptID: UUID,
              operationID: UUID, expectedFence: UInt64)
   case disconnect(requestID: UInt64, connectionID: UUID,
@@ -232,11 +260,36 @@ public enum BrokerCredentialRedactedState: UInt8, Sendable {
   case missing = 1, vacant = 2, staging = 3, ready = 4, tombstoned = 5
 }
 
+public let brokerCredentialMalformedRequestID = UInt64.max
+
+public enum BrokerCredentialLifecycleFailureCode: UInt16, Sendable {
+  case invalidRequest = 1
+  case sessionNotReady = 2
+  case capacityExceeded = 3
+  case cancelled = 4
+  case notFound = 5
+  case disconnected = 6
+  case staleFence = 7
+  case conflict = 8
+  case busy = 9
+  case credentialStoreUnavailable = 10
+  case cleanupPending = 11
+  case operationUnavailable = 12
+  case authorityUnavailable = 13
+}
+
 public struct BrokerCredentialRedactedProjection: Sendable, Equatable {
   public let state: BrokerCredentialRedactedState
   public let fence: UInt64
   public let hasUsableReady: Bool
   public let attemptID: UUID?
+
+  public init(
+    state: BrokerCredentialRedactedState,
+    fence: UInt64,
+    hasUsableReady: Bool,
+    attemptID: UUID?
+  ) throws
 }
 
 public enum BrokerCredentialLifecycleReply: Sendable, Equatable {
@@ -254,10 +307,17 @@ values cannot be encoded.
 - [ ] **Step 1: Add codec tests from the frozen table above**
 
 Test every round trip and exact byte length. Reject bad magic/version/kind/body
-length, trailing bytes, zero request ID, truncated/oversized bodies, all-zero
-UUIDs, invalid state/fence/ready/attempt combinations, reply kind/state
-mismatches, and unknown fixed failure codes. Assert a credential canary and all
-forbidden identifier names are absent from every encoded reply.
+length, trailing bytes, request ID zero or `UInt64.max`, truncated/oversized
+bodies, all-zero UUIDs, a reserved kind 4 body other than one request ID,
+invalid state/fence/ready/attempt combinations, reply kind/state mismatches,
+and unknown fixed failure codes. Prove canonical kind 4 decodes only to
+`.reservedOperation`; Task 3 owns the `.operationUnavailable` dispatch rule.
+Prove the reply codec accepts the reserved sentinel only for
+`.invalidRequest`, while ordinary valid-request failure replies echo a client
+request ID below the sentinel. Task 3 proves malformed input dispatches that
+sentinel reply.
+Assert a credential canary and all forbidden identifier names are absent from
+every encoded reply.
 
 - [ ] **Step 2: Verify RED**
 
@@ -314,11 +374,9 @@ package protocol BrokerCredentialLifecycleAuthority: Sendable {
   func stage(connectionID: UUID, operationID: UUID, expectedFence: UInt64,
              secret: sending SecretBytes) async throws(BrokerStateError)
     -> StagingAttempt
-  func resumeStage(connectionID: UUID, expectedFence: UInt64)
-    async throws(BrokerStateError)
-  func commit(connectionID: UUID, attemptID: UUID, operationID: UUID,
-              expectedFence: UInt64) async throws(BrokerStateError)
-    -> ReadyProjection
+  func resumeStage(connectionID: UUID, operationID: UUID,
+                   expectedFence: UInt64) async throws(BrokerStateError)
+    -> StagingAttempt
   func abort(connectionID: UUID, attemptID: UUID, operationID: UUID,
              expectedFence: UInt64) async throws(BrokerStateError)
     -> ReadyProjection?
@@ -327,7 +385,10 @@ package protocol BrokerCredentialLifecycleAuthority: Sendable {
     -> TombstoneProjection
 }
 
-package struct BrokerCredentialAuthority: Sendable {
+package struct BrokerCredentialAuthority:
+  BrokerCredentialLifecycleAuthority,
+  Sendable
+{
   let state: BrokerCredentialState
 
   package static func recovering(
@@ -338,16 +399,38 @@ package struct BrokerCredentialAuthority: Sendable {
   package static func production(
     configuration: KeychainStoreConfiguration
   ) async throws -> BrokerCredentialAuthority
+
+  package func authoritativeLifecycleProjection(for connectionID: UUID)
+    async throws(BrokerJournalError) -> CredentialLifecycleProjection
+  package func stage(connectionID: UUID, operationID: UUID,
+                     expectedFence: UInt64, secret: sending SecretBytes)
+    async throws(BrokerStateError) -> StagingAttempt
+  package func resumeStage(connectionID: UUID, operationID: UUID,
+                           expectedFence: UInt64)
+    async throws(BrokerStateError) -> StagingAttempt
+  package func abort(connectionID: UUID, attemptID: UUID,
+                     operationID: UUID, expectedFence: UInt64)
+    async throws(BrokerStateError) -> ReadyProjection?
+  package func disconnect(connectionID: UUID, operationID: UUID,
+                          expectedFence: UInt64)
+    async throws(BrokerStateError) -> TombstoneProjection
 }
 
-package actor BrokerCredentialLifecycleGateway {
+package final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
   package static let maximumInflightRequests = 8
   package static let maximumSecretBytes = 4_096
 
   package init(authority: any BrokerCredentialLifecycleAuthority)
   package func authorizeAfterHello()
-  package func stage(metadata: Data, secret: consuming Data) async -> Data
-  package func control(_ request: Data) async -> Data
+  package func submitStage(
+    metadata: Data,
+    secret: consuming Data,
+    reply: @escaping @Sendable (Data) -> Void
+  )
+  package func submitControl(
+    _ request: Data,
+    reply: @escaping @Sendable (Data) -> Void
+  )
   package func close()
 }
 ```
@@ -358,14 +441,22 @@ Prove the recovery composition seam shares one actor, restores vacant/ready/
 tombstoned records, and fails closed on journal authentication, rollback,
 directory-lock, and store recovery errors using injected fakes only.
 
-For the gateway prove pre-hello denial, valid projection/stage/resume/commit/
-abort/disconnect, exact operation replay, stale fence, conflicting operation ID,
+The authority methods above forward directly to the one shared state actor; no
+wrapper keeps a second projection, fence, secret, or operation cache.
+
+For the gateway prove pre-hello denial, valid projection/stage/resume/abort/
+disconnect, exact operation replay, stale fence, conflicting operation ID,
 busy cleanup, strictly increasing request IDs, eight-request capacity, closing
-with work in flight, and exactly one fixed reply for every accepted call. Pause
+with work in flight, reserved-commit denial, and exactly one fixed reply for
+every accepted call. Pause
 the fake authority at every await boundary to cover invalidation races. Feed a
 secret canary fragmented across `Data` storage and assert it is absent from
 replies, errors, descriptions, reflection, task cancellation, and retained test
 objects. Assert the fake authority receives a `SecretBytes`, never raw `Data`.
+For malformed or truncated metadata/control input, assert exactly one
+`.invalidRequest` reply with `brokerCredentialMalformedRequestID`; if a
+canonical request ID was decoded before a later semantic failure, assert the
+gateway echoes that ID instead.
 
 - [ ] **Step 2: Verify RED**
 
@@ -401,17 +492,48 @@ its authority lease. Do not catch and downgrade a production error.
 
 - [ ] **Step 4: Implement the gateway**
 
-Decode before dispatch, but always consume/erase stage secret storage. Use one
-greatest-seen request ID, an in-flight set capped at eight, and a closed flag.
+Decode before dispatch, but always consume/erase stage secret storage. The
+gateway is a synchronous ingress object with one private `NSLock`, one greatest-
+seen request ID, a task/reply-gate table capped at eight, and a closed flag.
+`@unchecked Sendable` is permitted only because every mutable field and every
+admission/authorization/close transition is protected by that lock; no lock is
+held while invoking authority, awaiting, cancelling a task, or calling a reply.
 Reject before touching the authority when unauthorized, nonmonotonic, over
 capacity, malformed, or closed. Convert the secret to `SecretBytes` before the
 first credential-authority await. Map core errors exhaustively to fixed failure
 codes. After a
 successful mutation, return only its redacted state/fence/attempt information.
-For an initial abort, return vacant at the mutation's expected fence. `close()`
-marks the gateway terminal and makes every late completion return only the fixed
-cancelled failure. The per-connection service actor in Task 4 owns and cancels
-the actual task handles.
+For an initial abort, return vacant at the mutation's expected fence.
+`submitStage`/`submitControl` perform decode, hello/ID/capacity admission, task
+creation, and task-handle insertion in one lock critical section, so there is no
+unbounded pre-gateway task or close-before-insertion race. `close()` synchronously
+marks the gateway terminal and snapshots/clears the table, then outside the lock
+completes every reply gate with `.cancelled` and cancels every stored
+`Task<Void, Never>`. Each task checks cancellation before invoking authority and
+after every authority await. Late completions pass through the same reply gate
+and therefore cannot reply or mutate gateway state a second time. Canonical
+reserved kind 4 replies `.operationUnavailable` without calling authority.
+
+Use this exhaustive error projection:
+
+```text
+BrokerStateError.cancelled                                      -> cancelled
+.connectionNotFound                                            -> not_found
+.connectionTombstoned                                          -> disconnected
+.staleFence                                                    -> stale_fence
+.operationInProgress                                           -> busy
+.storeUnavailable                                              -> credential_store_unavailable
+.cleanupPending                                                -> cleanup_pending
+.fenceOverflow/.generationOverflow/.invalidTransition/
+  .attemptNotCurrent/.operationIDConflict                      -> conflict
+.invalidBootstrap                                              -> authority_unavailable + close
+
+BrokerJournalError.casConflict/.revisionOverflow               -> conflict
+.lockUnavailable/.storageUnavailable                           -> credential_store_unavailable
+.mutationOutcomeUnknown                                        -> cleanup_pending
+.invalidRecord/.nonCanonical/.unsupportedVersion/
+  .authenticationFailed/.rollbackDetected                      -> authority_unavailable + close
+```
 
 - [ ] **Step 5: Verify GREEN and core regressions**
 
@@ -451,20 +573,51 @@ git commit -m "feat: add broker credential lifecycle authority"
 **XPC interface:**
 
 ```swift
+@objc(RecursBrokerXPCProtocol)
+public protocol BrokerXPCProtocol: NSObjectProtocol {
+  func exchange(
+    _ frame: Data,
+    reply: @escaping @Sendable (Data) -> Void
+  )
+}
+
 @objc(RecursBrokerCredentialLifecycleXPCProtocol)
 public protocol BrokerCredentialLifecycleXPCProtocol: BrokerXPCProtocol {
   func stageCredential(
     _ metadata: Data,
     secret: Data,
-    reply: @escaping (Data) -> Void
+    reply: @escaping @Sendable (Data) -> Void
   )
 
   func credentialControl(
     _ request: Data,
-    reply: @escaping (Data) -> Void
+    reply: @escaping @Sendable (Data) -> Void
   )
 }
+
+extension BrokerServiceConfiguration {
+  package static func recoveredCredentialService(
+    launcherVersion: String,
+    brokerVersion: String,
+    authority: any BrokerCredentialLifecycleAuthority,
+    initialKeychain: KeychainStatusCode,
+    keychainStatus: @escaping @Sendable () -> KeychainStatusCode
+  ) throws -> BrokerServiceConfiguration
+
+  package static func healthOnlyForTesting(
+    launcherVersion: String,
+    brokerVersion: String,
+    productionSigned: Bool,
+    initialKeychain: KeychainStatusCode,
+    keychainStatus: @escaping @Sendable () -> KeychainStatusCode
+  ) throws -> BrokerServiceConfiguration
+}
 ```
+
+Remove `persistentCredentials` from every configuration initializer. Store an
+optional authority privately and derive the hello capability bit from its
+presence. The recovered factory requires a nonoptional authority; the health-
+only test factory always stores `nil`. No production call site can set the bit.
 
 - [ ] **Step 1: Add failing XPC/service tests**
 
@@ -479,6 +632,23 @@ the listener injects the exact same authority into two independently handshaken
 connections, one connection's request IDs/cancellation do not affect the other,
 and connection invalidation closes only its gateway. Cover malformed health
 after hello cancelling lifecycle work and suppressing late state/error detail.
+Assert canonical reserved kind 4 never calls a commit method and cannot create
+a ready projection.
+
+Race hello, lifecycle calls, interruption, and invalidation from concurrent
+queues. Prove lifecycle either observes hello or fails closed, IDs admit only in
+strict increasing order, no ninth operation creates a task, invalidation
+synchronously prevents every later admission, and an operation admitted just
+before invalidation is cancelled exactly once. Foundation gives no ordering
+guarantee between handlers and replies, so these tests must exercise both race
+orders.
+
+Also run a real anonymous-XPC round trip with
+`NSXPCListener.anonymous()` and `NSXPCConnection(listenerEndpoint:)`. Exercise
+inherited health exchange, stage metadata plus secret `NSData`, control request,
+reply `NSData`, and invalidation. This test proves Objective-C protocol
+inheritance, selector names/signatures, class argument indexes, and serialization
+rather than relying only on a fake connection object.
 
 - [ ] **Step 2: Verify RED**
 
@@ -501,14 +671,20 @@ proxy compatible through protocol inheritance.
 
 - [ ] **Step 4: Wire per-connection service state**
 
-Replace the service's lock-held synchronous lifecycle with a
-`BrokerServiceConnectionSession` actor that never holds `NSLock` across an
-await. A successful
-hello authorizes its gateway. A terminal/malformed health session closes it.
+Keep the existing `BrokerService` lock only for the synchronous hello/health
+state machine; never hold it across an await or while calling an XPC reply. A
+successful hello synchronously calls `gateway.authorizeAfterHello()` before the
+exchange method returns. A terminal/malformed health session synchronously
+calls `gateway.close()`. The two lifecycle XPC methods call the gateway's
+synchronous submit methods directly and create no actor-hop task of their own.
+
 `BrokerServiceListenerDelegate` creates a fresh service/gateway for each
-accepted connection from the same injected authority and installs interruption
-and invalidation handlers that call idempotent close. XPC methods launch bounded
-tasks and invoke each reply closure once.
+accepted connection from the same injected authority. Add the existing
+Foundation-compatible, non-`@Sendable` `interruptionHandler` and
+`invalidationHandler` properties to the test connection abstraction; both call
+the service's idempotent synchronous close. The gateway lock linearizes every
+submit/authorize/close race, owns the bounded authority-operation task handles,
+and owns the exactly-once reply gates.
 
 - [ ] **Step 5: Verify GREEN and launcher compatibility**
 
@@ -540,8 +716,8 @@ git commit -m "feat: expose private broker credential lifecycle"
 - Modify: `native/macos/Sources/RecursNativeBrokerExecutable/main.swift`
 - Create: `native/macos/Tests/RecursBrokerServiceTests/BrokerServiceRuntimeTests.swift`
 - Modify: `README.md`
-- Modify: `docs/architecture.md`
-- Modify: `docs/security.md`
+- Modify: `ARCHITECTURE.md`
+- Modify: `SECURITY.md`
 
 **Runtime interface:**
 
@@ -628,8 +804,10 @@ tests, but name it explicitly and prevent its use in `main.swift`.
 
 - [ ] **Step 4: Update truthful documentation**
 
-Document that the signed broker now owns and recovers persistent credentials
-and exposes a private launcher-only lifecycle surface. State equally clearly
+Document that the production-gated broker code path now owns and recovers
+persistent credentials and exposes a private launcher-only lifecycle surface.
+Do not imply that a signed/notarized installed artifact has been produced or
+verified. State equally clearly
 that the launcher has not yet collected secrets, staging candidates cannot yet
 be provider-verified, provider metadata is not yet durably bound to generations,
 provider HTTP does not exist, source/npm builds cannot activate this authority,
@@ -650,7 +828,7 @@ Expected: PASS.
 git add native/macos/Sources/RecursBrokerService \
   native/macos/Sources/RecursNativeBrokerExecutable/main.swift \
   native/macos/Tests/RecursBrokerServiceTests \
-  README.md docs/architecture.md docs/security.md
+  README.md ARCHITECTURE.md SECURITY.md
 git commit -m "feat: activate durable broker credential service"
 ```
 
