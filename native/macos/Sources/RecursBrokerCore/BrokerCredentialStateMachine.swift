@@ -77,6 +77,13 @@ struct BrokerCredentialStateMachine: Sendable {
     case resumeCleanup
   }
 
+  struct CredentialUseAuthority: Sendable, Equatable {
+    let connectionID: UUID
+    let record: Record
+    let snapshot: BrokerJournalSnapshot
+    let ready: ReadyGeneration
+  }
+
   enum FinalizationDisposition<Value: Sendable>: Sendable {
     case completed(Value)
     case cleanup(Value)
@@ -529,6 +536,66 @@ struct BrokerCredentialStateMachine: Sendable {
 
   func journalSnapshot(for connectionID: UUID) -> BrokerJournalSnapshot? {
     journalSnapshots[connectionID]
+  }
+
+  func credentialUseAuthority(
+    connectionID: UUID
+  ) throws(BrokerStateError) -> CredentialUseAuthority {
+    guard !journalHealthUnavailable, !unavailableConnections.contains(connectionID) else {
+      throw .storeUnavailable
+    }
+    guard
+      authoritativeReadSequences[connectionID] == nil,
+      reservations[connectionID] == nil
+    else {
+      throw .operationInProgress
+    }
+    guard let record = records[connectionID] else {
+      throw .connectionNotFound
+    }
+    if case .tombstoned = record {
+      throw .connectionTombstoned
+    }
+    guard
+      let snapshot = journalSnapshots[connectionID],
+      let ready = record.projection?.usableReady
+    else {
+      throw .invalidTransition
+    }
+    return CredentialUseAuthority(
+      connectionID: connectionID,
+      record: record,
+      snapshot: snapshot,
+      ready: ready
+    )
+  }
+
+  mutating func validateCredentialUseAuthority(
+    _ authority: CredentialUseAuthority
+  ) throws(BrokerJournalError) {
+    guard
+      !journalHealthUnavailable,
+      !unavailableConnections.contains(authority.connectionID)
+    else {
+      throw .storageUnavailable
+    }
+    guard
+      authoritativeReadSequences[authority.connectionID] == nil,
+      reservations[authority.connectionID] == nil
+    else {
+      throw .casConflict
+    }
+    guard
+      records[authority.connectionID] == authority.record,
+      journalSnapshots[authority.connectionID] == authority.snapshot
+    else {
+      unavailableConnections.insert(authority.connectionID)
+      throw .casConflict
+    }
+  }
+
+  mutating func invalidateCredentialUseAuthority(connectionID: UUID) {
+    unavailableConnections.insert(connectionID)
   }
 
   mutating func beginAuthoritativeProjection(

@@ -174,6 +174,33 @@ package enum BrokerStateError:
   }
 }
 
+private struct CredentialUseBinding {
+  let authority: BrokerCredentialStateMachine.CredentialUseAuthority
+  let key: CredentialStoreKey
+}
+
+private enum CredentialUsePhase {
+  case preAnchor(sequence: UInt64)
+  case loading(sequence: UInt64)
+  case postAnchor(sequence: UInt64)
+  case notSent
+  case requestStarted
+  case terminal(CredentialUseError)
+}
+
+private enum CredentialUseAwaitPhase {
+  case preAnchor
+  case loading
+  case postAnchor
+}
+
+private struct CredentialUseContext {
+  let lifetime: CredentialUseLifetime
+  let binding: CredentialUseBinding
+  var phase: CredentialUsePhase
+  var hasBeenReturned: Bool
+}
+
 package actor BrokerCredentialState {
   private let store: any CredentialStore
   private let clock: @Sendable () -> Date
@@ -181,6 +208,9 @@ package actor BrokerCredentialState {
   private let attemptIDSource: @Sendable () -> UUID
   private let journal: (any BrokerJournalStore)?
   private var machine: BrokerCredentialStateMachine
+  private var credentialUses: [ObjectIdentifier: CredentialUseContext] = [:]
+  private var credentialUseIDsByConnection: [UUID: Set<ObjectIdentifier>] = [:]
+  private var nextCredentialUseSequence: UInt64 = 0
 
   init(
     store: any CredentialStore,
@@ -272,6 +302,431 @@ package actor BrokerCredentialState {
     return try machine.finishAuthoritativeProjection(token, result: result)
   }
 
+  package func reserveCredentialUse(
+    connectionID: UUID
+  ) async throws(CredentialUseError) -> CredentialUseReservation {
+    guard !Task.isCancelled else {
+      throw .cancelled
+    }
+    guard let journal else {
+      throw .authorityUnavailable
+    }
+
+    let authority: BrokerCredentialStateMachine.CredentialUseAuthority
+    do {
+      authority = try machine.credentialUseAuthority(connectionID: connectionID)
+    } catch let error {
+      throw Self.mapCredentialUseStateError(error)
+    }
+    let generation = authority.ready.generation
+    let binding = CredentialUseBinding(
+      authority: authority,
+      key: CredentialStoreKey(
+        connectionID: connectionID,
+        generationID: generation.generationID,
+        generationOrdinal: generation.ordinal
+      )
+    )
+    let lifetime = CredentialUseLifetime { [weak self] abandoned in
+      guard let self else { return }
+      Task {
+        await self.removeAbandonedCredentialUse(abandoned)
+      }
+    }
+    let reservation = CredentialUseReservation(lifetime: lifetime)
+    let identifier = ObjectIdentifier(lifetime)
+    let firstSequence = try allocateCredentialUseSequence()
+    credentialUses[identifier] = CredentialUseContext(
+      lifetime: lifetime,
+      binding: binding,
+      phase: .preAnchor(sequence: firstSequence),
+      hasBeenReturned: false
+    )
+    credentialUseIDsByConnection[connectionID, default: []].insert(identifier)
+
+    let firstAnchor: Result<BrokerJournalSnapshot?, BrokerJournalError>
+    do {
+      firstAnchor = .success(try await journal.load(connectionID: connectionID))
+    } catch let error {
+      firstAnchor = .failure(error)
+    }
+
+    if let error = pendingCredentialUseError(
+      identifier,
+      expected: .preAnchor,
+      sequence: firstSequence
+    ) {
+      removeUnreturnedCredentialUse(identifier)
+      throw error
+    }
+    guard !Task.isCancelled else {
+      terminateCredentialUse(identifier, error: .cancelled)
+      removeUnreturnedCredentialUse(identifier)
+      throw .cancelled
+    }
+    try validateCredentialUseAnchor(
+      firstAnchor,
+      binding: binding,
+      identifier: identifier
+    )
+
+    let loadSequence = try allocateCredentialUseSequence(orTerminating: identifier)
+    guard var loadingContext = credentialUses[identifier] else {
+      throw .invalidReservation
+    }
+    loadingContext.phase = .loading(sequence: loadSequence)
+    credentialUses[identifier] = loadingContext
+
+    let loadedResult: Result<SecretBytes, CredentialStoreError>
+    do {
+      loadedResult = .success(try await store.load(for: binding.key))
+    } catch let error {
+      loadedResult = .failure(error)
+    }
+
+    if let error = pendingCredentialUseError(
+      identifier,
+      expected: .loading,
+      sequence: loadSequence
+    ) {
+      if case .success(let secret) = loadedResult {
+        secret.erase()
+      }
+      removeUnreturnedCredentialUse(identifier)
+      throw error
+    }
+    guard !Task.isCancelled else {
+      if case .success(let secret) = loadedResult {
+        secret.erase()
+      }
+      terminateCredentialUse(identifier, error: .cancelled)
+      removeUnreturnedCredentialUse(identifier)
+      throw .cancelled
+    }
+
+    let loadedSecret: SecretBytes
+    switch loadedResult {
+    case .failure:
+      terminateCredentialUse(identifier, error: .credentialUnavailable)
+      removeUnreturnedCredentialUse(identifier)
+      throw .credentialUnavailable
+    case .success(let secret):
+      loadedSecret = secret
+    }
+    do {
+      try machine.validateCredentialUseAuthority(binding.authority)
+    } catch {
+      loadedSecret.erase()
+      terminateCredentialUse(identifier, error: .authorityUnavailable)
+      removeUnreturnedCredentialUse(identifier)
+      throw .authorityUnavailable
+    }
+
+    let secondSequence = try allocateCredentialUseSequence(orTerminating: identifier)
+    guard var postAnchorContext = credentialUses[identifier] else {
+      loadedSecret.erase()
+      throw .invalidReservation
+    }
+    guard postAnchorContext.lifetime.install(loadedSecret) else {
+      terminateCredentialUse(identifier, error: .invalidReservation)
+      removeUnreturnedCredentialUse(identifier)
+      throw .invalidReservation
+    }
+    postAnchorContext.phase = .postAnchor(sequence: secondSequence)
+    credentialUses[identifier] = postAnchorContext
+
+    let secondAnchor: Result<BrokerJournalSnapshot?, BrokerJournalError>
+    do {
+      secondAnchor = .success(try await journal.load(connectionID: connectionID))
+    } catch let error {
+      secondAnchor = .failure(error)
+    }
+
+    if let error = pendingCredentialUseError(
+      identifier,
+      expected: .postAnchor,
+      sequence: secondSequence,
+      secret: loadedSecret
+    ) {
+      loadedSecret.erase()
+      removeUnreturnedCredentialUse(identifier)
+      throw error
+    }
+    guard !Task.isCancelled else {
+      terminateCredentialUse(identifier, error: .cancelled)
+      removeUnreturnedCredentialUse(identifier)
+      throw .cancelled
+    }
+    try validateCredentialUseAnchor(
+      secondAnchor,
+      binding: binding,
+      identifier: identifier
+    )
+
+    guard var readyContext = credentialUses[identifier] else {
+      loadedSecret.erase()
+      throw .invalidReservation
+    }
+    readyContext.phase = .notSent
+    readyContext.hasBeenReturned = true
+    credentialUses[identifier] = readyContext
+    return reservation
+  }
+
+  package func startCredentialUse<Prepared: Sendable>(
+    _ reservation: CredentialUseReservation,
+    prepare: @Sendable (UnsafeRawBufferPointer) -> Prepared,
+    start: @Sendable (Prepared) -> Void
+  ) throws(CredentialUseError) -> DeliveryState {
+    let lifetime = reservation.lifetime
+    let identifier = ObjectIdentifier(lifetime)
+    guard var context = credentialUses[identifier], context.lifetime === lifetime else {
+      throw .invalidReservation
+    }
+    switch context.phase {
+    case .terminal(let error):
+      throw error
+    case .requestStarted:
+      throw .invalidDeliveryTransition
+    case .notSent:
+      guard !Task.isCancelled else {
+        terminateCredentialUse(identifier, error: .cancelled)
+        throw .cancelled
+      }
+      do {
+        try machine.validateCredentialUseAuthority(context.binding.authority)
+      } catch {
+        terminateCredentialUse(identifier, error: .invalidReservation)
+        throw .invalidReservation
+      }
+      guard
+        let prepared = context.lifetime.withSecret({ secret in
+          secret.withUnsafeBytes(prepare)
+        })
+      else {
+        terminateCredentialUse(identifier, error: .invalidReservation)
+        throw .invalidReservation
+      }
+      guard !Task.isCancelled else {
+        terminateCredentialUse(identifier, error: .cancelled)
+        throw .cancelled
+      }
+      var delivery = DeliveryState.notSent
+      do {
+        try delivery.transition(to: .requestStarted)
+      } catch {
+        terminateCredentialUse(identifier, error: .invalidDeliveryTransition)
+        throw .invalidDeliveryTransition
+      }
+      context.lifetime.eraseSecret()
+      context.phase = .requestStarted
+      credentialUses[identifier] = context
+      removeCredentialUseIndex(
+        identifier,
+        connectionID: context.binding.authority.connectionID
+      )
+      start(prepared)
+      return delivery
+    case .preAnchor, .loading, .postAnchor:
+      throw .invalidDeliveryTransition
+    }
+  }
+
+  package func cancelCredentialUse(_ reservation: CredentialUseReservation) {
+    let lifetime = reservation.lifetime
+    let identifier = ObjectIdentifier(lifetime)
+    guard let context = credentialUses[identifier], context.lifetime === lifetime else {
+      return
+    }
+    switch context.phase {
+    case .requestStarted, .terminal:
+      return
+    case .preAnchor, .loading, .postAnchor, .notSent:
+      terminateCredentialUse(identifier, error: .cancelled)
+    }
+  }
+
+  package func releaseCredentialUse(_ reservation: CredentialUseReservation) {
+    let lifetime = reservation.lifetime
+    let identifier = ObjectIdentifier(lifetime)
+    guard
+      let context = credentialUses[identifier],
+      context.lifetime === lifetime
+    else {
+      return
+    }
+    credentialUses.removeValue(forKey: identifier)
+    context.lifetime.release()
+    removeCredentialUseIndex(
+      identifier,
+      connectionID: context.binding.authority.connectionID
+    )
+  }
+
+  private func removeAbandonedCredentialUse(_ lifetime: CredentialUseLifetime) {
+    let identifier = ObjectIdentifier(lifetime)
+    guard
+      let context = credentialUses[identifier],
+      context.lifetime === lifetime
+    else {
+      return
+    }
+    credentialUses.removeValue(forKey: identifier)
+    removeCredentialUseIndex(
+      identifier,
+      connectionID: context.binding.authority.connectionID
+    )
+  }
+
+  private func allocateCredentialUseSequence() throws(CredentialUseError) -> UInt64 {
+    guard nextCredentialUseSequence < UInt64.max else {
+      throw .authorityUnavailable
+    }
+    nextCredentialUseSequence += 1
+    return nextCredentialUseSequence
+  }
+
+  private func allocateCredentialUseSequence(
+    orTerminating identifier: ObjectIdentifier
+  ) throws(CredentialUseError) -> UInt64 {
+    do {
+      return try allocateCredentialUseSequence()
+    } catch {
+      terminateCredentialUse(identifier, error: .authorityUnavailable)
+      removeUnreturnedCredentialUse(identifier)
+      throw .authorityUnavailable
+    }
+  }
+
+  private func pendingCredentialUseError(
+    _ identifier: ObjectIdentifier,
+    expected: CredentialUseAwaitPhase,
+    sequence: UInt64,
+    secret: SecretBytes? = nil
+  ) -> CredentialUseError? {
+    guard let context = credentialUses[identifier] else {
+      return .invalidReservation
+    }
+    if case .terminal(let error) = context.phase {
+      return error
+    }
+    let matches: Bool
+    switch (expected, context.phase) {
+    case (.preAnchor, .preAnchor(let selectedSequence)),
+      (.loading, .loading(let selectedSequence)):
+      matches = selectedSequence == sequence
+    case (.postAnchor, .postAnchor(let selectedSequence)):
+      matches =
+        selectedSequence == sequence
+        && secret.map(context.lifetime.contains) == true
+    default:
+      matches = false
+    }
+    if !matches {
+      terminateCredentialUse(identifier, error: .invalidReservation)
+      return .invalidReservation
+    }
+    return nil
+  }
+
+  private func validateCredentialUseAnchor(
+    _ result: Result<BrokerJournalSnapshot?, BrokerJournalError>,
+    binding: CredentialUseBinding,
+    identifier: ObjectIdentifier
+  ) throws(CredentialUseError) {
+    switch result {
+    case .failure(let error):
+      machine.recordJournalFailure(error)
+      terminateCredentialUse(identifier, error: .authorityUnavailable)
+      removeUnreturnedCredentialUse(identifier)
+      throw .authorityUnavailable
+    case .success(let selected):
+      guard selected == binding.authority.snapshot else {
+        machine.invalidateCredentialUseAuthority(
+          connectionID: binding.authority.connectionID
+        )
+        terminateCredentialUse(identifier, error: .authorityUnavailable)
+        removeUnreturnedCredentialUse(identifier)
+        throw .authorityUnavailable
+      }
+    }
+    do {
+      try machine.validateCredentialUseAuthority(binding.authority)
+    } catch {
+      terminateCredentialUse(identifier, error: .authorityUnavailable)
+      removeUnreturnedCredentialUse(identifier)
+      throw .authorityUnavailable
+    }
+  }
+
+  private func revokeCredentialUses(
+    connectionID: UUID,
+    error: CredentialUseError
+  ) {
+    let identifiers = credentialUseIDsByConnection[connectionID] ?? []
+    for identifier in identifiers {
+      terminateCredentialUse(identifier, error: error)
+    }
+  }
+
+  private func terminateCredentialUse(
+    _ identifier: ObjectIdentifier,
+    error: CredentialUseError
+  ) {
+    guard var context = credentialUses[identifier] else { return }
+    if case .terminal = context.phase { return }
+    if case .requestStarted = context.phase { return }
+    context.lifetime.eraseSecret()
+    context.phase = .terminal(error)
+    credentialUses[identifier] = context
+    removeCredentialUseIndex(
+      identifier,
+      connectionID: context.binding.authority.connectionID
+    )
+  }
+
+  private func removeUnreturnedCredentialUse(_ identifier: ObjectIdentifier) {
+    guard let context = credentialUses[identifier], !context.hasBeenReturned else {
+      return
+    }
+    credentialUses.removeValue(forKey: identifier)
+    context.lifetime.release()
+    removeCredentialUseIndex(
+      identifier,
+      connectionID: context.binding.authority.connectionID
+    )
+  }
+
+  private func removeCredentialUseIndex(
+    _ identifier: ObjectIdentifier,
+    connectionID: UUID
+  ) {
+    credentialUseIDsByConnection[connectionID]?.remove(identifier)
+    if credentialUseIDsByConnection[connectionID]?.isEmpty == true {
+      credentialUseIDsByConnection.removeValue(forKey: connectionID)
+    }
+  }
+
+  private static func mapCredentialUseStateError(
+    _ error: BrokerStateError
+  ) -> CredentialUseError {
+    switch error {
+    case .cancelled:
+      .cancelled
+    case .connectionNotFound:
+      .connectionNotFound
+    case .connectionTombstoned:
+      .connectionTombstoned
+    case .operationInProgress, .cleanupPending:
+      .operationInProgress
+    case .invalidTransition:
+      .noUsableCredential
+    case .staleFence, .fenceOverflow, .generationOverflow, .attemptNotCurrent,
+      .operationIDConflict, .storeUnavailable, .invalidBootstrap:
+      .authorityUnavailable
+    }
+  }
+
   package func stage(
     connectionID: UUID,
     operationID: UUID,
@@ -357,6 +812,7 @@ package actor BrokerCredentialState {
       secret.erase()
       throw error
     }
+    revokeCredentialUses(connectionID: connectionID, error: .invalidReservation)
 
     if let journal {
       return try await stageWithJournal(
@@ -725,6 +1181,7 @@ package actor BrokerCredentialState {
       operationID: operationID,
       fingerprint: fingerprint
     )
+    revokeCredentialUses(connectionID: connectionID, error: .invalidReservation)
     if let journal {
       let token: BrokerCredentialStateMachine.JournalAuthorityAwaitToken
       do {
@@ -801,6 +1258,7 @@ package actor BrokerCredentialState {
       operationID: operationID,
       fingerprint: fingerprint
     )
+    revokeCredentialUses(connectionID: connectionID, error: .invalidReservation)
     if let journal {
       let token: BrokerCredentialStateMachine.JournalAuthorityAwaitToken
       do {
@@ -875,6 +1333,7 @@ package actor BrokerCredentialState {
       operationID: operationID,
       fingerprint: fingerprint
     )
+    revokeCredentialUses(connectionID: connectionID, error: .connectionTombstoned)
     if let journal {
       let token: BrokerCredentialStateMachine.JournalAuthorityAwaitToken
       do {

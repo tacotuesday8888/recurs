@@ -684,9 +684,12 @@ git commit -m "feat: add broker-only keychain storage"
 - Create: `native/macos/Sources/RecursBrokerCore/CredentialUseReservation.swift`
 - Create: `native/macos/Sources/RecursBrokerCore/StreamingSecretFilter.swift`
 - Modify: `native/macos/Sources/RecursBrokerCore/BrokerCredentialState.swift`
+- Modify: `native/macos/Sources/RecursBrokerCore/BrokerCredentialStateMachine.swift`
 - Create: `native/macos/Tests/RecursBrokerCoreTests/EndpointPolicyTests.swift`
 - Create: `native/macos/Tests/RecursBrokerCoreTests/CredentialUseReservationTests.swift`
+- Create: `native/macos/Tests/RecursBrokerCoreTests/DeliveryStateTests.swift`
 - Create: `native/macos/Tests/RecursBrokerCoreTests/StreamingSecretFilterTests.swift`
+- Modify: `native/macos/Tests/RecursBrokerCoreTests/InMemoryCredentialStore.swift`
 
 **Interfaces:**
 - Produces immutable `EndpointProfile`, `AllowedRoute`, `DeliveryState`, and
@@ -696,7 +699,7 @@ git commit -m "feat: add broker-only keychain storage"
   cancellation, and the `notSent -> requestStarted` boundary.
 - Does not perform a network request in this task.
 
-- [ ] **Step 1: Write failing endpoint-policy tests**
+- [x] **Step 1: Write failing endpoint-policy tests**
 
 Accept exact built-ins for `api.openai.com`, `api.anthropic.com`, and
 `api.kimi.com` plus a separately marked custom public-HTTPS profile. Reject
@@ -706,7 +709,7 @@ link-local, metadata, multicast, reserved, unspecified, IPv4-mapped IPv6, and
 numeric-address ambiguity. Routes are relative IDs mapped by the profile;
 callers cannot submit a URL or auth/Host/Cookie header.
 
-- [ ] **Step 2: Write failing secret-filter tests**
+- [x] **Step 2: Write failing secret-filter tests**
 
 For every split of `RECURS_NATIVE_SECRET_CANARY_79A2` and
 `Bearer RECURS_NATIVE_SECRET_CANARY_79A2`, feed chunks through the
@@ -722,7 +725,7 @@ unchanged anchor/generation may advance once. Cancellation before send erases;
 cancellation after send is advisory. No reservation/token is Codable,
 XPC-facing, or exposed to TypeScript.
 
-- [ ] **Step 3: Run broker-core tests and verify RED**
+- [x] **Step 3: Run broker-core tests and verify RED**
 
 Run:
 
@@ -732,7 +735,7 @@ swift test --package-path native/macos --filter RecursBrokerCoreTests
 
 Expected: FAIL because the policy/filter types are absent.
 
-- [ ] **Step 4: Implement pure endpoint and delivery policy**
+- [x] **Step 4: Implement pure endpoint and delivery policy**
 
 Use `URLComponents` only as an initial parse; reconstruct and compare the exact
 canonical URL, then apply explicit host/address classification. `DeliveryState`
@@ -747,14 +750,14 @@ the final `notSent -> requestStarted` decision. Disconnect/tombstone revocation
 is serialized in that same actor and erases any loaded bytes before send.
 Release/cancellation is idempotent and leaves no Codable/XPC/TypeScript token.
 
-- [ ] **Step 5: Implement rolling exact-secret filtering**
+- [x] **Step 5: Implement rolling exact-secret filtering**
 
 Use a streaming multiple-pattern matcher with lookbehind of
 `maxPatternLength - 1`. Buffer possible prefixes until they are proven safe.
 On a complete match, terminate with fixed `credentialEchoDetected` and emit no
 buffered prefix. Erase pattern and lookbehind storage on terminal/cancel.
 
-- [ ] **Step 6: Run native tests and commit**
+- [x] **Step 6: Run native tests and commit**
 
 ```bash
 npm run check:native

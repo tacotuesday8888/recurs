@@ -5,6 +5,8 @@ import Foundation
 enum StoreBarrierPoint: Sendable, Hashable {
   case storeBeforeSideEffect
   case storeAfterSideEffect
+  case loadBeforeCopy
+  case loadAfterCopy
   case deleteBeforeSideEffect
   case deleteAfterSideEffect
 }
@@ -32,6 +34,7 @@ actor InMemoryCredentialStore: CredentialStore, CustomReflectable {
   private var storeCounts: [CredentialStoreKey: Int] = [:]
   private var loadCounts: [CredentialStoreKey: Int] = [:]
   private var deleteCounts: [CredentialStoreKey: Int] = [:]
+  private var loadProbes: [CredentialStoreKey: [BufferDeallocationProbe]] = [:]
   private var pauseBudgets: [StoreBarrierPoint: Int] = [:]
   private var failureBudgets: [StoreBarrierPoint: Int] = [:]
   private var parked: [StoreBarrierPoint: [CheckedContinuation<Void, Never>]] = [:]
@@ -66,10 +69,24 @@ actor InMemoryCredentialStore: CredentialStore, CustomReflectable {
     for key: CredentialStoreKey
   ) async throws(CredentialStoreError) -> sending SecretBytes {
     loadCounts[key, default: 0] += 1
+    await pauseIfRequested(at: .loadBeforeCopy)
+    if consumeFailure(at: .loadBeforeCopy) {
+      throw .unavailable
+    }
     guard let secret = retained[key] else {
       throw .unavailable
     }
-    return SecretBytes(secret.withUnsafeBytes { Data($0) })
+    let probe = BufferDeallocationProbe()
+    let copy = SecretBytes(
+      probe.makeData(secret.withUnsafeBytes { Array($0) })
+    )
+    loadProbes[key, default: []].append(probe)
+    await pauseIfRequested(at: .loadAfterCopy)
+    if consumeFailure(at: .loadAfterCopy) {
+      copy.erase()
+      throw .unavailable
+    }
+    return copy
   }
 
   func deleteIfPresent(
@@ -139,6 +156,23 @@ actor InMemoryCredentialStore: CredentialStore, CustomReflectable {
 
   func deleteCallCount(for key: CredentialStoreKey) -> Int {
     deleteCounts[key, default: 0]
+  }
+
+  func loadCallCount(for key: CredentialStoreKey) -> Int {
+    loadCounts[key, default: 0]
+  }
+
+  func lastLoadedCopyIsErased(for key: CredentialStoreKey) -> Bool? {
+    loadProbes[key]?.last?.observedZeroization()
+  }
+
+  func lastLoadedCopyProbe(for key: CredentialStoreKey) -> BufferDeallocationProbe? {
+    loadProbes[key]?.last
+  }
+
+  func allLoadedCopiesAreErased(for key: CredentialStoreKey) -> Bool {
+    guard let probes = loadProbes[key], !probes.isEmpty else { return false }
+    return probes.allSatisfy { $0.observedZeroization() == true }
   }
 
   private func consumeFailure(at point: StoreBarrierPoint) -> Bool {
