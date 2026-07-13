@@ -292,6 +292,7 @@ private struct CredentialLifecycleFixture: Sendable {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: fence,
       lastGenerationOrdinal: fence,
       changedAt: firstTimestamp,
@@ -309,6 +310,7 @@ private struct CredentialLifecycleFixture: Sendable {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: fence,
       lastGenerationOrdinal: fence,
       changedAt: timestamp,

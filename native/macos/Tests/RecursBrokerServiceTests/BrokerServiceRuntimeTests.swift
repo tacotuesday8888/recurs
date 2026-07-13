@@ -53,6 +53,7 @@ struct BrokerServiceRuntimeTests {
     let vacantRecord = try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 0,
       lastGenerationOrdinal: 0,
       changedAt: JournalTimestamp(unixMilliseconds: 1_000),
@@ -123,7 +124,10 @@ struct BrokerServiceRuntimeTests {
         requestID: 1,
         connectionID: connectionID,
         operationID: operationID,
-        expectedFence: 0
+        expectedFence: 0,
+        providerBinding: try BrokerCredentialStageBindingDescriptor(
+          activationProfileID: "openai_api_v1"
+        )
       ).encode(),
       secret: Data("runtime-secret".utf8),
       reply: stageReply.receive

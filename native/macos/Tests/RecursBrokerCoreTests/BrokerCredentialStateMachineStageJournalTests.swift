@@ -6,17 +6,130 @@ import Testing
 @Suite("Broker credential state machine journal stage")
 struct BrokerCredentialStateMachineStageJournalTests {
   @Test
+  func proposalReservationAndResumeFingerprintBindTheExactProfile() throws {
+    let fixture = try StageJournalMachineFixture()
+    let ready = try fixture.readyEntry(connectionID: fixture.connectionID, seed: 9)
+    var machine = try BrokerCredentialStateMachine(preparedJournalEntries: [ready])
+
+    #expect(throws: BrokerStateError.invalidTransition) {
+      _ = try machine.stageProposal(
+        connectionID: fixture.connectionID,
+        expectedFence: 1,
+        providerBinding: .anthropic
+      )
+    }
+
+    let proposal = try machine.stageProposal(
+      connectionID: fixture.connectionID,
+      expectedFence: 1,
+      providerBinding: .openAI
+    )
+    let unbound = BrokerCredentialStateMachine.fingerprint(
+      kind: .stage,
+      connectionID: fixture.connectionID,
+      expectedFence: 1
+    )
+    #expect(throws: BrokerJournalError.casConflict) {
+      _ = try machine.reserveJournalStage(
+        proposal: proposal,
+        operationID: fixture.operationID,
+        fingerprint: unbound,
+        generationID: fixture.candidateID,
+        attemptID: fixture.attemptID,
+        capturedAt: fixture.startedAt
+      )
+    }
+
+    let bound = BrokerCredentialStateMachine.fingerprint(
+      kind: .stage,
+      connectionID: fixture.connectionID,
+      expectedFence: 1,
+      providerBinding: .openAI
+    )
+    _ = try machine.reserveJournalStage(
+      proposal: proposal,
+      operationID: fixture.operationID,
+      fingerprint: bound,
+      generationID: fixture.candidateID,
+      attemptID: fixture.attemptID,
+      capturedAt: fixture.startedAt
+    )
+    #expect(
+      try machine.resumeStageFingerprint(
+        connectionID: fixture.connectionID,
+        operationID: fixture.operationID,
+        expectedFence: 1
+      ) == bound
+    )
+  }
+
+  @Test
+  func recoveredStageFailureHydratesItsAuthenticatedBinding() throws {
+    let fixture = try StageJournalMachineFixture()
+    let pending = try BrokerJournalRecordAdapter.makeStorePending(
+      predecessor: nil,
+      connectionID: fixture.connectionID,
+      providerBinding: .openAI,
+      attemptID: fixture.attemptID,
+      operationID: fixture.operationID,
+      candidateGenerationID: fixture.candidateID,
+      capturedAt: fixture.startedAt
+    )
+    let failed = try BrokerJournalRecordAdapter.makeStableStoreFailure(
+      predecessor: pending,
+      changedAt: fixture.finishedAt
+    )
+    let snapshot = try fixture.snapshot(record: failed, tagByte: 8)
+    let plan = try BrokerJournalRecordAdapter.recoveryPlan(
+      for: failed,
+      recoveryChangedAt: fixture.finishedAt
+    )
+    let machine = try BrokerCredentialStateMachine(
+      preparedJournalEntries: [BrokerJournalPreparedEntry(snapshot: snapshot, plan: plan)]
+    )
+
+    let recovered = try machine.resumeStageFingerprint(
+      connectionID: fixture.connectionID,
+      operationID: fixture.operationID,
+      expectedFence: 0
+    )
+    #expect(recovered.providerBinding == .openAI)
+    #expect(
+      try machine.preflight(
+        connectionID: fixture.connectionID,
+        operationID: fixture.operationID,
+        fingerprint: recovered
+      ) == .replay(.stage(.failure(.storeUnavailable)))
+    )
+    let changed = BrokerCredentialStateMachine.fingerprint(
+      kind: .stage,
+      connectionID: fixture.connectionID,
+      expectedFence: 0,
+      providerBinding: .anthropic
+    )
+    #expect(throws: BrokerStateError.operationIDConflict) {
+      _ = try machine.preflight(
+        connectionID: fixture.connectionID,
+        operationID: fixture.operationID,
+        fingerprint: changed
+      )
+    }
+  }
+
+  @Test
   func absentStageReservationProposesExactStorePendingWithoutConsumingAuthority() throws {
     let fixture = try StageJournalMachineFixture()
     var machine = try BrokerCredentialStateMachine(preparedJournalEntries: [])
     let proposal = try machine.stageProposal(
       connectionID: fixture.connectionID,
-      expectedFence: 0
+      expectedFence: 0,
+      providerBinding: .openAI
     )
     let fingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .stage,
       connectionID: fixture.connectionID,
-      expectedFence: 0
+      expectedFence: 0,
+      providerBinding: .openAI
     )
 
     let token = try machine.reserveJournalStage(
@@ -32,6 +145,7 @@ struct BrokerCredentialStateMachineStageJournalTests {
     #expect(token.expected == nil)
     #expect(token.replacement.revision == 1)
     #expect(token.replacement.connectionID == fixture.connectionID)
+    #expect(token.replacement.providerBinding == .openAI)
     #expect(token.replacement.fence == 1)
     #expect(token.replacement.lastGenerationOrdinal == 1)
     guard case .storePending(let payload) = token.replacement.payload else {
@@ -50,7 +164,8 @@ struct BrokerCredentialStateMachineStageJournalTests {
     #expect(
       try machine.stageProposal(
         connectionID: fixture.connectionID,
-        expectedFence: 0
+        expectedFence: 0,
+        providerBinding: .openAI
       ) == proposal
     )
   }
@@ -62,12 +177,14 @@ struct BrokerCredentialStateMachineStageJournalTests {
     var machine = try BrokerCredentialStateMachine(preparedJournalEntries: [readyEntry])
     let proposal = try machine.stageProposal(
       connectionID: fixture.connectionID,
-      expectedFence: 1
+      expectedFence: 1,
+      providerBinding: .openAI
     )
     let fingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .stage,
       connectionID: fixture.connectionID,
-      expectedFence: 1
+      expectedFence: 1,
+      providerBinding: .openAI
     )
 
     let token = try machine.reserveJournalStage(
@@ -95,7 +212,8 @@ struct BrokerCredentialStateMachineStageJournalTests {
     let competingFingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .stage,
       connectionID: fixture.connectionID,
-      expectedFence: 1
+      expectedFence: 1,
+      providerBinding: .openAI
     )
     #expect(throws: BrokerStateError.operationInProgress) {
       _ = try machine.preflight(
@@ -107,7 +225,8 @@ struct BrokerCredentialStateMachineStageJournalTests {
 
     let otherProposal = try machine.stageProposal(
       connectionID: fixture.otherConnectionID,
-      expectedFence: 0
+      expectedFence: 0,
+      providerBinding: .openAI
     )
     let otherToken = try machine.reserveJournalStage(
       proposal: otherProposal,
@@ -115,7 +234,8 @@ struct BrokerCredentialStateMachineStageJournalTests {
       fingerprint: BrokerCredentialStateMachine.fingerprint(
         kind: .stage,
         connectionID: fixture.otherConnectionID,
-        expectedFence: 0
+        expectedFence: 0,
+        providerBinding: .openAI
       ),
       generationID: fixture.otherCandidateID,
       attemptID: fixture.otherAttemptID,
@@ -132,10 +252,15 @@ struct BrokerCredentialStateMachineStageJournalTests {
     let fingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .stage,
       connectionID: fixture.connectionID,
-      expectedFence: 1
+      expectedFence: 1,
+      providerBinding: .openAI
     )
     let reservation = try machine.reserveJournalStage(
-      proposal: machine.stageProposal(connectionID: fixture.connectionID, expectedFence: 1),
+      proposal: machine.stageProposal(
+        connectionID: fixture.connectionID,
+        expectedFence: 1,
+        providerBinding: .openAI
+      ),
       operationID: fixture.operationID,
       fingerprint: fingerprint,
       generationID: fixture.candidateID,
@@ -179,10 +304,15 @@ struct BrokerCredentialStateMachineStageJournalTests {
     let fingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .stage,
       connectionID: fixture.connectionID,
-      expectedFence: 0
+      expectedFence: 0,
+      providerBinding: .openAI
     )
     let reservation = try machine.reserveJournalStage(
-      proposal: machine.stageProposal(connectionID: fixture.connectionID, expectedFence: 0),
+      proposal: machine.stageProposal(
+        connectionID: fixture.connectionID,
+        expectedFence: 0,
+        providerBinding: .openAI
+      ),
       operationID: fixture.operationID,
       fingerprint: fingerprint,
       generationID: fixture.candidateID,
@@ -209,7 +339,8 @@ struct BrokerCredentialStateMachineStageJournalTests {
     #expect(
       try machine.stageProposal(
         connectionID: fixture.connectionID,
-        expectedFence: 0
+        expectedFence: 0,
+        providerBinding: .openAI
       ).nextOrdinal == 1
     )
   }
@@ -482,6 +613,7 @@ private struct StageJournalMachineFixture {
     let record = try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 1,
       lastGenerationOrdinal: 1,
       changedAt: startedAt,
@@ -520,12 +652,14 @@ private struct StageJournalMachineFixture {
     let fingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .stage,
       connectionID: connectionID,
-      expectedFence: expectedFence
+      expectedFence: expectedFence,
+      providerBinding: .openAI
     )
     let reservation = try machine.reserveJournalStage(
       proposal: machine.stageProposal(
         connectionID: connectionID,
-        expectedFence: expectedFence
+        expectedFence: expectedFence,
+        providerBinding: .openAI
       ),
       operationID: operationID,
       fingerprint: fingerprint,

@@ -41,6 +41,7 @@ struct BrokerCredentialAuthorityTests {
     let operationID = UUID(uuidString: "20000000-0000-4000-8000-000000000001")!
     let attempt = try await authority.stage(
       connectionID: vacantID,
+      providerBinding: .openAI,
       operationID: operationID,
       expectedFence: 0,
       secret: SecretBytes(Data("authority-secret".utf8))
@@ -117,6 +118,7 @@ struct BrokerCredentialAuthorityTests {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 0,
       lastGenerationOrdinal: 0,
       changedAt: JournalTimestamp(unixMilliseconds: 1_000),
@@ -135,6 +137,7 @@ struct BrokerCredentialAuthorityTests {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 1,
       lastGenerationOrdinal: 1,
       changedAt: time,
@@ -147,6 +150,7 @@ struct BrokerCredentialAuthorityTests {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 2,
       lastGenerationOrdinal: 1,
       changedAt: time,
@@ -167,6 +171,7 @@ struct BrokerCredentialAuthorityTests {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 1,
       lastGenerationOrdinal: 1,
       changedAt: time,

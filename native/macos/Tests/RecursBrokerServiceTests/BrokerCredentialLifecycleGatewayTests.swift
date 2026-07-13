@@ -68,7 +68,8 @@ struct BrokerCredentialLifecycleGatewayTests {
         requestID: 3,
         connectionID: connectionID,
         operationID: operationID,
-        expectedFence: 0
+        expectedFence: 0,
+        providerBinding: try builtInStageBinding()
       ).encode(),
       secret: fragmentedSecret,
       reply: staged.receive
@@ -88,6 +89,7 @@ struct BrokerCredentialLifecycleGatewayTests {
         )
     )
     #expect(await authority.receivedExpectedSecret())
+    #expect(await authority.receivedProviderBinding() == .openAI)
 
     let resumed = LockedReplyProbe()
     gateway.submitControl(
@@ -144,6 +146,136 @@ struct BrokerCredentialLifecycleGatewayTests {
     )
     #expect(try decoded(reserved.wait()) == .failure(requestID: 7, .operationUnavailable))
     #expect(await authority.callCount() == 5)
+  }
+
+  @Test
+  func stageMapsEverySupportedDescriptorToTheExactCoreBinding() async throws {
+    let cases: [(BrokerCredentialStageBindingDescriptor, ProviderProfileBinding)] = [
+      (
+        try BrokerCredentialStageBindingDescriptor(activationProfileID: "openai_api_v1"),
+        .openAI
+      ),
+      (
+        try BrokerCredentialStageBindingDescriptor(activationProfileID: "anthropic_api_v1"),
+        .anthropic
+      ),
+      (
+        try BrokerCredentialStageBindingDescriptor(activationProfileID: "kimi_code_v1"),
+        .kimiCode
+      ),
+      (
+        try BrokerCredentialStageBindingDescriptor(
+          activationProfileID: "custom_openai_compatible_v1",
+          customBaseURL: "https://gateway.vendor.dev/v1",
+          customModelCatalogBehavior: .modelsRoute
+        ),
+        try .customOpenAICompatible(
+          baseURL: "https://gateway.vendor.dev/v1",
+          modelCatalogBehavior: .modelsRoute
+        )
+      ),
+      (
+        try BrokerCredentialStageBindingDescriptor(
+          activationProfileID: "custom_openai_compatible_v1",
+          customBaseURL: "https://inference.vendor.net/base",
+          customModelCatalogBehavior: .unavailable
+        ),
+        try .customOpenAICompatible(
+          baseURL: "https://inference.vendor.net/base",
+          modelCatalogBehavior: .unavailable
+        )
+      ),
+    ]
+
+    for (offset, fixture) in cases.enumerated() {
+      let authority = GatewayAuthority()
+      let gateway = BrokerCredentialLifecycleGateway(authority: authority)
+      gateway.authorizeAfterHello()
+      let reply = LockedReplyProbe()
+      gateway.submitStage(
+        metadata: try BrokerCredentialStageRequest(
+          requestID: UInt64(offset + 1),
+          connectionID: connectionID,
+          operationID: operationID,
+          expectedFence: 0,
+          providerBinding: fixture.0
+        ).encode(),
+        secret: Data("secret-canary-9dbec5".utf8),
+        reply: reply.receive
+      )
+      #expect(try decoded(reply.wait()).requestID == UInt64(offset + 1))
+      #expect(await authority.receivedProviderBinding() == fixture.1)
+      #expect(await authority.callCount() == 1)
+    }
+  }
+
+  @Test
+  func invalidProviderBindingIsRejectedBeforeAdmissionAndConsumesItsID() async throws {
+    let invalid = [
+      try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: "future_profile_v1"
+      ),
+      try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: "openai_api_v1",
+        customBaseURL: "https://gateway.vendor.dev/v1",
+        customModelCatalogBehavior: .modelsRoute
+      ),
+      try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: "custom_openai_compatible_v1"
+      ),
+      try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: "custom_openai_compatible_v1",
+        customBaseURL: "https://127.0.0.1/v1",
+        customModelCatalogBehavior: .unavailable
+      ),
+      try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: "custom_openai_compatible_v1",
+        customBaseURL: "https://api.openai.com/v1",
+        customModelCatalogBehavior: .modelsRoute
+      ),
+      try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: "custom_openai_compatible_v1",
+        customBaseURL: "https://gateway.vendor.dev/v1/",
+        customModelCatalogBehavior: .modelsRoute
+      ),
+    ]
+
+    for descriptor in invalid {
+      let authority = GatewayAuthority()
+      let gateway = BrokerCredentialLifecycleGateway(authority: authority)
+      let rejected = LockedReplyProbe()
+      gateway.submitStage(
+        metadata: try BrokerCredentialStageRequest(
+          requestID: 1,
+          connectionID: connectionID,
+          operationID: operationID,
+          expectedFence: 0,
+          providerBinding: descriptor
+        ).encode(),
+        secret: Data("secret-canary-9dbec5".utf8),
+        reply: rejected.receive
+      )
+      let rejectedData = rejected.wait()
+      #expect(try decoded(rejectedData) == .failure(requestID: 1, .invalidRequest))
+      let rejectedText = String(decoding: rejectedData, as: UTF8.self)
+      #expect(!rejectedText.contains(descriptor.activationProfileID))
+      if let customBaseURL = descriptor.customBaseURL {
+        #expect(!rejectedText.contains(customBaseURL))
+      }
+      #expect(await authority.callCount() == 0)
+
+      gateway.authorizeAfterHello()
+      let replay = LockedReplyProbe()
+      gateway.submitControl(
+        try BrokerCredentialControlRequest.projection(
+          requestID: 1,
+          connectionID: connectionID
+        ).encode(),
+        reply: replay.receive
+      )
+      #expect(try decoded(replay.wait()) == .failure(requestID: 1, .invalidRequest))
+      #expect(await authority.callCount() == 0)
+    }
   }
 
   @Test
@@ -360,7 +492,8 @@ struct BrokerCredentialLifecycleGatewayTests {
         requestID: 1,
         connectionID: connectionID,
         operationID: operationID,
-        expectedFence: 0
+        expectedFence: 0,
+        providerBinding: try builtInStageBinding()
       ).encode(),
       secret: Data(repeating: 0x5a, count: byteCount),
       reply: rejected.receive
@@ -383,6 +516,10 @@ struct BrokerCredentialLifecycleGatewayTests {
     try BrokerCredentialLifecycleReply.decode(data)
   }
 
+}
+
+private func builtInStageBinding() throws -> BrokerCredentialStageBindingDescriptor {
+  try BrokerCredentialStageBindingDescriptor(activationProfileID: "openai_api_v1")
 }
 
 enum GatewayFailure: Sendable, CustomTestStringConvertible {
@@ -438,6 +575,7 @@ private struct GatewayAuthority: BrokerCredentialLifecycleAuthority {
 
   func stage(
     connectionID: UUID,
+    providerBinding: ProviderProfileBinding,
     operationID: UUID,
     expectedFence: UInt64,
     secret: sending SecretBytes
@@ -452,6 +590,7 @@ private struct GatewayAuthority: BrokerCredentialLifecycleAuthority {
     }
     secret.erase()
     await state.recordSecretMatch(matchesExpected)
+    await state.recordProviderBinding(providerBinding)
     return stagingAttempt(connectionID: connectionID, fence: expectedFence + 1)
   }
 
@@ -492,6 +631,9 @@ private struct GatewayAuthority: BrokerCredentialLifecycleAuthority {
   }
 
   func receivedExpectedSecret() async -> Bool { await state.receivedExpectedSecret() }
+  func receivedProviderBinding() async -> ProviderProfileBinding? {
+    await state.receivedProviderBinding()
+  }
   func callCount() async -> Int { await state.callCount() }
 
   func waitForCallCount(
@@ -526,10 +668,13 @@ private struct GatewayAuthority: BrokerCredentialLifecycleAuthority {
 private actor GatewayAuthorityState {
   private var calls = 0
   private var matchedExpectedSecret = false
+  private var providerBinding: ProviderProfileBinding?
 
   func recordCall() { calls += 1 }
   func recordSecretMatch(_ matches: Bool) { matchedExpectedSecret = matches }
+  func recordProviderBinding(_ value: ProviderProfileBinding) { providerBinding = value }
   func receivedExpectedSecret() -> Bool { matchedExpectedSecret }
+  func receivedProviderBinding() -> ProviderProfileBinding? { providerBinding }
   func callCount() -> Int { calls }
 }
 

@@ -86,6 +86,10 @@ struct BrokerJournalRecordAdapterTests {
         for: record,
         recoveryChangedAt: recoveryTime
       )
+      #expect(record.providerBinding == .openAI)
+      if let preparation = plan.preparation {
+        #expect(preparation.providerBinding == record.providerBinding)
+      }
       #expect(plan.bootstrap == (try fixture.expectedBootstrap(for: record.phase)))
       #expect(plan.projection == (try fixture.expectedProjection(for: record.phase)))
 
@@ -143,6 +147,7 @@ struct BrokerJournalRecordAdapterTests {
     let pending = try BrokerJournalRecordAdapter.makeStorePending(
       predecessor: nil,
       connectionID: connectionID,
+      providerBinding: .openAI,
       attemptID: attemptID,
       operationID: stageOperationID,
       candidateGenerationID: generationID,
@@ -150,6 +155,7 @@ struct BrokerJournalRecordAdapterTests {
     )
 
     #expect(pending.revision == 1)
+    #expect(pending.providerBinding == .openAI)
     #expect(pending.fence == 1)
     #expect(pending.lastGenerationOrdinal == 1)
     #expect(pending.changedAt == captured)
@@ -170,6 +176,8 @@ struct BrokerJournalRecordAdapterTests {
       capturedAt: captured
     )
     #expect(committed.phase == .ready)
+    #expect(staging.providerBinding == pending.providerBinding)
+    #expect(committed.providerBinding == pending.providerBinding)
     #expect(committed.changedAt == captured)
     #expect(committed.terminalOperations.count == 1)
     guard
@@ -191,6 +199,7 @@ struct BrokerJournalRecordAdapterTests {
     let pending = try BrokerJournalRecordAdapter.makeStorePending(
       predecessor: readyRecord,
       connectionID: fixture.connectionID,
+      providerBinding: .openAI,
       attemptID: fixtureUUID(31),
       operationID: fixtureUUID(32),
       candidateGenerationID: fixtureUUID(33),
@@ -206,12 +215,14 @@ struct BrokerJournalRecordAdapterTests {
       capturedAt: captured
     )
     #expect(cleanupPending.phase == .readyCleanupPending)
+    #expect(cleanupPending.providerBinding == readyRecord.providerBinding)
 
     let stable = try BrokerJournalRecordAdapter.makeStableCommit(
       predecessor: cleanupPending,
       changedAt: captured
     )
     #expect(stable.phase == .ready)
+    #expect(stable.providerBinding == readyRecord.providerBinding)
     #expect(stable.fence == cleanupPending.fence)
     #expect(stable.lastGenerationOrdinal == cleanupPending.lastGenerationOrdinal)
     #expect(stable.terminalOperations.count == readyRecord.terminalOperations.count + 1)
@@ -379,6 +390,7 @@ struct BrokerJournalRecordAdapterTests {
       _ = try BrokerJournalRecordAdapter.makeStorePending(
         predecessor: ready,
         connectionID: fixture.connectionID,
+        providerBinding: .openAI,
         attemptID: fixtureUUID(61),
         operationID: fixtureUUID(62),
         candidateGenerationID: fixture.previous.generation.generationID,
@@ -389,6 +401,7 @@ struct BrokerJournalRecordAdapterTests {
       _ = try BrokerJournalRecordAdapter.makeStorePending(
         predecessor: ready,
         connectionID: fixtureUUID(63),
+        providerBinding: .openAI,
         attemptID: fixtureUUID(64),
         operationID: fixtureUUID(65),
         candidateGenerationID: fixtureUUID(66),
@@ -414,6 +427,7 @@ struct BrokerJournalRecordAdapterTests {
     let readyWithOperationHistory = try BrokerJournalRecord(
       revision: 1,
       connectionID: fixture.connectionID,
+      providerBinding: .openAI,
       fence: 2,
       lastGenerationOrdinal: 2,
       changedAt: timestamp,
@@ -424,6 +438,7 @@ struct BrokerJournalRecordAdapterTests {
       _ = try BrokerJournalRecordAdapter.makeStorePending(
         predecessor: readyWithOperationHistory,
         connectionID: fixture.connectionID,
+        providerBinding: .openAI,
         attemptID: fixtureUUID(71),
         operationID: retainedOperationID,
         candidateGenerationID: fixtureUUID(72),
@@ -451,6 +466,7 @@ struct BrokerJournalRecordAdapterTests {
     let readyWithAttemptHistory = try BrokerJournalRecord(
       revision: 1,
       connectionID: fixture.connectionID,
+      providerBinding: .openAI,
       fence: 2,
       lastGenerationOrdinal: 2,
       changedAt: timestamp,
@@ -461,6 +477,7 @@ struct BrokerJournalRecordAdapterTests {
       _ = try BrokerJournalRecordAdapter.makeStorePending(
         predecessor: readyWithAttemptHistory,
         connectionID: fixture.connectionID,
+        providerBinding: .openAI,
         attemptID: retainedAttemptID,
         operationID: fixtureUUID(75),
         candidateGenerationID: fixtureUUID(76),
@@ -605,6 +622,7 @@ private struct PhaseFixture {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 0,
       lastGenerationOrdinal: 0,
       changedAt: timestamp,
@@ -696,6 +714,7 @@ private struct PhaseFixture {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 3,
       lastGenerationOrdinal: 2,
       changedAt: timestamp,
@@ -714,6 +733,7 @@ private struct PhaseFixture {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 3,
       lastGenerationOrdinal: 2,
       changedAt: timestamp,
@@ -831,6 +851,7 @@ private struct PhaseFixture {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 2,
       lastGenerationOrdinal: 2,
       changedAt: timestamp,

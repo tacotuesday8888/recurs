@@ -20,26 +20,228 @@ struct BrokerCredentialLifecycleCodecTests {
       requestID: 1,
       connectionID: connectionID,
       operationID: operationID,
-      expectedFence: 9
+      expectedFence: 9,
+      providerBinding: try builtInStageBinding()
     )
 
     let encoded = try request.encode()
 
-    #expect(encoded.count == 60)
+    #expect(encoded.count == 77)
     #expect(
       Array(encoded.prefix(12))
         == [
           0x52, 0x43, 0x43, 0x4c,
           0x00, 0x01,
           0x00, 0x01,
-          0x00, 0x00, 0x00, 0x30,
+          0x00, 0x00, 0x00, 0x41,
         ]
     )
     #expect(Array(encoded[12..<20]) == Array(uint64(1)))
     #expect(Array(encoded[20..<36]) == Array(uuidBytes(connectionID)))
     #expect(Array(encoded[36..<52]) == Array(uuidBytes(operationID)))
     #expect(Array(encoded[52..<60]) == Array(uint64(9)))
+    #expect(encoded[60] == 13)
+    #expect(Data(encoded[61..<74]) == Data("openai_api_v1".utf8))
+    #expect(Array(encoded[74..<76]) == [0, 0])
+    #expect(encoded[76] == 0)
     #expect(try BrokerCredentialStageRequest.decode(encoded) == request)
+  }
+
+  @Test
+  func stageBindingDescriptorRoundTripsBuiltInAndBothCustomCatalogs() throws {
+    let descriptors = [
+      try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: "openai_api_v1"
+      ),
+      try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: "custom_openai_compatible_v1",
+        customBaseURL: "https://api.example.com/v1",
+        customModelCatalogBehavior: .modelsRoute
+      ),
+      try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: "custom_openai_compatible_v1",
+        customBaseURL: "https://catalogless.example.com/base",
+        customModelCatalogBehavior: .unavailable
+      ),
+    ]
+
+    for (offset, descriptor) in descriptors.enumerated() {
+      let request = try BrokerCredentialStageRequest(
+        requestID: UInt64(offset + 20),
+        connectionID: connectionID,
+        operationID: operationID,
+        expectedFence: 9,
+        providerBinding: descriptor
+      )
+      let encoded = try request.encode()
+      #expect(encoded.last == UInt8(offset))
+      #expect(try BrokerCredentialStageRequest.decode(encoded) == request)
+    }
+  }
+
+  @Test
+  func stageBindingDescriptorEnforcesExactASCIIAndByteBounds() throws {
+    let minimum = try BrokerCredentialStageRequest(
+      requestID: 22,
+      connectionID: connectionID,
+      operationID: operationID,
+      expectedFence: 0,
+      providerBinding: try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: "p",
+        customBaseURL: "b",
+        customModelCatalogBehavior: .unavailable
+      )
+    )
+    #expect(try BrokerCredentialStageRequest.decode(minimum.encode()) == minimum)
+
+    let maximumProfile = String(repeating: "p", count: 64)
+    let maximumBase = String(repeating: "b", count: 2_048)
+    let maximum = try BrokerCredentialStageRequest(
+      requestID: 23,
+      connectionID: connectionID,
+      operationID: operationID,
+      expectedFence: 0,
+      providerBinding: try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: maximumProfile,
+        customBaseURL: maximumBase,
+        customModelCatalogBehavior: .modelsRoute
+      )
+    )
+    let maximumFrame = try maximum.encode()
+    #expect(maximumFrame.count == 2_176)
+    #expect(try BrokerCredentialStageRequest.decode(maximumFrame) == maximum)
+
+    let invalidProfiles = [
+      "",
+      String(repeating: "p", count: 65),
+      "openai api v1",
+      "openai\u{7f}api",
+      "openai\napi",
+      "opénai_api_v1",
+    ]
+    for profile in invalidProfiles {
+      expectFailure {
+        _ = try BrokerCredentialStageBindingDescriptor(activationProfileID: profile)
+      }
+    }
+
+    let invalidBases = [
+      "",
+      String(repeating: "b", count: 2_049),
+      "https://api.example.com/v 1",
+      "https://api.example.com/\u{7f}",
+      "https://api.example.com/\n",
+      "https://api.exämple.com/v1",
+    ]
+    for base in invalidBases {
+      expectFailure {
+        _ = try BrokerCredentialStageBindingDescriptor(
+          activationProfileID: "custom_openai_compatible_v1",
+          customBaseURL: base,
+          customModelCatalogBehavior: .modelsRoute
+        )
+      }
+    }
+
+    expectFailure {
+      _ = try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: "custom_openai_compatible_v1",
+        customBaseURL: "https://api.example.com/v1"
+      )
+    }
+    expectFailure {
+      _ = try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: "custom_openai_compatible_v1",
+        customModelCatalogBehavior: .modelsRoute
+      )
+    }
+  }
+
+  @Test
+  func stageDecoderRejectsEveryDescriptorTruncationAndMalformedField() throws {
+    let requestID: UInt64 = 29
+    let profile = "custom_openai_compatible_v1"
+    let base = "https://api.example.com/v1"
+    let valid = try BrokerCredentialStageRequest(
+      requestID: requestID,
+      connectionID: connectionID,
+      operationID: operationID,
+      expectedFence: 0,
+      providerBinding: try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: profile,
+        customBaseURL: base,
+        customModelCatalogBehavior: .modelsRoute
+      )
+    ).encode()
+
+    for end in 60..<valid.count {
+      var truncated = Data(valid.prefix(end))
+      replaceUInt32(&truncated, at: 8, with: UInt32(end - 12))
+      expectFailure { _ = try BrokerCredentialStageRequest.decode(truncated) }
+    }
+
+    let profileStart = 61
+    let baseLengthOffset = profileStart + profile.utf8.count
+    let baseStart = baseLengthOffset + 2
+    let catalogOffset = baseStart + base.utf8.count
+    var malformed: [Data] = []
+
+    var emptyProfile = valid
+    emptyProfile[60] = 0
+    malformed.append(emptyProfile)
+    var longProfile = valid
+    longProfile[60] = 65
+    malformed.append(longProfile)
+    var invalidProfileASCII = valid
+    invalidProfileASCII[profileStart] = 0x20
+    malformed.append(invalidProfileASCII)
+    var invalidProfileUTF8 = valid
+    invalidProfileUTF8[profileStart] = 0x80
+    malformed.append(invalidProfileUTF8)
+    var invalidBaseASCII = valid
+    invalidBaseASCII[baseStart] = 0x7f
+    malformed.append(invalidBaseASCII)
+    var invalidBaseUTF8 = valid
+    invalidBaseUTF8[baseStart] = 0x80
+    malformed.append(invalidBaseUTF8)
+    var longBase = valid
+    replaceUInt16(&longBase, at: baseLengthOffset, with: 2_049)
+    malformed.append(longBase)
+    var unknownCatalog = valid
+    unknownCatalog[catalogOffset] = 3
+    malformed.append(unknownCatalog)
+    var missingCatalog = valid
+    missingCatalog[catalogOffset] = 0
+    malformed.append(missingCatalog)
+    var missingBase = valid
+    replaceUInt16(&missingBase, at: baseLengthOffset, with: 0)
+    malformed.append(missingBase)
+
+    for bytes in malformed {
+      do {
+        _ = try BrokerCredentialStageRequest.decode(bytes)
+        Issue.record("Expected malformed provider descriptor to fail")
+      } catch let error as BrokerCredentialLifecycleCodecError {
+        #expect(error.requestID == requestID)
+        #expect(error.description == "invalid credential lifecycle frame")
+      } catch {
+        Issue.record("Expected the fixed credential lifecycle codec error")
+      }
+    }
+  }
+
+  @Test
+  func codecPreservesUnknownButSyntacticallyValidProfileForServiceValidation() throws {
+    let request = try BrokerCredentialStageRequest(
+      requestID: 31,
+      connectionID: connectionID,
+      operationID: operationID,
+      expectedFence: 0,
+      providerBinding: try BrokerCredentialStageBindingDescriptor(
+        activationProfileID: "future_profile_v1"
+      )
+    )
+    #expect(try BrokerCredentialStageRequest.decode(request.encode()) == request)
   }
 
   @Test
@@ -181,7 +383,8 @@ struct BrokerCredentialLifecycleCodecTests {
         requestID: 0,
         connectionID: connectionID,
         operationID: operationID,
-        expectedFence: 0
+        expectedFence: 0,
+        providerBinding: try builtInStageBinding()
       )
     }
     expectFailure {
@@ -189,7 +392,8 @@ struct BrokerCredentialLifecycleCodecTests {
         requestID: brokerCredentialMalformedRequestID,
         connectionID: connectionID,
         operationID: operationID,
-        expectedFence: 0
+        expectedFence: 0,
+        providerBinding: try builtInStageBinding()
       )
     }
     expectFailure {
@@ -197,7 +401,8 @@ struct BrokerCredentialLifecycleCodecTests {
         requestID: 1,
         connectionID: zeroUUID,
         operationID: operationID,
-        expectedFence: 0
+        expectedFence: 0,
+        providerBinding: try builtInStageBinding()
       )
     }
     expectFailure {
@@ -205,7 +410,8 @@ struct BrokerCredentialLifecycleCodecTests {
         requestID: 1,
         connectionID: connectionID,
         operationID: zeroUUID,
-        expectedFence: 0
+        expectedFence: 0,
+        providerBinding: try builtInStageBinding()
       )
     }
 
@@ -267,7 +473,8 @@ struct BrokerCredentialLifecycleCodecTests {
       requestID: 1,
       connectionID: connectionID,
       operationID: operationID,
-      expectedFence: 0
+      expectedFence: 0,
+      providerBinding: try builtInStageBinding()
     ).encode()
     for invalidID in [UInt64(0), brokerCredentialMalformedRequestID] {
       var bytes = validStage
@@ -300,7 +507,8 @@ struct BrokerCredentialLifecycleCodecTests {
       requestID: 19,
       connectionID: connectionID,
       operationID: operationID,
-      expectedFence: 0
+      expectedFence: 0,
+      providerBinding: try builtInStageBinding()
     ).encode()
     var badMagic = valid
     badMagic[0] = 0
@@ -389,7 +597,8 @@ struct BrokerCredentialLifecycleCodecTests {
       requestID: 7,
       connectionID: connectionID,
       operationID: operationID,
-      expectedFence: 8
+      expectedFence: 8,
+      providerBinding: try builtInStageBinding()
     ).encode()
     var malformed: [Data] = [Data(), Data(valid.prefix(11)), Data(valid.dropLast())]
 
@@ -408,7 +617,7 @@ struct BrokerCredentialLifecycleCodecTests {
     var trailing = valid
     trailing.append(0)
     malformed.append(trailing)
-    malformed.append(frame(kind: 1, body: Data(repeating: 0, count: 257)))
+    malformed.append(frame(kind: 1, body: Data(repeating: 0, count: 2_165)))
 
     for bytes in malformed {
       expectFailure { _ = try BrokerCredentialStageRequest.decode(bytes) }
@@ -443,7 +652,8 @@ struct BrokerCredentialLifecycleCodecTests {
       requestID: 1,
       connectionID: connectionID,
       operationID: operationID,
-      expectedFence: 0
+      expectedFence: 0,
+      providerBinding: try builtInStageBinding()
     ).encode()
     expectFailure { _ = try BrokerCredentialControlRequest.decode(stage) }
     expectFailure { _ = try BrokerCredentialStageRequest.decode(reserved) }
@@ -726,6 +936,9 @@ struct BrokerCredentialLifecycleCodecTests {
       "file_path",
       "journalrecord",
       "journal_record",
+      "openai_api_v1",
+      "custom_openai_compatible_v1",
+      "https://api.example.com/v1",
     ]
 
     for reply in replies {
@@ -744,6 +957,10 @@ private func expectFailure(_ operation: () throws -> Void) {
     try operation()
     Issue.record("Expected credential lifecycle codec operation to fail")
   } catch {}
+}
+
+private func builtInStageBinding() throws -> BrokerCredentialStageBindingDescriptor {
+  try BrokerCredentialStageBindingDescriptor(activationProfileID: "openai_api_v1")
 }
 
 private func frame(kind: UInt16, body: Data) -> Data {

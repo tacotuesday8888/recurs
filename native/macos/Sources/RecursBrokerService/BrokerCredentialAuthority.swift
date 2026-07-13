@@ -9,6 +9,7 @@ protocol BrokerCredentialLifecycleAuthority: Sendable {
 
   func stage(
     connectionID: UUID,
+    providerBinding: ProviderProfileBinding,
     operationID: UUID,
     expectedFence: UInt64,
     secret: sending SecretBytes
@@ -74,12 +75,14 @@ struct BrokerCredentialAuthority:
 
   func stage(
     connectionID: UUID,
+    providerBinding: ProviderProfileBinding,
     operationID: UUID,
     expectedFence: UInt64,
     secret: sending SecretBytes
   ) async throws(BrokerStateError) -> StagingAttempt {
     try await state.stage(
       connectionID: connectionID,
+      providerBinding: providerBinding,
       operationID: operationID,
       expectedFence: expectedFence,
       secret: secret

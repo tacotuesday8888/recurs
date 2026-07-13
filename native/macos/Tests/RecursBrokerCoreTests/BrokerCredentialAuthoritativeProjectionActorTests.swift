@@ -373,6 +373,7 @@ private struct AuthoritativeProjectionActorFixture: Sendable {
     let pending = try BrokerJournalRecordAdapter.makeStorePending(
       predecessor: ready,
       connectionID: primaryID,
+      providerBinding: .openAI,
       attemptID: attemptID,
       operationID: stageID,
       candidateGenerationID: generationID,
@@ -430,6 +431,7 @@ private struct AuthoritativeProjectionActorFixture: Sendable {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 0,
       lastGenerationOrdinal: 0,
       changedAt: time,
@@ -449,6 +451,7 @@ private struct AuthoritativeProjectionActorFixture: Sendable {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 1,
       lastGenerationOrdinal: 1,
       changedAt: time,

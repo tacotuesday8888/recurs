@@ -6,6 +6,23 @@ import Testing
 @Suite("Broker credential-use reservation")
 struct CredentialUseReservationTests {
   @Test
+  func mismatchedExpectedBindingFailsBeforeJournalOrCredentialLoad() async throws {
+    let fixture = try CredentialUseFixture()
+    let harness = try await fixture.harness()
+    await harness.journal.resetEvents()
+
+    await expectCredentialUseError(.invalidReservation) {
+      try await harness.state.reserveCredentialUse(
+        connectionID: fixture.connectionID,
+        expectedBinding: .anthropic
+      )
+    }
+
+    #expect(await harness.journal.events().isEmpty)
+    #expect(await harness.store.loadCallCount(for: fixture.readyKey) == 0)
+  }
+
+  @Test
   func unchangedAuthorityLoadsBetweenTwoExactAnchorsAndStartsOnce() async throws {
     let fixture = try CredentialUseFixture()
     let harness = try await fixture.harness()
@@ -696,6 +713,7 @@ private struct CredentialUseFixture: Sendable {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 1,
       lastGenerationOrdinal: 1,
       changedAt: time,

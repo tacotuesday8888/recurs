@@ -295,13 +295,15 @@ struct BrokerJournalModelTests {
       let record = try BrokerJournalRecord(
         revision: 1,
         connectionID: fixtureUUID(30),
+        providerBinding: .openAI,
         fence: fence,
         lastGenerationOrdinal: lastOrdinal,
         changedAt: timestamp,
         payload: payload,
         terminalOperations: []
       )
-      #expect(record.schemaVersion == 1)
+      #expect(record.schemaVersion == 2)
+      #expect(record.providerBinding == .openAI)
       phases.append(record.phase)
     }
     #expect(phases.count == 9)
@@ -1544,6 +1546,7 @@ private func modelRecord(
   try BrokerJournalRecord(
     revision: revision,
     connectionID: connectionID,
+    providerBinding: .openAI,
     fence: fence,
     lastGenerationOrdinal: lastOrdinal,
     changedAt: timestamp,

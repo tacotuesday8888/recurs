@@ -387,15 +387,38 @@ struct BrokerCredentialLifecycleXPCTests {
     #expect(authority.callCount == 0)
 
     let staged = LockedDataProbe()
+    let customBaseURL = "https://gateway.vendor.dev/" + String(repeating: "a", count: 400)
+    let customDescriptor = try BrokerCredentialStageBindingDescriptor(
+      activationProfileID: "custom_openai_compatible_v1",
+      customBaseURL: customBaseURL,
+      customModelCatalogBehavior: .unavailable
+    )
+    let metadataAlias = try stageRequest(
+      requestID: 2,
+      providerBinding: customDescriptor
+    ).encode()
+    let metadataTransfer = metadataAlias
+    let secretAlias = Data("anonymous-xpc-secret".utf8)
+    let secretTransfer = secretAlias
     proxy.stageCredential(
-      try stageRequest(requestID: 2).encode(),
-      secret: Data("anonymous-xpc-secret".utf8),
+      metadataTransfer,
+      secret: secretTransfer,
       reply: staged.receive
     )
-    if case .staged(requestID: 2, _) = try decodeLifecycleReply(staged.wait()) {
+    let stagedData = staged.wait()
+    if case .staged(requestID: 2, _) = try decodeLifecycleReply(stagedData) {
     } else {
       Issue.record("Expected a staged anonymous-XPC reply")
     }
+    #expect(metadataAlias == metadataTransfer)
+    #expect(secretAlias == Data("anonymous-xpc-secret".utf8))
+    #expect(!String(decoding: stagedData, as: UTF8.self).contains(customBaseURL))
+    #expect(!String(decoding: stagedData, as: UTF8.self).contains("custom_openai_compatible_v1"))
+    let expectedProviderBinding = try ProviderProfileBinding.customOpenAICompatible(
+      baseURL: customBaseURL,
+      modelCatalogBehavior: .unavailable
+    )
+    #expect(authority.receivedProviderBinding == expectedProviderBinding)
 
     let control = LockedDataProbe()
     proxy.credentialControl(
@@ -440,11 +463,24 @@ struct BrokerCredentialLifecycleXPCTests {
   }
 
   private func stageRequest(requestID: UInt64) throws -> BrokerCredentialStageRequest {
+    try stageRequest(
+      requestID: requestID,
+      providerBinding: BrokerCredentialStageBindingDescriptor(
+        activationProfileID: "openai_api_v1"
+      )
+    )
+  }
+
+  private func stageRequest(
+    requestID: UInt64,
+    providerBinding: BrokerCredentialStageBindingDescriptor
+  ) throws -> BrokerCredentialStageRequest {
     try BrokerCredentialStageRequest(
       requestID: requestID,
       connectionID: connectionID,
       operationID: operationID,
-      expectedFence: 0
+      expectedFence: 0,
+      providerBinding: providerBinding
     )
   }
 
@@ -677,6 +713,7 @@ private final class XPCFakeAuthority: BrokerCredentialLifecycleAuthority, @unche
   private var cancellations = 0
   private var projectionCompletions = 0
   private var matchedSecret = false
+  private var providerBinding: ProviderProfileBinding?
 
   init(suspendProjection: Bool = false, expectedSecret: Data? = nil) {
     self.suspendProjection = suspendProjection
@@ -686,6 +723,9 @@ private final class XPCFakeAuthority: BrokerCredentialLifecycleAuthority, @unche
   var callCount: Int { condition.withLock { calls.count } }
   var cancellationCount: Int { condition.withLock { cancellations } }
   var receivedExpectedSecret: Bool { condition.withLock { matchedSecret } }
+  var receivedProviderBinding: ProviderProfileBinding? {
+    condition.withLock { providerBinding }
+  }
 
   func waitForCallCount(_ expected: Int, timeout: TimeInterval = 3) -> Bool {
     condition.lock()
@@ -728,13 +768,18 @@ private final class XPCFakeAuthority: BrokerCredentialLifecycleAuthority, @unche
 
   func stage(
     connectionID: UUID,
+    providerBinding: ProviderProfileBinding,
     operationID: UUID,
     expectedFence: UInt64,
     secret: sending SecretBytes
   ) async throws(BrokerStateError) -> StagingAttempt {
     let bytes = secret.withUnsafeBytes { Data($0) }
     secret.erase()
-    recordStage(connectionID: connectionID, bytes: bytes)
+    recordStage(
+      connectionID: connectionID,
+      providerBinding: providerBinding,
+      bytes: bytes
+    )
     return StagingAttempt(
       connectionID: connectionID,
       attemptID: UUID(uuidString: "60000000-0000-4000-8000-000000000011")!,
@@ -813,9 +858,14 @@ private final class XPCFakeAuthority: BrokerCredentialLifecycleAuthority, @unche
     condition.unlock()
   }
 
-  private func recordStage(connectionID: UUID, bytes: Data) {
+  private func recordStage(
+    connectionID: UUID,
+    providerBinding: ProviderProfileBinding,
+    bytes: Data
+  ) {
     condition.lock()
     calls.append(("stage", connectionID))
+    self.providerBinding = providerBinding
     if let expectedSecret { matchedSecret = bytes == expectedSecret }
     condition.broadcast()
     condition.unlock()

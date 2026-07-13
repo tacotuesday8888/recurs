@@ -171,6 +171,7 @@ struct InMemoryBrokerJournalStoreTests {
     let record = try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 1,
       lastGenerationOrdinal: 1,
       changedAt: createdAt,
@@ -202,6 +203,7 @@ struct InMemoryBrokerJournalStoreTests {
     return try BrokerJournalRecord(
       revision: current.revision + 1,
       connectionID: current.connectionID,
+      providerBinding: .openAI,
       fence: current.fence,
       lastGenerationOrdinal: current.lastGenerationOrdinal,
       changedAt: current.changedAt,

@@ -416,8 +416,8 @@ struct FileBrokerJournalStoreReadTests {
 
     let unsupported = try await selectedFixture(anchorRevision: 1)
     let unsupportedNode = try #require(unsupported.backend.node(unsupported.selectedPath))
-    let schema = try #require(unsupportedNode.content.range(of: Data(#""schemaVersion":1"#.utf8)))
-    unsupportedNode.content.replaceSubrange(schema, with: Data(#""schemaVersion":2"#.utf8))
+    let schema = try #require(unsupportedNode.content.range(of: Data(#""schemaVersion":2"#.utf8)))
+    unsupportedNode.content.replaceSubrange(schema, with: Data(#""schemaVersion":1"#.utf8))
     await #expect(throws: BrokerJournalError.unsupportedVersion) {
       _ = try await unsupported.store.load(connectionID: unsupported.connectionID)
     }
@@ -617,6 +617,7 @@ struct FileBrokerJournalStoreReadTests {
     let record = try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 0,
       lastGenerationOrdinal: 0,
       changedAt: JournalTimestamp(canonicalText: "2026-07-13T00:00:00.000Z"),
@@ -680,6 +681,7 @@ struct FileBrokerJournalStoreReadTests {
     let record = try BrokerJournalRecord(
       revision: recordRevision ?? anchorRevision,
       connectionID: recordConnectionID ?? connectionID,
+      providerBinding: .openAI,
       fence: 0,
       lastGenerationOrdinal: 0,
       changedAt: JournalTimestamp(canonicalText: "2026-07-13T00:00:00.000Z"),
@@ -742,6 +744,7 @@ struct FileBrokerJournalStoreReadTests {
     let record = try BrokerJournalRecord(
       revision: revision,
       connectionID: recordConnectionID ?? connectionID,
+      providerBinding: .openAI,
       fence: 0,
       lastGenerationOrdinal: 0,
       changedAt: JournalTimestamp(canonicalText: "2026-07-13T00:00:00.000Z"),

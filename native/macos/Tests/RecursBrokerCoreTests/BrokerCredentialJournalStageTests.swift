@@ -14,6 +14,7 @@ struct BrokerCredentialJournalStageTests {
 
     let attempt = try await harness.state.stage(
       connectionID: fixture.connectionID,
+      providerBinding: .openAI,
       operationID: fixture.operationID,
       expectedFence: 0,
       secret: SecretBytes(Data("journal-stage-canary".utf8))
@@ -28,6 +29,7 @@ struct BrokerCredentialJournalStageTests {
     #expect(await store.contains(journalStageStoreKey(fixture.connectionID, attempt.candidate)))
     let selected = try #require(try await journal.load(connectionID: fixture.connectionID))
     #expect(selected.record.phase == .staging)
+    #expect(selected.record.providerBinding == .openAI)
     #expect(
       await journal.events() == [
         .list,
@@ -52,6 +54,7 @@ struct BrokerCredentialJournalStageTests {
     await expectJournalStageError(.storeUnavailable) {
       try await harness.state.stage(
         connectionID: fixture.connectionID,
+        providerBinding: .openAI,
         operationID: fixture.operationID,
         expectedFence: 0,
         secret: SecretBytes(Data("definite-store-failure".utf8))
@@ -68,6 +71,19 @@ struct BrokerCredentialJournalStageTests {
     #expect(terminal.error == .storeUnavailable)
     #expect(await store.retainedCount() == 0)
     let eventsBeforeReplay = await journal.events()
+
+    let mismatched = UncheckedSecretAlias(SecretBytes(Data("mismatched-replay".utf8)))
+    await expectJournalStageError(.operationIDConflict) {
+      try await harness.state.stage(
+        connectionID: fixture.connectionID,
+        providerBinding: .anthropic,
+        operationID: fixture.operationID,
+        expectedFence: 0,
+        secret: mismatched.value
+      )
+    }
+    #expect(mismatched.isErased())
+    #expect(await journal.events() == eventsBeforeReplay)
 
     await expectJournalStageError(.storeUnavailable) {
       try await harness.state.resumeStage(
@@ -755,6 +771,19 @@ struct BrokerCredentialJournalStageTests {
     #expect(!(await store.contains(candidateKey)))
     #expect(await store.deleteCallCount(for: candidateKey) == 1)
     #expect((try await journal.load(connectionID: fixture.connectionID))?.record.phase == .vacant)
+    let eventsBeforeReplay = await journal.events()
+    let mismatched = UncheckedSecretAlias(SecretBytes(Data("recovered-binding-mismatch".utf8)))
+    await expectJournalStageError(.operationIDConflict) {
+      try await restarted.stage(
+        connectionID: fixture.connectionID,
+        providerBinding: .anthropic,
+        operationID: fixture.operationID,
+        expectedFence: 0,
+        secret: mismatched.value
+      )
+    }
+    #expect(mismatched.isErased())
+    #expect(await journal.events() == eventsBeforeReplay)
     await expectJournalStageError(.attemptNotCurrent) {
       try await restarted.resumeStage(
         connectionID: fixture.connectionID,
@@ -820,6 +849,7 @@ struct BrokerCredentialJournalStageTests {
 
     let attempt = try await harness.state.stage(
       connectionID: fixture.connectionID,
+      providerBinding: .openAI,
       operationID: fixture.operationID,
       expectedFence: 1,
       secret: SecretBytes(Data("reconnect-stage".utf8))
@@ -837,6 +867,31 @@ struct BrokerCredentialJournalStageTests {
     )
     #expect(await harness.state.projection(for: fixture.connectionID) == .staging(attempt))
     #expect((try await journal.load(connectionID: fixture.connectionID))?.record.phase == .staging)
+  }
+
+  @Test
+  func reconnectRejectsChangedBindingBeforeJournalOrCredentialStoreMutation() async throws {
+    let fixture = try JournalStageActorFixture()
+    let journal = try InMemoryBrokerJournalStore(snapshots: [fixture.readySnapshot()])
+    let store = InMemoryCredentialStore()
+    let harness = try await fixture.harness(store: store, journal: journal)
+    await journal.resetEvents()
+    let rejected = UncheckedSecretAlias(SecretBytes(Data("changed-binding".utf8)))
+
+    await expectJournalStageError(.invalidTransition) {
+      try await harness.state.stage(
+        connectionID: fixture.connectionID,
+        providerBinding: .anthropic,
+        operationID: fixture.operationID,
+        expectedFence: 1,
+        secret: rejected.value
+      )
+    }
+
+    #expect(rejected.isErased())
+    #expect(await journal.events().isEmpty)
+    #expect((await store.inspection()).storeCallCounts.isEmpty)
+    #expect((try await journal.load(connectionID: fixture.connectionID))?.record.providerBinding == .openAI)
   }
 
   @Test
@@ -1072,6 +1127,7 @@ private struct JournalStageActorFixture {
     let record = try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 1,
       lastGenerationOrdinal: 1,
       changedAt: try JournalTimestamp(date: firstDate),

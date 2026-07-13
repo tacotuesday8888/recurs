@@ -440,6 +440,7 @@ private struct RecoveryFixture: Sendable {
     return try BrokerJournalRecord(
       revision: revision,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: fence,
       lastGenerationOrdinal: ordinal,
       changedAt: recordTime,

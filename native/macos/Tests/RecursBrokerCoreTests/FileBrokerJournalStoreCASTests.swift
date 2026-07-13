@@ -768,6 +768,7 @@ struct FileBrokerJournalStoreCASTests {
     return try BrokerJournalRecord(
       revision: revision,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 1,
       lastGenerationOrdinal: 1,
       changedAt: timestamp,
@@ -804,6 +805,7 @@ struct FileBrokerJournalStoreCASTests {
     return try BrokerJournalRecord(
       revision: revision,
       connectionID: connectionID ?? pending.connectionID,
+      providerBinding: .openAI,
       fence: pending.fence,
       lastGenerationOrdinal: pending.lastGenerationOrdinal,
       changedAt: changedAt ?? pending.changedAt,
@@ -831,6 +833,7 @@ struct FileBrokerJournalStoreCASTests {
     return try BrokerJournalRecord(
       revision: revision,
       connectionID: pending.connectionID,
+      providerBinding: .openAI,
       fence: pending.fence,
       lastGenerationOrdinal: pending.lastGenerationOrdinal,
       changedAt: pending.changedAt,

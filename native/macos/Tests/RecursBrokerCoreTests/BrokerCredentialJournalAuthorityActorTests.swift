@@ -604,6 +604,7 @@ private struct AuthorityActorFixture: Sendable {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: primaryID,
+      providerBinding: .openAI,
       fence: 0,
       lastGenerationOrdinal: 0,
       changedAt: time,
@@ -620,6 +621,7 @@ private struct AuthorityActorFixture: Sendable {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: primaryID,
+      providerBinding: .openAI,
       fence: 1,
       lastGenerationOrdinal: 1,
       changedAt: time,

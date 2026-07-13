@@ -403,6 +403,7 @@ private struct RecoveryExecutorFixture: Sendable {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID(id),
+      providerBinding: .openAI,
       fence: 2,
       lastGenerationOrdinal: 2,
       changedAt: recordTime,
@@ -423,6 +424,7 @@ private struct RecoveryExecutorFixture: Sendable {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID(id),
+      providerBinding: .openAI,
       fence: 3,
       lastGenerationOrdinal: 2,
       changedAt: recordTime,
@@ -487,6 +489,7 @@ private struct RecoveryExecutorFixture: Sendable {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID(id),
+      providerBinding: .openAI,
       fence: 3,
       lastGenerationOrdinal: 2,
       changedAt: recordTime,
@@ -564,6 +567,7 @@ private struct RecoveryExecutorFixture: Sendable {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID(id),
+      providerBinding: .openAI,
       fence: 2,
       lastGenerationOrdinal: 2,
       changedAt: recordTime,

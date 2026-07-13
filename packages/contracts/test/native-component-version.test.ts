@@ -77,6 +77,7 @@ describe("native component version generation", () => {
     expect(sourceText).toBe(canonicalSource);
     expect(Object.keys(source).sort()).toEqual(["schemaVersion", "version"]);
     expect(source.schemaVersion).toBe(1);
+    expect(source.version).toBe("0.2.0");
     expect(source.version).toMatch(
       /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u,
     );

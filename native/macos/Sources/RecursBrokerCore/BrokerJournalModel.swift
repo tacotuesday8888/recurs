@@ -398,9 +398,10 @@ package enum BrokerJournalTerminalOperation: Sendable, Hashable {
 }
 
 package struct BrokerJournalRecord: Sendable, Hashable {
-  package let schemaVersion: UInt64 = 1
+  package let schemaVersion: UInt64 = 2
   package let revision: UInt64
   package let connectionID: UUID
+  package let providerBinding: ProviderProfileBinding
   package let phase: BrokerJournalPhase
   package let fence: UInt64
   package let lastGenerationOrdinal: UInt64
@@ -411,6 +412,7 @@ package struct BrokerJournalRecord: Sendable, Hashable {
   package init(
     revision: UInt64,
     connectionID: UUID,
+    providerBinding: ProviderProfileBinding,
     fence: UInt64,
     lastGenerationOrdinal: UInt64,
     changedAt: JournalTimestamp,
@@ -532,6 +534,7 @@ package struct BrokerJournalRecord: Sendable, Hashable {
 
     self.revision = revision
     self.connectionID = connectionID
+    self.providerBinding = providerBinding
     phase = payload.phase
     self.fence = fence
     self.lastGenerationOrdinal = lastGenerationOrdinal
@@ -793,6 +796,7 @@ package enum BrokerJournalTransitionValidator {
     }
     guard
       successor.connectionID == predecessor.connectionID,
+      successor.providerBinding == predecessor.providerBinding,
       successor.revision == predecessor.revision + 1
     else {
       throw .casConflict

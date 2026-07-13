@@ -59,6 +59,7 @@ struct BrokerJournalStoreContractTests {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 0,
       lastGenerationOrdinal: 0,
       changedAt: JournalTimestamp(canonicalText: "2026-07-13T00:00:00.000Z"),

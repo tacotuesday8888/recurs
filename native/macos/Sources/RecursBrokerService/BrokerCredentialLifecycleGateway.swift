@@ -53,6 +53,15 @@ final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
       return
     }
 
+    let providerBinding: ProviderProfileBinding
+    do {
+      providerBinding = try Self.providerBinding(for: request.providerBinding)
+    } catch {
+      secretBox.erase()
+      rejectMalformed(requestID: request.requestID, reply: reply)
+      return
+    }
+
     let gate = ReplyGate(requestID: request.requestID, reply: reply)
     var rejection: BrokerCredentialLifecycleFailureCode?
     lock.lock()
@@ -64,13 +73,18 @@ final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
         rejection = .invalidRequest
         break
       }
-      let task = Task { [weak self, secretBox, gate, request] in
+      let task = Task { [weak self, secretBox, gate, request, providerBinding] in
         guard let self else {
           secretBox.erase()
           gate.complete(Self.failure(requestID: request.requestID, code: .cancelled))
           return
         }
-        await self.runStage(request, secretBox: secretBox, gate: gate)
+        await self.runStage(
+          request,
+          providerBinding: providerBinding,
+          secretBox: secretBox,
+          gate: gate
+        )
       }
       entries[request.requestID] = Entry(task: task, gate: gate)
     }
@@ -194,6 +208,7 @@ final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
 
   private func runStage(
     _ request: BrokerCredentialStageRequest,
+    providerBinding: ProviderProfileBinding,
     secretBox: SecretTransferBox,
     gate: ReplyGate
   ) async {
@@ -210,6 +225,7 @@ final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
     do {
       let attempt = try await authority.stage(
         connectionID: request.connectionID,
+        providerBinding: providerBinding,
         operationID: request.operationID,
         expectedFence: request.expectedFence,
         secret: secret
@@ -233,6 +249,49 @@ final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
       finish(requestID: request.requestID, gate: gate, stateError: error)
     } catch {
       finishSevere(requestID: request.requestID, gate: gate)
+    }
+  }
+
+  private static func providerBinding(
+    for descriptor: BrokerCredentialStageBindingDescriptor
+  ) throws -> ProviderProfileBinding {
+    guard
+      let profileID = ProviderActivationProfileID(
+        rawValue: descriptor.activationProfileID
+      )
+    else {
+      throw ProviderProfileBindingError.invalidBinding
+    }
+
+    switch (
+      descriptor.customBaseURL,
+      descriptor.customModelCatalogBehavior
+    ) {
+    case (nil, nil):
+      guard let providerID = profileID.bundledProviderID else {
+        throw ProviderProfileBindingError.invalidBinding
+      }
+      return try ProviderProfileBinding.validatingStoredFields(
+        providerID: providerID,
+        activationProfileID: descriptor.activationProfileID
+      )
+
+    case (let baseURL?, let catalog?):
+      guard profileID == .customOpenaiCompatibleV1 else {
+        throw ProviderProfileBindingError.invalidBinding
+      }
+      let behavior: EndpointModelCatalogBehavior =
+        switch catalog {
+        case .modelsRoute: .modelsRoute
+        case .unavailable: .unavailable
+        }
+      return try ProviderProfileBinding.customOpenAICompatible(
+        baseURL: baseURL,
+        modelCatalogBehavior: behavior
+      )
+
+    default:
+      throw ProviderProfileBindingError.invalidBinding
     }
   }
 

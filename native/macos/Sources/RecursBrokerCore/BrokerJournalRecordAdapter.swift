@@ -302,6 +302,7 @@ package enum BrokerJournalRecordAdapter {
   package static func makeStorePending(
     predecessor: BrokerJournalRecord?,
     connectionID: UUID,
+    providerBinding: ProviderProfileBinding,
     attemptID: UUID,
     operationID: UUID,
     candidateGenerationID: UUID,
@@ -314,7 +315,10 @@ package enum BrokerJournalRecordAdapter {
     let terminalOperations: [BrokerJournalTerminalOperation]
 
     if let predecessor {
-      guard predecessor.connectionID == connectionID else {
+      guard
+        predecessor.connectionID == connectionID,
+        predecessor.providerBinding == providerBinding
+      else {
         throw .invalidRecord
       }
       guard predecessor.fence <= UInt64.max - 2 else {
@@ -362,6 +366,7 @@ package enum BrokerJournalRecordAdapter {
     let record = try BrokerJournalRecord(
       revision: revision,
       connectionID: connectionID,
+      providerBinding: providerBinding,
       fence: fence,
       lastGenerationOrdinal: ordinal,
       changedAt: capturedAt,
@@ -879,6 +884,7 @@ package enum BrokerJournalRecordAdapter {
     let record = try BrokerJournalRecord(
       revision: nextRevision(after: predecessor),
       connectionID: predecessor.connectionID,
+      providerBinding: predecessor.providerBinding,
       fence: fence ?? predecessor.fence,
       lastGenerationOrdinal: predecessor.lastGenerationOrdinal,
       changedAt: changedAt,

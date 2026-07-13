@@ -15,17 +15,55 @@ package struct BrokerCredentialLifecycleCodecError:
   }
 }
 
+public enum BrokerCredentialStageModelCatalogBehavior: UInt8, Sendable, Equatable {
+  case modelsRoute = 1
+  case unavailable = 2
+}
+
+public struct BrokerCredentialStageBindingDescriptor: Sendable, Equatable {
+  public let activationProfileID: String
+  public let customBaseURL: String?
+  public let customModelCatalogBehavior: BrokerCredentialStageModelCatalogBehavior?
+
+  public init(
+    activationProfileID: String,
+    customBaseURL: String? = nil,
+    customModelCatalogBehavior: BrokerCredentialStageModelCatalogBehavior? = nil
+  ) throws {
+    try validateVisibleASCII(
+      activationProfileID,
+      maximumByteCount: maximumActivationProfileIDBytes
+    )
+    switch (customBaseURL, customModelCatalogBehavior) {
+    case (nil, nil):
+      break
+    case (let baseURL?, _?):
+      try validateVisibleASCII(
+        baseURL,
+        maximumByteCount: maximumCustomBaseURLBytes
+      )
+    default:
+      throw codecError()
+    }
+    self.activationProfileID = activationProfileID
+    self.customBaseURL = customBaseURL
+    self.customModelCatalogBehavior = customModelCatalogBehavior
+  }
+}
+
 public struct BrokerCredentialStageRequest: Sendable, Equatable {
   public let requestID: UInt64
   public let connectionID: UUID
   public let operationID: UUID
   public let expectedFence: UInt64
+  public let providerBinding: BrokerCredentialStageBindingDescriptor
 
   public init(
     requestID: UInt64,
     connectionID: UUID,
     operationID: UUID,
-    expectedFence: UInt64
+    expectedFence: UInt64,
+    providerBinding: BrokerCredentialStageBindingDescriptor
   ) throws {
     try validateClientRequestID(requestID)
     try validateUUID(connectionID)
@@ -34,18 +72,28 @@ public struct BrokerCredentialStageRequest: Sendable, Equatable {
     self.connectionID = connectionID
     self.operationID = operationID
     self.expectedFence = expectedFence
+    self.providerBinding = providerBinding
   }
 
   public func encode() throws -> Data {
     try validateClientRequestID(requestID)
     try validateUUID(connectionID)
     try validateUUID(operationID)
+    let profileBytes = Array(providerBinding.activationProfileID.utf8)
+    let baseBytes = providerBinding.customBaseURL.map { Array($0.utf8) }
     var body: [UInt8] = []
-    body.reserveCapacity(48)
+    body.reserveCapacity(52 + profileBytes.count + (baseBytes?.count ?? 0))
     append(requestID, to: &body)
     append(connectionID, to: &body)
     append(operationID, to: &body)
     append(expectedFence, to: &body)
+    body.append(UInt8(profileBytes.count))
+    body.append(contentsOf: profileBytes)
+    append(UInt16(baseBytes?.count ?? 0), to: &body)
+    if let baseBytes {
+      body.append(contentsOf: baseBytes)
+    }
+    body.append(providerBinding.customModelCatalogBehavior?.rawValue ?? 0)
     return try encodeFrame(kind: 1, body: body)
   }
 
@@ -54,16 +102,46 @@ public struct BrokerCredentialStageRequest: Sendable, Equatable {
     var reader = ByteReader(frame.body)
     let requestID = try reader.readClientRequestID()
     return try withRequestID(requestID) {
-      guard frame.body.count == 48 else { throw codecError() }
       let connectionID = try reader.readUUID()
       let operationID = try reader.readUUID()
       let expectedFence = try reader.readUInt64()
+      let profileID = try reader.readVisibleASCII(
+        count: Int(try reader.readUInt8()),
+        maximumByteCount: maximumActivationProfileIDBytes
+      )
+      let customBaseLength = Int(try reader.readUInt16())
+      let customBaseURL: String?
+      if customBaseLength == 0 {
+        customBaseURL = nil
+      } else {
+        customBaseURL = try reader.readVisibleASCII(
+          count: customBaseLength,
+          maximumByteCount: maximumCustomBaseURLBytes
+        )
+      }
+      let catalogRawValue = try reader.readUInt8()
+      let catalog: BrokerCredentialStageModelCatalogBehavior?
+      if catalogRawValue == 0 {
+        catalog = nil
+      } else {
+        guard
+          let parsed = BrokerCredentialStageModelCatalogBehavior(rawValue: catalogRawValue)
+        else {
+          throw codecError()
+        }
+        catalog = parsed
+      }
       try reader.finish()
       return try BrokerCredentialStageRequest(
         requestID: requestID,
         connectionID: connectionID,
         operationID: operationID,
-        expectedFence: expectedFence
+        expectedFence: expectedFence,
+        providerBinding: BrokerCredentialStageBindingDescriptor(
+          activationProfileID: profileID,
+          customBaseURL: customBaseURL,
+          customModelCatalogBehavior: catalog
+        )
       )
     }
   }
@@ -337,7 +415,9 @@ public enum BrokerCredentialLifecycleReply: Sendable, Equatable {
 
 private let credentialLifecycleMagic: UInt32 = 0x5243_434c
 private let credentialLifecycleVersion: UInt16 = 1
-private let maximumCredentialLifecycleBodyBytes = 256
+private let maximumActivationProfileIDBytes = 64
+private let maximumCustomBaseURLBytes = 2_048
+private let maximumCredentialLifecycleBodyBytes = 2_164
 private let zeroUUID = UUID(
   uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 )
@@ -365,6 +445,24 @@ private struct ByteReader {
     guard bytes.count - offset >= 2 else { throw codecError() }
     defer { offset += 2 }
     return (UInt16(bytes[offset]) << 8) | UInt16(bytes[offset + 1])
+  }
+
+  mutating func readVisibleASCII(
+    count: Int,
+    maximumByteCount: Int
+  ) throws -> String {
+    guard
+      (1...maximumByteCount).contains(count),
+      bytes.count - offset >= count
+    else {
+      throw codecError()
+    }
+    let value = Array(bytes[offset..<(offset + count)])
+    guard value.allSatisfy({ (0x21...0x7e).contains($0) }) else {
+      throw codecError()
+    }
+    offset += count
+    return String(decoding: value, as: UTF8.self)
   }
 
   mutating func readUInt64() throws -> UInt64 {
@@ -440,6 +538,19 @@ private func validateFailureRequestID(
 
 private func validateUUID(_ value: UUID) throws {
   guard value != zeroUUID else { throw codecError() }
+}
+
+private func validateVisibleASCII(
+  _ value: String,
+  maximumByteCount: Int
+) throws {
+  let bytes = Array(value.utf8)
+  guard
+    (1...maximumByteCount).contains(bytes.count),
+    bytes.allSatisfy({ (0x21...0x7e).contains($0) })
+  else {
+    throw codecError()
+  }
 }
 
 private func encodeFrame(kind: UInt16, body: [UInt8]) throws -> Data {

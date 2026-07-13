@@ -339,7 +339,8 @@ package actor BrokerCredentialState {
   }
 
   package func reserveCredentialUse(
-    connectionID: UUID
+    connectionID: UUID,
+    expectedBinding: ProviderProfileBinding
   ) async throws(CredentialUseError) -> CredentialUseReservation {
     guard !Task.isCancelled else {
       throw .cancelled
@@ -353,6 +354,9 @@ package actor BrokerCredentialState {
       authority = try machine.credentialUseAuthority(connectionID: connectionID)
     } catch let error {
       throw Self.mapCredentialUseStateError(error)
+    }
+    guard authority.snapshot.record.providerBinding == expectedBinding else {
+      throw .invalidReservation
     }
     let generation = authority.ready.generation
     let binding = CredentialUseBinding(
@@ -765,6 +769,7 @@ package actor BrokerCredentialState {
 
   package func stage(
     connectionID: UUID,
+    providerBinding: ProviderProfileBinding,
     operationID: UUID,
     expectedFence: UInt64,
     secret: sending SecretBytes
@@ -772,7 +777,8 @@ package actor BrokerCredentialState {
     let fingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .stage,
       connectionID: connectionID,
-      expectedFence: expectedFence
+      expectedFence: expectedFence,
+      providerBinding: providerBinding
     )
 
     let preflight: BrokerCredentialStateMachine.PreflightDisposition
@@ -842,7 +848,8 @@ package actor BrokerCredentialState {
     do {
       proposal = try machine.stageProposal(
         connectionID: connectionID,
-        expectedFence: expectedFence
+        expectedFence: expectedFence,
+        providerBinding: providerBinding
       )
     } catch let error {
       secret.erase()
@@ -1110,9 +1117,9 @@ package actor BrokerCredentialState {
     operationID: UUID,
     expectedFence: UInt64
   ) async throws(BrokerStateError) -> StagingAttempt {
-    let fingerprint = BrokerCredentialStateMachine.fingerprint(
-      kind: .stage,
+    let fingerprint = try machine.resumeStageFingerprint(
       connectionID: connectionID,
+      operationID: operationID,
       expectedFence: expectedFence
     )
     switch try machine.preflight(

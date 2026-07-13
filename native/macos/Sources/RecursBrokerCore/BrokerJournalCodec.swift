@@ -31,6 +31,9 @@ package enum BrokerJournalCodec {
     appendKey("connectionID", to: &writer)
     writer.appendJSONString(canonicalUUID(record.connectionID))
     writer.append(",")
+    appendKey("providerBinding", to: &writer)
+    try appendProviderBinding(record.providerBinding, to: &writer)
+    writer.append(",")
     appendKey("phase", to: &writer)
     writer.appendJSONString(phaseName(record.phase))
     writer.append(",")
@@ -74,6 +77,60 @@ package enum BrokerJournalCodec {
     to writer: inout BrokerJournalCanonicalJSONWriter
   ) {
     writer.appendJSONString(value.canonicalText)
+  }
+
+  private static func appendProviderBinding(
+    _ binding: ProviderProfileBinding,
+    to writer: inout BrokerJournalCanonicalJSONWriter
+  ) throws(BrokerJournalError) {
+    writer.append("{")
+    appendKey("providerID", to: &writer)
+    writer.appendJSONString(binding.providerID)
+    writer.append(",")
+    appendKey("activationProfileID", to: &writer)
+    writer.appendJSONString(binding.activationProfileID.rawValue)
+    writer.append(",")
+    appendKey("customEndpoint", to: &writer)
+
+    switch binding.activationProfileID {
+    case .openaiApiV1, .anthropicApiV1, .kimiCodeV1:
+      guard
+        binding.customHost == nil,
+        binding.customPort == nil,
+        binding.customBasePath == nil,
+        binding.customModelCatalogBehavior == nil
+      else {
+        throw .invalidRecord
+      }
+      writer.append("null")
+
+    case .customOpenaiCompatibleV1:
+      guard
+        let host = binding.customHost,
+        let basePath = binding.customBasePath,
+        let catalogBehavior = binding.customModelCatalogBehavior
+      else {
+        throw .invalidRecord
+      }
+      writer.append("{")
+      appendKey("host", to: &writer)
+      writer.appendJSONString(host)
+      writer.append(",")
+      appendKey("port", to: &writer)
+      if let port = binding.customPort {
+        writer.appendUInt64(UInt64(port))
+      } else {
+        writer.append("null")
+      }
+      writer.append(",")
+      appendKey("basePath", to: &writer)
+      writer.appendJSONString(basePath)
+      writer.append(",")
+      appendKey("modelCatalogBehavior", to: &writer)
+      writer.appendJSONString(catalogBehavior.rawValue)
+      writer.append("}")
+    }
+    writer.append("}")
   }
 
   private static func appendCredentialGeneration(
@@ -460,11 +517,13 @@ package enum BrokerJournalCodec {
     try cursor.beginObject()
     try cursor.expect("\"schemaVersion\":")
     let schemaVersion = try cursor.parseUInt64()
-    guard schemaVersion == 1 else { throw .unsupportedVersion }
+    guard schemaVersion == 2 else { throw .unsupportedVersion }
     try cursor.expect(",\"revision\":")
     let revision = try cursor.parseUInt64()
     try cursor.expect(",\"connectionID\":")
     let connectionID = try parseCanonicalUUID(cursor.parseString())
+    try cursor.expect(",\"providerBinding\":")
+    let providerBinding = try decodeProviderBinding(from: &cursor)
     try cursor.expect(",\"phase\":")
     let phase = try parsePhase(cursor.parseString())
     try cursor.expect(",\"fence\":")
@@ -481,12 +540,66 @@ package enum BrokerJournalCodec {
     return try BrokerJournalRecord(
       revision: revision,
       connectionID: connectionID,
+      providerBinding: providerBinding,
       fence: fence,
       lastGenerationOrdinal: lastGenerationOrdinal,
       changedAt: changedAt,
       payload: payload,
       terminalOperations: terminalOperations
     )
+  }
+
+  private struct DecodedCustomEndpoint {
+    let host: String
+    let port: UInt64?
+    let basePath: String
+    let modelCatalogBehavior: String
+  }
+
+  private static func decodeProviderBinding(
+    from cursor: inout BrokerJournalCanonicalJSONCursor
+  ) throws(BrokerJournalError) -> ProviderProfileBinding {
+    try cursor.beginObject()
+    try cursor.expect("\"providerID\":")
+    let providerID = try cursor.parseString()
+    try cursor.expect(",\"activationProfileID\":")
+    let activationProfileID = try cursor.parseString()
+    try cursor.expect(",\"customEndpoint\":")
+    let customEndpoint: DecodedCustomEndpoint?
+    if cursor.consume("null") {
+      customEndpoint = nil
+    } else {
+      try cursor.beginObject()
+      try cursor.expect("\"host\":")
+      let host = try cursor.parseString()
+      try cursor.expect(",\"port\":")
+      let port = cursor.consume("null") ? nil : try cursor.parseUInt64()
+      try cursor.expect(",\"basePath\":")
+      let basePath = try cursor.parseString()
+      try cursor.expect(",\"modelCatalogBehavior\":")
+      let modelCatalogBehavior = try cursor.parseString()
+      try cursor.endObject()
+      customEndpoint = DecodedCustomEndpoint(
+        host: host,
+        port: port,
+        basePath: basePath,
+        modelCatalogBehavior: modelCatalogBehavior
+      )
+    }
+    try cursor.endObject()
+
+    do {
+      return try ProviderProfileBinding.validatingStoredFields(
+        providerID: providerID,
+        activationProfileID: activationProfileID,
+        customHost: customEndpoint?.host,
+        customPort: customEndpoint?.port,
+        customBasePath: customEndpoint?.basePath,
+        customModelCatalogBehavior: customEndpoint?.modelCatalogBehavior
+      )
+    } catch {
+      throw .invalidRecord
+    }
   }
 
   private static func decodePayload(

@@ -77,6 +77,7 @@ struct BrokerCredentialStateMachine: Sendable {
     let connectionID: UUID
     let expectedFence: UInt64
     let attemptID: UUID?
+    let providerBinding: ProviderProfileBinding?
   }
 
   enum TerminalOutcome: Sendable, Equatable {
@@ -113,6 +114,7 @@ struct BrokerCredentialStateMachine: Sendable {
     let nextFence: UInt64
     let nextOrdinal: UInt64
     let previousReady: ReadyGeneration?
+    let providerBinding: ProviderProfileBinding
   }
 
   struct StageReservationToken: Sendable, Equatable {
@@ -507,7 +509,8 @@ struct BrokerCredentialStateMachine: Sendable {
       for terminal in entry.snapshot.record.terminalOperations {
         let hydrated = try Self.hydratedTerminal(
           terminal,
-          connectionID: connectionID
+          connectionID: connectionID,
+          providerBinding: entry.snapshot.record.providerBinding
         )
         guard terminalMemos[connectionID]?.entries[terminal.operationID] == nil else {
           throw .invalidRecord
@@ -525,7 +528,8 @@ struct BrokerCredentialStateMachine: Sendable {
       }
       let hydrated = try Self.hydratedTerminal(
         cleanup.terminalOperation,
-        connectionID: connectionID
+        connectionID: connectionID,
+        providerBinding: entry.snapshot.record.providerBinding
       )
       guard
         terminalMemos[connectionID]?.entries[cleanup.terminalOperation.operationID] == nil,
@@ -697,13 +701,15 @@ struct BrokerCredentialStateMachine: Sendable {
     kind: OperationKind,
     connectionID: UUID,
     expectedFence: UInt64,
-    attemptID: UUID? = nil
+    attemptID: UUID? = nil,
+    providerBinding: ProviderProfileBinding? = nil
   ) -> OperationFingerprint {
     OperationFingerprint(
       kind: kind,
       connectionID: connectionID,
       expectedFence: expectedFence,
-      attemptID: attemptID
+      attemptID: attemptID,
+      providerBinding: providerBinding
     )
   }
 
@@ -752,9 +758,40 @@ struct BrokerCredentialStateMachine: Sendable {
     }
   }
 
+  func resumeStageFingerprint(
+    connectionID: UUID,
+    operationID: UUID,
+    expectedFence: UInt64
+  ) throws(BrokerStateError) -> OperationFingerprint {
+    let probe = Self.fingerprint(
+      kind: .stage,
+      connectionID: connectionID,
+      expectedFence: expectedFence
+    )
+    if let entry = terminalMemos[connectionID]?.entries[operationID] {
+      return Self.matchesStageResume(
+        entry.fingerprint,
+        connectionID: connectionID,
+        expectedFence: expectedFence
+      ) ? entry.fingerprint : probe
+    }
+    if let reservation = reservations[connectionID],
+      reservation.operationID == operationID,
+      Self.matchesStageResume(
+        reservation.fingerprint,
+        connectionID: connectionID,
+        expectedFence: expectedFence
+      )
+    {
+      return reservation.fingerprint
+    }
+    return probe
+  }
+
   func stageProposal(
     connectionID: UUID,
-    expectedFence: UInt64
+    expectedFence: UInt64,
+    providerBinding: ProviderProfileBinding
   ) throws(BrokerStateError) -> StageProposal {
     let current = records[connectionID]
     if case .tombstoned? = current {
@@ -766,6 +803,11 @@ struct BrokerCredentialStateMachine: Sendable {
       throw .staleFence
     }
     if case .staging? = current {
+      throw .invalidTransition
+    }
+    if let snapshot = journalSnapshots[connectionID],
+      snapshot.record.providerBinding != providerBinding
+    {
       throw .invalidTransition
     }
 
@@ -792,7 +834,8 @@ struct BrokerCredentialStateMachine: Sendable {
       current: current,
       nextFence: currentFence + 1,
       nextOrdinal: lastOrdinal + 1,
-      previousReady: previousReady
+      previousReady: previousReady,
+      providerBinding: providerBinding
     )
   }
 
@@ -807,7 +850,14 @@ struct BrokerCredentialStateMachine: Sendable {
   ) throws(BrokerStateError) -> StageReservationToken {
     guard
       records[proposal.connectionID] == proposal.current,
-      reservations[proposal.connectionID] == nil
+      reservations[proposal.connectionID] == nil,
+      fingerprint
+        == Self.fingerprint(
+          kind: .stage,
+          connectionID: proposal.connectionID,
+          expectedFence: proposal.current?.fence ?? 0,
+          providerBinding: proposal.providerBinding
+        )
     else {
       throw .operationInProgress
     }
@@ -880,7 +930,8 @@ struct BrokerCredentialStateMachine: Sendable {
         == Self.fingerprint(
           kind: .stage,
           connectionID: proposal.connectionID,
-          expectedFence: expectedFence
+          expectedFence: expectedFence,
+          providerBinding: proposal.providerBinding
         )
     else {
       throw .casConflict
@@ -889,6 +940,7 @@ struct BrokerCredentialStateMachine: Sendable {
     let replacement = try BrokerJournalRecordAdapter.makeStorePending(
       predecessor: expected?.record,
       connectionID: proposal.connectionID,
+      providerBinding: proposal.providerBinding,
       attemptID: attemptID,
       operationID: operationID,
       candidateGenerationID: generationID,
@@ -2231,6 +2283,18 @@ struct BrokerCredentialStateMachine: Sendable {
     }
   }
 
+  private static func matchesStageResume(
+    _ fingerprint: OperationFingerprint,
+    connectionID: UUID,
+    expectedFence: UInt64
+  ) -> Bool {
+    fingerprint.kind == .stage
+      && fingerprint.connectionID == connectionID
+      && fingerprint.expectedFence == expectedFence
+      && fingerprint.attemptID == nil
+      && fingerprint.providerBinding != nil
+  }
+
   func validateStageReservation(
     _ token: StageReservationToken
   ) throws(BrokerStateError) {
@@ -2330,7 +2394,8 @@ struct BrokerCredentialStateMachine: Sendable {
     }
     let hydrated = try Self.hydratedTerminal(
       terminal,
-      connectionID: connectionID
+      connectionID: connectionID,
+      providerBinding: replacement.providerBinding
     )
     guard hydrated.fingerprint == fingerprint else {
       throw .invalidRecord
@@ -2546,7 +2611,8 @@ struct BrokerCredentialStateMachine: Sendable {
 
   private static func hydratedTerminal(
     _ terminal: BrokerJournalTerminalOperation,
-    connectionID: UUID
+    connectionID: UUID,
+    providerBinding: ProviderProfileBinding
   ) throws(BrokerJournalError) -> (
     fingerprint: OperationFingerprint,
     outcome: TerminalOutcome
@@ -2563,7 +2629,8 @@ struct BrokerCredentialStateMachine: Sendable {
         fingerprint(
           kind: .stage,
           connectionID: connectionID,
-          expectedFence: value.expectedFence
+          expectedFence: value.expectedFence,
+          providerBinding: providerBinding
         ),
         .stage(.failure(error))
       )

@@ -680,6 +680,7 @@ struct BrokerCredentialStateMachineAuthorityJournalTests {
     let otherRecord = try BrokerJournalRecord(
       revision: 1,
       connectionID: otherConnectionID,
+      providerBinding: .openAI,
       fence: 0,
       lastGenerationOrdinal: 0,
       changedAt: fixture.stageTime,
@@ -775,12 +776,14 @@ private struct AuthorityJournalMachineFixture {
     let stageFingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .stage,
       connectionID: connectionID,
-      expectedFence: expectedFence
+      expectedFence: expectedFence,
+      providerBinding: .openAI
     )
     let reservation = try machine.reserveJournalStage(
       proposal: machine.stageProposal(
         connectionID: connectionID,
-        expectedFence: expectedFence
+        expectedFence: expectedFence,
+        providerBinding: .openAI
       ),
       operationID: stageOperationID,
       fingerprint: stageFingerprint,
@@ -816,6 +819,7 @@ private struct AuthorityJournalMachineFixture {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 1,
       lastGenerationOrdinal: 1,
       changedAt: stageTime,
@@ -828,6 +832,7 @@ private struct AuthorityJournalMachineFixture {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 0,
       lastGenerationOrdinal: 0,
       changedAt: stageTime,

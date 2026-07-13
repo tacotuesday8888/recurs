@@ -174,7 +174,8 @@ struct BrokerCredentialStateMachineAuthoritativeProjectionTests {
     let fingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .stage,
       connectionID: fixture.primaryID,
-      expectedFence: 0
+      expectedFence: 0,
+      providerBinding: .openAI
     )
     #expect(
       try live.machine.preflight(
@@ -335,6 +336,7 @@ struct BrokerCredentialStateMachineAuthoritativeProjectionTests {
     let pending = try BrokerJournalRecordAdapter.makeStorePending(
       predecessor: ready,
       connectionID: fixture.primaryID,
+      providerBinding: .openAI,
       attemptID: fixture.attemptID,
       operationID: fixture.operationID,
       candidateGenerationID: fixture.candidateID,
@@ -464,6 +466,7 @@ private struct AuthoritativeProjectionFixture {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 0,
       lastGenerationOrdinal: 0,
       changedAt: startedAt,
@@ -482,6 +485,7 @@ private struct AuthoritativeProjectionFixture {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
+      providerBinding: .openAI,
       fence: 1,
       lastGenerationOrdinal: 1,
       changedAt: startedAt,
@@ -518,10 +522,15 @@ private struct AuthoritativeProjectionFixture {
     let fingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .stage,
       connectionID: primaryID,
-      expectedFence: 0
+      expectedFence: 0,
+      providerBinding: .openAI
     )
     let reservation = try machine.reserveJournalStage(
-      proposal: machine.stageProposal(connectionID: primaryID, expectedFence: 0),
+      proposal: machine.stageProposal(
+        connectionID: primaryID,
+        expectedFence: 0,
+        providerBinding: .openAI
+      ),
       operationID: operationID,
       fingerprint: fingerprint,
       generationID: candidateID,

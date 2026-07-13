@@ -79,7 +79,8 @@ struct BrokerCredentialStateMachineJournalTests {
       let fingerprint = BrokerCredentialStateMachine.fingerprint(
         kind: .stage,
         connectionID: record.connectionID,
-        expectedFence: value.expectedFence
+        expectedFence: value.expectedFence,
+        providerBinding: record.providerBinding
       )
       #expect(
         try machine.preflight(
@@ -409,6 +410,7 @@ private struct JournalMachineFixture {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: values.connectionID,
+      providerBinding: .openAI,
       fence: 2,
       lastGenerationOrdinal: 2,
       changedAt: time,
@@ -469,6 +471,7 @@ private struct JournalMachineFixture {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: values.connectionID,
+      providerBinding: .openAI,
       fence: 2,
       lastGenerationOrdinal: 2,
       changedAt: time,
@@ -491,6 +494,7 @@ private struct JournalMachineFixture {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: values.connectionID,
+      providerBinding: .openAI,
       fence: 64,
       lastGenerationOrdinal: 64,
       changedAt: time,
@@ -510,6 +514,7 @@ private struct JournalMachineFixture {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: values.connectionID,
+      providerBinding: .openAI,
       fence: 3,
       lastGenerationOrdinal: 2,
       changedAt: time,
@@ -580,6 +585,7 @@ private struct JournalMachineFixture {
     return try BrokerJournalRecord(
       revision: 1,
       connectionID: values.connectionID,
+      providerBinding: .openAI,
       fence: 3,
       lastGenerationOrdinal: 2,
       changedAt: time,
@@ -599,6 +605,7 @@ private struct JournalMachineFixture {
     let record = try BrokerJournalRecord(
       revision: 1,
       connectionID: values.connectionID,
+      providerBinding: .openAI,
       fence: 2,
       lastGenerationOrdinal: 2,
       changedAt: time,
@@ -635,6 +642,7 @@ private struct JournalMachineFixture {
     let record = try BrokerJournalRecord(
       revision: 1,
       connectionID: values.connectionID,
+      providerBinding: .openAI,
       fence: 2,
       lastGenerationOrdinal: 2,
       changedAt: time,
@@ -710,7 +718,8 @@ private struct JournalMachineFixture {
         BrokerCredentialStateMachine.fingerprint(
           kind: .stage,
           connectionID: connectionID,
-          expectedFence: value.expectedFence
+          expectedFence: value.expectedFence,
+          providerBinding: .openAI
         ),
         .stage(.failure(error))
       )
@@ -761,6 +770,7 @@ private struct JournalMachineFixture {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: values(id).connectionID,
+      providerBinding: .openAI,
       fence: 2,
       lastGenerationOrdinal: 2,
       changedAt: time,
