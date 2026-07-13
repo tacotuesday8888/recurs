@@ -4,7 +4,12 @@
 
 **Goal:** Build the health-only signed-launcher-to-bundled-engine bridge, while keeping the public/source CLI unable to trust inherited descriptors and keeping every direct provider disabled.
 
-**Architecture:** A typed Swift session translates only protocol `hello`, `health`, and `cancel` frames between one anonymous socket and the existing exact-peer `BrokerConnection`; it is not an XPC proxy. A private TypeScript engine host is the sole process entrypoint that can claim the inherited socket marker, while the npm/source CLI deletes that marker and returns a fixed unavailable result. The native launcher resolves Node and the engine only from fixed sealed-bundle locations, spawns them with one close-on-exec socket endpoint, serves the typed session, and propagates child termination.
+**Implementation status:** Tasks 1–4 and the scoped Task 5 implementation are
+landed and reviewed. The code provides health-only bridge evidence, not a
+signed/notarized release artifact or provider activation. The full clean
+checkout matrix in Task 5 Step 5 passed as written.
+
+**Architecture:** A typed Swift session translates only protocol `hello`, `health`, and `cancel` frames between one anonymous socket and the existing exact-peer `BrokerConnection`; it is not an XPC proxy. A private TypeScript engine host is the sole process entrypoint that can claim the inherited socket marker, while the npm/source CLI deletes that marker and returns a fixed unavailable result. The native launcher resolves Node and the engine only from fixed sealed-bundle locations, spawns them with one close-on-exec socket endpoint, serves the typed session, and propagates child termination. The sealed host substitutes a fixed denial for delegated Codex until its adapter and binary have their own reviewed fixed signed layout; the public npm/source Codex path is unchanged.
 
 **Tech Stack:** Swift 6.2, Swift Testing, Darwin POSIX sockets and `posix_spawn`, TypeScript 6, Node.js 22.22+, Vitest 4, npm workspaces.
 
@@ -20,7 +25,8 @@
 - The public/npm/source CLI deletes `RECURS_NATIVE_FD`, never reads or writes its descriptor, and never treats the marker as provenance.
 - The private engine host has no npm `bin` and no public package export; private placement is not identity proof, so self-asserted readiness remains downgraded until installed signed-artifact evidence exists.
 - The launcher resolves the Node runtime and engine entrypoint only from fixed regular, nonsymlinked files inside its own sealed bundle; it never resolves either from `PATH`, the working directory, an environment variable, or a user argument.
-- `Resources/engine/main.js` is one deterministic self-contained ESM bundle. It may import only Node built-ins; it has no sibling chunk, source map, bare package import, `node_modules`, workspace symlink, or runtime resolution outside the sealed bundle.
+- `Resources/engine/main.js` is one deterministic self-contained ESM bundle. It may import only Node built-ins; it has no sibling chunk, source map, bare package import, `node_modules`, workspace symlink, or runtime resolution outside the sealed bundle. The builder is configured to retain legal comments, but release packaging still requires complete third-party notices and license review.
+- The sealed bundle never performs ambient delegated-runtime resolution. Its `@recurs/runtimes` seam returns a fixed Codex-unavailable error until the adapter and runtime binary have a fixed reviewed signed-bundle layout.
 - A spawned engine inherits descriptors `0`, `1`, `2`, and exactly one anonymous socket endpoint mapped to descriptor `3`; all other descriptors use close-on-exec semantics.
 - The engine environment is rebuilt from the reviewed non-secret keys `HOME`, `PATH`, `TMPDIR`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TERM`, `COLORTERM`, `NO_COLOR`, `FORCE_COLOR`, `TZ`, `RECURS_HOME`, and `CODEX_HOME`, plus canonicalized recognized automation markers and `RECURS_NATIVE_FD=3`; `NODE_OPTIONS`, `NODE_PATH`, `DYLD_*`, proxy, cloud, credential, token, and key variables are never copied.
 - No direct-provider manifest becomes runnable, no credential is collected, and no heavy sub-agent architecture is added in this plan.
@@ -41,6 +47,7 @@
 - `packages/cli/src/main.ts`: public/source bin that discards the untrusted marker and injects a fixed unavailable port.
 - `packages/native-engine/src/inherited-socket.ts`: the only TypeScript production code that claims the marker.
 - `packages/native-engine/src/native-authority.ts`: private one-shot client/service assembly with the interim provenance downgrade.
+- `packages/native-engine/src/sealed-runtimes.ts`: fixed delegated-Codex denial used only by the sealed bundle.
 - `packages/native-engine/src/main.ts`: private bundled-engine process entrypoint.
 - `scripts/build-native-engine-bundle.mjs`: deterministic single-file private-engine bundler.
 - `scripts/check-native-engine-bundle.mjs`: artifact-shape, dependency, and execution smoke.
@@ -58,7 +65,7 @@
 - Consumes: existing `NativeFrameDecoder`, `HelloMessage`, `HelloResultMessage`, `HealthResultMessage`, `SafeFailureCode`, and `BrokerConnection`.
 - Produces: `HealthMessage`, `CancelMessage`, `LauncherNodeSessionOutput`, and `LauncherNodeSession`.
 
-- [ ] **Step 1: Write failing typed request-codec tests**
+- [x] **Step 1: Write failing typed request-codec tests**
 
 Add exact round-trip and malformed-input cases for these public interfaces:
 
@@ -79,7 +86,7 @@ public struct CancelMessage: Equatable, Sendable {
 
 `HealthMessage.decode` accepts only `.health` with an exact empty field table. `CancelMessage` accepts only `.cancel` with one tag-`1` nonzero `UInt32`. Keep `makeHealthFrame` and `makeCancelFrame` as compatibility wrappers over the typed messages.
 
-- [ ] **Step 2: Run the protocol tests and verify RED**
+- [x] **Step 2: Run the protocol tests and verify RED**
 
 Run:
 
@@ -89,11 +96,11 @@ swift test --package-path native/macos --filter 'Native authority protocol'
 
 Expected: FAIL because `HealthMessage` and `CancelMessage` do not exist.
 
-- [ ] **Step 3: Implement the typed request codecs**
+- [x] **Step 3: Implement the typed request codecs**
 
 Implement the two exact interfaces above using `requireFields`, `FieldTable.decodeUInt32`, and the existing frame constructors. Convert every codec failure to `NativeProtocolError.invalidMessage` through `withInvalidMessage`.
 
-- [ ] **Step 4: Write failing session tests**
+- [x] **Step 4: Write failing session tests**
 
 Use the existing scripted `BrokerConnection` test double and a recording output implementing:
 
@@ -116,7 +123,7 @@ package actor LauncherNodeSession {
 
 Prove fragmented hello, hello then health, serial FIFO health responses, the `64` active-plus-queued bound, strictly increasing request IDs, fixed safe-failure mapping, queued cancellation, terminal active cancellation, malformed/wrong-phase frames, truncated EOF, output failure, late-XPC suppression, and exactly-once broker/output close. Include a canary native error and assert its bytes never occur in output.
 
-- [ ] **Step 5: Run the launcher tests and verify RED**
+- [x] **Step 5: Run the launcher tests and verify RED**
 
 Run:
 
@@ -126,11 +133,11 @@ swift test --package-path native/macos --filter LauncherNodeSessionTests
 
 Expected: FAIL because the session does not exist.
 
-- [ ] **Step 6: Implement the bounded session**
+- [x] **Step 6: Implement the bounded session**
 
 Use phases `awaitingHello`, `handshaking`, `ready`, and `closed`; one `NativeFrameDecoder`; one greatest-seen request ID; one active task; and a FIFO of health request IDs. Invoke the factory only after a valid first hello, retain exactly one connection, and never reconnect within a session. Re-encode broker results with the original Node request ID. Map `BrokerConnectionError.closed` to `.brokerUnavailable`; map all other cases one-for-one. Any parse/state/output/unknown error closes the broker and output once. Cancelling the active request cancels its task and closes the entire session; a late completion checks the closed phase and emits nothing.
 
-- [ ] **Step 7: Run focused tests and commit**
+- [x] **Step 7: Run focused tests and commit**
 
 Run:
 
@@ -183,11 +190,11 @@ git commit -m "feat: add typed launcher engine session"
 - Consumes: `connectNativeAuthorityClient(duplex, options)`, `NativeAuthorityService`, and `runCli`.
 - Produces: `runCliProcess(nativeAuthority: NativeAuthorityStatusPort): Promise<void>` and a private package with no `bin` or `exports`.
 
-- [ ] **Step 1: Write failing package-boundary and process-host tests**
+- [x] **Step 1: Write failing package-boundary and process-host tests**
 
 Assert that `@recurs/auth` exports the injected-duplex connector but no inherited-descriptor factory, `@recurs/app` exports only the sanitizer/service, the public CLI deletes `RECURS_NATIVE_FD` before any async work and returns `launcher_unavailable` on Darwin or `unsupported_platform` elsewhere, and the private host owns canonical descriptor parsing/closure. Spawn a real fd-3 fake peer against the public CLI and assert zero bytes reach it.
 
-- [ ] **Step 2: Run focused TypeScript tests and verify RED**
+- [x] **Step 2: Run focused TypeScript tests and verify RED**
 
 Run:
 
@@ -198,7 +205,7 @@ npx vitest run packages/auth/test packages/app/test/native-authority.test.ts \
 
 Expected: FAIL because the process-boundary split and private host do not exist.
 
-- [ ] **Step 3: Make auth and app transport-agnostic**
+- [x] **Step 3: Make auth and app transport-agnostic**
 
 Export this existing pure connector from `@recurs/auth`:
 
@@ -211,7 +218,7 @@ export function connectNativeAuthorityClient(
 
 Remove all `process.env`, `fstat`, descriptor wrapping, and interim provenance restriction from auth. Keep `NativeAuthorityService` unchanged as the sanitizer/close wrapper, but remove `createNativeAuthorityServiceFromInheritedFd` and the app-to-auth dependency.
 
-- [ ] **Step 4: Extract shared CLI process assembly**
+- [x] **Step 4: Extract shared CLI process assembly**
 
 Move argv, signal, TTY, confirmation, data-directory, runtime, and account assembly behind:
 
@@ -223,11 +230,11 @@ export async function runCliProcess(
 
 The public `main.ts` synchronously deletes `process.env.RECURS_NATIVE_FD`, injects a frozen fixed-unavailable port, and calls `runCliProcess`. It must not import `@recurs/auth`, `node:net`, or descriptor helpers.
 
-- [ ] **Step 5: Implement the private engine host**
+- [x] **Step 5: Implement the private engine host**
 
 Create `@recurs/native-engine` with `"private": true`, no `bin`, and no `exports`. Move the exact canonical descriptor parser and ownership tests into it. Its one-shot status port claims and deletes the marker, creates an injected-duplex client with `NATIVE_COMPONENT_VERSION`, wraps it in `NativeAuthorityService`, and still changes any ready status to `peer_identity_unverified` before closing. Its main module calls `runCliProcess` and closes owned resources in `finally`.
 
-- [ ] **Step 6: Run focused tests, typecheck, lint, and commit**
+- [x] **Step 6: Run focused tests, typecheck, lint, and commit**
 
 Run:
 
@@ -260,11 +267,11 @@ git commit -m "refactor: isolate bundled native engine host"
 - Consumes: `LauncherNodeSessionOutput` and `LauncherNodeSession.receive/finish/close`.
 - Produces: one owned close-on-exec socket endpoint, decoder incomplete-frame visibility, and a bounded read pump.
 
-- [ ] **Step 1: Write failing real-socket tests**
+- [x] **Step 1: Write failing real-socket tests**
 
 Create a real `socketpair(AF_UNIX, SOCK_STREAM, 0, ...)` plus an injected syscall fixture for forced short writes/EINTR. Prove fragmented and coalesced frames reach the session, complete writes survive forced short writes/EINTR, peer EOF calls `finish`, EPIPE and the `5` second write timeout close without SIGPIPE, oversized/truncated input fails closed, and repeated or concurrent close closes the descriptor once. Confirm `F_GETFD & FD_CLOEXEC != 0` and `SO_NOSIGPIPE == 1` on the owned endpoint. Use an injected monotonic clock to prove repeated `250` millisecond idle read slices do not close a decoder with no buffered frame, while one frame that remains incomplete for `5` seconds closes the session even if the peer trickles additional bytes.
 
-- [ ] **Step 2: Run the socket tests and verify RED**
+- [x] **Step 2: Run the socket tests and verify RED**
 
 Run:
 
@@ -274,7 +281,7 @@ swift test --package-path native/macos --filter LauncherNodeSocketTests
 
 Expected: FAIL because the socket transport does not exist.
 
-- [ ] **Step 3: Implement the owned socket and read pump**
+- [x] **Step 3: Implement the owned socket and read pump**
 
 Expose package-only decoder/session state without exposing buffered bytes:
 
@@ -314,7 +321,7 @@ package func serve(
 
 Use a lock-protected owned descriptor, `FD_CLOEXEC`, `SO_NOSIGPIPE`, a `250` millisecond `SO_RCVTIMEO`, a `5` second `SO_SNDTIMEO`, retry only EINTR, bounded `recv`, and a loop for complete `send`. Map `EAGAIN`/`EWOULDBLOCK` on receive to `.idle`, zero bytes to `.end`, and never treat an idle slice by itself as terminal. `serve` feeds chunks no larger than `nativeFrameHeaderByteCount + nativeFrameMaximumPayloadByteCount`, starts one non-sliding `5` second deadline when the decoder first becomes incomplete, clears it only after a complete frame boundary, calls `finish` on EOF, and closes both sides in `defer`. Use `shutdown(SHUT_RDWR)` before the one owned `close` so another thread's blocked receive is released without an FD-reuse close race.
 
-- [ ] **Step 4: Run focused native tests and commit**
+- [x] **Step 4: Run focused native tests and commit**
 
 Run:
 
@@ -339,6 +346,7 @@ git commit -m "feat: add bounded launcher socket transport"
 **Files:**
 - Modify: `package.json`
 - Modify: `package-lock.json`
+- Create: `packages/native-engine/src/sealed-runtimes.ts`
 - Create: `scripts/build-native-engine-bundle.mjs`
 - Create: `scripts/check-native-engine-bundle.mjs`
 
@@ -346,7 +354,7 @@ git commit -m "feat: add bounded launcher socket transport"
 - Consumes: `packages/native-engine/src/main.ts` and its workspace dependencies.
 - Produces: one caller-selected `main.js` file suitable for the sealed `Resources/engine/main.js` path.
 
-- [ ] **Step 1: Write a failing deterministic artifact smoke**
+- [x] **Step 1: Write a failing deterministic artifact smoke**
 
 Build twice into distinct private temporary directories and require byte-for-byte
 identical output. Each directory must contain exactly one regular nonsymlinked
@@ -356,9 +364,12 @@ absolute source path. Parse its remaining static/dynamic import specifiers and
 allow only `node:` built-ins. Run the built file through the private native
 doctor path with a real descriptor-3 fake peer and prove hello/health still
 work, the self-attested result is still downgraded, cancellation is prompt,
-and no canary environment value is emitted.
+and no canary environment value is emitted. Prove the provider catalog remains
+available, delegated Codex fails with one fixed safe error, and no ambient
+runtime path is resolved. Configure legal-comment retention while keeping the
+release notices inventory as a separate packaging requirement.
 
-- [ ] **Step 2: Run the artifact smoke and verify RED**
+- [x] **Step 2: Run the artifact smoke and verify RED**
 
 Run:
 
@@ -369,20 +380,23 @@ node scripts/check-native-engine-bundle.mjs
 Expected: FAIL because there is no production engine bundler and plain `tsc -b`
 leaves sibling files plus bare workspace imports.
 
-- [ ] **Step 3: Add the pinned standalone bundler**
+- [x] **Step 3: Add the pinned standalone bundler**
 
 Pin `rolldown@1.1.5` as a direct development
 dependency. `build-native-engine-bundle.mjs` accepts one explicit absolute
 output-file argument, rejects every other argument shape, creates no implicit
 repository output, and bundles `packages/native-engine/src/main.ts` for the
 Node platform as ESM with code splitting disabled and source maps disabled.
-Bundle every workspace/package dependency; externalize only `node:` built-ins.
+Bundle every reachable workspace/package dependency, map `@recurs/runtimes` to
+the reviewed sealed denial module, and externalize only `node:` built-ins.
+Preserve legal comments without treating them as a complete release notices
+inventory.
 Write through a private temporary sibling, fsync, atomically rename to the
 requested `main.js`, and leave no partial output after failure. Never minify
 away the private bootstrap ordering: the inherited descriptor is claimed and
 its environment marker deleted before the wider host module is evaluated.
 
-- [ ] **Step 4: Verify and commit the artifact builder**
+- [x] **Step 4: Verify and commit the artifact builder**
 
 Run:
 
@@ -413,7 +427,7 @@ git commit -m "build: bundle the private native engine"
 - Consumes: `LauncherNodeSocket` and the private host output layout.
 - Produces: validated fixed bundle paths and a child-process handle with one launcher socket.
 
-- [ ] **Step 1: Write failing bundle-layout and spawn tests**
+- [x] **Step 1: Write failing bundle-layout and spawn tests**
 
 Validate this exact release layout after invoking the production-signing seam:
 
@@ -424,7 +438,7 @@ RecursLauncher.app/Contents/Resources/engine/main.js
 
 Reject missing, directory, nonregular, escaped paths, and a symlink in every component from the standardized bundle root through either leaf. With an injected fixed test executable, prove argv is `[nodePath, enginePath, ...userArguments]`, a preexisting marker is replaced, the child inherits `0`, `1`, `2`, and descriptor `3` only, the parent closes the child endpoint immediately, spawn failure closes both endpoints, and wait maps normal exits and signals without leaking paths or environment values in errors. Inject canary `NODE_OPTIONS`, `NODE_PATH`, `DYLD_*`, proxy, cloud, credential, token, and key variables and prove none reach the child; prove only the reviewed environment allowlist and canonicalized automation flags survive. Race concurrent `wait()` and repeated `shutdown()` calls and prove there is one reap owner, one final termination, no double wait/signal, and no PID-reuse window.
 
-- [ ] **Step 2: Run the process tests and verify RED**
+- [x] **Step 2: Run the process tests and verify RED**
 
 Run:
 
@@ -435,7 +449,7 @@ swift test --package-path native/macos --filter EngineChildProcessTests
 
 Expected: FAIL because layout and child-process types do not exist.
 
-- [ ] **Step 3: Implement fixed layout validation**
+- [x] **Step 3: Implement fixed layout validation**
 
 Provide:
 
@@ -449,13 +463,13 @@ package struct EngineBundleLayout: Equatable, Sendable {
 
 First validate the current outer launcher as the exact production-signed launcher through `PeerRequirement.production(for: .launcher, authenticatedAs: .launcher)`. Keep that call mandatory in `production`; use only an internal injected signing-validation closure for unsigned path tests. Resolve only the two exact descendants above. Standardize the bundle root and candidate paths, require containment, then walk with `lstat` from the bundle root through every candidate component: every ancestor must be a real directory, no component may be a symlink, and each leaf must be a regular file. Require execute permission only for Node. Errors are fixed enums with no associated path or text.
 
-- [ ] **Step 4: Implement exact descriptor inheritance and child lifecycle**
+- [x] **Step 4: Implement exact descriptor inheritance and child lifecycle**
 
 Create the raw socketpair, duplicate both endpoints above descriptor `3` with `F_DUPFD_CLOEXEC`, and close the raw descriptors immediately. Set `SO_NOSIGPIPE` on the launcher endpoint. Configure `POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK`; explicitly inherit descriptors `0`, `1`, and `2`, `adddup2(engineSocketFD, 3)`, then close the source engine descriptor in the child. Reset `SIGINT`, `SIGTERM`, `SIGHUP`, `SIGQUIT`, and `SIGPIPE` with an empty child signal mask. Spawn the fixed Node URL directly with the fixed engine URL as argv[1], rebuild the reviewed environment, set only `RECURS_NATIVE_FD=3`, and never invoke a shell. Canonicalize every recognized truthy automation marker to `KEY=1`; omit false markers and never copy their original values. Close the child endpoint in the parent on every path. Treat each `posix_spawn*` return as its own error code rather than reading `errno`.
 
 Use one lock-protected process state machine as the only owner of the exact positive PID and every `waitpid` call. `wait()` and `shutdown()` must converge on one stored final `EngineTermination`; no blocking waiter and shutdown poll may race. Under that state machine, retry `waitpid` only on EINTR, use exact-PID `WNOHANG` polling, and record a successful reap before releasing ownership so no later signal can target a reused PID. Decode Darwin wait status into a fixed value without function-like C macros. Forced shutdown closes the channel, sends `SIGTERM` once, polls every fixed `50` milliseconds for a fixed `2` second grace period through an injected monotonic clock/sleeper, sends `SIGKILL` once if still live, and performs the sole final exact-PID reap. Concurrent wait and repeated shutdown cannot double-close, double-signal, or double-wait.
 
-- [ ] **Step 5: Run focused native tests and commit**
+- [x] **Step 5: Run focused native tests and commit**
 
 Run:
 
@@ -495,13 +509,13 @@ git commit -m "feat: add fixed bundled engine launcher"
 - Consumes: Tasks 1–4 and existing `ServiceRegistration`/`BrokerConnection`.
 - Produces: a source-safe launcher lifecycle and cross-process bridge evidence, not a signed release artifact.
 
-- [ ] **Step 1: Write failing launcher lifecycle and smoke assertions**
+- [x] **Step 1: Write failing launcher lifecycle and smoke assertions**
 
 Keep `native-health --machine` backward compatible. Add a bundle-engine run path that resolves only `EngineBundleLayout.production`, starts one child, lazily opens the existing exact-peer broker on the first hello, serves the session, closes it when either side ends, waits for the child, and mirrors its normal or signal termination. Keep the child in the foreground process group; intercept launcher signals only long enough to close/reap without duplicating terminal-delivered `SIGINT`, and forward explicit termination once to the exact positive child PID. Source builds without staged engine resources must return a fixed configuration exit with empty stdout and no path-bearing stderr.
 
 The cross-process smoke must prove: public CLI plus a real fd-3 fake peer writes zero bytes and reports fixed unavailable; private host plus the peer performs hello/health but still reports `peer_identity_unverified`; source launcher cannot resolve an engine from `PATH`, cwd, env, or arguments; cancellation exits promptly; no credential-shaped canary appears; providers remain hard-disabled.
 
-- [ ] **Step 2: Run smokes and verify RED**
+- [x] **Step 2: Run smokes and verify RED**
 
 Run:
 
@@ -514,15 +528,15 @@ npm run native:smoke
 
 Expected: FAIL because the executable lifecycle and bridge smoke are not wired.
 
-- [ ] **Step 3: Wire the executable and build checks**
+- [x] **Step 3: Wire the executable and build checks**
 
-Factor registration/open logic out of the old direct diagnostic so both paths use the same exact-peer `BrokerConnection`. Do not reconnect after a protocol or peer-identity failure. Add `native:engine-bundle-smoke` and `native:engine-bridge-smoke` and include both in `check` and `check:native`; keep macOS CI running the real Darwin descriptor path.
+Factor registration/open logic out of the old direct diagnostic so both paths use the same exact-peer `BrokerConnection`. The engine session never reconnects after a protocol or peer-identity failure; the internal `native-health --machine` diagnostic retains its backward-compatible broker/protocol refresh. Add `native:engine-bundle-smoke` and `native:engine-bridge-smoke` and include both in `check` and `check:native`; keep macOS CI running the real Darwin descriptor path.
 
-- [ ] **Step 4: Update documentation without claiming activation**
+- [x] **Step 4: Update documentation without claiming activation**
 
 Document the public/private entrypoint split, fixed sealed-bundle paths, exact inherited-descriptor set, health-only protocol, cancellation behavior, and source-build failure. State explicitly that no signed/notarized engine bundle, live broker credential operation, provider codec/transport, or direct-provider onboarding is complete and all broker-owned providers remain disabled.
 
-- [ ] **Step 5: Run the complete verification matrix**
+- [x] **Step 5: Run the complete verification matrix**
 
 Run:
 

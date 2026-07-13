@@ -1,9 +1,19 @@
 # Recurs CLI Provider Activation v1 Design
 
 **Date:** 2026-07-13
-**Status:** Approved for implementation by the user's delegated authority
+**Status:** Approved for implementation by the user's delegated authority; health-only launcher/engine slice implemented
 **Scope:** CLI-only secure direct-provider activation before desktop or heavy
 sub-agent work
+
+**Current implementation boundary:** The production-gated Swift launcher now
+resolves fixed sealed Node/engine resources, creates the anonymous descriptor-3
+socket, serves the bounded `hello`/`health`/`cancel` session, and reaps the exact
+child. The public npm/source CLI rejects injected native descriptors. This is
+health-only code, not provider activation: no signed/notarized installed bundle
+exists, the broker advertises `persistentCredentials: false`, and every broker-
+owned manifest remains disabled. The sealed private engine deliberately denies
+delegated Codex until its adapter and binary have a fixed reviewed signed layout;
+the public npm/source Codex ACP path remains implemented.
 
 ## 1. Decision
 
@@ -147,6 +157,14 @@ Team ID, and signing class. The launcher verifies the broker's exact identity.
 protocol/attestation handshake; no account, prompt, endpoint, or authorization
 state is sent before it succeeds.
 
+The implemented slice stops at this topology and health exchange. The launcher
+validates only its fixed nonsymlinked bundle paths, spawns the child with
+descriptors `0`–`3` and a reviewed environment, and mirrors bounded
+cancellation/termination. Source, unsigned, and ad-hoc launchers cannot select
+an engine from `PATH`, cwd, environment, or argv and fail with fixed empty-
+output exit `78`. No installed signed artifact has exercised this path as
+production authority.
+
 Production targets macOS 14.4 or newer. macOS 14.4 provides the modern XPC
 session/listener code-signing requirement surface without making macOS 26-only
 peer-requirement conveniences mandatory.
@@ -179,6 +197,12 @@ persistent direct credentials. They use a fake authority for tests and retain
 the existing local/Codex paths. There is no plaintext fallback.
 
 ## 7. Launcher-to-Node Protocol
+
+The implemented health subset accepts only `hello`, `health`, and `cancel`,
+with nonzero strictly increasing request IDs and at most 64 active-plus-queued
+health requests. It contains no credential, endpoint, header, URL, request-body,
+provider-operation, or arbitrary-RPC field. The richer direct-provider protocol
+below remains the v1 target and is not implemented by the health bridge.
 
 The launcher gives Node one anonymous `socketpair` endpoint. Frames have a
 small fixed header containing protocol version, message type, request ID, and
@@ -462,6 +486,14 @@ script and later a Homebrew cask/formula pair. The public `recurs` shim invokes
 the signed launcher. npm/Bun source installs remain valid for credential-free
 local/Codex development but cannot activate persistent direct credentials.
 
+No such distribution artifact exists yet. The current sealed-engine builder
+produces deterministic single-file JavaScript, externalizes only Node built-ins,
+and is configured to preserve legal comments. That setting is not a complete
+third-party notices inventory; release packaging still requires a
+license/notices review.
+The sealed engine maps delegated-runtime imports to a fixed Codex denial rather
+than searching an ambient `node_modules` tree or invoking an unstaged binary.
+
 No signing identity, Team ID, provisioning profile, or production credential
 is committed. CI verifies deterministic builds, entitlements/plist schemas,
 Swift tests, TypeScript tests, and fake attestations. Owner-run release gates
@@ -563,6 +595,13 @@ Real OpenAI/Anthropic live smoke tests are optional owner-run release checks.
 They are never required in CI and never use a production key. Implementation
 and CI use fake broker/provider fixtures, so missing external credentials cannot
 weaken or skip a deterministic gate.
+
+The completed health slice additionally tests public fd-3 non-use, fixed bundle
+resolution, descriptors `0`–`3` only, hostile environment/argv rejection,
+private hello/health downgrade, cancellation, exact-PID reaping, bundle
+self-containment, fixed sealed-Codex denial, and broker-owned manifests remaining
+non-runnable. These tests do not substitute for Section 17.4 installed-artifact
+evidence.
 
 ## 18. Documentation and User Truthfulness
 

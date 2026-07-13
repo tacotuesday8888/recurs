@@ -7,24 +7,26 @@ accidental disclosure through built-in tools, checkpoints, child environments,
 and error messages; arbitrary commands still run with the user's host
 filesystem, network, IPC, and process authority.
 
-The repository now includes a macOS 14.4+ native-authority component
-foundation. It has tested Data Protection Keychain and credential-state/journal
-libraries, exact-peer code-identity checks, a handshake/health XPC broker and
-headless launcher skeleton, a no-secret framed TypeScript client for an injected
-descriptor, child-process descriptor denial, and fixed redacted diagnostics.
-The intended production architecture makes a signed broker the sole credential
-and reusable-authority owner, but that path is not operational yet: the launcher
-does not create the socket pair or spawn/bridge Node, credential operations are
-not connected to the broker service, and no signed/notarized artifact exists.
-The handshake-only broker advertises persistent credentials as unavailable.
-The injected descriptor and its peer's self-attestation cannot prove native
-provenance, so the inherited-descriptor factory also downgrades any claimed
-ready result to peer-identity-unverified without a JavaScript or environment
-bypass. Ordinary macOS source execution fails closed as launcher-unavailable,
-while other platforms report unsupported. A connected native peer without
-production and persistent authority reports production-signing-required. There
-is no plaintext fallback. No current CLI command
-collects a direct-provider secret and all broker-owned providers remain disabled.
+The repository now includes a macOS 14.4+ health-only native process boundary.
+It has tested Data Protection Keychain and credential-state/journal libraries,
+exact-peer identity checks, a handshake/health XPC broker, bounded native
+frames, fixed signed-bundle path validation, an exact-descriptor child
+lifecycle, and redacted diagnostics. The production-gated launcher creates one
+anonymous socketpair, directly spawns only its fixed sealed Node engine, maps
+the child endpoint to descriptor 3, serves `hello`/`health`/`cancel`, and reaps
+the exact child. The public npm/source CLI deletes an injected native marker and
+writes zero bytes to that descriptor. Source, unsigned, and ad-hoc launchers
+cannot select an engine through `PATH`, cwd, environment, or arguments and fail
+the engine path with fixed exit `78` and empty output.
+
+This is not an operational credential authority. No signed/notarized installed
+artifact exists, credential operations are not connected to the broker service,
+and the handshake-only broker advertises `persistentCredentials: false`. A
+directly injected descriptor and its peer's self-attestation cannot prove
+native provenance, so a claimed ready result is still downgraded to
+peer-identity-unverified without a JavaScript or environment bypass. There is
+no plaintext fallback. No current CLI command collects a direct-provider secret
+and all broker-owned providers remain disabled.
 
 The one implemented subscription path is deliberately narrower than a Recurs-
 owned credential flow: Recurs launches the pinned official Codex ACP adapter as
@@ -36,6 +38,11 @@ scripted, implicit SDK, and Act-mode use fails closed. The active account is
 verified on the exact ACP child before session work and again immediately
 before prompting. Plan mode rejects every non-read runtime approval even under
 `Approved for Me` or `Full Access`.
+
+That delegated Codex path is available only through the public npm/source CLI.
+The sealed private engine explicitly returns a fixed safe unavailable error for
+Codex and does not resolve an ambient adapter or binary. It remains denied there
+until both have a reviewed fixed signed-bundle layout.
 
 Connection management stores and removes Recurs metadata only.
 `recurs account disconnect` does not revoke, sign out, or delete vendor
@@ -50,6 +57,11 @@ Until Recurs reaches a tagged public preview, only the current `main` branch is
 considered for security fixes. There is no supported stable release line or
 backport policy yet. This policy will be revised before the first public
 release.
+
+The private-engine bundler is configured to preserve legal comments, but that
+is not a complete third-party notices inventory. Release packaging still
+requires an explicit license/notices review for every shipped runtime and
+dependency.
 
 ## Reporting a vulnerability
 
@@ -99,8 +111,8 @@ authority.
 Direct API, coding-plan, OAuth, and cloud-identity credential flows remain
 disabled until a complete provider vertical supplies a reviewed native request
 codec and endpoint profile, hidden-input onboarding and fenced connection
-lifecycle, policy/runtime binding, the missing launcher/credential-service
-wiring, a compatible signed artifact, and installed-artifact credential-canary
+lifecycle, policy/runtime binding, broker credential-service wiring, a
+compatible signed artifact, and installed-artifact credential-canary
 tests. A manifest boolean cannot bypass that gate.
 The future native HTTPS transport will ignore repository proxy/CA environment
 variables while trusting macOS system proxy and root configuration as host

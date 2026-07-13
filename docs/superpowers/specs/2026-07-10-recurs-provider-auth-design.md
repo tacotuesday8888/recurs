@@ -1,10 +1,10 @@
 # Recurs Provider, Authentication, and Onboarding Design
 
 **Date:** 2026-07-10
-**Status:** Reviewed umbrella design — Slice 0, the TypeScript safety precursor and macOS native-authority foundation of Slice 1, the 25-path/non-secret connection lifecycle of Slice 2, and the Codex foundation of Slice 4 implemented; direct credential-bearing Slice 3 and later runtime/policy work pending
+**Status:** Reviewed umbrella design — Slice 0, the TypeScript safety precursor and health-only macOS launcher/engine boundary of Slice 1, the 25-path/non-secret connection lifecycle of Slice 2, and the public npm/source Codex foundation of Slice 4 implemented; direct credential-bearing Slice 3 and later runtime/policy work pending
 **Scope:** CLI-first provider connectivity shared with the future desktop app
 
-This specification describes the provider/authentication program. The repository now implements dependency-leaf contracts, immutable backend pins, trusted host context, version-2 sessions and leases, direct/delegated coordination, durable delegated results and recovery, a sessionless workspace shell, unified built-in credential exclusions, checkpoint format gating, clean child state, tool security profiles, sanitized failures, a strict 25-path manifest catalog, a non-secret connection registry and exact-ID lifecycle service, literal-loopback OpenAI-compatible setup, the first official Codex-with-ChatGPT ACP path, and the macOS native-authority component foundation. That native foundation includes tested Data Protection Keychain and credential-state/journal libraries, exact-peer code-identity checks, handshake/health launcher-broker executables, bounded no-secret framing, a credential-free injected-descriptor TypeScript client, and redacted diagnostics. It is not an end-to-end signed authority: the launcher-to-Node bridge, live broker credential operations, and signed/notarized artifact remain absent. Recurs imports or stores no vendor credential; Codex authentication remains owned by the pinned official runtime. Direct API, coding-plan, OAuth, and cloud-identity activation remains blocked until that native wiring, provider codecs/profiles, hidden-input lifecycle, transport/policy binding, and signed installed-artifact evidence land. See [the architecture](../../../ARCHITECTURE.md) and the newer [Provider Activation v1 design](2026-07-13-provider-activation-v1-design.md) for exact implemented behavior and the narrower native-authority decision that supersedes this umbrella design's blanket sandbox prerequisite for broker-owned direct credentials.
+This specification describes the provider/authentication program. The repository now implements dependency-leaf contracts, immutable backend pins, trusted host context, version-2 sessions and leases, direct/delegated coordination, durable delegated results and recovery, a sessionless workspace shell, unified built-in credential exclusions, checkpoint format gating, clean child state, tool security profiles, sanitized failures, a strict 25-path manifest catalog, a non-secret connection registry and exact-ID lifecycle service, literal-loopback OpenAI-compatible setup, the first official Codex-with-ChatGPT ACP path, and the macOS native-authority component foundation. That native foundation includes tested Data Protection Keychain and credential-state/journal libraries, exact-peer code-identity checks, a handshake/health XPC broker, bounded no-secret framing, fixed sealed-bundle validation, exact child lifecycle, and a launcher-created descriptor-3 health bridge to a private engine. It is not an end-to-end installed authority: live broker credential operations and a signed/notarized artifact remain absent, and `persistentCredentials` stays false. Recurs imports or stores no vendor credential. The public npm/source Codex path remains owned by the pinned official runtime; the sealed private engine explicitly denies delegated Codex until its adapter and binary have a reviewed fixed signed layout. Direct API, coding-plan, OAuth, and cloud-identity activation remains blocked until provider codecs/profiles, hidden-input lifecycle, transport/policy binding, and signed installed-artifact evidence land. See [the architecture](../../../ARCHITECTURE.md) and the newer [Provider Activation v1 design](2026-07-13-provider-activation-v1-design.md) for exact implemented behavior and the narrower native-authority decision that supersedes this umbrella design's blanket sandbox prerequisite for broker-owned direct credentials.
 
 ## 1. Decision
 
@@ -125,9 +125,9 @@ Those defenses remain insufficient for real credentials:
 - Session/checkpoint roots and their full parent chains are not validated as a
   hardened secret store for ownership, mode, ACL, filesystem semantics, and
   concurrent no-follow access.
-- Native non-exporting broker components now exist, but their credential-state
-  libraries are not connected to the handshake/health service and the launcher
-  does not yet bridge an anonymous socket to Node. No origin-bound provider
+- Native non-exporting broker components and the health-only launcher-to-sealed-
+  engine socket bridge now exist, but credential-state libraries are not
+  connected to the handshake/health service. No origin-bound provider
   transport, signed installed artifact, or general OS sandbox exists.
 
 No live cloud credential may ship until the credential and execution isolation
@@ -265,23 +265,26 @@ other paths, contacting local services, or inspecting accessible processes.
 Before Recurs owns a direct API, coding-plan, OAuth, or cloud-identity
 credential, it must complete and test the narrow native broker/storage boundary
 defined by Provider Activation v1. The repository now contains its Keychain,
-credential-state/journal, exact-peer, framing/client, and handshake/health
-components, but not the launcher-to-Node bridge, live broker credential
-operations, origin-bound transport, or installed signed-artifact proof. The
-newer design requires tool-child authority denial and installed canary testing;
-it does not claim that the current `local_guarded` profile is a general OS
-sandbox. A small platform-native component is appropriate for this authority
-boundary. The TypeScript agent loop, coordinator, session engine, and CLI do
+credential-state/journal, exact-peer, framing/client, handshake/health, and
+launcher-to-sealed-engine health-bridge components, but not live broker
+credential operations, origin-bound transport, or installed signed-artifact
+proof. The newer design requires tool-child authority denial and installed
+canary testing; it does not claim that the current `local_guarded` profile is a
+general OS sandbox. A small platform-native component is appropriate for this
+authority boundary. The TypeScript agent loop, coordinator, session engine,
+and CLI do
 not need a wholesale rewrite.
 
 `@recurs/auth` is now a deliberately small credential-free client for an
-injected inherited native descriptor. It is not a pathname wrapper, secure
+injected native duplex. It is not a pathname wrapper, secure
 store, connection registry, provider transport, or secret API. Literal-loopback
 local onboarding remains the only Recurs-owned direct transport and collects no
-key. The descriptor marker is transport plumbing, not identity proof: until an
-OS-authenticated launcher bridge exists, the production inherited-descriptor
-factory downgrades a peer's self-asserted ready result to
-`peer_identity_unverified` without a caller-controlled bypass.
+key. The public entrypoint deletes the descriptor marker; only the private engine
+claims it. The marker is transport plumbing, not identity proof, so a directly
+injected peer's self-asserted ready result remains downgraded to
+`peer_identity_unverified` without a caller-controlled bypass. The production-
+gated Swift launcher creates the anonymous socket and fixed child process, but
+no installed signed artifact currently supplies authenticated provenance.
 
 ## 7. Package Boundaries
 
@@ -340,9 +343,9 @@ flowchart TD
   or provider-transport surface.
 - Includes a fake status port for deterministic tests.
 
-The production launcher-to-Node descriptor producer remains pending. Secure
-storage and provider transport live in the native authority rather than this
-TypeScript package.
+The production-gated launcher-to-engine descriptor producer is implemented.
+Secure storage and provider transport remain native-authority responsibilities,
+not TypeScript package capabilities; they are not exposed by the live service.
 
 ### `@recurs/runtimes` (implemented ACP/Codex foundation)
 
@@ -3123,7 +3126,7 @@ safety precursor described below.
 - Keep every existing scripted-provider behavior passing through compatibility
   fixtures; no live credential is introduced.
 
-### Slice 1: Credential and execution safety — TypeScript precursor and macOS native-authority foundation implemented
+### Slice 1: Credential and execution safety — TypeScript precursor and health-only macOS bridge implemented
 
 - Implemented precursor: unify classified credential exclusions across built-in
   tools, permanently deny those intents, and gate new checkpoint storage with a
@@ -3138,9 +3141,13 @@ safety precursor described below.
 - Implemented native foundation: exact signed launcher/broker XPC peer
   requirements, Hardened Runtime/entitlement validation, a headless
   health launcher that manages the broker LaunchAgent with `SMAppService`,
-  bounded no-secret framing and a TypeScript client for an injected inherited
-  socket, redacted app/CLI health, and tool-child descriptor denial. The
-  launcher does not yet create that socket or spawn/bridge Node.
+  bounded no-secret framing, redacted app/CLI health, and tool-child descriptor
+  denial.
+- Implemented health bridge: the public npm/source CLI discards injected native
+  descriptors; the production-gated launcher resolves only fixed nonsymlinked
+  Node/engine resources, spawns one foreground child with descriptors `0`–`3`,
+  serves `hello`/`health`/`cancel`, reaps the exact PID, and fails unsigned or
+  hostile path/env/argv resolution with fixed empty-output exit `78`.
 - Implemented activation gate: source/unsigned/ad-hoc builds fail closed and
   every broker-owned manifest remains unconditionally non-runnable. A typed
   evidence input is deferred until trusted internal assembly can issue it from
@@ -3159,7 +3166,11 @@ safety precursor described below.
 The implemented native foundation is not direct-provider completion. The
 current broker exchange is handshake/health-only, no CLI flow collects a live
 cloud credential, and no broker-owned provider is runnable before every
-provider-specific and signed-artifact gate passes.
+provider-specific and signed-artifact gate passes. The sealed private engine
+also returns a fixed unavailable result for delegated Codex rather than
+resolving an ambient adapter or binary; public npm/source Codex remains
+implemented. Its builder is configured to preserve legal comments, but release
+packaging still requires complete third-party notices and license review.
 
 ### Slice 2: Connections, catalogs, sessions, and onboarding — bounded non-secret subset implemented
 
