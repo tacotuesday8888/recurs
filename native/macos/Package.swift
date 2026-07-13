@@ -17,6 +17,11 @@ let package = Package(
   targets: [
     .target(name: "RecursBrokerCore"),
     .target(name: "RecursNativeProtocol"),
+    .target(
+      name: "RecursNativeSecurity",
+      dependencies: ["RecursBrokerCore"],
+      linkerSettings: [.linkedFramework("Security")]
+    ),
     .testTarget(
       name: "RecursBrokerCoreTests",
       dependencies: ["RecursBrokerCore"],
@@ -26,9 +31,13 @@ let package = Package(
       name: "RecursNativeProtocolTests",
       dependencies: ["RecursNativeProtocol"],
       path: "Tests",
-      exclude: ["RecursBrokerCoreTests"],
+      exclude: ["RecursBrokerCoreTests", "RecursNativeSecurityTests"],
       sources: ["RecursNativeProtocolTests"],
       resources: [.copy("Fixtures/frames.json")]
+    ),
+    .testTarget(
+      name: "RecursNativeSecurityTests",
+      dependencies: ["RecursNativeSecurity", "RecursBrokerCore"]
     ),
   ]
 )

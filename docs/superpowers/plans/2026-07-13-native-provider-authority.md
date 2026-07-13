@@ -579,6 +579,7 @@ git commit -m "feat: add durable broker journal"
 - Create: `native/macos/Sources/RecursNativeSecurity/KeychainClient.swift`
 - Create: `native/macos/Sources/RecursNativeSecurity/DataProtectionCredentialStore.swift`
 - Create: `native/macos/Sources/RecursNativeSecurity/KeychainJournalAuthenticator.swift`
+- Create: `native/macos/Sources/RecursNativeSecurity/SecureData.swift`
 - Create: `native/macos/Tests/RecursNativeSecurityTests/KeychainStoreTests.swift`
 - Create: `native/macos/Tests/RecursNativeSecurityTests/KeychainJournalAuthenticatorTests.swift`
 - Modify: `native/macos/Package.swift`
@@ -591,7 +592,7 @@ git commit -m "feat: add durable broker journal"
   enumeration and exact anchor CAS.
 - Links Security.framework; no command-line `security` invocation.
 
-- [ ] **Step 1: Write failing query and status-mapping tests**
+- [x] **Step 1: Write failing query and status-mapping tests**
 
 Inject a closure-based `KeychainClient` and capture queries without storing a
 real key. Assert every add/read/update/delete query includes:
@@ -605,8 +606,11 @@ kSecAttrService: "com.recurs.cli.credentials.v1"
 kSecAttrAccessGroup: configuration.accessGroup
 ```
 
-The account is exactly the random connection UUID plus generation. Reject an
-empty/whitespace access group before calling Security. Map locked,
+The credential account injectively encodes the lowercase connection UUID,
+lowercase generation UUID, and decimal generation ordinal, so an old usable
+generation and a staged replacement cannot collide. Journal keys and anchors
+use separate fixed broker-private services. Reject an empty/whitespace access
+group before calling Security. Map locked,
 interaction-not-allowed, duplicate, missing, and unexpected `OSStatus` values
 to fixed errors with no Security message text.
 
@@ -617,7 +621,7 @@ re-reading fixed data rather than guessing. Test the exact domain-separated
 input and two-slot rule from the broker journal contract. No test touches the
 user's real Keychain.
 
-- [ ] **Step 2: Run the security tests and verify RED**
+- [x] **Step 2: Run the security tests and verify RED**
 
 Run:
 
@@ -628,20 +632,24 @@ swift test --package-path native/macos --filter KeychainJournalAuthenticatorTest
 
 Expected: FAIL because the target is absent.
 
-- [ ] **Step 3: Implement the Security.framework client**
+- [x] **Step 3: Implement the Security.framework client**
 
 `KeychainClient.live` wraps `SecItemAdd`, `SecItemCopyMatching`,
-`SecItemUpdate`, and `SecItemDelete`. Copy results into `SecretBytes`, release
-Core Foundation results immediately, and never call `SecCopyErrorMessageString`
-on a boundary that can reach Node.
+`SecItemUpdate`, and `SecItemDelete`. It immediately copies complete typed
+results into module-private values; credential bytes move into `SecretBytes`,
+and transient credential/HMAC buffers are cleared after use. It never requests
+a persistent reference or calls `SecCopyErrorMessageString` on a boundary that
+can reach Node.
 
-`KeychainJournalAuthenticator` owns the nonexportable HMAC key, computes tags
-without converting key bytes to `String`, and stores typed anchors in the same
-broker-private Data Protection Keychain boundary. It exposes no key, persistent
-reference, raw Keychain account, or arbitrary query result. Its actor and the
-broker-lifetime journal lease serialize exact read/compare/update anchor CAS.
+`KeychainJournalAuthenticator` owns an HMAC key that is never exported by a
+Recurs API, computes tags without converting key bytes to `String`, and stores
+typed anchors in the same broker-private Data Protection Keychain boundary. It
+exposes no key, persistent reference, raw Keychain account, or arbitrary query
+result. Its actor and the broker-lifetime journal lease serialize exact
+read/compare/update anchor CAS. A missing HMAC key with existing anchors is
+rollback evidence, not a reason to silently create a replacement key.
 
-- [ ] **Step 4: Implement fail-closed production configuration**
+- [x] **Step 4: Implement fail-closed production configuration**
 
 `KeychainStoreConfiguration.production(bundle:)` reads the signed bundle's
 application identifier prefix and `RecursCredentialAccessGroup`, validates
@@ -649,7 +657,7 @@ both against strict identifier patterns, and constructs the exact access group.
 Missing bundle metadata returns `productionSigningRequired`; it never omits the
 access-group attribute.
 
-- [ ] **Step 5: Run native tests and build**
+- [x] **Step 5: Run native tests and build**
 
 Run:
 
@@ -659,7 +667,7 @@ npm run check:native
 
 Expected: PASS without touching the user's real Keychain.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add native/macos
