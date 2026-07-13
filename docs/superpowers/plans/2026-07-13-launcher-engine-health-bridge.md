@@ -19,7 +19,8 @@
 - The public/npm/source CLI deletes `RECURS_NATIVE_FD`, never reads or writes its descriptor, and never treats the marker as provenance.
 - The private engine host has no npm `bin` and no public package export; private placement is not identity proof, so self-asserted readiness remains downgraded until installed signed-artifact evidence exists.
 - The launcher resolves the Node runtime and engine entrypoint only from fixed regular, nonsymlinked files inside its own sealed bundle; it never resolves either from `PATH`, the working directory, an environment variable, or a user argument.
-- A spawned engine inherits descriptors `0`, `1`, `2`, and exactly one anonymous socket endpoint; all other descriptors use close-on-exec semantics.
+- A spawned engine inherits descriptors `0`, `1`, `2`, and exactly one anonymous socket endpoint mapped to descriptor `3`; all other descriptors use close-on-exec semantics.
+- The engine environment is rebuilt from the reviewed non-secret keys `HOME`, `PATH`, `TMPDIR`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TERM`, `COLORTERM`, `NO_COLOR`, `FORCE_COLOR`, `TZ`, `RECURS_HOME`, and `CODEX_HOME`, plus canonicalized recognized automation markers and `RECURS_NATIVE_FD=3`; `NODE_OPTIONS`, `NODE_PATH`, `DYLD_*`, proxy, cloud, credential, token, and key variables are never copied.
 - No direct-provider manifest becomes runnable, no credential is collected, and no heavy sub-agent architecture is added in this plan.
 
 ---
@@ -253,7 +254,7 @@ git commit -m "refactor: isolate bundled native engine host"
 
 - [ ] **Step 1: Write failing real-socket tests**
 
-Create a real `socketpair(AF_UNIX, SOCK_STREAM, 0, ...)`. Prove fragmented and coalesced frames reach the session, complete writes survive forced short writes/EINTR, peer EOF calls `finish`, read/write timeout or EPIPE closes without SIGPIPE, oversized/truncated input fails closed, and repeated or concurrent close closes the descriptor once. Confirm `F_GETFD & FD_CLOEXEC != 0` and `SO_NOSIGPIPE == 1` on both created endpoints.
+Create a real `socketpair(AF_UNIX, SOCK_STREAM, 0, ...)`. Prove fragmented and coalesced frames reach the session, complete writes survive forced short writes/EINTR, peer EOF calls `finish`, read/write timeout or EPIPE closes without SIGPIPE, oversized/truncated input fails closed, and repeated or concurrent close closes the descriptor once. Confirm `F_GETFD & FD_CLOEXEC != 0` and `SO_NOSIGPIPE == 1` on the owned endpoint.
 
 - [ ] **Step 2: Run the socket tests and verify RED**
 
@@ -325,7 +326,7 @@ RecursLauncher.app/Contents/Resources/runtime/bin/node
 RecursLauncher.app/Contents/Resources/engine/main.js
 ```
 
-Reject missing, directory, symlink, nonregular, and escaped paths. With an injected fixed test executable, prove argv is `[nodePath, enginePath, ...userArguments]`, a preexisting marker is replaced, the child inherits `0`, `1`, `2`, and one socket only, the parent closes the child endpoint immediately, spawn failure closes both endpoints, and wait maps normal exits and signals without leaking paths or environment values in errors.
+Reject missing, directory, symlink, nonregular, and escaped paths. With an injected fixed test executable, prove argv is `[nodePath, enginePath, ...userArguments]`, a preexisting marker is replaced, the child inherits `0`, `1`, `2`, and descriptor `3` only, the parent closes the child endpoint immediately, spawn failure closes both endpoints, and wait maps normal exits and signals without leaking paths or environment values in errors. Inject canary `NODE_OPTIONS`, `NODE_PATH`, `DYLD_*`, proxy, cloud, credential, token, and key variables and prove none reach the child; prove only the reviewed environment allowlist and canonicalized automation flags survive.
 
 - [ ] **Step 2: Run the process tests and verify RED**
 
@@ -350,11 +351,11 @@ package struct EngineBundleLayout: Equatable, Sendable {
 }
 ```
 
-Resolve only the two exact descendants above. Standardize paths, require containment under `bundle.bundleURL`, use `lstat` to reject symlinks, require regular files, and require execute permission only for Node. Errors are fixed enums with no associated path or text.
+First validate the current outer launcher as the exact production-signed launcher through the existing strict `PeerRequirement.production(for:authenticatedAs:)` path. Resolve only the two exact descendants above. Standardize paths, require containment under `bundle.bundleURL`, use `lstat` to reject symlinks, require regular files, and require execute permission only for Node. Errors are fixed enums with no associated path or text.
 
 - [ ] **Step 4: Implement exact descriptor inheritance and child lifecycle**
 
-Create the socketpair and immediately set `FD_CLOEXEC` and `SO_NOSIGPIPE` on both endpoints. Configure `POSIX_SPAWN_CLOEXEC_DEFAULT`; add explicit `posix_spawn_file_actions_addinherit_np` actions for descriptors `0`, `1`, `2`, and the child socket only. Spawn the fixed Node URL directly with the fixed engine URL as argv[1], pass the actual child descriptor through a replaced `RECURS_NATIVE_FD` value, and never invoke a shell. Close the child endpoint in the parent on every path. Retry `waitpid` only on EINTR and map `WIFEXITED`/`WIFSIGNALED` into a fixed `EngineTermination` value.
+Create the raw socketpair, duplicate both endpoints above descriptor `3` with `F_DUPFD_CLOEXEC`, and close the raw descriptors immediately. Set `SO_NOSIGPIPE` on the launcher endpoint. Configure `POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK`; explicitly inherit descriptors `0`, `1`, and `2`, `adddup2(engineSocketFD, 3)`, then close the source engine descriptor in the child. Reset `SIGINT`, `SIGTERM`, `SIGHUP`, `SIGQUIT`, and `SIGPIPE` with an empty child signal mask. Spawn the fixed Node URL directly with the fixed engine URL as argv[1], rebuild the reviewed environment, set only `RECURS_NATIVE_FD=3`, and never invoke a shell. Close the child endpoint in the parent on every path. Treat each `posix_spawn*` return as its own error code rather than reading `errno`. Retry exact-positive-PID `waitpid` only on EINTR and decode Darwin wait status into a fixed `EngineTermination` value without function-like C macros. Forced shutdown closes the channel, sends `SIGTERM`, polls exact-PID `waitpid(..., WNOHANG)` for a bounded grace period, sends `SIGKILL` if needed, and always performs the final exact-PID reap; repeated shutdown cannot double-close, double-signal, or double-wait.
 
 - [ ] **Step 5: Run focused native tests and commit**
 
@@ -398,7 +399,7 @@ git commit -m "feat: add fixed bundled engine launcher"
 
 - [ ] **Step 1: Write failing launcher lifecycle and smoke assertions**
 
-Keep `native-health --machine` backward compatible. Add a bundle-engine run path that resolves only `EngineBundleLayout.production`, starts one child, lazily opens the existing exact-peer broker on the first hello, serves the session, closes it when either side ends, waits for the child, and exits with its normal status or `128 + signal`. Source builds without staged engine resources must return a fixed configuration exit with empty stdout and no path-bearing stderr.
+Keep `native-health --machine` backward compatible. Add a bundle-engine run path that resolves only `EngineBundleLayout.production`, starts one child, lazily opens the existing exact-peer broker on the first hello, serves the session, closes it when either side ends, waits for the child, and mirrors its normal or signal termination. Keep the child in the foreground process group; intercept launcher signals only long enough to close/reap without duplicating terminal-delivered `SIGINT`, and forward explicit termination once to the exact positive child PID. Source builds without staged engine resources must return a fixed configuration exit with empty stdout and no path-bearing stderr.
 
 The cross-process smoke must prove: public CLI plus a real fd-3 fake peer writes zero bytes and reports fixed unavailable; private host plus the peer performs hello/health but still reports `peer_identity_unverified`; source launcher cannot resolve an engine from `PATH`, cwd, env, or arguments; cancellation exits promptly; no credential-shaped canary appears; providers remain hard-disabled.
 
