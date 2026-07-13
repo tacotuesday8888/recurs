@@ -116,7 +116,7 @@ struct BrokerCredentialLifecycleXPCTests {
 
     let heapAlias = Data(
       repeating: 0xa5,
-      count: BrokerCredentialLifecycleGateway.maximumSecretBytes
+      count: brokerCredentialMaximumSecretBytes
     )
     let heapTransfer = heapAlias
     let heapStage = LockedDataProbe()
@@ -127,7 +127,7 @@ struct BrokerCredentialLifecycleXPCTests {
     )
     #expect(
       heapAlias
-        == Data(repeating: 0xa5, count: BrokerCredentialLifecycleGateway.maximumSecretBytes)
+        == Data(repeating: 0xa5, count: brokerCredentialMaximumSecretBytes)
     )
     #expect(
       try decodeLifecycleReply(heapStage.wait())
@@ -173,7 +173,7 @@ struct BrokerCredentialLifecycleXPCTests {
 
   @Test(arguments: [
     0,
-    BrokerCredentialLifecycleGateway.maximumSecretBytes + 1,
+    brokerCredentialMaximumSecretBytes + 1,
   ])
   func healthOnlyRejectsInvalidSecretLength(_ byteCount: Int) throws {
     let service = BrokerService(

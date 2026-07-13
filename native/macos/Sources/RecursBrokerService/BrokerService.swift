@@ -280,7 +280,7 @@ final class BrokerService: NSObject, BrokerCredentialLifecycleXPCProtocol,
   private static func unavailableStage(_ data: Data, secretByteCount: Int) -> Data {
     do {
       let request = try BrokerCredentialStageRequest.decode(data)
-      guard (1...BrokerCredentialLifecycleGateway.maximumSecretBytes).contains(secretByteCount)
+      guard (1...brokerCredentialMaximumSecretBytes).contains(secretByteCount)
       else {
         return lifecycleFailure(requestID: request.requestID, code: .invalidRequest)
       }

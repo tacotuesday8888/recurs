@@ -4,7 +4,6 @@ import RecursBrokerXPC
 
 final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
   static let maximumInflightRequests = 8
-  static let maximumSecretBytes = 4_096
 
   private struct Entry {
     let task: Task<Void, Never>
@@ -69,7 +68,7 @@ final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
     case .rejected(let code):
       rejection = code
     case .accepted:
-      guard (1...Self.maximumSecretBytes).contains(secretBox.byteCount) else {
+      guard (1...brokerCredentialMaximumSecretBytes).contains(secretBox.byteCount) else {
         rejection = .invalidRequest
         break
       }

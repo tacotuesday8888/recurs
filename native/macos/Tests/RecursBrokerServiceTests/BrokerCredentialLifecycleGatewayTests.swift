@@ -478,7 +478,7 @@ struct BrokerCredentialLifecycleGatewayTests {
 
   @Test(arguments: [
     0,
-    BrokerCredentialLifecycleGateway.maximumSecretBytes + 1,
+    brokerCredentialMaximumSecretBytes + 1,
   ])
   func invalidStageLengthIsRejectedBeforeAuthorityAndConsumesItsID(
     _ byteCount: Int

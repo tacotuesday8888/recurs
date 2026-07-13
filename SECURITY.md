@@ -43,7 +43,12 @@ unpublished journal and reconnect.
 This is not yet a shipped or provider-usable credential authority. No
 signed/notarized installed artifact or successful production broker smoke
 exists, and source/npm or ad-hoc builds cannot activate the authority. The
-launcher has no TTY secret capture and does not call the broker lifecycle.
+launcher library has an internal foreground-TTY capture primitive and a private
+lifecycle XPC client, but the executable calls neither. Capture remains
+module-internal until a signal-owning coordinator proves terminal restoration
+across interrupt, termination, and suspension. Owned and transient secret
+buffers are erased on every tested outcome; no secret enters Node, descriptor
+3, arguments, environment, configuration, or logs.
 There is no provider verification, DNS/network feasibility proof, credential
 reservation from a route receipt, broker HTTP/TLS/proxy handling,
 request/stream codec, model-catalog transport, CLI onboarding, or enabled

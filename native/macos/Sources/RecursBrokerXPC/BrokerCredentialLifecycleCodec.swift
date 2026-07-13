@@ -1,6 +1,7 @@
 import Foundation
 
 public let brokerCredentialMalformedRequestID = UInt64.max
+public let brokerCredentialMaximumSecretBytes = 4_096
 
 package struct BrokerCredentialLifecycleCodecError:
   Error,
