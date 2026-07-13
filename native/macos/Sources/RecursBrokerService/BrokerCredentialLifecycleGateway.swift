@@ -56,7 +56,7 @@ package final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
     let gate = ReplyGate(requestID: request.requestID, reply: reply)
     var rejection: BrokerCredentialLifecycleFailureCode?
     lock.lock()
-    switch admit(requestID: request.requestID) {
+    switch admit(requestID: request.requestID, requiresCapacity: true) {
     case .rejected(let code):
       rejection = code
     case .accepted:
@@ -98,10 +98,16 @@ package final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
     }
 
     let requestID = request.requestID
+    let requiresCapacity: Bool
+    if case .reservedOperation = request {
+      requiresCapacity = false
+    } else {
+      requiresCapacity = true
+    }
     let gate = ReplyGate(requestID: requestID, reply: reply)
     var rejection: BrokerCredentialLifecycleFailureCode?
     lock.lock()
-    switch admit(requestID: requestID) {
+    switch admit(requestID: requestID, requiresCapacity: requiresCapacity) {
     case .rejected(let code):
       rejection = code
     case .accepted:
@@ -142,12 +148,12 @@ package final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
     }
   }
 
-  private func admit(requestID: UInt64) -> Admission {
+  private func admit(requestID: UInt64, requiresCapacity: Bool) -> Admission {
     guard requestID > greatestSeenRequestID else { return .rejected(.invalidRequest) }
     greatestSeenRequestID = requestID
     guard !isClosed else { return .rejected(.cancelled) }
     guard isAuthorized else { return .rejected(.sessionNotReady) }
-    guard entries.count < Self.maximumInflightRequests else {
+    guard !requiresCapacity || entries.count < Self.maximumInflightRequests else {
       return .rejected(.capacityExceeded)
     }
     return .accepted
@@ -408,10 +414,12 @@ package final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
   }
 
   private func finish(requestID: UInt64, gate: ReplyGate, encoded: Data) {
-    lock.withLock {
-      guard entries[requestID]?.gate === gate else { return }
+    let ownsReply = lock.withLock {
+      guard entries[requestID]?.gate === gate else { return false }
       entries.removeValue(forKey: requestID)
+      return true
     }
+    guard ownsReply else { return }
     gate.complete(encoded)
   }
 

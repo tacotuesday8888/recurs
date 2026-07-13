@@ -180,7 +180,7 @@ struct BrokerCredentialLifecycleGatewayTests {
   }
 
   @Test
-  func boundedAdmissionAndCloseCancelExactlyOnce() throws {
+  func boundedAdmissionAndCloseCancelExactlyOnce() async throws {
     let authority = GatewayAuthority(suspendProjection: true)
     let gateway = BrokerCredentialLifecycleGateway(authority: authority)
     gateway.authorizeAfterHello()
@@ -197,7 +197,17 @@ struct BrokerCredentialLifecycleGatewayTests {
         reply: probe.receive
       )
     }
-    let overflowID = UInt64(BrokerCredentialLifecycleGateway.maximumInflightRequests + 1)
+    let reservedID = UInt64(BrokerCredentialLifecycleGateway.maximumInflightRequests + 1)
+    let reserved = LockedReplyProbe()
+    gateway.submitControl(
+      try BrokerCredentialControlRequest.reservedOperation(requestID: reservedID).encode(),
+      reply: reserved.receive
+    )
+    #expect(
+      try decoded(reserved.wait()) == .failure(requestID: reservedID, .operationUnavailable)
+    )
+
+    let overflowID = reservedID + 1
     let overflow = LockedReplyProbe()
     gateway.submitControl(
       try BrokerCredentialControlRequest.projection(
@@ -227,6 +237,43 @@ struct BrokerCredentialLifecycleGatewayTests {
     }
     gateway.close()
     #expect(accepted.allSatisfy { $0.count == 1 })
+    #expect(await authority.callCount() == BrokerCredentialLifecycleGateway.maximumInflightRequests)
+  }
+
+  @Test
+  func closeOwnsRepliesAfterClearingInflightEntries() async throws {
+    let authority = GatewayAuthority(suspendProjection: true)
+    let gateway = BrokerCredentialLifecycleGateway(authority: authority)
+    let replies = BlockingCloseReplyProbe()
+    gateway.authorizeAfterHello()
+
+    for requestID in UInt64(1)...2 {
+      gateway.submitControl(
+        try BrokerCredentialControlRequest.projection(
+          requestID: requestID,
+          connectionID: connectionID
+        ).encode(),
+        reply: replies.receive
+      )
+    }
+    while await authority.callCount() < 2 {
+      await Task.yield()
+    }
+
+    let close = Task.detached { gateway.close() }
+    replies.waitUntilCancellationCallbackBlocks()
+    try await Task.sleep(for: .milliseconds(50))
+
+    #expect(replies.count == 1)
+    replies.releaseCancellationCallback()
+    await close.value
+    #expect(replies.waitForCount(2) == 2)
+    #expect(
+      replies.snapshot().allSatisfy {
+        if case .failure(_, .cancelled) = $0 { return true }
+        return false
+      }
+    )
   }
 
   @Test(arguments: [
@@ -492,6 +539,68 @@ private final class LockedReplyProbe: @unchecked Sendable {
       return Data()
     }
     return first
+  }
+}
+
+private final class BlockingCloseReplyProbe: @unchecked Sendable {
+  private let condition = NSCondition()
+  private var replies: [BrokerCredentialLifecycleReply] = []
+  private var isBlockingCancellation = false
+  private var mayReturnFromCancellation = false
+
+  var count: Int {
+    condition.lock()
+    defer { condition.unlock() }
+    return replies.count
+  }
+
+  func receive(_ data: Data) {
+    guard let reply = try? BrokerCredentialLifecycleReply.decode(data) else {
+      Issue.record("Expected a canonical close-window reply")
+      return
+    }
+    condition.lock()
+    replies.append(reply)
+    if case .failure(_, .cancelled) = reply, !isBlockingCancellation {
+      isBlockingCancellation = true
+      condition.broadcast()
+      while !mayReturnFromCancellation {
+        condition.wait()
+      }
+    }
+    condition.broadcast()
+    condition.unlock()
+  }
+
+  func waitUntilCancellationCallbackBlocks(timeout: TimeInterval = 3) {
+    condition.lock()
+    defer { condition.unlock() }
+    let deadline = Date().addingTimeInterval(timeout)
+    while !isBlockingCancellation, condition.wait(until: deadline) {}
+    if !isBlockingCancellation {
+      Issue.record("Timed out waiting for the close callback window")
+    }
+  }
+
+  func releaseCancellationCallback() {
+    condition.lock()
+    mayReturnFromCancellation = true
+    condition.broadcast()
+    condition.unlock()
+  }
+
+  func waitForCount(_ expected: Int, timeout: TimeInterval = 3) -> Int {
+    condition.lock()
+    defer { condition.unlock() }
+    let deadline = Date().addingTimeInterval(timeout)
+    while replies.count < expected, condition.wait(until: deadline) {}
+    return replies.count
+  }
+
+  func snapshot() -> [BrokerCredentialLifecycleReply] {
+    condition.lock()
+    defer { condition.unlock() }
+    return replies
   }
 }
 
