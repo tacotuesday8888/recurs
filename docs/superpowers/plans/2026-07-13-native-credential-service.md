@@ -314,7 +314,7 @@ description. A decoder error carries a request ID only after parsing a value in
 `nil`. This is the only Task 3 seam for choosing an echoed ID versus the
 malformed-request sentinel; the gateway must not parse the wire a second time.
 
-- [ ] **Step 1: Add codec tests from the frozen table above**
+- [x] **Step 1: Add codec tests from the frozen table above**
 
 Test every round trip and exact byte length. Reject bad magic/version/kind/body
 length, trailing bytes, request ID zero or `UInt64.max`, truncated/oversized
@@ -332,7 +332,7 @@ later UUID/state/length failure and `nil` before that point.
 Assert a credential canary and all forbidden identifier names are absent from
 every encoded reply.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```bash
 swift test --package-path native/macos \
@@ -341,13 +341,13 @@ swift test --package-path native/macos \
 
 Expected: compilation fails because the private codec does not exist.
 
-- [ ] **Step 3: Implement the manual bounded codec**
+- [x] **Step 3: Implement the manual bounded codec**
 
 Use private byte append/read helpers and checked offsets. Do not use `Codable`,
 JSON, property lists, `NSKeyedArchiver`, `RecursNativeProtocol`, or arbitrary
 dictionaries. Decode into copied value types and reject any noncanonical form.
 
-- [ ] **Step 4: Verify GREEN and release compilation**
+- [x] **Step 4: Verify GREEN and release compilation**
 
 ```bash
 swift test --package-path native/macos \
@@ -358,7 +358,7 @@ swift build --package-path native/macos -c release \
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add native/macos/Package.swift \
