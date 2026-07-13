@@ -798,7 +798,7 @@ package protocol BrokerServiceListenerHandle: AnyObject {
   func activate()
 }
 
-package struct BrokerServiceRuntimeDependencies {
+struct BrokerServiceRuntimeDependencies {
   let makePeerRequirement: () throws -> PeerRequirement
   let makeKeychainConfiguration:
     () throws -> KeychainStoreConfiguration
@@ -813,13 +813,16 @@ package struct BrokerServiceRuntimeDependencies {
 ```
 
 Add `NSXPCListener: BrokerServiceListenerHandle`. The test factory accepts an
-explicit `BrokerServiceRuntimeDependencies`; the live factory uses only fixed
-production implementations. It evaluates dependencies in field order, creates
-the listener only after recovery, sets its exact signing requirement and
-delegate, but leaves activation to `activate()`. The runtime strongly retains
-both the listener and delegate for its whole lifetime; do not rely on the
-Foundation delegate property to provide ownership. `activate()` is idempotent
-and forwards to the listener at most once.
+explicit internal `BrokerServiceRuntimeDependencies` through a `forTesting`
+factory visible only under `@testable import`; the executable can call only the
+fixed production factory. Evaluate dependencies strictly in this order: peer
+requirement, Keychain configuration, complete authority recovery, health source,
+recovered service configuration, delegate, then listener. Create the listener
+only after recovery, set its exact signing requirement and delegate, but leave
+activation to `activate()`. The runtime strongly retains both the listener and
+delegate for its whole lifetime; do not rely on the Foundation delegate property
+to provide ownership. `activate()` is idempotent and forwards to the listener at
+most once.
 
 - [ ] **Step 1: Add failing startup-order tests**
 
@@ -831,9 +834,13 @@ recovery failure leaves activation count zero. Prove health reads current
 Keychain availability after startup without rebuilding authority. Prove the
 runtime strongly retains the listener and delegate after dependency locals are
 released, and that repeated `activate()` calls activate the listener exactly
-once. Unit tests must build only injected in-memory authorities; they must never
-call a live `.production()` factory or touch the user's journal directory or
-Data Protection Keychain.
+once. After successful recovery, `.locked` or `.unavailable` current Keychain
+health must remain truthful without disabling the persistent capability or
+restarting recovery; only configuration/recovery errors fail startup. Mutate
+through a delegate-created service and observe the original recovered actor to
+prove identity, not merely equal values. Unit tests must build only injected
+in-memory authorities; they must never call a live `.production()` factory or
+touch the user's journal directory or Data Protection Keychain.
 
 - [ ] **Step 2: Verify RED**
 
@@ -845,11 +852,12 @@ Expected: compilation fails because `BrokerServiceRuntime` does not exist.
 
 - [ ] **Step 3: Implement fail-closed startup**
 
-Remove `productionHandshakeHealthOnly` from the executable path. Build and
-recover the production authority asynchronously, then create the listener and
-delegate. Keep all runtime objects alive for the process lifetime. Activate
-exactly once only after the runtime is complete. On any error, the executable
-exits with configuration status 78 and does not emit raw error text.
+Delete `productionHandshakeHealthOnly`; keep `healthOnlyForTesting` module-
+internal so the executable cannot compile against it. Build and recover the
+production authority asynchronously, then create the listener and delegate.
+Keep all runtime objects alive for the process lifetime. Activate exactly once
+only after the runtime is complete. On any error, the executable exits with
+configuration status 78 and does not emit raw error text.
 
 Use Swift's top-level async entry directly; do not create an unretained startup
 task:
