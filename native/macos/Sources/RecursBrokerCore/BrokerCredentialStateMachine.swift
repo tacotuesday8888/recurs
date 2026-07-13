@@ -170,7 +170,28 @@ struct BrokerCredentialStateMachine: Sendable {
     case cleanup
   }
 
+  struct JournalAuthorityAwaitToken: Sendable, Equatable {
+    let connectionID: UUID
+    let reservation: Reservation
+    let current: Record
+    let expected: BrokerJournalSnapshot
+    let replacement: BrokerJournalRecord
+  }
+
+  enum JournalAuthorityCompletion: Sendable, Equatable {
+    case completed(TerminalOutcome)
+    case cleanup(TerminalOutcome)
+  }
+
   struct CommitProposal: Sendable, Equatable {
+    let connectionID: UUID
+    let operationID: UUID
+    let fingerprint: OperationFingerprint
+    let record: Record
+    let attempt: StagingAttempt
+  }
+
+  struct AbortProposal: Sendable, Equatable {
     let connectionID: UUID
     let operationID: UUID
     let fingerprint: OperationFingerprint
@@ -288,6 +309,16 @@ struct BrokerCredentialStateMachine: Sendable {
     let kind: JournalStageResolutionKind
   }
 
+  struct JournalAuthorityContext: Sendable, Equatable {
+    let current: Record
+    let expected: BrokerJournalSnapshot
+    let replacement: BrokerJournalRecord
+    let linearizedRecord: Record
+    let terminalOutcome: TerminalOutcome
+    let cleanupKeys: [CredentialStoreKey]
+    let requiresFinalization: Bool
+  }
+
   struct CleanupContext: Sendable, Equatable {
     let terminalOutcome: TerminalOutcome
     let linearizedRecord: Record
@@ -306,6 +337,7 @@ struct BrokerCredentialStateMachine: Sendable {
     case journalStageTransition(JournalStageTransitionContext)
     case journalStageResolutionRequest(JournalStageResolutionRequestContext)
     case journalStageResolution(JournalStageResolutionContext)
+    case journalAuthority(JournalAuthorityContext)
     case cleanup(CleanupContext)
   }
 
@@ -1282,6 +1314,170 @@ struct BrokerCredentialStateMachine: Sendable {
     )
   }
 
+  func abortProposal(
+    connectionID: UUID,
+    attemptID: UUID,
+    operationID: UUID,
+    fingerprint: OperationFingerprint
+  ) throws(BrokerStateError) -> AbortProposal {
+    let current = try currentMutableRecord(
+      connectionID: connectionID,
+      expectedFence: fingerprint.expectedFence
+    )
+    guard case .staging(let attempt) = current, attempt.attemptID == attemptID else {
+      throw .attemptNotCurrent
+    }
+    return AbortProposal(
+      connectionID: connectionID,
+      operationID: operationID,
+      fingerprint: fingerprint,
+      record: current,
+      attempt: attempt
+    )
+  }
+
+  mutating func reserveJournalCommit(
+    proposal: CommitProposal,
+    capturedAt: JournalTimestamp
+  ) throws(BrokerJournalError) -> JournalAuthorityAwaitToken {
+    guard
+      proposal.fingerprint.kind == .commit,
+      proposal.fingerprint.connectionID == proposal.connectionID,
+      proposal.fingerprint.attemptID == proposal.attempt.attemptID,
+      let expected = journalSnapshots[proposal.connectionID],
+      records[proposal.connectionID] == proposal.record
+    else {
+      throw .casConflict
+    }
+    let replacement = try BrokerJournalRecordAdapter.makeCommitAuthority(
+      predecessor: expected.record,
+      operationID: proposal.operationID,
+      capturedAt: capturedAt
+    )
+    return try reserveJournalAuthority(
+      connectionID: proposal.connectionID,
+      operationID: proposal.operationID,
+      fingerprint: proposal.fingerprint,
+      current: proposal.record,
+      expected: expected,
+      replacement: replacement
+    )
+  }
+
+  mutating func reserveJournalAbort(
+    proposal: AbortProposal,
+    changedAt: JournalTimestamp
+  ) throws(BrokerJournalError) -> JournalAuthorityAwaitToken {
+    guard
+      proposal.fingerprint.kind == .abort,
+      proposal.fingerprint.connectionID == proposal.connectionID,
+      proposal.fingerprint.attemptID == proposal.attempt.attemptID,
+      let expected = journalSnapshots[proposal.connectionID],
+      records[proposal.connectionID] == proposal.record
+    else {
+      throw .casConflict
+    }
+    let replacement = try BrokerJournalRecordAdapter.makeAbortCleanupPending(
+      predecessor: expected.record,
+      operationID: proposal.operationID,
+      changedAt: changedAt
+    )
+    return try reserveJournalAuthority(
+      connectionID: proposal.connectionID,
+      operationID: proposal.operationID,
+      fingerprint: proposal.fingerprint,
+      current: proposal.record,
+      expected: expected,
+      replacement: replacement
+    )
+  }
+
+  mutating func reserveJournalDisconnect(
+    proposal: DisconnectProposal,
+    capturedAt: JournalTimestamp
+  ) throws(BrokerJournalError) -> JournalAuthorityAwaitToken {
+    guard
+      proposal.fingerprint.kind == .disconnect,
+      proposal.fingerprint.connectionID == proposal.connectionID,
+      proposal.fingerprint.attemptID == nil,
+      proposal.fingerprint.expectedFence == proposal.record.fence,
+      let expected = journalSnapshots[proposal.connectionID],
+      records[proposal.connectionID] == proposal.record
+    else {
+      throw .casConflict
+    }
+    let replacement = try BrokerJournalRecordAdapter.makeDisconnectFenced(
+      predecessor: expected.record,
+      operationID: proposal.operationID,
+      capturedAt: capturedAt
+    )
+    return try reserveJournalAuthority(
+      connectionID: proposal.connectionID,
+      operationID: proposal.operationID,
+      fingerprint: proposal.fingerprint,
+      current: proposal.record,
+      expected: expected,
+      replacement: replacement
+    )
+  }
+
+  mutating func finishJournalAuthority(
+    _ token: JournalAuthorityAwaitToken,
+    result: Result<BrokerJournalSnapshot, BrokerJournalError>
+  ) throws(BrokerJournalError) -> JournalAuthorityCompletion {
+    guard
+      reservations[token.connectionID] == token.reservation,
+      case .journalAuthority(let context) = token.reservation.phase,
+      context.current == token.current,
+      context.expected == token.expected,
+      context.replacement == token.replacement,
+      records[token.connectionID] == token.current,
+      journalSnapshots[token.connectionID] == token.expected
+    else {
+      throw .casConflict
+    }
+
+    let selected: BrokerJournalSnapshot
+    switch result {
+    case .failure(let error):
+      switch error {
+      case .revisionOverflow, .casConflict, .lockUnavailable, .storageUnavailable:
+        reservations.removeValue(forKey: token.connectionID)
+      default:
+        break
+      }
+      throw error
+    case .success(let value):
+      guard value.record == token.replacement else {
+        throw .casConflict
+      }
+      selected = value
+    }
+
+    records[token.connectionID] = context.linearizedRecord
+    journalSnapshots[token.connectionID] = selected
+    if context.requiresFinalization {
+      reservations[token.connectionID] = cleanupReservation(
+        operationID: token.reservation.operationID,
+        fingerprint: token.reservation.fingerprint,
+        outcome: context.terminalOutcome,
+        linearizedRecord: context.linearizedRecord,
+        keys: context.cleanupKeys,
+        journal: JournalCleanupContext(snapshot: selected)
+      )
+      return .cleanup(context.terminalOutcome)
+    }
+
+    reservations.removeValue(forKey: token.connectionID)
+    memoize(
+      connectionID: token.connectionID,
+      operationID: token.reservation.operationID,
+      fingerprint: token.reservation.fingerprint,
+      outcome: context.terminalOutcome
+    )
+    return .completed(context.terminalOutcome)
+  }
+
   mutating func linearizeCommit(
     proposal: CommitProposal,
     committedAt: Date
@@ -1328,13 +1524,13 @@ struct BrokerCredentialStateMachine: Sendable {
     operationID: UUID,
     fingerprint: OperationFingerprint
   ) throws(BrokerStateError) -> ReadyProjection? {
-    let current = try currentMutableRecord(
+    let proposal = try abortProposal(
       connectionID: connectionID,
-      expectedFence: fingerprint.expectedFence
+      attemptID: attemptID,
+      operationID: operationID,
+      fingerprint: fingerprint
     )
-    guard case .staging(let attempt) = current, attempt.attemptID == attemptID else {
-      throw .attemptNotCurrent
-    }
+    let attempt = proposal.attempt
 
     let restored: ReadyProjection?
     let restoredRecord: Record
@@ -1737,7 +1933,7 @@ struct BrokerCredentialStateMachine: Sendable {
       return .none
     }
     switch reservation.phase {
-    case .journalStageReservation, .storing, .journalStageTransition:
+    case .journalStageReservation, .storing, .journalStageTransition, .journalAuthority:
       return .reject(.operationInProgress)
     case .journalStageResolutionRequest:
       guard
@@ -1816,6 +2012,84 @@ struct BrokerCredentialStateMachine: Sendable {
       reservation: reservation,
       fallback: token.fallback,
       expected: token.expected,
+      replacement: replacement
+    )
+  }
+
+  private mutating func reserveJournalAuthority(
+    connectionID: UUID,
+    operationID: UUID,
+    fingerprint: OperationFingerprint,
+    current: Record,
+    expected: BrokerJournalSnapshot,
+    replacement: BrokerJournalRecord
+  ) throws(BrokerJournalError) -> JournalAuthorityAwaitToken {
+    guard
+      records[connectionID] == current,
+      reservations[connectionID] == nil,
+      journalSnapshots[connectionID] == expected,
+      expected.record.connectionID == connectionID,
+      replacement.connectionID == connectionID
+    else {
+      throw .casConflict
+    }
+
+    let plan = try BrokerJournalRecordAdapter.recoveryPlan(
+      for: replacement,
+      recoveryChangedAt: replacement.changedAt
+    )
+    guard plan.preparation == nil else {
+      throw .invalidRecord
+    }
+    let terminal: BrokerJournalTerminalOperation
+    let cleanupKeys: [CredentialStoreKey]
+    let requiresFinalization: Bool
+    if let cleanup = plan.cleanup {
+      terminal = cleanup.terminalOperation
+      cleanupKeys = cleanup.credentialKeys
+      requiresFinalization = true
+    } else {
+      let matches = replacement.terminalOperations.filter {
+        $0.operationID == operationID
+      }
+      guard matches.count == 1, let match = matches.first else {
+        throw .invalidRecord
+      }
+      terminal = match
+      cleanupKeys = []
+      requiresFinalization = false
+    }
+    guard terminal.operationID == operationID else {
+      throw .invalidRecord
+    }
+    let hydrated = try Self.hydratedTerminal(
+      terminal,
+      connectionID: connectionID
+    )
+    guard hydrated.fingerprint == fingerprint else {
+      throw .invalidRecord
+    }
+    let linearizedRecord = Self.record(from: plan.bootstrap)
+    let context = JournalAuthorityContext(
+      current: current,
+      expected: expected,
+      replacement: replacement,
+      linearizedRecord: linearizedRecord,
+      terminalOutcome: hydrated.outcome,
+      cleanupKeys: cleanupKeys,
+      requiresFinalization: requiresFinalization
+    )
+    let reservation = Reservation(
+      operationID: operationID,
+      fingerprint: fingerprint,
+      phase: .journalAuthority(context)
+    )
+    reservations[connectionID] = reservation
+    return JournalAuthorityAwaitToken(
+      connectionID: connectionID,
+      reservation: reservation,
+      current: current,
+      expected: expected,
       replacement: replacement
     )
   }
@@ -1962,6 +2236,21 @@ struct BrokerCredentialStateMachine: Sendable {
         )
       )
     )
+  }
+
+  private static func record(from bootstrap: CredentialBootstrap) -> Record {
+    switch bootstrap {
+    case .vacant(let connectionID, let fence, let lastGenerationOrdinal):
+      .vacant(
+        connectionID: connectionID,
+        fence: fence,
+        lastGenerationOrdinal: lastGenerationOrdinal
+      )
+    case .ready(let projection):
+      .ready(projection)
+    case .tombstoned(let projection):
+      .tombstoned(projection)
+    }
   }
 
   private mutating func memoize(
