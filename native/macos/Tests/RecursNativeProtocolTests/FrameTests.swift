@@ -158,6 +158,70 @@ struct FrameTests {
   }
 
   @Test
+  func testTypedHealthAndCancelRequestsRoundTripWithExactEncodings() throws {
+    let health = HealthMessage()
+    let encodedHealth = try health.encodedFrame(requestID: 3)
+    #expect(encodedHealth.hex == "524355520001000300000002000000030000")
+    #expect(try HealthMessage.decode(decodeSingleFrame(encodedHealth)) == health)
+    #expect(try makeHealthFrame(requestID: 3) == encodedHealth)
+
+    let cancel = try CancelMessage(targetRequestID: 7)
+    let encodedCancel = try cancel.encodedFrame(requestID: 9)
+    #expect(
+      encodedCancel.hex
+        == "52435552000100050000000c00000009000100010000000400000007"
+    )
+    #expect(try CancelMessage.decode(decodeSingleFrame(encodedCancel)) == cancel)
+    #expect(
+      try makeCancelFrame(requestID: 9, targetRequestID: 7) == encodedCancel
+    )
+  }
+
+  @Test
+  func testTypedHealthRequestRejectsEveryMalformedCategory() throws {
+    let malformed = [
+      try semanticFrame(type: .cancel, fields: []),
+      try semanticFrame(type: .health, fields: [(1, Data())]),
+      try NativeFrame(type: .health, requestID: 1, payload: Data()),
+      try NativeFrame(type: .health, requestID: 1, payload: Data([0, 0, 0])),
+    ]
+
+    for frame in malformed {
+      expectProtocolError(.invalidMessage) { try HealthMessage.decode(frame) }
+    }
+    expectProtocolError(.invalidMessage) {
+      try HealthMessage().encodedFrame(requestID: 0)
+    }
+    expectProtocolError(.invalidMessage) { try makeHealthFrame(requestID: 0) }
+  }
+
+  @Test
+  func testTypedCancelRequestRejectsEveryMalformedCategory() throws {
+    expectProtocolError(.invalidMessage) {
+      try CancelMessage(targetRequestID: 0)
+    }
+
+    let malformed = [
+      try semanticFrame(type: .health, fields: [(1, uint32(7))]),
+      try semanticFrame(type: .cancel, fields: []),
+      try semanticFrame(type: .cancel, fields: [(1, uint32(0))]),
+      try semanticFrame(type: .cancel, fields: [(1, uint16(7))]),
+      try semanticFrame(type: .cancel, fields: [(1, uint32(7)), (2, Data())]),
+      try NativeFrame(type: .cancel, requestID: 1, payload: Data()),
+    ]
+
+    for frame in malformed {
+      expectProtocolError(.invalidMessage) { try CancelMessage.decode(frame) }
+    }
+    expectProtocolError(.invalidMessage) {
+      try CancelMessage(targetRequestID: 7).encodedFrame(requestID: 0)
+    }
+    expectProtocolError(.invalidMessage) {
+      try makeCancelFrame(requestID: 0, targetRequestID: 7)
+    }
+  }
+
+  @Test
   func testDecoderRejectsMalformedHeadersAndPermanentlyPoisons() throws {
     let malformed: [Data] = [
       rawFrame(type: 3, requestID: 1, payload: uint16(0), magic: 0x52_43_55_53),
@@ -649,7 +713,7 @@ struct FrameTests {
     expectProtocolError(.invalidField) {
       try HelloMessage(engineVersion: "0.1.0", nonce: Data(repeating: 0, count: 31))
     }
-    expectProtocolError(.invalidFrame) { try makeHealthFrame(requestID: 0) }
+    expectProtocolError(.invalidMessage) { try makeHealthFrame(requestID: 0) }
     expectProtocolError(.invalidMessage) {
       try makeCancelFrame(requestID: 1, targetRequestID: 0)
     }

@@ -209,30 +209,75 @@ public struct HealthResultMessage: Equatable, Sendable {
   }
 }
 
+public struct HealthMessage: Equatable, Sendable {
+  public init() {}
+
+  public static func decode(_ frame: NativeFrame) throws -> HealthMessage {
+    try withInvalidMessage {
+      _ = try requireFields(frame, type: .health, tags: [])
+      return HealthMessage()
+    }
+  }
+
+  public func encodedFrame(requestID: UInt32) throws -> Data {
+    try withInvalidMessage {
+      let table = try FieldTable(fields: [])
+      return try NativeFrame(
+        type: .health,
+        requestID: requestID,
+        payload: table.encoded()
+      ).encoded()
+    }
+  }
+}
+
+public struct CancelMessage: Equatable, Sendable {
+  public let targetRequestID: UInt32
+
+  public init(targetRequestID: UInt32) throws {
+    self.targetRequestID = try withInvalidMessage {
+      guard targetRequestID != 0 else {
+        throw NativeProtocolError.invalidMessage
+      }
+      return targetRequestID
+    }
+  }
+
+  public static func decode(_ frame: NativeFrame) throws -> CancelMessage {
+    try withInvalidMessage {
+      let fields = try requireFields(frame, type: .cancel, tags: [1])
+      let targetRequestID = try FieldTable.decodeUInt32(fields[0].value)
+      return try CancelMessage(targetRequestID: targetRequestID)
+    }
+  }
+
+  public func encodedFrame(requestID: UInt32) throws -> Data {
+    try withInvalidMessage {
+      let table = try FieldTable(fields: [
+        FieldTable.Field(
+          tag: 1,
+          value: FieldTable.encodeUInt32(targetRequestID)
+        )
+      ])
+      return try NativeFrame(
+        type: .cancel,
+        requestID: requestID,
+        payload: table.encoded()
+      ).encoded()
+    }
+  }
+}
+
 public func makeHealthFrame(requestID: UInt32) throws -> Data {
-  let table = try FieldTable(fields: [])
-  return try NativeFrame(
-    type: .health,
-    requestID: requestID,
-    payload: table.encoded()
-  ).encoded()
+  try HealthMessage().encodedFrame(requestID: requestID)
 }
 
 public func makeCancelFrame(
   requestID: UInt32,
   targetRequestID: UInt32
 ) throws -> Data {
-  guard targetRequestID != 0 else {
-    throw NativeProtocolError.invalidMessage
-  }
-  let table = try FieldTable(fields: [
-    FieldTable.Field(tag: 1, value: FieldTable.encodeUInt32(targetRequestID))
-  ])
-  return try NativeFrame(
-    type: .cancel,
-    requestID: requestID,
-    payload: table.encoded()
-  ).encoded()
+  try CancelMessage(targetRequestID: targetRequestID)
+    .encodedFrame(requestID: requestID)
 }
 
 extension SafeFailureCode {
