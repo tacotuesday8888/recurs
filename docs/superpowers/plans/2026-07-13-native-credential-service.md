@@ -647,6 +647,9 @@ Remove `persistentCredentials` from every configuration initializer. Store an
 optional authority privately and derive the hello capability bit from its
 presence. The recovered factory requires a nonoptional authority; the health-
 only test factory always stores `nil`. No production call site can set the bit.
+Retain `productionHandshakeHealthOnly` as a compatibility wrapper with no
+caller-controlled capability bit until Task 5 replaces the executable startup
+path; it also stores `nil`.
 
 - [ ] **Step 1: Add failing XPC/service tests**
 
@@ -663,6 +666,20 @@ and connection invalidation closes only its gateway. Cover malformed health
 after hello cancelling lifecycle work and suppressing late state/error detail.
 Assert canonical reserved kind 4 never calls a commit method and cannot create
 a ready projection.
+
+For a health-only configuration, prove the listener exports only
+`BrokerXPCProtocol`, never the lifecycle selectors. Direct test calls to the
+service's lifecycle methods must still fail closed: erase stage secret storage,
+echo a canonical request ID only when the codec supplies one, and return
+`operationUnavailable` for a valid request or `invalidRequest` for malformed
+input. No health-only path may construct a credential authority or claim the
+capability bit.
+
+Prove hello authorization and terminal close happen after leaving the service
+session lock but before the health reply callback. A reply callback may reenter
+the service immediately; it must already observe the corresponding gateway
+state. Replace mutable captures in direct-reply tests with a locked probe because
+all XPC reply closures are `@Sendable`.
 
 Race hello, lifecycle calls, interruption, and invalidation from concurrent
 queues. Prove lifecycle either observes hello or fails closed, IDs admit only in
@@ -694,18 +711,30 @@ wiring do not exist.
 - [ ] **Step 3: Implement the composite XPC interface**
 
 Configure `NSXPCInterface` with
-`BrokerCredentialLifecycleXPCProtocol.self`. Register `NSData` for every data
-argument/reply position of all three selectors. Keep the launcher-side health
-proxy compatible through protocol inheritance.
+`BrokerCredentialLifecycleXPCProtocol.self` only when the configuration contains
+the recovered authority; health-only configurations export
+`BrokerXPCProtocol.self`. Register `NSData` for every data argument/reply
+position present on the selected interface. Keep the launcher-side health proxy
+compatible through protocol inheritance. Preserve the interim executable's
+`productionHandshakeHealthOnly` factory through Task 4.
 
 - [ ] **Step 4: Wire per-connection service state**
 
 Keep the existing `BrokerService` lock only for the synchronous hello/health
-state machine; never hold it across an await or while calling an XPC reply. A
-successful hello synchronously calls `gateway.authorizeAfterHello()` before the
-exchange method returns. A terminal/malformed health session synchronously
-calls `gateway.close()`. The two lifecycle XPC methods call the gateway's
-synchronous submit methods directly and create no actor-hop task of their own.
+state machine; never hold it across an await, a gateway action, or an XPC reply.
+Have the session exchange return its encoded response plus a fixed lifecycle
+action (`none`, `authorize`, or `close`). Under the service lock compute that
+pair; after unlocking, perform the action and only then invoke the reply. Thus a
+successful hello authorizes before its reply is observable, and a terminal or
+malformed session closes before its failure reply is observable. The two
+lifecycle XPC methods call the gateway's synchronous submit methods directly and
+create no actor-hop task of their own.
+
+The service stores an optional gateway. With no authority, the listener never
+exports lifecycle selectors, but direct lifecycle method calls still decode
+enough to select the fixed request ID/failure code and synchronously erase any
+stage secret before replying; they never silently drop the call or retain raw
+`Data`.
 
 `BrokerServiceListenerDelegate` creates a fresh service/gateway for each
 accepted connection from the same injected authority. Add the existing
