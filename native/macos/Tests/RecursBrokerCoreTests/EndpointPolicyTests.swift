@@ -6,136 +6,237 @@ import Testing
 @Suite("Native endpoint policy")
 struct EndpointPolicyTests {
   @Test
-  func builtInProfilesOwnExactOriginsPathsRoutesAndMethods() throws {
-    let openAI = EndpointProfile.openAI
-    #expect(openAI.kind == .openAI)
-    #expect(openAI.revision == 1)
-    #expect(openAI.protocolFamily == .openAIResponses)
-    #expect(openAI.authenticationScheme == .bearer)
-    #expect(openAI.modelCatalogBehavior == .modelsRoute)
-    #expect(openAI.scheme == .https)
-    #expect(openAI.host == "api.openai.com")
-    #expect(openAI.port == nil)
-    #expect(openAI.origin == "https://api.openai.com")
-    #expect(openAI.basePath == "/v1")
-    #expect(openAI.codec == .openAIResponsesV1)
-    #expect(openAI.codecRevision == 1)
-    #expect(openAI.compatibilityRevision == 1)
-    #expect(openAI.billingPolicyEvidenceRevision == 1)
-    #expect(try openAI.route(.modelCatalog).absoluteURL == "https://api.openai.com/v1/models")
-    #expect(try openAI.route(.modelCatalog).method == .get)
-    #expect(try openAI.route(.generation).absoluteURL == "https://api.openai.com/v1/responses")
-    #expect(try openAI.route(.generation).method == .post)
-    #expect(!openAI.isCustomTrustedCredentialRecipient)
-
-    let anthropic = EndpointProfile.anthropic
-    #expect(anthropic.kind == .anthropic)
-    #expect(anthropic.protocolFamily == .anthropicMessages)
-    #expect(anthropic.authenticationScheme == .xAPIKey)
-    #expect(anthropic.scheme == .https)
-    #expect(anthropic.host == "api.anthropic.com")
-    #expect(anthropic.port == nil)
-    #expect(anthropic.origin == "https://api.anthropic.com")
-    #expect(anthropic.basePath == "/v1")
-    #expect(anthropic.codec == .anthropicMessagesV1)
-    #expect(
-      try anthropic.route(.modelCatalog).absoluteURL
-        == "https://api.anthropic.com/v1/models"
-    )
-    #expect(
-      try anthropic.route(.generation).absoluteURL
-        == "https://api.anthropic.com/v1/messages"
-    )
-
-    let kimi = EndpointProfile.kimiCode
-    #expect(kimi.kind == .kimiCode)
-    #expect(kimi.protocolFamily == .openAIChatCompletions)
-    #expect(kimi.authenticationScheme == .bearer)
-    #expect(kimi.scheme == .https)
-    #expect(kimi.host == "api.kimi.com")
-    #expect(kimi.port == nil)
-    #expect(kimi.origin == "https://api.kimi.com")
-    #expect(kimi.basePath == "/coding/v1")
-    #expect(kimi.codec == .openAIChatCompletionsV1)
-    #expect(kimi.billingPolicy == .codingSubscription)
-    #expect(try kimi.route(.modelCatalog).absoluteURL == "https://api.kimi.com/coding/v1/models")
-    #expect(
-      try kimi.route(.generation).absoluteURL
-        == "https://api.kimi.com/coding/v1/chat/completions"
-    )
-
-    #expect(
-      try openAI.route(.generation).fixedRequestHeaders
-        == [.acceptApplicationJSON, .contentTypeApplicationJSON]
-    )
-    #expect(
-      try anthropic.route(.generation).fixedRequestHeaders
-        == [
-          .acceptApplicationJSON, .contentTypeApplicationJSON,
-          .anthropicVersion20230601,
-        ]
-    )
-    #expect(
-      try kimi.route(.generation).fixedRequestHeaders
-        == [.acceptApplicationJSON, .contentTypeApplicationJSON, .recursClientIdentity]
-    )
-
-    for profile in [openAI, anthropic, kimi] {
-      for routeID in [EndpointRouteID.modelCatalog, .generation] {
-        let route = try profile.route(routeID)
-        #expect(
-          route.allowedResponseHeaders == [.contentType, .requestID, .xRequestID]
-        )
-        #expect(!route.absoluteURL.contains("@"))
-        #expect(!route.absoluteURL.contains("?"))
-        #expect(!route.absoluteURL.contains("#"))
+  func generatedIDsFreezeTheCompleteBuiltInPolicyTuple() throws {
+    let actual = try Dictionary(
+      uniqueKeysWithValues: [
+        EndpointProfile.openAI, .anthropic, .kimiCode,
+      ].map { profile in
+        (profile.activationProfileID, try snapshot(profile))
       }
-    }
+    )
+    let commonResponses = Set(["content-type", "request-id", "x-request-id"])
+    let accept = FixedHeaderSnapshot(
+      id: "accept_application_json",
+      name: "accept",
+      value: "application/json"
+    )
+    let contentType = FixedHeaderSnapshot(
+      id: "content_type_application_json",
+      name: "content-type",
+      value: "application/json"
+    )
+    let client = FixedHeaderSnapshot(
+      id: "recurs_client_identity",
+      name: "user-agent",
+      value: "recurs"
+    )
+    let expected: [ProviderActivationProfileID: EndpointPolicySnapshot] = [
+      .openaiApiV1: EndpointPolicySnapshot(
+        scheme: "https",
+        host: "api.openai.com",
+        port: nil,
+        origin: "https://api.openai.com",
+        basePath: "/v1",
+        protocolFamily: "openai_responses",
+        authenticationScheme: "bearer",
+        modelCatalogBehavior: "models_route",
+        codec: "openai_responses_v1",
+        codecRevision: 1,
+        compatibilityRevision: 1,
+        billingPolicy: "direct_api",
+        billingPolicyEvidenceRevision: 1,
+        isCustomTrustedCredentialRecipient: false,
+        routes: [
+          "generation": RouteSnapshot(
+            id: "generation",
+            method: "POST",
+            absoluteURL: "https://api.openai.com/v1/responses",
+            fixedRequestHeaders: [accept, contentType],
+            allowedResponseHeaders: commonResponses
+          ),
+          "model_catalog": RouteSnapshot(
+            id: "model_catalog",
+            method: "GET",
+            absoluteURL: "https://api.openai.com/v1/models",
+            fixedRequestHeaders: [accept],
+            allowedResponseHeaders: commonResponses
+          ),
+        ]
+      ),
+      .anthropicApiV1: EndpointPolicySnapshot(
+        scheme: "https",
+        host: "api.anthropic.com",
+        port: nil,
+        origin: "https://api.anthropic.com",
+        basePath: "/v1",
+        protocolFamily: "anthropic_messages",
+        authenticationScheme: "x_api_key",
+        modelCatalogBehavior: "models_route",
+        codec: "anthropic_messages_v1",
+        codecRevision: 1,
+        compatibilityRevision: 1,
+        billingPolicy: "direct_api",
+        billingPolicyEvidenceRevision: 1,
+        isCustomTrustedCredentialRecipient: false,
+        routes: [
+          "generation": RouteSnapshot(
+            id: "generation",
+            method: "POST",
+            absoluteURL: "https://api.anthropic.com/v1/messages",
+            fixedRequestHeaders: [
+              accept,
+              contentType,
+              FixedHeaderSnapshot(
+                id: "anthropic_version_2023_06_01",
+                name: "anthropic-version",
+                value: "2023-06-01"
+              ),
+            ],
+            allowedResponseHeaders: commonResponses
+          ),
+          "model_catalog": RouteSnapshot(
+            id: "model_catalog",
+            method: "GET",
+            absoluteURL: "https://api.anthropic.com/v1/models",
+            fixedRequestHeaders: [
+              accept,
+              FixedHeaderSnapshot(
+                id: "anthropic_version_2023_06_01",
+                name: "anthropic-version",
+                value: "2023-06-01"
+              ),
+            ],
+            allowedResponseHeaders: commonResponses
+          ),
+        ]
+      ),
+      .kimiCodeV1: EndpointPolicySnapshot(
+        scheme: "https",
+        host: "api.kimi.com",
+        port: nil,
+        origin: "https://api.kimi.com",
+        basePath: "/coding/v1",
+        protocolFamily: "openai_chat_completions",
+        authenticationScheme: "bearer",
+        modelCatalogBehavior: "models_route",
+        codec: "openai_chat_completions_v1",
+        codecRevision: 1,
+        compatibilityRevision: 1,
+        billingPolicy: "coding_subscription",
+        billingPolicyEvidenceRevision: 1,
+        isCustomTrustedCredentialRecipient: false,
+        routes: [
+          "generation": RouteSnapshot(
+            id: "generation",
+            method: "POST",
+            absoluteURL: "https://api.kimi.com/coding/v1/chat/completions",
+            fixedRequestHeaders: [accept, contentType, client],
+            allowedResponseHeaders: commonResponses
+          ),
+          "model_catalog": RouteSnapshot(
+            id: "model_catalog",
+            method: "GET",
+            absoluteURL: "https://api.kimi.com/coding/v1/models",
+            fixedRequestHeaders: [accept, client],
+            allowedResponseHeaders: commonResponses
+          ),
+        ]
+      ),
+    ]
+
+    #expect(actual == expected)
+    #expect(
+      Set(expected.keys).union([.customOpenaiCompatibleV1])
+        == Set(ProviderActivationProfileID.allCases)
+    )
   }
 
   @Test
-  func customProfileRequiresOneExactCanonicalPublicHTTPSBase() throws {
-    let profile = try EndpointProfile.customOpenAICompatible(
-      baseURL: "https://gateway.vendor.dev/api/v2"
+  func customIDFreezesPolicyWhileEndpointAndCatalogRemainBoundParameters() throws {
+    let withCatalog = try EndpointProfile.customOpenAICompatible(
+      baseURL: "https://gateway.vendor.dev/api/v2",
+      modelCatalogBehavior: .modelsRoute
     )
-
-    #expect(profile.kind == .customOpenAICompatible)
-    #expect(profile.protocolFamily == .openAIChatCompletions)
-    #expect(profile.authenticationScheme == .bearer)
-    #expect(profile.origin == "https://gateway.vendor.dev")
-    #expect(profile.scheme == .https)
-    #expect(profile.host == "gateway.vendor.dev")
-    #expect(profile.port == nil)
-    #expect(profile.basePath == "/api/v2")
-    #expect(profile.isCustomTrustedCredentialRecipient)
-    #expect(
-      try profile.route(.modelCatalog).absoluteURL
-        == "https://gateway.vendor.dev/api/v2/models"
-    )
-    #expect(
-      try profile.route(.generation).absoluteURL
-        == "https://gateway.vendor.dev/api/v2/chat/completions"
-    )
-  }
-
-  @Test
-  func customProfileSupportsCanonicalPublicPortsAndOptionalCatalog() throws {
-    let profile = try EndpointProfile.customOpenAICompatible(
-      baseURL: "https://gateway.vendor.dev:8443/api/v2",
+    let withoutCatalog = try EndpointProfile.customOpenAICompatible(
+      baseURL: "https://inference.vendor.net:8443/openai",
       modelCatalogBehavior: .unavailable
     )
+    let expectedFamilies: [ProviderActivationProfileID: CustomPolicyFamilySnapshot] = [
+      .customOpenaiCompatibleV1: CustomPolicyFamilySnapshot(
+        activationProfileID: "custom_openai_compatible_v1",
+        scheme: "https",
+        protocolFamily: "openai_chat_completions",
+        authenticationScheme: "bearer",
+        codec: "openai_chat_completions_v1",
+        codecRevision: 1,
+        compatibilityRevision: 1,
+        billingPolicy: "custom_trusted_recipient",
+        billingPolicyEvidenceRevision: 1,
+        isCustomTrustedCredentialRecipient: true,
+        generationRouteID: "generation",
+        generationPath: "/chat/completions",
+        generationMethod: "POST",
+        generationHeaders: [
+          FixedHeaderSnapshot(
+            id: "accept_application_json",
+            name: "accept",
+            value: "application/json"
+          ),
+          FixedHeaderSnapshot(
+            id: "content_type_application_json",
+            name: "content-type",
+            value: "application/json"
+          ),
+          FixedHeaderSnapshot(
+            id: "recurs_client_identity",
+            name: "user-agent",
+            value: "recurs"
+          ),
+        ],
+        allowedResponseHeaders: ["content-type", "request-id", "x-request-id"]
+      )
+    ]
 
-    #expect(profile.origin == "https://gateway.vendor.dev:8443")
-    #expect(profile.port == 8_443)
-    #expect(profile.basePath == "/api/v2")
-    #expect(profile.modelCatalogBehavior == .unavailable)
-    #expect(throws: EndpointPolicyError.routeNotAllowed) {
-      _ = try profile.route(.modelCatalog)
-    }
     #expect(
-      try profile.route(.generation).absoluteURL
-        == "https://gateway.vendor.dev:8443/api/v2/chat/completions"
+      try customFamilySnapshot(withCatalog)
+        == expectedFamilies[withCatalog.activationProfileID]
     )
+    #expect(
+      try customFamilySnapshot(withoutCatalog)
+        == expectedFamilies[withoutCatalog.activationProfileID]
+    )
+    #expect(withCatalog.host == "gateway.vendor.dev")
+    #expect(withCatalog.port == nil)
+    #expect(withCatalog.basePath == "/api/v2")
+    #expect(withCatalog.modelCatalogBehavior == .modelsRoute)
+    #expect(
+      routeSnapshot(try withCatalog.route(.modelCatalog))
+        == RouteSnapshot(
+          id: "model_catalog",
+          method: "GET",
+          absoluteURL: "https://gateway.vendor.dev/api/v2/models",
+          fixedRequestHeaders: [
+            FixedHeaderSnapshot(
+              id: "accept_application_json",
+              name: "accept",
+              value: "application/json"
+            ),
+            FixedHeaderSnapshot(
+              id: "recurs_client_identity",
+              name: "user-agent",
+              value: "recurs"
+            ),
+          ],
+          allowedResponseHeaders: ["content-type", "request-id", "x-request-id"]
+        )
+    )
+    #expect(withoutCatalog.host == "inference.vendor.net")
+    #expect(withoutCatalog.port == 8_443)
+    #expect(withoutCatalog.basePath == "/openai")
+    #expect(withoutCatalog.modelCatalogBehavior == .unavailable)
+    #expect(throws: EndpointPolicyError.routeNotAllowed) {
+      _ = try withoutCatalog.route(.modelCatalog)
+    }
   }
 
   @Test(
@@ -294,4 +395,126 @@ struct EndpointPolicyTests {
     #expect(BrokerFixedRequestHeader.recursClientIdentity.wireName == "user-agent")
     #expect(BrokerFixedRequestHeader.recursClientIdentity.fixedValue == "recurs")
   }
+}
+
+private struct EndpointPolicySnapshot: Equatable {
+  let scheme: String
+  let host: String
+  let port: UInt16?
+  let origin: String
+  let basePath: String
+  let protocolFamily: String
+  let authenticationScheme: String
+  let modelCatalogBehavior: String
+  let codec: String
+  let codecRevision: UInt32
+  let compatibilityRevision: UInt32
+  let billingPolicy: String
+  let billingPolicyEvidenceRevision: UInt32
+  let isCustomTrustedCredentialRecipient: Bool
+  let routes: [String: RouteSnapshot]
+}
+
+private struct RouteSnapshot: Equatable {
+  let id: String
+  let method: String
+  let absoluteURL: String
+  let fixedRequestHeaders: Set<FixedHeaderSnapshot>
+  let allowedResponseHeaders: Set<String>
+}
+
+private struct FixedHeaderSnapshot: Hashable {
+  let id: String
+  let name: String
+  let value: String
+}
+
+private struct CustomPolicyFamilySnapshot: Equatable {
+  let activationProfileID: String
+  let scheme: String
+  let protocolFamily: String
+  let authenticationScheme: String
+  let codec: String
+  let codecRevision: UInt32
+  let compatibilityRevision: UInt32
+  let billingPolicy: String
+  let billingPolicyEvidenceRevision: UInt32
+  let isCustomTrustedCredentialRecipient: Bool
+  let generationRouteID: String
+  let generationPath: String
+  let generationMethod: String
+  let generationHeaders: Set<FixedHeaderSnapshot>
+  let allowedResponseHeaders: Set<String>
+}
+
+private func snapshot(_ profile: EndpointProfile) throws -> EndpointPolicySnapshot {
+  var routes: [String: RouteSnapshot] = [:]
+  for id in EndpointRouteID.allCases {
+    let route = try profile.route(id)
+    routes[id.rawValue] = routeSnapshot(route)
+  }
+  return EndpointPolicySnapshot(
+    scheme: profile.scheme.rawValue,
+    host: profile.host,
+    port: profile.port,
+    origin: profile.origin,
+    basePath: profile.basePath,
+    protocolFamily: profile.protocolFamily.rawValue,
+    authenticationScheme: profile.authenticationScheme.rawValue,
+    modelCatalogBehavior: profile.modelCatalogBehavior.rawValue,
+    codec: profile.codec.rawValue,
+    codecRevision: profile.codecRevision,
+    compatibilityRevision: profile.compatibilityRevision,
+    billingPolicy: profile.billingPolicy.rawValue,
+    billingPolicyEvidenceRevision: profile.billingPolicyEvidenceRevision,
+    isCustomTrustedCredentialRecipient: profile.isCustomTrustedCredentialRecipient,
+    routes: routes
+  )
+}
+
+private func customFamilySnapshot(
+  _ profile: EndpointProfile
+) throws -> CustomPolicyFamilySnapshot {
+  let generation = try profile.route(.generation)
+  let routeBase = "\(profile.origin)\(profile.basePath)"
+  guard generation.absoluteURL.hasPrefix(routeBase) else {
+    throw EndpointPolicyError.invalidEndpoint
+  }
+  return CustomPolicyFamilySnapshot(
+    activationProfileID: profile.activationProfileID.rawValue,
+    scheme: profile.scheme.rawValue,
+    protocolFamily: profile.protocolFamily.rawValue,
+    authenticationScheme: profile.authenticationScheme.rawValue,
+    codec: profile.codec.rawValue,
+    codecRevision: profile.codecRevision,
+    compatibilityRevision: profile.compatibilityRevision,
+    billingPolicy: profile.billingPolicy.rawValue,
+    billingPolicyEvidenceRevision: profile.billingPolicyEvidenceRevision,
+    isCustomTrustedCredentialRecipient: profile.isCustomTrustedCredentialRecipient,
+    generationRouteID: generation.id.rawValue,
+    generationPath: String(generation.absoluteURL.dropFirst(routeBase.count)),
+    generationMethod: generation.method.rawValue,
+    generationHeaders: headerSnapshots(generation.fixedRequestHeaders),
+    allowedResponseHeaders: Set(generation.allowedResponseHeaders.map(\.rawValue))
+  )
+}
+
+private func routeSnapshot(_ route: AllowedRoute) -> RouteSnapshot {
+  RouteSnapshot(
+    id: route.id.rawValue,
+    method: route.method.rawValue,
+    absoluteURL: route.absoluteURL,
+    fixedRequestHeaders: headerSnapshots(route.fixedRequestHeaders),
+    allowedResponseHeaders: Set(route.allowedResponseHeaders.map(\.rawValue))
+  )
+}
+
+private func headerSnapshots(
+  _ headers: Set<BrokerFixedRequestHeader>
+) -> Set<FixedHeaderSnapshot> {
+  Set(
+    headers.map {
+      FixedHeaderSnapshot(id: $0.rawValue, name: $0.wireName, value: $0.fixedValue)
+    }
+  )
 }

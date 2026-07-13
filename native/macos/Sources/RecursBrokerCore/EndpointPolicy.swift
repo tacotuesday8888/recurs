@@ -32,13 +32,6 @@ package enum EndpointPolicyError:
   package var errorDescription: String? { fixedDescription }
 }
 
-package enum EndpointProfileKind: String, Sendable, Hashable {
-  case openAI = "openai"
-  case anthropic
-  case kimiCode = "kimi_code"
-  case customOpenAICompatible = "custom_openai_compatible"
-}
-
 package enum EndpointScheme: String, Sendable, Hashable {
   case https
 }
@@ -145,8 +138,7 @@ package struct AllowedRoute: Sendable, Hashable {
 }
 
 package struct EndpointProfile: Sendable, Hashable {
-  package let kind: EndpointProfileKind
-  package let revision: UInt32
+  package let activationProfileID: ProviderActivationProfileID
   package let scheme: EndpointScheme
   package let host: String
   package let port: UInt16?
@@ -164,7 +156,7 @@ package struct EndpointProfile: Sendable, Hashable {
   private let routes: [EndpointRouteID: AllowedRoute]
 
   package static let openAI = EndpointProfile(
-    kind: .openAI,
+    activationProfileID: .openaiApiV1,
     host: "api.openai.com",
     protocolFamily: .openAIResponses,
     authenticationScheme: .bearer,
@@ -177,7 +169,7 @@ package struct EndpointProfile: Sendable, Hashable {
   )
 
   package static let anthropic = EndpointProfile(
-    kind: .anthropic,
+    activationProfileID: .anthropicApiV1,
     host: "api.anthropic.com",
     protocolFamily: .anthropicMessages,
     authenticationScheme: .xAPIKey,
@@ -190,7 +182,7 @@ package struct EndpointProfile: Sendable, Hashable {
   )
 
   package static let kimiCode = EndpointProfile(
-    kind: .kimiCode,
+    activationProfileID: .kimiCodeV1,
     host: "api.kimi.com",
     protocolFamily: .openAIChatCompletions,
     authenticationScheme: .bearer,
@@ -208,7 +200,7 @@ package struct EndpointProfile: Sendable, Hashable {
   ) throws(EndpointPolicyError) -> EndpointProfile {
     let parsed = try CanonicalPublicHTTPSBase.parse(baseURL)
     return EndpointProfile(
-      kind: .customOpenAICompatible,
+      activationProfileID: .customOpenaiCompatibleV1,
       host: parsed.host,
       port: parsed.port,
       protocolFamily: .openAIChatCompletions,
@@ -257,7 +249,7 @@ package struct EndpointProfile: Sendable, Hashable {
   }
 
   private init(
-    kind: EndpointProfileKind,
+    activationProfileID: ProviderActivationProfileID,
     host: String,
     port: UInt16? = nil,
     protocolFamily: EndpointProtocolFamily,
@@ -270,8 +262,7 @@ package struct EndpointProfile: Sendable, Hashable {
     additionalRequestHeaders: Set<BrokerFixedRequestHeader>,
     isCustom: Bool
   ) {
-    self.kind = kind
-    self.revision = 1
+    self.activationProfileID = activationProfileID
     self.scheme = .https
     self.host = host
     self.port = port
