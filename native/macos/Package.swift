@@ -34,6 +34,7 @@ let package = Package(
     .target(
       name: "RecursBrokerService",
       dependencies: [
+        "RecursBrokerCore",
         "RecursBrokerXPC",
         "RecursNativeProtocol",
         "RecursNativeSecurity",
@@ -89,6 +90,7 @@ let package = Package(
     .testTarget(
       name: "RecursBrokerServiceTests",
       dependencies: [
+        "RecursBrokerCore",
         "RecursBrokerService",
         "RecursBrokerXPC",
         "RecursNativeProtocol",
