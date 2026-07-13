@@ -302,6 +302,15 @@ describe("provider activation profile generation", () => {
       }, null, 2)}\n`,
     ],
     [
+      "65-byte profile id",
+      `${JSON.stringify({
+        schemaVersion: 1,
+        profiles: [
+          { id: `${"a".repeat(62)}_v1`, bundledProviderId: null },
+        ],
+      }, null, 2)}\n`,
+    ],
+    [
       "colliding Swift symbols",
       `${JSON.stringify({
         schemaVersion: 1,

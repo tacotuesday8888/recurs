@@ -373,7 +373,7 @@ git commit -m "feat: bind private credential staging metadata"
 - Modify: `native/macos/Sources/RecursBrokerCore/BrokerCredentialState.swift`
 - Modify: `native/macos/Sources/RecursBrokerService/BrokerCredentialAuthority.swift`
 
-- [ ] **Step 1: Write failing authority tests**
+- [x] **Step 1: Write failing authority tests**
 
 Cover opaque empty-reflection non-Encodable handles and authorization receipts;
 exact setup staging-candidate/attempt fencing; exact run/maintenance usable-
@@ -392,13 +392,13 @@ requests fail before an authoritative read, journal failures map to fixed safe
 errors, and no resolver, credential store, `CredentialUseReservation`, or
 transport dependency is reachable.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```bash
 swift test --package-path native/macos --filter BrokerProviderRouteAuthorityTests
 ```
 
-- [ ] **Step 3: Implement the dormant authority session**
+- [x] **Step 3: Implement the dormant authority session**
 
 Add an internal authoritative bound-projection reader that returns exact native
 binding plus staging/ready state and never loads Keychain. The service actor
@@ -422,7 +422,7 @@ budget and return an opaque authorization receipt. Failed checks do not mint a
 receipt. The receipt contains no network evidence and no method that resolves a
 host, loads a credential, connects, or sends data.
 
-- [ ] **Step 4: Verify GREEN and commit**
+- [x] **Step 4: Verify GREEN and commit**
 
 ```bash
 swift test --package-path native/macos --filter BrokerProviderRouteAuthorityTests
@@ -441,7 +441,7 @@ git commit -m "feat: fence native provider route authority"
 
 ## Task 6: Independent review, documentation, and clean matrix
 
-- [ ] **Step 1: Update truthful product/security documentation**
+- [x] **Step 1: Update truthful product/security documentation**
 
 Document the shared versioned profile identity, required authenticated journal
 binding, binding-aware private stage metadata, and dormant route authority.
@@ -451,7 +451,7 @@ HTTP/TLS/proxy, codec, model catalog, CLI onboarding, signed artifact evidence,
 or enabled broker-owned provider. Explain the journal v1 development reset and
 why there is no migration of unreleased credential state.
 
-- [ ] **Step 2: Run independent security and quality reviews**
+- [x] **Step 2: Run independent security and quality reviews**
 
 Review from `3839a8e` through `HEAD` against this plan and the Provider
 Activation v1 design. Security review must trace binding source-to-journal,

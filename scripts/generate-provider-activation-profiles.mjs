@@ -17,6 +17,7 @@ const invalidSourceError = "Invalid provider activation profile source";
 const generationError = "Provider activation profile generation failed";
 const profileID = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*_v[1-9][0-9]*$/u;
 const providerID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+const maximumActivationProfileIDBytes = 64;
 
 function invalidSource() {
   return new Error(invalidSourceError);
@@ -68,7 +69,7 @@ async function readCanonicalSource(rootDirectory) {
     exactKeys(profile, ["id", "bundledProviderId"]);
     if (
       typeof profile.id !== "string"
-      || profile.id.length > 128
+      || profile.id.length > maximumActivationProfileIDBytes
       || !profileID.test(profile.id)
       || (
         profile.bundledProviderId !== null

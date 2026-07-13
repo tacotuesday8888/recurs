@@ -382,7 +382,7 @@ describe("BackendRunCoordinator", () => {
           async createProvider() {
             providers += 1;
             return {
-              id: `provider-${providers}`,
+              id: pin.providerId,
               adapterId: pin.adapterId,
               connectionId: pin.connectionId,
               async *stream() {
@@ -393,10 +393,10 @@ describe("BackendRunCoordinator", () => {
         };
       },
     };
-    const seen: string[] = [];
+    const seen: ModelProvider[] = [];
     const executor: DirectRunExecutor = {
       async run(input) {
-        seen.push(input.provider.id);
+        seen.push(input.provider);
         return result;
       },
     };
@@ -418,10 +418,19 @@ describe("BackendRunCoordinator", () => {
     await (await coordinator.start(input)).outcome;
 
     expect(providers).toBe(2);
-    expect(seen).toEqual(["provider-1", "provider-2"]);
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).not.toBe(seen[1]);
   });
 
   it.each([
+    [
+      "provider",
+      {
+        id: "wrong-provider",
+        adapterId: pin.adapterId,
+        connectionId: pin.connectionId,
+      },
+    ],
     ["adapter", { adapterId: "wrong-adapter", connectionId: pin.connectionId }],
     ["connection", { adapterId: pin.adapterId, connectionId: "wrong-connection" }],
   ] as const)(
@@ -439,7 +448,7 @@ describe("BackendRunCoordinator", () => {
             authorization: authorizationFor(input, pin),
             async createProvider() {
               return {
-                id: "provider",
+                id: pin.providerId,
                 ...identity,
                 async *stream() {
                   yield { type: "done", stopReason: "complete" } as const;
@@ -536,7 +545,7 @@ describe("BackendRunCoordinator", () => {
           authorization: authorizationFor(input, pin),
           async createProvider() {
             return {
-              id: "provider",
+              id: pin.providerId,
               adapterId: pin.adapterId,
               connectionId: pin.connectionId,
               async *stream() {
@@ -1455,7 +1464,7 @@ describe("BackendRunCoordinator", () => {
           authorization: authorizationFor(input, pin),
           async createProvider() {
             return {
-              id: "provider",
+              id: pin.providerId,
               adapterId: pin.adapterId,
               connectionId: pin.connectionId,
               async *stream() {

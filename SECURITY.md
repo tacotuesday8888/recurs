@@ -32,6 +32,10 @@ exact provider/profile binding; a custom binding also authenticates canonical
 host, port, base path, and model-catalog behavior. Native component `0.2.0`
 carries the same identity through bounded non-secret private stage metadata,
 while replies, TypeScript, and descriptor 3 remain free of that authority.
+The broker also owns dormant, opaque setup/run/maintenance route capabilities.
+It derives and rechecks exact authenticated binding plus candidate or usable-
+ready generation state, then enforces scope, cancellation, expiry, and checked
+budgets without loading Keychain or reaching a resolver or transport.
 Schema-v1 journals fail closed with no inferred or in-place migration because
 no credential-bearing artifact has shipped; development users reset the
 unpublished journal and reconnect.
@@ -40,9 +44,10 @@ This is not yet a shipped or provider-usable credential authority. No
 signed/notarized installed artifact or successful production broker smoke
 exists, and source/npm or ad-hoc builds cannot activate the authority. The
 launcher has no TTY secret capture and does not call the broker lifecycle.
-There is no provider verification, DNS/network feasibility proof, route
-authority, broker HTTP/TLS/proxy handling, model-catalog transport, CLI
-onboarding, or enabled broker-owned provider.
+There is no provider verification, DNS/network feasibility proof, credential
+reservation from a route receipt, broker HTTP/TLS/proxy handling,
+request/stream codec, model-catalog transport, CLI onboarding, or enabled
+broker-owned provider.
 A directly injected descriptor and its peer's self-attestation cannot prove
 native provenance, so a claimed ready result is still downgraded to
 `peer_identity_unverified` without a JavaScript or environment bypass. There is
@@ -131,7 +136,7 @@ authority.
 Direct API, coding-plan, OAuth, and cloud-identity credential flows remain
 disabled until a complete provider vertical supplies reviewed request/stream
 codecs, TTY onboarding and a fenced connection lifecycle, provider
-verification, route authority, DNS/network feasibility, policy/runtime
+verification, route-receipt credential reservation, DNS/network feasibility, policy/runtime
 binding, broker-owned HTTP/TLS/proxy and model-catalog transport, a compatible
 signed artifact, and installed-artifact credential-canary tests. A manifest
 boolean cannot bypass that gate. The production broker release smoke must use

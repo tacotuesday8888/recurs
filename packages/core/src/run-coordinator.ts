@@ -312,7 +312,8 @@ export class BackendRunCoordinator implements RunCoordinator {
     pin: SessionBackendPin,
     diagnosticId: string,
   ): IntegrationFailure | null {
-    return provider.adapterId === pin.adapterId &&
+    return provider.id === pin.providerId &&
+        provider.adapterId === pin.adapterId &&
         provider.connectionId === pin.connectionId
       ? null
       : failure(
