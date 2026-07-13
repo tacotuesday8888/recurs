@@ -473,6 +473,10 @@ For malformed or truncated metadata/control input, assert exactly one
 `.invalidRequest` reply with `brokerCredentialMalformedRequestID`; if a
 canonical request ID was decoded before a later semantic failure, assert the
 gateway echoes that ID instead.
+Prove every canonical echoed ID is consumed even when the request is rejected
+for pre-hello state, capacity, or a later decode failure; replaying that ID must
+then fail as nonmonotonic. Input without a canonical ID cannot advance the
+sequence.
 
 - [ ] **Step 2: Verify RED**
 
@@ -529,6 +533,15 @@ completes every reply gate with `.cancelled` and cancels every stored
 after every authority await. Late completions pass through the same reply gate
 and therefore cannot reply or mutate gateway state a second time. Canonical
 reserved kind 4 replies `.operationUnavailable` without calling authority.
+
+Advance `greatestSeenRequestID` as soon as a canonical ID wins the gateway lock,
+before pre-hello, capacity, or semantic-error rejection. For stage, move the
+accepted non-`Sendable` `SecretBytes` through one private lock-protected,
+`@unchecked Sendable` single-consumer transfer box captured by the task. The box
+must erase on synchronous rejection, failed transfer, and deinitialization; it
+may yield the value exactly once as `sending SecretBytes`. Do not directly
+capture `SecretBytes` in a `Task`, and do not leave a submit-scope `defer` that
+can erase it after task admission.
 
 Use this exhaustive error projection:
 
