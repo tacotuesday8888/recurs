@@ -14,7 +14,6 @@ struct BrokerServiceTests {
         launcherVersion: "0.1.0",
         brokerVersion: "0.1.0",
         productionSigned: false,
-        persistentCredentials: false,
         keychain: .unavailable
       )
     )
@@ -23,7 +22,7 @@ struct BrokerServiceTests {
     let response = session.exchange(
       try HelloMessage(engineVersion: "0.1.0", nonce: nonce)
         .encodedFrame(requestID: 41)
-    )
+    ).response
 
     let result = try HelloResultMessage.decode(try decodeSingleFrame(response))
     #expect(result.launcherVersion == "0.1.0")
@@ -49,7 +48,7 @@ struct BrokerServiceTests {
     let response = session.exchange(
       try HelloMessage(engineVersion: "0.1.0", nonce: nonce)
         .encodedFrame(requestID: 1)
-    )
+    ).response
 
     let result = try HelloResultMessage.decode(try decodeSingleFrame(response))
     #expect(result.productionSigned)
@@ -63,7 +62,6 @@ struct BrokerServiceTests {
         launcherVersion: "0.1.0",
         brokerVersion: "0.1.0",
         productionSigned: true,
-        persistentCredentials: true,
         keychain: .available
       )
     )
@@ -73,7 +71,7 @@ struct BrokerServiceTests {
         .encodedFrame(requestID: 41)
     )
 
-    let response = session.exchange(try makeHealthFrame(requestID: 42))
+    let response = session.exchange(try makeHealthFrame(requestID: 42)).response
 
     let result = try HealthResultMessage.decode(try decodeSingleFrame(response))
     #expect(result.keychain == .available)
@@ -87,7 +85,6 @@ struct BrokerServiceTests {
         launcherVersion: "0.1.0",
         brokerVersion: "0.1.0",
         productionSigned: true,
-        persistentCredentials: true,
         keychain: .available
       )
     )
@@ -97,13 +94,13 @@ struct BrokerServiceTests {
       session.exchange(
         try HelloMessage(engineVersion: "0.2.0", nonce: nonce)
           .encodedFrame(requestID: 41)
-      )
+      ).response
     )
     let retry = try decodeSingleFrame(
       session.exchange(
         try HelloMessage(engineVersion: "0.1.0", nonce: nonce)
           .encodedFrame(requestID: 42)
-      )
+      ).response
     )
 
     #expect(mismatch.requestID == 41)
@@ -120,7 +117,6 @@ struct BrokerServiceTests {
         launcherVersion: "0.1.0",
         brokerVersion: "0.1.0",
         productionSigned: true,
-        persistentCredentials: true,
         initialKeychain: .available,
         keychainStatus: { statuses.next() }
       )
@@ -134,12 +130,12 @@ struct BrokerServiceTests {
 
     let first = try HealthResultMessage.decode(
       try decodeSingleFrame(
-        session.exchange(try makeHealthFrame(requestID: 2))
+        session.exchange(try makeHealthFrame(requestID: 2)).response
       )
     )
     let second = try HealthResultMessage.decode(
       try decodeSingleFrame(
-        session.exchange(try makeHealthFrame(requestID: 3))
+        session.exchange(try makeHealthFrame(requestID: 3)).response
       )
     )
 
@@ -155,13 +151,12 @@ struct BrokerServiceTests {
         launcherVersion: "0.1.0",
         brokerVersion: "0.1.0",
         productionSigned: false,
-        persistentCredentials: false,
         keychain: .unavailable
       )
     )
 
     let frame = try decodeSingleFrame(
-      session.exchange(try makeHealthFrame(requestID: 9))
+      session.exchange(try makeHealthFrame(requestID: 9)).response
     )
 
     #expect(frame.requestID == 9)
@@ -179,12 +174,13 @@ struct BrokerServiceTests {
         launcherVersion: "0.1.0",
         brokerVersion: "0.1.0",
         productionSigned: false,
-        persistentCredentials: false,
         keychain: .unavailable
       )
     )
 
-    let frame = try decodeSingleFrame(session.exchange(Data([0xde, 0xad, 0xbe, 0xef])))
+    let frame = try decodeSingleFrame(
+      session.exchange(Data([0xde, 0xad, 0xbe, 0xef])).response
+    )
 
     #expect(frame.requestID == brokerMalformedFrameRequestID)
     #expect(try SafeFailureCode.decode(frame) == .protocolMismatch)
@@ -197,7 +193,6 @@ struct BrokerServiceTests {
         launcherVersion: "0.1.0",
         brokerVersion: "0.1.0",
         productionSigned: false,
-        persistentCredentials: false,
         keychain: .unavailable
       )
     )
@@ -207,7 +202,7 @@ struct BrokerServiceTests {
     ).encodedFrame(requestID: 1)
     let batched = hello + (try makeHealthFrame(requestID: 2))
 
-    let frame = try decodeSingleFrame(session.exchange(batched))
+    let frame = try decodeSingleFrame(session.exchange(batched).response)
 
     #expect(frame.requestID == brokerMalformedFrameRequestID)
     #expect(try SafeFailureCode.decode(frame) == .protocolMismatch)
@@ -229,7 +224,6 @@ struct BrokerServiceTests {
           launcherVersion: "0.1.0",
           brokerVersion: "0.1.0",
           productionSigned: false,
-          persistentCredentials: false,
           keychain: .unavailable
         )
       )
@@ -240,7 +234,7 @@ struct BrokerServiceTests {
         payload: FieldTable(fields: []).encoded()
       ).encoded()
 
-      let frame = try decodeSingleFrame(session.exchange(request))
+      let frame = try decodeSingleFrame(session.exchange(request).response)
 
       #expect(frame.requestID == requestID)
       #expect(try SafeFailureCode.decode(frame) == .unsupportedOperation)
@@ -254,7 +248,6 @@ struct BrokerServiceTests {
         launcherVersion: "0.1.0",
         brokerVersion: "0.1.0",
         productionSigned: false,
-        persistentCredentials: false,
         keychain: .unavailable
       )
     )
@@ -268,7 +261,7 @@ struct BrokerServiceTests {
       nonce: Data(repeating: 4, count: nativeNonceByteCount)
     ).encodedFrame(requestID: 22)
 
-    let replay = try decodeSingleFrame(session.exchange(secondHello))
+    let replay = try decodeSingleFrame(session.exchange(secondHello).response)
 
     #expect(replay.requestID == 22)
     #expect(try SafeFailureCode.decode(replay) == .protocolMismatch)
@@ -281,7 +274,6 @@ struct BrokerServiceTests {
         launcherVersion: "0.1.0",
         brokerVersion: "0.1.0",
         productionSigned: false,
-        persistentCredentials: false,
         keychain: .unavailable
       )
     )
@@ -293,10 +285,10 @@ struct BrokerServiceTests {
     _ = replaySession.exchange(try makeHealthFrame(requestID: 41))
 
     let replay = try decodeSingleFrame(
-      replaySession.exchange(try makeHealthFrame(requestID: 41))
+      replaySession.exchange(try makeHealthFrame(requestID: 41)).response
     )
     let afterReplay = try decodeSingleFrame(
-      replaySession.exchange(try makeHealthFrame(requestID: 42))
+      replaySession.exchange(try makeHealthFrame(requestID: 42)).response
     )
 
     #expect(replay.requestID == 41)
@@ -309,13 +301,12 @@ struct BrokerServiceTests {
         launcherVersion: "0.1.0",
         brokerVersion: "0.1.0",
         productionSigned: false,
-        persistentCredentials: false,
         keychain: .unavailable
       )
     )
     _ = outOfOrderSession.exchange(hello)
     let outOfOrder = try decodeSingleFrame(
-      outOfOrderSession.exchange(try makeHealthFrame(requestID: 39))
+      outOfOrderSession.exchange(try makeHealthFrame(requestID: 39)).response
     )
     #expect(outOfOrder.requestID == 39)
     #expect(try SafeFailureCode.decode(outOfOrder) == .protocolMismatch)
@@ -328,7 +319,6 @@ struct BrokerServiceTests {
         launcherVersion: "0.1.0",
         brokerVersion: "0.1.0",
         productionSigned: false,
-        persistentCredentials: false,
         keychain: .unavailable
       )
     )
@@ -338,9 +328,9 @@ struct BrokerServiceTests {
       payload: FieldTable(fields: []).encoded()
     ).encoded()
 
-    let helloFailure = try decodeSingleFrame(session.exchange(malformedHello))
+    let helloFailure = try decodeSingleFrame(session.exchange(malformedHello).response)
     let healthFailure = try decodeSingleFrame(
-      session.exchange(try makeHealthFrame(requestID: 31))
+      session.exchange(try makeHealthFrame(requestID: 31)).response
     )
 
     #expect(helloFailure.requestID == 30)
@@ -350,13 +340,12 @@ struct BrokerServiceTests {
   }
 
   @Test
-  func configurationRejectsInvalidVersionsAndImpossibleCredentialAttestation() {
+  func configurationRejectsInvalidVersions() {
     #expect(throws: BrokerServiceConfigurationError.invalidConfiguration) {
       _ = try BrokerServiceConfiguration(
         launcherVersion: "",
         brokerVersion: "0.1.0",
         productionSigned: false,
-        persistentCredentials: false,
         keychain: .unavailable
       )
     }
@@ -365,25 +354,6 @@ struct BrokerServiceTests {
         launcherVersion: "0.1.0",
         brokerVersion: "",
         productionSigned: false,
-        persistentCredentials: false,
-        keychain: .unavailable
-      )
-    }
-    #expect(throws: BrokerServiceConfigurationError.invalidConfiguration) {
-      _ = try BrokerServiceConfiguration(
-        launcherVersion: "0.1.0",
-        brokerVersion: "0.1.0",
-        productionSigned: false,
-        persistentCredentials: true,
-        keychain: .available
-      )
-    }
-    #expect(throws: BrokerServiceConfigurationError.invalidConfiguration) {
-      _ = try BrokerServiceConfiguration(
-        launcherVersion: "0.1.0",
-        brokerVersion: "0.1.0",
-        productionSigned: true,
-        persistentCredentials: true,
         keychain: .unavailable
       )
     }
@@ -396,19 +366,16 @@ struct BrokerServiceTests {
         launcherVersion: "0.1.0",
         brokerVersion: "0.1.0",
         productionSigned: false,
-        persistentCredentials: false,
         keychain: .unavailable
       )
     )
     let nonce = Data(repeating: 4, count: nativeNonceByteCount)
-    var responses: [Data] = []
+    let responses = LockedServiceReplyProbe()
 
     service.exchange(
       try HelloMessage(engineVersion: "0.1.0", nonce: nonce)
         .encodedFrame(requestID: 1)
-    ) { response in
-      responses.append(response)
-    }
+    ) { responses.receive($0) }
 
     #expect(responses.count == 1)
     let result = try HelloResultMessage.decode(
@@ -423,7 +390,6 @@ struct BrokerServiceTests {
       launcherVersion: "0.1.0",
       brokerVersion: "0.1.0",
       productionSigned: true,
-      persistentCredentials: true,
       keychain: .available
     )
     let requirement =
@@ -438,7 +404,7 @@ struct BrokerServiceTests {
 
     #expect(
       connection.events
-        == ["requirement", "interface", "object", "activate"]
+        == ["requirement", "interface", "object", "interruption", "invalidation", "activate"]
     )
     #expect(connection.requirement == requirement)
     #expect(connection.exportedObject is BrokerService)
@@ -499,6 +465,23 @@ private final class ScriptedKeychainStatusSource: @unchecked Sendable {
   }
 }
 
+private final class LockedServiceReplyProbe: @unchecked Sendable {
+  private let lock = NSLock()
+  private var values: [Data] = []
+
+  var count: Int {
+    lock.withLock { values.count }
+  }
+
+  var first: Data? {
+    lock.withLock { values.first }
+  }
+
+  func receive(_ data: Data) {
+    lock.withLock { values.append(data) }
+  }
+}
+
 private final class RecordingBrokerConnection: BrokerServiceConnection {
   var events: [String] = []
   var requirement: String?
@@ -509,6 +492,14 @@ private final class RecordingBrokerConnection: BrokerServiceConnection {
 
   var exportedObject: Any? {
     didSet { events.append("object") }
+  }
+
+  var interruptionHandler: (() -> Void)? {
+    didSet { events.append("interruption") }
+  }
+
+  var invalidationHandler: (() -> Void)? {
+    didSet { events.append("invalidation") }
   }
 
   func setCodeSigningRequirement(_ requirement: String) {

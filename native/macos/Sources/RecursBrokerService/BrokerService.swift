@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import RecursBrokerXPC
 import RecursNativeProtocol
@@ -12,23 +13,22 @@ package struct BrokerServiceConfiguration: Sendable {
   let launcherVersion: String
   let brokerVersion: String
   let productionSigned: Bool
-  let persistentCredentials: Bool
   let keychainStatus: @Sendable () -> KeychainStatusCode
+  private let credentialAuthority: (any BrokerCredentialLifecycleAuthority)?
 
   package init(
     launcherVersion: String,
     brokerVersion: String,
     productionSigned: Bool,
-    persistentCredentials: Bool,
     keychain: KeychainStatusCode
   ) throws {
     try self.init(
       launcherVersion: launcherVersion,
       brokerVersion: brokerVersion,
       productionSigned: productionSigned,
-      persistentCredentials: persistentCredentials,
       initialKeychain: keychain,
-      keychainStatus: { keychain }
+      keychainStatus: { keychain },
+      credentialAuthority: nil
     )
   }
 
@@ -36,9 +36,26 @@ package struct BrokerServiceConfiguration: Sendable {
     launcherVersion: String,
     brokerVersion: String,
     productionSigned: Bool,
-    persistentCredentials: Bool,
     initialKeychain: KeychainStatusCode,
     keychainStatus: @escaping @Sendable () -> KeychainStatusCode
+  ) throws {
+    try self.init(
+      launcherVersion: launcherVersion,
+      brokerVersion: brokerVersion,
+      productionSigned: productionSigned,
+      initialKeychain: initialKeychain,
+      keychainStatus: keychainStatus,
+      credentialAuthority: nil
+    )
+  }
+
+  private init(
+    launcherVersion: String,
+    brokerVersion: String,
+    productionSigned: Bool,
+    initialKeychain: KeychainStatusCode,
+    keychainStatus: @escaping @Sendable () -> KeychainStatusCode,
+    credentialAuthority: (any BrokerCredentialLifecycleAuthority)?
   ) throws {
     do {
       _ = try FieldTable.encodeVersionText(launcherVersion)
@@ -46,18 +63,45 @@ package struct BrokerServiceConfiguration: Sendable {
     } catch {
       throw BrokerServiceConfigurationError.invalidConfiguration
     }
-    guard
-      !persistentCredentials
-        || (productionSigned && initialKeychain != .unavailable)
-    else {
-      throw BrokerServiceConfigurationError.invalidConfiguration
-    }
-
     self.launcherVersion = launcherVersion
     self.brokerVersion = brokerVersion
     self.productionSigned = productionSigned
-    self.persistentCredentials = persistentCredentials
     self.keychainStatus = keychainStatus
+    self.credentialAuthority = credentialAuthority
+  }
+
+  package static func recoveredCredentialService(
+    launcherVersion: String,
+    brokerVersion: String,
+    authority: any BrokerCredentialLifecycleAuthority,
+    initialKeychain: KeychainStatusCode,
+    keychainStatus: @escaping @Sendable () -> KeychainStatusCode
+  ) throws -> BrokerServiceConfiguration {
+    try BrokerServiceConfiguration(
+      launcherVersion: launcherVersion,
+      brokerVersion: brokerVersion,
+      productionSigned: true,
+      initialKeychain: initialKeychain,
+      keychainStatus: keychainStatus,
+      credentialAuthority: authority
+    )
+  }
+
+  package static func healthOnlyForTesting(
+    launcherVersion: String,
+    brokerVersion: String,
+    productionSigned: Bool,
+    initialKeychain: KeychainStatusCode,
+    keychainStatus: @escaping @Sendable () -> KeychainStatusCode
+  ) throws -> BrokerServiceConfiguration {
+    try BrokerServiceConfiguration(
+      launcherVersion: launcherVersion,
+      brokerVersion: brokerVersion,
+      productionSigned: productionSigned,
+      initialKeychain: initialKeychain,
+      keychainStatus: keychainStatus,
+      credentialAuthority: nil
+    )
   }
 
   package static func productionHandshakeHealthOnly(
@@ -70,11 +114,30 @@ package struct BrokerServiceConfiguration: Sendable {
       launcherVersion: launcherVersion,
       brokerVersion: brokerVersion,
       productionSigned: true,
-      persistentCredentials: false,
       initialKeychain: initialKeychain,
-      keychainStatus: keychainStatus
+      keychainStatus: keychainStatus,
+      credentialAuthority: nil
     )
   }
+
+  package var exportsCredentialLifecycle: Bool {
+    credentialAuthority != nil
+  }
+
+  package func makeCredentialLifecycleGateway() -> BrokerCredentialLifecycleGateway? {
+    credentialAuthority.map(BrokerCredentialLifecycleGateway.init(authority:))
+  }
+}
+
+package enum BrokerServiceLifecycleAction: Sendable {
+  case none
+  case authorize
+  case close
+}
+
+package struct BrokerServiceExchange: Sendable {
+  package let response: Data
+  package let lifecycleAction: BrokerServiceLifecycleAction
 }
 
 package struct BrokerServiceSession: Sendable {
@@ -92,15 +155,14 @@ package struct BrokerServiceSession: Sendable {
     self.configuration = configuration
   }
 
-  package mutating func exchange(_ frame: Data) -> Data {
+  package mutating func exchange(_ frame: Data) -> BrokerServiceExchange {
     var failureRequestID = brokerMalformedFrameRequestID
     do {
       var decoder = NativeFrameDecoder()
       let frames = try decoder.push(frame)
       try decoder.finish()
       guard frames.count == 1 else {
-        phase = .failed
-        return safeFailure(
+        return terminalFailure(
           .protocolMismatch,
           requestID: brokerMalformedFrameRequestID
         )
@@ -109,54 +171,66 @@ package struct BrokerServiceSession: Sendable {
       let request = frames[0]
       failureRequestID = request.requestID
       guard phase != .failed, request.requestID > greatestRequestID else {
-        phase = .failed
-        return safeFailure(.protocolMismatch, requestID: request.requestID)
+        return terminalFailure(.protocolMismatch, requestID: request.requestID)
       }
       greatestRequestID = request.requestID
 
       switch request.type {
       case .hello:
         guard phase == .awaitingHello else {
-          phase = .failed
-          return safeFailure(.protocolMismatch, requestID: request.requestID)
+          return terminalFailure(.protocolMismatch, requestID: request.requestID)
         }
         let hello = try HelloMessage.decode(request)
         guard hello.engineVersion == configuration.launcherVersion else {
-          phase = .failed
-          return safeFailure(.protocolMismatch, requestID: request.requestID)
+          return terminalFailure(.protocolMismatch, requestID: request.requestID)
         }
         let response = try HelloResultMessage(
           launcherVersion: configuration.launcherVersion,
           brokerVersion: configuration.brokerVersion,
           echoedNonce: hello.nonce,
           productionSigned: configuration.productionSigned,
-          persistentCredentials: configuration.persistentCredentials,
+          persistentCredentials: configuration.exportsCredentialLifecycle,
           minimumMacosVersion: "14.4"
         ).encodedFrame(requestID: request.requestID)
         phase = .ready
-        return response
+        return BrokerServiceExchange(response: response, lifecycleAction: .authorize)
       case .health:
         guard
           phase == .ready,
           try FieldTable.decode(request.payload).fields.isEmpty
         else {
-          phase = .failed
-          return safeFailure(.protocolMismatch, requestID: request.requestID)
+          return terminalFailure(.protocolMismatch, requestID: request.requestID)
         }
-        return try HealthResultMessage(
-          keychain: configuration.keychainStatus(),
-          peerVerified: true
-        ).encodedFrame(requestID: request.requestID)
+        return BrokerServiceExchange(
+          response: try HealthResultMessage(
+            keychain: configuration.keychainStatus(),
+            peerVerified: true
+          ).encodedFrame(requestID: request.requestID),
+          lifecycleAction: .none
+        )
       default:
-        return safeFailure(.unsupportedOperation, requestID: request.requestID)
+        return BrokerServiceExchange(
+          response: safeFailure(.unsupportedOperation, requestID: request.requestID),
+          lifecycleAction: .none
+        )
       }
     } catch {
-      phase = .failed
-      return safeFailure(
+      return terminalFailure(
         .protocolMismatch,
         requestID: failureRequestID
       )
     }
+  }
+
+  private mutating func terminalFailure(
+    _ code: SafeFailureCode,
+    requestID: UInt32
+  ) -> BrokerServiceExchange {
+    phase = .failed
+    return BrokerServiceExchange(
+      response: safeFailure(code, requestID: requestID),
+      lifecycleAction: .close
+    )
   }
 
   private func safeFailure(_ code: SafeFailureCode, requestID: UInt32) -> Data {
@@ -164,19 +238,123 @@ package struct BrokerServiceSession: Sendable {
   }
 }
 
-package final class BrokerService: NSObject, BrokerXPCProtocol, @unchecked Sendable {
+package final class BrokerService: NSObject, BrokerCredentialLifecycleXPCProtocol,
+  @unchecked Sendable
+{
   private let lock = NSLock()
   private var session: BrokerServiceSession
+  private let credentialGateway: BrokerCredentialLifecycleGateway?
 
   package init(configuration: BrokerServiceConfiguration) {
     self.session = BrokerServiceSession(configuration: configuration)
+    self.credentialGateway = configuration.makeCredentialLifecycleGateway()
     super.init()
   }
 
-  package func exchange(_ frame: Data, reply: @escaping (Data) -> Void) {
-    let response = lock.withLock {
+  package func exchange(_ frame: Data, reply: @escaping @Sendable (Data) -> Void) {
+    let exchange = lock.withLock {
       session.exchange(frame)
     }
-    reply(response)
+    switch exchange.lifecycleAction {
+    case .none:
+      break
+    case .authorize:
+      credentialGateway?.authorizeAfterHello()
+    case .close:
+      credentialGateway?.close()
+    }
+    reply(exchange.response)
+  }
+
+  package func stageCredential(
+    _ metadata: Data,
+    secret: Data,
+    reply: @escaping @Sendable (Data) -> Void
+  ) {
+    guard let credentialGateway else {
+      erase(secret)
+      reply(Self.unavailableStage(metadata))
+      return
+    }
+    credentialGateway.submitStage(metadata: metadata, secret: secret, reply: reply)
+  }
+
+  package func credentialControl(
+    _ request: Data,
+    reply: @escaping @Sendable (Data) -> Void
+  ) {
+    guard let credentialGateway else {
+      reply(Self.unavailableControl(request))
+      return
+    }
+    credentialGateway.submitControl(request, reply: reply)
+  }
+
+  package func close() {
+    credentialGateway?.close()
+  }
+
+  private static func unavailableStage(_ data: Data) -> Data {
+    do {
+      let request = try BrokerCredentialStageRequest.decode(data)
+      return lifecycleFailure(requestID: request.requestID, code: .operationUnavailable)
+    } catch let error as BrokerCredentialLifecycleCodecError {
+      return lifecycleFailure(
+        requestID: error.requestID ?? brokerCredentialMalformedRequestID,
+        code: .invalidRequest
+      )
+    } catch {
+      return lifecycleFailure(
+        requestID: brokerCredentialMalformedRequestID,
+        code: .invalidRequest
+      )
+    }
+  }
+
+  private static func unavailableControl(_ data: Data) -> Data {
+    do {
+      let request = try BrokerCredentialControlRequest.decode(data)
+      return lifecycleFailure(requestID: request.requestID, code: .operationUnavailable)
+    } catch let error as BrokerCredentialLifecycleCodecError {
+      return lifecycleFailure(
+        requestID: error.requestID ?? brokerCredentialMalformedRequestID,
+        code: .invalidRequest
+      )
+    } catch {
+      return lifecycleFailure(
+        requestID: brokerCredentialMalformedRequestID,
+        code: .invalidRequest
+      )
+    }
+  }
+
+  private static func lifecycleFailure(
+    requestID: UInt64,
+    code: BrokerCredentialLifecycleFailureCode
+  ) -> Data {
+    (try? BrokerCredentialLifecycleReply.failure(requestID: requestID, code).encode()) ?? Data()
+  }
+}
+
+private func erase(_ data: Data) {
+  data.withUnsafeBytes { bytes in
+    guard let baseAddress = bytes.baseAddress, !bytes.isEmpty else { return }
+    _ = memset_s(
+      UnsafeMutableRawPointer(mutating: baseAddress),
+      bytes.count,
+      0,
+      bytes.count
+    )
+  }
+}
+
+extension BrokerCredentialControlRequest {
+  fileprivate var requestID: UInt64 {
+    switch self {
+    case .projection(let requestID, _), .reservedOperation(let requestID),
+      .resumeStage(let requestID, _, _, _), .abort(let requestID, _, _, _, _),
+      .disconnect(let requestID, _, _, _):
+      requestID
+    }
   }
 }
