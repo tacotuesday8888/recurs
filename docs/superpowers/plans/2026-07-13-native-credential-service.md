@@ -776,6 +776,9 @@ git commit -m "feat: expose private broker credential lifecycle"
 - Modify: `README.md`
 - Modify: `ARCHITECTURE.md`
 - Modify: `SECURITY.md`
+- Modify: `PRODUCT.md`
+- Modify: `docs/CLI.md`
+- Modify: `docs/README.md`
 
 **Runtime interface:**
 
@@ -877,7 +880,10 @@ verified. State equally clearly
 that the launcher has not yet collected secrets, staging candidates cannot yet
 be provider-verified, provider metadata is not yet durably bound to generations,
 provider HTTP does not exist, source/npm builds cannot activate this authority,
-and all direct provider manifests remain disabled.
+and all direct provider manifests remain disabled. Do not claim a successful
+signed-broker smoke: that owner-run release gate needs an ephemeral macOS user
+and a dedicated production test access group because the live journal root and
+Keychain configuration cannot be redirected safely with `HOME`.
 
 - [ ] **Step 5: Verify focused GREEN**
 
@@ -896,7 +902,7 @@ Expected: PASS.
 git add native/macos/Sources/RecursBrokerService \
   native/macos/Sources/RecursNativeBrokerExecutable/main.swift \
   native/macos/Tests/RecursBrokerServiceTests \
-  README.md ARCHITECTURE.md SECURITY.md
+  README.md ARCHITECTURE.md SECURITY.md PRODUCT.md docs/CLI.md docs/README.md
 git commit -m "feat: activate durable broker credential service"
 ```
 
@@ -925,12 +931,11 @@ npm run check:native
 swift test --package-path native/macos
 swift build --package-path native/macos -c release \
   -Xswiftc -warnings-as-errors
-npm run check:native:plist
-npm run check:native:entitlements
-npm run check:native:bundle
-npm run check:native:bridge
-npm run check:doctor
-npm run check:source-smoke
+npm run native:lint-resources
+npm run native:engine-bundle-smoke
+npm run native:engine-bridge-smoke
+npm run native:doctor-smoke
+npm run native:smoke
 ```
 
 Expected: all commands PASS from a clean build.
@@ -940,16 +945,20 @@ Expected: all commands PASS from a clean build.
 ```bash
 rg -n "stageCredential|credentialControl|CredentialLifecycle" \
   packages native/macos/Sources/RecursNativeProtocol
-rg -n "api[_-]?key|authorization|bearer|credential.*reference|keychain.*account" \
-  packages/auth packages/native-engine packages/contracts
+git diff 7484f33...HEAD -- \
+  packages/auth packages/native-engine packages/contracts | \
+  rg -n "api[_-]?key|authorization|bearer|credential.*reference|keychain.*account"
 rg -n "runnable:\s*true" packages/providers packages/app
-git grep -nE "BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|sk-[A-Za-z0-9_-]{16,}"
+git diff --unified=0 7484f33...HEAD -- . | rg '^\+[^+]' | \
+  rg -n "BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|sk-[A-Za-z0-9_-]{16,}"
 ```
 
 Expected: credential lifecycle symbols occur only in native broker/XPC/service
 code; no new secret/reference surface appears in TypeScript or the Node
-protocol; broker-owned provider manifests remain disabled; the secret scan is
-empty.
+protocol; broker-owned provider manifests remain disabled (the bridge smoke is
+the authoritative predicate, while the runnable grep also inventories valid
+local/delegated paths); and the branch-addition secret scan is empty. Existing
+repository test canaries are baseline fixtures, not findings.
 
 - [ ] **Step 4: Inspect intended diff and commit review fixes**
 
