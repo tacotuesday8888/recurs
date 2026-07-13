@@ -851,13 +851,15 @@ strongly retains both the listener and delegate for its whole lifetime; do not
 rely on the Foundation delegate property to provide ownership. `activate()` is
 idempotent and forwards to the listener at most once.
 
-- [ ] **Step 1: Add failing startup-order tests**
+- [x] **Step 1: Add failing startup-order tests**
 
 Record events and prove exact peer validation and authority recovery finish
 before listener construction/activation; the same authority reaches the
 delegate; persistent capability is true only on the recovered path; and every
-peer, Keychain, directory, authority-lock, journal-authentication, rollback, or
-recovery failure leaves activation count zero. Prove health reads current
+peer-requirement, Keychain-configuration, or authority-recovery failure leaves
+activation count zero. The recovery layer's focused suites cover its directory,
+authority-lock, journal-authentication, rollback, and replay failures. Prove
+health reads current
 Keychain availability after startup without rebuilding authority. Prove the
 runtime strongly retains the listener and delegate after dependency locals are
 released, and that repeated `activate()` calls activate the listener exactly
@@ -869,7 +871,7 @@ prove identity, not merely equal values. Unit tests must build only injected
 in-memory authorities; they must never call a live `.production()` factory or
 touch the user's journal directory or Data Protection Keychain.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```bash
 swift test --package-path native/macos --filter BrokerServiceRuntimeTests
@@ -877,7 +879,7 @@ swift test --package-path native/macos --filter BrokerServiceRuntimeTests
 
 Expected: compilation fails because `BrokerServiceRuntime` does not exist.
 
-- [ ] **Step 3: Implement fail-closed startup**
+- [x] **Step 3: Implement fail-closed startup**
 
 Delete `productionHandshakeHealthOnly`; keep `healthOnlyForTesting` module-
 internal so the executable cannot compile against it. Remove the unused
@@ -910,7 +912,7 @@ Configuration reports `persistentCredentials: true` only when constructed with
 the recovered authority. Keep a health-only test factory for unsigned/fake unit
 tests, but name it explicitly and prevent its use in `main.swift`.
 
-- [ ] **Step 4: Update truthful documentation**
+- [x] **Step 4: Update truthful documentation**
 
 Document that the production-gated broker code path now owns and recovers
 persistent credentials and exposes a private launcher-only lifecycle surface.
@@ -924,7 +926,7 @@ signed-broker smoke: that owner-run release gate needs an ephemeral macOS user
 and a dedicated production test access group because the live journal root and
 Keychain configuration cannot be redirected safely with `HOME`.
 
-- [ ] **Step 5: Verify focused GREEN**
+- [x] **Step 5: Verify focused GREEN**
 
 ```bash
 swift test --package-path native/macos --filter BrokerServiceRuntimeTests
@@ -935,7 +937,7 @@ npm run native:smoke
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add native/macos/Sources/RecursBrokerService \
@@ -952,14 +954,14 @@ git commit -m "feat: activate durable broker credential service"
 
 - Modify only files required by findings from the independent review.
 
-- [ ] **Step 1: Produce and independently review the diff package**
+- [x] **Step 1: Produce and independently review the diff package**
 
 Use the subagent-driven-development review package script from the branch base
 through `HEAD`. Review against this plan, the Provider Activation v1 design, and
 the broker credential/journal contracts. Fix every actionable finding and repeat
 the review until it passes.
 
-- [ ] **Step 2: Run the full clean matrix**
+- [x] **Step 2: Run the full clean matrix**
 
 ```bash
 rm -rf native/macos/.build
@@ -980,7 +982,7 @@ npm run native:smoke
 
 Expected: all commands PASS from a clean build.
 
-- [ ] **Step 3: Run boundary and secret scans**
+- [x] **Step 3: Run boundary and secret scans**
 
 ```bash
 rg -n "stageCredential|credentialControl|CredentialLifecycle" \
@@ -1000,7 +1002,7 @@ the authoritative predicate, while the runnable grep also inventories valid
 local/delegated paths); and the branch-addition secret scan is empty. Existing
 repository test canaries are baseline fixtures, not findings.
 
-- [ ] **Step 4: Inspect intended diff and commit review fixes**
+- [x] **Step 4: Inspect intended diff and commit review fixes**
 
 ```bash
 git status --short

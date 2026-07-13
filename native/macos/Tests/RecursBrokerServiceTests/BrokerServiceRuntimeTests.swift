@@ -31,8 +31,18 @@ struct BrokerServiceRuntimeTests {
     #expect(fixture.retention.delegate != nil)
     #expect(fixture.retention.listener?.activationCount == 0)
 
-    fixture.runtime.activate()
-    fixture.runtime.activate()
+    let activation = RuntimeActivationProbe(runtime: fixture.runtime)
+    let startGate = RuntimeActivationStartGate(expectedArrivals: 32)
+    await withTaskGroup(of: Void.self) { group in
+      for _ in 0..<32 {
+        group.addTask {
+          await startGate.arriveAndWait()
+          activation.activate()
+        }
+      }
+      await startGate.waitUntilReady()
+      await startGate.release()
+    }
 
     #expect(fixture.retention.listener?.activationCount == 1)
   }
@@ -312,13 +322,64 @@ private struct RuntimeKeychainToken: Sendable, Equatable {
 
 private struct RuntimeInjectedFailure: Error {}
 
+private final class RuntimeActivationProbe: @unchecked Sendable {
+  private let runtime: BrokerServiceRuntime
+
+  init(runtime: BrokerServiceRuntime) {
+    self.runtime = runtime
+  }
+
+  func activate() {
+    runtime.activate()
+  }
+}
+
+private actor RuntimeActivationStartGate {
+  private let expectedArrivals: Int
+  private var arrivals = 0
+  private var isReleased = false
+  private var readyWaiter: CheckedContinuation<Void, Never>?
+  private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+  init(expectedArrivals: Int) {
+    self.expectedArrivals = expectedArrivals
+  }
+
+  func arriveAndWait() async {
+    arrivals += 1
+    if arrivals == expectedArrivals {
+      readyWaiter?.resume()
+      readyWaiter = nil
+    }
+    await withCheckedContinuation { continuation in
+      if isReleased {
+        continuation.resume()
+      } else {
+        startWaiters.append(continuation)
+      }
+    }
+  }
+
+  func waitUntilReady() async {
+    guard arrivals < expectedArrivals else { return }
+    await withCheckedContinuation { continuation in
+      readyWaiter = continuation
+    }
+  }
+
+  func release() {
+    isReleased = true
+    let waiters = startWaiters
+    startWaiters.removeAll(keepingCapacity: false)
+    for waiter in waiters {
+      waiter.resume()
+    }
+  }
+}
+
 enum RuntimeFailurePoint: String, CaseIterable, Sendable {
   case peer
   case keychain
-  case directory
-  case authorityLock
-  case journalAuthentication
-  case rollback
   case recovery
 }
 

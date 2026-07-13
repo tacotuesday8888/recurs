@@ -35,7 +35,7 @@ candidates cannot be provider-verified, provider metadata is not durably bound
 to credential generations, and no broker-owned provider HTTP transport exists.
 A directly injected descriptor and its peer's self-attestation cannot prove
 native provenance, so a claimed ready result is still downgraded to
-peer-identity-unverified without a JavaScript or environment bypass. There is
+`peer_identity_unverified` without a JavaScript or environment bypass. There is
 no plaintext fallback. Every broker-owned provider remains disabled.
 
 The one implemented subscription path is deliberately narrower than a Recurs-
