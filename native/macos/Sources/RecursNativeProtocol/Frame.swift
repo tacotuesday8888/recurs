@@ -109,6 +109,13 @@ public struct NativeFrameDecoder: Sendable {
 
   public init() {}
 
+  package var isAwaitingFrameCompletion: Bool {
+    guard case .open = state else {
+      return false
+    }
+    return !bufferedBytes.isEmpty
+  }
+
   public mutating func push(_ chunk: Data) throws -> [NativeFrame] {
     try ensureOpen()
     guard !chunk.isEmpty else {

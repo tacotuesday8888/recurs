@@ -84,6 +84,13 @@ package actor LauncherNodeSession {
     failClosed()
   }
 
+  package func isAwaitingFrameCompletion() -> Bool {
+    guard phase != .closed else {
+      return false
+    }
+    return decoder.isAwaitingFrameCompletion
+  }
+
   private func receive(_ frame: NativeFrame) throws {
     if let greatestSeenRequestID {
       guard frame.requestID > greatestSeenRequestID else {

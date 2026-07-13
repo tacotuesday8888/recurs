@@ -255,6 +255,60 @@ struct FrameTests {
   }
 
   @Test
+  func testDecoderIsNotAwaitingCompletionWithoutBufferedPartialBytes() throws {
+    let first = rawFrame(type: 3, requestID: 1, payload: uint16(0))
+    let second = rawFrame(type: 3, requestID: 2, payload: uint16(0))
+    var decoder = NativeFrameDecoder()
+
+    #expect(!decoder.isAwaitingFrameCompletion)
+    #expect(try decoder.push(Data()) == [])
+    #expect(!decoder.isAwaitingFrameCompletion)
+    #expect(try decoder.push(first).map(\.requestID) == [1])
+    #expect(!decoder.isAwaitingFrameCompletion)
+    #expect(try decoder.push(concatenate(first, second)).map(\.requestID) == [1, 2])
+    #expect(!decoder.isAwaitingFrameCompletion)
+  }
+
+  @Test
+  func testDecoderAwaitsAtEveryPartialSplitOnlyUntilCompletion() throws {
+    let bytes = rawFrame(type: 3, requestID: 7, payload: uint16(0))
+
+    for split in 1..<bytes.count {
+      var decoder = NativeFrameDecoder()
+      #expect(try decoder.push(Data(bytes.prefix(split))) == [])
+      #expect(decoder.isAwaitingFrameCompletion)
+
+      #expect(try decoder.push(Data(bytes.dropFirst(split))).map(\.requestID) == [7])
+      #expect(!decoder.isAwaitingFrameCompletion)
+    }
+  }
+
+  @Test
+  func testDecoderCompletionStateIsFalseAfterFinishAndFailure() throws {
+    var finishedDecoder = NativeFrameDecoder()
+    try finishedDecoder.finish()
+    #expect(!finishedDecoder.isAwaitingFrameCompletion)
+    expectProtocolError(.decoderFinished) { try finishedDecoder.push(Data()) }
+    expectProtocolError(.decoderFinished) { try finishedDecoder.finish() }
+
+    let malformed = rawFrame(
+      type: 3,
+      requestID: 1,
+      payload: uint16(0),
+      protocolVersion: 2
+    )
+    var failedDecoder = NativeFrameDecoder()
+    #expect(try failedDecoder.push(Data(malformed.prefix(5))) == [])
+    #expect(failedDecoder.isAwaitingFrameCompletion)
+    expectProtocolError(.invalidFrame) {
+      try failedDecoder.push(Data(malformed.dropFirst(5)))
+    }
+    #expect(!failedDecoder.isAwaitingFrameCompletion)
+    expectProtocolError(.decoderFailed) { try failedDecoder.push(Data()) }
+    expectProtocolError(.decoderFailed) { try failedDecoder.finish() }
+  }
+
+  @Test
   func testDecoderSealsCleanlyAndEmptyPushIsANoOp() throws {
     var decoder = NativeFrameDecoder()
     #expect(try decoder.push(Data()) == [])

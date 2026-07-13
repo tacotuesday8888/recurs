@@ -22,13 +22,18 @@ struct LauncherNodeSessionTests {
     )
     let hello = try helloFrame(requestID: 41)
 
+    #expect(!(await session.isAwaitingFrameCompletion()))
+    await session.receive(Data())
+    #expect(!(await session.isAwaitingFrameCompletion()))
     for byte in hello.dropLast() {
       await session.receive(Data([byte]))
+      #expect(await session.isAwaitingFrameCompletion())
     }
     #expect(factory.makeCount == 0)
     #expect(system.exchangeFrames.isEmpty)
 
     await session.receive(Data([try #require(hello.last)]))
+    #expect(!(await session.isAwaitingFrameCompletion()))
     await eventually("hello response") { await output.snapshot().written.count == 1 }
 
     let snapshot = await output.snapshot()
@@ -41,6 +46,7 @@ struct LauncherNodeSessionTests {
     #expect(system.exchangeFrames.map(\.requestID) == [1])
 
     await session.close()
+    #expect(!(await session.isAwaitingFrameCompletion()))
     await session.finish()
     await session.close()
     await eventually("session close") { await output.snapshot().closeCount == 1 }
@@ -66,6 +72,7 @@ struct LauncherNodeSessionTests {
     ])
 
     await session.receive(input)
+    #expect(!(await session.isAwaitingFrameCompletion()))
     await eventually("first health begins") {
       let writtenCount = await output.snapshot().written.count
       return system.exchangeFrames.count == 2 && system.pendingHealthCount == 1
@@ -368,10 +375,14 @@ struct LauncherNodeSessionTests {
     )
     let hello = try helloFrame(requestID: 1)
 
+    #expect(!(await session.isAwaitingFrameCompletion()))
     await session.receive(Data(hello.prefix(nativeFrameHeaderByteCount + 1)))
+    #expect(await session.isAwaitingFrameCompletion())
     await session.finish()
+    #expect(!(await session.isAwaitingFrameCompletion()))
     await session.finish()
     await session.close()
+    #expect(!(await session.isAwaitingFrameCompletion()))
     await eventually("truncated close") { await output.snapshot().closeCount == 1 }
 
     #expect(factory.makeCount == 0)
