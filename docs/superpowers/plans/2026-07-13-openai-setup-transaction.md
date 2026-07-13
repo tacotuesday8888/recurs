@@ -67,7 +67,7 @@ await expect(store.discard(forged)).rejects.toMatchObject({
 await store.commitToRegistry(expected);
 await store.discard(expected);
 await expect(store.commitToRegistry(forged)).rejects.toMatchObject({
-  code: "activation_not_found",
+  code: "activation_conflict",
 });
 ```
 
@@ -77,12 +77,16 @@ Add pre-aborted-signal tests for both store reads:
 const controller = new AbortController();
 controller.abort();
 await expect(store.read({ signal: controller.signal })).rejects.toMatchObject({
-  name: "AbortError",
+  code: "lock_timeout",
 });
 await expect(registry.read({ signal: controller.signal })).rejects.toMatchObject({
-  name: "AbortError",
+  code: "lock_timeout",
 });
 ```
+
+The low-level stores preserve their established `lock_timeout` cancellation
+mapping. The app onboarding boundary in Task 3 gives a real aborted caller
+signal precedence and maps it to its public cancellation outcome.
 
 Update existing calls in `connection-activations.test.ts` to pass the complete `activation()` object rather than its ID.
 
