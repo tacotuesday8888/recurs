@@ -8,7 +8,8 @@ export type NativeAuthorityUnavailableReason =
   | "protocol_mismatch"
   | "peer_identity_unverified"
   | "production_signing_required"
-  | "keychain_unavailable";
+  | "keychain_unavailable"
+  | "unsupported_operation";
 
 export interface NativeAuthorityAttestation {
   readonly protocolVersion: typeof NATIVE_AUTHORITY_PROTOCOL_VERSION;

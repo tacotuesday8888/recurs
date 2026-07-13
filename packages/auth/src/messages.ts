@@ -56,6 +56,7 @@ export enum NativeSafeFailureCode {
   peerIdentityUnverified = 6,
   productionSigningRequired = 7,
   keychainUnavailable = 8,
+  unsupportedOperation = 9,
 }
 Object.freeze(NativeSafeFailureCode);
 
@@ -212,6 +213,7 @@ const safeFailureValues: Readonly<Record<number, NativeAuthorityUnavailableReaso
     [NativeSafeFailureCode.productionSigningRequired]:
       "production_signing_required",
     [NativeSafeFailureCode.keychainUnavailable]: "keychain_unavailable",
+    [NativeSafeFailureCode.unsupportedOperation]: "unsupported_operation",
   });
 
 export function decodeSafeFailure(

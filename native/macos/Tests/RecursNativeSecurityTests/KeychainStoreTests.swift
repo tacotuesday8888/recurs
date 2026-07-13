@@ -374,6 +374,94 @@ struct KeychainStoreTests {
     }
     #expect(failedSecret.isErased())
   }
+
+  @Test
+  func availabilityProbeExercisesTheExactBrokerOnlyDataProtectionItem() throws {
+    let configuration = try KeychainStoreConfiguration(
+      accessGroup: "ABCDEFGHIJ.com.recurs.credentials"
+    )
+    let marker = KeychainItem(
+      account: "availability.v1",
+      data: Data("available.v1".utf8),
+      generic: Data("availability.v1".utf8)
+    )
+
+    for addStatus in [errSecSuccess, errSecDuplicateItem] {
+      let recorder = KeychainQueryRecorder(
+        addStatuses: [addStatus],
+        copyResults: [KeychainCopyResult(status: errSecSuccess, items: [marker])]
+      )
+      let probe = DataProtectionKeychainAvailabilityProbe(
+        client: recorder.client,
+        configuration: configuration
+      )
+
+      #expect(probe.status() == .available)
+      let calls = recorder.calls()
+      #expect(calls.map(\.operation) == [.add, .copy])
+      for call in calls {
+        #expect(
+          call.query.stringValue(for: kSecAttrService)
+            == "com.recurs.cli.availability.v1"
+        )
+        #expect(call.query.stringValue(for: kSecAttrAccount) == "availability.v1")
+        #expect(
+          call.query.dataValue(for: kSecAttrGeneric)
+            == Data("availability.v1".utf8)
+        )
+        #expect(
+          call.query.stringValue(for: kSecAttrAccessGroup)
+            == "ABCDEFGHIJ.com.recurs.credentials"
+        )
+        #expect(call.query.boolValue(for: kSecUseDataProtectionKeychain) == true)
+      }
+      #expect(
+        calls[0].query.dataValue(for: kSecValueData)
+          == Data("available.v1".utf8)
+      )
+      #expect(calls[1].query.boolValue(for: kSecReturnData) == true)
+      #expect(calls[1].query.boolValue(for: kSecReturnAttributes) == true)
+    }
+
+    for recorder in [
+      KeychainQueryRecorder(addStatuses: [errSecInteractionNotAllowed]),
+      KeychainQueryRecorder(
+        addStatuses: [errSecDuplicateItem],
+        copyResults: [
+          KeychainCopyResult(status: errSecInteractionNotAllowed, items: [])
+        ]
+      ),
+    ] {
+      let probe = DataProtectionKeychainAvailabilityProbe(
+        client: recorder.client,
+        configuration: configuration
+      )
+      #expect(probe.status() == .locked)
+    }
+
+    for recorder in [
+      KeychainQueryRecorder(addStatuses: [errSecNotAvailable]),
+      KeychainQueryRecorder(addStatuses: [errSecMissingEntitlement]),
+      KeychainQueryRecorder(
+        addStatuses: [errSecDuplicateItem],
+        copyResults: [KeychainCopyResult(status: errSecAuthFailed, items: [])]
+      ),
+      KeychainQueryRecorder(
+        copyResults: [
+          KeychainCopyResult(
+            status: errSecSuccess,
+            items: [KeychainItem(account: "wrong", data: marker.data)]
+          )
+        ]
+      ),
+    ] {
+      let probe = DataProtectionKeychainAvailabilityProbe(
+        client: recorder.client,
+        configuration: configuration
+      )
+      #expect(probe.status() == .unavailable)
+    }
+  }
 }
 
 private func assertBaseQuery(

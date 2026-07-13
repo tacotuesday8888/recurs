@@ -36,6 +36,7 @@ struct FrameTests {
     #expect(SafeFailureCode.peerIdentityUnverified.rawValue == 6)
     #expect(SafeFailureCode.productionSigningRequired.rawValue == 7)
     #expect(SafeFailureCode.keychainUnavailable.rawValue == 8)
+    #expect(SafeFailureCode.unsupportedOperation.rawValue == 9)
 
     let descriptions: [(NativeProtocolError, String)] = [
       (.invalidFrame, "Invalid native authority frame."),
@@ -520,12 +521,13 @@ struct FrameTests {
       .peerIdentityUnverified,
       .productionSigningRequired,
       .keychainUnavailable,
+      .unsupportedOperation,
     ]
-    for code in UInt16(1)...8 {
+    for code in UInt16(1)...9 {
       let frame = try semanticFrame(type: .safeFailure, fields: [(1, uint16(code))])
       #expect(try SafeFailureCode.decode(frame) == failures[Int(code - 1)])
     }
-    for code in [UInt16(0), 9, UInt16.max] {
+    for code in [UInt16(0), 10, UInt16.max] {
       let frame = try semanticFrame(type: .safeFailure, fields: [(1, uint16(code))])
       expectProtocolError(.invalidMessage) { try SafeFailureCode.decode(frame) }
     }

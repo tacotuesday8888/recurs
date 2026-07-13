@@ -377,6 +377,7 @@ describe("bounded native frame decoder", () => {
       peerIdentityUnverified: 6,
       productionSigningRequired: 7,
       keychainUnavailable: 8,
+      unsupportedOperation: 9,
     });
     expect(Object.isFrozen(NativeMessageType)).toBe(true);
     expect(Object.isFrozen(NativeKeychainStatusCode)).toBe(true);
@@ -1134,6 +1135,7 @@ describe("strict semantic message codecs", () => {
       "peer_identity_unverified",
       "production_signing_required",
       "keychain_unavailable",
+      "unsupported_operation",
     ] as const;
 
     for (let code = 1; code <= expected.length; code += 1) {
@@ -1145,7 +1147,7 @@ describe("strict semantic message codecs", () => {
       expect(decodeSafeFailure(frame)).toBe(expected[code - 1]);
     }
 
-    for (const code of [0, 9, 0xffff]) {
+    for (const code of [0, 10, 0xffff]) {
       const frame = nativeFrame(
         NativeMessageType.safeFailure,
         1,

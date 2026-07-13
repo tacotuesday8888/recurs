@@ -118,7 +118,8 @@ export type NativeAuthorityUnavailableReason =
   | "protocol_mismatch"
   | "peer_identity_unverified"
   | "production_signing_required"
-  | "keychain_unavailable";
+  | "keychain_unavailable"
+  | "unsupported_operation";
 
 export interface NativeAuthorityAttestation {
   readonly protocolVersion: typeof NATIVE_AUTHORITY_PROTOCOL_VERSION;
@@ -277,7 +278,10 @@ cancel:       1 targetRequestId(u32)
 ```
 
 Map only fixed safe failure codes to `NativeAuthorityUnavailableReason`; never
-decode native prose.
+decode native prose. Codes 1–8 cover platform, version, launcher, broker,
+protocol, peer identity, production signing, and Keychain availability. Code 9
+is `unsupportedOperation`, used by the handshake-only broker to reject every
+request outside the deliberately narrow Task 8 surface.
 
 - [ ] **Step 6: Run tests and the repository TypeScript gate**
 
@@ -771,28 +775,42 @@ git commit -m "feat: enforce native endpoint and secret policy"
 
 **Files:**
 - Create: `native/macos/Sources/RecursNativeSecurity/PeerRequirement.swift`
-- Create: `native/macos/Sources/RecursBrokerService/BrokerXPCProtocol.swift`
+- Create: `native/macos/Sources/RecursNativeSecurity/KeychainAvailability.swift`
+- Create: `native/macos/Sources/RecursBrokerXPC/BrokerXPCProtocol.swift`
 - Create: `native/macos/Sources/RecursBrokerService/BrokerService.swift`
-- Create: `native/macos/Sources/RecursBrokerService/main.swift`
+- Create: `native/macos/Sources/RecursBrokerService/BrokerServiceListenerDelegate.swift`
+- Create: `native/macos/Sources/RecursNativeBrokerExecutable/main.swift`
 - Create: `native/macos/Sources/RecursLauncher/BrokerConnection.swift`
 - Create: `native/macos/Sources/RecursLauncher/ServiceRegistration.swift`
-- Create: `native/macos/Sources/RecursLauncher/main.swift`
+- Create: `native/macos/Sources/RecursNativeLauncherExecutable/main.swift`
 - Create: `native/macos/Resources/com.recurs.cli.broker.plist`
 - Create: `native/macos/Resources/RecursLauncher-Info.plist`
 - Create: `native/macos/Resources/RecursBroker-Info.plist`
 - Create: `native/macos/Resources/RecursBroker.entitlements`
 - Create: `native/macos/Resources/RecursLauncher.entitlements`
+- Create: `native/macos/Resources/README.md`
 - Create: `native/macos/Tests/RecursNativeSecurityTests/PeerRequirementTests.swift`
 - Create: `native/macos/Tests/RecursBrokerServiceTests/BrokerServiceTests.swift`
+- Create: `native/macos/Tests/RecursLauncherTests/LauncherTests.swift`
+- Create: `scripts/check-native-source-launcher.mjs`
 - Modify: `native/macos/Package.swift`
+- Modify: `native/macos/Sources/RecursNativeProtocol/Messages.swift`
+- Modify: `native/macos/Tests/RecursNativeProtocolTests/FrameTests.swift`
+- Modify: `package.json`
+- Modify: `packages/auth/src/messages.ts`
+- Modify: `packages/auth/test/frame.test.ts`
+- Modify: `packages/contracts/src/native-authority.ts`
+- Modify: `packages/contracts/test/native-authority-fixtures.ts`
 
 **Interfaces:**
 - Produces headless executables `recurs-native-launcher` and
   `recurs-native-broker`.
 - XPC exposes only framed handshake/health exchange in this plan.
+- Handshake requires exact component-version agreement; health probes the
+  broker-only Data Protection Keychain item on every request.
 - Source builds report production signing unavailable and cannot store a key.
 
-- [ ] **Step 1: Write failing peer-requirement and service tests**
+- [x] **Step 1: Write failing peer-requirement and service tests**
 
 Assert a valid requirement contains all of:
 
@@ -804,12 +822,13 @@ certificate leaf[field.1.2.840.113635.100.6.1.13]
 certificate leaf[subject.OU] = "ABCDE12345"
 ```
 
-Reject missing/invalid Team ID, alternate identifier, ad-hoc marker, and same
-team without identifier/Developer-ID signing-class clauses. Service tests reject sensitive
-work before a successful nonce-echoing handshake and return only fixed failure
-codes.
+Reject missing/invalid Team ID, alternate identifier, ad-hoc marker, missing
+Hardened Runtime, unsafe entitlements, and same-team requirements without
+identifier/Developer-ID signing-class clauses. Service tests reject stale
+component versions and sensitive work before a successful nonce-echoing
+handshake, return only fixed failure codes, and read live Keychain health.
 
-- [ ] **Step 2: Run the focused Swift tests and verify RED**
+- [x] **Step 2: Run the focused Swift tests and verify RED**
 
 Run:
 
@@ -820,45 +839,57 @@ swift test --package-path native/macos --filter BrokerServiceTests
 
 Expected: FAIL because service/security files are absent.
 
-- [ ] **Step 3: Implement bundle-owned peer requirements**
+- [x] **Step 3: Implement bundle-owned peer requirements**
 
 Read `RecursTeamIdentifier`, `RecursLauncherIdentifier`, and
-`RecursBrokerIdentifier` from signed bundle metadata, validate fixed ASCII
-identifier patterns, and build exact immutable requirements. Source SwiftPM
-executables without those signed resources return
-`productionSigningRequired`.
+`RecursBrokerIdentifier` from the current process's sealed signing metadata
+using `SecCodeCopySelf`; validate the explicit self role, all architectures,
+production marker, and fixed ASCII identifiers; then build exact immutable
+peer requirements. Source SwiftPM executables without those signed resources
+return `productionSigningRequired`.
 
-- [ ] **Step 4: Implement the XPC handshake-only service**
+- [x] **Step 4: Implement the XPC handshake-only service**
 
 Use an `@objc` protocol with one `exchange(_ frame: Data,
 reply: @escaping (Data) -> Void)` method. Set the exact code-signing requirement
 before resuming each connection. Accept only hello and health messages in this
 plan; all setup/run/maintenance message types return `unsupportedOperation`.
-Never include thrown error descriptions in replies.
+Require the engine, launcher, and broker versions to agree exactly. Probe a
+fixed non-secret broker-only Keychain marker on every health request. Never
+include thrown error descriptions in replies.
 
-- [ ] **Step 5: Implement LaunchAgent registration and launcher health mode**
+- [x] **Step 5: Implement LaunchAgent registration and launcher health mode**
 
 Use `SMAppService.agent(plistName: "com.recurs.cli.broker.plist")` and fail
-closed outside the signed bundle. The launcher's `native-health --machine`
-prints one stable, non-secret JSON status for release diagnostics. It does not
-accept a key, endpoint, arbitrary XPC name, or requirement override.
+closed outside the signed bundle. Routine health leaves an enabled service
+undisturbed; after a broker/version failure, one bounded retry unregisters and
+re-registers so updated executables and plists take effect. The launcher's
+`native-health --machine` prints one stable, non-secret JSON status for release
+diagnostics. It does not accept a key, endpoint, arbitrary XPC name, or
+requirement override.
 
-- [ ] **Step 6: Run native tests/build and inspect resource schemas**
+- [x] **Step 6: Run native tests/build and inspect resource schemas**
 
 Run:
 
 ```bash
 npm run check:native
-plutil -lint native/macos/Resources/*.plist
+swift build --package-path native/macos -c release -Xswiftc -warnings-as-errors
 ```
 
-Expected: all tests/build and plist validation pass. Running the source
-launcher health mode reports production signing required.
+Expected: all tests/build, strict resource validation, and exact process smoke
+checks pass. The source launcher reports only production signing required;
+invalid arguments and the unsigned broker fail with their fixed exit codes and
+no output.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
-git add native/macos
+git add docs/superpowers/plans/2026-07-13-native-provider-authority.md \
+  native/macos package.json scripts/check-native-source-launcher.mjs \
+  packages/auth/src/messages.ts packages/auth/test/frame.test.ts \
+  packages/contracts/src/native-authority.ts \
+  packages/contracts/test/native-authority-fixtures.ts
 git commit -m "feat: add signed native broker skeleton"
 ```
 

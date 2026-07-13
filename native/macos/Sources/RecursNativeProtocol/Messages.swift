@@ -15,6 +15,7 @@ public enum SafeFailureCode: UInt16, CaseIterable, Sendable {
   case peerIdentityUnverified = 6
   case productionSigningRequired = 7
   case keychainUnavailable = 8
+  case unsupportedOperation = 9
 }
 
 public struct HelloMessage: Equatable, Sendable {

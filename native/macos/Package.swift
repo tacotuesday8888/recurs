@@ -13,13 +13,55 @@ let package = Package(
       name: "RecursNativeProtocol",
       targets: ["RecursNativeProtocol"]
     ),
+    .executable(
+      name: "recurs-native-broker",
+      targets: ["RecursNativeBrokerExecutable"]
+    ),
+    .executable(
+      name: "recurs-native-launcher",
+      targets: ["RecursNativeLauncherExecutable"]
+    ),
   ],
   targets: [
     .target(name: "RecursBrokerCore"),
     .target(name: "RecursNativeProtocol"),
+    .target(name: "RecursBrokerXPC"),
     .target(
       name: "RecursNativeSecurity",
       dependencies: ["RecursBrokerCore"],
+      linkerSettings: [.linkedFramework("Security")]
+    ),
+    .target(
+      name: "RecursBrokerService",
+      dependencies: [
+        "RecursBrokerXPC",
+        "RecursNativeProtocol",
+        "RecursNativeSecurity",
+      ]
+    ),
+    .target(
+      name: "RecursLauncher",
+      dependencies: [
+        "RecursBrokerXPC",
+        "RecursNativeProtocol",
+        "RecursNativeSecurity",
+      ],
+      linkerSettings: [.linkedFramework("ServiceManagement")]
+    ),
+    .executableTarget(
+      name: "RecursNativeBrokerExecutable",
+      dependencies: [
+        "RecursBrokerService",
+        "RecursNativeProtocol",
+        "RecursNativeSecurity",
+      ]
+    ),
+    .executableTarget(
+      name: "RecursNativeLauncherExecutable",
+      dependencies: [
+        "RecursLauncher",
+        "RecursNativeProtocol",
+      ],
       linkerSettings: [.linkedFramework("Security")]
     ),
     .testTarget(
@@ -31,13 +73,30 @@ let package = Package(
       name: "RecursNativeProtocolTests",
       dependencies: ["RecursNativeProtocol"],
       path: "Tests",
-      exclude: ["RecursBrokerCoreTests", "RecursNativeSecurityTests"],
+      exclude: [
+        "RecursBrokerCoreTests",
+        "RecursBrokerServiceTests",
+        "RecursLauncherTests",
+        "RecursNativeSecurityTests",
+      ],
       sources: ["RecursNativeProtocolTests"],
       resources: [.copy("Fixtures/frames.json")]
     ),
     .testTarget(
       name: "RecursNativeSecurityTests",
       dependencies: ["RecursNativeSecurity", "RecursBrokerCore"]
+    ),
+    .testTarget(
+      name: "RecursBrokerServiceTests",
+      dependencies: ["RecursBrokerService", "RecursNativeProtocol"]
+    ),
+    .testTarget(
+      name: "RecursLauncherTests",
+      dependencies: [
+        "RecursLauncher",
+        "RecursNativeProtocol",
+        "RecursNativeSecurity",
+      ]
     ),
   ]
 )

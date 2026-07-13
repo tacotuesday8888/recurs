@@ -7,4 +7,5 @@ export const nativeAuthorityUnavailableReasons = [
   "peer_identity_unverified",
   "production_signing_required",
   "keychain_unavailable",
+  "unsupported_operation",
 ] as const;
