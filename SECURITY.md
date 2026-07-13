@@ -34,8 +34,12 @@ carries the same identity through bounded non-secret private stage metadata,
 while replies, TypeScript, and descriptor 3 remain free of that authority.
 The broker also owns dormant, opaque setup/run/maintenance route capabilities.
 It derives and rechecks exact authenticated binding plus candidate or usable-
-ready generation state, then enforces scope, cancellation, expiry, and checked
-budgets without loading Keychain or reaching a resolver or transport.
+ready generation state, reserves only that matching Keychain generation, and
+debits scope, cancellation, expiry, and checked budgets only after one final
+authoritative recheck. Pre-authorization failures clean up without a debit; a
+returned one-use reservation is conservatively charged exactly once. The route
+authority itself performs no resolver or network work; the dormant fixed-origin
+OpenAI catalog consumer described below is its only transport integration.
 Schema-v1 journals fail closed with no inferred or in-place migration because
 no credential-bearing artifact has shipped; development users reset the
 unpublished journal and reconnect.
@@ -44,15 +48,20 @@ This is not yet a shipped or provider-usable credential authority. No
 signed/notarized installed artifact or successful production broker smoke
 exists, and source/npm or ad-hoc builds cannot activate the authority. The
 launcher library has an internal foreground-TTY capture primitive and a private
-lifecycle XPC client, but the executable calls neither. Capture remains
-module-internal until a signal-owning coordinator proves terminal restoration
-across interrupt, termination, and suspension. Owned and transient secret
-buffers are erased on every tested outcome; no secret enters Node, descriptor
-3, arguments, environment, configuration, or logs.
-There is no provider verification, DNS/network feasibility proof, credential
-reservation from a route receipt, broker HTTP/TLS/proxy handling,
-request/stream codec, model-catalog transport, CLI onboarding, or enabled
-broker-owned provider.
+lifecycle XPC client, but the executable calls neither. One coordinator now
+owns launcher termination signals and capture-only suspension handling. Real
+controlling-PTY tests prove exact restoration and no input echo across
+interrupt, termination, hangup, and suspend/resume. Capture remains
+module-internal until provider onboarding is assembled. Owned and transient
+secret buffers are erased on every tested outcome; no secret enters Node,
+descriptor 3, arguments, environment, configuration, or logs.
+The broker has one dormant fixed-origin OpenAI model-catalog transport with
+broker-injected authentication, bounded strict parsing, header/body credential-
+echo filtering, redirect and alternate-auth rejection, no post-start retry,
+and macOS system proxy/root policy. The production service, XPC gateway, and
+executable do not invoke it. There is no provider-verified staging flow,
+generation request/stream codec, CLI onboarding, or enabled broker-owned
+provider.
 A directly injected descriptor and its peer's self-attestation cannot prove
 native provenance, so a claimed ready result is still downgraded to
 `peer_identity_unverified` without a JavaScript or environment bypass. There is
@@ -141,8 +150,8 @@ authority.
 Direct API, coding-plan, OAuth, and cloud-identity credential flows remain
 disabled until a complete provider vertical supplies reviewed request/stream
 codecs, TTY onboarding and a fenced connection lifecycle, provider
-verification, route-receipt credential reservation, DNS/network feasibility, policy/runtime
-binding, broker-owned HTTP/TLS/proxy and model-catalog transport, a compatible
+verification, exact route-bound credential reservation, policy/runtime
+binding, production wiring for the broker-owned catalog transport, a compatible
 signed artifact, and installed-artifact credential-canary tests. A manifest
 boolean cannot bypass that gate. The production broker release smoke must use
 an ephemeral macOS user and a dedicated production test Keychain access group;
