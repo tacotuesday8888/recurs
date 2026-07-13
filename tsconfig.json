@@ -24,6 +24,9 @@
     },
     {
       "path": "./packages/cli"
+    },
+    {
+      "path": "./packages/native-engine"
     }
   ],
   "compilerOptions": {

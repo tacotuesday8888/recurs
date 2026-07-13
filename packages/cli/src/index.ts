@@ -12,7 +12,7 @@ export * from "./assembly.js";
 export * from "./codex-connection.js";
 export * from "./local-connection.js";
 export * from "./provider-account.js";
-export * from "./main.js";
+export * from "./process-host.js";
 export * from "./render.js";
 export * from "./repl.js";
 export * from "./runtime.js";

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   NATIVE_COMPONENT_VERSION,
@@ -7,15 +7,6 @@ import {
 } from "@recurs/contracts";
 
 import * as app from "../src/index.js";
-
-const auth = vi.hoisted(() => ({
-  createNativeAuthorityClientFromInheritedFd: vi.fn(),
-}));
-
-vi.mock("@recurs/auth", () => ({
-  createNativeAuthorityClientFromInheritedFd:
-    auth.createNativeAuthorityClientFromInheritedFd,
-}));
 
 const unavailableReasons = [
   "unsupported_platform",
@@ -30,14 +21,13 @@ const unavailableReasons = [
 ] as const;
 
 describe("NativeAuthorityService", () => {
-  beforeEach(() => {
-    auth.createNativeAuthorityClientFromInheritedFd.mockReset();
-  });
-
-  it("is exposed through the bounded app surface", () => {
+  it("exports only the native status sanitizer/service boundary", () => {
     expect(app).toHaveProperty(
       "NativeAuthorityService",
       expect.any(Function),
+    );
+    expect(app).not.toHaveProperty(
+      "createNativeAuthorityServiceFromInheritedFd",
     );
   });
 
@@ -577,55 +567,6 @@ describe("NativeAuthorityService", () => {
     },
   );
 
-  it("assembles the inherited-FD client with the generated component version", async () => {
-    const client: NativeAuthorityStatusPort = {
-      async status() {
-        return {
-          state: "unavailable",
-          reason: "keychain_unavailable",
-        };
-      },
-    };
-    auth.createNativeAuthorityClientFromInheritedFd.mockResolvedValueOnce(
-      client,
-    );
-    const factory = Reflect.get(
-      app,
-      "createNativeAuthorityServiceFromInheritedFd",
-    ) as (() => Promise<NativeAuthorityStatusPort>) | undefined;
-
-    expect(factory).toBeTypeOf("function");
-    const service = await (factory as () => Promise<NativeAuthorityStatusPort>)();
-
-    expect(auth.createNativeAuthorityClientFromInheritedFd).toHaveBeenCalledWith({
-      engineVersion: NATIVE_COMPONENT_VERSION,
-    });
-    await expect(service.status()).resolves.toEqual({
-      state: "unavailable",
-      reason: "keychain_unavailable",
-    });
-  });
-
-  it("closes a factory-owned inherited client exactly once", async () => {
-    const close = vi.fn();
-    auth.createNativeAuthorityClientFromInheritedFd.mockResolvedValueOnce({
-      async status() {
-        return { state: "unavailable", reason: "broker_unavailable" };
-      },
-      close,
-    });
-    const service = await app.createNativeAuthorityServiceFromInheritedFd();
-    const closeService = Reflect.get(service, "close") as
-      | (() => void)
-      | undefined;
-
-    expect(closeService).toBeTypeOf("function");
-    closeService?.call(service);
-    closeService?.call(service);
-
-    expect(close).toHaveBeenCalledTimes(1);
-  });
-
   it("fails closed without delegating after the service is closed", async () => {
     let calls = 0;
     const service = new app.NativeAuthorityService({
@@ -787,82 +728,4 @@ describe("NativeAuthorityService", () => {
     expect(calls).toBe(0);
   });
 
-  it("passes cancellation into inherited-FD handshake assembly", async () => {
-    const controller = new AbortController();
-    const client: NativeAuthorityStatusPort = {
-      async status() {
-        return { state: "unavailable", reason: "broker_unavailable" };
-      },
-    };
-    auth.createNativeAuthorityClientFromInheritedFd.mockResolvedValueOnce(
-      client,
-    );
-
-    await app.createNativeAuthorityServiceFromInheritedFd(controller.signal);
-
-    expect(auth.createNativeAuthorityClientFromInheritedFd).toHaveBeenCalledWith({
-      engineVersion: NATIVE_COMPONENT_VERSION,
-      signal: controller.signal,
-    });
-  });
-
-  it("rejects pre-cancelled assembly before opening the inherited descriptor", async () => {
-    const controller = new AbortController();
-    controller.abort("SECRET_FACTORY_PRE_ABORT_CANARY");
-
-    const error = await app.createNativeAuthorityServiceFromInheritedFd(
-      controller.signal,
-    ).catch((caught: unknown) => caught);
-
-    expect(auth.createNativeAuthorityClientFromInheritedFd).not.toHaveBeenCalled();
-    expect(error).toBeInstanceOf(DOMException);
-    expect(error).toMatchObject({
-      name: "AbortError",
-      message: "The operation was aborted.",
-    });
-    expect(JSON.stringify(error)).not.toContain("SECRET_FACTORY_PRE_ABORT_CANARY");
-  });
-
-  it.each([
-    ["launcher_unavailable", "launcher_unavailable"],
-    ["unsupported_platform", "unsupported_platform"],
-    ["protocol_mismatch", "protocol_mismatch"],
-    ["SECRET_FACTORY_REASON_CANARY", "broker_unavailable"],
-  ] as const)(
-    "maps inherited-FD setup reason %s to safe status %s",
-    async (sourceReason, expectedReason) => {
-      auth.createNativeAuthorityClientFromInheritedFd.mockRejectedValueOnce(
-        Object.assign(new Error("SECRET_FACTORY_ERROR_CANARY"), {
-          reason: sourceReason,
-        }),
-      );
-
-      const service = await app.createNativeAuthorityServiceFromInheritedFd();
-      const result = await service.status();
-
-      expect(result).toEqual({
-        state: "unavailable",
-        reason: expectedReason,
-      });
-      expect(Object.isFrozen(result)).toBe(true);
-      expect(JSON.stringify(result)).not.toContain("SECRET_");
-    },
-  );
-
-  it("preserves inherited-FD assembly cancellation with a fixed AbortError", async () => {
-    auth.createNativeAuthorityClientFromInheritedFd.mockRejectedValueOnce(
-      new DOMException("SECRET_FACTORY_ABORT_CANARY", "AbortError"),
-    );
-
-    const error = await app.createNativeAuthorityServiceFromInheritedFd().catch(
-      (caught: unknown) => caught,
-    );
-
-    expect(error).toBeInstanceOf(DOMException);
-    expect(error).toMatchObject({
-      name: "AbortError",
-      message: "The operation was aborted.",
-    });
-    expect(JSON.stringify(error)).not.toContain("SECRET_FACTORY_ABORT_CANARY");
-  });
 });

@@ -1,4 +1,3 @@
-import { createNativeAuthorityClientFromInheritedFd } from "@recurs/auth";
 import {
   NATIVE_AUTHORITY_PROTOCOL_VERSION,
   NATIVE_COMPONENT_VERSION,
@@ -65,34 +64,6 @@ export class NativeAuthorityService implements NativeAuthorityStatusPort {
     } catch {
       // Closing is terminal and never exposes implementation details.
     }
-  }
-}
-
-export async function createNativeAuthorityServiceFromInheritedFd(
-  signal?: AbortSignal,
-): Promise<
-  NativeAuthorityService
-> {
-  if (isCancelled(signal)) throw cancellation();
-  try {
-    const client = await createNativeAuthorityClientFromInheritedFd({
-      engineVersion: NATIVE_COMPONENT_VERSION,
-      ...(signal === undefined ? {} : { signal }),
-    });
-    if (isCancelled(signal)) {
-      client.close();
-      throw cancellation();
-    }
-    return new NativeAuthorityService(client, () => client.close());
-  } catch (error) {
-    if (isAbortError(error)) throw cancellation();
-    const reason = safeAssemblyFailureReason(error);
-    const status = Object.freeze({ state: "unavailable", reason } as const);
-    return new NativeAuthorityService({
-      async status() {
-        return status;
-      },
-    });
   }
 }
 
@@ -186,17 +157,5 @@ function isAbortError(error: unknown): boolean {
     return error instanceof DOMException && error.name === "AbortError";
   } catch {
     return false;
-  }
-}
-
-function safeAssemblyFailureReason(
-  error: unknown,
-): NativeAuthorityUnavailableReason {
-  try {
-    if (!isRecord(error)) return "broker_unavailable";
-    const reason = ownData(error, "reason");
-    return isUnavailableReason(reason) ? reason : "broker_unavailable";
-  } catch {
-    return "broker_unavailable";
   }
 }

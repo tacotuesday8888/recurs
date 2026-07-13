@@ -19,10 +19,6 @@ import {
   encodeHealth,
   encodeHello,
 } from "./messages.js";
-import {
-  discardInheritedNativeAuthorityDescriptorEnvironment,
-  takeInheritedNativeAuthoritySocket,
-} from "./socket.js";
 
 const NATIVE_NONCE_BYTE_LENGTH = 32;
 const MAX_NATIVE_IN_FLIGHT_REQUESTS = 64;
@@ -440,43 +436,6 @@ export function connectNativeAuthorityClient(
   options: NativeAuthorityClientConnectOptions,
 ): Promise<NativeAuthorityClient> {
   return BoundedNativeAuthorityClient.connect(duplex, options);
-}
-
-function restrictUnverifiedInheritedClient(
-  client: NativeAuthorityClient,
-): NativeAuthorityClient {
-  return Object.freeze({
-    async status(signal?: AbortSignal): Promise<NativeAuthorityStatus> {
-      try {
-        const status = await client.status(signal);
-        return status.state === "ready"
-          ? unavailable("peer_identity_unverified")
-          : status;
-      } finally {
-        client.close();
-      }
-    },
-    close(): void {
-      client.close();
-    },
-  });
-}
-
-export async function createNativeAuthorityClientFromInheritedFd(
-  options: NativeAuthorityClientOptions,
-): Promise<NativeAuthorityClient> {
-  if (process.platform !== "darwin") {
-    discardInheritedNativeAuthorityDescriptorEnvironment(process.env);
-    throw new NativeAuthorityClientUnavailableError("unsupported_platform");
-  }
-  let duplex: Duplex;
-  try {
-    duplex = takeInheritedNativeAuthoritySocket(process.env);
-  } catch {
-    throw new NativeAuthorityClientUnavailableError("launcher_unavailable");
-  }
-  const client = await connectNativeAuthorityClient(duplex, options);
-  return restrictUnverifiedInheritedClient(client);
 }
 
 function requireTimeout(value: number): number {

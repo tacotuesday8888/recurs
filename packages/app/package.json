@@ -15,7 +15,6 @@
     "dist"
   ],
   "dependencies": {
-    "@recurs/auth": "0.0.0",
     "@recurs/contracts": "0.0.0",
     "@recurs/providers": "0.0.0"
   }

@@ -243,7 +243,7 @@ describe("OnboardingCatalog", () => {
 });
 
 describe("application package boundary", () => {
-  it("depends only on auth/contracts/providers while CLI depends on app", async () => {
+  it("is transport-agnostic while CLI depends on app", async () => {
     const app = JSON.parse(
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
     ) as { dependencies?: Record<string, string> };
@@ -252,10 +252,10 @@ describe("application package boundary", () => {
     ) as { dependencies?: Record<string, string> };
 
     expect(app.dependencies).toEqual({
-      "@recurs/auth": "0.0.0",
       "@recurs/contracts": "0.0.0",
       "@recurs/providers": "0.0.0",
     });
+    expect(app.dependencies).not.toHaveProperty("@recurs/auth");
     expect(app.dependencies).not.toHaveProperty("@recurs/cli");
     expect(cli.dependencies).toHaveProperty("@recurs/app", "0.0.0");
   });

@@ -1,4 +1,5 @@
-import { PassThrough, Readable, Writable } from "node:stream";
+import { spawn } from "node:child_process";
+import { Readable, Writable } from "node:stream";
 
 import {
   NATIVE_COMPONENT_VERSION,
@@ -8,7 +9,6 @@ import {
 } from "@recurs/contracts";
 import {
   ConnectionLifecycleError,
-  NativeAuthorityService,
 } from "@recurs/app";
 import type { EventSink } from "@recurs/core";
 import {
@@ -22,22 +22,25 @@ import { ProviderError, ScriptedProvider } from "@recurs/providers";
 import {
   ToolRegistry,
 } from "@recurs/tools";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { afterEach, describe, expect, it } from "vitest";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   RecursRuntime,
   LocalConnectionError,
   RuntimeError,
   createCommandRegistry,
-  createOneShotNativeAuthorityStatusPort,
   createStandaloneRuntime,
-  isAutomationEnvironment,
-  runCli,
   type CliDependencies,
 } from "../src/index.js";
+import {
+  isAutomationEnvironment,
+  runCli,
+  runCliProcess,
+} from "../src/process-host.js";
 import { testAt, testBackendPin } from "../../../tests/support/backend.js";
 
 class TextOutput extends Writable {
@@ -54,6 +57,99 @@ class TextOutput extends Writable {
 }
 
 const directories: string[] = [];
+const workspaceRoot = fileURLToPath(new URL("../../..", import.meta.url));
+
+async function readStream(stream: Readable, closeOnData = false): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  return new Promise((resolve, reject) => {
+    stream.on("data", (chunk: Buffer | string) => {
+      chunks.push(Buffer.from(chunk));
+      if (closeOnData) stream.destroy();
+    });
+    stream.once("error", reject);
+    stream.once("close", () => resolve(Buffer.concat(chunks)));
+    stream.once("end", () => resolve(Buffer.concat(chunks)));
+  });
+}
+
+async function runPublicCli(platform: "darwin" | "linux"): Promise<{
+  readonly code: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly nativeBytes: Buffer;
+}> {
+  const source = `
+    import { createServer } from "vite";
+    Object.defineProperty(process, "platform", {
+      configurable: true,
+      enumerable: true,
+      value: ${JSON.stringify(platform)},
+    });
+    const server = await createServer({
+      root: ${JSON.stringify(workspaceRoot)},
+      appType: "custom",
+      logLevel: "silent",
+      server: { middlewareMode: true },
+      plugins: [{
+        name: "assert-native-marker-deleted",
+        load(id) {
+          if (
+            id.endsWith("/packages/cli/src/process-host.ts") &&
+            Object.prototype.hasOwnProperty.call(process.env, "RECURS_NATIVE_FD")
+          ) {
+            throw new Error("native descriptor marker reached process host");
+          }
+          return null;
+        },
+      }],
+    });
+    try {
+      await server.ssrLoadModule("/packages/cli/src/main.ts");
+    } finally {
+      await server.close();
+    }
+  `;
+  const child = spawn(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      source,
+      "recurs",
+      "doctor",
+      "native",
+      "--json",
+    ],
+    {
+      cwd: workspaceRoot,
+      env: { ...process.env, RECURS_NATIVE_FD: "3" },
+      stdio: ["ignore", "pipe", "pipe", "pipe"],
+    },
+  );
+  const stdout = child.stdout;
+  const stderr = child.stderr;
+  const nativePipe = child.stdio[3];
+  if (stdout === null || stderr === null || !(nativePipe instanceof Readable)) {
+    child.kill();
+    throw new Error("public CLI child did not expose expected pipes");
+  }
+  const closed = new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", resolve);
+  });
+  const [code, stdoutBytes, stderrBytes, nativeBytes] = await Promise.all([
+    closed,
+    readStream(stdout),
+    readStream(stderr),
+    readStream(nativePipe, true),
+  ]);
+  return {
+    code,
+    stdout: stdoutBytes.toString("utf8"),
+    stderr: stderrBytes.toString("utf8"),
+    nativeBytes,
+  };
+}
 
 afterEach(async () => {
   await Promise.all(
@@ -110,6 +206,45 @@ async function createRuntime(sink: EventSink): Promise<RecursRuntime> {
 function dependencies(stdout: TextOutput, stderr: TextOutput): CliDependencies {
   return { stdout, stderr, createRuntime };
 }
+
+describe("public CLI process boundary", () => {
+  it("exports process assembly without re-exporting or evaluating the bin", async () => {
+    const [indexSource, binSource] = await Promise.all([
+      readFile(new URL("../src/index.ts", import.meta.url), "utf8"),
+      readFile(new URL("../src/main.ts", import.meta.url), "utf8"),
+    ]);
+
+    expect(runCliProcess).toBeTypeOf("function");
+    expect(indexSource).toContain('export * from "./process-host.js";');
+    expect(indexSource).not.toContain('export * from "./main.js";');
+    expect(binSource).not.toMatch(/from\s+["'](?:@recurs|node:net)/u);
+    expect(binSource).not.toContain("inherited-socket");
+    expect(binSource.indexOf("delete process.env.RECURS_NATIVE_FD"))
+      .toBeLessThan(binSource.indexOf('await import("./process-host.js")'));
+  });
+
+  it.each([
+    ["darwin", "launcher_unavailable"],
+    ["linux", "unsupported_platform"],
+  ] as const)(
+    "deletes the inherited marker before async imports on %s",
+    async (platform, expectedReason) => {
+      const result = await runPublicCli(platform);
+
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toEqual({
+        version: 1,
+        nativeAuthority: {
+          state: "unavailable",
+          reason: expectedReason,
+        },
+      });
+      expect(result.nativeBytes).toHaveLength(0);
+    },
+    15_000,
+  );
+});
 
 describe("runCli", () => {
   it("classifies common CI markers while honoring explicit false values", () => {
@@ -914,78 +1049,6 @@ describe("runCli", () => {
     expect(receivedSignal).toBe(controller.signal);
     expect(stdout.value).toBe("");
     expect(stderr.value).toBe("Error: Native authority check was cancelled\n");
-  });
-
-  it("closes the one-shot native authority after a successful status", async () => {
-    const socket = new PassThrough();
-    const service = new NativeAuthorityService(
-      {
-        async status() {
-          return { state: "unavailable", reason: "keychain_unavailable" };
-        },
-      },
-      () => socket.destroy(),
-    );
-    const port = createOneShotNativeAuthorityStatusPort(
-      async () => service,
-    );
-    await expect(port.status()).resolves.toEqual({
-      state: "unavailable",
-      reason: "keychain_unavailable",
-    });
-    expect(socket.destroyed).toBe(true);
-  });
-
-  it("closes the one-shot native authority when health is cancelled", async () => {
-    const controller = new AbortController();
-    const socket = new PassThrough();
-    const removeListener = vi.spyOn(
-      controller.signal,
-      "removeEventListener",
-    );
-    let abortListener: (() => void) | undefined;
-    let markStarted: (() => void) | undefined;
-    const started = new Promise<void>((resolve) => {
-      markStarted = resolve;
-    });
-    const service = new NativeAuthorityService(
-      {
-        status(signal) {
-          return new Promise((_resolve, reject) => {
-            abortListener = () => {
-              reject(new DOMException(
-                "SECRET_HEALTH_ABORT_CANARY",
-                "AbortError",
-              ));
-            };
-            signal?.addEventListener("abort", abortListener);
-            markStarted?.();
-          });
-        },
-      },
-      () => {
-        if (abortListener !== undefined) {
-          controller.signal.removeEventListener("abort", abortListener);
-        }
-        socket.destroy();
-      },
-    );
-    const port = createOneShotNativeAuthorityStatusPort(
-      async () => service,
-    );
-
-    const pending = port.status(controller.signal);
-    await started;
-    controller.abort("SECRET_CONTROLLER_ABORT_CANARY");
-    const error = await pending.catch((caught: unknown) => caught);
-
-    expect(error).toMatchObject({
-      name: "AbortError",
-      message: "The operation was aborted.",
-    });
-    expect(JSON.stringify(error)).not.toContain("SECRET_");
-    expect(socket.destroyed).toBe(true);
-    expect(removeListener).toHaveBeenCalledWith("abort", abortListener);
   });
 
   it("opens the interactive CLI and routes local quit without a prompt run", async () => {

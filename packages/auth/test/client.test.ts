@@ -8,15 +8,9 @@ import * as publicAuth from "../src/index.js";
 import {
   NativeAuthorityClientUnavailableError,
   connectNativeAuthorityClient,
-  createNativeAuthorityClientFromInheritedFd,
   type NativeAuthorityClientConnectOptions,
 } from "../src/client.js";
 import { FakeNativeAuthorityStatusPort } from "../src/fake.js";
-import {
-  NativeAuthorityInheritedSocketError,
-  takeInheritedNativeAuthoritySocket,
-  type NativeAuthorityInheritedSocketDependencies,
-} from "../src/socket.js";
 import {
   NATIVE_FRAME_HEADER_BYTES,
   NATIVE_FRAME_MAGIC,
@@ -157,12 +151,14 @@ const connectOptions: NativeAuthorityClientConnectOptions = {
 };
 
 describe("native authority client", () => {
-  it("exports only the bounded client factory and fake status implementation", () => {
+  it("exports the injected-duplex connector without inherited-descriptor factories", () => {
     expect(publicAuth).toMatchObject({
-      createNativeAuthorityClientFromInheritedFd: expect.any(Function),
+      connectNativeAuthorityClient: expect.any(Function),
       FakeNativeAuthorityStatusPort: expect.any(Function),
     });
-    expect(publicAuth).not.toHaveProperty("connectNativeAuthorityClient");
+    expect(publicAuth).not.toHaveProperty(
+      "createNativeAuthorityClientFromInheritedFd",
+    );
     expect(publicAuth).not.toHaveProperty("takeInheritedNativeAuthoritySocket");
   });
 
@@ -214,7 +210,10 @@ describe("native authority client", () => {
     const child = spawn(
       process.execPath,
       [
-        fileURLToPath(new URL("./fixtures/fake-native-peer.mjs", import.meta.url)),
+        fileURLToPath(new URL(
+          "../../native-engine/test/fixtures/fake-native-peer.mjs",
+          import.meta.url,
+        )),
         "--component-version",
         connectOptions.engineVersion,
       ],
@@ -746,232 +745,6 @@ describe("native authority client", () => {
     expect(socket.destroyed).toBe(true);
   });
 
-  it("maps an unusable production inherited descriptor without retaining the environment entry", async () => {
-    const previous = process.env.RECURS_NATIVE_FD;
-    process.env.RECURS_NATIVE_FD = "SECRET_FACTORY_FD_CANARY";
-    try {
-      const error = await createNativeAuthorityClientFromInheritedFd({
-        engineVersion: "0.1.0",
-      }).catch((caught: unknown) => caught);
-
-      expect(error).toMatchObject({
-        name: "NativeAuthorityClientUnavailableError",
-        message: "Native authority is unavailable.",
-        reason: process.platform === "darwin"
-          ? "launcher_unavailable"
-          : "unsupported_platform",
-      });
-      expect(process.env).not.toHaveProperty("RECURS_NATIVE_FD");
-      expect(JSON.stringify(error)).not.toContain("SECRET_FACTORY_FD_CANARY");
-    } finally {
-      if (previous === undefined) {
-        delete process.env.RECURS_NATIVE_FD;
-      } else {
-        process.env.RECURS_NATIVE_FD = previous;
-      }
-    }
-  });
-
-  it("rejects an inherited descriptor before use on a non-Darwin platform", async () => {
-    const platformDescriptor = Object.getOwnPropertyDescriptor(
-      process,
-      "platform",
-    );
-    const previousFd = process.env.RECURS_NATIVE_FD;
-    process.env.RECURS_NATIVE_FD = "37";
-    Object.defineProperty(process, "platform", {
-      configurable: true,
-      enumerable: true,
-      value: "linux",
-    });
-    try {
-      await expect(createNativeAuthorityClientFromInheritedFd({
-        engineVersion: "0.1.0",
-      })).rejects.toMatchObject({
-        name: "NativeAuthorityClientUnavailableError",
-        reason: "unsupported_platform",
-        message: "Native authority is unavailable.",
-      });
-      expect(process.env).not.toHaveProperty("RECURS_NATIVE_FD");
-    } finally {
-      if (platformDescriptor !== undefined) {
-        Object.defineProperty(process, "platform", platformDescriptor);
-      }
-      if (previousFd === undefined) {
-        delete process.env.RECURS_NATIVE_FD;
-      } else {
-        process.env.RECURS_NATIVE_FD = previousFd;
-      }
-    }
-  });
-});
-
-describe("inherited native authority descriptor", () => {
-  function dependencies(overrides: Partial<NativeAuthorityInheritedSocketDependencies> = {}): {
-    readonly calls: number[];
-    readonly closed: number[];
-    readonly socket: ScriptedDuplex;
-    readonly value: NativeAuthorityInheritedSocketDependencies;
-  } {
-    const calls: number[] = [];
-    const closed: number[] = [];
-    const socket = new ScriptedDuplex(() => {});
-    return {
-      calls,
-      closed,
-      socket,
-      value: {
-        fstat: (descriptor) => {
-          calls.push(descriptor);
-          return { isSocket: () => true };
-        },
-        createSocket: (descriptor) => {
-          calls.push(descriptor);
-          return socket;
-        },
-        closeDescriptor: (descriptor) => {
-          closed.push(descriptor);
-        },
-        ...overrides,
-      },
-    };
-  }
-
-  it("deletes, validates, and transfers one canonical inherited descriptor", () => {
-    const environment = { RECURS_NATIVE_FD: "37" };
-    const fixture = dependencies({
-      fstat: (descriptor) => {
-        expect(environment).not.toHaveProperty("RECURS_NATIVE_FD");
-        fixture.calls.push(descriptor);
-        return { isSocket: () => true };
-      },
-    });
-
-    expect(
-      takeInheritedNativeAuthoritySocket(environment, fixture.value),
-    ).toBe(fixture.socket);
-    expect(fixture.calls).toEqual([37, 37]);
-    expect(fixture.closed).toEqual([]);
-  });
-
-  it.each([
-    undefined,
-    "",
-    " 3",
-    "3 ",
-    "+3",
-    "03",
-    "3.0",
-    "2",
-    "2147483648",
-    "SECRET_DESCRIPTOR_CANARY",
-  ])("rejects noncanonical inherited descriptor %j with a fixed error", (input) => {
-    const environment: Record<string, string | undefined> = {
-      RECURS_NATIVE_FD: input,
-    };
-    const fixture = dependencies();
-
-    expect(() =>
-      takeInheritedNativeAuthoritySocket(environment, fixture.value),
-    ).toThrowError(NativeAuthorityInheritedSocketError);
-    try {
-      takeInheritedNativeAuthoritySocket(
-        { RECURS_NATIVE_FD: input },
-        fixture.value,
-      );
-    } catch (error) {
-      expect(error).toMatchObject({
-        name: "NativeAuthorityInheritedSocketError",
-        message: "Native authority launcher is unavailable.",
-      });
-      if (input !== undefined && input.length > 0) {
-        expect(JSON.stringify(error)).not.toContain(input);
-      }
-    }
-    expect(environment).not.toHaveProperty("RECURS_NATIVE_FD");
-    expect(fixture.calls).toEqual([]);
-  });
-
-  it("closes a claimed descriptor when fstat says it is not a socket", () => {
-    const fixture = dependencies({
-      fstat: () => ({ isSocket: () => false }),
-    });
-
-    expect(() =>
-      takeInheritedNativeAuthoritySocket(
-        { RECURS_NATIVE_FD: "9" },
-        fixture.value,
-      ),
-    ).toThrowError(NativeAuthorityInheritedSocketError);
-    expect(fixture.closed).toEqual([9]);
-  });
-
-  it("closes a claimed descriptor when wrapping it fails", () => {
-    const fixture = dependencies({
-      createSocket: () => {
-        throw new Error("SECRET_WRAP_CANARY");
-      },
-    });
-
-    expect(() =>
-      takeInheritedNativeAuthoritySocket(
-        { RECURS_NATIVE_FD: "9" },
-        fixture.value,
-      ),
-    ).toThrowError("Native authority launcher is unavailable.");
-    expect(fixture.closed).toEqual([9]);
-  });
-
-  it("maps hostile environment access to the fixed inherited-socket error", () => {
-    const environment = new Proxy<Record<string, string | undefined>>({}, {
-      get() {
-        throw new Error("SECRET_ENVIRONMENT_CANARY");
-      },
-    });
-    const fixture = dependencies();
-
-    let error: unknown;
-    try {
-      takeInheritedNativeAuthoritySocket(environment, fixture.value);
-    } catch (caught) {
-      error = caught;
-    }
-
-    expect(error).toMatchObject({
-      name: "NativeAuthorityInheritedSocketError",
-      message: "Native authority launcher is unavailable.",
-    });
-    expect(JSON.stringify(error)).not.toContain("SECRET_ENVIRONMENT_CANARY");
-    expect(fixture.calls).toEqual([]);
-  });
-
-  it("maps hostile descriptor coercion to the fixed inherited-socket error", () => {
-    const environment = {
-      RECURS_NATIVE_FD: {
-        [Symbol.toPrimitive]() {
-          throw new Error("SECRET_DESCRIPTOR_COERCION_CANARY");
-        },
-      },
-    } as unknown as Record<string, string | undefined>;
-    const fixture = dependencies();
-
-    let error: unknown;
-    try {
-      takeInheritedNativeAuthoritySocket(environment, fixture.value);
-    } catch (caught) {
-      error = caught;
-    }
-
-    expect(error).toMatchObject({
-      name: "NativeAuthorityInheritedSocketError",
-      message: "Native authority launcher is unavailable.",
-    });
-    expect(JSON.stringify(error)).not.toContain(
-      "SECRET_DESCRIPTOR_COERCION_CANARY",
-    );
-    expect(environment).not.toHaveProperty("RECURS_NATIVE_FD");
-    expect(fixture.calls).toEqual([]);
-  });
 });
 
 describe("fake native authority status port", () => {

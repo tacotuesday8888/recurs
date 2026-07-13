@@ -13,10 +13,14 @@ const root = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const cli = path.join(root, "packages/cli/dist/main.js");
+const publicCli = path.join(root, "packages/cli/dist/main.js");
+const privateEngine = path.join(
+  root,
+  "packages/native-engine/dist/main.js",
+);
 const fakePeer = path.join(
   root,
-  "packages/auth/test/fixtures/fake-native-peer.mjs",
+  "packages/native-engine/test/fixtures/fake-native-peer.mjs",
 );
 const maximumOutputBytes = 64 * 1024;
 const timeoutMilliseconds = 5_000;
@@ -28,7 +32,7 @@ try {
   delete environment.RECURS_NATIVE_FD;
 
   const source = await runChild(
-    [cli, "doctor", "native", "--json"],
+    [publicCli, "doctor", "native", "--json"],
     { environment },
   );
   assertUnavailable(
@@ -39,12 +43,27 @@ try {
   );
 
   if (process.platform === "darwin") {
+    const publicInjected = await runChild(
+      [publicCli, "doctor", "native", "--json"],
+      {
+        environment: {
+          ...environment,
+          RECURS_NATIVE_FD: "3",
+        },
+        captureDescriptor: true,
+      },
+    );
+    assertUnavailable(publicInjected, "launcher_unavailable");
+    if (publicInjected.descriptorBytes !== 0) {
+      throw new Error("Public CLI wrote to the injected native descriptor.");
+    }
+
     const peerArguments = ["--component-version", NATIVE_COMPONENT_VERSION];
     const { peer, channel } = startFakePeer(peerArguments);
 
     try {
       const injected = await runChild(
-        [cli, "doctor", "native", "--json"],
+        [privateEngine, "doctor", "native", "--json"],
         {
           environment: {
             ...environment,
@@ -69,7 +88,7 @@ try {
     });
     try {
       const interrupted = await runChild(
-        [cli, "doctor", "native", "--json"],
+        [privateEngine, "doctor", "native", "--json"],
         {
           environment: {
             ...environment,
@@ -95,20 +114,21 @@ process.stdout.write("native doctor smoke passed\n");
 
 function runChild(
   args,
-  { environment, descriptor, onSpawn },
+  { environment, descriptor, captureDescriptor = false, onSpawn },
 ) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, {
       cwd: root,
       env: environment,
-      stdio: descriptor === undefined
+      stdio: descriptor === undefined && !captureDescriptor
         ? ["ignore", "pipe", "pipe"]
-        : ["ignore", "pipe", "pipe", descriptor],
+        : ["ignore", "pipe", "pipe", descriptor ?? "pipe"],
     });
     if (descriptor !== undefined) descriptor.destroy();
 
     let stdout = "";
     let stderr = "";
+    let descriptorBytes = 0;
     let settled = false;
     let failure;
     let timer;
@@ -118,8 +138,9 @@ function runChild(
       if (timer !== undefined) clearTimeout(timer);
       child.stdout.off("data", onStdout);
       child.stderr.off("data", onStderr);
+      child.stdio[3]?.off("data", onDescriptorData);
       child.off("error", onError);
-      if (failure === undefined) resolve(result);
+      if (failure === undefined) resolve({ ...result, descriptorBytes });
       else reject(failure);
     };
     const append = (current, chunk) => {
@@ -136,6 +157,14 @@ function runChild(
     function onStderr(chunk) {
       stderr = append(stderr, chunk);
     }
+    function onDescriptorData(chunk) {
+      descriptorBytes += chunk.length;
+      if (descriptorBytes > maximumOutputBytes) {
+        terminate(new Error(
+          "Native doctor smoke exceeded its descriptor output bound.",
+        ));
+      }
+    }
     function onError() {
       terminate(new Error("Native doctor smoke could not start the CLI."));
     }
@@ -145,6 +174,7 @@ function runChild(
       if (timer !== undefined) clearTimeout(timer);
       child.stdout.off("data", onStdout);
       child.stderr.off("data", onStderr);
+      child.stdio[3]?.off("data", onDescriptorData);
       child.stdout.destroy();
       child.stderr.destroy();
       try {
@@ -161,6 +191,7 @@ function runChild(
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", onStdout);
     child.stderr.on("data", onStderr);
+    child.stdio[3]?.on("data", onDescriptorData);
     child.once("error", onError);
     child.once("close", (code, signal) => {
       finish({ code, signal, stdout, stderr });
