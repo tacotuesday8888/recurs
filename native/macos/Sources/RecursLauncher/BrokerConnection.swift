@@ -47,6 +47,10 @@ package protocol BrokerXPCConnectionHandling: AnyObject, Sendable {
     _ request: Data,
     reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
   )
+  func reconcileOpenAIActivation(
+    _ request: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  )
   func invalidate()
 }
 
@@ -80,6 +84,13 @@ extension BrokerXPCConnectionHandling {
   ) {
     reply(.failure(.brokerUnavailable))
   }
+
+  func reconcileOpenAIActivation(
+    _: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  ) {
+    reply(.failure(.brokerUnavailable))
+  }
 }
 
 package protocol BrokerXPCConnectionFactory: Sendable {
@@ -95,6 +106,7 @@ package actor BrokerConnection {
     case stagingCredential
     case controllingCredential
     case beginningOpenAIOnboarding
+    case reconcilingOpenAIActivation
     case openAIOnboardingReady
     case controllingOpenAIOnboarding
     case openAIOnboardingTerminal
@@ -413,6 +425,45 @@ package actor BrokerConnection {
     }
   }
 
+  package func reconcileOpenAIActivation(
+    connectionID: UUID
+  ) async throws(BrokerOpenAIOnboardingClientError) -> BrokerOpenAIActivationReconciliationStatus {
+    let requestID = try beginOpenAIReconciliationOperation()
+
+    do {
+      let request: Data
+      do {
+        request = try BrokerOpenAIActivationReconciliationRequest.reconcile(
+          requestID: requestID,
+          connectionID: connectionID
+        ).encode()
+      } catch {
+        throw BrokerOpenAIOnboardingClientError.invalidRequest
+      }
+      let response = try await onboardingExchange { [connection] reply in
+        connection.reconcileOpenAIActivation(request, reply: reply)
+      }
+      guard phase == .reconcilingOpenAIActivation else {
+        throw BrokerOpenAIOnboardingClientError.closed
+      }
+      guard !Task.isCancelled else {
+        throw BrokerOpenAIOnboardingClientError.cancelled
+      }
+      let status = try Self.decodeOpenAIReconciliationReply(
+        response,
+        requestID: requestID
+      )
+      phase = .ready
+      return status
+    } catch let failure as BrokerOpenAIOnboardingClientError {
+      failClosed()
+      throw failure
+    } catch {
+      failClosed()
+      throw .brokerUnavailable
+    }
+  }
+
   package func controlOpenAIOnboarding(
     _ operation: BrokerOpenAIOnboardingControl
   ) async throws(BrokerOpenAIOnboardingClientError) -> BrokerOpenAIOnboardingControlResult {
@@ -474,7 +525,8 @@ package actor BrokerConnection {
     case .closed:
       throw .closed
     case .checkingHealth, .stagingCredential, .controllingCredential,
-      .beginningOpenAIOnboarding, .openAIOnboardingReady,
+      .beginningOpenAIOnboarding, .reconcilingOpenAIActivation,
+      .openAIOnboardingReady,
       .controllingOpenAIOnboarding:
       throw .busy
     case .openAIOnboardingTerminal:
@@ -501,7 +553,8 @@ package actor BrokerConnection {
     case .closed:
       throw .closed
     case .checkingHealth, .stagingCredential, .controllingCredential,
-      .beginningOpenAIOnboarding, .controllingOpenAIOnboarding:
+      .beginningOpenAIOnboarding, .reconcilingOpenAIActivation,
+      .controllingOpenAIOnboarding:
       throw .busy
     case .openAIOnboardingReady, .openAIOnboardingTerminal:
       throw .operationUnavailable
@@ -528,7 +581,8 @@ package actor BrokerConnection {
     case .closed:
       throw .closed
     case .checkingHealth, .stagingCredential, .controllingCredential,
-      .beginningOpenAIOnboarding, .controllingOpenAIOnboarding:
+      .beginningOpenAIOnboarding, .reconcilingOpenAIActivation,
+      .controllingOpenAIOnboarding:
       throw .busy
     case .openAIOnboardingTerminal:
       throw .operationUnavailable
@@ -540,6 +594,34 @@ package actor BrokerConnection {
     nextOnboardingRequestID =
       requestID == brokerOpenAIOnboardingMalformedRequestID - 1 ? nil : requestID + 1
     phase = .controllingOpenAIOnboarding
+    return requestID
+  }
+
+  private func beginOpenAIReconciliationOperation()
+    throws(BrokerOpenAIOnboardingClientError) -> UInt64
+  {
+    switch phase {
+    case .ready:
+      break
+    case .open, .handshaking:
+      failClosed()
+      throw .sessionNotReady
+    case .closed:
+      throw .closed
+    case .checkingHealth, .stagingCredential, .controllingCredential,
+      .beginningOpenAIOnboarding, .reconcilingOpenAIActivation,
+      .controllingOpenAIOnboarding:
+      throw .busy
+    case .openAIOnboardingReady, .openAIOnboardingTerminal:
+      throw .operationUnavailable
+    }
+    guard let requestID = nextOnboardingRequestID else {
+      failClosed()
+      throw .protocolMismatch
+    }
+    nextOnboardingRequestID =
+      requestID == brokerOpenAIOnboardingMalformedRequestID - 1 ? nil : requestID + 1
+    phase = .reconcilingOpenAIActivation
     return requestID
   }
 
@@ -702,6 +784,25 @@ package actor BrokerConnection {
     }
   }
 
+  private static func decodeOpenAIReconciliationReply(
+    _ data: Data,
+    requestID: UInt64
+  ) throws(BrokerOpenAIOnboardingClientError) -> BrokerOpenAIActivationReconciliationStatus {
+    let reply: BrokerOpenAIActivationReconciliationReply
+    do {
+      reply = try BrokerOpenAIActivationReconciliationReply.decode(data)
+    } catch {
+      throw .protocolMismatch
+    }
+    guard reply.requestID == requestID else { throw .protocolMismatch }
+    switch reply {
+    case .status(_, let status):
+      return status
+    case .failure(_, let code):
+      throw BrokerOpenAIOnboardingClientError(code)
+    }
+  }
+
   private static func decodeLifecycleReply(
     _ data: Data,
     requestID: UInt64,
@@ -825,6 +926,8 @@ func makeBrokerRemoteObjectInterface() -> NSXPCInterface {
     (#selector(BrokerOpenAIOnboardingXPCProtocol.beginOpenAIOnboarding(_:secret:reply:)), 0, true),
     (#selector(BrokerOpenAIOnboardingXPCProtocol.openAIOnboardingControl(_:reply:)), 0, false),
     (#selector(BrokerOpenAIOnboardingXPCProtocol.openAIOnboardingControl(_:reply:)), 0, true),
+    (#selector(BrokerOpenAIOnboardingXPCProtocol.reconcileOpenAIActivation(_:reply:)), 0, false),
+    (#selector(BrokerOpenAIOnboardingXPCProtocol.reconcileOpenAIActivation(_:reply:)), 0, true),
   ]
   for (selector, argumentIndex, ofReply) in registrations {
     interface.setClasses(
@@ -937,6 +1040,22 @@ private final class SystemBrokerXPCConnection: BrokerXPCConnectionHandling,
       return
     }
     proxy.openAIOnboardingControl(request) { response in
+      reply(.success(response))
+    }
+  }
+
+  func reconcileOpenAIActivation(
+    _ request: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  ) {
+    let remoteObject = connection.remoteObjectProxyWithErrorHandler { _ in
+      reply(.failure(.brokerUnavailable))
+    }
+    guard let proxy = remoteObject as? BrokerOpenAIOnboardingXPCProtocol else {
+      reply(.failure(.brokerUnavailable))
+      return
+    }
+    proxy.reconcileOpenAIActivation(request) { response in
       reply(.success(response))
     }
   }

@@ -410,6 +410,12 @@ private let engineAutomationEnvironmentKeys = [
   "CODEBUILD_BUILD_ID",
 ]
 
+package func isLauncherAutomationEnvironment(
+  _ environment: [String: String]
+) -> Bool {
+  engineAutomationEnvironmentKeys.contains { isTruthy(environment[$0]) }
+}
+
 private func makeEngineEnvironment(
   _ source: [String: String]
 ) throws -> [String] {

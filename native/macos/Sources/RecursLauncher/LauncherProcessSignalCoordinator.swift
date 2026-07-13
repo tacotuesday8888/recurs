@@ -63,6 +63,7 @@ package final class LauncherProcessSignalCoordinator: @unchecked Sendable {
   private var acceptsSuspendSignal = false
   private var captureRestorationWaiters: [CheckedContinuation<Void, Never>] = []
   private var suspendRequested = false
+  private var captureSealed = false
   private var isClosing = false
   private var teardownComplete = false
   private var teardownTask: Task<Void, Never>?
@@ -102,6 +103,7 @@ package final class LauncherProcessSignalCoordinator: @unchecked Sendable {
   package func close() async {
     let capture = lock.withLock { () -> TTYSecretCaptureSession? in
       guard !teardownComplete else { return nil }
+      captureSealed = true
       isClosing = true
       return activeCapture
     }
@@ -112,13 +114,27 @@ package final class LauncherProcessSignalCoordinator: @unchecked Sendable {
     lock.withLock { teardownComplete = true }
   }
 
+  package func cancelActiveCaptureAndWait() async {
+    let capture = lock.withLock {
+      captureSealed = true
+      return activeCapture
+    }
+    capture?.cancel()
+    await waitForCaptureRestoration()
+  }
+
   // This remains module-internal until a real controlling-PTY signal test exists.
   func captureSecret(
     using session: TTYSecretCaptureSession
   ) async throws(TTYSecretCaptureError) -> TTYSecret {
+    guard !Task.isCancelled else {
+      session.cancel()
+      throw .cancelled
+    }
     let token = CaptureSignalToken()
     let mayStart = lock.withLock { () -> Bool in
       guard
+        !captureSealed,
         !isClosing,
         !teardownComplete,
         firstTerminationSignal == nil,

@@ -111,6 +111,210 @@ struct BrokerOpenAIOnboardingClientTests {
   }
 
   @Test
+  func reconciliationUsesItsDedicatedXPCMethodAndLeavesTheConnectionReady() async throws {
+    let connectionID = UUID(uuidString: "7a000000-0000-4000-8000-000000000001")!
+    let system = ScriptedOpenAIOnboardingConnection(
+      reconciliationHandler: { request in
+        guard case .reconcile(let requestID, let requestedConnectionID) = request else {
+          return .failure(requestID: request.requestID, .invalidRequest)
+        }
+        #expect(requestedConnectionID == connectionID)
+        return .status(requestID: requestID, .readyOpenAI)
+      },
+      handler: { request in
+        try begunReply(requestID: request.requestID)
+      }
+    )
+    let connection = try await readyConnection(system)
+
+    #expect(
+      try await connection.reconcileOpenAIActivation(connectionID: connectionID)
+        == .readyOpenAI
+    )
+    _ = try await connection.beginOpenAIOnboarding(secret: TTYSecret([0x40]))
+
+    #expect(system.reconciliationRequestIDs == [1])
+    #expect(system.onboardingRequestIDs == [2])
+    #expect(system.invalidationCount == 0)
+  }
+
+  @Test
+  func reconciliationRejectsWrongRequestIDAndMalformedReplyFailClosed() async throws {
+    let connectionID = UUID(uuidString: "7b000000-0000-4000-8000-000000000001")!
+    let responses: [@Sendable (BrokerOpenAIActivationReconciliationRequest) throws -> Data] = [
+      { request in
+        try BrokerOpenAIActivationReconciliationReply.status(
+          requestID: request.requestID + 1,
+          .absent
+        ).encode()
+      },
+      { _ in Data([0x00, 0x01, 0x02]) },
+    ]
+
+    for response in responses {
+      let system = ScriptedOpenAIOnboardingConnection(
+        rawReconciliationHandler: response,
+        handler: { request in
+          try begunReply(requestID: request.requestID)
+        }
+      )
+      let connection = try await readyConnection(system)
+
+      await #expect(throws: BrokerOpenAIOnboardingClientError.protocolMismatch) {
+        _ = try await connection.reconcileOpenAIActivation(connectionID: connectionID)
+      }
+      await #expect(throws: BrokerOpenAIOnboardingClientError.closed) {
+        _ = try await connection.reconcileOpenAIActivation(connectionID: connectionID)
+      }
+
+      #expect(system.reconciliationRequestIDs == [1])
+      #expect(system.invalidationCount == 1)
+    }
+  }
+
+  @Test(arguments: BrokerOpenAIOnboardingFailureCode.allCases)
+  func reconciliationMapsEveryFixedBrokerFailureAndFailsClosed(
+    _ code: BrokerOpenAIOnboardingFailureCode
+  ) async throws {
+    let connectionID = UUID(uuidString: "7c000000-0000-4000-8000-000000000001")!
+    let system = ScriptedOpenAIOnboardingConnection(
+      reconciliationHandler: { request in
+        .failure(requestID: request.requestID, code)
+      },
+      handler: { request in
+        try begunReply(requestID: request.requestID)
+      }
+    )
+    let connection = try await readyConnection(system)
+
+    await #expect(throws: expectedClientError(for: code)) {
+      _ = try await connection.reconcileOpenAIActivation(connectionID: connectionID)
+    }
+    await #expect(throws: BrokerOpenAIOnboardingClientError.closed) {
+      _ = try await connection.reconcileOpenAIActivation(connectionID: connectionID)
+    }
+
+    #expect(system.reconciliationRequestIDs == [1])
+    #expect(system.invalidationCount == 1)
+  }
+
+  @Test
+  func reconciliationRequestIDExhaustionFailsBeforeAnotherXPC() async throws {
+    let connectionID = UUID(uuidString: "7d000000-0000-4000-8000-000000000001")!
+    let system = ScriptedOpenAIOnboardingConnection(
+      reconciliationHandler: { request in
+        .status(requestID: request.requestID, .unresolved)
+      },
+      handler: { request in
+        try begunReply(requestID: request.requestID)
+      }
+    )
+    let connection = try await readyConnection(
+      system,
+      initialOnboardingRequestID: brokerOpenAIOnboardingMalformedRequestID - 1
+    )
+
+    #expect(
+      try await connection.reconcileOpenAIActivation(connectionID: connectionID)
+        == .unresolved
+    )
+    await #expect(throws: BrokerOpenAIOnboardingClientError.protocolMismatch) {
+      _ = try await connection.reconcileOpenAIActivation(connectionID: connectionID)
+    }
+
+    #expect(system.reconciliationRequestIDs == [UInt64.max - 1])
+    #expect(system.invalidationCount == 1)
+  }
+
+  @Test
+  func cancellingHeldReconciliationFailsClosedAndIgnoresALateReply() async throws {
+    let connectionID = UUID(uuidString: "7e000000-0000-4000-8000-000000000001")!
+    let system = ScriptedOpenAIOnboardingConnection(
+      holdReconciliation: true,
+      handler: { request in
+        try begunReply(requestID: request.requestID)
+      }
+    )
+    let connection = try await readyConnection(system)
+    let reconciliation = Task {
+      try await connection.reconcileOpenAIActivation(connectionID: connectionID)
+    }
+    await system.waitForHeldReconciliationReply()
+
+    reconciliation.cancel()
+
+    await #expect(throws: BrokerOpenAIOnboardingClientError.cancelled) {
+      _ = try await reconciliation.value
+    }
+    #expect(system.reconciliationRequestIDs == [1])
+    #expect(system.invalidationCount == 1)
+    try system.completeHeldReconciliationReply(
+      .status(requestID: 1, .readyOpenAI)
+    )
+    #expect(system.invalidationCount == 1)
+  }
+
+  @Test
+  func heldReconciliationTimeoutFailsClosedAndIgnoresALateReply() async throws {
+    let connectionID = UUID(uuidString: "7f000000-0000-4000-8000-000000000001")!
+    let system = ScriptedOpenAIOnboardingConnection(
+      holdReconciliation: true,
+      handler: { request in
+        try begunReply(requestID: request.requestID)
+      }
+    )
+    let connection = try await readyConnection(
+      system,
+      xpcReplyTimeout: .milliseconds(20)
+    )
+    let reconciliation = Task {
+      try await connection.reconcileOpenAIActivation(connectionID: connectionID)
+    }
+    await system.waitForHeldReconciliationReply()
+
+    await #expect(throws: BrokerOpenAIOnboardingClientError.brokerUnavailable) {
+      _ = try await reconciliation.value
+    }
+    #expect(system.reconciliationRequestIDs == [1])
+    #expect(system.invalidationCount == 1)
+    try system.completeHeldReconciliationReply(
+      .status(requestID: 1, .absent)
+    )
+    #expect(system.invalidationCount == 1)
+  }
+
+  @Test
+  func heldReconciliationMakesBeginBusyAndStillErasesItsSecret() async throws {
+    let connectionID = UUID(uuidString: "80000000-0000-4000-8000-000000000001")!
+    let system = ScriptedOpenAIOnboardingConnection(
+      holdReconciliation: true,
+      handler: { request in
+        try begunReply(requestID: request.requestID)
+      }
+    )
+    let connection = try await readyConnection(system)
+    let reconciliation = Task {
+      try await connection.reconcileOpenAIActivation(connectionID: connectionID)
+    }
+    await system.waitForHeldReconciliationReply()
+    let rejectedSecret = TTYSecret([0x53, 0x54])
+    let rejectedObserver = rejectedSecret
+
+    await #expect(throws: BrokerOpenAIOnboardingClientError.busy) {
+      _ = try await connection.beginOpenAIOnboarding(secret: rejectedSecret)
+    }
+    #expect(rejectedObserver.withUnsafeBytes { $0.isEmpty })
+    #expect(system.onboardingRequestIDs.isEmpty)
+
+    try system.completeHeldReconciliationReply(
+      .status(requestID: 1, .unresolved)
+    )
+    #expect(try await reconciliation.value == .unresolved)
+    #expect(system.reconciliationRequestIDs == [1])
+    #expect(system.invalidationCount == 0)
+  }
+
+  @Test
   func remoteInterfaceAllowsOnlyNSDataForEveryOnboardingArgumentAndReply() {
     let interface = makeBrokerRemoteObjectInterface()
     let exchange = #selector(BrokerXPCProtocol.exchange(_:reply:))
@@ -142,6 +346,16 @@ struct BrokerOpenAIOnboardingClientTests {
     )
     assertNSDataOnly(interface.classes(for: control, argumentIndex: 0, ofReply: false))
     assertNSDataOnly(interface.classes(for: control, argumentIndex: 0, ofReply: true))
+    let reconciliation = #selector(
+      BrokerOpenAIOnboardingXPCProtocol.reconcileOpenAIActivation(_:reply:)
+    )
+    #expect(NSStringFromSelector(reconciliation) == "reconcileOpenAIActivation:reply:")
+    assertNSDataOnly(
+      interface.classes(for: reconciliation, argumentIndex: 0, ofReply: false)
+    )
+    assertNSDataOnly(
+      interface.classes(for: reconciliation, argumentIndex: 0, ofReply: true)
+    )
   }
 
   @Test(arguments: BrokerOpenAIOnboardingFailureCode.allCases)
@@ -414,35 +628,74 @@ private final class ScriptedOpenAIOnboardingConnection:
   typealias ReplyHandler =
     @Sendable (BrokerOpenAIOnboardingRequest) throws -> BrokerOpenAIOnboardingReply
   typealias RawHandler = @Sendable (BrokerOpenAIOnboardingRequest) throws -> Data
+  typealias ReconciliationHandler =
+    @Sendable (BrokerOpenAIActivationReconciliationRequest) throws ->
+    BrokerOpenAIActivationReconciliationReply
+  typealias RawReconciliationHandler =
+    @Sendable (BrokerOpenAIActivationReconciliationRequest) throws -> Data
 
   private let lock = NSLock()
   private let handler: RawHandler
+  private let reconciliationHandler: RawReconciliationHandler
   private let holdBegin: Bool
+  private let holdReconciliation: Bool
   private var onboardingRequestIDStorage: [UInt64] = []
+  private var reconciliationRequestIDStorage: [UInt64] = []
   private var secretStorage: [[UInt8]] = []
   private var heldReply:
     (requestID: UInt64, reply: @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void)?
   private var heldReplyWaiters: [CheckedContinuation<Void, Never>] = []
+  private var heldReconciliationReply:
+    (requestID: UInt64, reply: @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void)?
+  private var heldReconciliationReplyWaiters: [CheckedContinuation<Void, Never>] = []
   private var invalidationStorage = 0
 
   init(
     holdBegin: Bool = false,
+    holdReconciliation: Bool = false,
+    reconciliationHandler: @escaping ReconciliationHandler = { request in
+      .status(requestID: request.requestID, .unresolved)
+    },
     handler: @escaping ReplyHandler
   ) {
     self.holdBegin = holdBegin
+    self.holdReconciliation = holdReconciliation
+    self.reconciliationHandler = { try reconciliationHandler($0).encode() }
     self.handler = { try handler($0).encode() }
   }
 
   init(
     holdBegin: Bool = false,
+    holdReconciliation: Bool = false,
+    reconciliationHandler: @escaping ReconciliationHandler = { request in
+      .status(requestID: request.requestID, .unresolved)
+    },
     rawHandler: @escaping RawHandler
   ) {
     self.holdBegin = holdBegin
+    self.holdReconciliation = holdReconciliation
+    self.reconciliationHandler = { try reconciliationHandler($0).encode() }
     self.handler = rawHandler
+  }
+
+  init(
+    holdBegin: Bool = false,
+    holdReconciliation: Bool = false,
+    rawReconciliationHandler: @escaping RawReconciliationHandler,
+    handler: @escaping ReplyHandler
+  ) {
+    self.holdBegin = holdBegin
+    self.holdReconciliation = holdReconciliation
+    self.reconciliationHandler = rawReconciliationHandler
+    self.handler = { try handler($0).encode() }
   }
 
   var onboardingRequestIDs: [UInt64] {
     lock.withLock { onboardingRequestIDStorage }
+  }
+
+  var reconciliationRequestIDs: [UInt64] {
+    lock.withLock { reconciliationRequestIDStorage }
   }
 
   var receivedSecretBytes: [[UInt8]] {
@@ -525,6 +778,29 @@ private final class ScriptedOpenAIOnboardingConnection:
     }
   }
 
+  func reconcileOpenAIActivation(
+    _ requestData: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  ) {
+    do {
+      let request = try BrokerOpenAIActivationReconciliationRequest.decode(requestData)
+      lock.withLock { reconciliationRequestIDStorage.append(request.requestID) }
+      if holdReconciliation {
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+          heldReconciliationReply = (request.requestID, reply)
+          let selected = heldReconciliationReplyWaiters
+          heldReconciliationReplyWaiters.removeAll(keepingCapacity: false)
+          return selected
+        }
+        for waiter in waiters { waiter.resume() }
+        return
+      }
+      reply(.success(try reconciliationHandler(request)))
+    } catch {
+      reply(.failure(.brokerUnavailable))
+    }
+  }
+
   func invalidate() {
     lock.withLock { invalidationStorage += 1 }
   }
@@ -544,6 +820,30 @@ private final class ScriptedOpenAIOnboardingConnection:
     let selected = lock.withLock {
       let value = heldReply
       heldReply = nil
+      return value
+    }
+    let held = try #require(selected)
+    #expect(held.requestID == response.requestID)
+    held.reply(.success(try response.encode()))
+  }
+
+  func waitForHeldReconciliationReply() async {
+    await withCheckedContinuation { continuation in
+      let resumeNow = lock.withLock { () -> Bool in
+        guard heldReconciliationReply == nil else { return true }
+        heldReconciliationReplyWaiters.append(continuation)
+        return false
+      }
+      if resumeNow { continuation.resume() }
+    }
+  }
+
+  func completeHeldReconciliationReply(
+    _ response: BrokerOpenAIActivationReconciliationReply
+  ) throws {
+    let selected = lock.withLock {
+      let value = heldReconciliationReply
+      heldReconciliationReply = nil
       return value
     }
     let held = try #require(selected)

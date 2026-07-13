@@ -148,6 +148,24 @@ struct LauncherProcessSignalCoordinatorTests {
   }
 
   @Test
+  func bridgeCancellationSealsCaptureAdmissionBeforeALateWorkerCanRegister() async throws {
+    let harness = SignalHarness()
+    let coordinator = LauncherProcessSignalCoordinator(system: harness.system)
+
+    await coordinator.cancelActiveCaptureAndWait()
+    let terminal = try CoordinatorPseudoTerminal()
+    let session = try TTYSecretCaptureSession(
+      terminalDescriptor: terminal.duplicateSlave(),
+      foregroundCheck: { _ in true }
+    )
+
+    await #expect(throws: TTYSecretCaptureError.cancelled) {
+      _ = try await coordinator.captureSecret(using: session)
+    }
+    await coordinator.close()
+  }
+
+  @Test
   func concurrentCloseCallersWaitForDefaultRestoration() async {
     let restoration = BlockingDefaultRestoration()
     let harness = SignalHarness(restoreProbe: restoration.restore)

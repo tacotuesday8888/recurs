@@ -7,6 +7,15 @@ import Testing
 @Suite("Engine child process")
 struct EngineChildProcessTests {
   @Test
+  func automationDetectionUsesOnlyReviewedTruthyMarkers() {
+    #expect(!isLauncherAutomationEnvironment([:]))
+    #expect(!isLauncherAutomationEnvironment(["CI": " off "]))
+    #expect(!isLauncherAutomationEnvironment(["UNREVIEWED_CI": "true"]))
+    #expect(isLauncherAutomationEnvironment(["CI": "yes"]))
+    #expect(isLauncherAutomationEnvironment(["GITHUB_ACTIONS": "1"]))
+  }
+
+  @Test
   func terminationAndErrorsAreFixedAndPathFree() {
     #expect(EngineTermination.exited(0) == .exited(0))
     #expect(EngineTermination.signaled(SIGTERM) == .signaled(SIGTERM))

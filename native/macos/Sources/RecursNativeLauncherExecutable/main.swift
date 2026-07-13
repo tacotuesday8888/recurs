@@ -224,7 +224,16 @@ private func runBundledEngine(arguments: [String]) async -> EngineTermination? {
       brokerConnectionFactory: { () throws(BrokerConnectionError) -> BrokerConnection in
         try openRegisteredBrokerConnection()
       },
-      output: child.socket
+      output: child.socket,
+      openAISecretCapture:
+        isExactOpenAISetupInvocation(arguments)
+        ? .live(
+          signalCoordinator: signalCoordinator,
+          automation: isLauncherAutomationEnvironment(
+            ProcessInfo.processInfo.environment
+          )
+        )
+        : nil
     )
 
     let termination = await withTaskGroup(
