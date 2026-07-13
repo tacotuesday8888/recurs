@@ -150,6 +150,35 @@ struct EngineChildProcessTests {
   }
 
   @Test
+  func abandonedChildClosesChannelAndConvergesThroughKillAndReap() async throws {
+    let fixture = RecordingEngineChildSystem(reapAfterKill: true)
+    var child: EngineChildProcess? = try await EngineChildProcess.start(
+      layout: fixedLayout,
+      environment: [:],
+      system: fixture.system
+    )
+    weak let releasedChild: EngineChildProcess? = child
+
+    child = nil
+    #expect(releasedChild == nil)
+
+    var remainingYields = 1_000
+    while fixture.reapCount == 0, remainingYields > 0 {
+      remainingYields -= 1
+      await Task.yield()
+    }
+
+    #expect(fixture.reapCount == 1)
+    #expect(fixture.waitCalls.allSatisfy { $0.pid == 41 && $0.options == WNOHANG })
+    #expect(fixture.signals.map(\.pid).allSatisfy { $0 == 41 })
+    #expect(fixture.signals.map(\.signal) == [SIGTERM, SIGKILL])
+    try #require(fixture.signals.count == 2)
+    #expect(fixture.signals[1].time - fixture.signals[0].time == 2_000_000_000)
+    #expect(fixture.closedDescriptors.filter { $0 == 10 }.count == 1)
+    #expect(fixture.shutdownDescriptors.filter { $0 == 10 }.count == 1)
+  }
+
+  @Test
   func shutdownAfterReapReturnsStoredResultWithoutSignalingReusedPID() async throws {
     let fixture = RecordingEngineChildSystem()
     fixture.enqueueWait(.reaped(status: 7 << 8))
@@ -209,12 +238,21 @@ struct EngineChildProcessTests {
   @Test
   func liveSpawnInheritsOnlyStandardDescriptorsAndEngineSocket() async throws {
     let fixture = try LiveChildFixture()
+    let canarySource = Darwin.open("/dev/null", O_RDONLY)
+    try #require(canarySource >= 0)
+    let canaryDescriptor = fcntl(canarySource, F_DUPFD, 64)
+    _ = Darwin.close(canarySource)
+    try #require(canaryDescriptor >= 64)
+    defer { _ = Darwin.close(canaryDescriptor) }
+    try #require(fcntl(canaryDescriptor, F_SETFD, 0) == 0)
+    #expect(fcntl(canaryDescriptor, F_GETFD) & FD_CLOEXEC == 0)
+
     let child = try await EngineChildProcess.start(
       layout: EngineBundleLayout(
         nodeExecutable: URL(fileURLWithPath: "/bin/sh"),
         engineEntrypoint: fixture.script
       ),
-      arguments: [fixture.output.path, "alpha", "two words"],
+      arguments: [fixture.output.path, String(canaryDescriptor), "alpha", "two words"],
       environment: [
         "HOME": "/safe/home",
         "PATH": "/usr/bin:/bin",
@@ -235,6 +273,8 @@ struct EngineChildProcessTests {
     #expect(lines.contains("CI=1"))
     #expect(lines.contains("RECURS_NATIVE_FD=3"))
     #expect(lines.contains("NODE_OPTIONS=absent"))
+    #expect(lines.contains("canary=absent"))
+    #expect(fcntl(canaryDescriptor, F_GETFD) >= 0)
     for descriptor in 0...3 {
       #expect(lines.contains("fd=\(descriptor)"))
     }
@@ -270,6 +310,7 @@ private final class RecordingEngineChildSystem: @unchecked Sendable {
   private var waitCallsStorage: [(pid: pid_t, options: Int32)] = []
   private var signalsStorage: [(pid: pid_t, signal: Int32, time: UInt64)] = []
   private var sleepDurationsStorage: [UInt64] = []
+  private var reapCountStorage = 0
 
   init(
     spawnFails: Bool = false,
@@ -296,6 +337,7 @@ private final class RecordingEngineChildSystem: @unchecked Sendable {
     lock.withLock { signalsStorage }
   }
   var sleepDurations: [UInt64] { lock.withLock { sleepDurationsStorage } }
+  var reapCount: Int { lock.withLock { reapCountStorage } }
 
   func enqueueWait(_ result: EngineChildProcessWaitResult) {
     lock.withLock { waitResults.append(result) }
@@ -348,6 +390,7 @@ private final class RecordingEngineChildSystem: @unchecked Sendable {
             return .success(waitResults.removeFirst())
           }
           if reapAfterKill && killed {
+            reapCountStorage += 1
             return .success(.reaped(status: SIGKILL))
           }
           return .success(.running)
@@ -394,7 +437,8 @@ private final class LiveChildFixture {
     )
     let source = """
       output="$1"
-      shift
+      canary="$2"
+      shift 2
       {
         for argument in "$@"; do printf 'arg=%s\\n' "$argument"; done
         printf 'HOME=%s\\n' "$HOME"
@@ -404,6 +448,11 @@ private final class LiveChildFixture {
           printf 'NODE_OPTIONS=present\\n'
         else
           printf 'NODE_OPTIONS=absent\\n'
+        fi
+        if [ -e "/dev/fd/$canary" ]; then
+          printf 'canary=inherited\\n'
+        else
+          printf 'canary=absent\\n'
         fi
         descriptor=0
         while [ "$descriptor" -le 9 ]; do

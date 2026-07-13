@@ -105,6 +105,15 @@ package final class EngineChildProcess: @unchecked Sendable {
     self.lifecycle = EngineChildLifecycle(pid: pid, system: system)
   }
 
+  deinit {
+    let socket = socket
+    let lifecycle = lifecycle
+    Task { [socket, lifecycle] in
+      await socket.close()
+      _ = try? await lifecycle.shutdown()
+    }
+  }
+
   package static func start(
     layout: EngineBundleLayout,
     arguments: [String] = [],
