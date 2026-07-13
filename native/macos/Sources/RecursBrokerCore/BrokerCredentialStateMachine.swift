@@ -178,6 +178,13 @@ struct BrokerCredentialStateMachine: Sendable {
     let replacement: BrokerJournalRecord
   }
 
+  struct JournalAuthoritativeProjectionReadToken: Sendable, Equatable {
+    let connectionID: UUID
+    let sequence: UInt64
+    let expectedRecord: Record?
+    let expected: BrokerJournalSnapshot?
+  }
+
   enum JournalAuthorityCompletion: Sendable, Equatable {
     case completed(TerminalOutcome)
     case cleanup(TerminalOutcome)
@@ -365,6 +372,10 @@ struct BrokerCredentialStateMachine: Sendable {
   private var reservations: [UUID: Reservation] = [:]
   private var terminalMemos: [UUID: TerminalMemo] = [:]
   private var journalSnapshots: [UUID: BrokerJournalSnapshot] = [:]
+  private var authoritativeReadSequences: [UUID: UInt64] = [:]
+  private var nextAuthoritativeReadSequence: UInt64 = 0
+  private var unavailableConnections: Set<UUID> = []
+  private var journalHealthUnavailable = false
 
   init(bootstrap: [CredentialBootstrap] = []) throws(BrokerStateError) {
     var validated: [UUID: Record] = [:]
@@ -515,6 +526,74 @@ struct BrokerCredentialStateMachine: Sendable {
     journalSnapshots[connectionID]
   }
 
+  mutating func beginAuthoritativeProjection(
+    connectionID: UUID
+  ) throws(BrokerJournalError) -> JournalAuthoritativeProjectionReadToken {
+    guard !journalHealthUnavailable, !unavailableConnections.contains(connectionID) else {
+      throw .storageUnavailable
+    }
+    guard
+      authoritativeReadSequences[connectionID] == nil,
+      canBeginAuthoritativeProjection(connectionID: connectionID),
+      nextAuthoritativeReadSequence < UInt64.max
+    else {
+      throw .casConflict
+    }
+
+    nextAuthoritativeReadSequence += 1
+    let token = JournalAuthoritativeProjectionReadToken(
+      connectionID: connectionID,
+      sequence: nextAuthoritativeReadSequence,
+      expectedRecord: records[connectionID],
+      expected: journalSnapshots[connectionID]
+    )
+    authoritativeReadSequences[connectionID] = token.sequence
+    return token
+  }
+
+  mutating func finishAuthoritativeProjection(
+    _ token: JournalAuthoritativeProjectionReadToken,
+    result: Result<BrokerJournalSnapshot?, BrokerJournalError>
+  ) throws(BrokerJournalError) -> CredentialProjection? {
+    guard authoritativeReadSequences[token.connectionID] == token.sequence else {
+      throw .casConflict
+    }
+    guard
+      records[token.connectionID] == token.expectedRecord,
+      journalSnapshots[token.connectionID] == token.expected
+    else {
+      authoritativeReadSequences.removeValue(forKey: token.connectionID)
+      unavailableConnections.insert(token.connectionID)
+      throw .casConflict
+    }
+    if journalHealthUnavailable {
+      authoritativeReadSequences.removeValue(forKey: token.connectionID)
+      throw .storageUnavailable
+    }
+
+    switch result {
+    case .failure(let error):
+      authoritativeReadSequences.removeValue(forKey: token.connectionID)
+      recordJournalFailure(error)
+      throw error
+
+    case .success(let selected):
+      guard selected == token.expected else {
+        authoritativeReadSequences.removeValue(forKey: token.connectionID)
+        unavailableConnections.insert(token.connectionID)
+        throw .casConflict
+      }
+      authoritativeReadSequences.removeValue(forKey: token.connectionID)
+      return token.expectedRecord?.projection
+    }
+  }
+
+  mutating func recordJournalFailure(_ error: BrokerJournalError) {
+    if Self.isSevereJournalHealthError(error) {
+      journalHealthUnavailable = true
+    }
+  }
+
   static func fingerprint(
     kind: OperationKind,
     connectionID: UUID,
@@ -545,6 +624,13 @@ struct BrokerCredentialStateMachine: Sendable {
       return .replay(outcome)
     case .none:
       break
+    }
+
+    guard !journalHealthUnavailable, !unavailableConnections.contains(connectionID) else {
+      throw .storeUnavailable
+    }
+    guard authoritativeReadSequences[connectionID] == nil else {
+      throw .operationInProgress
     }
 
     switch reservationDisposition(
@@ -1965,6 +2051,33 @@ struct BrokerCredentialStateMachine: Sendable {
         return .reject(.cleanupPending)
       }
       return .resumeCleanup
+    }
+  }
+
+  private func canBeginAuthoritativeProjection(connectionID: UUID) -> Bool {
+    guard let reservation = reservations[connectionID] else {
+      return true
+    }
+    switch reservation.phase {
+    case .journalStageResolutionRequest:
+      return true
+    case .journalStageResolution(let resolution):
+      return !resolution.isAwaiting
+    case .cleanup(let cleanup):
+      return cleanup.journal != nil && !cleanup.isAwaiting
+    case .journalStageReservation, .storing, .journalStageTransition, .journalAuthority:
+      return false
+    }
+  }
+
+  private static func isSevereJournalHealthError(_ error: BrokerJournalError) -> Bool {
+    switch error {
+    case .invalidRecord, .nonCanonical, .unsupportedVersion, .authenticationFailed,
+      .rollbackDetected:
+      true
+    case .revisionOverflow, .casConflict, .lockUnavailable, .storageUnavailable,
+      .mutationOutcomeUnknown:
+      false
     }
   }
 
