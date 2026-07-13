@@ -660,7 +660,7 @@ Retain `productionHandshakeHealthOnly` as a compatibility wrapper with no
 caller-controlled capability bit until Task 5 replaces the executable startup
 path; it also stores `nil`.
 
-- [ ] **Step 1: Add failing XPC/service tests**
+- [x] **Step 1: Add failing XPC/service tests**
 
 Prove the exported interface declares only the existing health exchange plus
 the two fixed credential selectors; both argument and reply class allowlists
@@ -711,7 +711,7 @@ reply `NSData`, and invalidation. This test proves Objective-C protocol
 inheritance, selector names/signatures, class argument indexes, and serialization
 rather than relying only on a fake connection object.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```bash
 swift test --package-path native/macos \
@@ -723,7 +723,7 @@ swift test --package-path native/macos \
 Expected: compilation or assertions fail because the selectors and gateway
 wiring do not exist.
 
-- [ ] **Step 3: Implement the composite XPC interface**
+- [x] **Step 3: Implement the composite XPC interface**
 
 Configure `NSXPCInterface` with
 `BrokerCredentialLifecycleXPCProtocol.self` only when the configuration contains
@@ -733,7 +733,7 @@ position present on the selected interface. Keep the launcher-side health proxy
 compatible through protocol inheritance. Preserve the interim executable's
 `productionHandshakeHealthOnly` factory through Task 4.
 
-- [ ] **Step 4: Wire per-connection service state**
+- [x] **Step 4: Wire per-connection service state**
 
 Keep the existing `BrokerService` lock only for the synchronous hello/health
 state machine; never hold it across an await, a gateway action, or an XPC reply.
@@ -767,7 +767,7 @@ without invoking XPC reply blocks. The gateway lock linearizes every submit/
 authorize/close race, owns the bounded authority-operation task handles, and
 owns the exactly-once-or-explicitly-discarded reply gates.
 
-- [ ] **Step 5: Verify GREEN and launcher compatibility**
+- [x] **Step 5: Verify GREEN and launcher compatibility**
 
 ```bash
 swift test --package-path native/macos \
@@ -778,7 +778,7 @@ swift test --package-path native/macos \
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add native/macos/Sources/RecursBrokerXPC \
