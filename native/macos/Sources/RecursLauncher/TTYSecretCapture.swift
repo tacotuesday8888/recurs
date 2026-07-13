@@ -109,7 +109,8 @@ struct TTYSecretAccumulator {
   }
 }
 
-// A package-facing signal coordinator must own this before onboarding can call it.
+// The process coordinator owns this; onboarding remains blocked on real
+// controlling-PTY signal and restoration tests.
 final class TTYSecretCaptureSession: @unchecked Sendable {
   private enum Phase {
     case open

@@ -1,5 +1,4 @@
 import Darwin
-import Dispatch
 import Foundation
 import RecursLauncher
 import RecursNativeProtocol
@@ -212,111 +211,15 @@ private enum EngineRunEvent: Sendable {
   case childFailed
 }
 
-private final class EngineSignalRelay: @unchecked Sendable {
-  private static let handledSignals = [SIGINT, SIGTERM, SIGHUP, SIGQUIT]
-  private static let forwardingGraceNanoseconds: UInt64 = 2_000_000_000
-
-  private let lock = NSLock()
-  private var sources: [any DispatchSourceSignal] = []
-  private var child: EngineChildProcess?
-  private var shutdownRequested = false
-  private var shutdownStarted = false
-  private var cancelled = false
-
-  init() {
-    for signalNumber in Self.handledSignals {
-      _ = Darwin.signal(signalNumber, SIG_IGN)
-      let source = DispatchSource.makeSignalSource(
-        signal: signalNumber,
-        queue: DispatchQueue.global(qos: .userInitiated)
-      )
-      source.setEventHandler { [weak self] in
-        self?.requestShutdown()
-      }
-      sources.append(source)
-      source.resume()
-    }
-  }
-
-  func attach(child: EngineChildProcess) {
-    let childToShutdown: EngineChildProcess?
-    lock.lock()
-    if !cancelled, self.child == nil {
-      self.child = child
-    }
-    if shutdownRequested, !shutdownStarted, let attachedChild = self.child {
-      shutdownStarted = true
-      childToShutdown = attachedChild
-    } else {
-      childToShutdown = nil
-    }
-    lock.unlock()
-
-    if let childToShutdown {
-      Self.beginShutdown(of: childToShutdown)
-    }
-  }
-
-  func cancel() {
-    lock.lock()
-    guard !cancelled else {
-      lock.unlock()
-      return
-    }
-    cancelled = true
-    child = nil
-    let activeSources = sources
-    sources.removeAll()
-    lock.unlock()
-
-    for source in activeSources {
-      source.cancel()
-    }
-    for signalNumber in Self.handledSignals {
-      _ = Darwin.signal(signalNumber, SIG_DFL)
-    }
-  }
-
-  private func requestShutdown() {
-    let childToShutdown: EngineChildProcess?
-    lock.lock()
-    guard !cancelled else {
-      lock.unlock()
-      return
-    }
-    shutdownRequested = true
-    if !shutdownStarted, let child {
-      shutdownStarted = true
-      childToShutdown = child
-    } else {
-      childToShutdown = nil
-    }
-    lock.unlock()
-
-    if let childToShutdown {
-      Self.beginShutdown(of: childToShutdown)
-    }
-  }
-
-  private static func beginShutdown(of child: EngineChildProcess) {
-    Task.detached(priority: .userInitiated) {
-      try? await Task.sleep(
-        nanoseconds: forwardingGraceNanoseconds
-      )
-      _ = try? await child.shutdown()
-    }
-  }
-}
-
 private func runBundledEngine(arguments: [String]) async -> EngineTermination? {
-  let signalRelay = EngineSignalRelay()
+  let signalCoordinator = LauncherProcessSignalCoordinator()
   do {
     let layout = try EngineBundleLayout.production()
     let child = try await EngineChildProcess.start(
       layout: layout,
       arguments: arguments
     )
-    signalRelay.attach(child: child)
+    signalCoordinator.attach(child: child)
     let session = LauncherNodeSession(
       brokerConnectionFactory: { () throws(BrokerConnectionError) -> BrokerConnection in
         try openRegisteredBrokerConnection()
@@ -368,10 +271,10 @@ private func runBundledEngine(arguments: [String]) async -> EngineTermination? {
 
     await session.close()
     await child.socket.close()
-    signalRelay.cancel()
+    await signalCoordinator.close()
     return termination
   } catch {
-    signalRelay.cancel()
+    await signalCoordinator.close()
     return nil
   }
 }
