@@ -445,8 +445,9 @@ git commit -m "feat: fence native provider route authority"
 
 Document the shared versioned profile identity, required authenticated journal
 binding, binding-aware private stage metadata, and dormant route authority.
-State equally clearly that there is still no TTY capture, provider verification,
-DNS/network feasibility, credential reservation from an authorization receipt,
+State equally clearly that there is still no executable TTY capture, provider
+verification, DNS/network feasibility, credential reservation from an
+authorization receipt,
 HTTP/TLS/proxy, codec, model catalog, CLI onboarding, signed artifact evidence,
 or enabled broker-owned provider. Explain the journal v1 development reset and
 why there is no migration of unreleased credential state.
@@ -462,7 +463,7 @@ standalone DNS claim. Quality review must reject duplicate schemas, unnecessary
 abstractions, generated-policy overreach, and inflated claims.
 Fix every actionable finding and repeat until both pass.
 
-- [ ] **Step 3: Run the clean verification matrix**
+- [x] **Step 3: Run the clean verification matrix**
 
 ```bash
 rm -rf native/macos/.build
@@ -481,7 +482,7 @@ npm run native:doctor-smoke
 npm run native:smoke
 ```
 
-- [ ] **Step 4: Run boundary/secret/drift scans and commit review fixes**
+- [x] **Step 4: Run boundary/secret/drift scans and commit review fixes**
 
 Assert generated outputs are current; every broker-owned manifest remains
 non-runnable; TypeScript and `RecursNativeProtocol` gained no custom URL,
@@ -503,7 +504,9 @@ minting a budgeted authorization receipt. All tests and
 reviews must pass while Node remains credential/authority/URL-free and every
 broker-owned provider remains disabled.
 
-The next plan may add native TTY capture. Network feasibility must wait for the
-native transport plan, where direct versus system-proxy/PAC path selection,
-actual-peer evidence, redirects, sanitization, and delivery uncertainty can be
-frozen and tested together before credential reservation or provider HTTP.
+The next plan may expose the internal native TTY capture through one
+signal-owning coordinator after controlling-PTY signal tests pass. Network
+feasibility must wait for the native transport plan, where direct versus
+system-proxy/PAC path selection, actual-peer evidence, redirects, sanitization,
+and delivery uncertainty can be frozen and tested together before credential
+reservation or provider HTTP.

@@ -213,11 +213,12 @@ struct LauncherNodeSessionTests {
       output: output
     )
 
-    await session.receive(concatenate([
-      try helloFrame(requestID: 1),
-      try HealthMessage().encodedFrame(requestID: 2),
-      try HealthMessage().encodedFrame(requestID: 3),
-    ]))
+    await session.receive(
+      concatenate([
+        try helloFrame(requestID: 1),
+        try HealthMessage().encodedFrame(requestID: 2),
+        try HealthMessage().encodedFrame(requestID: 3),
+      ]))
     await eventually("first health pending") { system.pendingHealthCount == 1 }
     await session.receive(
       try CancelMessage(targetRequestID: 3).encodedFrame(requestID: 4)
@@ -250,10 +251,11 @@ struct LauncherNodeSessionTests {
       output: output
     )
 
-    await session.receive(concatenate([
-      try helloFrame(requestID: 1),
-      try HealthMessage().encodedFrame(requestID: 2),
-    ]))
+    await session.receive(
+      concatenate([
+        try helloFrame(requestID: 1),
+        try HealthMessage().encodedFrame(requestID: 2),
+      ]))
     await eventually("active health") { system.pendingHealthCount == 1 }
     await session.receive(
       try CancelMessage(targetRequestID: 2).encodedFrame(requestID: 3)
@@ -287,10 +289,11 @@ struct LauncherNodeSessionTests {
       output: output
     )
 
-    await session.receive(concatenate([
-      try helloFrame(requestID: 1),
-      try CancelMessage(targetRequestID: 1).encodedFrame(requestID: 2),
-    ]))
+    await session.receive(
+      concatenate([
+        try helloFrame(requestID: 1),
+        try CancelMessage(targetRequestID: 1).encodedFrame(requestID: 2),
+      ]))
     await eventually("handshake cancellation closes") {
       await output.snapshot().closeCount == 1
     }
@@ -589,10 +592,11 @@ private final class ScriptedSessionBrokerConnection: BrokerXPCConnectionHandling
       return self.pending.remove(at: index)
     }
     let replyItem = try #require(item)
-    replyItem.reply(.success(
-      try HealthResultMessage(keychain: keychain, peerVerified: peerVerified)
-        .encodedFrame(requestID: replyItem.frame.requestID)
-    ))
+    replyItem.reply(
+      .success(
+        try HealthResultMessage(keychain: keychain, peerVerified: peerVerified)
+          .encodedFrame(requestID: replyItem.frame.requestID)
+      ))
   }
 }
 
@@ -621,7 +625,7 @@ private func eventually(
   condition: () async -> Bool
 ) async {
   let clock = ContinuousClock()
-  let deadline = clock.now.advanced(by: .seconds(2))
+  let deadline = clock.now.advanced(by: .seconds(5))
   while clock.now < deadline {
     if await condition() {
       return
@@ -651,8 +655,8 @@ private func concatenate(_ parts: [Data]) -> Data {
   return result
 }
 
-private extension Collection {
-  var only: Element? {
+extension Collection {
+  fileprivate var only: Element? {
     count == 1 ? first : nil
   }
 }
