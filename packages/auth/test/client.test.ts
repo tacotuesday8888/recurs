@@ -200,6 +200,12 @@ describe("native authority client", () => {
     expect(Object.getOwnPropertyNames(Object.getPrototypeOf(client))).toEqual([
       "constructor",
       "status",
+      "beginOpenAIOnboarding",
+      "verifyOpenAIOnboarding",
+      "openAIOnboardingCatalogPage",
+      "finalizeOpenAIOnboarding",
+      "abortOpenAIOnboarding",
+      "reconcileOpenAIActivation",
       "close",
     ]);
 
@@ -648,7 +654,7 @@ describe("native authority client", () => {
     expect(socket.destroyed).toBe(true);
   });
 
-  it("rejects a response to a cancelled terminal request", async () => {
+  it("closes before a late response to a cancelled request", async () => {
     let cancelledHealth: NativeFrame | undefined;
     const socket = new ScriptedDuplex((frame, peer) => {
       if (frame.type === NativeMessageType.hello) {
@@ -667,7 +673,7 @@ describe("native authority client", () => {
 
     await expect(client.status()).resolves.toEqual({
       state: "unavailable",
-      reason: "protocol_mismatch",
+      reason: "broker_unavailable",
     });
     expect(socket.destroyed).toBe(true);
   });

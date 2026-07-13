@@ -1,3 +1,5 @@
+import type { NativeOpenAIOnboardingPort } from "./native-openai-onboarding.js";
+
 export const NATIVE_AUTHORITY_PROTOCOL_VERSION = 1 as const;
 
 export type NativeAuthorityUnavailableReason =
@@ -41,3 +43,6 @@ export type NativeAuthorityStatus =
 export interface NativeAuthorityStatusPort {
   status(signal?: AbortSignal): Promise<NativeAuthorityStatus>;
 }
+
+export interface NativeAuthorityPort
+  extends NativeAuthorityStatusPort, NativeOpenAIOnboardingPort {}

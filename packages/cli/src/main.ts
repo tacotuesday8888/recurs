@@ -17,9 +17,33 @@ if (!markerDiscarded) {
       ? "launcher_unavailable" as const
       : "unsupported_platform" as const,
   });
+  const unavailableOnboarding = Object.freeze({
+    state: "failed" as const,
+    code: "operation_unavailable" as const,
+    safeMessage:
+      "Native OpenAI onboarding is unavailable for this invocation." as const,
+  });
   const nativeAuthority = Object.freeze({
     async status() {
       return unavailableStatus;
+    },
+    async beginOpenAIOnboarding() {
+      return unavailableOnboarding;
+    },
+    async verifyOpenAIOnboarding() {
+      return unavailableOnboarding;
+    },
+    async openAIOnboardingCatalogPage() {
+      return unavailableOnboarding;
+    },
+    async finalizeOpenAIOnboarding() {
+      return unavailableOnboarding;
+    },
+    async abortOpenAIOnboarding() {
+      return unavailableOnboarding;
+    },
+    async reconcileOpenAIActivation() {
+      return unavailableOnboarding;
     },
   });
 

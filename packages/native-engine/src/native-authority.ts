@@ -9,9 +9,16 @@ import {
 import { runCliProcess } from "@recurs/cli";
 import {
   NATIVE_COMPONENT_VERSION,
+  nativeOpenAIOnboardingFailure,
+  type NativeAuthorityPort,
   type NativeAuthorityStatus,
-  type NativeAuthorityStatusPort,
   type NativeAuthorityUnavailableReason,
+  type NativeOpenAIActivationReconciliation,
+  type NativeOpenAIOnboardingAborted,
+  type NativeOpenAIOnboardingBegun,
+  type NativeOpenAIOnboardingCatalogPage,
+  type NativeOpenAIOnboardingCommitted,
+  type NativeOpenAIOnboardingOutcome,
 } from "@recurs/contracts";
 
 const PEER_IDENTITY_UNVERIFIED = Object.freeze({
@@ -26,78 +33,209 @@ const BROKER_UNAVAILABLE = Object.freeze({
 export interface PrivateNativeAuthorityConnectOptions {
   readonly handshakeTimeoutMilliseconds?: number;
   readonly requestTimeoutMilliseconds?: number;
+  readonly onboardingBeginTimeoutMilliseconds?: number;
+  readonly onboardingControlTimeoutMilliseconds?: number;
 }
 
-export interface PrivateNativeAuthorityStatusPort
-  extends NativeAuthorityStatusPort {
+export interface PrivateNativeAuthorityPort extends NativeAuthorityPort {
   close(): void;
 }
 
-export function createPrivateNativeAuthorityStatusPort(
+export function createPrivateNativeAuthorityPort(
   duplex: Duplex,
   options: PrivateNativeAuthorityConnectOptions = {},
-): PrivateNativeAuthorityStatusPort {
+): PrivateNativeAuthorityPort {
+  let connection: Promise<NativeAuthorityClient> | undefined;
   let client: NativeAuthorityClient | undefined;
-  let claimed = false;
+  let clientCloseIssued = false;
+  let duplexDestroyIssued = false;
   let closed = false;
+
+  const destroyDuplexOnce = (): void => {
+    if (duplexDestroyIssued) return;
+    duplexDestroyIssued = true;
+    destroyWithoutDetails(duplex);
+  };
+
+  const closeClientOnce = (connected: NativeAuthorityClient): void => {
+    if (clientCloseIssued) return;
+    clientCloseIssued = true;
+    try {
+      connected.close();
+    } catch {
+      // Closing never exposes private transport details.
+    }
+  };
 
   const close = (): void => {
     if (closed) return;
     closed = true;
-    try {
-      client?.close();
-    } catch {
-      // Closing never exposes private transport details.
+    if (client === undefined) {
+      destroyDuplexOnce();
+    } else {
+      closeClientOnce(client);
     }
-    destroyWithoutDetails(duplex);
+  };
+
+  const connect = (signal?: AbortSignal): Promise<NativeAuthorityClient> => {
+    if (closed) {
+      return Promise.reject(
+        new NativeAuthorityClientUnavailableError("broker_unavailable"),
+      );
+    }
+    if (connection !== undefined) return connection;
+
+    let started: Promise<NativeAuthorityClient>;
+    try {
+      const {
+        handshakeTimeoutMilliseconds,
+        requestTimeoutMilliseconds,
+        onboardingBeginTimeoutMilliseconds,
+        onboardingControlTimeoutMilliseconds,
+      } = options;
+      started = connectNativeAuthorityClient(duplex, {
+        engineVersion: NATIVE_COMPONENT_VERSION,
+        ...(handshakeTimeoutMilliseconds === undefined
+          ? {}
+          : { handshakeTimeoutMilliseconds }),
+        ...(requestTimeoutMilliseconds === undefined
+          ? {}
+          : { requestTimeoutMilliseconds }),
+        ...(onboardingBeginTimeoutMilliseconds === undefined
+          ? {}
+          : { onboardingBeginTimeoutMilliseconds }),
+        ...(onboardingControlTimeoutMilliseconds === undefined
+          ? {}
+          : { onboardingControlTimeoutMilliseconds }),
+        ...(signal === undefined ? {} : { signal }),
+      });
+    } catch {
+      destroyDuplexOnce();
+      started = Promise.reject(
+        new NativeAuthorityClientUnavailableError("broker_unavailable"),
+      );
+    }
+
+    connection = started.then(
+      (connected) => {
+        client = connected;
+        if (closed) {
+          closeClientOnce(connected);
+          throw new NativeAuthorityClientUnavailableError(
+            "broker_unavailable",
+          );
+        }
+        return connected;
+      },
+      (error: unknown) => {
+        destroyDuplexOnce();
+        throw error;
+      },
+    );
+    return connection;
+  };
+
+  const onboarding = async <Value>(
+    signal: AbortSignal | undefined,
+    operation: (
+      connected: NativeAuthorityClient,
+      signal: AbortSignal | undefined,
+    ) => Promise<NativeOpenAIOnboardingOutcome<Value>>,
+  ): Promise<NativeOpenAIOnboardingOutcome<Value>> => {
+    try {
+      if (isCancelled(signal)) throw cancellation();
+      const connected = await connect(signal);
+      if (closed) {
+        return nativeOpenAIOnboardingFailure("authority_unavailable");
+      }
+      const outcome = await operation(connected, signal);
+      return closed
+        ? nativeOpenAIOnboardingFailure("authority_unavailable")
+        : outcome;
+    } catch (error) {
+      if (isAbortError(error) || isCancelled(signal)) {
+        close();
+        throw cancellation();
+      }
+      return nativeOpenAIOnboardingFailure("authority_unavailable");
+    }
   };
 
   return Object.freeze({
     async status(signal?: AbortSignal): Promise<NativeAuthorityStatus> {
-      if (claimed || closed) return BROKER_UNAVAILABLE;
-      claimed = true;
+      if (closed) return BROKER_UNAVAILABLE;
       try {
         if (isCancelled(signal)) throw cancellation();
-        client = await connectNativeAuthorityClient(duplex, {
-          engineVersion: NATIVE_COMPONENT_VERSION,
-          ...(options.handshakeTimeoutMilliseconds === undefined
-            ? {}
-            : {
-                handshakeTimeoutMilliseconds:
-                  options.handshakeTimeoutMilliseconds,
-              }),
-          ...(options.requestTimeoutMilliseconds === undefined
-            ? {}
-            : {
-                requestTimeoutMilliseconds:
-                  options.requestTimeoutMilliseconds,
-              }),
-          ...(signal === undefined ? {} : { signal }),
-        });
-        const service = new NativeAuthorityService(
-          client,
-          () => client?.close(),
+        const connected = await connect(signal);
+        const status = await new NativeAuthorityService(connected).status(
+          signal,
         );
-        try {
-          const status = await service.status(signal);
-          return status.state === "ready"
-            ? PEER_IDENTITY_UNVERIFIED
-            : status;
-        } finally {
-          service.close();
-        }
+        if (closed) return BROKER_UNAVAILABLE;
+        return status.state === "ready" ? PEER_IDENTITY_UNVERIFIED : status;
       } catch (error) {
         if (isAbortError(error) || isCancelled(signal)) {
+          close();
           throw cancellation();
         }
         return unavailable(safeClientFailureReason(error));
-      } finally {
-        close();
       }
+    },
+    beginOpenAIOnboarding(signal?: AbortSignal) {
+      return onboarding<NativeOpenAIOnboardingBegun>(
+        signal,
+        (connected, operationSignal) =>
+          connected.beginOpenAIOnboarding(operationSignal),
+      );
+    },
+    verifyOpenAIOnboarding(signal?: AbortSignal) {
+      return onboarding<NativeOpenAIOnboardingCatalogPage>(
+        signal,
+        (connected, operationSignal) =>
+          connected.verifyOpenAIOnboarding(operationSignal),
+      );
+    },
+    openAIOnboardingCatalogPage(cursor: number, signal?: AbortSignal) {
+      return onboarding<NativeOpenAIOnboardingCatalogPage>(
+        signal,
+        (connected, operationSignal) =>
+          connected.openAIOnboardingCatalogPage(cursor, operationSignal),
+      );
+    },
+    finalizeOpenAIOnboarding(exactModelId: string, signal?: AbortSignal) {
+      return onboarding<NativeOpenAIOnboardingCommitted>(
+        signal,
+        (connected, operationSignal) =>
+          connected.finalizeOpenAIOnboarding(exactModelId, operationSignal),
+      );
+    },
+    abortOpenAIOnboarding(signal?: AbortSignal) {
+      return onboarding<NativeOpenAIOnboardingAborted>(
+        signal,
+        (connected, operationSignal) =>
+          connected.abortOpenAIOnboarding(operationSignal),
+      );
+    },
+    reconcileOpenAIActivation(
+      connectionId: string,
+      credentialIdentityFingerprint: string,
+      signal?: AbortSignal,
+    ) {
+      return onboarding<NativeOpenAIActivationReconciliation>(
+        signal,
+        (connected, operationSignal) =>
+          connected.reconcileOpenAIActivation(
+            connectionId,
+            credentialIdentityFingerprint,
+            operationSignal,
+          ),
+      );
     },
     close,
   });
 }
+
+export const createPrivateNativeAuthorityStatusPort =
+  createPrivateNativeAuthorityPort;
 
 export type PrivateEngineProcessInput =
   | { readonly duplex: Duplex }
@@ -107,10 +245,10 @@ export async function runPrivateEngineProcess(
   input: PrivateEngineProcessInput,
 ): Promise<void> {
   const ownedNativeAuthority = "duplex" in input
-    ? createPrivateNativeAuthorityStatusPort(input.duplex)
+    ? createPrivateNativeAuthorityPort(input.duplex)
     : undefined;
   const nativeAuthority = "duplex" in input
-    ? ownedNativeAuthority as PrivateNativeAuthorityStatusPort
+    ? ownedNativeAuthority as PrivateNativeAuthorityPort
     : fixedUnavailablePort(input.unavailableReason);
   try {
     await runCliProcess(nativeAuthority);
@@ -121,11 +259,32 @@ export async function runPrivateEngineProcess(
 
 function fixedUnavailablePort(
   reason: "launcher_unavailable" | "unsupported_platform",
-): NativeAuthorityStatusPort {
+): NativeAuthorityPort {
   const status = unavailable(reason);
+  const onboardingFailure = nativeOpenAIOnboardingFailure(
+    "operation_unavailable",
+  );
   return Object.freeze({
     async status() {
       return status;
+    },
+    async beginOpenAIOnboarding() {
+      return onboardingFailure;
+    },
+    async verifyOpenAIOnboarding() {
+      return onboardingFailure;
+    },
+    async openAIOnboardingCatalogPage() {
+      return onboardingFailure;
+    },
+    async finalizeOpenAIOnboarding() {
+      return onboardingFailure;
+    },
+    async abortOpenAIOnboarding() {
+      return onboardingFailure;
+    },
+    async reconcileOpenAIActivation() {
+      return onboardingFailure;
     },
   });
 }
@@ -139,9 +298,28 @@ function unavailable(
 function safeClientFailureReason(
   error: unknown,
 ): NativeAuthorityUnavailableReason {
-  return error instanceof NativeAuthorityClientUnavailableError
-    ? error.reason
-    : "broker_unavailable";
+  try {
+    if (!(error instanceof NativeAuthorityClientUnavailableError)) {
+      return "broker_unavailable";
+    }
+    const reason: unknown = error.reason;
+    switch (reason) {
+      case "unsupported_platform":
+      case "unsupported_os_version":
+      case "launcher_unavailable":
+      case "broker_unavailable":
+      case "protocol_mismatch":
+      case "peer_identity_unverified":
+      case "production_signing_required":
+      case "keychain_unavailable":
+      case "unsupported_operation":
+        return reason;
+      default:
+        return "broker_unavailable";
+    }
+  } catch {
+    return "broker_unavailable";
+  }
 }
 
 function cancellation(): DOMException {
@@ -157,7 +335,11 @@ function isAbortError(error: unknown): boolean {
 }
 
 function isCancelled(signal: AbortSignal | undefined): boolean {
-  return signal?.aborted === true;
+  try {
+    return signal?.aborted === true;
+  } catch {
+    return false;
+  }
 }
 
 function destroyWithoutDetails(duplex: Duplex): void {

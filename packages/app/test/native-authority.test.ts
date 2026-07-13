@@ -458,6 +458,33 @@ describe("NativeAuthorityService", () => {
     expect(JSON.stringify(error)).not.toContain("SECRET_ABORT_REASON_CANARY");
   });
 
+  it("does not reflect hostile cancellation signal access", async () => {
+    const canary = "SECRET_HOSTILE_STATUS_SIGNAL_CANARY";
+    let calls = 0;
+    const signal = Object.defineProperty({}, "aborted", {
+      get() {
+        throw new Error(canary);
+      },
+    }) as AbortSignal;
+    const service = new app.NativeAuthorityService({
+      async status() {
+        calls += 1;
+        return { state: "unavailable", reason: "broker_unavailable" };
+      },
+    });
+
+    const result = await service.status(signal).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(result).toEqual({
+      state: "unavailable",
+      reason: "broker_unavailable",
+    });
+    expect(calls).toBe(1);
+    expect(JSON.stringify(result)).not.toContain(canary);
+  });
+
   it("normalizes an AbortError from the delegated port", async () => {
     const service = new app.NativeAuthorityService({
       async status() {

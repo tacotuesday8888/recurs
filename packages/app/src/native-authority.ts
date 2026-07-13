@@ -149,7 +149,11 @@ function cancellation(): DOMException {
 }
 
 function isCancelled(signal: AbortSignal | undefined): boolean {
-  return signal?.aborted === true;
+  try {
+    return signal?.aborted === true;
+  } catch {
+    return false;
+  }
 }
 
 function isAbortError(error: unknown): boolean {

@@ -12,8 +12,8 @@ import { createInterface } from "node:readline/promises";
 import {
   createHostInvocation,
   type IntegrationFailure,
+  type NativeAuthorityPort,
   type NativeAuthorityStatus,
-  type NativeAuthorityStatusPort,
 } from "@recurs/contracts";
 import {
   CodexOnboardingError,
@@ -85,7 +85,7 @@ export interface CliDependencies {
   automation?: boolean;
   signal?: AbortSignal;
   confirm?(message: string): Promise<boolean>;
-  nativeAuthority?: NativeAuthorityStatusPort;
+  nativeAuthority?: NativeAuthorityPort;
   createRuntime(events: EventSink): Promise<RecursRuntime>;
   setupLocal?(input: { baseUrl: string; modelId: string }): Promise<Pick<LocalConnectionConfiguration, "id" | "label" | "baseUrl" | "modelId" | "primary">>;
   setupCodex?(input: {
@@ -639,7 +639,7 @@ export function isAutomationEnvironment(
 }
 
 export async function runCliProcess(
-  nativeAuthority: NativeAuthorityStatusPort,
+  nativeAuthority: NativeAuthorityPort,
 ): Promise<void> {
   const argv = process.argv.slice(2);
   const nativeDoctorRequested =

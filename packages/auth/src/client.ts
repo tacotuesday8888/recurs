@@ -3,10 +3,19 @@ import type { Duplex } from "node:stream";
 
 import {
   NATIVE_AUTHORITY_PROTOCOL_VERSION,
+  nativeOpenAIOnboardingFailure,
+  nativeOpenAIOnboardingSucceeded,
   type NativeAuthorityAttestation,
+  type NativeAuthorityPort,
   type NativeAuthorityStatus,
-  type NativeAuthorityStatusPort,
   type NativeAuthorityUnavailableReason,
+  type NativeOpenAIActivationReconciliation,
+  type NativeOpenAIOnboardingAborted,
+  type NativeOpenAIOnboardingBegun,
+  type NativeOpenAIOnboardingCatalogPage,
+  type NativeOpenAIOnboardingCommitted,
+  type NativeOpenAIOnboardingFailureCode,
+  type NativeOpenAIOnboardingOutcome,
 } from "@recurs/contracts";
 
 import { NativeFrameDecoder, NativeMessageType } from "./frame.js";
@@ -19,16 +28,60 @@ import {
   encodeHealth,
   encodeHello,
 } from "./messages.js";
+import {
+  NativeOpenAIOnboardingFailureCode as NativeOpenAIOnboardingWireFailureCode,
+  decodeOpenAIOnboardingAborted,
+  decodeOpenAIOnboardingBegun,
+  decodeOpenAIOnboardingCatalogPage,
+  decodeOpenAIOnboardingCommitted,
+  decodeOpenAIOnboardingFailure,
+  decodeOpenAIOnboardingReconciliation,
+  encodeOpenAIOnboardingRequest,
+} from "./openai-onboarding.js";
+import type {
+  NativeOpenAIOnboardingCatalogPage as NativeOpenAIOnboardingWireCatalogPage,
+  NativeOpenAIOnboardingRequest,
+} from "./openai-onboarding.js";
 
 const NATIVE_NONCE_BYTE_LENGTH = 32;
 const MAX_NATIVE_IN_FLIGHT_REQUESTS = 64;
 const DEFAULT_NATIVE_TIMEOUT_MILLISECONDS = 5_000;
 const MAX_NATIVE_TIMEOUT_MILLISECONDS = 60_000;
+const DEFAULT_ONBOARDING_BEGIN_TIMEOUT_MILLISECONDS = 300_000;
+const MAX_ONBOARDING_BEGIN_TIMEOUT_MILLISECONDS = 300_000;
+const DEFAULT_ONBOARDING_CONTROL_TIMEOUT_MILLISECONDS = 30_000;
+const NATIVE_CANCEL_FLUSH_MILLISECONDS = 100;
+const NativeAbortSignal = AbortSignal;
+const abortSignalAbortedGetter = Object.getOwnPropertyDescriptor(
+  NativeAbortSignal.prototype,
+  "aborted",
+)?.get as (this: AbortSignal) => boolean;
+const nativeAddEventListener = EventTarget.prototype.addEventListener;
+const nativeRemoveEventListener = EventTarget.prototype.removeEventListener;
+
+type OpenAIOnboardingState =
+  | { readonly kind: "fresh" }
+  | {
+      readonly kind: "awaiting_verification";
+      readonly connectionId: string;
+    }
+  | {
+      readonly kind: "catalog";
+      readonly connectionId: string;
+      readonly totalModelCount: number;
+      readonly nextCursor: number | null;
+      readonly catalogRequestId: string | null;
+      readonly lastModelId: string;
+      readonly seenModelIds: ReadonlySet<string>;
+    }
+  | { readonly kind: "terminal" };
 
 export interface NativeAuthorityClientOptions {
   readonly engineVersion: string;
   readonly handshakeTimeoutMilliseconds?: number;
   readonly requestTimeoutMilliseconds?: number;
+  readonly onboardingBeginTimeoutMilliseconds?: number;
+  readonly onboardingControlTimeoutMilliseconds?: number;
   readonly signal?: AbortSignal;
 }
 
@@ -57,25 +110,36 @@ interface PendingFrame {
   readonly abortListener: (() => void) | undefined;
 }
 
-export interface NativeAuthorityClient extends NativeAuthorityStatusPort {
+export interface NativeAuthorityClient extends NativeAuthorityPort {
   close(): void;
 }
 
 class BoundedNativeAuthorityClient implements NativeAuthorityClient {
   readonly #duplex: Duplex;
   readonly #requestTimeoutMilliseconds: number;
+  readonly #onboardingBeginTimeoutMilliseconds: number;
+  readonly #onboardingControlTimeoutMilliseconds: number;
   readonly #decoder = new NativeFrameDecoder();
   readonly #pending = new Map<number, PendingFrame>();
   #attestation: NativeAuthorityAttestation | undefined;
   #nextRequestId = 1;
+  #openAIOnboardingActive = false;
+  #openAIOnboardingState: OpenAIOnboardingState = { kind: "fresh" };
   #terminalReason: NativeAuthorityUnavailableReason | undefined;
+  #transportDestroyed = false;
 
   private constructor(
     duplex: Duplex,
     requestTimeoutMilliseconds: number,
+    onboardingBeginTimeoutMilliseconds: number,
+    onboardingControlTimeoutMilliseconds: number,
   ) {
     this.#duplex = duplex;
     this.#requestTimeoutMilliseconds = requestTimeoutMilliseconds;
+    this.#onboardingBeginTimeoutMilliseconds =
+      onboardingBeginTimeoutMilliseconds;
+    this.#onboardingControlTimeoutMilliseconds =
+      onboardingControlTimeoutMilliseconds;
     duplex.on("data", this.#onData);
     duplex.once("error", this.#onPeerError);
     duplex.once("end", this.#onPeerEnd);
@@ -89,6 +153,8 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
     let engineVersion: string;
     let handshakeTimeoutMilliseconds: number;
     let requestTimeoutMilliseconds: number;
+    let onboardingBeginTimeoutMilliseconds: number;
+    let onboardingControlTimeoutMilliseconds: number;
     let signal: AbortSignal | undefined;
     try {
       engineVersion = options.engineVersion;
@@ -103,10 +169,17 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
         options.requestTimeoutMilliseconds ??
           DEFAULT_NATIVE_TIMEOUT_MILLISECONDS,
       );
+      onboardingBeginTimeoutMilliseconds = requireTimeout(
+        options.onboardingBeginTimeoutMilliseconds ??
+          DEFAULT_ONBOARDING_BEGIN_TIMEOUT_MILLISECONDS,
+        MAX_ONBOARDING_BEGIN_TIMEOUT_MILLISECONDS,
+      );
+      onboardingControlTimeoutMilliseconds = requireTimeout(
+        options.onboardingControlTimeoutMilliseconds ??
+          DEFAULT_ONBOARDING_CONTROL_TIMEOUT_MILLISECONDS,
+      );
       signal = options.signal;
-      if (signal !== undefined && !(signal instanceof AbortSignal)) {
-        throw new Error();
-      }
+      readAbortSignal(signal);
     } catch {
       destroyWithoutDetails(duplex);
       throw new NativeAuthorityClientUnavailableError("protocol_mismatch");
@@ -115,6 +188,8 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
     const client = new BoundedNativeAuthorityClient(
       duplex,
       requestTimeoutMilliseconds,
+      onboardingBeginTimeoutMilliseconds,
+      onboardingControlTimeoutMilliseconds,
     );
     try {
       const nonce = copyNonce(
@@ -188,15 +263,25 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
   }
 
   async status(signal?: AbortSignal): Promise<NativeAuthorityStatus> {
-    if (signal !== undefined && !(signal instanceof AbortSignal)) {
+    let cancelled: boolean;
+    try {
+      cancelled = readAbortSignal(signal);
+    } catch {
       this.#terminate("protocol_mismatch");
       return unavailable("protocol_mismatch");
     }
-    if (signal?.aborted === true) {
+    if (cancelled) {
       throw abortError();
     }
     if (this.#terminalReason !== undefined) {
       return unavailable(this.#terminalReason);
+    }
+    if (
+      this.#openAIOnboardingActive ||
+      this.#openAIOnboardingState.kind !== "fresh"
+    ) {
+      this.#terminate("protocol_mismatch");
+      return unavailable("protocol_mismatch");
     }
     const attestation = this.#attestation;
     if (attestation === undefined) {
@@ -254,8 +339,302 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
     }
   }
 
+  async beginOpenAIOnboarding(
+    signal?: AbortSignal,
+  ): Promise<NativeOpenAIOnboardingOutcome<NativeOpenAIOnboardingBegun>> {
+    if (!this.#canStartOpenAIOnboarding("fresh", signal)) {
+      return this.#invalidOpenAIOnboardingUse();
+    }
+    return this.#exchangeOpenAIOnboarding(
+      { kind: "begin" },
+      this.#onboardingBeginTimeoutMilliseconds,
+      signal,
+      NativeMessageType.openAIOnboardingBegun,
+      decodeOpenAIOnboardingBegun,
+      (value) => {
+        this.#openAIOnboardingState = {
+          kind: "awaiting_verification",
+          connectionId: value.connectionId,
+        };
+        return Object.freeze({
+          connectionId: value.connectionId,
+          credentialIdentityFingerprint:
+            value.credentialIdentityFingerprint,
+        });
+      },
+    );
+  }
+
+  async verifyOpenAIOnboarding(
+    signal?: AbortSignal,
+  ): Promise<
+    NativeOpenAIOnboardingOutcome<NativeOpenAIOnboardingCatalogPage>
+  > {
+    const state = this.#openAIOnboardingState;
+    if (
+      state.kind !== "awaiting_verification" ||
+      !this.#canStartOpenAIOnboarding("awaiting_verification", signal)
+    ) {
+      return this.#invalidOpenAIOnboardingUse();
+    }
+    return this.#exchangeOpenAIOnboarding(
+      { kind: "verify" },
+      this.#onboardingControlTimeoutMilliseconds,
+      signal,
+      NativeMessageType.openAIOnboardingCatalogPage,
+      decodeOpenAIOnboardingCatalogPage,
+      (page) => {
+        if (page.cursor !== 0) return undefined;
+        this.#openAIOnboardingState = catalogState(
+          state,
+          page,
+          new Set(page.modelIds),
+        );
+        return publicCatalogPage(page);
+      },
+    );
+  }
+
+  async openAIOnboardingCatalogPage(
+    cursor: number,
+    signal?: AbortSignal,
+  ): Promise<
+    NativeOpenAIOnboardingOutcome<NativeOpenAIOnboardingCatalogPage>
+  > {
+    const state = this.#openAIOnboardingState;
+    if (
+      state.kind !== "catalog" ||
+      state.nextCursor === null ||
+      cursor !== state.nextCursor ||
+      !this.#canStartOpenAIOnboarding("catalog", signal)
+    ) {
+      return this.#invalidOpenAIOnboardingUse();
+    }
+    return this.#exchangeOpenAIOnboarding(
+      { kind: "catalog_page", cursor },
+      this.#onboardingControlTimeoutMilliseconds,
+      signal,
+      NativeMessageType.openAIOnboardingCatalogPage,
+      decodeOpenAIOnboardingCatalogPage,
+      (page) => {
+        if (
+          page.cursor !== cursor ||
+          page.totalModelCount !== state.totalModelCount ||
+          page.catalogRequestId !== state.catalogRequestId ||
+          compareUtf8(state.lastModelId, page.modelIds[0] ?? "") >= 0
+        ) {
+          return undefined;
+        }
+        const seenModelIds = new Set(state.seenModelIds);
+        for (const modelId of page.modelIds) seenModelIds.add(modelId);
+        this.#openAIOnboardingState = catalogState(
+          state,
+          page,
+          seenModelIds,
+        );
+        return publicCatalogPage(page);
+      },
+    );
+  }
+
+  async finalizeOpenAIOnboarding(
+    exactModelId: string,
+    signal?: AbortSignal,
+  ): Promise<NativeOpenAIOnboardingOutcome<NativeOpenAIOnboardingCommitted>> {
+    const state = this.#openAIOnboardingState;
+    if (
+      state.kind !== "catalog" ||
+      !state.seenModelIds.has(exactModelId) ||
+      !this.#canStartOpenAIOnboarding("catalog", signal)
+    ) {
+      return this.#invalidOpenAIOnboardingUse();
+    }
+    return this.#exchangeOpenAIOnboarding(
+      { kind: "finalize", exactModelId },
+      this.#onboardingControlTimeoutMilliseconds,
+      signal,
+      NativeMessageType.openAIOnboardingCommitted,
+      decodeOpenAIOnboardingCommitted,
+      (committed) => {
+        if (
+          committed.connectionId !== state.connectionId ||
+          committed.selectedModelId !== exactModelId ||
+          committed.verifiedModelCount !== state.totalModelCount ||
+          committed.catalogRequestId !== state.catalogRequestId
+        ) {
+          return undefined;
+        }
+        this.#openAIOnboardingState = { kind: "terminal" };
+        return Object.freeze({
+          connectionId: committed.connectionId,
+          selectedModelId: committed.selectedModelId,
+          verifiedModelCount: committed.verifiedModelCount,
+        });
+      },
+    );
+  }
+
+  async abortOpenAIOnboarding(
+    signal?: AbortSignal,
+  ): Promise<NativeOpenAIOnboardingOutcome<NativeOpenAIOnboardingAborted>> {
+    const state = this.#openAIOnboardingState;
+    if (
+      (state.kind !== "awaiting_verification" && state.kind !== "catalog") ||
+      !this.#canStartOpenAIOnboarding(state.kind, signal)
+    ) {
+      return this.#invalidOpenAIOnboardingUse();
+    }
+    return this.#exchangeOpenAIOnboarding(
+      { kind: "abort" },
+      this.#onboardingControlTimeoutMilliseconds,
+      signal,
+      NativeMessageType.openAIOnboardingAborted,
+      decodeOpenAIOnboardingAborted,
+      () => {
+        this.#openAIOnboardingState = { kind: "terminal" };
+        return Object.freeze({ aborted: true as const });
+      },
+    );
+  }
+
+  async reconcileOpenAIActivation(
+    connectionId: string,
+    credentialIdentityFingerprint: string,
+    signal?: AbortSignal,
+  ): Promise<
+    NativeOpenAIOnboardingOutcome<NativeOpenAIActivationReconciliation>
+  > {
+    if (!this.#canStartOpenAIOnboarding("fresh", signal)) {
+      return this.#invalidOpenAIOnboardingUse();
+    }
+    return this.#exchangeOpenAIOnboarding(
+      {
+        kind: "reconcile",
+        connectionId,
+        credentialIdentityFingerprint,
+      },
+      this.#onboardingControlTimeoutMilliseconds,
+      signal,
+      NativeMessageType.openAIOnboardingReconciliation,
+      decodeOpenAIOnboardingReconciliation,
+      (reconciliation) => {
+        this.#openAIOnboardingState = { kind: "terminal" };
+        return Object.freeze({ status: reconciliation.status });
+      },
+    );
+  }
+
   close(): void {
     this.#terminate("broker_unavailable");
+  }
+
+  #canStartOpenAIOnboarding(
+    expectedState: OpenAIOnboardingState["kind"],
+    signal: AbortSignal | undefined,
+  ): boolean {
+    if (
+      this.#terminalReason !== undefined ||
+      this.#openAIOnboardingActive ||
+      this.#openAIOnboardingState.kind !== expectedState ||
+      this.#pending.size !== 0
+    ) {
+      return false;
+    }
+    try {
+      readAbortSignal(signal);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async #exchangeOpenAIOnboarding<WireValue, PublicValue>(
+    request: NativeOpenAIOnboardingRequest,
+    timeoutMilliseconds: number,
+    signal: AbortSignal | undefined,
+    expectedType: NativeMessageType,
+    decode: (frame: NativeFrame) => WireValue,
+    accept: (value: WireValue) => PublicValue | undefined,
+  ): Promise<NativeOpenAIOnboardingOutcome<PublicValue>> {
+    let cancelled: boolean;
+    try {
+      cancelled = readAbortSignal(signal);
+    } catch {
+      return this.#invalidOpenAIOnboardingUse();
+    }
+    if (cancelled) throw abortError();
+
+    let requestId: number;
+    let encoded: Uint8Array;
+    try {
+      requestId = this.#claimRequestId();
+      encoded = encodeOpenAIOnboardingRequest(requestId, request);
+    } catch {
+      return this.#invalidOpenAIOnboardingUse();
+    }
+
+    this.#openAIOnboardingActive = true;
+    try {
+      const response = await this.#exchange(
+        requestId,
+        encoded,
+        timeoutMilliseconds,
+        signal,
+      );
+      if (this.#terminalReason !== undefined) {
+        return nativeOpenAIOnboardingFailure("authority_unavailable");
+      }
+      if (response.type === NativeMessageType.openAIOnboardingFailure) {
+        const failure = decodeOpenAIOnboardingFailure(response);
+        const code = mapOpenAIOnboardingFailureCode(failure.code);
+        this.#terminate("broker_unavailable");
+        return nativeOpenAIOnboardingFailure(code);
+      }
+      if (response.type === NativeMessageType.safeFailure) {
+        const reason = decodeSafeFailure(response);
+        this.#terminate(reason);
+        return nativeOpenAIOnboardingFailure(
+          mapSafeFailureToOpenAIOnboarding(reason),
+        );
+      }
+      if (response.type !== expectedType) {
+        return this.#invalidOpenAIOnboardingResponse();
+      }
+      const wireValue = decode(response);
+      if (this.#terminalReason !== undefined) {
+        return nativeOpenAIOnboardingFailure("authority_unavailable");
+      }
+      const value = accept(wireValue);
+      if (value === undefined) {
+        return this.#invalidOpenAIOnboardingResponse();
+      }
+      return nativeOpenAIOnboardingSucceeded(value);
+    } catch (error) {
+      if (isAbortError(error)) throw abortError();
+      this.#terminate(
+        error instanceof NativeAuthorityClientUnavailableError
+          ? error.reason
+          : "protocol_mismatch",
+      );
+      return nativeOpenAIOnboardingFailure("authority_unavailable");
+    } finally {
+      this.#openAIOnboardingActive = false;
+    }
+  }
+
+  #invalidOpenAIOnboardingUse<T>(): NativeOpenAIOnboardingOutcome<T> {
+    if (this.#terminalReason !== undefined) {
+      return nativeOpenAIOnboardingFailure("authority_unavailable");
+    }
+    this.#openAIOnboardingState = { kind: "terminal" };
+    this.#terminate("protocol_mismatch");
+    return nativeOpenAIOnboardingFailure("invalid_request");
+  }
+
+  #invalidOpenAIOnboardingResponse<T>(): NativeOpenAIOnboardingOutcome<T> {
+    this.#openAIOnboardingState = { kind: "terminal" };
+    this.#terminate("protocol_mismatch");
+    return nativeOpenAIOnboardingFailure("authority_unavailable");
   }
 
   #claimRequestId(): number {
@@ -283,8 +662,13 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
         new NativeAuthorityClientUnavailableError(this.#terminalReason),
       );
     }
-    if (signal?.aborted === true) {
-      return Promise.reject(abortError());
+    try {
+      if (readAbortSignal(signal)) return Promise.reject(abortError());
+    } catch {
+      this.#terminate("protocol_mismatch");
+      return Promise.reject(
+        new NativeAuthorityClientUnavailableError("protocol_mismatch"),
+      );
     }
     if (this.#pending.size >= MAX_NATIVE_IN_FLIGHT_REQUESTS) {
       this.#terminate("protocol_mismatch");
@@ -297,10 +681,12 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
       const timer = setTimeout(() => {
         const pending = this.#takePending(requestId);
         if (pending !== undefined) {
-          pending.reject(
-            new NativeAuthorityClientUnavailableError("broker_unavailable"),
+          this.#cancelAndTerminate(
+            requestId,
+            () => pending.reject(
+              new NativeAuthorityClientUnavailableError("broker_unavailable"),
+            ),
           );
-          this.#terminate("broker_unavailable");
         }
       }, timeoutMilliseconds);
       timer.unref();
@@ -311,8 +697,10 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
             if (pending === undefined) {
               return;
             }
-            pending.reject(abortError());
-            this.#sendCancel(requestId);
+            this.#cancelAndTerminate(
+              requestId,
+              () => pending.reject(abortError()),
+            );
           };
       this.#pending.set(requestId, {
         resolve,
@@ -321,23 +709,55 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
         signal,
         abortListener,
       });
-      signal?.addEventListener("abort", abortListener as () => void, {
-        once: true,
-      });
-      if (signal?.aborted === true) {
-        abortListener?.();
+      try {
+        addAbortListener(signal, abortListener);
+        if (readAbortSignal(signal)) {
+          abortListener?.();
+          return;
+        }
+      } catch {
+        const pending = this.#takePending(requestId);
+        pending?.reject(
+          new NativeAuthorityClientUnavailableError("protocol_mismatch"),
+        );
+        this.#terminate("protocol_mismatch");
         return;
       }
       this.#write(encoded);
     });
   }
 
-  #sendCancel(targetRequestId: number): void {
+  #cancelAndTerminate(
+    targetRequestId: number,
+    settle: () => void,
+  ): void {
     try {
       const cancelRequestId = this.#claimRequestId();
-      this.#write(encodeCancel(cancelRequestId, targetRequestId));
+      const encoded = encodeCancel(cancelRequestId, targetRequestId);
+      this.#poison("broker_unavailable");
+      let finished = false;
+      const finish = (reason: NativeAuthorityUnavailableReason): void => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timer);
+        this.#poison(reason);
+        this.#destroyTransport();
+        settle();
+      };
+      const timer = setTimeout(
+        () => finish("broker_unavailable"),
+        NATIVE_CANCEL_FLUSH_MILLISECONDS,
+      );
+      try {
+        this.#duplex.write(encoded, () => {
+          finish("broker_unavailable");
+        });
+      } catch {
+        finish("broker_unavailable");
+      }
     } catch {
       this.#terminate("protocol_mismatch");
+      settle();
     }
   }
 
@@ -364,7 +784,7 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
     this.#pending.delete(requestId);
     clearTimeout(pending.timer);
     if (pending.abortListener !== undefined) {
-      pending.signal?.removeEventListener("abort", pending.abortListener);
+      removeAbortListener(pending.signal, pending.abortListener);
     }
     return pending;
   }
@@ -411,9 +831,12 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
   };
 
   #terminate(reason: NativeAuthorityUnavailableReason): void {
-    if (this.#terminalReason !== undefined) {
-      return;
-    }
+    this.#poison(reason);
+    this.#destroyTransport();
+  }
+
+  #poison(reason: NativeAuthorityUnavailableReason): void {
+    if (this.#terminalReason !== undefined) return;
     this.#terminalReason = reason;
     this.#duplex.off("data", this.#onData);
     try {
@@ -427,6 +850,11 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
     for (const request of pending) {
       request.reject(new NativeAuthorityClientUnavailableError(reason));
     }
+  }
+
+  #destroyTransport(): void {
+    if (this.#transportDestroyed) return;
+    this.#transportDestroyed = true;
     destroyWithoutDetails(this.#duplex);
   }
 }
@@ -438,15 +866,107 @@ export function connectNativeAuthorityClient(
   return BoundedNativeAuthorityClient.connect(duplex, options);
 }
 
-function requireTimeout(value: number): number {
+function requireTimeout(
+  value: number,
+  maximum = MAX_NATIVE_TIMEOUT_MILLISECONDS,
+): number {
   if (
     !Number.isInteger(value) ||
     value <= 0 ||
-    value > MAX_NATIVE_TIMEOUT_MILLISECONDS
+    value > maximum
   ) {
     throw new Error();
   }
   return value;
+}
+
+function catalogState(
+  identity: {
+    readonly connectionId: string;
+  },
+  page: NativeOpenAIOnboardingWireCatalogPage,
+  seenModelIds: ReadonlySet<string>,
+): OpenAIOnboardingState {
+  return {
+    kind: "catalog",
+    connectionId: identity.connectionId,
+    totalModelCount: page.totalModelCount,
+    nextCursor: page.nextCursor,
+    catalogRequestId: page.catalogRequestId,
+    lastModelId: page.modelIds[page.modelIds.length - 1] as string,
+    seenModelIds,
+  };
+}
+
+function publicCatalogPage(
+  page: NativeOpenAIOnboardingWireCatalogPage,
+): NativeOpenAIOnboardingCatalogPage {
+  return Object.freeze({
+    cursor: page.cursor,
+    totalModelCount: page.totalModelCount,
+    nextCursor: page.nextCursor,
+    modelIds: Object.freeze([...page.modelIds]),
+  });
+}
+
+function compareUtf8(left: string, right: string): number {
+  const encoder = new TextEncoder();
+  const leftBytes = encoder.encode(left);
+  const rightBytes = encoder.encode(right);
+  const count = Math.min(leftBytes.byteLength, rightBytes.byteLength);
+  for (let index = 0; index < count; index += 1) {
+    const difference = (leftBytes[index] ?? 0) - (rightBytes[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return leftBytes.byteLength - rightBytes.byteLength;
+}
+
+function mapOpenAIOnboardingFailureCode(
+  code: NativeOpenAIOnboardingWireFailureCode,
+): NativeOpenAIOnboardingFailureCode {
+  switch (code) {
+    case NativeOpenAIOnboardingWireFailureCode.invalidRequest:
+      return "invalid_request";
+    case NativeOpenAIOnboardingWireFailureCode.sessionNotReady:
+      return "session_not_ready";
+    case NativeOpenAIOnboardingWireFailureCode.busy:
+      return "busy";
+    case NativeOpenAIOnboardingWireFailureCode.cancelled:
+      return "cancelled";
+    case NativeOpenAIOnboardingWireFailureCode.expired:
+      return "expired";
+    case NativeOpenAIOnboardingWireFailureCode.verificationFailed:
+      return "verification_failed";
+    case NativeOpenAIOnboardingWireFailureCode.invalidModel:
+      return "invalid_model";
+    case NativeOpenAIOnboardingWireFailureCode.noCompatibleModels:
+      return "no_compatible_models";
+    case NativeOpenAIOnboardingWireFailureCode.commitFailed:
+      return "commit_failed";
+    case NativeOpenAIOnboardingWireFailureCode.credentialStoreUnavailable:
+      return "credential_store_unavailable";
+    case NativeOpenAIOnboardingWireFailureCode.cleanupFailed:
+      return "cleanup_failed";
+    case NativeOpenAIOnboardingWireFailureCode.reconciliationRequired:
+      return "reconciliation_required";
+    case NativeOpenAIOnboardingWireFailureCode.authorityUnavailable:
+      return "authority_unavailable";
+    case NativeOpenAIOnboardingWireFailureCode.operationUnavailable:
+      return "operation_unavailable";
+  }
+}
+
+function mapSafeFailureToOpenAIOnboarding(
+  reason: NativeAuthorityUnavailableReason,
+): NativeOpenAIOnboardingFailureCode {
+  switch (reason) {
+    case "keychain_unavailable":
+      return "credential_store_unavailable";
+    case "unsupported_operation":
+      return "operation_unavailable";
+    default:
+      return "authority_unavailable";
+  }
 }
 
 function copyNonce(value: Uint8Array): Uint8Array {
@@ -482,7 +1002,41 @@ function abortError(): DOMException {
 }
 
 function isAbortError(error: unknown): error is DOMException {
-  return error instanceof DOMException && error.name === "AbortError";
+  try {
+    return error instanceof DOMException && error.name === "AbortError";
+  } catch {
+    return false;
+  }
+}
+
+function readAbortSignal(signal: AbortSignal | undefined): boolean {
+  if (signal === undefined) return false;
+  if (!(signal instanceof NativeAbortSignal)) throw new TypeError();
+  return Reflect.apply(abortSignalAbortedGetter, signal, []) as boolean;
+}
+
+function addAbortListener(
+  signal: AbortSignal | undefined,
+  listener: (() => void) | undefined,
+): void {
+  if (signal === undefined || listener === undefined) return;
+  Reflect.apply(nativeAddEventListener, signal, [
+    "abort",
+    listener,
+    { once: true },
+  ]);
+}
+
+function removeAbortListener(
+  signal: AbortSignal | undefined,
+  listener: () => void,
+): void {
+  if (signal === undefined) return;
+  try {
+    Reflect.apply(nativeRemoveEventListener, signal, ["abort", listener]);
+  } catch {
+    // A signal that loses EventTarget validity cannot retain client details.
+  }
 }
 
 function destroyWithoutDetails(duplex: Duplex): void {
