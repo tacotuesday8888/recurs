@@ -16,6 +16,7 @@
 - Node request IDs are nonzero and strictly increasing; at most `64` health requests may be active or queued; broker work stays serial.
 - Active-request cancellation is terminal: close the broker, socket, and session, and suppress every late XPC response.
 - Native failures cross the socket only as existing fixed `SafeFailureCode` values; native error prose and transport details never cross it.
+- A completely idle engine channel may remain open indefinitely; a frame that has begun but is still incomplete after `5` seconds is terminal, receive polling uses `250` millisecond slices, and a stalled write is terminal after `5` seconds.
 - The public/npm/source CLI deletes `RECURS_NATIVE_FD`, never reads or writes its descriptor, and never treats the marker as provenance.
 - The private engine host has no npm `bin` and no public package export; private placement is not identity proof, so self-asserted readiness remains downgraded until installed signed-artifact evidence exists.
 - The launcher resolves the Node runtime and engine entrypoint only from fixed regular, nonsymlinked files inside its own sealed bundle; it never resolves either from `PATH`, the working directory, an environment variable, or a user argument.
@@ -245,16 +246,20 @@ git commit -m "refactor: isolate bundled native engine host"
 ### Task 3: Add the owned Darwin socket transport
 
 **Files:**
+- Modify: `native/macos/Sources/RecursNativeProtocol/Frame.swift`
+- Modify: `native/macos/Tests/RecursNativeProtocolTests/FrameTests.swift`
+- Modify: `native/macos/Sources/RecursLauncher/LauncherNodeSession.swift`
+- Modify: `native/macos/Tests/RecursLauncherTests/LauncherNodeSessionTests.swift`
 - Create: `native/macos/Sources/RecursLauncher/LauncherNodeSocket.swift`
 - Create: `native/macos/Tests/RecursLauncherTests/LauncherNodeSocketTests.swift`
 
 **Interfaces:**
 - Consumes: `LauncherNodeSessionOutput` and `LauncherNodeSession.receive/finish/close`.
-- Produces: one owned close-on-exec socket endpoint and a bounded read pump.
+- Produces: one owned close-on-exec socket endpoint, decoder incomplete-frame visibility, and a bounded read pump.
 
 - [ ] **Step 1: Write failing real-socket tests**
 
-Create a real `socketpair(AF_UNIX, SOCK_STREAM, 0, ...)`. Prove fragmented and coalesced frames reach the session, complete writes survive forced short writes/EINTR, peer EOF calls `finish`, read/write timeout or EPIPE closes without SIGPIPE, oversized/truncated input fails closed, and repeated or concurrent close closes the descriptor once. Confirm `F_GETFD & FD_CLOEXEC != 0` and `SO_NOSIGPIPE == 1` on the owned endpoint.
+Create a real `socketpair(AF_UNIX, SOCK_STREAM, 0, ...)` plus an injected syscall fixture for forced short writes/EINTR. Prove fragmented and coalesced frames reach the session, complete writes survive forced short writes/EINTR, peer EOF calls `finish`, EPIPE and the `5` second write timeout close without SIGPIPE, oversized/truncated input fails closed, and repeated or concurrent close closes the descriptor once. Confirm `F_GETFD & FD_CLOEXEC != 0` and `SO_NOSIGPIPE == 1` on the owned endpoint. Use an injected monotonic clock to prove repeated `250` millisecond idle read slices do not close a decoder with no buffered frame, while one frame that remains incomplete for `5` seconds closes the session even if the peer trickles additional bytes.
 
 - [ ] **Step 2: Run the socket tests and verify RED**
 
@@ -268,14 +273,32 @@ Expected: FAIL because the socket transport does not exist.
 
 - [ ] **Step 3: Implement the owned socket and read pump**
 
-Provide these package-only interfaces:
+Expose package-only decoder/session state without exposing buffered bytes:
 
 ```swift
+extension NativeFrameDecoder {
+  package var isAwaitingFrameCompletion: Bool { get }
+}
+
+extension LauncherNodeSession {
+  package func isAwaitingFrameCompletion() -> Bool
+}
+```
+
+Provide these package-only socket interfaces:
+
+```swift
+package enum LauncherNodeSocketRead: Sendable, Equatable {
+  case data(Data)
+  case idle
+  case end
+}
+
 package final class LauncherNodeSocket: LauncherNodeSessionOutput,
   @unchecked Sendable
 {
   package init(ownedDescriptor: Int32) throws
-  package func read(maximumByteCount: Int) async throws -> Data?
+  package func read(maximumByteCount: Int) async throws -> LauncherNodeSocketRead
   package func write(_ frame: Data) async throws
   package func close() async
 }
@@ -286,7 +309,7 @@ package func serve(
 ) async
 ```
 
-Use a lock-protected owned descriptor, `SO_NOSIGPIPE`, finite `SO_RCVTIMEO`/`SO_SNDTIMEO`, retry only EINTR, bounded `recv`, and a loop for complete `send`. Return `nil` only for clean EOF. `serve` feeds chunks no larger than `nativeFrameHeaderByteCount + nativeFrameMaximumPayloadByteCount`, calls `finish` on EOF, and closes both sides in `defer`.
+Use a lock-protected owned descriptor, `FD_CLOEXEC`, `SO_NOSIGPIPE`, a `250` millisecond `SO_RCVTIMEO`, a `5` second `SO_SNDTIMEO`, retry only EINTR, bounded `recv`, and a loop for complete `send`. Map `EAGAIN`/`EWOULDBLOCK` on receive to `.idle`, zero bytes to `.end`, and never treat an idle slice by itself as terminal. `serve` feeds chunks no larger than `nativeFrameHeaderByteCount + nativeFrameMaximumPayloadByteCount`, starts one non-sliding `5` second deadline when the decoder first becomes incomplete, clears it only after a complete frame boundary, calls `finish` on EOF, and closes both sides in `defer`. Use `shutdown(SHUT_RDWR)` before the one owned `close` so another thread's blocked receive is released without an FD-reuse close race.
 
 - [ ] **Step 4: Run focused native tests and commit**
 
@@ -300,7 +323,11 @@ Expected: PASS without hangs or SIGPIPE.
 
 ```bash
 git add native/macos/Sources/RecursLauncher/LauncherNodeSocket.swift \
-  native/macos/Tests/RecursLauncherTests/LauncherNodeSocketTests.swift
+  native/macos/Sources/RecursLauncher/LauncherNodeSession.swift \
+  native/macos/Sources/RecursNativeProtocol/Frame.swift \
+  native/macos/Tests/RecursLauncherTests/LauncherNodeSocketTests.swift \
+  native/macos/Tests/RecursLauncherTests/LauncherNodeSessionTests.swift \
+  native/macos/Tests/RecursNativeProtocolTests/FrameTests.swift
 git commit -m "feat: add bounded launcher socket transport"
 ```
 
