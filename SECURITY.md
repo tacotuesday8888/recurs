@@ -7,6 +7,25 @@ accidental disclosure through built-in tools, checkpoints, child environments,
 and error messages; arbitrary commands still run with the user's host
 filesystem, network, IPC, and process authority.
 
+The repository now includes a macOS 14.4+ native-authority component
+foundation. It has tested Data Protection Keychain and credential-state/journal
+libraries, exact-peer code-identity checks, a handshake/health XPC broker and
+headless launcher skeleton, a no-secret framed TypeScript client for an injected
+descriptor, child-process descriptor denial, and fixed redacted diagnostics.
+The intended production architecture makes a signed broker the sole credential
+and reusable-authority owner, but that path is not operational yet: the launcher
+does not create the socket pair or spawn/bridge Node, credential operations are
+not connected to the broker service, and no signed/notarized artifact exists.
+The handshake-only broker advertises persistent credentials as unavailable.
+The injected descriptor and its peer's self-attestation cannot prove native
+provenance, so the inherited-descriptor factory also downgrades any claimed
+ready result to peer-identity-unverified without a JavaScript or environment
+bypass. Ordinary macOS source execution fails closed as launcher-unavailable,
+while other platforms report unsupported. A connected native peer without
+production and persistent authority reports production-signing-required. There
+is no plaintext fallback. No current CLI command
+collects a direct-provider secret and all broker-owned providers remain disabled.
+
 The one implemented subscription path is deliberately narrower than a Recurs-
 owned credential flow: Recurs launches the pinned official Codex ACP adapter as
 a vendor-authenticated child runtime and lets that runtime use an existing
@@ -71,12 +90,23 @@ credential.
 The permanent built-in credential-path denial and clean subprocess environment
 are defense in depth. They are not a promise that model-selected code cannot
 reach host credentials indirectly. `Full Access` is not credential-safe, and
-the default `local_guarded` tool profile is not an OS sandbox. Direct API,
-coding-plan, OAuth, and cloud-identity credential flows remain disabled until a
-separately reviewed native broker, hardened storage, origin-bound transport,
-and tool sandbox boundary is implemented and tested. The official Codex child-
-runtime path above does not make the TypeScript process credential-safe or
-authorize other subscription adapters.
+the default `local_guarded` tool profile is not an OS sandbox. Tool children
+receive only standard descriptors `0`–`2` and do not inherit the launcher
+descriptor, native-authority markers, Keychain/token variables, provider/cloud
+variables, or proxy variables, but they retain the user's ordinary host
+authority.
+
+Direct API, coding-plan, OAuth, and cloud-identity credential flows remain
+disabled until a complete provider vertical supplies a reviewed native request
+codec and endpoint profile, hidden-input onboarding and fenced connection
+lifecycle, policy/runtime binding, the missing launcher/credential-service
+wiring, a compatible signed artifact, and installed-artifact credential-canary
+tests. A manifest boolean cannot bypass that gate.
+The future native HTTPS transport will ignore repository proxy/CA environment
+variables while trusting macOS system proxy and root configuration as host
+policy. That trust must be disclosed; it is not equivalent to certificate or
+proxy pinning. The official Codex child-runtime path above does not make the
+TypeScript process credential-safe or authorize other subscription adapters.
 
 Recurs bounds process-group cleanup and closes its own output pipes so inherited
 pipes alone cannot hold run settlement open before synthetic-directory cleanup.

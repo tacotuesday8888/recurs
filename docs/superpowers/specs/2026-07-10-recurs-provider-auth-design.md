@@ -1,10 +1,10 @@
 # Recurs Provider, Authentication, and Onboarding Design
 
 **Date:** 2026-07-10
-**Status:** Reviewed umbrella design — Slice 0, the TypeScript safety precursor, the 25-path/non-secret connection lifecycle of Slice 2, and the Codex foundation of Slice 4 implemented; native Slice 1, direct credential-bearing Slice 3, and later runtime/policy work pending
+**Status:** Reviewed umbrella design — Slice 0, the TypeScript safety precursor and macOS native-authority foundation of Slice 1, the 25-path/non-secret connection lifecycle of Slice 2, and the Codex foundation of Slice 4 implemented; direct credential-bearing Slice 3 and later runtime/policy work pending
 **Scope:** CLI-first provider connectivity shared with the future desktop app
 
-This specification describes the provider/authentication program. The repository now implements dependency-leaf contracts, immutable backend pins, trusted host context, version-2 sessions and leases, direct/delegated coordination, durable delegated results and recovery, a sessionless workspace shell, unified built-in credential exclusions, checkpoint format gating, clean child state, tool security profiles, sanitized failures, a strict 25-path manifest catalog, a non-secret connection registry and exact-ID lifecycle service, literal-loopback OpenAI-compatible setup, and the first official Codex-with-ChatGPT ACP path. Recurs imports or stores no vendor credential; Codex authentication remains owned by the pinned official runtime. The native storage/broker and OS sandbox authority boundary is still absent, so direct API, coding-plan, OAuth, and cloud-identity activation remains blocked. See [the architecture](../../../ARCHITECTURE.md) for exact implemented behavior.
+This specification describes the provider/authentication program. The repository now implements dependency-leaf contracts, immutable backend pins, trusted host context, version-2 sessions and leases, direct/delegated coordination, durable delegated results and recovery, a sessionless workspace shell, unified built-in credential exclusions, checkpoint format gating, clean child state, tool security profiles, sanitized failures, a strict 25-path manifest catalog, a non-secret connection registry and exact-ID lifecycle service, literal-loopback OpenAI-compatible setup, the first official Codex-with-ChatGPT ACP path, and the macOS native-authority component foundation. That native foundation includes tested Data Protection Keychain and credential-state/journal libraries, exact-peer code-identity checks, handshake/health launcher-broker executables, bounded no-secret framing, a credential-free injected-descriptor TypeScript client, and redacted diagnostics. It is not an end-to-end signed authority: the launcher-to-Node bridge, live broker credential operations, and signed/notarized artifact remain absent. Recurs imports or stores no vendor credential; Codex authentication remains owned by the pinned official runtime. Direct API, coding-plan, OAuth, and cloud-identity activation remains blocked until that native wiring, provider codecs/profiles, hidden-input lifecycle, transport/policy binding, and signed installed-artifact evidence land. See [the architecture](../../../ARCHITECTURE.md) and the newer [Provider Activation v1 design](2026-07-13-provider-activation-v1-design.md) for exact implemented behavior and the narrower native-authority decision that supersedes this umbrella design's blanket sandbox prerequisite for broker-owned direct credentials.
 
 ## 1. Decision
 
@@ -125,11 +125,21 @@ Those defenses remain insufficient for real credentials:
 - Session/checkpoint roots and their full parent chains are not validated as a
   hardened secret store for ownership, mode, ACL, filesystem semantics, and
   concurrent no-follow access.
-- No separate non-exporting broker, origin-bound credential transport, or OS
-  sandbox exists.
+- Native non-exporting broker components now exist, but their credential-state
+  libraries are not connected to the handshake/health service and the launcher
+  does not yet bridge an anonymous socket to Node. No origin-bound provider
+  transport, signed installed artifact, or general OS sandbox exists.
 
 No live cloud credential may ship until the credential and execution isolation
 gates in this specification are proven.
+
+**Supersession note:** Sections 6, 7, 12, and 20 below preserve the broader
+umbrella target. The approved 2026-07-13 Provider Activation v1 design is
+authoritative for the macOS direct-provider path: it permits a narrower signed
+broker/launcher authority instead of requiring a general tool OS sandbox, but
+only after installed-artifact tests prove that tools cannot inherit, discover,
+or reuse credentials or native request authority. If that proof fails, direct
+providers remain disabled and the general sandbox requirement returns.
 
 ## 5. Evaluated Approaches
 
@@ -253,20 +263,25 @@ cleanup also cannot prevent a child with the same user identity from opening
 other paths, contacting local services, or inspecting accessible processes.
 
 Before Recurs owns a direct API, coding-plan, OAuth, or cloud-identity
-credential, it must design and test a narrow native broker/storage
-boundary with descriptor-relative no-follow I/O, owner/mode/ACL and full-parent
-validation, filesystem capability checks, and an OS sandbox that denies tool
-children access to Recurs data, vendor auth state, broker IPC, unrelated
-processes, and non-approved network destinations. A small Rust or
-platform-native component is appropriate for this authority boundary. The
-TypeScript agent loop, coordinator, session engine, and CLI do not need a
-wholesale rewrite.
+credential, it must complete and test the narrow native broker/storage boundary
+defined by Provider Activation v1. The repository now contains its Keychain,
+credential-state/journal, exact-peer, framing/client, and handshake/health
+components, but not the launcher-to-Node bridge, live broker credential
+operations, origin-bound transport, or installed signed-artifact proof. The
+newer design requires tool-child authority denial and installed canary testing;
+it does not claim that the current `local_guarded` profile is a general OS
+sandbox. A small platform-native component is appropriate for this authority
+boundary. The TypeScript agent loop, coordinator, session engine, and CLI do
+not need a wholesale rewrite.
 
-Do not create `@recurs/auth` merely to wrap path strings in an opaque type. Its
-public capability must be backed by the real native authority boundary. The
-next usable provider slice may instead onboard a credential-free server bound
-to an exact literal-loopback endpoint; that slice must not collect a key or
-weaken this gate.
+`@recurs/auth` is now a deliberately small credential-free client for an
+injected inherited native descriptor. It is not a pathname wrapper, secure
+store, connection registry, provider transport, or secret API. Literal-loopback
+local onboarding remains the only Recurs-owned direct transport and collects no
+key. The descriptor marker is transport plumbing, not identity proof: until an
+OS-authenticated launcher bridge exists, the production inherited-descriptor
+factory downgrades a peer's self-asserted ready result to
+`peer_identity_unverified` without a caller-controlled bypass.
 
 ## 7. Package Boundaries
 
@@ -312,19 +327,22 @@ flowchart TD
   injected ports; providers never import `@recurs/auth`.
 - No Keychain implementation and no CLI prompts.
 
-### `@recurs/auth` (planned; blocked on the native authority boundary)
+### `@recurs/auth` (implemented bounded native client)
 
-- Native-backed hardened Recurs data-root authority.
-- Secure-store abstraction and platform implementations.
-- Credential broker and origin-bound provider transport.
-- OAuth/device-flow primitives and cross-process refresh coordination.
-- Secret redaction and safe diagnostic errors.
-- Connection metadata registry with transactional updates.
-- The only public factory for an opened, native-backed data-root capability.
+- Consumes and removes one injected inherited-descriptor marker.
+- Performs bounded binary framing, exact protocol/component-version and nonce
+  handshake, request correlation, timeout, cancellation, and fixed safe-failure
+  mapping.
+- Treats the injected marker and peer-supplied attestation as untrusted
+  provenance and cannot expose a self-asserted ready result from that path.
+- Exposes only redacted native attestation/health and has no `getSecret`,
+  endpoint, header, credential-reference, Keychain, storage, registry, OAuth,
+  or provider-transport surface.
+- Includes a fake status port for deterministic tests.
 
-This package must not be created as a pathname validator or opaque TypeScript
-wrapper. It lands only when the descriptor-relative storage and OS isolation
-authority described in section 6.2 exists.
+The production launcher-to-Node descriptor producer remains pending. Secure
+storage and provider transport live in the native authority rather than this
+TypeScript package.
 
 ### `@recurs/runtimes` (implemented ACP/Codex foundation)
 
@@ -460,7 +478,6 @@ interface DirectConnection extends ConnectionBase {
   kind: "direct";
   adapterKind: "model_provider";
   credentialOwner: "recurs_broker";
-  credentialRef: string;
   endpointBindingId: string;
 }
 
@@ -1737,7 +1754,10 @@ release.
 
 ### 12.1 Non-exportable credentials
 
-The connection registry stores an opaque `credentialRef`, never a secret.
+The TypeScript connection registry stores no credential reference. The native
+broker privately binds the public connection ID and credential generation to
+its Keychain item; Node retains only non-secret connection metadata and a
+non-authorizing credential-bound account fingerprint.
 Provider adapters submit an unsigned, bounded request descriptor to the
 provider transport. The transport:
 
@@ -1832,8 +1852,10 @@ origin.
 - macOS items are non-synchronizing, device-only generic-password items with a
   signed-broker application requirement. Unsigned development builds cannot
   persist live provider credentials.
-- Recurs metadata stores only provider, label, auth kind, scopes, permitted
-  origin, expiry, status, and credential reference.
+- Recurs TypeScript metadata stores only provider, label, auth kind, scopes,
+  permitted origin/profile identity, expiry, status, and non-authorizing
+  account fingerprint. Credential generation and Keychain mapping remain
+  broker-private.
 - Secure-store failure never falls back to plaintext, reversible obfuscation,
   or encryption with a colocated key.
 - A foreground TTY may offer an in-memory **Use once** connection. It cannot be
@@ -2663,6 +2685,14 @@ Retry rules:
 
 These are release blockers for live cloud credentials.
 
+For the macOS direct-provider path, apply these invariants through the newer
+Provider Activation v1 authority model: the signed broker alone owns credential
+and reusable request authority, the exact signed launcher is its only peer, and
+model-selected children receive neither authority channel. The current tool
+profile is not a general OS sandbox. Live providers stay disabled unless
+installed-artifact tests prove the narrower boundary; failure restores the
+broader sandbox prerequisite.
+
 ### 20.1 Credential isolation
 
 - Direct-provider secrets are non-exportable broker capabilities. A delegated
@@ -2678,13 +2708,16 @@ These are release blockers for live cloud credentials.
 - Broker IPC is OS-authenticated and capability-scoped. Unrelated descriptors
   are close-on-exec, and tool descendants cannot discover or connect to broker
   endpoints.
-- The tool sandbox permanently denies macOS credential APIs/`security`, Linux
-  Secret Service/DBus/`secret-tool`, `/proc` process environments, ptrace and
-  equivalent process-memory APIs, core/heap dumps, the Recurs root, and vendor
-  auth homes.
-- If a platform cannot enforce and test these controls, live credentials are
-  unavailable with every model-selected subprocess tool, not merely
-  `run_command`. Recurs does not downgrade the guarantee.
+- The macOS launcher channel is anonymous, close-on-exec, and explicitly absent
+  from every fixed and arbitrary tool child. The exact-peer XPC service is not
+  discoverable authority for an unsigned or alternate same-user process.
+- Installed-artifact tests cover descriptor inheritance, alternate launcher
+  identity, process attachment, Keychain/`security`, broker IPC, Hardened
+  Runtime, and credential canaries with every model-selected subprocess tool,
+  not merely `run_command`.
+- Linux and any platform without an equivalently enforceable, tested authority
+  keep live Recurs-owned credentials unavailable. Recurs does not downgrade the
+  guarantee.
 
 ### 20.2 No secret persistence or presentation
 
@@ -3090,7 +3123,7 @@ safety precursor described below.
 - Keep every existing scripted-provider behavior passing through compatibility
   fixtures; no live credential is introduced.
 
-### Slice 1: Credential and execution safety — TypeScript precursor implemented; native boundary pending
+### Slice 1: Credential and execution safety — TypeScript precursor and macOS native-authority foundation implemented
 
 - Implemented precursor: unify classified credential exclusions across built-in
   tools, permanently deny those intents, and gate new checkpoint storage with a
@@ -3098,20 +3131,35 @@ safety precursor described below.
 - Implemented precursor: clean the environment/home of every fixed and arbitrary
   child, terminate bounded process groups, expose `local_guarded` and
   `tools_disabled`, and sanitize provider/tool/process/CLI failures.
-- Pending: harden the Recurs data root and secret-bearing files through the
-  native descriptor-relative authority boundary.
-- Pending: add the separately sandboxed secure-store/credential-broker service
-  with a fake connection lookup port.
+- Implemented native foundation: broker-private Data Protection Keychain
+  storage, credential generations, reservation fencing, authenticated crash
+  journal/recovery, descriptor-relative secure-directory policy, and endpoint
+  policy primitives.
+- Implemented native foundation: exact signed launcher/broker XPC peer
+  requirements, Hardened Runtime/entitlement validation, a headless
+  health launcher that manages the broker LaunchAgent with `SMAppService`,
+  bounded no-secret framing and a TypeScript client for an injected inherited
+  socket, redacted app/CLI health, and tool-child descriptor denial. The
+  launcher does not yet create that socket or spawn/bridge Node.
+- Implemented activation gate: source/unsigned/ad-hoc builds fail closed and
+  every broker-owned manifest remains unconditionally non-runnable. A typed
+  evidence input is deferred until trusted internal assembly can issue it from
+  native attestation, registered codec/profile, current policy, compatible
+  platform, onboarding, and provider-transport state; caller-created structural
+  claims are not accepted.
 - Pending: create origin-bound transport, scoped run authorizations,
   continuation storage, durable refresh transactions, and volatile Use-once
-  cleanup.
-- Pending: enforce an OS sandbox that denies tool children Recurs/vendor auth,
-  broker IPC, process inspection, and unapproved network access.
-- Pending: pass native storage, sandbox-escape, and end-to-end credential canary
-  tests.
+  cleanup for a complete provider vertical.
+- Pending: add hidden-input onboarding, provider request codecs/profiles, and
+  installed signed-artifact authority/credential-canary tests. The approved
+  Provider Activation v1 design permits the narrower native process boundary
+  only if those tests prove tools cannot inherit or reuse broker authority; a
+  broader OS sandbox returns as a release prerequisite if that proof fails.
 
-The implemented precursor is not Slice 1 completion. No live cloud credential
-ships before every pending native item passes.
+The implemented native foundation is not direct-provider completion. The
+current broker exchange is handshake/health-only, no CLI flow collects a live
+cloud credential, and no broker-owned provider is runnable before every
+provider-specific and signed-artifact gate passes.
 
 ### Slice 2: Connections, catalogs, sessions, and onboarding — bounded non-secret subset implemented
 

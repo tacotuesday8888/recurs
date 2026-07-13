@@ -4,4 +4,5 @@ export * from "./json.js";
 export * from "./manifests.js";
 export * from "./model.js";
 export * from "./native-authority.js";
+export * from "./native-component-version.js";
 export * from "./runtime.js";

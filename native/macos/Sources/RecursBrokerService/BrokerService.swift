@@ -59,6 +59,22 @@ package struct BrokerServiceConfiguration: Sendable {
     self.persistentCredentials = persistentCredentials
     self.keychainStatus = keychainStatus
   }
+
+  package static func productionHandshakeHealthOnly(
+    launcherVersion: String,
+    brokerVersion: String,
+    initialKeychain: KeychainStatusCode,
+    keychainStatus: @escaping @Sendable () -> KeychainStatusCode
+  ) throws -> BrokerServiceConfiguration {
+    try BrokerServiceConfiguration(
+      launcherVersion: launcherVersion,
+      brokerVersion: brokerVersion,
+      productionSigned: true,
+      persistentCredentials: false,
+      initialKeychain: initialKeychain,
+      keychainStatus: keychainStatus
+    )
+  }
 }
 
 package struct BrokerServiceSession: Sendable {

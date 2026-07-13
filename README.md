@@ -20,6 +20,7 @@ The repository contains a usable single-agent base:
 - immutable backend pins, strict version-2 session records, cross-process mutation leases, typed preflight failures, and durable delegated-runtime results and recovery;
 - one credential-path policy enforced across direct and aggregate built-in tools, permanent denial of classified credential intents, and checkpoint capture that excludes those paths;
 - clean per-child environments, bounded process-group cleanup, safe provider/tool/CLI failures, and explicit `local_guarded` or fail-closed `tools_disabled` composition;
+- a macOS 14.4+ Swift native-authority foundation with tested binary framing, Data Protection Keychain, credential-state/journal, exact signed-peer, handshake/health launcher-broker, TypeScript-client, generated code/bundle version, and redacted diagnostic components;
 - one `npm run check` path covering lint, type checking, tests, and build output.
 
 The standalone CLI can use credential-free OpenAI-compatible servers on literal `127.0.0.1` or `[::1]`, or the pinned official `@agentclientprotocol/codex-acp` adapter with an existing ChatGPT account. Only the first saved connection becomes primary; later connections remain secondary until selected explicitly. Historical sessions always resolve their own immutable pin rather than the current primary. Codex is read-only/Plan-only, local, manual, and user-present: one-shot and unattended runs fail closed. Without an explicit primary the CLI starts a sessionless workspace shell, so local commands remain available without writing a fake session. Test hosts can also inject the public `ModelProvider` interface.
@@ -38,6 +39,7 @@ node packages/cli/dist/main.js account list
 node packages/cli/dist/main.js account verify <connection-id>
 node packages/cli/dist/main.js account set-primary <connection-id>
 node packages/cli/dist/main.js account disconnect <connection-id>
+node packages/cli/dist/main.js doctor native --json
 node packages/cli/dist/main.js setup local --url http://127.0.0.1:11434/v1 --model qwen2.5-coder:7b
 # Or, from a local interactive terminal, connect an existing ChatGPT account:
 # node packages/cli/dist/main.js setup codex
@@ -52,12 +54,14 @@ This is currently the only installation path. An npm package is the likely first
 
 ```text
 packages/contracts   Dependency-leaf model, connection, backend, failure, and runtime contracts
+packages/auth        Credential-free bounded client for an inherited native socket
 packages/providers   Validated provider manifests, protocol metadata, and direct-provider implementations
 packages/app         Non-secret connection registry, lifecycle service, onboarding, and policy
 packages/runtimes    Bounded ACP transport and the pinned official Codex runtime profile
 packages/tools       Tool registry, permissions, path policy, Git, and checkpoints
 packages/core        Direct/delegated execution, events, sessions, goals, compaction, and recovery
 packages/cli         Runtime assembly, slash commands, renderers, REPL, and executable
+native/macos         Native security/state libraries and handshake/health executables
 tests/e2e            Public-interface coding workflow proof
 ```
 
@@ -73,13 +77,16 @@ All fixed and arbitrary child processes receive a fresh private home, config, ca
 
 These are application-level defenses, not an OS security boundary. The default `local_guarded` profile still lets approved arbitrary commands use the user's host filesystem, network, IPC, and process authority. `Full Access` remains unsafe for credentials. The optional `tools_disabled` profile exposes no model-callable tools at all; it is a fail-closed composition option, not a coding sandbox. No API key, coding-plan key, cloud credential, copied token, or imported vendor auth file may enter the Recurs TypeScript process. The Codex path is a narrow exception only in the sense that the official vendor runtime keeps ownership of its existing ChatGPT authentication; Recurs never reads or stores that credential.
 
-Before Recurs can own direct API, coding-plan, OAuth, or cloud-identity credentials, it needs a separately tested native broker/storage boundary with descriptor-relative no-follow I/O, ownership/mode/ACL and full-parent validation, filesystem capability checks, origin-bound transport, and an OS sandbox that prevents tool children from reaching broker authority. A small Rust or native component is appropriate for that boundary; the TypeScript harness does not need a wholesale rewrite.
+The macOS native-authority foundation now contains the reviewed components for keeping persistent credential storage and reusable authority outside Node: Data Protection Keychain and credential-state/journal libraries, exact launcher/broker code-identity requirements, Hardened Runtime validation, bounded no-secret framing, a handshake/health-only XPC broker and headless launcher, a credential-free inherited-socket client, child-process descriptor denial, and redacted `recurs doctor native [--json]` output. Ordinary macOS source execution truthfully reports that the launcher channel is unavailable; other platforms report unsupported. An injected descriptor is useful for protocol tests, but Node cannot authenticate its provenance, so a peer that self-asserts readiness is downgraded to `peer_identity_unverified`. Source, unsigned, and ad-hoc paths cannot activate persistent credentials, and there is no plaintext fallback.
+
+This is not yet an end-to-end native authority. The launcher does not yet create the socket pair or spawn/bridge the Node engine; the TypeScript client currently consumes only an injected test/host descriptor. The live broker executable exposes only attestation/health and Keychain availability, not the tested credential-state/store operations, and explicitly attests that persistent credentials are unavailable. No signed/notarized artifact exists. No CLI path collects a key, and every broker-owned manifest remains gated until that wiring, its native request codec and endpoint profile, connection onboarding, policy binding, compatible platform evidence, provider adapter, and installed-artifact tests all exist. The approved future native HTTPS path will trust macOS system proxy and root configuration while ignoring repository proxy/CA environment variables. The current `local_guarded` tool profile is still not a general OS sandbox.
 
 ## Next
 
-1. Design and prove the native broker, hardened storage, origin-bound transport, and OS tool sandbox before any Recurs-owned provider credential.
-2. Activate reviewed direct API, coding-plan, OAuth, and cloud-identity paths over that authority boundary; catalog-only entries remain unavailable until their broker/adapter work lands.
-3. Expand official delegated runtimes only through documented integrations and provider-specific policy review.
-4. Build the heavy sub-agent/company runtime over these explicit backend capabilities.
+1. Complete the native launcher-to-Node socket bridge and wire broker-private credential/state operations into the bounded service.
+2. Build the first direct-provider contracts, native request codec/endpoint profile, and redacted onboarding lifecycle over that authority.
+3. Activate reviewed direct API and coding-plan paths only after signed installed-artifact and credential-canary gates pass; catalog-only entries remain unavailable until their complete vertical lands.
+4. Expand official delegated runtimes only through documented integrations and provider-specific policy review.
+5. Build the heavy sub-agent/company runtime over these explicit backend capabilities.
 
 Start with the [documentation index](docs/README.md), [CLI guide](docs/CLI.md), [architecture](ARCHITECTURE.md), [security policy](SECURITY.md), and [product direction](PRODUCT.md).

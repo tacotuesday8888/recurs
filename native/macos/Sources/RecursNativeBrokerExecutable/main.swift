@@ -5,7 +5,6 @@ import RecursNativeProtocol
 import RecursNativeSecurity
 
 private let brokerMachServiceName = "com.recurs.cli.broker"
-private let nativeComponentVersion = "0.1.0"
 
 private func protocolStatus(
   for status: KeychainAvailabilityStatus
@@ -30,11 +29,9 @@ do {
     configuration: keychainConfiguration
   )
   let initialKeychainStatus = protocolStatus(for: keychainProbe.status())
-  let configuration = try BrokerServiceConfiguration(
-    launcherVersion: nativeComponentVersion,
-    brokerVersion: nativeComponentVersion,
-    productionSigned: true,
-    persistentCredentials: true,
+  let configuration = try BrokerServiceConfiguration.productionHandshakeHealthOnly(
+    launcherVersion: NativeComponentVersion.current,
+    brokerVersion: NativeComponentVersion.current,
     initialKeychain: initialKeychainStatus,
     keychainStatus: {
       protocolStatus(for: keychainProbe.status())

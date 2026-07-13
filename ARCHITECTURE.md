@@ -7,20 +7,26 @@ Recurs has one small coding-agent engine and multiple future clients. The termin
 Dependencies point inward:
 
 ```text
-contracts ◄── providers ◄── app
-    ▲             ▲          ▲
-    ├── runtimes  │          │
-    ├── tools ◄── core       │
-    └─────────────┴────────── cli
+contracts ◄── providers ◄── app ◄── cli
+    ▲             ▲                  ▲
+    ├── auth ─────┘                  │
+    ├── runtimes ────────────────────┤
+    └── tools ◄── core ──────────────┘
+
+native broker ◄──health XPC── native launcher
+auth ◄──injected inherited FD── test/host seam
+native launcher ··· socketpair/Node bridge ··· auth  (pending)
 ```
 
 - `@recurs/contracts` owns dependency-free model, connection, billing, backend-pin, trusted-invocation, failure, direct-provider, delegated-runtime, and coordinator contracts.
 - `@recurs/providers` owns strict provider manifests, the immutable 25-path catalog, normalized direct-provider streams, safe provider-error mapping, and deterministic fixtures. It has no credential implementation.
-- `@recurs/app` owns the non-secret connection registry, redacted lifecycle service, local onboarding, onboarding projection, and Codex onboarding policy. It depends on contracts and providers, never on the CLI.
+- `@recurs/auth` owns the credential-free, bounded client for one inherited native-launcher descriptor. It understands only framed attestation/health messages and fixed safe failures; it has no secret-retrieval operation.
+- `@recurs/app` owns the non-secret connection registry, redacted lifecycle and native-authority services, local onboarding, onboarding projection, and Codex onboarding policy. It depends on contracts, providers, and auth, never on the CLI.
 - `@recurs/runtimes` owns bounded ACP process/protocol handling and the pinned official Codex ACP profile. It receives opaque continuation-store capabilities and does not import vendor credentials.
 - `@recurs/tools` owns tool definitions and execution, permission intents, the unified credential/workspace path policy, command classification, clean child-process setup and bounds, Git inspection, and checkpoint format gates.
 - `@recurs/core` owns the direct agent loop, delegated executor, backend-neutral coordinator, trusted preflight handoff, normalized runtime events, process-scoped continuation authority, durable goals, session reduction, JSONL persistence, compaction, and recovery.
-- `@recurs/cli` composes app, providers, runtimes, core, and tools; it owns slash commands, rendering, interactive input, non-interactive execution, and process exit behavior.
+- `@recurs/cli` composes app (which assembles auth), providers, runtimes, core, and tools; it owns slash commands, redacted native diagnostics, rendering, interactive input, non-interactive execution, and process exit behavior.
+- `native/macos` contains the headless Swift health launcher, exact-peer handshake/health XPC broker, Data Protection Keychain adapter, credential journal/state-machine libraries, endpoint policy, and no-secret wire protocol. The credential libraries and Node bridge are not yet wired into the production executables. This is native CLI infrastructure, not a desktop interface.
 
 The future desktop app and sub-agent orchestrator should consume these public boundaries rather than reimplementing the loop.
 
@@ -56,6 +62,8 @@ The collector rejects malformed usage, duplicate or empty tool identities, data 
 
 The live direct transports are credential-free literal-loopback Ollama/LM Studio plus the injected test/embedding seam. The live delegated transport is the pinned official `@agentclientprotocol/codex-acp` 1.1.2 profile with `@openai/codex` 0.144.0. It enforces Codex `read-only`/Plan mode and local, manual, user-present CLI context. Before every run or reconciliation, assembly rereads the connection and current policy. The runtime verifies structured ChatGPT authentication and the canonical account fingerprint on the exact ACP child that will perform the work, after continuation loading when resuming, and again after session configuration immediately before continuation staging and prompting. One-shot, unattended, recognized CI, remote, scripted, implicit SDK, Act-mode, stale-policy, changed-account, or changed-connection use fails before delegated work continues. In Plan mode, core rejects every opaque runtime approval except a normal read, regardless of the permission preset.
 
+Broker-owned catalog paths have a non-permissive future activation requirement: current native attestation, a registered codec and endpoint profile, current policy, and a compatible platform are all required. This phase registers no trusted activation issuer, and the validator rejects even a structurally complete caller-created claim. A manifest boolean or fabricated object therefore cannot make a path runnable; OpenAI, Anthropic, Kimi, and every other broker-owned path remain `requires_native_broker`.
+
 ## Tools and permissions
 
 The registry parses tool input, evaluates every permission intent, asks when required, records exact session grants, runs an optional side-effect-free validation preflight, creates checkpoints around mutating tools, and executes the tool. A failed preflight cannot start checkpoint capture. Unknown implementation errors are converted to safe typed tool failures before they can enter events or session storage.
@@ -72,7 +80,7 @@ Built-in file, search, patch, Git, and checkpoint operations derive their case-i
 
 Fixed Git operations require Git 2.45 or newer, pin the requested worktree, and disable optional index locks, lazy object fetching, repository hooks, fsmonitor, external diff/text conversion, expanded dirty-submodule diffs, and configured clean/smudge/process filters. Filter key names are enumerated through a bounded name-only Git query; their command values never enter Recurs, and command-line empty overrides make the filters pass through without execution. The same prefix protects status, diff, patch parsing/check/application, and checkpoint enumeration. Apply-patch accepts exact slash-separated declarations, rejects path spellings that its policy would transform, rejects rename/copy operations, resolves canonical targets in a pre-checkpoint preflight, and compares Git's NUL-delimited `--numstat` path set with the declared, revision-checked files before mutation. This is application-level configuration preflight, not an OS boundary against another same-user process changing repository state concurrently.
 
-Every fixed or arbitrary child process receives a mode-`0700` synthetic home, config, cache, and temporary tree under the canonical root-owned sticky system temporary directory. Its environment contains those paths, a filtered absolute `PATH`, and selected locale/terminal values only; it does not inherit provider/cloud variables, the real home, `SHELL`, proxy variables, sockets, or workspace-contained `PATH` entries. Shell execution has command-risk classification, timeout, cancellation, process-group termination, output bounds, and a bounded output-pipe drain before parent handles are destroyed and synthetic-state cleanup proceeds. This prevents inherited pipes alone from holding Recurs settlement open; it does not terminate or contain a descendant that deliberately creates another process group or session. Nonzero exits expose the command and exit code, not stderr. Windows subprocess use fails with a typed unsupported-platform error.
+Every fixed or arbitrary child process receives exactly standard descriptors `0`–`2`, a mode-`0700` synthetic home, config, cache, and temporary tree under the canonical root-owned sticky system temporary directory. Its environment contains those paths, a filtered absolute `PATH`, and selected locale/terminal values only; it does not inherit the launcher descriptor, native-authority markers, Keychain/token variables, provider/cloud variables, the real home, `SHELL`, proxy variables, sockets, or workspace-contained `PATH` entries. Shell execution has command-risk classification, timeout, cancellation, process-group termination, output bounds, and a bounded output-pipe drain before parent handles are destroyed and synthetic-state cleanup proceeds. This prevents inherited pipes alone from holding Recurs settlement open; it does not terminate or contain a descendant that deliberately creates another process group or session. Nonzero exits expose the command and exit code, not stderr. Windows subprocess use fails with a typed unsupported-platform error.
 
 The current security profiles are:
 
@@ -104,19 +112,15 @@ Mutating tools capture content-addressed before/after workspace states outside t
 
 Undo chooses the newest checkpoint that changed files and verifies the current files still match the agent-produced after-state before restoring anything. Credential-classified canonical parents and targets are conflicts—even when the expected after-state is absent—and are checked again before each restore. Git is used for enumeration only; Recurs does not reset, clean, checkout, or commit the user's repository. The format marker protects upgrade semantics; the Node pathname-based store is not suitable for authentication secrets.
 
-## Native authority boundary before Recurs-owned credentials
+## Native authority boundary before Recurs-owned providers
 
-The TypeScript safety precursor closes several direct leak paths, but package boundaries, pathname validation, environment cleanup, and opaque TypeScript types are not hardened storage or an OS sandbox. An approved arbitrary command can still inspect any host resource available to the Recurs user, including Recurs data or vendor auth state through paths, IPC, networking, or process inspection.
+The implemented macOS foundation contains independently tested pieces of the intended Swift process boundary. Code-identity logic checks exact launcher/broker identifiers, Team ID, production signing class, and Hardened Runtime posture. The Data Protection Keychain adapter uses non-synchronizing, `WhenUnlockedThisDeviceOnly` generic-password items in a broker-private access group. Credential generation, reservation, authenticated journal, recovery, secure-directory, and endpoint-policy libraries have native contract tests. The executable broker currently wires only exact-peer handshake/health and live Keychain availability; it does not expose the credential libraries as service operations and advertises `persistentCredentials: false`, preventing a ready client.
 
-Before a direct API, coding-plan, OAuth, or cloud-identity credential enters the Recurs TypeScript process, a separately reviewed native broker/storage boundary must provide:
+`@recurs/auth` can consume and remove one injected inherited-descriptor marker, perform an exact protocol/component-version and nonce handshake, and bound framing and in-flight work. That marker and the peer's own attestation do not authenticate the socket's provenance, so the production inherited-descriptor factory downgrades a self-asserted ready result to `peer_identity_unverified`; no JavaScript flag or environment value can bypass that rule. Model-selected children receive neither the descriptor nor native/broker/launcher markers. The production launcher does not yet create the socket pair, spawn Node, or bridge XPC to that client, so there is no end-to-end installed authority or signed/notarized artifact. Ordinary macOS source execution fails closed as `launcher_unavailable`, while other platforms report `unsupported_platform`; a connected peer that truthfully lacks production or persistent authority reports `production_signing_required`. `recurs doctor native [--json]` reports only the public status contract and closes its one-shot client on every outcome.
 
-- descriptor-relative, no-follow filesystem operations rather than check-then-open pathnames;
-- owner, mode, ACL, and full-parent-chain validation;
-- filesystem capability checks for required atomic and no-follow semantics;
-- a broker or OS service that never exports long-lived credentials to the TypeScript harness; and
-- an OS sandbox that denies tool processes access to Recurs storage, vendor authentication state, broker IPC, unrelated processes, and non-approved network destinations.
+This milestone is a component foundation, not direct-provider activation. The current XPC exchange is handshake/health-only and the Node-facing schema has no credential, endpoint, header, arbitrary RPC, or secret-retrieval field. Launcher-to-Node bridging, live broker credential operations, provider HTTPS, native request codecs/profiles, hidden-input onboarding, connection-generation binding, and installed signed-artifact canary evidence arrive in later verticals. The approved future broker HTTPS path will use ephemeral `URLSession`, reject redirects, ignore repository proxy/CA environment variables, and treat macOS system proxy and root configuration as trusted host policy.
 
-A small Rust or platform-native component is an appropriate implementation for this narrow authority boundary. Rewriting the agent loop, session engine, or CLI wholesale in Rust would not create those guarantees and is not required. `@recurs/auth` must not be added until its public capability is backed by this real boundary.
+The TypeScript tool defenses remain application-level. `local_guarded` is not a general OS sandbox, and an approved arbitrary command can still inspect host resources available to the user. The reviewed direct-provider design permits activation only if installed-artifact tests prove the narrower fact that credentials and reusable request authority stay exclusively inside the hardened broker and cannot be inherited or reused by tool children. If that cannot be proven, direct providers remain disabled and a broader OS sandbox is again a release prerequisite. Rewriting the agent loop, session engine, or CLI wholesale in Rust is not required for this boundary.
 
 The existing Codex path does not weaken that gate: Recurs launches the pinned official adapter, delegates any advertised `chat-gpt` login flow to it, and stores only non-secret linkage, verified account label/fingerprint, policy/billing acknowledgement, and model metadata. Recurs never reads `auth.json`, browser cookies, copied tokens, or credential values. The adapter/runtime remains vendor-authenticated, and the current path is deliberately Plan-only and foreground-only.
 
@@ -128,10 +132,11 @@ Without an explicit primary, the CLI remains in a `WorkspaceShellState` and crea
 
 The remaining extension order is deliberate:
 
-1. the native broker/storage authority, origin-bound transport, and enforceable OS tool sandbox required for Recurs-owned credentials;
-2. direct API, coding-plan, OAuth, and cloud-identity activations over that authority;
-3. additional official delegated runtimes with provider-specific capability and policy proof;
-4. the sub-agent/company coordinator, isolated workspaces, handoffs, and budgets;
-5. desktop, plugins/MCP, and distribution.
+1. complete the launcher-to-Node socket bridge and wire broker-private credential state into bounded native service operations;
+2. add direct-provider contracts plus the first native request codec, endpoint profile, and redacted onboarding lifecycle;
+3. obtain signed installed-artifact and credential-canary proof, followed by reviewed direct API and coding-plan activations;
+4. add official delegated runtimes only with provider-specific capability and policy proof;
+5. build the sub-agent/company coordinator, isolated workspaces, handoffs, and budgets;
+6. add desktop, plugins/MCP, and distribution.
 
 See [the engine comparison](docs/BASE_ENGINE_COMPARISON.md), [the Core v0 design](docs/superpowers/specs/2026-07-10-recurs-core-v0-design.md), and [the provider design](docs/superpowers/specs/2026-07-10-recurs-provider-auth-design.md).

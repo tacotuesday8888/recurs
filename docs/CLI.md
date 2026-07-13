@@ -24,6 +24,8 @@ node packages/cli/dist/main.js --help
 
 You can expose the root package's `recurs` binary locally with `npm link` after building. No package or installer is published today. An npm package is the likely first preview channel. Bun may later install that npm package, but Node remains the supported runtime and Bun runtime compatibility has not been implemented. Homebrew and curl wait for versioned, signed artifacts; Windows packaging remains later work.
 
+Source/npm execution supports the existing credential-free local and vendor-owned Codex paths. It cannot activate persistent Recurs-owned credentials: the native authority requires a correctly bundled, production-signed macOS 14.4+ launcher and broker, and source, unsigned, or ad-hoc builds fail closed without a plaintext fallback.
+
 The repository does not yet contain a license. Although it is intended to become open source, it remains source-available rather than legally open source until the owner selects and adds a license.
 
 ## Provider boundary
@@ -43,6 +45,8 @@ recurs account list --json
 recurs account verify <connection-id>
 recurs account set-primary <connection-id>
 recurs account disconnect <connection-id>
+recurs doctor native
+recurs doctor native --json
 ```
 
 The normal provider list hides blocked paths; `--all` includes them. Both text and JSON distinguish runnable, native-broker-required, and blocked paths and report structured billing and restrictions. Account output marks the primary connection and omits local endpoints, delegated account labels, fingerprints, and credentials.
@@ -50,6 +54,18 @@ The normal provider list hides blocked paths; `--all` includes them. Both text a
 Account mutations require one full exact ID; prefixes, labels, indexes, extra flags, and control characters are rejected. `verify` is read-only and runs only from a local, user-present, non-automation terminal because Codex is one supported path. It rechecks the exact local model or official Codex account/model/read-only profile; it does not sign in, repair billing acknowledgement, or mutate the registry. Use `recurs setup codex` when Codex requires authentication or policy acknowledgement again.
 
 `set-primary` changes only the default for a future new session. Every existing session continues through its immutable connection/model/account/policy/billing pin. `disconnect` requires interactive confirmation and removes only Recurs metadata; it does not sign out, revoke, or delete vendor-owned authentication. Removing the primary leaves no primary instead of selecting another billing source implicitly.
+
+### Native authority diagnostics
+
+`recurs doctor native [--json]` reports the bounded native-authority status available to the CLI; it never starts the agent runtime, prompts for a key, opens Keychain itself, or reveals native paths, descriptors, signing identities, account values, endpoints, headers, or secrets. Text output is intended for a person. JSON is a stable versioned envelope:
+
+```json
+{"version":1,"nativeAuthority":{"state":"unavailable","reason":"launcher_unavailable"}}
+```
+
+Current ordinary macOS source execution reports `launcher_unavailable` and exits successfully because an unavailable diagnostic is a valid result; non-macOS source execution reports `unsupported_platform`. A connected peer without production signing or persistent credential operations reports `production_signing_required`. An injected peer that claims readiness reports `peer_identity_unverified`, because a descriptor number, nonce echo, and the peer's own attestation cannot authenticate its provenance. A future correctly signed host may report ready only after an OS-authenticated launcher bridge supplies the channel and passes protocol/component-version, production-signing, Keychain, broker, and exact-peer checks; there is no JavaScript or environment override. Ready output contains only the corresponding fixed public fields. The repository does not yet include that launcher-to-Node bridge or a signed/notarized installed companion. The one-shot client is closed after every result. Invalid subcommands or duplicate/unknown flags exit `2`; `SIGINT` cancels both handshake and health work, exits `130`, and prints a fixed message.
+
+The command is diagnostic evidence, not provider activation. Every broker-owned catalog path still requires its native request codec and endpoint profile, current policy, compatible platform, onboarding/connection lifecycle, provider adapter, and signed installed-artifact tests. Missing any requirement keeps it unavailable. The approved future broker HTTPS path ignores repository proxy/CA environment variables but trusts macOS system proxy and root configuration.
 
 ### Local setup
 
@@ -273,7 +289,7 @@ Recurs does not perform this move automatically. The marker is an upgrade-safety
 - The current guard is application-level path/permission enforcement and clean child state, not a strong OS sandbox or container.
 - `local_guarded` arbitrary commands have host filesystem, network, IPC, and process authority. Shell classification is conservative but cannot prove scripts safe. Every shell command requires approval outside Full Access until an enforceable sandbox exists.
 - Permanent credential-path denial covers built-in tools, not indirect shell access. Neither Full Access nor `tools_disabled` makes the TypeScript process safe to hold a Recurs-owned provider credential.
-- Node pathname validation and an opaque TypeScript object cannot provide hardened auth storage. Direct API, coding-plan, OAuth, and cloud-identity providers require descriptor-relative no-follow I/O, ownership/mode/ACL/full-parent validation, filesystem capability checks, a native non-exporting broker, origin-bound transport, and an OS tool sandbox.
+- The macOS component foundation supplies tested Data Protection Keychain, exact-peer, credential-state/journal, framing/client, and handshake/health pieces. It does not yet supply the launcher-created Node socket bridge, live broker credential operations, or a signed/notarized artifact. Direct API, coding-plan, OAuth, and cloud-identity providers also require their native request codec/profile, hidden-input lifecycle, policy binding, signed installed-artifact proof, and credential-canary tests before activation.
 - Checkpoints enumerate Git tracked and non-ignored untracked files; ignored files are not restored by checkpoint undo.
 - Output, read, patch, command-time, and agent-step limits are bounded, but very large repositories can still make full snapshots expensive.
 - There is no secret vault, API-key/coding-plan/cloud-identity flow, direct hosted-model transport, general model picker, second subscription adapter, plugin system, public MCP loading, multi-agent company runtime, desktop app, cloud worker, scheduler, or endless `/loop` in v0.

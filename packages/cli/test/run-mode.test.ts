@@ -1,7 +1,15 @@
-import { Readable, Writable } from "node:stream";
+import { PassThrough, Readable, Writable } from "node:stream";
 
-import type { BackendResolver, HostInvocation } from "@recurs/contracts";
-import { ConnectionLifecycleError } from "@recurs/app";
+import {
+  NATIVE_COMPONENT_VERSION,
+  type BackendResolver,
+  type HostInvocation,
+  type NativeAuthorityStatusPort,
+} from "@recurs/contracts";
+import {
+  ConnectionLifecycleError,
+  NativeAuthorityService,
+} from "@recurs/app";
 import type { EventSink } from "@recurs/core";
 import {
   AgentLoop,
@@ -14,7 +22,7 @@ import { ProviderError, ScriptedProvider } from "@recurs/providers";
 import {
   ToolRegistry,
 } from "@recurs/tools";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -24,6 +32,7 @@ import {
   LocalConnectionError,
   RuntimeError,
   createCommandRegistry,
+  createOneShotNativeAuthorityStatusPort,
   createStandaloneRuntime,
   isAutomationEnvironment,
   runCli,
@@ -745,6 +754,238 @@ describe("runCli", () => {
       }),
     ).toBe(0);
     expect(stdout.value).toContain("recurs run <prompt>");
+  });
+
+  it("prints exact redacted native authority diagnostics as text and JSON", async () => {
+    const status = {
+      state: "ready" as const,
+      attestation: {
+        protocolVersion: 1 as const,
+        launcherVersion: NATIVE_COMPONENT_VERSION,
+        brokerVersion: NATIVE_COMPONENT_VERSION,
+        platform: "darwin" as const,
+        minimumMacosVersion: "14.4" as const,
+        productionSigned: true,
+        persistentCredentials: true,
+        injectedPath: "/SECRET_NATIVE_PATH_CANARY",
+      },
+      health: {
+        keychain: "available" as const,
+        broker: "available" as const,
+        peerIdentity: "verified" as const,
+        injectedDescriptor: "SECRET_NATIVE_FD_CANARY",
+      },
+      injectedAccount: "SECRET_NATIVE_ACCOUNT_CANARY",
+    };
+    let runtimeCreated = false;
+    const nativeAuthority: NativeAuthorityStatusPort = {
+      async status() {
+        return status;
+      },
+    };
+
+    for (const [argv, json] of [
+      [["doctor", "native"], false],
+      [["doctor", "native", "--json"], true],
+    ] as const) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+
+      const exitCode = await runCli(argv, {
+        stdout,
+        stderr,
+        nativeAuthority,
+        async createRuntime() {
+          runtimeCreated = true;
+          throw new Error("runtime must not start");
+        },
+      });
+
+      expect(exitCode).toBe(0);
+      expect(stderr.value).toBe("");
+      expect(stdout.value).toContain(NATIVE_COMPONENT_VERSION);
+      expect(stdout.value).toContain("available");
+      if (json) {
+        expect(JSON.parse(stdout.value)).toEqual({
+          version: 1,
+          nativeAuthority: {
+            state: "ready",
+            attestation: {
+              protocolVersion: 1,
+              launcherVersion: NATIVE_COMPONENT_VERSION,
+              brokerVersion: NATIVE_COMPONENT_VERSION,
+              platform: "darwin",
+              minimumMacosVersion: "14.4",
+              productionSigned: true,
+              persistentCredentials: true,
+            },
+            health: {
+              keychain: "available",
+              broker: "available",
+              peerIdentity: "verified",
+            },
+          },
+        });
+      }
+      expect(stdout.value).not.toMatch(
+        /SECRET_NATIVE|injected|account|descriptor|path/iu,
+      );
+    }
+    expect(runtimeCreated).toBe(false);
+  });
+
+  it("prints fixed unavailable native status and rejects invalid doctor flags", async () => {
+    let calls = 0;
+    const nativeAuthority: NativeAuthorityStatusPort = {
+      async status() {
+        calls += 1;
+        return {
+          state: "unavailable",
+          reason: "production_signing_required",
+        };
+      },
+    };
+
+    for (const argv of [
+      ["doctor", "native", "--bad"],
+      ["doctor", "native", "--json", "--json"],
+      ["doctor", "other"],
+    ]) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      expect(await runCli(argv, {
+        stdout,
+        stderr,
+        nativeAuthority,
+        async createRuntime() {
+          throw new Error("runtime must not start");
+        },
+      })).toBe(2);
+      expect(stdout.value).toBe("");
+      expect(stderr.value).toContain("doctor native");
+    }
+    expect(calls).toBe(0);
+
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    expect(await runCli(["doctor", "native", "--json"], {
+      stdout,
+      stderr,
+      nativeAuthority,
+      async createRuntime() {
+        throw new Error("runtime must not start");
+      },
+    })).toBe(0);
+    expect(JSON.parse(stdout.value)).toEqual({
+      version: 1,
+      nativeAuthority: {
+        state: "unavailable",
+        reason: "production_signing_required",
+      },
+    });
+    expect(stderr.value).toBe("");
+    expect(calls).toBe(1);
+  });
+
+  it("maps native diagnostic cancellation to exit 130 without its reason", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    const nativeAuthority: NativeAuthorityStatusPort = {
+      async status(signal) {
+        receivedSignal = signal;
+        throw new DOMException(
+          "The operation was aborted.",
+          "AbortError",
+        );
+      },
+    };
+
+    expect(await runCli(["doctor", "native"], {
+      stdout,
+      stderr,
+      nativeAuthority,
+      signal: controller.signal,
+      async createRuntime() {
+        throw new Error("runtime must not start");
+      },
+    })).toBe(130);
+    expect(receivedSignal).toBe(controller.signal);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toBe("Error: Native authority check was cancelled\n");
+  });
+
+  it("closes the one-shot native authority after a successful status", async () => {
+    const socket = new PassThrough();
+    const service = new NativeAuthorityService(
+      {
+        async status() {
+          return { state: "unavailable", reason: "keychain_unavailable" };
+        },
+      },
+      () => socket.destroy(),
+    );
+    const port = createOneShotNativeAuthorityStatusPort(
+      async () => service,
+    );
+    await expect(port.status()).resolves.toEqual({
+      state: "unavailable",
+      reason: "keychain_unavailable",
+    });
+    expect(socket.destroyed).toBe(true);
+  });
+
+  it("closes the one-shot native authority when health is cancelled", async () => {
+    const controller = new AbortController();
+    const socket = new PassThrough();
+    const removeListener = vi.spyOn(
+      controller.signal,
+      "removeEventListener",
+    );
+    let abortListener: (() => void) | undefined;
+    let markStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const service = new NativeAuthorityService(
+      {
+        status(signal) {
+          return new Promise((_resolve, reject) => {
+            abortListener = () => {
+              reject(new DOMException(
+                "SECRET_HEALTH_ABORT_CANARY",
+                "AbortError",
+              ));
+            };
+            signal?.addEventListener("abort", abortListener);
+            markStarted?.();
+          });
+        },
+      },
+      () => {
+        if (abortListener !== undefined) {
+          controller.signal.removeEventListener("abort", abortListener);
+        }
+        socket.destroy();
+      },
+    );
+    const port = createOneShotNativeAuthorityStatusPort(
+      async () => service,
+    );
+
+    const pending = port.status(controller.signal);
+    await started;
+    controller.abort("SECRET_CONTROLLER_ABORT_CANARY");
+    const error = await pending.catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      name: "AbortError",
+      message: "The operation was aborted.",
+    });
+    expect(JSON.stringify(error)).not.toContain("SECRET_");
+    expect(socket.destroyed).toBe(true);
+    expect(removeListener).toHaveBeenCalledWith("abort", abortListener);
   });
 
   it("opens the interactive CLI and routes local quit without a prompt run", async () => {

@@ -33,6 +33,7 @@ export interface NativeAuthorityClientOptions {
   readonly engineVersion: string;
   readonly handshakeTimeoutMilliseconds?: number;
   readonly requestTimeoutMilliseconds?: number;
+  readonly signal?: AbortSignal;
 }
 
 export interface NativeAuthorityClientConnectOptions
@@ -92,6 +93,7 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
     let engineVersion: string;
     let handshakeTimeoutMilliseconds: number;
     let requestTimeoutMilliseconds: number;
+    let signal: AbortSignal | undefined;
     try {
       engineVersion = options.engineVersion;
       if (typeof engineVersion !== "string") {
@@ -105,6 +107,10 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
         options.requestTimeoutMilliseconds ??
           DEFAULT_NATIVE_TIMEOUT_MILLISECONDS,
       );
+      signal = options.signal;
+      if (signal !== undefined && !(signal instanceof AbortSignal)) {
+        throw new Error();
+      }
     } catch {
       destroyWithoutDetails(duplex);
       throw new NativeAuthorityClientUnavailableError("protocol_mismatch");
@@ -126,6 +132,7 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
           nonce,
         }),
         handshakeTimeoutMilliseconds,
+        signal,
       );
       if (client.#terminalReason !== undefined) {
         throw new NativeAuthorityClientUnavailableError(
@@ -171,6 +178,10 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
       }
       return client;
     } catch (error) {
+      if (isAbortError(error)) {
+        client.#terminate("broker_unavailable");
+        throw abortError();
+      }
       const reason =
         error instanceof NativeAuthorityClientUnavailableError
           ? error.reason
@@ -431,6 +442,26 @@ export function connectNativeAuthorityClient(
   return BoundedNativeAuthorityClient.connect(duplex, options);
 }
 
+function restrictUnverifiedInheritedClient(
+  client: NativeAuthorityClient,
+): NativeAuthorityClient {
+  return Object.freeze({
+    async status(signal?: AbortSignal): Promise<NativeAuthorityStatus> {
+      try {
+        const status = await client.status(signal);
+        return status.state === "ready"
+          ? unavailable("peer_identity_unverified")
+          : status;
+      } finally {
+        client.close();
+      }
+    },
+    close(): void {
+      client.close();
+    },
+  });
+}
+
 export async function createNativeAuthorityClientFromInheritedFd(
   options: NativeAuthorityClientOptions,
 ): Promise<NativeAuthorityClient> {
@@ -444,7 +475,8 @@ export async function createNativeAuthorityClientFromInheritedFd(
   } catch {
     throw new NativeAuthorityClientUnavailableError("launcher_unavailable");
   }
-  return connectNativeAuthorityClient(duplex, options);
+  const client = await connectNativeAuthorityClient(duplex, options);
+  return restrictUnverifiedInheritedClient(client);
 }
 
 function requireTimeout(value: number): number {

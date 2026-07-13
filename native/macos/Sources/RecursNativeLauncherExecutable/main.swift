@@ -3,8 +3,6 @@ import RecursLauncher
 import RecursNativeProtocol
 import Security
 
-private let nativeComponentVersion = "0.1.0"
-
 private struct MachineEnvelope: Encodable {
   let version = 1
   let nativeAuthority: MachineAuthorityStatus
@@ -99,7 +97,7 @@ private func secureNonce() throws -> Data {
 private func brokerHealth() async throws -> MachineAuthorityStatus {
   let connection = try BrokerConnection.open()
   let hello = try await connection.handshake(
-    engineVersion: nativeComponentVersion,
+    engineVersion: NativeComponentVersion.current,
     nonce: try secureNonce()
   )
   let health = try await connection.health()

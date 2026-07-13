@@ -15,10 +15,14 @@ import { createInterface } from "node:readline/promises";
 import {
   createHostInvocation,
   type IntegrationFailure,
+  type NativeAuthorityStatus,
+  type NativeAuthorityStatusPort,
 } from "@recurs/contracts";
 import {
   CodexOnboardingError,
   ConnectionLifecycleError,
+  NativeAuthorityService,
+  createNativeAuthorityServiceFromInheritedFd,
   type ConnectionDisconnection,
   type ConnectionVerification,
   type CodexConnectionConfiguration,
@@ -69,6 +73,7 @@ Usage:
   recurs account set-primary <id>
   recurs account verify <id>
   recurs account disconnect <id>
+  recurs doctor native [--json]  Inspect native authority status
   recurs --help                  Show this help
 
 Local setup supports credential-free OpenAI-compatible servers on literal loopback only.
@@ -82,7 +87,9 @@ export interface CliDependencies {
   cwd?: string;
   interactive?: boolean;
   automation?: boolean;
+  signal?: AbortSignal;
   confirm?(message: string): Promise<boolean>;
+  nativeAuthority?: NativeAuthorityStatusPort;
   createRuntime(events: EventSink): Promise<RecursRuntime>;
   setupLocal?(input: { baseUrl: string; modelId: string }): Promise<Pick<LocalConnectionConfiguration, "id" | "label" | "baseUrl" | "modelId" | "primary">>;
   setupCodex?(input: {
@@ -102,6 +109,52 @@ export interface CliDependencies {
 interface RunArguments {
   prompt: string;
   format: "text" | "jsonl";
+}
+
+type NativeAuthorityServiceFactory = (
+  signal?: AbortSignal,
+) => Promise<NativeAuthorityService>;
+
+export function createOneShotNativeAuthorityStatusPort(
+  factory: NativeAuthorityServiceFactory =
+    createNativeAuthorityServiceFromInheritedFd,
+): NativeAuthorityStatusPort {
+  return {
+    async status(signal) {
+      const service = await factory(signal);
+      try {
+        return await service.status(signal);
+      } finally {
+        service.close();
+      }
+    },
+  };
+}
+
+function nativeAuthorityText(status: NativeAuthorityStatus): string {
+  if (status.state === "unavailable") {
+    return `Native authority: unavailable\nReason: ${status.reason}\n`;
+  }
+  return [
+    "Native authority: available",
+    `Protocol: ${status.attestation.protocolVersion}`,
+    `Launcher: ${status.attestation.launcherVersion}`,
+    `Broker: ${status.attestation.brokerVersion}`,
+    `Platform: ${status.attestation.platform} (macOS ${status.attestation.minimumMacosVersion}+)`,
+    `Production signed: ${status.attestation.productionSigned ? "yes" : "no"}`,
+    `Persistent credentials: ${status.attestation.persistentCredentials ? "yes" : "no"}`,
+    `Keychain: ${status.health.keychain}`,
+    `Peer identity: ${status.health.peerIdentity}`,
+    "",
+  ].join("\n");
+}
+
+function isAbortError(error: unknown): boolean {
+  try {
+    return error instanceof DOMException && error.name === "AbortError";
+  } catch {
+    return false;
+  }
 }
 
 function parseRunArguments(args: readonly string[]): RunArguments | null {
@@ -278,6 +331,50 @@ export async function runCli(
   ) {
     await writeOutput(dependencies.stdout, help);
     return 0;
+  }
+
+  if (argv[0] === "doctor") {
+    const json = argv.length === 3 && argv[2] === "--json";
+    const nativeAuthority = dependencies.nativeAuthority;
+    const valid =
+      argv[1] === "native" &&
+      (argv.length === 2 || json) &&
+      nativeAuthority !== undefined;
+    if (!valid) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    try {
+      const status = await new NativeAuthorityService(nativeAuthority).status(
+        dependencies.signal,
+      );
+      await writeOutput(
+        dependencies.stdout,
+        json
+          ? `${JSON.stringify({ version: 1, nativeAuthority: status })}\n`
+          : nativeAuthorityText(status),
+      );
+      return 0;
+    } catch (error) {
+      if (isAbortError(error)) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: Native authority check was cancelled\n",
+        );
+        return 130;
+      }
+      const status: NativeAuthorityStatus = Object.freeze({
+        state: "unavailable",
+        reason: "broker_unavailable",
+      });
+      await writeOutput(
+        dependencies.stdout,
+        json
+          ? `${JSON.stringify({ version: 1, nativeAuthority: status })}\n`
+          : nativeAuthorityText(status),
+      );
+      return 0;
+    }
   }
 
   if (argv.length === 0) {
@@ -566,6 +663,20 @@ export function isAutomationEnvironment(
 }
 
 async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+  const nativeDoctorRequested =
+    argv[0] === "doctor" &&
+    argv[1] === "native" &&
+    (argv.length === 2 || (argv.length === 3 && argv[2] === "--json"));
+  const nativeDoctorController = nativeDoctorRequested
+    ? new AbortController()
+    : undefined;
+  const cancelNativeDoctor = (): void => {
+    nativeDoctorController?.abort();
+  };
+  if (nativeDoctorController !== undefined) {
+    process.once("SIGINT", cancelNativeDoctor);
+  }
   const confirm = async (message: string): Promise<boolean> => {
     const terminal = createInterface({
       input: processStdin,
@@ -580,27 +691,36 @@ async function main(): Promise<void> {
     }
   };
   const dataDirectory = process.env.RECURS_HOME ?? path.join(homedir(), ".recurs");
-  process.exitCode = await runCli(process.argv.slice(2), {
-    stdin: processStdin,
-    stdout: processStdout,
-    stderr: processStderr,
-    cwd: process.cwd(),
-    interactive: processStdin.isTTY === true && processStdout.isTTY === true,
-    automation: isAutomationEnvironment(process.env),
-    confirm,
-    createRuntime: (events) => createStandaloneRuntime(events),
-    setupLocal: (input) => setupLocalConnection(
-      dataDirectory,
-      input,
-    ),
-    setupCodex: (input) => setupCodexSubscription(dataDirectory, input),
-    listProviders: async ({ includeBlocked }) =>
-      listProviderSummaries(includeBlocked),
-    listAccounts: () => listAccountSummaries(dataDirectory),
-    setPrimaryAccount: (id) => setPrimaryAccount(dataDirectory, id),
-    verifyAccount: (id, cwd) => verifyAccount(dataDirectory, id, cwd),
-    disconnectAccount: (id) => disconnectAccount(dataDirectory, id),
-  });
+  const nativeAuthority = createOneShotNativeAuthorityStatusPort();
+  try {
+    process.exitCode = await runCli(argv, {
+      stdin: processStdin,
+      stdout: processStdout,
+      stderr: processStderr,
+      cwd: process.cwd(),
+      interactive: processStdin.isTTY === true && processStdout.isTTY === true,
+      automation: isAutomationEnvironment(process.env),
+      ...(nativeDoctorController === undefined
+        ? {}
+        : { signal: nativeDoctorController.signal }),
+      confirm,
+      nativeAuthority,
+      createRuntime: (events) => createStandaloneRuntime(events),
+      setupLocal: (input) => setupLocalConnection(
+        dataDirectory,
+        input,
+      ),
+      setupCodex: (input) => setupCodexSubscription(dataDirectory, input),
+      listProviders: async ({ includeBlocked }) =>
+        listProviderSummaries(includeBlocked),
+      listAccounts: () => listAccountSummaries(dataDirectory),
+      setPrimaryAccount: (id) => setPrimaryAccount(dataDirectory, id),
+      verifyAccount: (id, cwd) => verifyAccount(dataDirectory, id, cwd),
+      disconnectAccount: (id) => disconnectAccount(dataDirectory, id),
+    });
+  } finally {
+    process.removeListener("SIGINT", cancelNativeDoctor);
+  }
 }
 
 const entry = process.argv[1];

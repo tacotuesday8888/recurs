@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { Socket } from "node:net";
+import process from "node:process";
 import { TextDecoder } from "node:util";
 
 const FRAME_MAGIC = 0x52_43_55_52;
@@ -12,6 +13,30 @@ const HEALTH = 3;
 const HEALTH_RESULT = 4;
 const CANCEL = 5;
 const SAFE_FAILURE = 255;
+let componentVersion;
+let hangHealth = false;
+for (let index = 2; index < process.argv.length; index += 1) {
+  const argument = process.argv[index];
+  if (argument === "--hang-health" && !hangHealth) {
+    hangHealth = true;
+    continue;
+  }
+  if (argument === "--component-version" && componentVersion === undefined) {
+    componentVersion = process.argv[index + 1];
+    index += 1;
+    continue;
+  }
+  process.exit(2);
+}
+
+if (
+  componentVersion === undefined ||
+  !/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u.test(
+    componentVersion,
+  )
+) {
+  process.exit(2);
+}
 
 const socket = new Socket({
   fd: 3,
@@ -24,7 +49,7 @@ let handshaken = false;
 let greatestRequestId = 0;
 
 socket.on("error", () => {
-  // The fixture has no diagnostic channel by design.
+  // The native protocol has no diagnostic channel by design.
 });
 
 socket.on("data", (chunk) => {
@@ -76,8 +101,8 @@ function handleFrame(type, requestId, payload) {
     }
     handshaken = true;
     socket.write(encodeFrame(HELLO_RESULT, requestId, encodeFields([
-      { tag: 1, value: text("0.1.0") },
-      { tag: 2, value: text("0.1.0") },
+      { tag: 1, value: text(componentVersion) },
+      { tag: 2, value: text(componentVersion) },
       { tag: 3, value: fields[1].value },
       { tag: 4, value: Buffer.from([1]) },
       { tag: 5, value: Buffer.from([1]) },
@@ -88,6 +113,10 @@ function handleFrame(type, requestId, payload) {
   if (type === HEALTH && handshaken) {
     if (payload.length !== 2 || payload.readUInt16BE(0) !== 0) {
       throw new Error();
+    }
+    if (hangHealth) {
+      process.stdout.write("health\n");
+      return;
     }
     socket.write(encodeFrame(HEALTH_RESULT, requestId, encodeFields([
       { tag: 1, value: uint16(1) },

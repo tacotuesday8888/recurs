@@ -17,6 +17,16 @@ coding-plan manifests remain disabled until later protocol/onboarding plans.
 ServiceManagement, TypeScript 6, Node.js 22.22+, npm workspaces, Swift Testing,
 Vitest 4.
 
+**Implementation audit:** This plan delivers a tested native-authority
+*component foundation*, not the complete end-to-end authority described by the
+approved design. The current production executables exchange only
+handshake/health; the broker advertises `persistentCredentials: false`, the
+credential-state/store libraries are not service operations, and the launcher
+does not create the socket pair or spawn/bridge Node. `@recurs/auth` consumes an
+injected test/host descriptor. There is no signed/notarized artifact. Those
+gaps must close before provider codec/onboarding work can activate a live
+credential.
+
 ## Global Constraints
 
 - No desktop UI and no heavy sub-agent architecture.
@@ -916,6 +926,9 @@ git commit -m "feat: add signed native broker skeleton"
   plan; there is no credential or generic exchange method.
 - The inherited-descriptor factory is Darwin-only and consumes the environment
   marker before it parses or wraps the descriptor.
+- Until an OS-authenticated launcher bridge exists, that factory treats the
+  marker as transport plumbing rather than provenance and cannot expose a
+  self-asserted ready result.
 
 - [x] **Step 1: Write failing client protocol tests**
 
@@ -951,7 +964,10 @@ handshake failure. The public client has `status(signal?)` and `close()` only.
 It binds both native component versions to the caller's exact engine version,
 allows at most 64 in-flight operations, and erases retained decoder bytes on
 every terminal path. All unexpected transport faults map to fixed unavailable
-reasons.
+reasons. Because the environment marker and the peer's own fields cannot prove
+who supplied the socket, the inherited factory downgrades a self-asserted ready
+result to `peer_identity_unverified`; no caller flag or environment marker may
+bypass this interim gate.
 
 - [x] **Step 5: Harden child spawning**
 
@@ -1013,10 +1029,12 @@ git commit -m "feat: connect engine to native authority safely"
 - `@recurs/app` depends on `@recurs/auth` and produces a redacted
   `NativeAuthorityService`.
 - CLI adds `recurs doctor native [--json]`.
-- Broker-owned manifests remain non-runnable; the validator gains an explicit
-  attestation-gated future activation state rather than a permissive flag.
+- Broker-owned manifests remain non-runnable behind an unconditional validator
+  gate. A public structural activation input is deliberately deferred until a
+  trusted internal assembly issuer exists; otherwise callers could fabricate
+  evidence or the API would be permanently dead.
 
-- [ ] **Step 1: Write failing app/CLI diagnostics tests**
+- [x] **Step 1: Write failing app/CLI diagnostics tests**
 
 Inject ready and every unavailable status. Text and JSON must contain only
 protocol/launcher/broker versions, safe health enums, and fixed reasons. Assert
@@ -1024,15 +1042,13 @@ they omit canary endpoint, account, native path, Team ID, signing requirement,
 bundle path, descriptor, and secret values. Invalid flags exit `2`; cancellation
 exits `130`; diagnostics never start an agent runtime.
 
-- [ ] **Step 2: Write failing manifest-gate tests**
+- [x] **Step 2: Write failing manifest-gate tests**
 
-Prove a broker-owned path still cannot become runnable from a manifest boolean
-alone. Define a typed activation requirement that needs native attestation,
-registered codec/profile, current policy, and compatible platform. This plan
-provides only native attestation, so OpenAI/Anthropic/Kimi remain
-`requires_native_broker`.
+Prove a broker-owned path still cannot become runnable from a manifest boolean,
+native status, or fabricated complete-looking claim. OpenAI/Anthropic/Kimi
+remain `requires_native_broker`.
 
-- [ ] **Step 3: Run focused tests and verify RED**
+- [x] **Step 3: Run focused tests and verify RED**
 
 Run:
 
@@ -1042,26 +1058,34 @@ npx vitest run packages/app/test/native-authority.test.ts packages/cli/test/run-
 
 Expected: FAIL because diagnostics/activation requirements are absent.
 
-- [ ] **Step 4: Generate one native component version and implement diagnostics**
+- [x] **Step 4: Generate one native component version and implement diagnostics**
 
 `NativeAuthorityService.status()` delegates to `NativeAuthorityStatusPort`,
 deep-freezes a structural clone, and catches unknown errors as
 `broker_unavailable`. The CLI parser accepts exactly `doctor native` and
 `doctor native --json` and prints versioned JSON `{version:1,nativeAuthority}`.
-Generate one checked release component version into both TypeScript and Swift,
-replace the two Swift `0.1.0` literals, and inject that exact constant into the
-inherited-FD client. `check:generated` must reject drift; do not infer this
-security generation from independent package versions.
+Generate one checked Apple-compatible numeric `x.y.z` release component version
+into TypeScript, Swift, and both native bundle Info plists, replace the two
+Swift `0.1.0` literals, and inject that exact constant into the inherited-FD
+client and installed-path smoke peer. `check:generated` must reject drift; do
+not infer this security generation from independent package versions.
+The one-shot CLI
+diagnostic owns and closes the assembled client in `finally`. Until the native
+launcher authenticates the Node-facing channel outside JavaScript, the
+inherited-descriptor factory must downgrade a self-asserted ready result to
+`peer_identity_unverified` with no caller-controlled escape hatch.
 
-- [ ] **Step 5: Implement the non-permissive manifest activation requirement**
+- [x] **Step 5: Keep the manifest activation gate non-permissive**
 
 Keep all current runnable behavior unchanged. Replace the validator's blanket
-broker-owned runnable error with a schema that still rejects direct activation
-unless every required runtime attestation input exists. Do not supply codec,
-onboarding, or provider-transport attestation in this plan, so no catalog entry
-changes status yet.
+broker-owned runnable error with an accurate unconditional trusted-runtime gate;
+no catalog entry changes status. Security review rejected a public structural
+activation argument and empty private issuer as forgeable or misleading. Add a
+typed activation contract only alongside the real internal issuer that derives
+native, codec/profile, policy, platform, onboarding, and provider-transport
+evidence.
 
-- [ ] **Step 6: Update reviewed/public documentation**
+- [x] **Step 6: Update reviewed/public documentation**
 
 Document the headless signed companion, source-build fail-closed behavior,
 native health command, Data Protection Keychain boundary, exact XPC identity,
@@ -1069,7 +1093,7 @@ system proxy trust, current non-sandbox disclosure, and the fact that direct
 providers are still disabled pending later verticals. Add the Provider
 Activation v1 design and this plan to `docs/README.md`.
 
-- [ ] **Step 7: Run the complete verification matrix**
+- [x] **Step 7: Run the complete verification matrix**
 
 Run:
 
@@ -1082,20 +1106,27 @@ git diff --check main...HEAD
 ```
 
 Expected: TypeScript lint/typecheck/all tests/build and Swift tests/build pass;
-the source CLI reports `production_signing_required` without paths or secrets.
+the source CLI reports `launcher_unavailable` without paths or secrets. A
+connected handshake-only peer reports `production_signing_required` because it
+truthfully advertises `persistentCredentials: false`. An injected fake peer
+that self-asserts full readiness reports `peer_identity_unverified`, closes its
+one-shot connection, and exits promptly. A hanging health exchange receives a
+real process `SIGINT`, closes promptly, and exits `130` with only the fixed
+cancellation message. The macOS CI path runs this built-CLI smoke rather than
+leaving the Darwin trust branch unexecuted.
 
-- [ ] **Step 8: Scan the full branch for sensitive material and unsafe drift**
+- [x] **Step 8: Scan the full branch for sensitive material and unsafe drift**
 
 Run a no-output sensitive-pattern scan across `main...HEAD`; inspect every
 native occurrence of `SecretBytes`, `kSecValueData`, XPC service name,
 `RECURS_NATIVE_FD`, `Authorization`, `x-api-key`, `credential`, and `token`.
 Confirm providers remain disabled and no key collection exists in Node.
 
-- [ ] **Step 9: Commit the completed native foundation**
+- [x] **Step 9: Commit the completed native foundation**
 
 ```bash
 git add README.md ARCHITECTURE.md PRODUCT.md SECURITY.md docs packages .github native package.json package-lock.json tsconfig.json
-git commit -m "docs: complete native authority foundation"
+git commit -m "feat: complete native authority component foundation"
 ```
 
 Do not merge to `main` yet. Continue on this feature branch with the separately

@@ -1043,11 +1043,66 @@ describe("validateProviderManifest", () => {
     );
   });
 
-  it("keeps broker-owned credential paths unavailable until the native broker exists", () => {
+  it("hard-disables broker-owned paths regardless of fabricated extra arguments", () => {
     const direct = cloneManifest(bundled("openai-api"));
     direct["runnable"] = true;
+    const canary = "activation-getter-secret-canary";
+    const hostile: Record<string, unknown> = {};
+    Object.defineProperty(hostile, "nativeAuthority", {
+      enumerable: true,
+      get() {
+        throw new Error(canary);
+      },
+    });
+    const callFromUntypedJavascript = validateProviderManifest as (
+      value: unknown,
+      fabricatedClaim?: unknown,
+    ) => ProviderManifest;
 
-    expect(() => validateProviderManifest(direct)).toThrow(/native credential broker/i);
+    for (const [label, fabricatedClaim] of [
+      ["boolean", true],
+      ["native claim", { nativeAuthority: { state: "ready" } }],
+      ["complete claim", {
+        nativeAuthority: { state: "ready" },
+        codecProfile: { state: "registered" },
+        policy: { state: "current" },
+        platform: { state: "compatible" },
+      }],
+      ["hostile getter", hostile],
+    ] as const) {
+      let thrown: unknown;
+      try {
+        callFromUntypedJavascript(direct, fabricatedClaim);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown, label).toMatchObject({
+        name: "TypeError",
+        message:
+          "Broker-owned provider paths require a trusted runtime activation assembly",
+      });
+      expect(String(thrown)).not.toContain(canary);
+      expect((thrown as Error & { cause?: unknown }).cause).toBeUndefined();
+    }
+
+    expect(() => validateProviderManifest(direct)).toThrowError(
+      new TypeError(
+        "Broker-owned provider paths require a trusted runtime activation assembly",
+      ),
+    );
+  });
+
+  it("keeps direct bundled providers non-runnable after native diagnostics", () => {
+    expect([
+      bundled("openai-api"),
+      bundled("anthropic-api"),
+      bundled("kimi-code"),
+    ].map((manifest) => ({ id: manifest.id, runnable: manifest.runnable })))
+      .toEqual([
+        { id: "openai-api", runnable: false },
+        { id: "anthropic-api", runnable: false },
+        { id: "kimi-code", runnable: false },
+      ]);
   });
 
   it("distinguishes concrete origins from cloud templates and fails closed on empty endpoints", () => {

@@ -213,7 +213,11 @@ describe("native authority client", () => {
   it("interoperates with the bounded inherited-FD fake native peer", async () => {
     const child = spawn(
       process.execPath,
-      [fileURLToPath(new URL("./fixtures/fake-native-peer.mjs", import.meta.url))],
+      [
+        fileURLToPath(new URL("./fixtures/fake-native-peer.mjs", import.meta.url)),
+        "--component-version",
+        connectOptions.engineVersion,
+      ],
       { stdio: ["ignore", "ignore", "pipe", "pipe"] },
     );
     const inheritedPipe = child.stdio[3];
@@ -700,6 +704,28 @@ describe("native authority client", () => {
       message: "Native authority is unavailable.",
       reason: "broker_unavailable",
     });
+    expect(socket.destroyed).toBe(true);
+  });
+
+  it("cancels an in-flight handshake without exposing the abort reason", async () => {
+    const controller = new AbortController();
+    const socket = new ScriptedDuplex(() => {
+      queueMicrotask(() => {
+        controller.abort("SECRET_HANDSHAKE_ABORT_CANARY");
+      });
+    });
+
+    const error = await connectNativeAuthorityClient(socket, {
+      ...connectOptions,
+      signal: controller.signal,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(DOMException);
+    expect(error).toMatchObject({
+      name: "AbortError",
+      message: "The operation was aborted.",
+    });
+    expect(JSON.stringify(error)).not.toContain("SECRET_HANDSHAKE_ABORT_CANARY");
     expect(socket.destroyed).toBe(true);
   });
 

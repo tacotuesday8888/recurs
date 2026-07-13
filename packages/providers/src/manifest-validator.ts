@@ -920,7 +920,9 @@ export function validateProviderManifest(value: unknown): ProviderManifest {
   validateLaneAndCredentials(manifest);
   validateBillingAndPolicy(manifest, billingPolicy, policy);
   if (runnable && credentialOwner === "recurs_broker") {
-    fail("Broker-owned provider paths cannot run before the native credential broker exists");
+    fail(
+      "Broker-owned provider paths require a trusted runtime activation assembly",
+    );
   }
   assertNoSecretMaterial(manifest);
   return cloneAndFreeze(manifest) as unknown as ProviderManifest;
