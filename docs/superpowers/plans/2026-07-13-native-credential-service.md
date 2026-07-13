@@ -615,7 +615,7 @@ public protocol BrokerXPCProtocol: NSObjectProtocol {
 public protocol BrokerCredentialLifecycleXPCProtocol: BrokerXPCProtocol {
   func stageCredential(
     _ metadata: Data,
-    secret: consuming Data,
+    secret: Data,
     reply: @escaping @Sendable (Data) -> Void
   )
 
@@ -643,6 +643,14 @@ extension BrokerServiceConfiguration {
   ) throws -> BrokerServiceConfiguration
 }
 ```
+
+Objective-C/XPC delivers `Data` arguments with borrowed Foundation ownership;
+do not mark this protocol or its service implementation `consuming`. The
+service must synchronously copy the received bytes into independently owned
+`Data` before returning from the Objective-C thunk, then consume only that copy
+into the gateway's `SecretBytes`. Real anonymous-XPC coverage is mandatory: a
+`consuming` method can appear correct under direct Swift calls yet over-release
+the transported object when Foundation drains its autorelease pool.
 
 Remove `persistentCredentials` from every configuration initializer. Store an
 optional authority privately and derive the hello capability bit from its
@@ -739,11 +747,14 @@ create no actor-hop task of their own.
 
 The service stores an optional gateway. With no authority, the listener never
 exports lifecycle selectors, but direct lifecycle method calls still decode
-enough to select the fixed request ID/failure code and synchronously erase any
-stage secret before replying; they never silently drop the call or retain raw
-`Data`. Transfer the argument with consuming ownership into `SecretBytes` and
-erase that owned representation. Do not cast a read-only `Data` pointer to a
-mutable pointer or mutate caller aliases outside Swift's value/COW rules.
+enough to select the fixed request ID/failure code and synchronously erase their
+independently owned stage-secret copy before replying; they never silently drop
+the call or retain raw
+`Data`. Synchronously copy the borrowed XPC bytes into independently owned
+storage, transfer only that copy into `SecretBytes`, and erase the owned
+representation. Do not cast a read-only `Data` pointer to a mutable pointer,
+mark the Objective-C boundary `consuming`, or mutate caller aliases outside
+Swift's value/COW rules.
 
 `BrokerServiceListenerDelegate` creates a fresh service/gateway for each
 accepted connection from the same injected authority. Add the existing
@@ -784,6 +795,7 @@ git commit -m "feat: expose private broker credential lifecycle"
 - Modify: `native/macos/Sources/RecursBrokerService/BrokerService.swift`
 - Create: `native/macos/Sources/RecursBrokerService/BrokerServiceRuntime.swift`
 - Modify: `native/macos/Sources/RecursNativeBrokerExecutable/main.swift`
+- Modify: `native/macos/Package.swift`
 - Create: `native/macos/Tests/RecursBrokerServiceTests/BrokerServiceRuntimeTests.swift`
 - Modify: `README.md`
 - Modify: `ARCHITECTURE.md`
@@ -804,37 +816,40 @@ package final class BrokerServiceRuntime {
   package func activate()
 }
 
-package protocol BrokerServiceListenerHandle: AnyObject {
+protocol BrokerServiceListenerHandle: AnyObject {
   var delegate: NSXPCListenerDelegate? { get set }
   func setConnectionCodeSigningRequirement(_ requirement: String)
   func activate()
 }
 
-struct BrokerServiceRuntimeDependencies {
-  let makePeerRequirement: () throws -> PeerRequirement
+struct BrokerServiceRuntimeDependencies<KeychainConfiguration: Sendable> {
+  let makePeerRequirement: () throws -> String
   let makeKeychainConfiguration:
-    () throws -> KeychainStoreConfiguration
+    () throws -> KeychainConfiguration
   let recoverAuthority:
-    (KeychainStoreConfiguration) async throws
+    (KeychainConfiguration) async throws
       -> BrokerCredentialAuthority
   let makeKeychainStatusSource:
-    (KeychainStoreConfiguration) -> @Sendable () -> KeychainStatusCode
+    (KeychainConfiguration) -> @Sendable () -> KeychainStatusCode
   let makeListener:
     (String) -> any BrokerServiceListenerHandle
 }
 ```
 
 Add `NSXPCListener: BrokerServiceListenerHandle`. The test factory accepts an
-explicit internal `BrokerServiceRuntimeDependencies` through a `forTesting`
-factory visible only under `@testable import`; the executable can call only the
-fixed production factory. Evaluate dependencies strictly in this order: peer
-requirement, Keychain configuration, complete authority recovery, health source,
-recovered service configuration, delegate, then listener. Create the listener
-only after recovery, set its exact signing requirement and delegate, but leave
-activation to `activate()`. The runtime strongly retains both the listener and
-delegate for its whole lifetime; do not rely on the Foundation delegate property
-to provide ownership. `activate()` is idempotent and forwards to the listener at
-most once.
+explicit internal generic `BrokerServiceRuntimeDependencies` through a
+`forTesting` factory visible only under `@testable import`; the executable can
+call only the fixed production factory. Production instantiates the seam with
+`KeychainStoreConfiguration`; tests use an immutable `Sendable` token and prove
+that the identical token reaches recovery and health without importing or
+calling production security factories. Evaluate dependencies strictly in this
+order: peer requirement string, Keychain configuration, complete authority
+recovery, health source, recovered service configuration, delegate, then
+listener. Create the listener only after recovery, set its exact signing
+requirement and delegate, but leave activation to `activate()`. The runtime
+strongly retains both the listener and delegate for its whole lifetime; do not
+rely on the Foundation delegate property to provide ownership. `activate()` is
+idempotent and forwards to the listener at most once.
 
 - [ ] **Step 1: Add failing startup-order tests**
 
@@ -865,11 +880,15 @@ Expected: compilation fails because `BrokerServiceRuntime` does not exist.
 - [ ] **Step 3: Implement fail-closed startup**
 
 Delete `productionHandshakeHealthOnly`; keep `healthOnlyForTesting` module-
-internal so the executable cannot compile against it. Build and recover the
-production authority asynchronously, then create the listener and delegate.
-Keep all runtime objects alive for the process lifetime. Activate exactly once
-only after the runtime is complete. On any error, the executable exits with
-configuration status 78 and does not emit raw error text.
+internal so the executable cannot compile against it. Remove the unused
+`initialKeychain` parameter from all service-configuration initializers and
+factories: it is not state and health reads the live closure only when requested.
+Build and recover the production authority asynchronously, then create the
+listener and delegate. Keep all runtime objects alive for the process lifetime.
+Activate exactly once only after the runtime is complete. On any error, the
+executable exits with configuration status 78 and does not emit raw error text.
+Once production security composition moves into `RecursBrokerService`, remove
+the executable target's direct `RecursNativeSecurity` dependency and import.
 
 Use Swift's top-level async entry directly; do not create an unretained startup
 task:
@@ -921,6 +940,7 @@ Expected: PASS.
 ```bash
 git add native/macos/Sources/RecursBrokerService \
   native/macos/Sources/RecursNativeBrokerExecutable/main.swift \
+  native/macos/Package.swift \
   native/macos/Tests/RecursBrokerServiceTests \
   README.md ARCHITECTURE.md SECURITY.md PRODUCT.md docs/CLI.md docs/README.md
 git commit -m "feat: activate durable broker credential service"
