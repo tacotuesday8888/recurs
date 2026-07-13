@@ -448,7 +448,7 @@ package final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 1: Add authority and gateway failing tests**
+- [x] **Step 1: Add authority and gateway failing tests**
 
 Prove the recovery composition seam shares one actor and restores vacant/ready/
 tombstoned records. Using injected fakes only, prove journal authentication,
@@ -478,7 +478,7 @@ for pre-hello state, capacity, or a later decode failure; replaying that ID must
 then fail as nonmonotonic. Input without a canonical ID cannot advance the
 sequence.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```bash
 swift test --package-path native/macos \
@@ -489,7 +489,7 @@ swift test --package-path native/macos \
 
 Expected: compilation fails because the authority/gateway do not exist.
 
-- [ ] **Step 3: Implement production recovery composition**
+- [x] **Step 3: Implement production recovery composition**
 
 `production(configuration:)` performs exactly:
 
@@ -510,7 +510,7 @@ let state = try await BrokerCredentialState.recovering(
 The returned authority retains the state; the journal retains the directory and
 its authority lease. Do not catch and downgrade a production error.
 
-- [ ] **Step 4: Implement the gateway**
+- [x] **Step 4: Implement the gateway**
 
 Decode before dispatch, but always consume/erase stage secret storage. The
 gateway is a synchronous ingress object with one private `NSLock`, one greatest-
@@ -564,7 +564,7 @@ BrokerJournalError.casConflict/.revisionOverflow               -> conflict
   .authenticationFailed/.rollbackDetected                      -> authority_unavailable + close
 ```
 
-- [ ] **Step 5: Verify GREEN and core regressions**
+- [x] **Step 5: Verify GREEN and core regressions**
 
 ```bash
 swift test --package-path native/macos \
@@ -577,7 +577,7 @@ swift test --package-path native/macos \
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add native/macos/Package.swift \
