@@ -19,6 +19,7 @@ export type ConnectionLifecycleErrorCode =
   | "connection_not_found"
   | "registry_changed"
   | "verification_failed"
+  | "operation_unavailable"
   | "cancelled";
 
 export type ConnectionVerificationFailureReason =
@@ -73,7 +74,10 @@ export interface ConnectionSummary {
   readonly label: string;
   readonly providerId: string;
   readonly adapterId: string;
-  readonly kind: "local_openai_compatible" | "delegated_agent";
+  readonly kind:
+    | "local_openai_compatible"
+    | "delegated_agent"
+    | "brokered_model_provider";
   readonly modelId: string;
   readonly primary: boolean;
   readonly account:
@@ -287,6 +291,12 @@ export class ConnectionLifecycleService {
         throw registryFailure(error, signal);
       }
       const record = exactRecord(current, id);
+      if (record.kind === "brokered_model_provider") {
+        throw new ConnectionLifecycleError(
+          "operation_unavailable",
+          "Brokered connection disconnection is not activated yet",
+        );
+      }
       const primaryCleared = current.primaryConnectionId === record.id;
       try {
         const committed = await this.#registry.commit(
@@ -344,7 +354,9 @@ export class ConnectionLifecycleService {
     try {
       const decision = record.kind === "local_openai_compatible"
         ? await verifier.verifyLocal(record, signal)
-        : await verifier.verifyDelegated(record, signal);
+        : record.kind === "delegated_agent"
+          ? await verifier.verifyDelegated(record, signal)
+          : { status: "failed", reason: "adapter_unavailable" } as const;
       throwIfAborted(signal);
       if (decision.status === "failed") {
         throw new ConnectionLifecycleError(

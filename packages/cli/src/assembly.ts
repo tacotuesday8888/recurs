@@ -291,7 +291,7 @@ function backendForConnection(
   connection: ConnectionRecord,
   delegatedRuntimeFactory: DelegatedRuntimeFactory,
   diagnosticId: string,
-): RuntimeBackend {
+): RuntimeBackend | null {
   if (connection.kind === "local_openai_compatible") {
     const localConnection = localConfiguration(connection);
     return {
@@ -306,6 +306,9 @@ function backendForConnection(
         connectionId: localConnection.id,
       }),
     };
+  }
+  if (connection.kind === "brokered_model_provider") {
+    return null;
   }
   assertCodexPolicy(connection, diagnosticId);
   return {
@@ -363,7 +366,7 @@ export async function createStandaloneRuntime(
           configuredConnection,
           delegatedRuntimeFactory,
           randomUUID(),
-        );
+        ) ?? undefined;
   const existing = await sessions.list();
   let state: PinnedSessionState | WorkspaceShellState;
   if (initialBackend === undefined) {
@@ -548,11 +551,18 @@ export async function createStandaloneRuntime(
         );
         if (connection === undefined) throw connectionInvalid(input.operationId);
         try {
-          selected = backendForConnection(
+          const resolved = backendForConnection(
             connection,
             delegatedRuntimeFactory,
             input.operationId,
           );
+          if (resolved === null) {
+            throw policyBlocked(
+              input.operationId,
+              "The selected brokered provider is connected, but brokered provider execution is not available yet.",
+            );
+          }
+          selected = resolved;
         } catch (error) {
           if (
             typeof error === "object" &&
@@ -656,11 +666,13 @@ export async function createStandaloneRuntime(
           (candidate) => candidate.id === session.backend.pin.connectionId,
         );
         if (connection === undefined) return null;
-        selected = backendForConnection(
+        const resolved = backendForConnection(
           connection,
           delegatedRuntimeFactory,
           randomUUID(),
         );
+        if (resolved === null) return null;
+        selected = resolved;
       } catch {
         return null;
       }
@@ -692,7 +704,9 @@ export async function createStandaloneRuntime(
       ...(initialBackend === undefined
         ? {
             promptUnavailableMessage:
-              "No model connection is ready. Run recurs setup in an interactive terminal, then try again.",
+              configuredConnection?.kind === "brokered_model_provider"
+                ? "The selected brokered provider is connected, but brokered provider execution is not available yet."
+                : "No model connection is ready. Run recurs setup in an interactive terminal, then try again.",
           }
         : {}),
     },

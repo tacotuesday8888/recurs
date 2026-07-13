@@ -24,7 +24,9 @@ export const MAX_REVISION = Number.MAX_SAFE_INTEGER - 1;
 
 const MAX_CONNECTIONS = 256;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u;
-const ACCOUNT_FINGERPRINT_PATTERN = /^sha256:[a-f0-9]{64}$/u;
+const BROKER_CONNECTION_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+const SHA256_FINGERPRINT_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const BILLING_SOURCES = new Set<BillingSource>([
   "metered_api",
   "included_subscription",
@@ -85,9 +87,27 @@ export interface DelegatedConnectionRecord {
   updatedAt: string;
 }
 
+export interface BrokeredModelProviderConnectionRecord {
+  kind: "brokered_model_provider";
+  id: string;
+  providerId: "openai-api";
+  adapterId: "openai-responses";
+  activationProfileId: "openai_api_v1";
+  label: string;
+  modelId: string;
+  credentialIdentityFingerprint: string;
+  policyRevision: string;
+  billingPolicy: BillingPolicy;
+  billingSelection: BillingSelection;
+  verifiedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type ConnectionRecord =
   | LocalConnectionRecord
-  | DelegatedConnectionRecord;
+  | DelegatedConnectionRecord
+  | BrokeredModelProviderConnectionRecord;
 
 export interface ConnectionRegistryDocument {
   schemaVersion: 1;
@@ -105,7 +125,12 @@ export type ConnectionRegistryMutation = (
   draft: ConnectionRegistryDocument,
 ) => ConnectionRegistryMutationResult | Promise<ConnectionRegistryMutationResult>;
 
-export type RegistryFaultPoint = "before_rename" | "after_rename";
+export type RegistryFaultPoint =
+  | "before_rename"
+  | "after_rename"
+  | "before_remove"
+  | "after_remove"
+  | "after_lock_stat";
 
 export interface FileConnectionRegistryOptions {
   lockTimeoutMs?: number;
@@ -325,7 +350,19 @@ function boundedString(
   return value;
 }
 
-function timestamp(value: unknown): string {
+function boundedUtf8String(
+  value: unknown,
+  maximumBytes: number,
+  options: { trim?: boolean; pattern?: RegExp } = {},
+): string {
+  const text = boundedString(value, maximumBytes, options);
+  if (Buffer.byteLength(text, "utf8") > maximumBytes) {
+    throw invalidRegistry();
+  }
+  return text;
+}
+
+export function parseCanonicalTimestamp(value: unknown): string {
   const text = boundedString(value, 32);
   const milliseconds = Date.parse(text);
   if (!Number.isFinite(milliseconds) || new Date(milliseconds).toISOString() !== text) {
@@ -333,6 +370,8 @@ function timestamp(value: unknown): string {
   }
   return text;
 }
+
+const timestamp = parseCanonicalTimestamp;
 
 function uniqueEnumArray<T extends string>(
   value: unknown,
@@ -591,7 +630,86 @@ function parseDelegated(
     accountSubjectFingerprint: boundedString(
       value.accountSubjectFingerprint,
       71,
-      { trim: true, pattern: ACCOUNT_FINGERPRINT_PATTERN },
+      { trim: true, pattern: SHA256_FINGERPRINT_PATTERN },
+    ),
+    policyRevision: boundedString(value.policyRevision, 256, { trim: true }),
+    billingPolicy,
+    billingSelection,
+    verifiedAt,
+    createdAt,
+    updatedAt,
+  };
+}
+
+export function parseBrokeredModelProviderConnectionRecord(
+  value: unknown,
+): BrokeredModelProviderConnectionRecord {
+  rejectSecretMaterial(value);
+  if (!isRecord(value)) throw invalidRegistry();
+  exactKeys(value, [
+    "kind",
+    "id",
+    "providerId",
+    "adapterId",
+    "activationProfileId",
+    "label",
+    "modelId",
+    "credentialIdentityFingerprint",
+    "policyRevision",
+    "billingPolicy",
+    "billingSelection",
+    "verifiedAt",
+    "createdAt",
+    "updatedAt",
+  ]);
+  if (
+    value.kind !== "brokered_model_provider" ||
+    value.providerId !== "openai-api" ||
+    value.adapterId !== "openai-responses" ||
+    value.activationProfileId !== "openai_api_v1"
+  ) {
+    throw invalidRegistry();
+  }
+  const createdAt = timestamp(value.createdAt);
+  const updatedAt = timestamp(value.updatedAt);
+  const verifiedAt = timestamp(value.verifiedAt);
+  const billingPolicy = parseBillingPolicy(value.billingPolicy);
+  const billingSelection = parseBillingSelection(
+    value.billingSelection,
+    billingPolicy,
+  );
+  if (
+    createdAt > updatedAt ||
+    verifiedAt < createdAt ||
+    verifiedAt > updatedAt ||
+    billingSelection.acknowledgedAt < createdAt ||
+    billingSelection.acknowledgedAt > updatedAt ||
+    billingPolicy.primarySource !== "metered_api" ||
+    billingPolicy.possibleAdditionalSources.length !== 0 ||
+    billingPolicy.providerFallback !== "none" ||
+    billingPolicy.availableSelections.length !== 1 ||
+    billingPolicy.availableSelections[0] !== "strict_primary_only" ||
+    billingSelection.mode !== "strict_primary_only" ||
+    billingSelection.allowedSources.length !== 1 ||
+    billingSelection.allowedSources[0] !== "metered_api"
+  ) {
+    throw invalidRegistry();
+  }
+  return {
+    kind: "brokered_model_provider",
+    id: boundedString(value.id, 36, {
+      trim: true,
+      pattern: BROKER_CONNECTION_ID_PATTERN,
+    }),
+    providerId: "openai-api",
+    adapterId: "openai-responses",
+    activationProfileId: "openai_api_v1",
+    label: boundedString(value.label, 256, { trim: true }),
+    modelId: boundedUtf8String(value.modelId, 256, { trim: true }),
+    credentialIdentityFingerprint: boundedString(
+      value.credentialIdentityFingerprint,
+      71,
+      { trim: true, pattern: SHA256_FINGERPRINT_PATTERN },
     ),
     policyRevision: boundedString(value.policyRevision, 256, { trim: true }),
     billingPolicy,
@@ -608,6 +726,9 @@ function parseConnection(value: unknown): ConnectionRecord {
   }
   if (value.kind === "local_openai_compatible") return parseLocal(value);
   if (value.kind === "delegated_agent") return parseDelegated(value);
+  if (value.kind === "brokered_model_provider") {
+    return parseBrokeredModelProviderConnectionRecord(value);
+  }
   throw invalidRegistry();
 }
 

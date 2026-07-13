@@ -16,6 +16,7 @@ import {
 
 export {
   ConnectionRegistryError,
+  type BrokeredModelProviderConnectionRecord,
   type ConnectionRecord,
   type ConnectionRegistryDocument,
   type ConnectionRegistryErrorCode,

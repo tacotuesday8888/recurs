@@ -12,6 +12,13 @@ import {
 import path from "node:path";
 
 import {
+  MAX_CONNECTION_ACTIVATION_BYTES,
+  emptyConnectionActivationDocument,
+  parseConnectionActivationDocument,
+  serializeConnectionActivationDocument,
+  type ConnectionActivationDocument,
+} from "./connection-activation-model.js";
+import {
   ConnectionRegistryError,
   LOCK_UNAVAILABLE,
   MAX_LEGACY_BYTES,
@@ -63,6 +70,11 @@ export interface RegistrySnapshot {
   identity: FileIdentity | null;
 }
 
+export interface ActivationSnapshot {
+  document: ConnectionActivationDocument;
+  identity: FileIdentity | null;
+}
+
 export interface LegacySnapshot {
   record: LocalConnectionRecord;
   identity: FileIdentity;
@@ -70,11 +82,17 @@ export interface LegacySnapshot {
 
 export interface LockedRegistryAccess {
   readRegistry(): Promise<RegistrySnapshot>;
+  readActivation(): Promise<ActivationSnapshot>;
   readLegacy(): Promise<LegacySnapshot | null>;
   writeRegistry(
     document: ConnectionRegistryDocument,
     expected: FileIdentity | null,
   ): Promise<void>;
+  writeActivation(
+    document: ConnectionActivationDocument,
+    expected: FileIdentity | null,
+  ): Promise<void>;
+  removeActivation(expected: FileIdentity): Promise<void>;
   removeLegacy(expected: FileIdentity): Promise<void>;
 }
 
@@ -294,6 +312,23 @@ async function readRegistry(
   };
 }
 
+async function readActivation(
+  context: DirectoryContext,
+): Promise<ActivationSnapshot> {
+  const stored = await readStoredValue(
+    context,
+    path.join(context.directory, "connection-activations.json"),
+    MAX_CONNECTION_ACTIVATION_BYTES,
+  );
+  if (stored === null) {
+    return { document: emptyConnectionActivationDocument(), identity: null };
+  }
+  return {
+    document: parseConnectionActivationDocument(stored.value),
+    identity: stored.identity,
+  };
+}
+
 async function assertTargetUnchanged(
   filename: string,
   expected: FileIdentity | null,
@@ -382,6 +417,7 @@ function processIsAlive(pid: number): boolean {
 async function inspectLock(
   context: DirectoryContext,
   lockPath: string,
+  afterStat?: () => void | Promise<void>,
 ): Promise<{
   metadata: LockMetadata | null;
   identity: FileIdentity;
@@ -390,6 +426,7 @@ async function inspectLock(
   const before = await statNoFollow(lockPath);
   if (before === null) return null;
   validatePrivateFileStat(before, 2);
+  await afterStat?.();
   let handle: FileHandle;
   try {
     handle = await open(
@@ -397,6 +434,7 @@ async function inspectLock(
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     );
   } catch (error) {
+    if (isErrno(error, "ENOENT")) return null;
     throw unsafeStorage(error);
   }
   try {
@@ -472,6 +510,7 @@ export class RegistryFileStore {
       release = await this.#acquireLock(context, signal);
       const access: LockedRegistryAccess = {
         readRegistry: () => readRegistry(context),
+        readActivation: () => readActivation(context),
         async readLegacy() {
           const stored = await readStoredValue(
             context,
@@ -487,6 +526,10 @@ export class RegistryFileStore {
         },
         writeRegistry: (document, expected) =>
           this.#writeRegistry(context, document, expected),
+        writeActivation: (document, expected) =>
+          this.#writeActivation(context, document, expected),
+        removeActivation: (expected) =>
+          this.#removeActivation(context, expected),
         async removeLegacy(expected) {
           await validateDirectoryIdentity(context);
           await unlinkIfSame(
@@ -512,11 +555,40 @@ export class RegistryFileStore {
     document: ConnectionRegistryDocument,
     expected: FileIdentity | null,
   ): Promise<void> {
-    const bytes = serializeRegistryDocument(document);
-    const target = path.join(context.directory, "connections.json");
+    await this.#writeStoredValue(
+      context,
+      "connections.json",
+      ".connections",
+      serializeRegistryDocument(document),
+      expected,
+    );
+  }
+
+  async #writeActivation(
+    context: DirectoryContext,
+    document: ConnectionActivationDocument,
+    expected: FileIdentity | null,
+  ): Promise<void> {
+    await this.#writeStoredValue(
+      context,
+      "connection-activations.json",
+      ".connection-activations",
+      serializeConnectionActivationDocument(document),
+      expected,
+    );
+  }
+
+  async #writeStoredValue(
+    context: DirectoryContext,
+    targetName: string,
+    temporaryPrefix: string,
+    bytes: Buffer,
+    expected: FileIdentity | null,
+  ): Promise<void> {
+    const target = path.join(context.directory, targetName);
     const temporary = path.join(
       context.directory,
-      `.connections.${process.pid}.${randomUUID()}.tmp`,
+      `${temporaryPrefix}.${process.pid}.${randomUUID()}.tmp`,
     );
     let handle: FileHandle | undefined;
     let injected = false;
@@ -564,6 +636,26 @@ export class RegistryFileStore {
       await handle?.close().catch(() => undefined);
       await unlink(temporary).catch(() => undefined);
     }
+  }
+
+  async #removeActivation(
+    context: DirectoryContext,
+    expected: FileIdentity,
+  ): Promise<void> {
+    await this.#faultInjector?.("before_remove");
+    try {
+      await validateDirectoryIdentity(context);
+      const removed = await unlinkIfSame(
+        path.join(context.directory, "connection-activations.json"),
+        expected,
+      );
+      if (!removed) throw unsafeStorage();
+      await context.handle.sync();
+    } catch (error) {
+      if (error instanceof ConnectionRegistryError) throw error;
+      throw unsafeStorage(error);
+    }
+    await this.#faultInjector?.("after_remove");
   }
 
   async #acquireLock(
@@ -642,7 +734,9 @@ export class RegistryFileStore {
           }
         }
 
-        const lock = await inspectLock(context, lockPath);
+        const lock = await inspectLock(context, lockPath, () =>
+          this.#faultInjector?.("after_lock_stat"),
+        );
         if (lock === null) continue;
         const now = Date.now();
         if (

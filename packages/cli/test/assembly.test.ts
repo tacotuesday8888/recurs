@@ -15,6 +15,7 @@ import { createHostInvocation } from "@recurs/contracts";
 import {
   ConnectionLifecycleService,
   FileConnectionRegistry,
+  type BrokeredModelProviderConnectionRecord,
   type DelegatedConnectionRecord,
 } from "@recurs/app";
 import {
@@ -61,6 +62,36 @@ const codexConnection: DelegatedConnectionRecord = {
     disclosureRevision:
       "billing-disclosure:openai-codex-chatgpt:2026-07-11",
     allowedSources: ["included_subscription", "prepaid_credits"],
+    acknowledgedAt: "2026-07-11T00:00:00.000Z",
+  },
+  verifiedAt: "2026-07-11T00:00:00.000Z",
+  createdAt: "2026-07-11T00:00:00.000Z",
+  updatedAt: "2026-07-11T00:00:00.000Z",
+};
+
+const brokeredConnection: BrokeredModelProviderConnectionRecord = {
+  kind: "brokered_model_provider",
+  id: "71000000-0000-4000-8000-000000000001",
+  providerId: "openai-api",
+  adapterId: "openai-responses",
+  activationProfileId: "openai_api_v1",
+  label: "OpenAI API",
+  modelId: "gpt-5",
+  credentialIdentityFingerprint: `sha256:${"b".repeat(64)}`,
+  policyRevision: "openai-api-2026-07-11",
+  billingPolicy: {
+    revision: "billing:openai-api:2026-07-11",
+    disclosureRevision: "billing-disclosure:openai-api:2026-07-11",
+    primarySource: "metered_api",
+    possibleAdditionalSources: [],
+    providerFallback: "none",
+    availableSelections: ["strict_primary_only"],
+  },
+  billingSelection: {
+    mode: "strict_primary_only",
+    policyRevision: "billing:openai-api:2026-07-11",
+    disclosureRevision: "billing-disclosure:openai-api:2026-07-11",
+    allowedSources: ["metered_api"],
     acknowledgedAt: "2026-07-11T00:00:00.000Z",
   },
   verifiedAt: "2026-07-11T00:00:00.000Z",
@@ -373,6 +404,32 @@ describe("standalone assembly without a provider", () => {
 
     const files = await readdir(dataDirectory, { recursive: true }).catch(() => []);
     expect(files.filter((file) => file.endsWith(".jsonl"))).toEqual([]);
+  });
+
+  it("keeps a brokered provider unavailable until run activation is wired", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-brokered-disabled-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    const registry = new FileConnectionRegistry(dataDirectory);
+    await registry.commit(0, (draft) => {
+      draft.connections.push(structuredClone(brokeredConnection));
+      draft.primaryConnectionId = brokeredConnection.id;
+    });
+
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: workspace, dataDirectory },
+    );
+
+    expect(runtime.state).toMatchObject({ type: "workspace" });
+    await expect(runtime.submit("inspect")).rejects.toEqual(
+      new RuntimeError(
+        "provider_not_configured",
+        "The selected brokered provider is connected, but brokered provider execution is not available yet.",
+      ),
+    );
   });
 
   it("does not choose a saved connection when no primary is explicit", async () => {

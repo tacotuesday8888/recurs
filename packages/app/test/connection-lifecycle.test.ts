@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ConnectionLifecycleService,
   FileConnectionRegistry,
+  type BrokeredModelProviderConnectionRecord,
   type ConnectionRegistryDocument,
   type ConnectionRegistryMutation,
   type ConnectionRegistryPort,
@@ -78,6 +79,38 @@ function codex(): DelegatedConnectionRecord {
   };
 }
 
+function brokered(): BrokeredModelProviderConnectionRecord {
+  return {
+    kind: "brokered_model_provider",
+    id: "71000000-0000-4000-8000-000000000001",
+    providerId: "openai-api",
+    adapterId: "openai-responses",
+    activationProfileId: "openai_api_v1",
+    label: "OpenAI API",
+    modelId: "gpt-5",
+    credentialIdentityFingerprint: `sha256:${"b".repeat(64)}`,
+    policyRevision: "openai-api-2026-07-11",
+    billingPolicy: {
+      revision: "billing:openai-api:2026-07-11",
+      disclosureRevision: "billing-disclosure:openai-api:2026-07-11",
+      primarySource: "metered_api",
+      possibleAdditionalSources: [],
+      providerFallback: "none",
+      availableSelections: ["strict_primary_only"],
+    },
+    billingSelection: {
+      mode: "strict_primary_only",
+      policyRevision: "billing:openai-api:2026-07-11",
+      disclosureRevision: "billing-disclosure:openai-api:2026-07-11",
+      allowedSources: ["metered_api"],
+      acknowledgedAt: at,
+    },
+    verifiedAt: at,
+    createdAt: at,
+    updatedAt: at,
+  };
+}
+
 async function seededRegistry(): Promise<{
   root: string;
   registry: FileConnectionRegistry;
@@ -124,6 +157,50 @@ class RacingRegistry implements ConnectionRegistryPort {
 }
 
 describe("connection lifecycle service", () => {
+  it("lists brokered model providers without exposing their subject fingerprint", async () => {
+    const registry = new FileConnectionRegistry(await temporaryRoot());
+    await registry.commit(0, (draft) => {
+      draft.connections.push(brokered());
+      draft.primaryConnectionId = brokered().id;
+    });
+
+    const summaries = await new ConnectionLifecycleService(registry).list();
+
+    expect(summaries).toEqual([{
+      id: brokered().id,
+      label: "OpenAI API",
+      providerId: "openai-api",
+      adapterId: "openai-responses",
+      kind: "brokered_model_provider",
+      modelId: "gpt-5",
+      primary: true,
+      account: "verified (identifier redacted)",
+      execution: "Act + Plan",
+      billingSources: ["metered_api"],
+    }]);
+    expect(JSON.stringify(summaries)).not.toContain(
+      brokered().credentialIdentityFingerprint,
+    );
+  });
+
+  it("does not remove brokered metadata before native disconnect is wired", async () => {
+    const registry = new FileConnectionRegistry(await temporaryRoot());
+    await registry.commit(0, (draft) => {
+      draft.connections.push(brokered());
+      draft.primaryConnectionId = brokered().id;
+    });
+    const service = new ConnectionLifecycleService(registry);
+
+    await expect(service.disconnect(brokered().id)).rejects.toMatchObject({
+      code: "operation_unavailable",
+      message: "Brokered connection disconnection is not activated yet",
+    });
+    expect(await registry.read()).toMatchObject({
+      primaryConnectionId: brokered().id,
+      connections: [brokered()],
+    });
+  });
+
   it("lists deeply frozen summaries without private account or endpoint data", async () => {
     const { registry } = await seededRegistry();
     const summaries = await new ConnectionLifecycleService(registry).list();

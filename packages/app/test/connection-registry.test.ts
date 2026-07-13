@@ -21,6 +21,7 @@ import {
   FileConnectionRegistry,
   connectionRegistryPath,
   legacyLocalConnectionPath,
+  type BrokeredModelProviderConnectionRecord,
   type DelegatedConnectionRecord,
   type LocalConnectionRecord,
 } from "../src/index.js";
@@ -89,6 +90,41 @@ function delegated(
       disclosureRevision:
         "billing-disclosure:openai-codex-chatgpt:2026-07-11",
       allowedSources: ["included_subscription", "prepaid_credits"],
+      acknowledgedAt: AT,
+    },
+    verifiedAt: AT,
+    createdAt: AT,
+    updatedAt: AT,
+    ...overrides,
+  };
+}
+
+function brokered(
+  overrides: Partial<BrokeredModelProviderConnectionRecord> = {},
+): BrokeredModelProviderConnectionRecord {
+  return {
+    kind: "brokered_model_provider",
+    id: "71000000-0000-4000-8000-000000000001",
+    providerId: "openai-api",
+    adapterId: "openai-responses",
+    activationProfileId: "openai_api_v1",
+    label: "OpenAI API",
+    modelId: "gpt-5",
+    credentialIdentityFingerprint: `sha256:${"b".repeat(64)}`,
+    policyRevision: "openai-api-2026-07-11",
+    billingPolicy: {
+      revision: "billing:openai-api:2026-07-11",
+      disclosureRevision: "billing-disclosure:openai-api:2026-07-11",
+      primarySource: "metered_api",
+      possibleAdditionalSources: [],
+      providerFallback: "none",
+      availableSelections: ["strict_primary_only"],
+    },
+    billingSelection: {
+      mode: "strict_primary_only",
+      policyRevision: "billing:openai-api:2026-07-11",
+      disclosureRevision: "billing-disclosure:openai-api:2026-07-11",
+      allowedSources: ["metered_api"],
       acknowledgedAt: AT,
     },
     verifiedAt: AT,
@@ -424,6 +460,72 @@ describe("FileConnectionRegistry", () => {
     expect((await registry.read()).connections[0]?.label).toBe("Codex");
   });
 
+  it("persists only the fixed OpenAI v1 brokered record shape", async () => {
+    const registry = new FileConnectionRegistry(await root());
+
+    const saved = await registry.commit(0, (draft) => {
+      draft.connections.push(brokered());
+      draft.primaryConnectionId = brokered().id;
+    });
+
+    expect(saved.connections).toEqual([brokered()]);
+    expect(Object.isFrozen(saved.connections[0])).toBe(true);
+    expect(Object.isFrozen(saved.connections[0]?.billingPolicy)).toBe(true);
+    expect(Object.isFrozen(saved.connections[0]?.billingSelection)).toBe(true);
+  });
+
+  it("rejects brokered identity drift and native-capability fields", async () => {
+    const invalid = [
+      brokered({ providerId: "other" as "openai-api" }),
+      brokered({ adapterId: "other" as "openai-responses" }),
+      brokered({ activationProfileId: "anthropic_api_v1" as "openai_api_v1" }),
+      { ...brokered(), endpoint: "https://api.openai.com/v1" },
+      { ...brokered(), catalogRequestId: "request-private" },
+      { ...brokered(), attemptId: randomUUID() },
+      { ...brokered(), commitToken: randomUUID() },
+    ];
+
+    for (const connection of invalid) {
+      const registry = new FileConnectionRegistry(await root());
+      await expect(registry.commit(0, (draft) => {
+        draft.connections.push(connection as BrokeredModelProviderConnectionRecord);
+        draft.primaryConnectionId = connection.id;
+      })).rejects.toMatchObject({
+        code: "registry_invalid",
+        message: "Connection registry is invalid",
+      });
+    }
+  });
+
+  it("requires brokered connection ids to be canonical UUIDs", async () => {
+    for (const id of [
+      "openai-primary",
+      "71000000-0000-4000-8000-00000000000A",
+    ]) {
+      const registry = new FileConnectionRegistry(await root());
+      await expect(registry.commit(0, (draft) => {
+        draft.connections.push(brokered({ id }));
+        draft.primaryConnectionId = id;
+      })).rejects.toMatchObject({ code: "registry_invalid" });
+    }
+  });
+
+  it("bounds brokered model ids by the native UTF-8 limit", async () => {
+    const accepted = new FileConnectionRegistry(await root());
+    await expect(accepted.commit(0, (draft) => {
+      const connection = brokered({ modelId: "😀".repeat(64) });
+      draft.connections.push(connection);
+      draft.primaryConnectionId = connection.id;
+    })).resolves.toMatchObject({ connections: [{ modelId: "😀".repeat(64) }] });
+
+    const rejected = new FileConnectionRegistry(await root());
+    await expect(rejected.commit(0, (draft) => {
+      const connection = brokered({ modelId: "😀".repeat(65) });
+      draft.connections.push(connection);
+      draft.primaryConnectionId = connection.id;
+    })).rejects.toMatchObject({ code: "registry_invalid" });
+  });
+
   it("rejects delegated billing policies whose fallback semantics are inconsistent", async () => {
     const directory = await root();
     const registry = new FileConnectionRegistry(directory);
@@ -589,6 +691,32 @@ describe("FileConnectionRegistry", () => {
       code: "lock_timeout",
     });
     expect(await lstat(lock)).toBeDefined();
+  });
+
+  it("retries when a competing lock disappears during inspection", async () => {
+    const directory = await root();
+    const lock = path.join(directory, "config", ".connections.lock");
+    await writePrivate(lock, `${JSON.stringify({
+      version: 1,
+      pid: process.pid,
+      token: randomUUID(),
+      createdAt: Date.now(),
+    })}\n`);
+    let removed = false;
+    const registry = new FileConnectionRegistry(directory, {
+      lockTimeoutMs: 100,
+      async faultInjector(point) {
+        if (point === "after_lock_stat" && !removed) {
+          removed = true;
+          await rm(lock, { force: true });
+        }
+      },
+    });
+
+    await expect(registry.commit(0, () => undefined)).resolves.toMatchObject({
+      revision: 1,
+    });
+    expect(removed).toBe(true);
   });
 
   it("aborts a bounded lock wait without disturbing the owner", async () => {
