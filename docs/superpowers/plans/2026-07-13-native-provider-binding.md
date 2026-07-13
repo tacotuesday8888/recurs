@@ -170,7 +170,7 @@ git commit -m "feat: share provider activation profile identity"
 - Modify: `native/macos/Sources/RecursBrokerCore/EndpointPolicy.swift`
 - Modify: `native/macos/Tests/RecursBrokerCoreTests/EndpointPolicyTests.swift`
 
-- [ ] **Step 1: Write failing binding tests**
+- [x] **Step 1: Write failing binding tests**
 
 Cover all three built-ins and at least two canonical custom endpoints under the
 same custom family ID, including both `.modelsRoute` and `.unavailable`. Assert
@@ -188,13 +188,13 @@ custom family it asserts the fixed validation/auth/route/codec semantics while
 the endpoint/catalog values remain authenticated connection parameters. This
 snapshot is the mechanical guard that requires a new ID when policy changes.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```bash
 swift test --package-path native/macos --filter ProviderProfileBindingTests
 ```
 
-- [ ] **Step 3: Implement the minimum closed binding**
+- [x] **Step 3: Implement the minimum closed binding**
 
 Replace `EndpointProfile.kind` and the aggregate `revision` with generated
 `activationProfileID`. Retain the separate codec, compatibility, and billing-
@@ -204,7 +204,7 @@ first constructs `EndpointProfile.customOpenAICompatible` and then retains only
 its canonical structural fields. A computed `endpointProfile` reconstructs and
 revalidates the closed policy.
 
-- [ ] **Step 4: Verify GREEN and commit**
+- [x] **Step 4: Verify GREEN and commit**
 
 ```bash
 swift test --package-path native/macos --filter ProviderProfileBindingTests
@@ -234,7 +234,7 @@ git commit -m "feat: bind native provider endpoint profiles"
 - Modify: `native/macos/Tests/RecursBrokerCoreTests/CredentialUseReservationTests.swift`
 - Modify: test journal/store fixtures that construct `BrokerJournalRecord`
 
-- [ ] **Step 1: Write failing journal/binding tests**
+- [x] **Step 1: Write failing journal/binding tests**
 
 Add exact independent v2 canonical bytes for built-in and custom bindings.
 Assert v1/unknown schemas fail `unsupportedVersion`; mismatched and malformed
@@ -250,7 +250,7 @@ operation replay includes binding in its fingerprint. Ready credential-use
 reservation requires `expectedBinding` and rejects mismatches before Keychain
 load.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```bash
 swift test --package-path native/macos --filter BrokerJournalCodecTests
@@ -258,7 +258,7 @@ swift test --package-path native/macos --filter BrokerCredentialJournalStageTest
 swift test --package-path native/macos --filter CredentialUseReservationTests
 ```
 
-- [ ] **Step 3: Implement journal v2 and propagation**
+- [x] **Step 3: Implement journal v2 and propagation**
 
 `BrokerJournalRecord` stores non-optional `providerBinding` and schema version
 2. Canonical JSON places the exact binding at a fixed top-level position:
@@ -285,7 +285,7 @@ Do not expose it through lifecycle projections. Require `expectedBinding` when
 reserving a ready credential and compare the authenticated snapshot before any
 store load.
 
-- [ ] **Step 4: Run the full core suite and commit**
+- [x] **Step 4: Run the full core suite and commit**
 
 ```bash
 swift test --package-path native/macos --filter RecursBrokerCoreTests
@@ -312,7 +312,7 @@ git commit -m "feat: authenticate provider binding in broker state"
 - Modify: focused broker service/XPC/codec tests
 - Modify: docs that state provider metadata is not durably bound
 
-- [ ] **Step 1: Write failing codec and gateway tests**
+- [x] **Step 1: Write failing codec and gateway tests**
 
 Extend only `BrokerCredentialStageRequest` with a bounded non-secret binding
 descriptor: versioned profile ID plus either no custom fields or exact custom
@@ -323,7 +323,7 @@ passes the exact binding to authority and rejects it before authority/store work
 when invalid. Lifecycle projection/control replies remain byte-for-byte free of
 provider/profile/URL data.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```bash
 swift test --package-path native/macos --filter BrokerCredentialLifecycleCodecTests
@@ -331,7 +331,7 @@ swift test --package-path native/macos --filter BrokerCredentialLifecycleGateway
 swift test --package-path native/macos --filter BrokerCredentialLifecycleXPCTests
 ```
 
-- [ ] **Step 3: Implement the bounded private descriptor**
+- [x] **Step 3: Implement the bounded private descriptor**
 
 Use the raw generated profile string, not a second handwritten numeric enum.
 Bound the profile ID to 64 ASCII bytes and the canonical custom base to 2,048
@@ -344,7 +344,7 @@ This is a breaking private metadata revision, so bump the native component
 version from `0.1.0` to `0.2.0` through its generator. Do not add any field to
 `RecursNativeProtocol` or the launcher-to-engine bridge.
 
-- [ ] **Step 4: Verify GREEN and commit**
+- [x] **Step 4: Verify GREEN and commit**
 
 ```bash
 npm run generate:native-component-version

@@ -27,12 +27,22 @@ unsigned, and ad-hoc launchers cannot select an engine through `PATH`, cwd,
 environment, or arguments and fail the engine path with fixed exit `78` and
 empty output.
 
+The native credential journal is now schema v2. Every record authenticates one
+exact provider/profile binding; a custom binding also authenticates canonical
+host, port, base path, and model-catalog behavior. Native component `0.2.0`
+carries the same identity through bounded non-secret private stage metadata,
+while replies, TypeScript, and descriptor 3 remain free of that authority.
+Schema-v1 journals fail closed with no inferred or in-place migration because
+no credential-bearing artifact has shipped; development users reset the
+unpublished journal and reconnect.
+
 This is not yet a shipped or provider-usable credential authority. No
 signed/notarized installed artifact or successful production broker smoke
 exists, and source/npm or ad-hoc builds cannot activate the authority. The
-launcher does not collect secrets or call the broker lifecycle; staged
-candidates cannot be provider-verified, provider metadata is not durably bound
-to credential generations, and no broker-owned provider HTTP transport exists.
+launcher has no TTY secret capture and does not call the broker lifecycle.
+There is no provider verification, DNS/network feasibility proof, route
+authority, broker HTTP/TLS/proxy handling, model-catalog transport, CLI
+onboarding, or enabled broker-owned provider.
 A directly injected descriptor and its peer's self-attestation cannot prove
 native provenance, so a claimed ready result is still downgraded to
 `peer_identity_unverified` without a JavaScript or environment bypass. There is
@@ -119,14 +129,15 @@ variables, or proxy variables, but they retain the user's ordinary host
 authority.
 
 Direct API, coding-plan, OAuth, and cloud-identity credential flows remain
-disabled until a complete provider vertical supplies a reviewed native request
-codec and endpoint profile, hidden-input onboarding and fenced connection
-lifecycle, provider verification and durable generation metadata binding,
-policy/runtime binding, broker-owned HTTPS, a compatible signed artifact, and
-installed-artifact credential-canary tests. A manifest boolean cannot bypass
-that gate. The production broker release smoke must use an ephemeral macOS user
-and a dedicated production test Keychain access group; overriding `HOME` cannot
-safely redirect its live journal root or Keychain configuration.
+disabled until a complete provider vertical supplies reviewed request/stream
+codecs, TTY onboarding and a fenced connection lifecycle, provider
+verification, route authority, DNS/network feasibility, policy/runtime
+binding, broker-owned HTTP/TLS/proxy and model-catalog transport, a compatible
+signed artifact, and installed-artifact credential-canary tests. A manifest
+boolean cannot bypass that gate. The production broker release smoke must use
+an ephemeral macOS user and a dedicated production test Keychain access group;
+overriding `HOME` cannot safely redirect its live journal root or Keychain
+configuration.
 The future native HTTPS transport will ignore repository proxy/CA environment
 variables while trusting macOS system proxy and root configuration as host
 policy. That trust must be disclosed; it is not equivalent to certificate or
