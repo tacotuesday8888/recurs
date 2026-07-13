@@ -179,6 +179,7 @@ package actor BrokerCredentialState {
   private let clock: @Sendable () -> Date
   private let generationIDSource: @Sendable () -> UUID
   private let attemptIDSource: @Sendable () -> UUID
+  private let journal: (any BrokerJournalStore)?
   private var machine: BrokerCredentialStateMachine
 
   package init(
@@ -189,10 +190,66 @@ package actor BrokerCredentialState {
     attemptIDSource: @escaping @Sendable () -> UUID = { UUID() }
   ) throws(BrokerStateError) {
     self.store = store
+    self.journal = nil
     self.machine = try BrokerCredentialStateMachine(bootstrap: bootstrap)
     self.clock = clock
     self.generationIDSource = generationIDSource
     self.attemptIDSource = attemptIDSource
+  }
+
+  private init(
+    store: any CredentialStore,
+    journal: any BrokerJournalStore,
+    preparedJournalEntries: [BrokerJournalPreparedEntry],
+    clock: @escaping @Sendable () -> Date,
+    generationIDSource: @escaping @Sendable () -> UUID,
+    attemptIDSource: @escaping @Sendable () -> UUID
+  ) throws(BrokerJournalError) {
+    self.store = store
+    self.journal = journal
+    self.machine = try BrokerCredentialStateMachine(
+      preparedJournalEntries: preparedJournalEntries
+    )
+    self.clock = clock
+    self.generationIDSource = generationIDSource
+    self.attemptIDSource = attemptIDSource
+  }
+
+  static func recoveringForTests(
+    store: any CredentialStore,
+    journal: any BrokerJournalStore,
+    clock: @escaping @Sendable () -> Date = { Date() },
+    generationIDSource: @escaping @Sendable () -> UUID = { UUID() },
+    attemptIDSource: @escaping @Sendable () -> UUID = { UUID() }
+  ) async throws(BrokerJournalError) -> BrokerCredentialState {
+    let prepared = try await BrokerJournalRecovery.prepare(
+      journal: journal,
+      clock: clock
+    )
+    let state = try BrokerCredentialState(
+      store: store,
+      journal: journal,
+      preparedJournalEntries: prepared,
+      clock: clock,
+      generationIDSource: generationIDSource,
+      attemptIDSource: attemptIDSource
+    )
+    for entry in prepared where entry.plan.cleanup != nil {
+      do {
+        _ = try await state.resumeRecoveredCleanupForTests(
+          connectionID: entry.snapshot.record.connectionID
+        )
+      } catch let error as BrokerStateError {
+        guard error == .cleanupPending else {
+          throw BrokerJournalError.invalidRecord
+        }
+      } catch let error as BrokerJournalError {
+        throw error
+      } catch {
+        throw BrokerJournalError.invalidRecord
+      }
+    }
+    return state
   }
 
   package func projection(for connectionID: UUID) -> CredentialProjection? {
@@ -229,6 +286,9 @@ package actor BrokerCredentialState {
       return try machine.resolveStage(outcome)
     case .resumeCleanup:
       secret.erase()
+      guard journal == nil else {
+        throw .cleanupPending
+      }
       return try machine.resolveStage(
         await continueCleanup(
           connectionID: connectionID,
@@ -243,6 +303,10 @@ package actor BrokerCredentialState {
     guard !Task.isCancelled else {
       secret.erase()
       throw .cancelled
+    }
+    guard journal == nil else {
+      secret.erase()
+      throw .storeUnavailable
     }
 
     let proposal: BrokerCredentialStateMachine.StageProposal
@@ -325,6 +389,9 @@ package actor BrokerCredentialState {
     case .replay(let outcome):
       return try machine.resolveStage(outcome)
     case .resumeCleanup:
+      guard journal == nil else {
+        throw .cleanupPending
+      }
       return try machine.resolveStage(
         await continueCleanup(
           connectionID: connectionID,
@@ -337,6 +404,9 @@ package actor BrokerCredentialState {
     }
     guard !Task.isCancelled else {
       throw .cancelled
+    }
+    guard journal == nil else {
+      throw .storeUnavailable
     }
     try machine.validateResumeStage(
       connectionID: connectionID,
@@ -489,6 +559,51 @@ package actor BrokerCredentialState {
     }
   }
 
+  func resumeRecoveredCleanupForTests(
+    connectionID: UUID
+  ) async throws -> BrokerCredentialStateMachine.TerminalOutcome {
+    try await continueRecoveredCleanup(connectionID: connectionID)
+  }
+
+  private func continueRecoveredCleanup(
+    connectionID: UUID
+  ) async throws -> BrokerCredentialStateMachine.TerminalOutcome {
+    guard let journal else {
+      throw BrokerJournalError.invalidRecord
+    }
+    while true {
+      switch try machine.beginJournalCleanup(connectionID: connectionID) {
+      case .delete(let key, let token):
+        do {
+          try await store.deleteIfPresent(key)
+        } catch {
+          try machine.finishJournalDeleteAwait(token, succeeded: false)
+          throw BrokerStateError.cleanupPending
+        }
+        try machine.finishJournalDeleteAwait(token, succeeded: true)
+
+      case .needsFinalization(let request):
+        let changedAt = try BrokerJournalRecordAdapter.captureTimestamp(from: clock())
+        let token = try machine.beginJournalFinalization(
+          request,
+          changedAt: changedAt
+        )
+        let result: Result<BrokerJournalSnapshot, BrokerJournalError>
+        do {
+          result = .success(
+            try await journal.compareAndSwap(
+              expected: token.expected,
+              replacement: token.replacement
+            )
+          )
+        } catch let error {
+          result = .failure(error)
+        }
+        return try machine.finishJournalFinalization(token, result: result)
+      }
+    }
+  }
+
   private func preflight(
     connectionID: UUID,
     operationID: UUID,
@@ -499,11 +614,22 @@ package actor BrokerCredentialState {
       operationID: operationID,
       fingerprint: fingerprint
     )
-    guard case .proceed = disposition else {
+    switch disposition {
+    case .replay:
       return disposition
+    case .resumeCleanup:
+      if journal != nil {
+        throw .cleanupPending
+      }
+      return disposition
+    case .proceed:
+      break
     }
     guard !Task.isCancelled else {
       throw .cancelled
+    }
+    guard journal == nil else {
+      throw .storeUnavailable
     }
     return .proceed
   }
