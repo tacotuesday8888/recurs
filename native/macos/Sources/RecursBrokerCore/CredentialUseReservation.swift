@@ -145,6 +145,11 @@ package final class CredentialUseReservation:
   }
 }
 
+package enum CredentialUsePreparation<Prepared: Sendable>: Sendable {
+  case prepared(Prepared)
+  case rejected
+}
+
 package enum CredentialUseError:
   Error,
   Sendable,
@@ -160,6 +165,7 @@ package enum CredentialUseError:
   case operationInProgress
   case authorityUnavailable
   case credentialUnavailable
+  case invalidCredential
   case invalidReservation
   case invalidDeliveryTransition
 
@@ -179,6 +185,8 @@ package enum CredentialUseError:
       "Credential authority is unavailable."
     case .credentialUnavailable:
       "The credential is unavailable."
+    case .invalidCredential:
+      "The credential is invalid."
     case .invalidReservation:
       "The credential-use reservation is invalid."
     case .invalidDeliveryTransition:

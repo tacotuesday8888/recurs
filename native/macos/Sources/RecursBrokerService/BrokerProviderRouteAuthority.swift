@@ -37,7 +37,9 @@ enum BrokerProviderRouteAuthorityError:
   case closed
   case expired
   case invalidCapability
+  case invalidCredential
   case wrongScope
+  case wrongProvider
   case wrongRequestBytes
   case staleCapability
   case authorityUnavailable
@@ -55,8 +57,12 @@ enum BrokerProviderRouteAuthorityError:
       "The provider route capability expired."
     case .invalidCapability:
       "The provider route capability is invalid."
+    case .invalidCredential:
+      "The provider credential is invalid."
     case .wrongScope:
       "The provider route scope is invalid."
+    case .wrongProvider:
+      "The provider route binding is invalid."
     case .wrongRequestBytes:
       "The provider route request size is invalid."
     case .staleCapability:
@@ -236,6 +242,7 @@ actor BrokerProviderRouteAuthority {
     let reservation: WeakProviderRouteReservation
     let capability: BrokerProviderRouteCapability
     let scope: BrokerProviderRouteScope
+    let providerBinding: ProviderProfileBinding
     let requestBytes: UInt64
   }
 
@@ -328,6 +335,7 @@ actor BrokerProviderRouteAuthority {
   func reserveCredentialUse(
     _ handle: BrokerProviderRouteCapability,
     expectedScope: BrokerProviderRouteScope,
+    expectedProviderBinding: ProviderProfileBinding,
     requestBytes: UInt64
   ) async throws(BrokerProviderRouteAuthorityError)
     -> BrokerProviderRouteReservation
@@ -338,6 +346,7 @@ actor BrokerProviderRouteAuthority {
       identifier: identifier,
       handle: handle,
       expectedScope: expectedScope,
+      expectedProviderBinding: expectedProviderBinding,
       requestBytes: requestBytes
     )
     let routeReservationID = try allocateUseID()
@@ -355,6 +364,7 @@ actor BrokerProviderRouteAuthority {
       identifier: identifier,
       handle: handle,
       expectedScope: expectedScope,
+      expectedProviderBinding: expectedProviderBinding,
       requestBytes: requestBytes
     )
     try Self.validate(result, against: live)
@@ -363,7 +373,7 @@ actor BrokerProviderRouteAuthority {
     do {
       reservation = try await credentialAuthority.reserveCredentialUse(
         connectionID: live.connectionID,
-        expectedBinding: live.providerBinding,
+        expectedBinding: expectedProviderBinding,
         purpose: live.scope.credentialUsePurpose
       )
     } catch let error {
@@ -375,6 +385,7 @@ actor BrokerProviderRouteAuthority {
         identifier: identifier,
         handle: handle,
         expectedScope: expectedScope,
+        expectedProviderBinding: expectedProviderBinding,
         requestBytes: requestBytes
       )
       guard
@@ -391,6 +402,7 @@ actor BrokerProviderRouteAuthority {
         identifier: identifier,
         handle: handle,
         expectedScope: expectedScope,
+        expectedProviderBinding: expectedProviderBinding,
         requestBytes: requestBytes
       )
       try Self.validate(finalResult, against: live)
@@ -416,6 +428,7 @@ actor BrokerProviderRouteAuthority {
         reservation: WeakProviderRouteReservation(routeReservation),
         capability: handle,
         scope: expectedScope,
+        providerBinding: expectedProviderBinding,
         requestBytes: requestBytes
       )
       return routeReservation
@@ -434,8 +447,9 @@ actor BrokerProviderRouteAuthority {
     _ reservation: BrokerProviderRouteReservation,
     capability handle: BrokerProviderRouteCapability,
     expectedScope: BrokerProviderRouteScope,
+    expectedProviderBinding: ProviderProfileBinding,
     requestBytes: UInt64,
-    prepare: @Sendable (UnsafeRawBufferPointer) -> Prepared,
+    prepare: @Sendable (UnsafeRawBufferPointer) -> CredentialUsePreparation<Prepared>,
     start: @Sendable (Prepared) -> Void
   ) async throws(BrokerProviderRouteAuthorityError) -> DeliveryState {
     let reservationID = reservation.authorityUseID
@@ -461,6 +475,7 @@ actor BrokerProviderRouteAuthority {
         reservation: reservation,
         capability: handle,
         expectedScope: expectedScope,
+        expectedProviderBinding: expectedProviderBinding,
         requestBytes: requestBytes
       )
     } catch let error {
@@ -479,6 +494,7 @@ actor BrokerProviderRouteAuthority {
         reservation: reservation,
         capability: handle,
         expectedScope: expectedScope,
+        expectedProviderBinding: expectedProviderBinding,
         requestBytes: requestBytes
       )
       try Self.validate(result, against: live)
@@ -568,12 +584,14 @@ actor BrokerProviderRouteAuthority {
     identifier: ObjectIdentifier,
     handle: BrokerProviderRouteCapability,
     expectedScope: BrokerProviderRouteScope,
+    expectedProviderBinding: ProviderProfileBinding,
     requestBytes: UInt64
   ) throws(BrokerProviderRouteAuthorityError) -> Entry {
     let entry = try liveEntry(
       identifier: identifier,
       handle: handle,
-      expectedScope: expectedScope
+      expectedScope: expectedScope,
+      expectedProviderBinding: expectedProviderBinding
     )
     _ = try Self.checkedUsage(entry: entry, requestBytes: requestBytes)
     return entry
@@ -582,7 +600,8 @@ actor BrokerProviderRouteAuthority {
   private func liveEntry(
     identifier: ObjectIdentifier,
     handle: BrokerProviderRouteCapability,
-    expectedScope: BrokerProviderRouteScope
+    expectedScope: BrokerProviderRouteScope,
+    expectedProviderBinding: ProviderProfileBinding
   ) throws(BrokerProviderRouteAuthorityError) -> Entry {
     guard !isClosed else { throw .closed }
     guard !Task.isCancelled else { throw .cancelled }
@@ -590,6 +609,7 @@ actor BrokerProviderRouteAuthority {
       throw .invalidCapability
     }
     guard entry.scope == expectedScope else { throw .wrongScope }
+    guard entry.providerBinding == expectedProviderBinding else { throw .wrongProvider }
     guard !entry.isCancelled else { throw .cancelled }
     guard clock() < entry.expiresAt else { throw .expired }
     return entry
@@ -600,6 +620,7 @@ actor BrokerProviderRouteAuthority {
     reservation: BrokerProviderRouteReservation,
     capability: BrokerProviderRouteCapability,
     expectedScope: BrokerProviderRouteScope,
+    expectedProviderBinding: ProviderProfileBinding,
     requestBytes: UInt64
   ) throws(BrokerProviderRouteAuthorityError) -> Entry {
     let reservationID = reservation.authorityUseID
@@ -612,12 +633,14 @@ actor BrokerProviderRouteAuthority {
     }
     guard current.capability === capability else { throw .invalidCapability }
     guard current.scope == expectedScope else { throw .wrongScope }
+    guard current.providerBinding == expectedProviderBinding else { throw .wrongProvider }
     guard current.requestBytes == requestBytes else { throw .wrongRequestBytes }
     if let error = reservation.consumingError() { throw error }
     return try liveEntry(
       identifier: ObjectIdentifier(current.capability),
       handle: current.capability,
-      expectedScope: current.scope
+      expectedScope: current.scope,
+      expectedProviderBinding: current.providerBinding
     )
   }
 
@@ -853,6 +876,8 @@ actor BrokerProviderRouteAuthority {
     case .connectionNotFound, .connectionTombstoned, .noUsableCredential,
       .invalidReservation:
       .staleCapability
+    case .invalidCredential:
+      .invalidCredential
     case .operationInProgress, .authorityUnavailable, .credentialUnavailable,
       .invalidDeliveryTransition:
       .authorityUnavailable

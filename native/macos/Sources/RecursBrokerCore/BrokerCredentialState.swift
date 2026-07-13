@@ -562,7 +562,7 @@ package actor BrokerCredentialState {
 
   package func startCredentialUse<Prepared: Sendable>(
     _ reservation: CredentialUseReservation,
-    prepare: @Sendable (UnsafeRawBufferPointer) -> Prepared,
+    prepare: @Sendable (UnsafeRawBufferPointer) -> CredentialUsePreparation<Prepared>,
     start: @Sendable (Prepared) -> Void
   ) throws(CredentialUseError) -> DeliveryState {
     let lifetime = reservation.lifetime
@@ -587,7 +587,7 @@ package actor BrokerCredentialState {
         throw .invalidReservation
       }
       guard
-        let prepared = context.lifetime.withSecret({ secret in
+        let preparation = context.lifetime.withSecret({ secret in
           secret.withUnsafeBytes(prepare)
         })
       else {
@@ -597,6 +597,14 @@ package actor BrokerCredentialState {
       guard !Task.isCancelled else {
         terminateCredentialUse(identifier, error: .cancelled)
         throw .cancelled
+      }
+      let prepared: Prepared
+      switch preparation {
+      case .prepared(let value):
+        prepared = value
+      case .rejected:
+        terminateCredentialUse(identifier, error: .invalidCredential)
+        throw .invalidCredential
       }
       var delivery = DeliveryState.notSent
       do {

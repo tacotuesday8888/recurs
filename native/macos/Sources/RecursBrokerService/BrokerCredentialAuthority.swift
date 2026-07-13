@@ -44,7 +44,7 @@ protocol BrokerProviderCredentialUseAuthority: Sendable {
 
   func startCredentialUse<Prepared: Sendable>(
     _ reservation: CredentialUseReservation,
-    prepare: @Sendable (UnsafeRawBufferPointer) -> Prepared,
+    prepare: @Sendable (UnsafeRawBufferPointer) -> CredentialUsePreparation<Prepared>,
     start: @Sendable (Prepared) -> Void
   ) async throws(CredentialUseError) -> DeliveryState
 
@@ -116,7 +116,7 @@ struct BrokerCredentialAuthority:
 
   func startCredentialUse<Prepared: Sendable>(
     _ reservation: CredentialUseReservation,
-    prepare: @Sendable (UnsafeRawBufferPointer) -> Prepared,
+    prepare: @Sendable (UnsafeRawBufferPointer) -> CredentialUsePreparation<Prepared>,
     start: @Sendable (Prepared) -> Void
   ) async throws(CredentialUseError) -> DeliveryState {
     try await state.startCredentialUse(

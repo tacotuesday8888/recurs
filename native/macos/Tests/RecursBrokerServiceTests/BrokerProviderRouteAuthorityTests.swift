@@ -51,6 +51,127 @@ struct BrokerProviderRouteAuthorityTests {
   }
 
   @Test
+  func reserveRejectsWrongProviderBeforeReadSecretOrBudgetDebit() async throws {
+    let reader = RouteProjectionReader(
+      projection: bound(.openAI, .staging(stagingAttempt()))
+    )
+    let credentialAuthority = RouteCredentialAuthority(reader: reader)
+    let authority = routeAuthority(
+      reader: reader,
+      credentialAuthority: credentialAuthority
+    )
+    let handle = try await authority.issue(
+      scope: .setup,
+      connectionID: connectionID,
+      expiresAt: now.addingTimeInterval(60),
+      requestBudget: 1,
+      byteBudget: 1
+    )
+    let readsAfterIssue = await reader.readCount
+
+    await #expect(throws: BrokerProviderRouteAuthorityError.wrongProvider) {
+      _ = try await authority.reserveCredentialUse(
+        handle,
+        expectedScope: .setup,
+        expectedProviderBinding: .anthropic,
+        requestBytes: 1
+      )
+    }
+    #expect(await reader.readCount == readsAfterIssue)
+    #expect(await credentialAuthority.purposes.isEmpty)
+    #expect(await credentialAuthority.lastSecretIsErased() == nil)
+    #expect(
+      BrokerProviderRouteAuthorityError.wrongProvider.description
+        == "The provider route binding is invalid."
+    )
+
+    let retry = try await authority.reserveCredentialUse(
+      handle,
+      expectedScope: .setup,
+      expectedProviderBinding: .openAI,
+      requestBytes: 1
+    )
+    await authority.cancel(handle)
+    #expect(await credentialAuthority.cancelCount == 1)
+    #expect(await credentialAuthority.releaseCount == 1)
+    _ = retry
+  }
+
+  @Test
+  func startRejectsWrongProviderBeforeProjectionOrCredentialStart() async throws {
+    let reader = RouteProjectionReader(
+      projection: bound(.openAI, .staging(stagingAttempt()))
+    )
+    let credentialAuthority = RouteCredentialAuthority(reader: reader)
+    let authority = routeAuthority(
+      reader: reader,
+      credentialAuthority: credentialAuthority
+    )
+    let handle = try await issue(.setup, from: authority)
+    let reservation = try await authority.reserveCredentialUse(
+      handle,
+      expectedScope: .setup,
+      expectedProviderBinding: .openAI,
+      requestBytes: 1
+    )
+    let readsAfterReserve = await reader.readCount
+    let probe = RouteStartProbe()
+
+    await #expect(throws: BrokerProviderRouteAuthorityError.wrongProvider) {
+      _ = try await startRouteUse(
+        reservation,
+        handle: handle,
+        authority: authority,
+        providerBinding: .anthropic,
+        probe: probe
+      )
+    }
+    #expect(await reader.readCount == readsAfterReserve)
+    #expect(probe.count == 0)
+    #expect(await credentialAuthority.startCount == 0)
+    #expect(await credentialAuthority.cancelCount == 1)
+    #expect(await credentialAuthority.releaseCount == 1)
+    #expect(await credentialAuthority.lastSecretIsErased() == true)
+  }
+
+  @Test
+  func rejectedPreparationMapsInvalidCredentialWithoutStarting() async throws {
+    let reader = RouteProjectionReader(
+      projection: bound(.openAI, .staging(stagingAttempt()))
+    )
+    let credentialAuthority = RouteCredentialAuthority(reader: reader)
+    let authority = routeAuthority(
+      reader: reader,
+      credentialAuthority: credentialAuthority
+    )
+    let handle = try await issue(.setup, from: authority)
+    let reservation = try await authority.reserveCredentialUse(
+      handle,
+      expectedScope: .setup,
+      expectedProviderBinding: .openAI,
+      requestBytes: 1
+    )
+    let probe = RouteStartProbe()
+
+    await #expect(throws: BrokerProviderRouteAuthorityError.invalidCredential) {
+      _ = try await authority.startCredentialUse(
+        reservation,
+        capability: handle,
+        expectedScope: .setup,
+        expectedProviderBinding: .openAI,
+        requestBytes: 1,
+        prepare: { _ in CredentialUsePreparation<Bool>.rejected },
+        start: probe.record
+      )
+    }
+    #expect(probe.count == 0)
+    #expect(await credentialAuthority.startCount == 0)
+    #expect(await credentialAuthority.cancelCount == 1)
+    #expect(await credentialAuthority.releaseCount == 1)
+    #expect(await credentialAuthority.lastSecretIsErased() == true)
+  }
+
+  @Test
   func reconnectScopesBindCandidateOrUsableReadyExactly() async throws {
     let prior = readyGeneration(ordinal: 1)
     let reconnect = stagingAttempt(
@@ -69,11 +190,22 @@ struct BrokerProviderRouteAuthorityTests {
     let run = try await issue(.run, from: authority)
     let maintenance = try await issue(.maintenance, from: authority)
 
-    _ = try await authority.reserveCredentialUse(setup, expectedScope: .setup, requestBytes: 1)
-    _ = try await authority.reserveCredentialUse(run, expectedScope: .run, requestBytes: 1)
+    _ = try await authority.reserveCredentialUse(
+      setup,
+      expectedScope: .setup,
+      expectedProviderBinding: .anthropic,
+      requestBytes: 1
+    )
+    _ = try await authority.reserveCredentialUse(
+      run,
+      expectedScope: .run,
+      expectedProviderBinding: .anthropic,
+      requestBytes: 1
+    )
     _ = try await authority.reserveCredentialUse(
       maintenance,
       expectedScope: .maintenance,
+      expectedProviderBinding: .anthropic,
       requestBytes: 1
     )
     #expect(
@@ -97,13 +229,20 @@ struct BrokerProviderRouteAuthorityTests {
       _ = try await authority.reserveCredentialUse(
         setup,
         expectedScope: .setup,
+        expectedProviderBinding: .anthropic,
         requestBytes: 1
       )
     }
-    _ = try await authority.reserveCredentialUse(run, expectedScope: .run, requestBytes: 1)
+    _ = try await authority.reserveCredentialUse(
+      run,
+      expectedScope: .run,
+      expectedProviderBinding: .anthropic,
+      requestBytes: 1
+    )
     _ = try await authority.reserveCredentialUse(
       maintenance,
       expectedScope: .maintenance,
+      expectedProviderBinding: .anthropic,
       requestBytes: 1
     )
     #expect(
@@ -146,6 +285,7 @@ struct BrokerProviderRouteAuthorityTests {
       _ = try await authority.reserveCredentialUse(
         handle,
         expectedScope: scope,
+        expectedProviderBinding: .kimiCode,
         requestBytes: 1
       )
     }
@@ -172,6 +312,7 @@ struct BrokerProviderRouteAuthorityTests {
     _ = try await authority.reserveCredentialUse(
       run,
       expectedScope: .run,
+      expectedProviderBinding: binding,
       requestBytes: 1
     )
   }
@@ -1073,9 +1214,10 @@ struct BrokerProviderRouteAuthorityTests {
     #expect(await otherReader.readCount == readsBeforeForeignHandle)
 
     let errors: [BrokerProviderRouteAuthorityError] = [
-      .cancelled, .closed, .expired, .invalidCapability, .wrongScope,
-      .wrongRequestBytes, .staleCapability, .authorityUnavailable, .routeUnavailable,
-      .requestBudgetExceeded, .byteBudgetExceeded,
+      .cancelled, .closed, .expired, .invalidCapability, .invalidCredential,
+      .wrongScope, .wrongProvider, .wrongRequestBytes, .staleCapability,
+      .authorityUnavailable, .routeUnavailable, .requestBudgetExceeded,
+      .byteBudgetExceeded,
     ]
     for error in errors {
       #expect(error.description == error.debugDescription)
@@ -1169,6 +1311,7 @@ struct BrokerProviderRouteAuthorityTests {
     handle: BrokerProviderRouteCapability,
     authority: BrokerProviderRouteAuthority,
     scope: BrokerProviderRouteScope = .setup,
+    providerBinding: ProviderProfileBinding = .openAI,
     requestBytes: UInt64 = 1,
     probe: RouteStartProbe
   ) async throws(BrokerProviderRouteAuthorityError) -> DeliveryState {
@@ -1176,9 +1319,25 @@ struct BrokerProviderRouteAuthorityTests {
       reservation,
       capability: handle,
       expectedScope: scope,
+      expectedProviderBinding: providerBinding,
       requestBytes: requestBytes,
-      prepare: { !$0.isEmpty },
+      prepare: { .prepared(!$0.isEmpty) },
       start: probe.record
+    )
+  }
+}
+
+extension BrokerProviderRouteAuthority {
+  fileprivate func reserveCredentialUse(
+    _ handle: BrokerProviderRouteCapability,
+    expectedScope: BrokerProviderRouteScope,
+    requestBytes: UInt64
+  ) async throws(BrokerProviderRouteAuthorityError) -> BrokerProviderRouteReservation {
+    try await reserveCredentialUse(
+      handle,
+      expectedScope: expectedScope,
+      expectedProviderBinding: .openAI,
+      requestBytes: requestBytes
     )
   }
 }
@@ -1494,17 +1653,20 @@ private actor RouteCredentialAuthority: BrokerProviderCredentialUseAuthority {
 
   func startCredentialUse<Prepared: Sendable>(
     _ reservation: CredentialUseReservation,
-    prepare: @Sendable (UnsafeRawBufferPointer) -> Prepared,
+    prepare: @Sendable (UnsafeRawBufferPointer) -> CredentialUsePreparation<Prepared>,
     start: @Sendable (Prepared) -> Void
   ) throws(CredentialUseError) -> DeliveryState {
     guard
-      let prepared = reservation.lifetime.withSecret({ secret in
+      let preparation = reservation.lifetime.withSecret({ secret in
         secret.withUnsafeBytes(prepare)
       })
     else {
       throw .invalidReservation
     }
     reservation.lifetime.eraseSecret()
+    guard case .prepared(let prepared) = preparation else {
+      throw .invalidCredential
+    }
     startCount += 1
     start(prepared)
     return .requestStarted

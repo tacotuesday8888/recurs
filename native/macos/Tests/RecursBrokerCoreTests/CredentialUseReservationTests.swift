@@ -38,14 +38,14 @@ struct CredentialUseReservationTests {
     #expect(
       try await harness.state.startCredentialUse(
         setup,
-        prepare: { $0.elementsEqual(candidateSecret) },
+        prepare: { .prepared($0.elementsEqual(candidateSecret)) },
         start: setupProbe.record
       ) == .requestStarted
     )
     #expect(
       try await harness.state.startCredentialUse(
         run,
-        prepare: { $0.elementsEqual(fixture.secret) },
+        prepare: { .prepared($0.elementsEqual(fixture.secret)) },
         start: runProbe.record
       ) == .requestStarted
     )
@@ -95,7 +95,7 @@ struct CredentialUseReservationTests {
     let probe = StartProbe()
     let state = try await harness.state.startCredentialUse(
       reservation,
-      prepare: { bytes in bytes.elementsEqual(fixture.secret) },
+      prepare: { bytes in .prepared(bytes.elementsEqual(fixture.secret)) },
       start: probe.record
     )
     #expect(state == .requestStarted)
@@ -104,13 +104,52 @@ struct CredentialUseReservationTests {
     await expectCredentialUseError(.invalidDeliveryTransition) {
       try await harness.state.startCredentialUse(
         reservation,
-        prepare: { _ in false },
+        prepare: { _ in .prepared(false) },
         start: probe.record
       )
     }
     #expect(probe.snapshot() == (1, true))
     await harness.state.cancelCredentialUse(reservation)
     await harness.state.releaseCredentialUse(reservation)
+    await harness.state.releaseCredentialUse(reservation)
+  }
+
+  @Test
+  func rejectedPreparationTerminatesNotSentCredentialWithoutStarting() async throws {
+    let fixture = try CredentialUseFixture()
+    let harness = try await fixture.harness()
+    let reservation = try await harness.state.reserveCredentialUse(
+      connectionID: fixture.connectionID
+    )
+    let probe = StartProbe()
+
+    await expectCredentialUseError(.invalidCredential) {
+      try await harness.state.startCredentialUse(
+        reservation,
+        prepare: { _ in CredentialUsePreparation<Bool>.rejected },
+        start: probe.record
+      )
+    }
+    #expect(probe.snapshot() == (0, nil))
+    #expect(await harness.store.lastLoadedCopyIsErased(for: fixture.readyKey) == true)
+
+    await expectCredentialUseError(.invalidCredential) {
+      try await harness.state.startCredentialUse(
+        reservation,
+        prepare: { _ in .prepared(true) },
+        start: probe.record
+      )
+    }
+    #expect(CredentialUseError.invalidCredential.description == "The credential is invalid.")
+    #expect(
+      CredentialUseError.invalidCredential.debugDescription
+        == CredentialUseError.invalidCredential.description
+    )
+    #expect(
+      CredentialUseError.invalidCredential.errorDescription
+        == CredentialUseError.invalidCredential.description
+    )
+    #expect(probe.snapshot() == (0, nil))
     await harness.state.releaseCredentialUse(reservation)
   }
 
@@ -129,9 +168,11 @@ struct CredentialUseReservationTests {
         let credential = Data(credentialBytes)
         var authorization = Data("Bearer ".utf8)
         authorization.append(credential)
-        return PreparedProviderRequest(
-          filter: try! StreamingSecretFilter(
-            patterns: [SecretBytes(credential), SecretBytes(authorization)]
+        return .prepared(
+          PreparedProviderRequest(
+            filter: try! StreamingSecretFilter(
+              patterns: [SecretBytes(credential), SecretBytes(authorization)]
+            )
           )
         )
       },
@@ -162,7 +203,7 @@ struct CredentialUseReservationTests {
     await expectCredentialUseError(.invalidReservation) {
       try await harness.state.startCredentialUse(
         reservation,
-        prepare: { _ in false },
+        prepare: { _ in .prepared(false) },
         start: probe.record
       )
     }
@@ -183,7 +224,7 @@ struct CredentialUseReservationTests {
       await gate.wait()
       return try await harness.state.startCredentialUse(
         reservation,
-        prepare: { _ in false },
+        prepare: { _ in .prepared(false) },
         start: probe.record
       )
     }
@@ -209,7 +250,7 @@ struct CredentialUseReservationTests {
     await expectCredentialUseError(.invalidReservation) {
       try await harness.state.startCredentialUse(
         reservation,
-        prepare: { _ in false },
+        prepare: { _ in .prepared(false) },
         start: { _ in }
       )
     }
@@ -414,7 +455,7 @@ struct CredentialUseReservationTests {
     await expectCredentialUseError(.connectionTombstoned) {
       try await harness.state.startCredentialUse(
         reservation,
-        prepare: { _ in false },
+        prepare: { _ in .prepared(false) },
         start: probe.record
       )
     }
@@ -441,7 +482,7 @@ struct CredentialUseReservationTests {
     await expectCredentialUseError(.invalidReservation) {
       try await harness.state.startCredentialUse(
         reservation,
-        prepare: { _ in false },
+        prepare: { _ in .prepared(false) },
         start: probe.record
       )
     }
@@ -474,7 +515,7 @@ struct CredentialUseReservationTests {
     await expectCredentialUseError(.invalidReservation) {
       try await harness.state.startCredentialUse(
         reservation,
-        prepare: { _ in false },
+        prepare: { _ in .prepared(false) },
         start: probe.record
       )
     }
@@ -495,7 +536,7 @@ struct CredentialUseReservationTests {
     await expectCredentialUseError(.cancelled) {
       try await before.state.startCredentialUse(
         cancelled,
-        prepare: { _ in false },
+        prepare: { _ in .prepared(false) },
         start: cancelledProbe.record
       )
     }
@@ -508,7 +549,7 @@ struct CredentialUseReservationTests {
     #expect(
       try await after.state.startCredentialUse(
         started,
-        prepare: { bytes in bytes.elementsEqual(fixture.secret) },
+        prepare: { bytes in .prepared(bytes.elementsEqual(fixture.secret)) },
         start: startedProbe.record
       ) == .requestStarted
     )
@@ -517,7 +558,7 @@ struct CredentialUseReservationTests {
     await expectCredentialUseError(.invalidDeliveryTransition) {
       try await after.state.startCredentialUse(
         started,
-        prepare: { _ in false },
+        prepare: { _ in .prepared(false) },
         start: startedProbe.record
       )
     }
@@ -594,7 +635,7 @@ struct CredentialUseReservationTests {
       await expectCredentialUseError(.connectionTombstoned) {
         try await harness.state.startCredentialUse(
           reservation,
-          prepare: { _ in false },
+          prepare: { _ in .prepared(false) },
           start: probe.record
         )
       }
@@ -623,7 +664,7 @@ struct CredentialUseReservationTests {
     #expect(
       try await harness.state.startCredentialUse(
         reservation,
-        prepare: { bytes in bytes.elementsEqual(fixture.secret) },
+        prepare: { bytes in .prepared(bytes.elementsEqual(fixture.secret)) },
         start: probe.record
       ) == .requestStarted
     )
@@ -673,7 +714,7 @@ private func makeConcurrentStartTask(
       return .success(
         try await state.startCredentialUse(
           reservation,
-          prepare: { bytes in bytes.elementsEqual(expectedSecret) },
+          prepare: { bytes in .prepared(bytes.elementsEqual(expectedSecret)) },
           start: probe.record
         )
       )
