@@ -43,3 +43,9 @@ export type {
   NativeHello,
   NativeHelloResult,
 } from "./messages.js";
+export { createNativeAuthorityClientFromInheritedFd } from "./client.js";
+export type {
+  NativeAuthorityClient,
+  NativeAuthorityClientOptions,
+} from "./client.js";
+export { FakeNativeAuthorityStatusPort } from "./fake.js";

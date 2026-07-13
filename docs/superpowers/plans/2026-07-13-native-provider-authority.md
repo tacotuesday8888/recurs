@@ -904,6 +904,7 @@ git commit -m "feat: add signed native broker skeleton"
 - Create: `packages/auth/test/client.test.ts`
 - Create: `packages/auth/test/fixtures/fake-native-peer.mjs`
 - Modify: `packages/auth/src/index.ts`
+- Modify: `packages/auth/tsconfig.json`
 - Modify: `packages/tools/src/process-environment.ts`
 - Modify: `packages/tools/src/process.ts`
 - Modify: `packages/tools/test/command.test.ts`
@@ -913,8 +914,10 @@ git commit -m "feat: add signed native broker skeleton"
   and `FakeNativeAuthorityStatusPort`.
 - The client supports only handshake, health, cancellation, and close in this
   plan; there is no credential or generic exchange method.
+- The inherited-descriptor factory is Darwin-only and consumes the environment
+  marker before it parses or wraps the descriptor.
 
-- [ ] **Step 1: Write failing client protocol tests**
+- [x] **Step 1: Write failing client protocol tests**
 
 Use an injected bounded duplex fixture. Prove nonce echo, exact protocol and
 version matching, one request ID per in-flight operation, cancellation,
@@ -922,14 +925,14 @@ out-of-order response correlation, duplicate/unknown/post-terminal rejection,
 peer close, timeout, and fixed unavailable mapping. Assert all errors and
 serialized status omit injected frame/payload canaries.
 
-- [ ] **Step 2: Write failing child-boundary tests**
+- [x] **Step 2: Write failing child-boundary tests**
 
 Set fake `RECURS_NATIVE_FD`, `RECURS_BROKER_*`, Keychain, token, and proxy
 variables in the parent fixture. Execute a tool child and assert every value is
 absent. Give the parent an extra readable descriptor and assert the child
 cannot read it. Verify tool subprocess stdio contains only descriptors 0–2.
 
-- [ ] **Step 3: Run auth/tools tests and verify RED**
+- [x] **Step 3: Run auth/tools tests and verify RED**
 
 Run:
 
@@ -939,15 +942,18 @@ npx vitest run packages/auth/test/client.test.ts packages/tools/test/command.tes
 
 Expected: FAIL because client/descriptor enforcement is absent.
 
-- [ ] **Step 4: Implement the bounded client**
+- [x] **Step 4: Implement the bounded client**
 
 The production factory accepts only a decimal inherited descriptor from
 `RECURS_NATIVE_FD`, deletes the environment entry before returning, validates
 the descriptor with `fstat`, wraps it in one owned `net.Socket`, and closes on
 handshake failure. The public client has `status(signal?)` and `close()` only.
-All unexpected transport faults map to fixed unavailable reasons.
+It binds both native component versions to the caller's exact engine version,
+allows at most 64 in-flight operations, and erases retained decoder bytes on
+every terminal path. All unexpected transport faults map to fixed unavailable
+reasons.
 
-- [ ] **Step 5: Harden child spawning**
+- [x] **Step 5: Harden child spawning**
 
 Explicitly remove all `RECURS_*` native/broker variables from isolated child
 environments even though the allowlist is already narrow. Keep `stdio` exactly
@@ -955,7 +961,7 @@ environments even though the allowlist is already narrow. Keep `stdio` exactly
 assertion so future process-runner variants cannot widen the descriptor list
 without updating the security test.
 
-- [ ] **Step 6: Run focused and package tests**
+- [x] **Step 6: Run focused and package tests**
 
 Run:
 
@@ -967,10 +973,11 @@ npm run lint
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
-git add packages/auth packages/tools
+git add docs/superpowers/plans/2026-07-13-native-provider-authority.md \
+  packages/auth packages/tools
 git commit -m "feat: connect engine to native authority safely"
 ```
 
@@ -979,6 +986,10 @@ git commit -m "feat: connect engine to native authority safely"
 ### Task 10: Expose redacted native diagnostics and finish the foundation gate
 
 **Files:**
+- Create: `native/component-version.json`
+- Create: `scripts/generate-native-component-version.mjs`
+- Create: `packages/contracts/src/native-component-version.ts`
+- Create: `native/macos/Sources/RecursNativeProtocol/GeneratedNativeComponentVersion.swift`
 - Modify: `packages/app/package.json`
 - Create: `packages/app/src/native-authority.ts`
 - Create: `packages/app/test/native-authority.test.ts`
@@ -987,6 +998,9 @@ git commit -m "feat: connect engine to native authority safely"
 - Modify: `packages/cli/test/run-mode.test.ts`
 - Modify: `packages/providers/src/manifest-validator.ts`
 - Modify: `packages/providers/test/manifests.test.ts`
+- Modify: `native/macos/Sources/RecursNativeBrokerExecutable/main.swift`
+- Modify: `native/macos/Sources/RecursNativeLauncherExecutable/main.swift`
+- Modify: `package.json`
 - Modify: `README.md`
 - Modify: `ARCHITECTURE.md`
 - Modify: `PRODUCT.md`
@@ -1028,12 +1042,16 @@ npx vitest run packages/app/test/native-authority.test.ts packages/cli/test/run-
 
 Expected: FAIL because diagnostics/activation requirements are absent.
 
-- [ ] **Step 4: Implement the redacted service and CLI command**
+- [ ] **Step 4: Generate one native component version and implement diagnostics**
 
 `NativeAuthorityService.status()` delegates to `NativeAuthorityStatusPort`,
 deep-freezes a structural clone, and catches unknown errors as
 `broker_unavailable`. The CLI parser accepts exactly `doctor native` and
 `doctor native --json` and prints versioned JSON `{version:1,nativeAuthority}`.
+Generate one checked release component version into both TypeScript and Swift,
+replace the two Swift `0.1.0` literals, and inject that exact constant into the
+inherited-FD client. `check:generated` must reject drift; do not infer this
+security generation from independent package versions.
 
 - [ ] **Step 5: Implement the non-permissive manifest activation requirement**
 

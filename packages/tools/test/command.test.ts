@@ -1,8 +1,10 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   access,
   chmod,
   mkdtemp,
+  open,
   readFile,
   rm,
   writeFile,
@@ -231,6 +233,114 @@ describe("run_command", () => {
         }
       }
     }
+  });
+
+  it("removes native authority, Keychain, token, and proxy variables", async () => {
+    const deniedEnvironment = {
+      RECURS_NATIVE_FD: "71",
+      RECURS_NATIVE_AUTHORITY: "native-authority-canary",
+      RECURS_BROKER_ENDPOINT: "broker-endpoint-canary",
+      RECURS_BROKER_TOKEN: "broker-token-canary",
+      RECURS_LAUNCHER_FD: "72",
+      RECURS_LAUNCHER_DESCRIPTOR: "launcher-descriptor-canary",
+      RECURS_PROVIDER_AUTHORITY_HANDLE: "authority-handle-canary",
+      KEYCHAIN_ACCESS_GROUP: "keychain-canary",
+      GITHUB_TOKEN: "github-token-canary",
+      HTTPS_PROXY: "https://proxy-canary.invalid",
+      NO_PROXY: "proxy-bypass-canary",
+    } as const;
+    const originalEnvironment = Object.fromEntries(
+      Object.keys(deniedEnvironment).map((key) => [key, process.env[key]]),
+    );
+    Object.assign(process.env, deniedEnvironment);
+
+    try {
+      const keys = Object.keys(deniedEnvironment);
+      const script = [
+        `const keys = ${JSON.stringify(keys)};`,
+        "const present = Object.fromEntries(keys.map((key) => [key, Object.hasOwn(process.env, key)]));",
+        "process.stdout.write(JSON.stringify(present));",
+      ].join("");
+      const result = await toolExports.runProcess(
+        process.execPath,
+        ["-e", script],
+        { cwd },
+      );
+
+      expect(JSON.parse(result.stdout)).toEqual(
+        Object.fromEntries(keys.map((key) => [key, false])),
+      );
+      expect(result.stderr).toBe("");
+      for (const canary of Object.values(deniedEnvironment)) {
+        expect(result.stdout).not.toContain(canary);
+        expect(result.stderr).not.toContain(canary);
+      }
+    } finally {
+      for (const [key, value] of Object.entries(originalEnvironment)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+  });
+
+  it("does not inherit an extra readable parent descriptor", async () => {
+    const canary = "parent-descriptor-canary";
+    const canaryPath = path.join(cwd, "descriptor-canary");
+    await writeFile(canaryPath, canary, "utf8");
+    const parentFile = await open(canaryPath, "r");
+    const canaryDigest = createHash("sha256").update(canary).digest("hex");
+
+    try {
+      expect(parentFile.fd).toBeGreaterThan(2);
+      const parentRead = await parentFile.read({
+        buffer: Buffer.alloc(Buffer.byteLength(canary)),
+        position: 0,
+      });
+      expect(parentRead.buffer.toString("utf8")).toBe(canary);
+
+      const script = [
+        'const { readFileSync } = require("node:fs");',
+        'const { createHash } = require("node:crypto");',
+        "let inherited = false;",
+        `try { inherited = createHash("sha256").update(readFileSync(${parentFile.fd})).digest("hex") === ${JSON.stringify(canaryDigest)}; } catch {}`,
+        'process.stdout.write(inherited ? "inherited" : "closed");',
+      ].join("");
+      const result = await toolExports.runProcess(
+        process.execPath,
+        ["-e", script],
+        { cwd },
+      );
+
+      expect(result).toEqual({ stdout: "closed", stderr: "", exitCode: 0 });
+      expect(result.stdout).not.toContain(canary);
+      expect(result.stderr).not.toContain(canary);
+    } finally {
+      await parentFile.close();
+    }
+  });
+
+  it("pins tool child stdio to descriptors zero through two", () => {
+    expect(toolExports.TOOL_CHILD_STDIO).toEqual(["pipe", "pipe", "pipe"]);
+    expect(Object.isFrozen(toolExports.TOOL_CHILD_STDIO)).toBe(true);
+    expect(() =>
+      toolExports.assertToolChildStdio(toolExports.TOOL_CHILD_STDIO),
+    ).not.toThrow();
+    expect(() =>
+      toolExports.assertToolChildStdio([
+        "pipe",
+        "pipe",
+        "pipe",
+        "inherit",
+      ]),
+    ).toThrow(
+      expect.objectContaining({
+        code: "process_failed",
+        message: "The tool child stdio boundary is invalid",
+      }),
+    );
   });
 
   it("does not search the workspace when every parent PATH entry is removed", async () => {

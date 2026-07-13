@@ -14,6 +14,19 @@ const SYSTEM_TEMPORARY_DIRECTORY = "/tmp";
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const STICKY_BIT = 0o1000;
 const ALLOWED_PARENT_KEYS = ["LANG", "LC_ALL", "LC_CTYPE", "TERM"] as const;
+const FORBIDDEN_RECURS_AUTHORITY_SEGMENTS = new Set([
+  "AUTHORITY",
+  "BROKER",
+  "DESCRIPTOR",
+  "FD",
+  "LAUNCHER",
+  "NATIVE",
+]);
+const FORBIDDEN_SECRET_ENVIRONMENT_SEGMENTS = new Set([
+  "KEYCHAIN",
+  "PROXY",
+  "TOKEN",
+]);
 
 export interface IsolatedProcessEnvironment {
   environment: NodeJS.ProcessEnv;
@@ -28,6 +41,33 @@ function isWithin(root: string, candidate: string): boolean {
       relative !== ".." &&
       !path.isAbsolute(relative))
   );
+}
+
+function isForbiddenChildEnvironmentKey(key: string): boolean {
+  const segments = key.toUpperCase().split("_");
+  if (
+    segments.some((segment) =>
+      FORBIDDEN_SECRET_ENVIRONMENT_SEGMENTS.has(segment),
+    )
+  ) {
+    return true;
+  }
+  return (
+    segments[0] === "RECURS" &&
+    segments.some((segment) =>
+      FORBIDDEN_RECURS_AUTHORITY_SEGMENTS.has(segment),
+    )
+  );
+}
+
+function removeForbiddenChildEnvironmentVariables(
+  environment: NodeJS.ProcessEnv,
+): void {
+  for (const key of Object.keys(environment)) {
+    if (isForbiddenChildEnvironmentKey(key)) {
+      delete environment[key];
+    }
+  }
 }
 
 async function canonicalSystemTemporaryDirectory(): Promise<string> {
@@ -90,6 +130,7 @@ export async function createIsolatedProcessEnvironment(
   parentEnvironment: NodeJS.ProcessEnv = process.env,
 ): Promise<IsolatedProcessEnvironment> {
   const parent = { ...parentEnvironment };
+  removeForbiddenChildEnvironmentVariables(parent);
   const workspaceRoot = await realpath(cwd);
   const temporaryDirectory = await canonicalSystemTemporaryDirectory();
   const privateRoot = await mkdtemp(
@@ -132,6 +173,7 @@ export async function createIsolatedProcessEnvironment(
         environment[key] = value;
       }
     }
+    removeForbiddenChildEnvironmentVariables(environment);
     return { environment, cleanup };
   } catch (error) {
     await cleanup();

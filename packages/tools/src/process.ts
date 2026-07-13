@@ -8,6 +8,30 @@ const PROCESS_GROUP_KILL_WAIT_MS = 1_000;
 const PROCESS_GROUP_POLL_MS = 10;
 const PROCESS_PIPE_DRAIN_GRACE_MS = 250;
 
+export const TOOL_CHILD_STDIO = Object.freeze([
+  "pipe",
+  "pipe",
+  "pipe",
+] as const);
+
+export function assertToolChildStdio(stdio: readonly unknown[]): void {
+  if (
+    stdio.length !== TOOL_CHILD_STDIO.length ||
+    stdio.some((descriptor, index) => descriptor !== TOOL_CHILD_STDIO[index])
+  ) {
+    throw new ToolError(
+      "process_failed",
+      "The tool child stdio boundary is invalid",
+    );
+  }
+}
+
+function createToolChildStdio(): ["pipe", "pipe", "pipe"] {
+  const stdio: ["pipe", "pipe", "pipe"] = [...TOOL_CHILD_STDIO];
+  assertToolChildStdio(stdio);
+  return stdio;
+}
+
 export interface RunProcessOptions {
   cwd: string;
   stdin?: string;
@@ -164,7 +188,7 @@ export async function runProcess(
         cwd: options.cwd,
         env: isolatedEnvironment.environment,
         shell: false,
-        stdio: ["pipe", "pipe", "pipe"],
+        stdio: createToolChildStdio(),
         windowsHide: true,
         detached: true,
       });
