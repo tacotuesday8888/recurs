@@ -450,9 +450,12 @@ package final class BrokerCredentialLifecycleGateway: @unchecked Sendable {
 
 - [ ] **Step 1: Add authority and gateway failing tests**
 
-Prove the recovery composition seam shares one actor, restores vacant/ready/
-tombstoned records, and fails closed on journal authentication, rollback,
-directory-lock, and store recovery errors using injected fakes only.
+Prove the recovery composition seam shares one actor and restores vacant/ready/
+tombstoned records. Using injected fakes only, prove journal authentication,
+rollback, authority-lock, and journal finalization failures abort recovery. A
+credential-store cleanup failure preserves Core's existing fail-closed behavior:
+that connection remains blocked as `cleanupPending`, recovery continues for the
+other records, and no unverified credential becomes usable.
 
 The authority methods above forward directly to the one shared state actor; no
 wrapper keeps a second projection, fence, secret, or operation cache.
