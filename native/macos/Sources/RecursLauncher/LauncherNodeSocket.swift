@@ -251,15 +251,15 @@ package final class LauncherNodeSocket: LauncherNodeSessionOutput,
     }
 
     try withBorrow { descriptor in
-      var offset = 0
-      while offset < frame.count {
-        let remaining = Data(frame[offset...])
+      var index = frame.startIndex
+      while index < frame.endIndex {
+        let remaining = Data(frame[index...])
         switch system.send(descriptor, remaining) {
         case .success(let count):
           guard count > 0, count <= remaining.count else {
             throw LauncherNodeSocketError.writeFailed
           }
-          offset += count
+          index = frame.index(index, offsetBy: count)
         case .failure(.interrupted):
           continue
         case .failure(.wouldBlock), .failure(.failed):

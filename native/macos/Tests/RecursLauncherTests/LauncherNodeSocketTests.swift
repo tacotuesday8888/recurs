@@ -157,8 +157,11 @@ struct LauncherNodeSocketTests {
       ownedDescriptor: 42,
       system: recorder.system()
     )
+    let storage = Data("xxabcdef".utf8)
+    let slicedFrame = storage[2...]
+    #expect(slicedFrame.startIndex == 2)
 
-    try await socket.write(Data("abcdef".utf8))
+    try await socket.write(slicedFrame)
 
     #expect(
       recorder.snapshot.sent == [
@@ -247,6 +250,32 @@ struct LauncherNodeSocketTests {
     #expect(snapshot.shutdowns == [45])
     #expect(snapshot.closes == [45])
     #expect(snapshot.events == ["receive-enter", "shutdown", "receive-return", "close"])
+  }
+
+  @Test
+  func cancellingServeClosesIdleTransportExactlyOnce() async throws {
+    let started = DispatchSemaphore(value: 0)
+    let recorder = SocketSystemRecorder()
+    let socket = try LauncherNodeSocket(
+      ownedDescriptor: 51,
+      system: recorder.system(receive: { _, _ in
+        started.signal()
+        return .failure(.wouldBlock)
+      })
+    )
+    let serving = Task {
+      await serve(
+        session: unavailableSession(output: socket),
+        socket: socket
+      )
+    }
+
+    #expect(await Task.detached { waitForSemaphore(started) }.value)
+    serving.cancel()
+    await serving.value
+
+    #expect(recorder.snapshot.shutdowns == [51])
+    #expect(recorder.snapshot.closes == [51])
   }
 
   @Test
