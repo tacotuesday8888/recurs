@@ -1629,11 +1629,16 @@ private actor RouteCredentialAuthority: BrokerProviderCredentialUseAuthority {
     if let reserveError { throw reserveError }
 
     let bound: BrokerCredentialBoundProjection
+    let projection: CredentialProjection
     do {
-      guard let loaded = try await reader.authoritativeBoundProjection(for: connectionID) else {
+      guard
+        let loaded = try await reader.authoritativeBoundProjection(for: connectionID),
+        let loadedProjection = loaded.projection
+      else {
         throw CredentialUseError.noUsableCredential
       }
       bound = loaded
+      projection = loadedProjection
     } catch let error as CredentialUseError {
       throw error
     } catch {
@@ -1645,7 +1650,7 @@ private actor RouteCredentialAuthority: BrokerProviderCredentialUseAuthority {
 
     var identity = try Self.identity(
       connectionID: connectionID,
-      projection: bound.projection,
+      projection: projection,
       purpose: purpose
     )
     var binding = expectedBinding

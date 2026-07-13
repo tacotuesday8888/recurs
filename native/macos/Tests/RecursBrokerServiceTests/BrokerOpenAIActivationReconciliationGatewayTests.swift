@@ -37,6 +37,8 @@ struct BrokerOpenAIActivationReconciliationGatewayTests {
     let fixtures: [(BrokerCredentialBoundProjection?, BrokerOpenAIActivationReconciliationStatus)] =
       [
         (nil, .absent),
+        (bound(.openAI, nil), .absent),
+        (bound(.anthropic, nil), .unresolved),
         (bound(.openAI, .ready(ready(connectionID: reconciliationConnectionID))), .readyOpenAI),
         (
           bound(
@@ -255,7 +257,7 @@ private let reconciliationNow = Date(timeIntervalSince1970: 10_000)
 
 private func bound(
   _ binding: ProviderProfileBinding,
-  _ projection: CredentialProjection
+  _ projection: CredentialProjection?
 ) -> BrokerCredentialBoundProjection {
   BrokerCredentialBoundProjection(providerBinding: binding, projection: projection)
 }

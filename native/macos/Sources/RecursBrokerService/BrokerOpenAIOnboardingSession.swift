@@ -8,6 +8,7 @@ struct BrokerOpenAIOnboardingStagingContext: Sendable, Equatable {
   let attemptID: UUID
   let fence: UInt64
   let providerBinding: ProviderProfileBinding
+  let expiresAt: Date
 }
 
 struct BrokerOpenAIOnboardingReceipt: Sendable, Equatable {
@@ -131,7 +132,11 @@ actor BrokerOpenAIOnboardingSession {
     catalogFetcher: any BrokerOpenAISetupCatalogFetching,
     clock: @escaping @Sendable () -> Date = { Date() }
   ) throws(BrokerOpenAIOnboardingError) {
-    guard context.providerBinding == .openAI, context.fence > 0 else {
+    guard
+      context.providerBinding == .openAI,
+      context.fence > 0,
+      context.expiresAt.timeIntervalSinceReferenceDate.isFinite
+    else {
       throw .invalidContext
     }
     self.context = context
@@ -139,7 +144,7 @@ actor BrokerOpenAIOnboardingSession {
     self.authority = authority
     self.catalogFetcher = catalogFetcher
     self.clock = clock
-    expiresAt = clock().addingTimeInterval(brokerOpenAIOnboardingSetupLifetime)
+    expiresAt = context.expiresAt
   }
 
   func verify() async throws(BrokerOpenAIOnboardingError) -> BrokerOpenAIModelCatalog {

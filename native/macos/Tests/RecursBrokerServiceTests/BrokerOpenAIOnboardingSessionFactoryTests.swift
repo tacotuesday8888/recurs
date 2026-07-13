@@ -50,7 +50,8 @@ private final class SessionFactoryAuthority:
     connectionID: connectionID,
     attemptID: attemptID,
     fence: 1,
-    providerBinding: .openAI
+    providerBinding: .openAI,
+    expiresAt: Date(timeIntervalSince1970: 4_000_000_000)
   )
 
   func authoritativeBoundProjection(

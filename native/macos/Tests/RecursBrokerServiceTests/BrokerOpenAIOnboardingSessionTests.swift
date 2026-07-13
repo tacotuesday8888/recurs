@@ -377,6 +377,39 @@ struct BrokerOpenAIOnboardingSessionTests {
   }
 
   @Test
+  func delayedConstructionUsesTheAuthoritativeStageExpiry() async throws {
+    let clock = OnboardingClock(now)
+    let expiresAt = now.addingTimeInterval(1)
+    let delayedContext = BrokerOpenAIOnboardingStagingContext(
+      connectionID: context.connectionID,
+      attemptID: context.attemptID,
+      fence: context.fence,
+      providerBinding: .openAI,
+      expiresAt: expiresAt
+    )
+    let fetcher = OnboardingCatalogFetcher(
+      result: .success(BrokerOpenAIModelCatalog(modelIDs: ["gpt-5"], requestID: nil))
+    )
+    let authority = OnboardingAuthority(commitResult: .success(readyProjection))
+    let session = try BrokerOpenAIOnboardingSession(
+      context: delayedContext,
+      abortOperationID: abortOperationID,
+      authority: authority,
+      catalogFetcher: fetcher,
+      clock: { clock.now }
+    )
+
+    _ = try await session.verify()
+    #expect(await fetcher.lastExpiresAt == expiresAt)
+    clock.advance(by: 1)
+
+    await #expect(throws: BrokerOpenAIOnboardingError.expired) {
+      _ = try await session.verify()
+    }
+    #expect(await authority.abortCalls == [expectedAbortCall])
+  }
+
+  @Test
   func abortFailureIsFixedAndTerminalWithoutRepeatedCleanup() async throws {
     let authority = OnboardingAuthority(
       commitResult: .success(readyProjection),
@@ -451,7 +484,8 @@ struct BrokerOpenAIOnboardingSessionTests {
           connectionID: context.connectionID,
           attemptID: context.attemptID,
           fence: context.fence,
-          providerBinding: .anthropic
+          providerBinding: .anthropic,
+          expiresAt: context.expiresAt
         ),
         abortOperationID: abortOperationID,
         authority: authority,
@@ -482,7 +516,8 @@ private let context = BrokerOpenAIOnboardingStagingContext(
   connectionID: UUID(uuidString: "10000000-0000-4000-8000-000000000100")!,
   attemptID: UUID(uuidString: "20000000-0000-4000-8000-000000000100")!,
   fence: 4,
-  providerBinding: .openAI
+  providerBinding: .openAI,
+  expiresAt: Date(timeIntervalSince1970: 1_800_000_300)
 )
 private let abortOperationID = UUID(
   uuidString: "30000000-0000-4000-8000-000000000100"

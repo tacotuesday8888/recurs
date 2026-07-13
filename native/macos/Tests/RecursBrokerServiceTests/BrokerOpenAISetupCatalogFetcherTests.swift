@@ -205,7 +205,8 @@ private let setupContext = BrokerOpenAIOnboardingStagingContext(
   connectionID: UUID(uuidString: "10000000-0000-4000-8000-000000000200")!,
   attemptID: UUID(uuidString: "20000000-0000-4000-8000-000000000200")!,
   fence: 7,
-  providerBinding: .openAI
+  providerBinding: .openAI,
+  expiresAt: Date(timeIntervalSince1970: 4_000_000_000)
 )
 
 private struct SetupCatalogNetwork: BrokerOpenAIModelCatalogNetworking {

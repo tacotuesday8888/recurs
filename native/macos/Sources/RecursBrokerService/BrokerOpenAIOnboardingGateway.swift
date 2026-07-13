@@ -425,13 +425,10 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
     _ bound: BrokerCredentialBoundProjection?,
     connectionID: UUID
   ) -> ReconciliationDecision {
-    guard
-      let bound,
-      bound.providerBinding == .openAI
-    else {
-      return .status(bound == nil ? .absent : .unresolved)
-    }
-    switch bound.projection {
+    guard let bound else { return .status(.absent) }
+    guard bound.providerBinding == .openAI else { return .status(.unresolved) }
+    guard let projection = bound.projection else { return .status(.absent) }
+    switch projection {
     case .ready(let ready):
       return .status(ready.connectionID == connectionID ? .readyOpenAI : .unresolved)
     case .tombstoned(let tombstone):
@@ -463,10 +460,10 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
     _ bound: BrokerCredentialBoundProjection?,
     connectionID: UUID
   ) -> BrokerOpenAIActivationReconciliationStatus {
-    guard let bound, bound.providerBinding == .openAI else {
-      return bound == nil ? .absent : .unresolved
-    }
-    switch bound.projection {
+    guard let bound else { return .absent }
+    guard bound.providerBinding == .openAI else { return .unresolved }
+    guard let projection = bound.projection else { return .absent }
+    switch projection {
     case .ready(let ready):
       return ready.connectionID == connectionID ? .readyOpenAI : .unresolved
     case .tombstoned(let tombstone):
@@ -540,13 +537,22 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
       complete(requestID: requestID, gate: gate, code: .reconciliationRequired)
       return
     }
+    let expiresAt = attempt.startedAt.addingTimeInterval(
+      brokerOpenAIOnboardingSetupLifetime
+    )
     let context = BrokerOpenAIOnboardingStagingContext(
       connectionID: identity.connectionID,
       attemptID: attempt.attemptID,
       fence: attempt.fence,
-      providerBinding: .openAI
+      providerBinding: .openAI,
+      expiresAt: expiresAt
     )
-    guard attempt.connectionID == identity.connectionID, attempt.fence == 1 else {
+    guard
+      attempt.connectionID == identity.connectionID,
+      attempt.fence == 1,
+      attempt.startedAt.timeIntervalSinceReferenceDate.isFinite,
+      expiresAt.timeIntervalSinceReferenceDate.isFinite
+    else {
       let cleaned = await cleanup(
         context: context,
         abortOperationID: identity.recoveryTokens.abortOperationID

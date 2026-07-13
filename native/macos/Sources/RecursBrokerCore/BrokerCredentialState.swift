@@ -104,11 +104,11 @@ package enum CredentialProjection: Sendable, Hashable, Codable {
 
 package struct BrokerCredentialBoundProjection: Sendable, Equatable {
   package let providerBinding: ProviderProfileBinding
-  package let projection: CredentialProjection
+  package let projection: CredentialProjection?
 
   package init(
     providerBinding: ProviderProfileBinding,
-    projection: CredentialProjection
+    projection: CredentialProjection?
   ) {
     self.providerBinding = providerBinding
     self.projection = projection
@@ -348,10 +348,7 @@ package actor BrokerCredentialState {
       result = .failure(error)
     }
     let projection = try machine.finishAuthoritativeProjection(token, result: result)
-    guard
-      case .success(let snapshot?) = result,
-      let projection
-    else {
+    guard case .success(let snapshot?) = result else {
       return nil
     }
     return BrokerCredentialBoundProjection(

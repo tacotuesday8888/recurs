@@ -135,7 +135,8 @@ struct BrokerOpenAIOnboardingGatewayTests {
             connectionID: connectionID,
             attemptID: attemptID,
             fence: 1,
-            providerBinding: .openAI
+            providerBinding: .openAI,
+            expiresAt: Date(timeIntervalSince1970: 301)
           ),
           abortOperationID: abortOperationID
         )

@@ -104,7 +104,7 @@ struct BrokerCredentialAuthorityTests {
       try await lifecycleAuthority.authoritativeBoundProjection(for: connectionID)
     )
     #expect(bound.providerBinding == .anthropic)
-    guard case .ready(let ready) = bound.projection else {
+    guard case .ready(let ready)? = bound.projection else {
       Issue.record("Expected an authenticated ready projection")
       return
     }
@@ -117,6 +117,26 @@ struct BrokerCredentialAuthorityTests {
     await #expect(throws: BrokerJournalError.storageUnavailable) {
       _ = try await inMemoryState.authoritativeBoundProjection(for: connectionID)
     }
+  }
+
+  @Test
+  func boundProjectionPreservesVacantProviderOwnership() async throws {
+    let connectionID = UUID(uuidString: "10000000-0000-4000-8000-000000000021")!
+    let authority = try await BrokerCredentialAuthority.recovering(
+      store: AuthorityCredentialStore(),
+      journal: AuthorityJournalStore(
+        snapshots: try [
+          snapshot(record: vacantRecord(connectionID, binding: .anthropic))
+        ]
+      )
+    )
+
+    let bound = try #require(
+      try await authority.authoritativeBoundProjection(for: connectionID)
+    )
+
+    #expect(bound.providerBinding == .anthropic)
+    #expect(bound.projection == nil)
   }
 
   @Test(arguments: [
@@ -174,11 +194,14 @@ struct BrokerCredentialAuthorityTests {
     BrokerJournalSnapshot(record: record, authenticationTag: .zero)
   }
 
-  private func vacantRecord(_ connectionID: UUID) throws -> BrokerJournalRecord {
+  private func vacantRecord(
+    _ connectionID: UUID,
+    binding: ProviderProfileBinding = .openAI
+  ) throws -> BrokerJournalRecord {
     try BrokerJournalRecord(
       revision: 1,
       connectionID: connectionID,
-      providerBinding: .openAI,
+      providerBinding: binding,
       fence: 0,
       lastGenerationOrdinal: 0,
       changedAt: JournalTimestamp(unixMilliseconds: 1_000),

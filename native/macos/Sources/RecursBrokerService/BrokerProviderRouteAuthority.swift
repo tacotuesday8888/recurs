@@ -347,13 +347,16 @@ actor BrokerProviderRouteAuthority {
     }
 
     try checkSession(expiresAt: expiresAt)
-    guard case .success(let bound?) = result else {
+    guard
+      case .success(let bound?) = result,
+      let projection = bound.projection
+    else {
       throw .authorityUnavailable
     }
     let identity = try Self.identity(
       scope: scope,
       connectionID: connectionID,
-      projection: bound.projection,
+      projection: projection,
       stale: false
     )
     if let expectedSetupIdentity {
@@ -902,7 +905,10 @@ actor BrokerProviderRouteAuthority {
     _ result: Result<BrokerCredentialBoundProjection?, BrokerJournalError>,
     against entry: Entry
   ) throws(BrokerProviderRouteAuthorityError) {
-    guard case .success(let bound?) = result else {
+    guard
+      case .success(let bound?) = result,
+      let projection = bound.projection
+    else {
       throw .authorityUnavailable
     }
     guard bound.providerBinding == entry.providerBinding else {
@@ -911,7 +917,7 @@ actor BrokerProviderRouteAuthority {
     let currentIdentity = try identity(
       scope: entry.scope,
       connectionID: entry.connectionID,
-      projection: bound.projection,
+      projection: projection,
       stale: true
     )
     guard currentIdentity == entry.identity else {
