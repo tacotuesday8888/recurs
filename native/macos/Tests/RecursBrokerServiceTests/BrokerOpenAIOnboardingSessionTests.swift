@@ -119,7 +119,7 @@ struct BrokerOpenAIOnboardingSessionTests {
     let authority = OnboardingAuthority(commitResult: .success(readyProjection))
     let session = try makeSession(authority: authority, fetcher: fetcher)
 
-    await #expect(throws: BrokerOpenAIOnboardingError.verificationFailed) {
+    await #expect(throws: BrokerOpenAIOnboardingError.noCompatibleModels) {
       _ = try await session.verify()
     }
 

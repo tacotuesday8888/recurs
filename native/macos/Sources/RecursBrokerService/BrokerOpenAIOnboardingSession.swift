@@ -28,6 +28,7 @@ enum BrokerOpenAIOnboardingError:
   case invalidContext
   case invalidModel
   case invalidState
+  case noCompatibleModels
   case verificationFailed
   case commitFailed
   case cleanupFailed
@@ -45,6 +46,8 @@ enum BrokerOpenAIOnboardingError:
       "The selected model was not in the verified OpenAI catalog."
     case .invalidState:
       "The OpenAI setup operation is not valid in the current state."
+    case .noCompatibleModels:
+      "OpenAI returned no compatible models for this credential."
     case .verificationFailed:
       "The OpenAI credential could not be verified."
     case .commitFailed:
@@ -284,6 +287,9 @@ actor BrokerOpenAIOnboardingSession {
         )
         try Task.checkCancellation()
         guard clock() < expiresAt else { throw BrokerOpenAIOnboardingError.expired }
+        guard !catalog.modelIDs.isEmpty else {
+          throw BrokerOpenAIOnboardingError.noCompatibleModels
+        }
         guard let verified = Self.validated(catalog) else {
           throw BrokerOpenAIOnboardingError.verificationFailed
         }
