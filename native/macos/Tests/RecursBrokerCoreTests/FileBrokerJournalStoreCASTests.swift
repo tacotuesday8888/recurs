@@ -6,6 +6,60 @@ import Testing
 @Suite("File broker journal store CAS")
 struct FileBrokerJournalStoreCASTests {
   @Test
+  func reconciliationAcceptsOnlyTheExactIntendedAuthenticationTag() async throws {
+    let fixture = try await createdFixture(id: 49)
+    let exactFixture = try await createdFixture(id: 50)
+
+    #expect(
+      try await fixture.store.reconcileCompareAndSwap(
+        expected: fixture.current,
+        replacement: fixture.staging
+      ) == .expected
+    )
+    let exactSelected = try await exactFixture.store.compareAndSwap(
+      expected: exactFixture.current,
+      replacement: exactFixture.staging
+    )
+    #expect(
+      try await exactFixture.store.reconcileCompareAndSwap(
+        expected: exactFixture.current,
+        replacement: exactFixture.staging
+      ) == .replacement(exactSelected)
+    )
+
+    let alternatePreviousTag = try tag(byte: 0xa9)
+    let alternateTag = try await fixture.authenticator.authenticate(
+      previousTag: alternatePreviousTag,
+      canonicalRecord: BrokerJournalCodec.canonicalRecordData(for: fixture.staging)
+    )
+    fixture.backend.replaceFile(
+      fixture.stagingPath,
+      data: try BrokerJournalCodec.encode(
+        BrokerJournalEnvelope(
+          previousAuthTag: alternatePreviousTag,
+          authTag: alternateTag,
+          record: fixture.staging
+        )
+      )
+    )
+    try await fixture.authenticator.compareAndSwapAnchor(
+      expected: fixture.currentAnchor,
+      replacement: BrokerJournalAnchor(
+        connectionID: fixture.staging.connectionID,
+        revision: fixture.staging.revision,
+        authenticationTag: alternateTag
+      )
+    )
+
+    #expect(
+      try await fixture.store.reconcileCompareAndSwap(
+        expected: fixture.current,
+        replacement: fixture.staging
+      ) == .unrelated
+    )
+  }
+
+  @Test
   func unknownAnchorCASWithoutSideEffectCollapsesToDefiniteStorageFailure() async throws {
     let fixture = try await createdFixture(id: 48)
     let anchorCASCalls = await fixture.authenticator.anchorCASCount()

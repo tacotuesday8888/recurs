@@ -103,6 +103,34 @@ actor InMemoryBrokerJournalStore: BrokerJournalStore {
     return result
   }
 
+  func reconcileCompareAndSwap(
+    expected: BrokerJournalSnapshot?,
+    replacement: BrokerJournalRecord
+  ) async throws(BrokerJournalError) -> BrokerJournalCASReconciliation {
+    let connectionID = replacement.connectionID
+    recordedEvents.append(.load(connectionID))
+    try BrokerJournalTransitionValidator.validate(
+      predecessor: expected?.record,
+      successor: replacement
+    )
+    await pauseIfRequested(at: .loadBeforeReturn)
+    if let error = consumeFailure(at: .loadBeforeReturn) {
+      throw error
+    }
+    let selected = snapshots[connectionID]
+    if selected == expected {
+      return .expected
+    }
+    let intended = BrokerJournalSnapshot(
+      record: replacement,
+      authenticationTag: try Self.authenticationTag(for: replacement)
+    )
+    if selected == intended {
+      return .replacement(intended)
+    }
+    return .unrelated
+  }
+
   func events() -> [InMemoryBrokerJournalStoreEvent] {
     recordedEvents
   }

@@ -217,13 +217,74 @@ struct BrokerCredentialJournalStageTests {
   }
 
   @Test
-  func rawUnknownFirstCASNeverMovesCredentialOwnershipOrPublishesAuthority() async throws {
+  func unknownAfterSelectedFirstCASReconcilesAndCompletesStage() async throws {
     let fixture = try JournalStageActorFixture()
     let journal = try InMemoryBrokerJournalStore()
     await journal.failNext(.mutationOutcomeUnknown, at: .compareAndSwapAfterSideEffect)
     let store = InMemoryCredentialStore()
     let harness = try await fixture.harness(store: store, journal: journal)
-    let alias = UncheckedSecretAlias(SecretBytes(Data("raw-first-cas-unknown".utf8)))
+
+    let attempt = try await harness.state.stage(
+      connectionID: fixture.connectionID,
+      operationID: fixture.operationID,
+      expectedFence: 0,
+      secret: SecretBytes(Data("selected-first-cas-unknown".utf8))
+    )
+
+    let candidateKey = journalStageStoreKey(fixture.connectionID, attempt.candidate)
+    #expect(await store.storeCallCount(for: candidateKey) == 1)
+    #expect(await store.contains(candidateKey))
+    #expect(await harness.state.projection(for: fixture.connectionID) == .staging(attempt))
+    #expect(
+      (try await journal.load(connectionID: fixture.connectionID))?.record.phase == .staging)
+    #expect(
+      await journal.events() == [
+        .list,
+        .compareAndSwap(fixture.connectionID),
+        .load(fixture.connectionID),
+        .compareAndSwap(fixture.connectionID),
+        .load(fixture.connectionID),
+      ]
+    )
+  }
+
+  @Test
+  func unknownFirstCASDoesNotPromoteSameRecordWithDifferentTag() async throws {
+    let fixture = try JournalStageActorFixture()
+    let journal = try InMemoryBrokerJournalStore()
+    await journal.pauseNext(at: .loadBeforeReturn)
+    await journal.failNext(.mutationOutcomeUnknown, at: .compareAndSwapAfterSideEffect)
+    let store = InMemoryCredentialStore()
+    let harness = try await fixture.harness(store: store, journal: journal)
+    let alias = UncheckedSecretAlias(SecretBytes(Data("first-cas-tag-substitution".utf8)))
+    let operation = Task {
+      try await harness.state.stage(
+        connectionID: fixture.connectionID,
+        operationID: fixture.operationID,
+        expectedFence: 0,
+        secret: alias.value
+      )
+    }
+    await journal.waitUntilPaused(at: .loadBeforeReturn)
+    let selected = try #require(try await journal.load(connectionID: fixture.connectionID))
+    await journal.replaceExternally(try fixture.withDifferentTag(selected))
+
+    await journal.releaseOne(at: .loadBeforeReturn)
+
+    await expectJournalStageTaskError(.cleanupPending, operation)
+    #expect(alias.isErased())
+    #expect((await store.inspection()).storeCallCounts.isEmpty)
+    #expect(await harness.state.projection(for: fixture.connectionID) == nil)
+  }
+
+  @Test
+  func unknownBeforeUnselectedFirstCASLoadsExactPreviousThenFailsDefinitely() async throws {
+    let fixture = try JournalStageActorFixture()
+    let journal = try InMemoryBrokerJournalStore()
+    await journal.failNext(.mutationOutcomeUnknown, at: .compareAndSwapBeforeSideEffect)
+    let store = InMemoryCredentialStore()
+    let harness = try await fixture.harness(store: store, journal: journal)
+    let alias = UncheckedSecretAlias(SecretBytes(Data("unselected-first-cas-unknown".utf8)))
 
     await expectJournalStageError(.storeUnavailable) {
       try await harness.state.stage(
@@ -238,7 +299,12 @@ struct BrokerCredentialJournalStageTests {
     #expect((await store.inspection()).storeCallCounts.isEmpty)
     #expect(await harness.state.projection(for: fixture.connectionID) == nil)
     #expect(
-      (try await journal.load(connectionID: fixture.connectionID))?.record.phase == .storePending)
+      await journal.events() == [
+        .list,
+        .compareAndSwap(fixture.connectionID),
+        .load(fixture.connectionID),
+      ]
+    )
   }
 
   @Test
@@ -380,7 +446,7 @@ struct BrokerCredentialJournalStageTests {
   }
 
   @Test
-  func rawUnknownStagingCASNeverPublishesAndRestartCleansAsAttemptNotCurrent() async throws {
+  func unknownAfterSelectedStagingCASReconcilesAndPublishes() async throws {
     let fixture = try JournalStageActorFixture()
     let journal = try InMemoryBrokerJournalStore()
     let store = InMemoryCredentialStore()
@@ -398,16 +464,283 @@ struct BrokerCredentialJournalStageTests {
     await journal.failNext(.mutationOutcomeUnknown, at: .compareAndSwapAfterSideEffect)
     await store.releaseOne(at: .storeAfterSideEffect)
 
-    await expectJournalStageTaskError(.cleanupPending, operation)
-    #expect(await harness.state.projection(for: fixture.connectionID) == nil)
+    let attempt = try await operation.value
+    #expect(await harness.state.projection(for: fixture.connectionID) == .staging(attempt))
     #expect((try await journal.load(connectionID: fixture.connectionID))?.record.phase == .staging)
-    await expectJournalStageError(.cleanupPending) {
+    let candidateKey = journalStageStoreKey(fixture.connectionID, attempt.candidate)
+    #expect(await store.contains(candidateKey))
+    #expect(await store.deleteCallCount(for: candidateKey) == 0)
+  }
+
+  @Test
+  func unknownStagingCASDoesNotPublishSameRecordWithDifferentTag() async throws {
+    let fixture = try JournalStageActorFixture()
+    let journal = try InMemoryBrokerJournalStore()
+    let store = InMemoryCredentialStore()
+    await store.pauseNext(at: .storeAfterSideEffect)
+    let harness = try await fixture.harness(store: store, journal: journal)
+    let operation = Task {
+      try await harness.state.stage(
+        connectionID: fixture.connectionID,
+        operationID: fixture.operationID,
+        expectedFence: 0,
+        secret: SecretBytes(Data("staging-tag-substitution".utf8))
+      )
+    }
+    await store.waitUntilPaused(at: .storeAfterSideEffect)
+    await journal.pauseNext(at: .loadBeforeReturn)
+    await journal.failNext(.mutationOutcomeUnknown, at: .compareAndSwapAfterSideEffect)
+    await store.releaseOne(at: .storeAfterSideEffect)
+    await journal.waitUntilPaused(at: .loadBeforeReturn)
+    let selected = try #require(try await journal.load(connectionID: fixture.connectionID))
+    await journal.replaceExternally(try fixture.withDifferentTag(selected))
+
+    await journal.releaseOne(at: .loadBeforeReturn)
+
+    await expectJournalStageTaskError(.cleanupPending, operation)
+    let candidateKey = CredentialStoreKey(
+      connectionID: fixture.connectionID,
+      generationID: fixture.generationID,
+      generationOrdinal: 1
+    )
+    #expect(await store.contains(candidateKey))
+    #expect(await store.deleteCallCount(for: candidateKey) == 0)
+    #expect(await harness.state.projection(for: fixture.connectionID) == nil)
+  }
+
+  @Test
+  func failedStagingReconciliationLoadIsExactlyResumable() async throws {
+    let fixture = try JournalStageActorFixture()
+    let journal = try InMemoryBrokerJournalStore()
+    let store = InMemoryCredentialStore()
+    await store.pauseNext(at: .storeAfterSideEffect)
+    let harness = try await fixture.harness(store: store, journal: journal)
+    let operation = Task {
+      try await harness.state.stage(
+        connectionID: fixture.connectionID,
+        operationID: fixture.operationID,
+        expectedFence: 0,
+        secret: SecretBytes(Data("resumable-staging-reconciliation".utf8))
+      )
+    }
+    await store.waitUntilPaused(at: .storeAfterSideEffect)
+    await journal.failNext(.mutationOutcomeUnknown, at: .compareAndSwapAfterSideEffect)
+    await journal.failNext(.storageUnavailable, at: .loadBeforeReturn)
+    await store.releaseOne(at: .storeAfterSideEffect)
+
+    await expectJournalStageTaskError(.cleanupPending, operation)
+    let attempt = try await harness.state.resumeStage(
+      connectionID: fixture.connectionID,
+      operationID: fixture.operationID,
+      expectedFence: 0
+    )
+
+    #expect(await harness.state.projection(for: fixture.connectionID) == .staging(attempt))
+    let candidateKey = journalStageStoreKey(fixture.connectionID, attempt.candidate)
+    #expect(await store.contains(candidateKey))
+    #expect(await store.deleteCallCount(for: candidateKey) == 0)
+  }
+
+  @Test(arguments: [false, true])
+  func cancellationRemainsStickyAcrossFailedStagingReconciliation(
+    _ stagingWasSelected: Bool
+  ) async throws {
+    let fixture = try JournalStageActorFixture()
+    let journal = try InMemoryBrokerJournalStore()
+    let store = InMemoryCredentialStore()
+    await store.pauseNext(at: .storeAfterSideEffect)
+    let harness = try await fixture.harness(store: store, journal: journal)
+    let operation = Task {
+      try await harness.state.stage(
+        connectionID: fixture.connectionID,
+        operationID: fixture.operationID,
+        expectedFence: 0,
+        secret: SecretBytes(Data("sticky-staging-cancellation".utf8))
+      )
+    }
+    await store.waitUntilPaused(at: .storeAfterSideEffect)
+    await journal.pauseNext(at: .loadBeforeReturn)
+    await journal.failNext(
+      stagingWasSelected ? .mutationOutcomeUnknown : .storageUnavailable,
+      at: stagingWasSelected
+        ? .compareAndSwapAfterSideEffect : .compareAndSwapBeforeSideEffect
+    )
+    await journal.failNext(.storageUnavailable, at: .loadBeforeReturn)
+    await store.releaseOne(at: .storeAfterSideEffect)
+    await journal.waitUntilPaused(at: .loadBeforeReturn)
+
+    operation.cancel()
+    await journal.releaseOne(at: .loadBeforeReturn)
+    await expectJournalStageTaskError(.cleanupPending, operation)
+
+    await expectJournalStageError(.cancelled) {
       try await harness.state.resumeStage(
         connectionID: fixture.connectionID,
         operationID: fixture.operationID,
         expectedFence: 0
       )
     }
+    let candidateKey = CredentialStoreKey(
+      connectionID: fixture.connectionID,
+      generationID: fixture.generationID,
+      generationOrdinal: 1
+    )
+    #expect(await store.deleteCallCount(for: candidateKey) == 1)
+    #expect(!(await store.contains(candidateKey)))
+    #expect(await harness.state.projection(for: fixture.connectionID) == nil)
+    #expect((try await journal.load(connectionID: fixture.connectionID))?.record.phase == .vacant)
+  }
+
+  @Test
+  func unrelatedStagingReconciliationIsExactlyResumableAfterAuthorityRestores() async throws {
+    let fixture = try JournalStageActorFixture()
+    let journal = try InMemoryBrokerJournalStore()
+    let store = InMemoryCredentialStore()
+    await store.pauseNext(at: .storeAfterSideEffect)
+    let harness = try await fixture.harness(store: store, journal: journal)
+    let operation = Task {
+      try await harness.state.stage(
+        connectionID: fixture.connectionID,
+        operationID: fixture.operationID,
+        expectedFence: 0,
+        secret: SecretBytes(Data("unrelated-staging-reconciliation".utf8))
+      )
+    }
+    await store.waitUntilPaused(at: .storeAfterSideEffect)
+    await journal.pauseNext(at: .loadBeforeReturn)
+    await journal.failNext(.mutationOutcomeUnknown, at: .compareAndSwapAfterSideEffect)
+    await store.releaseOne(at: .storeAfterSideEffect)
+    await journal.waitUntilPaused(at: .loadBeforeReturn)
+    let intended = try #require(try await journal.load(connectionID: fixture.connectionID))
+    await journal.replaceExternally(try fixture.readySnapshot())
+    await journal.releaseOne(at: .loadBeforeReturn)
+
+    await expectJournalStageTaskError(.cleanupPending, operation)
+    await journal.replaceExternally(intended)
+    let attempt = try await harness.state.resumeStage(
+      connectionID: fixture.connectionID,
+      operationID: fixture.operationID,
+      expectedFence: 0
+    )
+
+    #expect(await harness.state.projection(for: fixture.connectionID) == .staging(attempt))
+  }
+
+  @Test
+  func cancellationDuringUnknownSelectedStagingCASDurablyCleansCandidate() async throws {
+    let fixture = try JournalStageActorFixture()
+    let journal = try InMemoryBrokerJournalStore()
+    let store = InMemoryCredentialStore()
+    await store.pauseNext(at: .storeAfterSideEffect)
+    let harness = try await fixture.harness(store: store, journal: journal)
+    let operation = Task {
+      try await harness.state.stage(
+        connectionID: fixture.connectionID,
+        operationID: fixture.operationID,
+        expectedFence: 0,
+        secret: SecretBytes(Data("cancel-selected-staging-unknown".utf8))
+      )
+    }
+    await store.waitUntilPaused(at: .storeAfterSideEffect)
+    await journal.pauseNext(at: .compareAndSwapAfterSideEffect)
+    await journal.failNext(.mutationOutcomeUnknown, at: .compareAndSwapAfterSideEffect)
+    await store.releaseOne(at: .storeAfterSideEffect)
+    await journal.waitUntilPaused(at: .compareAndSwapAfterSideEffect)
+
+    operation.cancel()
+    await journal.releaseOne(at: .compareAndSwapAfterSideEffect)
+
+    await expectJournalStageTaskError(.cancelled, operation)
+    let candidateKey = CredentialStoreKey(
+      connectionID: fixture.connectionID,
+      generationID: fixture.generationID,
+      generationOrdinal: 1
+    )
+    #expect(await store.deleteCallCount(for: candidateKey) == 1)
+    #expect(!(await store.contains(candidateKey)))
+    #expect(await harness.state.projection(for: fixture.connectionID) == nil)
+    #expect((try await journal.load(connectionID: fixture.connectionID))?.record.phase == .vacant)
+  }
+
+  @Test(arguments: JournalStageActorFixture.severeJournalErrors)
+  func severeStagingCASFailureStopsBeforeReconciliationOrCleanup(
+    _ failure: BrokerJournalError
+  ) async throws {
+    let fixture = try JournalStageActorFixture()
+    let journal = try InMemoryBrokerJournalStore()
+    let store = InMemoryCredentialStore()
+    await store.pauseNext(at: .storeAfterSideEffect)
+    let harness = try await fixture.harness(store: store, journal: journal)
+    let operation = Task {
+      try await harness.state.stage(
+        connectionID: fixture.connectionID,
+        operationID: fixture.operationID,
+        expectedFence: 0,
+        secret: SecretBytes(Data("severe-staging-cas".utf8))
+      )
+    }
+    await store.waitUntilPaused(at: .storeAfterSideEffect)
+    await journal.failNext(failure, at: .compareAndSwapBeforeSideEffect)
+    await journal.resetEvents()
+    await store.releaseOne(at: .storeAfterSideEffect)
+
+    await expectJournalStageTaskError(.cleanupPending, operation)
+    let candidateKey = CredentialStoreKey(
+      connectionID: fixture.connectionID,
+      generationID: fixture.generationID,
+      generationOrdinal: 1
+    )
+    #expect(await store.contains(candidateKey))
+    #expect(await store.deleteCallCount(for: candidateKey) == 0)
+    #expect(await harness.state.projection(for: fixture.connectionID) == nil)
+    #expect(await journal.events() == [.compareAndSwap(fixture.connectionID)])
+
+    await expectJournalStageJournalError(.storageUnavailable) {
+      try await harness.state.authoritativeProjection(for: fixture.connectionID)
+    }
+    #expect(await journal.events() == [.compareAndSwap(fixture.connectionID)])
+
+    let rejected = UncheckedSecretAlias(SecretBytes(Data("poisoned-stage".utf8)))
+    await expectJournalStageError(.storeUnavailable) {
+      try await harness.state.stage(
+        connectionID: journalStageActorUUID(90),
+        operationID: journalStageActorUUID(91),
+        expectedFence: 0,
+        secret: rejected.value
+      )
+    }
+    #expect(rejected.isErased())
+    #expect(await journal.events() == [.compareAndSwap(fixture.connectionID)])
+  }
+
+  @Test
+  func severeFailureAfterSelectedStagingDefersCandidateCleanupToRestart() async throws {
+    let fixture = try JournalStageActorFixture()
+    let journal = try InMemoryBrokerJournalStore()
+    let store = InMemoryCredentialStore()
+    await store.pauseNext(at: .storeAfterSideEffect)
+    let harness = try await fixture.harness(store: store, journal: journal)
+    let operation = Task {
+      try await harness.state.stage(
+        connectionID: fixture.connectionID,
+        operationID: fixture.operationID,
+        expectedFence: 0,
+        secret: SecretBytes(Data("severe-selected-staging".utf8))
+      )
+    }
+    await store.waitUntilPaused(at: .storeAfterSideEffect)
+    await journal.failNext(.authenticationFailed, at: .compareAndSwapAfterSideEffect)
+    await store.releaseOne(at: .storeAfterSideEffect)
+
+    await expectJournalStageTaskError(.cleanupPending, operation)
+    let candidateKey = CredentialStoreKey(
+      connectionID: fixture.connectionID,
+      generationID: fixture.generationID,
+      generationOrdinal: 1
+    )
+    #expect(await store.contains(candidateKey))
+    #expect(await store.deleteCallCount(for: candidateKey) == 0)
+    #expect((try await journal.load(connectionID: fixture.connectionID))?.record.phase == .staging)
 
     let recoveryClock = LockedSequence([
       fixture.secondDate,
@@ -418,6 +751,10 @@ struct BrokerCredentialJournalStageTests {
       journal: journal,
       clock: recoveryClock.next
     )
+
+    #expect(!(await store.contains(candidateKey)))
+    #expect(await store.deleteCallCount(for: candidateKey) == 1)
+    #expect((try await journal.load(connectionID: fixture.connectionID))?.record.phase == .vacant)
     await expectJournalStageError(.attemptNotCurrent) {
       try await restarted.resumeStage(
         connectionID: fixture.connectionID,
@@ -425,8 +762,52 @@ struct BrokerCredentialJournalStageTests {
         expectedFence: 0
       )
     }
-    #expect(await store.retainedCount() == 0)
-    #expect((try await journal.load(connectionID: fixture.connectionID))?.record.phase == .vacant)
+  }
+
+  @Test
+  func severeStagingReconciliationFailurePoisonsBeforeCleanupIO() async throws {
+    let fixture = try JournalStageActorFixture()
+    let journal = try InMemoryBrokerJournalStore()
+    let store = InMemoryCredentialStore()
+    await store.pauseNext(at: .storeAfterSideEffect)
+    let harness = try await fixture.harness(store: store, journal: journal)
+    let operation = Task {
+      try await harness.state.stage(
+        connectionID: fixture.connectionID,
+        operationID: fixture.operationID,
+        expectedFence: 0,
+        secret: SecretBytes(Data("severe-staging-reconciliation".utf8))
+      )
+    }
+    await store.waitUntilPaused(at: .storeAfterSideEffect)
+    await journal.failNext(.storageUnavailable, at: .compareAndSwapBeforeSideEffect)
+    await journal.failNext(.authenticationFailed, at: .loadBeforeReturn)
+    await journal.resetEvents()
+    await store.releaseOne(at: .storeAfterSideEffect)
+
+    await expectJournalStageTaskError(.cleanupPending, operation)
+    let candidateKey = CredentialStoreKey(
+      connectionID: fixture.connectionID,
+      generationID: fixture.generationID,
+      generationOrdinal: 1
+    )
+    #expect(await store.contains(candidateKey))
+    #expect(await store.deleteCallCount(for: candidateKey) == 0)
+    #expect(
+      await journal.events() == [
+        .compareAndSwap(fixture.connectionID),
+        .load(fixture.connectionID),
+      ]
+    )
+    await expectJournalStageJournalError(.storageUnavailable) {
+      try await harness.state.authoritativeProjection(for: fixture.connectionID)
+    }
+    #expect(
+      await journal.events() == [
+        .compareAndSwap(fixture.connectionID),
+        .load(fixture.connectionID),
+      ]
+    )
   }
 
   @Test
@@ -622,6 +1003,14 @@ struct BrokerCredentialJournalStageTests {
 }
 
 private struct JournalStageActorFixture {
+  static let severeJournalErrors: [BrokerJournalError] = [
+    .invalidRecord,
+    .nonCanonical,
+    .unsupportedVersion,
+    .authenticationFailed,
+    .rollbackDetected,
+  ]
+
   let connectionID = journalStageActorUUID(1)
   let operationID = journalStageActorUUID(2)
   let generationID = journalStageActorUUID(3)
@@ -700,6 +1089,15 @@ private struct JournalStageActorFixture {
       authenticationTag: try JournalAuthenticationTag(bytes: Array(repeating: 0x60, count: 32))
     )
   }
+
+  func withDifferentTag(
+    _ snapshot: BrokerJournalSnapshot
+  ) throws -> BrokerJournalSnapshot {
+    BrokerJournalSnapshot(
+      record: snapshot.record,
+      authenticationTag: try JournalAuthenticationTag(bytes: Array(repeating: 0xef, count: 32))
+    )
+  }
 }
 
 private struct JournalStageActorHarness {
@@ -751,6 +1149,20 @@ private func expectJournalStageTaskError<Value>(
     _ = try await task.value
     Issue.record("Expected broker error \(expected).")
   } catch let error as BrokerStateError {
+    #expect(error == expected)
+  } catch {
+    Issue.record("Unexpected error type: \(String(reflecting: error))")
+  }
+}
+
+private func expectJournalStageJournalError<Value>(
+  _ expected: BrokerJournalError,
+  _ operation: () async throws -> Value
+) async {
+  do {
+    _ = try await operation()
+    Issue.record("Expected journal error \(expected).")
+  } catch let error as BrokerJournalError {
     #expect(error == expected)
   } catch {
     Issue.record("Unexpected error type: \(String(reflecting: error))")

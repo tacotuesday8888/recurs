@@ -282,6 +282,12 @@ struct BrokerJournalSnapshot: Sendable, Hashable {
   let authenticationTag: JournalAuthenticationTag
 }
 
+enum BrokerJournalCASReconciliation: Sendable, Equatable {
+  case expected
+  case replacement(BrokerJournalSnapshot)
+  case unrelated
+}
+
 protocol BrokerJournalStore: Actor {
   func list()
     async throws(BrokerJournalError) -> [BrokerJournalSnapshot]
@@ -293,6 +299,11 @@ protocol BrokerJournalStore: Actor {
     expected: BrokerJournalSnapshot?,
     replacement: BrokerJournalRecord
   ) async throws(BrokerJournalError) -> BrokerJournalSnapshot
+
+  func reconcileCompareAndSwap(
+    expected: BrokerJournalSnapshot?,
+    replacement: BrokerJournalRecord
+  ) async throws(BrokerJournalError) -> BrokerJournalCASReconciliation
 }
 ```
 
@@ -303,7 +314,12 @@ an empty array even if ignored orphan slots exist. `load` returns `nil` only
 when the anchor is absent; an anchor with a missing selected slot is
 `.rollbackDetected`. `compareAndSwap(expected: nil, ...)` means create and
 requires an absent anchor plus replacement revision 1; it never means overwrite
-without reading.
+without reading. `reconcileCompareAndSwap` is a read-only receipt check used only
+after an outcome-unknown CAS. The store recomputes the intended authentication
+tag from the exact previous tag and canonical replacement, then compares the
+full selected snapshot. Authentication is deterministic for that exact input;
+Task 6's HMAC implementation preserves this property. The actor may never
+promote record-only equality.
 
 Journal CAS compares the complete expected snapshot identity: requested
 connection ID, selected filename UUID/parity, anchor connection ID/revision/tag,
@@ -461,6 +477,8 @@ not intervened; otherwise transition it to `stageCleanupPending`. If
 `storePending` remains anchored, transition that exact record to
 `stageCleanupPending`. Until one of those cleanup records is durable, retain the
 operation and candidate cleanup obligation and return `.cleanupPending`.
+Cancellation observed while reconciliation is awaiting or paused is sticky in
+that retained operation and remains the fixed result of every later retry.
 
 For every stage-cleanup path, a delete failure or final stable-journal failure
 retains the exact reservation. Only the secret-free `resumeStage` for that

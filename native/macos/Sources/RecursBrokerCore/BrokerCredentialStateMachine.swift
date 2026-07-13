@@ -71,6 +71,7 @@ struct BrokerCredentialStateMachine: Sendable {
   enum PreflightDisposition: Sendable, Equatable {
     case proceed
     case replay(TerminalOutcome)
+    case resumeJournalStaging
     case resumeStageResolutionRequest
     case resumeStageResolution
     case resumeCleanup
@@ -143,6 +144,7 @@ struct BrokerCredentialStateMachine: Sendable {
     let fallback: Record
     let expected: BrokerJournalSnapshot
     let replacement: BrokerJournalRecord
+    let cancellationObserved: Bool
   }
 
   struct JournalStageResolutionAwaitToken: Sendable, Equatable {
@@ -295,6 +297,8 @@ struct BrokerCredentialStateMachine: Sendable {
     let expected: BrokerJournalSnapshot
     let replacement: BrokerJournalRecord
     let kind: JournalStageTransitionKind
+    var isAwaiting: Bool
+    var cancellationObserved: Bool
   }
 
   enum JournalStageResolutionKind: Sendable, Equatable {
@@ -362,6 +366,7 @@ struct BrokerCredentialStateMachine: Sendable {
 
   private enum ReservationDisposition {
     case none
+    case resumeJournalStaging
     case resumeStageResolutionRequest
     case resumeStageResolution
     case resumeCleanup
@@ -588,10 +593,13 @@ struct BrokerCredentialStateMachine: Sendable {
     }
   }
 
-  mutating func recordJournalFailure(_ error: BrokerJournalError) {
-    if Self.isSevereJournalHealthError(error) {
+  @discardableResult
+  mutating func recordJournalFailure(_ error: BrokerJournalError) -> Bool {
+    let isSevere = Self.isSevereJournalHealthError(error)
+    if isSevere {
       journalHealthUnavailable = true
     }
+    return isSevere
   }
 
   static func fingerprint(
@@ -642,6 +650,8 @@ struct BrokerCredentialStateMachine: Sendable {
       throw error
     case .resumeCleanup:
       return .resumeCleanup
+    case .resumeJournalStaging:
+      return .resumeJournalStaging
     case .resumeStageResolutionRequest:
       return .resumeStageResolutionRequest
     case .resumeStageResolution:
@@ -1030,9 +1040,10 @@ struct BrokerCredentialStateMachine: Sendable {
   }
 
   mutating func pauseJournalStageTransition(
-    _ token: JournalStageTransitionAwaitToken
+    _ token: JournalStageTransitionAwaitToken,
+    cancellationObserved: Bool = false
   ) throws(BrokerJournalError) {
-    let context = try validatedJournalStageTransition(token)
+    var context = try validatedJournalStageTransition(token)
     let kind: JournalStageResolutionKind
     switch context.kind {
     case .stableStoreFailure:
@@ -1040,7 +1051,13 @@ struct BrokerCredentialStateMachine: Sendable {
     case .cleanup(let terminalError):
       kind = .cleanup(terminalError)
     case .staging:
-      throw .invalidRecord
+      context.isAwaiting = false
+      context.cancellationObserved =
+        context.cancellationObserved || cancellationObserved
+      var reservation = token.reservation
+      reservation.phase = .journalStageTransition(context)
+      reservations[token.connectionID] = reservation
+      return
     }
     reservations[token.connectionID] = Reservation(
       operationID: token.reservation.operationID,
@@ -1054,6 +1071,36 @@ struct BrokerCredentialStateMachine: Sendable {
           isAwaiting: false
         )
       )
+    )
+  }
+
+  mutating func beginJournalStagingReconciliation(
+    connectionID: UUID,
+    operationID: UUID,
+    fingerprint: OperationFingerprint
+  ) throws(BrokerJournalError) -> JournalStageTransitionAwaitToken {
+    guard
+      var reservation = reservations[connectionID],
+      reservation.operationID == operationID,
+      reservation.fingerprint == fingerprint,
+      case .journalStageTransition(var context) = reservation.phase,
+      context.kind == .staging,
+      !context.isAwaiting,
+      records[connectionID] == context.stage.fallback,
+      journalSnapshots[connectionID] == context.expected
+    else {
+      throw .casConflict
+    }
+    context.isAwaiting = true
+    reservation.phase = .journalStageTransition(context)
+    reservations[connectionID] = reservation
+    return JournalStageTransitionAwaitToken(
+      connectionID: connectionID,
+      reservation: reservation,
+      fallback: context.stage.fallback,
+      expected: context.expected,
+      replacement: context.replacement,
+      cancellationObserved: context.cancellationObserved
     )
   }
 
@@ -2019,8 +2066,20 @@ struct BrokerCredentialStateMachine: Sendable {
       return .none
     }
     switch reservation.phase {
-    case .journalStageReservation, .storing, .journalStageTransition, .journalAuthority:
+    case .journalStageReservation, .storing, .journalAuthority:
       return .reject(.operationInProgress)
+    case .journalStageTransition(let transition):
+      guard !transition.isAwaiting else {
+        return .reject(.operationInProgress)
+      }
+      guard
+        reservation.operationID == operationID,
+        reservation.fingerprint == fingerprint,
+        transition.kind == .staging
+      else {
+        return .reject(.cleanupPending)
+      }
+      return .resumeJournalStaging
     case .journalStageResolutionRequest:
       guard
         reservation.operationID == operationID,
@@ -2115,7 +2174,9 @@ struct BrokerCredentialStateMachine: Sendable {
           stage: stage,
           expected: token.expected,
           replacement: replacement,
-          kind: kind
+          kind: kind,
+          isAwaiting: true,
+          cancellationObserved: false
         )
       )
     )
@@ -2125,7 +2186,8 @@ struct BrokerCredentialStateMachine: Sendable {
       reservation: reservation,
       fallback: token.fallback,
       expected: token.expected,
-      replacement: replacement
+      replacement: replacement,
+      cancellationObserved: false
     )
   }
 
@@ -2246,6 +2308,7 @@ struct BrokerCredentialStateMachine: Sendable {
       case .journalStageTransition(let context) = token.reservation.phase,
       context.expected == token.expected,
       context.replacement == token.replacement,
+      context.cancellationObserved == token.cancellationObserved,
       context.kind == kind,
       context.stage.fallback == token.fallback,
       records[token.connectionID] == token.fallback,
@@ -2288,6 +2351,7 @@ struct BrokerCredentialStateMachine: Sendable {
       case .journalStageTransition(let context) = token.reservation.phase,
       context.expected == token.expected,
       context.replacement == token.replacement,
+      context.cancellationObserved == token.cancellationObserved,
       context.stage.fallback == token.fallback,
       records[token.connectionID] == token.fallback,
       journalSnapshots[token.connectionID] == token.expected

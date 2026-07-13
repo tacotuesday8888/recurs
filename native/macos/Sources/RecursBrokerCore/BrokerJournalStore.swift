@@ -13,6 +13,12 @@ package struct BrokerJournalSnapshot: Sendable, Hashable {
   }
 }
 
+package enum BrokerJournalCASReconciliation: Sendable, Equatable {
+  case expected
+  case replacement(BrokerJournalSnapshot)
+  case unrelated
+}
+
 package protocol BrokerJournalAuthenticator: Actor {
   func authenticate(
     previousTag: JournalAuthenticationTag,
@@ -48,4 +54,9 @@ package protocol BrokerJournalStore: Actor {
     expected: BrokerJournalSnapshot?,
     replacement: BrokerJournalRecord
   ) async throws(BrokerJournalError) -> BrokerJournalSnapshot
+
+  func reconcileCompareAndSwap(
+    expected: BrokerJournalSnapshot?,
+    replacement: BrokerJournalRecord
+  ) async throws(BrokerJournalError) -> BrokerJournalCASReconciliation
 }

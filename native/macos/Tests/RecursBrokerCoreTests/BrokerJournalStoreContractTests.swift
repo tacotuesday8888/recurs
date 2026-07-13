@@ -48,6 +48,9 @@ struct BrokerJournalStoreContractTests {
     #expect(
       try await store.compareAndSwap(expected: nil, replacement: record).record == record
     )
+    #expect(
+      try await store.reconcileCompareAndSwap(expected: nil, replacement: record) == .expected
+    )
   }
 
   private func vacantRecord(
@@ -116,5 +119,12 @@ private actor ContractStore: BrokerJournalStore {
     replacement: BrokerJournalRecord
   ) async throws(BrokerJournalError) -> BrokerJournalSnapshot {
     BrokerJournalSnapshot(record: record, authenticationTag: .zero)
+  }
+
+  func reconcileCompareAndSwap(
+    expected: BrokerJournalSnapshot?,
+    replacement: BrokerJournalRecord
+  ) async throws(BrokerJournalError) -> BrokerJournalCASReconciliation {
+    .expected
   }
 }

@@ -279,6 +279,45 @@ package actor FileBrokerJournalStore: BrokerJournalStore {
     )
   }
 
+  package func reconcileCompareAndSwap(
+    expected: BrokerJournalSnapshot?,
+    replacement: BrokerJournalRecord
+  ) async throws(BrokerJournalError) -> BrokerJournalCASReconciliation {
+    try await enterOperationGate()
+    defer { leaveOperationGate() }
+
+    try BrokerJournalTransitionValidator.validate(
+      predecessor: expected?.record,
+      successor: replacement
+    )
+    let previousTag = expected?.authenticationTag ?? .zero
+    let canonicalRecord = try BrokerJournalCodec.canonicalRecordData(for: replacement)
+    let intended = BrokerJournalSnapshot(
+      record: replacement,
+      authenticationTag: try await authenticator.authenticate(
+        previousTag: previousTag,
+        canonicalRecord: canonicalRecord
+      )
+    )
+
+    let selected: BrokerJournalSnapshot?
+    if let anchor = try await authenticator.anchor(for: replacement.connectionID) {
+      selected = try await loadSelected(
+        anchor: anchor,
+        connectionID: replacement.connectionID
+      )
+    } else {
+      selected = nil
+    }
+    if selected == expected {
+      return .expected
+    }
+    if selected == intended {
+      return .replacement(intended)
+    }
+    return .unrelated
+  }
+
   private func reconcileAnchorFailure(
     originalError: BrokerJournalError,
     previousAnchor: BrokerJournalAnchor?,
