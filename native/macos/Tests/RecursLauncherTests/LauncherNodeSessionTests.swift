@@ -131,23 +131,29 @@ struct LauncherNodeSessionTests {
 
   @Test
   func nodeRequestIDsMustBeStrictlyIncreasing() async throws {
-    let system = ScriptedSessionBrokerConnection()
-    let factory = try makeBrokerFactory(system)
-    let output = RecordingSessionOutput()
-    let session = LauncherNodeSession(
-      brokerConnectionFactory: { () throws(BrokerConnectionError) -> BrokerConnection in
-        try factory.make()
-      },
-      output: output
-    )
+    for invalidRequestID in [UInt32(10), 9] {
+      let system = ScriptedSessionBrokerConnection()
+      let factory = try makeBrokerFactory(system)
+      let output = RecordingSessionOutput()
+      let session = LauncherNodeSession(
+        brokerConnectionFactory: { () throws(BrokerConnectionError) -> BrokerConnection in
+          try factory.make()
+        },
+        output: output
+      )
 
-    await session.receive(try helloFrame(requestID: 10))
-    await eventually("handshake") { await output.snapshot().written.count == 1 }
-    await session.receive(try HealthMessage().encodedFrame(requestID: 10))
-    await eventually("duplicate request closes") { await output.snapshot().closeCount == 1 }
+      await session.receive(try helloFrame(requestID: 10))
+      await eventually("handshake") { await output.snapshot().written.count == 1 }
+      await session.receive(
+        try HealthMessage().encodedFrame(requestID: invalidRequestID)
+      )
+      await eventually("non-increasing request closes") {
+        await output.snapshot().closeCount == 1
+      }
 
-    #expect(system.exchangeFrames.map(\.type) == [.hello])
-    #expect(system.invalidationCount == 1)
+      #expect(system.exchangeFrames.map(\.type) == [.hello])
+      #expect(system.invalidationCount == 1)
+    }
   }
 
   @Test
