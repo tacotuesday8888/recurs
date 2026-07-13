@@ -129,6 +129,8 @@ export type RegistryFaultPoint =
   | "before_rename"
   | "after_rename"
   | "before_remove"
+  | "after_remove_retirement"
+  | "after_remove_durable_rename"
   | "after_remove"
   | "after_lock_stat";
 

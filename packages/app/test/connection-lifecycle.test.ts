@@ -201,6 +201,30 @@ describe("connection lifecycle service", () => {
     });
   });
 
+  it("fails brokered verification closed without calling direct adapters", async () => {
+    const registry = new FileConnectionRegistry(await temporaryRoot());
+    await registry.commit(0, (draft) => {
+      draft.connections.push(brokered());
+      draft.primaryConnectionId = brokered().id;
+    });
+    const before = await registry.read();
+    const verifyLocal = vi.fn(async () => ({ status: "verified" as const }));
+    const verifyDelegated = vi.fn(async () => ({ status: "verified" as const }));
+
+    await expect(new ConnectionLifecycleService(registry).verify(
+      brokered().id,
+      { verifyLocal, verifyDelegated },
+    )).rejects.toMatchObject({
+      code: "verification_failed",
+      reason: "adapter_unavailable",
+      message: "Connection adapter is unavailable",
+    });
+
+    expect(verifyLocal).not.toHaveBeenCalled();
+    expect(verifyDelegated).not.toHaveBeenCalled();
+    expect(await registry.read()).toEqual(before);
+  });
+
   it("lists deeply frozen summaries without private account or endpoint data", async () => {
     const { registry } = await seededRegistry();
     const summaries = await new ConnectionLifecycleService(registry).list();

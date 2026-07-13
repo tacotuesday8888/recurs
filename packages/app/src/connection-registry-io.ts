@@ -136,6 +136,11 @@ function validatePrivateFileStat(stat: Stats, maximumLinks = 1): void {
   }
 }
 
+function validateRemovableActivationStat(stat: Stats): void {
+  validatePrivateFileStat(stat);
+  if ((stat.mode & 0o777) !== 0o600) throw unsafeStorage();
+}
+
 async function statNoFollow(filename: string): Promise<Stats | null> {
   try {
     return await lstat(filename);
@@ -643,17 +648,73 @@ export class RegistryFileStore {
     expected: FileIdentity,
   ): Promise<void> {
     await this.#faultInjector?.("before_remove");
+    const target = path.join(
+      context.directory,
+      "connection-activations.json",
+    );
+    const retirement = path.join(
+      context.directory,
+      `.connection-activations.remove.${process.pid}.${randomUUID()}`,
+    );
+    let handle: FileHandle | undefined;
+    let injected = false;
+    let injectedError: unknown;
+    const inject = async (point: RegistryFaultPoint): Promise<void> => {
+      try {
+        await this.#faultInjector?.(point);
+      } catch (error) {
+        injected = true;
+        injectedError = error;
+        throw error;
+      }
+    };
     try {
       await validateDirectoryIdentity(context);
-      const removed = await unlinkIfSame(
-        path.join(context.directory, "connection-activations.json"),
-        expected,
+      await assertTargetUnchanged(target, expected);
+      handle = await open(
+        target,
+        constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK,
       );
-      if (!removed) throw unsafeStorage();
+      const opened = await handle.stat();
+      validateRemovableActivationStat(opened);
+      if (!sameIdentity(fileIdentity(opened), expected)) throw unsafeStorage();
+      await assertTargetUnchanged(target, expected);
+      await rename(target, retirement);
+      await validateDirectoryIdentity(context);
+      await inject("after_remove_retirement");
+      const moved = await statNoFollow(retirement);
+      if (
+        moved === null ||
+        !sameIdentity(fileIdentity(moved), expected)
+      ) {
+        throw unsafeStorage();
+      }
+      validateRemovableActivationStat(moved);
+      if (await statNoFollow(target) !== null) throw unsafeStorage();
+      await context.handle.sync();
+      await inject("after_remove_durable_rename");
+      // Node has no inode-addressed unlink. Retire the exact opened inode to a
+      // zero-byte private path so a same-UID path swap can never be deleted.
+      await handle.truncate(0);
+      await handle.sync();
+      await validateDirectoryIdentity(context);
+      const retired = await statNoFollow(retirement);
+      if (
+        retired === null ||
+        retired.size !== 0 ||
+        !sameIdentity(fileIdentity(retired), expected)
+      ) {
+        throw unsafeStorage();
+      }
+      validateRemovableActivationStat(retired);
+      if (await statNoFollow(target) !== null) throw unsafeStorage();
       await context.handle.sync();
     } catch (error) {
       if (error instanceof ConnectionRegistryError) throw error;
+      if (injected && error === injectedError) throw error;
       throw unsafeStorage(error);
+    } finally {
+      await handle?.close().catch(() => undefined);
     }
     await this.#faultInjector?.("after_remove");
   }

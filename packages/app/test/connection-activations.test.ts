@@ -3,7 +3,9 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -386,6 +388,9 @@ describe("FileConnectionActivationStore", () => {
     const afterDirectory = await root();
     const afterNormal = new FileConnectionActivationStore(afterDirectory);
     await afterNormal.prepare(activation());
+    const afterOriginal = await lstat(
+      connectionActivationPath(afterDirectory),
+    );
     const after = new FileConnectionActivationStore(afterDirectory, {
       faultInjector(point) {
         if (point === "after_remove") throw new Error("after remove");
@@ -394,5 +399,187 @@ describe("FileConnectionActivationStore", () => {
     await expect(after.discard(connection().id)).rejects
       .toThrow("after remove");
     expect((await afterNormal.read()).activation).toBeNull();
+    const retirements = (await readdir(path.join(afterDirectory, "config")))
+      .filter((entry) => entry.startsWith(".connection-activations.remove."));
+    expect(retirements).toHaveLength(1);
+    const retired = await lstat(
+      path.join(afterDirectory, "config", retirements[0]!),
+    );
+    expect({ dev: retired.dev, ino: retired.ino, size: retired.size })
+      .toEqual({ dev: afterOriginal.dev, ino: afterOriginal.ino, size: 0 });
+    expect(retired.mode & 0o777).toBe(0o600);
+  });
+
+  it("never deletes an inode substituted at the private retirement path", async () => {
+    const directory = await root();
+    const filename = connectionActivationPath(directory);
+    const configDirectory = path.dirname(filename);
+    const heldOriginal = path.join(configDirectory, ".held-original-activation");
+    const normal = new FileConnectionActivationStore(directory);
+    await normal.prepare(activation());
+    const original = await lstat(filename);
+    const originalContents = await readFile(filename, "utf8");
+    const replacementContents = `${JSON.stringify({
+      schemaVersion: 1,
+      activation: activation({
+        connection: connection({
+          id: "71000000-0000-4000-8000-000000000002",
+        }),
+      }),
+    })}\n`;
+    let substituted = false;
+    const adversarial = new FileConnectionActivationStore(directory, {
+      async faultInjector(point) {
+        if (point !== "after_remove_retirement") return;
+        const retirement = (await readdir(configDirectory)).find((entry) =>
+          entry.startsWith(".connection-activations.remove.")
+        );
+        if (retirement === undefined) throw new Error("missing removal retirement");
+        const retirementPath = path.join(configDirectory, retirement);
+        await rename(retirementPath, heldOriginal);
+        await writePrivate(retirementPath, replacementContents);
+        substituted = true;
+      },
+    });
+
+    await expect(adversarial.discard(connection().id)).rejects.toMatchObject({
+      code: "storage_unsafe",
+    });
+
+    expect(substituted).toBe(true);
+    await expect(readFile(filename, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    const held = await lstat(heldOriginal);
+    expect({ dev: held.dev, ino: held.ino, size: held.size }).toEqual({
+      dev: original.dev,
+      ino: original.ino,
+      size: original.size,
+    });
+    expect(await readFile(heldOriginal, "utf8")).toBe(originalContents);
+    const retirements = (await readdir(configDirectory)).filter((entry) =>
+      entry.startsWith(".connection-activations.remove.")
+    );
+    expect(retirements).toHaveLength(1);
+    expect(
+      await readFile(path.join(configDirectory, retirements[0]!), "utf8"),
+    ).toBe(replacementContents);
+  });
+
+  it("truncates only the opened inode when retirement is swapped after its durable rename", async () => {
+    const directory = await root();
+    const filename = connectionActivationPath(directory);
+    const configDirectory = path.dirname(filename);
+    const heldOriginal = path.join(configDirectory, ".held-durable-activation");
+    const normal = new FileConnectionActivationStore(directory);
+    await normal.prepare(activation());
+    const original = await lstat(filename);
+    const replacementContents = `${JSON.stringify({
+      schemaVersion: 1,
+      activation: activation({
+        connection: connection({
+          id: "71000000-0000-4000-8000-000000000002",
+        }),
+      }),
+    })}\n`;
+    let replacementPath: string | undefined;
+    const adversarial = new FileConnectionActivationStore(directory, {
+      async faultInjector(point) {
+        if (point !== "after_remove_durable_rename") return;
+        const retirement = (await readdir(configDirectory)).find((entry) =>
+          entry.startsWith(".connection-activations.remove.")
+        );
+        if (retirement === undefined) throw new Error("missing removal retirement");
+        replacementPath = path.join(configDirectory, retirement);
+        await rename(replacementPath, heldOriginal);
+        await writePrivate(replacementPath, replacementContents);
+      },
+    });
+
+    await expect(adversarial.discard(connection().id)).rejects.toMatchObject({
+      code: "storage_unsafe",
+    });
+
+    await expect(readFile(filename, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    const held = await lstat(heldOriginal);
+    expect({ dev: held.dev, ino: held.ino, size: held.size }).toEqual({
+      dev: original.dev,
+      ino: original.ino,
+      size: 0,
+    });
+    expect(await readFile(heldOriginal, "utf8")).toBe("");
+    expect(replacementPath).toBeDefined();
+    expect(await readFile(replacementPath!, "utf8")).toBe(replacementContents);
+  });
+
+  it("recovers with a fresh activation after a crash in the durable pre-truncate window", async () => {
+    const directory = await root();
+    const filename = connectionActivationPath(directory);
+    const configDirectory = path.dirname(filename);
+    const normal = new FileConnectionActivationStore(directory);
+    await normal.prepare(activation());
+    const original = await lstat(filename);
+    const originalContents = await readFile(filename, "utf8");
+    const crash = new Error("durable removal crash");
+    const crashing = new FileConnectionActivationStore(directory, {
+      faultInjector(point) {
+        if (point === "after_remove_durable_rename") throw crash;
+      },
+    });
+
+    await expect(crashing.discard(connection().id)).rejects.toBe(crash);
+
+    await expect(readFile(filename, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    const retirement = (await readdir(configDirectory)).find((entry) =>
+      entry.startsWith(".connection-activations.remove.")
+    );
+    expect(retirement).toBeDefined();
+    const retirementPath = path.join(configDirectory, retirement!);
+    const retired = await lstat(retirementPath);
+    expect({ dev: retired.dev, ino: retired.ino, size: retired.size }).toEqual({
+      dev: original.dev,
+      ino: original.ino,
+      size: original.size,
+    });
+    expect(await readFile(retirementPath, "utf8")).toBe(originalContents);
+
+    const fresh = activation({
+      connection: connection({
+        id: "71000000-0000-4000-8000-000000000002",
+      }),
+    });
+    await expect(normal.prepare(fresh)).resolves.toMatchObject({
+      activation: fresh,
+    });
+    await expect(normal.commitToRegistry(fresh.connection.id)).resolves
+      .toMatchObject({ connections: [fresh.connection] });
+  });
+
+  it("rejects read-only tampering without retiring or changing the activation", async () => {
+    const directory = await root();
+    const filename = connectionActivationPath(directory);
+    const configDirectory = path.dirname(filename);
+    const store = new FileConnectionActivationStore(directory);
+    await store.prepare(activation());
+    const original = await lstat(filename);
+    const originalContents = await readFile(filename, "utf8");
+    await chmod(filename, 0o400);
+
+    await expect(store.discard(connection().id)).rejects.toMatchObject({
+      code: "storage_unsafe",
+    });
+
+    const retained = await lstat(filename);
+    expect({ dev: retained.dev, ino: retained.ino, size: retained.size })
+      .toEqual({ dev: original.dev, ino: original.ino, size: original.size });
+    expect(retained.mode & 0o777).toBe(0o400);
+    expect(await readFile(filename, "utf8")).toBe(originalContents);
+    expect((await readdir(configDirectory)).filter((entry) =>
+      entry.startsWith(".connection-activations.remove.")
+    )).toEqual([]);
   });
 });
