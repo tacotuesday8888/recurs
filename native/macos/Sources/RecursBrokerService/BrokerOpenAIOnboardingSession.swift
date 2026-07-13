@@ -1,6 +1,8 @@
 import Foundation
 import RecursBrokerCore
 
+let brokerOpenAIOnboardingSetupLifetime: TimeInterval = 300
+
 struct BrokerOpenAIOnboardingStagingContext: Sendable, Equatable {
   let connectionID: UUID
   let attemptID: UUID
@@ -72,8 +74,6 @@ protocol BrokerOpenAISetupCatalogFetching: Sendable {
 }
 
 actor BrokerOpenAIOnboardingSession {
-  private static let lifetime: TimeInterval = 300
-
   private struct VerifiedCatalog: Sendable {
     let catalog: BrokerOpenAIModelCatalog
     let exactModelIDs: Set<Data>
@@ -139,7 +139,7 @@ actor BrokerOpenAIOnboardingSession {
     self.authority = authority
     self.catalogFetcher = catalogFetcher
     self.clock = clock
-    expiresAt = clock().addingTimeInterval(Self.lifetime)
+    expiresAt = clock().addingTimeInterval(brokerOpenAIOnboardingSetupLifetime)
   }
 
   func verify() async throws(BrokerOpenAIOnboardingError) -> BrokerOpenAIModelCatalog {

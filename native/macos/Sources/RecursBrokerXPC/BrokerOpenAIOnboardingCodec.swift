@@ -390,10 +390,119 @@ public enum BrokerOpenAIOnboardingReply: Sendable, Equatable {
   }
 }
 
+public enum BrokerOpenAIActivationReconciliationRequest: Sendable, Equatable {
+  case reconcile(requestID: UInt64, connectionID: UUID)
+
+  public var requestID: UInt64 {
+    switch self {
+    case .reconcile(let requestID, _):
+      requestID
+    }
+  }
+
+  public func encode() throws -> Data {
+    switch self {
+    case .reconcile(let requestID, let connectionID):
+      try validateClientRequestID(requestID)
+      try validateUUID(connectionID)
+      var body: [UInt8] = []
+      body.reserveCapacity(24)
+      append(requestID, to: &body)
+      append(connectionID, to: &body)
+      return try encodeReconciliationFrame(kind: 1, body: body)
+    }
+  }
+
+  public static func decode(
+    _ data: Data
+  ) throws -> BrokerOpenAIActivationReconciliationRequest {
+    let frame = try decodeReconciliationFrame(data, allowedKinds: [1])
+    guard frame.body.count == 24 else { throw codecError() }
+    var reader = ByteReader(frame.body)
+    let requestID = try reader.readUInt64()
+    try validateClientRequestID(requestID)
+    return try withRequestID(requestID) {
+      let connectionID = try reader.readUUID()
+      try reader.finish()
+      return .reconcile(requestID: requestID, connectionID: connectionID)
+    }
+  }
+}
+
+public enum BrokerOpenAIActivationReconciliationStatus: UInt16, Sendable, CaseIterable {
+  case readyOpenAI = 1
+  case absent = 2
+  case unresolved = 3
+}
+
+public enum BrokerOpenAIActivationReconciliationReply: Sendable, Equatable {
+  case status(requestID: UInt64, BrokerOpenAIActivationReconciliationStatus)
+  case failure(requestID: UInt64, BrokerOpenAIOnboardingFailureCode)
+
+  public var requestID: UInt64 {
+    switch self {
+    case .status(let requestID, _), .failure(let requestID, _):
+      requestID
+    }
+  }
+
+  public func encode() throws -> Data {
+    var body: [UInt8] = []
+    body.reserveCapacity(10)
+    let kind: UInt16
+    switch self {
+    case .status(let requestID, let status):
+      try validateClientRequestID(requestID)
+      kind = 101
+      append(requestID, to: &body)
+      append(status.rawValue, to: &body)
+    case .failure(let requestID, let code):
+      try validateFailureRequestID(requestID, code: code)
+      kind = 255
+      append(requestID, to: &body)
+      append(code.rawValue, to: &body)
+    }
+    return try encodeReconciliationFrame(kind: kind, body: body)
+  }
+
+  public static func decode(
+    _ data: Data
+  ) throws -> BrokerOpenAIActivationReconciliationReply {
+    let frame = try decodeReconciliationFrame(data, allowedKinds: [101, 255])
+    guard frame.body.count == 10 else { throw codecError() }
+    var reader = ByteReader(frame.body)
+    let rawRequestID = try reader.readUInt64()
+    let requestContext = isClientRequestID(rawRequestID) ? rawRequestID : nil
+    return try withRequestID(requestContext) {
+      let rawValue = try reader.readUInt16()
+      try reader.finish()
+      switch frame.kind {
+      case 101:
+        try validateClientRequestID(rawRequestID)
+        guard let status = BrokerOpenAIActivationReconciliationStatus(rawValue: rawValue) else {
+          throw codecError()
+        }
+        return .status(requestID: rawRequestID, status)
+      case 255:
+        guard let code = BrokerOpenAIOnboardingFailureCode(rawValue: rawValue) else {
+          throw codecError()
+        }
+        try validateFailureRequestID(rawRequestID, code: code)
+        return .failure(requestID: rawRequestID, code)
+      default:
+        throw codecError()
+      }
+    }
+  }
+}
+
 private let magic: UInt32 = 0x5243_4f41
 private let version: UInt16 = 1
 private let headerByteCount = 12
 private let maximumRequestBytes = 512
+private let reconciliationMagic: UInt32 = 0x5243_434f
+private let reconciliationVersion: UInt16 = 1
+private let maximumReconciliationFrameBytes = 36
 private let zeroUUID = UUID(
   uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
 )
@@ -625,6 +734,47 @@ private func decodeFrame(
     readUInt16(bytes, at: 4) == version,
     allowedKinds.contains(readUInt16(bytes, at: 6)),
     bodyCount <= maximumByteCount - headerByteCount,
+    bytes.count == headerByteCount + bodyCount
+  else {
+    throw codecError()
+  }
+  return Frame(
+    kind: readUInt16(bytes, at: 6),
+    body: Array(bytes.dropFirst(headerByteCount))
+  )
+}
+
+private func encodeReconciliationFrame(kind: UInt16, body: [UInt8]) throws -> Data {
+  guard body.count <= maximumReconciliationFrameBytes - headerByteCount else {
+    throw codecError()
+  }
+  var bytes: [UInt8] = []
+  bytes.reserveCapacity(headerByteCount + body.count)
+  append(reconciliationMagic, to: &bytes)
+  append(reconciliationVersion, to: &bytes)
+  append(kind, to: &bytes)
+  append(UInt32(body.count), to: &bytes)
+  bytes.append(contentsOf: body)
+  return Data(bytes)
+}
+
+private func decodeReconciliationFrame(
+  _ data: Data,
+  allowedKinds: Set<UInt16>
+) throws -> Frame {
+  guard
+    data.count >= headerByteCount,
+    data.count <= maximumReconciliationFrameBytes
+  else {
+    throw codecError()
+  }
+  let bytes = [UInt8](data)
+  let bodyCount = Int(readUInt32(bytes, at: 8))
+  guard
+    readUInt32(bytes, at: 0) == reconciliationMagic,
+    readUInt16(bytes, at: 4) == reconciliationVersion,
+    allowedKinds.contains(readUInt16(bytes, at: 6)),
+    bodyCount <= maximumReconciliationFrameBytes - headerByteCount,
     bytes.count == headerByteCount + bodyCount
   else {
     throw codecError()

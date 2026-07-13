@@ -56,6 +56,8 @@ struct BrokerCredentialLifecycleXPCTests {
                 BrokerOpenAIOnboardingXPCProtocol.beginOpenAIOnboarding(_:secret:reply:))),
             NSStringFromSelector(
               #selector(BrokerOpenAIOnboardingXPCProtocol.openAIOnboardingControl(_:reply:))),
+            NSStringFromSelector(
+              #selector(BrokerOpenAIOnboardingXPCProtocol.reconcileOpenAIActivation(_:reply:))),
           ],
           optionalInstance: [],
           requiredClass: [],
@@ -155,9 +157,22 @@ struct BrokerCredentialLifecycleXPCTests {
     proxy.exchange(try helloFrame(requestID: 1), reply: hello.receive)
     #expect(try HelloResultMessage.decode(decodeNativeFrame(hello.wait())).persistentCredentials)
 
+    let reconciled = LockedDataProbe()
+    proxy.reconcileOpenAIActivation(
+      try BrokerOpenAIActivationReconciliationRequest.reconcile(
+        requestID: 1,
+        connectionID: connectionID
+      ).encode(),
+      reply: reconciled.receive
+    )
+    #expect(
+      try BrokerOpenAIActivationReconciliationReply.decode(reconciled.wait())
+        == .status(requestID: 1, .unresolved)
+    )
+
     let begun = LockedDataProbe()
     proxy.beginOpenAIOnboarding(
-      try BrokerOpenAIOnboardingRequest.begin(requestID: 1).encode(),
+      try BrokerOpenAIOnboardingRequest.begin(requestID: 2).encode(),
       secret: Data("openai-onboarding-secret".utf8),
       reply: begun.receive
     )
@@ -173,7 +188,7 @@ struct BrokerCredentialLifecycleXPCTests {
 
     let verified = LockedDataProbe()
     proxy.openAIOnboardingControl(
-      try BrokerOpenAIOnboardingRequest.verify(requestID: 2).encode(),
+      try BrokerOpenAIOnboardingRequest.verify(requestID: 3).encode(),
       reply: verified.receive
     )
     guard
@@ -667,6 +682,14 @@ private func assertExactDataAllowlists(
   assertNSDataOnly(
     interface.classes(for: onboardingControl, argumentIndex: 0, ofReply: true)
   )
+  let reconciliation =
+    #selector(BrokerOpenAIOnboardingXPCProtocol.reconcileOpenAIActivation(_:reply:))
+  assertNSDataOnly(
+    interface.classes(for: reconciliation, argumentIndex: 0, ofReply: false)
+  )
+  assertNSDataOnly(
+    interface.classes(for: reconciliation, argumentIndex: 0, ofReply: true)
+  )
 }
 
 private func assertNSDataOnly(_ classes: Set<AnyHashable>) {
@@ -728,6 +751,16 @@ private func makeClientOpenAIOnboardingInterface() -> NSXPCInterface {
     ),
     (
       #selector(BrokerOpenAIOnboardingXPCProtocol.openAIOnboardingControl(_:reply:)),
+      0,
+      true
+    ),
+    (
+      #selector(BrokerOpenAIOnboardingXPCProtocol.reconcileOpenAIActivation(_:reply:)),
+      0,
+      false
+    ),
+    (
+      #selector(BrokerOpenAIOnboardingXPCProtocol.reconcileOpenAIActivation(_:reply:)),
       0,
       true
     ),

@@ -48,10 +48,16 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
     case rejected(BrokerOpenAIOnboardingFailureCode)
   }
 
+  private enum ReconciliationDecision {
+    case status(BrokerOpenAIActivationReconciliationStatus)
+    case expiredInitial(StagingAttempt)
+  }
+
   private let authority: any BrokerCredentialLifecycleAuthority
   private let factory: any BrokerOpenAIOnboardingSessionFactory
   private let credentialIdentityFingerprinter: any CredentialIdentityFingerprinting
   private let makeUUID: @Sendable () -> UUID
+  private let clock: @Sendable () -> Date
   private let lock = NSLock()
   private var isAuthorized = false
   private var isClosed = false
@@ -64,12 +70,14 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
     authority: any BrokerCredentialLifecycleAuthority,
     factory: any BrokerOpenAIOnboardingSessionFactory,
     credentialIdentityFingerprinter: any CredentialIdentityFingerprinting,
-    makeUUID: @escaping @Sendable () -> UUID = { UUID() }
+    makeUUID: @escaping @Sendable () -> UUID = { UUID() },
+    clock: @escaping @Sendable () -> Date = { Date() }
   ) {
     self.authority = authority
     self.factory = factory
     self.credentialIdentityFingerprinter = credentialIdentityFingerprinter
     self.makeUUID = makeUUID
+    self.clock = clock
   }
 
   func authorizeAfterHello() {
@@ -185,6 +193,52 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
     }
   }
 
+  func submitReconciliation(
+    _ requestData: Data,
+    reply: @escaping @Sendable (Data) -> Void
+  ) {
+    let request: BrokerOpenAIActivationReconciliationRequest
+    do {
+      request = try BrokerOpenAIActivationReconciliationRequest.decode(requestData)
+    } catch let error as BrokerOpenAIOnboardingCodecError {
+      rejectReconciliationMalformed(requestID: error.requestID, reply: reply)
+      return
+    } catch {
+      rejectReconciliationMalformed(requestID: nil, reply: reply)
+      return
+    }
+
+    let gate = OnboardingReplyGate(requestID: request.requestID, reply: reply)
+    var rejection: BrokerOpenAIOnboardingFailureCode?
+    lock.lock()
+    switch admit(requestID: request.requestID) {
+    case .rejected(let code):
+      rejection = code
+    case .accepted:
+      guard binding == nil else {
+        rejection = .operationUnavailable
+        break
+      }
+      let task = Task { [weak self, gate, request] in
+        guard let self else {
+          gate.complete(
+            Self.reconciliationFailure(requestID: request.requestID, code: .cancelled)
+          )
+          return
+        }
+        await self.runReconciliation(request, gate: gate)
+      }
+      entry = Entry(task: task, gate: gate)
+    }
+    lock.unlock()
+
+    if let rejection {
+      gate.complete(
+        Self.reconciliationFailure(requestID: request.requestID, code: rejection)
+      )
+    }
+  }
+
   func close() {
     shutdown(discardReply: false)
   }
@@ -241,6 +295,185 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
       }
     }
     reply(Self.failure(requestID: requestID, code: .invalidRequest))
+  }
+
+  private func rejectReconciliationMalformed(
+    requestID: UInt64?,
+    reply: @escaping @Sendable (Data) -> Void
+  ) {
+    guard let requestID else {
+      reply(
+        Self.reconciliationFailure(
+          requestID: brokerOpenAIOnboardingMalformedRequestID,
+          code: .invalidRequest
+        )
+      )
+      return
+    }
+    lock.withLock {
+      if requestID > greatestSeenRequestID {
+        greatestSeenRequestID = requestID
+      }
+    }
+    reply(Self.reconciliationFailure(requestID: requestID, code: .invalidRequest))
+  }
+
+  private func runReconciliation(
+    _ request: BrokerOpenAIActivationReconciliationRequest,
+    gate: OnboardingReplyGate
+  ) async {
+    guard case .reconcile(let requestID, let connectionID) = request else {
+      completeReconciliation(requestID: request.requestID, gate: gate, code: .invalidRequest)
+      return
+    }
+    guard !Task.isCancelled else {
+      completeReconciliation(requestID: requestID, gate: gate, code: .cancelled)
+      return
+    }
+
+    let initial: BrokerCredentialBoundProjection?
+    do {
+      initial = try await authority.authoritativeBoundProjection(for: connectionID)
+    } catch {
+      if Task.isCancelled {
+        completeReconciliation(requestID: requestID, gate: gate, code: .cancelled)
+      } else {
+        completeReconciliation(requestID: requestID, gate: gate, status: .unresolved)
+      }
+      return
+    }
+    guard !Task.isCancelled else {
+      completeReconciliation(requestID: requestID, gate: gate, code: .cancelled)
+      return
+    }
+
+    switch reconciliationDecision(initial, connectionID: connectionID) {
+    case .status(let status):
+      completeReconciliation(requestID: requestID, gate: gate, status: status)
+    case .expiredInitial(let attempt):
+      await abortExpiredInitial(
+        requestID: requestID,
+        connectionID: connectionID,
+        attempt: attempt,
+        gate: gate
+      )
+    }
+  }
+
+  private func abortExpiredInitial(
+    requestID: UInt64,
+    connectionID: UUID,
+    attempt: StagingAttempt,
+    gate: OnboardingReplyGate
+  ) async {
+    guard !Task.isCancelled else {
+      completeReconciliation(requestID: requestID, gate: gate, code: .cancelled)
+      return
+    }
+    let operationID = makeUUID()
+    guard
+      operationID != zeroUUID,
+      operationID != connectionID,
+      operationID != attempt.attemptID,
+      operationID != attempt.candidate.generationID
+    else {
+      completeReconciliation(requestID: requestID, gate: gate, status: .unresolved)
+      return
+    }
+
+    do {
+      _ = try await authority.abort(
+        connectionID: connectionID,
+        attemptID: attempt.attemptID,
+        operationID: operationID,
+        expectedFence: attempt.fence
+      )
+    } catch {
+      if Task.isCancelled {
+        completeReconciliation(requestID: requestID, gate: gate, code: .cancelled)
+      } else {
+        completeReconciliation(requestID: requestID, gate: gate, status: .unresolved)
+      }
+      return
+    }
+    guard !Task.isCancelled else {
+      completeReconciliation(requestID: requestID, gate: gate, code: .cancelled)
+      return
+    }
+
+    do {
+      let current = try await authority.authoritativeBoundProjection(for: connectionID)
+      guard !Task.isCancelled else {
+        completeReconciliation(requestID: requestID, gate: gate, code: .cancelled)
+        return
+      }
+      completeReconciliation(
+        requestID: requestID,
+        gate: gate,
+        status: fixedReconciliationStatus(current, connectionID: connectionID)
+      )
+    } catch {
+      if Task.isCancelled {
+        completeReconciliation(requestID: requestID, gate: gate, code: .cancelled)
+      } else {
+        completeReconciliation(requestID: requestID, gate: gate, status: .unresolved)
+      }
+    }
+  }
+
+  private func reconciliationDecision(
+    _ bound: BrokerCredentialBoundProjection?,
+    connectionID: UUID
+  ) -> ReconciliationDecision {
+    guard
+      let bound,
+      bound.providerBinding == .openAI
+    else {
+      return .status(bound == nil ? .absent : .unresolved)
+    }
+    switch bound.projection {
+    case .ready(let ready):
+      return .status(ready.connectionID == connectionID ? .readyOpenAI : .unresolved)
+    case .tombstoned(let tombstone):
+      return .status(tombstone.connectionID == connectionID ? .absent : .unresolved)
+    case .staging(let attempt):
+      guard
+        attempt.connectionID == connectionID,
+        attempt.attemptID != zeroUUID,
+        attempt.fence == 1,
+        attempt.previousReady == nil
+      else {
+        return .status(.unresolved)
+      }
+      let expiresAt = attempt.startedAt.addingTimeInterval(
+        brokerOpenAIOnboardingSetupLifetime
+      )
+      guard
+        attempt.startedAt.timeIntervalSinceReferenceDate.isFinite,
+        expiresAt.timeIntervalSinceReferenceDate.isFinite,
+        clock() >= expiresAt
+      else {
+        return .status(.unresolved)
+      }
+      return .expiredInitial(attempt)
+    }
+  }
+
+  private func fixedReconciliationStatus(
+    _ bound: BrokerCredentialBoundProjection?,
+    connectionID: UUID
+  ) -> BrokerOpenAIActivationReconciliationStatus {
+    guard let bound, bound.providerBinding == .openAI else {
+      return bound == nil ? .absent : .unresolved
+    }
+    switch bound.projection {
+    case .ready(let ready):
+      return ready.connectionID == connectionID ? .readyOpenAI : .unresolved
+    case .tombstoned(let tombstone):
+      return tombstone.connectionID == connectionID ? .absent : .unresolved
+    case .staging:
+      return .unresolved
+    }
   }
 
   private func runBegin(
@@ -604,6 +837,34 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
     )
   }
 
+  private func completeReconciliation(
+    requestID: UInt64,
+    gate: OnboardingReplyGate,
+    status: BrokerOpenAIActivationReconciliationStatus
+  ) {
+    let reply = BrokerOpenAIActivationReconciliationReply.status(
+      requestID: requestID,
+      status
+    )
+    guard let encoded = try? reply.encode() else {
+      completeReconciliation(requestID: requestID, gate: gate, code: .authorityUnavailable)
+      return
+    }
+    complete(requestID: requestID, gate: gate, encoded: encoded)
+  }
+
+  private func completeReconciliation(
+    requestID: UInt64,
+    gate: OnboardingReplyGate,
+    code: BrokerOpenAIOnboardingFailureCode
+  ) {
+    complete(
+      requestID: requestID,
+      gate: gate,
+      encoded: Self.reconciliationFailure(requestID: requestID, code: code)
+    )
+  }
+
   private func complete(
     requestID: UInt64,
     gate: OnboardingReplyGate,
@@ -745,6 +1006,16 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
     code: BrokerOpenAIOnboardingFailureCode
   ) -> Data {
     (try? BrokerOpenAIOnboardingReply.failure(requestID: requestID, code).encode()) ?? Data()
+  }
+
+  private static func reconciliationFailure(
+    requestID: UInt64,
+    code: BrokerOpenAIOnboardingFailureCode
+  ) -> Data {
+    (try? BrokerOpenAIActivationReconciliationReply.failure(
+      requestID: requestID,
+      code
+    ).encode()) ?? Data()
   }
 
   private static func map(

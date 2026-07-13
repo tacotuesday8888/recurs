@@ -349,6 +349,17 @@ final class BrokerService: NSObject, BrokerOpenAIOnboardingXPCProtocol,
     openAIOnboardingGateway.submitControl(request, reply: reply)
   }
 
+  func reconcileOpenAIActivation(
+    _ request: Data,
+    reply: @escaping @Sendable (Data) -> Void
+  ) {
+    guard let openAIOnboardingGateway else {
+      reply(Self.unavailableOpenAIReconciliation(request))
+      return
+    }
+    openAIOnboardingGateway.submitReconciliation(request, reply: reply)
+  }
+
   func close() {
     credentialGateway?.close()
     openAIOnboardingGateway?.close()
@@ -450,11 +461,41 @@ final class BrokerService: NSObject, BrokerOpenAIOnboardingXPCProtocol,
     }
   }
 
+  private static func unavailableOpenAIReconciliation(_ data: Data) -> Data {
+    do {
+      let request = try BrokerOpenAIActivationReconciliationRequest.decode(data)
+      return openAIReconciliationFailure(
+        requestID: request.requestID,
+        code: .operationUnavailable
+      )
+    } catch let error as BrokerOpenAIOnboardingCodecError {
+      return openAIReconciliationFailure(
+        requestID: error.requestID ?? brokerOpenAIOnboardingMalformedRequestID,
+        code: .invalidRequest
+      )
+    } catch {
+      return openAIReconciliationFailure(
+        requestID: brokerOpenAIOnboardingMalformedRequestID,
+        code: .invalidRequest
+      )
+    }
+  }
+
   private static func openAIFailure(
     requestID: UInt64,
     code: BrokerOpenAIOnboardingFailureCode
   ) -> Data {
     (try? BrokerOpenAIOnboardingReply.failure(requestID: requestID, code).encode()) ?? Data()
+  }
+
+  private static func openAIReconciliationFailure(
+    requestID: UInt64,
+    code: BrokerOpenAIOnboardingFailureCode
+  ) -> Data {
+    (try? BrokerOpenAIActivationReconciliationReply.failure(
+      requestID: requestID,
+      code
+    ).encode()) ?? Data()
   }
 }
 

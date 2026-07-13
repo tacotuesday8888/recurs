@@ -192,7 +192,19 @@ struct BrokerServiceTests {
     }
     #expect(
       unsupportedTypes
-        == [.helloResult, .healthResult, .cancel, .safeFailure]
+        == [
+          .helloResult,
+          .healthResult,
+          .cancel,
+          .openAIOnboardingRequest,
+          .openAIOnboardingBegun,
+          .openAIOnboardingCatalogPage,
+          .openAIOnboardingCommitted,
+          .openAIOnboardingAborted,
+          .openAIOnboardingReconciliation,
+          .openAIOnboardingFailure,
+          .safeFailure,
+        ]
     )
 
     for (index, type) in unsupportedTypes.enumerated() {
@@ -395,6 +407,20 @@ struct BrokerServiceTests {
     #expect(
       try BrokerOpenAIOnboardingReply.decode(try #require(controlReply.first))
         == .failure(requestID: 2, .operationUnavailable)
+    )
+
+    let reconciliationReply = LockedServiceReplyProbe()
+    service.reconcileOpenAIActivation(
+      try BrokerOpenAIActivationReconciliationRequest.reconcile(
+        requestID: 3,
+        connectionID: UUID(uuidString: "10000000-0000-4000-8000-000000000001")!
+      ).encode(),
+      reply: reconciliationReply.receive
+    )
+    #expect(
+      try BrokerOpenAIActivationReconciliationReply.decode(
+        try #require(reconciliationReply.first)
+      ) == .failure(requestID: 3, .operationUnavailable)
     )
   }
 

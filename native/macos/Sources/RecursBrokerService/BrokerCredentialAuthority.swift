@@ -3,6 +3,10 @@ import RecursBrokerCore
 import RecursNativeSecurity
 
 protocol BrokerCredentialLifecycleAuthority: Sendable {
+  func authoritativeBoundProjection(
+    for connectionID: UUID
+  ) async throws(BrokerJournalError) -> BrokerCredentialBoundProjection?
+
   func authoritativeLifecycleProjection(
     for connectionID: UUID
   ) async throws(BrokerJournalError) -> CredentialLifecycleProjection
@@ -40,6 +44,14 @@ protocol BrokerCredentialLifecycleAuthority: Sendable {
     operationID: UUID,
     expectedFence: UInt64
   ) async throws(BrokerStateError) -> TombstoneProjection
+}
+
+extension BrokerCredentialLifecycleAuthority {
+  func authoritativeBoundProjection(
+    for _: UUID
+  ) async throws(BrokerJournalError) -> BrokerCredentialBoundProjection? {
+    throw .storageUnavailable
+  }
 }
 
 protocol BrokerProviderCredentialUseAuthority: Sendable {

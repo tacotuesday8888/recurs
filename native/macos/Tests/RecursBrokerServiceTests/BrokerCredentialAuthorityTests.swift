@@ -98,9 +98,10 @@ struct BrokerCredentialAuthorityTests {
       store: store,
       journal: journal
     )
+    let lifecycleAuthority: any BrokerCredentialLifecycleAuthority = authority
 
     let bound = try #require(
-      try await authority.authoritativeBoundProjection(for: connectionID)
+      try await lifecycleAuthority.authoritativeBoundProjection(for: connectionID)
     )
     #expect(bound.providerBinding == .anthropic)
     guard case .ready(let ready) = bound.projection else {

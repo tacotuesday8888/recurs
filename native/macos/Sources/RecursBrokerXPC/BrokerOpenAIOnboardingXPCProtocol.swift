@@ -14,4 +14,9 @@ public protocol BrokerOpenAIOnboardingXPCProtocol:
     _ request: Data,
     reply: @escaping @Sendable (Data) -> Void
   )
+
+  func reconcileOpenAIActivation(
+    _ request: Data,
+    reply: @escaping @Sendable (Data) -> Void
+  )
 }

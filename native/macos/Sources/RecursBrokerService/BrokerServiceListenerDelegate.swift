@@ -144,6 +144,16 @@ final class BrokerServiceListenerDelegate: NSObject, NSXPCListenerDelegate,
           0,
           true
         ),
+        (
+          #selector(BrokerOpenAIOnboardingXPCProtocol.reconcileOpenAIActivation(_:reply:)),
+          0,
+          false
+        ),
+        (
+          #selector(BrokerOpenAIOnboardingXPCProtocol.reconcileOpenAIActivation(_:reply:)),
+          0,
+          true
+        ),
       ]
     registrations.append(contentsOf: onboardingRegistrations)
     return registrations

@@ -516,6 +516,11 @@ struct BrokerOpenAIOnboardingCodecTests {
         #selector(BrokerOpenAIOnboardingXPCProtocol.openAIOnboardingControl(_:reply:))
       ) == "openAIOnboardingControl:reply:"
     )
+    #expect(
+      NSStringFromSelector(
+        #selector(BrokerOpenAIOnboardingXPCProtocol.reconcileOpenAIActivation(_:reply:))
+      ) == "reconcileOpenAIActivation:reply:"
+    )
   }
 }
 
@@ -550,6 +555,13 @@ private final class OpenAIOnboardingXPCStub: NSObject,
   }
 
   func openAIOnboardingControl(
+    _ request: Data,
+    reply: @escaping @Sendable (Data) -> Void
+  ) {
+    reply(request)
+  }
+
+  func reconcileOpenAIActivation(
     _ request: Data,
     reply: @escaping @Sendable (Data) -> Void
   ) {

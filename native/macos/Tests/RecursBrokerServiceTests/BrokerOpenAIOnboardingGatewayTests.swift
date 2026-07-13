@@ -57,6 +57,40 @@ struct BrokerOpenAIOnboardingGatewayTests {
   }
 
   @Test
+  func reconciliationFailsClosedByDefaultAndRequiresAFreshSession() throws {
+    let fresh = makeSystem()
+    fresh.gateway.authorizeAfterHello()
+    let unresolved = OnboardingReplyProbe()
+    fresh.gateway.submitReconciliation(
+      try BrokerOpenAIActivationReconciliationRequest.reconcile(
+        requestID: 1,
+        connectionID: connectionID
+      ).encode(),
+      reply: unresolved.receive
+    )
+    #expect(
+      try BrokerOpenAIActivationReconciliationReply.decode(unresolved.wait())
+        == .status(requestID: 1, .unresolved)
+    )
+
+    let active = makeSystem()
+    active.gateway.authorizeAfterHello()
+    _ = submitBegin(active.gateway).wait()
+    let rejected = OnboardingReplyProbe()
+    active.gateway.submitReconciliation(
+      try BrokerOpenAIActivationReconciliationRequest.reconcile(
+        requestID: 2,
+        connectionID: connectionID
+      ).encode(),
+      reply: rejected.receive
+    )
+    #expect(
+      try BrokerOpenAIActivationReconciliationReply.decode(rejected.wait())
+        == .failure(requestID: 2, .operationUnavailable)
+    )
+  }
+
+  @Test
   func beginStagesOpenAIWithBrokerOwnedIdentityAndBuildsOneFreshSession() throws {
     let system = makeSystem()
     system.gateway.authorizeAfterHello()
