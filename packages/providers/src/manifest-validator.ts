@@ -1,9 +1,13 @@
+import {
+  BUNDLED_PROVIDER_ACTIVATION_PROFILE_IDS,
+} from "@recurs/contracts";
 import type {
   BillingPolicy,
   BillingSelectionMode,
   PolicyCondition,
   ProviderEndpoint,
   ProviderManifest,
+  ProviderActivationProfileId,
   ProviderRegionAvailability,
   ProviderUsagePolicy,
   TrustedRunContext,
@@ -69,6 +73,7 @@ const REGION_CATALOGS = ["aws", "gcp", "azure"] as const;
 const MANIFEST_FIELDS = [
   "schemaVersion",
   "id",
+  "activationProfileId",
   "displayName",
   "adapterKind",
   "accessKind",
@@ -834,12 +839,23 @@ function cloneAndFreeze<T>(value: T): T {
 export function validateProviderManifest(value: unknown): ProviderManifest {
   const manifest = record(value, "Provider manifest");
   noUnknownFields(manifest, MANIFEST_FIELDS, "Provider manifest");
-  if (manifest["schemaVersion"] !== 1) {
-    fail("Provider manifest schema version must be 1");
+  if (manifest["schemaVersion"] !== 2) {
+    fail("Provider manifest schema version must be 2");
   }
   const id = nonemptyString(manifest["id"], "Provider manifest id");
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) {
     fail("Provider manifest id must use lowercase kebab case");
+  }
+  const activationProfiles: Readonly<Record<string, ProviderActivationProfileId>> =
+    BUNDLED_PROVIDER_ACTIVATION_PROFILE_IDS;
+  const expectedActivationProfile = Object.hasOwn(
+    BUNDLED_PROVIDER_ACTIVATION_PROFILE_IDS,
+    id,
+  )
+    ? activationProfiles[id]
+    : null;
+  if (manifest["activationProfileId"] !== expectedActivationProfile) {
+    fail("Provider activation profile must match the generated provider mapping");
   }
   nonemptyString(manifest["displayName"], "Provider manifest display name");
   const adapterKind = enumValue(

@@ -487,6 +487,27 @@ function bundled(id: string): ProviderManifest {
 }
 
 describe("bundled provider manifests", () => {
+  it("projects only the exact generated activation profiles without enabling them", () => {
+    expect(Object.fromEntries(
+      BUNDLED_PROVIDER_MANIFESTS
+        .filter((manifest) => manifest.activationProfileId !== null)
+        .map((manifest) => [manifest.id, manifest.activationProfileId]),
+    )).toEqual({
+      "anthropic-api": "anthropic_api_v1",
+      "kimi-code": "kimi_code_v1",
+      "openai-api": "openai_api_v1",
+    });
+
+    for (const manifest of BUNDLED_PROVIDER_MANIFESTS) {
+      if (!["anthropic-api", "kimi-code", "openai-api"].includes(manifest.id)) {
+        expect(manifest.activationProfileId, manifest.id).toBeNull();
+      }
+      if (manifest.credentialOwner === "recurs_broker") {
+        expect(manifest.runnable, manifest.id).toBe(false);
+      }
+    }
+  });
+
   it("contains every canonical path once with its exact lane, protocol, endpoints, and status", () => {
     expect(BUNDLED_PROVIDER_MANIFESTS.map((manifest) => ({
       id: manifest.id,
@@ -683,6 +704,30 @@ describe("bundled provider manifests", () => {
 });
 
 describe("validateProviderManifest", () => {
+  it("requires the exact generated nullable activation-profile mapping", () => {
+    const missing = cloneManifest(bundled("openai-api"));
+    delete missing["activationProfileId"];
+    expect(() => validateProviderManifest(missing)).toThrow(/activation profile/i);
+
+    for (const value of [
+      "anthropic_api_v1",
+      "unknown_api_v1",
+      null,
+    ] as const) {
+      const mismatch = cloneManifest(bundled("openai-api"));
+      mismatch["activationProfileId"] = value;
+      expect(() => validateProviderManifest(mismatch)).toThrow(/activation profile/i);
+    }
+
+    const unrelated = cloneManifest(bundled("ollama-local"));
+    unrelated["activationProfileId"] = "custom_openai_compatible_v1";
+    expect(() => validateProviderManifest(unrelated)).toThrow(/activation profile/i);
+
+    const oldSchema = cloneManifest(bundled("ollama-local"));
+    oldSchema["schemaVersion"] = 1;
+    expect(() => validateProviderManifest(oldSchema)).toThrow(/schema version.*2/i);
+  });
+
   it("rejects unknown fields at every manifest layer", () => {
     const topLevel = cloneManifest(bundled("ollama-local"));
     topLevel["apiKey"] = "not-a-real-secret";

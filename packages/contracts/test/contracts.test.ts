@@ -66,8 +66,9 @@ describe("provider-neutral contracts", () => {
   it("describes a dependency-free provider manifest contract", () => {
     const protocol: ProviderProtocol = "local_openai";
     const manifest: ProviderManifest = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: "fixture-local",
+      activationProfileId: null,
       displayName: "Fixture Local",
       adapterKind: "model_provider",
       accessKind: "local",

@@ -8,6 +8,10 @@ import type {
   SupportStatus,
   UsagePolicyRule,
 } from "@recurs/contracts";
+import {
+  BUNDLED_PROVIDER_ACTIVATION_PROFILE_IDS,
+} from "@recurs/contracts";
+import type { ProviderActivationProfileId } from "@recurs/contracts";
 
 import { validateProviderManifest } from "./manifest-validator.js";
 
@@ -71,9 +75,17 @@ function claimRule(
 }
 
 function manifest(definition: ManifestDefinition): ProviderManifest {
+  const activationProfiles: Readonly<Record<string, ProviderActivationProfileId>> =
+    BUNDLED_PROVIDER_ACTIVATION_PROFILE_IDS;
   const candidate: ProviderManifest = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: definition.id,
+    activationProfileId: Object.hasOwn(
+      BUNDLED_PROVIDER_ACTIVATION_PROFILE_IDS,
+      definition.id,
+    )
+      ? activationProfiles[definition.id] ?? null
+      : null,
     displayName: definition.displayName,
     adapterKind: definition.adapterKind,
     accessKind: definition.accessKind,

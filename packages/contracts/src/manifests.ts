@@ -6,6 +6,7 @@ import type {
   BillingSelectionMode,
 } from "./connections.js";
 import type { TrustedRunContext } from "./runtime.js";
+import type { ProviderActivationProfileId } from "./provider-activation-profiles.js";
 
 export type SupportStatus =
   | "supported"
@@ -68,8 +69,9 @@ export interface ProviderUsagePolicy {
 }
 
 export interface ProviderManifest {
-  schemaVersion: 1;
+  schemaVersion: 2;
   id: string;
+  activationProfileId: ProviderActivationProfileId | null;
   displayName: string;
   adapterKind: AdapterKind;
   accessKind: AccessKind;

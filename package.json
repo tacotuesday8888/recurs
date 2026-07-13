@@ -15,10 +15,11 @@
   "scripts": {
     "build": "tsc -b",
     "check": "npm run check:generated && npm run lint && npm run typecheck && npm test && npm run build && npm run native:engine-bundle-smoke && npm run native:engine-bridge-smoke && npm run native:doctor-smoke",
-    "check:generated": "node scripts/generate-non-secret-policy.mjs --check && node scripts/generate-native-component-version.mjs --check",
+    "check:generated": "node scripts/generate-non-secret-policy.mjs --check && node scripts/generate-native-component-version.mjs --check && node scripts/generate-provider-activation-profiles.mjs --check",
     "check:native": "npm run check:generated && npm run build && npm run native:engine-bundle-smoke && npm run native:build && npm run native:engine-bridge-smoke && npm run native:doctor-smoke && npm run native:test && npm run native:lint-resources && npm run native:smoke",
     "generate:non-secret-policy": "node scripts/generate-non-secret-policy.mjs",
     "generate:native-component-version": "node scripts/generate-native-component-version.mjs",
+    "generate:provider-activation-profiles": "node scripts/generate-provider-activation-profiles.mjs",
     "typecheck": "tsc -b --pretty false && npm run typecheck:contract-tests",
     "typecheck:contract-tests": "tsc -p packages/contracts/tsconfig.type-tests.json --pretty false",
     "lint": "eslint .",
