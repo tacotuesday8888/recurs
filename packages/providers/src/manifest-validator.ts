@@ -940,6 +940,12 @@ export function validateProviderManifest(value: unknown): ProviderManifest {
       "Broker-owned provider paths require a trusted runtime activation assembly",
     );
   }
+  if (
+    expectedActivationProfile !== null &&
+    (credentialOwner !== "recurs_broker" || runnable)
+  ) {
+    fail("Provider activation profiles require broker-owned non-runnable paths");
+  }
   assertNoSecretMaterial(manifest);
   return cloneAndFreeze(manifest) as unknown as ProviderManifest;
 }

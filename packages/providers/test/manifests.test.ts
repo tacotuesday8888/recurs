@@ -728,6 +728,27 @@ describe("validateProviderManifest", () => {
     expect(() => validateProviderManifest(oldSchema)).toThrow(/schema version.*2/i);
   });
 
+  it("keeps every profiled provider broker-owned and non-runnable", () => {
+    const nonBroker = cloneManifest(bundled("ollama-local"));
+    nonBroker["id"] = "openai-api";
+    nonBroker["activationProfileId"] = "openai_api_v1";
+    nonBroker["runnable"] = false;
+
+    expect(() => validateProviderManifest(nonBroker)).toThrowError(
+      new TypeError(
+        "Provider activation profiles require broker-owned non-runnable paths",
+      ),
+    );
+
+    const runnable = cloneManifest(bundled("openai-api"));
+    runnable["runnable"] = true;
+    expect(() => validateProviderManifest(runnable)).toThrowError(
+      new TypeError(
+        "Broker-owned provider paths require a trusted runtime activation assembly",
+      ),
+    );
+  });
+
   it("rejects unknown fields at every manifest layer", () => {
     const topLevel = cloneManifest(bundled("ollama-local"));
     topLevel["apiKey"] = "not-a-real-secret";

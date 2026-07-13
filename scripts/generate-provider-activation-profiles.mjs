@@ -95,6 +95,7 @@ async function readCanonicalSource(rootDirectory) {
     new Set(ids).size !== ids.length
     || ids.some((id, index) => index > 0 && ids[index - 1] >= id)
     || new Set(bundledProviderIDs).size !== bundledProviderIDs.length
+    || new Set(ids.map(swiftCase)).size !== ids.length
   ) {
     throw invalidSource();
   }
@@ -177,8 +178,15 @@ async function outputsAreCurrent(outputs) {
   return comparisons.every(Boolean);
 }
 
-async function writeOutputs(outputs) {
+function isMissingFile(error) {
+  return typeof error === "object" && error !== null && error.code === "ENOENT";
+}
+
+async function writeOutputs(outputs, renameFile) {
   const staged = [];
+  const backups = [];
+  const installed = [];
+  const retainedBackups = new Set();
   try {
     for (const { outputPath, contents } of outputs) {
       const directory = path.dirname(outputPath);
@@ -193,15 +201,41 @@ async function writeOutputs(outputs) {
       });
       staged.push({ outputPath, temporaryPath });
     }
+    for (const { outputPath } of staged) {
+      const backupPath = path.join(
+        path.dirname(outputPath),
+        `.${path.basename(outputPath)}.${process.pid}.${randomUUID()}.bak`,
+      );
+      try {
+        await renameFile(outputPath, backupPath);
+        backups.push({ outputPath, backupPath });
+      } catch (error) {
+        if (!isMissingFile(error)) throw error;
+      }
+    }
     for (const { outputPath, temporaryPath } of staged) {
-      await rename(temporaryPath, outputPath);
+      await renameFile(temporaryPath, outputPath);
+      installed.push(outputPath);
     }
   } catch {
+    for (const outputPath of installed.reverse()) {
+      await rm(outputPath, { force: true }).catch(() => undefined);
+    }
+    for (const { outputPath, backupPath } of [...backups].reverse()) {
+      await renameFile(backupPath, outputPath).catch(() => {
+        retainedBackups.add(backupPath);
+      });
+    }
     throw new Error(generationError);
   } finally {
     await Promise.all(
-      staged.map(async ({ temporaryPath }) =>
-        rm(temporaryPath, { force: true }).catch(() => undefined),
+      [
+        ...staged.map(({ temporaryPath }) => temporaryPath),
+        ...backups
+          .map(({ backupPath }) => backupPath)
+          .filter((backupPath) => !retainedBackups.has(backupPath)),
+      ].map(async (artifactPath) =>
+        rm(artifactPath, { force: true }).catch(() => undefined)
       ),
     );
   }
@@ -209,12 +243,15 @@ async function writeOutputs(outputs) {
 
 /**
  * @param {{ rootDirectory: string, check: boolean }} options
+ * @param {{ renameFile?: (source: string, destination: string) => Promise<void> }} [dependencies]
  * @returns {Promise<boolean>}
  */
 export async function generateProviderActivationProfiles({
   rootDirectory,
   check,
-}) {
+}, {
+  renameFile = rename,
+} = {}) {
   const profiles = await readCanonicalSource(rootDirectory);
   const contents = [typescript(profiles), swift(profiles)];
   const outputs = outputRelativePaths.map((relativePath, index) => ({
@@ -224,7 +261,7 @@ export async function generateProviderActivationProfiles({
   if (check) {
     return outputsAreCurrent(outputs);
   }
-  await writeOutputs(outputs);
+  await writeOutputs(outputs, renameFile);
   return true;
 }
 
