@@ -20,6 +20,7 @@
 - The public/npm/source CLI deletes `RECURS_NATIVE_FD`, never reads or writes its descriptor, and never treats the marker as provenance.
 - The private engine host has no npm `bin` and no public package export; private placement is not identity proof, so self-asserted readiness remains downgraded until installed signed-artifact evidence exists.
 - The launcher resolves the Node runtime and engine entrypoint only from fixed regular, nonsymlinked files inside its own sealed bundle; it never resolves either from `PATH`, the working directory, an environment variable, or a user argument.
+- `Resources/engine/main.js` is one deterministic self-contained ESM bundle. It may import only Node built-ins; it has no sibling chunk, source map, bare package import, `node_modules`, workspace symlink, or runtime resolution outside the sealed bundle.
 - A spawned engine inherits descriptors `0`, `1`, `2`, and exactly one anonymous socket endpoint mapped to descriptor `3`; all other descriptors use close-on-exec semantics.
 - The engine environment is rebuilt from the reviewed non-secret keys `HOME`, `PATH`, `TMPDIR`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TERM`, `COLORTERM`, `NO_COLOR`, `FORCE_COLOR`, `TZ`, `RECURS_HOME`, and `CODEX_HOME`, plus canonicalized recognized automation markers and `RECURS_NATIVE_FD=3`; `NODE_OPTIONS`, `NODE_PATH`, `DYLD_*`, proxy, cloud, credential, token, and key variables are never copied.
 - No direct-provider manifest becomes runnable, no credential is collected, and no heavy sub-agent architecture is added in this plan.
@@ -41,6 +42,8 @@
 - `packages/native-engine/src/inherited-socket.ts`: the only TypeScript production code that claims the marker.
 - `packages/native-engine/src/native-authority.ts`: private one-shot client/service assembly with the interim provenance downgrade.
 - `packages/native-engine/src/main.ts`: private bundled-engine process entrypoint.
+- `scripts/build-native-engine-bundle.mjs`: deterministic single-file private-engine bundler.
+- `scripts/check-native-engine-bundle.mjs`: artifact-shape, dependency, and execution smoke.
 - `scripts/check-native-engine-bridge.mjs`: cross-process public/private-host boundary smoke.
 
 ### Task 1: Add the typed Swift health bridge session
@@ -331,6 +334,72 @@ git add native/macos/Sources/RecursLauncher/LauncherNodeSocket.swift \
 git commit -m "feat: add bounded launcher socket transport"
 ```
 
+### Task 3.5: Produce one self-contained private engine artifact
+
+**Files:**
+- Modify: `package.json`
+- Modify: `package-lock.json`
+- Create: `scripts/build-native-engine-bundle.mjs`
+- Create: `scripts/check-native-engine-bundle.mjs`
+
+**Interfaces:**
+- Consumes: `packages/native-engine/src/main.ts` and its workspace dependencies.
+- Produces: one caller-selected `main.js` file suitable for the sealed `Resources/engine/main.js` path.
+
+- [ ] **Step 1: Write a failing deterministic artifact smoke**
+
+Build twice into distinct private temporary directories and require byte-for-byte
+identical output. Each directory must contain exactly one regular nonsymlinked
+file named `main.js`; the file must contain no source map reference, bare
+`@recurs/*` import, relative import, `node_modules` lookup, workspace path, or
+absolute source path. Parse its remaining static/dynamic import specifiers and
+allow only `node:` built-ins. Run the built file through the private native
+doctor path with a real descriptor-3 fake peer and prove hello/health still
+work, the self-attested result is still downgraded, cancellation is prompt,
+and no canary environment value is emitted.
+
+- [ ] **Step 2: Run the artifact smoke and verify RED**
+
+Run:
+
+```bash
+node scripts/check-native-engine-bundle.mjs
+```
+
+Expected: FAIL because there is no production engine bundler and plain `tsc -b`
+leaves sibling files plus bare workspace imports.
+
+- [ ] **Step 3: Add the pinned standalone bundler**
+
+Pin `rolldown@1.1.5` as a direct development
+dependency. `build-native-engine-bundle.mjs` accepts one explicit absolute
+output-file argument, rejects every other argument shape, creates no implicit
+repository output, and bundles `packages/native-engine/src/main.ts` for the
+Node platform as ESM with code splitting disabled and source maps disabled.
+Bundle every workspace/package dependency; externalize only `node:` built-ins.
+Write through a private temporary sibling, fsync, atomically rename to the
+requested `main.js`, and leave no partial output after failure. Never minify
+away the private bootstrap ordering: the inherited descriptor is claimed and
+its environment marker deleted before the wider host module is evaluated.
+
+- [ ] **Step 4: Verify and commit the artifact builder**
+
+Run:
+
+```bash
+node scripts/check-native-engine-bundle.mjs
+npm run lint
+npm run typecheck
+```
+
+Expected: PASS.
+
+```bash
+git add package.json package-lock.json scripts/build-native-engine-bundle.mjs \
+  scripts/check-native-engine-bundle.mjs
+git commit -m "build: bundle the private native engine"
+```
+
 ### Task 4: Spawn only the fixed bundled engine
 
 **Files:**
@@ -346,14 +415,14 @@ git commit -m "feat: add bounded launcher socket transport"
 
 - [ ] **Step 1: Write failing bundle-layout and spawn tests**
 
-Validate this exact release layout:
+Validate this exact release layout after invoking the production-signing seam:
 
 ```text
 RecursLauncher.app/Contents/Resources/runtime/bin/node
 RecursLauncher.app/Contents/Resources/engine/main.js
 ```
 
-Reject missing, directory, symlink, nonregular, and escaped paths. With an injected fixed test executable, prove argv is `[nodePath, enginePath, ...userArguments]`, a preexisting marker is replaced, the child inherits `0`, `1`, `2`, and descriptor `3` only, the parent closes the child endpoint immediately, spawn failure closes both endpoints, and wait maps normal exits and signals without leaking paths or environment values in errors. Inject canary `NODE_OPTIONS`, `NODE_PATH`, `DYLD_*`, proxy, cloud, credential, token, and key variables and prove none reach the child; prove only the reviewed environment allowlist and canonicalized automation flags survive.
+Reject missing, directory, nonregular, escaped paths, and a symlink in every component from the standardized bundle root through either leaf. With an injected fixed test executable, prove argv is `[nodePath, enginePath, ...userArguments]`, a preexisting marker is replaced, the child inherits `0`, `1`, `2`, and descriptor `3` only, the parent closes the child endpoint immediately, spawn failure closes both endpoints, and wait maps normal exits and signals without leaking paths or environment values in errors. Inject canary `NODE_OPTIONS`, `NODE_PATH`, `DYLD_*`, proxy, cloud, credential, token, and key variables and prove none reach the child; prove only the reviewed environment allowlist and canonicalized automation flags survive. Race concurrent `wait()` and repeated `shutdown()` calls and prove there is one reap owner, one final termination, no double wait/signal, and no PID-reuse window.
 
 - [ ] **Step 2: Run the process tests and verify RED**
 
@@ -378,11 +447,13 @@ package struct EngineBundleLayout: Equatable, Sendable {
 }
 ```
 
-First validate the current outer launcher as the exact production-signed launcher through the existing strict `PeerRequirement.production(for:authenticatedAs:)` path. Resolve only the two exact descendants above. Standardize paths, require containment under `bundle.bundleURL`, use `lstat` to reject symlinks, require regular files, and require execute permission only for Node. Errors are fixed enums with no associated path or text.
+First validate the current outer launcher as the exact production-signed launcher through `PeerRequirement.production(for: .launcher, authenticatedAs: .launcher)`. Keep that call mandatory in `production`; use only an internal injected signing-validation closure for unsigned path tests. Resolve only the two exact descendants above. Standardize the bundle root and candidate paths, require containment, then walk with `lstat` from the bundle root through every candidate component: every ancestor must be a real directory, no component may be a symlink, and each leaf must be a regular file. Require execute permission only for Node. Errors are fixed enums with no associated path or text.
 
 - [ ] **Step 4: Implement exact descriptor inheritance and child lifecycle**
 
-Create the raw socketpair, duplicate both endpoints above descriptor `3` with `F_DUPFD_CLOEXEC`, and close the raw descriptors immediately. Set `SO_NOSIGPIPE` on the launcher endpoint. Configure `POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK`; explicitly inherit descriptors `0`, `1`, and `2`, `adddup2(engineSocketFD, 3)`, then close the source engine descriptor in the child. Reset `SIGINT`, `SIGTERM`, `SIGHUP`, `SIGQUIT`, and `SIGPIPE` with an empty child signal mask. Spawn the fixed Node URL directly with the fixed engine URL as argv[1], rebuild the reviewed environment, set only `RECURS_NATIVE_FD=3`, and never invoke a shell. Close the child endpoint in the parent on every path. Treat each `posix_spawn*` return as its own error code rather than reading `errno`. Retry exact-positive-PID `waitpid` only on EINTR and decode Darwin wait status into a fixed `EngineTermination` value without function-like C macros. Forced shutdown closes the channel, sends `SIGTERM`, polls exact-PID `waitpid(..., WNOHANG)` for a bounded grace period, sends `SIGKILL` if needed, and always performs the final exact-PID reap; repeated shutdown cannot double-close, double-signal, or double-wait.
+Create the raw socketpair, duplicate both endpoints above descriptor `3` with `F_DUPFD_CLOEXEC`, and close the raw descriptors immediately. Set `SO_NOSIGPIPE` on the launcher endpoint. Configure `POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK`; explicitly inherit descriptors `0`, `1`, and `2`, `adddup2(engineSocketFD, 3)`, then close the source engine descriptor in the child. Reset `SIGINT`, `SIGTERM`, `SIGHUP`, `SIGQUIT`, and `SIGPIPE` with an empty child signal mask. Spawn the fixed Node URL directly with the fixed engine URL as argv[1], rebuild the reviewed environment, set only `RECURS_NATIVE_FD=3`, and never invoke a shell. Canonicalize every recognized truthy automation marker to `KEY=1`; omit false markers and never copy their original values. Close the child endpoint in the parent on every path. Treat each `posix_spawn*` return as its own error code rather than reading `errno`.
+
+Use one lock-protected process state machine as the only owner of the exact positive PID and every `waitpid` call. `wait()` and `shutdown()` must converge on one stored final `EngineTermination`; no blocking waiter and shutdown poll may race. Under that state machine, retry `waitpid` only on EINTR, use exact-PID `WNOHANG` polling, and record a successful reap before releasing ownership so no later signal can target a reused PID. Decode Darwin wait status into a fixed value without function-like C macros. Forced shutdown closes the channel, sends `SIGTERM` once, polls every fixed `50` milliseconds for a fixed `2` second grace period through an injected monotonic clock/sleeper, sends `SIGKILL` once if still live, and performs the sole final exact-PID reap. Concurrent wait and repeated shutdown cannot double-close, double-signal, or double-wait.
 
 - [ ] **Step 5: Run focused native tests and commit**
 
@@ -436,6 +507,7 @@ Run:
 
 ```bash
 npm run build
+node scripts/check-native-engine-bundle.mjs
 node scripts/check-native-engine-bridge.mjs
 npm run native:smoke
 ```
@@ -444,7 +516,7 @@ Expected: FAIL because the executable lifecycle and bridge smoke are not wired.
 
 - [ ] **Step 3: Wire the executable and build checks**
 
-Factor registration/open logic out of the old direct diagnostic so both paths use the same exact-peer `BrokerConnection`. Do not reconnect after a protocol or peer-identity failure. Add `native:engine-bridge-smoke` and include it in both `check` and `check:native`; keep macOS CI running the real Darwin descriptor path.
+Factor registration/open logic out of the old direct diagnostic so both paths use the same exact-peer `BrokerConnection`. Do not reconnect after a protocol or peer-identity failure. Add `native:engine-bundle-smoke` and `native:engine-bridge-smoke` and include both in `check` and `check:native`; keep macOS CI running the real Darwin descriptor path.
 
 - [ ] **Step 4: Update documentation without claiming activation**
 
