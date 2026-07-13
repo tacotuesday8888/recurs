@@ -175,148 +175,11 @@ package enum BrokerStateError:
 }
 
 package actor BrokerCredentialState {
-  private enum Record: Sendable, Equatable {
-    case vacant(connectionID: UUID, fence: UInt64, lastGenerationOrdinal: UInt64)
-    case ready(ReadyProjection)
-    case staging(StagingAttempt)
-    case tombstoned(TombstoneProjection)
-
-    var fence: UInt64 {
-      switch self {
-      case .vacant(_, let fence, _):
-        fence
-      case .ready(let projection):
-        projection.fence
-      case .staging(let attempt):
-        attempt.fence
-      case .tombstoned(let projection):
-        projection.fence
-      }
-    }
-
-    var lastGenerationOrdinal: UInt64 {
-      switch self {
-      case .vacant(_, _, let ordinal):
-        ordinal
-      case .ready(let projection):
-        projection.lastGenerationOrdinal
-      case .staging(let attempt):
-        attempt.candidate.ordinal
-      case .tombstoned(let projection):
-        projection.lastGenerationOrdinal
-      }
-    }
-
-    var projection: CredentialProjection? {
-      switch self {
-      case .vacant:
-        nil
-      case .ready(let projection):
-        .ready(projection)
-      case .staging(let attempt):
-        .staging(attempt)
-      case .tombstoned(let projection):
-        .tombstoned(projection)
-      }
-    }
-  }
-
-  private enum OperationKind: Sendable, Equatable {
-    case stage
-    case commit
-    case abort
-    case disconnect
-  }
-
-  private struct OperationFingerprint: Sendable, Equatable {
-    let kind: OperationKind
-    let connectionID: UUID
-    let expectedFence: UInt64
-    let attemptID: UUID?
-  }
-
-  private enum TerminalOutcome: Sendable, Equatable {
-    case stage(Result<StagingAttempt, BrokerStateError>)
-    case commit(Result<ReadyProjection, BrokerStateError>)
-    case abort(Result<ReadyProjection?, BrokerStateError>)
-    case disconnect(Result<TombstoneProjection, BrokerStateError>)
-  }
-
-  private struct TerminalEntry: Sendable, Equatable {
-    let fingerprint: OperationFingerprint
-    let outcome: TerminalOutcome
-  }
-
-  private struct TerminalMemo: Sendable {
-    var entries: [UUID: TerminalEntry] = [:]
-    var order: [UUID] = []
-
-    mutating func insert(
-      operationID: UUID,
-      fingerprint: OperationFingerprint,
-      outcome: TerminalOutcome
-    ) {
-      guard entries[operationID] == nil else {
-        return
-      }
-      entries[operationID] = TerminalEntry(fingerprint: fingerprint, outcome: outcome)
-      order.append(operationID)
-      if order.count > 64 {
-        let evicted = order.removeFirst()
-        entries.removeValue(forKey: evicted)
-      }
-    }
-  }
-
-  private struct StageContext: Sendable, Equatable {
-    let attempt: StagingAttempt
-    let candidateKey: CredentialStoreKey
-    let fallback: Record
-  }
-
-  private struct CleanupContext: Sendable, Equatable {
-    let terminalOutcome: TerminalOutcome
-    let linearizedRecord: Record
-    var remainingKeys: [CredentialStoreKey]
-    var isAwaiting: Bool
-  }
-
-  private enum ReservationPhase: Sendable, Equatable {
-    case storing(StageContext)
-    case cleanup(CleanupContext)
-  }
-
-  private struct Reservation: Sendable, Equatable {
-    let operationID: UUID
-    let fingerprint: OperationFingerprint
-    var phase: ReservationPhase
-  }
-
-  private enum MemoDisposition {
-    case none
-    case conflict
-    case replay(TerminalOutcome)
-  }
-
-  private enum ReservationDisposition {
-    case none
-    case resumeCleanup
-    case reject(BrokerStateError)
-  }
-
-  private enum MutationPreflightDisposition {
-    case proceed
-    case replay(TerminalOutcome)
-    case resumeCleanup
-  }
-
   private let store: any CredentialStore
   private let clock: @Sendable () -> Date
   private let generationIDSource: @Sendable () -> UUID
   private let attemptIDSource: @Sendable () -> UUID
-  private var records: [UUID: Record]
-  private var reservations: [UUID: Reservation] = [:]
-  private var terminalMemos: [UUID: TerminalMemo] = [:]
+  private var machine: BrokerCredentialStateMachine
 
   package init(
     store: any CredentialStore,
@@ -325,64 +188,15 @@ package actor BrokerCredentialState {
     generationIDSource: @escaping @Sendable () -> UUID = { UUID() },
     attemptIDSource: @escaping @Sendable () -> UUID = { UUID() }
   ) throws(BrokerStateError) {
-    var validated: [UUID: Record] = [:]
-    validated.reserveCapacity(bootstrap.count)
-
-    for value in bootstrap {
-      let connectionID: UUID
-      let record: Record
-      switch value {
-      case .vacant(let id, let fence, let lastOrdinal):
-        guard fence == lastOrdinal, fence < UInt64.max else {
-          throw .invalidBootstrap
-        }
-        connectionID = id
-        record = .vacant(
-          connectionID: id,
-          fence: fence,
-          lastGenerationOrdinal: lastOrdinal
-        )
-
-      case .ready(let projection):
-        guard
-          projection.fence == projection.lastGenerationOrdinal,
-          projection.fence < UInt64.max,
-          projection.ready.generation.ordinal > 0,
-          projection.ready.generation.ordinal <= projection.lastGenerationOrdinal,
-          projection.ready.generation.createdAt.timeIntervalSinceReferenceDate.isFinite,
-          projection.ready.committedAt.timeIntervalSinceReferenceDate.isFinite
-        else {
-          throw .invalidBootstrap
-        }
-        connectionID = projection.connectionID
-        record = .ready(projection)
-
-      case .tombstoned(let projection):
-        guard
-          projection.lastGenerationOrdinal < UInt64.max,
-          projection.fence == projection.lastGenerationOrdinal + 1,
-          projection.tombstonedAt.timeIntervalSinceReferenceDate.isFinite
-        else {
-          throw .invalidBootstrap
-        }
-        connectionID = projection.connectionID
-        record = .tombstoned(projection)
-      }
-
-      guard validated.updateValue(record, forKey: connectionID) == nil else {
-        throw .invalidBootstrap
-      }
-    }
-
     self.store = store
-    self.records = validated
+    self.machine = try BrokerCredentialStateMachine(bootstrap: bootstrap)
     self.clock = clock
     self.generationIDSource = generationIDSource
     self.attemptIDSource = attemptIDSource
   }
 
   package func projection(for connectionID: UUID) -> CredentialProjection? {
-    records[connectionID]?.projection
+    machine.projection(for: connectionID)
   }
 
   package func stage(
@@ -391,46 +205,38 @@ package actor BrokerCredentialState {
     expectedFence: UInt64,
     secret: sending SecretBytes
   ) async throws(BrokerStateError) -> StagingAttempt {
-    let fingerprint = OperationFingerprint(
+    let fingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .stage,
       connectionID: connectionID,
-      expectedFence: expectedFence,
-      attemptID: nil
+      expectedFence: expectedFence
     )
 
-    switch memoDisposition(
-      connectionID: connectionID,
-      operationID: operationID,
-      fingerprint: fingerprint
-    ) {
-    case .conflict:
-      secret.erase()
-      throw .operationIDConflict
-    case .replay(let outcome):
-      secret.erase()
-      return try resolveStage(outcome)
-    case .none:
-      break
-    }
-
-    switch reservationDisposition(
-      connectionID: connectionID,
-      operationID: operationID,
-      fingerprint: fingerprint
-    ) {
-    case .reject(let error):
+    let preflight: BrokerCredentialStateMachine.PreflightDisposition
+    do {
+      preflight = try machine.preflight(
+        connectionID: connectionID,
+        operationID: operationID,
+        fingerprint: fingerprint
+      )
+    } catch let error {
       secret.erase()
       throw error
+    }
+
+    switch preflight {
+    case .replay(let outcome):
+      secret.erase()
+      return try machine.resolveStage(outcome)
     case .resumeCleanup:
       secret.erase()
-      return try resolveStage(
+      return try machine.resolveStage(
         await continueCleanup(
           connectionID: connectionID,
           operationID: operationID,
           fingerprint: fingerprint
         )
       )
-    case .none:
+    case .proceed:
       break
     }
 
@@ -439,131 +245,45 @@ package actor BrokerCredentialState {
       throw .cancelled
     }
 
-    let current = records[connectionID]
-    if case .tombstoned? = current {
-      secret.erase()
-      throw .connectionTombstoned
-    }
-
-    let currentFence = current?.fence ?? 0
-    guard expectedFence == currentFence else {
-      secret.erase()
-      throw .staleFence
-    }
-
-    if case .staging? = current {
-      secret.erase()
-      throw .invalidTransition
-    }
-
-    let lastOrdinal = current?.lastGenerationOrdinal ?? 0
-    guard currentFence <= UInt64.max - 2 else {
-      secret.erase()
-      throw .fenceOverflow
-    }
-    guard lastOrdinal < UInt64.max else {
-      secret.erase()
-      throw .generationOverflow
-    }
-
-    let nextFence = currentFence + 1
-    let nextOrdinal = lastOrdinal + 1
-    let previousReady: ReadyGeneration?
-    switch current {
-    case .ready(let projection):
-      previousReady = projection.ready
-    case .vacant, .none:
-      previousReady = nil
-    case .staging, .tombstoned:
-      secret.erase()
-      throw .invalidTransition
-    }
-
-    let candidate = CredentialGeneration(
-      generationID: generationIDSource(),
-      ordinal: nextOrdinal,
-      createdAt: clock()
-    )
-    let attempt = StagingAttempt(
-      connectionID: connectionID,
-      attemptID: attemptIDSource(),
-      fence: nextFence,
-      candidate: candidate,
-      previousReady: previousReady,
-      startedAt: clock()
-    )
-    let fallback: Record
-    if let previousReady {
-      fallback = .ready(
-        ReadyProjection(
-          connectionID: connectionID,
-          fence: nextFence,
-          ready: previousReady,
-          lastGenerationOrdinal: nextOrdinal
-        )
-      )
-    } else {
-      fallback = .vacant(
+    let proposal: BrokerCredentialStateMachine.StageProposal
+    do {
+      proposal = try machine.stageProposal(
         connectionID: connectionID,
-        fence: nextFence,
-        lastGenerationOrdinal: nextOrdinal
+        expectedFence: expectedFence
       )
+    } catch let error {
+      secret.erase()
+      throw error
     }
-    let key = key(for: connectionID, generation: candidate)
-    let context = StageContext(attempt: attempt, candidateKey: key, fallback: fallback)
-    let reservation = Reservation(
+
+    let generationID = generationIDSource()
+    let createdAt = clock()
+    let attemptID = attemptIDSource()
+    let startedAt = clock()
+    let token = try machine.reserveStage(
+      proposal: proposal,
       operationID: operationID,
       fingerprint: fingerprint,
-      phase: .storing(context)
+      generationID: generationID,
+      createdAt: createdAt,
+      attemptID: attemptID,
+      startedAt: startedAt
     )
-    records[connectionID] = fallback
-    reservations[connectionID] = reservation
 
     guard !Task.isCancelled else {
       secret.erase()
-      reservations.removeValue(forKey: connectionID)
-      let outcome = TerminalOutcome.stage(.failure(.cancelled))
-      memoize(
-        connectionID: connectionID,
-        operationID: operationID,
-        fingerprint: fingerprint,
-        outcome: outcome
-      )
-      throw .cancelled
+      return try machine.resolveStage(try machine.cancelStageBeforeStore(token))
     }
 
     do {
-      try await store.store(secret, for: key)
+      try await store.store(secret, for: token.candidateKey)
     } catch let error {
-      guard reservations[connectionID] == reservation, records[connectionID] == fallback else {
-        throw .operationInProgress
-      }
       switch error {
       case .unavailable:
-        reservations.removeValue(forKey: connectionID)
-        let outcome = TerminalOutcome.stage(.failure(.storeUnavailable))
-        memoize(
-          connectionID: connectionID,
-          operationID: operationID,
-          fingerprint: fingerprint,
-          outcome: outcome
-        )
-        throw .storeUnavailable
+        return try machine.resolveStage(try machine.finishStageStoreUnavailable(token))
       case .mutationOutcomeUnknown:
-        let outcome = TerminalOutcome.stage(.failure(.storeUnavailable))
-        reservations[connectionID] = Reservation(
-          operationID: operationID,
-          fingerprint: fingerprint,
-          phase: .cleanup(
-            CleanupContext(
-              terminalOutcome: outcome,
-              linearizedRecord: fallback,
-              remainingKeys: [key],
-              isAwaiting: false
-            )
-          )
-        )
-        return try resolveStage(
+        try machine.enterStageCleanup(token, terminalError: .storeUnavailable)
+        return try machine.resolveStage(
           await continueCleanup(
             connectionID: connectionID,
             operationID: operationID,
@@ -573,24 +293,10 @@ package actor BrokerCredentialState {
       }
     }
 
-    guard reservations[connectionID] == reservation, records[connectionID] == fallback else {
-      throw .operationInProgress
-    }
+    try machine.validateStageReservation(token)
     if Task.isCancelled {
-      let outcome = TerminalOutcome.stage(.failure(.cancelled))
-      reservations[connectionID] = Reservation(
-        operationID: operationID,
-        fingerprint: fingerprint,
-        phase: .cleanup(
-          CleanupContext(
-            terminalOutcome: outcome,
-            linearizedRecord: fallback,
-            remainingKeys: [key],
-            isAwaiting: false
-          )
-        )
-      )
-      return try resolveStage(
+      try machine.enterStageCleanup(token, terminalError: .cancelled)
+      return try machine.resolveStage(
         await continueCleanup(
           connectionID: connectionID,
           operationID: operationID,
@@ -598,17 +304,7 @@ package actor BrokerCredentialState {
         )
       )
     }
-
-    records[connectionID] = .staging(attempt)
-    reservations.removeValue(forKey: connectionID)
-    let outcome = TerminalOutcome.stage(.success(attempt))
-    memoize(
-      connectionID: connectionID,
-      operationID: operationID,
-      fingerprint: fingerprint,
-      outcome: outcome
-    )
-    return attempt
+    return try machine.publishStaging(token)
   }
 
   package func resumeStage(
@@ -616,55 +312,36 @@ package actor BrokerCredentialState {
     operationID: UUID,
     expectedFence: UInt64
   ) async throws(BrokerStateError) -> StagingAttempt {
-    let fingerprint = OperationFingerprint(
+    let fingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .stage,
       connectionID: connectionID,
-      expectedFence: expectedFence,
-      attemptID: nil
+      expectedFence: expectedFence
     )
-    switch memoDisposition(
+    switch try machine.preflight(
       connectionID: connectionID,
       operationID: operationID,
       fingerprint: fingerprint
     ) {
-    case .conflict:
-      throw .operationIDConflict
     case .replay(let outcome):
-      return try resolveStage(outcome)
-    case .none:
-      break
-    }
-    switch reservationDisposition(
-      connectionID: connectionID,
-      operationID: operationID,
-      fingerprint: fingerprint
-    ) {
-    case .reject(let error):
-      throw error
+      return try machine.resolveStage(outcome)
     case .resumeCleanup:
-      return try resolveStage(
+      return try machine.resolveStage(
         await continueCleanup(
           connectionID: connectionID,
           operationID: operationID,
           fingerprint: fingerprint
         )
       )
-    case .none:
+    case .proceed:
       break
     }
     guard !Task.isCancelled else {
       throw .cancelled
     }
-    guard let current = records[connectionID] else {
-      throw .connectionNotFound
-    }
-    if case .tombstoned = current {
-      throw .connectionTombstoned
-    }
-    guard current.fence == expectedFence else {
-      throw .staleFence
-    }
-    throw .attemptNotCurrent
+    try machine.validateResumeStage(
+      connectionID: connectionID,
+      expectedFence: expectedFence
+    )
   }
 
   package func commit(
@@ -673,7 +350,7 @@ package actor BrokerCredentialState {
     operationID: UUID,
     expectedFence: UInt64
   ) async throws(BrokerStateError) -> ReadyProjection {
-    let fingerprint = OperationFingerprint(
+    let fingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .commit,
       connectionID: connectionID,
       expectedFence: expectedFence,
@@ -685,9 +362,9 @@ package actor BrokerCredentialState {
       fingerprint: fingerprint
     ) {
     case .replay(let outcome):
-      return try resolveCommit(outcome)
+      return try machine.resolveCommit(outcome)
     case .resumeCleanup:
-      return try resolveCommit(
+      return try machine.resolveCommit(
         await continueCleanup(
           connectionID: connectionID,
           operationID: operationID,
@@ -697,51 +374,25 @@ package actor BrokerCredentialState {
     case .proceed:
       break
     }
-    guard let current = records[connectionID] else {
-      throw .connectionNotFound
-    }
-    if case .tombstoned = current {
-      throw .connectionTombstoned
-    }
-    guard current.fence == expectedFence else {
-      throw .staleFence
-    }
-    guard case .staging(let attempt) = current, attempt.attemptID == attemptID else {
-      throw .attemptNotCurrent
-    }
 
-    let ready = ReadyProjection(
+    let proposal = try machine.commitProposal(
       connectionID: connectionID,
-      fence: attempt.fence,
-      ready: ReadyGeneration(generation: attempt.candidate, committedAt: clock()),
-      lastGenerationOrdinal: attempt.candidate.ordinal
-    )
-    records[connectionID] = .ready(ready)
-    let outcome = TerminalOutcome.commit(.success(ready))
-    guard let previous = attempt.previousReady else {
-      memoize(
-        connectionID: connectionID,
-        operationID: operationID,
-        fingerprint: fingerprint,
-        outcome: outcome
-      )
-      return ready
-    }
-
-    reservations[connectionID] = cleanupReservation(
+      attemptID: attemptID,
       operationID: operationID,
-      fingerprint: fingerprint,
-      outcome: outcome,
-      linearizedRecord: .ready(ready),
-      keys: [key(for: connectionID, generation: previous.generation)]
+      fingerprint: fingerprint
     )
-    return try resolveCommit(
-      await continueCleanup(
-        connectionID: connectionID,
-        operationID: operationID,
-        fingerprint: fingerprint
+    switch try machine.linearizeCommit(proposal: proposal, committedAt: clock()) {
+    case .completed(let ready):
+      return ready
+    case .cleanup:
+      return try machine.resolveCommit(
+        await continueCleanup(
+          connectionID: connectionID,
+          operationID: operationID,
+          fingerprint: fingerprint
+        )
       )
-    )
+    }
   }
 
   package func abort(
@@ -750,7 +401,7 @@ package actor BrokerCredentialState {
     operationID: UUID,
     expectedFence: UInt64
   ) async throws(BrokerStateError) -> ReadyProjection? {
-    let fingerprint = OperationFingerprint(
+    let fingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .abort,
       connectionID: connectionID,
       expectedFence: expectedFence,
@@ -762,9 +413,9 @@ package actor BrokerCredentialState {
       fingerprint: fingerprint
     ) {
     case .replay(let outcome):
-      return try resolveAbort(outcome)
+      return try machine.resolveAbort(outcome)
     case .resumeCleanup:
-      return try resolveAbort(
+      return try machine.resolveAbort(
         await continueCleanup(
           connectionID: connectionID,
           operationID: operationID,
@@ -774,48 +425,14 @@ package actor BrokerCredentialState {
     case .proceed:
       break
     }
-    guard let current = records[connectionID] else {
-      throw .connectionNotFound
-    }
-    if case .tombstoned = current {
-      throw .connectionTombstoned
-    }
-    guard current.fence == expectedFence else {
-      throw .staleFence
-    }
-    guard case .staging(let attempt) = current, attempt.attemptID == attemptID else {
-      throw .attemptNotCurrent
-    }
 
-    let restored: ReadyProjection?
-    let restoredRecord: Record
-    if let previous = attempt.previousReady {
-      let ready = ReadyProjection(
-        connectionID: connectionID,
-        fence: attempt.fence,
-        ready: previous,
-        lastGenerationOrdinal: attempt.candidate.ordinal
-      )
-      restoredRecord = .ready(ready)
-      restored = ready
-    } else {
-      restoredRecord = .vacant(
-        connectionID: connectionID,
-        fence: attempt.fence,
-        lastGenerationOrdinal: attempt.candidate.ordinal
-      )
-      restored = nil
-    }
-    records[connectionID] = restoredRecord
-    let outcome = TerminalOutcome.abort(.success(restored))
-    reservations[connectionID] = cleanupReservation(
+    _ = try machine.linearizeAbort(
+      connectionID: connectionID,
+      attemptID: attemptID,
       operationID: operationID,
-      fingerprint: fingerprint,
-      outcome: outcome,
-      linearizedRecord: restoredRecord,
-      keys: [key(for: connectionID, generation: attempt.candidate)]
+      fingerprint: fingerprint
     )
-    return try resolveAbort(
+    return try machine.resolveAbort(
       await continueCleanup(
         connectionID: connectionID,
         operationID: operationID,
@@ -829,11 +446,10 @@ package actor BrokerCredentialState {
     operationID: UUID,
     expectedFence: UInt64
   ) async throws(BrokerStateError) -> TombstoneProjection {
-    let fingerprint = OperationFingerprint(
+    let fingerprint = BrokerCredentialStateMachine.fingerprint(
       kind: .disconnect,
       connectionID: connectionID,
-      expectedFence: expectedFence,
-      attemptID: nil
+      expectedFence: expectedFence
     )
     switch try preflight(
       connectionID: connectionID,
@@ -841,9 +457,9 @@ package actor BrokerCredentialState {
       fingerprint: fingerprint
     ) {
     case .replay(let outcome):
-      return try resolveDisconnect(outcome)
+      return try machine.resolveDisconnect(outcome)
     case .resumeCleanup:
-      return try resolveDisconnect(
+      return try machine.resolveDisconnect(
         await continueCleanup(
           connectionID: connectionID,
           operationID: operationID,
@@ -853,96 +469,38 @@ package actor BrokerCredentialState {
     case .proceed:
       break
     }
-    guard let current = records[connectionID] else {
-      throw .connectionNotFound
-    }
-    if case .tombstoned = current {
-      throw .connectionTombstoned
-    }
-    guard current.fence == expectedFence else {
-      throw .staleFence
-    }
-    guard current.fence < UInt64.max else {
-      throw .fenceOverflow
-    }
 
-    let tombstone = TombstoneProjection(
+    let proposal = try machine.disconnectProposal(
       connectionID: connectionID,
-      fence: current.fence + 1,
-      lastGenerationOrdinal: current.lastGenerationOrdinal,
-      tombstonedAt: clock()
-    )
-    var keys: [CredentialStoreKey] = []
-    switch current {
-    case .staging(let attempt):
-      keys.append(key(for: connectionID, generation: attempt.candidate))
-      if let previous = attempt.previousReady {
-        keys.append(key(for: connectionID, generation: previous.generation))
-      }
-    case .ready(let projection):
-      keys.append(key(for: connectionID, generation: projection.ready.generation))
-    case .vacant:
-      break
-    case .tombstoned:
-      throw .connectionTombstoned
-    }
-    keys.sort { $0.generationOrdinal > $1.generationOrdinal }
-    records[connectionID] = .tombstoned(tombstone)
-    let outcome = TerminalOutcome.disconnect(.success(tombstone))
-    guard !keys.isEmpty else {
-      memoize(
-        connectionID: connectionID,
-        operationID: operationID,
-        fingerprint: fingerprint,
-        outcome: outcome
-      )
-      return tombstone
-    }
-
-    reservations[connectionID] = cleanupReservation(
       operationID: operationID,
-      fingerprint: fingerprint,
-      outcome: outcome,
-      linearizedRecord: .tombstoned(tombstone),
-      keys: keys
+      fingerprint: fingerprint
     )
-    return try resolveDisconnect(
-      await continueCleanup(
-        connectionID: connectionID,
-        operationID: operationID,
-        fingerprint: fingerprint
+    switch try machine.linearizeDisconnect(proposal: proposal, tombstonedAt: clock()) {
+    case .completed(let tombstone):
+      return tombstone
+    case .cleanup:
+      return try machine.resolveDisconnect(
+        await continueCleanup(
+          connectionID: connectionID,
+          operationID: operationID,
+          fingerprint: fingerprint
+        )
       )
-    )
+    }
   }
 
   private func preflight(
     connectionID: UUID,
     operationID: UUID,
-    fingerprint: OperationFingerprint
-  ) throws(BrokerStateError) -> MutationPreflightDisposition {
-    switch memoDisposition(
+    fingerprint: BrokerCredentialStateMachine.OperationFingerprint
+  ) throws(BrokerStateError) -> BrokerCredentialStateMachine.PreflightDisposition {
+    let disposition = try machine.preflight(
       connectionID: connectionID,
       operationID: operationID,
       fingerprint: fingerprint
-    ) {
-    case .conflict:
-      throw .operationIDConflict
-    case .replay(let outcome):
-      return .replay(outcome)
-    case .none:
-      break
-    }
-    switch reservationDisposition(
-      connectionID: connectionID,
-      operationID: operationID,
-      fingerprint: fingerprint
-    ) {
-    case .reject(let error):
-      throw error
-    case .resumeCleanup:
-      return .resumeCleanup
-    case .none:
-      break
+    )
+    guard case .proceed = disposition else {
+      return disposition
     }
     guard !Task.isCancelled else {
       throw .cancelled
@@ -950,181 +508,28 @@ package actor BrokerCredentialState {
     return .proceed
   }
 
-  private func memoDisposition(
-    connectionID: UUID,
-    operationID: UUID,
-    fingerprint: OperationFingerprint
-  ) -> MemoDisposition {
-    guard let entry = terminalMemos[connectionID]?.entries[operationID] else {
-      return .none
-    }
-    guard entry.fingerprint == fingerprint else {
-      return .conflict
-    }
-    return .replay(entry.outcome)
-  }
-
-  private func reservationDisposition(
-    connectionID: UUID,
-    operationID: UUID,
-    fingerprint: OperationFingerprint
-  ) -> ReservationDisposition {
-    guard let reservation = reservations[connectionID] else {
-      return .none
-    }
-    switch reservation.phase {
-    case .storing:
-      return .reject(.operationInProgress)
-    case .cleanup(let cleanup):
-      if cleanup.isAwaiting {
-        return .reject(.operationInProgress)
-      }
-      guard
-        reservation.operationID == operationID,
-        reservation.fingerprint == fingerprint
-      else {
-        return .reject(.cleanupPending)
-      }
-      return .resumeCleanup
-    }
-  }
-
-  private func cleanupReservation(
-    operationID: UUID,
-    fingerprint: OperationFingerprint,
-    outcome: TerminalOutcome,
-    linearizedRecord: Record,
-    keys: [CredentialStoreKey]
-  ) -> Reservation {
-    Reservation(
-      operationID: operationID,
-      fingerprint: fingerprint,
-      phase: .cleanup(
-        CleanupContext(
-          terminalOutcome: outcome,
-          linearizedRecord: linearizedRecord,
-          remainingKeys: keys,
-          isAwaiting: false
-        )
-      )
-    )
-  }
-
   private func continueCleanup(
     connectionID: UUID,
     operationID: UUID,
-    fingerprint: OperationFingerprint
-  ) async throws(BrokerStateError) -> TerminalOutcome {
+    fingerprint: BrokerCredentialStateMachine.OperationFingerprint
+  ) async throws(BrokerStateError) -> BrokerCredentialStateMachine.TerminalOutcome {
     while true {
-      guard
-        var reservation = reservations[connectionID],
-        reservation.operationID == operationID,
-        reservation.fingerprint == fingerprint,
-        case .cleanup(var cleanup) = reservation.phase,
-        records[connectionID] == cleanup.linearizedRecord,
-        !cleanup.isAwaiting
-      else {
-        throw .operationInProgress
-      }
-
-      guard let key = cleanup.remainingKeys.first else {
-        reservations.removeValue(forKey: connectionID)
-        memoize(
-          connectionID: connectionID,
-          operationID: operationID,
-          fingerprint: fingerprint,
-          outcome: cleanup.terminalOutcome
-        )
-        return cleanup.terminalOutcome
-      }
-
-      cleanup.isAwaiting = true
-      reservation.phase = .cleanup(cleanup)
-      reservations[connectionID] = reservation
-
-      do {
-        try await store.deleteIfPresent(key)
-      } catch {
-        guard
-          reservations[connectionID] == reservation,
-          records[connectionID] == cleanup.linearizedRecord
-        else {
-          throw .operationInProgress
+      switch try machine.beginCleanup(
+        connectionID: connectionID,
+        operationID: operationID,
+        fingerprint: fingerprint
+      ) {
+      case .completed(let outcome):
+        return outcome
+      case .delete(let key, let token):
+        do {
+          try await store.deleteIfPresent(key)
+        } catch {
+          try machine.finishCleanupAwait(token, succeeded: false)
+          throw .cleanupPending
         }
-        cleanup.isAwaiting = false
-        reservation.phase = .cleanup(cleanup)
-        reservations[connectionID] = reservation
-        throw .cleanupPending
+        try machine.finishCleanupAwait(token, succeeded: true)
       }
-
-      guard
-        reservations[connectionID] == reservation,
-        records[connectionID] == cleanup.linearizedRecord
-      else {
-        throw .operationInProgress
-      }
-      cleanup.remainingKeys.removeFirst()
-      cleanup.isAwaiting = false
-      reservation.phase = .cleanup(cleanup)
-      reservations[connectionID] = reservation
     }
-  }
-
-  private func memoize(
-    connectionID: UUID,
-    operationID: UUID,
-    fingerprint: OperationFingerprint,
-    outcome: TerminalOutcome
-  ) {
-    var memo = terminalMemos[connectionID] ?? TerminalMemo()
-    memo.insert(operationID: operationID, fingerprint: fingerprint, outcome: outcome)
-    terminalMemos[connectionID] = memo
-  }
-
-  private func key(
-    for connectionID: UUID,
-    generation: CredentialGeneration
-  ) -> CredentialStoreKey {
-    CredentialStoreKey(
-      connectionID: connectionID,
-      generationID: generation.generationID,
-      generationOrdinal: generation.ordinal
-    )
-  }
-
-  private func resolveStage(
-    _ outcome: TerminalOutcome
-  ) throws(BrokerStateError) -> StagingAttempt {
-    guard case .stage(let result) = outcome else {
-      throw .operationIDConflict
-    }
-    return try result.get()
-  }
-
-  private func resolveCommit(
-    _ outcome: TerminalOutcome
-  ) throws(BrokerStateError) -> ReadyProjection {
-    guard case .commit(let result) = outcome else {
-      throw .operationIDConflict
-    }
-    return try result.get()
-  }
-
-  private func resolveAbort(
-    _ outcome: TerminalOutcome
-  ) throws(BrokerStateError) -> ReadyProjection? {
-    guard case .abort(let result) = outcome else {
-      throw .operationIDConflict
-    }
-    return try result.get()
-  }
-
-  private func resolveDisconnect(
-    _ outcome: TerminalOutcome
-  ) throws(BrokerStateError) -> TombstoneProjection {
-    guard case .disconnect(let result) = outcome else {
-      throw .operationIDConflict
-    }
-    return try result.get()
   }
 }

@@ -6,6 +6,27 @@ import Testing
 @Suite("Broker credential state")
 struct BrokerCredentialStateTests {
   @Test
+  func pureStateMachineOwnsBootstrapProjectionWithoutAStore() throws {
+    let connectionID = fixtureUUID(0)
+    let generation = CredentialGeneration(
+      generationID: fixtureUUID(1),
+      ordinal: 1,
+      createdAt: fixtureDate
+    )
+    let ready = ReadyProjection(
+      connectionID: connectionID,
+      fence: 1,
+      ready: ReadyGeneration(generation: generation, committedAt: fixtureDate),
+      lastGenerationOrdinal: 1
+    )
+
+    let machine = try BrokerCredentialStateMachine(bootstrap: [.ready(ready)])
+
+    #expect(machine.projection(for: connectionID) == .ready(ready))
+    #expect(machine.projection(for: fixtureUUID(2)) == nil)
+  }
+
+  @Test
   func stagePersistsOneHiddenGenerationThenCommitPublishesIt() async throws {
     let store = InMemoryCredentialStore()
     let connectionID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
