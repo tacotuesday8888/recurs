@@ -221,6 +221,13 @@ struct OpenAIOnboardingMessagesTests {
           catalogRequestID: "request id", modelIDs: ["gpt-5"]
         )
       },
+      {
+        _ = try OpenAIOnboardingCatalogPageMessage(
+          cursor: 0, totalModelCount: 1, nextCursor: nil,
+          catalogRequestID: String(repeating: "r", count: 257),
+          modelIDs: ["gpt-5"]
+        )
+      },
     ]
     for invalid in invalidPages {
       expectInvalid(invalid)
@@ -260,6 +267,16 @@ struct OpenAIOnboardingMessagesTests {
         ),
         credentialIdentityFingerprint: fingerprint
       )
+    }
+    for verifiedModelCount in [UInt16(0), UInt16(4_097)] {
+      expectInvalid {
+        _ = try OpenAIOnboardingCommittedMessage(
+          connectionID: connectionID,
+          selectedModelID: "gpt-5",
+          verifiedModelCount: verifiedModelCount,
+          catalogRequestID: nil
+        )
+      }
     }
   }
 
@@ -342,24 +359,73 @@ struct OpenAIOnboardingMessagesTests {
       }
     }
 
+    let encodedModelID = Data("gpt-5".utf8)
     var nestedTrailing = Data(u16(1))
     nestedTrailing.append(u16(5))
-    nestedTrailing.append(Data("gpt-5".utf8))
+    nestedTrailing.append(encodedModelID)
     nestedTrailing.append(0)
-    let catalogWithNestedTrailing = try semanticFrame(
+    var nestedTruncated = Data(u16(1))
+    nestedTruncated.append(u16(6))
+    nestedTruncated.append(encodedModelID)
+    var nestedMissingItem = Data(u16(2))
+    nestedMissingItem.append(u16(5))
+    nestedMissingItem.append(encodedModelID)
+    var nestedInvalidUTF8 = Data(u16(1))
+    nestedInvalidUTF8.append(u16(2))
+    nestedInvalidUTF8.append(contentsOf: [0xc0, 0xaf])
+    for malformedModelIDs in [
+      nestedTrailing,
+      nestedTruncated,
+      nestedMissingItem,
+      nestedInvalidUTF8,
+    ] {
+      let catalog = try semanticFrame(
+        type: .openAIOnboardingCatalogPage,
+        fields: [
+          (1, u16(0)),
+          (2, u16(1)),
+          (3, u16(UInt16.max)),
+          (4, Data()),
+          (5, malformedModelIDs),
+        ]
+      )
+      expectInvalid {
+        _ = try OpenAIOnboardingCatalogPageMessage.decode(catalog)
+      }
+    }
+
+    var validModelIDs = Data(u16(1))
+    validModelIDs.append(u16(5))
+    validModelIDs.append(encodedModelID)
+    let oversizedCatalogRequestID = try semanticFrame(
       type: .openAIOnboardingCatalogPage,
       fields: [
         (1, u16(0)),
         (2, u16(1)),
         (3, u16(UInt16.max)),
-        (4, Data()),
-        (5, nestedTrailing),
+        (4, Data(repeating: 0x72, count: 257)),
+        (5, validModelIDs),
       ]
     )
     expectInvalid {
       _ = try OpenAIOnboardingCatalogPageMessage.decode(
-        catalogWithNestedTrailing
+        oversizedCatalogRequestID
       )
+    }
+
+    for verifiedModelCount in [UInt16(0), UInt16(4_097)] {
+      let committed = try semanticFrame(
+        type: .openAIOnboardingCommitted,
+        fields: [
+          (1, Data(repeating: 1, count: 16)),
+          (2, encodedModelID),
+          (3, u16(verifiedModelCount)),
+          (4, Data()),
+        ]
+      )
+      expectInvalid {
+        _ = try OpenAIOnboardingCommittedMessage.decode(committed)
+      }
     }
   }
 

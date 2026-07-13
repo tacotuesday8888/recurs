@@ -64,6 +64,16 @@ function framePayload(type: NativeMessageType, payload: Uint8Array): NativeFrame
   return decoded;
 }
 
+function decodeWireFrame(bytes: Uint8Array): NativeFrame {
+  const decoder = new NativeFrameDecoder();
+  const [decoded] = decoder.push(bytes);
+  decoder.finish();
+  if (decoded === undefined) {
+    throw new Error("test setup failed");
+  }
+  return decoded;
+}
+
 function concatBytes(...values: readonly Uint8Array[]): Uint8Array {
   const result = new Uint8Array(
     values.reduce((total, value) => total + value.byteLength, 0),
@@ -162,6 +172,159 @@ describe("native OpenAI onboarding protocol", () => {
       expect(frame === undefined ? undefined : decodeOpenAIOnboardingRequest(frame))
         .toEqual(request);
     }
+  });
+
+  it("snapshots a request cursor once before validation and encoding", () => {
+    let kindReads = 0;
+    let cursorReads = 0;
+    const request = {
+      get kind(): "catalog_page" {
+        kindReads += 1;
+        return "catalog_page";
+      },
+      get cursor(): number {
+        cursorReads += 1;
+        return cursorReads === 1 ? 1 : 0;
+      },
+    } satisfies NativeOpenAIOnboardingRequest;
+
+    const wire = encodeOpenAIOnboardingRequest(1, request);
+
+    expect(kindReads).toBe(1);
+    expect(cursorReads).toBe(1);
+    expect(decodeOpenAIOnboardingRequest(decodeWireFrame(wire)))
+      .toEqual({ kind: "catalog_page", cursor: 1 });
+  });
+
+  it("snapshots every catalog-page property and model element once", () => {
+    const propertyReads = {
+      cursor: 0,
+      totalModelCount: 0,
+      nextCursor: 0,
+      catalogRequestId: 0,
+      modelIds: 0,
+    };
+    const elementReads = [0, 0];
+    const modelIds: string[] = [];
+    Object.defineProperties(modelIds, {
+      0: {
+        configurable: true,
+        enumerable: true,
+        get(): string {
+          elementReads[0] = (elementReads[0] ?? 0) + 1;
+          return elementReads[0] === 1 ? "gpt-4.1" : "gpt-5";
+        },
+      },
+      1: {
+        configurable: true,
+        enumerable: true,
+        get(): string {
+          elementReads[1] = (elementReads[1] ?? 0) + 1;
+          return elementReads[1] === 1 ? "gpt-5" : "gpt-4.1";
+        },
+      },
+    });
+    const page = {
+      get cursor(): number {
+        propertyReads.cursor += 1;
+        return 0;
+      },
+      get totalModelCount(): number {
+        propertyReads.totalModelCount += 1;
+        return 2;
+      },
+      get nextCursor(): null {
+        propertyReads.nextCursor += 1;
+        return null;
+      },
+      get catalogRequestId(): null {
+        propertyReads.catalogRequestId += 1;
+        return null;
+      },
+      get modelIds(): readonly string[] {
+        propertyReads.modelIds += 1;
+        return modelIds;
+      },
+    } satisfies NativeOpenAIOnboardingCatalogPage;
+
+    const wire = encodeOpenAIOnboardingCatalogPage(2, page);
+
+    expect(propertyReads).toEqual({
+      cursor: 1,
+      totalModelCount: 1,
+      nextCursor: 1,
+      catalogRequestId: 1,
+      modelIds: 1,
+    });
+    expect(elementReads).toEqual([1, 1]);
+    expect(decodeOpenAIOnboardingCatalogPage(decodeWireFrame(wire))).toEqual({
+      cursor: 0,
+      totalModelCount: 2,
+      nextCursor: null,
+      catalogRequestId: null,
+      modelIds: ["gpt-4.1", "gpt-5"],
+    });
+  });
+
+  it("rejects a hostile catalog model list with a fractional length", () => {
+    const modelIds = new Proxy(["gpt-4.1", "gpt-5"], {
+      get(target, property, receiver): unknown {
+        if (property === "length") {
+          return 1.5;
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    captureInvalid(() => encodeOpenAIOnboardingCatalogPage(2, {
+      cursor: 0,
+      totalModelCount: 2,
+      nextCursor: null,
+      catalogRequestId: null,
+      modelIds,
+    }));
+  });
+
+  it("snapshots every committed property once", () => {
+    const propertyReads = {
+      connectionId: 0,
+      selectedModelId: 0,
+      verifiedModelCount: 0,
+      catalogRequestId: 0,
+    };
+    const committed = {
+      get connectionId(): string {
+        propertyReads.connectionId += 1;
+        return "11111111-2222-4333-8444-555555555555";
+      },
+      get selectedModelId(): string {
+        propertyReads.selectedModelId += 1;
+        return "gpt-5";
+      },
+      get verifiedModelCount(): number {
+        propertyReads.verifiedModelCount += 1;
+        return propertyReads.verifiedModelCount === 1 ? 3 : 0;
+      },
+      get catalogRequestId(): string {
+        propertyReads.catalogRequestId += 1;
+        return "req_catalog_1";
+      },
+    };
+
+    const wire = encodeOpenAIOnboardingCommitted(3, committed);
+
+    expect(propertyReads).toEqual({
+      connectionId: 1,
+      selectedModelId: 1,
+      verifiedModelCount: 1,
+      catalogRequestId: 1,
+    });
+    expect(decodeOpenAIOnboardingCommitted(decodeWireFrame(wire))).toEqual({
+      connectionId: "11111111-2222-4333-8444-555555555555",
+      selectedModelId: "gpt-5",
+      verifiedModelCount: 3,
+      catalogRequestId: "req_catalog_1",
+    });
   });
 
   it("round-trips every fixed result and safe failure", () => {
@@ -314,6 +477,7 @@ describe("native OpenAI onboarding protocol", () => {
       { cursor: 0, totalModelCount: 2, nextCursor: null, catalogRequestId: null, modelIds: ["gpt-5", "gpt-4.1"] },
       { cursor: 0, totalModelCount: 2, nextCursor: null, catalogRequestId: null, modelIds: ["gpt-5", "gpt-5"] },
       { cursor: 0, totalModelCount: 1, nextCursor: null, catalogRequestId: "request id", modelIds: ["gpt-5"] },
+      { cursor: 0, totalModelCount: 1, nextCursor: null, catalogRequestId: "r".repeat(257), modelIds: ["gpt-5"] },
     ];
     for (const page of invalidPages) {
       captureInvalid(() => encodeOpenAIOnboardingCatalogPage(1, page));
@@ -352,6 +516,14 @@ describe("native OpenAI onboarding protocol", () => {
       credentialIdentityFingerprint:
         `sha256:${"0".repeat(64)}`,
     }));
+    for (const verifiedModelCount of [0, 4_097]) {
+      captureInvalid(() => encodeOpenAIOnboardingCommitted(1, {
+        connectionId: "11111111-2222-4333-8444-555555555555",
+        selectedModelId: "gpt-5",
+        verifiedModelCount,
+        catalogRequestId: null,
+      }));
+    }
   });
 
   it("rejects wrong types, unknown fields, invalid UTF-8, and unknown enums", () => {
@@ -386,7 +558,7 @@ describe("native OpenAI onboarding protocol", () => {
     )));
   });
 
-  it("rejects duplicate fields, trailing tables, and nested-list trailing bytes", () => {
+  it("rejects duplicate fields, trailing tables, and malformed result payloads", () => {
     const duplicate = concatBytes(
       encodeU16(2),
       encodeU16(1), encodeU32(2), encodeU16(1),
@@ -419,6 +591,53 @@ describe("native OpenAI onboarding protocol", () => {
         { tag: 5, value: nestedTrailing },
       ],
     )));
+
+    const encodedModelId = new TextEncoder().encode("gpt-5");
+    const malformedModelLists = [
+      concatBytes(encodeU16(1), encodeU16(6), encodedModelId),
+      concatBytes(encodeU16(2), encodeU16(5), encodedModelId),
+      concatBytes(encodeU16(1), encodeU16(2), new Uint8Array([0xc0, 0xaf])),
+    ];
+    for (const modelIds of malformedModelLists) {
+      captureInvalid(() => decodeOpenAIOnboardingCatalogPage(frame(
+        NativeMessageType.openAIOnboardingCatalogPage,
+        [
+          { tag: 1, value: encodeU16(0) },
+          { tag: 2, value: encodeU16(1) },
+          { tag: 3, value: encodeU16(0xffff) },
+          { tag: 4, value: new Uint8Array() },
+          { tag: 5, value: modelIds },
+        ],
+      )));
+    }
+
+    const validModelList = concatBytes(
+      encodeU16(1),
+      encodeU16(encodedModelId.byteLength),
+      encodedModelId,
+    );
+    captureInvalid(() => decodeOpenAIOnboardingCatalogPage(frame(
+      NativeMessageType.openAIOnboardingCatalogPage,
+      [
+        { tag: 1, value: encodeU16(0) },
+        { tag: 2, value: encodeU16(1) },
+        { tag: 3, value: encodeU16(0xffff) },
+        { tag: 4, value: new TextEncoder().encode("r".repeat(257)) },
+        { tag: 5, value: validModelList },
+      ],
+    )));
+
+    for (const verifiedModelCount of [0, 4_097]) {
+      captureInvalid(() => decodeOpenAIOnboardingCommitted(frame(
+        NativeMessageType.openAIOnboardingCommitted,
+        [
+          { tag: 1, value: new Uint8Array(16).fill(1) },
+          { tag: 2, value: encodedModelId },
+          { tag: 3, value: encodeU16(verifiedModelCount) },
+          { tag: 4, value: new Uint8Array() },
+        ],
+      )));
+    }
   });
 
   it("keeps failures numeric and never serializes prose", () => {

@@ -87,33 +87,42 @@ export function encodeOpenAIOnboardingRequest(
 ): Uint8Array {
   return withInvalidMessage(() => {
     let fields: readonly NativeField[];
-    switch (request.kind) {
+    const kind = request.kind;
+    switch (kind) {
       case "begin":
         fields = [kindField(1)];
         break;
       case "verify":
         fields = [kindField(2)];
         break;
-      case "catalog_page":
-        validateCatalogCursor(request.cursor);
-        fields = [kindField(3), { tag: 2, value: encodeU16(request.cursor) }];
+      case "catalog_page": {
+        const cursor = request.cursor;
+        validateCatalogCursor(cursor);
+        fields = [kindField(3), { tag: 2, value: encodeU16(cursor) }];
         break;
-      case "finalize":
-        fields = [kindField(4), { tag: 2, value: encodeModelId(request.exactModelId) }];
+      }
+      case "finalize": {
+        const exactModelId = request.exactModelId;
+        fields = [kindField(4), { tag: 2, value: encodeModelId(exactModelId) }];
         break;
+      }
       case "abort":
         fields = [kindField(5)];
         break;
-      case "reconcile":
+      case "reconcile": {
+        const connectionId = request.connectionId;
+        const credentialIdentityFingerprint =
+          request.credentialIdentityFingerprint;
         fields = [
           kindField(6),
-          { tag: 2, value: encodeUuid(request.connectionId) },
+          { tag: 2, value: encodeUuid(connectionId) },
           {
             tag: 3,
-            value: encodeFingerprint(request.credentialIdentityFingerprint),
+            value: encodeFingerprint(credentialIdentityFingerprint),
           },
         ];
         break;
+      }
       default:
         failNativeCodec("invalid_message");
     }
@@ -208,16 +217,17 @@ export function encodeOpenAIOnboardingCatalogPage(
   page: NativeOpenAIOnboardingCatalogPage,
 ): Uint8Array {
   return withInvalidMessage(() => {
-    validateCatalogPage(page);
+    const snapshot = snapshotCatalogPage(page);
+    validateCatalogPage(snapshot);
     return encodeMessage(
       NativeMessageType.openAIOnboardingCatalogPage,
       requestId,
       [
-        { tag: 1, value: encodeU16(page.cursor) },
-        { tag: 2, value: encodeU16(page.totalModelCount) },
-        { tag: 3, value: encodeU16(page.nextCursor ?? 0xffff) },
-        { tag: 4, value: encodeCatalogRequestId(page.catalogRequestId) },
-        { tag: 5, value: encodeModelIds(page.modelIds) },
+        { tag: 1, value: encodeU16(snapshot.cursor) },
+        { tag: 2, value: encodeU16(snapshot.totalModelCount) },
+        { tag: 3, value: encodeU16(snapshot.nextCursor ?? 0xffff) },
+        { tag: 4, value: encodeCatalogRequestId(snapshot.catalogRequestId) },
+        { tag: 5, value: encodeModelIds(snapshot.modelIds) },
       ],
     );
   });
@@ -259,17 +269,21 @@ export function encodeOpenAIOnboardingCommitted(
   committed: NativeOpenAIOnboardingCommitted,
 ): Uint8Array {
   return withInvalidMessage(() => {
-    validateVerifiedModelCount(committed.verifiedModelCount);
+    const connectionId = committed.connectionId;
+    const selectedModelId = committed.selectedModelId;
+    const verifiedModelCount = committed.verifiedModelCount;
+    const catalogRequestId = committed.catalogRequestId;
+    validateVerifiedModelCount(verifiedModelCount);
     return encodeMessage(
       NativeMessageType.openAIOnboardingCommitted,
       requestId,
       [
-        { tag: 1, value: encodeUuid(committed.connectionId) },
-        { tag: 2, value: encodeModelId(committed.selectedModelId) },
-        { tag: 3, value: encodeU16(committed.verifiedModelCount) },
+        { tag: 1, value: encodeUuid(connectionId) },
+        { tag: 2, value: encodeModelId(selectedModelId) },
+        { tag: 3, value: encodeU16(verifiedModelCount) },
         {
           tag: 4,
-          value: encodeCatalogRequestId(committed.catalogRequestId),
+          value: encodeCatalogRequestId(catalogRequestId),
         },
       ],
     );
@@ -608,6 +622,38 @@ function decodeModelIds(value: Uint8Array): readonly string[] {
     failNativeCodec("invalid_message");
   }
   return Object.freeze(values);
+}
+
+function snapshotCatalogPage(
+  page: NativeOpenAIOnboardingCatalogPage,
+): NativeOpenAIOnboardingCatalogPage {
+  const cursor = page.cursor;
+  const totalModelCount = page.totalModelCount;
+  const nextCursor = page.nextCursor;
+  const catalogRequestId = page.catalogRequestId;
+  const inputModelIds = page.modelIds;
+  if (!Array.isArray(inputModelIds)) {
+    failNativeCodec("invalid_message");
+  }
+  const modelIdCount = inputModelIds.length;
+  if (
+    !Number.isInteger(modelIdCount) ||
+    modelIdCount < 1 ||
+    modelIdCount > OPENAI_ONBOARDING_MAX_MODEL_IDS_PER_PAGE
+  ) {
+    failNativeCodec("invalid_message");
+  }
+  const modelIds: string[] = [];
+  for (let index = 0; index < modelIdCount; index += 1) {
+    modelIds[index] = inputModelIds[index] as string;
+  }
+  return {
+    cursor,
+    totalModelCount,
+    nextCursor,
+    catalogRequestId,
+    modelIds,
+  };
 }
 
 function validateCatalogPage(page: NativeOpenAIOnboardingCatalogPage): void {
