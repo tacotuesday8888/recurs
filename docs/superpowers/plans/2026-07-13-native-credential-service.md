@@ -520,8 +520,9 @@ admission/authorization/close transition is protected by that lock; no lock is
 held while invoking authority, awaiting, cancelling a task, or calling a reply.
 Reject before touching the authority when unauthorized, nonmonotonic, over
 capacity, malformed, or closed. Convert the secret to `SecretBytes` before the
-first credential-authority await. Map core errors exhaustively to fixed failure
-codes. After a
+first credential-authority await. Reject a secret length outside
+`1...maximumSecretBytes` as `invalidRequest` before creating an authority task.
+Map core errors exhaustively to fixed failure codes. After a
 successful mutation, return only its redacted state/fence/attempt information.
 For an initial abort, return vacant at the mutation's expected fence.
 `submitStage`/`submitControl` perform decode, hello/ID/capacity admission, task
@@ -614,7 +615,7 @@ public protocol BrokerXPCProtocol: NSObjectProtocol {
 public protocol BrokerCredentialLifecycleXPCProtocol: BrokerXPCProtocol {
   func stageCredential(
     _ metadata: Data,
-    secret: Data,
+    secret: consuming Data,
     reply: @escaping @Sendable (Data) -> Void
   )
 
@@ -656,7 +657,9 @@ path; it also stores `nil`.
 Prove the exported interface declares only the existing health exchange plus
 the two fixed credential selectors; both argument and reply class allowlists
 contain only `NSData`; and no generic selector, URL, header, Keychain reference,
-credential lookup, or arbitrary object class is exposed.
+credential lookup, or arbitrary object class is exposed. Enumerate required and
+optional instance and class protocol methods so an accidental selector cannot
+escape an incomplete reflection assertion.
 
 Using a fake authority, prove hello is required on the same service object,
 health remains compatible, lifecycle requests reach the per-connection gateway,
@@ -685,9 +688,13 @@ Race hello, lifecycle calls, interruption, and invalidation from concurrent
 queues. Prove lifecycle either observes hello or fails closed, IDs admit only in
 strict increasing order, no ninth operation creates a task, invalidation
 synchronously prevents every later admission, and an operation admitted just
-before invalidation is cancelled exactly once. Foundation gives no ordering
-guarantee between handlers and replies, so these tests must exercise both race
-orders.
+before connection teardown is cancelled exactly once. Foundation gives no
+ordering guarantee between handlers and replies, so force both race orders with
+deterministic barriers rather than relying on probabilistic scheduling. An
+interruption may settle owned lifecycle replies with the fixed cancellation;
+an invalidation must atomically consume reply gates without invoking them,
+because Foundation forbids sending messages from an invalidation handler. The
+client observes the XPC transport error instead.
 
 Also run a real anonymous-XPC round trip with
 `NSXPCListener.anonymous()` and `NSXPCConnection(listenerEndpoint:)`. Exercise
@@ -734,15 +741,20 @@ The service stores an optional gateway. With no authority, the listener never
 exports lifecycle selectors, but direct lifecycle method calls still decode
 enough to select the fixed request ID/failure code and synchronously erase any
 stage secret before replying; they never silently drop the call or retain raw
-`Data`.
+`Data`. Transfer the argument with consuming ownership into `SecretBytes` and
+erase that owned representation. Do not cast a read-only `Data` pointer to a
+mutable pointer or mutate caller aliases outside Swift's value/COW rules.
 
 `BrokerServiceListenerDelegate` creates a fresh service/gateway for each
 accepted connection from the same injected authority. Add the existing
 Foundation-compatible, non-`@Sendable` `interruptionHandler` and
-`invalidationHandler` properties to the test connection abstraction; both call
-the service's idempotent synchronous close. The gateway lock linearizes every
-submit/authorize/close race, owns the bounded authority-operation task handles,
-and owns the exactly-once reply gates.
+`invalidationHandler` properties to the test connection abstraction. The
+interruption handler calls the service's idempotent synchronous close and may
+deliver fixed cancellation replies. The invalidation handler calls a distinct
+synchronous transport-teardown close that cancels tasks and consumes reply gates
+without invoking XPC reply blocks. The gateway lock linearizes every submit/
+authorize/close race, owns the bounded authority-operation task handles, and
+owns the exactly-once-or-explicitly-discarded reply gates.
 
 - [ ] **Step 5: Verify GREEN and launcher compatibility**
 
