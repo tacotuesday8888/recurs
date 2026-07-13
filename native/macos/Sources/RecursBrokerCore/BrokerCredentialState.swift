@@ -102,6 +102,19 @@ package enum CredentialProjection: Sendable, Hashable, Codable {
   }
 }
 
+package enum CredentialLifecycleProjection: Sendable, Equatable {
+  case missing(connectionID: UUID)
+  case vacant(connectionID: UUID, fence: UInt64)
+  case staging(
+    connectionID: UUID,
+    fence: UInt64,
+    attemptID: UUID,
+    hasUsableReady: Bool
+  )
+  case ready(connectionID: UUID, fence: UInt64)
+  case tombstoned(connectionID: UUID, fence: UInt64)
+}
+
 package enum CredentialBootstrap: Sendable, Hashable, Codable {
   case vacant(connectionID: UUID, fence: UInt64, lastGenerationOrdinal: UInt64)
   case ready(ReadyProjection)
@@ -286,6 +299,12 @@ package actor BrokerCredentialState {
     machine.projection(for: connectionID)
   }
 
+  package func lifecycleProjection(
+    for connectionID: UUID
+  ) -> CredentialLifecycleProjection {
+    machine.lifecycleProjection(for: connectionID)
+  }
+
   package func authoritativeProjection(
     for connectionID: UUID
   ) async throws(BrokerJournalError) -> CredentialProjection? {
@@ -300,6 +319,23 @@ package actor BrokerCredentialState {
       result = .failure(error)
     }
     return try machine.finishAuthoritativeProjection(token, result: result)
+  }
+
+  package func authoritativeLifecycleProjection(
+    for connectionID: UUID
+  ) async throws(BrokerJournalError) -> CredentialLifecycleProjection {
+    guard let journal else {
+      return machine.lifecycleProjection(for: connectionID)
+    }
+    let token = try machine.beginAuthoritativeProjection(connectionID: connectionID)
+    let result: Result<BrokerJournalSnapshot?, BrokerJournalError>
+    do {
+      result = .success(try await journal.load(connectionID: connectionID))
+    } catch let error {
+      result = .failure(error)
+    }
+    _ = try machine.finishAuthoritativeProjection(token, result: result)
+    return machine.lifecycleProjection(for: connectionID)
   }
 
   package func reserveCredentialUse(

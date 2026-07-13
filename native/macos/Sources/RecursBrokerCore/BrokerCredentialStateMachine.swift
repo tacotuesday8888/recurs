@@ -45,6 +45,24 @@ struct BrokerCredentialStateMachine: Sendable {
         .tombstoned(projection)
       }
     }
+
+    var lifecycleProjection: CredentialLifecycleProjection {
+      switch self {
+      case .vacant(let connectionID, let fence, _):
+        .vacant(connectionID: connectionID, fence: fence)
+      case .ready(let projection):
+        .ready(connectionID: projection.connectionID, fence: projection.fence)
+      case .staging(let attempt):
+        .staging(
+          connectionID: attempt.connectionID,
+          fence: attempt.fence,
+          attemptID: attempt.attemptID,
+          hasUsableReady: attempt.previousReady != nil
+        )
+      case .tombstoned(let projection):
+        .tombstoned(connectionID: projection.connectionID, fence: projection.fence)
+      }
+    }
   }
 
   enum OperationKind: Sendable, Equatable {
@@ -532,6 +550,12 @@ struct BrokerCredentialStateMachine: Sendable {
 
   func projection(for connectionID: UUID) -> CredentialProjection? {
     records[connectionID]?.projection
+  }
+
+  func lifecycleProjection(
+    for connectionID: UUID
+  ) -> CredentialLifecycleProjection {
+    records[connectionID]?.lifecycleProjection ?? .missing(connectionID: connectionID)
   }
 
   func journalSnapshot(for connectionID: UUID) -> BrokerJournalSnapshot? {
