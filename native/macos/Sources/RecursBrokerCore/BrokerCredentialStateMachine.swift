@@ -128,10 +128,30 @@ struct BrokerCredentialStateMachine: Sendable {
     case delete(CredentialStoreKey, CleanupAwaitToken)
   }
 
+  enum JournalCleanupStep: Sendable, Equatable {
+    case delete(CredentialStoreKey, CleanupAwaitToken)
+    case needsFinalization(JournalFinalizationRequestToken)
+  }
+
   struct CleanupAwaitToken: Sendable, Equatable {
     let connectionID: UUID
     let reservation: Reservation
     let linearizedRecord: Record
+  }
+
+  struct JournalFinalizationRequestToken: Sendable, Equatable {
+    let connectionID: UUID
+    let reservation: Reservation
+    let linearizedRecord: Record
+    let expected: BrokerJournalSnapshot
+  }
+
+  struct JournalFinalizationAwaitToken: Sendable, Equatable {
+    let connectionID: UUID
+    let reservation: Reservation
+    let linearizedRecord: Record
+    let expected: BrokerJournalSnapshot
+    let replacement: BrokerJournalRecord
   }
 
   private struct TerminalEntry: Sendable, Equatable {
@@ -171,6 +191,11 @@ struct BrokerCredentialStateMachine: Sendable {
     let linearizedRecord: Record
     var remainingKeys: [CredentialStoreKey]
     var isAwaiting: Bool
+    let journal: JournalCleanupContext?
+  }
+
+  struct JournalCleanupContext: Sendable, Equatable {
+    let snapshot: BrokerJournalSnapshot
   }
 
   enum ReservationPhase: Sendable, Equatable {
@@ -199,6 +224,7 @@ struct BrokerCredentialStateMachine: Sendable {
   private var records: [UUID: Record]
   private var reservations: [UUID: Reservation] = [:]
   private var terminalMemos: [UUID: TerminalMemo] = [:]
+  private var journalSnapshots: [UUID: BrokerJournalSnapshot] = [:]
 
   init(bootstrap: [CredentialBootstrap] = []) throws(BrokerStateError) {
     var validated: [UUID: Record] = [:]
@@ -253,8 +279,100 @@ struct BrokerCredentialStateMachine: Sendable {
     records = validated
   }
 
+  init(
+    preparedJournalEntries: [BrokerJournalPreparedEntry]
+  ) throws(BrokerJournalError) {
+    guard preparedJournalEntries.count <= 1_024 else {
+      throw .invalidRecord
+    }
+
+    var bootstraps: [CredentialBootstrap] = []
+    bootstraps.reserveCapacity(preparedJournalEntries.count)
+    var previousConnectionID: String?
+    for entry in preparedJournalEntries {
+      let connectionID = entry.snapshot.record.connectionID.uuidString.lowercased()
+      if let previousConnectionID, previousConnectionID >= connectionID {
+        throw .invalidRecord
+      }
+      previousConnectionID = connectionID
+      guard entry.plan.preparation == nil else {
+        throw .invalidRecord
+      }
+      let recomputed = try BrokerJournalRecordAdapter.recoveryPlan(
+        for: entry.snapshot.record,
+        recoveryChangedAt: entry.snapshot.record.changedAt
+      )
+      guard recomputed == entry.plan else {
+        throw .invalidRecord
+      }
+      bootstraps.append(entry.plan.bootstrap)
+    }
+
+    do {
+      self = try BrokerCredentialStateMachine(bootstrap: bootstraps)
+    } catch {
+      throw .invalidRecord
+    }
+
+    for entry in preparedJournalEntries {
+      let connectionID = entry.snapshot.record.connectionID
+      guard
+        journalSnapshots.updateValue(entry.snapshot, forKey: connectionID) == nil,
+        let linearizedRecord = records[connectionID]
+      else {
+        throw .invalidRecord
+      }
+
+      for terminal in entry.snapshot.record.terminalOperations {
+        let hydrated = try Self.hydratedTerminal(
+          terminal,
+          connectionID: connectionID
+        )
+        guard terminalMemos[connectionID]?.entries[terminal.operationID] == nil else {
+          throw .invalidRecord
+        }
+        memoize(
+          connectionID: connectionID,
+          operationID: terminal.operationID,
+          fingerprint: hydrated.fingerprint,
+          outcome: hydrated.outcome
+        )
+      }
+
+      guard let cleanup = entry.plan.cleanup else {
+        continue
+      }
+      let hydrated = try Self.hydratedTerminal(
+        cleanup.terminalOperation,
+        connectionID: connectionID
+      )
+      guard
+        terminalMemos[connectionID]?.entries[cleanup.terminalOperation.operationID] == nil,
+        !Self.hasAttemptCollision(
+          cleanup.terminalOperation,
+          with: entry.snapshot.record.terminalOperations
+        ),
+        reservations[connectionID] == nil
+      else {
+        throw .invalidRecord
+      }
+      reservations[connectionID] = cleanupReservation(
+        operationID: cleanup.terminalOperation.operationID,
+        fingerprint: hydrated.fingerprint,
+        outcome: hydrated.outcome,
+        linearizedRecord: linearizedRecord,
+        keys: cleanup.credentialKeys,
+        journal: JournalCleanupContext(snapshot: entry.snapshot)
+      )
+    }
+  }
+
   func projection(for connectionID: UUID) -> CredentialProjection? {
     records[connectionID]?.projection
+  }
+
+  func journalSnapshot(for connectionID: UUID) -> BrokerJournalSnapshot? {
+    journalSnapshots[connectionID]
   }
 
   static func fingerprint(
@@ -674,6 +792,9 @@ struct BrokerCredentialStateMachine: Sendable {
     }
 
     guard let key = cleanup.remainingKeys.first else {
+      guard cleanup.journal == nil else {
+        throw .cleanupPending
+      }
       reservations.removeValue(forKey: connectionID)
       memoize(
         connectionID: connectionID,
@@ -716,6 +837,162 @@ struct BrokerCredentialStateMachine: Sendable {
     cleanup.isAwaiting = false
     reservation.phase = .cleanup(cleanup)
     reservations[token.connectionID] = reservation
+  }
+
+  mutating func beginJournalCleanup(
+    connectionID: UUID
+  ) throws(BrokerJournalError) -> JournalCleanupStep {
+    guard
+      var reservation = reservations[connectionID],
+      case .cleanup(var cleanup) = reservation.phase,
+      let journal = cleanup.journal,
+      records[connectionID] == cleanup.linearizedRecord,
+      journalSnapshots[connectionID] == journal.snapshot,
+      !cleanup.isAwaiting
+    else {
+      throw .casConflict
+    }
+
+    if let key = cleanup.remainingKeys.first {
+      cleanup.isAwaiting = true
+      reservation.phase = .cleanup(cleanup)
+      reservations[connectionID] = reservation
+      return .delete(
+        key,
+        CleanupAwaitToken(
+          connectionID: connectionID,
+          reservation: reservation,
+          linearizedRecord: cleanup.linearizedRecord
+        )
+      )
+    }
+
+    return .needsFinalization(
+      JournalFinalizationRequestToken(
+        connectionID: connectionID,
+        reservation: reservation,
+        linearizedRecord: cleanup.linearizedRecord,
+        expected: journal.snapshot
+      )
+    )
+  }
+
+  mutating func finishJournalDeleteAwait(
+    _ token: CleanupAwaitToken,
+    succeeded: Bool
+  ) throws(BrokerJournalError) {
+    guard
+      reservations[token.connectionID] == token.reservation,
+      records[token.connectionID] == token.linearizedRecord,
+      var reservation = reservations[token.connectionID],
+      case .cleanup(var cleanup) = reservation.phase,
+      cleanup.journal != nil,
+      cleanup.isAwaiting
+    else {
+      throw .casConflict
+    }
+    try Self.validateJournalDeleteAwait(
+      token,
+      liveSnapshot: journalSnapshots[token.connectionID]
+    )
+    if succeeded {
+      guard !cleanup.remainingKeys.isEmpty else {
+        throw .casConflict
+      }
+      cleanup.remainingKeys.removeFirst()
+    }
+    cleanup.isAwaiting = false
+    reservation.phase = .cleanup(cleanup)
+    reservations[token.connectionID] = reservation
+  }
+
+  static func validateJournalDeleteAwait(
+    _ token: CleanupAwaitToken,
+    liveSnapshot: BrokerJournalSnapshot?
+  ) throws(BrokerJournalError) {
+    guard
+      case .cleanup(let cleanup) = token.reservation.phase,
+      let expected = cleanup.journal?.snapshot,
+      liveSnapshot == expected
+    else {
+      throw .casConflict
+    }
+  }
+
+  mutating func beginJournalFinalization(
+    _ request: JournalFinalizationRequestToken,
+    changedAt: JournalTimestamp
+  ) throws(BrokerJournalError) -> JournalFinalizationAwaitToken {
+    guard
+      reservations[request.connectionID] == request.reservation,
+      records[request.connectionID] == request.linearizedRecord,
+      journalSnapshots[request.connectionID] == request.expected,
+      var reservation = reservations[request.connectionID],
+      case .cleanup(var cleanup) = reservation.phase,
+      cleanup.remainingKeys.isEmpty,
+      !cleanup.isAwaiting,
+      cleanup.journal?.snapshot == request.expected
+    else {
+      throw .casConflict
+    }
+
+    let replacement = try Self.stableJournalSuccessor(
+      to: request.expected.record,
+      changedAt: changedAt
+    )
+    cleanup.isAwaiting = true
+    reservation.phase = .cleanup(cleanup)
+    reservations[request.connectionID] = reservation
+    return JournalFinalizationAwaitToken(
+      connectionID: request.connectionID,
+      reservation: reservation,
+      linearizedRecord: request.linearizedRecord,
+      expected: request.expected,
+      replacement: replacement
+    )
+  }
+
+  mutating func finishJournalFinalization(
+    _ token: JournalFinalizationAwaitToken,
+    result: Result<BrokerJournalSnapshot, BrokerJournalError>
+  ) throws(BrokerJournalError) -> TerminalOutcome {
+    guard
+      reservations[token.connectionID] == token.reservation,
+      records[token.connectionID] == token.linearizedRecord,
+      journalSnapshots[token.connectionID] == token.expected,
+      var reservation = reservations[token.connectionID],
+      case .cleanup(var cleanup) = reservation.phase,
+      cleanup.remainingKeys.isEmpty,
+      cleanup.isAwaiting,
+      cleanup.journal?.snapshot == token.expected
+    else {
+      throw .casConflict
+    }
+
+    switch result {
+    case .failure(let error):
+      cleanup.isAwaiting = false
+      reservation.phase = .cleanup(cleanup)
+      reservations[token.connectionID] = reservation
+      throw error
+
+    case .success(let selected):
+      guard selected.record == token.replacement else {
+        cleanup.isAwaiting = false
+        reservation.phase = .cleanup(cleanup)
+        reservations[token.connectionID] = reservation
+        throw .casConflict
+      }
+      journalSnapshots[token.connectionID] = selected
+      reservations.removeValue(forKey: token.connectionID)
+      memoize(
+        connectionID: token.connectionID,
+        operationID: reservation.operationID,
+        fingerprint: reservation.fingerprint,
+        outcome: cleanup.terminalOutcome
+      )
+      return cleanup.terminalOutcome
+    }
   }
 
   func resolveStage(
@@ -825,7 +1102,8 @@ struct BrokerCredentialStateMachine: Sendable {
     fingerprint: OperationFingerprint,
     outcome: TerminalOutcome,
     linearizedRecord: Record,
-    keys: [CredentialStoreKey]
+    keys: [CredentialStoreKey],
+    journal: JournalCleanupContext? = nil
   ) -> Reservation {
     Reservation(
       operationID: operationID,
@@ -835,7 +1113,8 @@ struct BrokerCredentialStateMachine: Sendable {
           terminalOutcome: outcome,
           linearizedRecord: linearizedRecord,
           remainingKeys: keys,
-          isAwaiting: false
+          isAwaiting: false,
+          journal: journal
         )
       )
     )
@@ -862,6 +1141,129 @@ struct BrokerCredentialStateMachine: Sendable {
     var memo = terminalMemos[connectionID] ?? TerminalMemo()
     memo.insert(operationID: operationID, fingerprint: fingerprint, outcome: outcome)
     terminalMemos[connectionID] = memo
+  }
+
+  private static func hydratedTerminal(
+    _ terminal: BrokerJournalTerminalOperation,
+    connectionID: UUID
+  ) throws(BrokerJournalError) -> (
+    fingerprint: OperationFingerprint,
+    outcome: TerminalOutcome
+  ) {
+    switch terminal {
+    case .stageFailure(let value):
+      let error: BrokerStateError =
+        switch value.error {
+        case .cancelled: .cancelled
+        case .storeUnavailable: .storeUnavailable
+        case .attemptNotCurrent: .attemptNotCurrent
+        }
+      return (
+        fingerprint(
+          kind: .stage,
+          connectionID: connectionID,
+          expectedFence: value.expectedFence
+        ),
+        .stage(.failure(error))
+      )
+
+    case .commit(let value):
+      return (
+        fingerprint(
+          kind: .commit,
+          connectionID: connectionID,
+          expectedFence: value.expectedFence,
+          attemptID: value.attemptID
+        ),
+        .commit(
+          .success(try BrokerJournalRecordAdapter.readyProjection(from: value.ready))
+        )
+      )
+
+    case .abort(let value):
+      let restored: ReadyProjection?
+      if let journalReady = value.restoredReady {
+        restored = try BrokerJournalRecordAdapter.readyProjection(from: journalReady)
+      } else {
+        restored = nil
+      }
+      return (
+        fingerprint(
+          kind: .abort,
+          connectionID: connectionID,
+          expectedFence: value.expectedFence,
+          attemptID: value.attemptID
+        ),
+        .abort(.success(restored))
+      )
+
+    case .disconnect(let value):
+      return (
+        fingerprint(
+          kind: .disconnect,
+          connectionID: connectionID,
+          expectedFence: value.expectedFence
+        ),
+        .disconnect(
+          .success(
+            try BrokerJournalRecordAdapter.tombstoneProjection(from: value.tombstone)
+          )
+        )
+      )
+    }
+  }
+
+  private static func hasAttemptCollision(
+    _ cleanup: BrokerJournalTerminalOperation,
+    with persisted: [BrokerJournalTerminalOperation]
+  ) -> Bool {
+    guard let cleanupAttemptID = journalAttemptID(of: cleanup) else {
+      return false
+    }
+    return persisted.contains { journalAttemptID(of: $0) == cleanupAttemptID }
+  }
+
+  private static func journalAttemptID(
+    of terminal: BrokerJournalTerminalOperation
+  ) -> UUID? {
+    switch terminal {
+    case .stageFailure, .disconnect:
+      nil
+    case .commit(let value):
+      value.attemptID
+    case .abort(let value):
+      value.attemptID
+    }
+  }
+
+  private static func stableJournalSuccessor(
+    to predecessor: BrokerJournalRecord,
+    changedAt: JournalTimestamp
+  ) throws(BrokerJournalError) -> BrokerJournalRecord {
+    switch predecessor.phase {
+    case .stageCleanupPending:
+      try BrokerJournalRecordAdapter.makeStableStageFailure(
+        predecessor: predecessor,
+        changedAt: changedAt
+      )
+    case .readyCleanupPending:
+      try BrokerJournalRecordAdapter.makeStableCommit(
+        predecessor: predecessor,
+        changedAt: changedAt
+      )
+    case .abortCleanupPending:
+      try BrokerJournalRecordAdapter.makeStableAbort(
+        predecessor: predecessor,
+        changedAt: changedAt
+      )
+    case .disconnectFenced:
+      try BrokerJournalRecordAdapter.makeTombstoned(
+        predecessor: predecessor,
+        changedAt: changedAt
+      )
+    default:
+      throw .invalidRecord
+    }
   }
 
   private static func key(
