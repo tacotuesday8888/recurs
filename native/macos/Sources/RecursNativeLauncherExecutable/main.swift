@@ -1,3 +1,5 @@
+import Darwin
+import Dispatch
 import Foundation
 import RecursLauncher
 import RecursNativeProtocol
@@ -49,6 +51,18 @@ private struct MachineHealth: Encodable {
   let peerIdentity = "verified"
 }
 
+private func brokerConnectionError(
+  for error: ServiceRegistrationError
+) -> BrokerConnectionError {
+  switch error {
+  case .productionSigningRequired:
+    .productionSigningRequired
+  case .approvalRequired, .serviceNotFound, .registrationFailed,
+    .unregistrationFailed:
+    .launcherUnavailable
+  }
+}
+
 private func unavailableReason(
   for error: ServiceRegistrationError
 ) -> String {
@@ -94,6 +108,38 @@ private func secureNonce() throws -> Data {
   return Data(bytes)
 }
 
+private func enabledServiceRegistration() throws(ServiceRegistrationError)
+  -> ServiceRegistration
+{
+  let registration = try ServiceRegistration.production()
+  switch registration.status() {
+  case .enabled:
+    return registration
+  case .notRegistered:
+    try registration.register()
+    guard registration.status() == .enabled else {
+      throw .registrationFailed
+    }
+    return registration
+  case .requiresApproval:
+    throw .approvalRequired
+  case .notFound, .unavailable:
+    throw .serviceNotFound
+  }
+}
+
+private func openRegisteredBrokerConnection() throws(BrokerConnectionError)
+  -> BrokerConnection
+{
+  do {
+    _ = try enabledServiceRegistration()
+  } catch {
+    throw brokerConnectionError(for: error)
+  }
+
+  return try BrokerConnection.open()
+}
+
 private func brokerHealth() async throws -> MachineAuthorityStatus {
   let connection = try BrokerConnection.open()
   let hello = try await connection.handshake(
@@ -122,19 +168,7 @@ private func brokerHealth() async throws -> MachineAuthorityStatus {
 
 private func nativeHealth() async -> MachineAuthorityStatus {
   do {
-    let registration = try ServiceRegistration.production()
-    switch registration.status() {
-    case .enabled:
-      break
-    case .notRegistered:
-      try registration.register()
-      guard registration.status() == .enabled else {
-        return .unavailable(reason: "launcher_unavailable")
-      }
-    case .requiresApproval, .notFound, .unavailable:
-      return .unavailable(reason: "launcher_unavailable")
-    }
-
+    let registration = try enabledServiceRegistration()
     do {
       return try await brokerHealth()
     } catch let error as BrokerConnectionError
@@ -172,8 +206,194 @@ private func writeMachineStatus(_ status: MachineAuthorityStatus) {
   FileHandle.standardOutput.write(output)
 }
 
-let arguments = Array(CommandLine.arguments.dropFirst())
-guard arguments == ["native-health", "--machine"] else {
-  Foundation.exit(2)
+private enum EngineRunEvent: Sendable {
+  case bridgeClosed
+  case childFinished(EngineTermination)
+  case childFailed
 }
-writeMachineStatus(await nativeHealth())
+
+private final class EngineSignalRelay: @unchecked Sendable {
+  private static let handledSignals = [SIGINT, SIGTERM, SIGHUP, SIGQUIT]
+  private static let forwardingGraceNanoseconds: UInt64 = 2_000_000_000
+
+  private let lock = NSLock()
+  private var sources: [any DispatchSourceSignal] = []
+  private var child: EngineChildProcess?
+  private var shutdownRequested = false
+  private var shutdownStarted = false
+  private var cancelled = false
+
+  init() {
+    for signalNumber in Self.handledSignals {
+      _ = Darwin.signal(signalNumber, SIG_IGN)
+      let source = DispatchSource.makeSignalSource(
+        signal: signalNumber,
+        queue: DispatchQueue.global(qos: .userInitiated)
+      )
+      source.setEventHandler { [weak self] in
+        self?.requestShutdown()
+      }
+      sources.append(source)
+      source.resume()
+    }
+  }
+
+  func attach(child: EngineChildProcess) {
+    let childToShutdown: EngineChildProcess?
+    lock.lock()
+    if !cancelled, self.child == nil {
+      self.child = child
+    }
+    if shutdownRequested, !shutdownStarted, let attachedChild = self.child {
+      shutdownStarted = true
+      childToShutdown = attachedChild
+    } else {
+      childToShutdown = nil
+    }
+    lock.unlock()
+
+    if let childToShutdown {
+      Self.beginShutdown(of: childToShutdown)
+    }
+  }
+
+  func cancel() {
+    lock.lock()
+    guard !cancelled else {
+      lock.unlock()
+      return
+    }
+    cancelled = true
+    child = nil
+    let activeSources = sources
+    sources.removeAll()
+    lock.unlock()
+
+    for source in activeSources {
+      source.cancel()
+    }
+    for signalNumber in Self.handledSignals {
+      _ = Darwin.signal(signalNumber, SIG_DFL)
+    }
+  }
+
+  private func requestShutdown() {
+    let childToShutdown: EngineChildProcess?
+    lock.lock()
+    guard !cancelled else {
+      lock.unlock()
+      return
+    }
+    shutdownRequested = true
+    if !shutdownStarted, let child {
+      shutdownStarted = true
+      childToShutdown = child
+    } else {
+      childToShutdown = nil
+    }
+    lock.unlock()
+
+    if let childToShutdown {
+      Self.beginShutdown(of: childToShutdown)
+    }
+  }
+
+  private static func beginShutdown(of child: EngineChildProcess) {
+    Task.detached(priority: .userInitiated) {
+      try? await Task.sleep(
+        nanoseconds: forwardingGraceNanoseconds
+      )
+      _ = try? await child.shutdown()
+    }
+  }
+}
+
+private func runBundledEngine(arguments: [String]) async -> EngineTermination? {
+  let signalRelay = EngineSignalRelay()
+  do {
+    let layout = try EngineBundleLayout.production()
+    let child = try await EngineChildProcess.start(
+      layout: layout,
+      arguments: arguments
+    )
+    signalRelay.attach(child: child)
+    let session = LauncherNodeSession(
+      brokerConnectionFactory: { () throws(BrokerConnectionError) -> BrokerConnection in
+        try openRegisteredBrokerConnection()
+      },
+      output: child.socket
+    )
+
+    let termination = await withTaskGroup(
+      of: EngineRunEvent.self,
+      returning: EngineTermination?.self
+    ) { group in
+      group.addTask {
+        await serve(session: session, socket: child.socket)
+        return .bridgeClosed
+      }
+      group.addTask {
+        do {
+          return .childFinished(try await child.wait())
+        } catch {
+          return .childFailed
+        }
+      }
+
+      guard let first = await group.next() else {
+        return nil
+      }
+
+      switch first {
+      case .bridgeClosed:
+        guard let childEvent = await group.next() else {
+          return nil
+        }
+        switch childEvent {
+        case .childFinished(let result):
+          return result
+        case .childFailed:
+          return try? await child.shutdown()
+        case .bridgeClosed:
+          return nil
+        }
+      case .childFinished(let result):
+        group.cancelAll()
+        return result
+      case .childFailed:
+        group.cancelAll()
+        return try? await child.shutdown()
+      }
+    }
+
+    await session.close()
+    await child.socket.close()
+    signalRelay.cancel()
+    return termination
+  } catch {
+    signalRelay.cancel()
+    return nil
+  }
+}
+
+private func exitMirroring(_ termination: EngineTermination?) -> Never {
+  guard let termination else {
+    Foundation.exit(78)
+  }
+
+  switch termination {
+  case .exited(let status):
+    Foundation.exit(status)
+  case .signaled(let signalNumber):
+    _ = Darwin.signal(signalNumber, SIG_DFL)
+    _ = Darwin.raise(signalNumber)
+    Foundation.exit(128 + signalNumber)
+  }
+}
+
+let arguments = Array(CommandLine.arguments.dropFirst())
+if arguments == ["native-health", "--machine"] {
+  writeMachineStatus(await nativeHealth())
+} else {
+  exitMirroring(await runBundledEngine(arguments: arguments))
+}
