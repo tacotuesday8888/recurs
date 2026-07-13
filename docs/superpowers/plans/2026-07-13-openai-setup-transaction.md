@@ -275,7 +275,7 @@ git commit -m "feat: review OpenAI Responses model capabilities"
 
 **Interfaces:**
 - Consumes: `NativeOpenAIOnboardingPort`, exact current `OnboardingCatalog` entry, `FileConnectionActivationStore`, and Task 2 model intersection.
-- Produces: `openAIOnboardingDisclosure(options?)`, `setupOpenAIConnection(dataDirectory, input, dependencies)`, `recoverPendingOpenAIConnection(dataDirectory, dependencies)`, and redacted immutable result/failure unions.
+- Produces: `openAIOnboardingDisclosure(options?)`, `setupOpenAIConnection(dataDirectory, input, dependencies)`, `recoverPendingOpenAIConnection(dataDirectory, dependencies)`, and redacted immutable result/failure unions that explicitly preserve the runtime gate.
 
 - [ ] **Step 1: Write the scripted native port and happy-path failing test**
 
@@ -299,6 +299,7 @@ expect(result).toMatchObject({
     modelId: "gpt-5.6-sol",
     primary: true,
     account: "verified (identifier redacted)",
+    activation: "stored_pending_runtime_gate",
   },
   cleanupPending: false,
 });
@@ -357,6 +358,19 @@ export interface SetupOpenAIConnectionInput {
   readonly now?: string;
 }
 
+export interface OpenAISetupConnectionSummary {
+  readonly id: string;
+  readonly label: "OpenAI API";
+  readonly providerId: "openai-api";
+  readonly adapterId: "openai-responses";
+  readonly kind: "brokered_model_provider";
+  readonly modelId: string;
+  readonly primary: boolean;
+  readonly account: "verified (identifier redacted)";
+  readonly activation: "stored_pending_runtime_gate";
+  readonly billingSources: readonly ["metered_api"];
+}
+
 export type OpenAISetupPhase =
   | "preflight" | "begin" | "verify" | "catalog" | "prepare"
   | "native_commit" | "registry_commit" | "cleanup" | "recovery";
@@ -369,7 +383,7 @@ export type OpenAISetupOutcome =
   | Readonly<{
       state: "ready";
       disposition: "created" | "recovered";
-      connection: ConnectionSummary;
+      connection: OpenAISetupConnectionSummary;
       cleanupPending: boolean;
     }>
   | Readonly<{ state: "cancelled"; cleanup: "confirmed" }>
@@ -533,4 +547,4 @@ Run `git status --short --branch`. Do not force-add ignored `.superpowers` files
 
 - Spec coverage: this plan implements Sections 12 and 13 only for the OpenAI setup metadata transaction and explicitly preserves the Section 15 runtime gate. OpenAI execution, Anthropic, compatible endpoints, CLI rendering, and installed-artifact release evidence remain separate working slices under the active Provider Activation v1 goal.
 - Placeholder scan: every code-changing step includes concrete interfaces, code, commands, and expected behavior.
-- Type consistency: every activation mutation accepts the complete `PendingConnectionActivation`; setup and recovery both use the same exact value; public outcomes use `ConnectionSummary` and never return the registry record or fingerprint.
+- Type consistency: every activation mutation accepts the complete `PendingConnectionActivation`; setup and recovery both use the same exact value; public outcomes use `OpenAISetupConnectionSummary` with `stored_pending_runtime_gate` and never return the registry record or fingerprint.
