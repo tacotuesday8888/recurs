@@ -18,6 +18,10 @@ if (
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const entry = path.join(root, "packages/native-engine/src/main.ts");
+const sealedRuntimes = path.join(
+  root,
+  "packages/native-engine/src/sealed-runtimes.ts",
+);
 const outputDirectory = path.dirname(outputFile);
 const temporaryFile = path.join(
   outputDirectory,
@@ -35,6 +39,9 @@ try {
     plugins: [{
       name: "recurs-workspace-source",
       resolveId(specifier) {
+        if (specifier === "@recurs/runtimes") {
+          return sealedRuntimes;
+        }
         const match = /^@recurs\/([a-z0-9-]+)$/u.exec(specifier);
         return match === null
           ? null
@@ -44,7 +51,11 @@ try {
   });
   const generated = await bundle.generate({
     codeSplitting: false,
-    comments: false,
+    comments: {
+      annotation: true,
+      jsdoc: false,
+      legal: true,
+    },
     format: "esm",
     minify: false,
     sourcemap: false,

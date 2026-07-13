@@ -1,7 +1,16 @@
 import { Buffer } from "node:buffer";
 import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { access, lstat, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import {
+  access,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -18,13 +27,30 @@ const fakePeer = path.join(
 );
 const componentVersion = await readComponentVersion();
 const timeoutMilliseconds = 5_000;
+const builderTimeoutMilliseconds = 30_000;
+const peerShutdownMilliseconds = 500;
 const outputLimit = 64 * 1024;
 const canary = "RECURS_NATIVE_BUNDLE_CANARY_7a16b14e";
+const sealedRuntimeUnavailable =
+  "Delegated Codex runtime is unavailable in the sealed native engine";
+const sealedCliUnavailable =
+  "The official Codex onboarding runtime could not be prepared";
 const temporaryRoot = await mkdtemp(
   path.join(tmpdir(), "recurs-native-engine-bundle-"),
 );
+const isolatedCwd = path.join(temporaryRoot, "isolated-cwd");
+const isolatedHome = path.join(temporaryRoot, "isolated-home");
+const isolatedData = path.join(temporaryRoot, "isolated-data");
+const ambientModules = path.join(temporaryRoot, "ambient-node-modules");
+const ambientCanaryMarker = path.join(temporaryRoot, "ambient-canary-loaded");
 
 try {
+  await Promise.all([
+    mkdir(isolatedCwd, { mode: 0o700 }),
+    mkdir(isolatedHome, { mode: 0o700 }),
+    mkdir(isolatedData, { mode: 0o700 }),
+    createAmbientCanaryPackages(),
+  ]);
   await assertBuilderRejects([]);
   await assertBuilderRejects(["relative/main.js"]);
   await assertBuilderRejects([
@@ -39,7 +65,7 @@ try {
     path.join(temporaryRoot, name, "main.js")
   );
   for (const output of outputs) {
-    await execFileAsync(process.execPath, [builder, output], { cwd: root });
+    await runBuilder([output]);
     await assertSingleArtifact(output);
   }
 
@@ -48,7 +74,7 @@ try {
     throw new Error("Native engine bundle output is not deterministic.");
   }
   assertBundleShape(first.toString("utf8"));
-  await runDoctorSmoke(outputs[0]);
+  await runArtifactSmoke(outputs[0]);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
 }
@@ -88,14 +114,43 @@ function assertBundleShape(source) {
     }
   }
 
+  const ambientModuleResolvers = [
+    [/\bcreateRequire\b/u, "createRequire"],
+    [/\brequire\s*(?:\.\s*resolve\s*)?\(/u, "CommonJS module resolution"],
+    [/\bimport\.meta\.resolve\s*\(/u, "import.meta.resolve"],
+    [
+      /\b(?:Module|module)\s*\.\s*(?:createRequire|require|_findPath|_load|_resolveFilename)\b/u,
+      "Node module resolver access",
+    ],
+    [/\bprocess\s*\.\s*(?:dlopen|getBuiltinModule)\s*\(/u, "runtime loader access"],
+  ];
+  for (const [pattern, description] of ambientModuleResolvers) {
+    if (pattern.test(source)) {
+      throw new Error(
+        `Native engine bundle uses ambient module resolution via ${description}.`,
+      );
+    }
+  }
+  if (!source.includes(sealedRuntimeUnavailable)) {
+    throw new Error("Native engine bundle omitted the sealed runtime boundary.");
+  }
+
   const specifiers = [
     ...source.matchAll(
       /\bimport\s+(?:[^"'()]*?\s+from\s+)?["']([^"']+)["']/gu,
     ),
     ...source.matchAll(/\bimport\s*\(\s*["']([^"']+)["']\s*\)/gu),
+    ...source.matchAll(
+      /\bexport\s+(?:\*|\{[^}]*\})\s+from\s+["']([^"']+)["']/gu,
+    ),
   ].map((match) => match[1]);
   if (specifiers.some((specifier) => !specifier?.startsWith("node:"))) {
     throw new Error("Native engine bundle externalizes a non-node import.");
+  }
+  for (const match of source.matchAll(/\bimport\s*\(\s*([^)]*?)\s*\)/gu)) {
+    if (!/^["']node:[^"']+["']$/u.test(match[1] ?? "")) {
+      throw new Error("Native engine bundle contains a computed dynamic import.");
+    }
   }
 
   const claim = source.indexOf("const input = claimPrivateEngineInput();");
@@ -108,21 +163,74 @@ function assertBundleShape(source) {
   }
 }
 
+function runBuilder(args) {
+  return execFileAsync(process.execPath, [builder, ...args], {
+    cwd: root,
+    killSignal: "SIGKILL",
+    maxBuffer: outputLimit,
+    timeout: builderTimeoutMilliseconds,
+  });
+}
+
 async function assertBuilderRejects(args) {
   try {
-    await execFileAsync(process.execPath, [builder, ...args], { cwd: root });
+    await runBuilder(args);
   } catch {
     return;
   }
   throw new Error("Native engine bundle builder accepted invalid arguments.");
 }
 
+async function runArtifactSmoke(engine) {
+  const help = await runProgram(process.execPath, [engine, "--help"]);
+  assertSuccessfulCommand(help, "bundled native engine help");
+  if (!help.stdout.includes("Recurs coding-agent harness")) {
+    throw new Error("Bundled native engine did not render help.");
+  }
+
+  const catalog = await runProgram(process.execPath, [
+    engine,
+    "provider",
+    "list",
+    "--all",
+    "--json",
+  ]);
+  assertSuccessfulCommand(catalog, "bundled native engine provider catalog");
+  let catalogDocument;
+  try {
+    catalogDocument = JSON.parse(catalog.stdout);
+  } catch {
+    throw new Error("Bundled native engine returned an invalid provider catalog.");
+  }
+  if (
+    catalogDocument?.version !== 1 ||
+    !Array.isArray(catalogDocument.providers) ||
+    !catalogDocument.providers.some(
+      (provider) => provider?.id === "openai-codex-chatgpt",
+    )
+  ) {
+    throw new Error("Bundled native engine omitted the reviewed provider catalog.");
+  }
+
+  if (process.platform === "darwin") {
+    await runDoctorSmoke(engine);
+    await runSealedCodexSmoke(engine);
+  }
+  await assertAmbientCanaryAbsent(help, catalog);
+}
+
 async function runDoctorSmoke(engine) {
-  if (process.platform !== "darwin") return;
 
   const normal = startFakePeer([]);
   try {
-    const result = await runChild(engine, normal.channel);
+    const result = await runProgram(
+      process.execPath,
+      [engine, "doctor", "native", "--json"],
+      {
+        descriptor: normal.channel,
+        environment: { RECURS_NATIVE_FD: "3" },
+      },
+    );
     if (result.code !== 0 || result.signal !== null || result.stderr !== "") {
       throw new Error("Bundled native engine returned an unexpected process result.");
     }
@@ -141,7 +249,7 @@ async function runDoctorSmoke(engine) {
     }
   } finally {
     normal.channel.destroy();
-    normal.peer.kill();
+    await stopPeer(normal.peer);
   }
 
   const interrupted = startFakePeer(["--hang-health"], true);
@@ -150,9 +258,17 @@ async function runDoctorSmoke(engine) {
     interruptedChild?.kill("SIGINT");
   });
   try {
-    const result = await runChild(engine, interrupted.channel, (child) => {
-      interruptedChild = child;
-    });
+    const result = await runProgram(
+      process.execPath,
+      [engine, "doctor", "native", "--json"],
+      {
+        descriptor: interrupted.channel,
+        environment: { RECURS_NATIVE_FD: "3" },
+        onSpawn(child) {
+          interruptedChild = child;
+        },
+      },
+    );
     if (
       result.code !== 130 ||
       result.signal !== null ||
@@ -163,8 +279,179 @@ async function runDoctorSmoke(engine) {
     }
   } finally {
     interrupted.channel.destroy();
-    interrupted.peer.kill();
+    await stopPeer(interrupted.peer);
   }
+}
+
+async function runSealedCodexSmoke(engine) {
+  const expectProgram = [
+    "set timeout 5",
+    "set node $env(RECURS_SMOKE_NODE)",
+    "set engine $env(RECURS_SMOKE_ENGINE)",
+    "unset env(RECURS_SMOKE_NODE)",
+    "unset env(RECURS_SMOKE_ENGINE)",
+    "spawn -noecho $node $engine setup codex",
+    "expect {",
+    "  -exact {Continue? [y/N] } { send \"y\\r\"; exp_continue }",
+    "  eof {}",
+    "  timeout { exit 124 }",
+    "}",
+    "set result [wait]",
+    "exit [lindex $result 3]",
+  ].join("\n");
+  const result = await runProgram(
+    "/usr/bin/expect",
+    ["-c", expectProgram],
+    {
+      environment: {
+        RECURS_SMOKE_ENGINE: engine,
+        RECURS_SMOKE_NODE: process.execPath,
+      },
+    },
+  );
+  const output = `${result.stdout}${result.stderr}`.replaceAll("\r", "");
+  const expected = `Error: ${sealedCliUnavailable}\n`;
+  if (
+    result.code === 0 ||
+    result.signal !== null ||
+    !output.includes(expected) ||
+    output.includes(root) ||
+    output.includes(temporaryRoot)
+  ) {
+    throw new Error("Sealed Codex runtime did not fail with its fixed safe error.");
+  }
+  await assertAmbientCanaryAbsent(result);
+}
+
+function assertSuccessfulCommand(result, label) {
+  if (
+    result.code !== 0 ||
+    result.signal !== null ||
+    result.stderr !== "" ||
+    result.stdout.includes(canary)
+  ) {
+    throw new Error(`${label} returned an unexpected process result.`);
+  }
+}
+
+function isolatedEnvironment(overrides = {}) {
+  return {
+    HOME: isolatedHome,
+    LANG: "C",
+    LC_ALL: "C",
+    NODE_PATH: ambientModules,
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    RECURS_HOME: isolatedData,
+    RECURS_NATIVE_BUNDLE_CANARY: canary,
+    TERM: "dumb",
+    TMPDIR: temporaryRoot,
+    ...overrides,
+  };
+}
+
+async function createAmbientCanaryPackages() {
+  const canaryProgram = [
+    '"use strict";',
+    `require("node:fs").writeFileSync(${JSON.stringify(ambientCanaryMarker)}, ${JSON.stringify(canary)}, { mode: 0o600 });`,
+    `process.stdout.write(${JSON.stringify(`${canary}\n`)});`,
+    "",
+  ].join("\n");
+  const packages = [
+    {
+      directory: "@recurs/runtimes",
+      manifest: { name: "@recurs/runtimes", version: "0.0.0", main: "index.cjs" },
+      files: [["index.cjs", canaryProgram]],
+    },
+    {
+      directory: "@agentclientprotocol/codex-acp",
+      manifest: {
+        name: "@agentclientprotocol/codex-acp",
+        version: "1.1.2",
+        main: "dist/index.js",
+        bin: { "codex-acp": "dist/index.js" },
+      },
+      files: [["dist/index.js", canaryProgram]],
+    },
+    {
+      directory: "@openai/codex",
+      manifest: { name: "@openai/codex", version: "0.144.0" },
+      files: [],
+    },
+    {
+      directory: `@openai/codex-${process.platform}-${process.arch}`,
+      manifest: {
+        name: "@openai/codex",
+        version: `0.144.0-${process.platform}-${process.arch}`,
+        os: [process.platform],
+        cpu: [process.arch],
+      },
+      files: [],
+    },
+  ];
+  for (const entry of packages) {
+    const directory = path.join(ambientModules, entry.directory);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await writeFile(
+      path.join(directory, "package.json"),
+      `${JSON.stringify(entry.manifest)}\n`,
+      { flag: "wx", mode: 0o600 },
+    );
+    for (const [relative, source] of entry.files) {
+      const filename = path.join(directory, relative);
+      await mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
+      await writeFile(filename, source, { flag: "wx", mode: 0o600 });
+    }
+  }
+}
+
+async function assertAmbientCanaryAbsent(...results) {
+  if (
+    results.some((result) =>
+      result.stdout.includes(canary) || result.stderr.includes(canary)
+    )
+  ) {
+    throw new Error("Bundled native engine loaded an ambient canary package.");
+  }
+  let markerExists = true;
+  try {
+    await access(ambientCanaryMarker);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    markerExists = false;
+  }
+  if (markerExists) {
+    throw new Error("Bundled native engine executed an ambient canary package.");
+  }
+}
+
+async function stopPeer(peer) {
+  if (await waitForExit(peer, peerShutdownMilliseconds)) return;
+  peer.kill("SIGTERM");
+  if (await waitForExit(peer, peerShutdownMilliseconds)) return;
+  peer.kill("SIGKILL");
+  if (!(await waitForExit(peer, peerShutdownMilliseconds))) {
+    throw new Error("Native engine bundle fake peer did not exit.");
+  }
+}
+
+function waitForExit(child, milliseconds) {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    let timer;
+    const finish = (exited) => {
+      if (timer !== undefined) clearTimeout(timer);
+      child.off("close", onClose);
+      child.off("error", onError);
+      resolve(exited);
+    };
+    const onClose = () => finish(true);
+    const onError = () => finish(true);
+    child.once("close", onClose);
+    child.once("error", onError);
+    timer = setTimeout(() => finish(false), milliseconds);
+  });
 }
 
 function startFakePeer(args, observeHealth = false) {
@@ -185,23 +472,22 @@ function startFakePeer(args, observeHealth = false) {
   return { channel, peer };
 }
 
-function runChild(engine, descriptor, onSpawn) {
+function runProgram(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [engine, "doctor", "native", "--json"], {
-      cwd: root,
-      env: {
-        ...process.env,
-        RECURS_HOME: temporaryRoot,
-        RECURS_NATIVE_FD: "3",
-        RECURS_NATIVE_BUNDLE_CANARY: canary,
-      },
-      stdio: ["ignore", "pipe", "pipe", descriptor],
+    const descriptor = options.descriptor;
+    const child = spawn(command, args, {
+      cwd: isolatedCwd,
+      env: isolatedEnvironment(options.environment),
+      stdio: descriptor === undefined
+        ? [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"]
+        : ["ignore", "pipe", "pipe", descriptor],
     });
-    descriptor.destroy();
+    descriptor?.destroy();
     let stdout = "";
     let stderr = "";
     let failure;
     let settled = false;
+    let inputSent = false;
     let timer;
     const finish = (result) => {
       if (settled) return;
@@ -223,6 +509,15 @@ function runChild(engine, descriptor, onSpawn) {
     };
     function onStdout(chunk) {
       stdout = append(stdout, chunk);
+      if (
+        !inputSent &&
+        options.input !== undefined &&
+        options.inputPrompt !== undefined &&
+        stdout.includes(options.inputPrompt)
+      ) {
+        inputSent = true;
+        child.stdin.end(options.input);
+      }
     }
     function onStderr(chunk) {
       stderr = append(stderr, chunk);
@@ -255,7 +550,11 @@ function runChild(engine, descriptor, onSpawn) {
       finish({ code, signal, stdout, stderr });
     });
     try {
-      onSpawn?.(child);
+      options.onSpawn?.(child);
+      if (options.input !== undefined && options.inputPrompt === undefined) {
+        inputSent = true;
+        child.stdin.end(options.input);
+      }
     } catch {
       terminate(new Error("Bundled native engine smoke setup failed."));
     }
