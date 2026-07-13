@@ -37,6 +37,7 @@ protocol BrokerCredentialLifecycleAuthority: Sendable {
 
 struct BrokerCredentialAuthority:
   BrokerCredentialLifecycleAuthority,
+  BrokerProviderRouteProjectionReader,
   Sendable
 {
   let state: BrokerCredentialState
@@ -71,6 +72,12 @@ struct BrokerCredentialAuthority:
     for connectionID: UUID
   ) async throws(BrokerJournalError) -> CredentialLifecycleProjection {
     try await state.authoritativeLifecycleProjection(for: connectionID)
+  }
+
+  func authoritativeBoundProjection(
+    for connectionID: UUID
+  ) async throws(BrokerJournalError) -> BrokerCredentialBoundProjection? {
+    try await state.authoritativeBoundProjection(for: connectionID)
   }
 
   func stage(

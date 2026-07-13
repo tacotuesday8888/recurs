@@ -102,6 +102,19 @@ package enum CredentialProjection: Sendable, Hashable, Codable {
   }
 }
 
+package struct BrokerCredentialBoundProjection: Sendable, Equatable {
+  package let providerBinding: ProviderProfileBinding
+  package let projection: CredentialProjection
+
+  package init(
+    providerBinding: ProviderProfileBinding,
+    projection: CredentialProjection
+  ) {
+    self.providerBinding = providerBinding
+    self.projection = projection
+  }
+}
+
 package enum CredentialLifecycleProjection: Sendable, Equatable {
   case missing(connectionID: UUID)
   case vacant(connectionID: UUID, fence: UInt64)
@@ -319,6 +332,32 @@ package actor BrokerCredentialState {
       result = .failure(error)
     }
     return try machine.finishAuthoritativeProjection(token, result: result)
+  }
+
+  package func authoritativeBoundProjection(
+    for connectionID: UUID
+  ) async throws(BrokerJournalError) -> BrokerCredentialBoundProjection? {
+    guard let journal else {
+      throw .storageUnavailable
+    }
+    let token = try machine.beginAuthoritativeProjection(connectionID: connectionID)
+    let result: Result<BrokerJournalSnapshot?, BrokerJournalError>
+    do {
+      result = .success(try await journal.load(connectionID: connectionID))
+    } catch let error {
+      result = .failure(error)
+    }
+    let projection = try machine.finishAuthoritativeProjection(token, result: result)
+    guard
+      case .success(let snapshot?) = result,
+      let projection
+    else {
+      return nil
+    }
+    return BrokerCredentialBoundProjection(
+      providerBinding: snapshot.record.providerBinding,
+      projection: projection
+    )
   }
 
   package func authoritativeLifecycleProjection(
