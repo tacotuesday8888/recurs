@@ -196,7 +196,13 @@ struct EngineChildProcessTests {
     await #expect(throws: EngineChildProcessError.waitFailed) {
       _ = try await child.wait()
     }
+    #expect(await child.ownsExactPIDForTesting())
+    await #expect(throws: EngineChildProcessError.waitFailed) {
+      _ = try await child.shutdown()
+    }
+    #expect(await child.ownsExactPIDForTesting())
     #expect(fixture.waitCalls.count == 1)
+    #expect(fixture.signals.isEmpty)
     #expect(fixture.closedDescriptors.filter { $0 == 10 }.count == 1)
   }
 

@@ -230,6 +230,10 @@ package final class EngineChildProcess: @unchecked Sendable {
     await socket.close()
     return try await lifecycle.shutdown()
   }
+
+  func ownsExactPIDForTesting() async -> Bool {
+    await lifecycle.ownsExactPID()
+  }
 }
 
 private actor EngineChildLifecycle {
@@ -260,6 +264,10 @@ private actor EngineChildLifecycle {
     return try await runTask().value.get()
   }
 
+  func ownsExactPID() -> Bool {
+    pid != nil
+  }
+
   private func runTask() -> Task<
     Result<EngineTermination, EngineChildProcessError>, Never
   > {
@@ -281,12 +289,12 @@ private actor EngineChildLifecycle {
     while let ownedPID = pid {
       switch waitOnce(pid: ownedPID) {
       case .failure(let error):
-        return finish(.failure(error))
+        return storeFailure(error)
       case .success(.reaped(let status)):
         guard let termination = decodeWaitStatus(status) else {
-          return finish(.failure(.waitFailed))
+          return finishAfterReap(.failure(.waitFailed))
         }
-        return finish(.success(termination))
+        return finishAfterReap(.success(termination))
       case .success(.running):
         break
       }
@@ -295,7 +303,7 @@ private actor EngineChildLifecycle {
         if !termSent {
           termSent = true
           guard signal(pid: ownedPID, signal: SIGTERM) else {
-            return finish(.failure(.shutdownFailed))
+            return storeFailure(.shutdownFailed)
           }
           shutdownDeadline = deadline(
             from: system.nowNanoseconds(),
@@ -307,7 +315,7 @@ private actor EngineChildLifecycle {
         {
           killSent = true
           guard signal(pid: ownedPID, signal: SIGKILL) else {
-            return finish(.failure(.shutdownFailed))
+            return storeFailure(.shutdownFailed)
           }
         }
       }
@@ -346,11 +354,19 @@ private actor EngineChildLifecycle {
     }
   }
 
-  private func finish(
+  private func finishAfterReap(
     _ result: Result<EngineTermination, EngineChildProcessError>
   ) -> Result<EngineTermination, EngineChildProcessError> {
     finalResult = result
     pid = nil
+    return result
+  }
+
+  private func storeFailure(
+    _ error: EngineChildProcessError
+  ) -> Result<EngineTermination, EngineChildProcessError> {
+    let result: Result<EngineTermination, EngineChildProcessError> = .failure(error)
+    finalResult = result
     return result
   }
 }
@@ -465,13 +481,17 @@ private func liveSpawn(
 ) -> Result<pid_t, EngineChildProcessCallFailure> {
   guard
     engineDescriptor > 3,
-    let executableCString = strdup(executable),
+    let executableCString = strdup(executable)
+  else {
+    return .failure(.failed)
+  }
+  defer { free(executableCString) }
+  guard
     let argumentVector = EngineCStringVector(arguments),
     let environmentVector = EngineCStringVector(environment)
   else {
     return .failure(.failed)
   }
-  defer { free(executableCString) }
 
   var fileActions: posix_spawn_file_actions_t?
   guard posix_spawn_file_actions_init(&fileActions) == 0 else {
