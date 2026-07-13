@@ -258,7 +258,7 @@ struct BrokerCredentialRecoveryExecutorTests {
   }
 
   @Test
-  func recoveredActorsAllowJournaledStageButGuardOtherNewMutations() async throws {
+  func recoveredActorsAllowJournaledLifecycleAndPreserveStateErrors() async throws {
     let fixture = try RecoveryExecutorFixture()
     let ready = try fixture.readyRecordWithStageFailure(id: 60)
     let journal = try InMemoryBrokerJournalStore(snapshots: [try fixture.snapshot(ready)])
@@ -288,7 +288,7 @@ struct BrokerCredentialRecoveryExecutorTests {
       )
     }
     #expect(replayAlias.isErased())
-    await expectRecoveryBrokerError(.storeUnavailable) {
+    await expectRecoveryBrokerError(.staleFence) {
       try await state.disconnect(
         connectionID: ready.connectionID,
         operationID: recoveryExecutorUUID(60, 91),
