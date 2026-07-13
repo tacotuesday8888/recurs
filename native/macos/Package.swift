@@ -80,7 +80,10 @@ let package = Package(
         "RecursNativeSecurityTests",
       ],
       sources: ["RecursNativeProtocolTests"],
-      resources: [.copy("Fixtures/frames.json")]
+      resources: [
+        .copy("Fixtures/frames.json"),
+        .copy("Fixtures/openai-onboarding.json"),
+      ]
     ),
     .testTarget(
       name: "RecursNativeSecurityTests",

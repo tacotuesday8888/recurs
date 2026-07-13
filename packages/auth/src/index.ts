@@ -44,6 +44,36 @@ export type {
   NativeHelloResult,
 } from "./messages.js";
 export {
+  OPENAI_ONBOARDING_MAX_CATALOG_REQUEST_ID_UTF8_BYTES,
+  OPENAI_ONBOARDING_MAX_MODEL_COUNT,
+  OPENAI_ONBOARDING_MAX_MODEL_ID_UTF8_BYTES,
+  OPENAI_ONBOARDING_MAX_MODEL_IDS_PER_PAGE,
+  NativeOpenAIOnboardingFailureCode,
+  decodeOpenAIOnboardingAborted,
+  decodeOpenAIOnboardingBegun,
+  decodeOpenAIOnboardingCatalogPage,
+  decodeOpenAIOnboardingCommitted,
+  decodeOpenAIOnboardingFailure,
+  decodeOpenAIOnboardingReconciliation,
+  decodeOpenAIOnboardingRequest,
+  encodeOpenAIOnboardingAborted,
+  encodeOpenAIOnboardingBegun,
+  encodeOpenAIOnboardingCatalogPage,
+  encodeOpenAIOnboardingCommitted,
+  encodeOpenAIOnboardingFailure,
+  encodeOpenAIOnboardingReconciliation,
+  encodeOpenAIOnboardingRequest,
+} from "./openai-onboarding.js";
+export type {
+  NativeOpenAIOnboardingBegun,
+  NativeOpenAIOnboardingCatalogPage,
+  NativeOpenAIOnboardingCommitted,
+  NativeOpenAIOnboardingFailure,
+  NativeOpenAIOnboardingReconciliation,
+  NativeOpenAIOnboardingReconciliationStatus,
+  NativeOpenAIOnboardingRequest,
+} from "./openai-onboarding.js";
+export {
   NativeAuthorityClientUnavailableError,
   connectNativeAuthorityClient,
 } from "./client.js";

@@ -227,7 +227,7 @@ struct FrameTests {
       rawFrame(type: 3, requestID: 1, payload: uint16(0), magic: 0x52_43_55_53),
       rawFrame(type: 3, requestID: 1, payload: uint16(0), protocolVersion: 2),
       rawFrame(type: 3, requestID: 0, payload: uint16(0)),
-      rawFrame(type: 6, requestID: 1, payload: uint16(0)),
+      rawFrame(type: 13, requestID: 1, payload: uint16(0)),
       rawFrame(type: 0, requestID: 1, payload: uint16(0)),
       rawFrame(
         type: 3,

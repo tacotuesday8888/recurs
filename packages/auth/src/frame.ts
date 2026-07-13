@@ -30,6 +30,13 @@ export enum NativeMessageType {
   health = 3,
   healthResult = 4,
   cancel = 5,
+  openAIOnboardingRequest = 6,
+  openAIOnboardingBegun = 7,
+  openAIOnboardingCatalogPage = 8,
+  openAIOnboardingCommitted = 9,
+  openAIOnboardingAborted = 10,
+  openAIOnboardingReconciliation = 11,
+  openAIOnboardingFailure = 12,
   safeFailure = 255,
 }
 Object.freeze(NativeMessageType);
@@ -147,6 +154,13 @@ function isNativeMessageType(value: number): value is NativeMessageType {
     case NativeMessageType.health:
     case NativeMessageType.healthResult:
     case NativeMessageType.cancel:
+    case NativeMessageType.openAIOnboardingRequest:
+    case NativeMessageType.openAIOnboardingBegun:
+    case NativeMessageType.openAIOnboardingCatalogPage:
+    case NativeMessageType.openAIOnboardingCommitted:
+    case NativeMessageType.openAIOnboardingAborted:
+    case NativeMessageType.openAIOnboardingReconciliation:
+    case NativeMessageType.openAIOnboardingFailure:
     case NativeMessageType.safeFailure:
       return true;
     default:

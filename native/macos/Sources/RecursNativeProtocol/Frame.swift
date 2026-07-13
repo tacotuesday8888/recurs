@@ -14,6 +14,13 @@ public enum NativeMessageType: UInt16, CaseIterable, Sendable {
   case health = 3
   case healthResult = 4
   case cancel = 5
+  case openAIOnboardingRequest = 6
+  case openAIOnboardingBegun = 7
+  case openAIOnboardingCatalogPage = 8
+  case openAIOnboardingCommitted = 9
+  case openAIOnboardingAborted = 10
+  case openAIOnboardingReconciliation = 11
+  case openAIOnboardingFailure = 12
   case safeFailure = 255
 }
 
