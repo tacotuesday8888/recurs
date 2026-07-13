@@ -814,6 +814,15 @@ private final class XPCFakeAuthority: BrokerCredentialLifecycleAuthority, @unche
     )
   }
 
+  func commit(
+    connectionID: UUID,
+    attemptID: UUID,
+    operationID: UUID,
+    expectedFence: UInt64
+  ) async throws(BrokerStateError) -> ReadyProjection {
+    throw .invalidTransition
+  }
+
   func abort(
     connectionID: UUID,
     attemptID: UUID,

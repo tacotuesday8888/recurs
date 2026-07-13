@@ -604,6 +604,15 @@ private struct GatewayAuthority: BrokerCredentialLifecycleAuthority {
     return stagingAttempt(connectionID: connectionID, fence: expectedFence + 1)
   }
 
+  func commit(
+    connectionID: UUID,
+    attemptID: UUID,
+    operationID: UUID,
+    expectedFence: UInt64
+  ) async throws(BrokerStateError) -> ReadyProjection {
+    throw .invalidTransition
+  }
+
   func abort(
     connectionID: UUID,
     attemptID: UUID,

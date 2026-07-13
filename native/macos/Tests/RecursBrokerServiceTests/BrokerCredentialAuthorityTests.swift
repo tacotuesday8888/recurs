@@ -7,6 +7,34 @@ import Testing
 @Suite
 struct BrokerCredentialAuthorityTests {
   @Test
+  func commitForwardsTheExactOwnedStagingAttempt() async throws {
+    let connectionID = UUID(uuidString: "10000000-0000-4000-8000-000000000030")!
+    let state = try BrokerCredentialState(store: AuthorityCredentialStore())
+    let authority = BrokerCredentialAuthority(state: state)
+    let attempt = try await authority.stage(
+      connectionID: connectionID,
+      providerBinding: .openAI,
+      operationID: UUID(uuidString: "20000000-0000-4000-8000-000000000030")!,
+      expectedFence: 0,
+      secret: SecretBytes(Data("commit-forwarding-secret".utf8))
+    )
+
+    let ready = try await authority.commit(
+      connectionID: connectionID,
+      attemptID: attempt.attemptID,
+      operationID: UUID(uuidString: "20000000-0000-4000-8000-000000000031")!,
+      expectedFence: attempt.fence
+    )
+
+    #expect(ready.connectionID == connectionID)
+    #expect(ready.ready.generation == attempt.candidate)
+    #expect(
+      try await authority.authoritativeLifecycleProjection(for: connectionID)
+        == .ready(connectionID: connectionID, fence: attempt.fence)
+    )
+  }
+
+  @Test
   func recoveryRestoresStableRecordsAndForwardsToOneStateActor() async throws {
     let vacantID = UUID(uuidString: "10000000-0000-4000-8000-000000000001")!
     let readyID = UUID(uuidString: "10000000-0000-4000-8000-000000000002")!

@@ -21,6 +21,13 @@ protocol BrokerCredentialLifecycleAuthority: Sendable {
     expectedFence: UInt64
   ) async throws(BrokerStateError) -> StagingAttempt
 
+  func commit(
+    connectionID: UUID,
+    attemptID: UUID,
+    operationID: UUID,
+    expectedFence: UInt64
+  ) async throws(BrokerStateError) -> ReadyProjection
+
   func abort(
     connectionID: UUID,
     attemptID: UUID,
@@ -153,6 +160,20 @@ struct BrokerCredentialAuthority:
   ) async throws(BrokerStateError) -> StagingAttempt {
     try await state.resumeStage(
       connectionID: connectionID,
+      operationID: operationID,
+      expectedFence: expectedFence
+    )
+  }
+
+  func commit(
+    connectionID: UUID,
+    attemptID: UUID,
+    operationID: UUID,
+    expectedFence: UInt64
+  ) async throws(BrokerStateError) -> ReadyProjection {
+    try await state.commit(
+      connectionID: connectionID,
+      attemptID: attemptID,
       operationID: operationID,
       expectedFence: expectedFence
     )

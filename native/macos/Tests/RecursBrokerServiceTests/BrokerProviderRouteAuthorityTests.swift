@@ -491,6 +491,38 @@ struct BrokerProviderRouteAuthorityTests {
   }
 
   @Test
+  func setupIssuanceRejectsARestagedAttemptBeforeCreatingCapability() async throws {
+    let original = stagingAttempt(fence: 1)
+    let replacement = stagingAttempt(
+      fence: 2,
+      attemptID: UUID(uuidString: "a2000000-0000-4000-8000-000000000099")!
+    )
+    let reader = RouteProjectionReader(
+      projection: bound(.openAI, .staging(original))
+    )
+    let authority = routeAuthority(reader: reader)
+    await reader.blockNextReads(1)
+    let issue = Task {
+      try await authority.issueSetup(
+        connectionID: connectionID,
+        attemptID: original.attemptID,
+        expectedFence: original.fence,
+        expiresAt: now.addingTimeInterval(60),
+        requestBudget: 1,
+        byteBudget: 0
+      )
+    }
+    await reader.waitUntilBlocked()
+
+    await reader.setProjection(bound(.openAI, .staging(replacement)))
+    await reader.releaseBlockedReads()
+
+    await #expect(throws: BrokerProviderRouteAuthorityError.staleCapability) {
+      _ = try await issue.value
+    }
+  }
+
+  @Test
   func requestAndCheckedByteBudgetsFailBeforeAnotherRead() async throws {
     let reader = RouteProjectionReader(
       projection: bound(.openAI, .staging(stagingAttempt()))

@@ -233,6 +233,11 @@ protocol BrokerProviderRouteProjectionReader: Sendable {
 }
 
 actor BrokerProviderRouteAuthority {
+  private struct ExpectedSetupIdentity: Sendable {
+    let attemptID: UUID
+    let fence: UInt64
+  }
+
   private struct PendingReserve: Sendable {
     let capabilityID: ObjectIdentifier
     let latch: ProviderRouteOperationLatch
@@ -291,6 +296,45 @@ actor BrokerProviderRouteAuthority {
     requestBudget: UInt64,
     byteBudget: UInt64
   ) async throws(BrokerProviderRouteAuthorityError) -> BrokerProviderRouteCapability {
+    try await issue(
+      scope: scope,
+      connectionID: connectionID,
+      expectedSetupIdentity: nil,
+      expiresAt: expiresAt,
+      requestBudget: requestBudget,
+      byteBudget: byteBudget
+    )
+  }
+
+  func issueSetup(
+    connectionID: UUID,
+    attemptID: UUID,
+    expectedFence: UInt64,
+    expiresAt: Date,
+    requestBudget: UInt64,
+    byteBudget: UInt64
+  ) async throws(BrokerProviderRouteAuthorityError) -> BrokerProviderRouteCapability {
+    try await issue(
+      scope: .setup,
+      connectionID: connectionID,
+      expectedSetupIdentity: ExpectedSetupIdentity(
+        attemptID: attemptID,
+        fence: expectedFence
+      ),
+      expiresAt: expiresAt,
+      requestBudget: requestBudget,
+      byteBudget: byteBudget
+    )
+  }
+
+  private func issue(
+    scope: BrokerProviderRouteScope,
+    connectionID: UUID,
+    expectedSetupIdentity: ExpectedSetupIdentity?,
+    expiresAt: Date,
+    requestBudget: UInt64,
+    byteBudget: UInt64
+  ) async throws(BrokerProviderRouteAuthorityError) -> BrokerProviderRouteCapability {
     try checkSession(expiresAt: expiresAt)
 
     let result: Result<BrokerCredentialBoundProjection?, BrokerJournalError>
@@ -312,6 +356,15 @@ actor BrokerProviderRouteAuthority {
       projection: bound.projection,
       stale: false
     )
+    if let expectedSetupIdentity {
+      guard
+        case .stagingCandidate(_, let fence, let attemptID, _) = identity,
+        attemptID == expectedSetupIdentity.attemptID,
+        fence == expectedSetupIdentity.fence
+      else {
+        throw .staleCapability
+      }
+    }
     try Self.requireRoute(scope.routeID, from: bound.providerBinding)
 
     let handle = BrokerProviderRouteCapability()
