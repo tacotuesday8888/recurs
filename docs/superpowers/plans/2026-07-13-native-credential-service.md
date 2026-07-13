@@ -278,6 +278,12 @@ public enum BrokerCredentialLifecycleFailureCode: UInt16, Sendable {
   case authorityUnavailable = 13
 }
 
+package struct BrokerCredentialLifecycleCodecError: Error, Sendable, Equatable {
+  // Present only when a canonical client request ID was decoded before a
+  // later frame error. Never contains raw frame bytes or native error text.
+  package let requestID: UInt64?
+}
+
 public struct BrokerCredentialRedactedProjection: Sendable, Equatable {
   public let state: BrokerCredentialRedactedState
   public let fence: UInt64
@@ -302,7 +308,11 @@ public enum BrokerCredentialLifecycleReply: Sendable, Equatable {
 
 Each request/reply exposes `encode() throws -> Data`; request/reply namespaces
 expose exact `decode(_:)`. Constructors validate all state invariants so invalid
-values cannot be encoded.
+values cannot be encoded. Codec errors have one fixed, data-independent
+description. A decoder error carries a request ID only after parsing a value in
+`1...(UInt64.max - 1)`; header, truncation, bad-ID, and encoder failures carry
+`nil`. This is the only Task 3 seam for choosing an echoed ID versus the
+malformed-request sentinel; the gateway must not parse the wire a second time.
 
 - [ ] **Step 1: Add codec tests from the frozen table above**
 
@@ -312,10 +322,13 @@ bodies, all-zero UUIDs, a reserved kind 4 body other than one request ID,
 invalid state/fence/ready/attempt combinations, reply kind/state mismatches,
 and unknown fixed failure codes. Prove canonical kind 4 decodes only to
 `.reservedOperation`; Task 3 owns the `.operationUnavailable` dispatch rule.
+Prove reply kind 101 accepts every valid redacted state, kind 102 accepts only
+staging, and kind 103 accepts only vacant, ready, or tombstoned.
 Prove the reply codec accepts the reserved sentinel only for
 `.invalidRequest`, while ordinary valid-request failure replies echo a client
 request ID below the sentinel. Task 3 proves malformed input dispatches that
-sentinel reply.
+sentinel reply. Verify the codec error exposes a validated request ID after a
+later UUID/state/length failure and `nil` before that point.
 Assert a credential canary and all forbidden identifier names are absent from
 every encoded reply.
 
