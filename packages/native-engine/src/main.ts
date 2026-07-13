@@ -6,8 +6,20 @@ import {
 } from "./inherited-socket.js";
 
 const input = claimPrivateEngineInput();
-const { runPrivateEngineProcess } = await import("./native-authority.js");
-await runPrivateEngineProcess(input);
+let ownershipTransferred = false;
+try {
+  const { runPrivateEngineProcess } = await import("./native-authority.js");
+  ownershipTransferred = true;
+  await runPrivateEngineProcess(input);
+} finally {
+  if (!ownershipTransferred && "duplex" in input) {
+    try {
+      input.duplex.destroy();
+    } catch {
+      // Pre-transfer closure never exposes private transport details.
+    }
+  }
+}
 
 function claimPrivateEngineInput() {
   if (process.platform !== "darwin") {

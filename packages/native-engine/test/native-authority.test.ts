@@ -160,6 +160,27 @@ describe("private native authority host", () => {
     expect(socket.destroyed).toBe(true);
   });
 
+  it("closes the socket when status is called with a pre-aborted signal", async () => {
+    const socket = new SelfAttestingNativePeer();
+    const port = createPrivateNativeAuthorityStatusPort(socket, {
+      handshakeTimeoutMilliseconds: 100,
+      requestTimeoutMilliseconds: 100,
+    });
+    const controller = new AbortController();
+    controller.abort("SECRET_PRIVATE_HOST_PRE_ABORT_CANARY");
+
+    const error = await port.status(controller.signal).catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toMatchObject({
+      name: "AbortError",
+      message: "The operation was aborted.",
+    });
+    expect(JSON.stringify(error)).not.toContain("SECRET_");
+    expect(socket.destroyed).toBe(true);
+  });
+
   it("ignores fabricated trust arguments from untyped JavaScript", async () => {
     const callFromUntypedJavascript =
       createPrivateNativeAuthorityStatusPort as (

@@ -54,10 +54,10 @@ export function createPrivateNativeAuthorityStatusPort(
 
   return Object.freeze({
     async status(signal?: AbortSignal): Promise<NativeAuthorityStatus> {
-      if (isCancelled(signal)) throw cancellation();
       if (claimed || closed) return BROKER_UNAVAILABLE;
       claimed = true;
       try {
+        if (isCancelled(signal)) throw cancellation();
         client = await connectNativeAuthorityClient(duplex, {
           engineVersion: NATIVE_COMPONENT_VERSION,
           ...(options.handshakeTimeoutMilliseconds === undefined
