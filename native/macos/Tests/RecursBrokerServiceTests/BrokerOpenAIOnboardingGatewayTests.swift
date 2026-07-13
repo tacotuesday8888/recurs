@@ -70,8 +70,17 @@ struct BrokerOpenAIOnboardingGatewayTests {
           recoveryTokens: try BrokerOpenAIOnboardingRecoveryTokens(
             commitOperationID: commitOperationID,
             abortOperationID: abortOperationID
-          )
+          ),
+          credentialIdentityFingerprint: credentialIdentityFingerprint.rawValue
         )
+    )
+    #expect(
+      system.fingerprinter.calls == [
+        FingerprintCall(
+          credential: Data(secretCanary.utf8),
+          binding: .openAI
+        )
+      ]
     )
     #expect(
       system.authority.stageCalls == [
@@ -146,6 +155,37 @@ struct BrokerOpenAIOnboardingGatewayTests {
     #expect(system.factory.calls.isEmpty)
   }
 
+  @Test(arguments: fingerprintFailureFixtures)
+  func credentialIdentityFailuresEraseAndNeverStageTheSecret(
+    _ fixture: FingerprintFailureFixture
+  ) throws {
+    let system = makeSystem(fingerprintResult: .failure(fixture.error))
+    system.gateway.authorizeAfterHello()
+    let secretMemory = SecretMemoryProbe(Data(secretCanary.utf8))
+    let reply = OnboardingReplyProbe()
+
+    system.gateway.submitBegin(
+      try BrokerOpenAIOnboardingRequest.begin(requestID: 1).encode(),
+      secret: secretMemory.consumeData(),
+      reply: reply.receive
+    )
+    let encoded = reply.wait()
+
+    #expect(try decoded(encoded) == .failure(requestID: 1, fixture.expectedCode))
+    #expect(
+      system.fingerprinter.calls == [
+        FingerprintCall(
+          credential: Data(secretCanary.utf8),
+          binding: .openAI
+        )
+      ]
+    )
+    #expect(system.authority.stageCalls.isEmpty)
+    #expect(system.factory.calls.isEmpty)
+    #expect(!encoded.contains(Data(secretCanary.utf8)))
+    #expect(secretMemory.isErased)
+  }
+
   @Test
   func invalidGeneratedIdentityFailsBeforeStage() throws {
     let invalidSequences = [
@@ -170,6 +210,7 @@ struct BrokerOpenAIOnboardingGatewayTests {
       let gateway = BrokerOpenAIOnboardingGateway(
         authority: authority,
         factory: factory,
+        credentialIdentityFingerprinter: GatewayCredentialIdentityFingerprinter(),
         makeUUID: source.next
       )
       gateway.authorizeAfterHello()
@@ -477,7 +518,8 @@ struct BrokerOpenAIOnboardingGatewayTests {
     ),
     finalizeResult: GatewaySession.FinalizeResult = .success,
     factoryFailure: BrokerOpenAIOnboardingError? = nil,
-    closeError: BrokerOpenAIOnboardingError? = nil
+    closeError: BrokerOpenAIOnboardingError? = nil,
+    fingerprintResult: GatewayCredentialIdentityFingerprinter.Result = .success
   ) -> GatewaySystem {
     let authority = OnboardingGatewayAuthority(result: stageResult)
     let session = GatewaySession(
@@ -487,6 +529,7 @@ struct BrokerOpenAIOnboardingGatewayTests {
       closeError: closeError
     )
     let factory = GatewaySessionFactory(session: session, failure: factoryFailure)
+    let fingerprinter = GatewayCredentialIdentityFingerprinter(result: fingerprintResult)
     let source = OnboardingUUIDSource([
       connectionID, stageOperationID, commitOperationID, abortOperationID,
     ])
@@ -494,10 +537,12 @@ struct BrokerOpenAIOnboardingGatewayTests {
       gateway: BrokerOpenAIOnboardingGateway(
         authority: authority,
         factory: factory,
+        credentialIdentityFingerprinter: fingerprinter,
         makeUUID: source.next
       ),
       authority: authority,
       factory: factory,
+      fingerprinter: fingerprinter,
       session: session
     )
   }
@@ -516,13 +561,86 @@ private let abortOperationID = UUID(
 private let attemptID = UUID(uuidString: "50000000-0000-4000-8000-000000000001")!
 private let generationID = UUID(uuidString: "60000000-0000-4000-8000-000000000001")!
 private let secretCanary = "onboarding-secret-canary-84f2"
+private let credentialIdentityFingerprint = try! CredentialIdentityFingerprint(
+  validating: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+)
 private let zeroUUID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 
 private struct GatewaySystem {
   let gateway: BrokerOpenAIOnboardingGateway
   let authority: OnboardingGatewayAuthority
   let factory: GatewaySessionFactory
+  let fingerprinter: GatewayCredentialIdentityFingerprinter
   let session: GatewaySession
+}
+
+private struct FingerprintCall: Sendable, Equatable {
+  let credential: Data
+  let binding: ProviderProfileBinding
+}
+
+private final class GatewayCredentialIdentityFingerprinter:
+  @unchecked Sendable,
+  CredentialIdentityFingerprinting
+{
+  enum Result: Sendable {
+    case success
+    case failure(CredentialIdentityFingerprintError)
+  }
+
+  private let lock = NSLock()
+  private let result: Result
+  private var storedCalls: [FingerprintCall] = []
+
+  init(result: Result = .success) {
+    self.result = result
+  }
+
+  var calls: [FingerprintCall] { lock.withLock { storedCalls } }
+
+  func fingerprint(
+    credential: UnsafeRawBufferPointer,
+    binding: ProviderProfileBinding
+  ) throws(CredentialIdentityFingerprintError) -> CredentialIdentityFingerprint {
+    lock.withLock {
+      storedCalls.append(
+        FingerprintCall(credential: Data(credential), binding: binding)
+      )
+    }
+    switch result {
+    case .success:
+      return credentialIdentityFingerprint
+    case .failure(let error):
+      throw error
+    }
+  }
+}
+
+private final class SecretMemoryProbe {
+  private let pointer: UnsafeMutableRawPointer
+  private let byteCount: Int
+
+  init(_ data: Data) {
+    byteCount = data.count
+    pointer = .allocate(byteCount: byteCount, alignment: 1)
+    data.withUnsafeBytes { source in
+      pointer.copyMemory(from: source.baseAddress!, byteCount: byteCount)
+    }
+  }
+
+  deinit {
+    pointer.initializeMemory(as: UInt8.self, repeating: 0, count: byteCount)
+    pointer.deallocate()
+  }
+
+  var isErased: Bool {
+    let bytes = UnsafeRawBufferPointer(start: pointer, count: byteCount)
+    return bytes.allSatisfy { $0 == 0 }
+  }
+
+  func consumeData() -> Data {
+    Data(bytesNoCopy: pointer, count: byteCount, deallocator: .none)
+  }
 }
 
 private struct StageCall: Sendable, Equatable {
@@ -887,6 +1005,12 @@ struct StageFailureFixture: Sendable, CustomTestStringConvertible {
   var testDescription: String { "\(error) → \(expectedCode)" }
 }
 
+struct FingerprintFailureFixture: Sendable, CustomTestStringConvertible {
+  let error: CredentialIdentityFingerprintError
+  let expectedCode: BrokerOpenAIOnboardingFailureCode
+  var testDescription: String { "\(error) → \(expectedCode)" }
+}
+
 private let sessionFailureFixtures = [
   SessionFailureFixture(error: .cancelled, expectedCode: .cancelled),
   SessionFailureFixture(error: .expired, expectedCode: .expired),
@@ -917,6 +1041,20 @@ private let stageFailureFixtures = [
   StageFailureFixture(error: .storeUnavailable, expectedCode: .credentialStoreUnavailable),
   StageFailureFixture(error: .cleanupPending, expectedCode: .cleanupFailed),
   StageFailureFixture(error: .invalidBootstrap, expectedCode: .authorityUnavailable),
+]
+
+private let fingerprintFailureFixtures = [
+  FingerprintFailureFixture(
+    error: .keyUnavailable,
+    expectedCode: .credentialStoreUnavailable
+  ),
+  FingerprintFailureFixture(
+    error: .keyMalformed,
+    expectedCode: .credentialStoreUnavailable
+  ),
+  FingerprintFailureFixture(error: .invalidCredential, expectedCode: .authorityUnavailable),
+  FingerprintFailureFixture(error: .invalidBinding, expectedCode: .authorityUnavailable),
+  FingerprintFailureFixture(error: .invalidFingerprint, expectedCode: .authorityUnavailable),
 ]
 
 private func submitBegin(

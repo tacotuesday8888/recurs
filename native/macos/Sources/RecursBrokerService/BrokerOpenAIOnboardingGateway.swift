@@ -50,6 +50,7 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
 
   private let authority: any BrokerCredentialLifecycleAuthority
   private let factory: any BrokerOpenAIOnboardingSessionFactory
+  private let credentialIdentityFingerprinter: any CredentialIdentityFingerprinting
   private let makeUUID: @Sendable () -> UUID
   private let lock = NSLock()
   private var isAuthorized = false
@@ -62,10 +63,12 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
   init(
     authority: any BrokerCredentialLifecycleAuthority,
     factory: any BrokerOpenAIOnboardingSessionFactory,
+    credentialIdentityFingerprinter: any CredentialIdentityFingerprinting,
     makeUUID: @escaping @Sendable () -> UUID = { UUID() }
   ) {
     self.authority = authority
     self.factory = factory
+    self.credentialIdentityFingerprinter = credentialIdentityFingerprinter
     self.makeUUID = makeUUID
   }
 
@@ -251,6 +254,27 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
       return
     }
 
+    let credentialIdentityFingerprint: CredentialIdentityFingerprint
+    do {
+      credentialIdentityFingerprint = try secretBox.fingerprint(
+        using: credentialIdentityFingerprinter,
+        binding: .openAI
+      )
+    } catch let error as CredentialIdentityFingerprintError {
+      secretBox.erase()
+      complete(requestID: requestID, gate: gate, code: Self.map(error))
+      return
+    } catch {
+      secretBox.erase()
+      complete(requestID: requestID, gate: gate, code: .authorityUnavailable)
+      return
+    }
+    guard !Task.isCancelled else {
+      secretBox.erase()
+      complete(requestID: requestID, gate: gate, code: .cancelled)
+      return
+    }
+
     let identity: GeneratedIdentity
     do {
       identity = try generatedIdentity()
@@ -337,7 +361,8 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
     let reply = BrokerOpenAIOnboardingReply.begun(
       requestID: requestID,
       connectionID: identity.connectionID,
-      recoveryTokens: identity.recoveryTokens
+      recoveryTokens: identity.recoveryTokens,
+      credentialIdentityFingerprint: credentialIdentityFingerprint.rawValue
     )
     guard let encoded = try? reply.encode() else {
       let code = await close(session, afterSuccess: .authorityUnavailable)
@@ -759,6 +784,17 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
       .authorityUnavailable
     }
   }
+
+  private static func map(
+    _ error: CredentialIdentityFingerprintError
+  ) -> BrokerOpenAIOnboardingFailureCode {
+    switch error {
+    case .keyUnavailable, .keyMalformed:
+      .credentialStoreUnavailable
+    case .invalidFingerprint, .invalidCredential, .invalidBinding:
+      .authorityUnavailable
+    }
+  }
 }
 
 private enum OnboardingGatewayError: Error {
@@ -804,6 +840,20 @@ private final class OnboardingSecretBox: @unchecked Sendable {
 
   var byteCount: Int {
     lock.withLock { secret?.withUnsafeBytes(\.count) ?? 0 }
+  }
+
+  func fingerprint(
+    using fingerprinter: any CredentialIdentityFingerprinting,
+    binding: ProviderProfileBinding
+  ) throws -> CredentialIdentityFingerprint {
+    try lock.withLock {
+      guard let secret else {
+        throw CredentialIdentityFingerprintError.invalidCredential
+      }
+      return try secret.withUnsafeBytes {
+        try fingerprinter.fingerprint(credential: $0, binding: binding)
+      }
+    }
   }
 
   func take() -> sending SecretBytes? {

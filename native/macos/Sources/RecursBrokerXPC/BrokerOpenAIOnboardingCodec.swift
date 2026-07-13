@@ -270,7 +270,8 @@ public enum BrokerOpenAIOnboardingReply: Sendable, Equatable {
   case begun(
     requestID: UInt64,
     connectionID: UUID,
-    recoveryTokens: BrokerOpenAIOnboardingRecoveryTokens
+    recoveryTokens: BrokerOpenAIOnboardingRecoveryTokens,
+    credentialIdentityFingerprint: String
   )
   case catalogPage(requestID: UInt64, BrokerOpenAIOnboardingCatalogPage)
   case committed(requestID: UInt64, BrokerOpenAIOnboardingCommitReceipt)
@@ -279,7 +280,7 @@ public enum BrokerOpenAIOnboardingReply: Sendable, Equatable {
 
   public var requestID: UInt64 {
     switch self {
-    case .begun(let requestID, _, _), .catalogPage(let requestID, _),
+    case .begun(let requestID, _, _, _), .catalogPage(let requestID, _),
       .committed(let requestID, _), .aborted(let requestID),
       .failure(let requestID, _):
       requestID
@@ -290,13 +291,23 @@ public enum BrokerOpenAIOnboardingReply: Sendable, Equatable {
     var body: [UInt8] = []
     let kind: UInt16
     switch self {
-    case .begun(let requestID, let connectionID, let recoveryTokens):
+    case .begun(
+      let requestID,
+      let connectionID,
+      let recoveryTokens,
+      let credentialIdentityFingerprint
+    ):
       try validateClientRequestID(requestID)
       try validateUUID(connectionID)
       kind = 101
       append(requestID, to: &body)
       append(connectionID, to: &body)
       recoveryTokens.appendEncoded(to: &body)
+      body.append(
+        contentsOf: try validatedCredentialIdentityFingerprintBytes(
+          credentialIdentityFingerprint
+        )
+      )
     case .catalogPage(let requestID, let page):
       try validateClientRequestID(requestID)
       kind = 102
@@ -348,14 +359,17 @@ public enum BrokerOpenAIOnboardingReply: Sendable, Equatable {
       try validateClientRequestID(rawRequestID)
       switch frame.kind {
       case 101:
-        guard frame.body.count == 56 else { throw codecError() }
+        guard frame.body.count == 127 else { throw codecError() }
         let connectionID = try reader.readUUID()
         let recoveryTokens = try BrokerOpenAIOnboardingRecoveryTokens.decode(from: &reader)
+        let credentialIdentityFingerprint =
+          try reader.readCredentialIdentityFingerprint()
         try reader.finish()
         return .begun(
           requestID: rawRequestID,
           connectionID: connectionID,
-          recoveryTokens: recoveryTokens
+          recoveryTokens: recoveryTokens,
+          credentialIdentityFingerprint: credentialIdentityFingerprint
         )
       case 102:
         let page = try BrokerOpenAIOnboardingCatalogPage.decode(from: &reader)
@@ -433,6 +447,12 @@ private struct ByteReader {
       maximumByteCount: brokerOpenAIOnboardingMaximumModelIDBytes
     )
     _ = try validatedModelIDBytes(value)
+    return value
+  }
+
+  mutating func readCredentialIdentityFingerprint() throws -> String {
+    let value = try readString(count: credentialIdentityFingerprintByteCount)
+    _ = try validatedCredentialIdentityFingerprintBytes(value)
     return value
   }
 
@@ -520,6 +540,24 @@ private func validatedModelIDBytes(_ value: String) throws -> [UInt8] {
   guard
     (1...brokerOpenAIOnboardingMaximumModelIDBytes).contains(bytes.count),
     !bytes.contains(where: { $0 < 0x20 || $0 == 0x7f })
+  else {
+    throw codecError()
+  }
+  return bytes
+}
+
+private let credentialIdentityFingerprintByteCount = 71
+
+private func validatedCredentialIdentityFingerprintBytes(
+  _ value: String
+) throws -> [UInt8] {
+  let bytes = Array(value.utf8)
+  guard
+    bytes.count == credentialIdentityFingerprintByteCount,
+    bytes.prefix(7).elementsEqual("sha256:".utf8),
+    bytes.dropFirst(7).allSatisfy({
+      (0x30...0x39).contains($0) || (0x61...0x66).contains($0)
+    })
   else {
     throw codecError()
   }

@@ -13,6 +13,8 @@ struct BrokerOpenAIOnboardingCodecTests {
   private let abortOperationID = UUID(
     uuidString: "33333333-4444-4555-8666-777777777777"
   )!
+  private let credentialIdentityFingerprint =
+    "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
   @Test
   func everyRequestUsesTheFrozenFrameAndRoundTrips() throws {
@@ -239,10 +241,11 @@ struct BrokerOpenAIOnboardingCodecTests {
         .begun(
           requestID: 1,
           connectionID: connectionID,
-          recoveryTokens: recoveryTokens
+          recoveryTokens: recoveryTokens,
+          credentialIdentityFingerprint: credentialIdentityFingerprint
         ),
         101,
-        68
+        139
       ),
       (.catalogPage(requestID: 2, page), 102, 51),
       (.committed(requestID: 3, receipt), 103, 52),
@@ -320,6 +323,45 @@ struct BrokerOpenAIOnboardingCodecTests {
   }
 
   @Test
+  func begunReplyRequiresOneCanonicalCredentialIdentityFingerprint() throws {
+    let recoveryTokens = try BrokerOpenAIOnboardingRecoveryTokens(
+      commitOperationID: commitOperationID,
+      abortOperationID: abortOperationID
+    )
+    let valid = BrokerOpenAIOnboardingReply.begun(
+      requestID: 1,
+      connectionID: connectionID,
+      recoveryTokens: recoveryTokens,
+      credentialIdentityFingerprint: credentialIdentityFingerprint
+    )
+    let encoded = try valid.encode()
+    #expect(try BrokerOpenAIOnboardingReply.decode(encoded) == valid)
+    #expect(encoded.count == 139)
+
+    for rejected in [
+      "",
+      "sha256:" + String(repeating: "0", count: 63),
+      "sha256:" + String(repeating: "0", count: 65),
+      "sha256:" + String(repeating: "A", count: 64),
+      "sha256:" + String(repeating: "g", count: 64),
+      "sha512:" + String(repeating: "0", count: 64),
+    ] {
+      expectFailure {
+        _ = try BrokerOpenAIOnboardingReply.begun(
+          requestID: 1,
+          connectionID: connectionID,
+          recoveryTokens: recoveryTokens,
+          credentialIdentityFingerprint: rejected
+        ).encode()
+      }
+    }
+
+    var noncanonical = encoded
+    noncanonical[68] = Character("S").asciiValue!
+    expectFailure { _ = try BrokerOpenAIOnboardingReply.decode(noncanonical) }
+  }
+
+  @Test
   func commitReceiptRejectsInvalidRedactedMetadata() throws {
     let zeroUUID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
     let invalid: [() throws -> BrokerOpenAIOnboardingCommitReceipt] = [
@@ -367,7 +409,8 @@ struct BrokerOpenAIOnboardingCodecTests {
         _ = try BrokerOpenAIOnboardingReply.begun(
           requestID: requestID,
           connectionID: connectionID,
-          recoveryTokens: recoveryTokens
+          recoveryTokens: recoveryTokens,
+          credentialIdentityFingerprint: credentialIdentityFingerprint
         ).encode()
       }
     }
@@ -395,7 +438,8 @@ struct BrokerOpenAIOnboardingCodecTests {
         connectionID: UUID(
           uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
         ),
-        recoveryTokens: recoveryTokens
+        recoveryTokens: recoveryTokens,
+        credentialIdentityFingerprint: credentialIdentityFingerprint
       ).encode()
     }
   }
