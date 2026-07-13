@@ -383,6 +383,8 @@ describe("BackendRunCoordinator", () => {
             providers += 1;
             return {
               id: `provider-${providers}`,
+              adapterId: pin.adapterId,
+              connectionId: pin.connectionId,
               async *stream() {
                 yield { type: "done", stopReason: "complete" } as const;
               },
@@ -418,6 +420,61 @@ describe("BackendRunCoordinator", () => {
     expect(providers).toBe(2);
     expect(seen).toEqual(["provider-1", "provider-2"]);
   });
+
+  it.each([
+    ["adapter", { adapterId: "wrong-adapter", connectionId: pin.connectionId }],
+    ["connection", { adapterId: pin.adapterId, connectionId: "wrong-connection" }],
+  ] as const)(
+    "rejects a mismatched direct-provider %s before execution or prompt persistence",
+    async (_name, identity) => {
+      const { sessions } = await setup();
+      const direct: DirectRunExecutor = {
+        run: vi.fn(async () => result),
+      };
+      const resolver: BackendResolver = {
+        async resolve(input) {
+          return {
+            kind: "direct",
+            pin,
+            authorization: authorizationFor(input, pin),
+            async createProvider() {
+              return {
+                id: "provider",
+                ...identity,
+                async *stream() {
+                  yield { type: "done", stopReason: "complete" } as const;
+                },
+              };
+            },
+          };
+        },
+      };
+      const coordinator = new BackendRunCoordinator({
+        sessions,
+        resolver,
+        direct,
+      });
+
+      const outcome = (await coordinator.start({
+        sessionId: "s2",
+        expectedSessionRecordSequence: 0,
+        prompt: "inspect",
+        invocation,
+        signal: new AbortController().signal,
+      })).outcome;
+
+      await expect(outcome).resolves.toMatchObject({
+        ok: false,
+        failure: {
+          domain: "connection",
+          phase: "preflight",
+          code: "connection_invalid",
+        },
+      });
+      expect(direct.run).not.toHaveBeenCalled();
+      expect((await sessions.load("s2")).records).toHaveLength(1);
+    },
+  );
 
   it("rejects authorization that is not bound to the resolved run", async () => {
     const { sessions } = await setup();
@@ -480,6 +537,8 @@ describe("BackendRunCoordinator", () => {
           async createProvider() {
             return {
               id: "provider",
+              adapterId: pin.adapterId,
+              connectionId: pin.connectionId,
               async *stream() {
                 yield { type: "done", stopReason: "complete" } as const;
               },
@@ -1397,6 +1456,8 @@ describe("BackendRunCoordinator", () => {
           async createProvider() {
             return {
               id: "provider",
+              adapterId: pin.adapterId,
+              connectionId: pin.connectionId,
               async *stream() {
                 yield { type: "done", stopReason: "complete" } as const;
               },

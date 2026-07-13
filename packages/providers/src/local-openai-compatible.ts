@@ -1,5 +1,5 @@
 import type {
-  ModelProvider,
+  ConnectionBoundModelProvider,
   ProviderEvent,
   ProviderRequest,
   ToolCall,
@@ -22,6 +22,10 @@ export interface LocalModelDescriptor {
 export interface LocalProviderOptions {
   baseUrl: string;
   fetch?: Fetch;
+}
+
+export interface BoundLocalProviderOptions extends LocalProviderOptions {
+  connectionId: string;
 }
 
 export function normalizeLoopbackOpenAIBaseUrl(input: string): string {
@@ -179,12 +183,22 @@ function requestBody(request: ProviderRequest): Record<string, unknown> {
   };
 }
 
-export class LocalOpenAICompatibleProvider implements ModelProvider {
+export class LocalOpenAICompatibleProvider implements ConnectionBoundModelProvider {
   readonly id = "local-openai-compatible";
+  readonly adapterId = "openai-chat-completions";
+  readonly connectionId: string;
   readonly #baseUrl: string;
   readonly #fetch: Fetch;
 
-  constructor(options: LocalProviderOptions) {
+  constructor(options: BoundLocalProviderOptions) {
+    if (
+      options.connectionId.length === 0 ||
+      options.connectionId !== options.connectionId.trim() ||
+      options.connectionId.length > 128
+    ) {
+      throw new TypeError("Local model connection identity is invalid");
+    }
+    this.connectionId = options.connectionId;
     this.#baseUrl = normalizeLoopbackOpenAIBaseUrl(options.baseUrl);
     this.#fetch = options.fetch ?? globalThis.fetch;
   }

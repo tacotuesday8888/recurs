@@ -1,7 +1,11 @@
 import type { BillingSelectionMode, SessionBackendPin } from "./connections.js";
 import type { IntegrationFailure } from "./failures.js";
 import type { JsonValue } from "./json.js";
-import type { ModelProvider, ProviderUsage, ToolCall } from "./model.js";
+import type {
+  ConnectionBoundModelProvider,
+  ProviderUsage,
+  ToolCall,
+} from "./model.js";
 
 const hostInvocationBrand: unique symbol = Symbol("HostInvocation");
 
@@ -331,7 +335,7 @@ export interface ResolvedBackendBase {
 export type ResolvedBackend =
   | (ResolvedBackendBase & {
       kind: "direct";
-      createProvider(signal: AbortSignal): Promise<ModelProvider>;
+      createProvider(signal: AbortSignal): Promise<ConnectionBoundModelProvider>;
     })
   | (ResolvedBackendBase & {
       kind: "delegated";

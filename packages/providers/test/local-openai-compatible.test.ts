@@ -83,6 +83,7 @@ describe("LocalOpenAICompatibleProvider", () => {
   it("streams text, assembled tool calls, usage, and completion", async () => {
     const provider = new LocalOpenAICompatibleProvider({
       baseUrl: "http://127.0.0.1:11434/v1",
+      connectionId: "local-test",
       fetch: async () => sse([
         { choices: [{ delta: { content: "I will inspect. " }, finish_reason: null }] },
         { choices: [{ delta: { tool_calls: [{ index: 0, id: "call-1", type: "function", function: { name: "read_file", arguments: "{\"pa" } }] }, finish_reason: null }] },
@@ -104,11 +105,16 @@ describe("LocalOpenAICompatibleProvider", () => {
       { type: "usage", inputTokens: 12, outputTokens: 7 },
       { type: "done", stopReason: "tool_calls" },
     ]);
+    expect(provider).toMatchObject({
+      adapterId: "openai-chat-completions",
+      connectionId: "local-test",
+    });
   });
 
   it("maps local transport failures to safe provider errors", async () => {
     const provider = new LocalOpenAICompatibleProvider({
       baseUrl: "http://127.0.0.1:1234/v1",
+      connectionId: "local-test",
       fetch: async () => {
         throw new Error("SECRET_LOCAL_TRANSPORT_DETAIL");
       },
@@ -137,6 +143,7 @@ describe("LocalOpenAICompatibleProvider", () => {
     controller.abort();
     const provider = new LocalOpenAICompatibleProvider({
       baseUrl: "http://127.0.0.1:1234/v1",
+      connectionId: "local-test",
       fetch: async () => { throw new Error("aborted transport"); },
     });
     const consume = async () => {
@@ -156,6 +163,7 @@ describe("LocalOpenAICompatibleProvider", () => {
   it("rejects an oversized event stream", async () => {
     const provider = new LocalOpenAICompatibleProvider({
       baseUrl: "http://127.0.0.1:1234/v1",
+      connectionId: "local-test",
       fetch: async () => new Response("x".repeat(16 * 1024 * 1024 + 1), {
         status: 200,
         headers: { "content-type": "text/event-stream" },

@@ -7,6 +7,7 @@ import { isDeepStrictEqual } from "node:util";
 import type {
   AgentRuntime,
   BackendResolver,
+  ConnectionBoundModelProvider,
   IntegrationFailure,
   RuntimeApprovalRequest,
   RuntimeContinuationStore,
@@ -130,7 +131,7 @@ interface DirectRuntimeBackend {
   readonly kind: "direct";
   pin(at: string): SessionBackendPin;
   commandProvider: ModelProvider;
-  createProvider(): ModelProvider;
+  createProvider(): ConnectionBoundModelProvider;
 }
 
 interface DelegatedRuntimeBackend {
@@ -298,9 +299,11 @@ function backendForConnection(
       pin: (at) => localBackendPin(localConnection, at),
       commandProvider: new LocalOpenAICompatibleProvider({
         baseUrl: localConnection.baseUrl,
+        connectionId: localConnection.id,
       }),
       createProvider: () => new LocalOpenAICompatibleProvider({
         baseUrl: localConnection.baseUrl,
+        connectionId: localConnection.id,
       }),
     };
   }
@@ -347,7 +350,12 @@ export async function createStandaloneRuntime(
           at,
         ),
         commandProvider: injected,
-        createProvider: () => injected,
+        createProvider: () => ({
+          id: injected.id,
+          adapterId: `injected:${injected.id}`,
+          connectionId: `injected:${injected.id}`,
+          stream: (request) => injected.stream(request),
+        }),
       }
     : configuredConnection === null
       ? undefined

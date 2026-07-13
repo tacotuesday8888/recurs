@@ -57,6 +57,11 @@ export interface ModelProvider {
   stream(request: ProviderRequest): AsyncIterable<ProviderEvent>;
 }
 
+export interface ConnectionBoundModelProvider extends ModelProvider {
+  readonly adapterId: string;
+  readonly connectionId: string;
+}
+
 export interface ProviderBackedMessage extends ModelMessage {
   providerStateHandle?: DirectContinuationHandle;
 }

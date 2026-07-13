@@ -6,6 +6,7 @@ import type {
 
 export type {
   JsonValue,
+  ConnectionBoundModelProvider,
   MessageRole,
   ModelMessage,
   ModelProvider,

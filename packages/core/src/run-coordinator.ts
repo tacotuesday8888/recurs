@@ -5,6 +5,7 @@ import {
   deriveTrustedRunContext,
   type AgentRuntime,
   type BackendResolver,
+  type ConnectionBoundModelProvider,
   type CoordinatedRun,
   type CoordinatedRunInput,
   type IntegrationFailure,
@@ -306,6 +307,21 @@ export class BackendRunCoordinator implements RunCoordinator {
         );
   }
 
+  #providerIdentityFailure(
+    provider: ConnectionBoundModelProvider,
+    pin: SessionBackendPin,
+    diagnosticId: string,
+  ): IntegrationFailure | null {
+    return provider.adapterId === pin.adapterId &&
+        provider.connectionId === pin.connectionId
+      ? null
+      : failure(
+          "connection_invalid",
+          "The direct provider does not match the immutable session pin",
+          diagnosticId,
+        );
+  }
+
   async #reconcileRuntimeContinuation(input: {
     readonly session: PinnedSessionState;
     readonly mutation: SessionMutationLease;
@@ -583,9 +599,28 @@ export class BackendRunCoordinator implements RunCoordinator {
             return { ok: false, failure: resolutionFailure } as const;
           }
           if (resolved.kind === "direct") {
+            const directPin = session.backend.pin;
+            if (directPin.kind !== "model_provider") {
+              return {
+                ok: false,
+                failure: failure(
+                  "connection_invalid",
+                  "The direct provider pin is invalid",
+                  operationId,
+                ),
+              } as const;
+            }
             this.#throwIfPreflightAborted(input.signal, operationId);
             const provider = await resolved.createProvider(input.signal);
             this.#throwIfPreflightAborted(input.signal, operationId);
+            const identityFailure = this.#providerIdentityFailure(
+              provider,
+              directPin,
+              operationId,
+            );
+            if (identityFailure !== null) {
+              return { ok: false, failure: identityFailure } as const;
+            }
             executionStarted = true;
             const result = await this.dependencies.direct.run({
               session,
