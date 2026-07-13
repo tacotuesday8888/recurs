@@ -69,7 +69,7 @@ protocol BrokerOpenAISetupCatalogFetching: Sendable {
 }
 
 actor BrokerOpenAIOnboardingSession {
-  private static let lifetime: TimeInterval = 60
+  private static let lifetime: TimeInterval = 300
 
   private struct VerifiedCatalog: Sendable {
     let catalog: BrokerOpenAIModelCatalog
@@ -451,7 +451,7 @@ actor BrokerOpenAIOnboardingSession {
   private static func validated(
     _ catalog: BrokerOpenAIModelCatalog
   ) -> VerifiedCatalog? {
-    guard catalog.modelIDs.count <= 4_096 else { return nil }
+    guard !catalog.modelIDs.isEmpty, catalog.modelIDs.count <= 4_096 else { return nil }
     if let requestID = catalog.requestID {
       guard
         (1...256).contains(requestID.utf8.count),

@@ -39,7 +39,7 @@ struct BrokerOpenAIOnboardingSessionTests {
     #expect(receipt.verifiedModelCount == 2)
     #expect(await fetcher.fetchCount == 1)
     #expect(await fetcher.lastContext == context)
-    #expect(await fetcher.lastExpiresAt == now.addingTimeInterval(60))
+    #expect(await fetcher.lastExpiresAt == now.addingTimeInterval(300))
     #expect(
       await authority.commitCalls == [
         LifecycleCall(
@@ -107,6 +107,20 @@ struct BrokerOpenAIOnboardingSessionTests {
     } catch let error {
       #expect(error == .verificationFailed)
       #expect(!error.description.contains(canary))
+    }
+
+    #expect(await authority.abortCalls == [expectedAbortCall])
+    #expect(await authority.commitCalls.isEmpty)
+  }
+
+  @Test
+  func emptyCatalogFailsVerificationAndAbortsTheOwnedAttempt() async throws {
+    let fetcher = OnboardingCatalogFetcher(result: .success(emptyCatalog))
+    let authority = OnboardingAuthority(commitResult: .success(readyProjection))
+    let session = try makeSession(authority: authority, fetcher: fetcher)
+
+    await #expect(throws: BrokerOpenAIOnboardingError.verificationFailed) {
+      _ = try await session.verify()
     }
 
     #expect(await authority.abortCalls == [expectedAbortCall])
@@ -349,7 +363,7 @@ struct BrokerOpenAIOnboardingSessionTests {
       clock: clock
     )
     _ = try await session.verify()
-    clock.advance(by: 61)
+    clock.advance(by: 301)
 
     await #expect(throws: BrokerOpenAIOnboardingError.expired) {
       _ = try await session.finalize(
