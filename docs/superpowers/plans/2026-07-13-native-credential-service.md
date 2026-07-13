@@ -813,7 +813,10 @@ Add `NSXPCListener: BrokerServiceListenerHandle`. The test factory accepts an
 explicit `BrokerServiceRuntimeDependencies`; the live factory uses only fixed
 production implementations. It evaluates dependencies in field order, creates
 the listener only after recovery, sets its exact signing requirement and
-delegate, but leaves activation to `activate()`.
+delegate, but leaves activation to `activate()`. The runtime strongly retains
+both the listener and delegate for its whole lifetime; do not rely on the
+Foundation delegate property to provide ownership. `activate()` is idempotent
+and forwards to the listener at most once.
 
 - [ ] **Step 1: Add failing startup-order tests**
 
@@ -822,7 +825,12 @@ before listener construction/activation; the same authority reaches the
 delegate; persistent capability is true only on the recovered path; and every
 peer, Keychain, directory, authority-lock, journal-authentication, rollback, or
 recovery failure leaves activation count zero. Prove health reads current
-Keychain availability after startup without rebuilding authority.
+Keychain availability after startup without rebuilding authority. Prove the
+runtime strongly retains the listener and delegate after dependency locals are
+released, and that repeated `activate()` calls activate the listener exactly
+once. Unit tests must build only injected in-memory authorities; they must never
+call a live `.production()` factory or touch the user's journal directory or
+Data Protection Keychain.
 
 - [ ] **Step 2: Verify RED**
 
@@ -876,6 +884,8 @@ and all direct provider manifests remain disabled.
 ```bash
 swift test --package-path native/macos --filter BrokerServiceRuntimeTests
 swift test --package-path native/macos --filter RecursBrokerServiceTests
+swift build --package-path native/macos
+npm run native:smoke
 ```
 
 Expected: PASS.
