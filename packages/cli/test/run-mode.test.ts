@@ -207,6 +207,30 @@ function dependencies(stdout: TextOutput, stderr: TextOutput): CliDependencies {
   return { stdout, stderr, createRuntime };
 }
 
+const openAIDisclosure = {
+  providerId: "openai-api" as const,
+  displayName: "OpenAI API" as const,
+  credentialOwner: "recurs_broker" as const,
+  endpoint: "https://api.openai.com/v1" as const,
+  policyRevision: "openai-api-2026-07-11",
+  billingPolicyRevision: "billing:openai-api:2026-07-11",
+  billingDisclosureRevision: "billing-disclosure:openai-api:2026-07-11",
+  primaryBillingSource: "metered_api" as const,
+  billingNotice:
+    "OpenAI API billing is separate from ChatGPT subscriptions." as const,
+  systemProxyTrust: "trusted_in_v1" as const,
+  supportedRunContexts: ["local_cli_user_present"] as const,
+  capabilityProfileRevision:
+    "openai-responses-tools-2026-07-13-v1" as const,
+  restrictions: ["Activation requires the native credential broker."],
+};
+
+const openAIModelIds = [
+  "gpt-5.6-luna",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+] as const;
+
 describe("public CLI process boundary", () => {
   it("exports process assembly without re-exporting or evaluating the bin", async () => {
     const [indexSource, binSource] = await Promise.all([
@@ -313,6 +337,143 @@ describe("runCli", () => {
     expect(exitCode).toBe(2);
     expect(stderr.value).toBe("Error: Selected local model was not reported by the server\n");
     expect(stderr.value).not.toContain("diagnostic");
+  });
+
+  it("guides OpenAI API setup through exact disclosures and model selection", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let received: unknown;
+    const disclosure = openAIDisclosure;
+
+    const exitCode = await runCli(["setup", "openai"], {
+      stdout,
+      stderr,
+      interactive: true,
+      async confirm(message) {
+        expect(message).toContain("separate from ChatGPT");
+        expect(message).toContain("system proxy");
+        expect(message).toContain("native credential authority");
+        return true;
+      },
+      async selectOpenAIModel(modelIds) {
+        expect(modelIds).toEqual([
+          "gpt-5.6-luna",
+          "gpt-5.6-sol",
+          "gpt-5.6-terra",
+        ]);
+        return "gpt-5.6-sol";
+      },
+      async createRuntime() {
+        throw new Error("runtime must not start");
+      },
+      openAIOnboarding: {
+        disclosure,
+        modelIds: openAIModelIds,
+        async setup(input) {
+          received = input;
+          return {
+            state: "ready" as const,
+            disposition: "created" as const,
+            connection: {
+              id: "71000000-0000-4000-8000-000000000001",
+              label: "OpenAI API" as const,
+              providerId: "openai-api" as const,
+              adapterId: "openai-responses" as const,
+              kind: "brokered_model_provider" as const,
+              modelId: "gpt-5.6-sol",
+              primary: true,
+              account: "verified (identifier redacted)" as const,
+              activation: "stored_pending_runtime_gate" as const,
+              billingSources: ["metered_api"] as const,
+            },
+            cleanupPending: false,
+          };
+        },
+        async recover() {
+          return { state: "none" as const };
+        },
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(received).toEqual({
+      modelId: "gpt-5.6-sol",
+      acknowledgement: {
+        policyRevision: disclosure.policyRevision,
+        billingPolicyRevision: disclosure.billingPolicyRevision,
+        billingDisclosureRevision: disclosure.billingDisclosureRevision,
+        mode: "strict_primary_only",
+      },
+    });
+    expect(stdout.value).toContain("Stored — OpenAI API · gpt-5.6-sol");
+    expect(stdout.value).toContain("runtime gate");
+    expect(stdout.value).not.toContain("Ready —");
+    expect(stdout.value).not.toContain("sha256:");
+    expect(stderr.value).toBe("");
+  });
+
+  it("never starts OpenAI credential capture without every local consent gate", async () => {
+    for (const [argv, interactive, automation, accepted] of [
+      [["setup", "openai"], false, false, true],
+      [["setup", "openai"], true, true, true],
+      [["setup", "openai"], true, false, false],
+      [["setup", "openai", "--model", "gpt-5.6"], true, false, true],
+      [["setup", "openai", "--model"], true, false, true],
+    ] as const) {
+      let setupCalls = 0;
+      const stderr = new TextOutput();
+      const exitCode = await runCli(argv, {
+        stdout: new TextOutput(),
+        stderr,
+        interactive,
+        automation,
+        async confirm() { return accepted; },
+        async selectOpenAIModel() { return "gpt-5.6-sol"; },
+        async createRuntime() { throw new Error("runtime must not start"); },
+        openAIOnboarding: {
+          disclosure: openAIDisclosure,
+          modelIds: openAIModelIds,
+          async setup() {
+            setupCalls += 1;
+            throw new Error("setup must not start");
+          },
+          async recover() { return { state: "none" }; },
+        },
+      });
+      expect(exitCode).toBe(2);
+      expect(setupCalls).toBe(0);
+      expect(stderr.value).not.toContain("sk-");
+    }
+  });
+
+  it("recovers interrupted OpenAI setup and safely handles native failures", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let recoveryCalls = 0;
+    const base = {
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      openAIOnboarding: {
+        disclosure: openAIDisclosure,
+        modelIds: openAIModelIds,
+        async setup() { throw new Error("setup must not start"); },
+        async recover() {
+          recoveryCalls += 1;
+          return recoveryCalls === 1
+            ? { state: "discarded" as const, connectionId: "openai-1" }
+            : Promise.reject(new Error(`sk-proj-${"X".repeat(48)}`));
+        },
+      },
+    };
+
+    expect(await runCli(["setup", "openai", "--recover"], base)).toBe(0);
+    expect(stdout.value).toContain("discarded inactive OpenAI activation openai-1");
+    expect(await runCli(["setup", "openai", "--recover"], base)).toBe(2);
+    expect(stderr.value).toMatch(/Error: Unexpected failure \(diagnostic [^)]+\)\n/u);
+    expect(stderr.value).not.toContain("sk-proj-");
   });
 
   it("runs interactive Codex onboarding only after the billing disclosure is accepted", async () => {

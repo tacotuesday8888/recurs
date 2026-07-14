@@ -415,13 +415,16 @@ export async function setupOpenAIConnection(
 export async function recoverPendingOpenAIConnection(
   dataDirectory: string,
   dependencies: OpenAISetupDependencies,
+  options: { readonly signal?: AbortSignal } = {},
 ): Promise<OpenAIRecoveryOutcome> {
   const store = dependencies.activationStore ??
     new FileConnectionActivationStore(dataDirectory);
+  if (isAborted(options.signal)) return cancelled();
   let document: Awaited<ReturnType<OpenAIActivationStorePort["read"]>>;
   try {
-    document = await store.read();
+    document = await store.read(signalOptions(options.signal));
   } catch {
+    if (isAborted(options.signal)) return cancelled();
     return failure("recovery", "persistence_failed", "retry");
   }
   const pending = document.activation;
@@ -433,11 +436,16 @@ export async function recoverPendingOpenAIConnection(
       dependencies.nativeAuthority.reconcileOpenAIActivation(
         pending.connection.id,
         pending.connection.credentialIdentityFingerprint,
+        options.signal,
       ),
     pending.connection.id,
     "pending_reconciliation",
   );
-  if (reconciled.state !== "succeeded") return reconciled.outcome;
+  if (reconciled.state !== "succeeded") {
+    return isCancelledFailure(reconciled.outcome)
+      ? cancelled()
+      : reconciled.outcome;
+  }
 
   if (reconciled.value.status === "unresolved") {
     return failure(

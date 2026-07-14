@@ -288,6 +288,27 @@ describe("OpenAI connection onboarding", () => {
     expect(result).toEqual({ state: "none" });
   });
 
+  it("cancels recovery before contacting the native authority", async () => {
+    const directory = await root();
+    await new FileConnectionActivationStore(directory).prepare(
+      pendingActivation(),
+    );
+    const native = new ScriptedNativeOpenAIOnboarding();
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await recoverPendingOpenAIConnection(
+      directory,
+      { nativeAuthority: native },
+      { signal: controller.signal },
+    );
+
+    expect(result).toEqual({ state: "cancelled", cleanup: "confirmed" });
+    expect(native.calls).toEqual([]);
+    expect((await new FileConnectionActivationStore(directory).read()).activation)
+      .toEqual(pendingActivation());
+  });
+
   it("rejects stale acknowledgement and unreviewed aliases before secret capture", async () => {
     const directory = await root();
     const staleNative = new ScriptedNativeOpenAIOnboarding();
