@@ -3,7 +3,7 @@ import Foundation
 public let nativeAuthorityProtocolVersion: UInt16 = 1
 public let nativeFrameMagic: UInt32 = 0x52_43_55_52
 public let nativeFrameHeaderByteCount = 16
-public let nativeFrameMaximumPayloadByteCount = 64 * 1024
+public let nativeFrameMaximumPayloadByteCount = 8 * 1024 * 1024
 
 private let nativeFrameMaximumByteCount =
   nativeFrameHeaderByteCount + nativeFrameMaximumPayloadByteCount
@@ -21,6 +21,9 @@ public enum NativeMessageType: UInt16, CaseIterable, Sendable {
   case openAIOnboardingAborted = 10
   case openAIOnboardingReconciliation = 11
   case openAIOnboardingFailure = 12
+  case openAIGenerationRequest = 13
+  case openAIGenerationEvent = 14
+  case openAIGenerationFailure = 15
   case safeFailure = 255
 }
 

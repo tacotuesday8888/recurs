@@ -354,7 +354,7 @@ describe("bounded native frame decoder", () => {
   it("uses the exact header constants and fixed wire message values", () => {
     expect(NATIVE_FRAME_MAGIC).toBe(0x52_43_55_52);
     expect(NATIVE_FRAME_HEADER_BYTES).toBe(16);
-    expect(NATIVE_FRAME_MAX_PAYLOAD_BYTES).toBe(64 * 1024);
+    expect(NATIVE_FRAME_MAX_PAYLOAD_BYTES).toBe(8 * 1024 * 1024);
     expect(NativeMessageType).toMatchObject({
       hello: 1,
       helloResult: 2,
@@ -392,7 +392,7 @@ describe("bounded native frame decoder", () => {
       protocolVersion: 2,
     })],
     ["zero request ID", rawFrame(NativeMessageType.health, 0, testU16(0))],
-    ["unknown message type", rawFrame(13, 1, testU16(0))],
+    ["unknown message type", rawFrame(16, 1, testU16(0))],
     ["zero message type", rawFrame(0, 1, testU16(0))],
     ["oversized body", rawFrame(NativeMessageType.health, 1, new Uint8Array(), {
       advertisedPayloadLength: NATIVE_FRAME_MAX_PAYLOAD_BYTES + 1,
@@ -736,7 +736,7 @@ describe("bounded native frame decoder", () => {
       requestId: 0x1_0000_0000,
       payload: testU16(0),
     }, "invalid_frame"],
-    [{ type: 13 as NativeMessageType, requestId: 1, payload: testU16(0) }, "invalid_frame"],
+    [{ type: 16 as NativeMessageType, requestId: 1, payload: testU16(0) }, "invalid_frame"],
     [{
       type: NativeMessageType.health,
       requestId: 1,

@@ -77,14 +77,6 @@ private final class BrokerOpenAIGenerationEventRelay: @unchecked Sendable {
     lock.withLock { !isInvalid && terminal == expected }
   }
 
-  func finish() {
-    let selected = lock.withLock { () -> BrokerOpenAIResponsesStopReason? in
-      guard !isInvalid else { return nil }
-      defer { terminal = nil }
-      return terminal
-    }
-    if let selected { downstream(.done(selected)) }
-  }
 }
 
 protocol BrokerOpenAIGenerationRouteIssuing: Sendable {
@@ -222,7 +214,6 @@ struct BrokerOpenAIGenerationRunner<
         throw .persistenceUnavailable
       }
     }
-    relay.finish()
     return BrokerOpenAIGenerationResult(completion: completion, continuation: handle)
   }
 

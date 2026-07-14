@@ -12,7 +12,7 @@ struct FrameTests {
     #expect(nativeAuthorityProtocolVersion == 1)
     #expect(nativeFrameMagic == 0x52_43_55_52)
     #expect(nativeFrameHeaderByteCount == 16)
-    #expect(nativeFrameMaximumPayloadByteCount == 64 * 1024)
+    #expect(nativeFrameMaximumPayloadByteCount == 8 * 1024 * 1024)
     #expect(nativeFieldMaximumCount == 64)
     #expect(nativeTextMaximumUTF8ByteCount == 256)
     #expect(nativeNonceByteCount == 32)
@@ -227,7 +227,7 @@ struct FrameTests {
       rawFrame(type: 3, requestID: 1, payload: uint16(0), magic: 0x52_43_55_53),
       rawFrame(type: 3, requestID: 1, payload: uint16(0), protocolVersion: 2),
       rawFrame(type: 3, requestID: 0, payload: uint16(0)),
-      rawFrame(type: 13, requestID: 1, payload: uint16(0)),
+      rawFrame(type: 16, requestID: 1, payload: uint16(0)),
       rawFrame(type: 0, requestID: 1, payload: uint16(0)),
       rawFrame(
         type: 3,

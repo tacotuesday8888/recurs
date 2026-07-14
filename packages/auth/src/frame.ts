@@ -2,7 +2,7 @@ import { NATIVE_AUTHORITY_PROTOCOL_VERSION } from "@recurs/contracts";
 
 export const NATIVE_FRAME_MAGIC = 0x52_43_55_52;
 export const NATIVE_FRAME_HEADER_BYTES = 16;
-export const NATIVE_FRAME_MAX_PAYLOAD_BYTES = 64 * 1024;
+export const NATIVE_FRAME_MAX_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const NATIVE_FRAME_MAX_BYTES =
   NATIVE_FRAME_HEADER_BYTES + NATIVE_FRAME_MAX_PAYLOAD_BYTES;
 const NativeUint8Array = Uint8Array;
@@ -37,6 +37,9 @@ export enum NativeMessageType {
   openAIOnboardingAborted = 10,
   openAIOnboardingReconciliation = 11,
   openAIOnboardingFailure = 12,
+  openAIGenerationRequest = 13,
+  openAIGenerationEvent = 14,
+  openAIGenerationFailure = 15,
   safeFailure = 255,
 }
 Object.freeze(NativeMessageType);
@@ -161,6 +164,9 @@ function isNativeMessageType(value: number): value is NativeMessageType {
     case NativeMessageType.openAIOnboardingAborted:
     case NativeMessageType.openAIOnboardingReconciliation:
     case NativeMessageType.openAIOnboardingFailure:
+    case NativeMessageType.openAIGenerationRequest:
+    case NativeMessageType.openAIGenerationEvent:
+    case NativeMessageType.openAIGenerationFailure:
     case NativeMessageType.safeFailure:
       return true;
     default:

@@ -64,6 +64,14 @@ export {
   encodeOpenAIOnboardingReconciliation,
   encodeOpenAIOnboardingRequest,
 } from "./openai-onboarding.js";
+export {
+  decodeOpenAIGenerationRequestBody,
+  encodeOpenAIGenerationRequest,
+} from "./openai-generation.js";
+export type {
+  NativeOpenAIGenerationInput,
+  NativeOpenAIGenerationRequestBody,
+} from "./openai-generation.js";
 export type {
   NativeOpenAIOnboardingBegun,
   NativeOpenAIOnboardingCatalogPage,

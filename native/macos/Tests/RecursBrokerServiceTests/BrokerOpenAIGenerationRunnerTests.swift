@@ -79,7 +79,7 @@ struct BrokerOpenAIGenerationRunnerTests {
         .privateOutput(previousOutput),
       ]
     )
-    #expect(events.values == [.textDelta("done"), .done(.complete)])
+    #expect(events.values == [.textDelta("done")])
   }
 
   @Test
