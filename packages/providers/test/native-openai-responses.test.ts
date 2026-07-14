@@ -5,6 +5,7 @@ import type {
   ProviderEvent,
   ProviderRequest,
 } from "@recurs/contracts";
+import { NativeOpenAIResponsesError } from "@recurs/contracts";
 
 import {
   NativeOpenAIResponsesProvider,
@@ -134,7 +135,48 @@ describe("native OpenAI Responses provider", () => {
     }));
     expect((error as Error).message).not.toContain("CANARY");
   });
+
+  it.each([
+    ["invalid_credential", "authentication", false],
+    ["authentication_rejected", "authentication", false],
+    ["rate_limited", "rate_limit", true],
+    ["request_too_large", "context_overflow", false],
+    ["invalid_response", "invalid_response", false],
+    ["provider_unavailable", "transport", true],
+    ["delivery_uncertain", "transport", false],
+    ["cancelled", "cancelled", false],
+  ] as const)("maps native %s without leaking details", async (
+    nativeCode,
+    providerCode,
+    retryable,
+  ) => {
+    const port: NativeOpenAIResponsesPort = {
+      streamOpenAIResponses() {
+        return failingStream(new NativeOpenAIResponsesError(nativeCode));
+      },
+    };
+    const provider = new NativeOpenAIResponsesProvider({
+      connectionId: "connection-1",
+      modelId: "gpt-5.6-sol",
+      port,
+    });
+
+    await expect(collectError(provider.stream(request()))).resolves
+      .toMatchObject({ code: providerCode, retryable });
+  });
 });
+
+function failingStream(error: Error): AsyncIterable<ProviderEvent> {
+  return {
+    [Symbol.asyncIterator]() {
+      return {
+        async next(): Promise<IteratorResult<ProviderEvent>> {
+          throw error;
+        },
+      };
+    },
+  };
+}
 
 async function collectError(events: AsyncIterable<ProviderEvent>): Promise<unknown> {
   try {

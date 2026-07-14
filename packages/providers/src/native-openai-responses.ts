@@ -4,6 +4,7 @@ import type {
   ProviderEvent,
   ProviderRequest,
 } from "@recurs/contracts";
+import { NativeOpenAIResponsesError } from "@recurs/contracts";
 
 import { ProviderError } from "./types.js";
 
@@ -15,6 +16,33 @@ export interface NativeOpenAIResponsesProviderOptions {
 
 function validIdentity(value: string): boolean {
   return value.length > 0 && value.length <= 256 && value === value.trim();
+}
+
+function nativeFailure(error: NativeOpenAIResponsesError): ProviderError {
+  switch (error.code) {
+    case "invalid_credential":
+    case "authentication_rejected":
+      return new ProviderError("authentication", error.message, false);
+    case "rate_limited":
+      return new ProviderError("rate_limit", error.message, true);
+    case "request_too_large":
+      return new ProviderError("context_overflow", error.message, false);
+    case "invalid_request":
+    case "invalid_response":
+    case "response_too_large":
+    case "credential_echo_detected":
+      return new ProviderError("invalid_response", error.message, false);
+    case "provider_unavailable":
+      return new ProviderError("transport", error.message, true);
+    case "cancelled":
+      return new ProviderError("cancelled", error.message, false);
+    case "route_unavailable":
+    case "delivery_uncertain":
+    case "request_rejected":
+    case "content_filtered":
+    case "provider_failure":
+      return new ProviderError("transport", error.message, false);
+  }
 }
 
 export class NativeOpenAIResponsesProvider
@@ -59,6 +87,9 @@ export class NativeOpenAIResponsesProvider
       yield* this.#port.streamOpenAIResponses(request);
     } catch (error) {
       if (error instanceof ProviderError) throw error;
+      if (error instanceof NativeOpenAIResponsesError) {
+        throw nativeFailure(error);
+      }
       throw new ProviderError(
         request.signal.aborted ? "cancelled" : "transport",
         request.signal.aborted
