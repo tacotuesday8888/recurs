@@ -5,6 +5,7 @@ import {
   NATIVE_AUTHORITY_PROTOCOL_VERSION,
   nativeOpenAIOnboardingFailure,
   nativeOpenAIOnboardingSucceeded,
+  NativeOpenAIResponsesError,
   type NativeAuthorityAttestation,
   type NativeAuthorityPort,
   type NativeAuthorityStatus,
@@ -16,10 +17,18 @@ import {
   type NativeOpenAIOnboardingCommitted,
   type NativeOpenAIOnboardingFailureCode,
   type NativeOpenAIOnboardingOutcome,
+  type NativeOpenAIResponsesPort,
+  type ProviderEvent,
+  type ProviderRequest,
 } from "@recurs/contracts";
 
 import { NativeFrameDecoder, NativeMessageType } from "./frame.js";
 import type { NativeFrame } from "./frame.js";
+import {
+  decodeOpenAIGenerationEvent,
+  decodeOpenAIGenerationFailure,
+  encodeOpenAIGenerationRequest,
+} from "./openai-generation.js";
 import {
   decodeHealthResult,
   decodeHelloResult,
@@ -110,7 +119,7 @@ interface PendingFrame {
   readonly abortListener: (() => void) | undefined;
 }
 
-export interface NativeAuthorityClient extends NativeAuthorityPort {
+export interface NativeAuthorityClient extends NativeAuthorityPort, NativeOpenAIResponsesPort {
   close(): void;
 }
 
@@ -121,6 +130,7 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
   readonly #onboardingControlTimeoutMilliseconds: number;
   readonly #decoder = new NativeFrameDecoder();
   readonly #pending = new Map<number, PendingFrame>();
+  #generation: PendingGeneration | undefined;
   #attestation: NativeAuthorityAttestation | undefined;
   #nextRequestId = 1;
   #openAIOnboardingActive = false;
@@ -524,6 +534,54 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
     );
   }
 
+  async *streamOpenAIResponses(
+    request: ProviderRequest,
+  ): AsyncIterable<ProviderEvent> {
+    if (this.#terminalReason !== undefined || this.#generation !== undefined ||
+      this.#openAIOnboardingActive || this.#openAIOnboardingState.kind !== "fresh" ||
+      this.#pending.size !== 0) {
+      throw new NativeOpenAIResponsesError("route_unavailable");
+    }
+    let requestId: number;
+    let encoded: Uint8Array;
+    try {
+      if (readAbortSignal(request.signal)) throw new NativeOpenAIResponsesError("cancelled");
+      requestId = this.#claimRequestId();
+      encoded = encodeOpenAIGenerationRequest(requestId, request);
+    } catch (error) {
+      if (error instanceof NativeOpenAIResponsesError) throw error;
+      throw new NativeOpenAIResponsesError("invalid_request");
+    }
+
+    const generation = new PendingGeneration(requestId);
+    this.#generation = generation;
+    const abortListener = () => this.#cancelGeneration(generation);
+    addAbortListener(request.signal, abortListener);
+    try {
+      if (readAbortSignal(request.signal)) this.#cancelGeneration(generation);
+      else this.#write(encoded);
+      while (true) {
+        const frame = await generation.next();
+        if (frame.type === NativeMessageType.openAIGenerationFailure) {
+          throw new NativeOpenAIResponsesError(decodeOpenAIGenerationFailure(frame));
+        }
+        const event = decodeOpenAIGenerationEvent(frame);
+        yield event;
+        if (event.type === "done") return;
+      }
+    } finally {
+      removeAbortListener(request.signal, abortListener);
+      if (this.#generation === generation) {
+        if (!generation.terminal) {
+          generation.draining = true;
+          this.#cancelGeneration(generation);
+        } else {
+          this.#generation = undefined;
+        }
+      }
+    }
+  }
+
   close(): void {
     this.#terminate("broker_unavailable");
   }
@@ -798,6 +856,23 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
         throw new Error();
       }
       for (const frame of this.#decoder.push(chunk)) {
+        const generation = this.#generation;
+        if (generation?.requestId === frame.requestId) {
+          if (frame.type !== NativeMessageType.openAIGenerationEvent &&
+            frame.type !== NativeMessageType.openAIGenerationFailure) {
+            this.#terminate("protocol_mismatch");
+            return;
+          }
+          try {
+            const terminal = frame.type === NativeMessageType.openAIGenerationFailure ||
+              decodeOpenAIGenerationEvent(frame).type === "done";
+            generation.push(frame, terminal);
+            if (generation.draining && terminal) this.#generation = undefined;
+          } catch {
+            this.#terminate("protocol_mismatch");
+          }
+          continue;
+        }
         const pending = this.#takePending(frame.requestId);
         if (pending === undefined) {
           this.#terminate("protocol_mismatch");
@@ -838,6 +913,8 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
   #poison(reason: NativeAuthorityUnavailableReason): void {
     if (this.#terminalReason !== undefined) return;
     this.#terminalReason = reason;
+    this.#generation?.fail(new NativeAuthorityClientUnavailableError(reason));
+    this.#generation = undefined;
     this.#duplex.off("data", this.#onData);
     try {
       this.#decoder.finish();
@@ -856,6 +933,55 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
     if (this.#transportDestroyed) return;
     this.#transportDestroyed = true;
     destroyWithoutDetails(this.#duplex);
+  }
+
+  #cancelGeneration(generation: PendingGeneration): void {
+    if (this.#generation !== generation || generation.cancelSent) return;
+    generation.cancelSent = true;
+    try {
+      const cancelRequestId = this.#claimRequestId();
+      this.#write(encodeCancel(cancelRequestId, generation.requestId));
+    } catch {
+      this.#terminate("protocol_mismatch");
+    }
+  }
+}
+
+class PendingGeneration {
+  readonly frames: NativeFrame[] = [];
+  waiter: { resolve(frame: NativeFrame): void; reject(error: unknown): void } | undefined;
+  terminal = false;
+  draining = false;
+  cancelSent = false;
+  failure: unknown | undefined;
+
+  constructor(readonly requestId: number) {}
+
+  next(): Promise<NativeFrame> {
+    if (this.failure !== undefined) return Promise.reject(this.failure);
+    const frame = this.frames.shift();
+    if (frame !== undefined) return Promise.resolve(frame);
+    if (this.waiter !== undefined) return Promise.reject(new Error());
+    return new Promise((resolve, reject) => { this.waiter = { resolve, reject }; });
+  }
+
+  push(frame: NativeFrame, terminal: boolean): void {
+    if (this.terminal) throw new Error();
+    this.terminal = terminal;
+    if (this.draining) return;
+    const waiter = this.waiter;
+    if (waiter === undefined) this.frames.push(frame);
+    else {
+      this.waiter = undefined;
+      waiter.resolve(frame);
+    }
+  }
+
+  fail(error: unknown): void {
+    this.failure = error;
+    const waiter = this.waiter;
+    this.waiter = undefined;
+    waiter?.reject(error);
   }
 }
 

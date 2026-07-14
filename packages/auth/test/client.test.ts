@@ -206,6 +206,7 @@ describe("native authority client", () => {
       "finalizeOpenAIOnboarding",
       "abortOpenAIOnboarding",
       "reconcileOpenAIActivation",
+      "streamOpenAIResponses",
       "close",
     ]);
 

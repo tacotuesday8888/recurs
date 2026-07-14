@@ -19,6 +19,9 @@ import {
   type NativeOpenAIOnboardingCatalogPage,
   type NativeOpenAIOnboardingCommitted,
   type NativeOpenAIOnboardingOutcome,
+  type NativeOpenAIResponsesPort,
+  type ProviderEvent,
+  type ProviderRequest,
 } from "@recurs/contracts";
 
 const PEER_IDENTITY_UNVERIFIED = Object.freeze({
@@ -37,7 +40,7 @@ export interface PrivateNativeAuthorityConnectOptions {
   readonly onboardingControlTimeoutMilliseconds?: number;
 }
 
-export interface PrivateNativeAuthorityPort extends NativeAuthorityPort {
+export interface PrivateNativeAuthorityPort extends NativeAuthorityPort, NativeOpenAIResponsesPort {
   close(): void;
 }
 
@@ -230,6 +233,15 @@ export function createPrivateNativeAuthorityPort(
           ),
       );
     },
+    streamOpenAIResponses(request: ProviderRequest): AsyncIterable<ProviderEvent> {
+      return {
+        async *[Symbol.asyncIterator]() {
+          if (closed) throw new NativeAuthorityClientUnavailableError("broker_unavailable");
+          const connected = await connect(request.signal);
+          yield* connected.streamOpenAIResponses(request);
+        },
+      };
+    },
     close,
   });
 }
@@ -251,7 +263,7 @@ export async function runPrivateEngineProcess(
     ? ownedNativeAuthority as PrivateNativeAuthorityPort
     : fixedUnavailablePort(input.unavailableReason);
   try {
-    await runCliProcess(nativeAuthority);
+    await runCliProcess(nativeAuthority, ownedNativeAuthority);
   } finally {
     ownedNativeAuthority?.close();
   }

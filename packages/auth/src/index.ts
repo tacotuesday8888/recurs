@@ -65,6 +65,8 @@ export {
   encodeOpenAIOnboardingRequest,
 } from "./openai-onboarding.js";
 export {
+  decodeOpenAIGenerationEvent,
+  decodeOpenAIGenerationFailure,
   decodeOpenAIGenerationRequestBody,
   encodeOpenAIGenerationRequest,
 } from "./openai-generation.js";

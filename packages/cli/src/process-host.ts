@@ -14,6 +14,7 @@ import {
   type IntegrationFailure,
   type NativeAuthorityPort,
   type NativeAuthorityStatus,
+  type NativeOpenAIResponsesPort,
 } from "@recurs/contracts";
 import {
   CodexOnboardingError,
@@ -254,7 +255,7 @@ async function renderOpenAIOutcome(
   const connection = outcome.connection;
   await writeOutput(
     dependencies.stdout,
-    `Stored — ${connection.label} · ${connection.modelId}\nCredential: native authority (identifier redacted)\nBilling: OpenAI API, separate from ChatGPT\nActivation: stored pending runtime gate; provider execution is not enabled yet\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}${outcome.cleanupPending ? "Activation cleanup remains pending; run recurs setup openai --recover.\n" : ""}`,
+    `Stored — ${connection.label} · ${connection.modelId}\nCredential: native authority (identifier redacted)\nBilling: OpenAI API, separate from ChatGPT\nActivation: ready through the signed native authority\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}${outcome.cleanupPending ? "Activation cleanup remains pending; run recurs setup openai --recover.\n" : ""}`,
   );
   return 0;
 }
@@ -832,6 +833,7 @@ export function isAutomationEnvironment(
 
 export async function runCliProcess(
   nativeAuthority: NativeAuthorityPort,
+  nativeOpenAIResponses?: NativeOpenAIResponsesPort,
 ): Promise<void> {
   const argv = process.argv.slice(2);
   const nativeDoctorRequested =
@@ -916,7 +918,10 @@ export async function runCliProcess(
           signal === undefined ? {} : { signal },
         ),
       },
-      createRuntime: (events) => createStandaloneRuntime(events),
+      createRuntime: (events) => createStandaloneRuntime(
+        events,
+        nativeOpenAIResponses === undefined ? {} : { nativeOpenAIResponses },
+      ),
       setupLocal: (input) => setupLocalConnection(
         dataDirectory,
         input,

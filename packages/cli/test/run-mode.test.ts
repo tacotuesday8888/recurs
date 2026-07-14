@@ -406,7 +406,7 @@ describe("runCli", () => {
       },
     });
     expect(stdout.value).toContain("Stored — OpenAI API · gpt-5.6-sol");
-    expect(stdout.value).toContain("runtime gate");
+    expect(stdout.value).toContain("ready through the signed native authority");
     expect(stdout.value).not.toContain("Ready —");
     expect(stdout.value).not.toContain("sha256:");
     expect(stderr.value).toBe("");

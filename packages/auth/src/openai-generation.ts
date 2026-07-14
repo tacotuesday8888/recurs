@@ -1,7 +1,9 @@
 import type {
   DirectContinuationHandle,
   JsonValue,
+  NativeOpenAIResponsesFailureCode,
   ProviderBackedMessage,
+  ProviderEvent,
   ProviderRequest,
 } from "@recurs/contracts";
 
@@ -12,7 +14,7 @@ import {
   failNativeCodec,
 } from "./frame.js";
 import type { NativeFrame } from "./frame.js";
-import { decodeFieldTable, encodeFieldTable } from "./fields.js";
+import { decodeFieldTable, decodeU16, encodeFieldTable } from "./fields.js";
 
 export type NativeOpenAIGenerationInput =
   | { readonly kind: "message"; readonly role: "system" | "user" | "assistant"; readonly text: string }
@@ -117,6 +119,113 @@ export function decodeOpenAIGenerationRequestBody(
     }
     return value as unknown as NativeOpenAIGenerationRequestBody;
   });
+}
+
+export function decodeOpenAIGenerationEvent(frame: NativeFrame): ProviderEvent {
+  return invalidMessage(() => {
+    const value = decodeGenerationJson(frame, NativeMessageType.openAIGenerationEvent);
+    if (!isJsonObject(value) || typeof value.type !== "string") {
+      failNativeCodec("invalid_message");
+    }
+    switch (value.type) {
+      case "text_delta":
+      case "reasoning_delta":
+        requireExactKeys(value, ["type", "text"]);
+        if (typeof value.text !== "string") failNativeCodec("invalid_message");
+        return { type: value.type, text: value.text };
+      case "tool_call": {
+        requireExactKeys(value, ["type", "call"]);
+        const call = value.call;
+        if (!isJsonObject(call)) failNativeCodec("invalid_message");
+        requireExactKeys(call, ["id", "name", "arguments"]);
+        if (typeof call.id !== "string" || typeof call.name !== "string") {
+          failNativeCodec("invalid_message");
+        }
+        return { type: "tool_call", call: { id: call.id, name: call.name, arguments: call.arguments } };
+      }
+      case "usage":
+        requireExactKeys(value, ["type", "inputTokens", "outputTokens"]);
+        if (!isNonNegativeSafeInteger(value.inputTokens) || !isNonNegativeSafeInteger(value.outputTokens)) {
+          failNativeCodec("invalid_message");
+        }
+        return { type: "usage", inputTokens: value.inputTokens, outputTokens: value.outputTokens };
+      case "provider_state": {
+        requireExactKeys(value, ["type", "handle"]);
+        return { type: "provider_state", handle: decodeContinuationHandle(value.handle) };
+      }
+      case "done":
+        requireExactKeys(value, ["type", "stopReason"]);
+        if (value.stopReason !== "complete" && value.stopReason !== "tool_calls" && value.stopReason !== "length") {
+          failNativeCodec("invalid_message");
+        }
+        return { type: "done", stopReason: value.stopReason };
+      default:
+        failNativeCodec("invalid_message");
+    }
+  });
+}
+
+export function decodeOpenAIGenerationFailure(
+  frame: NativeFrame,
+): NativeOpenAIResponsesFailureCode {
+  return invalidMessage(() => {
+    if (frame.type !== NativeMessageType.openAIGenerationFailure) failNativeCodec("invalid_message");
+    const fields = decodeFieldTable(frame.payload);
+    if (fields.length !== 1 || fields[0]?.tag !== 1) failNativeCodec("invalid_message");
+    const code = GENERATION_FAILURE_CODES[decodeU16(fields[0].value)];
+    if (code === undefined) failNativeCodec("invalid_message");
+    return code;
+  });
+}
+
+const GENERATION_FAILURE_CODES: Readonly<Record<number, NativeOpenAIResponsesFailureCode>> = Object.freeze({
+  1: "cancelled", 2: "invalid_request", 3: "request_too_large", 4: "invalid_credential",
+  5: "route_unavailable", 6: "delivery_uncertain", 7: "invalid_response", 8: "response_too_large",
+  9: "authentication_rejected", 10: "rate_limited", 11: "provider_unavailable",
+  12: "request_rejected", 13: "content_filtered", 14: "provider_failure", 15: "credential_echo_detected",
+});
+
+function decodeGenerationJson(frame: NativeFrame, type: NativeMessageType): unknown {
+  if (frame.type !== type) failNativeCodec("invalid_message");
+  const fields = decodeFieldTable(frame.payload);
+  if (fields.length !== 1 || fields[0]?.tag !== 1) failNativeCodec("invalid_message");
+  return JSON.parse(textDecoder.decode(fields[0].value)) as unknown;
+}
+
+function decodeContinuationHandle(value: unknown): DirectContinuationHandle {
+  if (!isJsonObject(value)) failNativeCodec("invalid_message");
+  requireExactKeys(value, [
+    "kind", "id", "storageClass", "recursSessionId", "connectionId", "adapterId", "modelId",
+    "backendFingerprint", "stateVersion", "originTurnId", "continuationSequence", "status",
+  ]);
+  if (value.kind !== "direct" || value.storageClass !== "persistent_broker" || value.status !== "committed" ||
+    typeof value.id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value.id) ||
+    typeof value.recursSessionId !== "string" || typeof value.connectionId !== "string" ||
+    typeof value.adapterId !== "string" || typeof value.modelId !== "string" ||
+    typeof value.backendFingerprint !== "string" || typeof value.originTurnId !== "string" ||
+    !isNonNegativeSafeInteger(value.stateVersion) || value.stateVersion !== 1 ||
+    !isNonNegativeSafeInteger(value.continuationSequence) || value.continuationSequence === 0) {
+    failNativeCodec("invalid_message");
+  }
+  return {
+    kind: "direct", id: value.id, storageClass: "persistent_broker",
+    recursSessionId: value.recursSessionId, connectionId: value.connectionId,
+    adapterId: value.adapterId, modelId: value.modelId, backendFingerprint: value.backendFingerprint,
+    stateVersion: value.stateVersion, originTurnId: value.originTurnId,
+    continuationSequence: value.continuationSequence, status: "committed",
+  };
+}
+
+function requireExactKeys(value: Record<string, JsonValue>, expected: readonly string[]): void {
+  const actual = Object.keys(value).sort();
+  const sorted = [...expected].sort();
+  if (actual.length !== sorted.length || actual.some((key, index) => key !== sorted[index])) {
+    failNativeCodec("invalid_message");
+  }
+}
+
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 function encodeInput(
