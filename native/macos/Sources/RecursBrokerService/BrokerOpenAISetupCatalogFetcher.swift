@@ -22,11 +22,11 @@ struct BrokerOpenAISetupCatalogFetcher<
   Network: BrokerOpenAIModelCatalogNetworking
 >: BrokerOpenAISetupCatalogFetching, Sendable {
   private let route: Route
-  private let transport: BrokerOpenAIModelCatalogTransport<Route, Network>
+  private let network: Network
 
   init(route: Route, network: Network) {
     self.route = route
-    transport = BrokerOpenAIModelCatalogTransport(route: route, network: network)
+    self.network = network
   }
 
   func fetchSetupCatalog(
@@ -49,7 +49,13 @@ struct BrokerOpenAISetupCatalogFetcher<
     }
 
     do {
-      let catalog = try await transport.fetch(capability: capability, use: .setup)
+      let profile: BrokerModelCatalogProfile =
+        context.providerBinding == .anthropic ? .anthropic : .openAI
+      let catalog = try await BrokerOpenAIModelCatalogTransport(
+        route: route,
+        network: network,
+        profile: profile
+      ).fetch(capability: capability, use: .setup)
       await cleanup(capability)
       return catalog
     } catch {

@@ -90,9 +90,9 @@ export interface DelegatedConnectionRecord {
 export interface BrokeredModelProviderConnectionRecord {
   kind: "brokered_model_provider";
   id: string;
-  providerId: "openai-api";
-  adapterId: "openai-responses";
-  activationProfileId: "openai_api_v1";
+  providerId: "openai-api" | "anthropic-api";
+  adapterId: "openai-responses" | "anthropic-messages";
+  activationProfileId: "openai_api_v1" | "anthropic_api_v1";
   label: string;
   modelId: string;
   credentialIdentityFingerprint: string;
@@ -664,14 +664,10 @@ export function parseBrokeredModelProviderConnectionRecord(
     "createdAt",
     "updatedAt",
   ]);
-  if (
-    value.kind !== "brokered_model_provider" ||
-    value.providerId !== "openai-api" ||
-    value.adapterId !== "openai-responses" ||
-    value.activationProfileId !== "openai_api_v1"
-  ) {
+  if (value.kind !== "brokered_model_provider") {
     throw invalidRegistry();
   }
+  const profile = brokeredProviderProfile(value);
   const createdAt = timestamp(value.createdAt);
   const updatedAt = timestamp(value.updatedAt);
   const verifiedAt = timestamp(value.verifiedAt);
@@ -703,9 +699,7 @@ export function parseBrokeredModelProviderConnectionRecord(
       trim: true,
       pattern: BROKER_CONNECTION_ID_PATTERN,
     }),
-    providerId: "openai-api",
-    adapterId: "openai-responses",
-    activationProfileId: "openai_api_v1",
+    ...profile,
     label: boundedString(value.label, 256, { trim: true }),
     modelId: boundedUtf8String(value.modelId, 256, { trim: true }),
     credentialIdentityFingerprint: boundedString(
@@ -720,6 +714,37 @@ export function parseBrokeredModelProviderConnectionRecord(
     createdAt,
     updatedAt,
   };
+}
+
+function brokeredProviderProfile(
+  value: Record<string, unknown>,
+): Pick<
+  BrokeredModelProviderConnectionRecord,
+  "providerId" | "adapterId" | "activationProfileId"
+> {
+  if (
+    value.providerId === "openai-api" &&
+    value.adapterId === "openai-responses" &&
+    value.activationProfileId === "openai_api_v1"
+  ) {
+    return {
+      providerId: "openai-api",
+      adapterId: "openai-responses",
+      activationProfileId: "openai_api_v1",
+    };
+  }
+  if (
+    value.providerId === "anthropic-api" &&
+    value.adapterId === "anthropic-messages" &&
+    value.activationProfileId === "anthropic_api_v1"
+  ) {
+    return {
+      providerId: "anthropic-api",
+      adapterId: "anthropic-messages",
+      activationProfileId: "anthropic_api_v1",
+    };
+  }
+  throw invalidRegistry();
 }
 
 function parseConnection(value: unknown): ConnectionRecord {

@@ -157,6 +157,27 @@ struct BrokerOpenAIOnboardingGatewayTests {
   }
 
   @Test
+  func beginAnthropicStagesTheExactNativeProviderBinding() throws {
+    let system = makeSystem()
+    system.gateway.authorizeAfterHello()
+    let reply = OnboardingReplyProbe()
+
+    system.gateway.submitBegin(
+      try BrokerOpenAIOnboardingRequest.beginAnthropic(requestID: 1).encode(),
+      secret: Data(secretCanary.utf8),
+      reply: reply.receive
+    )
+
+    guard case .begun = try decoded(reply.wait()) else {
+      Issue.record("expected Anthropic onboarding to begin")
+      return
+    }
+    #expect(system.fingerprinter.calls.map(\.binding) == [.anthropic])
+    #expect(system.authority.stageCalls.map(\.providerBinding) == [.anthropic])
+    #expect(system.factory.calls.map(\.context.providerBinding) == [.anthropic])
+  }
+
+  @Test
   func invalidSecretsAndUnavailableAuthorityNeverBuildASession() throws {
     for (offset, secret) in [
       Data(),

@@ -133,7 +133,7 @@ actor BrokerOpenAIOnboardingSession {
     clock: @escaping @Sendable () -> Date = { Date() }
   ) throws(BrokerOpenAIOnboardingError) {
     guard
-      context.providerBinding == .openAI,
+      [.openAI, .anthropic].contains(context.providerBinding),
       context.fence > 0,
       context.expiresAt.timeIntervalSinceReferenceDate.isFinite
     else {

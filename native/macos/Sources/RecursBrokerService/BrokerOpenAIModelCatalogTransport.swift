@@ -126,6 +126,43 @@ private struct BrokerOpenAIModelCatalogEnvelope: Decodable {
   }
 
   let data: [Model]
+  let hasMore: Bool?
+
+  private enum CodingKeys: String, CodingKey {
+    case data
+    case hasMore = "has_more"
+  }
+}
+
+enum BrokerModelCatalogProfile: Sendable, Equatable {
+  case openAI
+  case anthropic
+
+  var providerBinding: ProviderProfileBinding {
+    switch self {
+    case .openAI: .openAI
+    case .anthropic: .anthropic
+    }
+  }
+
+  fileprivate var requestURL: URL {
+    switch self {
+    case .openAI: URL(string: "https://api.openai.com/v1/models")!
+    case .anthropic: URL(string: "https://api.anthropic.com/v1/models?limit=1000")!
+    }
+  }
+
+  fileprivate var host: String { requestURL.host! }
+
+  fileprivate init?(requestURL: URL?) {
+    if requestURL?.absoluteString == Self.openAI.requestURL.absoluteString {
+      self = .openAI
+    } else if requestURL?.absoluteString == Self.anthropic.requestURL.absoluteString {
+      self = .anthropic
+    } else {
+      return nil
+    }
+  }
 }
 
 enum BrokerOpenAIModelCatalogNetworkError: Error, Sendable, Equatable {
@@ -335,13 +372,18 @@ final class BrokerOpenAIModelCatalogResponseAccumulator: @unchecked Sendable {
 }
 
 struct BrokerOpenAIModelCatalogURLSessionNetworking: BrokerOpenAIModelCatalogNetworking {
+  private let profile: BrokerModelCatalogProfile?
+
+  init(profile: BrokerModelCatalogProfile? = nil) { self.profile = profile }
+
   func makeAttempt(
     request: URLRequest,
     accumulator: BrokerOpenAIModelCatalogResponseAccumulator
   ) -> any BrokerOpenAIModelCatalogNetworkAttempt {
     BrokerOpenAIModelCatalogURLSessionAttempt(
       request: request,
-      accumulator: accumulator
+      accumulator: accumulator,
+      profile: profile ?? BrokerModelCatalogProfile(requestURL: request.url) ?? .openAI
     )
   }
 
@@ -375,12 +417,17 @@ private final class BrokerOpenAIModelCatalogURLSessionAttempt:
   private var isStarted = false
   private var isCancelled = false
 
-  init(request: URLRequest, accumulator: BrokerOpenAIModelCatalogResponseAccumulator) {
+  init(
+    request: URLRequest,
+    accumulator: BrokerOpenAIModelCatalogResponseAccumulator,
+    profile: BrokerModelCatalogProfile
+  ) {
     self.accumulator = accumulator
     let result = self.result
     delegate = BrokerOpenAIModelCatalogURLSessionDelegate(
       accumulator: accumulator,
-      result: result
+      result: result,
+      profile: profile
     )
     session = URLSession(
       configuration: BrokerOpenAIModelCatalogURLSessionNetworking.configuration(),
@@ -434,14 +481,17 @@ private final class BrokerOpenAIModelCatalogURLSessionDelegate:
   private let lock = NSLock()
   private let accumulator: BrokerOpenAIModelCatalogResponseAccumulator
   private let result: BrokerOpenAIModelCatalogNetworkResult
+  private let profile: BrokerModelCatalogProfile
   private var handledServerTrust = false
 
   init(
     accumulator: BrokerOpenAIModelCatalogResponseAccumulator,
-    result: BrokerOpenAIModelCatalogNetworkResult
+    result: BrokerOpenAIModelCatalogNetworkResult,
+    profile: BrokerModelCatalogProfile
   ) {
     self.accumulator = accumulator
     self.result = result
+    self.profile = profile
   }
 
   func urlSession(
@@ -452,7 +502,7 @@ private final class BrokerOpenAIModelCatalogURLSessionDelegate:
   ) {
     guard
       let response = response as? HTTPURLResponse,
-      BrokerOpenAIModelCatalogURLPolicy.accepts(response.url)
+      response.url?.absoluteString == profile.requestURL.absoluteString
     else {
       fail(.invalidResponse, task: dataTask)
       completionHandler(.cancel)
@@ -546,11 +596,11 @@ private final class BrokerOpenAIModelCatalogURLSessionDelegate:
       ) -> Void
   ) {
     lock.lock()
-    let disposition = BrokerOpenAIModelCatalogURLPolicy.challengeDisposition(
-      authenticationMethod: challenge.protectionSpace.authenticationMethod,
-      host: challenge.protectionSpace.host,
-      hasHandledServerTrust: handledServerTrust
-    )
+    let disposition: URLSession.AuthChallengeDisposition =
+      challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust
+        && challenge.protectionSpace.host.lowercased() == profile.host
+        && !handledServerTrust
+      ? .performDefaultHandling : .cancelAuthenticationChallenge
     if disposition == .performDefaultHandling {
       handledServerTrust = true
     }
@@ -691,10 +741,16 @@ struct BrokerOpenAIModelCatalogTransport<
 
   private let route: Route
   private let network: Network
+  private let profile: BrokerModelCatalogProfile
 
-  init(route: Route, network: Network) {
+  init(
+    route: Route,
+    network: Network,
+    profile: BrokerModelCatalogProfile = .openAI
+  ) {
     self.route = route
     self.network = network
+    self.profile = profile
   }
 
   func fetch(
@@ -708,7 +764,7 @@ struct BrokerOpenAIModelCatalogTransport<
         let reservation = try await route.reserveCredentialUse(
           capability,
           expectedScope: use.routeScope,
-          expectedProviderBinding: .openAI,
+          expectedProviderBinding: profile.providerBinding,
           requestBytes: Self.requestBytes
         )
         try Task.checkCancellation()
@@ -716,7 +772,7 @@ struct BrokerOpenAIModelCatalogTransport<
           reservation,
           capability: capability,
           expectedScope: use.routeScope,
-          expectedProviderBinding: .openAI,
+          expectedProviderBinding: profile.providerBinding,
           requestBytes: Self.requestBytes,
           prepare: {
             credential -> CredentialUsePreparation<
@@ -726,7 +782,8 @@ struct BrokerOpenAIModelCatalogTransport<
               let prepared = Self.prepareRequest(
                 credential: credential,
                 network: network,
-                attemptBox: attemptBox
+                attemptBox: attemptBox,
+                profile: profile
               )
             else {
               return .rejected
@@ -743,7 +800,7 @@ struct BrokerOpenAIModelCatalogTransport<
         }
         let response = try await attemptBox.response()
         try Task.checkCancellation()
-        return try Self.catalog(from: response)
+        return try Self.catalog(from: response, profile: profile)
       } onCancel: {
         attemptBox.cancel()
       }
@@ -766,7 +823,8 @@ struct BrokerOpenAIModelCatalogTransport<
   private static func prepareRequest(
     credential: UnsafeRawBufferPointer,
     network: Network,
-    attemptBox: BrokerOpenAIModelCatalogAttemptBox
+    attemptBox: BrokerOpenAIModelCatalogAttemptBox,
+    profile: BrokerModelCatalogProfile
   ) -> BrokerOpenAIModelCatalogPreparedAttempt? {
     guard
       (1...maximumCredentialByteCount).contains(credential.count),
@@ -776,28 +834,41 @@ struct BrokerOpenAIModelCatalogTransport<
     }
 
     let credentialData = Data(credential)
-    var bearerData = Data("Bearer ".utf8)
-    bearerData.append(credentialData)
+    var patterns = [SecretBytes(credentialData)]
+    if profile == .openAI {
+      var bearerData = Data("Bearer ".utf8)
+      bearerData.append(credentialData)
+      patterns.append(SecretBytes(bearerData))
+    }
     let filter: StreamingSecretFilter
     do {
       filter = try StreamingSecretFilter(
-        patterns: [SecretBytes(credentialData), SecretBytes(bearerData)]
+        patterns: patterns
       )
     } catch {
       return nil
     }
 
     var request = URLRequest(
-      url: BrokerOpenAIModelCatalogURLPolicy.requestURL,
+      url: profile.requestURL,
       cachePolicy: .reloadIgnoringLocalCacheData,
       timeoutInterval: 15
     )
     request.httpMethod = "GET"
     request.setValue("application/json", forHTTPHeaderField: "Accept")
-    request.setValue(
-      "Bearer \(String(decoding: credential, as: UTF8.self))",
-      forHTTPHeaderField: "Authorization"
-    )
+    switch profile {
+    case .openAI:
+      request.setValue(
+        "Bearer \(String(decoding: credential, as: UTF8.self))",
+        forHTTPHeaderField: "Authorization"
+      )
+    case .anthropic:
+      request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+      request.setValue(
+        String(decoding: credential, as: UTF8.self),
+        forHTTPHeaderField: "x-api-key"
+      )
+    }
     request.httpBody = nil
     let attempt = network.makeAttempt(
       request: request,
@@ -808,7 +879,8 @@ struct BrokerOpenAIModelCatalogTransport<
   }
 
   static func catalog(
-    from response: BrokerOpenAIModelCatalogNetworkResponse
+    from response: BrokerOpenAIModelCatalogNetworkResponse,
+    profile: BrokerModelCatalogProfile = .openAI
   ) throws(BrokerOpenAIModelCatalogError) -> BrokerOpenAIModelCatalog {
     guard response.body.count <= BrokerOpenAIModelCatalogResponseAccumulator.maximumBodyByteCount
     else {
@@ -849,6 +921,9 @@ struct BrokerOpenAIModelCatalogTransport<
       throw .invalidResponse
     }
     guard envelope.data.count <= 4_096 else {
+      throw .invalidResponse
+    }
+    if profile == .anthropic, envelope.hasMore != false {
       throw .invalidResponse
     }
 

@@ -146,6 +146,7 @@ describe("native OpenAI onboarding protocol", () => {
       "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const requests: readonly NativeOpenAIOnboardingRequest[] = [
       { kind: "begin" },
+      { kind: "begin_anthropic" },
       { kind: "verify" },
       { kind: "catalog_page", cursor: 128 },
       { kind: "finalize", exactModelId: "gpt-5" },

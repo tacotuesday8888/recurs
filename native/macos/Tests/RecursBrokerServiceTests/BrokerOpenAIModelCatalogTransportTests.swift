@@ -63,6 +63,50 @@ struct BrokerOpenAIModelCatalogTransportTests {
   }
 
   @Test
+  func anthropicUsesNativeHeadersBindingAndCompleteCatalogEnvelope() async throws {
+    let route = CatalogRoute(credential: Data("sk-ant-private".utf8))
+    let network = CatalogNetwork(
+      script: .response(
+        statusCode: 200,
+        contentType: "application/json",
+        xRequestID: "request-ant",
+        requestID: nil,
+        chunks: [
+          Data(
+            #"{"data":[{"id":"claude-sonnet"},{"id":"claude-opus"}],"has_more":false,"first_id":"claude-sonnet","last_id":"claude-opus"}"#
+              .utf8
+          )
+        ]
+      )
+    )
+
+    let catalog = try await Subject(
+      route: route,
+      network: network,
+      profile: .anthropic
+    ).fetch(capability: CatalogCapability(), use: .setup)
+
+    #expect(catalog.modelIDs == ["claude-opus", "claude-sonnet"])
+    #expect(await route.invocations.allSatisfy { $0.providerBinding == .anthropic })
+    let request = try #require(network.requests.first)
+    #expect(request.url?.absoluteString == "https://api.anthropic.com/v1/models?limit=1000")
+    #expect(request.value(forHTTPHeaderField: "x-api-key") == "sk-ant-private")
+    #expect(request.value(forHTTPHeaderField: "anthropic-version") == "2023-06-01")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+
+    let partial = BrokerOpenAIModelCatalogNetworkResponse(
+      statusCode: 200,
+      contentType: "application/json",
+      xRequestID: nil,
+      requestID: nil,
+      body: Data(#"{"data":[{"id":"claude"}],"has_more":true,"last_id":"claude"}"#.utf8)
+    )
+    #expect(throws: BrokerOpenAIModelCatalogError.invalidResponse) {
+      _ = try Subject.catalog(from: partial, profile: .anthropic)
+    }
+  }
+
+  @Test
   func maintenanceUsesExactProviderFenceAndDoesNotRetryTransportFailure() async {
     let route = CatalogRoute(credential: Data("key".utf8))
     let network = CatalogNetwork(script: .failure(.transportFailure))

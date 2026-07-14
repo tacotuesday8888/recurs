@@ -30,6 +30,23 @@ const PROVIDER_ID = "openai-api";
 const PROVIDER_LABEL = "OpenAI API";
 const ENDPOINT = "https://api.openai.com/v1";
 
+const PROVIDERS = Object.freeze({
+  openai: Object.freeze({
+    providerId: "openai-api" as const,
+    label: "OpenAI API" as const,
+    adapterId: "openai-responses" as const,
+    activationProfileId: "openai_api_v1" as const,
+  }),
+  anthropic: Object.freeze({
+    providerId: "anthropic-api" as const,
+    label: "Anthropic API" as const,
+    adapterId: "anthropic-messages" as const,
+    activationProfileId: "anthropic_api_v1" as const,
+  }),
+});
+
+type BrokeredProvider = keyof typeof PROVIDERS;
+
 const APP_FAILURE_MESSAGES = Object.freeze({
   acknowledgement_required:
     "The current OpenAI policy and billing disclosure must be acknowledged.",
@@ -55,14 +72,15 @@ export interface OpenAIOnboardingAcknowledgement {
 export interface SetupOpenAIConnectionInput {
   readonly modelId: string;
   readonly acknowledgement: OpenAIOnboardingAcknowledgement;
+  readonly provider?: BrokeredProvider;
   readonly signal?: AbortSignal;
 }
 
 export interface OpenAISetupConnectionSummary {
   readonly id: string;
-  readonly label: typeof PROVIDER_LABEL;
-  readonly providerId: typeof PROVIDER_ID;
-  readonly adapterId: "openai-responses";
+  readonly label: "OpenAI API" | "Anthropic API";
+  readonly providerId: "openai-api" | "anthropic-api";
+  readonly adapterId: "openai-responses" | "anthropic-messages";
   readonly kind: "brokered_model_provider";
   readonly modelId: string;
   readonly primary: boolean;
@@ -193,15 +211,18 @@ export async function setupOpenAIConnection(
 ): Promise<OpenAISetupOutcome> {
   const store = dependencies.activationStore ??
     new FileConnectionActivationStore(dataDirectory);
+  const provider = input.provider ?? "openai";
+  const providerConfig = PROVIDERS[provider];
   if (isAborted(input.signal)) return cancelled();
 
   let now: Date;
   let entry: OnboardingCatalogEntry;
   try {
     now = currentDate(dependencies.now);
-    entry = openAIEntry(
+    entry = providerEntry(
       dependencies.catalog ?? new OnboardingCatalog(),
       now,
+      providerConfig.providerId,
     );
   } catch {
     return failure("preflight", "policy_unavailable", "none");
@@ -226,13 +247,20 @@ export async function setupOpenAIConnection(
   if (!acknowledges(input.acknowledgement, entry)) {
     return failure("preflight", "acknowledgement_required", "none");
   }
-  if (!isCompatibleOpenAIResponsesModelId(input.modelId)) {
+  if (
+    provider === "openai" &&
+    !isCompatibleOpenAIResponsesModelId(input.modelId)
+  ) {
     return failure("preflight", "model_not_compatible", "none");
   }
 
   const begun = await callNative(
     "begin",
-    () => dependencies.nativeAuthority.beginOpenAIOnboarding(input.signal),
+    () =>
+      dependencies.nativeAuthority.beginOpenAIOnboarding(
+        input.signal,
+        provider,
+      ),
   );
   if (begun.state !== "succeeded") {
     return isCancelledFailure(begun.outcome) ? cancelled() : begun.outcome;
@@ -288,7 +316,9 @@ export async function setupOpenAIConnection(
       );
     }
   }
-  const compatible = compatibleOpenAIResponsesModelIds(modelIds);
+  const compatible = provider === "openai"
+    ? compatibleOpenAIResponsesModelIds(modelIds)
+    : modelIds;
   if (!compatible.includes(input.modelId)) {
     return abortBeforeCommit(
       dependencies.nativeAuthority,
@@ -307,10 +337,10 @@ export async function setupOpenAIConnection(
     connection: {
       kind: "brokered_model_provider",
       id: begun.value.connectionId,
-      providerId: PROVIDER_ID,
-      adapterId: "openai-responses",
-      activationProfileId: "openai_api_v1",
-      label: PROVIDER_LABEL,
+      providerId: providerConfig.providerId,
+      adapterId: providerConfig.adapterId,
+      activationProfileId: providerConfig.activationProfileId,
+      label: providerConfig.label,
       modelId: input.modelId,
       credentialIdentityFingerprint:
         begun.value.credentialIdentityFingerprint,
@@ -528,10 +558,18 @@ function signalOptions(
 }
 
 function openAIEntry(catalog: OnboardingCatalog, now: Date): OnboardingCatalogEntry {
+  return providerEntry(catalog, now, PROVIDER_ID);
+}
+
+function providerEntry(
+  catalog: OnboardingCatalog,
+  now: Date,
+  providerId: "openai-api" | "anthropic-api",
+): OnboardingCatalogEntry {
   const entry = catalog.list({ includeBlocked: true, now }).find(
-    (candidate) => candidate.id === PROVIDER_ID,
+    (candidate) => candidate.id === providerId,
   );
-  if (entry === undefined) throw new TypeError("OpenAI policy unavailable");
+  if (entry === undefined) throw new TypeError("Provider policy unavailable");
   return entry;
 }
 
@@ -717,9 +755,9 @@ function ready(
     disposition,
     connection: {
       id: connection.id,
-      label: PROVIDER_LABEL,
-      providerId: PROVIDER_ID,
-      adapterId: "openai-responses",
+      label: connection.label as "OpenAI API" | "Anthropic API",
+      providerId: connection.providerId,
+      adapterId: connection.adapterId,
       kind: "brokered_model_provider",
       modelId: connection.modelId,
       primary: registry.primaryConnectionId === connection.id,

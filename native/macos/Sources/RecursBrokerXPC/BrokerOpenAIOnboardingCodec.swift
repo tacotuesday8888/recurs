@@ -21,6 +21,7 @@ package struct BrokerOpenAIOnboardingCodecError:
 
 public enum BrokerOpenAIOnboardingRequest: Sendable, Equatable {
   case begin(requestID: UInt64)
+  case beginAnthropic(requestID: UInt64)
   case verify(requestID: UInt64)
   case catalogPage(requestID: UInt64, cursor: UInt16)
   case finalize(requestID: UInt64, exactModelID: String)
@@ -28,7 +29,7 @@ public enum BrokerOpenAIOnboardingRequest: Sendable, Equatable {
 
   public var requestID: UInt64 {
     switch self {
-    case .begin(let requestID), .verify(let requestID),
+    case .begin(let requestID), .beginAnthropic(let requestID), .verify(let requestID),
       .catalogPage(let requestID, _), .finalize(let requestID, _),
       .abort(let requestID):
       requestID
@@ -43,6 +44,8 @@ public enum BrokerOpenAIOnboardingRequest: Sendable, Equatable {
     switch self {
     case .begin:
       kind = 1
+    case .beginAnthropic:
+      kind = 7
     case .verify:
       kind = 2
     case .catalogPage(_, let cursor):
@@ -65,7 +68,7 @@ public enum BrokerOpenAIOnboardingRequest: Sendable, Equatable {
   public static func decode(_ data: Data) throws -> BrokerOpenAIOnboardingRequest {
     let frame = try decodeFrame(
       data,
-      allowedKinds: [1, 2, 3, 4, 5],
+      allowedKinds: [1, 2, 3, 4, 5, 7],
       maximumByteCount: maximumRequestBytes
     )
     var reader = ByteReader(frame.body)
@@ -77,6 +80,10 @@ public enum BrokerOpenAIOnboardingRequest: Sendable, Equatable {
         guard frame.body.count == 8 else { throw codecError() }
         try reader.finish()
         return .begin(requestID: requestID)
+      case 7:
+        guard frame.body.count == 8 else { throw codecError() }
+        try reader.finish()
+        return .beginAnthropic(requestID: requestID)
       case 2:
         guard frame.body.count == 8 else { throw codecError() }
         try reader.finish()

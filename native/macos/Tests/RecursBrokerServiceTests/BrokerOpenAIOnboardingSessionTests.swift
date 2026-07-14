@@ -475,7 +475,7 @@ struct BrokerOpenAIOnboardingSessionTests {
   }
 
   @Test
-  func constructionRejectsNonOpenAIOwnershipContext() async {
+  func constructionRejectsUnsupportedOwnershipContext() async {
     let authority = OnboardingAuthority(commitResult: .success(readyProjection))
 
     #expect(throws: BrokerOpenAIOnboardingError.invalidContext) {
@@ -484,7 +484,7 @@ struct BrokerOpenAIOnboardingSessionTests {
           connectionID: context.connectionID,
           attemptID: context.attemptID,
           fence: context.fence,
-          providerBinding: .anthropic,
+          providerBinding: .kimiCode,
           expiresAt: context.expiresAt
         ),
         abortOperationID: abortOperationID,

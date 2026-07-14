@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   FileConnectionActivationStore,
   FileConnectionRegistry,
+  OnboardingCatalog,
   connectionRegistryPath,
   openAIOnboardingDisclosure,
   recoverPendingOpenAIConnection,
@@ -107,8 +108,11 @@ class ScriptedNativeOpenAIOnboarding implements NativeOpenAIOnboardingPort {
     status: "ready_openai" as const,
   });
 
-  async beginOpenAIOnboarding(): Promise<typeof this.beginResult> {
-    this.calls.push("begin");
+  async beginOpenAIOnboarding(
+    _signal?: AbortSignal,
+    provider: "openai" | "anthropic" = "openai",
+  ): Promise<typeof this.beginResult> {
+    this.calls.push(provider === "openai" ? "begin" : "begin:anthropic");
     this.beforeBegin?.();
     if (this.beginError !== undefined) throw this.beginError;
     return this.beginResult;
@@ -193,6 +197,65 @@ function pendingActivation(
 }
 
 describe("OpenAI connection onboarding", () => {
+  it("commits Anthropic through the same broker-owned lifecycle", async () => {
+    const directory = await root();
+    const native = new ScriptedNativeOpenAIOnboarding();
+    native.verifyResult = nativeOpenAIOnboardingSucceeded(
+      page({
+        totalModelCount: 1,
+        nextCursor: null,
+        modelIds: ["claude-opus-4-6"],
+      }),
+    );
+    native.finalizeResult = nativeOpenAIOnboardingSucceeded({
+      connectionId: CONNECTION_ID,
+      selectedModelId: "claude-opus-4-6",
+      verifiedModelCount: 1,
+    });
+    const entry = new OnboardingCatalog().list({
+      includeBlocked: true,
+      now: new Date(AT),
+    }).find(({ id }) => id === "anthropic-api");
+    expect(entry).toBeDefined();
+
+    const result = await setupOpenAIConnection(
+      directory,
+      {
+        provider: "anthropic",
+        modelId: "claude-opus-4-6",
+        acknowledgement: {
+          policyRevision: entry?.policy.revision ?? "",
+          billingPolicyRevision: entry?.billing.revision ?? "",
+          billingDisclosureRevision: entry?.billing.disclosureRevision ?? "",
+          mode: "strict_primary_only",
+        },
+      },
+      { nativeAuthority: native, now: () => new Date(AT) },
+    );
+
+    expect(native.calls).toEqual([
+      "begin:anthropic",
+      "verify",
+      "finalize:claude-opus-4-6",
+    ]);
+    expect(result).toMatchObject({
+      state: "ready",
+      connection: {
+        providerId: "anthropic-api",
+        adapterId: "anthropic-messages",
+        label: "Anthropic API",
+        modelId: "claude-opus-4-6",
+      },
+    });
+    expect(await new FileConnectionRegistry(directory).read()).toMatchObject({
+      connections: [{
+        providerId: "anthropic-api",
+        adapterId: "anthropic-messages",
+        activationProfileId: "anthropic_api_v1",
+      }],
+    });
+  });
+
   it("commits a verified exact model and returns only a runtime-gated summary", async () => {
     const directory = await root();
     const native = new ScriptedNativeOpenAIOnboarding();

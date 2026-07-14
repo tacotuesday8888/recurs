@@ -428,7 +428,8 @@ package actor BrokerConnection {
   }
 
   package func beginOpenAIOnboarding(
-    secret: consuming TTYSecret
+    secret: consuming TTYSecret,
+    anthropic: Bool = false
   ) async throws(BrokerOpenAIOnboardingClientError) -> BrokerOpenAIOnboardingBegun {
     defer { secret.erase() }
     let requestID = try beginOpenAIOnboardingOperation()
@@ -443,7 +444,10 @@ package actor BrokerConnection {
       }
       let request: Data
       do {
-        request = try BrokerOpenAIOnboardingRequest.begin(requestID: requestID).encode()
+        request = try
+          (anthropic
+          ? BrokerOpenAIOnboardingRequest.beginAnthropic(requestID: requestID)
+          : BrokerOpenAIOnboardingRequest.begin(requestID: requestID)).encode()
       } catch {
         throw BrokerOpenAIOnboardingClientError.protocolMismatch
       }

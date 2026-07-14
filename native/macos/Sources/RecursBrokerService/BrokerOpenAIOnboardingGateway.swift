@@ -113,7 +113,16 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
     case .rejected(let code):
       rejection = code
     case .accepted:
-      guard case .begin = request else {
+      let selectedProviderBinding: ProviderProfileBinding?
+      switch request {
+      case .begin:
+        selectedProviderBinding = .openAI
+      case .beginAnthropic:
+        selectedProviderBinding = .anthropic
+      default:
+        selectedProviderBinding = nil
+      }
+      guard let providerBinding = selectedProviderBinding else {
         rejection = .invalidRequest
         break
       }
@@ -131,7 +140,12 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
           gate.complete(Self.failure(requestID: request.requestID, code: .cancelled))
           return
         }
-        await self.runBegin(requestID: request.requestID, secretBox: secretBox, gate: gate)
+        await self.runBegin(
+          requestID: request.requestID,
+          providerBinding: providerBinding,
+          secretBox: secretBox,
+          gate: gate
+        )
       }
       entry = Entry(task: task, gate: gate)
     }
@@ -166,6 +180,10 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
       rejection = code
     case .accepted:
       guard case .begin = request else {
+        if case .beginAnthropic = request {
+          rejection = .invalidRequest
+          break
+        }
         guard let binding else {
           rejection = .sessionNotReady
           break
@@ -262,7 +280,7 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
   ) -> BrokerOpenAIOnboardingFailureCode? {
     guard !binding.isTerminal else { return .operationUnavailable }
     switch request {
-    case .begin:
+    case .begin, .beginAnthropic:
       return .invalidRequest
     case .verify:
       return binding.catalog == nil ? nil : .operationUnavailable
@@ -475,6 +493,7 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
 
   private func runBegin(
     requestID: UInt64,
+    providerBinding: ProviderProfileBinding,
     secretBox: OnboardingSecretBox,
     gate: OnboardingReplyGate
   ) async {
@@ -488,7 +507,7 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
     do {
       credentialIdentityFingerprint = try secretBox.fingerprint(
         using: credentialIdentityFingerprinter,
-        binding: .openAI
+        binding: providerBinding
       )
     } catch let error as CredentialIdentityFingerprintError {
       secretBox.erase()
@@ -523,7 +542,7 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
     do {
       attempt = try await authority.stage(
         connectionID: identity.connectionID,
-        providerBinding: .openAI,
+        providerBinding: providerBinding,
         operationID: identity.stageOperationID,
         expectedFence: 0,
         secret: secret
@@ -544,7 +563,7 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
       connectionID: identity.connectionID,
       attemptID: attempt.attemptID,
       fence: attempt.fence,
-      providerBinding: .openAI,
+      providerBinding: providerBinding,
       expiresAt: expiresAt
     )
     guard
@@ -640,6 +659,8 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
     case .abort(let requestID):
       await runAbort(requestID: requestID, binding: binding, gate: gate)
     case .begin(let requestID):
+      complete(requestID: requestID, gate: gate, code: .invalidRequest)
+    case .beginAnthropic(let requestID):
       complete(requestID: requestID, gate: gate, code: .invalidRequest)
     }
   }

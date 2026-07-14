@@ -351,12 +351,13 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
 
   async beginOpenAIOnboarding(
     signal?: AbortSignal,
+    provider: "openai" | "anthropic" = "openai",
   ): Promise<NativeOpenAIOnboardingOutcome<NativeOpenAIOnboardingBegun>> {
     if (!this.#canStartOpenAIOnboarding("fresh", signal)) {
       return this.#invalidOpenAIOnboardingUse();
     }
     return this.#exchangeOpenAIOnboarding(
-      { kind: "begin" },
+      { kind: provider === "anthropic" ? "begin_anthropic" : "begin" },
       this.#onboardingBeginTimeoutMilliseconds,
       signal,
       NativeMessageType.openAIOnboardingBegun,
