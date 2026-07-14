@@ -32,6 +32,8 @@ enum BrokerOpenAIResponsesMessageRole: String, Sendable, Equatable {
 struct BrokerOpenAIResponsesPrivateOutput: Sendable, Equatable {
   fileprivate let encodedItem: Data
 
+  var encodedByteCount: Int { encodedItem.count }
+
   init(decoderItemJSON: Data) throws {
     let decoded = try BrokerStrictJSON.object(
       from: decoderItemJSON,
