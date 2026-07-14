@@ -471,6 +471,55 @@ describe("standalone assembly without a provider", () => {
     });
   });
 
+  it("runs a brokered Anthropic connection through the shared native port", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-anthropic-native-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    const connection: BrokeredModelProviderConnectionRecord = {
+      ...structuredClone(brokeredConnection),
+      providerId: "anthropic-api",
+      adapterId: "anthropic-messages",
+      activationProfileId: "anthropic_api_v1",
+      label: "Anthropic API",
+      modelId: "claude-opus-4-6",
+      policyRevision: "anthropic-api-2026-07-11",
+      billingPolicy: {
+        ...structuredClone(brokeredConnection.billingPolicy),
+        revision: "billing:anthropic-api:2026-07-11",
+        disclosureRevision: "billing-disclosure:anthropic-api:2026-07-11",
+      },
+      billingSelection: {
+        ...structuredClone(brokeredConnection.billingSelection),
+        policyRevision: "billing:anthropic-api:2026-07-11",
+        disclosureRevision: "billing-disclosure:anthropic-api:2026-07-11",
+      },
+    };
+    const registry = new FileConnectionRegistry(dataDirectory);
+    await registry.commit(0, (draft) => {
+      draft.connections.push(connection);
+      draft.primaryConnectionId = connection.id;
+    });
+    let adapterId: string | undefined;
+    const nativeOpenAIResponses: NativeOpenAIResponsesPort = {
+      async *streamOpenAIResponses(_request, adapter) {
+        adapterId = adapter;
+        yield { type: "text_delta", text: "anthropic complete" };
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: workspace, dataDirectory, nativeOpenAIResponses },
+    );
+
+    await expect(runtime.submit("inspect")).resolves.toMatchObject({
+      finalText: "anthropic complete",
+    });
+    expect(adapterId).toBe("anthropic-messages");
+  });
+
   it("does not choose a saved connection when no primary is explicit", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-no-primary-"));
     directories.push(root);

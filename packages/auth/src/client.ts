@@ -537,6 +537,7 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
 
   async *streamOpenAIResponses(
     request: ProviderRequest,
+    adapterId: "openai-responses" | "anthropic-messages" = "openai-responses",
   ): AsyncIterable<ProviderEvent> {
     if (this.#terminalReason !== undefined || this.#generation !== undefined ||
       this.#openAIOnboardingActive || this.#openAIOnboardingState.kind !== "fresh" ||
@@ -548,7 +549,7 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
     try {
       if (readAbortSignal(request.signal)) throw new NativeOpenAIResponsesError("cancelled");
       requestId = this.#claimRequestId();
-      encoded = encodeOpenAIGenerationRequest(requestId, request);
+      encoded = encodeOpenAIGenerationRequest(requestId, request, adapterId);
     } catch (error) {
       if (error instanceof NativeOpenAIResponsesError) throw error;
       throw new NativeOpenAIResponsesError("invalid_request");

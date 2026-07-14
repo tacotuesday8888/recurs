@@ -412,6 +412,70 @@ describe("runCli", () => {
     expect(stderr.value).toBe("");
   });
 
+  it("activates Anthropic with an exact model through the native authority", async () => {
+    const stdout = new TextOutput();
+    let received: unknown;
+    const disclosure = {
+      ...openAIDisclosure,
+      providerId: "anthropic-api" as const,
+      displayName: "Anthropic API" as const,
+      endpoint: "https://api.anthropic.com/v1" as const,
+      billingNotice:
+        "Anthropic API billing is separate from Claude subscriptions." as const,
+      capabilityProfileRevision: "anthropic-messages-v1" as const,
+    };
+
+    const exitCode = await runCli(
+      ["setup", "anthropic", "--model", "claude-opus-4-6"],
+      {
+        stdout,
+        stderr: new TextOutput(),
+        interactive: true,
+        automation: false,
+        async confirm(message) {
+          expect(message).toContain("separate from Claude subscriptions");
+          return true;
+        },
+        async createRuntime() {
+          throw new Error("runtime must not start");
+        },
+        anthropicOnboarding: {
+          provider: "anthropic",
+          disclosure,
+          modelIds: [],
+          async setup(input) {
+            received = input;
+            return {
+              state: "ready" as const,
+              disposition: "created" as const,
+              connection: {
+                id: "71000000-0000-4000-8000-000000000001",
+                label: "Anthropic API" as const,
+                providerId: "anthropic-api" as const,
+                adapterId: "anthropic-messages" as const,
+                kind: "brokered_model_provider" as const,
+                modelId: "claude-opus-4-6",
+                primary: true,
+                account: "verified (identifier redacted)" as const,
+                activation: "stored_pending_runtime_gate" as const,
+                billingSources: ["metered_api"] as const,
+              },
+              cleanupPending: false,
+            };
+          },
+          async recover() { return { state: "none" as const }; },
+        },
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(received).toMatchObject({
+      provider: "anthropic",
+      modelId: "claude-opus-4-6",
+    });
+    expect(stdout.value).toContain("Stored — Anthropic API · claude-opus-4-6");
+  });
+
   it("never starts OpenAI credential capture without every local consent gate", async () => {
     for (const [argv, interactive, automation, accepted] of [
       [["setup", "openai"], false, false, true],

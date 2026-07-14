@@ -28,7 +28,7 @@ export interface NativeOpenAIGenerationRequestBody {
   readonly authorizationId: string;
   readonly sessionId: string;
   readonly turnId: string;
-  readonly adapterId: "openai-responses";
+  readonly adapterId: "openai-responses" | "anthropic-messages";
   readonly modelId: string;
   readonly backendFingerprint: string;
   readonly expectedSessionRecordSequence: number;
@@ -49,6 +49,7 @@ const maximumBodyBytes = NATIVE_FRAME_MAX_PAYLOAD_BYTES - 8;
 export function encodeOpenAIGenerationRequest(
   requestId: number,
   request: ProviderRequest,
+  adapterId: NativeOpenAIGenerationRequestBody["adapterId"] = "openai-responses",
 ): Uint8Array {
   return invalidMessage(() => {
     const context = request.directContext;
@@ -80,7 +81,7 @@ export function encodeOpenAIGenerationRequest(
       authorizationId: authorization.id,
       sessionId: authorization.sessionId,
       turnId: authorization.turnId,
-      adapterId: "openai-responses",
+      adapterId,
       modelId: authorization.modelId,
       backendFingerprint: authorization.backendFingerprint,
       expectedSessionRecordSequence: context.expectedSessionRecordSequence,

@@ -73,6 +73,18 @@ function request(): ProviderRequest {
 }
 
 describe("native OpenAI generation wire request", () => {
+  it("encodes the reviewed Anthropic adapter on the shared wire", () => {
+    const decoder = new NativeFrameDecoder();
+    const [frame] = decoder.push(
+      encodeOpenAIGenerationRequest(42, request(), "anthropic-messages"),
+    );
+    decoder.finish();
+    expect(frame).toBeDefined();
+    expect(decodeOpenAIGenerationRequestBody(frame!).adapterId).toBe(
+      "anthropic-messages",
+    );
+  });
+
   it("encodes an exact bounded request without signals or duplicate provider output", () => {
     const encoded = encodeOpenAIGenerationRequest(41, request());
     const decoder = new NativeFrameDecoder();

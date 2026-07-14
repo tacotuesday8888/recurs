@@ -32,5 +32,6 @@ export class NativeOpenAIResponsesError extends Error {
 export interface NativeOpenAIResponsesPort {
   streamOpenAIResponses(
     request: ProviderRequest,
+    adapterId?: "openai-responses" | "anthropic-messages",
   ): AsyncIterable<ProviderEvent>;
 }

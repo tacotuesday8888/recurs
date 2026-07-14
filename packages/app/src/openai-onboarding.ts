@@ -150,6 +150,22 @@ export interface OpenAIOnboardingDisclosure {
   readonly restrictions: readonly string[];
 }
 
+export interface AnthropicOnboardingDisclosure {
+  readonly providerId: "anthropic-api";
+  readonly displayName: "Anthropic API";
+  readonly credentialOwner: "recurs_broker";
+  readonly endpoint: "https://api.anthropic.com/v1";
+  readonly policyRevision: string;
+  readonly billingPolicyRevision: string;
+  readonly billingDisclosureRevision: string;
+  readonly primaryBillingSource: "metered_api";
+  readonly billingNotice: "Anthropic API billing is separate from Claude subscriptions.";
+  readonly systemProxyTrust: "trusted_in_v1";
+  readonly supportedRunContexts: readonly ["local_cli_user_present"];
+  readonly capabilityProfileRevision: "anthropic-messages-v1";
+  readonly restrictions: readonly string[];
+}
+
 export interface OpenAIActivationStorePort {
   read(options?: {
     signal?: AbortSignal;
@@ -200,6 +216,33 @@ export function openAIOnboardingDisclosure(
     supportedRunContexts: ["local_cli_user_present"],
     capabilityProfileRevision:
       OPENAI_RESPONSES_CAPABILITY_PROFILE_REVISION,
+    restrictions: [...entry.restrictions],
+  });
+}
+
+export function anthropicOnboardingDisclosure(
+  options: { readonly catalog?: OnboardingCatalog; readonly now?: () => Date } = {},
+): AnthropicOnboardingDisclosure {
+  const now = currentDate(options.now);
+  const entry = providerEntry(
+    options.catalog ?? new OnboardingCatalog(),
+    now,
+    "anthropic-api",
+  );
+  return deepFreeze({
+    providerId: "anthropic-api",
+    displayName: "Anthropic API",
+    credentialOwner: "recurs_broker",
+    endpoint: "https://api.anthropic.com/v1",
+    policyRevision: entry.policy.revision,
+    billingPolicyRevision: entry.billing.revision,
+    billingDisclosureRevision: entry.billing.disclosureRevision,
+    primaryBillingSource: "metered_api",
+    billingNotice:
+      "Anthropic API billing is separate from Claude subscriptions.",
+    systemProxyTrust: "trusted_in_v1",
+    supportedRunContexts: ["local_cli_user_present"],
+    capabilityProfileRevision: "anthropic-messages-v1",
     restrictions: [...entry.restrictions],
   });
 }

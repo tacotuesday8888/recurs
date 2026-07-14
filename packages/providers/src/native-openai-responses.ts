@@ -12,6 +12,8 @@ export interface NativeOpenAIResponsesProviderOptions {
   readonly connectionId: string;
   readonly modelId: string;
   readonly port: NativeOpenAIResponsesPort;
+  readonly providerId?: "openai-api" | "anthropic-api";
+  readonly adapterId?: "openai-responses" | "anthropic-messages";
 }
 
 function validIdentity(value: string): boolean {
@@ -47,8 +49,8 @@ function nativeFailure(error: NativeOpenAIResponsesError): ProviderError {
 
 export class NativeOpenAIResponsesProvider
   implements ConnectionBoundModelProvider {
-  readonly id = "openai-api";
-  readonly adapterId = "openai-responses";
+  readonly id: "openai-api" | "anthropic-api";
+  readonly adapterId: "openai-responses" | "anthropic-messages";
   readonly connectionId: string;
   readonly #modelId: string;
   readonly #port: NativeOpenAIResponsesPort;
@@ -58,6 +60,14 @@ export class NativeOpenAIResponsesProvider
       throw new TypeError("Native OpenAI connection identity is invalid");
     }
     this.connectionId = options.connectionId;
+    this.id = options.providerId ?? "openai-api";
+    this.adapterId = options.adapterId ?? "openai-responses";
+    if (
+      (this.id === "openai-api" && this.adapterId !== "openai-responses") ||
+      (this.id === "anthropic-api" && this.adapterId !== "anthropic-messages")
+    ) {
+      throw new TypeError("Native provider profile is invalid");
+    }
     this.#modelId = options.modelId;
     this.#port = options.port;
   }
@@ -84,7 +94,7 @@ export class NativeOpenAIResponsesProvider
     }
 
     try {
-      yield* this.#port.streamOpenAIResponses(request);
+      yield* this.#port.streamOpenAIResponses(request, this.adapterId);
     } catch (error) {
       if (error instanceof ProviderError) throw error;
       if (error instanceof NativeOpenAIResponsesError) {

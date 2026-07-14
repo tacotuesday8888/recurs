@@ -21,6 +21,7 @@ import {
   ConnectionLifecycleError,
   NativeAuthorityService,
   OPENAI_RESPONSES_EXACT_MODEL_IDS,
+  anthropicOnboardingDisclosure,
   openAIOnboardingDisclosure,
   recoverPendingOpenAIConnection,
   setupOpenAIConnection,
@@ -28,6 +29,7 @@ import {
   type ConnectionVerification,
   type CodexConnectionConfiguration,
   type OpenAIOnboardingDisclosure,
+  type AnthropicOnboardingDisclosure,
   type OpenAIRecoveryOutcome,
   type OpenAISetupOutcome,
   type SetupOpenAIConnectionInput,
@@ -75,6 +77,7 @@ Usage:
   recurs setup codex             Connect an existing ChatGPT Codex subscription
   recurs setup openai [--model <exact-id>]
   recurs setup openai --recover  Reconcile interrupted OpenAI API setup
+  recurs setup anthropic --model <exact-id>
   recurs provider list [--all] [--json]
   recurs account list [--json]
   recurs account set-primary <id>
@@ -86,10 +89,12 @@ Usage:
 Local setup supports credential-free OpenAI-compatible servers on literal loopback only.
 Codex setup is interactive and Plan-only. It never imports or stores vendor credentials.
 OpenAI API setup captures credentials only in the native authority; API billing is separate from ChatGPT.
+Anthropic API setup captures credentials only in the native authority; API billing is separate from Claude subscriptions.
 `;
 
 export interface OpenAICliOnboardingPort {
-  readonly disclosure: OpenAIOnboardingDisclosure;
+  readonly provider?: "openai" | "anthropic";
+  readonly disclosure: OpenAIOnboardingDisclosure | AnthropicOnboardingDisclosure;
   readonly modelIds: readonly string[];
   setup(input: SetupOpenAIConnectionInput): Promise<OpenAISetupOutcome>;
   recover(signal?: AbortSignal): Promise<OpenAIRecoveryOutcome>;
@@ -107,6 +112,7 @@ export interface CliDependencies {
   selectOpenAIModel?(modelIds: readonly string[]): Promise<string | null>;
   nativeAuthority?: NativeAuthorityPort;
   openAIOnboarding?: OpenAICliOnboardingPort;
+  anthropicOnboarding?: OpenAICliOnboardingPort;
   createRuntime(events: EventSink): Promise<RecursRuntime>;
   setupLocal?(input: { baseUrl: string; modelId: string }): Promise<Pick<LocalConnectionConfiguration, "id" | "label" | "baseUrl" | "modelId" | "primary">>;
   setupCodex?(input: {
@@ -197,18 +203,25 @@ function parseLocalSetupArguments(
 }
 
 type OpenAISetupCommand =
-  | { readonly kind: "setup"; readonly modelId?: string }
-  | { readonly kind: "recover" };
+  | {
+    readonly kind: "setup";
+    readonly provider: "openai" | "anthropic";
+    readonly modelId?: string;
+  }
+  | { readonly kind: "recover"; readonly provider: "openai" };
 
 const SAFE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/u;
 
 function parseOpenAISetupCommand(
   args: readonly string[],
 ): OpenAISetupCommand | null {
-  if (args[0] !== "openai") return null;
-  if (args.length === 1) return { kind: "setup" };
-  if (args.length === 2 && args[1] === "--recover") {
-    return { kind: "recover" };
+  const provider = args[0];
+  if (provider !== "openai" && provider !== "anthropic") return null;
+  if (args.length === 1 && provider === "openai") {
+    return { kind: "setup", provider };
+  }
+  if (args.length === 2 && args[1] === "--recover" && provider === "openai") {
+    return { kind: "recover", provider };
   }
   if (
     args.length === 3 &&
@@ -216,13 +229,13 @@ function parseOpenAISetupCommand(
     args[2] !== undefined &&
     SAFE_MODEL_ID.test(args[2])
   ) {
-    return { kind: "setup", modelId: args[2] };
+    return { kind: "setup", provider, modelId: args[2] };
   }
   return null;
 }
 
 function openAISetupDisclosureText(
-  disclosure: OpenAIOnboardingDisclosure,
+  disclosure: OpenAIOnboardingDisclosure | AnthropicOnboardingDisclosure,
 ): string {
   return [
     `Connect ${disclosure.displayName} at ${disclosure.endpoint}.`,
@@ -239,7 +252,7 @@ async function renderOpenAIOutcome(
   dependencies: Pick<CliDependencies, "stdout" | "stderr">,
 ): Promise<number> {
   if (outcome.state === "cancelled") {
-    await writeOutput(dependencies.stderr, "Error: OpenAI setup was cancelled\n");
+    await writeOutput(dependencies.stderr, "Error: Provider setup was cancelled\n");
     return 130;
   }
   if (outcome.state === "failed") {
@@ -255,7 +268,7 @@ async function renderOpenAIOutcome(
   const connection = outcome.connection;
   await writeOutput(
     dependencies.stdout,
-    `Stored — ${connection.label} · ${connection.modelId}\nCredential: native authority (identifier redacted)\nBilling: OpenAI API, separate from ChatGPT\nActivation: ready through the signed native authority\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}${outcome.cleanupPending ? "Activation cleanup remains pending; run recurs setup openai --recover.\n" : ""}`,
+    `Stored — ${connection.label} · ${connection.modelId}\nCredential: native authority (identifier redacted)\nBilling: metered provider API, separate from consumer subscriptions\nActivation: ready through the signed native authority\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}${outcome.cleanupPending ? "Activation cleanup remains pending; run recurs setup openai --recover.\n" : ""}`,
   );
   return 0;
 }
@@ -297,7 +310,7 @@ async function runOpenAISetupCommand(
   if (!accepted) {
     await writeOutput(
       dependencies.stderr,
-      "Error: OpenAI credential and billing disclosure was not accepted\n",
+      `Error: ${onboarding.disclosure.displayName} credential and billing disclosure was not accepted\n`,
     );
     return 2;
   }
@@ -306,11 +319,14 @@ async function runOpenAISetupCommand(
   if (modelId === null || modelId === undefined) {
     await writeOutput(
       dependencies.stderr,
-      "Error: OpenAI model selection was cancelled\n",
+      "Error: Provider model selection was cancelled\n",
     );
     return 2;
   }
-  if (!onboarding.modelIds.includes(modelId)) {
+  if (
+    (onboarding.provider ?? "openai") === "openai" &&
+    !onboarding.modelIds.includes(modelId)
+  ) {
     await writeOutput(
       dependencies.stderr,
       "Error: The selected OpenAI model is outside the reviewed capability profile\n",
@@ -326,6 +342,9 @@ async function runOpenAISetupCommand(
       billingDisclosureRevision: disclosure.billingDisclosureRevision,
       mode: "strict_primary_only",
     },
+    ...(command.provider === "anthropic"
+      ? { provider: "anthropic" as const }
+      : {}),
     ...(dependencies.signal === undefined
       ? {}
       : { signal: dependencies.signal }),
@@ -665,7 +684,9 @@ export async function runCli(
   if (argv[0] === "setup") {
     const openAICommand = parseOpenAISetupCommand(argv.slice(1));
     if (openAICommand !== null) {
-      const onboarding = dependencies.openAIOnboarding;
+      const onboarding = openAICommand.provider === "anthropic"
+        ? dependencies.anthropicOnboarding
+        : dependencies.openAIOnboarding;
       if (
         dependencies.interactive !== true ||
         dependencies.automation === true ||
@@ -673,7 +694,7 @@ export async function runCli(
       ) {
         await writeOutput(
           dependencies.stderr,
-          "Error: OpenAI API setup requires an interactive local terminal and the native credential authority\n",
+          "Error: Provider API setup requires an interactive local terminal and the native credential authority\n",
         );
         return 2;
       }
@@ -687,7 +708,7 @@ export async function runCli(
         if (dependencies.signal?.aborted === true || isAbortError(error)) {
           await writeOutput(
             dependencies.stderr,
-            "Error: OpenAI setup was cancelled\n",
+            "Error: Provider setup was cancelled\n",
           );
           return 130;
         }
@@ -841,7 +862,8 @@ export async function runCliProcess(
     argv[1] === "native" &&
     (argv.length === 2 || (argv.length === 3 && argv[2] === "--json"));
   const nativeOperationRequested = nativeDoctorRequested ||
-    (argv[0] === "setup" && argv[1] === "openai");
+    (argv[0] === "setup" &&
+      (argv[1] === "openai" || argv[1] === "anthropic"));
   const nativeOperationController = nativeOperationRequested
     ? new AbortController()
     : undefined;
@@ -890,6 +912,7 @@ export async function runCliProcess(
   };
   const dataDirectory = process.env.RECURS_HOME ?? path.join(homedir(), ".recurs");
   const disclosure = openAIOnboardingDisclosure();
+  const anthropicDisclosure = anthropicOnboardingDisclosure();
   try {
     process.exitCode = await runCli(argv, {
       stdin: processStdin,
@@ -905,6 +928,7 @@ export async function runCliProcess(
       selectOpenAIModel,
       nativeAuthority,
       openAIOnboarding: {
+        provider: "openai",
         disclosure,
         modelIds: OPENAI_RESPONSES_EXACT_MODEL_IDS,
         setup: (input) => setupOpenAIConnection(
@@ -917,6 +941,17 @@ export async function runCliProcess(
           { nativeAuthority },
           signal === undefined ? {} : { signal },
         ),
+      },
+      anthropicOnboarding: {
+        provider: "anthropic",
+        disclosure: anthropicDisclosure,
+        modelIds: [],
+        setup: (input) => setupOpenAIConnection(
+          dataDirectory,
+          { ...input, provider: "anthropic" },
+          { nativeAuthority },
+        ),
+        recover: async () => ({ state: "none" }),
       },
       createRuntime: (events) => createStandaloneRuntime(
         events,

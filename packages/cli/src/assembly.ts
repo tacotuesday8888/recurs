@@ -313,7 +313,7 @@ function assertCodexPolicy(
   }
 }
 
-function assertBrokeredOpenAIPolicy(
+function assertBrokeredProviderPolicy(
   connection: BrokeredModelProviderConnectionRecord,
   diagnosticId: string,
 ): void {
@@ -323,14 +323,21 @@ function assertBrokeredOpenAIPolicy(
   if (
     entry === undefined ||
     entry.status !== "requires_native_broker" ||
-    connection.adapterId !== "openai-responses" ||
-    connection.activationProfileId !== "openai_api_v1" ||
+    !(
+      (connection.providerId === "openai-api" &&
+        connection.adapterId === "openai-responses" &&
+        connection.activationProfileId === "openai_api_v1" &&
+        isCompatibleOpenAIResponsesModelId(connection.modelId)) ||
+      (connection.providerId === "anthropic-api" &&
+        connection.adapterId === "anthropic-messages" &&
+        connection.activationProfileId === "anthropic_api_v1")
+    ) ||
     connection.policyRevision !== entry.policy.revision ||
-    !isCompatibleOpenAIResponsesModelId(connection.modelId)
+    connection.modelId.length === 0
   ) {
     throw policyBlocked(
       diagnosticId,
-      "The OpenAI connection no longer matches the reviewed capability policy",
+      "The provider connection no longer matches the reviewed capability policy",
       "policy_stale",
     );
   }
@@ -346,7 +353,7 @@ function assertBrokeredOpenAIPolicy(
   ) {
     throw policyBlocked(
       diagnosticId,
-      "The OpenAI API billing acknowledgement no longer matches provider behavior",
+      "The API billing acknowledgement no longer matches provider behavior",
       "billing_policy_blocked",
     );
   }
@@ -375,11 +382,13 @@ function backendForConnection(
   }
   if (connection.kind === "brokered_model_provider") {
     if (nativeOpenAIResponses === undefined) return null;
-    assertBrokeredOpenAIPolicy(connection, diagnosticId);
+    assertBrokeredProviderPolicy(connection, diagnosticId);
     const provider = () => new NativeOpenAIResponsesProvider({
       connectionId: connection.id,
       modelId: connection.modelId,
       port: nativeOpenAIResponses,
+      providerId: connection.providerId,
+      adapterId: connection.adapterId,
     });
     return {
       kind: "direct",

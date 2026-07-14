@@ -43,6 +43,33 @@ function request(): ProviderRequest {
 }
 
 describe("native OpenAI Responses provider", () => {
+  it("routes Anthropic through the same native authority port", async () => {
+    let adapter: string | undefined;
+    const port: NativeOpenAIResponsesPort = {
+      async *streamOpenAIResponses(_input, adapterId) {
+        adapter = adapterId;
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const provider = new NativeOpenAIResponsesProvider({
+      connectionId: "connection-1",
+      modelId: "gpt-5.6-sol",
+      providerId: "anthropic-api",
+      adapterId: "anthropic-messages",
+      port,
+    });
+
+    for await (const _event of provider.stream(request())) {
+      // Drain the one normalized terminal event.
+    }
+
+    expect(adapter).toBe("anthropic-messages");
+    expect(provider).toMatchObject({
+      id: "anthropic-api",
+      adapterId: "anthropic-messages",
+    });
+  });
+
   it("forwards one authorized exact-model stream to the native authority", async () => {
     let received: ProviderRequest | undefined;
     const port: NativeOpenAIResponsesPort = {
