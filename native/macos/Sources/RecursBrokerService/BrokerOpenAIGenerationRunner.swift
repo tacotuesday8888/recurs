@@ -47,7 +47,7 @@ struct BrokerOpenAIGenerationResult: Sendable, Equatable {
   let continuation: BrokerDirectContinuationHandle
 }
 
-private final class BrokerOpenAIGenerationEventRelay: @unchecked Sendable {
+final class BrokerOpenAIGenerationEventRelay: @unchecked Sendable {
   private let lock = NSLock()
   private let downstream: @Sendable (BrokerOpenAIResponsesEvent) -> Void
   private var terminal: BrokerOpenAIResponsesStopReason?

@@ -116,15 +116,26 @@ package final class BrokerServiceRuntime {
           configuration: configuration
         )
         let continuations = BrokerDirectContinuationAuthority(records: records)
-        let transport = BrokerOpenAIResponsesTransport(
+        let openAITransport = BrokerOpenAIResponsesTransport(
           route: route,
           network: BrokerOpenAIResponsesURLSessionNetworking()
         )
+        let anthropicTransport = BrokerAnthropicMessagesTransport(
+          route: route,
+          network: BrokerAnthropicMessagesURLSessionNetworking()
+        )
         return BrokerServiceOpenAIGenerationDependencies(
-          runner: BrokerOpenAIGenerationRunner(
-            route: route,
-            transport: transport,
-            continuations: continuations
+          runner: BrokerGenerationRunnerRouter(
+            openAI: BrokerOpenAIGenerationRunner(
+              route: route,
+              transport: openAITransport,
+              continuations: continuations
+            ),
+            anthropic: BrokerAnthropicGenerationRunner(
+              route: route,
+              transport: anthropicTransport,
+              continuations: continuations
+            )
           )
         )
       },

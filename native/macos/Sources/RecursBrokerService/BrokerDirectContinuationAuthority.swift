@@ -120,7 +120,7 @@ actor BrokerDirectContinuationAuthority {
   ) async throws(BrokerDirectContinuationError) -> BrokerDirectContinuationHandle {
     let now = clock()
     try Self.validate(binding, now: now)
-    guard (1...Self.maximumOutputItemCount).contains(outputItems.count) else {
+    guard outputItems.count <= Self.maximumOutputItemCount else {
       throw .invalidRequest
     }
     let byteCount = outputItems.reduce(into: 0) { total, item in
@@ -159,12 +159,13 @@ actor BrokerDirectContinuationAuthority {
       status: .committed
     )
     do {
-      try await records.insert(BrokerDirectContinuationRecord(
-        handle: handle,
-        binding: binding,
-        outputItems: outputItems,
-        createdAt: now
-      ))
+      try await records.insert(
+        BrokerDirectContinuationRecord(
+          handle: handle,
+          binding: binding,
+          outputItems: outputItems,
+          createdAt: now
+        ))
     } catch {
       throw .persistenceUnavailable
     }

@@ -119,6 +119,89 @@ struct BrokerOpenAIGenerationRunnerTests {
     #expect(await records.count == 0)
     #expect(events.values == [.textDelta("partial")])
   }
+
+  @Test
+  func anthropicMapsTheSharedRequestAndCommitsOpaqueEmptyState() async throws {
+    let records = GenerationMemoryRecords()
+    let continuations = BrokerDirectContinuationAuthority(
+      records: records,
+      idSource: GenerationIDs([
+        UUID(uuidString: "82000000-0000-4000-8000-000000000001")!
+      ]).next,
+      clock: { Date(timeIntervalSince1970: 100) }
+    )
+    let route = GenerationRoute()
+    let completion = BrokerOpenAIResponsesCompletion(
+      responseID: "msg-1",
+      outputItems: [],
+      usage: BrokerOpenAIResponsesUsage(
+        inputTokens: 3,
+        outputTokens: 2,
+        totalTokens: 5,
+        cachedInputTokens: 0,
+        cacheWriteTokens: nil,
+        reasoningTokens: 0
+      ),
+      stopReason: .toolCalls,
+      outcome: .output
+    )
+    let transport = AnthropicGenerationTransport(completion: completion)
+    let runner = BrokerAnthropicGenerationRunner(
+      route: route,
+      transport: transport,
+      continuations: continuations,
+      clock: { Date(timeIntervalSince1970: 100) }
+    )
+    let request = BrokerOpenAIGenerationRequest(
+      connectionID: UUID(uuidString: "72000000-0000-4000-8000-000000000001")!,
+      authorizationID: "authorization-1",
+      sessionID: "session-1",
+      turnID: "turn-1",
+      adapterID: "anthropic-messages",
+      modelID: "claude-test",
+      backendFingerprint: "sha256:\(String(repeating: "b", count: 64))",
+      expectedSessionRecordSequence: 1,
+      authorizationExpiresAt: Date(timeIntervalSince1970: 200),
+      input: [
+        .message(role: .system, text: "Be precise."),
+        .message(role: .user, text: "Read it"),
+        .functionCall(
+          callID: "toolu-1",
+          name: "read_file",
+          argumentsJSON: Data(#"{"path":"a.ts"}"#.utf8)
+        ),
+        .functionCallOutput(callID: "toolu-1", output: "contents"),
+      ],
+      tools: [
+        try BrokerOpenAIResponsesFunctionTool(
+          name: "read_file",
+          description: "Read a file",
+          parametersJSON: Data(#"{"type":"object"}"#.utf8)
+        )
+      ],
+      maxOutputTokens: 1_024
+    )
+
+    let result = try await runner.run(request, onEvent: { _ in })
+
+    #expect(result.completion == completion)
+    #expect(result.continuation.adapterID == "anthropic-messages")
+    #expect(await route.issueCount == 1)
+    #expect(await route.cancelCount == 1)
+    let sent = try #require(await transport.request)
+    #expect(
+      sent.input == [
+        .message(role: .system, text: "Be precise."),
+        .message(role: .user, text: "Read it"),
+        .toolUse(
+          callID: "toolu-1",
+          name: "read_file",
+          argumentsJSON: Data(#"{"path":"a.ts"}"#.utf8)
+        ),
+        .toolResult(callID: "toolu-1", output: "contents"),
+      ])
+    #expect(await records.count == 1)
+  }
 }
 
 private final class GenerationCapability: Sendable {}
@@ -173,6 +256,24 @@ private actor GenerationTransport: BrokerOpenAIGenerationTransporting {
     onEvent(.textDelta("done"))
     onEvent(.done(.complete))
     return completion!
+  }
+}
+
+private actor AnthropicGenerationTransport: BrokerAnthropicGenerationTransporting {
+  typealias Capability = GenerationCapability
+  private let completion: BrokerOpenAIResponsesCompletion
+  private(set) var request: BrokerAnthropicMessagesRequest?
+
+  init(completion: BrokerOpenAIResponsesCompletion) { self.completion = completion }
+
+  func stream(
+    _ request: BrokerAnthropicMessagesRequest,
+    capability: GenerationCapability,
+    onEvent: @escaping @Sendable (BrokerOpenAIResponsesEvent) -> Void
+  ) throws -> BrokerOpenAIResponsesCompletion {
+    self.request = request
+    onEvent(.done(completion.stopReason))
+    return completion
   }
 }
 
