@@ -33,6 +33,7 @@ struct BrokerOpenAIResponsesPrivateOutput: Sendable, Equatable {
   fileprivate let encodedItem: Data
 
   var encodedByteCount: Int { encodedItem.count }
+  var encodedItemCopy: Data { encodedItem }
 
   init(decoderItemJSON: Data) throws {
     let decoded = try BrokerStrictJSON.object(
