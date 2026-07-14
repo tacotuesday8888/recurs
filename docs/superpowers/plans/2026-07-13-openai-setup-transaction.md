@@ -359,7 +359,6 @@ export interface SetupOpenAIConnectionInput {
   readonly modelId: string;
   readonly acknowledgement: OpenAIOnboardingAcknowledgement;
   readonly signal?: AbortSignal;
-  readonly now?: string;
 }
 
 export interface OpenAISetupConnectionSummary {
@@ -411,11 +410,23 @@ export type OpenAIRecoveryOutcome =
   | OpenAISetupOutcome;
 ```
 
-Dependencies contain only `nativeAuthority`, optional structural `activationStore`, optional `catalog`, and optional clock. They contain no prompt, TTY, key, environment, or credential callback.
+Dependencies contain only `nativeAuthority`, optional structural
+`activationStore`, optional structural `registry`, optional `catalog`, and an
+optional trusted `now: () => Date` clock for deterministic tests. Time is not
+caller input because a caller-controlled timestamp could bypass policy expiry.
+They contain no prompt, TTY, key, environment, or credential callback.
 
 - [ ] **Step 5: Implement disclosure validation, pagination, and exact record construction**
 
-Resolve the single `openai-api` catalog entry for the exact current time, require `requires_native_broker`, require all acknowledgement revisions to match, and require `strict_primary_only`. Fetch all native pages by following only each returned `nextCursor`; collect model IDs, intersect through Task 2, then require `input.modelId` to be an exact member.
+Read the activation store before native begin. If any pending activation exists,
+return `activation_conflict` with `pending_reconciliation` and do not capture a
+new secret; recovery is a separate terminal invocation because the native port
+cannot begin after reconciliation. Resolve the single `openai-api` catalog
+entry using the trusted dependency clock, require `requires_native_broker`,
+require all acknowledgement revisions to match, and require
+`strict_primary_only`. Fetch all native pages by following only each returned
+`nextCursor`; collect model IDs, intersect through Task 2, then require
+`input.modelId` to be an exact member.
 
 Build the pending record from fixed and reviewed data only:
 
@@ -451,7 +462,13 @@ Canonicalize the timestamp and all native data through the existing strict activ
 
 - [ ] **Step 6: Implement the durable commit and recovery state machine**
 
-Before finalize, abort on validation, persistence, or caller cancellation and report clean cancellation only when native abort succeeds. After `finalizeOpenAIOnboarding` returns the exact expected receipt, use a non-aborted internal signal for `commitToRegistry(pending)` and `discard(pending)`.
+Before finalize, abort on validation, proven persistence failure, or caller
+cancellation and report clean cancellation only when native abort succeeds. If
+`prepare` throws, re-read under the store lock: proceed when the exact sidecar
+is present (the rename committed), abort when it is absent, and abort this
+attempt while preserving a conflicting winner. After
+`finalizeOpenAIOnboarding` returns the exact expected receipt, use a non-aborted
+internal signal for `commitToRegistry(pending)` and `discard(pending)`.
 
 At the start of a fresh recovery invocation:
 
@@ -465,7 +482,16 @@ const reconciled = await native.reconcileOpenAIActivation(
 );
 ```
 
-For `ready_openai`, exact-commit then exact-discard and return redacted `recovered`. For `absent`, read the registry: discard only if no connection with that ID exists; an exact or conflicting registry record is inconsistent and retains the sidecar. For `unresolved`, failures, and thrown errors, retain the sidecar and return a normalized failure. A discard failure after an exact registry commit is a ready result with `cleanupPending: true`, never a false failure.
+For `ready_openai`, exact-commit then exact-discard and return redacted
+`recovered`. For `absent`, read the registry: discard only if no connection
+with that ID exists; an exact or conflicting registry record is inconsistent
+and retains the sidecar. For `unresolved`, failures, and thrown errors, retain
+the sidecar and return a normalized failure. After an exact registry commit, a
+discard error must be followed by a sidecar re-read: absence is ready with
+`cleanupPending: false`, the exact retained activation is ready with
+`cleanupPending: true`, and conflicting state fails closed as inconsistent.
+A real aborted caller signal takes precedence over a dependency-supplied
+failure, but it cannot interrupt durable convergence after known native commit.
 
 - [ ] **Step 7: Run the coordinator tests and all app tests**
 
