@@ -28,7 +28,7 @@ export interface NativeOpenAIGenerationRequestBody {
   readonly authorizationId: string;
   readonly sessionId: string;
   readonly turnId: string;
-  readonly adapterId: "openai-responses" | "anthropic-messages";
+  readonly adapterId: "openai-responses" | "anthropic-messages" | "openai-chat-completions";
   readonly modelId: string;
   readonly backendFingerprint: string;
   readonly expectedSessionRecordSequence: number;

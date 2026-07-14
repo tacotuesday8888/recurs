@@ -178,6 +178,27 @@ struct BrokerOpenAIOnboardingGatewayTests {
   }
 
   @Test
+  func beginKimiStagesTheExactCodingPlanBinding() throws {
+    let system = makeSystem()
+    system.gateway.authorizeAfterHello()
+    let reply = OnboardingReplyProbe()
+
+    system.gateway.submitBegin(
+      try BrokerOpenAIOnboardingRequest.beginKimi(requestID: 1).encode(),
+      secret: Data(secretCanary.utf8),
+      reply: reply.receive
+    )
+
+    guard case .begun = try decoded(reply.wait()) else {
+      Issue.record("expected Kimi onboarding to begin")
+      return
+    }
+    #expect(system.fingerprinter.calls.map(\.binding) == [.kimiCode])
+    #expect(system.authority.stageCalls.map(\.providerBinding) == [.kimiCode])
+    #expect(system.factory.calls.map(\.context.providerBinding) == [.kimiCode])
+  }
+
+  @Test
   func invalidSecretsAndUnavailableAuthorityNeverBuildASession() throws {
     for (offset, secret) in [
       Data(),

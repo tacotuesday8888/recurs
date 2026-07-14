@@ -43,6 +43,41 @@ function request(): ProviderRequest {
 }
 
 describe("native OpenAI Responses provider", () => {
+  it("routes Kimi Code through the native chat-completions adapter", async () => {
+    let adapter: string | undefined;
+    const port: NativeOpenAIResponsesPort = {
+      async *streamOpenAIResponses(_input, adapterId) {
+        adapter = adapterId;
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const provider = new NativeOpenAIResponsesProvider({
+      connectionId: "connection-1",
+      modelId: "kimi-k2.5",
+      providerId: "kimi-code",
+      adapterId: "openai-chat-completions",
+      port,
+    });
+    const base = request();
+    const kimiRequest: ProviderRequest = {
+      ...base,
+      model: "kimi-k2.5",
+      directContext: {
+        ...base.directContext!,
+        authorization: {
+          ...base.directContext!.authorization!,
+          modelId: "kimi-k2.5",
+        },
+      },
+    };
+
+    for await (const event of provider.stream(kimiRequest)) {
+      expect(event).toEqual({ type: "done", stopReason: "complete" });
+    }
+
+    expect(adapter).toBe("openai-chat-completions");
+  });
+
   it("routes Anthropic through the same native authority port", async () => {
     let adapter: string | undefined;
     const port: NativeOpenAIResponsesPort = {
@@ -59,8 +94,8 @@ describe("native OpenAI Responses provider", () => {
       port,
     });
 
-    for await (const _event of provider.stream(request())) {
-      // Drain the one normalized terminal event.
+    for await (const event of provider.stream(request())) {
+      expect(event).toEqual({ type: "done", stopReason: "complete" });
     }
 
     expect(adapter).toBe("anthropic-messages");

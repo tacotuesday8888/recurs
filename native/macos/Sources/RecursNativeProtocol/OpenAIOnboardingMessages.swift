@@ -13,6 +13,7 @@ public protocol NativeOpenAIOnboardingMessage: Equatable, Sendable {
 public enum OpenAIOnboardingRequestMessage: NativeOpenAIOnboardingMessage {
   case begin
   case beginAnthropic
+  case beginKimi
   case verify
   case catalogPage(cursor: UInt16)
   case finalize(exactModelID: String)
@@ -41,6 +42,9 @@ public enum OpenAIOnboardingRequestMessage: NativeOpenAIOnboardingMessage {
       case 7:
         try requireOpenAIOnboardingTags(fields, [1])
         return .beginAnthropic
+      case 8:
+        try requireOpenAIOnboardingTags(fields, [1])
+        return .beginKimi
       case 2:
         try requireOpenAIOnboardingTags(fields, [1])
         return .verify
@@ -78,6 +82,8 @@ public enum OpenAIOnboardingRequestMessage: NativeOpenAIOnboardingMessage {
         fields = [try openAIOnboardingKindField(1)]
       case .beginAnthropic:
         fields = [try openAIOnboardingKindField(7)]
+      case .beginKimi:
+        fields = [try openAIOnboardingKindField(8)]
       case .verify:
         fields = [try openAIOnboardingKindField(2)]
       case .catalogPage(let cursor):

@@ -330,7 +330,10 @@ function assertBrokeredProviderPolicy(
         isCompatibleOpenAIResponsesModelId(connection.modelId)) ||
       (connection.providerId === "anthropic-api" &&
         connection.adapterId === "anthropic-messages" &&
-        connection.activationProfileId === "anthropic_api_v1")
+        connection.activationProfileId === "anthropic_api_v1") ||
+      (connection.providerId === "kimi-code" &&
+        connection.adapterId === "openai-chat-completions" &&
+        connection.activationProfileId === "kimi_code_v1")
     ) ||
     connection.policyRevision !== entry.policy.revision ||
     connection.modelId.length === 0
@@ -348,7 +351,8 @@ function assertBrokeredProviderPolicy(
     connection.billingSelection.disclosureRevision !==
       entry.billing.disclosureRevision ||
     !isDeepStrictEqual(connection.billingSelection.allowedSources, [
-      "metered_api",
+      entry.billing.primarySource,
+      ...entry.billing.possibleAdditionalSources,
     ])
   ) {
     throw policyBlocked(

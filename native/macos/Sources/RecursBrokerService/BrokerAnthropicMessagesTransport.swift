@@ -64,8 +64,50 @@ protocol BrokerAnthropicMessagesNetworkAttempt: Sendable {
 protocol BrokerAnthropicMessagesNetworking: Sendable {
   func makeAttempt(
     request: URLRequest,
-    accumulator: BrokerAnthropicMessagesResponseAccumulator
+    accumulator: BrokerAnthropicMessagesResponseAccumulator,
+    endpoint: BrokerGenerationEndpoint
   ) -> any BrokerAnthropicMessagesNetworkAttempt
+}
+
+struct BrokerGenerationEndpoint: Sendable, Equatable {
+  let requestURL: URL
+  let host: String
+
+  static let anthropic = Self(
+    requestURL: URL(string: "https://api.anthropic.com/v1/messages")!,
+    host: "api.anthropic.com"
+  )
+  static let kimiCode = Self(
+    requestURL: URL(string: "https://api.kimi.com/coding/v1/chat/completions")!,
+    host: "api.kimi.com"
+  )
+}
+
+private enum BrokerGenerationStreamDecoder {
+  case anthropic(BrokerAnthropicMessagesStreamDecoder)
+  case openAIChat(BrokerOpenAIChatCompletionsStreamDecoder)
+
+  mutating func receive(_ data: Data) throws -> [BrokerOpenAIResponsesEvent] {
+    switch self {
+    case .anthropic(var decoder):
+      defer { self = .anthropic(decoder) }
+      return try decoder.receive(data)
+    case .openAIChat(var decoder):
+      defer { self = .openAIChat(decoder) }
+      return try decoder.receive(data)
+    }
+  }
+
+  mutating func finish() throws -> BrokerOpenAIResponsesCompletion {
+    switch self {
+    case .anthropic(var decoder):
+      defer { self = .anthropic(decoder) }
+      return try decoder.finish()
+    case .openAIChat(var decoder):
+      defer { self = .openAIChat(decoder) }
+      return try decoder.finish()
+    }
+  }
 }
 
 enum BrokerAnthropicMessagesNetworkError: Error, Sendable, Equatable {
@@ -90,7 +132,7 @@ final class BrokerAnthropicMessagesResponseAccumulator: @unchecked Sendable {
   private let rawFilter: StreamingSecretFilter
   private var semanticFilter: BrokerOpenAIResponsesSemanticFilter
   private let onEvent: @Sendable (BrokerOpenAIResponsesEvent) -> Void
-  private var decoder = BrokerAnthropicMessagesStreamDecoder()
+  private var decoder: BrokerGenerationStreamDecoder
   private var head: Head?
   private var errorBodyByteCount = 0
   private var terminalError: BrokerAnthropicMessagesNetworkError?
@@ -100,10 +142,15 @@ final class BrokerAnthropicMessagesResponseAccumulator: @unchecked Sendable {
   init(
     rawFilter: StreamingSecretFilter,
     semanticFilter: StreamingSecretFilter,
+    openAIChat: Bool = false,
     onEvent: @escaping @Sendable (BrokerOpenAIResponsesEvent) -> Void
   ) {
     self.rawFilter = rawFilter
     self.semanticFilter = BrokerOpenAIResponsesSemanticFilter(filter: semanticFilter)
+    decoder =
+      openAIChat
+      ? .openAIChat(BrokerOpenAIChatCompletionsStreamDecoder())
+      : .anthropic(BrokerAnthropicMessagesStreamDecoder())
     self.onEvent = onEvent
   }
 
@@ -154,6 +201,10 @@ final class BrokerAnthropicMessagesResponseAccumulator: @unchecked Sendable {
       let selected = failLocked(Self.mapStreamError(error))
       lock.unlock()
       throw selected
+    } catch let error as BrokerOpenAIChatCompletionsError {
+      let selected = failLocked(Self.mapChatStreamError(error))
+      lock.unlock()
+      throw selected
     } catch let error as StreamingSecretFilterError {
       let selected = failLocked(Self.mapFilterError(error))
       lock.unlock()
@@ -193,6 +244,10 @@ final class BrokerAnthropicMessagesResponseAccumulator: @unchecked Sendable {
       throw selected
     } catch let error as BrokerAnthropicMessagesError {
       let selected = failLocked(Self.mapStreamError(error))
+      lock.unlock()
+      throw selected
+    } catch let error as BrokerOpenAIChatCompletionsError {
+      let selected = failLocked(Self.mapChatStreamError(error))
       lock.unlock()
       throw selected
     } catch let error as StreamingSecretFilterError {
@@ -309,25 +364,44 @@ final class BrokerAnthropicMessagesResponseAccumulator: @unchecked Sendable {
     case .invalidRequest, .requestTooLarge, .invalidStream, .deliveryUncertain: .invalidResponse
     }
   }
+
+  private static func mapChatStreamError(_ error: BrokerOpenAIChatCompletionsError)
+    -> BrokerAnthropicMessagesNetworkError
+  {
+    switch error {
+    case .responseTooLarge: .responseTooLarge
+    case .contentFiltered: .contentFiltered
+    case .providerFailure: .providerFailure
+    case .invalidRequest, .requestTooLarge, .invalidStream: .invalidResponse
+    }
+  }
 }
 
 struct BrokerAnthropicMessagesURLSessionNetworking: BrokerAnthropicMessagesNetworking {
-  func makeAttempt(request: URLRequest, accumulator: BrokerAnthropicMessagesResponseAccumulator)
+  func makeAttempt(
+    request: URLRequest,
+    accumulator: BrokerAnthropicMessagesResponseAccumulator,
+    endpoint: BrokerGenerationEndpoint
+  )
     -> any BrokerAnthropicMessagesNetworkAttempt
   {
-    BrokerAnthropicMessagesURLSessionAttempt(request: request, accumulator: accumulator)
+    BrokerAnthropicMessagesURLSessionAttempt(
+      request: request,
+      accumulator: accumulator,
+      endpoint: endpoint
+    )
   }
 }
 
 enum BrokerAnthropicMessagesURLPolicy {
-  private static let endpoint = URL(string: "https://api.anthropic.com/v1/messages")!
-  static var requestURL: URL { endpoint }
-  static func accepts(_ url: URL?) -> Bool { url?.absoluteString == endpoint.absoluteString }
   static func challengeDisposition(
-    authenticationMethod: String, host: String, hasHandledServerTrust: Bool
+    authenticationMethod: String,
+    host: String,
+    expectedHost: String,
+    hasHandledServerTrust: Bool
   ) -> URLSession.AuthChallengeDisposition {
     guard authenticationMethod == NSURLAuthenticationMethodServerTrust,
-      host.lowercased() == "api.anthropic.com", !hasHandledServerTrust
+      host.lowercased() == expectedHost, !hasHandledServerTrust
     else { return .cancelAuthenticationChallenge }
     return .performDefaultHandling
   }
@@ -339,14 +413,17 @@ private final class BrokerAnthropicMessagesSessionDelegate:
   private let lock = NSLock()
   private let accumulator: BrokerAnthropicMessagesResponseAccumulator
   private let result: BrokerAnthropicMessagesNetworkResult
+  private let endpoint: BrokerGenerationEndpoint
   private var handledServerTrust = false
 
   init(
     accumulator: BrokerAnthropicMessagesResponseAccumulator,
-    result: BrokerAnthropicMessagesNetworkResult
+    result: BrokerAnthropicMessagesNetworkResult,
+    endpoint: BrokerGenerationEndpoint
   ) {
     self.accumulator = accumulator
     self.result = result
+    self.endpoint = endpoint
   }
 
   func urlSession(
@@ -354,7 +431,7 @@ private final class BrokerAnthropicMessagesSessionDelegate:
     completionHandler: @escaping @Sendable (URLSession.ResponseDisposition) -> Void
   ) {
     guard let response = response as? HTTPURLResponse,
-      BrokerAnthropicMessagesURLPolicy.accepts(response.url)
+      response.url?.absoluteString == endpoint.requestURL.absoluteString
     else {
       fail(.invalidResponse, task: dataTask)
       completionHandler(.cancel)
@@ -424,6 +501,7 @@ private final class BrokerAnthropicMessagesSessionDelegate:
       let selected = BrokerAnthropicMessagesURLPolicy.challengeDisposition(
         authenticationMethod: challenge.protectionSpace.authenticationMethod,
         host: challenge.protectionSpace.host,
+        expectedHost: endpoint.host,
         hasHandledServerTrust: handledServerTrust
       )
       if selected == .performDefaultHandling { handledServerTrust = true }
@@ -454,10 +532,18 @@ private final class BrokerAnthropicMessagesURLSessionAttempt:
   private var started = false
   private var cancelled = false
 
-  init(request: URLRequest, accumulator: BrokerAnthropicMessagesResponseAccumulator) {
+  init(
+    request: URLRequest,
+    accumulator: BrokerAnthropicMessagesResponseAccumulator,
+    endpoint: BrokerGenerationEndpoint
+  ) {
     self.accumulator = accumulator
     let result = self.result
-    let delegate = BrokerAnthropicMessagesSessionDelegate(accumulator: accumulator, result: result)
+    let delegate = BrokerAnthropicMessagesSessionDelegate(
+      accumulator: accumulator,
+      result: result,
+      endpoint: endpoint
+    )
     session = URLSession(
       configuration: BrokerOpenAIResponsesURLSessionNetworking.configuration(),
       delegate: delegate,
@@ -532,7 +618,7 @@ private final class BrokerAnthropicMessagesNetworkResult: @unchecked Sendable {
   }
 }
 
-private final class BrokerAnthropicMessagesAttemptBox: @unchecked Sendable {
+final class BrokerAnthropicMessagesAttemptBox: @unchecked Sendable {
   private let lock = NSLock()
   private var attempt: (any BrokerAnthropicMessagesNetworkAttempt)?
   private var cancelled = false
@@ -565,7 +651,7 @@ private final class BrokerAnthropicMessagesAttemptBox: @unchecked Sendable {
   }
 }
 
-private struct BrokerAnthropicMessagesPreparedAttempt: Sendable {
+struct BrokerAnthropicMessagesPreparedAttempt: Sendable {
   let attempt: any BrokerAnthropicMessagesNetworkAttempt
 }
 
@@ -652,7 +738,7 @@ struct BrokerAnthropicMessagesTransport<
       let semanticFilter = try? StreamingSecretFilter(patterns: [SecretBytes(secret)])
     else { return nil }
     var request = URLRequest(
-      url: BrokerAnthropicMessagesURLPolicy.requestURL,
+      url: BrokerGenerationEndpoint.anthropic.requestURL,
       cachePolicy: .reloadIgnoringLocalCacheData,
       timeoutInterval: 30)
     request.httpMethod = "POST"
@@ -664,7 +750,9 @@ struct BrokerAnthropicMessagesTransport<
     let attempt = network.makeAttempt(
       request: request,
       accumulator: BrokerAnthropicMessagesResponseAccumulator(
-        rawFilter: rawFilter, semanticFilter: semanticFilter, onEvent: onEvent))
+        rawFilter: rawFilter, semanticFilter: semanticFilter, onEvent: onEvent),
+      endpoint: .anthropic
+    )
     guard attemptBox.install(attempt) else { return nil }
     return BrokerAnthropicMessagesPreparedAttempt(attempt: attempt)
   }

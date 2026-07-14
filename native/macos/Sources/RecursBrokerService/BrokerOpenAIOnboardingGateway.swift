@@ -119,6 +119,8 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
         selectedProviderBinding = .openAI
       case .beginAnthropic:
         selectedProviderBinding = .anthropic
+      case .beginKimi:
+        selectedProviderBinding = .kimiCode
       default:
         selectedProviderBinding = nil
       }
@@ -181,6 +183,10 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
     case .accepted:
       guard case .begin = request else {
         if case .beginAnthropic = request {
+          rejection = .invalidRequest
+          break
+        }
+        if case .beginKimi = request {
           rejection = .invalidRequest
           break
         }
@@ -280,7 +286,7 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
   ) -> BrokerOpenAIOnboardingFailureCode? {
     guard !binding.isTerminal else { return .operationUnavailable }
     switch request {
-    case .begin, .beginAnthropic:
+    case .begin, .beginAnthropic, .beginKimi:
       return .invalidRequest
     case .verify:
       return binding.catalog == nil ? nil : .operationUnavailable
@@ -661,6 +667,8 @@ final class BrokerOpenAIOnboardingGateway: @unchecked Sendable {
     case .begin(let requestID):
       complete(requestID: requestID, gate: gate, code: .invalidRequest)
     case .beginAnthropic(let requestID):
+      complete(requestID: requestID, gate: gate, code: .invalidRequest)
+    case .beginKimi(let requestID):
       complete(requestID: requestID, gate: gate, code: .invalidRequest)
     }
   }

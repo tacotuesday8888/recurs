@@ -147,6 +147,7 @@ describe("native OpenAI onboarding protocol", () => {
     const requests: readonly NativeOpenAIOnboardingRequest[] = [
       { kind: "begin" },
       { kind: "begin_anthropic" },
+      { kind: "begin_kimi" },
       { kind: "verify" },
       { kind: "catalog_page", cursor: 128 },
       { kind: "finalize", exactModelId: "gpt-5" },

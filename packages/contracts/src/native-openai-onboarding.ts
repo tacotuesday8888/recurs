@@ -69,7 +69,7 @@ export interface NativeOpenAIActivationReconciliation {
 export interface NativeOpenAIOnboardingPort {
   beginOpenAIOnboarding(
     signal?: AbortSignal,
-    provider?: "openai" | "anthropic",
+    provider?: "openai" | "anthropic" | "kimi",
   ): Promise<NativeOpenAIOnboardingOutcome<NativeOpenAIOnboardingBegun>>;
   verifyOpenAIOnboarding(
     signal?: AbortSignal,

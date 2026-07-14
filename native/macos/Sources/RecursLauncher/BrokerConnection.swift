@@ -3,6 +3,12 @@ import RecursBrokerXPC
 import RecursNativeProtocol
 import RecursNativeSecurity
 
+package enum BrokerOpenAIOnboardingProvider: Sendable {
+  case openAI
+  case anthropic
+  case kimiCode
+}
+
 package enum BrokerConnectionError: Error, Equatable, Sendable {
   case unsupportedPlatform
   case unsupportedOSVersion
@@ -429,7 +435,7 @@ package actor BrokerConnection {
 
   package func beginOpenAIOnboarding(
     secret: consuming TTYSecret,
-    anthropic: Bool = false
+    provider: BrokerOpenAIOnboardingProvider = .openAI
   ) async throws(BrokerOpenAIOnboardingClientError) -> BrokerOpenAIOnboardingBegun {
     defer { secret.erase() }
     let requestID = try beginOpenAIOnboardingOperation()
@@ -444,10 +450,13 @@ package actor BrokerConnection {
       }
       let request: Data
       do {
-        request = try
-          (anthropic
-          ? BrokerOpenAIOnboardingRequest.beginAnthropic(requestID: requestID)
-          : BrokerOpenAIOnboardingRequest.begin(requestID: requestID)).encode()
+        let operation: BrokerOpenAIOnboardingRequest =
+          switch provider {
+          case .openAI: .begin(requestID: requestID)
+          case .anthropic: .beginAnthropic(requestID: requestID)
+          case .kimiCode: .beginKimi(requestID: requestID)
+          }
+        request = try operation.encode()
       } catch {
         throw BrokerOpenAIOnboardingClientError.protocolMismatch
       }

@@ -22,6 +22,7 @@ import {
   NativeAuthorityService,
   OPENAI_RESPONSES_EXACT_MODEL_IDS,
   anthropicOnboardingDisclosure,
+  kimiOnboardingDisclosure,
   openAIOnboardingDisclosure,
   recoverPendingOpenAIConnection,
   setupOpenAIConnection,
@@ -30,6 +31,7 @@ import {
   type CodexConnectionConfiguration,
   type OpenAIOnboardingDisclosure,
   type AnthropicOnboardingDisclosure,
+  type KimiOnboardingDisclosure,
   type OpenAIRecoveryOutcome,
   type OpenAISetupOutcome,
   type SetupOpenAIConnectionInput,
@@ -78,6 +80,7 @@ Usage:
   recurs setup openai [--model <exact-id>]
   recurs setup openai --recover  Reconcile interrupted OpenAI API setup
   recurs setup anthropic --model <exact-id>
+  recurs setup kimi --model <exact-id>
   recurs provider list [--all] [--json]
   recurs account list [--json]
   recurs account set-primary <id>
@@ -90,11 +93,12 @@ Local setup supports credential-free OpenAI-compatible servers on literal loopba
 Codex setup is interactive and Plan-only. It never imports or stores vendor credentials.
 OpenAI API setup captures credentials only in the native authority; API billing is separate from ChatGPT.
 Anthropic API setup captures credentials only in the native authority; API billing is separate from Claude subscriptions.
+Kimi Code setup captures its coding-plan key only in the native authority.
 `;
 
 export interface OpenAICliOnboardingPort {
-  readonly provider?: "openai" | "anthropic";
-  readonly disclosure: OpenAIOnboardingDisclosure | AnthropicOnboardingDisclosure;
+  readonly provider?: "openai" | "anthropic" | "kimi";
+  readonly disclosure: OpenAIOnboardingDisclosure | AnthropicOnboardingDisclosure | KimiOnboardingDisclosure;
   readonly modelIds: readonly string[];
   setup(input: SetupOpenAIConnectionInput): Promise<OpenAISetupOutcome>;
   recover(signal?: AbortSignal): Promise<OpenAIRecoveryOutcome>;
@@ -113,6 +117,7 @@ export interface CliDependencies {
   nativeAuthority?: NativeAuthorityPort;
   openAIOnboarding?: OpenAICliOnboardingPort;
   anthropicOnboarding?: OpenAICliOnboardingPort;
+  kimiOnboarding?: OpenAICliOnboardingPort;
   createRuntime(events: EventSink): Promise<RecursRuntime>;
   setupLocal?(input: { baseUrl: string; modelId: string }): Promise<Pick<LocalConnectionConfiguration, "id" | "label" | "baseUrl" | "modelId" | "primary">>;
   setupCodex?(input: {
@@ -205,7 +210,7 @@ function parseLocalSetupArguments(
 type OpenAISetupCommand =
   | {
     readonly kind: "setup";
-    readonly provider: "openai" | "anthropic";
+    readonly provider: "openai" | "anthropic" | "kimi";
     readonly modelId?: string;
   }
   | { readonly kind: "recover"; readonly provider: "openai" };
@@ -216,7 +221,7 @@ function parseOpenAISetupCommand(
   args: readonly string[],
 ): OpenAISetupCommand | null {
   const provider = args[0];
-  if (provider !== "openai" && provider !== "anthropic") return null;
+  if (provider !== "openai" && provider !== "anthropic" && provider !== "kimi") return null;
   if (args.length === 1 && provider === "openai") {
     return { kind: "setup", provider };
   }
@@ -235,7 +240,7 @@ function parseOpenAISetupCommand(
 }
 
 function openAISetupDisclosureText(
-  disclosure: OpenAIOnboardingDisclosure | AnthropicOnboardingDisclosure,
+  disclosure: OpenAIOnboardingDisclosure | AnthropicOnboardingDisclosure | KimiOnboardingDisclosure,
 ): string {
   return [
     `Connect ${disclosure.displayName} at ${disclosure.endpoint}.`,
@@ -342,8 +347,8 @@ async function runOpenAISetupCommand(
       billingDisclosureRevision: disclosure.billingDisclosureRevision,
       mode: "strict_primary_only",
     },
-    ...(command.provider === "anthropic"
-      ? { provider: "anthropic" as const }
+    ...(command.provider !== "openai"
+      ? { provider: command.provider }
       : {}),
     ...(dependencies.signal === undefined
       ? {}
@@ -686,6 +691,8 @@ export async function runCli(
     if (openAICommand !== null) {
       const onboarding = openAICommand.provider === "anthropic"
         ? dependencies.anthropicOnboarding
+        : openAICommand.provider === "kimi"
+        ? dependencies.kimiOnboarding
         : dependencies.openAIOnboarding;
       if (
         dependencies.interactive !== true ||
@@ -913,6 +920,7 @@ export async function runCliProcess(
   const dataDirectory = process.env.RECURS_HOME ?? path.join(homedir(), ".recurs");
   const disclosure = openAIOnboardingDisclosure();
   const anthropicDisclosure = anthropicOnboardingDisclosure();
+  const kimiDisclosure = kimiOnboardingDisclosure();
   try {
     process.exitCode = await runCli(argv, {
       stdin: processStdin,
@@ -949,6 +957,17 @@ export async function runCliProcess(
         setup: (input) => setupOpenAIConnection(
           dataDirectory,
           { ...input, provider: "anthropic" },
+          { nativeAuthority },
+        ),
+        recover: async () => ({ state: "none" }),
+      },
+      kimiOnboarding: {
+        provider: "kimi",
+        disclosure: kimiDisclosure,
+        modelIds: [],
+        setup: (input) => setupOpenAIConnection(
+          dataDirectory,
+          { ...input, provider: "kimi" },
           { nativeAuthority },
         ),
         recover: async () => ({ state: "none" }),

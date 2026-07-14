@@ -110,9 +110,9 @@ class ScriptedNativeOpenAIOnboarding implements NativeOpenAIOnboardingPort {
 
   async beginOpenAIOnboarding(
     _signal?: AbortSignal,
-    provider: "openai" | "anthropic" = "openai",
+    provider: "openai" | "anthropic" | "kimi" = "openai",
   ): Promise<typeof this.beginResult> {
-    this.calls.push(provider === "openai" ? "begin" : "begin:anthropic");
+    this.calls.push(provider === "openai" ? "begin" : `begin:${provider}`);
     this.beforeBegin?.();
     if (this.beginError !== undefined) throw this.beginError;
     return this.beginResult;
@@ -197,6 +197,55 @@ function pendingActivation(
 }
 
 describe("OpenAI connection onboarding", () => {
+  it("commits Kimi Code with subscription billing through the native lifecycle", async () => {
+    const directory = await root();
+    const native = new ScriptedNativeOpenAIOnboarding();
+    native.verifyResult = nativeOpenAIOnboardingSucceeded(
+      page({ totalModelCount: 1, nextCursor: null, modelIds: ["kimi-k2.5"] }),
+    );
+    native.finalizeResult = nativeOpenAIOnboardingSucceeded({
+      connectionId: CONNECTION_ID,
+      selectedModelId: "kimi-k2.5",
+      verifiedModelCount: 1,
+    });
+    const entry = new OnboardingCatalog().list({
+      includeBlocked: true,
+      now: new Date(AT),
+    }).find(({ id }) => id === "kimi-code");
+    expect(entry).toBeDefined();
+
+    const result = await setupOpenAIConnection(
+      directory,
+      {
+        provider: "kimi",
+        modelId: "kimi-k2.5",
+        acknowledgement: {
+          policyRevision: entry?.policy.revision ?? "",
+          billingPolicyRevision: entry?.billing.revision ?? "",
+          billingDisclosureRevision: entry?.billing.disclosureRevision ?? "",
+          mode: "strict_primary_only",
+        },
+      },
+      { nativeAuthority: native, now: () => new Date(AT) },
+    );
+
+    expect(native.calls).toEqual(["begin:kimi", "verify", "finalize:kimi-k2.5"]);
+    expect(result).toMatchObject({
+      state: "ready",
+      connection: {
+        providerId: "kimi-code",
+        adapterId: "openai-chat-completions",
+        billingSources: ["included_subscription"],
+      },
+    });
+    expect(await new FileConnectionRegistry(directory).read()).toMatchObject({
+      connections: [{
+        activationProfileId: "kimi_code_v1",
+        billingSelection: { allowedSources: ["included_subscription"] },
+      }],
+    });
+  });
+
   it("commits Anthropic through the same broker-owned lifecycle", async () => {
     const directory = await root();
     const native = new ScriptedNativeOpenAIOnboarding();

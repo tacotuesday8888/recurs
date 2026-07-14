@@ -5,6 +5,7 @@ import {
   type NativeOpenAIOnboardingFailureCode,
   type NativeOpenAIOnboardingOutcome,
   type NativeOpenAIOnboardingPort,
+  type BillingSource,
 } from "@recurs/contracts";
 
 import {
@@ -36,12 +37,21 @@ const PROVIDERS = Object.freeze({
     label: "OpenAI API" as const,
     adapterId: "openai-responses" as const,
     activationProfileId: "openai_api_v1" as const,
+    billingSource: "metered_api" as const,
   }),
   anthropic: Object.freeze({
     providerId: "anthropic-api" as const,
     label: "Anthropic API" as const,
     adapterId: "anthropic-messages" as const,
     activationProfileId: "anthropic_api_v1" as const,
+    billingSource: "metered_api" as const,
+  }),
+  kimi: Object.freeze({
+    providerId: "kimi-code" as const,
+    label: "Kimi Code" as const,
+    adapterId: "openai-chat-completions" as const,
+    activationProfileId: "kimi_code_v1" as const,
+    billingSource: "included_subscription" as const,
   }),
 });
 
@@ -78,15 +88,15 @@ export interface SetupOpenAIConnectionInput {
 
 export interface OpenAISetupConnectionSummary {
   readonly id: string;
-  readonly label: "OpenAI API" | "Anthropic API";
-  readonly providerId: "openai-api" | "anthropic-api";
-  readonly adapterId: "openai-responses" | "anthropic-messages";
+  readonly label: "OpenAI API" | "Anthropic API" | "Kimi Code";
+  readonly providerId: "openai-api" | "anthropic-api" | "kimi-code";
+  readonly adapterId: "openai-responses" | "anthropic-messages" | "openai-chat-completions";
   readonly kind: "brokered_model_provider";
   readonly modelId: string;
   readonly primary: boolean;
   readonly account: "verified (identifier redacted)";
   readonly activation: "stored_pending_runtime_gate";
-  readonly billingSources: readonly ["metered_api"];
+  readonly billingSources: readonly BillingSource[];
 }
 
 export type OpenAISetupPhase =
@@ -163,6 +173,22 @@ export interface AnthropicOnboardingDisclosure {
   readonly systemProxyTrust: "trusted_in_v1";
   readonly supportedRunContexts: readonly ["local_cli_user_present"];
   readonly capabilityProfileRevision: "anthropic-messages-v1";
+  readonly restrictions: readonly string[];
+}
+
+export interface KimiOnboardingDisclosure {
+  readonly providerId: "kimi-code";
+  readonly displayName: "Kimi Code";
+  readonly credentialOwner: "recurs_broker";
+  readonly endpoint: "https://api.kimi.com/coding/v1";
+  readonly policyRevision: string;
+  readonly billingPolicyRevision: string;
+  readonly billingDisclosureRevision: string;
+  readonly primaryBillingSource: "included_subscription";
+  readonly billingNotice: "Kimi Code usage is governed by the connected coding-plan subscription.";
+  readonly systemProxyTrust: "trusted_in_v1";
+  readonly supportedRunContexts: readonly ["local_cli_user_present"];
+  readonly capabilityProfileRevision: "openai-chat-completions-v1";
   readonly restrictions: readonly string[];
 }
 
@@ -243,6 +269,33 @@ export function anthropicOnboardingDisclosure(
     systemProxyTrust: "trusted_in_v1",
     supportedRunContexts: ["local_cli_user_present"],
     capabilityProfileRevision: "anthropic-messages-v1",
+    restrictions: [...entry.restrictions],
+  });
+}
+
+export function kimiOnboardingDisclosure(
+  options: { readonly catalog?: OnboardingCatalog; readonly now?: () => Date } = {},
+): KimiOnboardingDisclosure {
+  const now = currentDate(options.now);
+  const entry = providerEntry(
+    options.catalog ?? new OnboardingCatalog(),
+    now,
+    "kimi-code",
+  );
+  return deepFreeze({
+    providerId: "kimi-code",
+    displayName: "Kimi Code",
+    credentialOwner: "recurs_broker",
+    endpoint: "https://api.kimi.com/coding/v1",
+    policyRevision: entry.policy.revision,
+    billingPolicyRevision: entry.billing.revision,
+    billingDisclosureRevision: entry.billing.disclosureRevision,
+    primaryBillingSource: "included_subscription",
+    billingNotice:
+      "Kimi Code usage is governed by the connected coding-plan subscription.",
+    systemProxyTrust: "trusted_in_v1",
+    supportedRunContexts: ["local_cli_user_present"],
+    capabilityProfileRevision: "openai-chat-completions-v1",
     restrictions: [...entry.restrictions],
   });
 }
@@ -393,7 +446,7 @@ export async function setupOpenAIConnection(
         mode: "strict_primary_only",
         policyRevision: entry.billing.revision,
         disclosureRevision: entry.billing.disclosureRevision,
-        allowedSources: ["metered_api"],
+        allowedSources: [providerConfig.billingSource],
         acknowledgedAt: timestamp,
       },
       verifiedAt: timestamp,
@@ -607,7 +660,7 @@ function openAIEntry(catalog: OnboardingCatalog, now: Date): OnboardingCatalogEn
 function providerEntry(
   catalog: OnboardingCatalog,
   now: Date,
-  providerId: "openai-api" | "anthropic-api",
+  providerId: "openai-api" | "anthropic-api" | "kimi-code",
 ): OnboardingCatalogEntry {
   const entry = catalog.list({ includeBlocked: true, now }).find(
     (candidate) => candidate.id === providerId,
@@ -798,7 +851,7 @@ function ready(
     disposition,
     connection: {
       id: connection.id,
-      label: connection.label as "OpenAI API" | "Anthropic API",
+      label: connection.label as "OpenAI API" | "Anthropic API" | "Kimi Code",
       providerId: connection.providerId,
       adapterId: connection.adapterId,
       kind: "brokered_model_provider",
@@ -806,7 +859,7 @@ function ready(
       primary: registry.primaryConnectionId === connection.id,
       account: "verified (identifier redacted)",
       activation: "stored_pending_runtime_gate",
-      billingSources: ["metered_api"],
+      billingSources: [connection.billingPolicy.primarySource],
     },
     cleanupPending,
   });

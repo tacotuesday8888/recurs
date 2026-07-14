@@ -124,6 +124,12 @@ package final class BrokerServiceRuntime {
           route: route,
           network: BrokerAnthropicMessagesURLSessionNetworking()
         )
+        let kimiTransport = BrokerOpenAIChatCompletionsTransport(
+          route: route,
+          network: BrokerAnthropicMessagesURLSessionNetworking(),
+          endpoint: .kimiCode,
+          providerBinding: .kimiCode
+        )
         return BrokerServiceOpenAIGenerationDependencies(
           runner: BrokerGenerationRunnerRouter(
             openAI: BrokerOpenAIGenerationRunner(
@@ -135,6 +141,12 @@ package final class BrokerServiceRuntime {
               route: route,
               transport: anthropicTransport,
               continuations: continuations
+            ),
+            openAIChat: BrokerAnthropicGenerationRunner(
+              route: route,
+              transport: BrokerOpenAIChatGenerationBridge(transport: kimiTransport),
+              continuations: continuations,
+              adapterID: "openai-chat-completions"
             )
           )
         )

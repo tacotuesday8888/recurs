@@ -11,6 +11,7 @@ The repository contains a usable single-agent base:
 - one streaming tool-calling loop with bounded pre-output retries, cancellation, step limits, and repeated-loop detection;
 - strict provider-event validation and normalized text, reasoning, tool, usage, and completion events;
 - credential-free OpenAI-compatible local model setup for literal-loopback Ollama and LM Studio servers;
+- private signed-macOS activation paths for OpenAI API, Anthropic API, and Kimi Code credentials, with native model discovery and streamed tool calling;
 - a validated 25-path provider/authentication catalog, a revisioned non-secret connection registry, and exact-ID account listing, verification, primary selection, and metadata-only disconnection;
 - an official Codex ACP path for an existing ChatGPT login, constrained to local, interactive, user-present, Plan-only work;
 - seven tools for file reading, listing, search, patching, bounded shell execution, Git status, and Git diff;
@@ -43,7 +44,10 @@ node packages/cli/dist/main.js doctor native --json
 node packages/cli/dist/main.js setup local --url http://127.0.0.1:11434/v1 --model qwen2.5-coder:7b
 # Or, from a local interactive terminal, connect an existing ChatGPT account:
 # node packages/cli/dist/main.js setup codex
-# The private native macOS path also supports: recurs setup openai
+# The private native macOS path also supports:
+# recurs setup openai [--model <exact-id>]
+# recurs setup anthropic --model <exact-id>
+# recurs setup kimi --model <exact-id>
 node packages/cli/dist/main.js
 ```
 
@@ -85,13 +89,13 @@ The broker is no longer health-only: its production-gated startup derives and va
 
 The broker also has internal setup/run/maintenance route authority. It derives every capability from authenticated journal binding and candidate or usable-ready state, rechecks that state across actor suspension, and atomically couples exact scope, expiry, cancellation, and checked budgets to a one-use reservation for the matching Keychain generation. Pre-authorization failures clean up without a debit; a returned reservation is conservatively charged exactly once. The launcher performs foreground TTY capture for OpenAI onboarding; capture restores exact terminal state, cancellation is sticky, transient secret buffers are erased, lifecycle request IDs are independently correlated, and replies remain redacted. One process coordinator owns launcher termination signals and capture suspension handling, and real controlling-PTY tests prove restoration with no input echo across interrupt, termination, hangup, and suspend/resume.
 
-The private native path now supports crash-safe `recurs setup openai`: the authority captures the key, verifies the provider catalog, commits Keychain and redacted registry state transactionally, and can recover an interrupted commit. Source/npm and ad-hoc builds fail closed without collecting a key. Broker-owned OpenAI generation now streams through the signed launcher bridge, keeps encrypted continuation state behind opaque handles, supports request-scoped cancellation, and exposes only strictly decoded provider events to TypeScript. A directly injected health peer still cannot prove provenance and is downgraded to `peer_identity_unverified`. There is no signed/notarized installed artifact yet, so this vertical is implemented and tested but not distributed; release packaging still needs a complete third-party notices and license review. The current `local_guarded` tool profile is still not a general OS sandbox.
+The private native path now supports crash-safe OpenAI API, Anthropic API, and Kimi Code activation. The authority captures the credential, discovers exact models through the bound provider profile, commits Keychain and redacted registry state transactionally, and can recover an interrupted commit. Source/npm and ad-hoc builds fail closed without collecting a credential. Broker-owned generation streams OpenAI Responses, Anthropic Messages, or Kimi's OpenAI Chat Completions profile through the signed launcher bridge with request-scoped cancellation, strict event decoding, tool calling, usage normalization, and credential-echo filtering. OpenAI keeps encrypted continuation state behind opaque handles; the transcript remains authoritative for Anthropic and Kimi. A directly injected health peer still cannot prove provenance and is downgraded to `peer_identity_unverified`. There is no signed/notarized installed artifact yet, so these verticals are implemented and tested but not distributed; release packaging still needs a complete third-party notices and license review. The current `local_guarded` tool profile is still not a general OS sandbox.
 
 ## Next
 
 1. Produce and verify a signed/notarized installed launcher bundle, including the isolated owner-run broker recovery smoke.
-2. Exercise the completed OpenAI setup/generation/continuation vertical through installed-artifact security and credential-canary tests.
-3. Activate reviewed direct API and coding-plan paths only after signed installed-artifact and credential-canary gates pass; catalog-only entries remain unavailable until their complete vertical lands.
+2. Exercise the completed OpenAI, Anthropic, and Kimi Code verticals through installed-artifact security and credential-canary tests.
+3. Add the explicit public-HTTPS OpenAI-compatible profile only with DNS-rebinding-safe endpoint verification; catalog-only entries remain unavailable until their complete vertical lands.
 4. Give any delegated runtime included in the sealed engine its own fixed signed layout; expand delegated runtimes only through documented integrations and provider-specific policy review.
 5. Build the heavy sub-agent/company runtime over these explicit backend capabilities.
 

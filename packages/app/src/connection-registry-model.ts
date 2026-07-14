@@ -90,9 +90,9 @@ export interface DelegatedConnectionRecord {
 export interface BrokeredModelProviderConnectionRecord {
   kind: "brokered_model_provider";
   id: string;
-  providerId: "openai-api" | "anthropic-api";
-  adapterId: "openai-responses" | "anthropic-messages";
-  activationProfileId: "openai_api_v1" | "anthropic_api_v1";
+  providerId: "openai-api" | "anthropic-api" | "kimi-code";
+  adapterId: "openai-responses" | "anthropic-messages" | "openai-chat-completions";
+  activationProfileId: "openai_api_v1" | "anthropic_api_v1" | "kimi_code_v1";
   label: string;
   modelId: string;
   credentialIdentityFingerprint: string;
@@ -676,20 +676,23 @@ export function parseBrokeredModelProviderConnectionRecord(
     value.billingSelection,
     billingPolicy,
   );
+  const expectedPrimarySource = profile.providerId === "kimi-code"
+    ? "included_subscription"
+    : "metered_api";
   if (
     createdAt > updatedAt ||
     verifiedAt < createdAt ||
     verifiedAt > updatedAt ||
     billingSelection.acknowledgedAt < createdAt ||
     billingSelection.acknowledgedAt > updatedAt ||
-    billingPolicy.primarySource !== "metered_api" ||
+    billingPolicy.primarySource !== expectedPrimarySource ||
     billingPolicy.possibleAdditionalSources.length !== 0 ||
     billingPolicy.providerFallback !== "none" ||
     billingPolicy.availableSelections.length !== 1 ||
     billingPolicy.availableSelections[0] !== "strict_primary_only" ||
     billingSelection.mode !== "strict_primary_only" ||
     billingSelection.allowedSources.length !== 1 ||
-    billingSelection.allowedSources[0] !== "metered_api"
+    billingSelection.allowedSources[0] !== expectedPrimarySource
   ) {
     throw invalidRegistry();
   }
@@ -742,6 +745,17 @@ function brokeredProviderProfile(
       providerId: "anthropic-api",
       adapterId: "anthropic-messages",
       activationProfileId: "anthropic_api_v1",
+    };
+  }
+  if (
+    value.providerId === "kimi-code" &&
+    value.adapterId === "openai-chat-completions" &&
+    value.activationProfileId === "kimi_code_v1"
+  ) {
+    return {
+      providerId: "kimi-code",
+      adapterId: "openai-chat-completions",
+      activationProfileId: "kimi_code_v1",
     };
   }
   throw invalidRegistry();

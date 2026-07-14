@@ -21,6 +21,7 @@ export const OPENAI_ONBOARDING_MAX_CATALOG_REQUEST_ID_UTF8_BYTES = 256;
 export type NativeOpenAIOnboardingRequest =
   | { readonly kind: "begin" }
   | { readonly kind: "begin_anthropic" }
+  | { readonly kind: "begin_kimi" }
   | { readonly kind: "verify" }
   | { readonly kind: "catalog_page"; readonly cursor: number }
   | { readonly kind: "finalize"; readonly exactModelId: string }
@@ -96,6 +97,9 @@ export function encodeOpenAIOnboardingRequest(
       case "begin_anthropic":
         fields = [kindField(7)];
         break;
+      case "begin_kimi":
+        fields = [kindField(8)];
+        break;
       case "verify":
         fields = [kindField(2)];
         break;
@@ -151,6 +155,9 @@ export function decodeOpenAIOnboardingRequest(
       case 7:
         requireTags(fields, [1]);
         return Object.freeze({ kind: "begin_anthropic" });
+      case 8:
+        requireTags(fields, [1]);
+        return Object.freeze({ kind: "begin_kimi" });
       case 2:
         requireTags(fields, [1]);
         return Object.freeze({ kind: "verify" });

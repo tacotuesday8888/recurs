@@ -107,6 +107,33 @@ struct BrokerOpenAIModelCatalogTransportTests {
   }
 
   @Test
+  func kimiUsesTheFixedCodingCatalogWithBearerAuthentication() async throws {
+    let route = CatalogRoute(credential: Data("coding-plan-key".utf8))
+    let network = CatalogNetwork(
+      script: .response(
+        statusCode: 200,
+        contentType: "application/json",
+        xRequestID: nil,
+        requestID: "request-kimi",
+        chunks: [Data(#"{"data":[{"id":"kimi-k2.5"}]}"#.utf8)]
+      )
+    )
+
+    let catalog = try await Subject(
+      route: route,
+      network: network,
+      profile: .kimiCode
+    ).fetch(capability: CatalogCapability(), use: .setup)
+
+    #expect(catalog.modelIDs == ["kimi-k2.5"])
+    #expect(await route.invocations.allSatisfy { $0.providerBinding == .kimiCode })
+    let request = try #require(network.requests.first)
+    #expect(request.url?.absoluteString == "https://api.kimi.com/coding/v1/models")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer coding-plan-key")
+    #expect(request.value(forHTTPHeaderField: "User-Agent") == "recurs")
+  }
+
+  @Test
   func maintenanceUsesExactProviderFenceAndDoesNotRetryTransportFailure() async {
     let route = CatalogRoute(credential: Data("key".utf8))
     let network = CatalogNetwork(script: .failure(.transportFailure))

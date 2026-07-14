@@ -39,6 +39,17 @@ struct BrokerOpenAIGenerationWireCodecTests {
   }
 
   @Test
+  func acceptsEveryNativeBrokerGenerationAdapter() throws {
+    let openAI =
+      #"{"format":1,"connectionId":"71000000-0000-4000-8000-000000000001","authorizationId":"authorization-2","sessionId":"session-1","turnId":"turn-2","adapterId":"openai-responses","modelId":"model","backendFingerprint":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expectedSessionRecordSequence":4,"authorizationExpiresAt":"2026-07-15T00:00:00.000Z","input":[{"kind":"message","role":"user","text":"continue"}],"tools":[],"maxOutputTokens":128}"#
+    for adapter in ["openai-responses", "anthropic-messages", "openai-chat-completions"] {
+      let body = openAI.replacingOccurrences(of: "openai-responses", with: adapter)
+      #expect(
+        try BrokerOpenAIGenerationWireCodec.decodeRequest(Data(body.utf8)).adapterID == adapter)
+    }
+  }
+
+  @Test
   func rejectsUnknownFieldsDuplicateKeysAndMismatchedHandleBindings() {
     for body in [
       #"{"format":1,"format":1}"#,

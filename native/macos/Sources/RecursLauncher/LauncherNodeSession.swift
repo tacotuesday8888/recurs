@@ -346,7 +346,7 @@ package actor LauncherNodeSession {
 
     let preflightFailure: OpenAIOnboardingFailureCode? =
       switch request {
-      case .begin, .beginAnthropic:
+      case .begin, .beginAnthropic, .beginKimi:
         if openAIOnboardingState != .fresh || openAISecretCapture == nil {
           .operationUnavailable
         } else {
@@ -478,7 +478,24 @@ package actor LauncherNodeSession {
         }
         let begun = try await connection.beginOpenAIOnboarding(
           secret: secret,
-          anthropic: true
+          provider: .anthropic
+        )
+        let encoded = try OpenAIOnboardingBegunMessage(
+          connectionID: begun.connectionID,
+          credentialIdentityFingerprint: begun.credentialIdentityFingerprint
+        ).encodedFrame(requestID: requestID)
+        return .success(encoded, nextState: .awaitingVerification)
+
+      case .beginKimi:
+        guard let capture else { return .failure(.authorityUnavailable) }
+        let secret = try await capture.capture()
+        if Task.isCancelled {
+          secret.erase()
+          return .failure(.cancelled)
+        }
+        let begun = try await connection.beginOpenAIOnboarding(
+          secret: secret,
+          provider: .kimiCode
         )
         let encoded = try OpenAIOnboardingBegunMessage(
           connectionID: begun.connectionID,

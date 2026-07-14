@@ -351,13 +351,19 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
 
   async beginOpenAIOnboarding(
     signal?: AbortSignal,
-    provider: "openai" | "anthropic" = "openai",
+    provider: "openai" | "anthropic" | "kimi" = "openai",
   ): Promise<NativeOpenAIOnboardingOutcome<NativeOpenAIOnboardingBegun>> {
     if (!this.#canStartOpenAIOnboarding("fresh", signal)) {
       return this.#invalidOpenAIOnboardingUse();
     }
     return this.#exchangeOpenAIOnboarding(
-      { kind: provider === "anthropic" ? "begin_anthropic" : "begin" },
+      {
+        kind: provider === "anthropic"
+          ? "begin_anthropic"
+          : provider === "kimi"
+          ? "begin_kimi"
+          : "begin",
+      },
       this.#onboardingBeginTimeoutMilliseconds,
       signal,
       NativeMessageType.openAIOnboardingBegun,
@@ -537,7 +543,7 @@ class BoundedNativeAuthorityClient implements NativeAuthorityClient {
 
   async *streamOpenAIResponses(
     request: ProviderRequest,
-    adapterId: "openai-responses" | "anthropic-messages" = "openai-responses",
+    adapterId: "openai-responses" | "anthropic-messages" | "openai-chat-completions" = "openai-responses",
   ): AsyncIterable<ProviderEvent> {
     if (this.#terminalReason !== undefined || this.#generation !== undefined ||
       this.#openAIOnboardingActive || this.#openAIOnboardingState.kind !== "fresh" ||

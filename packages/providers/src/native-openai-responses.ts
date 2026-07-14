@@ -12,8 +12,8 @@ export interface NativeOpenAIResponsesProviderOptions {
   readonly connectionId: string;
   readonly modelId: string;
   readonly port: NativeOpenAIResponsesPort;
-  readonly providerId?: "openai-api" | "anthropic-api";
-  readonly adapterId?: "openai-responses" | "anthropic-messages";
+  readonly providerId?: "openai-api" | "anthropic-api" | "kimi-code";
+  readonly adapterId?: "openai-responses" | "anthropic-messages" | "openai-chat-completions";
 }
 
 function validIdentity(value: string): boolean {
@@ -49,8 +49,8 @@ function nativeFailure(error: NativeOpenAIResponsesError): ProviderError {
 
 export class NativeOpenAIResponsesProvider
   implements ConnectionBoundModelProvider {
-  readonly id: "openai-api" | "anthropic-api";
-  readonly adapterId: "openai-responses" | "anthropic-messages";
+  readonly id: "openai-api" | "anthropic-api" | "kimi-code";
+  readonly adapterId: "openai-responses" | "anthropic-messages" | "openai-chat-completions";
   readonly connectionId: string;
   readonly #modelId: string;
   readonly #port: NativeOpenAIResponsesPort;
@@ -64,7 +64,8 @@ export class NativeOpenAIResponsesProvider
     this.adapterId = options.adapterId ?? "openai-responses";
     if (
       (this.id === "openai-api" && this.adapterId !== "openai-responses") ||
-      (this.id === "anthropic-api" && this.adapterId !== "anthropic-messages")
+      (this.id === "anthropic-api" && this.adapterId !== "anthropic-messages") ||
+      (this.id === "kimi-code" && this.adapterId !== "openai-chat-completions")
     ) {
       throw new TypeError("Native provider profile is invalid");
     }

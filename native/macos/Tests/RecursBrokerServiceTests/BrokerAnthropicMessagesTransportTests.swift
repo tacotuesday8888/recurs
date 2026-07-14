@@ -116,6 +116,38 @@ struct BrokerAnthropicMessagesTransportTests {
     #expect(network.attempts.count == 1)
   }
 
+  @Test
+  func kimiUsesTheFixedCodingEndpointAndBearerCredential() async throws {
+    let route = AnthropicRoute(credential: Data("coding-plan-key".utf8))
+    let network = AnthropicNetwork(
+      script: .response(Data(validChatStream.utf8)),
+      expectedEndpoint: .kimiCode
+    )
+    let transport = BrokerOpenAIChatCompletionsTransport(
+      route: route,
+      network: network,
+      endpoint: .kimiCode,
+      providerBinding: .kimiCode
+    )
+
+    let completion = try await transport.stream(
+      try BrokerOpenAIChatCompletionsRequest(
+        model: "kimi-k2.5",
+        input: [.message(role: .user, text: "hello")],
+        tools: [],
+        maxOutputTokens: 128
+      ),
+      capability: AnthropicCapability()
+    )
+
+    #expect(completion.responseID == "chat_transport")
+    #expect(await route.bindings == [.kimiCode, .kimiCode])
+    let sent = try #require(network.requests.first)
+    #expect(sent.url == BrokerGenerationEndpoint.kimiCode.requestURL)
+    #expect(sent.value(forHTTPHeaderField: "Authorization") == "Bearer coding-plan-key")
+    #expect(sent.value(forHTTPHeaderField: "User-Agent") == "recurs")
+  }
+
   private func request() throws -> BrokerAnthropicMessagesRequest {
     try BrokerAnthropicMessagesRequest(
       model: "claude-test",
@@ -178,18 +210,27 @@ private enum AnthropicScript: Sendable {
 private final class AnthropicNetwork: BrokerAnthropicMessagesNetworking, @unchecked Sendable {
   private let lock = NSLock()
   private let script: AnthropicScript
+  private let expectedEndpoint: BrokerGenerationEndpoint
   private var storedRequests: [URLRequest] = []
   private var storedAttempts: [AnthropicAttempt] = []
   private var waiters: [CheckedContinuation<AnthropicAttempt, Never>] = []
 
-  init(script: AnthropicScript) { self.script = script }
+  init(
+    script: AnthropicScript,
+    expectedEndpoint: BrokerGenerationEndpoint = .anthropic
+  ) {
+    self.script = script
+    self.expectedEndpoint = expectedEndpoint
+  }
   var requests: [URLRequest] { lock.withLock { storedRequests } }
   var attempts: [AnthropicAttempt] { lock.withLock { storedAttempts } }
 
   func makeAttempt(
     request: URLRequest,
-    accumulator: BrokerAnthropicMessagesResponseAccumulator
+    accumulator: BrokerAnthropicMessagesResponseAccumulator,
+    endpoint: BrokerGenerationEndpoint
   ) -> any BrokerAnthropicMessagesNetworkAttempt {
+    #expect(endpoint == expectedEndpoint)
     let attempt = AnthropicAttempt(script: script, accumulator: accumulator)
     lock.lock()
     storedRequests.append(request)
@@ -331,3 +372,10 @@ private let validAnthropicStream: String = {
     event("message_stop", #"{"type":"message_stop"}"#),
   ].joined()
 }()
+
+private let validChatStream =
+  [
+    #"data: {"id":"chat_transport","object":"chat.completion.chunk","model":"kimi-k2.5","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":null}"#,
+    #"data: {"id":"chat_transport","object":"chat.completion.chunk","model":"kimi-k2.5","choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#,
+    "data: [DONE]",
+  ].joined(separator: "\n\n") + "\n\n"

@@ -476,6 +476,65 @@ describe("runCli", () => {
     expect(stdout.value).toContain("Stored — Anthropic API · claude-opus-4-6");
   });
 
+  it("activates a Kimi Code plan with an exact model", async () => {
+    const stdout = new TextOutput();
+    let received: unknown;
+    const disclosure = {
+      ...openAIDisclosure,
+      providerId: "kimi-code" as const,
+      displayName: "Kimi Code" as const,
+      endpoint: "https://api.kimi.com/coding/v1" as const,
+      primaryBillingSource: "included_subscription" as const,
+      billingNotice:
+        "Kimi Code usage is governed by the connected coding-plan subscription." as const,
+      capabilityProfileRevision: "openai-chat-completions-v1" as const,
+    };
+
+    const exitCode = await runCli(
+      ["setup", "kimi", "--model", "kimi-k2.5"],
+      {
+        stdout,
+        stderr: new TextOutput(),
+        interactive: true,
+        automation: false,
+        async confirm(message) {
+          expect(message).toContain("coding-plan subscription");
+          return true;
+        },
+        kimiOnboarding: {
+          provider: "kimi",
+          disclosure,
+          modelIds: [],
+          async setup(input) {
+            received = input;
+            return {
+              state: "ready" as const,
+              disposition: "created" as const,
+              connection: {
+                id: "71000000-0000-4000-8000-000000000001",
+                label: "Kimi Code" as const,
+                providerId: "kimi-code" as const,
+                adapterId: "openai-chat-completions" as const,
+                kind: "brokered_model_provider" as const,
+                modelId: "kimi-k2.5",
+                primary: true,
+                account: "verified (identifier redacted)" as const,
+                activation: "stored_pending_runtime_gate" as const,
+                billingSources: ["included_subscription"] as const,
+              },
+              cleanupPending: false,
+            };
+          },
+          async recover() { return { state: "none" as const }; },
+        },
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(received).toMatchObject({ provider: "kimi", modelId: "kimi-k2.5" });
+    expect(stdout.value).toContain("Stored — Kimi Code · kimi-k2.5");
+  });
+
   it("never starts OpenAI credential capture without every local consent gate", async () => {
     for (const [argv, interactive, automation, accepted] of [
       [["setup", "openai"], false, false, true],

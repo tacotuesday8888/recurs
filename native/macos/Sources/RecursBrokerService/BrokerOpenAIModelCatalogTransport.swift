@@ -137,11 +137,13 @@ private struct BrokerOpenAIModelCatalogEnvelope: Decodable {
 enum BrokerModelCatalogProfile: Sendable, Equatable {
   case openAI
   case anthropic
+  case kimiCode
 
   var providerBinding: ProviderProfileBinding {
     switch self {
     case .openAI: .openAI
     case .anthropic: .anthropic
+    case .kimiCode: .kimiCode
     }
   }
 
@@ -149,6 +151,7 @@ enum BrokerModelCatalogProfile: Sendable, Equatable {
     switch self {
     case .openAI: URL(string: "https://api.openai.com/v1/models")!
     case .anthropic: URL(string: "https://api.anthropic.com/v1/models?limit=1000")!
+    case .kimiCode: URL(string: "https://api.kimi.com/coding/v1/models")!
     }
   }
 
@@ -159,6 +162,8 @@ enum BrokerModelCatalogProfile: Sendable, Equatable {
       self = .openAI
     } else if requestURL?.absoluteString == Self.anthropic.requestURL.absoluteString {
       self = .anthropic
+    } else if requestURL?.absoluteString == Self.kimiCode.requestURL.absoluteString {
+      self = .kimiCode
     } else {
       return nil
     }
@@ -835,7 +840,7 @@ struct BrokerOpenAIModelCatalogTransport<
 
     let credentialData = Data(credential)
     var patterns = [SecretBytes(credentialData)]
-    if profile == .openAI {
+    if profile != .anthropic {
       var bearerData = Data("Bearer ".utf8)
       bearerData.append(credentialData)
       patterns.append(SecretBytes(bearerData))
@@ -862,6 +867,12 @@ struct BrokerOpenAIModelCatalogTransport<
         "Bearer \(String(decoding: credential, as: UTF8.self))",
         forHTTPHeaderField: "Authorization"
       )
+    case .kimiCode:
+      request.setValue(
+        "Bearer \(String(decoding: credential, as: UTF8.self))",
+        forHTTPHeaderField: "Authorization"
+      )
+      request.setValue("recurs", forHTTPHeaderField: "User-Agent")
     case .anthropic:
       request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
       request.setValue(

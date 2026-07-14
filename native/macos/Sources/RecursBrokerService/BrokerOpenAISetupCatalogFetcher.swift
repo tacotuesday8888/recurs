@@ -50,7 +50,11 @@ struct BrokerOpenAISetupCatalogFetcher<
 
     do {
       let profile: BrokerModelCatalogProfile =
-        context.providerBinding == .anthropic ? .anthropic : .openAI
+        switch context.providerBinding {
+        case .anthropic: .anthropic
+        case .kimiCode: .kimiCode
+        default: .openAI
+        }
       let catalog = try await BrokerOpenAIModelCatalogTransport(
         route: route,
         network: network,

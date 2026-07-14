@@ -33,7 +33,7 @@ struct BrokerOpenAIGenerationWireCodec: Sendable {
         let sessionID = object["sessionId"] as? String,
         let turnID = object["turnId"] as? String,
         let adapterID = object["adapterId"] as? String,
-        adapterID == "openai-responses",
+        ["openai-responses", "anthropic-messages", "openai-chat-completions"].contains(adapterID),
         let modelID = object["modelId"] as? String,
         let backendFingerprint = object["backendFingerprint"] as? String,
         let sequence = unsignedInteger(object["expectedSessionRecordSequence"]),

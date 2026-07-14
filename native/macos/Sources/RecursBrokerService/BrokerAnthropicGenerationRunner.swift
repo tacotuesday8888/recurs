@@ -21,17 +21,20 @@ struct BrokerAnthropicGenerationRunner<
   private let route: Route
   private let transport: Transport
   private let continuations: BrokerDirectContinuationAuthority
+  private let adapterID: String
   private let clock: @Sendable () -> Date
 
   init(
     route: Route,
     transport: Transport,
     continuations: BrokerDirectContinuationAuthority,
+    adapterID: String = "anthropic-messages",
     clock: @escaping @Sendable () -> Date = { Date() }
   ) {
     self.route = route
     self.transport = transport
     self.continuations = continuations
+    self.adapterID = adapterID
     self.clock = clock
   }
 
@@ -39,7 +42,7 @@ struct BrokerAnthropicGenerationRunner<
     _ request: BrokerOpenAIGenerationRequest,
     onEvent: @escaping @Sendable (BrokerOpenAIResponsesEvent) -> Void
   ) async throws -> BrokerOpenAIGenerationResult {
-    guard request.adapterID == "anthropic-messages",
+    guard request.adapterID == adapterID,
       request.authorizationExpiresAt > clock(),
       !request.input.isEmpty
     else { throw BrokerOpenAIGenerationError.invalidRequest }
@@ -229,6 +232,7 @@ struct BrokerAnthropicGenerationRunner<
 struct BrokerGenerationRunnerRouter: BrokerOpenAIGenerationRunning, Sendable {
   let openAI: any BrokerOpenAIGenerationRunning
   let anthropic: any BrokerOpenAIGenerationRunning
+  let openAIChat: any BrokerOpenAIGenerationRunning
 
   func run(
     _ request: BrokerOpenAIGenerationRequest,
@@ -239,6 +243,8 @@ struct BrokerGenerationRunnerRouter: BrokerOpenAIGenerationRunning, Sendable {
       try await openAI.run(request, onEvent: onEvent)
     case "anthropic-messages":
       try await anthropic.run(request, onEvent: onEvent)
+    case "openai-chat-completions":
+      try await openAIChat.run(request, onEvent: onEvent)
     default:
       throw BrokerOpenAIGenerationError.invalidRequest
     }
