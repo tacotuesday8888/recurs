@@ -352,6 +352,26 @@ describe("FileConnectionActivationStore", () => {
       .toMatchObject({ code: "ENOENT" });
   });
 
+  it("discards native-absent state only while the registry ID is absent under the same lock", async () => {
+    const expected = activation();
+    const absent = new FileConnectionActivationStore(await root());
+    await absent.prepare(expected);
+
+    await expect(absent.discardIfRegistryMissing(expected)).resolves.toBe(
+      "discarded",
+    );
+    expect((await absent.read()).activation).toBeNull();
+
+    const present = new FileConnectionActivationStore(await root());
+    await present.prepare(expected);
+    await present.commitToRegistry(expected);
+
+    await expect(present.discardIfRegistryMissing(expected)).resolves.toBe(
+      "registry_present",
+    );
+    expect((await present.read()).activation).toEqual(expected);
+  });
+
   it("recognizes a completed commit after the sidecar has already been removed", async () => {
     const directory = await root();
     const store = new FileConnectionActivationStore(directory);

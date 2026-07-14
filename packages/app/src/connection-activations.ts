@@ -135,6 +135,32 @@ export class FileConnectionActivationStore {
       await access.removeActivation(current.identity);
     });
   }
+
+  async discardIfRegistryMissing(
+    expectedActivation: PendingConnectionActivation,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<"discarded" | "registry_present"> {
+    const expected = canonicalActivation(expectedActivation);
+    return this.#store.transaction(options.signal, async (access) => {
+      const current = await access.readActivation();
+      const activation = current.document.activation;
+      if (activation !== null && !isDeepStrictEqual(activation, expected)) {
+        throw conflict();
+      }
+      const registry = await access.readRegistry();
+      if (
+        registry.document.connections.some(
+          (connection) => connection.id === expected.connection.id,
+        )
+      ) {
+        return "registry_present";
+      }
+      if (activation === null) return "discarded";
+      if (current.identity === null) throw conflict();
+      await access.removeActivation(current.identity);
+      return "discarded";
+    });
+  }
 }
 
 function canonicalActivation(

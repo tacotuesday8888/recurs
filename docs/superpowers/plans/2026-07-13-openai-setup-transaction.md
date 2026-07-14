@@ -275,6 +275,8 @@ git commit -m "feat: review OpenAI Responses model capabilities"
 **Files:**
 - Create: `packages/app/src/openai-onboarding.ts`
 - Create: `packages/app/test/openai-onboarding.test.ts`
+- Modify: `packages/app/src/connection-activations.ts`
+- Modify: `packages/app/test/connection-activations.test.ts`
 - Modify: `packages/app/src/index.ts`
 
 **Interfaces:**
@@ -409,14 +411,15 @@ export type OpenAISetupOutcome =
 
 export type OpenAIRecoveryOutcome =
   | Readonly<{ state: "none" }>
+  | Readonly<{ state: "discarded"; connectionId: string }>
   | OpenAISetupOutcome;
 ```
 
 Dependencies contain only `nativeAuthority`, optional structural
-`activationStore`, optional structural `registry`, optional `catalog`, and an
-optional trusted `now: () => Date` clock for deterministic tests. Time is not
-caller input because a caller-controlled timestamp could bypass policy expiry.
-They contain no prompt, TTY, key, environment, or credential callback.
+`activationStore`, optional `catalog`, and an optional trusted
+`now: () => Date` clock for deterministic tests. Time is not caller input
+because a caller-controlled timestamp could bypass policy expiry. They contain
+no prompt, TTY, key, environment, or credential callback.
 
 - [ ] **Step 5: Implement disclosure validation, pagination, and exact record construction**
 
@@ -488,10 +491,12 @@ const reconciled = await native.reconcileOpenAIActivation(
 ```
 
 For `ready_openai`, exact-commit then exact-discard and return redacted
-`recovered`. For `absent`, read the registry: discard only if no connection
-with that ID exists; an exact or conflicting registry record is inconsistent
-and retains the sidecar. For `unresolved`, failures, and thrown errors, retain
-the sidecar and return a normalized failure. After an exact registry commit, a
+`recovered`. For `absent`, call
+`discardIfRegistryMissing(expectedActivation)`, which checks the exact sidecar,
+checks the registry ID, and conditionally removes the sidecar under one shared
+lock; a present registry record is inconsistent and retains the sidecar. For
+`unresolved`, failures, and thrown errors, retain the sidecar and return a
+normalized failure. After an exact registry commit, a
 discard error must be followed by a sidecar re-read: absence is ready with
 `cleanupPending: false`, the exact retained activation is ready with
 `cleanupPending: true`, and conflicting state fails closed as inconsistent.
