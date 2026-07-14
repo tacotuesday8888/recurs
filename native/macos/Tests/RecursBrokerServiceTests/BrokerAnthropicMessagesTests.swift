@@ -113,6 +113,21 @@ struct BrokerAnthropicMessagesTests {
     }
   }
 
+  @Test
+  func rejectsToolResultAppendedAfterUserText() throws {
+    #expect(throws: BrokerAnthropicMessagesError.invalidRequest) {
+      _ = try BrokerAnthropicMessagesRequest(
+        model: "claude-test",
+        input: [
+          .message(role: .user, text: "hello"),
+          .toolResult(callID: "toolu_1", output: "result"),
+        ],
+        tools: [],
+        maxOutputTokens: 128
+      )
+    }
+  }
+
   private func event(_ name: String, _ json: String) -> Data {
     Data("event: \(name)\ndata: \(json)\n\n".utf8)
   }

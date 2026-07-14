@@ -110,7 +110,7 @@ enum BrokerOpenAIResponsesNetworkError: Error, Sendable, Equatable {
   case credentialEchoDetected
 }
 
-private struct BrokerOpenAIResponsesSemanticFilter {
+struct BrokerOpenAIResponsesSemanticFilter {
   private enum Visibility {
     case text
     case reasoning

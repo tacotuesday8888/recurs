@@ -114,6 +114,11 @@ struct BrokerAnthropicMessagesRequest: Sendable, Equatable {
             throw BrokerAnthropicMessagesError.invalidRequest
           }
           sawConversation = true
+          if messages.last?["role"] as? String == "user" {
+            guard let content = messages.last?["content"] as? [[String: Any]],
+              content.allSatisfy({ $0["type"] as? String == "tool_result" })
+            else { throw BrokerAnthropicMessagesError.invalidRequest }
+          }
           try Self.append(
             role: "user",
             block: ["type": "tool_result", "tool_use_id": callID, "content": output],
