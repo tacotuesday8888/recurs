@@ -120,6 +120,34 @@ struct LauncherNodeSessionTests {
   }
 
   @Test
+  func openAIGenerationStreamsMultipleEventsUnderTheNodeRequestID() async throws {
+    let system = ScriptedSessionBrokerConnection()
+    let factory = try makeBrokerFactory(system)
+    let output = RecordingSessionOutput()
+    let session = LauncherNodeSession(
+      brokerConnectionFactory: { () throws(BrokerConnectionError) -> BrokerConnection in
+        try factory.make()
+      },
+      output: output
+    )
+
+    await session.receive(try helloFrame(requestID: 1))
+    await eventually("handshake") { await output.snapshot().written.count == 1 }
+    await session.receive(
+      try OpenAIGenerationRequestMessage(body: Data(#"{"format":1}"#.utf8))
+        .encodedFrame(requestID: 2)
+    )
+    await eventually("generation terminal") { await output.snapshot().written.count == 3 }
+
+    let frames = try decodeFrames((await output.snapshot()).written)
+    #expect(frames.map(\.type) == [.helloResult, .openAIGenerationEvent, .openAIGenerationEvent])
+    #expect(frames.map(\.requestID) == [1, 2, 2])
+    #expect(try OpenAIGenerationEventMessage.decode(frames[1]).body == system.generationEvents[0])
+    #expect(try OpenAIGenerationEventMessage.decode(frames[2]).body == system.generationEvents[1])
+    await session.close()
+  }
+
+  @Test
   func authorizedBeginCapturesTheSecretNativelyAndReturnsOnlyRedactedIdentity() async throws {
     let canary = "NODE_MUST_NEVER_SEE_THIS_PROVIDER_SECRET"
     let system = ScriptedSessionBrokerConnection()
@@ -1327,6 +1355,14 @@ private final class ScriptedSessionBrokerConnection: BrokerXPCConnectionHandling
     uuidString: "7b000000-0000-4000-8000-000000000001"
   )!
   let onboardingFingerprint = "sha256:" + String(repeating: "d", count: 64)
+  let generationOperationID = UUID(
+    uuidString: "7e000000-0000-4000-8000-000000000001"
+  )!
+  let generationEvents = [
+    Data(#"{"text":"hello","type":"text_delta"}"#.utf8),
+    Data(#"{"stopReason":"complete","type":"done"}"#.utf8),
+  ]
+  private var generationPollIndex = 0
 
   var exchangeFrames: [NativeFrame] {
     lock.withLock { frames }
@@ -1487,6 +1523,43 @@ private final class ScriptedSessionBrokerConnection: BrokerXPCConnectionHandling
     } catch {
       reply(.failure(.brokerUnavailable))
     }
+  }
+
+  func beginOpenAIGeneration(
+    _: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  ) {
+    reply(.success(BrokerOpenAIGenerationXPCBeginReply.begun(generationOperationID).encode()))
+  }
+
+  func pollOpenAIGeneration(
+    _ operation: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  ) {
+    do {
+      guard
+        try BrokerOpenAIGenerationXPCOperation.decode(operation).operationID
+          == generationOperationID
+      else { throw BrokerOpenAIGenerationXPCCodecError.invalidMessage }
+      let event = lock.withLock { () -> Data? in
+        guard generationPollIndex < generationEvents.count else { return nil }
+        defer { generationPollIndex += 1 }
+        return generationEvents[generationPollIndex]
+      }
+      let response =
+        try event.map(BrokerOpenAIGenerationXPCPollReply.event)?.encode()
+        ?? BrokerOpenAIGenerationXPCPollReply.idle.encode()
+      reply(.success(response))
+    } catch {
+      reply(.failure(.brokerUnavailable))
+    }
+  }
+
+  func cancelOpenAIGeneration(
+    _: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  ) {
+    reply(.success(BrokerOpenAIGenerationXPCCancelReply.accepted))
   }
 
   func invalidate() {

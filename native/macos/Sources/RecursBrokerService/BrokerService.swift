@@ -14,6 +14,10 @@ struct BrokerServiceOpenAIOnboardingDependencies: Sendable {
   let credentialIdentityFingerprinter: any CredentialIdentityFingerprinting
 }
 
+struct BrokerServiceOpenAIGenerationDependencies: Sendable {
+  let runner: any BrokerOpenAIGenerationRunning
+}
+
 struct BrokerServiceConfiguration: Sendable {
   let launcherVersion: String
   let brokerVersion: String
@@ -21,6 +25,7 @@ struct BrokerServiceConfiguration: Sendable {
   let keychainStatus: @Sendable () -> KeychainStatusCode
   private let credentialAuthority: (any BrokerCredentialLifecycleAuthority)?
   private let openAIOnboarding: BrokerServiceOpenAIOnboardingDependencies?
+  private let openAIGeneration: BrokerServiceOpenAIGenerationDependencies?
 
   init(
     launcherVersion: String,
@@ -34,7 +39,8 @@ struct BrokerServiceConfiguration: Sendable {
       productionSigned: productionSigned,
       keychainStatus: { keychain },
       credentialAuthority: nil,
-      openAIOnboarding: nil
+      openAIOnboarding: nil,
+      openAIGeneration: nil
     )
   }
 
@@ -50,7 +56,8 @@ struct BrokerServiceConfiguration: Sendable {
       productionSigned: productionSigned,
       keychainStatus: keychainStatus,
       credentialAuthority: nil,
-      openAIOnboarding: nil
+      openAIOnboarding: nil,
+      openAIGeneration: nil
     )
   }
 
@@ -60,7 +67,8 @@ struct BrokerServiceConfiguration: Sendable {
     productionSigned: Bool,
     keychainStatus: @escaping @Sendable () -> KeychainStatusCode,
     credentialAuthority: (any BrokerCredentialLifecycleAuthority)?,
-    openAIOnboarding: BrokerServiceOpenAIOnboardingDependencies?
+    openAIOnboarding: BrokerServiceOpenAIOnboardingDependencies?,
+    openAIGeneration: BrokerServiceOpenAIGenerationDependencies?
   ) throws {
     do {
       _ = try FieldTable.encodeVersionText(launcherVersion)
@@ -68,7 +76,10 @@ struct BrokerServiceConfiguration: Sendable {
     } catch {
       throw BrokerServiceConfigurationError.invalidConfiguration
     }
-    guard openAIOnboarding == nil || (productionSigned && credentialAuthority != nil) else {
+    guard
+      (openAIOnboarding == nil && openAIGeneration == nil)
+        || (productionSigned && credentialAuthority != nil)
+    else {
       throw BrokerServiceConfigurationError.invalidConfiguration
     }
     self.launcherVersion = launcherVersion
@@ -77,6 +88,7 @@ struct BrokerServiceConfiguration: Sendable {
     self.keychainStatus = keychainStatus
     self.credentialAuthority = credentialAuthority
     self.openAIOnboarding = openAIOnboarding
+    self.openAIGeneration = openAIGeneration
   }
 
   static func recoveredCredentialService(
@@ -91,7 +103,8 @@ struct BrokerServiceConfiguration: Sendable {
       productionSigned: true,
       keychainStatus: keychainStatus,
       credentialAuthority: authority,
-      openAIOnboarding: nil
+      openAIOnboarding: nil,
+      openAIGeneration: nil
     )
   }
 
@@ -101,6 +114,7 @@ struct BrokerServiceConfiguration: Sendable {
     authority: any BrokerCredentialLifecycleAuthority,
     sessionFactory: any BrokerOpenAIOnboardingSessionFactory,
     credentialIdentityFingerprinter: any CredentialIdentityFingerprinting,
+    generationRunner: (any BrokerOpenAIGenerationRunning)? = nil,
     keychainStatus: @escaping @Sendable () -> KeychainStatusCode
   ) throws -> BrokerServiceConfiguration {
     try BrokerServiceConfiguration(
@@ -112,7 +126,8 @@ struct BrokerServiceConfiguration: Sendable {
       openAIOnboarding: BrokerServiceOpenAIOnboardingDependencies(
         sessionFactory: sessionFactory,
         credentialIdentityFingerprinter: credentialIdentityFingerprinter
-      )
+      ),
+      openAIGeneration: generationRunner.map(BrokerServiceOpenAIGenerationDependencies.init)
     )
   }
 
@@ -128,7 +143,8 @@ struct BrokerServiceConfiguration: Sendable {
       productionSigned: productionSigned,
       keychainStatus: keychainStatus,
       credentialAuthority: nil,
-      openAIOnboarding: nil
+      openAIOnboarding: nil,
+      openAIGeneration: nil
     )
   }
 
@@ -139,6 +155,8 @@ struct BrokerServiceConfiguration: Sendable {
   var exportsOpenAIOnboarding: Bool {
     openAIOnboarding != nil
   }
+
+  var exportsOpenAIGeneration: Bool { openAIGeneration != nil }
 
   func makeCredentialLifecycleGateway() -> BrokerCredentialLifecycleGateway? {
     credentialAuthority.map(BrokerCredentialLifecycleGateway.init(authority:))
@@ -151,6 +169,10 @@ struct BrokerServiceConfiguration: Sendable {
       factory: openAIOnboarding.sessionFactory,
       credentialIdentityFingerprinter: openAIOnboarding.credentialIdentityFingerprinter
     )
+  }
+
+  func makeOpenAIGenerationGateway() -> BrokerOpenAIGenerationGateway? {
+    openAIGeneration.map { BrokerOpenAIGenerationGateway(runner: $0.runner) }
   }
 }
 
@@ -263,18 +285,20 @@ struct BrokerServiceSession: Sendable {
   }
 }
 
-final class BrokerService: NSObject, BrokerOpenAIOnboardingXPCProtocol,
+final class BrokerService: NSObject, BrokerOpenAIGenerationXPCProtocol,
   @unchecked Sendable
 {
   private let lock = NSLock()
   private var session: BrokerServiceSession
   private let credentialGateway: BrokerCredentialLifecycleGateway?
   private let openAIOnboardingGateway: BrokerOpenAIOnboardingGateway?
+  private let openAIGenerationGateway: BrokerOpenAIGenerationGateway?
 
   init(configuration: BrokerServiceConfiguration) {
     self.session = BrokerServiceSession(configuration: configuration)
     self.credentialGateway = configuration.makeCredentialLifecycleGateway()
     self.openAIOnboardingGateway = configuration.makeOpenAIOnboardingGateway()
+    self.openAIGenerationGateway = configuration.makeOpenAIGenerationGateway()
     super.init()
   }
 
@@ -288,9 +312,11 @@ final class BrokerService: NSObject, BrokerOpenAIOnboardingXPCProtocol,
     case .authorize:
       credentialGateway?.authorizeAfterHello()
       openAIOnboardingGateway?.authorizeAfterHello()
+      openAIGenerationGateway?.authorizeAfterHello()
     case .close:
       credentialGateway?.close()
       openAIOnboardingGateway?.close()
+      openAIGenerationGateway?.close()
     }
     reply(exchange.response)
   }
@@ -360,14 +386,62 @@ final class BrokerService: NSObject, BrokerOpenAIOnboardingXPCProtocol,
     openAIOnboardingGateway.submitReconciliation(request, reply: reply)
   }
 
+  func beginOpenAIGeneration(
+    _ request: Data,
+    reply: @escaping @Sendable (Data) -> Void
+  ) {
+    let result = openAIGenerationGateway?.begin(request) ?? .failure(.routeUnavailable)
+    switch result {
+    case .begun(let id):
+      reply(BrokerOpenAIGenerationXPCBeginReply.begun(id).encode())
+    case .failure(let code):
+      reply(BrokerOpenAIGenerationXPCBeginReply.failure(code).encode())
+    }
+  }
+
+  func pollOpenAIGeneration(
+    _ operation: Data,
+    reply: @escaping @Sendable (Data) -> Void
+  ) {
+    guard let gateway = openAIGenerationGateway,
+      let decoded = try? BrokerOpenAIGenerationXPCOperation.decode(operation)
+    else {
+      reply((try? BrokerOpenAIGenerationXPCPollReply.failure(.invalidRequest).encode()) ?? Data())
+      return
+    }
+    let result: BrokerOpenAIGenerationXPCPollReply =
+      switch gateway.poll(decoded.operationID) {
+      case .idle: .idle
+      case .event(let body): .event(body)
+      case .failure(let code): .failure(code)
+      }
+    reply((try? result.encode()) ?? Data())
+  }
+
+  func cancelOpenAIGeneration(
+    _ operation: Data,
+    reply: @escaping @Sendable (Data) -> Void
+  ) {
+    guard let gateway = openAIGenerationGateway,
+      let decoded = try? BrokerOpenAIGenerationXPCOperation.decode(operation)
+    else {
+      reply(Data())
+      return
+    }
+    gateway.cancel(decoded.operationID)
+    reply(BrokerOpenAIGenerationXPCCancelReply.accepted)
+  }
+
   func close() {
     credentialGateway?.close()
     openAIOnboardingGateway?.close()
+    openAIGenerationGateway?.close()
   }
 
   func transportTeardown() {
     credentialGateway?.transportTeardown()
     openAIOnboardingGateway?.transportTeardown()
+    openAIGenerationGateway?.close()
   }
 
   private static func unavailableStage(_ data: Data, secretByteCount: Int) -> Data {

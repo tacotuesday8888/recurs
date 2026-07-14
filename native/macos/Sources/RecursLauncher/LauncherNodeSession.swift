@@ -19,12 +19,15 @@ package actor LauncherNodeSession {
     case hello(UInt32)
     case health(UInt32)
     case openAIOnboarding(UInt32, OpenAIOnboardingRequestMessage)
+    case openAIGeneration(UInt32)
 
     var requestID: UInt32 {
       switch self {
       case .hello(let requestID), .health(let requestID):
         requestID
       case .openAIOnboarding(let requestID, _):
+        requestID
+      case .openAIGeneration(let requestID):
         requestID
       }
     }
@@ -173,6 +176,11 @@ package actor LauncherNodeSession {
         try OpenAIOnboardingRequestMessage.decode(frame),
         requestID: frame.requestID
       )
+    case .openAIGenerationRequest:
+      try startOpenAIGeneration(
+        try OpenAIGenerationRequestMessage.decode(frame),
+        requestID: frame.requestID
+      )
     case .cancel:
       try cancel(try CancelMessage.decode(frame))
     default:
@@ -207,6 +215,10 @@ package actor LauncherNodeSession {
 
   private func cancel(_ message: CancelMessage) throws {
     if activeRequest?.requestID == message.targetRequestID {
+      if case .openAIGeneration = activeRequest {
+        activeTask?.cancel()
+        return
+      }
       failClosed()
       return
     }
@@ -215,6 +227,106 @@ package actor LauncherNodeSession {
       return
     }
     throw NativeProtocolError.invalidMessage
+  }
+
+  private func startOpenAIGeneration(
+    _ request: OpenAIGenerationRequestMessage,
+    requestID: UInt32
+  ) throws {
+    guard openAIOnboardingState == .fresh else {
+      throw NativeProtocolError.invalidMessage
+    }
+    guard activeRequest == nil, activeTask == nil, queuedHealthRequestIDs.isEmpty,
+      let connection = brokerConnection
+    else {
+      try writeOpenAIGenerationRejection(.routeUnavailable, requestID: requestID)
+      return
+    }
+    activeRequest = .openAIGeneration(requestID)
+    let operation = LauncherOpenAIGenerationOperation()
+    activeTask = Task { [weak self, connection, outputGate, operation] in
+      do {
+        let operationID = try await connection.beginOpenAIGeneration(request.body)
+        operation.set(operationID)
+        while !Task.isCancelled {
+          switch try await connection.pollOpenAIGeneration(operationID) {
+          case .idle:
+            try await Task.sleep(for: .milliseconds(20))
+          case .event(let body, let terminal):
+            try await outputGate.write(
+              OpenAIGenerationEventMessage(body: body).encodedFrame(requestID: requestID)
+            )
+            if terminal {
+              await self?.openAIGenerationCompleted(requestID: requestID)
+              return
+            }
+          }
+        }
+        throw CancellationError()
+      } catch let failure as BrokerOpenAIGenerationClientError {
+        if Task.isCancelled, let operationID = operation.value {
+          await Task.detached {
+            try? await connection.cancelOpenAIGeneration(operationID)
+          }.value
+        }
+        await self?.openAIGenerationFailed(
+          Self.mapOpenAIGenerationFailure(failure),
+          requestID: requestID
+        )
+      } catch {
+        if let operationID = operation.value {
+          await Task.detached {
+            try? await connection.cancelOpenAIGeneration(operationID)
+          }.value
+        }
+        await self?.openAIGenerationFailed(
+          Task.isCancelled ? .cancelled : .routeUnavailable,
+          requestID: requestID
+        )
+      }
+    }
+  }
+
+  private func writeOpenAIGenerationRejection(
+    _ code: OpenAIGenerationFailureCode,
+    requestID: UInt32
+  ) throws {
+    guard concurrentRejectionTask == nil else { throw NativeProtocolError.invalidMessage }
+    concurrentRejectionRequestID = requestID
+    concurrentRejectionTask = Task { [weak self, outputGate] in
+      let succeeded =
+        (try? await outputGate.write(
+          OpenAIGenerationFailureMessage(code: code).encodedFrame(requestID: requestID)
+        )) != nil
+      await self?.concurrentOpenAIOnboardingRejectionCompleted(
+        succeeded: succeeded,
+        requestID: requestID
+      )
+    }
+  }
+
+  private func openAIGenerationCompleted(requestID: UInt32) {
+    guard phase == .ready, activeRequest == .openAIGeneration(requestID) else { return }
+    activeRequest = nil
+    activeTask = nil
+    startNextHealthIfNeeded()
+  }
+
+  private func openAIGenerationFailed(
+    _ code: OpenAIGenerationFailureCode,
+    requestID: UInt32
+  ) async {
+    guard phase == .ready, activeRequest == .openAIGeneration(requestID) else { return }
+    do {
+      try await outputGate.write(
+        OpenAIGenerationFailureMessage(code: code).encodedFrame(requestID: requestID)
+      )
+      activeRequest = nil
+      activeTask = nil
+      startNextHealthIfNeeded()
+    } catch {
+      failClosed()
+    }
   }
 
   private func startOpenAIOnboarding(
@@ -811,6 +923,27 @@ package actor LauncherNodeSession {
     case .absent: .absent
     case .unresolved: .unresolved
     }
+  }
+
+  private nonisolated static func mapOpenAIGenerationFailure(
+    _ failure: BrokerOpenAIGenerationClientError
+  ) -> OpenAIGenerationFailureCode {
+    switch failure {
+    case .rejected(let code): code
+    case .cancelled: .cancelled
+    case .brokerUnavailable, .protocolMismatch, .closed, .busy: .routeUnavailable
+    }
+  }
+}
+
+private final class LauncherOpenAIGenerationOperation: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storage: UUID?
+
+  var value: UUID? { lock.withLock { storage } }
+
+  func set(_ value: UUID) {
+    lock.withLock { storage = value }
   }
 }
 

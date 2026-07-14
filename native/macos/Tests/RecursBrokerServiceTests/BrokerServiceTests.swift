@@ -203,6 +203,9 @@ struct BrokerServiceTests {
           .openAIOnboardingAborted,
           .openAIOnboardingReconciliation,
           .openAIOnboardingFailure,
+          .openAIGenerationRequest,
+          .openAIGenerationEvent,
+          .openAIGenerationFailure,
           .safeFailure,
         ]
     )

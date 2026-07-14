@@ -21,6 +21,20 @@ package enum BrokerXPCExchangeError: Error, Equatable, Sendable {
   case cancelled
 }
 
+package enum BrokerOpenAIGenerationClientError: Error, Equatable, Sendable {
+  case rejected(OpenAIGenerationFailureCode)
+  case brokerUnavailable
+  case protocolMismatch
+  case cancelled
+  case closed
+  case busy
+}
+
+package enum BrokerOpenAIGenerationClientPoll: Sendable, Equatable {
+  case idle
+  case event(Data, terminal: Bool)
+}
+
 package protocol BrokerXPCConnectionHandling: AnyObject, Sendable {
   func installRemoteInterface()
   func setCodeSigningRequirement(_ requirement: String)
@@ -49,6 +63,18 @@ package protocol BrokerXPCConnectionHandling: AnyObject, Sendable {
   )
   func reconcileOpenAIActivation(
     _ request: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  )
+  func beginOpenAIGeneration(
+    _ request: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  )
+  func pollOpenAIGeneration(
+    _ operation: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  )
+  func cancelOpenAIGeneration(
+    _ operation: Data,
     reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
   )
   func invalidate()
@@ -91,6 +117,21 @@ extension BrokerXPCConnectionHandling {
   ) {
     reply(.failure(.brokerUnavailable))
   }
+
+  func beginOpenAIGeneration(
+    _: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  ) { reply(.failure(.brokerUnavailable)) }
+
+  func pollOpenAIGeneration(
+    _: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  ) { reply(.failure(.brokerUnavailable)) }
+
+  func cancelOpenAIGeneration(
+    _: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  ) { reply(.failure(.brokerUnavailable)) }
 }
 
 package protocol BrokerXPCConnectionFactory: Sendable {
@@ -110,6 +151,7 @@ package actor BrokerConnection {
     case openAIOnboardingReady
     case controllingOpenAIOnboarding
     case openAIOnboardingTerminal
+    case runningOpenAIGeneration
     case closed
   }
 
@@ -121,6 +163,7 @@ package actor BrokerConnection {
   private var nextOnboardingRequestID: UInt64?
   private var activeLifecycleReply: TimedBrokerXPCReply?
   private var activeOnboardingReply: TimedBrokerXPCReply?
+  private var activeGenerationReply: TimedBrokerXPCReply?
 
   package static func open() throws(BrokerConnectionError) -> BrokerConnection {
     let requirement: PeerRequirement
@@ -501,6 +544,90 @@ package actor BrokerConnection {
     }
   }
 
+  package func beginOpenAIGeneration(
+    _ body: Data
+  ) async throws(BrokerOpenAIGenerationClientError) -> UUID {
+    guard phase == .ready else {
+      throw phase == .closed ? .closed : .busy
+    }
+    phase = .runningOpenAIGeneration
+    do {
+      let response = try await generationExchange { [connection] reply in
+        connection.beginOpenAIGeneration(body, reply: reply)
+      }
+      switch try BrokerOpenAIGenerationXPCBeginReply.decode(response) {
+      case .begun(let id): return id
+      case .failure(let code):
+        phase = .ready
+        throw BrokerOpenAIGenerationClientError.rejected(code)
+      }
+    } catch let failure as BrokerOpenAIGenerationClientError {
+      if case .rejected = failure { throw failure }
+      failClosed()
+      throw failure
+    } catch {
+      failClosed()
+      throw .protocolMismatch
+    }
+  }
+
+  package func pollOpenAIGeneration(
+    _ operationID: UUID
+  ) async throws(BrokerOpenAIGenerationClientError) -> BrokerOpenAIGenerationClientPoll {
+    guard phase == .runningOpenAIGeneration else {
+      throw phase == .closed ? .closed : .protocolMismatch
+    }
+    do {
+      let operation = BrokerOpenAIGenerationXPCOperation(operationID: operationID).encode()
+      let response = try await generationExchange { [connection] reply in
+        connection.pollOpenAIGeneration(operation, reply: reply)
+      }
+      switch try BrokerOpenAIGenerationXPCPollReply.decode(response) {
+      case .idle: return .idle
+      case .event(let body):
+        let terminal = Self.isTerminalOpenAIGenerationEvent(body)
+        if terminal { phase = .ready }
+        return .event(body, terminal: terminal)
+      case .failure(let code):
+        phase = .ready
+        throw BrokerOpenAIGenerationClientError.rejected(code)
+      }
+    } catch let failure as BrokerOpenAIGenerationClientError {
+      if case .rejected = failure { throw failure }
+      if failure == .cancelled { throw failure }
+      failClosed()
+      throw failure
+    } catch {
+      failClosed()
+      throw .protocolMismatch
+    }
+  }
+
+  package func cancelOpenAIGeneration(
+    _ operationID: UUID
+  ) async throws(BrokerOpenAIGenerationClientError) {
+    guard phase == .runningOpenAIGeneration else { return }
+    do {
+      let operation = BrokerOpenAIGenerationXPCOperation(operationID: operationID).encode()
+      let response = try await generationExchange { [connection] reply in
+        connection.cancelOpenAIGeneration(operation, reply: reply)
+      }
+      _ = try BrokerOpenAIGenerationXPCCancelReply.decode(response)
+      let terminal = try await generationExchange { [connection] reply in
+        connection.pollOpenAIGeneration(operation, reply: reply)
+      }
+      guard try BrokerOpenAIGenerationXPCPollReply.decode(terminal) == .failure(.cancelled)
+      else { throw BrokerOpenAIGenerationClientError.protocolMismatch }
+      phase = .ready
+    } catch let failure as BrokerOpenAIGenerationClientError {
+      failClosed()
+      throw failure
+    } catch {
+      failClosed()
+      throw .brokerUnavailable
+    }
+  }
+
   package func close() {
     failClosed()
   }
@@ -527,7 +654,7 @@ package actor BrokerConnection {
     case .checkingHealth, .stagingCredential, .controllingCredential,
       .beginningOpenAIOnboarding, .reconcilingOpenAIActivation,
       .openAIOnboardingReady,
-      .controllingOpenAIOnboarding:
+      .controllingOpenAIOnboarding, .runningOpenAIGeneration:
       throw .busy
     case .openAIOnboardingTerminal:
       throw .operationUnavailable
@@ -554,7 +681,7 @@ package actor BrokerConnection {
       throw .closed
     case .checkingHealth, .stagingCredential, .controllingCredential,
       .beginningOpenAIOnboarding, .reconcilingOpenAIActivation,
-      .controllingOpenAIOnboarding:
+      .controllingOpenAIOnboarding, .runningOpenAIGeneration:
       throw .busy
     case .openAIOnboardingReady, .openAIOnboardingTerminal:
       throw .operationUnavailable
@@ -582,7 +709,7 @@ package actor BrokerConnection {
       throw .closed
     case .checkingHealth, .stagingCredential, .controllingCredential,
       .beginningOpenAIOnboarding, .reconcilingOpenAIActivation,
-      .controllingOpenAIOnboarding:
+      .controllingOpenAIOnboarding, .runningOpenAIGeneration:
       throw .busy
     case .openAIOnboardingTerminal:
       throw .operationUnavailable
@@ -610,7 +737,7 @@ package actor BrokerConnection {
       throw .closed
     case .checkingHealth, .stagingCredential, .controllingCredential,
       .beginningOpenAIOnboarding, .reconcilingOpenAIActivation,
-      .controllingOpenAIOnboarding:
+      .controllingOpenAIOnboarding, .runningOpenAIGeneration:
       throw .busy
     case .openAIOnboardingReady, .openAIOnboardingTerminal:
       throw .operationUnavailable
@@ -637,8 +764,11 @@ package actor BrokerConnection {
     activeLifecycleReply = nil
     let onboardingReply = activeOnboardingReply
     activeOnboardingReply = nil
+    let generationReply = activeGenerationReply
+    activeGenerationReply = nil
     lifecycleReply?.cancel()
     onboardingReply?.cancel()
+    generationReply?.cancel()
     connection.invalidate()
   }
 
@@ -719,6 +849,36 @@ package actor BrokerConnection {
         throw .brokerUnavailable
       case .cancelled:
         throw .cancelled
+      }
+    } catch {
+      throw .brokerUnavailable
+    }
+  }
+
+  private func generationExchange(
+    _ start: (@escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void) -> Void
+  ) async throws(BrokerOpenAIGenerationClientError) -> Data {
+    let reply = TimedBrokerXPCReply(timeout: xpcReplyTimeout)
+    activeGenerationReply = reply
+    defer { if activeGenerationReply === reply { activeGenerationReply = nil } }
+    do {
+      return try await withTaskCancellationHandler {
+        try await withCheckedThrowingContinuation { continuation in
+          guard reply.install(continuation) else { return }
+          reply.armTimeout()
+          guard !Task.isCancelled else {
+            reply.cancel()
+            return
+          }
+          start(reply.resolve)
+        }
+      } onCancel: {
+        reply.cancel()
+      }
+    } catch let failure as BrokerXPCExchangeError {
+      switch failure {
+      case .brokerUnavailable: throw .brokerUnavailable
+      case .cancelled: throw .cancelled
       }
     } catch {
       throw .brokerUnavailable
@@ -880,6 +1040,12 @@ package actor BrokerConnection {
     return frame
   }
 
+  private static func isTerminalOpenAIGenerationEvent(_ body: Data) -> Bool {
+    guard let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+    else { return false }
+    return object["type"] as? String == "done"
+  }
+
   private static func mapSafeFailure(_ code: SafeFailureCode) -> BrokerConnectionError {
     switch code {
     case .unsupportedPlatform:
@@ -911,7 +1077,7 @@ private struct SystemBrokerXPCConnectionFactory: BrokerXPCConnectionFactory {
 }
 
 func makeBrokerRemoteObjectInterface() -> NSXPCInterface {
-  let interface = NSXPCInterface(with: BrokerOpenAIOnboardingXPCProtocol.self)
+  let interface = NSXPCInterface(with: BrokerOpenAIGenerationXPCProtocol.self)
   let dataClasses = NSSet(object: NSData.self) as! Set<AnyHashable>
   let registrations: [(Selector, Int, Bool)] = [
     (#selector(BrokerXPCProtocol.exchange(_:reply:)), 0, false),
@@ -928,6 +1094,12 @@ func makeBrokerRemoteObjectInterface() -> NSXPCInterface {
     (#selector(BrokerOpenAIOnboardingXPCProtocol.openAIOnboardingControl(_:reply:)), 0, true),
     (#selector(BrokerOpenAIOnboardingXPCProtocol.reconcileOpenAIActivation(_:reply:)), 0, false),
     (#selector(BrokerOpenAIOnboardingXPCProtocol.reconcileOpenAIActivation(_:reply:)), 0, true),
+    (#selector(BrokerOpenAIGenerationXPCProtocol.beginOpenAIGeneration(_:reply:)), 0, false),
+    (#selector(BrokerOpenAIGenerationXPCProtocol.beginOpenAIGeneration(_:reply:)), 0, true),
+    (#selector(BrokerOpenAIGenerationXPCProtocol.pollOpenAIGeneration(_:reply:)), 0, false),
+    (#selector(BrokerOpenAIGenerationXPCProtocol.pollOpenAIGeneration(_:reply:)), 0, true),
+    (#selector(BrokerOpenAIGenerationXPCProtocol.cancelOpenAIGeneration(_:reply:)), 0, false),
+    (#selector(BrokerOpenAIGenerationXPCProtocol.cancelOpenAIGeneration(_:reply:)), 0, true),
   ]
   for (selector, argumentIndex, ofReply) in registrations {
     interface.setClasses(
@@ -1058,6 +1230,47 @@ private final class SystemBrokerXPCConnection: BrokerXPCConnectionHandling,
     proxy.reconcileOpenAIActivation(request) { response in
       reply(.success(response))
     }
+  }
+
+  func beginOpenAIGeneration(
+    _ request: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  ) {
+    withGenerationProxy(reply) { proxy in
+      proxy.beginOpenAIGeneration(request) { reply(.success($0)) }
+    }
+  }
+
+  func pollOpenAIGeneration(
+    _ operation: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  ) {
+    withGenerationProxy(reply) { proxy in
+      proxy.pollOpenAIGeneration(operation) { reply(.success($0)) }
+    }
+  }
+
+  func cancelOpenAIGeneration(
+    _ operation: Data,
+    reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void
+  ) {
+    withGenerationProxy(reply) { proxy in
+      proxy.cancelOpenAIGeneration(operation) { reply(.success($0)) }
+    }
+  }
+
+  private func withGenerationProxy(
+    _ reply: @escaping @Sendable (Result<Data, BrokerXPCExchangeError>) -> Void,
+    body: (BrokerOpenAIGenerationXPCProtocol) -> Void
+  ) {
+    let remote = connection.remoteObjectProxyWithErrorHandler { _ in
+      reply(.failure(.brokerUnavailable))
+    }
+    guard let proxy = remote as? BrokerOpenAIGenerationXPCProtocol else {
+      reply(.failure(.brokerUnavailable))
+      return
+    }
+    body(proxy)
   }
 
   func invalidate() {

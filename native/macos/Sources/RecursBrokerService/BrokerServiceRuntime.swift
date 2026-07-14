@@ -21,6 +21,11 @@ struct BrokerServiceRuntimeDependencies<KeychainConfiguration: Sendable> {
       (KeychainConfiguration, BrokerCredentialAuthority) ->
         BrokerServiceOpenAIOnboardingDependencies
     )?
+  let makeOpenAIGenerationDependencies:
+    (
+      (KeychainConfiguration, BrokerCredentialAuthority) throws ->
+        BrokerServiceOpenAIGenerationDependencies
+    )?
   let makeListener: (String) -> any BrokerServiceListenerHandle
 
   init(
@@ -35,6 +40,11 @@ struct BrokerServiceRuntimeDependencies<KeychainConfiguration: Sendable> {
         (KeychainConfiguration, BrokerCredentialAuthority) ->
           BrokerServiceOpenAIOnboardingDependencies
       )? = nil,
+    makeOpenAIGenerationDependencies:
+      (
+        (KeychainConfiguration, BrokerCredentialAuthority) throws ->
+          BrokerServiceOpenAIGenerationDependencies
+      )? = nil,
     makeListener: @escaping (String) -> any BrokerServiceListenerHandle
   ) {
     self.makePeerRequirement = makePeerRequirement
@@ -42,6 +52,7 @@ struct BrokerServiceRuntimeDependencies<KeychainConfiguration: Sendable> {
     self.recoverAuthority = recoverAuthority
     self.makeKeychainStatusSource = makeKeychainStatusSource
     self.makeOpenAIOnboardingDependencies = makeOpenAIOnboardingDependencies
+    self.makeOpenAIGenerationDependencies = makeOpenAIGenerationDependencies
     self.makeListener = makeListener
   }
 }
@@ -96,6 +107,27 @@ package final class BrokerServiceRuntime {
           )
         )
       },
+      makeOpenAIGenerationDependencies: { configuration, authority in
+        let route = BrokerProviderRouteAuthority(
+          reader: authority,
+          credentialAuthority: authority
+        )
+        let records = try FileBrokerDirectContinuationRecordStore.production(
+          configuration: configuration
+        )
+        let continuations = BrokerDirectContinuationAuthority(records: records)
+        let transport = BrokerOpenAIResponsesTransport(
+          route: route,
+          network: BrokerOpenAIResponsesURLSessionNetworking()
+        )
+        return BrokerServiceOpenAIGenerationDependencies(
+          runner: BrokerOpenAIGenerationRunner(
+            route: route,
+            transport: transport,
+            continuations: continuations
+          )
+        )
+      },
       makeListener: { name in
         NSXPCListener(machServiceName: name)
       }
@@ -142,6 +174,10 @@ package final class BrokerServiceRuntime {
       keychainConfiguration,
       authority
     )
+    let openAIGeneration = try dependencies.makeOpenAIGenerationDependencies?(
+      keychainConfiguration,
+      authority
+    )
     let configuration: BrokerServiceConfiguration
     if let openAIOnboarding {
       configuration = try BrokerServiceConfiguration.recoveredOpenAIService(
@@ -150,6 +186,7 @@ package final class BrokerServiceRuntime {
         authority: authority,
         sessionFactory: openAIOnboarding.sessionFactory,
         credentialIdentityFingerprinter: openAIOnboarding.credentialIdentityFingerprinter,
+        generationRunner: openAIGeneration?.runner,
         keychainStatus: keychainStatus
       )
     } else {

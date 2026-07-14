@@ -25,7 +25,10 @@ let package = Package(
   targets: [
     .target(name: "RecursBrokerCore"),
     .target(name: "RecursNativeProtocol"),
-    .target(name: "RecursBrokerXPC"),
+    .target(
+      name: "RecursBrokerXPC",
+      dependencies: ["RecursNativeProtocol"]
+    ),
     .target(
       name: "RecursNativeSecurity",
       dependencies: ["RecursBrokerCore"],

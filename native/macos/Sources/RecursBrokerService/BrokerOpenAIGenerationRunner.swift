@@ -3,12 +3,17 @@ import Foundation
 enum BrokerOpenAIGenerationError: Error, Sendable, Equatable {
   case cancelled
   case invalidRequest
+  case requestTooLarge
   case invalidContinuation
   case persistenceUnavailable
-  case authentication
+  case invalidCredential
+  case authenticationRejected
   case rateLimited
   case providerUnavailable
   case requestRejected
+  case contentFiltered
+  case providerFailure
+  case credentialEchoDetected
   case invalidResponse
   case responseTooLarge
   case deliveryUncertain
@@ -119,6 +124,13 @@ protocol BrokerOpenAIGenerationTransporting: Sendable {
   ) async throws -> BrokerOpenAIResponsesCompletion
 }
 
+protocol BrokerOpenAIGenerationRunning: Sendable {
+  func run(
+    _ request: BrokerOpenAIGenerationRequest,
+    onEvent: @escaping @Sendable (BrokerOpenAIResponsesEvent) -> Void
+  ) async throws -> BrokerOpenAIGenerationResult
+}
+
 extension BrokerOpenAIResponsesTransport: BrokerOpenAIGenerationTransporting {
   typealias Capability = Route.Capability
 }
@@ -162,6 +174,11 @@ struct BrokerOpenAIGenerationRunner<
         tools: request.tools,
         maxOutputTokens: request.maxOutputTokens
       )
+    } catch let error as BrokerOpenAIResponsesRequestError {
+      switch error {
+      case .requestTooLarge: throw .requestTooLarge
+      case .invalidRequest, .invalidJSON: throw .invalidRequest
+      }
     } catch {
       throw .invalidRequest
     }
@@ -298,15 +315,22 @@ struct BrokerOpenAIGenerationRunner<
   private static func map(_ error: BrokerOpenAIResponsesError) -> BrokerOpenAIGenerationError {
     switch error {
     case .cancelled: .cancelled
-    case .invalidRequest, .requestTooLarge: .invalidRequest
-    case .invalidCredential, .authenticationRejected: .authentication
+    case .invalidRequest: .invalidRequest
+    case .requestTooLarge: .requestTooLarge
+    case .invalidCredential: .invalidCredential
+    case .authenticationRejected: .authenticationRejected
     case .rateLimited: .rateLimited
     case .providerUnavailable: .providerUnavailable
-    case .requestRejected, .contentFiltered, .providerFailure: .requestRejected
-    case .invalidResponse, .credentialEchoDetected: .invalidResponse
+    case .requestRejected: .requestRejected
+    case .contentFiltered: .contentFiltered
+    case .providerFailure: .providerFailure
+    case .credentialEchoDetected: .credentialEchoDetected
+    case .invalidResponse: .invalidResponse
     case .responseTooLarge: .responseTooLarge
     case .deliveryUncertain: .deliveryUncertain
     case .routeUnavailable: .routeUnavailable
     }
   }
 }
+
+extension BrokerOpenAIGenerationRunner: BrokerOpenAIGenerationRunning {}

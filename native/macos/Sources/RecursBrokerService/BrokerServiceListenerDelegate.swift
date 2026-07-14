@@ -40,7 +40,9 @@ final class BrokerServiceListenerDelegate: NSObject, NSXPCListenerDelegate,
     connection.setCodeSigningRequirement(exactPeerRequirement)
 
     let interface: NSXPCInterface
-    if configuration.exportsOpenAIOnboarding {
+    if configuration.exportsOpenAIGeneration {
+      interface = NSXPCInterface(with: BrokerOpenAIGenerationXPCProtocol.self)
+    } else if configuration.exportsOpenAIOnboarding {
       interface = NSXPCInterface(with: BrokerOpenAIOnboardingXPCProtocol.self)
     } else if configuration.exportsCredentialLifecycle {
       interface = NSXPCInterface(with: BrokerCredentialLifecycleXPCProtocol.self)
@@ -50,7 +52,8 @@ final class BrokerServiceListenerDelegate: NSObject, NSXPCListenerDelegate,
     let dataClasses = NSSet(object: NSData.self) as! Set<AnyHashable>
     let registrations = Self.dataClassRegistrations(
       includesCredentialLifecycle: configuration.exportsCredentialLifecycle,
-      includesOpenAIOnboarding: configuration.exportsOpenAIOnboarding
+      includesOpenAIOnboarding: configuration.exportsOpenAIOnboarding,
+      includesOpenAIGeneration: configuration.exportsOpenAIGeneration
     )
     for registration in registrations {
       interface.setClasses(
@@ -71,7 +74,8 @@ final class BrokerServiceListenerDelegate: NSObject, NSXPCListenerDelegate,
 
   private static func dataClassRegistrations(
     includesCredentialLifecycle: Bool,
-    includesOpenAIOnboarding: Bool
+    includesOpenAIOnboarding: Bool,
+    includesOpenAIGeneration: Bool
   ) -> [(selector: Selector, argumentIndex: Int, ofReply: Bool)] {
     var registrations: [(selector: Selector, argumentIndex: Int, ofReply: Bool)] = [
       (#selector(BrokerXPCProtocol.exchange(_:reply:)), 0, false),
@@ -156,6 +160,15 @@ final class BrokerServiceListenerDelegate: NSObject, NSXPCListenerDelegate,
         ),
       ]
     registrations.append(contentsOf: onboardingRegistrations)
+    guard includesOpenAIGeneration else { return registrations }
+    for selector in [
+      #selector(BrokerOpenAIGenerationXPCProtocol.beginOpenAIGeneration(_:reply:)),
+      #selector(BrokerOpenAIGenerationXPCProtocol.pollOpenAIGeneration(_:reply:)),
+      #selector(BrokerOpenAIGenerationXPCProtocol.cancelOpenAIGeneration(_:reply:)),
+    ] {
+      registrations.append((selector, 0, false))
+      registrations.append((selector, 0, true))
+    }
     return registrations
   }
 }
