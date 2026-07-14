@@ -22,6 +22,7 @@ import {
   AgentLoopError,
   JsonlSessionStore,
   activeGoal,
+  createBackendFingerprint,
   runAgentLoop,
   safeAgentLoopErrorMessage,
   type RecursEvent,
@@ -326,6 +327,39 @@ describe("AgentLoop", () => {
       "a",
       "b",
     ]);
+  });
+
+  it("persists broker-minted direct provider state on its assistant message", async () => {
+    const pin = testBackendPin();
+    const handle = {
+      kind: "direct" as const,
+      id: "continuation-1",
+      storageClass: "persistent_broker" as const,
+      recursSessionId: "s1",
+      connectionId: pin.connectionId,
+      adapterId: pin.adapterId,
+      modelId: pin.modelId,
+      backendFingerprint: createBackendFingerprint(pin),
+      stateVersion: 1,
+      originTurnId: "turn-1",
+      continuationSequence: 1,
+      status: "committed" as const,
+    };
+    const provider = new ScriptedProvider([
+      [
+        { type: "provider_state", handle },
+        { type: "text_delta", text: "done" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const { loop, store } = await harness(provider, []);
+
+    await loop.run({ sessionId: "s1", turnId: "turn-1", prompt: "work" });
+
+    expect((await store.loadState("s1")).messages.at(-1)).toMatchObject({
+      role: "assistant",
+      providerStateHandle: handle,
+    });
   });
 
   it("shares current-turn read revisions across sequential tool calls", async () => {

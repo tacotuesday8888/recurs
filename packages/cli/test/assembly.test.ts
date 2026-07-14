@@ -10,6 +10,7 @@ import type {
   RuntimeContinuationStore,
   SessionBackendPin,
   TrustedRunContext,
+  NativeOpenAIResponsesPort,
 } from "@recurs/contracts";
 import { createHostInvocation } from "@recurs/contracts";
 import {
@@ -76,7 +77,7 @@ const brokeredConnection: BrokeredModelProviderConnectionRecord = {
   adapterId: "openai-responses",
   activationProfileId: "openai_api_v1",
   label: "OpenAI API",
-  modelId: "gpt-5",
+  modelId: "gpt-5.6-sol",
   credentialIdentityFingerprint: `sha256:${"b".repeat(64)}`,
   policyRevision: "openai-api-2026-07-11",
   billingPolicy: {
@@ -430,6 +431,44 @@ describe("standalone assembly without a provider", () => {
         "The selected brokered provider is connected, but brokered provider execution is not available yet.",
       ),
     );
+  });
+
+  it("runs a brokered OpenAI connection only through an injected native port", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-brokered-native-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    const registry = new FileConnectionRegistry(dataDirectory);
+    await registry.commit(0, (draft) => {
+      draft.connections.push(structuredClone(brokeredConnection));
+      draft.primaryConnectionId = brokeredConnection.id;
+    });
+    let receivedContext: unknown;
+    const nativeOpenAIResponses: NativeOpenAIResponsesPort = {
+      async *streamOpenAIResponses(request) {
+        receivedContext = request.directContext;
+        yield { type: "text_delta", text: "native complete" };
+        yield { type: "usage", inputTokens: 2, outputTokens: 2 };
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: workspace, dataDirectory, nativeOpenAIResponses },
+    );
+
+    await expect(runtime.submit("inspect")).resolves.toMatchObject({
+      finalText: "native complete",
+    });
+    expect(receivedContext).toMatchObject({
+      authorization: {
+        operation: "run",
+        connectionId: brokeredConnection.id,
+        modelId: brokeredConnection.modelId,
+      },
+      expectedSessionRecordSequence: 1,
+    });
   });
 
   it("does not choose a saved connection when no primary is explicit", async () => {

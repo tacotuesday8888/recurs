@@ -21,6 +21,7 @@ export class AgentLoopDirectExecutor implements DirectRunExecutor {
     const loop = new AgentLoop({
       ...this.dependencies,
       provider: input.provider,
+      authorization: input.authorization,
     });
     const result = await loop.runWithMutation(
       {

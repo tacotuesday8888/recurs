@@ -1,4 +1,5 @@
 import type { JsonValue } from "./json.js";
+import type { RunAuthorization } from "./runtime.js";
 
 export type MessageRole = "system" | "user" | "assistant" | "tool";
 
@@ -43,12 +44,19 @@ export interface ProviderRequest {
   messages: readonly ModelMessage[];
   tools: readonly ToolDefinition[];
   signal: AbortSignal;
+  directContext?: DirectProviderRunContext;
+}
+
+export interface DirectProviderRunContext {
+  readonly authorization: RunAuthorization;
+  readonly expectedSessionRecordSequence: number;
 }
 
 export type ProviderEvent =
   | { type: "text_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
   | { type: "tool_call"; call: ToolCall }
+  | { type: "provider_state"; handle: DirectContinuationHandle }
   | { type: "usage"; inputTokens: number; outputTokens: number }
   | { type: "done"; stopReason: StopReason };
 

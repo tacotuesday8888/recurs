@@ -8,6 +8,9 @@ import {
   safeProviderErrorMessage,
   type ModelMessage,
   type ModelProvider,
+  type DirectContinuationHandle,
+  type ProviderBackedMessage,
+  type RunAuthorization,
   type ProviderRequest,
   type StopReason,
   type ToolCall,
@@ -32,6 +35,7 @@ import {
   type JsonlSessionStore,
   type SessionMutationLease,
 } from "./jsonl-session-store.js";
+import { createBackendFingerprint } from "./backend-authorization.js";
 import { recordGoalProgress } from "./goal.js";
 import { LoopDetector } from "./loop-detector.js";
 import {
@@ -69,6 +73,7 @@ export interface AgentLoopDependencies {
   sessions: JsonlSessionStore;
   emit(event: RecursEvent): Promise<void>;
   createToolContext(state: SessionState, signal: AbortSignal): ToolContext;
+  authorization?: RunAuthorization;
 }
 
 export type AgentLoopErrorCode =
@@ -133,6 +138,7 @@ interface ModelTurn {
   toolCalls: ToolCall[];
   usage: Usage;
   stopReason: StopReason;
+  providerStateHandle?: DirectContinuationHandle;
 }
 
 function now(): string {
@@ -525,6 +531,38 @@ function unresolvedToolCalls(messages: readonly ModelMessage[]): ToolCall[] {
   return [...unresolved.values()];
 }
 
+function assertDirectProviderStateHandle(
+  handle: DirectContinuationHandle,
+  state: PinnedSessionState,
+  turnId: string,
+): void {
+  const pin = state.backend.pin;
+  const previousSequence = state.messages.reduce(
+    (maximum, message) => {
+      const previous = (message as ProviderBackedMessage)
+        .providerStateHandle;
+      return Math.max(maximum, previous?.continuationSequence ?? 0);
+    },
+    0,
+  );
+  if (
+    pin.kind !== "model_provider" ||
+    handle.status !== "committed" ||
+    handle.recursSessionId !== state.id ||
+    handle.connectionId !== pin.connectionId ||
+    handle.adapterId !== pin.adapterId ||
+    handle.modelId !== pin.modelId ||
+    handle.backendFingerprint !== createBackendFingerprint(pin) ||
+    handle.originTurnId !== turnId ||
+    handle.continuationSequence !== previousSequence + 1
+  ) {
+    throw new AgentLoopError(
+      "invalid_provider_response",
+      "Provider continuation state does not match the pinned run",
+    );
+  }
+}
+
 const permissionEngines = new WeakMap<
   JsonlSessionStore,
   Map<string, PermissionEngine>
@@ -674,6 +712,14 @@ async function runAgentLoopUnlocked(
         ],
         tools: deps.tools.definitions(executionMode),
         signal,
+        ...(deps.authorization === undefined
+          ? {}
+          : {
+              directContext: {
+                authorization: deps.authorization,
+                expectedSessionRecordSequence: mutation.currentSequence,
+              },
+            }),
       };
       const modelTurn = await streamModelTurnWithRetries(
         deps,
@@ -684,17 +730,32 @@ async function runAgentLoopUnlocked(
       usage.inputTokens += modelTurn.usage.inputTokens;
       usage.outputTokens += modelTurn.usage.outputTokens;
 
-      const assistantMessage: ModelMessage = modelTurn.toolCalls.length === 0
+      if (modelTurn.providerStateHandle !== undefined) {
+        assertDirectProviderStateHandle(
+          modelTurn.providerStateHandle,
+          state,
+          turnId,
+        );
+      }
+
+      const assistantMessage: ProviderBackedMessage =
+        modelTurn.toolCalls.length === 0
         ? {
             id: randomUUID(),
             role: "assistant",
             content: modelTurn.text,
+            ...(modelTurn.providerStateHandle === undefined
+              ? {}
+              : { providerStateHandle: modelTurn.providerStateHandle }),
           }
         : {
             id: randomUUID(),
             role: "assistant",
             content: modelTurn.text,
             toolCalls: modelTurn.toolCalls,
+            ...(modelTurn.providerStateHandle === undefined
+              ? {}
+              : { providerStateHandle: modelTurn.providerStateHandle }),
           };
       const modelCompleted = await appendPinned({
         type: "model_completed",

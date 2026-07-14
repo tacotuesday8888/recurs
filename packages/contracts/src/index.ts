@@ -6,5 +6,6 @@ export * from "./model.js";
 export * from "./native-authority.js";
 export * from "./native-component-version.js";
 export * from "./native-openai-onboarding.js";
+export * from "./native-openai-responses.js";
 export * from "./provider-activation-profiles.js";
 export * from "./runtime.js";

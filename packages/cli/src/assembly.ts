@@ -12,10 +12,14 @@ import type {
   RuntimeApprovalRequest,
   RuntimeContinuationStore,
   SessionBackendPin,
+  NativeOpenAIResponsesPort,
 } from "@recurs/contracts";
 import {
   FileConnectionRegistry,
   OnboardingCatalog,
+  OPENAI_RESPONSES_CAPABILITY_PROFILE_REVISION,
+  isCompatibleOpenAIResponsesModelId,
+  type BrokeredModelProviderConnectionRecord,
   type ConnectionRecord,
   type DelegatedConnectionRecord,
   type LocalConnectionRecord,
@@ -36,6 +40,7 @@ import {
 } from "@recurs/core";
 import {
   LocalOpenAICompatibleProvider,
+  NativeOpenAIResponsesProvider,
   type ModelProvider,
 } from "@recurs/providers";
 import { CODEX_ACP_PROFILE_REVISION } from "@recurs/runtimes";
@@ -67,6 +72,7 @@ export interface StandaloneRuntimeOptions {
     connection: DelegatedConnectionRecord,
     store: RuntimeContinuationStore,
   ) => AgentRuntime;
+  nativeOpenAIResponses?: NativeOpenAIResponsesPort;
 }
 
 function injectedBackendPin(
@@ -215,6 +221,26 @@ function delegatedBackendPin(
   };
 }
 
+function brokeredOpenAIBackendPin(
+  connection: BrokeredModelProviderConnectionRecord,
+): SessionBackendPin {
+  return {
+    kind: "model_provider",
+    providerId: connection.providerId,
+    adapterId: connection.adapterId,
+    connectionId: connection.id,
+    modelId: connection.modelId,
+    modelIdentityKind: "versioned",
+    providerResolvedModelRevisionAtCreation: connection.modelId,
+    catalogRevision: OPENAI_RESPONSES_CAPABILITY_PROFILE_REVISION,
+    policyRevisionAtCreation: connection.policyRevision,
+    billingPolicyRevisionAtCreation: connection.billingPolicy.revision,
+    primaryBillingSourceAtCreation: connection.billingPolicy.primarySource,
+    billingSelectionAtCreation: structuredClone(connection.billingSelection),
+    accountSubjectFingerprint: connection.credentialIdentityFingerprint,
+  };
+}
+
 function policyBlocked(
   diagnosticId: string,
   message: string,
@@ -287,10 +313,50 @@ function assertCodexPolicy(
   }
 }
 
+function assertBrokeredOpenAIPolicy(
+  connection: BrokeredModelProviderConnectionRecord,
+  diagnosticId: string,
+): void {
+  const entry = new OnboardingCatalog().list({ includeBlocked: true }).find(
+    (candidate) => candidate.id === connection.providerId,
+  );
+  if (
+    entry === undefined ||
+    entry.status !== "requires_native_broker" ||
+    connection.adapterId !== "openai-responses" ||
+    connection.activationProfileId !== "openai_api_v1" ||
+    connection.policyRevision !== entry.policy.revision ||
+    !isCompatibleOpenAIResponsesModelId(connection.modelId)
+  ) {
+    throw policyBlocked(
+      diagnosticId,
+      "The OpenAI connection no longer matches the reviewed capability policy",
+      "policy_stale",
+    );
+  }
+  if (
+    !isDeepStrictEqual(connection.billingPolicy, entry.billing) ||
+    connection.billingSelection.mode !== "strict_primary_only" ||
+    connection.billingSelection.policyRevision !== entry.billing.revision ||
+    connection.billingSelection.disclosureRevision !==
+      entry.billing.disclosureRevision ||
+    !isDeepStrictEqual(connection.billingSelection.allowedSources, [
+      "metered_api",
+    ])
+  ) {
+    throw policyBlocked(
+      diagnosticId,
+      "The OpenAI API billing acknowledgement no longer matches provider behavior",
+      "billing_policy_blocked",
+    );
+  }
+}
+
 function backendForConnection(
   connection: ConnectionRecord,
   delegatedRuntimeFactory: DelegatedRuntimeFactory,
   diagnosticId: string,
+  nativeOpenAIResponses?: NativeOpenAIResponsesPort,
 ): RuntimeBackend | null {
   if (connection.kind === "local_openai_compatible") {
     const localConnection = localConfiguration(connection);
@@ -308,7 +374,19 @@ function backendForConnection(
     };
   }
   if (connection.kind === "brokered_model_provider") {
-    return null;
+    if (nativeOpenAIResponses === undefined) return null;
+    assertBrokeredOpenAIPolicy(connection, diagnosticId);
+    const provider = () => new NativeOpenAIResponsesProvider({
+      connectionId: connection.id,
+      modelId: connection.modelId,
+      port: nativeOpenAIResponses,
+    });
+    return {
+      kind: "direct",
+      pin: () => brokeredOpenAIBackendPin(connection),
+      commandProvider: provider(),
+      createProvider: provider,
+    };
   }
   assertCodexPolicy(connection, diagnosticId);
   return {
@@ -366,6 +444,7 @@ export async function createStandaloneRuntime(
           configuredConnection,
           delegatedRuntimeFactory,
           randomUUID(),
+          options.nativeOpenAIResponses,
         ) ?? undefined;
   const existing = await sessions.list();
   let state: PinnedSessionState | WorkspaceShellState;
@@ -555,6 +634,7 @@ export async function createStandaloneRuntime(
             connection,
             delegatedRuntimeFactory,
             input.operationId,
+            options.nativeOpenAIResponses,
           );
           if (resolved === null) {
             throw policyBlocked(
@@ -670,6 +750,7 @@ export async function createStandaloneRuntime(
           connection,
           delegatedRuntimeFactory,
           randomUUID(),
+          options.nativeOpenAIResponses,
         );
         if (resolved === null) return null;
         selected = resolved;

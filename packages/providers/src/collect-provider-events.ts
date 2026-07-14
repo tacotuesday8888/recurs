@@ -2,6 +2,7 @@ import {
   ProviderError,
   type CollectProviderEventsOptions,
   type CollectedProviderEvents,
+  type DirectContinuationHandle,
   type ProviderEvent,
   type StopReason,
   type ToolCall,
@@ -38,6 +39,28 @@ function isToolCall(value: unknown): value is ToolCall {
   );
 }
 
+function isCommittedDirectHandle(
+  value: unknown,
+): value is DirectContinuationHandle {
+  if (typeof value !== "object" || value === null) return false;
+  const handle = value as Partial<DirectContinuationHandle>;
+  return handle.kind === "direct" &&
+    handle.status === "committed" &&
+    (handle.storageClass === "persistent_broker" ||
+      handle.storageClass === "process_scoped") &&
+    typeof handle.id === "string" && handle.id.length > 0 &&
+    typeof handle.recursSessionId === "string" &&
+    typeof handle.connectionId === "string" &&
+    typeof handle.adapterId === "string" &&
+    typeof handle.modelId === "string" &&
+    typeof handle.backendFingerprint === "string" &&
+    Number.isSafeInteger(handle.stateVersion) &&
+    Number(handle.stateVersion) >= 0 &&
+    typeof handle.originTurnId === "string" &&
+    Number.isSafeInteger(handle.continuationSequence) &&
+    Number(handle.continuationSequence) > 0;
+}
+
 export async function collectProviderEvents(
   events: AsyncIterable<ProviderEvent>,
   options: CollectProviderEventsOptions = {},
@@ -47,6 +70,7 @@ export async function collectProviderEvents(
   const toolCallIds = new Set<string>();
   const usage = { inputTokens: 0, outputTokens: 0 };
   let stopReason: StopReason | undefined;
+  let providerStateHandle: DirectContinuationHandle | undefined;
   let outputBytes = 0;
 
   for await (const event of events) {
@@ -98,6 +122,16 @@ export async function collectProviderEvents(
         toolCalls.push(event.call);
         break;
       }
+      case "provider_state": {
+        if (
+          providerStateHandle !== undefined ||
+          !isCommittedDirectHandle(event.handle)
+        ) {
+          throw invalid("Provider emitted invalid continuation state");
+        }
+        providerStateHandle = event.handle;
+        break;
+      }
       case "usage": {
         if (
           !validTokenCount(event.inputTokens) ||
@@ -133,5 +167,11 @@ export async function collectProviderEvents(
     throw invalid("Provider stream ended without a completion event");
   }
 
-  return { text, toolCalls, usage, stopReason };
+  return {
+    text,
+    toolCalls,
+    usage,
+    stopReason,
+    ...(providerStateHandle === undefined ? {} : { providerStateHandle }),
+  };
 }
