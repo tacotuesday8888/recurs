@@ -317,8 +317,10 @@ Assert the stored brokered record contains the exact fixed provider/adapter/prof
 
 Cover these focused cases with exact assertions:
 
-- stale policy, billing, or disclosure acknowledgement fails in `preflight` before `begin`;
-- a visible but unreviewed model fails as `model_not_compatible`, calls native abort, and stores nothing;
+- stale policy, billing, disclosure acknowledgement, or a statically
+  unreviewed model fails in `preflight` before `begin`;
+- a reviewed model that is not credential-visible fails as
+  `model_not_compatible`, calls native abort, and stores nothing;
 - every native failure is normalized by code even when the fake supplies a hostile `safeMessage`;
 - thrown native errors become `authority_unavailable` with no raw cause/message;
 - cancellation before native commit calls abort and returns `cancelled` only after abort succeeds;
@@ -426,7 +428,10 @@ entry using the trusted dependency clock, require `requires_native_broker`,
 require all acknowledgement revisions to match, and require
 `strict_primary_only`. Fetch all native pages by following only each returned
 `nextCursor`; collect model IDs, intersect through Task 2, then require
-`input.modelId` to be an exact member.
+`input.modelId` to be an exact member. Reject an ID outside the reviewed static
+profile during preflight so an impossible selection never triggers secret
+capture; the post-verification intersection separately proves visibility to
+that credential.
 
 Build the pending record from fixed and reviewed data only:
 
