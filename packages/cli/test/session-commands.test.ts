@@ -152,11 +152,27 @@ describe("session commands", () => {
 
     expect(await commands.execute("/agents", commandContext)).toMatchObject({
       type: "message",
-      text: expect.stringContaining("Balanced (balanced_v1)"),
+      text: expect.stringMatching(
+        /Balanced \(balanced_v1\)[\s\S]*Children per parent run: 4/u,
+      ),
     });
+    const profiles = await commands.execute("/agents profiles", commandContext);
+    expect(profiles).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+        /Explore \(explore_v1, v1\)[\s\S]*Implement \(implement_v1, v1\)[\s\S]*Review \(review_v1, v1\)/u,
+      ),
+    });
+    expect(profiles).toMatchObject({
+      text: expect.stringMatching(/Act parent required[\s\S]*run_verification/u),
+    });
+    expect(await commands.execute("/agents profiles extra", commandContext))
+      .toMatchObject({ level: "error" });
     expect(await commands.execute("/agents mode economy", commandContext)).toMatchObject({
       type: "message",
-      text: expect.stringContaining("Economy (economy_v1)"),
+      text: expect.stringMatching(
+        /Economy \(economy_v1\)[\s\S]*Children per parent run: 2/u,
+      ),
     });
     const reloaded = await sessions.loadState("agent-mode-session");
     expect(reloaded).toMatchObject({

@@ -79,13 +79,19 @@ export class TextEventRenderer implements EventSink {
         );
         break;
       case "agent_completed":
-        await this.#status(`✓ child completed: ${event.childAgentId}`);
+        await this.#status(
+          `✓ ${getAgentProfilePolicy(event.profileId).displayName} child completed: ${event.childAgentId} (${event.workflow.childrenStarted}/${event.workflow.maxChildren} this run)${event.costLimitExceeded ? " — reported-cost ceiling exceeded" : ""}`,
+        );
         break;
       case "agent_failed":
-        await this.#status(`✗ child failed: ${event.failure.safeMessage}`);
+        await this.#status(
+          `✗ ${getAgentProfilePolicy(event.profileId).displayName} child failed: ${event.failure.safeMessage}`,
+        );
         break;
       case "agent_cancelled":
-        await this.#status(`✗ child cancelled: ${event.reason}`);
+        await this.#status(
+          `✗ ${getAgentProfilePolicy(event.profileId).displayName} child cancelled: ${event.reason}`,
+        );
         break;
       case "session_created":
       case "turn_started":

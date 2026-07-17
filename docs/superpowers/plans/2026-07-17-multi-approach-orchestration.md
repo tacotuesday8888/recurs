@@ -250,15 +250,15 @@ git commit -m "feat: delegate specialized child agents"
 - `/agents profiles` reports the three real profiles, their stable IDs, execution requirements, and host-controlled tools.
 - Lifecycle rendering names the actual profile on every terminal event.
 
-- [ ] **Step 1: Write failing CLI tests** for `/agents profiles`, strict extra-argument rejection, workflow-limit display, profile-aware lifecycle rendering, and unchanged durable mode updates.
+- [x] **Step 1: Write failing CLI tests** for `/agents profiles`, strict extra-argument rejection, workflow-limit display, profile-aware lifecycle rendering, and unchanged durable mode updates.
 
-- [ ] **Step 2: Run CLI tests and confirm RED**.
+- [x] **Step 2: Run CLI tests and confirm RED**.
 
 Run: `npm test -- packages/cli/test/commands.test.ts packages/cli/test/session-commands.test.ts packages/cli/test/render.test.ts`
 
-- [ ] **Step 3: Implement truthful CLI copy** without claiming background, recursion, independent model routing, or support from an incompatible delegated backend.
+- [x] **Step 3: Implement truthful CLI copy** without claiming background, recursion, independent model routing, or support from an incompatible delegated backend.
 
-- [ ] **Step 4: Run the complete CLI suite**, then commit.
+- [x] **Step 4: Run the complete CLI suite**, then commit.
 
 ```bash
 git add packages/cli

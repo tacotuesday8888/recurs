@@ -229,7 +229,7 @@ describe("foundation slash commands", () => {
       text: expect.stringContaining("Ask Always"),
     });
     expect(await registry.execute("/help", context)).toMatchObject({
-      text: expect.stringContaining("/goal"),
+      text: expect.stringMatching(/\/goal[\s\S]*\/agents \[profiles\|mode name\]/u),
     });
     expect(await registry.execute("/cancel", context)).toMatchObject({ level: "info" });
     expect(cancel).toHaveBeenCalledOnce();

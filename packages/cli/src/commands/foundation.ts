@@ -11,7 +11,7 @@ const helpText = [
   "/goal [objective|action]      Manage the durable goal",
   "/plan [prompt|exit]           Enter read-only Plan mode or return to Act",
   "/permissions [mode]           Set Ask Always, Approved for Me, or Full Access",
-  "/agents [mode name]           Inspect or set bounded child-agent policy",
+  "/agents [profiles|mode name]  Inspect profiles or set bounded child-agent policy",
   "/status                       Show session, goal, mode, and usage",
   "/init                         Create AGENTS.md without overwriting it",
   "/new                          Start a new durable session",
