@@ -67,7 +67,7 @@ describe("version 2 sessions", () => {
       parentSessionId: null,
       depth: 0,
       task: null,
-      operatingMode: { id: "balanced_v2", version: 2 },
+      operatingMode: { id: "balanced_v3", version: 3 },
       backend: {
         strategy: "session_pin",
         adapterId: backend.adapterId,
@@ -83,6 +83,48 @@ describe("version 2 sessions", () => {
     });
     expect(state.agentLifecycle).toEqual({ status: "ready" });
     expect(state.agentResult).toBeNull();
+  });
+
+  it("persists a v3 policy and rejects a stable-id/version mismatch", async () => {
+    const store = await temporaryStore();
+    const initial = await store.createPinnedSession({
+      id: "v3-policy-session",
+      cwd: "/workspace",
+      backend,
+      at,
+    });
+    const max = getOperatingModePolicy("max_v3");
+    await store.withSessionMutation(
+      initial.id,
+      initial.lastSequence,
+      async (lease) => {
+        await lease.append({
+          type: "agent_policy_updated",
+          operatingModeId: max.id,
+          operatingModeVersion: max.version,
+          at,
+        });
+      },
+    );
+    const updated = await store.loadState(initial.id);
+    expect(updated).toMatchObject({
+      agent: {
+        operatingMode: { id: "max_v3", version: 3 },
+        limits: { maxConcurrentChildren: 6, maxRequests: 96 },
+      },
+    });
+    await expect(store.withSessionMutation(
+      initial.id,
+      updated.lastSequence!,
+      async (lease) => {
+        await lease.append({
+          type: "agent_policy_updated",
+          operatingModeId: "max_v3",
+          operatingModeVersion: 2,
+          at,
+        });
+      },
+    )).rejects.toThrow("Invalid version 2 agent_policy_updated record");
   });
 
   it("derives a root descriptor when replaying a pre-agent version-2 log", async () => {

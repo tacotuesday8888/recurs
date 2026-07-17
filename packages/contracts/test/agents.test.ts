@@ -95,7 +95,7 @@ describe("agent profile contracts", () => {
 });
 
 describe("agent operating-mode contracts", () => {
-  it("preserves v1 policies and adds stable v2 concurrency policies", () => {
+  it("preserves v1/v2 policies and adds stable v3 team policies", () => {
     expect(operatingModePolicies.map((policy) => policy.id)).toEqual([
       "economy_v1",
       "standard_v1",
@@ -107,8 +107,18 @@ describe("agent operating-mode contracts", () => {
       "balanced_v2",
       "performance_v2",
       "max_v2",
+      "economy_v3",
+      "standard_v3",
+      "balanced_v3",
+      "performance_v3",
+      "max_v3",
     ]);
     expect(operatingModePolicies.map((policy) => policy.displayName)).toEqual([
+      "Economy",
+      "Standard",
+      "Balanced",
+      "Performance",
+      "Max",
       "Economy",
       "Standard",
       "Balanced",
@@ -123,21 +133,23 @@ describe("agent operating-mode contracts", () => {
     expect(operatingModePolicies.map((policy) => policy.version)).toEqual([
       1, 1, 1, 1, 1,
       2, 2, 2, 2, 2,
+      3, 3, 3, 3, 3,
     ]);
   });
 
-  it("defaults new sessions to v2 while retaining an explicit legacy default", () => {
-    expect(DEFAULT_OPERATING_MODE_ID).toBe("balanced_v2");
+  it("defaults new sessions to v3 while retaining an explicit legacy default", () => {
+    expect(DEFAULT_OPERATING_MODE_ID).toBe("balanced_v3");
     expect(LEGACY_OPERATING_MODE_ID).toBe("balanced_v1");
     expect(getOperatingModePolicy(DEFAULT_OPERATING_MODE_ID).displayName).toBe("Balanced");
     expect(getOperatingModePolicy(LEGACY_OPERATING_MODE_ID).version).toBe(1);
   });
 
   it("parses display names to latest policies and every exact stable id", () => {
-    expect(parseOperatingModeId("economy")).toBe("economy_v2");
-    expect(parseOperatingModeId("Performance")).toBe("performance_v2");
+    expect(parseOperatingModeId("economy")).toBe("economy_v3");
+    expect(parseOperatingModeId("Performance")).toBe("performance_v3");
     expect(parseOperatingModeId("max_v1")).toBe("max_v1");
     expect(parseOperatingModeId("max_v2")).toBe("max_v2");
+    expect(parseOperatingModeId("max_v3")).toBe("max_v3");
     expect(parseOperatingModeId("bal")).toBeNull();
     expect(parseOperatingModeId("max extra")).toBeNull();
   });
@@ -154,15 +166,81 @@ describe("agent operating-mode contracts", () => {
     expect(operatingModePolicies.slice(0, 5).map((policy) =>
       policy.orchestration.maxConcurrentChildren
     )).toEqual([1, 1, 1, 1, 1]);
-    expect(operatingModePolicies.slice(5).map((policy) =>
+    expect(operatingModePolicies.slice(5, 10).map((policy) =>
+      policy.orchestration.maxConcurrentChildren
+    )).toEqual([1, 2, 3, 4, 6]);
+    expect(operatingModePolicies.slice(10).map((policy) =>
       policy.orchestration.maxConcurrentChildren
     )).toEqual([1, 2, 3, 4, 6]);
     expect(operatingModePolicies.map((policy) =>
       policy.workflow.maxChildrenPerRun
-    )).toEqual([2, 3, 4, 6, 8, 2, 3, 4, 6, 8]);
+    )).toEqual([
+      2, 3, 4, 6, 8,
+      2, 3, 4, 6, 8,
+      2, 3, 4, 6, 8,
+    ]);
     expect(operatingModePolicies.map((policy) =>
       policy.workflow.maxRequestsPerRun
-    )).toEqual([16, 48, 96, 192, 320, 8, 16, 24, 32, 40]);
+    )).toEqual([
+      16, 48, 96, 192, 320,
+      8, 16, 24, 32, 40,
+      8, 18, 32, 60, 96,
+    ]);
+  });
+
+  it("defines honest mode-bounded team width and review standards only in v3", () => {
+    expect(operatingModePolicies.slice(0, 10).every(
+      (policy) => policy.workflow.team === null,
+    )).toBe(true);
+    expect(operatingModePolicies.slice(10).map((policy) =>
+      policy.workflow.team
+    )).toEqual([
+      {
+        qualityStandard: "essential",
+        maxImplementers: 1,
+        initialReviewers: 1,
+        maxReviewers: 1,
+        approvalRule: "unanimous",
+      },
+      {
+        qualityStandard: "standard",
+        maxImplementers: 1,
+        initialReviewers: 1,
+        maxReviewers: 2,
+        approvalRule: "unanimous",
+      },
+      {
+        qualityStandard: "balanced",
+        maxImplementers: 2,
+        initialReviewers: 1,
+        maxReviewers: 2,
+        approvalRule: "unanimous",
+      },
+      {
+        qualityStandard: "thorough",
+        maxImplementers: 3,
+        initialReviewers: 2,
+        maxReviewers: 3,
+        approvalRule: "unanimous",
+      },
+      {
+        qualityStandard: "maximum",
+        maxImplementers: 4,
+        initialReviewers: 2,
+        maxReviewers: 4,
+        approvalRule: "unanimous",
+      },
+    ]);
+    for (const policy of operatingModePolicies.slice(10)) {
+      const team = policy.workflow.team;
+      expect(team).not.toBeNull();
+      if (team !== null) {
+        expect(team.maxImplementers + team.maxReviewers)
+          .toBeLessThanOrEqual(policy.workflow.maxChildrenPerRun);
+        expect(team.initialReviewers).toBeLessThanOrEqual(team.maxReviewers);
+        expect(Object.isFrozen(team)).toBe(true);
+      }
+    }
   });
 
   it("never widens a requested child permission beyond its parent", () => {
@@ -179,5 +257,6 @@ describe("agent operating-mode contracts", () => {
     expect(Object.isFrozen(balanced.orchestration)).toBe(true);
     expect(Object.isFrozen(balanced.model)).toBe(true);
     expect(Object.isFrozen(balanced.workflow)).toBe(true);
+    expect(balanced.workflow.team).toBeNull();
   });
 });

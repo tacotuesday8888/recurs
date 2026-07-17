@@ -18,6 +18,6 @@ export function createCommandRegistry(
     createGoalCommand(),
     createPlanCommand(),
     createPermissionsCommand(),
-    createAgentsCommand(),
+    createAgentsCommand(dependencies.sessions),
   ]);
 }

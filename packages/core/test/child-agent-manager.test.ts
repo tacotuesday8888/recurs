@@ -198,7 +198,7 @@ describe("ChildAgentManager", () => {
       expect(child).toMatchObject({
         executionMode,
         agent: {
-          limits: { maxRequests: 6 },
+          limits: { maxRequests: 8 },
           profile: { id: profileId, version: 1 },
           backend: {
             strategy: "inherit_parent",
@@ -221,8 +221,8 @@ describe("ChildAgentManager", () => {
         profileId,
         workflow: {
           childrenStarted: index + 1,
-          maxRequests: 24,
-          requestsReserved: (index + 1) * 6,
+          maxRequests: 32,
+          requestsReserved: (index + 1) * 8,
           requestsUsed: index + 1,
         },
       });
@@ -239,8 +239,8 @@ describe("ChildAgentManager", () => {
       workflow: {
         childrenStarted: 3,
         maxChildren: 4,
-        maxRequests: 24,
-        requestsReserved: 18,
+        maxRequests: 32,
+        requestsReserved: 24,
         requestsUsed: 3,
         reportedCostUsd: 0.75,
         maxReportedCostUsd: 3,
@@ -324,7 +324,7 @@ describe("ChildAgentManager", () => {
     expect(reloadedParent.agent).not.toHaveProperty("workspace");
   });
 
-  it("reserves a bounded request share before concurrent v2 children start", async () => {
+  it("reserves a bounded request share before concurrent v3 children start", async () => {
     const { sessions, parent } = await storeFixture();
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
@@ -375,15 +375,15 @@ describe("ChildAgentManager", () => {
 
     await ready;
     expect(runContext.delegationBudget).toMatchObject({
-      maxRequests: 24,
-      requestsReserved: 18,
+      maxRequests: 32,
+      requestsReserved: 24,
       requestsUsed: 0,
       childrenStarted: 3,
     });
     release();
     await expect(Promise.all(running)).resolves.toHaveLength(3);
     expect(runContext.delegationBudget).toMatchObject({
-      requestsReserved: 18,
+      requestsReserved: 24,
       requestsUsed: 6,
     });
   });
@@ -430,9 +430,9 @@ describe("ChildAgentManager", () => {
     }), runContext);
 
     expect(runContext.delegationBudget).toMatchObject({
-      maxRequests: 24,
-      requestsReserved: 6,
-      requestsUsed: 6,
+      maxRequests: 32,
+      requestsReserved: 8,
+      requestsUsed: 8,
     });
   });
 
@@ -747,7 +747,7 @@ describe("ChildAgentManager", () => {
       .rejects.toMatchObject({ code: "execution_failed" });
     expect(runContext.delegationBudget.childrenStarted).toBe(1);
     expect(runContext.delegationBudget).toMatchObject({
-      requestsReserved: 6,
+      requestsReserved: 8,
       requestsUsed: 0,
     });
     expect(events[1]).toMatchObject({
@@ -926,7 +926,7 @@ describe("ChildAgentManager", () => {
     });
     await expect(tool.execute(input, requestLimited)).rejects.toMatchObject({
       code: "permission_denied",
-      message: "Agent request limit reached (24)",
+      message: "Agent request limit reached (32)",
     });
     expect(starts).toBe(0);
   });

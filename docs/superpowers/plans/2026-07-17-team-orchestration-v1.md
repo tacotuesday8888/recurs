@@ -34,12 +34,12 @@
 - Modify: `packages/cli/src/commands/agents.ts`
 - Modify: `packages/cli/test/session-commands.test.ts`
 
-- [ ] Add failing contract tests for stable `*_v3` IDs, v3 as the display-name/default selection, and unchanged exact v1/v2 policies.
-- [ ] Add a versioned team workflow policy containing maximum Implement workers, initial/max reviewers, and a fail-closed review rule.
-- [ ] Size policies so maximum Implement plus maximum Review children never exceeds each mode's existing workflow child ceiling.
-- [ ] Extend strict session validation to accept version 3 and reject mismatched IDs/versions.
-- [ ] Update `/agents` output to describe real team capacity and keep historical exact-ID selection available.
-- [ ] Run contracts, core validator, and CLI command tests.
+- [x] Add failing contract tests for stable `*_v3` IDs, v3 as the display-name/default selection, and unchanged exact v1/v2 policies.
+- [x] Add a versioned team workflow policy containing maximum Implement workers, initial/max reviewers, and a fail-closed review rule.
+- [x] Size policies so maximum Implement plus maximum Review children never exceeds each mode's existing workflow child ceiling.
+- [x] Extend strict session validation to accept version 3 and reject mismatched IDs/versions.
+- [x] Update `/agents` output to describe real team capacity and keep historical exact-ID selection available.
+- [x] Run contracts, core validator, and CLI command tests.
 
 ### Task 2: Add durable child activity projection and CLI inspection
 
@@ -53,12 +53,12 @@
 - Modify: `packages/cli/test/session-commands.test.ts`
 - Modify: `packages/cli/src/assembly.ts`
 
-- [ ] Add failing core tests for parent-scoped child listing, exact child/session lookup, deterministic recency order, terminal usage/evidence, and cross-parent denial.
-- [ ] Project activity from durable version-2 session state instead of creating a second lifecycle store.
-- [ ] Add `/agents activity` and `/agents activity <exact-child-or-session-id>` with concise status, profile, task description, usage, changed files, evidence, and isolation revision.
-- [ ] Do not print full prompts, backend account fingerprints, worktree paths, or secret-bearing configuration.
-- [ ] Wire the session-backed activity service through command assembly and test unavailable/sessionless behavior.
-- [ ] Run core activity and CLI command tests.
+- [x] Add failing core tests for parent-scoped child listing, exact child/session lookup, deterministic recency order, terminal usage/evidence, and cross-parent denial.
+- [x] Project activity from durable version-2 session state instead of creating a second lifecycle store.
+- [x] Add `/agents activity` and `/agents activity <exact-child-or-session-id>` with concise status, profile, task description, usage, changed files, evidence, and isolation revision.
+- [x] Do not print full prompts, backend account fingerprints, worktree paths, or secret-bearing configuration.
+- [x] Wire the session-backed activity service through command assembly and test unavailable/sessionless behavior.
+- [x] Run core activity and CLI command tests.
 
 ### Task 3: Capture and validate owned patch artifacts
 

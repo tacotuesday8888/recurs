@@ -134,9 +134,29 @@ export type OperatingModeId =
   | "standard_v2"
   | "balanced_v2"
   | "performance_v2"
-  | "max_v2";
+  | "max_v2"
+  | "economy_v3"
+  | "standard_v3"
+  | "balanced_v3"
+  | "performance_v3"
+  | "max_v3";
 
-export type OperatingModeVersion = 1 | 2;
+export type OperatingModeVersion = 1 | 2 | 3;
+
+export type AgentTeamQualityStandard =
+  | "essential"
+  | "standard"
+  | "balanced"
+  | "thorough"
+  | "maximum";
+
+export interface AgentTeamPolicy {
+  readonly qualityStandard: AgentTeamQualityStandard;
+  readonly maxImplementers: number;
+  readonly initialReviewers: number;
+  readonly maxReviewers: number;
+  readonly approvalRule: "unanimous";
+}
 
 export interface AgentLimits {
   readonly maxDepth: number;
@@ -157,6 +177,7 @@ export interface OperatingModePolicy {
   readonly workflow: {
     readonly maxChildrenPerRun: number;
     readonly maxRequestsPerRun: number;
+    readonly team: AgentTeamPolicy | null;
   };
 }
 
@@ -168,6 +189,7 @@ function policy(
   maxRequests: number,
   maxReportedCostUsd: number,
   maxChildrenPerRun: number,
+  team: AgentTeamPolicy | null = null,
 ): OperatingModePolicy {
   return Object.freeze({
     id,
@@ -186,8 +208,24 @@ function policy(
       maxRequestsPerRun: version === 1
         ? maxRequests * maxChildrenPerRun
         : maxRequests,
+      team: team === null ? null : Object.freeze({ ...team }),
     }),
   });
+}
+
+function team(
+  qualityStandard: AgentTeamQualityStandard,
+  maxImplementers: number,
+  initialReviewers: number,
+  maxReviewers: number,
+): AgentTeamPolicy {
+  return {
+    qualityStandard,
+    maxImplementers,
+    initialReviewers,
+    maxReviewers,
+    approvalRule: "unanimous",
+  };
 }
 
 export const operatingModePolicies: readonly OperatingModePolicy[] =
@@ -202,10 +240,20 @@ export const operatingModePolicies: readonly OperatingModePolicy[] =
     policy("balanced_v2", 2, "Balanced", 3, 24, 3, 4),
     policy("performance_v2", 2, "Performance", 4, 32, 10, 6),
     policy("max_v2", 2, "Max", 6, 40, 25, 8),
+    policy("economy_v3", 3, "Economy", 1, 8, 0.25, 2,
+      team("essential", 1, 1, 1)),
+    policy("standard_v3", 3, "Standard", 2, 18, 1, 3,
+      team("standard", 1, 1, 2)),
+    policy("balanced_v3", 3, "Balanced", 3, 32, 3, 4,
+      team("balanced", 2, 1, 2)),
+    policy("performance_v3", 3, "Performance", 4, 60, 10, 6,
+      team("thorough", 3, 2, 3)),
+    policy("max_v3", 3, "Max", 6, 96, 25, 8,
+      team("maximum", 4, 2, 4)),
   ]);
 
 export const LEGACY_OPERATING_MODE_ID: OperatingModeId = "balanced_v1";
-export const DEFAULT_OPERATING_MODE_ID: OperatingModeId = "balanced_v2";
+export const DEFAULT_OPERATING_MODE_ID: OperatingModeId = "balanced_v3";
 
 const policiesById = new Map(
   operatingModePolicies.map((item) => [item.id, item] as const),

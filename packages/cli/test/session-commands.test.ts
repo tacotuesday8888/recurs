@@ -10,7 +10,12 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { ScriptedProvider } from "@recurs/providers";
-import type { ModelProvider, SessionBackendPin } from "@recurs/contracts";
+import {
+  getOperatingModePolicy,
+  type AgentSessionDescriptor,
+  type ModelProvider,
+  type SessionBackendPin,
+} from "@recurs/contracts";
 import {
   JsonlSessionStore,
   createSessionState,
@@ -153,7 +158,7 @@ describe("session commands", () => {
     expect(await commands.execute("/agents", commandContext)).toMatchObject({
       type: "message",
       text: expect.stringMatching(
-        /Balanced \(balanced_v2\)[\s\S]*Policy version: 2[\s\S]*concurrency 3[\s\S]*Workflow: 4 children, 24 total requests, 6 reserved per child[\s\S]*Batch profiles: Explore and Review[\s\S]*Implement remains single-child only/u,
+        /Balanced \(balanced_v3\)[\s\S]*Policy version: 3[\s\S]*concurrency 3[\s\S]*Workflow: 4 children, 32 total requests, 8 reserved per child[\s\S]*Team: up to 2 Implement workers, 1 initial and 2 maximum Review workers[\s\S]*Review rule: unanimous, balanced quality standard/u,
       ),
     });
     const profiles = await commands.execute("/agents profiles", commandContext);
@@ -171,13 +176,13 @@ describe("session commands", () => {
     expect(await commands.execute("/agents mode economy", commandContext)).toMatchObject({
       type: "message",
       text: expect.stringMatching(
-        /Economy \(economy_v2\)[\s\S]*concurrency 1 \(sequential fallback\)[\s\S]*Workflow: 2 children, 8 total requests, 4 reserved per child/u,
+        /Economy \(economy_v3\)[\s\S]*concurrency 1 \(sequential fallback\)[\s\S]*Workflow: 2 children, 8 total requests, 4 reserved per child[\s\S]*Team: up to 1 Implement worker, 1 initial and 1 maximum Review worker/u,
       ),
     });
     const reloaded = await sessions.loadState("agent-mode-session");
     expect(reloaded).toMatchObject({
       agent: {
-        operatingMode: { id: "economy_v2", version: 2 },
+        operatingMode: { id: "economy_v3", version: 3 },
         limits: { maxRequests: 8, maxDepth: 1, maxConcurrentChildren: 1 },
       },
       backend: initial.backend,
@@ -194,6 +199,97 @@ describe("session commands", () => {
       });
     expect(await sessions.loadState("agent-mode-session")).toMatchObject({
       agent: { operatingMode: { id: "economy_v1", version: 1 } },
+    });
+  });
+
+  it("lists and inspects parent-scoped durable child activity without private paths", async () => {
+    const initial = await storeSession("activity-parent");
+    if (initial.version !== 2) throw new Error("expected pinned parent");
+    const mode = getOperatingModePolicy("balanced_v3");
+    const childCwd = "/private/recurs/worktrees/activity-child";
+    const agent: AgentSessionDescriptor = {
+      id: "activity-child-agent",
+      role: "child",
+      profile: { id: "implement_v1", version: 1 },
+      parentAgentId: initial.agent.id,
+      parentSessionId: initial.id,
+      depth: 1,
+      task: {
+        id: "activity-task",
+        description: "Fix cache isolation",
+        prompt: "private task prompt must remain hidden",
+      },
+      operatingMode: { id: mode.id, version: mode.version },
+      backend: {
+        strategy: "inherit_parent",
+        adapterId: initial.backend.pin.adapterId,
+        connectionId: initial.backend.pin.connectionId,
+        modelId: initial.backend.pin.modelId,
+      },
+      permissions: {
+        parentExecutionMode: "act",
+        executionMode: "act",
+        parentPermissionMode: "ask_always",
+        permissionMode: "ask_always",
+      },
+      limits: { ...mode.orchestration, maxRequests: 8 },
+      workspace: {
+        kind: "git_worktree",
+        version: 1,
+        leaseId: "activity-lease",
+        repositoryRoot: cwd,
+        worktreeRoot: childCwd,
+        revision: "b".repeat(40),
+      },
+    };
+    await sessions.createPinnedSession({
+      id: "activity-child-session",
+      cwd: childCwd,
+      backend: initial.backend.pin,
+      agent,
+      at: "2026-07-10T00:01:00.000Z",
+    });
+    const commands = createCommandRegistry({ sessions });
+    const commandContext = context(initial);
+
+    const list = await commands.execute("/agents activity", commandContext);
+    expect(list).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+        /1 child agent[\s\S]*ready[\s\S]*Implement[\s\S]*Fix cache isolation[\s\S]*activity-child-session/u,
+      ),
+    });
+    const detail = await commands.execute(
+      "/agents activity activity-child-agent",
+      commandContext,
+    );
+    expect(detail).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+        /Agent: Fix cache isolation[\s\S]*Status: ready[\s\S]*Profile: Implement \(implement_v1\)[\s\S]*Isolation: Git worktree at b{12}/u,
+      ),
+    });
+    expect(JSON.stringify([list, detail])).not.toContain("private task prompt");
+    expect(JSON.stringify([list, detail])).not.toContain("/private/recurs");
+    expect(await commands.execute(
+      "/agents activity activity",
+      commandContext,
+    )).toMatchObject({ level: "error", text: expect.stringContaining("not found") });
+    expect(await createCommandRegistry().execute(
+      "/agents activity",
+      commandContext,
+    )).toMatchObject({
+      level: "error",
+      text: "Durable agent activity is unavailable",
+    });
+    const shell = context(createSessionState({
+      id: "activity-shell",
+      cwd,
+      model: "unconfigured",
+    }));
+    expect(await commands.execute("/agents activity", shell)).toMatchObject({
+      level: "warning",
+      text: expect.stringContaining("model connection"),
     });
   });
 
