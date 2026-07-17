@@ -156,6 +156,7 @@ export interface OperatingModePolicy {
   readonly orchestration: AgentLimits;
   readonly workflow: {
     readonly maxChildrenPerRun: number;
+    readonly maxRequestsPerRun: number;
   };
 }
 
@@ -180,7 +181,12 @@ function policy(
       maxRequests,
       maxReportedCostUsd,
     }),
-    workflow: Object.freeze({ maxChildrenPerRun }),
+    workflow: Object.freeze({
+      maxChildrenPerRun,
+      maxRequestsPerRun: version === 1
+        ? maxRequests * maxChildrenPerRun
+        : maxRequests,
+    }),
   });
 }
 

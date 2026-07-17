@@ -198,6 +198,7 @@ describe("ChildAgentManager", () => {
       expect(child).toMatchObject({
         executionMode,
         agent: {
+          limits: { maxRequests: 6 },
           profile: { id: profileId, version: 1 },
           backend: {
             strategy: "inherit_parent",
@@ -218,7 +219,12 @@ describe("ChildAgentManager", () => {
       expect(starts.at(-1)?.prompt).toContain(heading);
       expect(result.metadata).toMatchObject({
         profileId,
-        workflow: { childrenStarted: index + 1 },
+        workflow: {
+          childrenStarted: index + 1,
+          maxRequests: 24,
+          requestsReserved: (index + 1) * 6,
+          requestsUsed: index + 1,
+        },
       });
     }
 
@@ -233,9 +239,124 @@ describe("ChildAgentManager", () => {
       workflow: {
         childrenStarted: 3,
         maxChildren: 4,
+        maxRequests: 24,
+        requestsReserved: 18,
+        requestsUsed: 3,
         reportedCostUsd: 0.75,
         maxReportedCostUsd: 3,
       },
+    });
+  });
+
+  it("reserves a bounded request share before concurrent v2 children start", async () => {
+    const { sessions, parent } = await storeFixture();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let starts = 0;
+    let allStarted!: () => void;
+    const ready = new Promise<void>((resolve) => { allStarted = resolve; });
+    const coordinator: RunCoordinator = {
+      async start() {
+        starts += 1;
+        if (starts === 3) allStarted();
+        return {
+          events: { async *[Symbol.asyncIterator]() {} },
+          outcome: held.then(() => ({
+            ok: true as const,
+            result: {
+              finalText: "done",
+              usage: null,
+              usageSource: "unavailable" as const,
+              steps: 2,
+              changedFiles: [],
+              changedFilesSource: "none" as const,
+              evidence: [],
+              evidenceSource: "none" as const,
+            },
+          })),
+        };
+      },
+    };
+    const manager = new ChildAgentManager({
+      sessions,
+      getCoordinator: () => coordinator,
+      async emit() {},
+      createId: (() => {
+        let value = 0;
+        return () => `shared-budget-${++value}`;
+      })(),
+      now: () => testAt,
+    });
+    const tool = manager.createTool();
+    const runContext = context(parent);
+    const input = tool.parse({
+      profile: "explore",
+      description: "Inspect",
+      prompt: "Inspect one bounded area",
+    });
+    const running = Array.from({ length: 3 }, () => tool.execute(input, runContext));
+    for (const promise of running) void promise.catch(() => {});
+
+    await ready;
+    expect(runContext.delegationBudget).toMatchObject({
+      maxRequests: 24,
+      requestsReserved: 18,
+      requestsUsed: 0,
+      childrenStarted: 3,
+    });
+    release();
+    await expect(Promise.all(running)).resolves.toHaveLength(3);
+    expect(runContext.delegationBudget).toMatchObject({
+      requestsReserved: 18,
+      requestsUsed: 6,
+    });
+  });
+
+  it("charges an opaque successful runtime its full request reservation", async () => {
+    const { sessions, parent } = await storeFixture();
+    const coordinator: RunCoordinator = {
+      async start() {
+        return {
+          events: { async *[Symbol.asyncIterator]() {} },
+          outcome: Promise.resolve({
+            ok: true,
+            result: {
+              finalText: "opaque result",
+              usage: null,
+              usageSource: "unavailable",
+              steps: null,
+              changedFiles: [],
+              changedFilesSource: "none",
+              evidence: [],
+              evidenceSource: "none",
+            },
+          }),
+        };
+      },
+    };
+    const manager = new ChildAgentManager({
+      sessions,
+      getCoordinator: () => coordinator,
+      async emit() {},
+      createId: (() => {
+        let value = 0;
+        return () => `opaque-${++value}`;
+      })(),
+      now: () => testAt,
+    });
+    const tool = manager.createTool();
+    const runContext = context(parent);
+
+    await tool.execute(tool.parse({
+      profile: "explore",
+      description: "Inspect opaquely",
+      prompt: "Inspect",
+    }), runContext);
+
+    expect(runContext.delegationBudget).toMatchObject({
+      maxRequests: 24,
+      requestsReserved: 6,
+      requestsUsed: 6,
     });
   });
 
@@ -549,6 +670,10 @@ describe("ChildAgentManager", () => {
     }), runContext))
       .rejects.toMatchObject({ code: "execution_failed" });
     expect(runContext.delegationBudget.childrenStarted).toBe(1);
+    expect(runContext.delegationBudget).toMatchObject({
+      requestsReserved: 6,
+      requestsUsed: 0,
+    });
     expect(events[1]).toMatchObject({
       type: "agent_failed",
       profileId: "explore_v1",
@@ -704,6 +829,9 @@ describe("ChildAgentManager", () => {
     const costLimited = context(parent);
     costLimited.delegationBudget.reportedCostUsd =
       costLimited.delegationBudget.maxReportedCostUsd;
+    const requestLimited = context(parent);
+    requestLimited.delegationBudget.requestsReserved =
+      requestLimited.delegationBudget.maxRequests;
 
     await expect(tool.execute(input, childLimited)).rejects.toMatchObject({
       code: "permission_denied",
@@ -712,6 +840,10 @@ describe("ChildAgentManager", () => {
     await expect(tool.execute(input, costLimited)).rejects.toMatchObject({
       code: "permission_denied",
       message: "Agent reported-cost limit reached ($3)",
+    });
+    await expect(tool.execute(input, requestLimited)).rejects.toMatchObject({
+      code: "permission_denied",
+      message: "Agent request limit reached (24)",
     });
     expect(starts).toBe(0);
   });

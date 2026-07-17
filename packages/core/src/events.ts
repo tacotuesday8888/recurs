@@ -40,6 +40,9 @@ interface EventBase {
 export interface AgentWorkflowUsage {
   childrenStarted: number;
   maxChildren: number;
+  requestsReserved: number;
+  requestsUsed: number;
+  maxRequests: number;
   reportedCostUsd: number;
   maxReportedCostUsd: number;
 }

@@ -216,7 +216,8 @@ describe("AgentLoopDirectExecutor", () => {
     directories.push(directory);
     const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
     const pin = testBackendPin();
-    const mode = getOperatingModePolicy("economy_v1");
+    const mode = getOperatingModePolicy("economy_v2");
+    const childRequestLimit = 4;
     const session = await sessions.createPinnedSession({
       id: "child-session",
       cwd: directory,
@@ -243,7 +244,7 @@ describe("AgentLoopDirectExecutor", () => {
           parentPermissionMode: "ask_always",
           permissionMode: "ask_always",
         },
-        limits: mode.orchestration,
+        limits: { ...mode.orchestration, maxRequests: childRequestLimit },
       },
     });
     const executor = new AgentLoopDirectExecutor({
@@ -262,7 +263,7 @@ describe("AgentLoopDirectExecutor", () => {
       },
     });
     const provider = new ScriptedProvider([
-      ...Array.from({ length: mode.orchestration.maxRequests }, (_, index) => [
+      ...Array.from({ length: childRequestLimit }, (_, index) => [
         {
           type: "tool_call" as const,
           call: { id: `call-${index}`, name: `missing-${index}`, arguments: {} },
@@ -312,6 +313,6 @@ describe("AgentLoopDirectExecutor", () => {
         signal: new AbortController().signal,
       })
     )).rejects.toMatchObject({ code: "step_budget_exceeded" });
-    expect(provider.requests).toHaveLength(mode.orchestration.maxRequests);
+    expect(provider.requests).toHaveLength(childRequestLimit);
   });
 });

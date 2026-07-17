@@ -43,6 +43,9 @@ export interface ApprovalHandler {
 export interface DelegationBudget {
   readonly maxChildren: number;
   childrenStarted: number;
+  readonly maxRequests: number;
+  requestsReserved: number;
+  requestsUsed: number;
   readonly maxReportedCostUsd: number;
   reportedCostUsd: number;
 }

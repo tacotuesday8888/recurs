@@ -16,9 +16,19 @@ export function createDelegationBudget(
   return {
     maxChildren: mode.workflow.maxChildrenPerRun,
     childrenStarted: 0,
+    maxRequests: mode.workflow.maxRequestsPerRun,
+    requestsReserved: 0,
+    requestsUsed: 0,
     maxReportedCostUsd: mode.orchestration.maxReportedCostUsd,
     reportedCostUsd: 0,
   };
+}
+
+export function childRequestAllowance(agent: AgentSessionDescriptor): number {
+  const mode = getOperatingModePolicy(agent.operatingMode.id);
+  return Math.floor(
+    mode.workflow.maxRequestsPerRun / mode.workflow.maxChildrenPerRun,
+  );
 }
 
 export function applyAgentToolPolicy(

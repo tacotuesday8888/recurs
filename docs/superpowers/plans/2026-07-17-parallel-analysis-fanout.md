@@ -126,16 +126,16 @@ interface DelegationBudget {
 }
 ```
 
-- [ ] Write failing tests for deterministic request allocation, shared child and
+- [x] Write failing tests for deterministic request allocation, shared child and
   request reservations, known-cost refusal, concurrent-safe accounting, direct
   request reporting, and opaque-runtime full-reservation accounting.
-- [ ] Confirm RED against the current child/cost-only budget.
-- [ ] Add exact budget validation and one atomic synchronous claim before child
+- [x] Confirm RED against the current child/cost-only budget.
+- [x] Add exact budget validation and one atomic synchronous claim before child
   session creation. Version-2 children receive a narrowed immutable request
   allowance; v1 behavior remains compatible.
-- [ ] Extend normalized workflow usage with request reserved/used values and
+- [x] Extend normalized workflow usage with request reserved/used values and
   preserve the existing reported-cost semantics.
-- [ ] Run focused manager/executor tests, typecheck, inspect, and commit.
+- [x] Run focused manager/executor tests, typecheck, inspect, and commit.
 
 ### Task 3: Add safe host-owned Git worktree leases
 

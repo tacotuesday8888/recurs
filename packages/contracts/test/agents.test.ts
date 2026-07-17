@@ -160,6 +160,9 @@ describe("agent operating-mode contracts", () => {
     expect(operatingModePolicies.map((policy) =>
       policy.workflow.maxChildrenPerRun
     )).toEqual([2, 3, 4, 6, 8, 2, 3, 4, 6, 8]);
+    expect(operatingModePolicies.map((policy) =>
+      policy.workflow.maxRequestsPerRun
+    )).toEqual([16, 48, 96, 192, 320, 8, 16, 24, 32, 40]);
   });
 
   it("never widens a requested child permission beyond its parent", () => {

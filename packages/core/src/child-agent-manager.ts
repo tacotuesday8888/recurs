@@ -26,7 +26,11 @@ import {
   type PinnedSessionState,
 } from "./session-v2.js";
 import type { JsonlSessionStore } from "./jsonl-session-store.js";
-import { scopeAgentPrompt } from "./agent-profile.js";
+import {
+  childRequestAllowance,
+  createDelegationBudget,
+  scopeAgentPrompt,
+} from "./agent-profile.js";
 
 interface DelegateTaskInput {
   readonly profile: AgentProfileId;
@@ -92,12 +96,23 @@ function cancelled(failure: IntegrationFailure): boolean {
 
 function validBudget(
   budget: DelegationBudget,
-  expected: { readonly maxChildren: number; readonly maxReportedCostUsd: number },
+  expected: {
+    readonly maxChildren: number;
+    readonly maxRequests: number;
+    readonly maxReportedCostUsd: number;
+  },
 ): boolean {
   return budget.maxChildren === expected.maxChildren &&
+    budget.maxRequests === expected.maxRequests &&
     budget.maxReportedCostUsd === expected.maxReportedCostUsd &&
     Number.isSafeInteger(budget.childrenStarted) &&
     budget.childrenStarted >= 0 &&
+    Number.isSafeInteger(budget.requestsReserved) &&
+    budget.requestsReserved >= 0 &&
+    budget.requestsReserved <= budget.maxRequests &&
+    Number.isSafeInteger(budget.requestsUsed) &&
+    budget.requestsUsed >= 0 &&
+    budget.requestsUsed <= budget.requestsReserved &&
     Number.isFinite(budget.reportedCostUsd) &&
     budget.reportedCostUsd >= 0;
 }
@@ -106,6 +121,9 @@ function workflowUsage(budget: DelegationBudget) {
   return {
     childrenStarted: budget.childrenStarted,
     maxChildren: budget.maxChildren,
+    requestsReserved: budget.requestsReserved,
+    requestsUsed: budget.requestsUsed,
+    maxRequests: budget.maxRequests,
     reportedCostUsd: budget.reportedCostUsd,
     maxReportedCostUsd: budget.maxReportedCostUsd,
   };
@@ -244,8 +262,10 @@ export class ChildAgentManager {
       throw new ToolError("tool_unavailable", "Child execution engine is unavailable");
     }
     const budget = context.delegationBudget;
+    const expectedBudget = createDelegationBudget(parent.agent);
     if (budget === undefined || !validBudget(budget, {
       maxChildren: mode.workflow.maxChildrenPerRun,
+      maxRequests: expectedBudget.maxRequests,
       maxReportedCostUsd: mode.orchestration.maxReportedCostUsd,
     })) {
       throw new ToolError("tool_unavailable", "Trusted delegation budget is unavailable");
@@ -262,12 +282,20 @@ export class ChildAgentManager {
         `Agent reported-cost limit reached ($${budget.maxReportedCostUsd})`,
       );
     }
+    const childRequestLimit = childRequestAllowance(parent.agent);
+    if (budget.requestsReserved + childRequestLimit > budget.maxRequests) {
+      throw new ToolError(
+        "permission_denied",
+        `Agent request limit reached (${budget.maxRequests})`,
+      );
+    }
 
     const childSessionId = this.#createId();
     const childAgentId = this.#createId();
     const taskId = this.#createId();
     const release = this.#claim(parent, childSessionId);
     budget.childrenStarted += 1;
+    budget.requestsReserved += childRequestLimit;
     const permissionMode = narrowAgentPermissionMode(
       parent.permissionMode,
       parent.permissionMode,
@@ -299,7 +327,7 @@ export class ChildAgentManager {
             parentPermissionMode: parent.permissionMode,
             permissionMode,
           },
-          limits: mode.orchestration,
+          limits: { ...mode.orchestration, maxRequests: childRequestLimit },
         },
       });
       await this.dependencies.emit({
@@ -324,6 +352,12 @@ export class ChildAgentManager {
       });
       const outcome = await run.outcome;
       if (!outcome.ok) {
+        if (outcome.failure.phase === "started") {
+          budget.requestsUsed = Math.min(
+            budget.maxRequests,
+            budget.requestsUsed + childRequestLimit,
+          );
+        }
         await this.#persistPreflightTerminal(child.id, outcome.failure);
         if (cancelled(outcome.failure)) {
           await this.dependencies.emit({
@@ -350,6 +384,13 @@ export class ChildAgentManager {
         });
         throw new ToolError("execution_failed", outcome.failure.safeMessage);
       }
+      const usedRequests = outcome.result.steps === null
+        ? childRequestLimit
+        : Math.min(childRequestLimit, outcome.result.steps);
+      budget.requestsUsed = Math.min(
+        budget.maxRequests,
+        budget.requestsUsed + usedRequests,
+      );
       const costUsd = outcome.result.usage?.costUsd;
       if (costUsd !== undefined) {
         budget.reportedCostUsd = Math.min(
