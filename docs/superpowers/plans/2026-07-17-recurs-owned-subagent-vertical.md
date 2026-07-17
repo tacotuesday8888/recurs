@@ -79,14 +79,14 @@
 - Test: `packages/core/test/child-agent-manager.test.ts`
 - Test: `packages/cli/test/run-mode.test.ts`
 
-- [ ] Write failing tests for input validation, parent→child success, backend/model inheritance, child permission monotonicity, Plan inheritance, depth rejection, concurrency rejection, zero retries, reported-cost accounting, cancellation, preflight failure, started failure, and normalized agent events.
-- [ ] Implement `delegate_task` with exact `{ description, prompt }` input; no model, permission, background, retry, or concurrency override is exposed in v1.
-- [ ] Load the parent state, resolve its operating mode, create an immutable child descriptor, and create a pinned child session on the exact parent backend.
-- [ ] Invoke the existing coordinator with the child sequence, parent signal, inherited execution mode, and trusted invocation reconstructed only from the coordinator-derived context.
-- [ ] Emit `agent_started`, `agent_completed`, `agent_failed`, or `agent_cancelled` with parent/child correlation. Return final text plus child/session IDs, usage, files, and evidence in tool metadata.
-- [ ] Track active children per parent in-process and enforce mode depth/concurrency/retry/spend policies without polling or hidden retries.
-- [ ] Register the tool only after the coordinator reference is live; fail closed if the execution engine is unavailable.
-- [ ] Run focused manager and CLI integration tests and commit the vertical.
+- [x] Write failing tests for exact input, parent→child→parent synthesis, backend/model inheritance, child permission monotonicity, depth/concurrency rejection, zero retries, cancellation, preflight failure, and normalized agent events. Started failures reuse the already-covered coordinator terminal path.
+- [x] Implement `delegate_task` with exact `{ description, prompt }` input; no model, permission, background, retry, or concurrency override is exposed in v1.
+- [x] Load the parent state, resolve its operating mode, create an immutable child descriptor, and create a pinned child session on the exact parent backend.
+- [x] Invoke the existing coordinator with the child sequence, parent signal, inherited execution mode, and trusted invocation reconstructed only from the coordinator-derived context.
+- [x] Emit `agent_started`, `agent_completed`, `agent_failed`, or `agent_cancelled` with parent/child correlation. Return final text plus child/session IDs, usage, files, and evidence in tool metadata.
+- [x] Track active children per parent in-process and enforce mode depth/concurrency/retry/request policies without polling or hidden retries. Reported USD cost is accounted and flagged after provider/runtime telemetry arrives; it is not misrepresented as a pre-spend hard stop.
+- [x] Register the tool only after the coordinator reference is live; fail closed if the execution engine is unavailable.
+- [x] Run focused manager, core, CLI run-mode, and type verification and commit the vertical.
 
 ### Task 5: Add a real, minimal operating-mode CLI surface
 

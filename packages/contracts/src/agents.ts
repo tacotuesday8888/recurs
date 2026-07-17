@@ -143,8 +143,8 @@ export type AgentLifecycle =
   | { readonly status: "ready" }
   | { readonly status: "running"; readonly turnId: string }
   | { readonly status: "completed"; readonly turnId: string }
-  | { readonly status: "failed"; readonly turnId: string; readonly failure: IntegrationFailure }
-  | { readonly status: "cancelled"; readonly turnId: string; readonly reason: string };
+  | { readonly status: "failed"; readonly turnId: string | null; readonly failure: IntegrationFailure }
+  | { readonly status: "cancelled"; readonly turnId: string | null; readonly reason: string };
 
 export interface AgentResult {
   readonly finalText: string;

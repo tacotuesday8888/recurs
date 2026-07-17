@@ -27,6 +27,7 @@ import {
 import {
   AgentLoopDirectExecutor,
   BackendRunCoordinator,
+  ChildAgentManager,
   DelegatedAgentExecutor,
   JsonlSessionStore,
   ProcessScopedRuntimeContinuationStore,
@@ -530,6 +531,7 @@ export async function createStandaloneRuntime(
     state = pinnedState;
   }
 
+  const coordinatorReference: { current?: BackendRunCoordinator } = {};
   const tools = new ToolRegistry([], {
     checkpoints,
     securityProfile: options.toolSecurityProfile ?? "local_guarded",
@@ -541,6 +543,14 @@ export async function createStandaloneRuntime(
   tools.register(createRunCommandTool());
   tools.register(createGitStatusTool());
   tools.register(createGitDiffTool());
+  const childAgents = new ChildAgentManager({
+    sessions,
+    getCoordinator: () => coordinatorReference.current,
+    emit(event) {
+      return events.emit(event);
+    },
+  });
+  tools.register(childAgents.createTool());
 
   const runtimeReference: { current?: RecursRuntime } = {};
   const approvals = {
@@ -742,6 +752,7 @@ export async function createStandaloneRuntime(
     delegated,
     continuationAuthority: continuations.authority,
   });
+  coordinatorReference.current = coordinator;
   const resolveCommandProvider = async (
     session: SessionState,
     signal: AbortSignal,

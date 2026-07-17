@@ -927,6 +927,14 @@ export function parseSessionRecordV2(
       valid = recordKeys(value, ["turnId", "reason"]) &&
         typeof value.turnId === "string" && typeof value.reason === "string";
       break;
+    case "agent_run_failed":
+      valid = recordKeys(value, ["failure"]) &&
+        isIntegrationFailure(value.failure);
+      break;
+    case "agent_run_cancelled":
+      valid = recordKeys(value, ["reason"]) &&
+        boundedNonEmptyString(value.reason, MAX_RUNTIME_ITEM_LENGTH);
+      break;
     case "compaction_started":
       valid = recordKeys(value, ["operationId", "inputBaseSequence"]) &&
         typeof value.operationId === "string" &&

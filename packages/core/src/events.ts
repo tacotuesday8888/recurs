@@ -1,5 +1,10 @@
 import type { ModelMessage, StopReason, ToolCall } from "@recurs/providers";
 import type {
+  IntegrationFailure,
+  OperatingModeId,
+  ProviderUsage,
+} from "@recurs/contracts";
+import type {
   ApprovalResponse,
   ExecutionMode,
   PermissionIntent,
@@ -66,7 +71,39 @@ export type RecursEvent =
   | (EventBase & { type: "files_changed"; paths: string[] })
   | (EventBase & { type: "verification_recorded"; evidence: string[] })
   | (EventBase & { type: "turn_completed"; usage: Usage | null; evidence: string[] })
-  | (EventBase & { type: "turn_failed"; error: SerializableError });
+  | (EventBase & { type: "turn_failed"; error: SerializableError })
+  | (EventBase & {
+      type: "agent_started";
+      parentAgentId: string;
+      childAgentId: string;
+      childSessionId: string;
+      taskId: string;
+      description: string;
+      operatingModeId: OperatingModeId;
+    })
+  | (EventBase & {
+      type: "agent_completed";
+      parentAgentId: string;
+      childAgentId: string;
+      childSessionId: string;
+      usage: ProviderUsage | null;
+      evidence: string[];
+      costLimitExceeded: boolean;
+    })
+  | (EventBase & {
+      type: "agent_failed";
+      parentAgentId: string;
+      childAgentId: string;
+      childSessionId: string;
+      failure: IntegrationFailure;
+    })
+  | (EventBase & {
+      type: "agent_cancelled";
+      parentAgentId: string;
+      childAgentId: string;
+      childSessionId: string;
+      reason: string;
+    });
 
 export type SessionRecord =
   | ({ version: 1 } & Extract<RecursEvent, { type: "session_created" }>)

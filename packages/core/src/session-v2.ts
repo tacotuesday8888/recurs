@@ -207,6 +207,14 @@ export type SessionRecordV2 =
       reason: string;
     })
   | (SessionRecordBaseV2 & {
+      type: "agent_run_failed";
+      failure: IntegrationFailure;
+    })
+  | (SessionRecordBaseV2 & {
+      type: "agent_run_cancelled";
+      reason: string;
+    })
+  | (SessionRecordBaseV2 & {
       type: "compaction_started";
       operationId: string;
       inputBaseSequence: number;
@@ -522,6 +530,14 @@ export function reduceSessionRecordV2(
     state.pendingToolCalls.length > 0
   ) {
     throw new Error("Cannot close a turn with pending tool calls");
+  }
+  if (
+    (record.type === "agent_run_failed" ||
+      record.type === "agent_run_cancelled") &&
+    (state.agent.role !== "child" || state.openTurnId !== null ||
+      state.agentLifecycle.status !== "ready")
+  ) {
+    throw new Error("An agent preflight terminal requires a ready child");
   }
   if (record.type === "compaction_started") {
     if (state.openTurnId !== null || state.pendingCompaction !== null) {
@@ -885,6 +901,28 @@ export function reduceSessionRecordV2(
         agentResult: null,
       };
       break;
+    case "agent_run_failed":
+      next = {
+        ...state,
+        agentLifecycle: {
+          status: "failed",
+          turnId: null,
+          failure: record.failure,
+        },
+        agentResult: null,
+      };
+      break;
+    case "agent_run_cancelled":
+      next = {
+        ...state,
+        agentLifecycle: {
+          status: "cancelled",
+          turnId: null,
+          reason: record.reason,
+        },
+        agentResult: null,
+      };
+      break;
     case "session_compacted": {
       const retained = new Set(record.retainedTurnIds);
       const messages = state.messages.filter((message) => {
@@ -932,6 +970,7 @@ export function reduceSessionRecordsV2(
       "A version 2 session log must begin with session_created at sequence zero",
     );
   }
+  const agent = first.agent ?? createRootAgentDescriptor(first.sessionId, first.backend);
   let state: PinnedSessionState = {
     version: 2,
     id: first.sessionId,
@@ -942,8 +981,8 @@ export function reduceSessionRecordsV2(
     messages: [],
     messageTurnIds: {},
     summary: null,
-    permissionMode: "ask_always",
-    executionMode: "act",
+    permissionMode: agent.permissions.permissionMode,
+    executionMode: agent.permissions.executionMode,
     goal: null,
     usage: { inputTokens: 0, outputTokens: 0 },
     evidence: [],
@@ -955,7 +994,7 @@ export function reduceSessionRecordsV2(
     runtimeContinuation: null,
     runtimeContinuationPredecessor: null,
     pendingRuntimeCompletion: null,
-    agent: first.agent ?? createRootAgentDescriptor(first.sessionId, first.backend),
+    agent,
     agentLifecycle: { status: "ready" },
     agentResult: null,
   };

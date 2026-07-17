@@ -1,5 +1,6 @@
 export * from "./agent-loop.js";
 export * from "./backend-authorization.js";
+export * from "./child-agent-manager.js";
 export * from "./compaction.js";
 export * from "./compatibility-coordinator.js";
 export * from "./direct-model-executor.js";
