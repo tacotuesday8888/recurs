@@ -307,11 +307,6 @@ export class ChildAgentBatchManager {
       },
       executionClass: "in_process",
       mutating: false,
-      isMutating(input) {
-        return input.tasks.some((task) =>
-          !getAgentProfilePolicy(task.profile).tools.readOnly
-        );
-      },
       parse: exactInput,
       permissions() {
         return [];

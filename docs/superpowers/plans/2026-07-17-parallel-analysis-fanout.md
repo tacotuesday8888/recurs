@@ -265,18 +265,18 @@ interface GitWorktreeLeasePort {
 
 - Modify: `tests/e2e/coding-agent.test.ts`
 
-- [ ] Add a failing direct-provider scenario where a parent calls
+- [x] Add a failing direct-provider scenario where a parent calls
   `delegate_tasks` with Explore and Review, the children overlap in separate
   worktrees, one contributes evidence, ordered results return regardless of
   completion order, all leases disappear, and the parent synthesizes a final
   answer from the tool result.
-- [ ] Add a failing partial-failure scenario showing successful evidence is
+- [x] Add a failing partial-failure scenario showing successful evidence is
   retained and the parent is told exactly which sibling failed.
-- [ ] Add a failing cancellation scenario proving active child sessions become
+- [x] Add a failing cancellation scenario proving active child sessions become
   cancelled, queued children never start, the parent tool fails as cancelled,
   and no lease remains.
-- [ ] Make only the integration fixes required by those tests.
-- [ ] Run the end-to-end test, the full TypeScript suite, and build; inspect and
+- [x] Make only the integration fixes required by those tests.
+- [x] Run the end-to-end test, the full TypeScript suite, and build; inspect and
   commit.
 
 ### Task 8: Document exact capability and audit the branch

@@ -203,13 +203,16 @@ describe("ChildAgentBatchManager", () => {
       coordinator: { async start() { throw new Error("must not start"); } },
     });
 
-    expect(setup.tool.parse({ tasks: [
+    const parsed = setup.tool.parse({ tasks: [
       { profile: "Explore", description: "One", prompt: "Inspect one" },
       { profile: "review_v1", description: "Two", prompt: "Review two" },
-    ] })).toEqual({ tasks: [
+    ] });
+    expect(parsed).toEqual({ tasks: [
       { profile: "explore_v1", description: "One", prompt: "Inspect one" },
       { profile: "review_v1", description: "Two", prompt: "Review two" },
     ] });
+    expect(setup.tool.isMutating?.(parsed, context(setup.parent)) ??
+      setup.tool.mutating).toBe(false);
     expect(() => setup.tool.parse({ tasks: tasks(1) })).toThrow("between 2 and 8");
     expect(() => setup.tool.parse({ tasks: tasks(9) })).toThrow("between 2 and 8");
     expect(() => setup.tool.parse({ tasks: tasks(2), background: true }))
