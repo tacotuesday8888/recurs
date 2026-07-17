@@ -17,5 +17,7 @@ export function createCommandRegistry(
     createGoalCommand(),
     createPlanCommand(),
     createPermissionsCommand(),
+    createAgentsCommand(),
   ]);
 }
+import { createAgentsCommand } from "./agents.js";

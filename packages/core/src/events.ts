@@ -73,6 +73,11 @@ export type RecursEvent =
   | (EventBase & { type: "turn_completed"; usage: Usage | null; evidence: string[] })
   | (EventBase & { type: "turn_failed"; error: SerializableError })
   | (EventBase & {
+      type: "agent_policy_updated";
+      operatingModeId: OperatingModeId;
+      operatingModeVersion: 1;
+    })
+  | (EventBase & {
       type: "agent_started";
       parentAgentId: string;
       childAgentId: string;
@@ -121,6 +126,7 @@ export type SessionRecord =
   | ({ version: 1 } & Extract<RecursEvent, { type: "permission_resolved" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "goal_updated" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "mode_updated" }>)
+  | ({ version: 1 } & Extract<RecursEvent, { type: "agent_policy_updated" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "files_changed" }>)
   | ({ version: 1 } & Extract<RecursEvent, { type: "verification_recorded" }>)
   | ({ version: 1 } & EventBase & {

@@ -935,6 +935,12 @@ export function parseSessionRecordV2(
       valid = recordKeys(value, ["reason"]) &&
         boundedNonEmptyString(value.reason, MAX_RUNTIME_ITEM_LENGTH);
       break;
+    case "agent_policy_updated":
+      valid = recordKeys(value, ["operatingModeId", "operatingModeVersion"]) &&
+        typeof value.operatingModeId === "string" &&
+        parseOperatingModeId(value.operatingModeId) === value.operatingModeId &&
+        value.operatingModeVersion === 1;
+      break;
     case "compaction_started":
       valid = recordKeys(value, ["operationId", "inputBaseSequence"]) &&
         typeof value.operationId === "string" &&

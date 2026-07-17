@@ -145,6 +145,33 @@ class FakeCheckpointStore extends CheckpointStore {
 }
 
 describe("session commands", () => {
+  it("persists an exact child-agent operating mode without changing the backend", async () => {
+    const initial = await storeSession("agent-mode-session");
+    const commands = createCommandRegistry({ sessions });
+    const commandContext = context(initial);
+
+    expect(await commands.execute("/agents", commandContext)).toMatchObject({
+      type: "message",
+      text: expect.stringContaining("Balanced (balanced_v1)"),
+    });
+    expect(await commands.execute("/agents mode economy", commandContext)).toMatchObject({
+      type: "message",
+      text: expect.stringContaining("Economy (economy_v1)"),
+    });
+    const reloaded = await sessions.loadState("agent-mode-session");
+    expect(reloaded).toMatchObject({
+      agent: {
+        operatingMode: { id: "economy_v1", version: 1 },
+        limits: { maxRequests: 8, maxDepth: 1, maxConcurrentChildren: 1 },
+      },
+      backend: initial.backend,
+    });
+    expect(await commands.execute("/agents mode eco", commandContext)).toMatchObject({
+      level: "error",
+      text: expect.stringContaining("Choose /agents mode"),
+    });
+  });
+
   it("creates AGENTS.md once after confirmation and never overwrites it", async () => {
     const state = createSessionState({ id: "s1", cwd, model: "scripted" });
     const registry = createCommandRegistry({ sessions });

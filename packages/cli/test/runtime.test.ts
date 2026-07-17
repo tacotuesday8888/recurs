@@ -82,6 +82,31 @@ async function runtimeWith(provider: ScriptedProvider): Promise<RecursRuntime> {
 }
 
 describe("RecursRuntime", () => {
+  it("explains agent modes honestly before onboarding creates a session", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-agent-mode-guide-"));
+    directories.push(directory);
+    const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
+    const runtime = new RecursRuntime(
+      {
+        commands: createCommandRegistry({ sessions }),
+        sessions,
+        confirm: async () => true,
+      },
+      createWorkspaceShell(directory),
+    );
+
+    await expect(runtime.submit("/agents")).resolves.toMatchObject({
+      type: "message",
+      level: "info",
+      text: expect.stringContaining("default to Balanced"),
+    });
+    await expect(runtime.submit("/agents mode economy")).resolves.toMatchObject({
+      type: "message",
+      level: "warning",
+      text: expect.stringContaining("Connect a model"),
+    });
+  });
+
   it("serves one shared provider guide from the sessionless shell", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "recurs-provider-guide-"));
     directories.push(directory);

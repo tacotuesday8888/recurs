@@ -234,6 +234,7 @@ export class RecursRuntime {
           "/connect                      Alias for /provider",
           "/model                        Inspect model configuration",
           "/permissions [mode]           Set the next-session permission default",
+          "/agents                       Explain child-agent operating modes",
           "/status                       Show workspace configuration",
           "/resume                       List historical sessions",
           "/init                         Create AGENTS.md without overwriting it",
@@ -280,10 +281,21 @@ export class RecursRuntime {
         text: "No model connection is configured. Use /connect for Codex subscription or credential-free local setup instructions.",
       };
     }
+    if (name === "agents" || name === "agent") {
+      return {
+        type: "message",
+        level: args.trim().length === 0 ? "info" : "warning",
+        text: args.trim().length === 0
+          ? "Agent modes are session policy. Connect a model first; new sessions default to Balanced and currently inherit their pinned backend."
+          : "Connect a model before changing the agent operating mode.",
+      };
+    }
     const allowed = new Set([
       "help",
       "permissions",
       "permission",
+      "agents",
+      "agent",
       "resume",
       "init",
       "diff",

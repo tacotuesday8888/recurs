@@ -215,6 +215,11 @@ export type SessionRecordV2 =
       reason: string;
     })
   | (SessionRecordBaseV2 & {
+      type: "agent_policy_updated";
+      operatingModeId: AgentSessionDescriptor["operatingMode"]["id"];
+      operatingModeVersion: 1;
+    })
+  | (SessionRecordBaseV2 & {
       type: "compaction_started";
       operationId: string;
       inputBaseSequence: number;
@@ -538,6 +543,12 @@ export function reduceSessionRecordV2(
       state.agentLifecycle.status !== "ready")
   ) {
     throw new Error("An agent preflight terminal requires a ready child");
+  }
+  if (
+    record.type === "agent_policy_updated" &&
+    (state.agent.role !== "parent" || state.openTurnId !== null)
+  ) {
+    throw new Error("Agent policy can change only on an idle parent");
   }
   if (record.type === "compaction_started") {
     if (state.openTurnId !== null || state.pendingCompaction !== null) {
@@ -923,6 +934,21 @@ export function reduceSessionRecordV2(
         agentResult: null,
       };
       break;
+    case "agent_policy_updated": {
+      const policy = getOperatingModePolicy(record.operatingModeId);
+      if (record.operatingModeVersion !== policy.version) {
+        throw new Error("Agent policy version does not match its stable id");
+      }
+      next = {
+        ...state,
+        agent: {
+          ...state.agent,
+          operatingMode: { id: policy.id, version: policy.version },
+          limits: policy.orchestration,
+        },
+      };
+      break;
+    }
     case "session_compacted": {
       const retained = new Set(record.retainedTurnIds);
       const messages = state.messages.filter((message) => {

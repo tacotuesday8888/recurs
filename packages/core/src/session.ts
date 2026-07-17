@@ -232,6 +232,7 @@ export function reduceSessionRecord(
         evidence: [...new Set([...state.evidence, ...record.evidence])],
       };
     case "permission_resolved":
+    case "agent_policy_updated":
     case "turn_failed":
       return state;
   }

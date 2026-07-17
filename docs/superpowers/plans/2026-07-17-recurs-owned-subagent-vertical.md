@@ -101,11 +101,11 @@
 - Test: `packages/cli/test/commands.test.ts`
 - Test: `packages/cli/test/session-commands.test.ts`
 
-- [ ] Write failing tests for `/agents`, `/agents mode <name>`, exact parsing, durable mode changes, status output, and the unconfigured workspace explanation.
-- [ ] Persist mode changes through an `agent_policy_updated` version-2 record; do not overload Act/Plan or permission mode.
-- [ ] Display the active mode’s real request/depth/concurrency/retry/cost policy and state that model selection currently inherits the pinned parent backend.
-- [ ] Add `/agents` to help and `/status`; avoid claims about recursive or parallel execution.
-- [ ] Run focused CLI tests and commit the CLI slice.
+- [x] Write failing tests for `/agents`, `/agents mode <name>`, exact parsing, durable mode changes, and the unconfigured workspace explanation; `/status` uses the same policy lookup.
+- [x] Persist mode changes through an `agent_policy_updated` version-2 record; do not overload Act/Plan or permission mode.
+- [x] Display the active mode’s real request/depth/concurrency/retry/cost policy and state that model selection currently inherits the pinned parent backend.
+- [x] Add `/agents` to help and `/status`; avoid claims about recursive or parallel execution.
+- [x] Run the full CLI tests and type verification and commit the CLI slice.
 
 ### Task 6: Document the evidence and the intentionally absent surface
 

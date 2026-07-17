@@ -1,6 +1,8 @@
 import type { Command } from "./types.js";
 import { message } from "./types.js";
 import { permissionLabel } from "./permissions.js";
+import { getOperatingModePolicy } from "@recurs/contracts";
+import { isPinnedSessionState } from "@recurs/core";
 
 const helpText = [
   "/help                         Show this command list",
@@ -9,6 +11,7 @@ const helpText = [
   "/goal [objective|action]      Manage the durable goal",
   "/plan [prompt|exit]           Enter read-only Plan mode or return to Act",
   "/permissions [mode]           Set Ask Always, Approved for Me, or Full Access",
+  "/agents [mode name]           Inspect or set bounded child-agent policy",
   "/status                       Show session, goal, mode, and usage",
   "/init                         Create AGENTS.md without overwriting it",
   "/new                          Start a new durable session",
@@ -45,6 +48,9 @@ function createStatusCommand(): Command {
           context.session.backend.pin.kind === "agent_runtime"
         ? `Runtime: ${context.session.backend.pin.adapterId === "codex-acp" ? "Codex (Plan-only)" : "Delegated agent"}`
         : null;
+      const agentMode = isPinnedSessionState(context.session)
+        ? getOperatingModePolicy(context.session.agent.operatingMode.id).displayName
+        : "Unavailable";
       return message(
         [
           `Session: ${context.session.id}`,
@@ -52,6 +58,7 @@ function createStatusCommand(): Command {
           `Model: ${context.session.model}`,
           `Execution: ${context.session.executionMode === "plan" ? "Plan" : "Act"}`,
           `Permissions: ${permissionLabel(context.session.permissionMode)}`,
+          `Agent mode: ${agentMode}`,
           `Goal: ${goal}`,
           `Usage: ${context.session.usage.inputTokens} input / ${context.session.usage.outputTokens} output tokens`,
           `Pending tools: ${context.session.pendingToolCalls.length}`,
