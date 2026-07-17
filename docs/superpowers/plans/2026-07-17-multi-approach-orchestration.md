@@ -274,15 +274,15 @@ git commit -m "feat: expose specialized agent profiles"
 **Interfaces:**
 - Proves one parent can Explore, then Implement, then Review, with each child using a separate durable session and the parent performing final synthesis.
 
-- [ ] **Step 1: Write a failing scripted-provider workflow** in which the parent explicitly selects Explore, receives evidence, selects Implement, changes a fixture and runs verification, selects Review, inspects/verifies the result, and returns the synthesized answer.
+- [x] **Step 1: Write a failing scripted-provider workflow** in which the parent explicitly selects Explore, receives evidence, selects Implement, changes a fixture and runs verification, selects Review, inspects/verifies the result, and returns the synthesized answer.
 
-- [ ] **Step 2: Assert durable truth**: three child session descriptors, ordered profile events, parent-visible handoffs, changed-file/evidence propagation, parent-level checkpoint metadata for effectful delegations, and rejection of a child beyond the selected mode's run limit.
+- [x] **Step 2: Assert durable truth**: three child session descriptors, ordered profile events, parent-visible handoffs, changed-file/evidence propagation, parent-level checkpoint metadata for effectful delegations, and rejection of a child beyond the selected mode's run limit.
 
-- [ ] **Step 3: Run the end-to-end tests and fix only real integration gaps**.
+- [x] **Step 3: Run the end-to-end tests and fix only real integration gaps**.
 
 Run: `npm test -- packages/core/test/child-agent-manager.test.ts tests/e2e/coding-agent.test.ts`
 
-- [ ] **Step 4: Commit the proof slice**.
+- [x] **Step 4: Commit the proof slice**.
 
 ```bash
 git add packages/core/test/child-agent-manager.test.ts tests/e2e/coding-agent.test.ts
