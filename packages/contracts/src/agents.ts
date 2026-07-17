@@ -131,7 +131,9 @@ export interface AgentSessionDescriptor {
   };
   readonly backend: AgentBackendSelection;
   readonly permissions: {
+    readonly parentExecutionMode: AgentExecutionMode;
     readonly executionMode: AgentExecutionMode;
+    readonly parentPermissionMode: AgentPermissionMode;
     readonly permissionMode: AgentPermissionMode;
   };
   readonly limits: AgentLimits;

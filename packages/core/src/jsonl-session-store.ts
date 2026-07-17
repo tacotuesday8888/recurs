@@ -7,7 +7,10 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
-import type { SessionBackendPin } from "@recurs/contracts";
+import type {
+  AgentSessionDescriptor,
+  SessionBackendPin,
+} from "@recurs/contracts";
 
 import type { AnySessionRecord, SessionRecord } from "./events.js";
 import { parseSessionRecordV2 } from "./session-record-validator.js";
@@ -18,6 +21,7 @@ import type {
   SessionRecordV2,
 } from "./session-v2.js";
 import {
+  createRootAgentDescriptor,
   isPinnedSessionState,
   reduceSessionRecordV2,
 } from "./session-v2.js";
@@ -44,6 +48,7 @@ export interface CreatePinnedSessionOptions {
   id: string;
   cwd: string;
   backend: SessionBackendPin;
+  agent?: AgentSessionDescriptor;
   at: string;
 }
 
@@ -203,6 +208,7 @@ export class JsonlSessionStore {
         at: options.at,
         cwd: options.cwd,
         backend: options.backend,
+        agent: options.agent ?? createRootAgentDescriptor(options.id, options.backend),
       };
       parseSessionRecordV2(created, options.id);
       await appendAndSync(file, `${JSON.stringify(created)}\n`);

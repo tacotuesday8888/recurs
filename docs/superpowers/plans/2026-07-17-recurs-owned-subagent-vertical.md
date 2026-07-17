@@ -28,11 +28,11 @@
 - Modify: `packages/contracts/src/index.ts`
 - Test: `packages/contracts/test/agents.test.ts`
 
-- [ ] Write failing tests for the five stable mode identifiers, immutable lookup, default mode, permission narrowing, and bounded mode limits.
-- [ ] Add `AgentSessionDescriptor`, `AgentTask`, `AgentLifecycle`, `AgentLimits`, `AgentBackendSelection`, `AgentResult`, and `OperatingModePolicy` contracts.
-- [ ] Define stable IDs `economy_v1`, `standard_v1`, `balanced_v1`, `performance_v1`, and `max_v1`; keep Economy/Standard/Balanced/Performance/Max as display labels only.
-- [ ] Implement exact parsing and `narrowPermissionMode(parent, requested)` so the returned mode can never exceed the parent.
-- [ ] Run `npm test --workspace @recurs/contracts` and commit the contract slice.
+- [x] Write failing tests for the five stable mode identifiers, immutable lookup, default mode, permission narrowing, and bounded mode limits.
+- [x] Add `AgentSessionDescriptor`, `AgentTask`, `AgentLifecycle`, `AgentLimits`, `AgentBackendSelection`, `AgentResult`, and `OperatingModePolicy` contracts.
+- [x] Define stable IDs `economy_v1`, `standard_v1`, `balanced_v1`, `performance_v1`, and `max_v1`; keep Economy/Standard/Balanced/Performance/Max as display labels only.
+- [x] Implement exact parsing and `narrowPermissionMode(parent, requested)` so the returned mode can never exceed the parent.
+- [x] Run the contracts test suite and commit the contract slice.
 
 ### Task 2: Make agent identity and lifecycle durable in session state
 
@@ -44,11 +44,11 @@
 - Test: `packages/core/test/session-v2.test.ts`
 - Test: `packages/core/test/session-runtime-records.test.ts`
 
-- [ ] Write failing reducer and hostile-record tests for root descriptors, child descriptors, task/depth validation, lifecycle transitions, terminal result capture, and legacy logs without agent metadata.
-- [ ] Add optional `agent` metadata to `session_created`; `createPinnedSession` supplies a root descriptor by default and accepts an explicit child descriptor.
-- [ ] Add `agent` state to `PinnedSessionState`. Root sessions return to `ready` after a terminal turn; a child becomes `completed`, `failed`, or `cancelled` and retains its normalized terminal result.
-- [ ] Reject malformed descriptors, impossible parent/depth combinations, invalid limits, permission widening, and post-terminal child turns.
-- [ ] Run the focused core session tests and commit the persistence slice.
+- [x] Write failing reducer and hostile-record tests for root descriptors, child descriptors, task/depth validation, lifecycle transitions, terminal result capture, and legacy logs without agent metadata.
+- [x] Add optional `agent` metadata to `session_created`; `createPinnedSession` supplies a root descriptor by default and accepts an explicit child descriptor.
+- [x] Add `agent` state to `PinnedSessionState`. Root sessions return to `ready` after a terminal turn; a child becomes `completed`, `failed`, or `cancelled` and retains its normalized terminal result.
+- [x] Reject malformed descriptors, impossible parent/depth combinations, invalid limits, permission widening, and post-terminal child turns.
+- [x] Run the focused core session tests and commit the persistence slice.
 
 ### Task 3: Propagate trusted run context and enforce child request limits
 

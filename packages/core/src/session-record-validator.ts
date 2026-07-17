@@ -1,6 +1,12 @@
 import { isDeepStrictEqual } from "node:util";
 
+import {
+  getOperatingModePolicy,
+  narrowAgentPermissionMode,
+  parseOperatingModeId,
+} from "@recurs/contracts";
 import type {
+  AgentSessionDescriptor,
   RuntimeApprovalDecision,
   RuntimeApprovalRequest,
   RuntimeContinuationHandle,
@@ -665,6 +671,86 @@ function isBackendPin(value: unknown): value is SessionBackendPin {
       : value.runtimeCapabilityProfileRevisionAtCreation === undefined);
 }
 
+function isAgentPermissionMode(
+  value: unknown,
+): value is AgentSessionDescriptor["permissions"]["permissionMode"] {
+  return value === "ask_always" || value === "approved_for_me" ||
+    value === "full_access";
+}
+
+function isAgentExecutionMode(
+  value: unknown,
+): value is AgentSessionDescriptor["permissions"]["executionMode"] {
+  return value === "act" || value === "plan";
+}
+
+function isAgentDescriptor(
+  value: unknown,
+  backend: SessionBackendPin,
+): value is AgentSessionDescriptor {
+  if (!isObject(value) || !hasExactKeys(value, [
+    "id", "role", "parentAgentId", "parentSessionId", "depth", "task",
+    "operatingMode", "backend", "permissions", "limits",
+  ]) || !boundedNonEmptyString(value.id, MAX_RUNTIME_ID_LENGTH) ||
+    (value.role !== "parent" && value.role !== "child") ||
+    !Number.isSafeInteger(value.depth) || (value.depth as number) < 0 ||
+    !isObject(value.operatingMode) ||
+    !hasExactKeys(value.operatingMode, ["id", "version"]) ||
+    value.operatingMode.version !== 1 ||
+    typeof value.operatingMode.id !== "string" ||
+    parseOperatingModeId(value.operatingMode.id) !== value.operatingMode.id ||
+    !isObject(value.backend) ||
+    !hasExactKeys(value.backend, ["strategy", "adapterId", "connectionId", "modelId"]) ||
+    (value.backend.strategy !== "session_pin" &&
+      value.backend.strategy !== "inherit_parent") ||
+    value.backend.adapterId !== backend.adapterId ||
+    value.backend.connectionId !== backend.connectionId ||
+    value.backend.modelId !== backend.modelId ||
+    !isObject(value.permissions) ||
+    !hasExactKeys(value.permissions, [
+      "parentExecutionMode", "executionMode", "parentPermissionMode",
+      "permissionMode",
+    ]) ||
+    !isAgentExecutionMode(value.permissions.parentExecutionMode) ||
+    !isAgentExecutionMode(value.permissions.executionMode) ||
+    !isAgentPermissionMode(value.permissions.parentPermissionMode) ||
+    !isAgentPermissionMode(value.permissions.permissionMode) ||
+    !isObject(value.limits) ||
+    !hasExactKeys(value.limits, [
+      "maxDepth", "maxConcurrentChildren", "maxRetries", "maxRequests",
+      "maxReportedCostUsd",
+    ])) {
+    return false;
+  }
+  const modeId = value.operatingMode.id;
+  const policy = getOperatingModePolicy(modeId);
+  if (!isDeepStrictEqual(value.limits, policy.orchestration) ||
+    (value.depth as number) > policy.orchestration.maxDepth ||
+    narrowAgentPermissionMode(
+      value.permissions.parentPermissionMode,
+      value.permissions.permissionMode,
+    ) !== value.permissions.permissionMode ||
+    (value.permissions.parentExecutionMode === "plan" &&
+      value.permissions.executionMode !== "plan")) {
+    return false;
+  }
+  if (value.role === "parent") {
+    return value.parentAgentId === null && value.parentSessionId === null &&
+      value.depth === 0 && value.task === null &&
+      value.backend.strategy === "session_pin" &&
+      value.permissions.parentExecutionMode === value.permissions.executionMode &&
+      value.permissions.parentPermissionMode === value.permissions.permissionMode;
+  }
+  return boundedNonEmptyString(value.parentAgentId, MAX_RUNTIME_ID_LENGTH) &&
+    boundedNonEmptyString(value.parentSessionId, MAX_RUNTIME_ID_LENGTH) &&
+    (value.depth as number) > 0 && value.backend.strategy === "inherit_parent" &&
+    isObject(value.task) && hasExactKeys(value.task, [
+      "id", "description", "prompt",
+    ]) && boundedNonEmptyString(value.task.id, MAX_RUNTIME_ID_LENGTH) &&
+    boundedNonEmptyString(value.task.description, MAX_RUNTIME_ITEM_LENGTH) &&
+    boundedNonEmptyString(value.task.prompt, MAX_RUNTIME_TEXT_LENGTH);
+}
+
 const base = ["version", "sessionId", "sequence", "at", "type"] as const;
 
 function validBase(value: Record<string, unknown>, sessionId: string): boolean {
@@ -694,9 +780,10 @@ export function parseSessionRecordV2(
   let valid = false;
   switch (value.type) {
     case "session_created":
-      valid = recordKeys(value, ["cwd", "backend"]) &&
+      valid = recordKeys(value, ["cwd", "backend"], ["agent"]) &&
         typeof value.cwd === "string" &&
-        isBackendPin(value.backend);
+        isBackendPin(value.backend) &&
+        (value.agent === undefined || isAgentDescriptor(value.agent, value.backend));
       break;
     case "turn_started":
       valid = recordKeys(value, ["turnId", "prompt"]) &&

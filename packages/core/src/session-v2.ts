@@ -1,6 +1,9 @@
 import { isDeepStrictEqual } from "node:util";
 
 import type {
+  AgentLifecycle,
+  AgentResult,
+  AgentSessionDescriptor,
   IntegrationFailure,
   ModelMessage,
   ProviderBackedMessage,
@@ -12,6 +15,10 @@ import type {
   SessionBackendPin,
   StopReason,
   ToolCall,
+} from "@recurs/contracts";
+import {
+  DEFAULT_OPERATING_MODE_ID,
+  getOperatingModePolicy,
 } from "@recurs/contracts";
 import type {
   ApprovalResponse,
@@ -124,6 +131,7 @@ export type SessionRecordV2 =
       type: "session_created";
       cwd: string;
       backend: SessionBackendPin;
+      agent?: AgentSessionDescriptor;
     })
   | (SessionRecordBaseV2 & {
       type: "turn_started";
@@ -241,6 +249,9 @@ export interface PinnedSessionState extends SessionState {
   runtimeContinuation: RuntimeContinuationHandle | null;
   runtimeContinuationPredecessor: RuntimeContinuationHandle | null;
   pendingRuntimeCompletion: PendingRuntimeCompletion | null;
+  agent: AgentSessionDescriptor;
+  agentLifecycle: AgentLifecycle;
+  agentResult: AgentResult | null;
 }
 
 export function isPinnedSessionState(
@@ -253,6 +264,53 @@ export function isPinnedSessionState(
 
 function unique(values: readonly string[]): string[] {
   return [...new Set(values)];
+}
+
+export function createRootAgentDescriptor(
+  sessionId: string,
+  backend: SessionBackendPin,
+): AgentSessionDescriptor {
+  const mode = getOperatingModePolicy(DEFAULT_OPERATING_MODE_ID);
+  return {
+    id: `${sessionId}:agent`,
+    role: "parent",
+    parentAgentId: null,
+    parentSessionId: null,
+    depth: 0,
+    task: null,
+    operatingMode: { id: mode.id, version: mode.version },
+    backend: {
+      strategy: "session_pin",
+      adapterId: backend.adapterId,
+      connectionId: backend.connectionId,
+      modelId: backend.modelId,
+    },
+    permissions: {
+      parentExecutionMode: "act",
+      executionMode: "act",
+      parentPermissionMode: "ask_always",
+      permissionMode: "ask_always",
+    },
+    limits: mode.orchestration,
+  };
+}
+
+function agentResult(result: RunResult): AgentResult {
+  return {
+    finalText: result.finalText,
+    usage: result.usage,
+    usageSource: result.usageSource,
+    steps: result.steps,
+    changedFiles: [...result.changedFiles],
+    evidence: [...result.evidence],
+  };
+}
+
+function terminalLifecycle(
+  state: PinnedSessionState,
+  child: AgentLifecycle,
+): AgentLifecycle {
+  return state.agent.role === "child" ? child : { status: "ready" };
 }
 
 function withoutPendingCall(calls: ToolCall[], callId: string): ToolCall[] {
@@ -438,6 +496,9 @@ export function reduceSessionRecordV2(
     ) {
       throw new Error("An uncertain delegated runtime turn must be resolved first");
     }
+    if (state.agent.role === "child" && state.agentLifecycle.status !== "ready") {
+      throw new Error("A terminal child agent cannot start another turn");
+    }
   } else if ("turnId" in record && state.openTurnId !== record.turnId) {
     throw new Error(`Record ${record.type} does not match the open turn`);
   }
@@ -491,7 +552,11 @@ export function reduceSessionRecordV2(
       throw new Error("session_created may appear only at sequence zero");
     case "turn_started":
       next = addMessage(
-        { ...state, openTurnId: record.turnId },
+        {
+          ...state,
+          openTurnId: record.turnId,
+          agentLifecycle: { status: "running", turnId: record.turnId },
+        },
         {
           id: `${record.turnId}:user`,
           role: "user",
@@ -696,6 +761,19 @@ export function reduceSessionRecordV2(
         ...state,
         executionMode: record.executionMode,
         permissionMode: record.permissionMode,
+        agent: {
+          ...state.agent,
+          permissions: {
+            parentExecutionMode: state.agent.role === "parent"
+              ? record.executionMode
+              : state.agent.permissions.parentExecutionMode,
+            executionMode: record.executionMode,
+            parentPermissionMode: state.agent.role === "parent"
+              ? record.permissionMode
+              : state.agent.permissions.parentPermissionMode,
+            permissionMode: record.permissionMode,
+          },
+        },
       };
       if (record.prePlanPermissionMode === undefined) {
         delete next.prePlanPermissionMode;
@@ -728,6 +806,11 @@ export function reduceSessionRecordV2(
           ...state,
           openTurnId: null,
           pendingRuntimeCompletion: null,
+          agentLifecycle: terminalLifecycle(state, {
+            status: "completed",
+            turnId: record.turnId,
+          }),
+          agentResult: agentResult(record.result),
         };
       } else {
         if (state.backend.pin.kind === "agent_runtime") {
@@ -741,6 +824,11 @@ export function reduceSessionRecordV2(
             ...record.result.changedFiles,
           ]),
           evidence: unique([...state.evidence, ...record.result.evidence]),
+          agentLifecycle: terminalLifecycle(state, {
+            status: "completed",
+            turnId: record.turnId,
+          }),
+          agentResult: agentResult(record.result),
         };
       }
       break;
@@ -758,13 +846,44 @@ export function reduceSessionRecordV2(
       if (record.continuation !== undefined) {
         assertExactUncertainTerminal(state, record.continuation);
       }
-      next = { ...state, openTurnId: null };
+      next = {
+        ...state,
+        openTurnId: null,
+        agentLifecycle: record.type === "turn_cancelled"
+          ? terminalLifecycle(state, {
+              status: "cancelled",
+              turnId: record.turnId,
+              reason: record.reason,
+            })
+          : terminalLifecycle(state, {
+              status: "failed",
+              turnId: record.turnId,
+              failure: record.error,
+            }),
+        agentResult: null,
+      };
       break;
     case "turn_interrupted":
       if (state.pendingRuntimeCompletion !== null) {
         throw new Error("A completed runtime turn must close successfully");
       }
-      next = { ...state, openTurnId: null };
+      next = {
+        ...state,
+        openTurnId: null,
+        agentLifecycle: terminalLifecycle(state, {
+          status: "failed",
+          turnId: record.turnId,
+          failure: {
+            domain: "runtime",
+            phase: "started",
+            code: "runtime_failed",
+            safeMessage: record.reason,
+            diagnosticId: `${state.id}:${record.turnId}:interrupted`,
+            retryable: false,
+          },
+        }),
+        agentResult: null,
+      };
       break;
     case "session_compacted": {
       const retained = new Set(record.retainedTurnIds);
@@ -836,6 +955,9 @@ export function reduceSessionRecordsV2(
     runtimeContinuation: null,
     runtimeContinuationPredecessor: null,
     pendingRuntimeCompletion: null,
+    agent: first.agent ?? createRootAgentDescriptor(first.sessionId, first.backend),
+    agentLifecycle: { status: "ready" },
+    agentResult: null,
   };
   for (const record of records.slice(1)) {
     state = reduceSessionRecordV2(state, record);
