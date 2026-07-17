@@ -58,6 +58,20 @@ export async function startRepl(
   });
 
   await writeOutput(output, "Recurs — local harness mode\nType /help for commands.\n");
+  if (runtime.state?.type === "workspace") {
+    await writeOutput(
+      output,
+      "\nLet's connect the team to a model. Recurs will show saved accounts, safely detected local runtimes, and the public provider catalog.\n\n",
+    );
+    try {
+      const discovery = await runtime.submit("/provider", invocation);
+      if (isCommandResult(discovery)) {
+        await renderCommandResult(discovery, output, output);
+      }
+    } catch (error) {
+      await writeOutput(output, `Provider discovery: ${safeCliErrorMessage(error)}\n`);
+    }
+  }
   try {
     for (;;) {
       let inputLine: string;

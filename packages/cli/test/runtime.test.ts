@@ -82,6 +82,35 @@ async function runtimeWith(provider: ScriptedProvider): Promise<RecursRuntime> {
 }
 
 describe("RecursRuntime", () => {
+  it("serves one shared provider guide from the sessionless shell", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-provider-guide-"));
+    directories.push(directory);
+    const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
+    const queries: string[] = [];
+    const runtime = new RecursRuntime(
+      {
+        commands: createCommandRegistry({ sessions }),
+        sessions,
+        confirm: async () => true,
+        async providerGuide(query) {
+          queries.push(query);
+          return "Connected\n  None yet\n\nDetected locally\n  Ollama";
+        },
+      },
+      createWorkspaceShell(directory),
+    );
+
+    await expect(runtime.submit("/provider kimi")).resolves.toMatchObject({
+      type: "message",
+      text: expect.stringContaining("Detected locally"),
+    });
+    await expect(runtime.submit("/connect")).resolves.toMatchObject({
+      type: "message",
+      text: expect.stringContaining("Connected"),
+    });
+    expect(queries).toEqual(["kimi", ""]);
+  });
+
   it("sanitizes an AgentLoop failure after compatibility wrapping", async () => {
     const canary = "RECURS_COMPATIBILITY_TOOL_NAME_CANARY";
     const provider = new ScriptedProvider(

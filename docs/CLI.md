@@ -40,6 +40,10 @@ Inspect the catalog and configured accounts without revealing account labels, ac
 recurs provider list
 recurs provider list --all
 recurs provider list --json
+recurs provider catalog
+recurs provider catalog kimi
+recurs provider catalog "coding plan" --json
+recurs provider detect
 recurs account list
 recurs account list --json
 recurs account verify <connection-id>
@@ -50,6 +54,14 @@ recurs doctor native --json
 ```
 
 The normal provider list hides blocked paths; `--all` includes them. Both text and JSON distinguish runnable, native-broker-required, and blocked paths and report structured billing and restrictions. Account output marks the primary connection and omits local endpoints, delegated account labels, fingerprints, and credentials.
+
+These commands intentionally separate three sources that other harnesses can make look like one operation:
+
+- `provider list` is Recurs's reviewed support and policy catalog;
+- `provider catalog` fetches public provider/model discovery metadata from `https://models.dev/api.json` and does not activate or authenticate anything;
+- `provider detect` probes only the fixed literal-loopback Ollama and LM Studio ports. It does not search the filesystem, inspect another tool's credential store, scan the LAN, or import tokens.
+
+Inside the interactive CLI, `/provider [search]` combines connected accounts, safe local detection, the public catalog, and Recurs's truthful setup status in one view. `/connect` remains an alias. When Recurs starts without a configured model, this provider view is the first onboarding step; the same discovery service will support the broader project-and-team onboarding flow rather than becoming a separate settings system. A public catalog match is never presented as runnable until Recurs has the complete reviewed authentication, billing, transport, and execution path.
 
 Account mutations require one full exact ID; prefixes, labels, indexes, extra flags, and control characters are rejected. `verify` is read-only and runs only from a local, user-present, non-automation terminal because Codex is one supported path. It rechecks the exact local model or official Codex account/model/read-only profile; it does not sign in, repair billing acknowledgement, or mutate the registry. Use `recurs setup codex` when Codex requires authentication or policy acknowledgement again.
 

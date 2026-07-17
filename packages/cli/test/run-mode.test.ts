@@ -749,6 +749,54 @@ describe("runCli", () => {
     }
   });
 
+  it("discovers the public catalog and fixed local runtimes as separate sources", async () => {
+    const catalogOut = new TextOutput();
+    const catalogErr = new TextOutput();
+    let query: string | undefined;
+    expect(await runCli(["provider", "catalog", "kimi", "coding", "--json"], {
+      stdout: catalogOut,
+      stderr: catalogErr,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async discoverProviders(value) {
+        query = value;
+        return {
+          source: "https://models.dev/api.json",
+          providers: [{
+            id: "kimi-for-coding",
+            name: "Kimi For Coding",
+            wire: "openai-compatible",
+            modelCount: 2,
+          }],
+        };
+      },
+    })).toBe(0);
+    expect(query).toBe("kimi coding");
+    expect(JSON.parse(catalogOut.value)).toMatchObject({
+      version: 1,
+      source: "https://models.dev/api.json",
+      providers: [{ id: "kimi-for-coding" }],
+    });
+    expect(catalogErr.value).toBe("");
+
+    const localOut = new TextOutput();
+    const localErr = new TextOutput();
+    expect(await runCli(["provider", "detect"], {
+      stdout: localOut,
+      stderr: localErr,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async detectProviders() {
+        return [{
+          id: "ollama",
+          name: "Ollama",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          detected: true,
+        }];
+      },
+    })).toBe(0);
+    expect(localOut.value).toContain("Ollama — detected");
+    expect(localErr.value).toBe("");
+  });
+
   it("rejects malformed provider/account list flags without calling services", async () => {
     for (const argv of [
       ["provider", "list", "--bad"],

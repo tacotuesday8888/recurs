@@ -61,6 +61,10 @@ import { createCommandRegistry } from "./commands/create.js";
 import type { LocalConnectionConfiguration } from "./local-connection.js";
 import { createCodexAgentRuntime } from "./codex-connection.js";
 import { RecursRuntime } from "./runtime.js";
+import {
+  providerDiscoveryOverview,
+  providerOverviewText,
+} from "./provider-discovery.js";
 
 export interface StandaloneRuntimeOptions {
   cwd?: string;
@@ -795,6 +799,11 @@ export async function createStandaloneRuntime(
       coordinator,
       sessions,
       confirm: async () => false,
+      providerGuide: async (query, signal) =>
+        providerOverviewText(
+          await providerDiscoveryOverview(root, query, signal),
+          query,
+        ),
       ...(initialBackend === undefined
         ? {
             promptUnavailableMessage:

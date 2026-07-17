@@ -8,6 +8,7 @@ import {
 } from "@recurs/core";
 import {
   ProviderError,
+  ProviderDiscoveryError,
   safeProviderErrorMessage,
 } from "@recurs/providers";
 import {
@@ -23,6 +24,9 @@ export function unexpectedFailureMessage(): string {
 }
 
 export function safeCliErrorMessage(error: unknown): string {
+  if (error instanceof ProviderDiscoveryError) {
+    return error.message;
+  }
   if (error instanceof ProviderError) {
     return safeProviderErrorMessage(error);
   }

@@ -48,6 +48,7 @@ export interface RuntimeDependencies {
   confirm(message: string): Promise<boolean>;
   now?: () => string;
   promptUnavailableMessage?: string;
+  providerGuide?(query: string, signal: AbortSignal): Promise<string>;
 }
 
 const MAX_CONFIRMATION_TEXT_LENGTH = 8_192;
@@ -229,7 +230,8 @@ export class RecursRuntime {
         level: "info",
         text: [
           "/help                         Show workspace commands",
-          "/connect                      Show local model setup instructions",
+          "/provider [search]            Discover, detect, and connect providers",
+          "/connect                      Alias for /provider",
           "/model                        Inspect model configuration",
           "/permissions [mode]           Set the next-session permission default",
           "/status                       Show workspace configuration",
@@ -250,6 +252,13 @@ export class RecursRuntime {
           `Permissions: ${workspace.permissionMode}`,
           "Model connection: Not configured",
         ].join("\n"),
+      };
+    }
+    if ((name === "provider" || name === "connect") && this.dependencies.providerGuide !== undefined) {
+      return {
+        type: "message",
+        level: "info",
+        text: await this.dependencies.providerGuide(args, this.currentSignal()),
       };
     }
     if (name === "connect") {
@@ -362,6 +371,19 @@ export class RecursRuntime {
           "busy",
           "Only /cancel, /status, and /help are available during an active run",
         );
+      }
+      if (
+        (parsed.name === "provider" || parsed.name === "connect") &&
+        this.dependencies.providerGuide !== undefined
+      ) {
+        return {
+          type: "message",
+          level: "info",
+          text: await this.dependencies.providerGuide(
+            parsed.args,
+            this.currentSignal(),
+          ),
+        };
       }
       const ownsController =
         this.#activeController === null && parsed.name !== "cancel";

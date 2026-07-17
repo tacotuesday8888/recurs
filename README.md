@@ -13,6 +13,7 @@ The repository contains a usable single-agent base:
 - credential-free OpenAI-compatible local model setup for literal-loopback Ollama and LM Studio servers;
 - private signed-macOS activation paths for OpenAI API, Anthropic API, and Kimi Code credentials, with native model discovery and streamed tool calling;
 - a validated 25-path provider/authentication catalog, a revisioned non-secret connection registry, and exact-ID account listing, verification, primary selection, and metadata-only disconnection;
+- a bounded `models.dev` discovery catalog, fixed-port loopback detection for Ollama and LM Studio, and one `/provider` surface shared with first-run onboarding;
 - an official Codex ACP path for an existing ChatGPT login, constrained to local, interactive, user-present, Plan-only work;
 - seven tools for file reading, listing, search, patching, bounded shell execution, Git status, and Git diff;
 - Ask Always, Approved for Me, Full Access, enforced Plan mode, and temporary read-only review;
@@ -36,6 +37,8 @@ npm run check
 npm run build
 node packages/cli/dist/main.js --help
 node packages/cli/dist/main.js provider list
+node packages/cli/dist/main.js provider catalog kimi
+node packages/cli/dist/main.js provider detect
 node packages/cli/dist/main.js account list
 node packages/cli/dist/main.js account verify <connection-id>
 node packages/cli/dist/main.js account set-primary <connection-id>

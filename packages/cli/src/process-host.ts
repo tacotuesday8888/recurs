@@ -17,6 +17,11 @@ import {
   type NativeOpenAIResponsesPort,
 } from "@recurs/contracts";
 import {
+  detectLocalRuntimes,
+  type LocalRuntimeDetection,
+  type ProviderCatalogSnapshot,
+} from "@recurs/providers";
+import {
   CodexOnboardingError,
   ConnectionLifecycleError,
   NativeAuthorityService,
@@ -50,6 +55,11 @@ import {
   type ProviderSummary,
 } from "./provider-account.js";
 import {
+  discoverProviderCatalog,
+  localRuntimeText,
+  providerCatalogText,
+} from "./provider-discovery.js";
+import {
   LocalConnectionError,
   setupLocalConnection,
   type LocalConnectionConfiguration,
@@ -82,6 +92,8 @@ Usage:
   recurs setup anthropic --model <exact-id>
   recurs setup kimi --model <exact-id>
   recurs provider list [--all] [--json]
+  recurs provider catalog [query] [--json]
+  recurs provider detect [--json]
   recurs account list [--json]
   recurs account set-primary <id>
   recurs account verify <id>
@@ -128,6 +140,13 @@ export interface CliDependencies {
   listProviders?(input: {
     includeBlocked: boolean;
   }): Promise<readonly ProviderSummary[]>;
+  discoverProviders?(
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<ProviderCatalogSnapshot>;
+  detectProviders?(
+    signal?: AbortSignal,
+  ): Promise<readonly LocalRuntimeDetection[]>;
   listAccounts?(): Promise<readonly AccountSummary[]>;
   setPrimaryAccount?(id: string): Promise<AccountSummary>;
   verifyAccount?(id: string, cwd: string): Promise<ConnectionVerification>;
@@ -375,6 +394,33 @@ function parseListArguments(
   return { json, includeBlocked };
 }
 
+type ProviderCommand =
+  | { readonly kind: "list"; readonly json: boolean; readonly includeBlocked: boolean }
+  | { readonly kind: "catalog"; readonly json: boolean; readonly query: string }
+  | { readonly kind: "detect"; readonly json: boolean };
+
+function parseProviderCommand(args: readonly string[]): ProviderCommand | null {
+  const listed = parseListArguments(args, true);
+  if (listed !== null) return { kind: "list", ...listed };
+  if (args[0] === "detect") {
+    if (args.length === 1) return { kind: "detect", json: false };
+    if (args.length === 2 && args[1] === "--json") {
+      return { kind: "detect", json: true };
+    }
+    return null;
+  }
+  if (args[0] !== "catalog") return null;
+  let json = false;
+  const query: string[] = [];
+  for (const argument of args.slice(1)) {
+    if (argument === "--json" && !json) json = true;
+    else if (argument.startsWith("--")) return null;
+    else query.push(argument);
+  }
+  const joined = query.join(" ").trim();
+  return joined.length <= 256 ? { kind: "catalog", json, query: joined } : null;
+}
+
 type AccountCommand =
   | { readonly kind: "list"; readonly json: boolean }
   | { readonly kind: "set_primary"; readonly id: string }
@@ -571,21 +617,54 @@ export async function runCli(
   }
 
   if (argv[0] === "provider") {
-    const parsed = parseListArguments(argv.slice(1), true);
-    if (parsed === null || dependencies.listProviders === undefined) {
+    const parsed = parseProviderCommand(argv.slice(1));
+    if (parsed === null) {
       await writeOutput(dependencies.stderr, help);
       return 2;
     }
     try {
-      const providers = await dependencies.listProviders({
-        includeBlocked: parsed.includeBlocked,
-      });
-      await writeOutput(
-        dependencies.stdout,
-        parsed.json
-          ? `${JSON.stringify({ version: 1, providers })}\n`
-          : providerText(providers),
-      );
+      if (parsed.kind === "list") {
+        if (dependencies.listProviders === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const providers = await dependencies.listProviders({
+          includeBlocked: parsed.includeBlocked,
+        });
+        await writeOutput(
+          dependencies.stdout,
+          parsed.json
+            ? `${JSON.stringify({ version: 1, providers })}\n`
+            : providerText(providers),
+        );
+      } else if (parsed.kind === "catalog") {
+        if (dependencies.discoverProviders === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const snapshot = await dependencies.discoverProviders(
+          parsed.query,
+          dependencies.signal,
+        );
+        await writeOutput(
+          dependencies.stdout,
+          parsed.json
+            ? `${JSON.stringify({ version: 1, ...snapshot })}\n`
+            : providerCatalogText(snapshot),
+        );
+      } else {
+        if (dependencies.detectProviders === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const providers = await dependencies.detectProviders(dependencies.signal);
+        await writeOutput(
+          dependencies.stdout,
+          parsed.json
+            ? `${JSON.stringify({ version: 1, providers })}\n`
+            : localRuntimeText(providers),
+        );
+      }
       return 0;
     } catch (error) {
       await writeOutput(
@@ -983,6 +1062,10 @@ export async function runCliProcess(
       setupCodex: (input) => setupCodexSubscription(dataDirectory, input),
       listProviders: async ({ includeBlocked }) =>
         listProviderSummaries(includeBlocked),
+      discoverProviders: (query, signal) =>
+        discoverProviderCatalog(query, signal),
+      detectProviders: (signal) =>
+        detectLocalRuntimes(signal === undefined ? {} : { signal }),
       listAccounts: () => listAccountSummaries(dataDirectory),
       setPrimaryAccount: (id) => setPrimaryAccount(dataDirectory, id),
       verifyAccount: (id, cwd) => verifyAccount(dataDirectory, id, cwd),

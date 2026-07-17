@@ -4,6 +4,8 @@ import { permissionLabel } from "./permissions.js";
 
 const helpText = [
   "/help                         Show this command list",
+  "/provider [search]            Discover, detect, and connect providers",
+  "/connect                      Alias for /provider",
   "/goal [objective|action]      Manage the durable goal",
   "/plan [prompt|exit]           Enter read-only Plan mode or return to Act",
   "/permissions [mode]           Set Ask Always, Approved for Me, or Full Access",
