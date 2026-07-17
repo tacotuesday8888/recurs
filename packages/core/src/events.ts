@@ -3,6 +3,7 @@ import type {
   IntegrationFailure,
   AgentProfileId,
   OperatingModeId,
+  OperatingModeVersion,
   ProviderUsage,
 } from "@recurs/contracts";
 import type {
@@ -83,7 +84,7 @@ export type RecursEvent =
   | (EventBase & {
       type: "agent_policy_updated";
       operatingModeId: OperatingModeId;
-      operatingModeVersion: 1;
+      operatingModeVersion: OperatingModeVersion;
     })
   | (EventBase & {
       type: "agent_started";

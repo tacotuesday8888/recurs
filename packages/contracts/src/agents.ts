@@ -129,7 +129,14 @@ export type OperatingModeId =
   | "standard_v1"
   | "balanced_v1"
   | "performance_v1"
-  | "max_v1";
+  | "max_v1"
+  | "economy_v2"
+  | "standard_v2"
+  | "balanced_v2"
+  | "performance_v2"
+  | "max_v2";
+
+export type OperatingModeVersion = 1 | 2;
 
 export interface AgentLimits {
   readonly maxDepth: number;
@@ -141,7 +148,7 @@ export interface AgentLimits {
 
 export interface OperatingModePolicy {
   readonly id: OperatingModeId;
-  readonly version: 1;
+  readonly version: OperatingModeVersion;
   readonly displayName: string;
   readonly model: {
     readonly selection: "inherit_parent";
@@ -154,19 +161,21 @@ export interface OperatingModePolicy {
 
 function policy(
   id: OperatingModeId,
+  version: OperatingModeVersion,
   displayName: string,
+  maxConcurrentChildren: number,
   maxRequests: number,
   maxReportedCostUsd: number,
   maxChildrenPerRun: number,
 ): OperatingModePolicy {
   return Object.freeze({
     id,
-    version: 1 as const,
+    version,
     displayName,
     model: Object.freeze({ selection: "inherit_parent" as const }),
     orchestration: Object.freeze({
       maxDepth: 1,
-      maxConcurrentChildren: 1,
+      maxConcurrentChildren,
       maxRetries: 0,
       maxRequests,
       maxReportedCostUsd,
@@ -177,14 +186,20 @@ function policy(
 
 export const operatingModePolicies: readonly OperatingModePolicy[] =
   Object.freeze([
-    policy("economy_v1", "Economy", 8, 0.25, 2),
-    policy("standard_v1", "Standard", 16, 1, 3),
-    policy("balanced_v1", "Balanced", 24, 3, 4),
-    policy("performance_v1", "Performance", 32, 10, 6),
-    policy("max_v1", "Max", 40, 25, 8),
+    policy("economy_v1", 1, "Economy", 1, 8, 0.25, 2),
+    policy("standard_v1", 1, "Standard", 1, 16, 1, 3),
+    policy("balanced_v1", 1, "Balanced", 1, 24, 3, 4),
+    policy("performance_v1", 1, "Performance", 1, 32, 10, 6),
+    policy("max_v1", 1, "Max", 1, 40, 25, 8),
+    policy("economy_v2", 2, "Economy", 1, 8, 0.25, 2),
+    policy("standard_v2", 2, "Standard", 2, 16, 1, 3),
+    policy("balanced_v2", 2, "Balanced", 3, 24, 3, 4),
+    policy("performance_v2", 2, "Performance", 4, 32, 10, 6),
+    policy("max_v2", 2, "Max", 6, 40, 25, 8),
   ]);
 
-export const DEFAULT_OPERATING_MODE_ID: OperatingModeId = "balanced_v1";
+export const LEGACY_OPERATING_MODE_ID: OperatingModeId = "balanced_v1";
+export const DEFAULT_OPERATING_MODE_ID: OperatingModeId = "balanced_v2";
 
 const policiesById = new Map(
   operatingModePolicies.map((item) => [item.id, item] as const),
@@ -200,11 +215,13 @@ export function getOperatingModePolicy(id: OperatingModeId): OperatingModePolicy
 
 export function parseOperatingModeId(input: string): OperatingModeId | null {
   const normalized = input.trim().toLowerCase();
-  for (const item of operatingModePolicies) {
-    if (
-      normalized === item.id ||
-      normalized === item.displayName.toLowerCase()
-    ) {
+  const exact = policiesById.get(normalized as OperatingModeId);
+  if (exact !== undefined) {
+    return exact.id;
+  }
+  const newestFirst = [...operatingModePolicies].reverse();
+  for (const item of newestFirst) {
+    if (normalized === item.displayName.toLowerCase()) {
       return item.id;
     }
   }
@@ -239,6 +256,15 @@ export interface AgentBackendSelection {
   readonly modelId: string;
 }
 
+export interface AgentGitWorktreeWorkspace {
+  readonly kind: "git_worktree";
+  readonly version: 1;
+  readonly leaseId: string;
+  readonly repositoryRoot: string;
+  readonly worktreeRoot: string;
+  readonly revision: string;
+}
+
 export interface AgentSessionDescriptor {
   readonly id: string;
   readonly role: "parent" | "child";
@@ -252,7 +278,7 @@ export interface AgentSessionDescriptor {
   readonly task: AgentTask | null;
   readonly operatingMode: {
     readonly id: OperatingModeId;
-    readonly version: 1;
+    readonly version: OperatingModeVersion;
   };
   readonly backend: AgentBackendSelection;
   readonly permissions: {
@@ -262,6 +288,7 @@ export interface AgentSessionDescriptor {
     readonly permissionMode: AgentPermissionMode;
   };
   readonly limits: AgentLimits;
+  readonly workspace?: AgentGitWorktreeWorkspace;
 }
 
 export type AgentLifecycle =

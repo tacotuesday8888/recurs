@@ -153,7 +153,7 @@ describe("session commands", () => {
     expect(await commands.execute("/agents", commandContext)).toMatchObject({
       type: "message",
       text: expect.stringMatching(
-        /Balanced \(balanced_v1\)[\s\S]*child requests 24[\s\S]*Children per parent run: 4/u,
+        /Balanced \(balanced_v2\)[\s\S]*concurrency 3[\s\S]*child requests 24[\s\S]*Children per parent run: 4/u,
       ),
     });
     const profiles = await commands.execute("/agents profiles", commandContext);
@@ -171,13 +171,13 @@ describe("session commands", () => {
     expect(await commands.execute("/agents mode economy", commandContext)).toMatchObject({
       type: "message",
       text: expect.stringMatching(
-        /Economy \(economy_v1\)[\s\S]*Children per parent run: 2/u,
+        /Economy \(economy_v2\)[\s\S]*Children per parent run: 2/u,
       ),
     });
     const reloaded = await sessions.loadState("agent-mode-session");
     expect(reloaded).toMatchObject({
       agent: {
-        operatingMode: { id: "economy_v1", version: 1 },
+        operatingMode: { id: "economy_v2", version: 2 },
         limits: { maxRequests: 8, maxDepth: 1, maxConcurrentChildren: 1 },
       },
       backend: initial.backend,
@@ -185,6 +185,11 @@ describe("session commands", () => {
     expect(await commands.execute("/agents mode eco", commandContext)).toMatchObject({
       level: "error",
       text: expect.stringContaining("Choose /agents mode"),
+    });
+    expect(await commands.execute("/agents mode economy_v1", commandContext))
+      .toMatchObject({ text: expect.stringContaining("Economy (economy_v1)") });
+    expect(await sessions.loadState("agent-mode-session")).toMatchObject({
+      agent: { operatingMode: { id: "economy_v1", version: 1 } },
     });
   });
 

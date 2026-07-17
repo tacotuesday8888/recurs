@@ -90,15 +90,15 @@ protected subprocesses.
 - Permit a child request limit to be a positive narrowing of its mode limit;
   root limits must still equal the policy exactly.
 
-- [ ] Write failing contract tests for all ten IDs, latest display-name parsing,
+- [x] Write failing contract tests for all ten IDs, latest display-name parsing,
   exact old-ID parsing, v1 immutability, v2 concurrency, and frozen policies.
-- [ ] Write failing session tests proving new roots use v2, descriptor-less old
+- [x] Write failing session tests proving new roots use v2, descriptor-less old
   logs replay as v1, explicit v1/v2 agents round-trip, malformed workspace
   isolation is rejected, and a child can narrow but never widen requests.
-- [ ] Run the focused tests and observe RED for the missing v2 contracts.
-- [ ] Implement versioned policy lookup/parsing, explicit legacy reconstruction,
+- [x] Run the focused tests and observe RED for the missing v2 contracts.
+- [x] Implement versioned policy lookup/parsing, explicit legacy reconstruction,
   and strict backward-compatible descriptor validation.
-- [ ] Run focused contract/core tests, typecheck, inspect the diff, and commit.
+- [x] Run focused contract/core tests, typecheck, inspect the diff, and commit.
 
 ### Task 2: Make the per-parent workflow budget concurrency-safe
 
@@ -298,4 +298,3 @@ interface GitWorktreeLeasePort {
   if shared TypeScript/native contracts changed.
 - [ ] Mark completed plan steps, create the final focused documentation/audit
   commit, and leave `codex/parallel-fanout-v1` clean without push or merge.
-

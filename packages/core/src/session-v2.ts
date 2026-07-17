@@ -18,6 +18,7 @@ import type {
 } from "@recurs/contracts";
 import {
   DEFAULT_OPERATING_MODE_ID,
+  LEGACY_OPERATING_MODE_ID,
   getAgentProfilePolicy,
   getOperatingModePolicy,
   narrowAgentPermissionMode,
@@ -219,7 +220,7 @@ export type SessionRecordV2 =
   | (SessionRecordBaseV2 & {
       type: "agent_policy_updated";
       operatingModeId: AgentSessionDescriptor["operatingMode"]["id"];
-      operatingModeVersion: 1;
+      operatingModeVersion: AgentSessionDescriptor["operatingMode"]["version"];
     })
   | (SessionRecordBaseV2 & {
       type: "compaction_started";
@@ -284,8 +285,9 @@ function unique(values: readonly string[]): string[] {
 export function createRootAgentDescriptor(
   sessionId: string,
   backend: SessionBackendPin,
+  operatingModeId = DEFAULT_OPERATING_MODE_ID,
 ): AgentSessionDescriptor {
-  const mode = getOperatingModePolicy(DEFAULT_OPERATING_MODE_ID);
+  const mode = getOperatingModePolicy(operatingModeId);
   return {
     id: `${sessionId}:agent`,
     role: "parent",
@@ -1011,7 +1013,11 @@ export function reduceSessionRecordsV2(
       "A version 2 session log must begin with session_created at sequence zero",
     );
   }
-  const agent = first.agent ?? createRootAgentDescriptor(first.sessionId, first.backend);
+  const agent = first.agent ?? createRootAgentDescriptor(
+    first.sessionId,
+    first.backend,
+    LEGACY_OPERATING_MODE_ID,
+  );
   let state: PinnedSessionState = {
     version: 2,
     id: first.sessionId,

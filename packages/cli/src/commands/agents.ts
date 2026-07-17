@@ -17,7 +17,7 @@ function summary(id: Parameters<typeof getOperatingModePolicy>[0]): string {
     `Agent mode: ${policy.displayName} (${policy.id})`,
     "Model policy: inherit the session's pinned backend",
     `Limits: depth ${policy.orchestration.maxDepth}, concurrency ${policy.orchestration.maxConcurrentChildren}, retries ${policy.orchestration.maxRetries}, child requests ${policy.orchestration.maxRequests}`,
-    `Children per parent run: ${policy.workflow.maxChildrenPerRun} (foreground, sequential)`,
+    `Children per parent run: ${policy.workflow.maxChildrenPerRun} (foreground; delegate_task starts one at a time)`,
     `Reported cost ceiling: $${policy.orchestration.maxReportedCostUsd.toFixed(2)} (flagged after telemetry; child requests are the pre-run bound)`,
   ].join("\n");
 }

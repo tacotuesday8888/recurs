@@ -5,6 +5,8 @@ import path from "node:path";
 import {
   createHostInvocation,
   deriveTrustedRunContext,
+  getOperatingModePolicy,
+  type OperatingModeId,
   type BackendResolver,
   type CoordinatedRunInput,
   type RunCoordinator,
@@ -49,7 +51,7 @@ const trusted = deriveTrustedRunContext(createHostInvocation({
   embedding: "cli",
 }));
 
-async function storeFixture() {
+async function storeFixture(operatingModeId?: OperatingModeId) {
   const directory = await mkdtemp(path.join(tmpdir(), "recurs-child-manager-"));
   directories.push(directory);
   const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
@@ -68,6 +70,15 @@ async function storeFixture() {
       permissionMode: "approved_for_me",
       at: testAt,
     });
+    if (operatingModeId !== undefined) {
+      const policy = getOperatingModePolicy(operatingModeId);
+      await lease.append({
+        type: "agent_policy_updated",
+        operatingModeId: policy.id,
+        operatingModeVersion: policy.version,
+        at: testAt,
+      });
+    }
   });
   parent = await sessions.loadState(parent.id) as typeof parent;
   return { directory, sessions, pin, parent };
@@ -761,7 +772,7 @@ describe("ChildAgentManager", () => {
   });
 
   it("enforces the explicit one-child concurrency limit", async () => {
-    const { sessions, parent } = await storeFixture();
+    const { sessions, parent } = await storeFixture("balanced_v1");
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
     let started!: () => void;

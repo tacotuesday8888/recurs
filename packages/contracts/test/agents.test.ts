@@ -5,6 +5,7 @@ import {
   DEFAULT_OPERATING_MODE_ID,
   getAgentProfilePolicy,
   getOperatingModePolicy,
+  LEGACY_OPERATING_MODE_ID,
   narrowAgentPermissionMode,
   operatingModePolicies,
   parseAgentProfileId,
@@ -94,13 +95,18 @@ describe("agent profile contracts", () => {
 });
 
 describe("agent operating-mode contracts", () => {
-  it("uses stable non-display identifiers for the five initial policies", () => {
+  it("preserves v1 policies and adds stable v2 concurrency policies", () => {
     expect(operatingModePolicies.map((policy) => policy.id)).toEqual([
       "economy_v1",
       "standard_v1",
       "balanced_v1",
       "performance_v1",
       "max_v1",
+      "economy_v2",
+      "standard_v2",
+      "balanced_v2",
+      "performance_v2",
+      "max_v2",
     ]);
     expect(operatingModePolicies.map((policy) => policy.displayName)).toEqual([
       "Economy",
@@ -108,36 +114,52 @@ describe("agent operating-mode contracts", () => {
       "Balanced",
       "Performance",
       "Max",
+      "Economy",
+      "Standard",
+      "Balanced",
+      "Performance",
+      "Max",
     ]);
-    expect(operatingModePolicies.every((policy) => policy.version === 1)).toBe(true);
+    expect(operatingModePolicies.map((policy) => policy.version)).toEqual([
+      1, 1, 1, 1, 1,
+      2, 2, 2, 2, 2,
+    ]);
   });
 
-  it("defaults to Balanced without coupling storage to the display label", () => {
-    expect(DEFAULT_OPERATING_MODE_ID).toBe("balanced_v1");
+  it("defaults new sessions to v2 while retaining an explicit legacy default", () => {
+    expect(DEFAULT_OPERATING_MODE_ID).toBe("balanced_v2");
+    expect(LEGACY_OPERATING_MODE_ID).toBe("balanced_v1");
     expect(getOperatingModePolicy(DEFAULT_OPERATING_MODE_ID).displayName).toBe("Balanced");
+    expect(getOperatingModePolicy(LEGACY_OPERATING_MODE_ID).version).toBe(1);
   });
 
-  it("parses exact supported names and stable ids without prefix matching", () => {
-    expect(parseOperatingModeId("economy")).toBe("economy_v1");
-    expect(parseOperatingModeId("Performance")).toBe("performance_v1");
+  it("parses display names to latest policies and every exact stable id", () => {
+    expect(parseOperatingModeId("economy")).toBe("economy_v2");
+    expect(parseOperatingModeId("Performance")).toBe("performance_v2");
     expect(parseOperatingModeId("max_v1")).toBe("max_v1");
+    expect(parseOperatingModeId("max_v2")).toBe("max_v2");
     expect(parseOperatingModeId("bal")).toBeNull();
     expect(parseOperatingModeId("max extra")).toBeNull();
   });
 
-  it("keeps every initial mode bounded and honest about model selection", () => {
+  it("keeps every mode bounded and honest about model selection", () => {
     for (const policy of operatingModePolicies) {
       expect(policy.model.selection).toBe("inherit_parent");
       expect(policy.orchestration.maxDepth).toBe(1);
-      expect(policy.orchestration.maxConcurrentChildren).toBe(1);
       expect(policy.orchestration.maxRetries).toBe(0);
       expect(policy.orchestration.maxRequests).toBeGreaterThan(0);
       expect(policy.orchestration.maxReportedCostUsd).toBeGreaterThan(0);
       expect(policy.workflow.maxChildrenPerRun).toBeGreaterThan(0);
     }
+    expect(operatingModePolicies.slice(0, 5).map((policy) =>
+      policy.orchestration.maxConcurrentChildren
+    )).toEqual([1, 1, 1, 1, 1]);
+    expect(operatingModePolicies.slice(5).map((policy) =>
+      policy.orchestration.maxConcurrentChildren
+    )).toEqual([1, 2, 3, 4, 6]);
     expect(operatingModePolicies.map((policy) =>
       policy.workflow.maxChildrenPerRun
-    )).toEqual([2, 3, 4, 6, 8]);
+    )).toEqual([2, 3, 4, 6, 8, 2, 3, 4, 6, 8]);
   });
 
   it("never widens a requested child permission beyond its parent", () => {

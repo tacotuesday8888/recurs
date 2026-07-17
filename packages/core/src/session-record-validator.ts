@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import path from "node:path";
 
 import {
   getOperatingModePolicy,
@@ -45,6 +46,8 @@ const MAX_RUNTIME_JSON_DEPTH = 16;
 const MAX_RUNTIME_JSON_NODES = 4_096;
 const MAX_RUNTIME_JSON_CHARACTERS = 131_072;
 const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/;
+const GIT_REVISION = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+const LEASE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 function boundedString(value: unknown, maximum: number): value is string {
   return typeof value === "string" && value.length <= maximum;
@@ -689,16 +692,16 @@ function isAgentExecutionMode(
 function isAgentDescriptor(
   value: unknown,
   backend: SessionBackendPin,
+  cwd: string,
 ): value is AgentSessionDescriptor {
   if (!isObject(value) || !hasExactKeys(value, [
     "id", "role", "profile", "parentAgentId", "parentSessionId", "depth", "task",
     "operatingMode", "backend", "permissions", "limits",
-  ]) || !boundedNonEmptyString(value.id, MAX_RUNTIME_ID_LENGTH) ||
+  ], ["workspace"]) || !boundedNonEmptyString(value.id, MAX_RUNTIME_ID_LENGTH) ||
     (value.role !== "parent" && value.role !== "child") ||
     !Number.isSafeInteger(value.depth) || (value.depth as number) < 0 ||
     !isObject(value.operatingMode) ||
     !hasExactKeys(value.operatingMode, ["id", "version"]) ||
-    value.operatingMode.version !== 1 ||
     typeof value.operatingMode.id !== "string" ||
     parseOperatingModeId(value.operatingMode.id) !== value.operatingMode.id ||
     !isObject(value.backend) ||
@@ -726,7 +729,14 @@ function isAgentDescriptor(
   }
   const modeId = value.operatingMode.id;
   const policy = getOperatingModePolicy(modeId);
-  if (!isDeepStrictEqual(value.limits, policy.orchestration) ||
+  const maxRequests = value.limits.maxRequests;
+  if (value.operatingMode.version !== policy.version ||
+    !Number.isSafeInteger(maxRequests) || (maxRequests as number) <= 0 ||
+    (maxRequests as number) > policy.orchestration.maxRequests ||
+    !isDeepStrictEqual(
+      value.limits,
+      { ...policy.orchestration, maxRequests },
+    ) ||
     (value.depth as number) > policy.orchestration.maxDepth ||
     narrowAgentPermissionMode(
       value.permissions.parentPermissionMode,
@@ -740,6 +750,8 @@ function isAgentDescriptor(
     return value.profile === null &&
       value.parentAgentId === null && value.parentSessionId === null &&
       value.depth === 0 && value.task === null &&
+      value.workspace === undefined &&
+      isDeepStrictEqual(value.limits, policy.orchestration) &&
       value.backend.strategy === "session_pin" &&
       value.permissions.parentExecutionMode === value.permissions.executionMode &&
       value.permissions.parentPermissionMode === value.permissions.permissionMode;
@@ -758,7 +770,26 @@ function isAgentDescriptor(
     profile.executionMode !== value.permissions.executionMode) {
     return false;
   }
-  return boundedNonEmptyString(value.parentAgentId, MAX_RUNTIME_ID_LENGTH) &&
+  const workspace = value.workspace;
+  const validWorkspace = workspace === undefined || (
+    isObject(workspace) &&
+    hasExactKeys(workspace, [
+      "kind", "version", "leaseId", "repositoryRoot", "worktreeRoot", "revision",
+    ]) &&
+    workspace.kind === "git_worktree" && workspace.version === 1 &&
+    typeof workspace.leaseId === "string" && LEASE_ID.test(workspace.leaseId) &&
+    boundedNonEmptyString(workspace.repositoryRoot, MAX_RUNTIME_TEXT_LENGTH) &&
+    boundedNonEmptyString(workspace.worktreeRoot, MAX_RUNTIME_TEXT_LENGTH) &&
+    path.isAbsolute(workspace.repositoryRoot) &&
+    path.resolve(workspace.repositoryRoot) === workspace.repositoryRoot &&
+    path.isAbsolute(workspace.worktreeRoot) &&
+    path.resolve(workspace.worktreeRoot) === workspace.worktreeRoot &&
+    workspace.repositoryRoot !== workspace.worktreeRoot &&
+    workspace.worktreeRoot === cwd &&
+    typeof workspace.revision === "string" && GIT_REVISION.test(workspace.revision)
+  );
+  return validWorkspace &&
+    boundedNonEmptyString(value.parentAgentId, MAX_RUNTIME_ID_LENGTH) &&
     boundedNonEmptyString(value.parentSessionId, MAX_RUNTIME_ID_LENGTH) &&
     (value.depth as number) > 0 && value.backend.strategy === "inherit_parent" &&
     isObject(value.task) && hasExactKeys(value.task, [
@@ -800,7 +831,7 @@ export function parseSessionRecordV2(
       valid = recordKeys(value, ["cwd", "backend"], ["agent"]) &&
         typeof value.cwd === "string" &&
         isBackendPin(value.backend) &&
-        (value.agent === undefined || isAgentDescriptor(value.agent, value.backend));
+        (value.agent === undefined || isAgentDescriptor(value.agent, value.backend, value.cwd));
       break;
     case "turn_started":
       valid = recordKeys(value, ["turnId", "prompt"]) &&
@@ -956,7 +987,9 @@ export function parseSessionRecordV2(
       valid = recordKeys(value, ["operatingModeId", "operatingModeVersion"]) &&
         typeof value.operatingModeId === "string" &&
         parseOperatingModeId(value.operatingModeId) === value.operatingModeId &&
-        value.operatingModeVersion === 1;
+        value.operatingModeVersion === getOperatingModePolicy(
+          value.operatingModeId as AgentSessionDescriptor["operatingMode"]["id"],
+        ).version;
       break;
     case "compaction_started":
       valid = recordKeys(value, ["operationId", "inputBaseSequence"]) &&

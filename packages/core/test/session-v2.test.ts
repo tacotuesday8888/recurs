@@ -67,7 +67,7 @@ describe("version 2 sessions", () => {
       parentSessionId: null,
       depth: 0,
       task: null,
-      operatingMode: { id: "balanced_v1", version: 1 },
+      operatingMode: { id: "balanced_v2", version: 2 },
       backend: {
         strategy: "session_pin",
         adapterId: backend.adapterId,
@@ -196,6 +196,103 @@ describe("version 2 sessions", () => {
         at,
       });
     })).rejects.toThrow("terminal child agent");
+  });
+
+  it("round-trips a v2 child with narrowed requests and host-owned isolation", async () => {
+    const store = await temporaryStore();
+    const mode = getOperatingModePolicy("balanced_v2");
+    const worktreeRoot = "/recurs-data/agent-worktrees/lease-1";
+    const agent = {
+      id: "isolated-child-agent",
+      role: "child",
+      profile: { id: "review_v1", version: 1 },
+      parentAgentId: "parent-agent",
+      parentSessionId: "parent-session",
+      depth: 1,
+      task: { id: "task", description: "Review", prompt: "Review the change" },
+      operatingMode: { id: mode.id, version: mode.version },
+      backend: {
+        strategy: "inherit_parent",
+        adapterId: backend.adapterId,
+        connectionId: backend.connectionId,
+        modelId: backend.modelId,
+      },
+      permissions: {
+        parentExecutionMode: "act",
+        executionMode: "act",
+        parentPermissionMode: "approved_for_me",
+        permissionMode: "approved_for_me",
+      },
+      limits: { ...mode.orchestration, maxRequests: 6 },
+      workspace: {
+        kind: "git_worktree",
+        version: 1,
+        leaseId: "lease-1",
+        repositoryRoot: "/workspace",
+        worktreeRoot,
+        revision: "a".repeat(40),
+      },
+    } as unknown as AgentSessionDescriptor;
+
+    const state = await store.createPinnedSession({
+      id: "isolated-child-session",
+      cwd: worktreeRoot,
+      backend,
+      agent,
+      at,
+    });
+
+    expect(state.agent).toEqual(agent);
+    expect(state.agent.limits.maxRequests).toBe(6);
+  });
+
+  it.each([
+    ["widened requests", { maxRequests: 25 }, "/recurs-data/agent-worktrees/lease-1"],
+    ["mismatched worktree cwd", { maxRequests: 6 }, "/different-worktree"],
+  ] as const)("rejects v2 isolation with %s", async (
+    _description,
+    limitOverride,
+    cwd,
+  ) => {
+    const store = await temporaryStore();
+    const mode = getOperatingModePolicy("balanced_v2");
+    await expect(store.createPinnedSession({
+      id: `invalid-isolated-${cwd.length}`,
+      cwd,
+      backend,
+      at,
+      agent: {
+        id: "invalid-isolated-agent",
+        role: "child",
+        profile: { id: "explore_v1", version: 1 },
+        parentAgentId: "parent-agent",
+        parentSessionId: "parent-session",
+        depth: 1,
+        task: { id: "task", description: "Inspect", prompt: "Inspect" },
+        operatingMode: { id: mode.id, version: mode.version },
+        backend: {
+          strategy: "inherit_parent",
+          adapterId: backend.adapterId,
+          connectionId: backend.connectionId,
+          modelId: backend.modelId,
+        },
+        permissions: {
+          parentExecutionMode: "act",
+          executionMode: "plan",
+          parentPermissionMode: "approved_for_me",
+          permissionMode: "approved_for_me",
+        },
+        limits: { ...mode.orchestration, ...limitOverride },
+        workspace: {
+          kind: "git_worktree",
+          version: 1,
+          leaseId: "lease-1",
+          repositoryRoot: "/workspace",
+          worktreeRoot: "/recurs-data/agent-worktrees/lease-1",
+          revision: "a".repeat(40),
+        },
+      } as unknown as AgentSessionDescriptor,
+    })).rejects.toMatchObject({ code: "invalid_record" });
   });
 
   it("rejects a child descriptor that widens parent permissions", async () => {
