@@ -6,9 +6,12 @@ import {
   getOperatingModePolicy,
   narrowAgentPermissionMode,
   parseAgentProfileId,
+  type AgentGitWorktreeWorkspace,
   type AgentProfileId,
   type HostInvocation,
   type IntegrationFailure,
+  type OperatingModeId,
+  type ProviderUsage,
   type RunCoordinator,
   type TrustedRunContext,
 } from "@recurs/contracts";
@@ -20,7 +23,10 @@ import {
   type ToolResult,
 } from "@recurs/tools";
 
-import type { RecursEvent } from "./events.js";
+import type {
+  AgentWorkflowUsage,
+  RecursEvent,
+} from "./events.js";
 import {
   isPinnedSessionState,
   type PinnedSessionState,
@@ -32,10 +38,37 @@ import {
   scopeAgentPrompt,
 } from "./agent-profile.js";
 
-interface DelegateTaskInput {
+export interface DelegateTaskInput {
   readonly profile: AgentProfileId;
   readonly description: string;
   readonly prompt: string;
+}
+
+export interface ChildDelegationOptions {
+  readonly cwd: string;
+  readonly workspace: AgentGitWorktreeWorkspace;
+}
+
+export interface ChildDelegationMetadata extends Record<string, unknown> {
+  readonly childAgentId: string;
+  readonly childSessionId: string;
+  readonly taskId: string;
+  readonly attempts: 1;
+  readonly retries: 0;
+  readonly operatingModeId: OperatingModeId;
+  readonly profileId: AgentProfileId;
+  readonly usage: ProviderUsage | null;
+  readonly usageSource: "provider" | "runtime" | "unavailable";
+  readonly changedFiles: readonly string[];
+  readonly evidence: readonly string[];
+  readonly costLimitUsd: number;
+  readonly costLimitExceeded: boolean;
+  readonly workflow: AgentWorkflowUsage;
+  readonly workspace?: AgentGitWorktreeWorkspace;
+}
+
+export interface ChildDelegationResult extends ToolResult {
+  readonly metadata: ChildDelegationMetadata;
 }
 
 export interface ChildAgentManagerDependencies {
@@ -174,7 +207,7 @@ export class ChildAgentManager {
       permissions() {
         return [];
       },
-      execute: (input, context) => this.#delegate(input, context),
+      execute: (input, context) => this.delegate(input, context),
     };
   }
 
@@ -231,14 +264,25 @@ export class ChildAgentManager {
     );
   }
 
-  async #delegate(
+  async delegate(
     input: DelegateTaskInput,
     context: ToolContext,
-  ): Promise<ToolResult> {
+    options?: ChildDelegationOptions,
+  ): Promise<ChildDelegationResult> {
     if (context.signal.aborted) {
       throw new ToolError("cancelled", "Child delegation was cancelled");
     }
     const parent = await this.#parent(context);
+    const childCwd = options?.cwd ?? parent.cwd;
+    if (options !== undefined && (
+      options.workspace.repositoryRoot !== parent.cwd ||
+      options.workspace.worktreeRoot !== childCwd
+    )) {
+      throw new ToolError(
+        "tool_unavailable",
+        "Trusted child workspace is invalid",
+      );
+    }
     const mode = getOperatingModePolicy(parent.agent.operatingMode.id);
     const profile = getAgentProfilePolicy(input.profile);
     if (profile.executionMode === "act" && context.executionMode !== "act") {
@@ -303,7 +347,7 @@ export class ChildAgentManager {
     try {
       const child = await this.dependencies.sessions.createPinnedSession({
         id: childSessionId,
-        cwd: parent.cwd,
+        cwd: childCwd,
         backend: parent.backend.pin,
         at: this.#now(),
         agent: {
@@ -328,6 +372,7 @@ export class ChildAgentManager {
             permissionMode,
           },
           limits: { ...mode.orchestration, maxRequests: childRequestLimit },
+          ...(options === undefined ? {} : { workspace: options.workspace }),
         },
       });
       await this.dependencies.emit({
@@ -432,6 +477,7 @@ export class ChildAgentManager {
           costLimitUsd: budget.maxReportedCostUsd,
           costLimitExceeded,
           workflow,
+          ...(options === undefined ? {} : { workspace: options.workspace }),
         },
       };
     } finally {

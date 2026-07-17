@@ -188,12 +188,12 @@ interface GitWorktreeLeasePort {
 - Accept host-derived execution options for child cwd and workspace isolation;
   model input can never supply them.
 
-- [ ] Add failing tests that run a child in a supplied host worktree, persist its
+- [x] Add failing tests that run a child in a supplied host worktree, persist its
   isolation descriptor, route every host tool to that cwd, return evidence, and
   retain the original sequential parent-workspace behavior.
-- [ ] Refactor the current tool wrapper away from execution mechanics without
+- [x] Refactor the current tool wrapper away from execution mechanics without
   changing existing `delegate_task` behavior or event order.
-- [ ] Verify all existing child-manager tests remain green, inspect, and commit.
+- [x] Verify all existing child-manager tests remain green, inspect, and commit.
 
 ### Task 5: Implement bounded parallel `delegate_tasks`
 

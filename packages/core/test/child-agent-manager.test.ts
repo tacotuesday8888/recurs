@@ -248,6 +248,82 @@ describe("ChildAgentManager", () => {
     });
   });
 
+  it("runs a child in a host-owned workspace and persists its isolation identity", async () => {
+    const { directory, sessions, parent } = await storeFixture();
+    const worktreeRoot = await mkdtemp(path.join(tmpdir(), "recurs-child-worktree-"));
+    directories.push(worktreeRoot);
+    const workspace = {
+      kind: "git_worktree" as const,
+      version: 1 as const,
+      leaseId: "lease-a",
+      repositoryRoot: directory,
+      worktreeRoot,
+      revision: "a".repeat(40),
+    };
+    let observedChild: Awaited<ReturnType<JsonlSessionStore["loadState"]>>;
+    const coordinator: RunCoordinator = {
+      async start(input) {
+        observedChild = await sessions.loadState(input.sessionId);
+        return {
+          events: { async *[Symbol.asyncIterator]() {} },
+          outcome: Promise.resolve({
+            ok: true,
+            result: {
+              finalText: "isolated evidence",
+              usage: null,
+              usageSource: "unavailable",
+              steps: 1,
+              changedFiles: [],
+              changedFilesSource: "none",
+              evidence: ["read isolated.ts:1-1"],
+              evidenceSource: "host_tools",
+            },
+          }),
+        };
+      },
+    };
+    const manager = new ChildAgentManager({
+      sessions,
+      getCoordinator: () => coordinator,
+      async emit() {},
+      createId: (() => {
+        const values = ["isolated-session", "isolated-agent", "isolated-task"];
+        return () => values.shift()!;
+      })(),
+      now: () => testAt,
+    });
+    const input = manager.createTool().parse({
+      profile: "explore",
+      description: "Inspect isolated code",
+      prompt: "Inspect isolated.ts",
+    });
+
+    const result = await manager.delegate(input, context(parent), {
+      cwd: worktreeRoot,
+      workspace,
+    });
+
+    expect(observedChild!).toMatchObject({
+      id: "isolated-session",
+      cwd: worktreeRoot,
+      agent: { workspace },
+    });
+    expect(result).toMatchObject({
+      output: "isolated evidence",
+      metadata: {
+        childSessionId: "isolated-session",
+        evidence: ["read isolated.ts:1-1"],
+        workspace,
+      },
+    });
+    const reloadedParent = await sessions.loadState(parent.id);
+    expect(reloadedParent).toMatchObject({
+      id: parent.id,
+      cwd: directory,
+    });
+    expect(reloadedParent.agent).not.toHaveProperty("workspace");
+  });
+
   it("reserves a bounded request share before concurrent v2 children start", async () => {
     const { sessions, parent } = await storeFixture();
     let release!: () => void;
@@ -793,6 +869,13 @@ describe("ChildAgentManager", () => {
       description: "Inspect",
       prompt: "Do it",
       background: true,
+    })).toThrow("exactly profile, description, and prompt");
+    expect(() => tool.parse({
+      profile: "explore",
+      description: "Inspect",
+      prompt: "Do it",
+      cwd: "/model-controlled",
+      workspace: { kind: "git_worktree" },
     })).toThrow("exactly profile, description, and prompt");
     expect(() => tool.parse({
       profile: "explore",
