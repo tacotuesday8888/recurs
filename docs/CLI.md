@@ -1,6 +1,6 @@
 # Recurs CLI
 
-Recurs Core v0 is a provider-neutral coding-agent harness. The CLI, direct agent loop, delegated-runtime executor, first owned foreground child-agent path, tools, permissions, Plan mode, durable sessions, goals, checkpoints, structured output, credential-free local transport, and first official Codex ACP path are implemented.
+Recurs Core v0 is a provider-neutral coding-agent harness. The CLI, direct agent loop, delegated-runtime executor, owned single-child and bounded parallel analysis/review paths, tools, permissions, Plan mode, durable sessions, goals, checkpoints, structured output, credential-free local transport, and first official Codex ACP path are implemented.
 
 The executable starts in a sessionless workspace shell when no provider is available. Coding prompts require a configured literal-loopback local server, an eligible interactive Codex connection, or an injected test/embedding `ModelProvider`; no fake `unconfigured` session is written.
 
@@ -225,7 +225,9 @@ Replacing or clearing an unfinished goal requires confirmation. Each successful 
 
 ## Owned child agents and operating modes
 
-`delegate_task` is Recurs's owned orchestration primitive. A parent model supplies exactly `{ profile, description, prompt }`, where `profile` is `explore`, `implement`, `review`, or the corresponding stable ID. Recurs creates a separate pinned version-2 child session and records its parent, task, profile, policy, permission envelope, lifecycle, usage, evidence, files, and terminal result. The child runs through the same coordinator as an ordinary turn; its final handoff becomes a parent tool result, and the parent model performs synthesis.
+`delegate_task` is Recurs's single-child orchestration primitive. A parent model supplies exactly `{ profile, description, prompt }`, where `profile` is `explore`, `implement`, `review`, or the corresponding stable ID. Recurs creates a separate pinned version-2 child session and records its parent, task, profile, policy, permission envelope, lifecycle, usage, evidence, files, and terminal result. The child runs through the same coordinator as an ordinary turn; its final handoff becomes a parent tool result, and the parent model performs synthesis.
+
+`delegate_tasks` is the bounded independent-analysis primitive. Its exact input is `{ tasks: [{ profile, description, prompt }, ...] }` with two to eight tasks and no extra fields. Only Explore and Review are accepted. The active operating mode can impose a lower task and concurrency limit. Settled results always return in input order even when children finish in a different order, and successful sibling output and evidence remain available when another child fails.
 
 The three version-1 profiles are host policies, not prompt-only roles:
 
@@ -237,25 +239,33 @@ The three version-1 profiles are host policies, not prompt-only roles:
 
 Where Recurs owns tool execution, the registry enforces both the exact tool names and each profile's permission-category/risk ceiling before approval. `run_verification` parses one allowlisted npm, pnpm, yarn, Bun, Cargo, Go, Pytest, or Swift test/check command and executes it directly without a shell; pipes, redirection, substitution, arbitrary programs, install/deploy commands, and mutating test flags are rejected. It is still treated as workspace-effectful because builds and tests can write artifacts, so Implement and Review delegation receive parent-level checkpoints. Explore does not. The invoked project task and its arguments still have ordinary host-process authority; an allowlisted task name is not containment or proof that the task is side-effect free. Implement's separate `run_command` tool remains an approval-gated arbitrary shell with host authority: command classification and checkpoints are application defenses, not containment, and embedded scripts can evade semantic classification.
 
-Every child inherits the parent's exact backend/model pin and a permission preset that cannot exceed the parent. Explore narrows execution to Plan. Implement and Review require Act. All three exclude `delegate_task`, so depth remains one. A parent run is foreground and sequential, concurrency is one, retries are zero, failed and cancelled attempts consume a child slot, and cancellation is linked. Child failures/cancellation and profile-correlated lifecycle/result evidence remain visible as normalized events and durable session state.
+Every child inherits the parent's exact backend/model pin and a permission preset that cannot exceed the parent. Explore narrows execution to Plan. Implement and Review require Act. Child profiles exclude both delegation tools, so depth remains one. Work stays foreground, retries are zero, and parent cancellation is linked to active children. A started failed or cancelled attempt consumes its child slot and request reservation; validation, preflight, or worktree setup that fails before child allocation does not. Child failures, cancellation, profile-correlated lifecycle, results, usage, and evidence remain visible as normalized events and durable session state.
+
+Single-child `delegate_task` retains the parent-workspace behavior. Implement can edit there through the existing approval and checkpoint seams; Review may run allowlisted verification there. Concurrent Implement delegation is not exposed.
+
+Batch children use detached Git worktrees rather than the parent workspace. The session must be at the canonical repository root, the repository must have no staged, unstaged, untracked, or submodule changes, and `HEAD` must identify a commit. Ignored local files are not present in the child. Recurs creates each lease outside the repository under `<project-data>/agent-worktrees`, records its exact revision in the child session/result, and force-cleans it after success, failure, or cancellation. Cleanup failure is a visible fatal batch error. Worktree isolation does not provide OS containment and does not merge child changes back into the parent.
 
 For an opaque delegated runtime, Recurs cannot advertise or filter vendor-internal tools. Explore is accepted only when the pinned runtime guarantees enforced Plan mode. Implement and Review require host-controlled tools and checkpointing and therefore fail preflight on the current opaque Codex ACP runtime. Recurs does not claim visibility into vendor-internal model calls, tool catalogs, or spend.
 
-`/agents` shows the active policy and its per-parent-run child limit; `/agents profiles` shows the exact profiles and enforcement boundaries. `/agents mode economy|standard|balanced|performance|max` persists a stable policy ID. Names are display labels, while logs store versioned IDs such as `balanced_v1`.
+`/agents` shows the exact policy version, concurrency, workflow child/request budget, per-child reservation, batch eligibility, and reported-cost ceiling. `/agents profiles` shows the profile enforcement boundaries. `/agents mode economy|standard|balanced|performance|max` selects the current version-2 policy; an exact versioned ID remains selectable for deterministic replay. Names are display labels, while logs and sessions store IDs such as `balanced_v2`.
 
-| Mode | Children per parent run | Requests per child run | Reported-cost ceiling |
-| --- | ---: | ---: | ---: |
-| Economy (`economy_v1`) | 2 | 8 | $0.25 |
-| Standard (`standard_v1`) | 3 | 16 | $1 |
-| Balanced (`balanced_v1`) | 4 | 24 | $3 |
-| Performance (`performance_v1`) | 6 | 32 | $10 |
-| Max (`max_v1`) | 8 | 40 | $25 |
+| Current mode | Children per run | Maximum concurrency | Total requests per run | Reserved per child | Reported-cost ceiling |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Economy (`economy_v2`) | 2 | 1 | 8 | 4 | $0.25 |
+| Standard (`standard_v2`) | 3 | 2 | 16 | 5 | $1 |
+| Balanced (`balanced_v2`) | 4 | 3 | 24 | 6 | $3 |
+| Performance (`performance_v2`) | 6 | 4 | 32 | 5 | $10 |
+| Max (`max_v2`) | 8 | 6 | 40 | 5 | $25 |
 
-Every current mode uses `inherit_parent`; independent child model routing is not implemented. Child request limits are enforced before provider calls; the parent continues to use its backend authorization ceiling. The shared reported-cost budget can only incorporate telemetry after a child settles, so a completing child can cross the ceiling; the event reports that overrun and no later child may start. If a provider reports no USD cost, the budget remains unavailable rather than estimated.
+The immutable version-1 IDs remain valid for old sessions and explicit selection. They keep concurrency one and their original per-child limits: 8, 16, 24, 32, and 40 requests. Their corresponding total workflow budgets are 16, 48, 96, 192, and 320 requests. A display-name selection chooses version 2; version 1 never silently acquires parallel semantics.
+
+Every mode uses `inherit_parent`; independent child model routing is not implemented. At child start, Recurs atomically claims one child slot and reserves that child's request allowance from the shared run budget. Direct runs report observed steps; an opaque runtime consumes the full reservation because its internal calls are not observable. The parent continues to use its own backend authorization ceiling. Reported USD cost becomes known only after provider/runtime telemetry arrives, so already-active siblings can complete past the ceiling; the overrun is reported and no later child starts. Missing USD telemetry remains explicitly unavailable rather than estimated.
+
+Economy and every version-1 mode provide a sequential fallback through the same batch contract. Standard through Max version 2 run at most two, three, four, or six children at once. Batch results include completed, failed, and cancelled entries; ordinary partial failure is returned to the parent for synthesis, while linked cancellation or a worktree-cleanup failure fails the tool. Recurs emits `agent_batch_started`, `agent_batch_completed`, `agent_batch_failed`, or `agent_batch_cancelled` plus batch-correlated `agent_started`, `agent_completed`, `agent_failed`, and `agent_cancelled` events.
 
 Existing `explore_v1` session records remain valid. Because Recurs is still unreleased `0.0.0`, the earlier two-field `delegate_task` draft is not retained: embeddings must now provide an exact `profile` rather than receiving an implicit Explore child.
 
-Parallel fan-out, background children, child resumption, automatic retries, recursive depth, worktree-per-child isolation, independent model selection, dynamic role libraries, automatic workflow planning, swarms, schedules, and the company interface remain later milestones. See the [primary-source harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md).
+Background children, child resumption, automatic retries, recursive depth, dirty-workspace snapshots, worktree resumption, independent child model selection, dynamic role libraries, automatic workflow planning, concurrent implementation/patch merging, swarms, schedules, and the company interface remain later milestones. The current batch is foreground, independent, Explore/Review-only, and intentionally does not integrate child workspace changes. See the [primary-source harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md).
 
 ## Slash commands
 
@@ -358,4 +368,4 @@ Recurs does not perform this move automatically. The marker is an upgrade-safety
 - The sealed-engine builder is configured to preserve legal comments, but release packaging still needs complete third-party notices and license review.
 - Checkpoints enumerate Git tracked and non-ignored untracked files; ignored files are not restored by checkpoint undo.
 - Output, read, patch, command-time, and agent-step limits are bounded, but very large repositories can still make full snapshots expensive.
-- OpenAI API, Anthropic API, and Kimi Code setup and generation exist only through the private native authority and have not shipped as an installed artifact. There is still no arbitrary public-endpoint/cloud-identity onboarding, general model picker, plugin system, public MCP loading, multi-agent company runtime, desktop app, cloud worker, scheduler, or endless `/loop` in v0.
+- OpenAI API, Anthropic API, and Kimi Code setup and generation exist only through the private native authority and have not shipped as an installed artifact. There is still no arbitrary public-endpoint/cloud-identity onboarding, general model picker, plugin system, public MCP loading, background/recursive company runtime, desktop app, cloud worker, scheduler, or endless `/loop` in v0.

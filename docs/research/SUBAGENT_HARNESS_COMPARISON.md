@@ -24,18 +24,19 @@ Verified against primary open-source repositories and project documentation on 2
 
 ## Current Recurs vertical
 
-Recurs follows the convergent core while deliberately stopping before background or recursive orchestration:
+The source rows above are verified research findings. The implementation bullets below are Recurs design decisions informed by that research, not claims about the other projects. Recurs follows the convergent core while deliberately stopping before background, recursive, or parallel editing orchestration:
 
-- `delegate_task` is a model-callable tool with exact `{ profile, description, prompt }` input.
+- `delegate_task` is a model-callable single-child tool with exact `{ profile, description, prompt }` input. `delegate_tasks` accepts an exact two-to-eight-item array of independent Explore/Review tasks.
 - Every child is a separate pinned version-2 Recurs session, not a subprocess wrapper or an external-runtime-only feature.
 - Three stable policies exist: Plan/read-only `explore_v1`, Act/editing `implement_v1`, and Act/non-editing `review_v1`. Each has an immutable host-tool allowlist, intent ceiling, bounded prompt, and evidence-oriented handoff.
 - The child uses the same `BackendRunCoordinator`, backend resolver, direct provider or delegated runtime, approval engine, host tools, and cancellation signal as its parent.
 - Every child inherits the exact backend/model pin and a permission mode that cannot exceed the parent. Explore narrows execution to Plan; Implement and Review require an Act parent.
-- Stable operating-mode IDs bound requests per child run and children/reported cost per parent run. All modes currently enforce depth one, concurrency one, and zero retries; display names can change without migrating logs.
-- One parent can explicitly compose a foreground Explore → Implement → Review workflow. Effectful delegations receive parent checkpoints, the shared budget counts every attempt, and the parent receives each child handoff before performing final synthesis.
-- Parent/child activity emits profile-correlated normalized events; child JSONL state retains its task, lifecycle, usage, result, files, evidence, failure, or cancellation.
+- Versioned operating-mode IDs bind concurrency and children/requests/reported cost per parent run. Version 2 ranges from sequential Economy to six-way Max; version 1 replays its original sequential limits. Every mode keeps depth one, zero retries, and parent-model inheritance.
+- One parent can explicitly compose a foreground Explore → Implement → Review workflow through the single-child tool. The batch tool runs bounded Explore/Review siblings in clean detached worktrees at the same committed revision and returns deterministic input-order results for parent synthesis.
+- Shared child and request reservations are claimed synchronously before execution. Successful sibling evidence survives ordinary partial failure, parent/child cancellation propagates, queued work does not start after cancellation, and every owned worktree lease is cleaned before settlement.
+- Parent/child activity emits normalized batch- and profile-correlated events; child JSONL state retains its task, lifecycle, workspace lease/revision, usage, result, files, evidence, failure, or cancellation.
 - Direct providers and delegated runtimes with host-tool/checkpoint support receive exact profile policy. An opaque runtime is accepted only for enforced-Plan Explore; Recurs does not claim control of vendor-internal tools.
 
 ## Intentionally absent
 
-This milestone does not implement parallel fan-out, background children, child resumption, automatic retries, depth beyond one, worktree-per-child isolation, dynamic role libraries, independent model routing, automatic workflow planning, swarms, schedules, or the company UI. All children currently share the parent's workspace and run sequentially. Reported USD cost can only be counted after a provider/runtime supplies telemetry; a final child may cross the threshold, and no later child can start. The official Codex runtime is opaque internally, so Recurs does not claim to meter its vendor-internal calls or filter its tool catalog; it is accepted for Explore only through its pinned enforced-Plan capability.
+This milestone does not implement background children, child resumption, automatic retries, depth beyond one, dirty-workspace snapshots, worktree resumption, dynamic role libraries, independent model routing, automatic workflow planning, concurrent implementation, patch capture/merge/conflict recovery, swarms, schedules, or the company UI. Single-child delegation still uses the parent workspace; isolated batch work is limited to Explore/Review and never integrates child changes. Reported USD cost can only be counted after a provider/runtime supplies telemetry, so already-active children can cross the threshold and no later child starts. The official Codex runtime is opaque internally, so Recurs does not claim to meter its vendor-internal calls or filter its tool catalog; it is accepted for Explore only through its pinned enforced-Plan capability.

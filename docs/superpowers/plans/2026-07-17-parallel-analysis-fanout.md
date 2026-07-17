@@ -288,14 +288,14 @@ interface GitWorktreeLeasePort {
 - Modify: `docs/research/SUBAGENT_HARNESS_COMPARISON.md`
 - Modify: `docs/superpowers/plans/2026-07-17-parallel-analysis-fanout.md`
 
-- [ ] Document new v2 mode limits, exact clean-Git requirement, isolated
+- [x] Document new v2 mode limits, exact clean-Git requirement, isolated
   Explore/Review batch behavior, sequential Implement boundary, request
   reservations, reported-cost limitation, lifecycle events, and CLI commands.
-- [ ] Update the primary-source comparison only where it informs the shipped
+- [x] Update the primary-source comparison only where it informs the shipped
   design; distinguish verified source facts from Recurs design decisions.
-- [ ] State every intentionally absent feature from the frozen boundaries.
-- [ ] Run secret/sensitive-file review, `git status`, full relevant diff review,
+- [x] State every intentionally absent feature from the frozen boundaries.
+- [x] Run secret/sensitive-file review, `git status`, full relevant diff review,
   focused test reruns, `npm run check`, and the strongest practical native check
   if shared TypeScript/native contracts changed.
-- [ ] Mark completed plan steps, create the final focused documentation/audit
+- [x] Mark completed plan steps, create the final focused documentation/audit
   commit, and leave `codex/parallel-fanout-v1` clean without push or merge.
