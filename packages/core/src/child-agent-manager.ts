@@ -44,14 +44,27 @@ export interface DelegateTaskInput {
   readonly prompt: string;
 }
 
-export interface ChildDelegationOptions {
-  readonly cwd: string;
-  readonly workspace: AgentGitWorktreeWorkspace;
+interface ChildDelegationCorrelation {
   readonly batch?: {
     readonly id: string;
     readonly index: number;
   };
+  readonly team?: {
+    readonly id: string;
+    readonly index: number;
+  };
 }
+
+export type ChildDelegationOptions = ChildDelegationCorrelation & (
+  | {
+      readonly cwd: string;
+      readonly workspace: AgentGitWorktreeWorkspace;
+    }
+  | {
+      readonly cwd?: never;
+      readonly workspace?: never;
+    }
+);
 
 export interface ChildDelegationMetadata extends Record<string, unknown> {
   readonly childAgentId: string;
@@ -71,6 +84,8 @@ export interface ChildDelegationMetadata extends Record<string, unknown> {
   readonly workspace?: AgentGitWorktreeWorkspace;
   readonly batchId?: string;
   readonly batchIndex?: number;
+  readonly teamId?: string;
+  readonly teamIndex?: number;
 }
 
 export interface ChildDelegationResult extends ToolResult {
@@ -244,8 +259,10 @@ export class ChildAgentManager {
       throw new ToolError("cancelled", "Child delegation was cancelled");
     }
     const parent = await this.#parent(context);
-    const childCwd = options?.cwd ?? parent.cwd;
-    if (options !== undefined && (
+    const childCwd = options?.workspace === undefined
+      ? parent.cwd
+      : options.cwd;
+    if (options?.workspace !== undefined && (
       options.workspace.repositoryRoot !== parent.cwd ||
       options.workspace.worktreeRoot !== childCwd
     )) {
@@ -375,7 +392,9 @@ export class ChildAgentManager {
             permissionMode,
           },
           limits: { ...mode.orchestration, maxRequests: childRequestLimit },
-          ...(options === undefined ? {} : { workspace: options.workspace }),
+          ...(options?.workspace === undefined
+            ? {}
+            : { workspace: options.workspace }),
         },
       });
       await this.dependencies.emit({
@@ -392,6 +411,9 @@ export class ChildAgentManager {
         ...(options?.batch === undefined
           ? {}
           : { batchId: options.batch.id, batchIndex: options.batch.index }),
+        ...(options?.team === undefined
+          ? {}
+          : { teamId: options.team.id, teamIndex: options.team.index }),
       });
       const run = await coordinator.start({
         sessionId: child.id,
@@ -423,6 +445,9 @@ export class ChildAgentManager {
             ...(options?.batch === undefined
               ? {}
               : { batchId: options.batch.id, batchIndex: options.batch.index }),
+            ...(options?.team === undefined
+              ? {}
+              : { teamId: options.team.id, teamIndex: options.team.index }),
           });
           throw new ToolError("cancelled", outcome.failure.safeMessage);
         }
@@ -438,6 +463,9 @@ export class ChildAgentManager {
           ...(options?.batch === undefined
             ? {}
             : { batchId: options.batch.id, batchIndex: options.batch.index }),
+          ...(options?.team === undefined
+            ? {}
+            : { teamId: options.team.id, teamIndex: options.team.index }),
         });
         throw new ToolError("execution_failed", outcome.failure.safeMessage);
       }
@@ -474,6 +502,9 @@ export class ChildAgentManager {
         ...(options?.batch === undefined
           ? {}
           : { batchId: options.batch.id, batchIndex: options.batch.index }),
+        ...(options?.team === undefined
+          ? {}
+          : { teamId: options.team.id, teamIndex: options.team.index }),
       });
       return {
         output: outcome.result.finalText,
@@ -492,10 +523,15 @@ export class ChildAgentManager {
           costLimitUsd: budget.maxReportedCostUsd,
           costLimitExceeded,
           workflow,
-          ...(options === undefined ? {} : { workspace: options.workspace }),
+          ...(options?.workspace === undefined
+            ? {}
+            : { workspace: options.workspace }),
           ...(options?.batch === undefined
             ? {}
             : { batchId: options.batch.id, batchIndex: options.batch.index }),
+          ...(options?.team === undefined
+            ? {}
+            : { teamId: options.team.id, teamIndex: options.team.index }),
         },
       };
     } finally {

@@ -54,6 +54,13 @@ export interface AgentBatchCounts {
   cancelled: number;
 }
 
+export type AgentTeamStatus =
+  | "approved"
+  | "changes_requested"
+  | "unverified";
+
+export type AgentTeamFailurePhase = "implementation" | "integration";
+
 export type RecursEvent =
   | (EventBase & { type: "session_created"; cwd: string; model: string })
   | (EventBase & { type: "turn_started"; turnId: string; prompt: string })
@@ -132,6 +139,77 @@ export type RecursEvent =
       reason: string;
     })
   | (EventBase & {
+      type: "agent_team_started";
+      parentAgentId: string;
+      teamId: string;
+      operatingModeId: OperatingModeId;
+      description: string;
+      implementerCount: number;
+      qualityStandard: string;
+    })
+  | (EventBase & {
+      type: "agent_team_patch_captured";
+      parentAgentId: string;
+      teamId: string;
+      operatingModeId: OperatingModeId;
+      teamIndex: number;
+      childAgentId: string;
+      childSessionId: string;
+      artifactId: string;
+      paths: string[];
+    })
+  | (EventBase & {
+      type: "agent_team_patches_integrated";
+      parentAgentId: string;
+      teamId: string;
+      operatingModeId: OperatingModeId;
+      artifactIds: string[];
+      changedFiles: string[];
+      checkpointId: string;
+    })
+  | (EventBase & {
+      type: "agent_team_review_recorded";
+      parentAgentId: string;
+      teamId: string;
+      operatingModeId: OperatingModeId;
+      reviewIndex: number;
+      status: "completed" | "invalid" | "failed";
+      verdict?: "approve" | "request_changes";
+      summary?: string;
+      evidence?: string[];
+      failure?: { code: string; message: string };
+    })
+  | (EventBase & {
+      type: "agent_team_completed";
+      parentAgentId: string;
+      teamId: string;
+      operatingModeId: OperatingModeId;
+      status: AgentTeamStatus;
+      changedFiles: string[];
+      evidence: string[];
+      workflow: AgentWorkflowUsage;
+    })
+  | (EventBase & {
+      type: "agent_team_failed";
+      parentAgentId: string;
+      teamId: string;
+      operatingModeId: OperatingModeId;
+      phase: AgentTeamFailurePhase;
+      partial: boolean;
+      failure: { code: string; message: string };
+      workflow: AgentWorkflowUsage;
+    })
+  | (EventBase & {
+      type: "agent_team_cancelled";
+      parentAgentId: string;
+      teamId: string;
+      operatingModeId: OperatingModeId;
+      phase: "implementation" | "integration" | "review";
+      partial: boolean;
+      reason: string;
+      workflow: AgentWorkflowUsage;
+    })
+  | (EventBase & {
       type: "agent_started";
       parentAgentId: string;
       childAgentId: string;
@@ -142,6 +220,8 @@ export type RecursEvent =
       profileId: AgentProfileId;
       batchId?: string;
       batchIndex?: number;
+      teamId?: string;
+      teamIndex?: number;
     })
   | (EventBase & {
       type: "agent_completed";
@@ -156,6 +236,8 @@ export type RecursEvent =
       workflow: AgentWorkflowUsage;
       batchId?: string;
       batchIndex?: number;
+      teamId?: string;
+      teamIndex?: number;
     })
   | (EventBase & {
       type: "agent_failed";
@@ -166,6 +248,8 @@ export type RecursEvent =
       failure: IntegrationFailure;
       batchId?: string;
       batchIndex?: number;
+      teamId?: string;
+      teamIndex?: number;
     })
   | (EventBase & {
       type: "agent_cancelled";
@@ -176,6 +260,8 @@ export type RecursEvent =
       reason: string;
       batchId?: string;
       batchIndex?: number;
+      teamId?: string;
+      teamIndex?: number;
     });
 
 export type SessionRecord =

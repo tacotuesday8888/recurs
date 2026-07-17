@@ -707,6 +707,7 @@ describe("standalone assembly without a provider", () => {
       "git_diff",
       "delegate_task",
       "delegate_tasks",
+      "delegate_team",
     ]);
   });
 

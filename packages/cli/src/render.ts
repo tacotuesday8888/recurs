@@ -98,6 +98,41 @@ export class TextEventRenderer implements EventSink {
           `✗ Agent batch ${event.batchId} cancelled: ${event.counts.completed} completed, ${event.counts.cancelled} cancelled`,
         );
         break;
+      case "agent_team_started":
+        await this.#status(
+          `⇶ Team ${event.teamId}: ${event.implementerCount} Implement worker${event.implementerCount === 1 ? "" : "s"} (${event.qualityStandard})`,
+        );
+        break;
+      case "agent_team_patch_captured":
+        await this.#status(
+          `↳ Team ${event.teamId} worker ${event.teamIndex} captured ${event.paths.length} file${event.paths.length === 1 ? "" : "s"}`,
+        );
+        break;
+      case "agent_team_patches_integrated":
+        await this.#status(
+          `⇢ Team ${event.teamId} integrated ${event.artifactIds.length} patch${event.artifactIds.length === 1 ? "" : "es"} across ${event.changedFiles.length} file${event.changedFiles.length === 1 ? "" : "s"}`,
+        );
+        break;
+      case "agent_team_review_recorded":
+        await this.#status(event.status === "completed"
+          ? `✓ Team ${event.teamId} review ${event.reviewIndex}: ${event.verdict ?? "unverified"}${event.summary === undefined ? "" : ` — ${event.summary}`}`
+          : `✗ Team ${event.teamId} review ${event.reviewIndex}: ${event.status}${event.failure === undefined ? "" : ` — ${event.failure.message}`}`);
+        break;
+      case "agent_team_completed":
+        await this.#status(
+          `✓ Team ${event.teamId} ${event.status}: ${event.changedFiles.length} changed file${event.changedFiles.length === 1 ? "" : "s"}`,
+        );
+        break;
+      case "agent_team_failed":
+        await this.#status(
+          `✗ Team ${event.teamId} failed during ${event.phase}${event.partial ? " with workspace state requiring inspection" : ""}: ${event.failure.message}`,
+        );
+        break;
+      case "agent_team_cancelled":
+        await this.#status(
+          `✗ Team ${event.teamId} cancelled during ${event.phase}${event.partial ? " after integration" : ""}: ${event.reason}`,
+        );
+        break;
       case "agent_completed":
         await this.#status(
           `✓ ${getAgentProfilePolicy(event.profileId).displayName} child completed: ${event.childAgentId} (${event.workflow.childrenStarted}/${event.workflow.maxChildren} this run)${event.costLimitExceeded ? " — reported-cost ceiling exceeded" : ""}`,

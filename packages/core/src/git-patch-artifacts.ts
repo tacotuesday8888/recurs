@@ -477,6 +477,20 @@ export class GitPatchArtifactManager {
     return handle;
   }
 
+  discard(handles: readonly GitPatchArtifactHandle[]): void {
+    const owned = handles.map((handle) => {
+      const artifact = this.#artifacts.get(handle.id);
+      if (artifact === undefined || !sameHandle(handle, artifact.handle)) {
+        throw new ToolError(
+          "permission_denied",
+          "The patch artifact handle is not owned by this workflow",
+        );
+      }
+      return artifact;
+    });
+    for (const artifact of owned) this.#artifacts.delete(artifact.handle.id);
+  }
+
   async integrate(
     input: GitPatchIntegrationInput,
   ): Promise<GitPatchIntegrationOutcome> {

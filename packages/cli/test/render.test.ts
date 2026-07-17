@@ -139,6 +139,114 @@ describe("TextEventRenderer agent activity", () => {
       },
       reason: "Parent delegation was cancelled",
     });
+    await renderer.emit({
+      type: "agent_team_started",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:08.000Z",
+      parentAgentId: "parent-agent",
+      teamId: "team-1",
+      operatingModeId: "balanced_v3",
+      description: "Implement cache isolation",
+      implementerCount: 2,
+      qualityStandard: "balanced",
+    });
+    await renderer.emit({
+      type: "agent_team_patch_captured",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:09.000Z",
+      parentAgentId: "parent-agent",
+      teamId: "team-1",
+      operatingModeId: "balanced_v3",
+      teamIndex: 1,
+      childAgentId: "implement-agent",
+      childSessionId: "implement-session",
+      artifactId: "patch-1",
+      paths: ["src/cache.ts", "test/cache.test.ts"],
+    });
+    await renderer.emit({
+      type: "agent_team_patches_integrated",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:10.000Z",
+      parentAgentId: "parent-agent",
+      teamId: "team-1",
+      operatingModeId: "balanced_v3",
+      artifactIds: ["patch-1", "patch-2"],
+      changedFiles: ["src/cache.ts", "test/cache.test.ts"],
+      checkpointId: "checkpoint-1",
+    });
+    await renderer.emit({
+      type: "agent_team_review_recorded",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:11.000Z",
+      parentAgentId: "parent-agent",
+      teamId: "team-1",
+      operatingModeId: "balanced_v3",
+      reviewIndex: 1,
+      status: "completed",
+      verdict: "approve",
+      summary: "Focused verification passed",
+      evidence: ["cache test passed"],
+    });
+    await renderer.emit({
+      type: "agent_team_completed",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:12.000Z",
+      parentAgentId: "parent-agent",
+      teamId: "team-1",
+      operatingModeId: "balanced_v3",
+      status: "approved",
+      changedFiles: ["src/cache.ts", "test/cache.test.ts"],
+      evidence: ["cache test passed"],
+      workflow: {
+        childrenStarted: 3,
+        maxChildren: 4,
+        requestsReserved: 24,
+        requestsUsed: 9,
+        maxRequests: 32,
+        reportedCostUsd: 0.4,
+        maxReportedCostUsd: 3,
+      },
+    });
+    await renderer.emit({
+      type: "agent_team_failed",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:13.000Z",
+      parentAgentId: "parent-agent",
+      teamId: "team-2",
+      operatingModeId: "standard_v3",
+      phase: "integration",
+      partial: false,
+      failure: { code: "patch_failed", message: "Patches conflict" },
+      workflow: {
+        childrenStarted: 1,
+        maxChildren: 3,
+        requestsReserved: 6,
+        requestsUsed: 3,
+        maxRequests: 18,
+        reportedCostUsd: 0.1,
+        maxReportedCostUsd: 1,
+      },
+    });
+    await renderer.emit({
+      type: "agent_team_cancelled",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:14.000Z",
+      parentAgentId: "parent-agent",
+      teamId: "team-3",
+      operatingModeId: "standard_v3",
+      phase: "review",
+      partial: true,
+      reason: "Parent cancelled the run",
+      workflow: {
+        childrenStarted: 2,
+        maxChildren: 3,
+        requestsReserved: 12,
+        requestsUsed: 5,
+        maxRequests: 18,
+        reportedCostUsd: 0.2,
+        maxReportedCostUsd: 1,
+      },
+    });
 
     expect(output).toContain("↳ Explore child: Inspect cache key");
     expect(output).toContain("✓ Explore child completed: child-agent (1/4 this run)");
@@ -152,5 +260,12 @@ describe("TextEventRenderer agent activity", () => {
     expect(output).toContain(
       "✗ Agent batch batch-3 cancelled: 1 completed, 2 cancelled",
     );
+    expect(output).toContain("⇶ Team team-1: 2 Implement workers (balanced)");
+    expect(output).toContain("↳ Team team-1 worker 1 captured 2 files");
+    expect(output).toContain("⇢ Team team-1 integrated 2 patches across 2 files");
+    expect(output).toContain("✓ Team team-1 review 1: approve — Focused verification passed");
+    expect(output).toContain("✓ Team team-1 approved: 2 changed files");
+    expect(output).toContain("✗ Team team-2 failed during integration: Patches conflict");
+    expect(output).toContain("✗ Team team-3 cancelled during review after integration");
   });
 });

@@ -1,6 +1,7 @@
 export * from "./agent-loop.js";
 export * from "./agent-activity.js";
 export * from "./agent-profile.js";
+export * from "./agent-review-panel.js";
 export * from "./backend-authorization.js";
 export * from "./child-agent-manager.js";
 export * from "./child-agent-batch.js";
@@ -19,4 +20,5 @@ export * from "./runtime.js";
 export * from "./runtime-continuation-store.js";
 export * from "./session.js";
 export * from "./session-v2.js";
+export * from "./team-agent-manager.js";
 export * from "./workspace-shell.js";

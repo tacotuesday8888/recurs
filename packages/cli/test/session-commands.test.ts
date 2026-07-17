@@ -169,7 +169,9 @@ describe("session commands", () => {
       ),
     });
     expect(profiles).toMatchObject({
-      text: expect.stringMatching(/Act parent required[\s\S]*run_verification/u),
+      text: expect.stringMatching(
+        /Act parent required[\s\S]*run_verification[\s\S]*Team workflow: Implement workers in isolated worktrees under version-3 policies/u,
+      ),
     });
     expect(await commands.execute("/agents profiles extra", commandContext))
       .toMatchObject({ level: "error" });

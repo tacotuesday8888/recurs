@@ -63,7 +63,8 @@ function profilesSummary(): string {
       `  Host tools: ${profile.tools.allowedNames.join(", ")}`,
       `  Intent ceiling: ${profile.tools.allowedCategories.join("/")} at ${profile.tools.maxRisk} risk`,
     ]),
-    "Batch eligibility: Explore and Review; Implement uses delegate_task only.",
+    "Batch eligibility: Explore and Review through delegate_tasks.",
+    "Team workflow: Implement workers in isolated worktrees under version-3 policies.",
   ].join("\n");
 }
 

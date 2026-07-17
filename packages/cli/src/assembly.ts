@@ -26,13 +26,16 @@ import {
 } from "@recurs/app";
 import {
   AgentLoopDirectExecutor,
+  AgentReviewPanel,
   BackendRunCoordinator,
   ChildAgentBatchManager,
   ChildAgentManager,
   DelegatedAgentExecutor,
   JsonlSessionStore,
   GitWorktreeLeaseManager,
+  GitPatchArtifactManager,
   ProcessScopedRuntimeContinuationStore,
+  TeamAgentManager,
   bindRunAuthorization,
   createWorkspaceShell,
   isPinnedSessionState,
@@ -555,17 +558,30 @@ export async function createStandaloneRuntime(
     },
   });
   tools.register(childAgents.createTool());
+  const worktrees = new GitWorktreeLeaseManager({
+    rootDirectory: path.join(projectData, "agent-worktrees"),
+  });
   const childBatches = new ChildAgentBatchManager({
     sessions,
     children: childAgents,
-    worktrees: new GitWorktreeLeaseManager({
-      rootDirectory: path.join(projectData, "agent-worktrees"),
-    }),
+    worktrees,
     emit(event) {
       return events.emit(event);
     },
   });
   tools.register(childBatches.createTool());
+  const teams = new TeamAgentManager({
+    sessions,
+    children: childAgents,
+    worktrees,
+    patches: new GitPatchArtifactManager(),
+    reviews: new AgentReviewPanel({ sessions, children: childAgents }),
+    checkpoints,
+    emit(event) {
+      return events.emit(event);
+    },
+  });
+  tools.register(teams.createTool());
 
   const runtimeReference: { current?: RecursRuntime } = {};
   const approvals = {

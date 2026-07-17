@@ -20,11 +20,14 @@ import {
 } from "@recurs/cli";
 import {
   AgentLoopDirectExecutor,
+  AgentReviewPanel,
   BackendRunCoordinator,
   ChildAgentBatchManager,
   ChildAgentManager,
+  GitPatchArtifactManager,
   GitWorktreeLeaseManager,
   JsonlSessionStore,
+  TeamAgentManager,
   bindRunAuthorization,
   isPinnedSessionState,
   type RecursEvent,
@@ -248,18 +251,31 @@ async function createTestRuntime(
     },
   });
   tools.register(childAgents.createTool());
+  const worktrees = new GitWorktreeLeaseManager({
+    rootDirectory: path.join(root, "agent-worktrees"),
+    processRunner: fastGitRunner,
+  });
   const childBatches = new ChildAgentBatchManager({
     sessions,
     children: childAgents,
-    worktrees: new GitWorktreeLeaseManager({
-      rootDirectory: path.join(root, "agent-worktrees"),
-      processRunner: fastGitRunner,
-    }),
+    worktrees,
     async emit(event) {
       events.push(event);
     },
   });
   tools.register(childBatches.createTool());
+  const teams = new TeamAgentManager({
+    sessions,
+    children: childAgents,
+    worktrees,
+    patches: new GitPatchArtifactManager(),
+    reviews: new AgentReviewPanel({ sessions, children: childAgents }),
+    checkpoints,
+    async emit(event) {
+      events.push(event);
+    },
+  });
+  tools.register(teams.createTool());
   tools.register(createReadFileTool());
   tools.register(createListFilesTool());
   tools.register(createSearchTextTool());
@@ -705,6 +721,345 @@ describe("Recurs end-to-end coding harness", () => {
       counts: { total: 3, completed: 0, cancelled: 3 },
     });
     expect(await readdir(path.join(fixture.root, "agent-worktrees"))).toEqual([]);
+  }, 60_000);
+
+  it("runs the complete Recurs-owned implementation and review team workflow", async () => {
+    const fixture = await createFixture();
+    const patch = [
+      "diff --git a/src/value.ts b/src/value.ts",
+      "--- a/src/value.ts",
+      "+++ b/src/value.ts",
+      "@@ -1 +1 @@",
+      "-export const value = 1;",
+      "+export const value = 2;",
+      "",
+    ].join("\n");
+    const provider = new ScriptedProvider([
+      toolTurn("delegate-team", "delegate_team", {
+        description: "Change and independently verify the value fixture",
+        tasks: [{
+          description: "Implement the value change",
+          prompt: "Change value from 1 to 2 and run the focused test.",
+        }],
+        review: {
+          instructions: "Inspect the exact diff and rerun the focused test.",
+        },
+      }),
+      toolTurn("team-implement-read", "read_file", { path: "src/value.ts" }),
+      toolTurn("team-implement-patch", "apply_patch", {
+        patch,
+        files: [{ path: "src/value.ts", expected_hash: fixture.initialHash }],
+      }),
+      toolTurn("team-implement-test", "run_verification", { command: "npm test" }),
+      [
+        {
+          type: "text_delta",
+          text: "Changed value to 2 and the focused test passed.",
+        },
+        { type: "done", stopReason: "complete" },
+      ],
+      toolTurn("team-review-diff", "git_diff", {}),
+      toolTurn("team-review-test", "run_verification", { command: "npm test" }),
+      [
+        {
+          type: "text_delta",
+          text: JSON.stringify({
+            verdict: "approve",
+            summary: "The scoped value change passes its focused test.",
+            evidence: ["npm test passed against the integrated parent diff"],
+          }),
+        },
+        { type: "done", stopReason: "complete" },
+      ],
+      [
+        {
+          type: "text_delta",
+          text: "Parent synthesis: the isolated implementation was integrated and independently approved.",
+        },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const harness = await createTestRuntime(
+      fixture.root,
+      fixture.project,
+      provider,
+    );
+    const interactive = createHostInvocation({
+      invocation: "repl",
+      userPresent: true,
+      remote: false,
+      scripted: false,
+      embedding: "cli",
+    });
+
+    await harness.runtime.submit("/permissions approved_for_me");
+    await harness.runtime.submit("/agents mode standard");
+    const result = await harness.runtime.submit(
+      "Use a Recurs team to implement and independently review the value change.",
+      interactive,
+    );
+
+    expect(result).toMatchObject({
+      finalText: expect.stringContaining("independently approved"),
+    });
+    expect(await readFile(path.join(fixture.project, "src", "value.ts"), "utf8"))
+      .toContain("value = 2");
+    const parent = await harness.sessions.loadState(harness.runtime.session.id);
+    if (!isPinnedSessionState(parent)) {
+      throw new Error("Expected a pinned parent session");
+    }
+    expect(parent.toolOutcomes["delegate-team"]).toMatchObject({
+      type: "completed",
+      result: {
+        metadata: {
+          status: "approved",
+          operatingModeId: "standard_v3",
+          changedFiles: ["src/value.ts"],
+          implementations: [{
+            status: "completed",
+            patch: {
+              sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+              paths: ["src/value.ts"],
+            },
+          }],
+          review: { verdict: "approved" },
+        },
+      },
+    });
+
+    const children = [];
+    for (const entry of await harness.sessions.list()) {
+      if (entry.id === parent.id) continue;
+      const child = await harness.sessions.loadState(entry.id);
+      if (!isPinnedSessionState(child)) {
+        throw new Error("Expected a pinned child session");
+      }
+      children.push(child);
+    }
+    expect(children).toHaveLength(2);
+    expect(children.map((child) => child.agent.profile?.id).sort()).toEqual([
+      "implement_v1",
+      "review_v1",
+    ]);
+    expect(children.every((child) =>
+      child.agent.depth === 1 &&
+      child.agent.parentAgentId === parent.agent.id &&
+      child.agent.backend.strategy === "inherit_parent" &&
+      child.agent.permissions.parentPermissionMode === "approved_for_me" &&
+      child.agent.permissions.permissionMode === "approved_for_me" &&
+      child.agentLifecycle.status === "completed"
+    )).toBe(true);
+
+    const teamEvents = harness.events.filter((event) =>
+      event.type.startsWith("agent_team_")
+    );
+    expect(teamEvents.map((event) => event.type)).toEqual([
+      "agent_team_started",
+      "agent_team_patch_captured",
+      "agent_team_patches_integrated",
+      "agent_team_review_recorded",
+      "agent_team_completed",
+    ]);
+    const teamId = teamEvents[0]?.type === "agent_team_started"
+      ? teamEvents[0].teamId
+      : null;
+    expect(teamId).not.toBeNull();
+    expect(harness.events.filter((event) =>
+      event.type === "agent_started" && event.teamId === teamId
+    )).toHaveLength(2);
+    expect(await readdir(path.join(fixture.root, "agent-worktrees"))).toEqual([]);
+
+    const implementRequest = provider.requests.find((request) =>
+      request.messages.some((message) =>
+        message.role === "user" && message.content.includes("Recurs Implement")
+      )
+    );
+    const reviewRequest = provider.requests.find((request) =>
+      request.messages.some((message) =>
+        message.role === "user" && message.content.includes("Recurs Review")
+      )
+    );
+    expect(implementRequest?.tools.map((tool) => tool.name))
+      .not.toContain("delegate_team");
+    expect(reviewRequest?.tools.map((tool) => tool.name))
+      .not.toContain("delegate_team");
+  }, 60_000);
+
+  it("rolls back the parent when isolated team patches conflict", async () => {
+    const fixture = await createFixture();
+    const patchTo = (value: number) => [
+      "diff --git a/src/value.ts b/src/value.ts",
+      "--- a/src/value.ts",
+      "+++ b/src/value.ts",
+      "@@ -1 +1 @@",
+      "-export const value = 1;",
+      `+export const value = ${value};`,
+      "",
+    ].join("\n");
+    const provider = new ScriptedProvider([
+      toolTurn("delegate-conflicting-team", "delegate_team", {
+        description: "Exercise deterministic conflict recovery",
+        tasks: [
+          { description: "Implement candidate two", prompt: "Set value to 2." },
+          { description: "Implement candidate three", prompt: "Set value to 3." },
+        ],
+        review: { instructions: "Review only if integration succeeds." },
+      }),
+      toolTurn("candidate-two-read", "read_file", { path: "src/value.ts" }),
+      toolTurn("candidate-three-read", "read_file", { path: "src/value.ts" }),
+      toolTurn("candidate-two-patch", "apply_patch", {
+        patch: patchTo(2),
+        files: [{ path: "src/value.ts", expected_hash: fixture.initialHash }],
+      }),
+      toolTurn("candidate-three-patch", "apply_patch", {
+        patch: patchTo(3),
+        files: [{ path: "src/value.ts", expected_hash: fixture.initialHash }],
+      }),
+      [
+        { type: "text_delta", text: "Candidate implementation complete." },
+        { type: "done", stopReason: "complete" },
+      ],
+      [
+        { type: "text_delta", text: "Candidate implementation complete." },
+        { type: "done", stopReason: "complete" },
+      ],
+      [
+        {
+          type: "text_delta",
+          text: "Parent synthesis: the conflict was reported and the parent stayed clean.",
+        },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const harness = await createTestRuntime(fixture.root, fixture.project, provider);
+    await harness.runtime.submit("/permissions approved_for_me");
+
+    const result = await harness.runtime.submit(
+      "Run both conflicting implementation candidates.",
+      createHostInvocation({
+        invocation: "repl",
+        userPresent: true,
+        remote: false,
+        scripted: false,
+        embedding: "cli",
+      }),
+    );
+
+    expect(result.finalText).toContain("parent stayed clean");
+    expect(await readFile(path.join(fixture.project, "src", "value.ts"), "utf8"))
+      .toBe("export const value = 1;\n");
+    expect((await execFileAsync("git", ["status", "--porcelain"], {
+      cwd: fixture.project,
+    })).stdout).toBe("");
+    const parent = await harness.sessions.loadState(harness.runtime.session.id);
+    if (!isPinnedSessionState(parent)) throw new Error("Expected pinned parent");
+    expect(parent.toolOutcomes["delegate-conflicting-team"]).toMatchObject({
+      type: "completed",
+      result: {
+        metadata: {
+          status: "failed",
+          integration: {
+            ok: false,
+            code: "patch_failed",
+            rolledBack: true,
+            integratedArtifactIds: [expect.any(String)],
+          },
+          review: null,
+          changedFiles: [],
+        },
+      },
+    });
+    expect(harness.events.filter((event) =>
+      event.type.startsWith("agent_team_")
+    ).map((event) => event.type)).toEqual([
+      "agent_team_started",
+      "agent_team_patch_captured",
+      "agent_team_patch_captured",
+      "agent_team_failed",
+    ]);
+    expect(await readdir(path.join(fixture.root, "agent-worktrees"))).toEqual([]);
+  }, 60_000);
+
+  it("keeps integrated changes unverified when Review output is malformed", async () => {
+    const fixture = await createFixture();
+    const patch = [
+      "diff --git a/src/value.ts b/src/value.ts",
+      "--- a/src/value.ts",
+      "+++ b/src/value.ts",
+      "@@ -1 +1 @@",
+      "-export const value = 1;",
+      "+export const value = 2;",
+      "",
+    ].join("\n");
+    const provider = new ScriptedProvider([
+      toolTurn("delegate-unverified-team", "delegate_team", {
+        description: "Change the value with strict review",
+        tasks: [{
+          description: "Implement value two",
+          prompt: "Set value to 2.",
+        }],
+        review: { instructions: "Return the required exact verdict." },
+      }),
+      toolTurn("unverified-read", "read_file", { path: "src/value.ts" }),
+      toolTurn("unverified-patch", "apply_patch", {
+        patch,
+        files: [{ path: "src/value.ts", expected_hash: fixture.initialHash }],
+      }),
+      [
+        { type: "text_delta", text: "Implementation complete." },
+        { type: "done", stopReason: "complete" },
+      ],
+      [
+        { type: "text_delta", text: "I approve, but this is not JSON." },
+        { type: "done", stopReason: "complete" },
+      ],
+      [
+        {
+          type: "text_delta",
+          text: "Parent synthesis: the change remains visible but is unverified.",
+        },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const harness = await createTestRuntime(fixture.root, fixture.project, provider);
+    await harness.runtime.submit("/permissions approved_for_me");
+    await harness.runtime.submit("/agents mode economy");
+
+    const result = await harness.runtime.submit(
+      "Implement the value change and enforce strict review output.",
+      createHostInvocation({
+        invocation: "repl",
+        userPresent: true,
+        remote: false,
+        scripted: false,
+        embedding: "cli",
+      }),
+    );
+
+    expect(result.finalText).toContain("unverified");
+    expect(await readFile(path.join(fixture.project, "src", "value.ts"), "utf8"))
+      .toContain("value = 2");
+    const parent = await harness.sessions.loadState(harness.runtime.session.id);
+    if (!isPinnedSessionState(parent)) throw new Error("Expected pinned parent");
+    expect(parent.toolOutcomes["delegate-unverified-team"]).toMatchObject({
+      type: "completed",
+      result: {
+        metadata: {
+          status: "unverified",
+          changedFiles: ["src/value.ts"],
+          review: {
+            verdict: "unverified",
+            reviews: [{ status: "invalid" }],
+          },
+        },
+      },
+    });
+    expect(harness.events.findLast((event) =>
+      event.type.startsWith("agent_team_")
+    )).toMatchObject({
+      type: "agent_team_completed",
+      status: "unverified",
+    });
   }, 60_000);
 
   it("runs Explore, Implement, and Review children before parent synthesis", async () => {
