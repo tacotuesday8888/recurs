@@ -30,6 +30,7 @@ export default defineConfig({
   },
   test: {
     include: ["packages/*/test/**/*.test.ts", "tests/e2e/**/*.test.ts"],
+    maxWorkers: 4,
     testTimeout: 10_000,
     hookTimeout: 10_000,
   },

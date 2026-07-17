@@ -92,7 +92,7 @@ function tokenize(command: string): string[] {
     throw new ToolError("invalid_input", "Verification command has invalid quoting");
   }
   flush();
-  if (tokens.length < 2 || tokens.some((item) => item.length === 0)) {
+  if (tokens.length === 0 || tokens.some((item) => item.length === 0)) {
     throw new ToolError("invalid_input", "Verification command is incomplete");
   }
   return tokens;

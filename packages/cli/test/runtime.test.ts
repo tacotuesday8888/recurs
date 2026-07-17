@@ -100,6 +100,11 @@ describe("RecursRuntime", () => {
       level: "info",
       text: expect.stringContaining("default to Balanced"),
     });
+    await expect(runtime.submit("/agents profiles")).resolves.toMatchObject({
+      type: "message",
+      level: "info",
+      text: expect.stringMatching(/Explore[\s\S]*Implement[\s\S]*Review/u),
+    });
     await expect(runtime.submit("/agents mode economy")).resolves.toMatchObject({
       type: "message",
       level: "warning",

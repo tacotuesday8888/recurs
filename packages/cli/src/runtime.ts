@@ -234,7 +234,7 @@ export class RecursRuntime {
           "/connect                      Alias for /provider",
           "/model                        Inspect model configuration",
           "/permissions [mode]           Set the next-session permission default",
-          "/agents                       Explain child-agent operating modes",
+          "/agents [profiles]            Explain modes or inspect agent profiles",
           "/status                       Show workspace configuration",
           "/resume                       List historical sessions",
           "/init                         Create AGENTS.md without overwriting it",
@@ -281,7 +281,10 @@ export class RecursRuntime {
         text: "No model connection is configured. Use /connect for Codex subscription or credential-free local setup instructions.",
       };
     }
-    if (name === "agents" || name === "agent") {
+    if (
+      (name === "agents" || name === "agent") &&
+      args.trim().toLowerCase() !== "profiles"
+    ) {
       return {
         type: "message",
         level: args.trim().length === 0 ? "info" : "warning",

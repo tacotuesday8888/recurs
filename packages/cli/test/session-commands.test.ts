@@ -153,7 +153,7 @@ describe("session commands", () => {
     expect(await commands.execute("/agents", commandContext)).toMatchObject({
       type: "message",
       text: expect.stringMatching(
-        /Balanced \(balanced_v1\)[\s\S]*Children per parent run: 4/u,
+        /Balanced \(balanced_v1\)[\s\S]*child requests 24[\s\S]*Children per parent run: 4/u,
       ),
     });
     const profiles = await commands.execute("/agents profiles", commandContext);

@@ -1,8 +1,9 @@
-import type { Command } from "./types.js";
-import { message } from "./types.js";
-import { permissionLabel } from "./permissions.js";
 import { getOperatingModePolicy } from "@recurs/contracts";
 import { isPinnedSessionState } from "@recurs/core";
+
+import { permissionLabel } from "./permissions.js";
+import type { Command } from "./types.js";
+import { message } from "./types.js";
 
 const helpText = [
   "/help                         Show this command list",
