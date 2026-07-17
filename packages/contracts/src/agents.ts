@@ -8,7 +8,22 @@ export type AgentPermissionMode =
 
 export type AgentExecutionMode = "act" | "plan";
 
-export type AgentProfileId = "explore_v1";
+export type AgentProfileId =
+  | "explore_v1"
+  | "implement_v1"
+  | "review_v1";
+
+export type AgentToolPermissionCategory =
+  | "read"
+  | "write"
+  | "shell"
+  | "network"
+  | "external_path"
+  | "sensitive"
+  | "credential"
+  | "deploy";
+
+export type AgentToolPermissionRisk = "normal" | "elevated" | "destructive";
 
 export interface AgentProfilePolicy {
   readonly id: AgentProfileId;
@@ -19,29 +34,69 @@ export interface AgentProfilePolicy {
     readonly readOnly: boolean;
     readonly evidenceFromSources: boolean;
     readonly allowedNames: readonly string[];
+    readonly allowedCategories: readonly AgentToolPermissionCategory[];
+    readonly maxRisk: AgentToolPermissionRisk;
   };
 }
 
-const exploreTools = Object.freeze([
-  "read_file",
-  "list_files",
-  "search_text",
-  "git_status",
-  "git_diff",
-]);
+function profile(
+  id: AgentProfileId,
+  displayName: string,
+  executionMode: AgentExecutionMode,
+  readOnly: boolean,
+  allowedNames: readonly string[],
+  allowedCategories: readonly AgentToolPermissionCategory[],
+  maxRisk: AgentToolPermissionRisk,
+): AgentProfilePolicy {
+  return Object.freeze({
+    id,
+    version: 1 as const,
+    displayName,
+    executionMode,
+    tools: Object.freeze({
+      readOnly,
+      evidenceFromSources: true,
+      allowedNames: Object.freeze([...allowedNames]),
+      allowedCategories: Object.freeze([...allowedCategories]),
+      maxRisk,
+    }),
+  });
+}
 
 export const agentProfilePolicies: readonly AgentProfilePolicy[] = Object.freeze([
-  Object.freeze({
-    id: "explore_v1" as const,
-    version: 1 as const,
-    displayName: "Explore",
-    executionMode: "plan" as const,
-    tools: Object.freeze({
-      readOnly: true,
-      evidenceFromSources: true,
-      allowedNames: exploreTools,
-    }),
-  }),
+  profile(
+    "explore_v1",
+    "Explore",
+    "plan",
+    true,
+    ["read_file", "list_files", "search_text", "git_status", "git_diff"],
+    ["read"],
+    "normal",
+  ),
+  profile(
+    "implement_v1",
+    "Implement",
+    "act",
+    false,
+    [
+      "read_file", "list_files", "search_text", "apply_patch",
+      "run_command", "run_verification", "git_status", "git_diff",
+    ],
+    ["read", "write", "shell"],
+    "elevated",
+  ),
+  profile(
+    "review_v1",
+    "Review",
+    "act",
+    false,
+    [
+      "read_file", "list_files", "search_text", "run_verification",
+      "git_status", "git_diff",
+    ],
+    ["read", "shell"],
+    "normal",
+  ),
 ]);
 
 const profilesById = new Map(
@@ -54,6 +109,19 @@ export function getAgentProfilePolicy(id: AgentProfileId): AgentProfilePolicy {
     throw new TypeError(`Unknown agent profile: ${String(id)}`);
   }
   return found;
+}
+
+export function parseAgentProfileId(input: string): AgentProfileId | null {
+  const normalized = input.trim().toLowerCase();
+  for (const item of agentProfilePolicies) {
+    if (
+      normalized === item.id ||
+      normalized === item.displayName.toLowerCase()
+    ) {
+      return item.id;
+    }
+  }
+  return null;
 }
 
 export type OperatingModeId =
@@ -79,6 +147,9 @@ export interface OperatingModePolicy {
     readonly selection: "inherit_parent";
   };
   readonly orchestration: AgentLimits;
+  readonly workflow: {
+    readonly maxChildrenPerRun: number;
+  };
 }
 
 function policy(
@@ -86,6 +157,7 @@ function policy(
   displayName: string,
   maxRequests: number,
   maxReportedCostUsd: number,
+  maxChildrenPerRun: number,
 ): OperatingModePolicy {
   return Object.freeze({
     id,
@@ -99,16 +171,17 @@ function policy(
       maxRequests,
       maxReportedCostUsd,
     }),
+    workflow: Object.freeze({ maxChildrenPerRun }),
   });
 }
 
 export const operatingModePolicies: readonly OperatingModePolicy[] =
   Object.freeze([
-    policy("economy_v1", "Economy", 8, 0.25),
-    policy("standard_v1", "Standard", 16, 1),
-    policy("balanced_v1", "Balanced", 24, 3),
-    policy("performance_v1", "Performance", 32, 10),
-    policy("max_v1", "Max", 40, 25),
+    policy("economy_v1", "Economy", 8, 0.25, 2),
+    policy("standard_v1", "Standard", 16, 1, 3),
+    policy("balanced_v1", "Balanced", 24, 3, 4),
+    policy("performance_v1", "Performance", 32, 10, 6),
+    policy("max_v1", "Max", 40, 25, 8),
   ]);
 
 export const DEFAULT_OPERATING_MODE_ID: OperatingModeId = "balanced_v1";

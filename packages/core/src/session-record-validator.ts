@@ -4,6 +4,7 @@ import {
   getOperatingModePolicy,
   getAgentProfilePolicy,
   narrowAgentPermissionMode,
+  parseAgentProfileId,
   parseOperatingModeId,
 } from "@recurs/contracts";
 import type {
@@ -745,9 +746,16 @@ function isAgentDescriptor(
   }
   if (!isObject(value.profile) ||
     !hasExactKeys(value.profile, ["id", "version"]) ||
-    value.profile.id !== "explore_v1" || value.profile.version !== 1 ||
-    getAgentProfilePolicy(value.profile.id).executionMode !==
-      value.permissions.executionMode) {
+    typeof value.profile.id !== "string") {
+    return false;
+  }
+  const profileId = parseAgentProfileId(value.profile.id);
+  if (profileId === null || profileId !== value.profile.id) {
+    return false;
+  }
+  const profile = getAgentProfilePolicy(profileId);
+  if (value.profile.version !== profile.version ||
+    profile.executionMode !== value.permissions.executionMode) {
     return false;
   }
   return boundedNonEmptyString(value.parentAgentId, MAX_RUNTIME_ID_LENGTH) &&

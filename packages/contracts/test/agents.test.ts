@@ -7,19 +7,27 @@ import {
   getOperatingModePolicy,
   narrowAgentPermissionMode,
   operatingModePolicies,
+  parseAgentProfileId,
   parseOperatingModeId,
 } from "../src/index.js";
 
 describe("agent profile contracts", () => {
-  it("defines one stable read-only Explore profile", () => {
+  it("defines three stable specialized profiles", () => {
     expect(agentProfilePolicies.map((profile) => profile.id)).toEqual([
       "explore_v1",
+      "implement_v1",
+      "review_v1",
     ]);
     expect(getAgentProfilePolicy("explore_v1")).toMatchObject({
       version: 1,
       displayName: "Explore",
       executionMode: "plan",
-      tools: { readOnly: true, evidenceFromSources: true },
+      tools: {
+        readOnly: true,
+        evidenceFromSources: true,
+        allowedCategories: ["read"],
+        maxRisk: "normal",
+      },
     });
     expect(getAgentProfilePolicy("explore_v1").tools.allowedNames).toEqual([
       "read_file",
@@ -28,15 +36,60 @@ describe("agent profile contracts", () => {
       "git_status",
       "git_diff",
     ]);
+    expect(getAgentProfilePolicy("implement_v1")).toMatchObject({
+      displayName: "Implement",
+      executionMode: "act",
+      tools: {
+        readOnly: false,
+        allowedCategories: ["read", "write", "shell"],
+        maxRisk: "elevated",
+      },
+    });
+    expect(getAgentProfilePolicy("implement_v1").tools.allowedNames).toEqual([
+      "read_file",
+      "list_files",
+      "search_text",
+      "apply_patch",
+      "run_command",
+      "run_verification",
+      "git_status",
+      "git_diff",
+    ]);
+    expect(getAgentProfilePolicy("review_v1")).toMatchObject({
+      displayName: "Review",
+      executionMode: "act",
+      tools: {
+        readOnly: false,
+        allowedCategories: ["read", "shell"],
+        maxRisk: "normal",
+      },
+    });
+    expect(getAgentProfilePolicy("review_v1").tools.allowedNames).toEqual([
+      "read_file",
+      "list_files",
+      "search_text",
+      "run_verification",
+      "git_status",
+      "git_diff",
+    ]);
+  });
+
+  it("parses exact profile names and stable ids without prefixes", () => {
+    expect(parseAgentProfileId("explore")).toBe("explore_v1");
+    expect(parseAgentProfileId("Implement")).toBe("implement_v1");
+    expect(parseAgentProfileId("review_v1")).toBe("review_v1");
+    expect(parseAgentProfileId("rev")).toBeNull();
+    expect(parseAgentProfileId("review extra")).toBeNull();
   });
 
   it("exposes immutable profile policy values", () => {
-    const explore = getAgentProfilePolicy("explore_v1");
-
     expect(Object.isFrozen(agentProfilePolicies)).toBe(true);
-    expect(Object.isFrozen(explore)).toBe(true);
-    expect(Object.isFrozen(explore.tools)).toBe(true);
-    expect(Object.isFrozen(explore.tools.allowedNames)).toBe(true);
+    for (const profile of agentProfilePolicies) {
+      expect(Object.isFrozen(profile)).toBe(true);
+      expect(Object.isFrozen(profile.tools)).toBe(true);
+      expect(Object.isFrozen(profile.tools.allowedNames)).toBe(true);
+      expect(Object.isFrozen(profile.tools.allowedCategories)).toBe(true);
+    }
   });
 });
 
@@ -80,7 +133,11 @@ describe("agent operating-mode contracts", () => {
       expect(policy.orchestration.maxRetries).toBe(0);
       expect(policy.orchestration.maxRequests).toBeGreaterThan(0);
       expect(policy.orchestration.maxReportedCostUsd).toBeGreaterThan(0);
+      expect(policy.workflow.maxChildrenPerRun).toBeGreaterThan(0);
     }
+    expect(operatingModePolicies.map((policy) =>
+      policy.workflow.maxChildrenPerRun
+    )).toEqual([2, 3, 4, 6, 8]);
   });
 
   it("never widens a requested child permission beyond its parent", () => {
@@ -96,5 +153,6 @@ describe("agent operating-mode contracts", () => {
     expect(Object.isFrozen(balanced)).toBe(true);
     expect(Object.isFrozen(balanced.orchestration)).toBe(true);
     expect(Object.isFrozen(balanced.model)).toBe(true);
+    expect(Object.isFrozen(balanced.workflow)).toBe(true);
   });
 });

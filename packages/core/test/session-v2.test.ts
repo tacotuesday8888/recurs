@@ -232,6 +232,82 @@ describe("version 2 sessions", () => {
     })).rejects.toMatchObject({ code: "invalid_record" });
   });
 
+  it.each([
+    ["implement_v1", "act"],
+    ["review_v1", "act"],
+  ] as const)("accepts the %s child profile with its exact execution mode", async (
+    profileId,
+    executionMode,
+  ) => {
+    const store = await temporaryStore();
+    const mode = getOperatingModePolicy("balanced_v1");
+    const child = await store.createPinnedSession({
+      id: `${profileId}-session`,
+      cwd: "/workspace",
+      backend,
+      at,
+      agent: {
+        id: `${profileId}-agent`,
+        role: "child",
+        profile: { id: profileId, version: 1 },
+        parentAgentId: "parent-agent",
+        parentSessionId: "parent-session",
+        depth: 1,
+        task: { id: "task", description: "Specialized", prompt: "Do the work" },
+        operatingMode: { id: mode.id, version: mode.version },
+        backend: {
+          strategy: "inherit_parent",
+          adapterId: backend.adapterId,
+          connectionId: backend.connectionId,
+          modelId: backend.modelId,
+        },
+        permissions: {
+          parentExecutionMode: "act",
+          executionMode,
+          parentPermissionMode: "approved_for_me",
+          permissionMode: "approved_for_me",
+        },
+        limits: mode.orchestration,
+      },
+    });
+
+    expect(child.agent.profile).toEqual({ id: profileId, version: 1 });
+  });
+
+  it("rejects a profile whose durable execution mode does not match policy", async () => {
+    const store = await temporaryStore();
+    const mode = getOperatingModePolicy("balanced_v1");
+    await expect(store.createPinnedSession({
+      id: "mismatched-profile",
+      cwd: "/workspace",
+      backend,
+      at,
+      agent: {
+        id: "mismatched-agent",
+        role: "child",
+        profile: { id: "implement_v1", version: 1 },
+        parentAgentId: "parent-agent",
+        parentSessionId: "parent-session",
+        depth: 1,
+        task: { id: "task", description: "Mismatch", prompt: "Do it" },
+        operatingMode: { id: mode.id, version: mode.version },
+        backend: {
+          strategy: "inherit_parent",
+          adapterId: backend.adapterId,
+          connectionId: backend.connectionId,
+          modelId: backend.modelId,
+        },
+        permissions: {
+          parentExecutionMode: "act",
+          executionMode: "plan",
+          parentPermissionMode: "approved_for_me",
+          permissionMode: "approved_for_me",
+        },
+        limits: mode.orchestration,
+      },
+    })).rejects.toMatchObject({ code: "invalid_record" });
+  });
+
   it("rejects a durable mode update that would make Explore writable", async () => {
     const store = await temporaryStore();
     const mode = getOperatingModePolicy("balanced_v1");

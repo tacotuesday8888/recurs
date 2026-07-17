@@ -38,7 +38,7 @@
 - Extends `AgentProfilePolicy.tools` with `allowedCategories` and `maxRisk`.
 - Extends `OperatingModePolicy` with non-persisted `workflow.maxChildrenPerRun`; the persisted mode ID/version remains the durable selector.
 
-- [ ] **Step 1: Write failing contract tests** for the three exact IDs, exact name/ID parsing, frozen nested policies, profile execution modes, tool allowlists, intent ceilings, and mode-specific child-run limits.
+- [x] **Step 1: Write failing contract tests** for the three exact IDs, exact name/ID parsing, frozen nested policies, profile execution modes, tool allowlists, intent ceilings, and mode-specific child-run limits.
 
 ```ts
 expect(parseAgentProfileId("implement")).toBe("implement_v1");
@@ -50,11 +50,11 @@ expect(getAgentProfilePolicy("review_v1")).toMatchObject({
 expect(getOperatingModePolicy("balanced_v1").workflow.maxChildrenPerRun).toBe(4);
 ```
 
-- [ ] **Step 2: Run the contract tests and confirm RED**.
+- [x] **Step 2: Run the contract tests and confirm RED**.
 
 Run: `npm test -- packages/contracts/test/agents.test.ts`
 
-- [ ] **Step 3: Implement immutable profiles and workflow limits**.
+- [x] **Step 3: Implement immutable profiles and workflow limits**.
 
 ```ts
 export type AgentProfileId = "explore_v1" | "implement_v1" | "review_v1";
@@ -74,13 +74,13 @@ export interface AgentProfilePolicy {
 }
 ```
 
-- [ ] **Step 4: Replace hard-coded Explore descriptor validation** with exact lookup through `parseAgentProfileId`, matching profile version and execution mode. Add hostile-record tests for unknown profiles and execution-mode mismatch.
+- [x] **Step 4: Replace hard-coded Explore descriptor validation** with exact lookup through `parseAgentProfileId`, matching profile version and execution mode. Add hostile-record tests for unknown profiles and execution-mode mismatch.
 
-- [ ] **Step 5: Run focused tests and type checking**.
+- [x] **Step 5: Run focused tests and type checking**.
 
 Run: `npm test -- packages/contracts/test/agents.test.ts packages/core/test/session-v2.test.ts && npm run typecheck`
 
-- [ ] **Step 6: Commit the contract slice**.
+- [x] **Step 6: Commit the contract slice**.
 
 ```bash
 git add packages/contracts/src/agents.ts packages/contracts/test/agents.test.ts packages/core/src/session-record-validator.ts packages/core/test/session-v2.test.ts
