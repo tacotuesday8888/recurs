@@ -184,7 +184,7 @@ describe("ChildAgentManager", () => {
 
   it("runs one child through the existing coordinator and returns evidence to its parent", async () => {
     const { sessions, pin, parent } = await storeFixture();
-    const provider = new ScriptedProvider([[ 
+    const provider = new ScriptedProvider([[
       { type: "text_delta", text: "Cache namespace is missing." },
       { type: "usage", inputTokens: 12, outputTokens: 6 },
       { type: "done", stopReason: "complete" },

@@ -124,10 +124,10 @@
 **Files:**
 - Review every changed file in this worktree.
 
-- [ ] Run `npm run lint`.
-- [ ] Run `npm run typecheck`.
-- [ ] Run `npm test`.
-- [ ] Run `npm run build`.
-- [ ] Run the repository’s native smoke verification if it remains applicable.
-- [ ] Inspect `git status`, the complete diff, generated artifacts, and secret patterns.
-- [ ] Confirm main remains unchanged after commit `9902ad2` and do not push.
+- [x] Run `npm run lint`.
+- [x] Run `npm run typecheck`.
+- [x] Run `npm test` (65 files, 1051 tests; loopback/Git integration required the normal unsandboxed test permission).
+- [x] Run `npm run build`.
+- [x] Run native engine-bundle, engine-bridge, and doctor smoke verification.
+- [x] Inspect `git status`, the complete diff, generated artifacts, and secret patterns.
+- [x] Confirm main remains unchanged after commit `9902ad2` and do not push.

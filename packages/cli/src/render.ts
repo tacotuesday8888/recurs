@@ -72,6 +72,18 @@ export class TextEventRenderer implements EventSink {
       case "verification_recorded":
         await this.#status(`Verified: ${event.evidence.join("; ")}`);
         break;
+      case "agent_started":
+        await this.#status(`↳ child: ${event.description}`);
+        break;
+      case "agent_completed":
+        await this.#status(`✓ child completed: ${event.childAgentId}`);
+        break;
+      case "agent_failed":
+        await this.#status(`✗ child failed: ${event.failure.safeMessage}`);
+        break;
+      case "agent_cancelled":
+        await this.#status(`✗ child cancelled: ${event.reason}`);
+        break;
       case "session_created":
       case "turn_started":
       case "model_reasoning_delta":
@@ -82,6 +94,7 @@ export class TextEventRenderer implements EventSink {
       case "permission_resolved":
       case "goal_updated":
       case "mode_updated":
+      case "agent_policy_updated":
         break;
     }
   };
