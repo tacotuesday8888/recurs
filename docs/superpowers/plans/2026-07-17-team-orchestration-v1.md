@@ -68,13 +68,13 @@
 - Create: `packages/core/test/git-patch-artifacts.test.ts`
 - Modify: `packages/core/src/index.ts`
 
-- [ ] Add failing Git-fixture tests for tracked edits, additions, deletions, deterministic path order, exact base revision, patch hash, and no-change results.
-- [ ] Add failing security tests for credential paths, path ambiguity, symlinks, submodules, mode changes, binary content, oversized patches, cancellation, dirty parent preflight, and foreign/tampered artifacts.
-- [ ] Capture untracked files in the isolated child by using intent-to-add only after status/path validation; never stage or commit the parent.
-- [ ] Generate one bounded full-index patch against the lease's exact revision and verify raw modes, numstat paths, patch paths, and SHA-256.
-- [ ] Expose only hash/path/size metadata to parent results; keep raw patch text internal to the foreground workflow.
-- [ ] Add a parent preflight that proves canonical root, clean status, and exact `HEAD` before worker leases are created.
-- [ ] Run the patch artifact and existing worktree lease tests.
+- [x] Add failing Git-fixture tests for tracked edits, additions, deletions, deterministic path order, exact base revision, patch hash, and no-change results.
+- [x] Add failing security tests for credential paths, path ambiguity, symlinks, submodules, mode changes, binary content, oversized patches, cancellation, dirty parent preflight, and foreign/tampered artifacts.
+- [x] Capture untracked files in the isolated child by using intent-to-add only after status/path validation; never stage or commit the parent.
+- [x] Generate one bounded full-index patch against the lease's exact revision and verify raw modes, numstat paths, patch paths, and SHA-256.
+- [x] Expose only hash/path/size metadata to parent results; keep raw patch text internal to the foreground workflow.
+- [x] Add a parent preflight that proves canonical root, clean status, and exact `HEAD` before worker leases are created.
+- [x] Run the patch artifact and existing worktree lease tests.
 
 ### Task 4: Add exact checkpoint rollback for integration transactions
 
@@ -84,10 +84,10 @@
 - Modify: `packages/tools/test/checkpoints.test.ts`
 - Modify: checkpoint test doubles in `packages/cli/test/session-commands.test.ts`, `packages/core/test/delegated-agent-executor.test.ts`, and `tests/e2e/coding-agent.test.ts` only if their concrete interfaces require it.
 
-- [ ] Add failing tests that restore one explicitly supplied completed checkpoint even when a newer unrelated checkpoint exists.
-- [ ] Add `restore(checkpoint, cwd)` as an exact, conflict-checked operation; keep `undoLatest` behavior unchanged and share the safe restore implementation.
-- [ ] Reject incomplete, foreign-session, tampered, already-undone, credential-resolving, or current-state-conflicting checkpoint handles.
-- [ ] Run the full tools checkpoint suite.
+- [x] Add failing tests that restore one explicitly supplied completed checkpoint even when a newer unrelated checkpoint exists.
+- [x] Add `restore(checkpoint, cwd)` as an exact, conflict-checked operation; keep `undoLatest` behavior unchanged and share the safe restore implementation.
+- [x] Reject incomplete, foreign-session, tampered, already-undone, credential-resolving, or current-state-conflicting checkpoint handles.
+- [x] Run the full tools checkpoint suite.
 
 ### Task 5: Integrate patch artifacts deterministically with rollback
 
@@ -96,12 +96,12 @@
 - Modify: `packages/core/src/git-patch-artifacts.ts`
 - Modify: `packages/core/test/git-patch-artifacts.test.ts`
 
-- [ ] Add failing tests for ordered disjoint integration, overlapping conflict, base revision drift, unexpected parent dirt, cancellation, and tampered artifact rejection.
-- [ ] Capture an internal pre-integration checkpoint, validate every artifact, run fixed `git apply --check`, then apply in task order.
-- [ ] After each apply, verify the workspace's complete dirty path set is contained in the cumulative declared artifact paths.
-- [ ] On any failure after mutation, capture the failed state and restore the exact internal checkpoint before returning a truthful failure.
-- [ ] Return integrated artifact IDs, changed paths, rollback status, and safe error details; never auto-commit.
-- [ ] Run patch artifact, checkpoint, apply-patch, and Git safety tests.
+- [x] Add failing tests for ordered disjoint integration, overlapping conflict, base revision drift, unexpected parent dirt, cancellation, and tampered artifact rejection.
+- [x] Capture an internal pre-integration checkpoint, validate every artifact, run fixed `git apply --check`, then apply in task order.
+- [x] After each apply, verify the workspace's complete dirty path set is contained in the cumulative declared artifact paths.
+- [x] On any failure after mutation, capture the failed state and restore the exact internal checkpoint before returning a truthful failure.
+- [x] Return integrated artifact IDs, changed paths, rollback status, and safe error details; never auto-commit.
+- [x] Run patch artifact, checkpoint, apply-patch, and Git safety tests.
 
 ### Task 6: Implement strict adaptive Review panels
 

@@ -58,6 +58,17 @@ export abstract class CheckpointStore {
     sessionId: string,
     cwd: string,
   ): Promise<{ restored: string[]; deleted: string[] }>;
+  restore(
+    checkpoint: Checkpoint,
+    cwd: string,
+  ): Promise<{ restored: string[]; deleted: string[] }> {
+    void checkpoint;
+    void cwd;
+    return Promise.reject(new ToolError(
+      "checkpoint_not_found",
+      "Exact checkpoint restore is unavailable for this store",
+    ));
+  }
 }
 
 interface StoredCheckpoint extends Checkpoint {
@@ -299,6 +310,42 @@ function entriesEqual(
   return left?.sha256 === right?.sha256;
 }
 
+function manifestsEqual(
+  left: WorkspaceManifest,
+  right: WorkspaceManifest,
+): boolean {
+  const leftPaths = Object.keys(left).sort((a, b) => a.localeCompare(b));
+  const rightPaths = Object.keys(right).sort((a, b) => a.localeCompare(b));
+  return leftPaths.length === rightPaths.length &&
+    leftPaths.every((file, index) => {
+      if (file !== rightPaths[index]) return false;
+      const leftEntry = left[file];
+      const rightEntry = right[file];
+      return leftEntry !== undefined && rightEntry !== undefined &&
+        leftEntry.sha256 === rightEntry.sha256 &&
+        leftEntry.blob === rightEntry.blob &&
+        leftEntry.size === rightEntry.size &&
+        leftEntry.kind === rightEntry.kind &&
+        leftEntry.mode === rightEntry.mode;
+    });
+}
+
+function checkpointHandleMatches(
+  checkpoint: Checkpoint,
+  stored: StoredCheckpoint,
+  includeAfter: boolean,
+): boolean {
+  return checkpoint.id === stored.id &&
+    checkpoint.sessionId === stored.sessionId &&
+    checkpoint.toolCallId === stored.toolCallId &&
+    manifestsEqual(checkpoint.before, stored.before) &&
+    (!includeAfter || (
+      checkpoint.after !== undefined &&
+      stored.after !== undefined &&
+      manifestsEqual(checkpoint.after, stored.after)
+    ));
+}
+
 function manifestsDiffer(
   before: WorkspaceManifest,
   after: WorkspaceManifest,
@@ -463,6 +510,10 @@ export class FileCheckpointStore extends CheckpointStore {
   }
 
   #checkpointFile(sessionId: string, id: string): string {
+    validateSessionId(sessionId);
+    if (!validIdentifier(id)) {
+      throw new ToolError("checkpoint_corrupt", "Invalid checkpoint handle");
+    }
     return path.join(this.#sessionDirectory(sessionId), `${id}.json`);
   }
 
@@ -608,6 +659,13 @@ export class FileCheckpointStore extends CheckpointStore {
     const stored = await this.#readCheckpoint(
       this.#checkpointFile(checkpoint.sessionId, checkpoint.id),
     );
+    if (
+      checkpoint.after !== undefined ||
+      stored.after !== undefined ||
+      !checkpointHandleMatches(checkpoint, stored, false)
+    ) {
+      throw new ToolError("checkpoint_corrupt", "Invalid checkpoint handle");
+    }
     const completed: StoredCheckpoint = {
       ...stored,
       after: await this.#captureManifest(cwd),
@@ -669,6 +727,50 @@ export class FileCheckpointStore extends CheckpointStore {
     await this.#assertStorageLocation(cwd);
     await this.initialize();
     const checkpoint = await this.#latest(sessionId);
+    return this.#restoreCheckpoint(checkpoint, cwd);
+  }
+
+  override async restore(
+    checkpoint: Checkpoint,
+    cwd: string,
+  ): Promise<{ restored: string[]; deleted: string[] }> {
+    await this.#assertStorageLocation(cwd);
+    await this.initialize();
+    if (checkpoint.after === undefined) {
+      throw new ToolError(
+        "checkpoint_corrupt",
+        "Exact restore requires a completed checkpoint handle",
+      );
+    }
+    let stored: StoredCheckpoint;
+    try {
+      stored = await this.#readCheckpoint(
+        this.#checkpointFile(checkpoint.sessionId, checkpoint.id),
+      );
+    } catch (error) {
+      if (error instanceof ToolError) throw error;
+      throw new ToolError("checkpoint_corrupt", "Invalid checkpoint handle", {
+        cause: error,
+      });
+    }
+    if (
+      !checkpointHandleMatches(checkpoint, stored, true)
+    ) {
+      throw new ToolError("checkpoint_corrupt", "Invalid checkpoint handle");
+    }
+    if (stored.undoneAt !== undefined) {
+      throw new ToolError(
+        "checkpoint_not_found",
+        "Checkpoint was already restored",
+      );
+    }
+    return this.#restoreCheckpoint(stored, cwd);
+  }
+
+  async #restoreCheckpoint(
+    checkpoint: StoredCheckpoint,
+    cwd: string,
+  ): Promise<{ restored: string[]; deleted: string[] }> {
     const after = checkpoint.after;
     if (after === undefined) {
       throw new ToolError("checkpoint_corrupt", "Checkpoint has no after state");

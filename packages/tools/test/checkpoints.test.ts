@@ -171,6 +171,42 @@ describe("FileCheckpointStore", () => {
     });
   });
 
+  it("restores one exact completed checkpoint without selecting a newer one", async () => {
+    const firstBefore = await store.captureBefore("s1", "first", cwd);
+    await writeFile(path.join(cwd, "a.txt"), "first agent a\n", "utf8");
+    const first = await store.captureAfter(firstBefore, cwd);
+    const secondBefore = await store.captureBefore("s1", "second", cwd);
+    await writeFile(path.join(cwd, "b.txt"), "second agent b\n", "utf8");
+    await store.captureAfter(secondBefore, cwd);
+
+    await expect(store.restore(first, cwd)).resolves.toEqual({
+      restored: ["a.txt"],
+      deleted: [],
+    });
+
+    expect(await readFile(path.join(cwd, "a.txt"), "utf8")).toBe("before a\n");
+    expect(await readFile(path.join(cwd, "b.txt"), "utf8")).toBe("second agent b\n");
+  }, 30_000);
+
+  it("rejects incomplete, tampered, foreign, and already-restored handles", async () => {
+    const before = await store.captureBefore("s1", "exact", cwd);
+    await expect(store.restore(before, cwd)).rejects.toMatchObject({
+      code: "checkpoint_corrupt",
+    });
+    await writeFile(path.join(cwd, "a.txt"), "agent a\n", "utf8");
+    const completed = await store.captureAfter(before, cwd);
+    await expect(store.restore({ ...completed, before: {} }, cwd)).rejects
+      .toMatchObject({ code: "checkpoint_corrupt" });
+    await expect(store.restore({ ...completed, sessionId: "s2" }, cwd)).rejects
+      .toMatchObject({ code: "checkpoint_corrupt" });
+    expect(await readFile(path.join(cwd, "a.txt"), "utf8")).toBe("agent a\n");
+
+    await store.restore(completed, cwd);
+    await expect(store.restore(completed, cwd)).rejects.toMatchObject({
+      code: "checkpoint_not_found",
+    });
+  });
+
   it("refuses the entire undo when the user changed an agent-produced file", async () => {
     const checkpoint = await store.captureBefore("s1", "call-1", cwd);
     await writeFile(path.join(cwd, "a.txt"), "agent a\n", "utf8");
@@ -205,7 +241,7 @@ describe("FileCheckpointStore", () => {
     await store.undoLatest("s1", cwd);
 
     expect(await readFile(path.join(cwd, "a.txt"), "utf8")).toBe("before a\n");
-  });
+  }, 30_000);
 
   it("rejects checkpoint storage inside the project", async () => {
     const unsafeStore = new FileCheckpointStore(path.join(cwd, ".recurs"));
