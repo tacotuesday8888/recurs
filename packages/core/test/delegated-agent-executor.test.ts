@@ -146,13 +146,14 @@ async function fixture(overrides: ExecutorOverrides = {}) {
       emitted.push(event);
       await overrides.emit?.(event);
     },
-    createToolContext(state, signal) {
+    createToolContext(state, signal, runContext) {
       return {
         sessionId: state.id,
         cwd: state.cwd,
         executionMode: state.executionMode,
         signal,
         readRevisions: new Map(),
+        ...(runContext === undefined ? {} : { runContext }),
       };
     },
     now: () => new Date(now),
@@ -1772,8 +1773,9 @@ describe("DelegatedAgentExecutor", () => {
       permissions() {
         return [{ category: "write", resource: "src/file.ts", risk: "elevated" }];
       },
-      async execute() {
+      async execute(_input, toolContext) {
         toolExecutions += 1;
+        expect(toolContext.runContext).toEqual(context);
         return {
           output: "edited",
           metadata: {

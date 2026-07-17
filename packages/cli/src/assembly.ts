@@ -599,13 +599,14 @@ export async function createStandaloneRuntime(
     emit(event) {
       return events.emit(event);
     },
-    createToolContext(session, signal) {
+    createToolContext(session, signal, runContext) {
       return {
         sessionId: session.id,
         cwd: session.cwd,
         signal,
         executionMode: session.executionMode,
         readRevisions: new Map(),
+        ...(runContext === undefined ? {} : { runContext }),
       };
     },
   });
@@ -616,13 +617,14 @@ export async function createStandaloneRuntime(
     emit(event) {
       return events.emit(event);
     },
-    createToolContext(session, signal) {
+    createToolContext(session, signal, runContext) {
       return {
         sessionId: session.id,
         cwd: session.cwd,
         signal,
         executionMode: session.executionMode,
         readRevisions: new Map(),
+        ...(runContext === undefined ? {} : { runContext }),
       };
     },
   });

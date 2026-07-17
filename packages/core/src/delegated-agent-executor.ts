@@ -88,7 +88,11 @@ export interface DelegatedAgentExecutorDependencies {
   readonly approvals: ApprovalHandler;
   readonly runtimeApprovals: ExactRuntimeApprovalHandler;
   emit(event: RecursEvent): Promise<void>;
-  createToolContext(state: SessionState, signal: AbortSignal): ToolContext;
+  createToolContext(
+    state: SessionState,
+    signal: AbortSignal,
+    context?: DelegatedRunExecutorInput["context"],
+  ): ToolContext;
   readonly now?: () => Date;
   readonly createDiagnosticId?: () => string;
   readonly limits?: Partial<DelegatedAgentExecutorLimits>;
@@ -254,6 +258,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
       const toolContext = this.dependencies.createToolContext(
         executionState,
         input.signal,
+        input.context,
       );
       const hostArtifacts: HostArtifacts = {
         changedFiles,

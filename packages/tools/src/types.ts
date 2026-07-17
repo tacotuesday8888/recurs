@@ -1,4 +1,7 @@
-import type { ToolDefinition } from "@recurs/contracts";
+import type {
+  ToolDefinition,
+  TrustedRunContext,
+} from "@recurs/contracts";
 
 export type PermissionMode =
   | "ask_always"
@@ -44,6 +47,7 @@ export interface ToolContext {
   executionMode: ExecutionMode;
   readRevisions: Map<string, string>;
   approvedIntents?: Set<string>;
+  runContext?: TrustedRunContext;
 }
 
 export interface ToolResult {

@@ -63,11 +63,11 @@
 - Test: `packages/core/test/delegated-agent-executor.test.ts`
 - Test: `packages/core/test/run-coordinator.test.ts`
 
-- [ ] Write failing tests proving the host-derived trusted context reaches host tools in both execution lanes and that child request limits clamp—but never expand—the backend authorization.
-- [ ] Add trusted run context to `ToolContext` and pass it from the coordinator through both executors.
-- [ ] Use `min(authorization.maxRequests, session.agent.limits.maxRequests)` for child direct steps and delegated runtime requests.
-- [ ] Keep ordinary root-run behavior unchanged.
-- [ ] Run focused coordinator/executor tests and commit the execution-seam slice.
+- [x] Write failing tests proving the host-derived trusted context reaches host tools in both execution lanes and that direct child request limits clamp—but never expand—the backend authorization.
+- [x] Add trusted run context to `ToolContext` and pass it from the coordinator through both executors.
+- [x] Use `min(authorization.maxRequests, session.agent.limits.maxRequests)` for child direct steps. The currently supported delegated Codex lane is already capped to one authorized runtime invocation; Recurs does not pretend it can cap opaque vendor-internal model calls.
+- [x] Keep ordinary root-run behavior unchanged.
+- [x] Run focused coordinator/executor tests and commit the execution-seam slice.
 
 ### Task 4: Implement one Recurs-owned delegation tool
 

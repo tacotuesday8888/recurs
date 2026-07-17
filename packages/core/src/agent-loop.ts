@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import type { IntegrationFailure, RunResult as CoordinatedRunResult } from "@recurs/contracts";
+import type {
+  IntegrationFailure,
+  RunResult as CoordinatedRunResult,
+  TrustedRunContext,
+} from "@recurs/contracts";
 
 import {
   collectProviderEvents,
@@ -56,6 +60,7 @@ export interface RunInput {
   maxSteps?: number;
   signal?: AbortSignal;
   executionMode?: ExecutionMode;
+  context?: TrustedRunContext;
 }
 
 export interface RunResult {
@@ -72,7 +77,11 @@ export interface AgentLoopDependencies {
   approvals: ApprovalHandler;
   sessions: JsonlSessionStore;
   emit(event: RecursEvent): Promise<void>;
-  createToolContext(state: SessionState, signal: AbortSignal): ToolContext;
+  createToolContext(
+    state: SessionState,
+    signal: AbortSignal,
+    context?: TrustedRunContext,
+  ): ToolContext;
   authorization?: RunAuthorization;
 }
 
@@ -625,7 +634,11 @@ async function runAgentLoopUnlocked(
     executionMode === state.executionMode
       ? state
       : { ...state, executionMode };
-  const toolContext = deps.createToolContext(executionState(), signal);
+  const toolContext = deps.createToolContext(
+    executionState(),
+    signal,
+    input.context,
+  );
   const turnId = input.turnId ?? `${input.sessionId}:${randomUUID()}`;
   if (turnId.trim().length === 0) {
     throw new AgentLoopError("invalid_run_input", "A turn id is required");

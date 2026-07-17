@@ -44,6 +44,7 @@ export interface DirectRunExecutorInput {
   executionMode: "act" | "plan";
   provider: ModelProvider;
   authorization: RunAuthorization;
+  context: TrustedRunContext;
   mutation: SessionMutationLease;
   signal: AbortSignal;
 }
@@ -630,6 +631,7 @@ export class BackendRunCoordinator implements RunCoordinator {
               executionMode: input.executionMode ?? session.executionMode,
               provider,
               authorization: resolved.authorization,
+              context,
               mutation,
               signal: input.signal,
             });

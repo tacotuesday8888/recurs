@@ -29,7 +29,13 @@ export class AgentLoopDirectExecutor implements DirectRunExecutor {
         turnId: input.turnId,
         prompt: input.prompt,
         executionMode: input.executionMode,
-        maxSteps: input.authorization.maxRequests,
+        context: input.context,
+        maxSteps: input.session.agent.role === "child"
+          ? Math.min(
+              input.authorization.maxRequests,
+              input.session.agent.limits.maxRequests,
+            )
+          : input.authorization.maxRequests,
         signal: input.signal,
       },
       input.mutation,
