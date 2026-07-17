@@ -8,6 +8,7 @@ export * from "./direct-model-executor.js";
 export * from "./delegated-agent-executor.js";
 export * from "./events.js";
 export * from "./goal.js";
+export * from "./git-worktree-leases.js";
 export * from "./jsonl-session-store.js";
 export * from "./loop-detector.js";
 export * from "./run-coordinator.js";

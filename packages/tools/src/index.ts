@@ -7,6 +7,7 @@ export * from "./builtins/run-command.js";
 export * from "./builtins/run-verification.js";
 export * from "./builtins/search-text.js";
 export * from "./checkpoints.js";
+export * from "./git-safety.js";
 export * from "./path-policy.js";
 export * from "./command-policy.js";
 export * from "./permissions.js";

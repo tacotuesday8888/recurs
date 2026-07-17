@@ -52,9 +52,10 @@ protected subprocesses.
    and Review profiles. Parallel Implement is rejected until Recurs has an
    explicit patch-integration, conflict-resolution, and rollback design.
 8. Every batch child gets a detached worktree at the parent's exact `HEAD`.
-   The first version fails closed when the parent repository is dirty because a
-   Git `HEAD` worktree cannot faithfully reproduce staged, unstaged, untracked,
-   ignored, or binary live state.
+   The first version fails closed when the parent has staged, unstaged tracked,
+   or untracked state because a Git `HEAD` worktree cannot faithfully reproduce
+   it. Git-ignored machine-local state does not block a lease and is
+   intentionally absent from the child worktree.
 9. Worktrees are host-owned under the project's Recurs data directory. Cleanup
    validates exact lease identity and containment, does not trust model input,
    and runs even after cancellation. Cleanup failure is surfaced; success is
@@ -162,15 +163,15 @@ interface GitWorktreeLeasePort {
 }
 ```
 
-- [ ] Write real temporary-repository tests for exact-HEAD checkout, clean-tree
+- [x] Write real temporary-repository tests for exact-HEAD checkout, clean-tree
   enforcement including untracked files, distinct concurrent leases, hostile
   IDs/paths, cancellation before/during creation, partial-create recovery,
   dirty lease cleanup, idempotent release, and truthful cleanup failure.
-- [ ] Observe RED before the lease manager exists.
-- [ ] Implement bounded shell-free Git calls through existing protected process
+- [x] Observe RED before the lease manager exists.
+- [x] Implement bounded shell-free Git calls through existing protected process
   helpers, strict realpath/containment checks, detached worktree creation, and
   cleanup that ignores the cancelled run signal.
-- [ ] Run focused real-Git tests and the tools/core suites, inspect, and commit.
+- [x] Run focused real-Git tests and the tools/core suites, inspect, and commit.
 
 ### Task 4: Extract one reusable child-run path
 
