@@ -54,6 +54,7 @@ import {
   createListFilesTool,
   createReadFileTool,
   createRunCommandTool,
+  createRunVerificationTool,
   createSearchTextTool,
   type ToolSecurityProfile,
 } from "@recurs/tools";
@@ -541,6 +542,7 @@ export async function createStandaloneRuntime(
   tools.register(createSearchTextTool());
   tools.register(createApplyPatchTool());
   tools.register(createRunCommandTool());
+  tools.register(createRunVerificationTool());
   tools.register(createGitStatusTool());
   tools.register(createGitDiffTool());
   const childAgents = new ChildAgentManager({

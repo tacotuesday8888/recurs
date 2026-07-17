@@ -55,6 +55,8 @@ export interface ToolPolicy {
   readonly readOnly: boolean;
   readonly evidenceFromSources: boolean;
   readonly allowedNames: readonly string[];
+  readonly allowedCategories: readonly PermissionCategory[];
+  readonly maxRisk: PermissionRisk;
 }
 
 export interface ToolResult {
@@ -66,6 +68,7 @@ export interface Tool<Input = unknown> {
   readonly definition: ToolDefinition;
   readonly executionClass: ToolExecutionClass;
   readonly mutating: boolean;
+  isMutating?(input: Input, context: ToolContext): boolean;
   parse(input: unknown): Input;
   permissions(input: Input, context: ToolContext): PermissionIntent[];
   /** Validate without mutating workspace or external state. */

@@ -13,6 +13,7 @@ import {
   type ToolContext,
   type ToolResult,
   type ToolPolicy,
+  type PermissionRisk,
   type ToolSecurityProfile,
 } from "./types.js";
 
@@ -20,10 +21,18 @@ type RegisteredTool = Tool<unknown>;
 
 function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
   const preflight = tool.preflight?.bind(tool);
+  const isMutating = tool.isMutating?.bind(tool);
   return {
     definition: tool.definition,
     executionClass: tool.executionClass,
     mutating: tool.mutating,
+    ...(isMutating === undefined
+      ? {}
+      : {
+          isMutating(input: unknown, context: ToolContext) {
+            return isMutating(input as Input, context);
+          },
+        }),
     parse(input) {
       return tool.parse(input);
     },
@@ -41,6 +50,23 @@ function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
       return tool.execute(input as Input, context);
     },
   };
+}
+
+const PERMISSION_RISK_RANK = Object.freeze({
+  normal: 0,
+  elevated: 1,
+  destructive: 2,
+} satisfies Record<
+  PermissionRisk,
+  number
+>);
+
+function profileAllowsIntent(
+  policy: ToolPolicy,
+  intent: ReturnType<RegisteredTool["permissions"]>[number],
+): boolean {
+  return policy.allowedCategories.includes(intent.category) &&
+    PERMISSION_RISK_RANK[intent.risk] <= PERMISSION_RISK_RANK[policy.maxRisk];
 }
 
 async function executeTool(
@@ -168,19 +194,13 @@ export class ToolRegistry {
       throw new ToolError("unknown_tool", `Unknown tool: ${call.name}`);
     }
 
-    if (context.toolPolicy !== undefined &&
-      (!context.toolPolicy.allowedNames.includes(call.name) ||
-        (context.toolPolicy.readOnly && tool.mutating))) {
+    if (
+      context.toolPolicy !== undefined &&
+      !context.toolPolicy.allowedNames.includes(call.name)
+    ) {
       throw new ToolError(
         "tool_unavailable",
         `Tool ${call.name} is unavailable to this agent profile`,
-      );
-    }
-
-    if (context.executionMode === "plan" && tool.mutating) {
-      throw new ToolError(
-        "plan_mode_denied",
-        `Tool ${call.name} is unavailable in Plan mode`,
       );
     }
 
@@ -201,6 +221,30 @@ export class ToolRegistry {
       );
     }
 
+    let mutating: boolean;
+    try {
+      mutating = tool.mutating || (tool.isMutating?.(input, context) ?? false);
+    } catch (error) {
+      if (error instanceof ToolError) {
+        throw error;
+      }
+      throw new ToolError("execution_failed", `Tool ${call.name} failed`);
+    }
+
+    if (context.toolPolicy?.readOnly === true && mutating) {
+      throw new ToolError(
+        "tool_unavailable",
+        `Tool ${call.name} is unavailable to this agent profile`,
+      );
+    }
+
+    if (context.executionMode === "plan" && mutating) {
+      throw new ToolError(
+        "plan_mode_denied",
+        `Tool ${call.name} is unavailable in Plan mode`,
+      );
+    }
+
     let intents: ReturnType<RegisteredTool["permissions"]>;
     try {
       intents = tool.permissions(input, context);
@@ -209,6 +253,17 @@ export class ToolRegistry {
         throw error;
       }
       throw new ToolError("execution_failed", `Tool ${call.name} failed`);
+    }
+
+    if (context.toolPolicy !== undefined) {
+      for (const intent of intents) {
+        if (!profileAllowsIntent(context.toolPolicy, intent)) {
+          throw new ToolError(
+            "permission_denied",
+            `Agent profile denied ${intent.category} access to ${intent.resource}`,
+          );
+        }
+      }
     }
 
     for (const intent of intents) {
@@ -248,7 +303,7 @@ export class ToolRegistry {
 
     await preflightTool(tool, call.name, input, context);
 
-    if (!tool.mutating || this.#checkpoints === undefined) {
+    if (!mutating || this.#checkpoints === undefined) {
       return applyToolPolicyMetadata(
         await executeTool(tool, call.name, input, context),
         context.toolPolicy,

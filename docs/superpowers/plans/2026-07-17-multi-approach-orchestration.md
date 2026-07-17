@@ -104,25 +104,25 @@ git commit -m "feat: define specialized agent profiles"
 - Extends `ToolPolicy` with exact permission category/risk ceilings.
 - Produces `createRunVerificationTool(): Tool<RunVerificationInput>`.
 
-- [ ] **Step 1: Write failing registry tests** proving a dynamically mutating tool remains visible in Plan for its read-only input, rejects its mutating input in Plan, receives a checkpoint in Act, and is rejected before approval when its intents exceed the active profile.
+- [x] **Step 1: Write failing registry tests** proving a dynamically mutating tool remains visible in Plan for its read-only input, rejects its mutating input in Plan, receives a checkpoint in Act, and is rejected before approval when its intents exceed the active profile.
 
 ```ts
 isMutating(input) { return input.kind === "write"; }
 ```
 
-- [ ] **Step 2: Run registry tests and confirm RED**.
+- [x] **Step 2: Run registry tests and confirm RED**.
 
 Run: `npm test -- packages/tools/test/registry.test.ts`
 
-- [ ] **Step 3: Implement effective mutation and intent-policy enforcement** after exact input parsing and before approval. Use effective mutation for Plan denial, profile denial, and checkpoint capture.
+- [x] **Step 3: Implement effective mutation and intent-policy enforcement** after exact input parsing and before approval. Use effective mutation for Plan denial, profile denial, and checkpoint capture.
 
 ```ts
 const mutating = tool.mutating || (tool.isMutating?.(input, context) ?? false);
 ```
 
-- [ ] **Step 4: Write failing verification-tool tests** for accepted commands (`npm test`, `npm run lint`, `cargo test`, `go test ./...`, `pytest`, `python -m pytest`, `swift test`) and rejection of pipes, redirection, command substitution, network/install/deploy commands, arbitrary programs, malformed quoting, and excess output/time.
+- [x] **Step 4: Write failing verification-tool tests** for accepted commands (`npm test`, `npm run lint`, `cargo test`, `go test ./...`, `pytest`, `python -m pytest`, `swift test`) and rejection of pipes, redirection, command substitution, network/install/deploy commands, arbitrary programs, malformed quoting, and excess output/time.
 
-- [ ] **Step 5: Implement `run_verification` without a shell**. Tokenize a bounded command into one allowlisted executable plus arguments, call `runProcess(program, args, ...)`, mark it `fixed_process` and mutating, return exact exit evidence, and never pass input to `/bin/sh`.
+- [x] **Step 5: Implement `run_verification` without a shell**. Tokenize a bounded command into one allowlisted executable plus arguments, call `runProcess(program, args, ...)`, mark it `fixed_process` and mutating, return exact exit evidence, and never pass input to `/bin/sh`.
 
 ```ts
 export interface RunVerificationInput {
@@ -136,11 +136,11 @@ return {
 };
 ```
 
-- [ ] **Step 6: Register and export the tool**, then run tools, CLI assembly, lint, and type checks.
+- [x] **Step 6: Register and export the tool**, then run tools, CLI assembly, lint, and type checks.
 
 Run: `npm test -- packages/tools/test/registry.test.ts packages/tools/test/verification.test.ts packages/cli/test/assembly.test.ts && npm run lint && npm run typecheck`
 
-- [ ] **Step 7: Commit the enforcement/tool slice**.
+- [x] **Step 7: Commit the enforcement/tool slice**.
 
 ```bash
 git add packages/tools packages/cli/src/assembly.ts packages/cli/test/assembly.test.ts

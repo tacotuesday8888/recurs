@@ -4,6 +4,7 @@ export * from "./builtins/git-status.js";
 export * from "./builtins/list-files.js";
 export * from "./builtins/read-file.js";
 export * from "./builtins/run-command.js";
+export * from "./builtins/run-verification.js";
 export * from "./builtins/search-text.js";
 export * from "./checkpoints.js";
 export * from "./path-policy.js";
