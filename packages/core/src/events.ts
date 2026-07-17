@@ -47,6 +47,13 @@ export interface AgentWorkflowUsage {
   maxReportedCostUsd: number;
 }
 
+export interface AgentBatchCounts {
+  total: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+}
+
 export type RecursEvent =
   | (EventBase & { type: "session_created"; cwd: string; model: string })
   | (EventBase & { type: "turn_started"; turnId: string; prompt: string })
@@ -90,6 +97,41 @@ export type RecursEvent =
       operatingModeVersion: OperatingModeVersion;
     })
   | (EventBase & {
+      type: "agent_batch_started";
+      parentAgentId: string;
+      batchId: string;
+      operatingModeId: OperatingModeId;
+      taskCount: number;
+      maxConcurrentChildren: number;
+    })
+  | (EventBase & {
+      type: "agent_batch_completed";
+      parentAgentId: string;
+      batchId: string;
+      operatingModeId: OperatingModeId;
+      counts: AgentBatchCounts;
+      workflow: AgentWorkflowUsage;
+    })
+  | (EventBase & {
+      type: "agent_batch_failed";
+      parentAgentId: string;
+      batchId: string;
+      operatingModeId: OperatingModeId;
+      counts: AgentBatchCounts;
+      workflow: AgentWorkflowUsage;
+      partial: boolean;
+      failure?: { code: string; message: string };
+    })
+  | (EventBase & {
+      type: "agent_batch_cancelled";
+      parentAgentId: string;
+      batchId: string;
+      operatingModeId: OperatingModeId;
+      counts: AgentBatchCounts;
+      workflow: AgentWorkflowUsage;
+      reason: string;
+    })
+  | (EventBase & {
       type: "agent_started";
       parentAgentId: string;
       childAgentId: string;
@@ -98,6 +140,8 @@ export type RecursEvent =
       description: string;
       operatingModeId: OperatingModeId;
       profileId: AgentProfileId;
+      batchId?: string;
+      batchIndex?: number;
     })
   | (EventBase & {
       type: "agent_completed";
@@ -110,6 +154,8 @@ export type RecursEvent =
       evidence: string[];
       costLimitExceeded: boolean;
       workflow: AgentWorkflowUsage;
+      batchId?: string;
+      batchIndex?: number;
     })
   | (EventBase & {
       type: "agent_failed";
@@ -118,6 +164,8 @@ export type RecursEvent =
       childSessionId: string;
       profileId: AgentProfileId;
       failure: IntegrationFailure;
+      batchId?: string;
+      batchIndex?: number;
     })
   | (EventBase & {
       type: "agent_cancelled";
@@ -126,6 +174,8 @@ export type RecursEvent =
       childSessionId: string;
       profileId: AgentProfileId;
       reason: string;
+      batchId?: string;
+      batchIndex?: number;
     });
 
 export type SessionRecord =

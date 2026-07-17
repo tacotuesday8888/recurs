@@ -2,6 +2,7 @@ export * from "./agent-loop.js";
 export * from "./agent-profile.js";
 export * from "./backend-authorization.js";
 export * from "./child-agent-manager.js";
+export * from "./child-agent-batch.js";
 export * from "./compaction.js";
 export * from "./compatibility-coordinator.js";
 export * from "./direct-model-executor.js";

@@ -17,7 +17,6 @@ import {
 } from "@recurs/contracts";
 import {
   ToolError,
-  type DelegationBudget,
   type Tool,
   type ToolContext,
   type ToolResult,
@@ -34,7 +33,8 @@ import {
 import type { JsonlSessionStore } from "./jsonl-session-store.js";
 import {
   childRequestAllowance,
-  createDelegationBudget,
+  delegationWorkflowUsage,
+  isDelegationBudgetForAgent,
   scopeAgentPrompt,
 } from "./agent-profile.js";
 
@@ -47,6 +47,10 @@ export interface DelegateTaskInput {
 export interface ChildDelegationOptions {
   readonly cwd: string;
   readonly workspace: AgentGitWorktreeWorkspace;
+  readonly batch?: {
+    readonly id: string;
+    readonly index: number;
+  };
 }
 
 export interface ChildDelegationMetadata extends Record<string, unknown> {
@@ -65,6 +69,8 @@ export interface ChildDelegationMetadata extends Record<string, unknown> {
   readonly costLimitExceeded: boolean;
   readonly workflow: AgentWorkflowUsage;
   readonly workspace?: AgentGitWorktreeWorkspace;
+  readonly batchId?: string;
+  readonly batchIndex?: number;
 }
 
 export interface ChildDelegationResult extends ToolResult {
@@ -125,41 +131,6 @@ function invocationFromContext(context: TrustedRunContext): HostInvocation {
 
 function cancelled(failure: IntegrationFailure): boolean {
   return failure.code === "cancelled";
-}
-
-function validBudget(
-  budget: DelegationBudget,
-  expected: {
-    readonly maxChildren: number;
-    readonly maxRequests: number;
-    readonly maxReportedCostUsd: number;
-  },
-): boolean {
-  return budget.maxChildren === expected.maxChildren &&
-    budget.maxRequests === expected.maxRequests &&
-    budget.maxReportedCostUsd === expected.maxReportedCostUsd &&
-    Number.isSafeInteger(budget.childrenStarted) &&
-    budget.childrenStarted >= 0 &&
-    Number.isSafeInteger(budget.requestsReserved) &&
-    budget.requestsReserved >= 0 &&
-    budget.requestsReserved <= budget.maxRequests &&
-    Number.isSafeInteger(budget.requestsUsed) &&
-    budget.requestsUsed >= 0 &&
-    budget.requestsUsed <= budget.requestsReserved &&
-    Number.isFinite(budget.reportedCostUsd) &&
-    budget.reportedCostUsd >= 0;
-}
-
-function workflowUsage(budget: DelegationBudget) {
-  return {
-    childrenStarted: budget.childrenStarted,
-    maxChildren: budget.maxChildren,
-    requestsReserved: budget.requestsReserved,
-    requestsUsed: budget.requestsUsed,
-    maxRequests: budget.maxRequests,
-    reportedCostUsd: budget.reportedCostUsd,
-    maxReportedCostUsd: budget.maxReportedCostUsd,
-  };
 }
 
 export class ChildAgentManager {
@@ -264,11 +235,11 @@ export class ChildAgentManager {
     );
   }
 
-  async delegate(
+  async #prepare(
     input: DelegateTaskInput,
     context: ToolContext,
     options?: ChildDelegationOptions,
-  ): Promise<ChildDelegationResult> {
+  ) {
     if (context.signal.aborted) {
       throw new ToolError("cancelled", "Child delegation was cancelled");
     }
@@ -306,12 +277,8 @@ export class ChildAgentManager {
       throw new ToolError("tool_unavailable", "Child execution engine is unavailable");
     }
     const budget = context.delegationBudget;
-    const expectedBudget = createDelegationBudget(parent.agent);
-    if (budget === undefined || !validBudget(budget, {
-      maxChildren: mode.workflow.maxChildrenPerRun,
-      maxRequests: expectedBudget.maxRequests,
-      maxReportedCostUsd: mode.orchestration.maxReportedCostUsd,
-    })) {
+    if (budget === undefined ||
+      !isDelegationBudgetForAgent(budget, parent.agent)) {
       throw new ToolError("tool_unavailable", "Trusted delegation budget is unavailable");
     }
     if (budget.childrenStarted >= budget.maxChildren) {
@@ -333,6 +300,42 @@ export class ChildAgentManager {
         `Agent request limit reached (${budget.maxRequests})`,
       );
     }
+    return {
+      parent,
+      mode,
+      profile,
+      childDepth,
+      coordinator,
+      budget,
+      childRequestLimit,
+      childCwd,
+      runContext: context.runContext,
+    };
+  }
+
+  async preflight(
+    input: DelegateTaskInput,
+    context: ToolContext,
+  ): Promise<void> {
+    await this.#prepare(input, context);
+  }
+
+  async delegate(
+    input: DelegateTaskInput,
+    context: ToolContext,
+    options?: ChildDelegationOptions,
+  ): Promise<ChildDelegationResult> {
+    const {
+      parent,
+      mode,
+      profile,
+      childDepth,
+      coordinator,
+      budget,
+      childRequestLimit,
+      childCwd,
+      runContext,
+    } = await this.#prepare(input, context, options);
 
     const childSessionId = this.#createId();
     const childAgentId = this.#createId();
@@ -386,12 +389,15 @@ export class ChildAgentManager {
         description: input.description,
         operatingModeId: mode.id,
         profileId: profile.id,
+        ...(options?.batch === undefined
+          ? {}
+          : { batchId: options.batch.id, batchIndex: options.batch.index }),
       });
       const run = await coordinator.start({
         sessionId: child.id,
         expectedSessionRecordSequence: child.lastSequence,
         prompt: scopeAgentPrompt(child.agent, input.prompt),
-        invocation: invocationFromContext(context.runContext),
+        invocation: invocationFromContext(runContext),
         executionMode: profile.executionMode,
         signal: context.signal,
       });
@@ -414,6 +420,9 @@ export class ChildAgentManager {
             childSessionId,
             profileId: profile.id,
             reason: outcome.failure.safeMessage,
+            ...(options?.batch === undefined
+              ? {}
+              : { batchId: options.batch.id, batchIndex: options.batch.index }),
           });
           throw new ToolError("cancelled", outcome.failure.safeMessage);
         }
@@ -426,6 +435,9 @@ export class ChildAgentManager {
           childSessionId,
           profileId: profile.id,
           failure: outcome.failure,
+          ...(options?.batch === undefined
+            ? {}
+            : { batchId: options.batch.id, batchIndex: options.batch.index }),
         });
         throw new ToolError("execution_failed", outcome.failure.safeMessage);
       }
@@ -445,7 +457,7 @@ export class ChildAgentManager {
       }
       const costLimitExceeded =
         budget.reportedCostUsd > budget.maxReportedCostUsd;
-      const workflow = workflowUsage(budget);
+      const workflow = delegationWorkflowUsage(budget);
       await this.dependencies.emit({
         type: "agent_completed",
         sessionId: parent.id,
@@ -459,6 +471,9 @@ export class ChildAgentManager {
         evidence: [...outcome.result.evidence],
         costLimitExceeded,
         workflow,
+        ...(options?.batch === undefined
+          ? {}
+          : { batchId: options.batch.id, batchIndex: options.batch.index }),
       });
       return {
         output: outcome.result.finalText,
@@ -478,6 +493,9 @@ export class ChildAgentManager {
           costLimitExceeded,
           workflow,
           ...(options === undefined ? {} : { workspace: options.workspace }),
+          ...(options?.batch === undefined
+            ? {}
+            : { batchId: options.batch.id, batchIndex: options.batch.index }),
         },
       };
     } finally {

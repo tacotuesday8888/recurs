@@ -73,10 +73,84 @@ describe("TextEventRenderer agent activity", () => {
       profileId: "review_v1",
       reason: "Parent cancelled the run",
     });
+    await renderer.emit({
+      type: "agent_batch_started",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:04.000Z",
+      parentAgentId: "parent-agent",
+      batchId: "batch-1",
+      operatingModeId: "balanced_v2",
+      taskCount: 3,
+      maxConcurrentChildren: 3,
+    });
+    await renderer.emit({
+      type: "agent_batch_failed",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:05.000Z",
+      parentAgentId: "parent-agent",
+      batchId: "batch-1",
+      operatingModeId: "balanced_v2",
+      counts: { total: 3, completed: 2, failed: 1, cancelled: 0 },
+      workflow: {
+        childrenStarted: 3,
+        maxChildren: 4,
+        requestsReserved: 18,
+        requestsUsed: 7,
+        maxRequests: 24,
+        reportedCostUsd: 0.5,
+        maxReportedCostUsd: 3,
+      },
+      partial: true,
+    });
+    await renderer.emit({
+      type: "agent_batch_completed",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:06.000Z",
+      parentAgentId: "parent-agent",
+      batchId: "batch-2",
+      operatingModeId: "standard_v2",
+      counts: { total: 2, completed: 2, failed: 0, cancelled: 0 },
+      workflow: {
+        childrenStarted: 2,
+        maxChildren: 3,
+        requestsReserved: 10,
+        requestsUsed: 4,
+        maxRequests: 16,
+        reportedCostUsd: 0.2,
+        maxReportedCostUsd: 1,
+      },
+    });
+    await renderer.emit({
+      type: "agent_batch_cancelled",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:07.000Z",
+      parentAgentId: "parent-agent",
+      batchId: "batch-3",
+      operatingModeId: "standard_v2",
+      counts: { total: 3, completed: 1, failed: 0, cancelled: 2 },
+      workflow: {
+        childrenStarted: 2,
+        maxChildren: 3,
+        requestsReserved: 10,
+        requestsUsed: 4,
+        maxRequests: 16,
+        reportedCostUsd: 0.2,
+        maxReportedCostUsd: 1,
+      },
+      reason: "Parent delegation was cancelled",
+    });
 
     expect(output).toContain("↳ Explore child: Inspect cache key");
     expect(output).toContain("✓ Explore child completed: child-agent (1/4 this run)");
     expect(output).toContain("✗ Implement child failed: Focused tests failed");
     expect(output).toContain("✗ Review child cancelled: Parent cancelled the run");
+    expect(output).toContain("⇉ Agent batch batch-1: 3 tasks, up to 3 concurrent");
+    expect(output).toContain(
+      "✗ Agent batch batch-1 partially completed: 2 completed, 1 failed",
+    );
+    expect(output).toContain("✓ Agent batch batch-2 completed: 2/2");
+    expect(output).toContain(
+      "✗ Agent batch batch-3 cancelled: 1 completed, 2 cancelled",
+    );
   });
 });

@@ -78,6 +78,26 @@ export class TextEventRenderer implements EventSink {
           `↳ ${getAgentProfilePolicy(event.profileId).displayName} child: ${event.description}`,
         );
         break;
+      case "agent_batch_started":
+        await this.#status(
+          `⇉ Agent batch ${event.batchId}: ${event.taskCount} tasks, up to ${event.maxConcurrentChildren} concurrent`,
+        );
+        break;
+      case "agent_batch_completed":
+        await this.#status(
+          `✓ Agent batch ${event.batchId} completed: ${event.counts.completed}/${event.counts.total}`,
+        );
+        break;
+      case "agent_batch_failed":
+        await this.#status(
+          `✗ Agent batch ${event.batchId} ${event.partial ? "partially completed" : "failed"}: ${event.counts.completed} completed, ${event.counts.failed} failed${event.failure === undefined ? "" : ` — ${event.failure.message}`}`,
+        );
+        break;
+      case "agent_batch_cancelled":
+        await this.#status(
+          `✗ Agent batch ${event.batchId} cancelled: ${event.counts.completed} completed, ${event.counts.cancelled} cancelled`,
+        );
+        break;
       case "agent_completed":
         await this.#status(
           `✓ ${getAgentProfilePolicy(event.profileId).displayName} child completed: ${event.childAgentId} (${event.workflow.childrenStarted}/${event.workflow.maxChildren} this run)${event.costLimitExceeded ? " — reported-cost ceiling exceeded" : ""}`,

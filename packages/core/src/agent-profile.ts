@@ -9,6 +9,8 @@ import type {
   ToolPolicy,
 } from "@recurs/tools";
 
+import type { AgentWorkflowUsage } from "./events.js";
+
 export function createDelegationBudget(
   agent: AgentSessionDescriptor,
 ): DelegationBudget {
@@ -29,6 +31,40 @@ export function childRequestAllowance(agent: AgentSessionDescriptor): number {
   return Math.floor(
     mode.workflow.maxRequestsPerRun / mode.workflow.maxChildrenPerRun,
   );
+}
+
+export function isDelegationBudgetForAgent(
+  budget: DelegationBudget,
+  agent: AgentSessionDescriptor,
+): boolean {
+  const mode = getOperatingModePolicy(agent.operatingMode.id);
+  return budget.maxChildren === mode.workflow.maxChildrenPerRun &&
+    budget.maxRequests === mode.workflow.maxRequestsPerRun &&
+    budget.maxReportedCostUsd === mode.orchestration.maxReportedCostUsd &&
+    Number.isSafeInteger(budget.childrenStarted) &&
+    budget.childrenStarted >= 0 &&
+    Number.isSafeInteger(budget.requestsReserved) &&
+    budget.requestsReserved >= 0 &&
+    budget.requestsReserved <= budget.maxRequests &&
+    Number.isSafeInteger(budget.requestsUsed) &&
+    budget.requestsUsed >= 0 &&
+    budget.requestsUsed <= budget.requestsReserved &&
+    Number.isFinite(budget.reportedCostUsd) &&
+    budget.reportedCostUsd >= 0;
+}
+
+export function delegationWorkflowUsage(
+  budget: DelegationBudget,
+): AgentWorkflowUsage {
+  return {
+    childrenStarted: budget.childrenStarted,
+    maxChildren: budget.maxChildren,
+    requestsReserved: budget.requestsReserved,
+    requestsUsed: budget.requestsUsed,
+    maxRequests: budget.maxRequests,
+    reportedCostUsd: budget.reportedCostUsd,
+    maxReportedCostUsd: budget.maxReportedCostUsd,
+  };
 }
 
 export function applyAgentToolPolicy(

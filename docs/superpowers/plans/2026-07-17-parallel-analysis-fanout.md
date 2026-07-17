@@ -217,25 +217,25 @@ interface GitWorktreeLeasePort {
 }
 ```
 
-- [ ] Write failing tests for exact keys, minimum/maximum size, unsupported
+- [x] Write failing tests for exact keys, minimum/maximum size, unsupported
   Implement, Plan/Act compatibility, Economy sequential fallback, real bounded
   overlap in faster modes, deterministic result order, partial failure, queued
   budget exhaustion, known cost exhaustion, parent cancellation, and cleanup on
   every terminal path.
-- [ ] Confirm RED before adding the batch tool.
-- [ ] Implement a small worker pool capped by both task count and the selected
+- [x] Confirm RED before adding the batch tool.
+- [x] Implement a small worker pool capped by both task count and the selected
   mode's `maxConcurrentChildren`; never use unbounded `Promise.all`.
-- [ ] Create a lease immediately before each child starts, call the existing
+- [x] Create a lease immediately before each child starts, call the existing
   child run path with the shared `ToolContext` budget, settle success/failure in
   the original slot, and release in `finally`.
-- [ ] Add `agent_batch_started`, `agent_batch_completed`,
+- [x] Add `agent_batch_started`, `agent_batch_completed`,
   `agent_batch_failed`, and `agent_batch_cancelled` events with bounded counts
   and correlation IDs. Reuse existing child lifecycle events for task details.
-- [ ] Return a concise synthesis-ready output and bounded metadata containing
+- [x] Return a concise synthesis-ready output and bounded metadata containing
   ordered status, IDs, profile, isolation revision, usage, and evidence.
-- [ ] Render truthful text status for the new events; JSONL remains the exact
+- [x] Render truthful text status for the new events; JSONL remains the exact
   serialized event contract.
-- [ ] Run focused batch, manager, render, validation, and type tests; inspect and
+- [x] Run focused batch, manager, render, validation, and type tests; inspect and
   commit.
 
 ### Task 6: Wire the real backend and CLI policy surface
