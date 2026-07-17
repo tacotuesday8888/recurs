@@ -1,6 +1,6 @@
 # Recurs CLI
 
-Recurs Core v0 is a provider-neutral coding-agent harness. The CLI, direct agent loop, delegated-runtime executor, tools, permissions, Plan mode, durable sessions, goals, checkpoints, structured output, credential-free local transport, and first official Codex ACP path are implemented.
+Recurs Core v0 is a provider-neutral coding-agent harness. The CLI, direct agent loop, delegated-runtime executor, first owned foreground child-agent path, tools, permissions, Plan mode, durable sessions, goals, checkpoints, structured output, credential-free local transport, and first official Codex ACP path are implemented.
 
 The executable starts in a sessionless workspace shell when no provider is available. Coding prompts require a configured literal-loopback local server, an eligible interactive Codex connection, or an injected test/embedding `ModelProvider`; no fake `unconfigured` session is written.
 
@@ -223,6 +223,16 @@ Codex sessions are permanently constrained by their runtime profile to Plan mode
 
 Replacing or clearing an unfinished goal requires confirmation. Each successful agent turn records its final progress summary and its own verification evidence into the active goal. Completion is rejected until that goal—not an older conversation—contains both.
 
+## Owned child agents and operating modes
+
+`delegate_task` is the first Recurs-owned orchestration primitive. A parent model supplies exactly a short description and a concrete prompt. Recurs creates a separate pinned child session, records the parent, task, depth, selected policy, backend/model inheritance, permission envelope, lifecycle, usage, files, evidence, and terminal result, then runs that child through the same coordinator used by an ordinary turn. The child's final text becomes the parent tool result so the parent—not hidden glue—performs synthesis.
+
+This first slice is intentionally foreground and singular. Depth is one, concurrency is one, and automatic retries are zero. Cancellation is linked to the parent. A child inherits the parent's exact backend/model pin and Act/Plan state, and its permission mode can never exceed the parent's. The same path works with a direct provider and with a delegated runtime only to the extent that runtime supports Recurs host tools and its existing policy; Recurs does not claim control over opaque vendor-internal calls.
+
+`/agents` shows the active policy. `/agents mode economy|standard|balanced|performance|max` persists a new stable policy ID for the current parent session. These names are display labels; logs store versioned IDs such as `balanced_v1`. Every current mode uses `inherit_parent` model selection because independent child routing is not implemented. Modes currently differ in request and reported-cost ceilings; orchestration remains depth-one/concurrency-one/zero-retry across all five. Request count is the enforceable pre-run spending bound. USD cost is recorded and flagged after telemetry arrives, and remains unavailable when a provider does not report it.
+
+Parallel fan-out, background work, resumption, recursive depth, profiles/roles, independent model selection, worktree isolation, swarms, and the company interface remain later milestones. See the [primary-source harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md).
+
 ## Slash commands
 
 | Command | Purpose |
@@ -231,6 +241,7 @@ Replacing or clearing an unfinished goal requires confirmation. Each successful 
 | `/goal ...` | Create, inspect, pause, resume, complete, or clear the durable goal. |
 | `/plan [prompt\|exit]` | Enter enforced read-only planning or return to Act. |
 | `/permissions [ask\|approved\|full]` | Inspect or change the permission preset. |
+| `/agents [mode economy\|standard\|balanced\|performance\|max]` | Inspect or change the bounded child-agent policy. |
 | `/status` | Show session, workspace, model identifier, modes, goal, usage, and pending tools. |
 | `/init` | Confirm and create a starter `AGENTS.md`; never overwrite an existing path. |
 | `/new` | Start a new durable session in the same workspace. |
@@ -242,7 +253,7 @@ Replacing or clearing an unfinished goal requires confirmation. Each successful 
 | `/cancel` | Abort the current provider/tool run. |
 | `/quit`, `/exit`, `/q` | Exit the interactive CLI. |
 
-Without an explicit primary, the workspace shell exposes only `/help`, `/connect`, `/model`, `/permissions`, `/status`, `/resume`, `/init`, `/diff`, and exit commands. Secondary records are never selected by file order. `/resume <exact-id>` may load a historical pinned session for inspection and, when its exact connection still exists and matches, continued work. A changed or disconnected record fails preflight before provider/runtime work. `/connect` gives both `recurs setup codex` and the credential-free local setup command; `/model` reports that no connection is active.
+Without an explicit primary, the workspace shell exposes only `/help`, `/connect`, `/model`, `/permissions`, `/agents`, `/status`, `/resume`, `/init`, `/diff`, and exit commands. `/agents` explains the default but cannot persist a policy until a model connection creates a session. Secondary records are never selected by file order. `/resume <exact-id>` may load a historical pinned session for inspection and, when its exact connection still exists and matches, continued work. A changed or disconnected record fails preflight before provider/runtime work. `/connect` gives both `recurs setup codex` and the credential-free local setup command; `/model` reports that no connection is active.
 
 ## Sessions and recovery
 

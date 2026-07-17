@@ -114,10 +114,10 @@
 - Modify: `docs/CLI.md`
 - Modify: `README.md`
 
-- [ ] Record the primary-source comparison of Codex, OpenCode, Kimi Code, Kilo Code, Pi, and Goose.
-- [ ] Clearly separate the shipped one-child vertical from future recursion, parallelism, background work, role profiles, model routing, and company UX.
-- [ ] Document child-session durability, permission inheritance, limits, cancellation, cost-telemetry behavior, `/agents`, and `delegate_task`.
-- [ ] Check all links and terminology, then commit the documentation slice.
+- [x] Record the primary-source comparison of Codex, OpenCode, Kimi Code, Kilo Code, Pi, and Goose.
+- [x] Clearly separate the shipped one-child vertical from future recursion, parallelism, background work, role profiles, model routing, and company UX.
+- [x] Document child-session durability, permission inheritance, limits, cancellation, cost-telemetry behavior, `/agents`, and `delegate_task`.
+- [x] Check all links and terminology, then commit the documentation slice.
 
 ### Task 7: Full verification and branch audit
 
