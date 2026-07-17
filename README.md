@@ -6,19 +6,19 @@ The code is intended to become an open-source project, but this repository does 
 
 ## Current foundation
 
-The repository contains a usable agent base and the first owned child-agent vertical:
+The repository contains a usable agent base and a bounded, Recurs-owned child-agent vertical:
 
 - one streaming tool-calling loop with bounded pre-output retries, cancellation, step limits, and repeated-loop detection;
-- one foreground `delegate_task` path that creates a durable read-only Explore child, runs it through the same coordinator/provider/runtime/approval seams, and returns its evidence-bearing handoff to the parent for synthesis;
-- durable parent/child/task/lifecycle/result contracts, normalized agent events, monotonic permission inheritance, and explicit depth-one/concurrency-one/zero-retry limits;
-- five rename-safe operating-mode IDs exposed through `/agents`, with honest parent-backend model inheritance and request/reported-cost policy;
+- one foreground `delegate_task` path that selects an exact Explore, Implement, or Review profile, creates a durable child session, runs it through the same coordinator/provider/runtime/approval seams, and returns its evidence-bearing handoff to the parent for synthesis;
+- durable parent/child/task/lifecycle/result contracts, normalized profile-aware events, monotonic permission inheritance, shared per-run child/reported-cost budgets, and explicit depth-one/concurrency-one/zero-retry limits;
+- five rename-safe operating-mode IDs exposed through `/agents`, with honest parent-backend model inheritance, per-child request limits, and per-parent-run child/reported-cost policy;
 - strict provider-event validation and normalized text, reasoning, tool, usage, and completion events;
 - credential-free OpenAI-compatible local model setup for literal-loopback Ollama and LM Studio servers;
 - private signed-macOS activation paths for OpenAI API, Anthropic API, and Kimi Code credentials, with native model discovery and streamed tool calling;
 - a validated 25-path provider/authentication catalog, a revisioned non-secret connection registry, and exact-ID account listing, verification, primary selection, and metadata-only disconnection;
 - a bounded `models.dev` discovery catalog, fixed-port loopback detection for Ollama and LM Studio, and one `/provider` surface shared with first-run onboarding;
 - an official Codex ACP path for an existing ChatGPT login, constrained to local, interactive, user-present, Plan-only work;
-- seven tools for file reading, listing, search, patching, bounded shell execution, Git status, and Git diff; Explore children see only the five read-only inspection tools;
+- eight tools for file reading, listing, search, patching, bounded shell execution, shell-free allowlisted verification, Git status, and Git diff; each child profile receives an exact host-tool and intent ceiling;
 - Ask Always, Approved for Me, Full Access, enforced Plan mode, and temporary read-only review;
 - durable `/goal` state, append-only JSONL sessions, interrupted-tool recovery, compaction, checkpoints, and conflict-safe undo;
 - interactive and non-interactive CLI paths with text or normalized JSONL output;
@@ -103,6 +103,6 @@ The private native path now supports crash-safe OpenAI API, Anthropic API, and K
 2. Exercise the completed OpenAI, Anthropic, and Kimi Code verticals through installed-artifact security and credential-canary tests.
 3. Add the explicit public-HTTPS OpenAI-compatible profile only with DNS-rebinding-safe endpoint verification; catalog-only entries remain unavailable until their complete vertical lands.
 4. Give any delegated runtime included in the sealed engine its own fixed signed layout; expand delegated runtimes only through documented integrations and provider-specific policy review.
-5. Extend the proven foreground child primitive with isolated roles and carefully bounded parallelism before building the heavy company runtime.
+5. Add worktree-isolated, carefully bounded parallel fan-out on top of the proven foreground profiles before building any background or company-style runtime.
 
 Start with the [documentation index](docs/README.md), [CLI guide](docs/CLI.md), [architecture](ARCHITECTURE.md), [security policy](SECURITY.md), and [product direction](PRODUCT.md).

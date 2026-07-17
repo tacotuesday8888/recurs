@@ -297,11 +297,11 @@ git commit -m "test: prove multi-profile orchestration"
 - Modify: `docs/research/SUBAGENT_HARNESS_COMPARISON.md`
 - Modify: `docs/superpowers/plans/2026-07-17-multi-approach-orchestration.md`
 
-- [ ] **Step 1: Document exactly what is real**: three profiles, direct/host-tool enforcement, opaque-runtime limitation, safe verification execution, sequential per-run limits, reported-cost behavior, checkpoints, cancellation, and synthesis.
+- [x] **Step 1: Document exactly what is real**: three profiles, direct/host-tool enforcement, opaque-runtime limitation, safe verification execution, sequential per-run limits, reported-cost behavior, checkpoints, cancellation, and synthesis.
 
-- [ ] **Step 2: Document intentionally absent work**: background agents, parallel fan-out, retry/resume, depth beyond one, worktree-per-child isolation, independent model routing, role marketplaces, schedules, and company UI.
+- [x] **Step 2: Document intentionally absent work**: background agents, parallel fan-out, retry/resume, depth beyond one, worktree-per-child isolation, independent model routing, role marketplaces, schedules, and company UI.
 
-- [ ] **Step 3: Run full verification**.
+- [x] **Step 3: Run full verification**.
 
 ```bash
 npm run check:generated
@@ -314,13 +314,13 @@ npm run native:engine-bridge-smoke
 npm run native:doctor-smoke
 ```
 
-- [ ] **Step 4: Audit status, complete diff, secret patterns, generated files, and `git diff --check`**. Confirm `main` remains unchanged and nothing was pushed.
+- [x] **Step 4: Audit status, complete diff, secret patterns, generated files, and `git diff --check`**. Confirm `main` remains unchanged and nothing was pushed.
 
-- [ ] **Step 5: Commit documentation/audit results**.
+- [x] **Step 5: Commit documentation/audit results**.
 
 ```bash
 git add README.md docs/CLI.md docs/research/SUBAGENT_HARNESS_COMPARISON.md docs/superpowers/plans/2026-07-17-multi-approach-orchestration.md
 git commit -m "docs: define multi-approach orchestration"
 ```
 
-- [ ] **Step 6: Use `superpowers:finishing-a-development-branch`** and leave the branch clean and integration-ready without pushing or merging unless explicitly authorized.
+- [x] **Step 6: Use `superpowers:finishing-a-development-branch`** and leave the branch clean and integration-ready without pushing or merging unless explicitly authorized.

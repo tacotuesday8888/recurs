@@ -225,15 +225,37 @@ Replacing or clearing an unfinished goal requires confirmation. Each successful 
 
 ## Owned child agents and operating modes
 
-`delegate_task` is the first Recurs-owned orchestration primitive. A parent model supplies exactly a short description and a concrete prompt. Recurs creates a separate pinned child session, records the parent, task, stable `explore_v1` profile, depth, selected policy, backend/model inheritance, permission envelope, lifecycle, usage, evidence, and terminal result, then runs that child through the same coordinator used by an ordinary turn. The child's final text becomes the parent tool result so the parent—not hidden glue—performs synthesis.
+`delegate_task` is Recurs's owned orchestration primitive. A parent model supplies exactly `{ profile, description, prompt }`, where `profile` is `explore`, `implement`, `review`, or the corresponding stable ID. Recurs creates a separate pinned version-2 child session and records its parent, task, profile, policy, permission envelope, lifecycle, usage, evidence, files, and terminal result. The child runs through the same coordinator as an ordinary turn; its final handoff becomes a parent tool result, and the parent model performs synthesis.
 
-This first slice is intentionally foreground and singular. Depth is one, concurrency is one, and automatic retries are zero. Cancellation is linked to the parent. The Explore child inherits the parent's exact backend/model pin and a permission mode that can never exceed the parent's, but its execution mode is narrowed to Plan. Direct providers and host-tool runtimes receive only `read_file`, `list_files`, `search_text`, `git_status`, and `git_diff`; the registry rejects every other invocation before parsing or approval. Each inspection tool contributes a bounded evidence trail, and the profile prompt asks for Findings, Evidence, Uncertainty, and a Recommended next step.
+The three version-1 profiles are host policies, not prompt-only roles:
 
-For an opaque delegated runtime, Recurs cannot advertise or filter vendor-internal tool names. Such a child is accepted only when the pinned runtime capability profile guarantees enforced Plan mode; otherwise preflight fails closed. Recurs does not claim visibility into opaque vendor-internal model calls or tools.
+| Profile | Execution and workspace effect | Exact host-controlled tools |
+| --- | --- | --- |
+| Explore (`explore_v1`) | Plan; read-only | `read_file`, `list_files`, `search_text`, `git_status`, `git_diff` |
+| Implement (`implement_v1`) | Act parent required; scoped edits and verification | Explore tools plus `apply_patch`, `run_command`, `run_verification` |
+| Review (`review_v1`) | Act parent required; no source edits or arbitrary command tool | Explore tools plus `run_verification` |
 
-`/agents` shows the active policy. `/agents mode economy|standard|balanced|performance|max` persists a new stable policy ID for the current parent session. These names are display labels; logs store versioned IDs such as `balanced_v1`. Every current mode uses `inherit_parent` model selection because independent child routing is not implemented. Modes currently differ in request and reported-cost ceilings; orchestration remains depth-one/concurrency-one/zero-retry across all five. Request count is the enforceable pre-run spending bound. USD cost is recorded and flagged after telemetry arrives, and remains unavailable when a provider does not report it.
+Where Recurs owns tool execution, the registry enforces both the exact tool names and each profile's permission-category/risk ceiling before approval. `run_verification` parses one allowlisted npm, pnpm, yarn, Bun, Cargo, Go, Pytest, or Swift test/check command and executes it directly without a shell; pipes, redirection, substitution, arbitrary programs, install/deploy commands, and mutating test flags are rejected. It is still treated as workspace-effectful because builds and tests can write artifacts, so Implement and Review delegation receive parent-level checkpoints. Explore does not. The invoked project task and its arguments still have ordinary host-process authority; an allowlisted task name is not containment or proof that the task is side-effect free. Implement's separate `run_command` tool remains an approval-gated arbitrary shell with host authority: command classification and checkpoints are application defenses, not containment, and embedded scripts can evade semantic classification.
 
-Parallel fan-out, background work, resumption, recursive depth, additional profiles/roles, independent model selection, worktree isolation, swarms, and the company interface remain later milestones. See the [primary-source harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md).
+Every child inherits the parent's exact backend/model pin and a permission preset that cannot exceed the parent. Explore narrows execution to Plan. Implement and Review require Act. All three exclude `delegate_task`, so depth remains one. A parent run is foreground and sequential, concurrency is one, retries are zero, failed and cancelled attempts consume a child slot, and cancellation is linked. Child failures/cancellation and profile-correlated lifecycle/result evidence remain visible as normalized events and durable session state.
+
+For an opaque delegated runtime, Recurs cannot advertise or filter vendor-internal tools. Explore is accepted only when the pinned runtime guarantees enforced Plan mode. Implement and Review require host-controlled tools and checkpointing and therefore fail preflight on the current opaque Codex ACP runtime. Recurs does not claim visibility into vendor-internal model calls, tool catalogs, or spend.
+
+`/agents` shows the active policy and its per-parent-run child limit; `/agents profiles` shows the exact profiles and enforcement boundaries. `/agents mode economy|standard|balanced|performance|max` persists a stable policy ID. Names are display labels, while logs store versioned IDs such as `balanced_v1`.
+
+| Mode | Children per parent run | Requests per child run | Reported-cost ceiling |
+| --- | ---: | ---: | ---: |
+| Economy (`economy_v1`) | 2 | 8 | $0.25 |
+| Standard (`standard_v1`) | 3 | 16 | $1 |
+| Balanced (`balanced_v1`) | 4 | 24 | $3 |
+| Performance (`performance_v1`) | 6 | 32 | $10 |
+| Max (`max_v1`) | 8 | 40 | $25 |
+
+Every current mode uses `inherit_parent`; independent child model routing is not implemented. Child request limits are enforced before provider calls; the parent continues to use its backend authorization ceiling. The shared reported-cost budget can only incorporate telemetry after a child settles, so a completing child can cross the ceiling; the event reports that overrun and no later child may start. If a provider reports no USD cost, the budget remains unavailable rather than estimated.
+
+Existing `explore_v1` session records remain valid. Because Recurs is still unreleased `0.0.0`, the earlier two-field `delegate_task` draft is not retained: embeddings must now provide an exact `profile` rather than receiving an implicit Explore child.
+
+Parallel fan-out, background children, child resumption, automatic retries, recursive depth, worktree-per-child isolation, independent model selection, dynamic role libraries, automatic workflow planning, swarms, schedules, and the company interface remain later milestones. See the [primary-source harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md).
 
 ## Slash commands
 
@@ -243,7 +265,7 @@ Parallel fan-out, background work, resumption, recursive depth, additional profi
 | `/goal ...` | Create, inspect, pause, resume, complete, or clear the durable goal. |
 | `/plan [prompt\|exit]` | Enter enforced read-only planning or return to Act. |
 | `/permissions [ask\|approved\|full]` | Inspect or change the permission preset. |
-| `/agents [mode economy\|standard\|balanced\|performance\|max]` | Inspect or change the bounded child-agent policy. |
+| `/agents [profiles\|mode economy\|standard\|balanced\|performance\|max]` | Inspect profiles or change the bounded child-agent policy. |
 | `/status` | Show session, workspace, model identifier, modes, goal, usage, and pending tools. |
 | `/init` | Confirm and create a starter `AGENTS.md`; never overwrite an existing path. |
 | `/new` | Start a new durable session in the same workspace. |

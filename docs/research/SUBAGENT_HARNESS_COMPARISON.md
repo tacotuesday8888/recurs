@@ -22,19 +22,20 @@ Verified against primary open-source repositories and project documentation on 2
 - Pi [sub-agent extension](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/examples/extensions/subagent/index.ts), [SDK documentation](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/sdk.md), and [session-first orchestration proposal](https://github.com/badlogic/pi-mono/issues/552)
 - Goose [environment limits](https://github.com/block/goose/blob/main/documentation/docs/guides/environment-variables.md), [custom-distribution sub-agent overview](https://github.com/aaif-goose/goose/blob/main/CUSTOM_DISTROS.md), and [unified agent-execution discussion](https://github.com/block/goose/discussions/4389)
 
-## Decision for the first Recurs vertical
+## Current Recurs vertical
 
-Recurs now follows the convergent core while deliberately stopping before the heavy architecture:
+Recurs follows the convergent core while deliberately stopping before background or recursive orchestration:
 
-- `delegate_task` is a model-callable, exact-input tool.
+- `delegate_task` is a model-callable tool with exact `{ profile, description, prompt }` input.
 - Every child is a separate pinned version-2 Recurs session, not a subprocess wrapper or an external-runtime-only feature.
-- The first stable child profile is `explore_v1`: it narrows execution to Plan, exposes only five inspection tools where Recurs owns tool execution, and requests a structured evidence handoff.
+- Three stable policies exist: Plan/read-only `explore_v1`, Act/editing `implement_v1`, and Act/non-editing `review_v1`. Each has an immutable host-tool allowlist, intent ceiling, bounded prompt, and evidence-oriented handoff.
 - The child uses the same `BackendRunCoordinator`, backend resolver, direct provider or delegated runtime, approval engine, host tools, and cancellation signal as its parent.
-- The child inherits the exact backend/model pin and a permission mode that cannot exceed the parent; Explore narrows execution to Plan even when its parent is in Act.
-- Stable operating-mode IDs bound request count, depth, concurrency, retries, and reported cost. Display names can change later without migrating logs.
-- Parent/child activity emits normalized events; child JSONL state retains its task, lifecycle, usage, result, files, evidence, failure, or cancellation.
-- The parent receives the child final text as a tool result and performs the synthesis itself.
+- Every child inherits the exact backend/model pin and a permission mode that cannot exceed the parent. Explore narrows execution to Plan; Implement and Review require an Act parent.
+- Stable operating-mode IDs bound requests per child run and children/reported cost per parent run. All modes currently enforce depth one, concurrency one, and zero retries; display names can change without migrating logs.
+- One parent can explicitly compose a foreground Explore → Implement → Review workflow. Effectful delegations receive parent checkpoints, the shared budget counts every attempt, and the parent receives each child handoff before performing final synthesis.
+- Parent/child activity emits profile-correlated normalized events; child JSONL state retains its task, lifecycle, usage, result, files, evidence, failure, or cancellation.
+- Direct providers and delegated runtimes with host-tool/checkpoint support receive exact profile policy. An opaque runtime is accepted only for enforced-Plan Explore; Recurs does not claim control of vendor-internal tools.
 
 ## Intentionally absent
 
-This milestone does not implement parallel fan-out, background children, child resumption, automatic retries, depth beyond one, additional role/profile libraries, independent model routing, worktree isolation, swarms, schedules, or the company UI. Reported USD cost can only be flagged after a provider/runtime supplies telemetry; request limits are the enforceable pre-run spending bound. The official Codex runtime is opaque internally and already permits one authorized runtime invocation, so Recurs does not claim to meter its vendor-internal model calls or filter its internal tool catalog; it is accepted for Explore only through its pinned enforced-Plan capability.
+This milestone does not implement parallel fan-out, background children, child resumption, automatic retries, depth beyond one, worktree-per-child isolation, dynamic role libraries, independent model routing, automatic workflow planning, swarms, schedules, or the company UI. All children currently share the parent's workspace and run sequentially. Reported USD cost can only be counted after a provider/runtime supplies telemetry; a final child may cross the threshold, and no later child can start. The official Codex runtime is opaque internally, so Recurs does not claim to meter its vendor-internal calls or filter its tool catalog; it is accepted for Explore only through its pinned enforced-Plan capability.
