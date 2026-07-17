@@ -6,6 +6,7 @@ import {
   createHostInvocation,
   deriveTrustedRunContext,
   type BackendResolver,
+  type CoordinatedRunInput,
   type RunCoordinator,
 } from "@recurs/contracts";
 import { ScriptedProvider } from "@recurs/providers";
@@ -27,6 +28,8 @@ import {
   ChildAgentManager,
   JsonlSessionStore,
   bindRunAuthorization,
+  createDelegationBudget,
+  type RecursEvent,
 } from "../src/index.js";
 import { testAt, testBackendPin } from "../../../tests/support/backend.js";
 
@@ -78,10 +81,153 @@ function context(parent: Awaited<ReturnType<typeof storeFixture>>["parent"]) {
     signal: new AbortController().signal,
     readRevisions: new Map<string, string>(),
     runContext: trusted,
+    delegationBudget: createDelegationBudget(parent.agent),
   };
 }
 
 describe("ChildAgentManager", () => {
+  it("requires an exact profile and classifies only effectful children as mutating", async () => {
+    const { sessions, parent } = await storeFixture();
+    const manager = new ChildAgentManager({
+      sessions,
+      getCoordinator: () => null,
+      async emit() {},
+    });
+    const tool = manager.createTool();
+    const explore = tool.parse({
+      profile: "Explore",
+      description: "Inspect",
+      prompt: "Find the cause",
+    });
+    const implement = tool.parse({
+      profile: "implement_v1",
+      description: "Fix",
+      prompt: "Fix the cause",
+    });
+    const review = tool.parse({
+      profile: "review",
+      description: "Review",
+      prompt: "Review the fix",
+    });
+
+    expect(explore).toMatchObject({ profile: "explore_v1" });
+    expect(implement).toMatchObject({ profile: "implement_v1" });
+    expect(review).toMatchObject({ profile: "review_v1" });
+    expect(tool.isMutating?.(explore, context(parent))).toBe(false);
+    expect(tool.isMutating?.(implement, context(parent))).toBe(true);
+    expect(tool.isMutating?.(review, context(parent))).toBe(true);
+    expect(() => tool.parse({
+      profile: "rev",
+      description: "Review",
+      prompt: "Review the fix",
+    })).toThrow("Unknown agent profile");
+
+    await expect(tool.execute(implement, {
+      ...context(parent),
+      executionMode: "plan",
+    })).rejects.toMatchObject({ code: "plan_mode_denied" });
+  });
+
+  it("creates exact Explore, Implement, and Review descriptors and prompts", async () => {
+    const { sessions, pin, parent } = await storeFixture();
+    const starts: CoordinatedRunInput[] = [];
+    const coordinator: RunCoordinator = {
+      async start(input) {
+        starts.push(input);
+        const effectful = input.executionMode === "act";
+        return {
+          events: { async *[Symbol.asyncIterator]() {} },
+          outcome: Promise.resolve({
+            ok: true,
+            result: {
+              finalText: `handoff ${input.executionMode}`,
+              usage: { inputTokens: 4, outputTokens: 2, costUsd: 0.25 },
+              usageSource: "provider",
+              steps: 1,
+              changedFiles: effectful ? ["src/a.ts"] : [],
+              changedFilesSource: effectful ? "host_tools" : "none",
+              evidence: ["focused verification passed"],
+              evidenceSource: "host_tools",
+            },
+          }),
+        };
+      },
+    };
+    const events: RecursEvent[] = [];
+    const manager = new ChildAgentManager({
+      sessions,
+      getCoordinator: () => coordinator,
+      async emit(event) { events.push(event); },
+      createId: (() => {
+        const ids = [
+          "explore-session", "explore-agent", "explore-task",
+          "implement-session", "implement-agent", "implement-task",
+          "review-session", "review-agent", "review-task",
+        ];
+        return () => ids.shift()!;
+      })(),
+      now: () => testAt,
+    });
+    const tool = manager.createTool();
+    const runContext = context(parent);
+    const cases = [
+      ["explore", "explore_v1", "plan", "Recurs Explore agent", "Findings"],
+      ["implement", "implement_v1", "act", "Recurs Implement agent", "Changes"],
+      ["review", "review_v1", "act", "Recurs Review agent", "Verdict"],
+    ] as const;
+
+    for (const [index, item] of cases.entries()) {
+      const [name, profileId, executionMode, promptMarker, heading] = item;
+      const result = await tool.execute(tool.parse({
+        profile: name,
+        description: `${name} cache behavior`,
+        prompt: `${name} the cache behavior carefully`,
+      }), runContext);
+      const child = await sessions.loadState(`${name}-session`);
+      expect(child).toMatchObject({
+        executionMode,
+        agent: {
+          profile: { id: profileId, version: 1 },
+          backend: {
+            strategy: "inherit_parent",
+            adapterId: pin.adapterId,
+            connectionId: pin.connectionId,
+            modelId: pin.modelId,
+          },
+          permissions: {
+            parentExecutionMode: "act",
+            executionMode,
+            parentPermissionMode: "approved_for_me",
+            permissionMode: "approved_for_me",
+          },
+        },
+      });
+      expect(starts.at(-1)).toMatchObject({ executionMode });
+      expect(starts.at(-1)?.prompt).toContain(promptMarker);
+      expect(starts.at(-1)?.prompt).toContain(heading);
+      expect(result.metadata).toMatchObject({
+        profileId,
+        workflow: { childrenStarted: index + 1 },
+      });
+    }
+
+    expect(events).toHaveLength(6);
+    expect(events.every((event) =>
+      !event.type.startsWith("agent_") || "profileId" in event
+    )).toBe(true);
+    expect(events.at(-1)).toMatchObject({
+      type: "agent_completed",
+      profileId: "review_v1",
+      changedFiles: ["src/a.ts"],
+      workflow: {
+        childrenStarted: 3,
+        maxChildren: 4,
+        reportedCostUsd: 0.75,
+        maxReportedCostUsd: 3,
+      },
+    });
+  });
+
   it("returns a child handoff to the parent model for synthesis", async () => {
     const { directory, sessions, pin, parent } = await storeFixture();
     await writeFile(
@@ -97,6 +243,7 @@ describe("ChildAgentManager", () => {
             id: "delegate-call",
             name: "delegate_task",
             arguments: {
+              profile: "explore",
               description: "Inspect cache key",
               prompt: "Find the cache invalidation bug.",
             },
@@ -293,7 +440,7 @@ describe("ChildAgentManager", () => {
       },
     });
     const coordinator = new BackendRunCoordinator({ sessions, resolver, direct });
-    const events: Array<{ type: string }> = [];
+    const events: RecursEvent[] = [];
     const manager = new ChildAgentManager({
       sessions,
       getCoordinator: () => coordinator,
@@ -306,6 +453,7 @@ describe("ChildAgentManager", () => {
     });
     const tool = manager.createTool();
     const input = tool.parse({
+      profile: "explore",
       description: "Inspect cache key",
       prompt: "Find the cache invalidation bug and return evidence.",
     });
@@ -337,6 +485,16 @@ describe("ChildAgentManager", () => {
       "agent_started",
       "agent_completed",
     ]);
+    expect(events[1]).toMatchObject({
+      type: "agent_completed",
+      profileId: "explore_v1",
+      changedFiles: [],
+      workflow: {
+        childrenStarted: 1,
+        maxChildren: 4,
+        reportedCostUsd: 0,
+      },
+    });
   });
 
   it("persists a truthful terminal failure when the coordinator fails preflight", async () => {
@@ -359,10 +517,11 @@ describe("ChildAgentManager", () => {
         };
       },
     };
+    const events: RecursEvent[] = [];
     const manager = new ChildAgentManager({
       sessions,
       getCoordinator: () => coordinator,
-      async emit() {},
+      async emit(event) { events.push(event); },
       createId: (() => {
         const ids = ["failed-session", "failed-agent", "failed-task"];
         return () => ids.shift()!;
@@ -371,8 +530,18 @@ describe("ChildAgentManager", () => {
     });
     const tool = manager.createTool();
 
-    await expect(tool.execute(tool.parse({ description: "Fail safely", prompt: "Inspect" }), context(parent)))
+    const runContext = context(parent);
+    await expect(tool.execute(tool.parse({
+      profile: "explore",
+      description: "Fail safely",
+      prompt: "Inspect",
+    }), runContext))
       .rejects.toMatchObject({ code: "execution_failed" });
+    expect(runContext.delegationBudget.childrenStarted).toBe(1);
+    expect(events[1]).toMatchObject({
+      type: "agent_failed",
+      profileId: "explore_v1",
+    });
     expect(await sessions.loadState("failed-session")).toMatchObject({
       agentLifecycle: {
         status: "failed",
@@ -401,7 +570,7 @@ describe("ChildAgentManager", () => {
         };
       },
     };
-    const events: Array<{ type: string }> = [];
+    const events: RecursEvent[] = [];
     const manager = new ChildAgentManager({
       sessions,
       getCoordinator: () => coordinator,
@@ -414,8 +583,14 @@ describe("ChildAgentManager", () => {
     });
     const tool = manager.createTool();
 
-    await expect(tool.execute(tool.parse({ description: "Cancel safely", prompt: "Inspect" }), context(parent)))
+    const runContext = context(parent);
+    await expect(tool.execute(tool.parse({
+      profile: "review",
+      description: "Cancel safely",
+      prompt: "Inspect",
+    }), runContext))
       .rejects.toMatchObject({ code: "cancelled" });
+    expect(runContext.delegationBudget.childrenStarted).toBe(1);
     expect(await sessions.loadState("cancelled-session")).toMatchObject({
       agentLifecycle: {
         status: "cancelled",
@@ -427,6 +602,7 @@ describe("ChildAgentManager", () => {
       "agent_started",
       "agent_cancelled",
     ]);
+    expect(events[1]).toMatchObject({ profileId: "review_v1" });
   });
 
   it("rejects nested delegation at the explicit depth-one boundary", async () => {
@@ -459,7 +635,11 @@ describe("ChildAgentManager", () => {
     });
     const tool = manager.createTool();
 
-    await expect(tool.execute(tool.parse({ description: "Nested", prompt: "Inspect" }), context(child)))
+    await expect(tool.execute(tool.parse({
+      profile: "explore",
+      description: "Nested",
+      prompt: "Inspect",
+    }), context(child)))
       .rejects.toMatchObject({ code: "permission_denied" });
   });
 
@@ -473,13 +653,111 @@ describe("ChildAgentManager", () => {
     const tool = manager.createTool();
 
     expect(() => tool.parse({
+      profile: "explore",
       description: "Inspect",
       prompt: "Do it",
       background: true,
-    })).toThrow("exactly description and prompt");
-    expect(() => tool.parse({ description: " ", prompt: "Do it" })).toThrow(
+    })).toThrow("exactly profile, description, and prompt");
+    expect(() => tool.parse({
+      profile: "explore",
+      description: " ",
+      prompt: "Do it",
+    })).toThrow(
       "empty or too large",
     );
+  });
+
+  it("rejects work at the per-run child and cumulative reported-cost ceilings", async () => {
+    const { sessions, parent } = await storeFixture();
+    let starts = 0;
+    const coordinator: RunCoordinator = {
+      async start() {
+        starts += 1;
+        throw new Error("must not start");
+      },
+    };
+    const manager = new ChildAgentManager({
+      sessions,
+      getCoordinator: () => coordinator,
+      async emit() {},
+    });
+    const tool = manager.createTool();
+    const input = tool.parse({
+      profile: "explore",
+      description: "Inspect",
+      prompt: "Inspect the workspace",
+    });
+    const childLimited = context(parent);
+    childLimited.delegationBudget.childrenStarted =
+      childLimited.delegationBudget.maxChildren;
+    const costLimited = context(parent);
+    costLimited.delegationBudget.reportedCostUsd =
+      costLimited.delegationBudget.maxReportedCostUsd;
+
+    await expect(tool.execute(input, childLimited)).rejects.toMatchObject({
+      code: "permission_denied",
+      message: "Agent child limit reached (4)",
+    });
+    await expect(tool.execute(input, costLimited)).rejects.toMatchObject({
+      code: "permission_denied",
+      message: "Agent reported-cost limit reached ($3)",
+    });
+    expect(starts).toBe(0);
+  });
+
+  it("returns the child that crosses the reported-cost ceiling and blocks the next one", async () => {
+    const { sessions, parent } = await storeFixture();
+    let starts = 0;
+    const coordinator: RunCoordinator = {
+      async start() {
+        starts += 1;
+        return {
+          events: { async *[Symbol.asyncIterator]() {} },
+          outcome: Promise.resolve({
+            ok: true,
+            result: {
+              finalText: "completed before the ceiling was known",
+              usage: { inputTokens: 1, outputTokens: 1, costUsd: 3.5 },
+              usageSource: "provider",
+              steps: 1,
+              changedFiles: [],
+              changedFilesSource: "none",
+              evidence: [],
+              evidenceSource: "none",
+            },
+          }),
+        };
+      },
+    };
+    const manager = new ChildAgentManager({
+      sessions,
+      getCoordinator: () => coordinator,
+      async emit() {},
+      createId: (() => {
+        let value = 0;
+        return () => `cost-${++value}`;
+      })(),
+      now: () => testAt,
+    });
+    const tool = manager.createTool();
+    const input = tool.parse({
+      profile: "explore",
+      description: "Inspect",
+      prompt: "Inspect the workspace",
+    });
+    const runContext = context(parent);
+
+    await expect(tool.execute(input, runContext)).resolves.toMatchObject({
+      metadata: {
+        costLimitExceeded: true,
+        workflow: { reportedCostUsd: 3.5, maxReportedCostUsd: 3 },
+      },
+    });
+    await expect(tool.execute(input, runContext)).rejects.toMatchObject({
+      code: "permission_denied",
+      message: "Agent reported-cost limit reached ($3)",
+    });
+    expect(starts).toBe(1);
   });
 
   it("enforces the explicit one-child concurrency limit", async () => {
@@ -519,14 +797,22 @@ describe("ChildAgentManager", () => {
     });
     const tool = manager.createTool();
     const first = tool.execute(
-      tool.parse({ description: "First child", prompt: "Inspect first" }),
+      tool.parse({
+        profile: "explore",
+        description: "First child",
+        prompt: "Inspect first",
+      }),
       context(parent),
     );
     void first.catch(() => {});
     await ready;
 
     await expect(tool.execute(
-      tool.parse({ description: "Second child", prompt: "Inspect second" }),
+      tool.parse({
+        profile: "explore",
+        description: "Second child",
+        prompt: "Inspect second",
+      }),
       context(parent),
     )).rejects.toThrow("concurrency limit");
     release();

@@ -36,6 +36,13 @@ interface EventBase {
   at: string;
 }
 
+export interface AgentWorkflowUsage {
+  childrenStarted: number;
+  maxChildren: number;
+  reportedCostUsd: number;
+  maxReportedCostUsd: number;
+}
+
 export type RecursEvent =
   | (EventBase & { type: "session_created"; cwd: string; model: string })
   | (EventBase & { type: "turn_started"; turnId: string; prompt: string })
@@ -93,15 +100,19 @@ export type RecursEvent =
       parentAgentId: string;
       childAgentId: string;
       childSessionId: string;
+      profileId: AgentProfileId;
       usage: ProviderUsage | null;
+      changedFiles: string[];
       evidence: string[];
       costLimitExceeded: boolean;
+      workflow: AgentWorkflowUsage;
     })
   | (EventBase & {
       type: "agent_failed";
       parentAgentId: string;
       childAgentId: string;
       childSessionId: string;
+      profileId: AgentProfileId;
       failure: IntegrationFailure;
     })
   | (EventBase & {
@@ -109,6 +120,7 @@ export type RecursEvent =
       parentAgentId: string;
       childAgentId: string;
       childSessionId: string;
+      profileId: AgentProfileId;
       reason: string;
     });
 

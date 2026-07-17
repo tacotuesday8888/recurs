@@ -5,6 +5,8 @@ import {
   getAgentProfilePolicy,
   getOperatingModePolicy,
   narrowAgentPermissionMode,
+  parseAgentProfileId,
+  type AgentProfileId,
   type HostInvocation,
   type IntegrationFailure,
   type RunCoordinator,
@@ -12,6 +14,7 @@ import {
 } from "@recurs/contracts";
 import {
   ToolError,
+  type DelegationBudget,
   type Tool,
   type ToolContext,
   type ToolResult,
@@ -26,6 +29,7 @@ import type { JsonlSessionStore } from "./jsonl-session-store.js";
 import { scopeAgentPrompt } from "./agent-profile.js";
 
 interface DelegateTaskInput {
+  readonly profile: AgentProfileId;
   readonly description: string;
   readonly prompt: string;
 }
@@ -47,14 +51,19 @@ function exactInput(value: unknown): DelegateTaskInput {
   }
   const record = value as Record<string, unknown>;
   if (
-    Object.keys(record).sort().join(",") !== "description,prompt" ||
+    Object.keys(record).sort().join(",") !== "description,profile,prompt" ||
+    typeof record.profile !== "string" ||
     typeof record.description !== "string" ||
     typeof record.prompt !== "string"
   ) {
     throw new ToolError(
       "invalid_input",
-      "delegate_task requires exactly description and prompt",
+      "delegate_task requires exactly profile, description, and prompt",
     );
+  }
+  const profile = parseAgentProfileId(record.profile);
+  if (profile === null) {
+    throw new ToolError("invalid_input", "Unknown agent profile");
   }
   const description = record.description.trim();
   const prompt = record.prompt.trim();
@@ -64,7 +73,7 @@ function exactInput(value: unknown): DelegateTaskInput {
   ) {
     throw new ToolError("invalid_input", "delegate_task input is empty or too large");
   }
-  return { description, prompt };
+  return { profile, description, prompt };
 }
 
 function invocationFromContext(context: TrustedRunContext): HostInvocation {
@@ -79,6 +88,27 @@ function invocationFromContext(context: TrustedRunContext): HostInvocation {
 
 function cancelled(failure: IntegrationFailure): boolean {
   return failure.code === "cancelled";
+}
+
+function validBudget(
+  budget: DelegationBudget,
+  expected: { readonly maxChildren: number; readonly maxReportedCostUsd: number },
+): boolean {
+  return budget.maxChildren === expected.maxChildren &&
+    budget.maxReportedCostUsd === expected.maxReportedCostUsd &&
+    Number.isSafeInteger(budget.childrenStarted) &&
+    budget.childrenStarted >= 0 &&
+    Number.isFinite(budget.reportedCostUsd) &&
+    budget.reportedCostUsd >= 0;
+}
+
+function workflowUsage(budget: DelegationBudget) {
+  return {
+    childrenStarted: budget.childrenStarted,
+    maxChildren: budget.maxChildren,
+    reportedCostUsd: budget.reportedCostUsd,
+    maxReportedCostUsd: budget.maxReportedCostUsd,
+  };
 }
 
 export class ChildAgentManager {
@@ -96,22 +126,32 @@ export class ChildAgentManager {
       definition: {
         name: "delegate_task",
         description: [
-          "Create one bounded, read-only Recurs Explore child for a concrete investigation.",
-          "The child inherits this session's backend and permission ceiling, runs in Plan mode, and receives only inspection tools.",
-          "Use it when isolated workspace research has a clear evidence-based handoff.",
+          "Create one bounded Recurs child with an exact Explore, Implement, or Review profile.",
+          "The child inherits this session's pinned backend, model, operating mode, and permission ceiling.",
+          "Use Explore for evidence, Implement for a scoped change, and Review for independent inspection and fixed verification.",
         ].join(" "),
         inputSchema: {
           type: "object",
           properties: {
+            profile: {
+              type: "string",
+              enum: [
+                "explore", "implement", "review",
+                "explore_v1", "implement_v1", "review_v1",
+              ],
+            },
             description: { type: "string" },
             prompt: { type: "string" },
           },
-          required: ["description", "prompt"],
+          required: ["profile", "description", "prompt"],
           additionalProperties: false,
         },
       },
       executionClass: "in_process",
       mutating: false,
+      isMutating(input) {
+        return !getAgentProfilePolicy(input.profile).tools.readOnly;
+      },
       parse: exactInput,
       permissions() {
         return [];
@@ -182,7 +222,13 @@ export class ChildAgentManager {
     }
     const parent = await this.#parent(context);
     const mode = getOperatingModePolicy(parent.agent.operatingMode.id);
-    const profile = getAgentProfilePolicy("explore_v1");
+    const profile = getAgentProfilePolicy(input.profile);
+    if (profile.executionMode === "act" && context.executionMode !== "act") {
+      throw new ToolError(
+        "plan_mode_denied",
+        `${profile.displayName} children require an Act parent`,
+      );
+    }
     const childDepth = parent.agent.depth + 1;
     if (childDepth > mode.orchestration.maxDepth) {
       throw new ToolError(
@@ -197,11 +243,31 @@ export class ChildAgentManager {
     if (coordinator === null || coordinator === undefined) {
       throw new ToolError("tool_unavailable", "Child execution engine is unavailable");
     }
+    const budget = context.delegationBudget;
+    if (budget === undefined || !validBudget(budget, {
+      maxChildren: mode.workflow.maxChildrenPerRun,
+      maxReportedCostUsd: mode.orchestration.maxReportedCostUsd,
+    })) {
+      throw new ToolError("tool_unavailable", "Trusted delegation budget is unavailable");
+    }
+    if (budget.childrenStarted >= budget.maxChildren) {
+      throw new ToolError(
+        "permission_denied",
+        `Agent child limit reached (${budget.maxChildren})`,
+      );
+    }
+    if (budget.reportedCostUsd >= budget.maxReportedCostUsd) {
+      throw new ToolError(
+        "permission_denied",
+        `Agent reported-cost limit reached ($${budget.maxReportedCostUsd})`,
+      );
+    }
 
     const childSessionId = this.#createId();
     const childAgentId = this.#createId();
     const taskId = this.#createId();
     const release = this.#claim(parent, childSessionId);
+    budget.childrenStarted += 1;
     const permissionMode = narrowAgentPermissionMode(
       parent.permissionMode,
       parent.permissionMode,
@@ -267,6 +333,7 @@ export class ChildAgentManager {
             parentAgentId: parent.agent.id,
             childAgentId,
             childSessionId,
+            profileId: profile.id,
             reason: outcome.failure.safeMessage,
           });
           throw new ToolError("cancelled", outcome.failure.safeMessage);
@@ -278,13 +345,21 @@ export class ChildAgentManager {
           parentAgentId: parent.agent.id,
           childAgentId,
           childSessionId,
+          profileId: profile.id,
           failure: outcome.failure,
         });
         throw new ToolError("execution_failed", outcome.failure.safeMessage);
       }
       const costUsd = outcome.result.usage?.costUsd;
-      const costLimitExceeded = costUsd !== undefined &&
-        costUsd > mode.orchestration.maxReportedCostUsd;
+      if (costUsd !== undefined) {
+        budget.reportedCostUsd = Math.min(
+          Number.MAX_SAFE_INTEGER,
+          budget.reportedCostUsd + costUsd,
+        );
+      }
+      const costLimitExceeded =
+        budget.reportedCostUsd > budget.maxReportedCostUsd;
+      const workflow = workflowUsage(budget);
       await this.dependencies.emit({
         type: "agent_completed",
         sessionId: parent.id,
@@ -292,9 +367,12 @@ export class ChildAgentManager {
         parentAgentId: parent.agent.id,
         childAgentId,
         childSessionId,
+        profileId: profile.id,
         usage: outcome.result.usage,
+        changedFiles: [...outcome.result.changedFiles],
         evidence: [...outcome.result.evidence],
         costLimitExceeded,
+        workflow,
       });
       return {
         output: outcome.result.finalText,
@@ -310,8 +388,9 @@ export class ChildAgentManager {
           usageSource: outcome.result.usageSource,
           changedFiles: [...outcome.result.changedFiles],
           evidence: [...outcome.result.evidence],
-          costLimitUsd: mode.orchestration.maxReportedCostUsd,
+          costLimitUsd: budget.maxReportedCostUsd,
           costLimitExceeded,
+          workflow,
         },
       };
     } finally {

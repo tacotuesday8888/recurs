@@ -199,7 +199,7 @@ git commit -m "feat: bound child workflows per run"
 - Profile accepts exact conventional names or stable IDs through `parseAgentProfileId`.
 - Implement and Review are dynamically mutating at the parent checkpoint boundary; Explore remains non-mutating.
 
-- [ ] **Step 1: Write failing manager tests** for exact profile input, all three durable descriptors/prompts/tool policies, Act-parent requirements, permission monotonicity, parent checkpoint effect classification, per-run child exhaustion, cumulative reported-cost exhaustion, failures consuming a child slot, and profile-correlated lifecycle events.
+- [x] **Step 1: Write failing manager tests** for exact profile input, all three durable descriptors/prompts/tool policies, Act-parent requirements, permission monotonicity, parent checkpoint effect classification, per-run child exhaustion, cumulative reported-cost exhaustion, failures consuming a child slot, and profile-correlated lifecycle events.
 
 ```ts
 const input = tool.parse({
@@ -209,11 +209,11 @@ const input = tool.parse({
 });
 ```
 
-- [ ] **Step 2: Run manager tests and confirm RED**.
+- [x] **Step 2: Run manager tests and confirm RED**.
 
 Run: `npm test -- packages/core/test/child-agent-manager.test.ts`
 
-- [ ] **Step 3: Implement exact selection and profile prompts**:
+- [x] **Step 3: Implement exact selection and profile prompts**:
 
 ```ts
 switch (agent.profile?.id) {
@@ -224,11 +224,11 @@ switch (agent.profile?.id) {
 }
 ```
 
-- [ ] **Step 4: Reserve the run budget before child creation**, count failed/cancelled attempts, accumulate reported cost after terminal outcomes, and reject further work at the exact child/cost ceiling. Continue enforcing depth, concurrency, zero retries, cancellation, and immutable backend/model inheritance.
+- [x] **Step 4: Reserve the run budget before child creation**, count failed/cancelled attempts, accumulate reported cost after terminal outcomes, and reject further work at the exact child/cost ceiling. Continue enforcing depth, concurrency, zero retries, cancellation, and immutable backend/model inheritance.
 
-- [ ] **Step 5: Expand normalized events** so every started/completed/failed/cancelled event carries `profileId`; completion also carries changed files, evidence, and workflow budget usage.
+- [x] **Step 5: Expand normalized events** so every started/completed/failed/cancelled event carries `profileId`; completion also carries changed files, evidence, and workflow budget usage.
 
-- [ ] **Step 6: Run manager, executor, event, lint, and type checks**, then commit.
+- [x] **Step 6: Run manager, executor, event, lint, and type checks**, then commit.
 
 ```bash
 git add packages/core/src/child-agent-manager.ts packages/core/src/agent-profile.ts packages/core/src/events.ts packages/core/test/child-agent-manager.test.ts
