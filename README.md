@@ -9,7 +9,7 @@ The code is intended to become an open-source project, but this repository does 
 The repository contains a usable agent base and the first owned child-agent vertical:
 
 - one streaming tool-calling loop with bounded pre-output retries, cancellation, step limits, and repeated-loop detection;
-- one foreground `delegate_task` path that creates a durable pinned child session, runs it through the same coordinator/provider/runtime/approval seams, and returns its handoff to the parent for synthesis;
+- one foreground `delegate_task` path that creates a durable read-only Explore child, runs it through the same coordinator/provider/runtime/approval seams, and returns its evidence-bearing handoff to the parent for synthesis;
 - durable parent/child/task/lifecycle/result contracts, normalized agent events, monotonic permission inheritance, and explicit depth-one/concurrency-one/zero-retry limits;
 - five rename-safe operating-mode IDs exposed through `/agents`, with honest parent-backend model inheritance and request/reported-cost policy;
 - strict provider-event validation and normalized text, reasoning, tool, usage, and completion events;
@@ -18,7 +18,7 @@ The repository contains a usable agent base and the first owned child-agent vert
 - a validated 25-path provider/authentication catalog, a revisioned non-secret connection registry, and exact-ID account listing, verification, primary selection, and metadata-only disconnection;
 - a bounded `models.dev` discovery catalog, fixed-port loopback detection for Ollama and LM Studio, and one `/provider` surface shared with first-run onboarding;
 - an official Codex ACP path for an existing ChatGPT login, constrained to local, interactive, user-present, Plan-only work;
-- seven tools for file reading, listing, search, patching, bounded shell execution, Git status, and Git diff;
+- seven tools for file reading, listing, search, patching, bounded shell execution, Git status, and Git diff; Explore children see only the five read-only inspection tools;
 - Ask Always, Approved for Me, Full Access, enforced Plan mode, and temporary read-only review;
 - durable `/goal` state, append-only JSONL sessions, interrupted-tool recovery, compaction, checkpoints, and conflict-safe undo;
 - interactive and non-interactive CLI paths with text or normalized JSONL output;

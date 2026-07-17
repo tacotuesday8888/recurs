@@ -49,7 +49,13 @@ export function createGitStatusTool(): Tool<Record<string, never>> {
           maxOutputBytes: 1024 * 1024,
         },
       );
-      return { output: result.stdout, metadata: { exitCode: result.exitCode } };
+      return {
+        output: result.stdout,
+        metadata: {
+          exitCode: result.exitCode,
+          sources: ["inspected git status"],
+        },
+      };
     },
   };
 }

@@ -8,6 +8,54 @@ export type AgentPermissionMode =
 
 export type AgentExecutionMode = "act" | "plan";
 
+export type AgentProfileId = "explore_v1";
+
+export interface AgentProfilePolicy {
+  readonly id: AgentProfileId;
+  readonly version: 1;
+  readonly displayName: string;
+  readonly executionMode: AgentExecutionMode;
+  readonly tools: {
+    readonly readOnly: boolean;
+    readonly evidenceFromSources: boolean;
+    readonly allowedNames: readonly string[];
+  };
+}
+
+const exploreTools = Object.freeze([
+  "read_file",
+  "list_files",
+  "search_text",
+  "git_status",
+  "git_diff",
+]);
+
+export const agentProfilePolicies: readonly AgentProfilePolicy[] = Object.freeze([
+  Object.freeze({
+    id: "explore_v1" as const,
+    version: 1 as const,
+    displayName: "Explore",
+    executionMode: "plan" as const,
+    tools: Object.freeze({
+      readOnly: true,
+      evidenceFromSources: true,
+      allowedNames: exploreTools,
+    }),
+  }),
+]);
+
+const profilesById = new Map(
+  agentProfilePolicies.map((profile) => [profile.id, profile] as const),
+);
+
+export function getAgentProfilePolicy(id: AgentProfileId): AgentProfilePolicy {
+  const found = profilesById.get(id);
+  if (found === undefined) {
+    throw new TypeError(`Unknown agent profile: ${String(id)}`);
+  }
+  return found;
+}
+
 export type OperatingModeId =
   | "economy_v1"
   | "standard_v1"
@@ -121,6 +169,10 @@ export interface AgentBackendSelection {
 export interface AgentSessionDescriptor {
   readonly id: string;
   readonly role: "parent" | "child";
+  readonly profile: {
+    readonly id: AgentProfileId;
+    readonly version: 1;
+  } | null;
   readonly parentAgentId: string | null;
   readonly parentSessionId: string | null;
   readonly depth: number;

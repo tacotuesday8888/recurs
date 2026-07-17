@@ -52,6 +52,7 @@ import {
   type SessionRecordInputV2,
   type SessionRecordV2,
 } from "./session-v2.js";
+import { applyAgentToolPolicy } from "./agent-profile.js";
 
 export interface RunInput {
   sessionId: string;
@@ -634,10 +635,9 @@ async function runAgentLoopUnlocked(
     executionMode === state.executionMode
       ? state
       : { ...state, executionMode };
-  const toolContext = deps.createToolContext(
-    executionState(),
-    signal,
-    input.context,
+  const toolContext = applyAgentToolPolicy(
+    deps.createToolContext(executionState(), signal, input.context),
+    state.agent,
   );
   const turnId = input.turnId ?? `${input.sessionId}:${randomUUID()}`;
   if (turnId.trim().length === 0) {
@@ -723,7 +723,7 @@ async function runAgentLoopUnlocked(
           systemContextMessage(executionState(), turnId, steps),
           ...state.messages,
         ],
-        tools: deps.tools.definitions(executionMode),
+        tools: deps.tools.definitions(executionMode, toolContext.toolPolicy),
         signal,
         ...(deps.authorization === undefined
           ? {}

@@ -28,12 +28,13 @@ Recurs now follows the convergent core while deliberately stopping before the he
 
 - `delegate_task` is a model-callable, exact-input tool.
 - Every child is a separate pinned version-2 Recurs session, not a subprocess wrapper or an external-runtime-only feature.
+- The first stable child profile is `explore_v1`: it narrows execution to Plan, exposes only five inspection tools where Recurs owns tool execution, and requests a structured evidence handoff.
 - The child uses the same `BackendRunCoordinator`, backend resolver, direct provider or delegated runtime, approval engine, host tools, and cancellation signal as its parent.
-- The child inherits the exact backend/model pin, Plan/Act state, and a permission mode that cannot exceed the parent.
+- The child inherits the exact backend/model pin and a permission mode that cannot exceed the parent; Explore narrows execution to Plan even when its parent is in Act.
 - Stable operating-mode IDs bound request count, depth, concurrency, retries, and reported cost. Display names can change later without migrating logs.
 - Parent/child activity emits normalized events; child JSONL state retains its task, lifecycle, usage, result, files, evidence, failure, or cancellation.
 - The parent receives the child final text as a tool result and performs the synthesis itself.
 
 ## Intentionally absent
 
-This milestone does not implement parallel fan-out, background children, child resumption, automatic retries, depth beyond one, role/profile libraries, independent model routing, worktree isolation, swarms, schedules, or the company UI. Reported USD cost can only be flagged after a provider/runtime supplies telemetry; request limits are the enforceable pre-run spending bound. The official Codex runtime is opaque internally and already permits one authorized runtime invocation, so Recurs does not claim to meter its vendor-internal model calls.
+This milestone does not implement parallel fan-out, background children, child resumption, automatic retries, depth beyond one, additional role/profile libraries, independent model routing, worktree isolation, swarms, schedules, or the company UI. Reported USD cost can only be flagged after a provider/runtime supplies telemetry; request limits are the enforceable pre-run spending bound. The official Codex runtime is opaque internally and already permits one authorized runtime invocation, so Recurs does not claim to meter its vendor-internal model calls or filter its internal tool catalog; it is accepted for Explore only through its pinned enforced-Plan capability.

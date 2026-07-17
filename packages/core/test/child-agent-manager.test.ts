@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -9,7 +9,16 @@ import {
   type RunCoordinator,
 } from "@recurs/contracts";
 import { ScriptedProvider } from "@recurs/providers";
-import { ToolRegistry } from "@recurs/tools";
+import {
+  ToolRegistry,
+  createApplyPatchTool,
+  createGitDiffTool,
+  createGitStatusTool,
+  createListFilesTool,
+  createReadFileTool,
+  createRunCommandTool,
+  createSearchTextTool,
+} from "@recurs/tools";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -74,7 +83,12 @@ function context(parent: Awaited<ReturnType<typeof storeFixture>>["parent"]) {
 
 describe("ChildAgentManager", () => {
   it("returns a child handoff to the parent model for synthesis", async () => {
-    const { sessions, pin, parent } = await storeFixture();
+    const { directory, sessions, pin, parent } = await storeFixture();
+    await writeFile(
+      path.join(directory, "cache.ts"),
+      "export const cacheKey = 'id';\n",
+      "utf8",
+    );
     const provider = new ScriptedProvider([
       [
         {
@@ -86,6 +100,17 @@ describe("ChildAgentManager", () => {
               description: "Inspect cache key",
               prompt: "Find the cache invalidation bug.",
             },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "read-cache",
+            name: "read_file",
+            arguments: { path: "cache.ts", startLine: 1, endLine: 1 },
           },
         },
         { type: "done", stopReason: "tool_calls" },
@@ -134,6 +159,13 @@ describe("ChildAgentManager", () => {
       now: () => testAt,
     });
     tools.register(manager.createTool());
+    tools.register(createReadFileTool());
+    tools.register(createListFilesTool());
+    tools.register(createSearchTextTool());
+    tools.register(createApplyPatchTool());
+    tools.register(createRunCommandTool());
+    tools.register(createGitStatusTool());
+    tools.register(createGitDiffTool());
     const direct = new AgentLoopDirectExecutor({
       tools,
       approvals: { async request() { return "deny"; } },
@@ -177,9 +209,42 @@ describe("ChildAgentManager", () => {
       content: "Child found the missing namespace.",
       toolCallId: "delegate-call",
     }));
-    expect(await sessions.loadState("synthesis-child-session")).toMatchObject({
-      agentLifecycle: { status: "completed" },
+    expect(reloaded.toolOutcomes["delegate-call"]).toMatchObject({
+      type: "completed",
+      result: {
+        metadata: {
+          evidence: [expect.stringMatching(
+            /^read cache\.ts:1-1 \(sha256 [0-9a-f]{64}\)$/u,
+          )],
+        },
+      },
     });
+    expect(await sessions.loadState("synthesis-child-session")).toMatchObject({
+      executionMode: "plan",
+      agent: {
+        profile: { id: "explore_v1", version: 1 },
+        permissions: { executionMode: "plan" },
+      },
+      agentLifecycle: { status: "completed" },
+      agentResult: {
+        evidence: [expect.stringMatching(
+          /^read cache\.ts:1-1 \(sha256 [0-9a-f]{64}\)$/u,
+        )],
+      },
+    });
+    expect(provider.requests[1]?.tools.map((tool) => tool.name)).toEqual([
+      "read_file",
+      "list_files",
+      "search_text",
+      "git_status",
+      "git_diff",
+    ]);
+    const childUserPrompt = provider.requests[1]?.messages.findLast(
+      (message) => message.role === "user",
+    )?.content;
+    expect(childUserPrompt).toContain("Recurs Explore agent");
+    expect(childUserPrompt).toContain("Find the cache invalidation bug.");
+    expect(childUserPrompt).toContain("Evidence");
   });
 
   it("runs one child through the existing coordinator and returns evidence to its parent", async () => {
@@ -259,6 +324,7 @@ describe("ChildAgentManager", () => {
       permissionMode: "approved_for_me",
       agent: {
         role: "child",
+        profile: { id: "explore_v1", version: 1 },
         parentAgentId: parent.agent.id,
         parentSessionId: parent.id,
         depth: 1,
@@ -374,11 +440,16 @@ describe("ChildAgentManager", () => {
         ...parent.agent,
         id: "existing-child-agent",
         role: "child",
+        profile: { id: "explore_v1", version: 1 },
         parentAgentId: parent.agent.id,
         parentSessionId: parent.id,
         depth: 1,
         task: { id: "existing-task", description: "Existing", prompt: "Inspect" },
         backend: { ...parent.agent.backend, strategy: "inherit_parent" },
+        permissions: {
+          ...parent.agent.permissions,
+          executionMode: "plan",
+        },
       },
     });
     const manager = new ChildAgentManager({

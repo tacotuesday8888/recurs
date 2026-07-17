@@ -48,6 +48,13 @@ export interface ToolContext {
   readRevisions: Map<string, string>;
   approvedIntents?: Set<string>;
   runContext?: TrustedRunContext;
+  toolPolicy?: ToolPolicy;
+}
+
+export interface ToolPolicy {
+  readonly readOnly: boolean;
+  readonly evidenceFromSources: boolean;
+  readonly allowedNames: readonly string[];
 }
 
 export interface ToolResult {

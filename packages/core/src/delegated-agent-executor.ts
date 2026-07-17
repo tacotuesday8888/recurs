@@ -74,6 +74,7 @@ import type {
   DelegatedRunExecutorInput,
 } from "./run-coordinator.js";
 import type { SessionState } from "./session.js";
+import { applyAgentToolPolicy } from "./agent-profile.js";
 
 export type { RuntimeApprovalHandlerResult } from "./delegated-agent-approval.js";
 export type { DelegatedAgentExecutorLimits } from "./delegated-agent-validation.js";
@@ -255,10 +256,13 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
       const executionState = input.executionMode === input.session.executionMode
         ? input.session
         : { ...input.session, executionMode: input.executionMode };
-      const toolContext = this.dependencies.createToolContext(
-        executionState,
-        input.signal,
-        input.context,
+      const toolContext = applyAgentToolPolicy(
+        this.dependencies.createToolContext(
+          executionState,
+          input.signal,
+          input.context,
+        ),
+        input.session.agent,
       );
       const hostArtifacts: HostArtifacts = {
         changedFiles,

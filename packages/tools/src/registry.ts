@@ -12,6 +12,7 @@ import {
   type Tool,
   type ToolContext,
   type ToolResult,
+  type ToolPolicy,
   type ToolSecurityProfile,
 } from "./types.js";
 
@@ -77,6 +78,35 @@ async function preflightTool(
   }
 }
 
+function applyToolPolicyMetadata(
+  result: ToolResult,
+  policy: ToolPolicy | undefined,
+): ToolResult {
+  if (!policy?.evidenceFromSources || result.metadata === undefined) {
+    return result;
+  }
+  const sources = Array.isArray(result.metadata.sources)
+    ? result.metadata.sources.filter(
+        (source): source is string => typeof source === "string",
+      )
+    : [];
+  if (sources.length === 0) {
+    return result;
+  }
+  const current = Array.isArray(result.metadata.evidence)
+    ? result.metadata.evidence.filter(
+        (item): item is string => typeof item === "string",
+      )
+    : [];
+  return {
+    ...result,
+    metadata: {
+      ...result.metadata,
+      evidence: [...new Set([...current, ...sources])],
+    },
+  };
+}
+
 export class ToolRegistry {
   readonly #tools = new Map<string, RegisteredTool>();
   readonly #checkpoints: CheckpointStore | undefined;
@@ -104,12 +134,20 @@ export class ToolRegistry {
     this.#tools.set(name, eraseTool(tool));
   }
 
-  definitions(executionMode: ExecutionMode): ToolDefinition[] {
+  definitions(
+    executionMode: ExecutionMode,
+    policy?: ToolPolicy,
+  ): ToolDefinition[] {
     if (this.#securityProfile === "tools_disabled") {
       return [];
     }
     return [...this.#tools.values()]
-      .filter((tool) => executionMode === "act" || !tool.mutating)
+      .filter((tool) =>
+        (executionMode === "act" || !tool.mutating) &&
+        (policy === undefined ||
+          (policy.allowedNames.includes(tool.definition.name) &&
+            (!policy.readOnly || !tool.mutating)))
+      )
       .map((tool) => tool.definition);
   }
 
@@ -128,6 +166,15 @@ export class ToolRegistry {
     const tool = this.#tools.get(call.name);
     if (tool === undefined) {
       throw new ToolError("unknown_tool", `Unknown tool: ${call.name}`);
+    }
+
+    if (context.toolPolicy !== undefined &&
+      (!context.toolPolicy.allowedNames.includes(call.name) ||
+        (context.toolPolicy.readOnly && tool.mutating))) {
+      throw new ToolError(
+        "tool_unavailable",
+        `Tool ${call.name} is unavailable to this agent profile`,
+      );
     }
 
     if (context.executionMode === "plan" && tool.mutating) {
@@ -202,7 +249,10 @@ export class ToolRegistry {
     await preflightTool(tool, call.name, input, context);
 
     if (!tool.mutating || this.#checkpoints === undefined) {
-      return executeTool(tool, call.name, input, context);
+      return applyToolPolicyMetadata(
+        await executeTool(tool, call.name, input, context),
+        context.toolPolicy,
+      );
     }
 
     const checkpoint = await this.#checkpoints.captureBefore(
@@ -221,10 +271,14 @@ export class ToolRegistry {
       checkpoint,
       context.cwd,
     );
+    const withPolicyMetadata = applyToolPolicyMetadata(
+      result,
+      context.toolPolicy,
+    );
     return {
-      ...result,
+      ...withPolicyMetadata,
       metadata: {
-        ...result.metadata,
+        ...withPolicyMetadata.metadata,
         checkpointId: completed.id,
       },
     };

@@ -1,12 +1,44 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  agentProfilePolicies,
   DEFAULT_OPERATING_MODE_ID,
+  getAgentProfilePolicy,
   getOperatingModePolicy,
   narrowAgentPermissionMode,
   operatingModePolicies,
   parseOperatingModeId,
 } from "../src/index.js";
+
+describe("agent profile contracts", () => {
+  it("defines one stable read-only Explore profile", () => {
+    expect(agentProfilePolicies.map((profile) => profile.id)).toEqual([
+      "explore_v1",
+    ]);
+    expect(getAgentProfilePolicy("explore_v1")).toMatchObject({
+      version: 1,
+      displayName: "Explore",
+      executionMode: "plan",
+      tools: { readOnly: true, evidenceFromSources: true },
+    });
+    expect(getAgentProfilePolicy("explore_v1").tools.allowedNames).toEqual([
+      "read_file",
+      "list_files",
+      "search_text",
+      "git_status",
+      "git_diff",
+    ]);
+  });
+
+  it("exposes immutable profile policy values", () => {
+    const explore = getAgentProfilePolicy("explore_v1");
+
+    expect(Object.isFrozen(agentProfilePolicies)).toBe(true);
+    expect(Object.isFrozen(explore)).toBe(true);
+    expect(Object.isFrozen(explore.tools)).toBe(true);
+    expect(Object.isFrozen(explore.tools.allowedNames)).toBe(true);
+  });
+});
 
 describe("agent operating-mode contracts", () => {
   it("uses stable non-display identifiers for the five initial policies", () => {

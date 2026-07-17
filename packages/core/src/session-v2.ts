@@ -18,7 +18,9 @@ import type {
 } from "@recurs/contracts";
 import {
   DEFAULT_OPERATING_MODE_ID,
+  getAgentProfilePolicy,
   getOperatingModePolicy,
+  narrowAgentPermissionMode,
 } from "@recurs/contracts";
 import type {
   ApprovalResponse,
@@ -287,6 +289,7 @@ export function createRootAgentDescriptor(
   return {
     id: `${sessionId}:agent`,
     role: "parent",
+    profile: null,
     parentAgentId: null,
     parentSessionId: null,
     depth: 0,
@@ -784,6 +787,18 @@ export function reduceSessionRecordV2(
       next = { ...state, goal: record.goal };
       break;
     case "mode_updated": {
+      if (state.agent.role === "child" &&
+        (narrowAgentPermissionMode(
+          state.agent.permissions.parentPermissionMode,
+          record.permissionMode,
+        ) !== record.permissionMode ||
+          (state.agent.permissions.parentExecutionMode === "plan" &&
+            record.executionMode !== "plan") ||
+          (state.agent.profile !== null &&
+            getAgentProfilePolicy(state.agent.profile.id).executionMode !==
+              record.executionMode))) {
+        throw new Error("Mode update violates the child agent profile");
+      }
       next = {
         ...state,
         executionMode: record.executionMode,

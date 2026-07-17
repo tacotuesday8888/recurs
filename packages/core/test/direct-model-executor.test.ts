@@ -225,6 +225,7 @@ describe("AgentLoopDirectExecutor", () => {
       agent: {
         id: "child-agent",
         role: "child",
+        profile: { id: "explore_v1", version: 1 },
         parentAgentId: "parent-agent",
         parentSessionId: "parent-session",
         depth: 1,
@@ -238,7 +239,7 @@ describe("AgentLoopDirectExecutor", () => {
         },
         permissions: {
           parentExecutionMode: "act",
-          executionMode: "act",
+          executionMode: "plan",
           parentPermissionMode: "ask_always",
           permissionMode: "ask_always",
         },

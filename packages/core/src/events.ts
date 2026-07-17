@@ -1,6 +1,7 @@
 import type { ModelMessage, StopReason, ToolCall } from "@recurs/providers";
 import type {
   IntegrationFailure,
+  AgentProfileId,
   OperatingModeId,
   ProviderUsage,
 } from "@recurs/contracts";
@@ -85,6 +86,7 @@ export type RecursEvent =
       taskId: string;
       description: string;
       operatingModeId: OperatingModeId;
+      profileId: AgentProfileId;
     })
   | (EventBase & {
       type: "agent_completed";

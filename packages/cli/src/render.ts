@@ -2,6 +2,7 @@ import { once } from "node:events";
 import type { Writable } from "node:stream";
 
 import type { EventSink, RecursEvent } from "@recurs/core";
+import { getAgentProfilePolicy } from "@recurs/contracts";
 
 import type { CommandResult } from "./commands/types.js";
 
@@ -73,7 +74,9 @@ export class TextEventRenderer implements EventSink {
         await this.#status(`Verified: ${event.evidence.join("; ")}`);
         break;
       case "agent_started":
-        await this.#status(`↳ child: ${event.description}`);
+        await this.#status(
+          `↳ ${getAgentProfilePolicy(event.profileId).displayName} child: ${event.description}`,
+        );
         break;
       case "agent_completed":
         await this.#status(`✓ child completed: ${event.childAgentId}`);

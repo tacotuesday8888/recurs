@@ -119,6 +119,7 @@ describe("version 2 sessions", () => {
     const agent: AgentSessionDescriptor = {
       id: "child-agent-1",
       role: "child",
+      profile: { id: "explore_v1", version: 1 },
       parentAgentId: "parent-agent-1",
       parentSessionId: "parent-session-1",
       depth: 1,
@@ -208,6 +209,7 @@ describe("version 2 sessions", () => {
       agent: {
         id: "unsafe-agent",
         role: "child",
+        profile: { id: "explore_v1", version: 1 },
         parentAgentId: "parent-agent",
         parentSessionId: "parent-session",
         depth: 1,
@@ -228,6 +230,54 @@ describe("version 2 sessions", () => {
         limits: mode.orchestration,
       },
     })).rejects.toMatchObject({ code: "invalid_record" });
+  });
+
+  it("rejects a durable mode update that would make Explore writable", async () => {
+    const store = await temporaryStore();
+    const mode = getOperatingModePolicy("balanced_v1");
+    const child = await store.createPinnedSession({
+      id: "explore-child",
+      cwd: "/workspace",
+      backend,
+      at,
+      agent: {
+        id: "explore-agent",
+        role: "child",
+        profile: { id: "explore_v1", version: 1 },
+        parentAgentId: "parent-agent",
+        parentSessionId: "parent-session",
+        depth: 1,
+        task: { id: "task", description: "Inspect", prompt: "Find the bug" },
+        operatingMode: { id: mode.id, version: mode.version },
+        backend: {
+          strategy: "inherit_parent",
+          adapterId: backend.adapterId,
+          connectionId: backend.connectionId,
+          modelId: backend.modelId,
+        },
+        permissions: {
+          parentExecutionMode: "act",
+          executionMode: "plan",
+          parentPermissionMode: "approved_for_me",
+          permissionMode: "approved_for_me",
+        },
+        limits: mode.orchestration,
+      },
+    });
+
+    await expect(store.withSessionMutation(
+      child.id,
+      child.lastSequence,
+      async (lease) => {
+        await lease.append({
+          type: "mode_updated",
+          source: "command",
+          executionMode: "act",
+          permissionMode: "approved_for_me",
+          at,
+        });
+      },
+    )).rejects.toThrow("agent profile");
   });
 
   it("creates a pinned sequence-zero session and appends exact next sequences", async () => {

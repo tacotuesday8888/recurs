@@ -13,7 +13,7 @@
 - Preserve backward compatibility with existing version-2 session logs.
 - Never widen a child permission or execution mode beyond its parent.
 - The first slice supports one foreground child at a time, depth one, and zero automatic retries.
-- Child backend/model selection is `inherit_parent` only. Mode policy may constrain work, but must not claim model routing that the backend cannot perform.
+- Child backend/model selection is `inherit_parent` only. A child profile may narrow execution mode and tools, but must not claim model routing that the backend cannot perform.
 - Every run is bounded by both the backend authorization and the selected operating mode.
 - Providers that report USD cost are accounted exactly; providers without cost telemetry remain bounded by request count and report cost as unavailable.
 - Cancellation uses the parent signal and must surface as cancellation, never as success or a generic error.
@@ -131,3 +131,22 @@
 - [x] Run native engine-bundle, engine-bridge, and doctor smoke verification.
 - [x] Inspect `git status`, the complete diff, generated artifacts, and secret patterns.
 - [x] Confirm main remains unchanged after commit `9902ad2` and do not push.
+
+### Task 8: Add the first constrained Explore profile
+
+**Files:**
+- Modify: `packages/contracts/src/agents.ts`
+- Create: `packages/core/src/agent-profile.ts`
+- Modify: `packages/core/src/child-agent-manager.ts`
+- Modify: `packages/core/src/agent-loop.ts`
+- Modify: `packages/core/src/delegated-agent-executor.ts`
+- Modify: `packages/tools/src/registry.ts`
+- Modify: read-only built-in tools and focused tests
+- Modify: CLI rendering and documentation
+
+- [x] Define the stable `explore_v1` profile and persist it on child descriptors.
+- [x] Narrow Explore children to Plan and reject durable mode changes that would widen them.
+- [x] Enforce a five-tool read-only allowlist in both model definitions and invocation.
+- [x] Apply one bounded Explore prompt across direct and delegated execution.
+- [x] Return traceable evidence metadata from every allowed inspection tool.
+- [x] Run the full repository verification, audit the complete diff, and commit the slice.

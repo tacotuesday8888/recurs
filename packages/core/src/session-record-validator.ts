@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import {
   getOperatingModePolicy,
+  getAgentProfilePolicy,
   narrowAgentPermissionMode,
   parseOperatingModeId,
 } from "@recurs/contracts";
@@ -689,7 +690,7 @@ function isAgentDescriptor(
   backend: SessionBackendPin,
 ): value is AgentSessionDescriptor {
   if (!isObject(value) || !hasExactKeys(value, [
-    "id", "role", "parentAgentId", "parentSessionId", "depth", "task",
+    "id", "role", "profile", "parentAgentId", "parentSessionId", "depth", "task",
     "operatingMode", "backend", "permissions", "limits",
   ]) || !boundedNonEmptyString(value.id, MAX_RUNTIME_ID_LENGTH) ||
     (value.role !== "parent" && value.role !== "child") ||
@@ -735,11 +736,19 @@ function isAgentDescriptor(
     return false;
   }
   if (value.role === "parent") {
-    return value.parentAgentId === null && value.parentSessionId === null &&
+    return value.profile === null &&
+      value.parentAgentId === null && value.parentSessionId === null &&
       value.depth === 0 && value.task === null &&
       value.backend.strategy === "session_pin" &&
       value.permissions.parentExecutionMode === value.permissions.executionMode &&
       value.permissions.parentPermissionMode === value.permissions.permissionMode;
+  }
+  if (!isObject(value.profile) ||
+    !hasExactKeys(value.profile, ["id", "version"]) ||
+    value.profile.id !== "explore_v1" || value.profile.version !== 1 ||
+    getAgentProfilePolicy(value.profile.id).executionMode !==
+      value.permissions.executionMode) {
+    return false;
   }
   return boundedNonEmptyString(value.parentAgentId, MAX_RUNTIME_ID_LENGTH) &&
     boundedNonEmptyString(value.parentSessionId, MAX_RUNTIME_ID_LENGTH) &&

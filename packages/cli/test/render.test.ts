@@ -25,6 +25,7 @@ describe("TextEventRenderer agent activity", () => {
       taskId: "task-1",
       description: "Inspect cache key",
       operatingModeId: "balanced_v1",
+      profileId: "explore_v1",
     });
     await renderer.emit({
       type: "agent_completed",
@@ -38,7 +39,7 @@ describe("TextEventRenderer agent activity", () => {
       costLimitExceeded: false,
     });
 
-    expect(output).toContain("↳ child: Inspect cache key");
+    expect(output).toContain("↳ Explore child: Inspect cache key");
     expect(output).toContain("✓ child completed: child-agent");
   });
 });

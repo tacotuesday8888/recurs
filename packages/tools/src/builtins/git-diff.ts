@@ -82,7 +82,15 @@ export function createGitDiffTool(): Tool<GitDiffInput> {
         signal: context.signal,
         maxOutputBytes: 1024 * 1024,
       });
-      return { output: result.stdout, metadata: { exitCode: result.exitCode } };
+      return {
+        output: result.stdout,
+        metadata: {
+          exitCode: result.exitCode,
+          sources: [
+            `inspected ${input.staged ? "staged" : "working-tree"} git diff for ${target}`,
+          ],
+        },
+      };
     },
   };
 }

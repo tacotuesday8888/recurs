@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   createHostInvocation,
+  getAgentProfilePolicy,
   getOperatingModePolicy,
   narrowAgentPermissionMode,
   type HostInvocation,
@@ -22,6 +23,7 @@ import {
   type PinnedSessionState,
 } from "./session-v2.js";
 import type { JsonlSessionStore } from "./jsonl-session-store.js";
+import { scopeAgentPrompt } from "./agent-profile.js";
 
 interface DelegateTaskInput {
   readonly description: string;
@@ -94,9 +96,9 @@ export class ChildAgentManager {
       definition: {
         name: "delegate_task",
         description: [
-          "Create one bounded Recurs child agent for a concrete subtask.",
-          "The child inherits this session's backend, execution mode, and permission ceiling.",
-          "Use it only when an isolated investigation or implementation has a clear handoff.",
+          "Create one bounded, read-only Recurs Explore child for a concrete investigation.",
+          "The child inherits this session's backend and permission ceiling, runs in Plan mode, and receives only inspection tools.",
+          "Use it when isolated workspace research has a clear evidence-based handoff.",
         ].join(" "),
         inputSchema: {
           type: "object",
@@ -180,6 +182,7 @@ export class ChildAgentManager {
     }
     const parent = await this.#parent(context);
     const mode = getOperatingModePolicy(parent.agent.operatingMode.id);
+    const profile = getAgentProfilePolicy("explore_v1");
     const childDepth = parent.agent.depth + 1;
     if (childDepth > mode.orchestration.maxDepth) {
       throw new ToolError(
@@ -212,6 +215,7 @@ export class ChildAgentManager {
         agent: {
           id: childAgentId,
           role: "child",
+          profile: { id: profile.id, version: profile.version },
           parentAgentId: parent.agent.id,
           parentSessionId: parent.id,
           depth: childDepth,
@@ -225,7 +229,7 @@ export class ChildAgentManager {
           },
           permissions: {
             parentExecutionMode: context.executionMode,
-            executionMode: context.executionMode,
+            executionMode: profile.executionMode,
             parentPermissionMode: parent.permissionMode,
             permissionMode,
           },
@@ -242,13 +246,14 @@ export class ChildAgentManager {
         taskId,
         description: input.description,
         operatingModeId: mode.id,
+        profileId: profile.id,
       });
       const run = await coordinator.start({
         sessionId: child.id,
         expectedSessionRecordSequence: child.lastSequence,
-        prompt: input.prompt,
+        prompt: scopeAgentPrompt(child.agent, input.prompt),
         invocation: invocationFromContext(context.runContext),
-        executionMode: context.executionMode,
+        executionMode: profile.executionMode,
         signal: context.signal,
       });
       const outcome = await run.outcome;
@@ -300,6 +305,7 @@ export class ChildAgentManager {
           attempts: 1,
           retries: 0,
           operatingModeId: mode.id,
+          profileId: profile.id,
           usage: outcome.result.usage,
           usageSource: outcome.result.usageSource,
           changedFiles: [...outcome.result.changedFiles],

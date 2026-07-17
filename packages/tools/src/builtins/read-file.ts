@@ -122,6 +122,9 @@ export function createReadFileTool(
           startLine,
           endLine,
           totalLines: lines.length,
+          sources: [
+            `read ${resolved.relative}:${startLine}-${endLine} (sha256 ${sha256})`,
+          ],
         },
       };
     },

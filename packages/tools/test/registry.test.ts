@@ -376,4 +376,85 @@ describe("ToolRegistry", () => {
       "echo",
     ]);
   });
+
+  it("enforces a host-derived read-only allowlist in definitions and invocation", async () => {
+    const read = textTool();
+    const write = textTool(true);
+    const executeWrite = vi.spyOn(write, "execute");
+    const registry = new ToolRegistry([read, write]);
+    const toolPolicy = {
+      readOnly: true,
+      evidenceFromSources: true,
+      allowedNames: ["echo", "write_text"],
+    } as const;
+
+    expect(registry.definitions("act", toolPolicy).map((tool) => tool.name))
+      .toEqual(["echo"]);
+    await expect(registry.invoke(
+      { id: "policy-write", name: "write_text", arguments: { text: "x" } },
+      { ...context(), toolPolicy },
+      new PermissionEngine("full_access"),
+      deny,
+    )).rejects.toMatchObject({
+      code: "tool_unavailable",
+      message: "Tool write_text is unavailable to this agent profile",
+    });
+    expect(executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("rejects tools outside an agent profile allowlist before parsing", async () => {
+    const tool = textTool();
+    const parse = vi.spyOn(tool, "parse");
+    const registry = new ToolRegistry([tool]);
+    const toolPolicy = {
+      readOnly: true,
+      evidenceFromSources: true,
+      allowedNames: [],
+    } as const;
+
+    expect(registry.definitions("plan", toolPolicy)).toEqual([]);
+    await expect(registry.invoke(
+      { id: "policy-hidden", name: "echo", arguments: { text: 42 } },
+      { ...context("plan"), toolPolicy },
+      new PermissionEngine("full_access"),
+      deny,
+    )).rejects.toMatchObject({ code: "tool_unavailable" });
+    expect(parse).not.toHaveBeenCalled();
+  });
+
+  it("promotes source traces to evidence only for profiles that request it", async () => {
+    const tool = textTool();
+    tool.execute = async (input) => ({
+      output: input.text,
+      metadata: { sources: ["read src/a.ts:1-3"] },
+    });
+    const registry = new ToolRegistry([tool]);
+    const call = { id: "source", name: "echo", arguments: { text: "ok" } };
+
+    const rootResult = await registry.invoke(
+      call,
+      context(),
+      new PermissionEngine("full_access"),
+      deny,
+    );
+    const exploreResult = await registry.invoke(
+      { ...call, id: "explore-source" },
+      {
+        ...context("plan"),
+        toolPolicy: {
+          readOnly: true,
+          evidenceFromSources: true,
+          allowedNames: ["echo"],
+        },
+      },
+      new PermissionEngine("full_access"),
+      deny,
+    );
+
+    expect(rootResult.metadata).toEqual({ sources: ["read src/a.ts:1-3"] });
+    expect(exploreResult.metadata).toEqual({
+      sources: ["read src/a.ts:1-3"],
+      evidence: ["read src/a.ts:1-3"],
+    });
+  });
 });
