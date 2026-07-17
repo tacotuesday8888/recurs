@@ -329,6 +329,52 @@ describe("AgentLoop", () => {
     ]);
   });
 
+  it("shares one host-created operating-mode delegation budget across a run", async () => {
+    type Budget = {
+      maxChildren: number;
+      childrenStarted: number;
+      maxReportedCostUsd: number;
+      reportedCostUsd: number;
+    };
+    const budgets: Budget[] = [];
+    const base = echoTool();
+    const observe: Tool<{ text: string }> = {
+      ...base,
+      async execute(input, context) {
+        const budget = Reflect.get(context, "delegationBudget") as
+          | Budget
+          | undefined;
+        expect(budget).toBeDefined();
+        budgets.push(budget!);
+        budget!.childrenStarted += 1;
+        return { output: input.text };
+      },
+    };
+    const provider = new ScriptedProvider([
+      [
+        { type: "tool_call", call: { id: "budget-1", name: "echo", arguments: { text: "one" } } },
+        { type: "tool_call", call: { id: "budget-2", name: "echo", arguments: { text: "two" } } },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "done" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const { loop } = await harness(provider, [observe]);
+
+    await loop.run({ sessionId: "s1", prompt: "work" });
+
+    expect(budgets).toHaveLength(2);
+    expect(budgets[0]).toBe(budgets[1]);
+    expect(budgets[0]).toEqual({
+      maxChildren: 4,
+      childrenStarted: 2,
+      maxReportedCostUsd: 3,
+      reportedCostUsd: 0,
+    });
+  });
+
   it("persists broker-minted direct provider state on its assistant message", async () => {
     const pin = testBackendPin();
     const handle = {

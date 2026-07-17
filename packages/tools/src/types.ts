@@ -40,6 +40,13 @@ export interface ApprovalHandler {
   request(intent: PermissionIntent): Promise<ApprovalResponse>;
 }
 
+export interface DelegationBudget {
+  readonly maxChildren: number;
+  childrenStarted: number;
+  readonly maxReportedCostUsd: number;
+  reportedCostUsd: number;
+}
+
 export interface ToolContext {
   sessionId: string;
   cwd: string;
@@ -49,6 +56,7 @@ export interface ToolContext {
   approvedIntents?: Set<string>;
   runContext?: TrustedRunContext;
   toolPolicy?: ToolPolicy;
+  delegationBudget?: DelegationBudget;
 }
 
 export interface ToolPolicy {

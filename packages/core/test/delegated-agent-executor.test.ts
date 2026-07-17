@@ -1852,6 +1852,80 @@ describe("DelegatedAgentExecutor", () => {
     ]));
   });
 
+  it("shares one host-created operating-mode delegation budget across runtime tool calls", async () => {
+    type Budget = {
+      maxChildren: number;
+      childrenStarted: number;
+      maxReportedCostUsd: number;
+      reportedCostUsd: number;
+    };
+    const budgets: Budget[] = [];
+    const tool: Tool<Record<string, unknown>> = {
+      definition: {
+        name: "observe_budget",
+        description: "Observe the trusted run budget",
+        inputSchema: { type: "object", additionalProperties: false },
+      },
+      executionClass: "in_process",
+      mutating: false,
+      parse(input) {
+        if (typeof input !== "object" || input === null) {
+          throw new ToolError("invalid_input", "Expected an object");
+        }
+        return input as Record<string, unknown>;
+      },
+      permissions() { return []; },
+      async execute(_input, toolContext) {
+        const budget = Reflect.get(toolContext, "delegationBudget") as
+          | Budget
+          | undefined;
+        expect(budget).toBeDefined();
+        budgets.push(budget!);
+        budget!.childrenStarted += 1;
+        return { output: "observed" };
+      },
+    };
+    const { sessions, session, executor } = await fixture({
+      tools: toolRegistry(tool),
+    });
+    const runtime = scriptedRuntime(async function* (_run, host) {
+      await host.executeTool!({
+        id: "budget-1",
+        name: "observe_budget",
+        arguments: {},
+      }, new AbortController().signal);
+      await host.executeTool!({
+        id: "budget-2",
+        name: "observe_budget",
+        arguments: {},
+      }, new AbortController().signal);
+      yield { type: "done", finalText: "done", stopReason: "complete" };
+    });
+
+    await sessions.withSessionMutation(session.id, 0, (mutation) =>
+      executor.run({
+        session,
+        turnId: "turn-budget",
+        prompt: "observe",
+        executionMode: "act",
+        runtime,
+        authorization: authorization(session.id, "turn-budget"),
+        context,
+        mutation,
+        signal: new AbortController().signal,
+      })
+    );
+
+    expect(budgets).toHaveLength(2);
+    expect(budgets[0]).toBe(budgets[1]);
+    expect(budgets[0]).toEqual({
+      maxChildren: 4,
+      childrenStarted: 2,
+      maxReportedCostUsd: 3,
+      reportedCostUsd: 0,
+    });
+  });
+
   it("returns a bounded tool error after ordinary permission denial", async () => {
     let executions = 0;
     const tool: Tool<Record<string, unknown>> = {

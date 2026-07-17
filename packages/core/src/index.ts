@@ -1,4 +1,5 @@
 export * from "./agent-loop.js";
+export * from "./agent-profile.js";
 export * from "./backend-authorization.js";
 export * from "./child-agent-manager.js";
 export * from "./compaction.js";

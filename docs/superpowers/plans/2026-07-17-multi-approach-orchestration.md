@@ -162,7 +162,7 @@ git commit -m "feat: enforce agent tool policies"
 - Produces `createDelegationBudget(agent): DelegationBudget`.
 - The same mutable budget object lives for exactly one parent run and is never supplied by the model.
 
-- [ ] **Step 1: Write failing direct and delegated tests** proving the context contains the mode-derived child count and reported-cost ceilings and remains shared across multiple tool calls in one run.
+- [x] **Step 1: Write failing direct and delegated tests** proving the context contains the mode-derived child count and reported-cost ceilings and remains shared across multiple tool calls in one run.
 
 ```ts
 export interface DelegationBudget {
@@ -173,13 +173,13 @@ export interface DelegationBudget {
 }
 ```
 
-- [ ] **Step 2: Run executor tests and confirm RED**.
+- [x] **Step 2: Run executor tests and confirm RED**.
 
 Run: `npm test -- packages/core/test/agent-loop.test.ts packages/core/test/delegated-agent-executor.test.ts`
 
-- [ ] **Step 3: Build the budget from the durable operating-mode ID** in both direct and delegated executors, attach it once per run, and keep child contexts independently bounded.
+- [x] **Step 3: Build the budget from the durable operating-mode ID** in both direct and delegated executors, attach it once per run, and keep child contexts independently bounded.
 
-- [ ] **Step 4: Run focused tests and type checking**, then commit.
+- [x] **Step 4: Run focused tests and type checking**, then commit.
 
 ```bash
 git add packages/tools/src/types.ts packages/core/src/agent-profile.ts packages/core/src/agent-loop.ts packages/core/src/delegated-agent-executor.ts packages/core/test/agent-loop.test.ts packages/core/test/delegated-agent-executor.test.ts

@@ -1,8 +1,25 @@
 import {
   getAgentProfilePolicy,
+  getOperatingModePolicy,
   type AgentSessionDescriptor,
 } from "@recurs/contracts";
-import type { ToolContext, ToolPolicy } from "@recurs/tools";
+import type {
+  DelegationBudget,
+  ToolContext,
+  ToolPolicy,
+} from "@recurs/tools";
+
+export function createDelegationBudget(
+  agent: AgentSessionDescriptor,
+): DelegationBudget {
+  const mode = getOperatingModePolicy(agent.operatingMode.id);
+  return {
+    maxChildren: mode.workflow.maxChildrenPerRun,
+    childrenStarted: 0,
+    maxReportedCostUsd: mode.orchestration.maxReportedCostUsd,
+    reportedCostUsd: 0,
+  };
+}
 
 export function applyAgentToolPolicy(
   context: ToolContext,
