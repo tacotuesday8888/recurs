@@ -142,12 +142,19 @@ descriptor, native-authority markers, Keychain/token variables, provider/cloud
 variables, or proxy variables, but they retain the user's ordinary host
 authority.
 
-Parallel Explore/Review children run in detached worktrees only after the
-parent is verified as the canonical root of a clean Git repository. The
-worktrees start at exact `HEAD`, omit ignored local state, live outside the
-repository, and are force-removed before batch settlement. This separates
-sibling workspace effects but does not restrict their host filesystem, network,
-IPC, or process authority and does not make them credential-safe sandboxes.
+Parallel Explore/Review batches and team Implement workers run in detached
+worktrees only after the parent is verified as the canonical root of a clean
+Git repository at exact committed `HEAD`. The worktrees omit ignored local
+state, live outside the repository, and are removed before settlement. Batch
+changes are discarded. A team can import only a parent-owned, hash-verified,
+text-only patch after exact path, credential-path, mode, binary, symlink,
+submodule, size, base-revision, and ownership checks. Artifacts are applied in
+declared order behind an exact checkpoint, and any conflict after mutation
+triggers whole-transaction rollback. Successful integration stays uncommitted;
+a rejected or unavailable Review leaves that visible change for correction or
+`/undo`. These controls separate sibling workspace effects and constrain the
+import boundary, but they do not restrict host filesystem, network, IPC, or
+process authority and do not make children credential-safe sandboxes.
 
 The private signed path implements OpenAI API, Anthropic API, and Kimi Code.
 Other direct API, coding-plan, OAuth, and cloud-identity credential flows remain

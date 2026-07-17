@@ -21,9 +21,9 @@ It is not an IDE. Users may keep their editor of choice. Recurs manages the peop
 
 ## What exists now
 
-Core v0, the provider/authentication catalog foundation, and the TypeScript tool-safety precursor are implemented: a provider-neutral loop, eight host tools, two owned delegation primitives, three permission presets, Plan and review modes, goals, pinned version-2 sessions, cross-process mutation leases, trusted run context, direct and delegated coordinator lanes, interrupted-work recovery, compaction, checkpoints/undo, sessionless workspace shell, interactive and JSONL CLI paths, and full end-to-end coding workflows.
+Core v0, the provider/authentication catalog foundation, and the TypeScript tool-safety precursor are implemented: a provider-neutral loop, eight host tools, three owned delegation primitives, three permission presets, Plan and review modes, goals, pinned version-2 sessions, cross-process mutation leases, trusted run context, direct and delegated coordinator lanes, interrupted-work recovery, compaction, checkpoints/undo, sessionless workspace shell, interactive and JSONL CLI paths, and full end-to-end coding workflows.
 
-The first Recurs-owned multi-agent vertical is also real. A parent can create one durable Explore, Implement, or Review child, or run a bounded foreground batch of independent Explore/Review children. Versioned Economy through Max policies constrain child count, concurrency, request reservations, retries, depth, and reported cost. Batch children receive clean detached Git worktrees at one exact revision; permissions cannot widen, cancellation is linked, partial failure keeps successful evidence, results are deterministic, and normalized activity returns to the parent for synthesis. Concurrent editing, background work, resumption, recursion, and independent child-model routing are intentionally absent.
+The first Recurs-owned team vertical is also real. A parent can create one durable Explore, Implement, or Review child, run a bounded foreground Explore/Review batch, or ask `delegate_team` to run up to four isolated Implement workers and a mode-selected Review panel. Version-3 Economy through Max policies combine a named quality standard with implementation width, initial/maximum reviewers, child/request limits, concurrency, depth, retries, and reported-cost ceilings. Team patches are bounded, text-only, hash-addressed, and applied in task order behind an exact rollback checkpoint; all workers must succeed, permissions cannot widen, cancellation is linked, and strict Review output produces `approved`, `changes_requested`, or `unverified`. Durable `/agents activity` exposes child status, usage, files, evidence, and isolation revision. Background work, resumption, recursion, automatic repair, dirty-parent snapshots, auto-commit, and independent child-model routing are intentionally absent.
 
 Built-in tools now share a permanent credential-path denial, aggregate tools and new checkpoints exclude those paths, child processes receive clean synthetic state, and provider/tool/CLI failures are sanitized before durable or user-visible boundaries. Hosts may choose the default `local_guarded` tool profile or a fail-closed `tools_disabled` profile that exposes no model tools.
 
@@ -47,11 +47,10 @@ Additional providers and delegated runtimes remain provider-specific integration
 
 ### 2. Sub-agent company runtime
 
-The durable parent/child contracts, exact worker profiles, shared budgets, foreground delegation, normalized activity, and isolated parallel Explore/Review slice are implemented. Continue the primary product differentiator with:
+The durable parent/child contracts, exact worker profiles, shared budgets, foreground delegation, normalized activity, isolated Explore/Review batches, parallel Implement patch integration, exact rollback, and adaptive Review slice are implemented. Continue the primary product differentiator with:
 
-- a controlled patch capture, validation, conflict, rollback, and review protocol before parallel Implement is exposed;
 - durable background ownership, resumption, and escalation without duplicating the execution engine;
-- carefully expanded roles and model routing behind versioned policy;
+- carefully expanded role contracts, automatic correction loops, and model routing behind versioned policy and hard spend limits;
 - a company-level operating view over the existing goals, budgets, cancellation, handoffs, review, and normalized activity stream.
 
 Before unattended local workers run arbitrary commands, add an enforceable process/filesystem/network isolation layer.

@@ -111,12 +111,12 @@
 - Create: `packages/core/test/agent-review-panel.test.ts`
 - Modify: `packages/core/src/index.ts`
 
-- [ ] Add failing parser tests for exact JSON approval/change-request verdicts, bounded summary/evidence, unknown fields, Markdown wrappers, oversized output, and malformed responses.
-- [ ] Add failing coordinator tests for mode-selected initial reviewers, adaptive escalation on disagreement/malformed/failure, maximum reviewer bounds, linked cancellation, and budget exhaustion.
-- [ ] Run Review children through `ChildAgentManager` in the parent workspace with an evidence-oriented prompt and strict output contract.
-- [ ] Require unanimous valid approvals for `approved`; any valid change request becomes `changes_requested`; any failure/malformed result without a change request becomes `unverified`.
-- [ ] Preserve every reviewer session/result and expose normalized reviewer records for parent synthesis.
-- [ ] Run review-panel and child-manager tests.
+- [x] Add failing parser tests for exact JSON approval/change-request verdicts, bounded summary/evidence, unknown fields, Markdown wrappers, oversized output, and malformed responses.
+- [x] Add failing coordinator tests for mode-selected initial reviewers, adaptive escalation on disagreement/malformed/failure, maximum reviewer bounds, linked cancellation, and budget exhaustion.
+- [x] Run Review children through `ChildAgentManager` in the parent workspace with an evidence-oriented prompt and strict output contract.
+- [x] Require unanimous valid approvals for `approved`; any valid change request becomes `changes_requested`; any failure/malformed result without a change request becomes `unverified`.
+- [x] Preserve every reviewer session/result and expose normalized reviewer records for parent synthesis.
+- [x] Run review-panel and child-manager tests.
 
 ### Task 7: Compose the foreground `delegate_team` vertical
 
@@ -131,14 +131,14 @@
 - Modify: `packages/cli/test/render.test.ts`
 - Modify: `packages/cli/test/assembly.test.ts`
 
-- [ ] Add failing exact-schema tests for `{ description, tasks, review }`, mode worker limits, Act-only execution, permissions, and mutation classification.
-- [ ] Add failing workflow tests for bounded parallel worktree Implement children, input-order results, capture-before-cleanup, all-worker success gating, cleanup failures, cancellation, and budget reservations.
-- [ ] Add failing integration/review tests for approved, changes-requested, unverified, capture failure, implementation failure, integration rollback, and review failure after successful integration.
-- [ ] Register `delegate_team` beside existing single/batch tools. The parent supplies concrete implementation tasks; Recurs supplies lifecycle and policy, not speculative automatic planning.
-- [ ] Emit normalized team started, patch captured/integrated, review recorded, completed, failed, and cancelled events with stable workflow/task IDs and no raw patch or prompt content.
-- [ ] Return structured tool metadata containing workflow status, worker evidence, patch hashes, integration result, review verdicts, usage/budget totals, and changed-file/evidence metadata.
-- [ ] Render concise live team activity and verify the tool is visible only where parent execution/tool policy permits it.
-- [ ] Run core team, CLI render, assembly, and existing child/batch tests.
+- [x] Add failing exact-schema tests for `{ description, tasks, review }`, mode worker limits, Act-only execution, permissions, and mutation classification.
+- [x] Add failing workflow tests for bounded parallel worktree Implement children, input-order results, capture-before-cleanup, all-worker success gating, cleanup failures, cancellation, and budget reservations.
+- [x] Add failing integration/review tests for approved, changes-requested, unverified, capture failure, implementation failure, integration rollback, and review failure after successful integration.
+- [x] Register `delegate_team` beside existing single/batch tools. The parent supplies concrete implementation tasks; Recurs supplies lifecycle and policy, not speculative automatic planning.
+- [x] Emit normalized team started, patch captured/integrated, review recorded, completed, failed, and cancelled events with stable workflow/task IDs and no raw patch or prompt content.
+- [x] Return structured tool metadata containing workflow status, worker evidence, patch hashes, integration result, review verdicts, usage/budget totals, and changed-file/evidence metadata.
+- [x] Render concise live team activity and verify the tool is visible only where parent execution/tool policy permits it.
+- [x] Run core team, CLI render, assembly, and existing child/batch tests.
 
 ### Task 8: Prove the complete workflow through the real engine seams
 
@@ -147,10 +147,10 @@
 - Modify: `tests/e2e/coding-agent.test.ts`
 - Modify: `packages/cli/test/assembly.test.ts`
 
-- [ ] Add a failing deterministic scripted-provider scenario where a parent calls `delegate_team`, an isolated Implement child edits a fixture, Recurs integrates it, a Review child approves it, and the parent synthesizes the result.
-- [ ] Assert separate durable child sessions, inherited backend/model/permissions, depth one, exact patch evidence, normalized events, parent workspace change, and no worktree leak.
-- [ ] Add failure scenarios for patch conflict rollback and malformed reviewer output producing `unverified` rather than approval.
-- [ ] Run targeted E2E tests, then all TypeScript tests.
+- [x] Add a failing deterministic scripted-provider scenario where a parent calls `delegate_team`, an isolated Implement child edits a fixture, Recurs integrates it, a Review child approves it, and the parent synthesizes the result.
+- [x] Assert separate durable child sessions, inherited backend/model/permissions, depth one, exact patch evidence, normalized events, parent workspace change, and no worktree leak.
+- [x] Add failure scenarios for patch conflict rollback and malformed reviewer output producing `unverified` rather than approval.
+- [x] Run targeted E2E tests; the final all-TypeScript run is tracked in Task 10.
 
 ### Task 9: Update product truth, research, and security documentation
 
@@ -163,11 +163,11 @@
 - Modify: `docs/research/SUBAGENT_HARNESS_COMPARISON.md`
 - Modify: `docs/README.md`
 
-- [ ] Describe the exact implemented workflow, policy table, activity command, patch restrictions, rollback semantics, and review verdict rules.
-- [ ] Add the verified Grok Build findings: independent child sessions, lifecycle/status, worktree isolation, goal/skeptic patterns, shallow depth, and the Recurs takeaways. Cite the official repository and preserve license independence.
-- [ ] State the remaining limits prominently: foreground only, depth one, clean committed parent, text patches only, no auto-repair/resume/model routing/background/company UI, and no OS containment for arbitrary commands.
-- [ ] Remove obsolete claims that Implement is parent-workspace-only or that patch integration is absent.
-- [ ] Run documentation link/reference searches and `git diff --check`.
+- [x] Describe the exact implemented workflow, policy table, activity command, patch restrictions, rollback semantics, and review verdict rules.
+- [x] Add the verified Grok Build findings: independent child sessions, lifecycle/status, worktree isolation, goal/skeptic patterns, shallow depth, and the Recurs takeaways. Cite the official repository and preserve license independence.
+- [x] State the remaining limits prominently: foreground only, depth one, clean committed parent, text patches only, no auto-repair/resume/model routing/background/company UI, and no OS containment for arbitrary commands.
+- [x] Remove obsolete claims that Implement is parent-workspace-only or that patch integration is absent.
+- [x] Run documentation link/reference searches and `git diff --check`.
 
 ### Task 10: Full verification, audit, and focused commits
 

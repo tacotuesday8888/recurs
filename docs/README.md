@@ -5,7 +5,7 @@ Current documents:
 - [CLI guide](CLI.md) — local and Codex setup, provider/account commands, permissions, storage, output, and limits.
 - [Security policy](../SECURITY.md) — current support boundary, private reporting expectations, and credential-canary rules.
 - [Base engine comparison](BASE_ENGINE_COMPARISON.md) — evidence from Kilo Code, OpenCode, and Codex and the resulting hardening decisions.
-- [Sub-agent harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md) — primary-source execution patterns from mature harnesses and the exact Recurs boundary derived from them.
+- [Sub-agent harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md) — primary-source execution patterns from Codex, OpenCode, Kimi Code, Kilo Code, Pi, Goose, and Grok Build, plus the exact Recurs boundary derived from them.
 - [Architecture](../ARCHITECTURE.md) — implemented package boundaries and direct/delegated engine lifecycle.
 - [Product direction](../PRODUCT.md) — CLI-first agent manager and sub-agent roadmap.
 
@@ -20,7 +20,7 @@ Reviewed specifications and implementation plans:
 - [Base harness hardening plan](superpowers/plans/2026-07-10-recurs-base-harness-hardening.md).
 - [Provider foundation Slice 0 plan](superpowers/plans/2026-07-10-recurs-provider-foundation-slice-0.md).
 - [Tool safety foundation plan](superpowers/plans/2026-07-11-recurs-host-safety-foundation.md) — unified credential exclusions, checkpoint format gating, clean child state, tool profiles, and sanitized failures.
-- [Recurs-owned child-agent plan](superpowers/plans/2026-07-17-recurs-owned-subagent-vertical.md), [multi-profile plan](superpowers/plans/2026-07-17-multi-approach-orchestration.md), and [parallel analysis/review plan](superpowers/plans/2026-07-17-parallel-analysis-fanout.md) — durable parent/child state, exact profiles, shared budgets, versioned operating modes, isolated Git worktrees, and bounded foreground fan-out.
+- [Recurs-owned child-agent plan](superpowers/plans/2026-07-17-recurs-owned-subagent-vertical.md), [multi-profile plan](superpowers/plans/2026-07-17-multi-approach-orchestration.md), [parallel analysis/review plan](superpowers/plans/2026-07-17-parallel-analysis-fanout.md), and [Team Orchestration v1 plan](superpowers/plans/2026-07-17-team-orchestration-v1.md) — durable parent/child state, exact profiles, shared budgets, versioned modes, isolated Git worktrees, safe patch integration/rollback, adaptive Review panels, activity inspection, and bounded foreground teams.
 
 ## Release status
 
