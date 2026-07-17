@@ -136,6 +136,22 @@ describe("command classification", () => {
 });
 
 describe("run_command", () => {
+  it("settles a clean Git child without waiting for process-group kill grace", async () => {
+    // The first child discovers and validates the host-selected developer
+    // directory once; subsequent isolated Git processes reuse that authority.
+    await toolExports.runProcess("git", ["--version"], { cwd });
+    const startedAt = performance.now();
+
+    const result = await toolExports.runProcess(
+      "git",
+      ["--version"],
+      { cwd },
+    );
+
+    expect(result.stdout).toMatch(/^git version /u);
+    expect(performance.now() - startedAt).toBeLessThan(900);
+  });
+
   it("does not expose child stderr or a cause when a process exits nonzero", async () => {
     const canary = "RECURS_CHILD_STDERR_CANARY";
     let thrown: unknown;
@@ -165,6 +181,7 @@ describe("run_command", () => {
       HTTP_PROXY: process.env.HTTP_PROXY,
       PATH: process.env.PATH,
       RECURS_PROCESS_CANARY: process.env.RECURS_PROCESS_CANARY,
+      DEVELOPER_DIR: process.env.DEVELOPER_DIR,
       SHELL: process.env.SHELL,
       TEMP: process.env.TEMP,
       TMP: process.env.TMP,
@@ -174,6 +191,7 @@ describe("run_command", () => {
     process.env.GITHUB_TOKEN = "github-secret";
     process.env.HTTP_PROXY = "http://proxy-secret.invalid";
     process.env.RECURS_PROCESS_CANARY = "parent-secret";
+    process.env.DEVELOPER_DIR = path.join(cwd, "parent-controlled-developer-dir");
     process.env.SHELL = "/definitely/not/the/child/shell";
     process.env.TMPDIR = parentTemp;
     process.env.TMP = parentTemp;
@@ -192,6 +210,7 @@ describe("run_command", () => {
         "github: process.env.GITHUB_TOKEN ?? null,",
         "proxy: process.env.HTTP_PROXY ?? null,",
         "shell: process.env.SHELL ?? null,",
+        "developerDir: process.env.DEVELOPER_DIR ?? null,",
         "home: process.env.HOME,",
         "config: process.env.XDG_CONFIG_HOME,",
         "cache: process.env.XDG_CACHE_HOME,",
@@ -210,6 +229,23 @@ describe("run_command", () => {
         proxy: null,
         shell: null,
       });
+      if (process.platform === "darwin") {
+        const selected = await execFileAsync(
+          "/usr/bin/xcode-select",
+          ["-p"],
+          { env: { PATH: "/usr/bin:/bin" } },
+        );
+        expect(child.developerDir).toBe(
+          await import("node:fs/promises").then(({ realpath }) =>
+            realpath(selected.stdout.trim())
+          ),
+        );
+      } else {
+        expect(child.developerDir).toBeNull();
+      }
+      expect(child.developerDir).not.toBe(
+        path.join(cwd, "parent-controlled-developer-dir"),
+      );
       expect(child.home).not.toBe(homedir());
       expect(child.home).not.toContain(cwd);
       expect(child.tmp).not.toBe(parentTemp);

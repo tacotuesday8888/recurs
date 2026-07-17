@@ -177,6 +177,11 @@ export async function runProcess(
   }
   const isolatedEnvironment = await createIsolatedProcessEnvironment(
     options.cwd,
+    process.env,
+    {
+      seedAppleDeveloperToolCache:
+        command === "git" || command === "/usr/bin/git",
+    },
   );
 
   try {
