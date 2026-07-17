@@ -248,16 +248,16 @@ interface GitWorktreeLeasePort {
 - Modify: `packages/cli/test/commands.test.ts`
 - Modify: `packages/cli/test/run-mode.test.ts`
 
-- [ ] Write failing assembly tests proving the data-root lease manager and both
+- [x] Write failing assembly tests proving the data-root lease manager and both
   delegation tools are registered only against the real coordinator seam.
-- [ ] Write failing command tests proving `/agents` reports exact policy version,
+- [x] Write failing command tests proving `/agents` reports exact policy version,
   true parallelism or sequential fallback, shared request/cost bounds, and
   Explore/Review batch eligibility while Implement is sequential-only.
-- [ ] Register `delegate_tasks` beside `delegate_task`, rooted at
+- [x] Register `delegate_tasks` beside `delegate_task`, rooted at
   `<projectData>/agent-worktrees`, without exposing a user-controlled path.
-- [ ] Update `/agents mode <name>` so display names select v2 while exact `_v1`
+- [x] Update `/agents mode <name>` so display names select v2 while exact `_v1`
   IDs remain available for compatibility and diagnostics.
-- [ ] Run CLI/core integration tests, typecheck, inspect, and commit.
+- [x] Run CLI/core integration tests, typecheck, inspect, and commit.
 
 ### Task 7: Prove parent fan-out and synthesis end to end
 

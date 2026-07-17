@@ -13,12 +13,19 @@ import { message, type Command } from "./types.js";
 
 function summary(id: Parameters<typeof getOperatingModePolicy>[0]): string {
   const policy = getOperatingModePolicy(id);
+  const childRequests = Math.floor(
+    policy.workflow.maxRequestsPerRun / policy.workflow.maxChildrenPerRun,
+  );
+  const concurrency = policy.orchestration.maxConcurrentChildren;
   return [
     `Agent mode: ${policy.displayName} (${policy.id})`,
+    `Policy version: ${policy.version}`,
     "Model policy: inherit the session's pinned backend",
-    `Limits: depth ${policy.orchestration.maxDepth}, concurrency ${policy.orchestration.maxConcurrentChildren}, retries ${policy.orchestration.maxRetries}, child requests ${policy.orchestration.maxRequests}`,
-    `Children per parent run: ${policy.workflow.maxChildrenPerRun} (foreground; delegate_task starts one at a time)`,
-    `Reported cost ceiling: $${policy.orchestration.maxReportedCostUsd.toFixed(2)} (flagged after telemetry; child requests are the pre-run bound)`,
+    `Orchestration: depth ${policy.orchestration.maxDepth}, concurrency ${concurrency}${concurrency === 1 ? " (sequential fallback)" : ""}, retries ${policy.orchestration.maxRetries}`,
+    `Workflow: ${policy.workflow.maxChildrenPerRun} children, ${policy.workflow.maxRequestsPerRun} total requests, ${childRequests} reserved per child`,
+    "Batch profiles: Explore and Review in isolated clean Git worktrees",
+    "Implement remains single-child only through delegate_task; parallel patch integration is not available",
+    `Reported cost ceiling: $${policy.orchestration.maxReportedCostUsd.toFixed(2)} (enforced for new work after provider telemetry is known)`,
   ].join("\n");
 }
 
@@ -42,6 +49,7 @@ function profilesSummary(): string {
       `  Host tools: ${profile.tools.allowedNames.join(", ")}`,
       `  Intent ceiling: ${profile.tools.allowedCategories.join("/")} at ${profile.tools.maxRisk} risk`,
     ]),
+    "Batch eligibility: Explore and Review; Implement uses delegate_task only.",
   ].join("\n");
 }
 

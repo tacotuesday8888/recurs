@@ -27,9 +27,11 @@ import {
 import {
   AgentLoopDirectExecutor,
   BackendRunCoordinator,
+  ChildAgentBatchManager,
   ChildAgentManager,
   DelegatedAgentExecutor,
   JsonlSessionStore,
+  GitWorktreeLeaseManager,
   ProcessScopedRuntimeContinuationStore,
   bindRunAuthorization,
   createWorkspaceShell,
@@ -553,6 +555,17 @@ export async function createStandaloneRuntime(
     },
   });
   tools.register(childAgents.createTool());
+  const childBatches = new ChildAgentBatchManager({
+    sessions,
+    children: childAgents,
+    worktrees: new GitWorktreeLeaseManager({
+      rootDirectory: path.join(projectData, "agent-worktrees"),
+    }),
+    emit(event) {
+      return events.emit(event);
+    },
+  });
+  tools.register(childBatches.createTool());
 
   const runtimeReference: { current?: RecursRuntime } = {};
   const approvals = {

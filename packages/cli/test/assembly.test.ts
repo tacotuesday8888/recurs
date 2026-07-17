@@ -675,6 +675,41 @@ describe("standalone assembly without a provider", () => {
     });
   });
 
+  it("registers single and batch delegation through the assembled provider runtime", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-agent-tools-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const provider = new ScriptedProvider([[
+      { type: "text_delta", text: "ready" },
+      { type: "done", stopReason: "complete" },
+    ]]);
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        provider,
+      },
+    );
+
+    await expect(runtime.submit("inspect available tools")).resolves.toMatchObject({
+      finalText: "ready",
+    });
+    expect(provider.requests[0]?.tools.map((tool) => tool.name)).toEqual([
+      "read_file",
+      "list_files",
+      "search_text",
+      "apply_patch",
+      "run_command",
+      "run_verification",
+      "git_status",
+      "git_diff",
+      "delegate_task",
+      "delegate_tasks",
+    ]);
+  });
+
   it("assembles one shared delegated continuation foundation per runtime", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-delegated-foundation-"));
     directories.push(root);

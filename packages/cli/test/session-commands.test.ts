@@ -153,7 +153,7 @@ describe("session commands", () => {
     expect(await commands.execute("/agents", commandContext)).toMatchObject({
       type: "message",
       text: expect.stringMatching(
-        /Balanced \(balanced_v2\)[\s\S]*concurrency 3[\s\S]*child requests 24[\s\S]*Children per parent run: 4/u,
+        /Balanced \(balanced_v2\)[\s\S]*Policy version: 2[\s\S]*concurrency 3[\s\S]*Workflow: 4 children, 24 total requests, 6 reserved per child[\s\S]*Batch profiles: Explore and Review[\s\S]*Implement remains single-child only/u,
       ),
     });
     const profiles = await commands.execute("/agents profiles", commandContext);
@@ -171,7 +171,7 @@ describe("session commands", () => {
     expect(await commands.execute("/agents mode economy", commandContext)).toMatchObject({
       type: "message",
       text: expect.stringMatching(
-        /Economy \(economy_v2\)[\s\S]*Children per parent run: 2/u,
+        /Economy \(economy_v2\)[\s\S]*concurrency 1 \(sequential fallback\)[\s\S]*Workflow: 2 children, 8 total requests, 4 reserved per child/u,
       ),
     });
     const reloaded = await sessions.loadState("agent-mode-session");
@@ -187,7 +187,11 @@ describe("session commands", () => {
       text: expect.stringContaining("Choose /agents mode"),
     });
     expect(await commands.execute("/agents mode economy_v1", commandContext))
-      .toMatchObject({ text: expect.stringContaining("Economy (economy_v1)") });
+      .toMatchObject({
+        text: expect.stringMatching(
+          /Economy \(economy_v1\)[\s\S]*Policy version: 1[\s\S]*Workflow: 2 children, 16 total requests, 8 reserved per child/u,
+        ),
+      });
     expect(await sessions.loadState("agent-mode-session")).toMatchObject({
       agent: { operatingMode: { id: "economy_v1", version: 1 } },
     });
