@@ -1924,7 +1924,7 @@ describe("DelegatedAgentExecutor", () => {
     expect(budgets[0]).toEqual({
       maxChildren: 4,
       childrenStarted: 2,
-      maxRequests: 24,
+      maxRequests: 32,
       requestsReserved: 0,
       requestsUsed: 0,
       maxReportedCostUsd: 3,
