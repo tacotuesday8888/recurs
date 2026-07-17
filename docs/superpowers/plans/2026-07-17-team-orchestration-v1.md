@@ -175,9 +175,18 @@
 
 - Modify only files required by failures found during verification.
 
-- [ ] Run targeted package tests after every task, then `npm run check` from the isolated worktree.
-- [ ] Run `npm run check:native`; if the unchanged controlling-PTY helper reproduces its known hang, capture the exact evidence and do not claim a pass.
-- [ ] Inspect `git status`, the complete relevant diff, generated-file status, and dependency changes.
-- [ ] Scan intended files for credential material and secret-shaped values; confirm no `.env`, key, certificate, local registry, worktree, or generated machine state is staged.
-- [ ] Make small focused commits on `codex/team-orchestration-v1`; do not push.
-- [ ] Re-run the strongest relevant checks after the final commit and document what is real versus intentionally absent.
+- [x] Run targeted package tests after every task, then `npm run check` from the isolated worktree.
+- [x] Run `npm run check:native`; if the unchanged controlling-PTY helper reproduces its known hang, capture the exact evidence and do not claim a pass.
+- [x] Inspect `git status`, the complete relevant diff, generated-file status, and dependency changes.
+- [x] Scan intended files for credential material and secret-shaped values; confirm no `.env`, key, certificate, local registry, worktree, or generated machine state is staged.
+- [x] Make small focused commits on `codex/team-orchestration-v1`; do not push.
+- [x] Re-run the strongest relevant checks after the final code/test commit and document what is real versus intentionally absent.
+
+## Verification evidence
+
+- Targeted orchestration/tools/CLI/E2E gate: 11 files and 145 tests passed.
+- Full `npm run check`: generated-policy checks, lint, type contracts, all 73 TypeScript test files and 1,178 tests, build, native engine bundle smoke, bridge smoke, and doctor smoke passed.
+- Native build, plist/entitlement lint, and source-launcher smoke passed.
+- A full `npm run check:native` reached Swift tests and reproduced an unchanged host-specific pseudo-terminal stall. Process and stack inspection identified `LauncherControllingPTYIntegrationTests`, `LauncherProcessSignalCoordinatorTests`, and `TTYSecretCaptureTests` waiting on pseudo-terminal prompt reads. The run was stopped without leaving descendants; no pass is claimed for those suites.
+- With only those three host-blocked suites excluded, 755 Swift tests in 73 suites passed. No native source changed in this milestone.
+- `git diff --check`, generated-file validation, changed-path inspection, secret-shape scanning, and sensitive-file-name scanning passed. No dependency manifest, `.env`, credential, key, certificate, local registry, worktree, or generated machine-state file changed.
