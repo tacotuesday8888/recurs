@@ -16,6 +16,7 @@ import { promisify } from "node:util";
 import {
   RecursRuntime,
   createCommandRegistry,
+  createStandaloneRuntime,
   isCancellation,
 } from "@recurs/cli";
 import {
@@ -492,6 +493,187 @@ class BatchScenarioProvider implements ConnectionBoundModelProvider {
 }
 
 describe("Recurs end-to-end coding harness", () => {
+  it("runs an assembled durable v4 team through repair, approval, and cleanup", async () => {
+    const fixture = await createFixture();
+    const dataDirectory = path.join(fixture.root, "assembled-data");
+    const implemented = "export const value = 2;\n";
+    const implementedHash = createHash("sha256").update(implemented).digest("hex");
+    const implementationPatch = [
+      "diff --git a/src/value.ts b/src/value.ts",
+      "--- a/src/value.ts",
+      "+++ b/src/value.ts",
+      "@@ -1 +1 @@",
+      "-export const value = 1;",
+      "+export const value = 2;",
+      "",
+    ].join("\n");
+    const repairPatch = [
+      "diff --git a/src/value.ts b/src/value.ts",
+      "--- a/src/value.ts",
+      "+++ b/src/value.ts",
+      "@@ -1 +1,2 @@",
+      " export const value = 2;",
+      "+// Repair evidence: the focused fixture test covers this value.",
+      "",
+    ].join("\n");
+    const requestChanges = JSON.stringify({
+      verdict: "request_changes",
+      summary: "The candidate needs explicit focused-test evidence in the source.",
+      findings: [{
+        path: "src/value.ts",
+        problem: "The staged source does not record the focused verification intent.",
+        acceptance: "Add the bounded verification note without changing value 2.",
+        evidence: ["The staged diff only changes the numeric value."],
+      }],
+      evidence: ["Inspected the complete staged diff."],
+    });
+    const approve = JSON.stringify({
+      verdict: "approve",
+      summary: "The repaired candidate is scoped and satisfies the fixture objective.",
+      findings: [],
+      evidence: ["Inspected the repaired staged diff and focused-test evidence."],
+    });
+    const provider = new ScriptedProvider([
+      toolTurn("durable-team", "delegate_team", {
+        description: "Change the value fixture and repair any review findings",
+        tasks: [{
+          description: "Implement value two",
+          prompt: "Change value from 1 to 2 and run the focused fixture test.",
+        }],
+        review: {
+          instructions: "Review the exact staged diff and require explicit evidence.",
+        },
+      }),
+      toolTurn("implement-read", "read_file", { path: "src/value.ts" }),
+      toolTurn("implement-patch", "apply_patch", {
+        patch: implementationPatch,
+        files: [{ path: "src/value.ts", expected_hash: fixture.initialHash }],
+      }),
+      toolTurn("implement-test", "run_verification", { command: "npm test" }),
+      [
+        { type: "text_delta", text: "Implemented value 2 and the fixture test passed." },
+        { type: "done", stopReason: "complete" },
+      ],
+      toolTurn("review-one-diff", "git_diff", {}),
+      [
+        { type: "text_delta", text: requestChanges },
+        { type: "done", stopReason: "complete" },
+      ],
+      toolTurn("review-two-diff", "git_diff", {}),
+      [
+        { type: "text_delta", text: approve },
+        { type: "done", stopReason: "complete" },
+      ],
+      toolTurn("repair-read", "read_file", { path: "src/value.ts" }),
+      toolTurn("repair-patch", "apply_patch", {
+        patch: repairPatch,
+        files: [{ path: "src/value.ts", expected_hash: implementedHash }],
+      }),
+      toolTurn("repair-test", "run_verification", { command: "npm test" }),
+      [
+        { type: "text_delta", text: "Repaired the finding and reran the fixture test." },
+        { type: "done", stopReason: "complete" },
+      ],
+      toolTurn("review-repaired-diff", "git_diff", {}),
+      [
+        { type: "text_delta", text: approve },
+        { type: "done", stopReason: "complete" },
+      ],
+      [
+        {
+          type: "text_delta",
+          text: "Parent synthesis: the durable team repaired and approved the candidate.",
+        },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const events: RecursEvent[] = [];
+    const runtime = await createStandaloneRuntime(
+      { async emit(event) { events.push(event); } },
+      {
+        cwd: fixture.project,
+        dataDirectory,
+        provider,
+      },
+    );
+    runtime.setConfirmHandler(async () => true);
+    const interactive = createHostInvocation({
+      invocation: "repl",
+      userPresent: true,
+      remote: false,
+      scripted: false,
+      embedding: "cli",
+    });
+
+    await runtime.submit("/permissions approved_for_me");
+    await runtime.submit("/agents mode standard_v4");
+    const result = await runtime.submit(
+      "Run the durable implementation and review team.",
+      interactive,
+    );
+
+    expect(result.finalText).toContain("repaired and approved");
+    expect(await readFile(path.join(fixture.project, "src/value.ts"), "utf8"))
+      .toBe([
+        "export const value = 2;",
+        "// Repair evidence: the focused fixture test covers this value.",
+        "",
+      ].join("\n"));
+    const projectId = createHash("sha256")
+      .update(fixture.project)
+      .digest("hex")
+      .slice(0, 24);
+    const projectData = path.join(dataDirectory, "projects", projectId);
+    const sessions = new JsonlSessionStore(path.join(projectData, "sessions"));
+    const parent = await sessions.loadState(runtime.session.id);
+    if (!isPinnedSessionState(parent)) throw new Error("Expected pinned parent");
+    expect(parent.toolOutcomes["durable-team"]).toMatchObject({
+      type: "completed",
+      result: {
+        metadata: {
+          status: "approved",
+          operatingModeId: "standard_v4",
+          repairRounds: 1,
+          changedFiles: ["src/value.ts"],
+        },
+      },
+    });
+
+    const children = [];
+    for (const entry of await sessions.list()) {
+      if (entry.id === parent.id) continue;
+      const child = await sessions.loadState(entry.id);
+      if (!isPinnedSessionState(child)) throw new Error("Expected pinned child");
+      children.push(child);
+    }
+    expect(children).toHaveLength(5);
+    expect(children.every((child) =>
+      child.agent.depth === 1 &&
+      child.agent.parentAgentId === parent.agent.id &&
+      child.agent.parentSessionId === parent.id &&
+      child.agent.team?.runId !== undefined &&
+      child.agentLifecycle.status === "completed"
+    )).toBe(true);
+    expect(children.map((child) =>
+      `${child.agent.team?.role}:${child.agent.team?.round}`
+    ).sort()).toEqual([
+      "implement:0",
+      "repair:1",
+      "review:0",
+      "review:0",
+      "review:1",
+    ]);
+    expect(events.filter((event) =>
+      event.type === "agent_team_activity" &&
+      event.activity === "review_recorded"
+    ).map((event) => event.round)).toEqual([0, 1]);
+    expect((await readdir(path.join(projectData, "agent-worktrees")))
+      .filter((entry) => entry !== ".owners")).toEqual([]);
+    expect((await execFileAsync("git", ["worktree", "list", "--porcelain"], {
+      cwd: fixture.project,
+    })).stdout).not.toContain(`${path.sep}agent-worktrees${path.sep}`);
+  }, 60_000);
+
   it("fans out in isolated worktrees and returns ordered evidence for parent synthesis", async () => {
     const fixture = await createFixture();
     const provider = new BatchScenarioProvider({
