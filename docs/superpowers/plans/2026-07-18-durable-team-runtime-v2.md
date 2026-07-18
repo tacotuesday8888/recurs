@@ -144,6 +144,40 @@ git commit -m "fix: harden team review and restart selection"
 - Consumes: `SessionBackendPin`, `AgentPermissionMode`, current v1-v3 policies.
 - Produces: `implement_v2`, `review_v2`, `repair_v1`; v4 policies; `TeamRunDescriptor`; `AgentBackendRouter.select()`; trusted child backend-route options.
 
+**Sequencing corrections from the architecture audit:**
+
+- Task 2 defines v4 but does not activate it as the default. Keep
+  `DEFAULT_OPERATING_MODE_ID` at `balanced_v3`, and resolve unqualified display
+  names against the default policy generation, until Task 6 wires the durable
+  supervisor and switches the default atomically.
+- Exact v4 IDs may be parsed for replay/tests, but the legacy
+  `TeamAgentManager` must reject every non-v3 policy before acquiring a lease,
+  creating a child, or mutating a workspace. Add a focused rejection test.
+- Preserve the physical shape of every v1-v3 policy. Use a versioned team-policy
+  union or a v4-only factory so `maxRepairRounds` is absent, not zero or
+  `undefined`, in historical objects.
+- New `implement_v2` and `review_v2` descriptors carry profile version 2;
+  `repair_v1` carries version 1. Unqualified public profile names remain mapped
+  to v1, while the supervisor selects v4 profiles by exact trusted IDs.
+- The run descriptor freezes the exact parent permission/execution ceiling,
+  trusted invocation classification, bounded request, exact policy/allocation
+  snapshot, and serializable route decisions/reasons. Restart code must not
+  re-derive those facts from a future default.
+- A routed decision is trusted only when produced and authenticated by the
+  injected router instance. Bind it to role, execution mode, permission mode,
+  candidate ID, decision reason, and an immutable complete pin; reject forged,
+  cross-router, mismatched, or mutated decisions.
+- Background eligibility fails closed for non-direct runtimes and unreviewed
+  billing sources. Production may provide only the parent candidate, but tests
+  must prove deterministic role-candidate selection and parent fallback.
+- Add explicit no-process prompt scopes and update exhaustive CLI switches; do
+  not expose the new internal profiles through the existing model-controlled
+  `delegate_task` schema.
+- Extend child descriptors with exact optional team correlation
+  (`runId`, role, task index, round, attempt ID). It is supplied only by trusted
+  team code and lets restart reconciliation identify an orphan child even if
+  the process dies around session creation.
+
 - [ ] **Step 1: Write failing contract tests for stable profiles and v4 budgets**
 
 ```ts
@@ -207,7 +241,8 @@ policy("standard_v4", 4, "Standard", 2, 36, 1, 6, team("standard", 1, 1, 2, 1));
 policy("balanced_v4", 4, "Balanced", 3, 56, 3, 7, team("balanced", 2, 1, 2, 1));
 policy("performance_v4", 4, "Performance", 4, 100, 10, 10, team("thorough", 3, 2, 3, 1));
 policy("max_v4", 4, "Max", 6, 216, 25, 18, team("maximum", 4, 2, 4, 2));
-export const DEFAULT_OPERATING_MODE_ID: OperatingModeId = "balanced_v4";
+// Task 6 changes the default only after the v4 supervisor is real.
+export const DEFAULT_OPERATING_MODE_ID: OperatingModeId = "balanced_v3";
 ```
 
 - [ ] **Step 5: Write failing routing tests**
@@ -228,7 +263,9 @@ export interface AgentBackendCandidate {
   readonly id: string;
   readonly pin: SessionBackendPin;
   readonly parent: boolean;
+  readonly roles: readonly TeamRunRole[];
   readonly executionModes: readonly AgentExecutionMode[];
+  readonly permissionModes: readonly AgentPermissionMode[];
   readonly hostTools: boolean;
   readonly background: boolean;
   readonly ready: boolean;
@@ -240,9 +277,15 @@ export class AgentBackendRouter {
       candidate.ready && candidate.hostTools &&
       candidate.executionModes.includes(input.executionMode) &&
       (!input.background || candidate.background));
-    const parent = eligible.find((candidate) => candidate.parent);
-    if (parent === undefined) throw new ToolError("tool_unavailable", "No eligible agent backend");
-    return { strategy: "inherit_parent", candidateId: parent.id, pin: parent.pin };
+    const selected = eligible.find((candidate) => !candidate.parent) ??
+      eligible.find((candidate) => candidate.parent);
+    if (selected === undefined) throw new ToolError("tool_unavailable", "No eligible agent backend");
+    return {
+      strategy: selected.parent ? "inherit_parent" : "role_candidate",
+      candidateId: selected.id,
+      reason: selected.parent ? "parent_fallback" : "eligible_role_candidate",
+      pin: selected.pin,
+    };
   }
 }
 ```
@@ -260,19 +303,23 @@ expect(child.agent.permissions.permissionMode).toBe(parent.permissionMode);
 expect(child.agent.depth).toBe(1);
 ```
 
-Extend `AgentBackendSelection.strategy` with `policy_route`. Add an internal-only
-`backend` member to `ChildDelegationOptions`; it carries the router's complete
-decision and immutable `SessionBackendPin`. Validate exact IDs, selected
-execution-mode eligibility, and that the selected route came from the injected
-router port. The session validator must accept the child's selected pin while
-still requiring the descriptor adapter/connection/model to equal that pin.
+Make `AgentBackendSelection` a discriminated union and add an exact
+`policy_route` member containing the stable candidate ID and reason as well as
+adapter/connection/model IDs. Add an internal-only `backend` member to
+`ChildDelegationOptions`; it carries the router's authenticated, frozen
+decision. The manager asks the injected router to validate provenance and
+checks role/profile, execution mode, permission mode, candidate ID, and the
+complete immutable pin. The session validator accepts the routed child's pin
+while still requiring descriptor adapter/connection/model IDs to equal it.
 Default calls continue to inherit the parent exactly.
 
 - [ ] **Step 8: Run contract, profile, router, child, and session validator tests**
 
-Run: `npx vitest run packages/contracts/test/agents.test.ts packages/contracts/test/team-runs.test.ts packages/core/test/agent-backend-router.test.ts packages/core/test/child-agent-manager.test.ts packages/core/test/session-v2.test.ts packages/core/test/session-runtime-records.test.ts`
+Run: `npx vitest run packages/contracts/test/agents.test.ts packages/contracts/test/team-runs.test.ts packages/core/test/agent-backend-router.test.ts packages/core/test/agent-profile.test.ts packages/core/test/child-agent-manager.test.ts packages/core/test/session-v2.test.ts packages/core/test/session-runtime-records.test.ts packages/core/test/team-agent-manager.test.ts packages/cli/test/session-commands.test.ts`
 
-Expected: PASS with historical v1-v3 snapshots unchanged and v4 display-name parsing selecting v4.
+Expected: PASS with historical v1-v3 snapshots unchanged, the v3 default and
+unqualified display-name behavior preserved until Task 6, exact v4 IDs
+available, and legacy team execution rejecting v4 before side effects.
 
 - [ ] **Step 9: Commit**
 
@@ -292,7 +339,29 @@ git commit -m "feat: add versioned team runtime policy contracts"
 
 **Interfaces:**
 - Consumes: `TeamRunDescriptor`, `ProviderUsage`, `acquireSessionLock()`.
-- Produces: `TeamRunRecord`, `TeamRunState`, `JsonlTeamRunStore.create/append/load/list/recoverInterrupted`.
+- Produces: `TeamRunRecord`, `TeamRunState`, `JsonlTeamRunStore.create/append/load/list`.
+
+**Architecture-audit corrections:**
+
+- The store is policy-free and never decides that an owner process died.
+  Process ownership and restart reconciliation belong to the supervisor, which
+  holds a distinct per-run owner lock for the full active lifetime. A busy lock
+  means another live Recurs process owns the run; only a reclaimed lock may be
+  reconciled.
+- Persist child reservation before launch, then terminal outcome separately.
+  The reservation owns attempt/agent/session IDs, correlation, and request
+  allowance so a crash cannot lose a started child or its budget.
+- Persist worker and staged-candidate artifact links explicitly. Raw patch
+  bodies remain outside the journal.
+- Claims use monotonically increasing epochs so an interrupted run can be
+  resumed by a new owner. `interrupted` is resumable; true terminal outcomes
+  are not.
+- Journal only a bounded `CheckpointRef` (`id`, `sessionId`, `toolCallId`), not
+  the checkpoint's full file manifest. Include both `apply_reset` and
+  `apply_committed` so prepared-apply recovery can converge truthfully.
+- Torn-tail repair happens only while holding the append lock and truncates to
+  the last validated byte offset. Middle corruption, a complete invalid final
+  record, sequence gaps, and illegal transitions fail closed.
 
 - [ ] **Step 1: Write reducer red tests for every legal and illegal transition**
 
@@ -315,28 +384,51 @@ Expected: FAIL because the team state reducer is absent.
 
 ```ts
 export type TeamRunRecordInput =
-  | { readonly type: "run_claimed"; readonly ownerId: string; readonly at: string }
+  | { readonly type: "run_claimed"; readonly ownerId: string; readonly claimEpoch: number; readonly at: string }
   | { readonly type: "phase_started"; readonly phase: TeamRunPhase; readonly round: number; readonly at: string }
-  | { readonly type: "child_recorded"; readonly child: TeamRunChildRecord; readonly at: string }
+  | { readonly type: "child_reserved"; readonly child: TeamRunChildReservation; readonly at: string }
+  | { readonly type: "child_finished"; readonly child: TeamRunChildRecord; readonly at: string }
+  | { readonly type: "artifact_linked"; readonly artifact: TeamRunArtifactLink; readonly at: string }
   | { readonly type: "review_recorded"; readonly review: TeamRunReviewRecord; readonly at: string }
   | { readonly type: "candidate_ready"; readonly artifact: GitPatchArtifactHandle; readonly changedFiles: readonly string[]; readonly at: string }
-  | { readonly type: "apply_prepared"; readonly checkpoint: Checkpoint; readonly at: string }
+  | { readonly type: "apply_prepared"; readonly checkpoint: CheckpointRef; readonly at: string }
+  | { readonly type: "apply_reset"; readonly reason: "clean_base"; readonly at: string }
+  | { readonly type: "apply_committed"; readonly checkpoint: CheckpointRef; readonly changedFiles: readonly string[]; readonly at: string }
   | { readonly type: "run_terminal"; readonly status: TeamRunTerminalStatus; readonly outcome: TeamRunOutcome; readonly at: string }
   | { readonly type: "cancel_requested"; readonly reason: string; readonly at: string }
   | { readonly type: "run_interrupted"; readonly reason: string; readonly manualAttentionRequired: boolean; readonly at: string };
 
-export interface TeamRunChildRecord {
+export interface TeamRunChildReservation {
+  readonly attemptId: string;
   readonly role: TeamRunRole;
   readonly index: number;
   readonly round: number;
   readonly childAgentId: string;
   readonly childSessionId: string;
+  readonly requestAllowance: number;
+}
+
+export interface TeamRunChildRecord {
+  readonly attemptId: string;
   readonly status: "completed" | "failed" | "cancelled";
   readonly usage: ProviderUsage | null;
   readonly usageSource: "provider" | "runtime" | "unavailable";
   readonly changedFiles: readonly string[];
   readonly evidence: readonly string[];
   readonly failure: { readonly code: string; readonly message: string } | null;
+}
+
+export interface TeamRunArtifactLink {
+  readonly kind: "worker" | "staged_candidate";
+  readonly handle: GitPatchArtifactHandle;
+  readonly round: number;
+  readonly attemptId: string | null;
+}
+
+export interface CheckpointRef {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly toolCallId: string;
 }
 
 export interface TeamRunReviewRecord {
@@ -376,14 +468,16 @@ export class JsonlTeamRunStore {
   append(runId: string, expectedSequence: number, input: TeamRunRecordInput): Promise<TeamRunState>;
   load(runId: string): Promise<TeamRunState>;
   list(parentSessionId?: string): Promise<readonly TeamRunListEntry[]>;
-  recoverInterrupted(at: string): Promise<readonly TeamRunState[]>;
 }
 ```
 
 Each append acquires `acquireSessionLock(directory, runId)`, reloads and checks
 the exact expected sequence, appends one validated JSON line with mode `0o600`,
-syncs the file, releases the lock, and returns the reduced state. A partial final
-line is truncated only when every preceding record validates.
+syncs the file, releases the lock, and returns the reduced state. Loading a
+possibly torn log for repair also holds the same lock; a non-newline-terminated
+partial final line is truncated and synced only when every preceding record
+validates. Validate pre-existing directory/file type, containment, and private
+permissions rather than trusting `mkdir({ mode })` to repair them.
 
 - [ ] **Step 6: Run store and existing session-store tests**
 
@@ -408,10 +502,35 @@ git commit -m "feat: add durable team run journal"
 - Modify: `packages/core/src/git-worktree-leases.ts`
 - Modify: `packages/core/test/git-worktree-leases.test.ts`
 - Modify: `packages/core/src/index.ts`
+- Modify: `packages/tools/src/checkpoints.ts`
+- Modify: `packages/tools/test/checkpoints.test.ts`
 
 **Interfaces:**
 - Consumes: current patch validation, worktree lease, checkpoint store.
-- Produces: `GitPatchArtifactStore`, `FileGitPatchArtifactStore`, async discard, `stage()`, apply preparation hooks, stale-worktree reconciliation.
+- Produces: `GitPatchArtifactStore`, `FileGitPatchArtifactStore`, async discard, `stage()`, dedicated v4 apply primitive, stale-worktree reconciliation.
+
+**Architecture-audit corrections:**
+
+- Use a literal content-addressed layout: immutable
+  `objects/<sha256>.patch` plus atomic versioned `refs/<artifact-id>.json`.
+  Publish and fsync the object before its ref. Ref removal is idempotent; blob
+  garbage collection is deferred.
+- The ref binds the complete handle, canonical repository, and bounded exact
+  after-state fingerprints for every changed/deleted path. Recovery compares
+  those fingerprints without mutating the index or recapturing an unknown
+  workspace.
+- Keep legacy v3 `integrate()` behavior intact. Add a dedicated one-candidate
+  v4 prepare/apply pair so the supervisor can order checkpoint-before, durable
+  `apply_prepared`, mutation, idempotent checkpoint completion, durable
+  `apply_committed`, then best-effort event and artifact cleanup. A journal
+  failure after mutation is recoverable prepared state, not an ordinary patch
+  conflict. Add an idempotent checkpoint `complete(ref, cwd)` operation that
+  returns an already-completed exact checkpoint and rejects mismatched, undone,
+  or corrupt state.
+- Worktree leases hold a separate owner lock for their full lifetime. Stale
+  recovery must attempt that lock and skip a live/busy owner; an in-memory set
+  from a new process is not proof that a lease is stale. Expose
+  `assertActive(lease)` and require it before staging/apply.
 
 - [ ] **Step 1: Write file-store red tests**
 
@@ -445,9 +564,10 @@ export interface GitPatchArtifactStore {
 }
 ```
 
-Use one private directory per artifact, atomic temporary-file rename, strict JSON
-metadata, mode `0o600`, canonical repository paths, and SHA/length/path checks on
-every load. Keep an in-memory implementation as the default for existing tests.
+Use the content-addressed object/ref layout above, atomic temporary-file rename,
+strict JSON metadata, mode `0o600`, canonical repository paths, and
+SHA/length/path/result-fingerprint checks on every load. Keep an in-memory
+implementation as the default for existing tests.
 
 - [ ] **Step 4: Write staging and two-phase apply red tests**
 
@@ -480,29 +600,32 @@ export interface GitPatchStageInput {
 stage(input: GitPatchStageInput): Promise<{ readonly changedFiles: readonly string[] }>;
 discard(handles: readonly GitPatchArtifactHandle[]): Promise<void>;
 
-export interface GitPatchIntegrationInput {
-  // existing fields remain
-  readonly onPrepared?: (checkpoint: Checkpoint) => Promise<void>;
-  readonly onCommitted?: (checkpoint: Checkpoint) => Promise<void>;
-}
+prepareCandidateApply(input: GitPatchCandidatePrepareInput): Promise<CheckpointRef>;
+applyCandidate(input: GitPatchCandidateApplyInput): Promise<GitPatchCandidateApplyOutcome>;
 ```
 
 `stage` validates ownership/base/path/hash exactly like parent integration,
 applies in input order only to the supplied owned staging lease, verifies the
 complete dirty path set after every apply, and leaves the parent clean. Do not
-delete artifacts before durable commit/explicit discard.
+delete artifacts before durable commit/explicit discard. `applyCandidate`
+performs only the mutation and exact after-state validation after a matching
+prepared checkpoint; the supervisor calls the checkpoint store's idempotent
+completion and appends `apply_committed`. Neither method owns journal appends or
+presentation events.
 
 - [ ] **Step 6: Add stale worktree reconciliation red/green tests**
 
 ```ts
-const recovered = await manager.recoverStale({ repositoryRoot, activeLeaseIds: new Set() });
+const recovered = await manager.recoverStale({ repositoryRoot });
 expect(recovered.removedLeaseIds).toEqual([orphan.id]);
 expect(await pathExists(orphan.worktreeRoot)).toBe(false);
 ```
 
 Reconcile only children directly under the configured private root. Verify each
-target's basename/realpath and Git worktree registration before forced removal;
-never accept an arbitrary caller path.
+target's ID, `lstat` directory/non-symlink type, basename/realpath containment,
+and exact Git worktree registration before attempting its owner lock. Skip a
+busy live lease; force-remove only a safely reclaimed dead lease. Never accept
+an arbitrary caller path.
 
 - [ ] **Step 7: Run patch, worktree, and checkpoint suites**
 
@@ -513,7 +636,7 @@ Expected: PASS.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add packages/core/src/file-git-patch-artifact-store.ts packages/core/src/git-patch-artifacts.ts packages/core/src/git-worktree-leases.ts packages/core/src/index.ts packages/core/test/file-git-patch-artifact-store.test.ts packages/core/test/git-patch-artifacts.test.ts packages/core/test/git-worktree-leases.test.ts
+git add packages/core/src/file-git-patch-artifact-store.ts packages/core/src/git-patch-artifacts.ts packages/core/src/git-worktree-leases.ts packages/core/src/index.ts packages/core/test/file-git-patch-artifact-store.test.ts packages/core/test/git-patch-artifacts.test.ts packages/core/test/git-worktree-leases.test.ts packages/tools/src/checkpoints.ts packages/tools/test/checkpoints.test.ts
 git commit -m "feat: persist and stage team patch artifacts"
 ```
 
@@ -565,6 +688,10 @@ export interface AgentReviewPanelRunOptions {
 For contract v2, delegate `review_v2` with the supplied staging cwd/workspace.
 Bound output to 16 KiB, at most 12 findings, at most 8 evidence items per
 finding, safe relative paths or `*`, and exact keys. Preserve v1 parser behavior.
+Panel precedence is fail-closed: any invalid or failed required reviewer makes
+the panel `unverified`; only an otherwise entirely valid panel containing at
+least one valid change request becomes `changes_requested`; approval requires
+all valid approvals and zero findings. Invalid review never triggers Repair.
 
 - [ ] **Step 4: Write and implement deterministic repair prompt tests**
 
@@ -686,6 +813,10 @@ return this.delegateLegacyV3(input, context);
 Keep foreground as the default parser value and preserve strict v3 input
 acceptance. Add normalized journal-sequence/phase/round events without prompts,
 patches, or worktree paths; publish them best-effort after durable transitions.
+Once this routing is fully wired and the focused v4 path is green, change
+`DEFAULT_OPERATING_MODE_ID` to `balanced_v4` and make unqualified operating-mode
+display names resolve to v4 in the same commit. Existing v1-v3 IDs and replay
+records remain unchanged.
 
 - [ ] **Step 7: Run supervisor, legacy team, child, review, patch, and event tests**
 
