@@ -28,6 +28,7 @@ import {
   bindRunAuthorization,
   CoordinatedRunError,
   DelegatedAgentExecutor,
+  FileGitPatchArtifactStore,
   JsonlSessionStore,
   JsonlTeamRunStore,
   type RecursEvent,
@@ -409,8 +410,10 @@ describe("standalone assembly without a provider", () => {
     expect(restarted.session.cwd).toBe(repositoryRoot);
   });
 
-  it("reconciles an ownerless running team before returning a restarted runtime", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "recurs-team-restart-"));
+  it("reconciles a prepared apply before stale provider policy blocks startup", async () => {
+    const root = await realpath(
+      await mkdtemp(path.join(tmpdir(), "recurs-team-restart-")),
+    );
     directories.push(root);
     const workspace = path.join(root, "workspace");
     await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
@@ -511,27 +514,236 @@ describe("standalone assembly without a provider", () => {
       round: 0,
       at: "2026-07-18T00:00:02.000Z",
     });
+    await teamRuns.append("restart-team", 2, {
+      type: "child_reserved",
+      child: {
+        attemptId: "implement-attempt",
+        role: "implement",
+        index: 1,
+        round: 0,
+        childAgentId: "implement-agent",
+        childSessionId: "implement-session",
+        requestAllowance: 8,
+      },
+      at: "2026-07-18T00:00:03.000Z",
+    });
+    await teamRuns.append("restart-team", 3, {
+      type: "child_finished",
+      child: {
+        attemptId: "implement-attempt",
+        status: "completed",
+        requestsUsed: 1,
+        usage: null,
+        usageSource: "unavailable",
+        changedFiles: ["value.txt"],
+        evidence: ["implementation completed"],
+        failure: null,
+      },
+      at: "2026-07-18T00:00:04.000Z",
+    });
+    const candidatePatch = [
+      "diff --git a/value.txt b/value.txt",
+      "index 1111111..2222222 100644",
+      "--- a/value.txt",
+      "+++ b/value.txt",
+      "@@ -1 +1 @@",
+      "-before",
+      "+after",
+      "",
+    ].join("\n");
+    const candidate = {
+      id: "restart-candidate",
+      leaseId: "stale-stage-lease",
+      baseRevision: revision,
+      sha256: createHash("sha256").update(candidatePatch).digest("hex"),
+      byteLength: Buffer.byteLength(candidatePatch, "utf8"),
+      paths: ["value.txt"],
+    } as const;
+    const artifactStore = new FileGitPatchArtifactStore(path.join(
+      dataDirectory,
+      "projects",
+      projectId,
+      "team-patch-artifacts",
+    ));
+    await artifactStore.put({
+      handle: candidate,
+      repositoryRoot,
+      patch: candidatePatch,
+      after: [{
+        path: "value.txt",
+        kind: "file",
+        sha256: createHash("sha256").update("after\n").digest("hex"),
+        byteLength: 6,
+        mode: "100644",
+      }],
+    });
+    await teamRuns.append("restart-team", 4, {
+      type: "artifact_linked",
+      artifact: {
+        kind: "worker",
+        handle: { ...candidate, id: "restart-worker", leaseId: "stale-worker-lease" },
+        round: 0,
+        attemptId: "implement-attempt",
+      },
+      at: "2026-07-18T00:00:05.000Z",
+    });
+    await teamRuns.append("restart-team", 5, {
+      type: "phase_started",
+      phase: "stage",
+      round: 0,
+      at: "2026-07-18T00:00:06.000Z",
+    });
+    await teamRuns.append("restart-team", 6, {
+      type: "phase_started",
+      phase: "review",
+      round: 0,
+      at: "2026-07-18T00:00:07.000Z",
+    });
+    await teamRuns.append("restart-team", 7, {
+      type: "child_reserved",
+      child: {
+        attemptId: "review-attempt",
+        role: "review",
+        index: 1,
+        round: 0,
+        childAgentId: "review-agent",
+        childSessionId: "review-session",
+        requestAllowance: 8,
+      },
+      at: "2026-07-18T00:00:08.000Z",
+    });
+    await teamRuns.append("restart-team", 8, {
+      type: "child_finished",
+      child: {
+        attemptId: "review-attempt",
+        status: "completed",
+        requestsUsed: 1,
+        usage: null,
+        usageSource: "unavailable",
+        changedFiles: [],
+        evidence: ["review completed"],
+        failure: null,
+      },
+      at: "2026-07-18T00:00:09.000Z",
+    });
+    await teamRuns.append("restart-team", 9, {
+      type: "review_recorded",
+      review: {
+        round: 0,
+        verdict: "approved",
+        findings: [],
+        evidence: ["review completed"],
+      },
+      at: "2026-07-18T00:00:10.000Z",
+    });
+    await teamRuns.append("restart-team", 10, {
+      type: "artifact_linked",
+      artifact: {
+        kind: "staged_candidate",
+        handle: candidate,
+        round: 0,
+        attemptId: null,
+      },
+      at: "2026-07-18T00:00:11.000Z",
+    });
+    await teamRuns.append("restart-team", 11, {
+      type: "candidate_ready",
+      artifact: candidate,
+      changedFiles: ["value.txt"],
+      at: "2026-07-18T00:00:12.000Z",
+    });
+    await teamRuns.append("restart-team", 12, {
+      type: "phase_started",
+      phase: "apply",
+      round: 0,
+      at: "2026-07-18T00:00:13.000Z",
+    });
+    await teamRuns.append("restart-team", 13, {
+      type: "apply_prepared",
+      checkpoint: {
+        id: "restart-checkpoint",
+        sessionId: first.session.id,
+        toolCallId: "restart-team",
+      },
+      at: "2026-07-18T00:00:14.000Z",
+    });
+    await writeCodexConnection(dataDirectory);
+    const registry = new FileConnectionRegistry(dataDirectory);
+    const document = await registry.read();
+    await registry.commit(document.revision, (draft) => {
+      const connection = draft.connections.find((item) =>
+        item.id === codexConnection.id
+      );
+      if (connection?.kind !== "delegated_agent") {
+        throw new Error("Expected the stale Codex fixture");
+      }
+      connection.policyRevision = "stale-policy";
+    });
     const events: RecursEvent[] = [];
 
-    await createStandaloneRuntime(
+    await expect(createStandaloneRuntime(
       { async emit(event) { events.push(event); } },
       {
         cwd: repositoryRoot,
         dataDirectory,
-        provider: new ScriptedProvider([], providerId),
       },
-    );
+    )).rejects.toMatchObject({ code: "policy_stale" });
 
     expect(await teamRuns.load("restart-team")).toMatchObject({
-      status: "interrupted",
-      interruption: { manualAttentionRequired: false },
+      status: "ready_to_apply",
+      interruption: null,
     });
     expect(events).toContainEqual(expect.objectContaining({
       type: "agent_team_activity",
       teamId: "restart-team",
-      activity: "run_interrupted",
-      status: "interrupted",
+      activity: "apply_reset",
+      status: "ready_to_apply",
     }));
+
+    let recovered = await teamRuns.load("restart-team");
+    const restartedApplyAt = new Date(
+      Date.parse(recovered.updatedAt) + 1,
+    ).toISOString();
+    recovered = await teamRuns.append("restart-team", recovered.lastSequence, {
+      type: "phase_started",
+      phase: "apply",
+      round: 0,
+      at: restartedApplyAt,
+    });
+    await teamRuns.append("restart-team", recovered.lastSequence, {
+      type: "apply_prepared",
+      checkpoint: {
+        id: "restart-checkpoint-2",
+        sessionId: first.session.id,
+        toolCallId: "restart-team",
+      },
+      at: new Date(Date.parse(restartedApplyAt) + 1).toISOString(),
+    });
+    await artifactStore.remove([candidate]);
+
+    let startupFailure: unknown;
+    try {
+      await createStandaloneRuntime(
+        { async emit(event) { events.push(event); } },
+        { cwd: repositoryRoot, dataDirectory },
+      );
+    } catch (error) {
+      startupFailure = error;
+    }
+    expect(startupFailure).toMatchObject({ code: "execution_failed" });
+    const failedState = await teamRuns.load("restart-team");
+    expect(failedState).toMatchObject({
+      status: "interrupted",
+      interruption: {
+        manualAttentionRequired: true,
+      },
+    });
+    const safeReason = failedState.interruption?.reason;
+    expect(safeReason).toMatch(/^Team recovery /u);
+    expect((startupFailure as Error).message).toBe(
+      `Durable team recovery failed for restart-team: ${safeReason}`,
+    );
+    expect((startupFailure as Error).message).not.toContain(root);
   });
 
   it("starts a current session when stored connection metadata changed", async () => {

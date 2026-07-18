@@ -12,6 +12,7 @@ import { isCredentialPath, ToolError } from "@recurs/tools";
 
 import type { JsonlSessionStore } from "./jsonl-session-store.js";
 import { isPinnedSessionState, type PinnedSessionState } from "./session-v2.js";
+import { uniqueSortedStrings } from "./stable-order.js";
 import { teamChildAssignmentSha256 } from "./team-child-binding.js";
 import type {
   TeamRunChildRecord,
@@ -130,7 +131,7 @@ function safePath(value: string): boolean {
 }
 
 function exactPaths(values: readonly string[]): readonly string[] | null {
-  const sorted = [...new Set(values)].sort((left, right) => left.localeCompare(right));
+  const sorted = uniqueSortedStrings(values);
   return sorted.length <= 256 && sorted.length === values.length &&
       sorted.every(safePath)
     ? Object.freeze(sorted)
@@ -138,9 +139,8 @@ function exactPaths(values: readonly string[]): readonly string[] | null {
 }
 
 function evidence(values: readonly string[]): readonly string[] {
-  return Object.freeze([...new Set(values.map((value) => value.trim()))]
+  return Object.freeze(uniqueSortedStrings(values.map((value) => value.trim()))
     .filter((value) => value.length > 0)
-    .sort((left, right) => left.localeCompare(right))
     .slice(0, 64)
     .map((value) => {
       if (Buffer.byteLength(value, "utf8") <= 16_384) return value;

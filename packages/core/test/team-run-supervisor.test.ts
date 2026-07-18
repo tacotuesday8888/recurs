@@ -169,6 +169,8 @@ interface HarnessOptions {
   readonly permissionMode?: "approved_for_me" | "full_access";
   readonly backgroundCandidate?: boolean;
   readonly pauseCandidateReady?: boolean;
+  readonly pauseStageRelease?: boolean;
+  readonly pauseReadyEvent?: boolean;
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -184,6 +186,22 @@ async function harness(options: HarnessOptions = {}) {
   });
   const candidateReadyRelease = new Promise<void>((resolve) => {
     releaseCandidateReady = resolve;
+  });
+  let stageReleaseEntered!: () => void;
+  let releaseStageRelease!: () => void;
+  const stageReleaseGate = new Promise<void>((resolve) => {
+    stageReleaseEntered = resolve;
+  });
+  const stageReleaseRelease = new Promise<void>((resolve) => {
+    releaseStageRelease = resolve;
+  });
+  let readyEventEntered!: () => void;
+  let releaseReadyEvent!: () => void;
+  const readyEventGate = new Promise<void>((resolve) => {
+    readyEventEntered = resolve;
+  });
+  const readyEventRelease = new Promise<void>((resolve) => {
+    releaseReadyEvent = resolve;
   });
   let currentLeasePhase: TeamRunState["phase"] = null;
   let prepareFailuresRemaining = options.prepareFailures ?? 0;
@@ -404,6 +422,7 @@ async function harness(options: HarnessOptions = {}) {
 
   const createdLeases: GitWorktreeLease[] = [];
   const releasedLeases: GitWorktreeLease[] = [];
+  const stagingLeaseIds = new Set<string>();
   const workerArtifacts = new Map<string, GitPatchArtifactHandle>();
   const discardedArtifactIds: string[] = [];
   let parentMutationCount = 0;
@@ -420,11 +439,17 @@ async function harness(options: HarnessOptions = {}) {
       createdLeases.push(lease);
       if (currentLeasePhase === "implement") {
         implementationLeaseIndexById.set(id, ++implementationLeaseIndex);
+      } else if (currentLeasePhase === "stage") {
+        stagingLeaseIds.add(id);
       }
       log.push(`worktree:create:${id}`);
       return lease;
     },
     async release(lease: GitWorktreeLease): Promise<void> {
+      if (stagingLeaseIds.has(lease.id) && options.pauseStageRelease === true) {
+        stageReleaseEntered();
+        await stageReleaseRelease;
+      }
       releasedLeases.push(lease);
       log.push(`worktree:release:${lease.id}`);
     },
@@ -532,6 +557,12 @@ async function harness(options: HarnessOptions = {}) {
     },
     async emit(event) {
       attemptedEvents.push(event);
+      if (event.type === "agent_team_activity" &&
+        event.activity === "candidate_ready" &&
+        options.pauseReadyEvent === true) {
+        readyEventEntered();
+        await readyEventRelease;
+      }
       if (options.eventSinkFailure === true) throw new Error("event sink failed");
     },
     createId: () => `supervisor-id-${++supervisorId}`,
@@ -646,6 +677,10 @@ async function harness(options: HarnessOptions = {}) {
     seedInterruptedRun,
     candidateReadyGate,
     releaseCandidateReady,
+    stageReleaseGate,
+    releaseStageRelease,
+    readyEventGate,
+    releaseReadyEvent,
   };
 }
 
@@ -653,6 +688,23 @@ function indexOf(log: readonly string[], value: string): number {
   const index = log.indexOf(value);
   expect(index, `Missing log entry: ${value}`).toBeGreaterThanOrEqual(0);
   return index;
+}
+
+function freshTurnContext(context: ToolContext): ToolContext {
+  const budget = context.delegationBudget;
+  if (budget === undefined) throw new Error("Expected a delegation budget");
+  return {
+    ...context,
+    signal: new AbortController().signal,
+    readRevisions: new Map(),
+    delegationBudget: {
+      ...budget,
+      childrenStarted: 0,
+      requestsReserved: 0,
+      requestsUsed: 0,
+      reportedCostUsd: 0,
+    },
+  };
 }
 
 function implementationFinishOrder(state: TeamRunState): number[] {
@@ -704,7 +756,7 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
     })).resolves.toMatchObject({ metadata: { status: "approved" } });
   });
 
-  it("denies apply and stable cancellation while another live owner holds the run", async () => {
+  it("waits cancellation-aware for apply and denies cancellation while another owner is live", async () => {
     const test = await harness({ permissionMode: "full_access" });
     const started = await test.supervisor.startBackground(
       { ...test.input, execution: "background" },
@@ -724,11 +776,19 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
     if (ownership.status !== "acquired") throw new Error("Expected ownership");
     const other = test.createSupervisor();
 
-    await expect(other.apply(
+    const applyAbort = new AbortController();
+    const applying = other.apply(
       test.context.sessionId,
       started.metadata.teamId,
-      test.context,
-    )).rejects.toMatchObject({ code: "permission_denied" });
+      { ...test.context, signal: applyAbort.signal },
+    );
+    const beforeAbort = await Promise.race([
+      applying.then(() => "settled" as const, () => "settled" as const),
+      wait(100).then(() => "pending" as const),
+    ]);
+    applyAbort.abort();
+    expect(beforeAbort).toBe("pending");
+    await expect(applying).rejects.toMatchObject({ code: "cancelled" });
     await expect(other.cancel(
       test.context.sessionId,
       started.metadata.teamId,
@@ -828,6 +888,94 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
       ]),
     });
     expect(test.parentMutationCount()).toBe(1);
+  });
+
+  it("settles background staging before wait exposes ready for immediate apply", async () => {
+    const test = await harness({
+      permissionMode: "full_access",
+      pauseStageRelease: true,
+    });
+    const started = await test.supervisor.startBackground(
+      { ...test.input, execution: "background" },
+      test.context,
+    );
+    await test.stageReleaseGate;
+    const observer = test.createSupervisor();
+    await expect(observer.status(
+      test.context.sessionId,
+      started.metadata.teamId,
+    )).resolves.toMatchObject({ status: "running", phase: "review" });
+
+    let waitResolved = false;
+    const attempt = observer.wait(
+      test.context.sessionId,
+      started.metadata.teamId,
+      30_000,
+      new AbortController().signal,
+    ).then(async (waiting) => {
+      waitResolved = true;
+      const applied = await observer.apply(
+        test.context.sessionId,
+        started.metadata.teamId,
+        test.context,
+      );
+      return { ok: true as const, waiting, applied };
+    }, (error: unknown) => ({ ok: false as const, error }));
+
+    await wait(0);
+    const resolvedBeforeRelease = waitResolved;
+    test.releaseStageRelease();
+    const outcome = await attempt;
+
+    expect(resolvedBeforeRelease).toBe(false);
+    expect(outcome).toMatchObject({
+      ok: true,
+      waiting: {
+        timedOut: false,
+        snapshot: { status: "ready_to_apply" },
+      },
+      applied: { metadata: { status: "approved" } },
+    });
+    expect(test.createdLeases.map((lease) => lease.id).sort()).toEqual(
+      test.releasedLeases.map((lease) => lease.id).sort(),
+    );
+  });
+
+  it("defers direct apply until an in-process ready run releases ownership", async () => {
+    const test = await harness({
+      permissionMode: "full_access",
+      pauseReadyEvent: true,
+    });
+    const started = await test.supervisor.startBackground(
+      { ...test.input, execution: "background" },
+      test.context,
+    );
+    await test.readyEventGate;
+    const other = test.createSupervisor();
+
+    const attempt = other.apply(
+      test.context.sessionId,
+      started.metadata.teamId,
+      test.context,
+    ).then(
+      (applied) => ({ ok: true as const, applied }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    const beforeRelease = await Promise.race([
+      attempt.then(() => "settled" as const),
+      wait(100).then(() => "pending" as const),
+    ]);
+    test.releaseReadyEvent();
+    const outcome = await attempt;
+
+    expect(beforeRelease).toBe("pending");
+    expect(outcome).toMatchObject({
+      ok: true,
+      applied: { metadata: { status: "approved" } },
+    });
+    expect(test.createdLeases.map((lease) => lease.id).sort()).toEqual(
+      test.releasedLeases.map((lease) => lease.id).sort(),
+    );
   });
 
   it("requires Full Access or the exact approved intent for explicit apply", async () => {
@@ -1061,16 +1209,27 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
       "Retire the source run used to freeze a valid descriptor",
     );
     const interrupted = await test.seedInterruptedRun(source.metadata.teamId);
+    const resumeContext = freshTurnContext(test.context);
 
     const resumed = await test.supervisor.resume(
       test.context.sessionId,
       interrupted.descriptor.id,
-      test.context,
+      resumeContext,
     );
     expect(resumed).toMatchObject({
       result: "started",
       snapshot: { id: interrupted.descriptor.id, status: "running" },
     });
+    expect(resumeContext.delegationBudget).toMatchObject({
+      childrenStarted: 7,
+      requestsReserved: 56,
+      requestsUsed: 0,
+    });
+    await expect(test.childManager.delegate({
+      profile: "explore_v1",
+      description: "Attempt work after reserving the resumed team",
+      prompt: "Inspect one more thing.",
+    }, resumeContext)).rejects.toMatchObject({ code: "permission_denied" });
 
     const settled = await test.supervisor.wait(
       test.context.sessionId,
@@ -1121,11 +1280,12 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
       "spent-interrupted-team",
       true,
     );
+    const resumeContext = freshTurnContext(test.context);
 
     await expect(test.supervisor.resume(
       test.context.sessionId,
       interrupted.descriptor.id,
-      test.context,
+      resumeContext,
     )).rejects.toMatchObject({ code: "permission_denied" });
     expect(await test.state(interrupted.descriptor.id)).toMatchObject({
       status: "interrupted",
@@ -1245,9 +1405,9 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
       const discard = test.log.findIndex((entry) =>
         entry.startsWith("patch:discard:") && entry.includes(workerId)
       );
-      expect(discard).toBeGreaterThan(indexOf(test.log, "journal:candidate_ready"));
+      expect(discard).toBeLessThan(indexOf(test.log, "journal:candidate_ready"));
     }
-    const candidateDiscard = test.log.findIndex((entry) =>
+    const candidateDiscard = test.log.findLastIndex((entry) =>
       entry.startsWith("patch:discard:") && entry.includes("artifact-lease-3")
     );
     expect(candidateDiscard).toBeGreaterThan(indexOf(test.log, "journal:apply_committed"));

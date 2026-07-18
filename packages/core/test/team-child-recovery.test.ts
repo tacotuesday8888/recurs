@@ -30,7 +30,8 @@ afterEach(async () => {
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), "recurs-team-child-recovery-"));
   directories.push(root);
-  const sessions = new JsonlSessionStore(path.join(root, "sessions"));
+  const sessionDirectory = path.join(root, "sessions");
+  const sessions = new JsonlSessionStore(sessionDirectory);
   const pin = testBackendPin("team-child-model");
   const mode = getOperatingModePolicy("balanced_v4");
   const agent: AgentSessionDescriptor = {
@@ -146,7 +147,7 @@ async function fixture() {
       review: { instructions: "Review the staged result" },
     },
   };
-  return { sessions, child, expectation, descriptor };
+  return { sessions, sessionDirectory, child, expectation, descriptor };
 }
 
 describe("interrupted durable team child recovery", () => {
@@ -354,6 +355,69 @@ describe("interrupted durable team child recovery", () => {
     })).resolves.toMatchObject({
       status: "failed",
       failure: { code: "invalid_child_result" },
+    });
+  });
+
+  it("recovers mixed-case and Unicode paths in binary order after restart", async () => {
+    const test = await fixture();
+    const changedFiles = ["Zeta.ts", "alpha.ts", "Éclair.ts", "界面.ts"];
+    await test.sessions.withSessionMutation(
+      test.child.id,
+      test.child.lastSequence,
+      async (lease) => {
+        await lease.append({
+          type: "turn_started",
+          turnId: "child-turn",
+          prompt: "Change several files.",
+          at: testAt,
+        });
+        await lease.append({
+          type: "turn_completed",
+          turnId: "child-turn",
+          result: {
+            finalText: "Implemented.",
+            usage: null,
+            usageSource: "unavailable",
+            steps: 1,
+            changedFiles,
+            changedFilesSource: "workspace_diff",
+            evidence: ["界面.ts verified", "alpha.ts verified", "Éclair.ts verified", "Zeta.ts verified"],
+            evidenceSource: "independent_verification",
+          },
+          at: testAt,
+        });
+      },
+    );
+    const restarted = new JsonlSessionStore(test.sessionDirectory);
+
+    await expect(recoverDurableTeamChild(restarted, {
+      descriptor: test.descriptor,
+      reservation: {
+        attemptId: "attempt-1",
+        role: "implement",
+        index: 1,
+        round: 0,
+        childAgentId: "child-agent",
+        childSessionId: "child-session",
+        requestAllowance: 8,
+        taskId: "child-task",
+        workspaceLeaseId: "lease-1",
+        assignmentSha256: teamChildAssignmentSha256(
+          "implement_v2",
+          "Implement the bounded child task",
+          "Change src/value.ts.",
+        ),
+      },
+      at: test.expectation.at,
+    })).resolves.toMatchObject({
+      status: "completed",
+      changedFiles,
+      evidence: [
+        "Zeta.ts verified",
+        "alpha.ts verified",
+        "Éclair.ts verified",
+        "界面.ts verified",
+      ],
     });
   });
 

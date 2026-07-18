@@ -472,6 +472,25 @@ function reserveDetachedBudget(
   budget.requestsReserved = budget.maxRequests;
 }
 
+function reserveFreshResumeBudget(
+  budget: NonNullable<ToolContext["delegationBudget"]>,
+  state: TeamRunState,
+): void {
+  if (budget.maxChildren !== state.descriptor.allocation.maxChildren ||
+    budget.maxRequests !== state.descriptor.allocation.maxRequests ||
+    budget.maxReportedCostUsd !==
+      state.descriptor.allocation.maxReportedCostUsd ||
+    budget.childrenStarted !== 0 || budget.requestsReserved !== 0 ||
+    budget.requestsUsed !== 0 || budget.reportedCostUsd !== 0) {
+    throw new ToolError(
+      "permission_denied",
+      "Team resume requires the complete current-turn delegation budget",
+    );
+  }
+  budget.childrenStarted = budget.maxChildren;
+  budget.requestsReserved = budget.maxRequests;
+}
+
 function syncDetachedBudget(
   budget: NonNullable<ToolContext["delegationBudget"]>,
   accounting: TeamRunState["accounting"],
@@ -490,10 +509,8 @@ function terminalStatus(status: TeamRunState["status"]): boolean {
     status === "unverified" || status === "failed" || status === "cancelled";
 }
 
-function waitSettledStatus(status: TeamRunState["status"]): boolean {
-  return terminalStatus(status) || status === "ready_to_apply" ||
-    status === "interrupted";
-}
+const OWNER_HANDOFF_POLL_MS = 25;
+const OWNER_HANDOFF_TIMEOUT_MS = 30_000;
 
 function deferred<T>(): {
   readonly promise: Promise<T>;
@@ -527,6 +544,28 @@ async function boundedWait(
   });
   try {
     return await Promise.race([promise.then(() => true as const), timeout, cancelledWait]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    if (abort !== undefined) signal.removeEventListener("abort", abort);
+  }
+}
+
+async function cancellablePause(
+  milliseconds: number,
+  signal: AbortSignal,
+  cancellationMessage = "Team wait was cancelled",
+): Promise<void> {
+  if (signal.aborted) {
+    throw new ToolError("cancelled", cancellationMessage);
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let abort: (() => void) | undefined;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      timer = setTimeout(resolve, milliseconds);
+      abort = () => reject(new ToolError("cancelled", cancellationMessage));
+      signal.addEventListener("abort", abort, { once: true });
+    });
   } finally {
     if (timer !== undefined) clearTimeout(timer);
     if (abort !== undefined) signal.removeEventListener("abort", abort);
@@ -567,6 +606,33 @@ export class TeamRunSupervisor {
       );
     }
     return ownership.lease;
+  }
+
+  async #acquireOwnerWithin(
+    runId: string,
+    parentSessionId: string,
+    timeoutMs: number,
+    signal: AbortSignal,
+    cancellationMessage = "Team wait was cancelled",
+  ): Promise<TeamRunOwnerLease | null> {
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+      if (signal.aborted) {
+        throw new ToolError("cancelled", cancellationMessage);
+      }
+      const ownership = await this.dependencies.owners.tryAcquire(
+        runId,
+        parentSessionId,
+      );
+      if (ownership.status === "acquired") return ownership.lease;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) return null;
+      await cancellablePause(
+        Math.min(OWNER_HANDOFF_POLL_MS, remaining),
+        signal,
+        cancellationMessage,
+      );
+    }
   }
 
   async #prepare(
@@ -1492,6 +1558,15 @@ export class TeamRunSupervisor {
         },
         at: this.#now(),
       });
+      await cancellationBoundary();
+      await this.dependencies.patches.discard(workerArtifacts).catch(() => undefined);
+      workerArtifacts.length = 0;
+      await this.dependencies.patches.discard(reviewSnapshots).catch(() => undefined);
+      reviewSnapshots.length = 0;
+      await this.dependencies.worktrees.release(stageLease);
+      leases.delete(stageLease.id);
+      stageLease = undefined;
+      await cancellationBoundary();
       await journal.append({
         type: "candidate_ready",
         artifact: candidate,
@@ -1499,11 +1574,6 @@ export class TeamRunSupervisor {
         at: this.#now(),
       });
       await cancellationBoundary();
-      await this.dependencies.patches.discard(workerArtifacts).catch(() => undefined);
-      workerArtifacts.length = 0;
-      await this.dependencies.worktrees.release(stageLease);
-      leases.delete(stageLease.id);
-      stageLease = undefined;
 
       if (!hooks.applyWhenReady) {
         return resultFromState(journal.state, evidence);
@@ -1661,12 +1731,13 @@ export class TeamRunSupervisor {
     input: DelegateTeamInput,
     context: ToolContext,
     resumeState?: TeamRunState,
+    resumedRunBudget?: NonNullable<ToolContext["delegationBudget"]>,
   ): Promise<TeamRunResult> {
     const controller = new AbortController();
     const initiatingBudget = context.delegationBudget;
-    const backgroundBudget = initiatingBudget === undefined
-      ? undefined
-      : { ...initiatingBudget };
+    const backgroundBudget = resumedRunBudget === undefined
+      ? initiatingBudget === undefined ? undefined : { ...initiatingBudget }
+      : { ...resumedRunBudget };
     const onInitiatorAbort = (): void => controller.abort();
     if (context.signal.aborted) controller.abort();
     else context.signal.addEventListener("abort", onInitiatorAbort, { once: true });
@@ -1693,7 +1764,11 @@ export class TeamRunSupervisor {
           throw new ToolError("execution_failed", "Background team claim is unavailable");
         }
         if (initiatingBudget !== undefined) {
-          reserveDetachedBudget(initiatingBudget, journal.state);
+          if (resumeState === undefined) {
+            reserveDetachedBudget(initiatingBudget, journal.state);
+          } else {
+            reserveFreshResumeBudget(initiatingBudget, journal.state);
+          }
           budgetReserved = true;
         }
         this.#active.set(runId, {
@@ -1754,29 +1829,63 @@ export class TeamRunSupervisor {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 30_000) {
       throw new ToolError("invalid_input", "Team wait must be between 0 and 30000 ms");
     }
-    const before = await this.status(parentSessionId, runId);
-    if (waitSettledStatus(before.status)) {
-      if (before.status !== "ready_to_apply") {
-        return Object.freeze({ snapshot: before, timedOut: false });
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+      const durable = await this.#ownedState(parentSessionId, runId);
+      const snapshot = snapshotFromState(durable);
+      if (terminalStatus(durable.status)) {
+        return Object.freeze({ snapshot, timedOut: false });
       }
-      const readyState = await this.#ownedState(parentSessionId, runId);
-      if (readyState.cancellation === null) {
-        return Object.freeze({ snapshot: before, timedOut: false });
+      const stable = durable.status === "interrupted" ||
+        (durable.status === "ready_to_apply" && durable.cancellation === null);
+      const remaining = Math.max(0, deadline - Date.now());
+      if (stable) {
+        const owner = await this.#acquireOwnerWithin(
+          runId,
+          parentSessionId,
+          remaining,
+          signal,
+        );
+        if (owner === null) {
+          return Object.freeze({ snapshot, timedOut: true });
+        }
+        try {
+          const confirmed = await this.#ownedState(parentSessionId, runId);
+          if (terminalStatus(confirmed.status) ||
+            confirmed.status === "interrupted" ||
+            (confirmed.status === "ready_to_apply" &&
+              confirmed.cancellation === null)) {
+            return Object.freeze({
+              snapshot: snapshotFromState(confirmed),
+              timedOut: false,
+            });
+          }
+        } finally {
+          await owner.release();
+        }
+      }
+      const afterInspection = deadline - Date.now();
+      if (afterInspection <= 0) {
+        return Object.freeze({ snapshot, timedOut: true });
+      }
+      const active = this.#active.get(runId);
+      if (active !== undefined && active.parentSessionId === parentSessionId) {
+        if (active.ownerId !== durable.claim?.ownerId) {
+          throw new ToolError("permission_denied", "Active team ownership is stale");
+        }
+        if (!await boundedWait(active.settled, afterInspection, signal)) {
+          return Object.freeze({
+            snapshot: await this.status(parentSessionId, runId),
+            timedOut: true,
+          });
+        }
+      } else {
+        await cancellablePause(
+          Math.min(OWNER_HANDOFF_POLL_MS, afterInspection),
+          signal,
+        );
       }
     }
-    const active = this.#active.get(runId);
-    if (active === undefined || active.parentSessionId !== parentSessionId) {
-      return Object.freeze({ snapshot: before, timedOut: true });
-    }
-    const durable = await this.#ownedState(parentSessionId, runId);
-    if (active.ownerId !== durable.claim?.ownerId) {
-      throw new ToolError("permission_denied", "Active team ownership is stale");
-    }
-    const settledInTime = await boundedWait(active.settled, timeoutMs, signal);
-    return Object.freeze({
-      snapshot: await this.status(parentSessionId, runId),
-      timedOut: !settledInTime,
-    });
   }
 
   async #ownedState(
@@ -1960,7 +2069,7 @@ export class TeamRunSupervisor {
     context: ToolContext,
   ): Promise<TeamRunResumeResult> {
     const state = await this.#ownedState(parentSessionId, runId);
-    await this.#controlParent(state, context, true);
+    const parent = await this.#controlParent(state, context, true);
     const active = this.#active.get(runId);
     if (active !== undefined && active.parentSessionId === parentSessionId) {
       if (active.ownerId !== state.claim?.ownerId) {
@@ -1971,7 +2080,21 @@ export class TeamRunSupervisor {
         snapshot: await this.status(parentSessionId, runId),
       });
     }
-    const budget = {
+    const initiatingBudget = context.delegationBudget;
+    if (initiatingBudget === undefined ||
+      !isDelegationBudgetForAgent(initiatingBudget, parent.agent)) {
+      throw new ToolError("tool_unavailable", "Trusted delegation budget is unavailable");
+    }
+    if (initiatingBudget.childrenStarted !== 0 ||
+      initiatingBudget.requestsReserved !== 0 ||
+      initiatingBudget.requestsUsed !== 0 ||
+      initiatingBudget.reportedCostUsd !== 0) {
+      throw new ToolError(
+        "permission_denied",
+        "Team resume requires the complete current-turn delegation budget",
+      );
+    }
+    const resumedRunBudget = {
       maxChildren: state.descriptor.allocation.maxChildren,
       childrenStarted: state.accounting.childrenReserved,
       maxRequests: state.descriptor.allocation.maxRequests,
@@ -1987,8 +2110,8 @@ export class TeamRunSupervisor {
       execution: "background",
     }, {
       ...context,
-      delegationBudget: budget,
-    }, state);
+      delegationBudget: initiatingBudget,
+    }, state, resumedRunBudget);
     return Object.freeze({
       result: "started",
       snapshot: await this.status(parentSessionId, runId),
@@ -2002,7 +2125,29 @@ export class TeamRunSupervisor {
   ): Promise<TeamRunResult> {
     const observed = await this.#ownedState(parentSessionId, runId);
     await this.#controlParent(observed, context, false);
-    const owner = await this.#acquireOwner(runId, parentSessionId);
+    if (observed.status !== "ready_to_apply" || observed.candidate === null ||
+      observed.cancellation !== null) {
+      throw new ToolError("permission_denied", "Team run is not ready to apply");
+    }
+    const active = this.#active.get(runId);
+    if (active !== undefined && active.parentSessionId === parentSessionId) {
+      if (active.ownerId !== observed.claim?.ownerId) {
+        throw new ToolError("permission_denied", "Active team ownership is stale");
+      }
+    }
+    const owner = await this.#acquireOwnerWithin(
+      runId,
+      parentSessionId,
+      OWNER_HANDOFF_TIMEOUT_MS,
+      context.signal,
+      "Team apply was cancelled",
+    );
+    if (owner === null) {
+      throw new ToolError(
+        "permission_denied",
+        "Team run is still completing its ready handoff",
+      );
+    }
     let activeParentAgentId: string | undefined;
     let transactionJournal: RunJournal | undefined;
     try {

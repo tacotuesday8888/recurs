@@ -389,13 +389,17 @@ describe("GitPatchArtifactManager", () => {
       .toBe("second patch\n");
   }, 30_000);
 
-  it("loads and integrates a captured artifact after the manager restarts", async () => {
+  it("loads binary-ordered mixed-case and Unicode paths after restart", async () => {
     const setup = await fixture();
     const signal = new AbortController().signal;
     const base = await setup.artifacts.preflightParent(setup.repository, signal);
-    await writeFile(path.join(setup.lease.worktreeRoot, "edit.txt"), "durable\n", "utf8");
+    const changedFiles = ["Zeta.ts", "alpha.ts", "Éclair.ts", "界面.ts"];
+    await Promise.all(changedFiles.map((file) =>
+      writeFile(path.join(setup.lease.worktreeRoot, file), `${file}\n`, "utf8")
+    ));
     const artifact = await setup.artifacts.capture(setup.lease, signal);
     if (artifact === null) throw new Error("expected artifact");
+    expect(artifact.paths).toEqual(changedFiles);
     await setup.worktrees.release(setup.lease);
 
     const restarted = new GitPatchArtifactManager({
@@ -415,10 +419,12 @@ describe("GitPatchArtifactManager", () => {
     expect(outcome).toMatchObject({
       ok: true,
       artifactIds: [artifact.id],
-      changedFiles: ["edit.txt"],
+      changedFiles,
     });
-    expect(await readFile(path.join(setup.repository, "edit.txt"), "utf8"))
-      .toBe("durable\n");
+    await Promise.all(changedFiles.map(async (file) => {
+      expect(await readFile(path.join(setup.repository, file), "utf8"))
+        .toBe(`${file}\n`);
+    }));
   }, 30_000);
 
   it("stages durable worker artifacts in order without touching the parent", async () => {

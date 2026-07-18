@@ -29,7 +29,29 @@ import type {
   TeamRunState,
 } from "./team-run-state.js";
 
-const MAX_FAILURE_MESSAGE_BYTES = 16_384;
+const SAFE_RECOVERY_FAILURE_MESSAGES: Readonly<Record<string, string>> =
+  Object.freeze({
+    cancelled: "Team recovery was cancelled",
+    checkpoint_conflict: "Team recovery checkpoint verification failed",
+    checkpoint_corrupt: "Team recovery checkpoint verification failed",
+    checkpoint_migration_required: "Team recovery checkpoint verification failed",
+    checkpoint_not_found: "Team recovery checkpoint verification failed",
+    checkpoint_storage: "Team recovery checkpoint verification failed",
+    corrupt_log: "Team recovery session data is invalid",
+    external_path: "Team recovery safety validation failed",
+    invalid_record: "Team recovery session data is invalid",
+    invalid_session_id: "Team recovery session data is invalid",
+    legacy_read_only: "Team recovery session data is invalid",
+    not_found: "Team recovery data was not found",
+    permission_denied: "Team recovery safety validation failed",
+    process_failed: "Team recovery process failed",
+    sensitive_file: "Team recovery safety validation failed",
+    session_busy: "Team recovery session is busy",
+    session_conflict: "Team recovery session is busy",
+    session_mismatch: "Team recovery session data is invalid",
+    session_not_found: "Team recovery session data was not found",
+    unsupported_version: "Team recovery session data is invalid",
+  });
 
 export interface TeamRunRecoveryDependencies {
   readonly runs: Pick<JsonlTeamRunStore, "list" | "load" | "append">;
@@ -84,20 +106,11 @@ function safeFailure(error: unknown): Omit<TeamRunRecoveryFailure, "runId"> {
   const code = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(rawCode)
     ? rawCode
     : "recovery_failed";
-  const fallback = "Durable team recovery failed";
-  const rawMessage = error instanceof Error && error.message.trim().length > 0
-    ? error.message.trim()
-    : fallback;
-  if (Buffer.byteLength(rawMessage, "utf8") <= MAX_FAILURE_MESSAGE_BYTES) {
-    return { code, message: rawMessage };
-  }
-  let message = "";
-  for (const character of rawMessage) {
-    if (Buffer.byteLength(`${message}${character}`, "utf8") >
-      MAX_FAILURE_MESSAGE_BYTES - 16) break;
-    message += character;
-  }
-  return { code, message: `${message.trimEnd()} [truncated]` };
+  return {
+    code,
+    message: SAFE_RECOVERY_FAILURE_MESSAGES[code] ??
+      "Durable team recovery failed",
+  };
 }
 
 function checkpointReference(checkpoint: Checkpoint): CheckpointRef {

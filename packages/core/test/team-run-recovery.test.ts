@@ -303,6 +303,7 @@ function harness(
   options: {
     readonly busy?: boolean;
     readonly workspace?: "clean_base" | "exact_candidate" | "other";
+    readonly workspaceError?: unknown;
     readonly completionFails?: boolean;
   } = {},
 ) {
@@ -364,7 +365,10 @@ function harness(
     },
     worktrees: { recoverStale },
     patches: {
-      inspectCandidateWorkspace: vi.fn(async () => options.workspace ?? "clean_base"),
+      inspectCandidateWorkspace: vi.fn(async () => {
+        if (options.workspaceError !== undefined) throw options.workspaceError;
+        return options.workspace ?? "clean_base";
+      }),
       completeCandidateApply,
       discard,
     },
@@ -521,6 +525,34 @@ describe("TeamRunRecoveryCoordinator", () => {
       status: "interrupted",
       interruption: { manualAttentionRequired: true },
     });
+  });
+
+  it("does not expose private paths from recovery failures", async () => {
+    const privatePath = "/Users/alice/private/project/.recurs/team.jsonl";
+    const test = harness(applyingRecords(false), {
+      workspaceError: new ToolError(
+        "checkpoint_conflict",
+        `Checkpoint at ${privatePath} changed`,
+      ),
+    });
+
+    const summary = await test.coordinator.recover();
+
+    expect(summary.failures).toEqual([{
+      runId: "team-run-1",
+      code: "checkpoint_conflict",
+      message: "Team recovery checkpoint verification failed",
+    }]);
+    expect(test.runs.state.interruption?.reason)
+      .toBe("Team recovery checkpoint verification failed");
+    expect(test.events.find((event) => event.type === "warning"))
+      .toMatchObject({
+        type: "warning",
+        code: "team_recovery_checkpoint_conflict",
+        message: "Team run team-run-1: Team recovery checkpoint verification failed",
+      });
+    expect(JSON.stringify({ summary, state: test.runs.state, events: test.events }))
+      .not.toContain(privatePath);
   });
 
   it("honors durable cancellation after settling interrupted children", async () => {

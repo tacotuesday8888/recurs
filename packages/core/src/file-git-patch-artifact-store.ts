@@ -20,6 +20,7 @@ import type {
   StoredGitPatchArtifact,
 } from "./git-patch-artifacts.js";
 import { hasExactKeys, isObject } from "./session-record-validator.js";
+import { uniqueSortedStrings } from "./stable-order.js";
 
 const DIRECTORY_MODE = 0o700;
 const FILE_MODE = 0o600;
@@ -83,7 +84,7 @@ function exactPaths(value: unknown): value is string[] {
     !value.every(safePath) || new Set(value).size !== value.length) {
     return false;
   }
-  const sorted = [...value].sort((left, right) => left.localeCompare(right));
+  const sorted = uniqueSortedStrings(value);
   return value.every((item, index) => item === sorted[index]);
 }
 

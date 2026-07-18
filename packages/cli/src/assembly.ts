@@ -60,6 +60,7 @@ import {
 import { CODEX_ACP_PROFILE_REVISION } from "@recurs/runtimes";
 import {
   FileCheckpointStore,
+  ToolError,
   ToolRegistry,
   createApplyPatchTool,
   createGitDiffTool,
@@ -444,6 +445,43 @@ export async function createStandaloneRuntime(
   const checkpoints = new FileCheckpointStore(
     path.join(projectData, "checkpoints"),
   );
+  const worktrees = new GitWorktreeLeaseManager({
+    rootDirectory: path.join(projectData, "agent-worktrees"),
+  });
+  const patches = new GitPatchArtifactManager({
+    leases: worktrees,
+    store: new FileGitPatchArtifactStore(
+      path.join(projectData, "team-patch-artifacts"),
+    ),
+  });
+  const teamRuns = new JsonlTeamRunStore(path.join(projectData, "team-runs"));
+  const teamOwners = new TeamRunOwnerLeaseManager({ rootDirectory: projectData });
+  const teamRecovery = new TeamRunRecoveryCoordinator({
+    runs: teamRuns,
+    owners: teamOwners,
+    worktrees,
+    patches,
+    checkpoints,
+    recoverChild(input) {
+      return recoverDurableTeamChild(sessions, input);
+    },
+    emit(event) {
+      return events.emit(event);
+    },
+  });
+  const recovery = await teamRecovery.recover().catch(() => {
+    throw new ToolError(
+      "execution_failed",
+      "Durable team recovery failed before startup",
+    );
+  });
+  const firstRecoveryFailure = recovery.failures[0];
+  if (firstRecoveryFailure !== undefined) {
+    throw new ToolError(
+      "execution_failed",
+      `Durable team recovery failed for ${firstRecoveryFailure.runId}: ${firstRecoveryFailure.message}`,
+    );
+  }
   const injected = options.provider;
   const connectionRegistry = new FileConnectionRegistry(root);
   const registryDocument = injected === undefined
@@ -570,9 +608,6 @@ export async function createStandaloneRuntime(
     },
   });
   tools.register(childAgents.createTool());
-  const worktrees = new GitWorktreeLeaseManager({
-    rootDirectory: path.join(projectData, "agent-worktrees"),
-  });
   const childBatches = new ChildAgentBatchManager({
     sessions,
     children: childAgents,
@@ -582,29 +617,7 @@ export async function createStandaloneRuntime(
     },
   });
   tools.register(childBatches.createTool());
-  const patches = new GitPatchArtifactManager({
-    leases: worktrees,
-    store: new FileGitPatchArtifactStore(
-      path.join(projectData, "team-patch-artifacts"),
-    ),
-  });
   const reviews = new AgentReviewPanel({ sessions, children: childAgents });
-  const teamRuns = new JsonlTeamRunStore(path.join(projectData, "team-runs"));
-  const teamOwners = new TeamRunOwnerLeaseManager({ rootDirectory: projectData });
-  const teamRecovery = new TeamRunRecoveryCoordinator({
-    runs: teamRuns,
-    owners: teamOwners,
-    worktrees,
-    patches,
-    checkpoints,
-    recoverChild(input) {
-      return recoverDurableTeamChild(sessions, input);
-    },
-    emit(event) {
-      return events.emit(event);
-    },
-  });
-  await teamRecovery.recover();
   const teamSupervisor = new TeamRunSupervisor({
     sessions,
     runs: teamRuns,
