@@ -118,6 +118,7 @@ async function fixture() {
   const artifacts = new GitPatchArtifactManager({
     createId: () => `patch-${++patchId}`,
     processRunner: fastGitRunner,
+    leases: worktrees,
     store: artifactStore,
   });
   const checkpoints = new FileCheckpointStore(path.join(root, "checkpoints"));
@@ -399,6 +400,7 @@ describe("GitPatchArtifactManager", () => {
 
     const restarted = new GitPatchArtifactManager({
       processRunner: fastGitRunner,
+      leases: setup.worktrees,
       store: new FileGitPatchArtifactStore(setup.artifactDirectory),
     });
     const outcome = await restarted.integrate({
@@ -417,6 +419,101 @@ describe("GitPatchArtifactManager", () => {
     });
     expect(await readFile(path.join(setup.repository, "edit.txt"), "utf8"))
       .toBe("durable\n");
+  }, 30_000);
+
+  it("stages durable worker artifacts in order without touching the parent", async () => {
+    const setup = await fixture();
+    const signal = new AbortController().signal;
+    const secondWorker = await setup.worktrees.create(setup.repository, signal);
+    await writeFile(path.join(setup.lease.worktreeRoot, "edit.txt"), "first\n", "utf8");
+    await writeFile(path.join(secondWorker.worktreeRoot, "second.txt"), "second\n", "utf8");
+    const first = await setup.artifacts.capture(setup.lease, signal);
+    const second = await setup.artifacts.capture(secondWorker, signal);
+    if (first === null || second === null) throw new Error("expected artifacts");
+    await setup.worktrees.release(setup.lease);
+    await setup.worktrees.release(secondWorker);
+    const staging = await setup.worktrees.create(setup.repository, signal);
+
+    const outcome = await setup.artifacts.stage({
+      lease: staging,
+      artifacts: [first, second],
+      signal,
+    });
+
+    expect(outcome).toEqual({ changedFiles: ["edit.txt", "second.txt"] });
+    expect(await readFile(path.join(staging.worktreeRoot, "edit.txt"), "utf8"))
+      .toBe("first\n");
+    expect(await readFile(path.join(staging.worktreeRoot, "second.txt"), "utf8"))
+      .toBe("second\n");
+    expect(await readFile(path.join(setup.repository, "edit.txt"), "utf8"))
+      .toBe("before\n");
+    expect(await git(setup.repository, ["status", "--porcelain"])).toBe("");
+    await expect(setup.artifactStore.load(first)).resolves.toMatchObject({ handle: first });
+    await expect(setup.artifactStore.load(second)).resolves.toMatchObject({ handle: second });
+
+    const candidate = await setup.artifacts.capture(staging, signal);
+    expect(candidate).toMatchObject({ paths: ["edit.txt", "second.txt"] });
+    await setup.worktrees.release(staging);
+  }, 30_000);
+
+  it("rejects released staging leases and duplicate artifacts", async () => {
+    const setup = await fixture();
+    const signal = new AbortController().signal;
+    await writeFile(path.join(setup.lease.worktreeRoot, "edit.txt"), "worker\n", "utf8");
+    const artifact = await setup.artifacts.capture(setup.lease, signal);
+    if (artifact === null) throw new Error("expected artifact");
+    await setup.worktrees.release(setup.lease);
+    const staging = await setup.worktrees.create(setup.repository, signal);
+
+    await expect(setup.artifacts.stage({
+      lease: staging,
+      artifacts: [artifact, artifact],
+      signal,
+    })).rejects.toMatchObject({
+      code: "permission_denied",
+      message: "The patch staging input is invalid",
+    });
+
+    await setup.worktrees.release(staging);
+    await expect(setup.artifacts.stage({
+      lease: staging,
+      artifacts: [artifact],
+      signal,
+    })).rejects.toMatchObject({ code: "permission_denied" });
+    expect(await readFile(path.join(setup.repository, "edit.txt"), "utf8"))
+      .toBe("before\n");
+    expect(await git(setup.repository, ["status", "--porcelain"])).toBe("");
+  }, 30_000);
+
+  it("contains conflicting artifacts inside the staging worktree", async () => {
+    const setup = await fixture();
+    const signal = new AbortController().signal;
+    const secondWorker = await setup.worktrees.create(setup.repository, signal);
+    await writeFile(path.join(setup.lease.worktreeRoot, "edit.txt"), "first\n", "utf8");
+    await writeFile(path.join(secondWorker.worktreeRoot, "edit.txt"), "second\n", "utf8");
+    const first = await setup.artifacts.capture(setup.lease, signal);
+    const second = await setup.artifacts.capture(secondWorker, signal);
+    if (first === null || second === null) throw new Error("expected artifacts");
+    await setup.worktrees.release(setup.lease);
+    await setup.worktrees.release(secondWorker);
+    const staging = await setup.worktrees.create(setup.repository, signal);
+
+    await expect(setup.artifacts.stage({
+      lease: staging,
+      artifacts: [first, second],
+      signal,
+    })).rejects.toMatchObject({
+      code: "patch_failed",
+      message: "A child patch conflicts with the staged team candidate",
+    });
+    expect(await readFile(path.join(staging.worktreeRoot, "edit.txt"), "utf8"))
+      .toBe("first\n");
+    expect(await readFile(path.join(setup.repository, "edit.txt"), "utf8"))
+      .toBe("before\n");
+    expect(await git(setup.repository, ["status", "--porcelain"])).toBe("");
+    await expect(setup.artifactStore.load(first)).resolves.toMatchObject({ handle: first });
+    await expect(setup.artifactStore.load(second)).resolves.toMatchObject({ handle: second });
+    await setup.worktrees.release(staging);
   }, 30_000);
 
   it("rolls every integrated patch back when a later patch conflicts", async () => {

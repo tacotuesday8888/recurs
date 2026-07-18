@@ -12,7 +12,10 @@ import {
   type CheckpointStore,
 } from "@recurs/tools";
 
-import type { GitWorktreeLease } from "./git-worktree-leases.js";
+import type {
+  GitWorktreeLease,
+  GitWorktreeLeaseAuthority,
+} from "./git-worktree-leases.js";
 
 const GIT_REVISION = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const ARTIFACT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
@@ -70,7 +73,18 @@ export interface GitPatchArtifactStore {
 export interface GitPatchArtifactManagerOptions {
   readonly createId?: () => string;
   readonly processRunner?: GitProcessRunner;
+  readonly leases?: Pick<GitWorktreeLeaseAuthority, "assertActive">;
   readonly store?: GitPatchArtifactStore;
+}
+
+export interface GitPatchStageInput {
+  readonly lease: GitWorktreeLease;
+  readonly artifacts: readonly GitPatchArtifactHandle[];
+  readonly signal: AbortSignal;
+}
+
+export interface GitPatchStageOutcome {
+  readonly changedFiles: readonly string[];
 }
 
 export interface GitPatchIntegrationInput {
@@ -417,11 +431,13 @@ function parseNumstat(output: string): string[] {
 export class GitPatchArtifactManager {
   readonly #createId: () => string;
   readonly #processRunner: GitProcessRunner;
+  readonly #leases: Pick<GitWorktreeLeaseAuthority, "assertActive"> | undefined;
   readonly #store: GitPatchArtifactStore;
 
   constructor(options: GitPatchArtifactManagerOptions = {}) {
     this.#createId = options.createId ?? randomUUID;
     this.#processRunner = options.processRunner ?? runProcess;
+    this.#leases = options.leases;
     this.#store = options.store ?? new InMemoryGitPatchArtifactStore();
   }
 
@@ -517,6 +533,39 @@ export class GitPatchArtifactManager {
     return revision;
   }
 
+  async #loadOwnedArtifacts(
+    handles: readonly GitPatchArtifactHandle[],
+    repositoryRoot: string,
+    revision: string,
+  ): Promise<StoredGitPatchArtifact[]> {
+    return Promise.all(handles.map(async (handle) => {
+      let artifact: StoredGitPatchArtifact;
+      try {
+        artifact = await this.#store.load(handle);
+      } catch (error) {
+        throw new ToolError(
+          "permission_denied",
+          "The patch artifact handle is not owned by this workflow",
+          { cause: error },
+        );
+      }
+      if (
+        !sameHandle(handle, artifact.handle) ||
+        artifact.repositoryRoot !== repositoryRoot ||
+        artifact.handle.baseRevision !== revision ||
+        createHash("sha256").update(artifact.patch).digest("hex") !==
+          artifact.handle.sha256 ||
+        Buffer.byteLength(artifact.patch, "utf8") !== artifact.handle.byteLength
+      ) {
+        throw new ToolError(
+          "permission_denied",
+          "The patch artifact handle is not owned by this workflow",
+        );
+      }
+      return artifact;
+    }));
+  }
+
   async preflightParent(
     repositoryRoot: string,
     signal: AbortSignal,
@@ -539,10 +588,18 @@ export class GitPatchArtifactManager {
   }
 
   async capture(
-    lease: GitWorktreeLease,
+    inputLease: GitWorktreeLease,
     signal: AbortSignal,
   ): Promise<GitPatchArtifactHandle | null> {
     if (signal.aborted) throw cancelled("Patch capture was cancelled");
+    let lease: GitWorktreeLease;
+    try {
+      lease = cloneFreeze(inputLease);
+    } catch (error) {
+      throw new ToolError("permission_denied", "The worktree lease is invalid", {
+        cause: error,
+      });
+    }
     if (
       !ARTIFACT_ID.test(lease.id) ||
       !path.isAbsolute(lease.repositoryRoot) ||
@@ -551,6 +608,7 @@ export class GitPatchArtifactManager {
     ) {
       throw new ToolError("permission_denied", "The worktree lease is invalid");
     }
+    await this.#leases?.assertActive(lease);
     const repositoryRoot = await this.#canonicalRoot(
       lease.repositoryRoot,
       signal,
@@ -671,6 +729,140 @@ export class GitPatchArtifactManager {
     return handle;
   }
 
+  async stage(input: GitPatchStageInput): Promise<GitPatchStageOutcome> {
+    const { signal } = input;
+    if (signal.aborted) throw cancelled("Patch staging was cancelled");
+    if (this.#leases === undefined) {
+      throw new ToolError(
+        "tool_unavailable",
+        "Patch staging requires an owned worktree lease authority",
+      );
+    }
+    let lease: GitWorktreeLease;
+    let handles: readonly GitPatchArtifactHandle[];
+    try {
+      lease = cloneFreeze(input.lease);
+      handles = cloneFreeze(input.artifacts);
+    } catch (error) {
+      throw new ToolError("permission_denied", "The patch staging input is invalid", {
+        cause: error,
+      });
+    }
+    if (
+      !ARTIFACT_ID.test(lease.id) ||
+      !path.isAbsolute(lease.repositoryRoot) ||
+      !path.isAbsolute(lease.worktreeRoot) ||
+      !GIT_REVISION.test(lease.revision) ||
+      handles.length === 0 ||
+      handles.length > 8 ||
+      new Set(handles.map((handle) => handle.id)).size !== handles.length
+    ) {
+      throw new ToolError("permission_denied", "The patch staging input is invalid");
+    }
+
+    await this.#leases.assertActive(lease);
+    const repositoryRoot = await this.#canonicalRoot(lease.repositoryRoot, signal);
+    const worktreeRoot = await this.#canonicalRoot(lease.worktreeRoot, signal);
+    if (
+      repositoryRoot !== lease.repositoryRoot ||
+      worktreeRoot !== lease.worktreeRoot ||
+      await this.#revision(repositoryRoot, signal) !== lease.revision ||
+      await this.#revision(worktreeRoot, signal) !== lease.revision
+    ) {
+      throw new ToolError("permission_denied", "The staging worktree lease is invalid");
+    }
+    const initialStatus = await this.#git(worktreeRoot, [
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--ignore-submodules=none",
+    ], signal);
+    if (initialStatus.stdout.length !== 0) {
+      throw new ToolError(
+        "permission_denied",
+        "Patch staging requires a clean owned worktree",
+      );
+    }
+
+    const artifacts = await this.#loadOwnedArtifacts(
+      handles,
+      repositoryRoot,
+      lease.revision,
+    );
+    const changed = new Set<string>();
+    let actualPaths: string[] = [];
+    for (const artifact of artifacts) {
+      if (signal.aborted) throw cancelled("Patch staging was cancelled");
+      const parsedPaths = parseNumstat((await this.#gitInput(
+        worktreeRoot,
+        ["apply", "--numstat", "-z", "-"],
+        artifact.patch,
+        signal,
+      )).stdout);
+      if (!samePaths(parsedPaths, artifact.handle.paths)) {
+        throw new ToolError(
+          "patch_files_mismatch",
+          "A child patch no longer matches its captured paths",
+        );
+      }
+      try {
+        await this.#gitInput(
+          worktreeRoot,
+          ["apply", "--check", "--whitespace=nowarn", "-"],
+          artifact.patch,
+          signal,
+        );
+        await this.#gitInput(
+          worktreeRoot,
+          ["apply", "--whitespace=nowarn", "-"],
+          artifact.patch,
+          signal,
+        );
+      } catch (error) {
+        if (error instanceof ToolError && error.code === "cancelled") throw error;
+        throw new ToolError(
+          "patch_failed",
+          "A child patch conflicts with the staged team candidate",
+          { cause: error },
+        );
+      }
+      for (const file of artifact.handle.paths) changed.add(file);
+      const status = await this.#git(worktreeRoot, [
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+      ], signal);
+      actualPaths = status.stdout.length === 0
+        ? []
+        : parseStatus(status.stdout).paths;
+      const expectedPaths = [...changed].sort((left, right) =>
+        left.localeCompare(right)
+      );
+      if (!samePaths(actualPaths, expectedPaths)) {
+        throw new ToolError(
+          "patch_files_mismatch",
+          "The staging workspace changed outside the team patch set",
+        );
+      }
+      const after = await fingerprintResult(
+        worktreeRoot,
+        artifact.handle.paths,
+        signal,
+      );
+      if (!isDeepStrictEqual(after, artifact.after)) {
+        throw new ToolError(
+          "patch_files_mismatch",
+          "A staged child patch did not reproduce its captured result",
+        );
+      }
+    }
+    await this.#leases.assertActive(lease);
+    return Object.freeze({ changedFiles: Object.freeze([...actualPaths]) });
+  }
+
   async discard(handles: readonly GitPatchArtifactHandle[]): Promise<void> {
     await this.#store.remove(handles);
   }
@@ -716,32 +908,11 @@ export class GitPatchArtifactManager {
     if (uniqueIds.size !== artifacts.length) {
       throw new ToolError("permission_denied", "Patch artifacts must be unique");
     }
-    const owned = await Promise.all(artifacts.map(async (handle) => {
-      let artifact: StoredGitPatchArtifact;
-      try {
-        artifact = await this.#store.load(handle);
-      } catch (error) {
-        throw new ToolError(
-          "permission_denied",
-          "The patch artifact handle is not owned by this workflow",
-          { cause: error },
-        );
-      }
-      if (
-        !sameHandle(handle, artifact.handle) ||
-        artifact.repositoryRoot !== repositoryRoot ||
-        artifact.handle.baseRevision !== base.revision ||
-        createHash("sha256").update(artifact.patch).digest("hex") !==
-          artifact.handle.sha256 ||
-        Buffer.byteLength(artifact.patch, "utf8") !== artifact.handle.byteLength
-      ) {
-        throw new ToolError(
-          "permission_denied",
-          "The patch artifact handle is not owned by this workflow",
-        );
-      }
-      return artifact;
-    }));
+    const owned = await this.#loadOwnedArtifacts(
+      artifacts,
+      repositoryRoot,
+      base.revision,
+    );
 
     const before = await input.checkpoints.captureBefore(
       input.sessionId,
