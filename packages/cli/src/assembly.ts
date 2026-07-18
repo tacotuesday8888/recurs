@@ -480,6 +480,8 @@ export async function createStandaloneRuntime(
       const candidate = await sessions.loadState(entry.id);
       if (
         isPinnedSessionState(candidate) &&
+        candidate.agent.role === "parent" &&
+        candidate.cwd === cwd &&
         isDeepStrictEqual(
           candidate.backend.pin,
           initialBackend.pin(

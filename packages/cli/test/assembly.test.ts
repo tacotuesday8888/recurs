@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -23,6 +24,7 @@ import {
   bindRunAuthorization,
   CoordinatedRunError,
   DelegatedAgentExecutor,
+  JsonlSessionStore,
   verifyRunAuthorization,
 } from "@recurs/core";
 import { ScriptedProvider } from "@recurs/providers";
@@ -322,6 +324,76 @@ describe("standalone assembly without a provider", () => {
         },
       },
     });
+  });
+
+  it("reopens the canonical parent instead of a newer child", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-root-session-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    const childWorkspace = path.join(root, "child-worktree");
+    await import("node:fs/promises").then(({ mkdir }) =>
+      Promise.all([mkdir(workspace), mkdir(childWorkspace)])
+    );
+    const repositoryRoot = await realpath(workspace);
+    const dataDirectory = path.join(root, "data");
+    await writeLocalConnection(dataDirectory, {
+      baseUrl: "http://127.0.0.1:11434/v1",
+      modelId: "qwen-coder",
+      now: "2026-07-11T00:00:00.000Z",
+    });
+    const parent = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: repositoryRoot, dataDirectory },
+    );
+    const projectId = createHash("sha256")
+      .update(repositoryRoot)
+      .digest("hex")
+      .slice(0, 24);
+    const sessions = new JsonlSessionStore(
+      path.join(dataDirectory, "projects", projectId, "sessions"),
+    );
+    await sessions.createPinnedSession({
+      id: "newer-child-session",
+      cwd: childWorkspace,
+      backend: parent.session.backend.pin,
+      at: "9999-12-31T23:59:59.999Z",
+      agent: {
+        id: "newer-child-agent",
+        role: "child",
+        profile: { id: "review_v1", version: 1 },
+        parentAgentId: parent.session.agent.id,
+        parentSessionId: parent.session.id,
+        depth: 1,
+        task: {
+          id: "newer-child-task",
+          description: "Review the parent change",
+          prompt: "Review the parent change",
+        },
+        operatingMode: parent.session.agent.operatingMode,
+        backend: {
+          strategy: "inherit_parent",
+          adapterId: parent.session.backend.pin.adapterId,
+          connectionId: parent.session.backend.pin.connectionId,
+          modelId: parent.session.backend.pin.modelId,
+        },
+        permissions: {
+          parentExecutionMode: "act",
+          executionMode: "act",
+          parentPermissionMode: "ask_always",
+          permissionMode: "ask_always",
+        },
+        limits: parent.session.agent.limits,
+      },
+    });
+
+    const restarted = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: repositoryRoot, dataDirectory },
+    );
+
+    expect(restarted.session.id).toBe(parent.session.id);
+    expect(restarted.session.agent.role).toBe("parent");
+    expect(restarted.session.cwd).toBe(repositoryRoot);
   });
 
   it("starts a current session when stored connection metadata changed", async () => {

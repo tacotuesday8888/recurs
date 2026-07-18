@@ -276,6 +276,14 @@ export class TeamAgentManager {
     this.#now = dependencies.now ?? (() => new Date().toISOString());
   }
 
+  async #publish(event: RecursEvent): Promise<void> {
+    try {
+      await this.dependencies.emit(event);
+    } catch {
+      // Durable session and workspace truth is authoritative; presentation is best effort.
+    }
+  }
+
   createTool(): Tool<DelegateTeamInput> {
     return {
       definition: {
@@ -446,7 +454,7 @@ export class TeamAgentManager {
         );
       }
       captured.set(index, artifact);
-      await this.dependencies.emit({
+      await this.#publish({
         type: "agent_team_patch_captured",
         sessionId: context.sessionId,
         at: this.#now(),
@@ -510,14 +518,14 @@ export class TeamAgentManager {
         status: review.status,
       };
       if (review.status === "completed") {
-        await this.dependencies.emit({
+        await this.#publish({
           ...common,
           verdict: review.verdict,
           summary: review.summary,
           evidence: [...review.evidence],
         });
       } else {
-        await this.dependencies.emit({ ...common, failure: review.error });
+        await this.#publish({ ...common, failure: review.error });
       }
     }
   }
@@ -531,7 +539,7 @@ export class TeamAgentManager {
     failure: SafeTeamFailure,
     context: ToolContext,
   ): Promise<void> {
-    await this.dependencies.emit({
+    await this.#publish({
       type: "agent_team_failed",
       sessionId: context.sessionId,
       at: this.#now(),
@@ -554,7 +562,7 @@ export class TeamAgentManager {
     reason: string,
     context: ToolContext,
   ): Promise<never> {
-    await this.dependencies.emit({
+    await this.#publish({
       type: "agent_team_cancelled",
       sessionId: context.sessionId,
       at: this.#now(),
@@ -595,7 +603,7 @@ export class TeamAgentManager {
     context.signal.addEventListener("abort", onParentAbort, { once: true });
     const teamContext = { ...context, signal: controller.signal };
     try {
-      await this.dependencies.emit({
+      await this.#publish({
         type: "agent_team_started",
         sessionId: parent.id,
         at: this.#now(),
@@ -608,7 +616,7 @@ export class TeamAgentManager {
       });
 
       const captured = new Map<number, GitPatchArtifactHandle>();
-      let firstFailure: SafeTeamFailure | undefined;
+      let failureObserved = false;
       const implementations: ImplementationResult[] = await Promise.all(
         input.tasks.map(async (task, offset) => {
           const index = offset + 1;
@@ -625,8 +633,8 @@ export class TeamAgentManager {
             );
           } catch (error) {
             const failure = safeFailure(error, "An Implement worker failed");
-            if (firstFailure === undefined) {
-              firstFailure = failure;
+            if (!failureObserved) {
+              failureObserved = true;
               controller.abort();
             }
             return {
@@ -639,13 +647,17 @@ export class TeamAgentManager {
         }),
       );
 
-      const incomplete = implementations.filter((item) => item.status !== "completed");
+      const incomplete = implementations
+        .filter((item): item is FailedImplementation =>
+          item.status !== "completed"
+        )
+        .sort((left, right) => left.index - right.index);
       if (incomplete.length > 0) {
         const artifacts = [...captured.entries()]
           .sort(([left], [right]) => left - right)
           .map(([, artifact]) => artifact);
         if (artifacts.length > 0) this.dependencies.patches.discard(artifacts);
-        const failure = firstFailure ?? {
+        const failure = incomplete[0]?.failure ?? {
           code: "execution_failed",
           message: "Team implementation did not complete",
         };
@@ -773,7 +785,7 @@ export class TeamAgentManager {
         };
       }
 
-      await this.dependencies.emit({
+      await this.#publish({
         type: "agent_team_patches_integrated",
         sessionId: parent.id,
         at: this.#now(),
@@ -823,7 +835,7 @@ export class TeamAgentManager {
         ...(review?.evidence ?? []),
         `Integrated ${integration.artifactIds.length} validated patch artifact(s) at checkpoint ${integration.checkpointId}`,
       ])];
-      await this.dependencies.emit({
+      await this.#publish({
         type: "agent_team_completed",
         sessionId: parent.id,
         at: this.#now(),

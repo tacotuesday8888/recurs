@@ -12,7 +12,7 @@ The repository contains a usable agent base and a bounded, Recurs-owned child-ag
 - one foreground `delegate_task` path that selects an exact Explore, Implement, or Review profile, creates a durable child session, runs it through the same coordinator/provider/runtime/approval seams, and returns its evidence-bearing handoff to the parent for synthesis;
 - one foreground `delegate_tasks` path for two to eight independent Explore/Review tasks, with mode-bounded parallelism, clean detached Git worktrees, deterministic input-order results, partial-failure evidence, linked cancellation, and parent synthesis;
 - durable parent/child/task/lifecycle/workspace/result contracts, normalized batch and child events, monotonic permission inheritance, shared per-run child/request/reported-cost budgets, and explicit depth-one/zero-retry/mode-bounded concurrency limits;
-- five version-2 operating modes plus immutable version-1 replay policies exposed through `/agents`, with honest parent-backend model inheritance, per-child request reservations, and per-parent-run child/request/reported-cost policy;
+- five version-3 operating modes, with Balanced v3 as the default, plus immutable version-1 and version-2 replay policies exposed through `/agents`, with honest parent-backend model inheritance, per-child request reservations, and per-parent-run child/request/reported-cost policy;
 - strict provider-event validation and normalized text, reasoning, tool, usage, and completion events;
 - credential-free OpenAI-compatible local model setup for literal-loopback Ollama and LM Studio servers;
 - private signed-macOS activation paths for OpenAI API, Anthropic API, and Kimi Code credentials, with native model discovery and streamed tool calling;
@@ -20,7 +20,7 @@ The repository contains a usable agent base and a bounded, Recurs-owned child-ag
 - a bounded `models.dev` discovery catalog, fixed-port loopback detection for Ollama and LM Studio, and one `/provider` surface shared with first-run onboarding;
 - an official Codex ACP path for an existing ChatGPT login, constrained to local, interactive, user-present, Plan-only work;
 - eight tools for file reading, listing, search, patching, bounded shell execution, shell-free allowlisted verification, Git status, and Git diff; each child profile receives an exact host-tool and intent ceiling;
-- Ask Always, Approved for Me, Full Access, enforced Plan mode, and temporary read-only review;
+- Ask Always, Approved for Me, Full Access, enforced Plan mode, and a read-only Review profile;
 - durable `/goal` state, append-only JSONL sessions, interrupted-tool recovery, compaction, checkpoints, and conflict-safe undo;
 - interactive and non-interactive CLI paths with text or normalized JSONL output;
 - immutable backend pins, strict version-2 session records, cross-process mutation leases, typed preflight failures, and durable delegated-runtime results and recovery;

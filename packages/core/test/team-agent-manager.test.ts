@@ -115,6 +115,7 @@ interface HarnessOptions {
   release?: (lease: GitWorktreeLease) => Promise<void>;
   integration?: GitPatchIntegrationOutcome;
   review?: AgentReviewPanelResult | Error;
+  emit?: (event: RecursEvent) => Promise<void>;
   signal?: AbortSignal;
   createId?: () => string;
 }
@@ -204,7 +205,10 @@ async function harness(options: HarnessOptions = {}) {
       },
     },
     checkpoints: new UnusedCheckpoints(),
-    async emit(event) { events.push(event); },
+    async emit(event) {
+      events.push(event);
+      await options.emit?.(event);
+    },
     createId: options.createId ?? (() => "team-1"),
     now: () => testAt,
   });
@@ -345,6 +349,48 @@ describe("TeamAgentManager", () => {
       "agent_team_review_recorded",
       "agent_team_completed",
     ]);
+  });
+
+  it("keeps durable team truth when presentation events fail", async () => {
+    const setup = await harness({
+      async emit() { throw new Error("sink"); },
+    });
+
+    const result = await setup.tool.execute(
+      setup.tool.parse(input()),
+      setup.context,
+    );
+
+    expect(result.metadata.status).toBe("approved");
+    expect(setup.integrated[0]?.map((artifact) => artifact.id)).toEqual([
+      "patch-1",
+      "patch-2",
+    ]);
+  });
+
+  it("reports the lowest task index regardless of completion order", async () => {
+    let taskOneStarted!: () => void;
+    const started = new Promise<void>((resolve) => { taskOneStarted = resolve; });
+    const setup = await harness({
+      async delegate(task, context) {
+        if (task.description === "Implementation 1") {
+          taskOneStarted();
+          await new Promise<void>((resolve) => {
+            context.signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          throw new ToolError("execution_failed", "Task 1 failed");
+        }
+        await started;
+        throw new ToolError("execution_failed", "Task 2 failed first");
+      },
+    });
+
+    const result = await setup.tool.execute(
+      setup.tool.parse(input()),
+      setup.context,
+    );
+
+    expect(result.output).toContain("Task 1 failed");
   });
 
   it("gates integration on every implementation and discards successful sibling patches", async () => {

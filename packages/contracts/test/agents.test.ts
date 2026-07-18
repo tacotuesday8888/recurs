@@ -60,8 +60,8 @@ describe("agent profile contracts", () => {
       displayName: "Review",
       executionMode: "act",
       tools: {
-        readOnly: false,
-        allowedCategories: ["read", "shell"],
+        readOnly: true,
+        allowedCategories: ["read"],
         maxRisk: "normal",
       },
     });
@@ -69,7 +69,6 @@ describe("agent profile contracts", () => {
       "read_file",
       "list_files",
       "search_text",
-      "run_verification",
       "git_status",
       "git_diff",
     ]);
@@ -81,6 +80,14 @@ describe("agent profile contracts", () => {
     expect(parseAgentProfileId("review_v1")).toBe("review_v1");
     expect(parseAgentProfileId("rev")).toBeNull();
     expect(parseAgentProfileId("review extra")).toBeNull();
+  });
+
+  it("keeps Review unable to execute repository code", () => {
+    const review = getAgentProfilePolicy("review_v1");
+
+    expect(review.tools.readOnly).toBe(true);
+    expect(review.tools.allowedNames).not.toContain("run_verification");
+    expect(review.tools.allowedCategories).toEqual(["read"]);
   });
 
   it("exposes immutable profile policy values", () => {

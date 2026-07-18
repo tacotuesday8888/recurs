@@ -126,7 +126,7 @@ describe("ChildAgentManager", () => {
     expect(review).toMatchObject({ profile: "review_v1" });
     expect(tool.isMutating?.(explore, context(parent))).toBe(false);
     expect(tool.isMutating?.(implement, context(parent))).toBe(true);
-    expect(tool.isMutating?.(review, context(parent))).toBe(true);
+    expect(tool.isMutating?.(review, context(parent))).toBe(false);
     expect(() => tool.parse({
       profile: "rev",
       description: "Review",

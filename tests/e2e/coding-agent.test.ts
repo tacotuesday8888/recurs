@@ -742,7 +742,7 @@ describe("Recurs end-to-end coding harness", () => {
           prompt: "Change value from 1 to 2 and run the focused test.",
         }],
         review: {
-          instructions: "Inspect the exact diff and rerun the focused test.",
+          instructions: "Inspect the exact diff and its implementation evidence.",
         },
       }),
       toolTurn("team-implement-read", "read_file", { path: "src/value.ts" }),
@@ -759,14 +759,13 @@ describe("Recurs end-to-end coding harness", () => {
         { type: "done", stopReason: "complete" },
       ],
       toolTurn("team-review-diff", "git_diff", {}),
-      toolTurn("team-review-test", "run_verification", { command: "npm test" }),
       [
         {
           type: "text_delta",
           text: JSON.stringify({
             verdict: "approve",
-            summary: "The scoped value change passes its focused test.",
-            evidence: ["npm test passed against the integrated parent diff"],
+            summary: "The integrated diff is scoped to the requested value change.",
+            evidence: ["inspected the integrated parent diff"],
           }),
         },
         { type: "done", stopReason: "complete" },
@@ -1102,12 +1101,11 @@ describe("Recurs end-to-end coding harness", () => {
       toolTurn("delegate-review", "delegate_task", {
         profile: "review",
         description: "Review the value change",
-        prompt: "Review the diff and independently rerun the focused test.",
+        prompt: "Review the diff and the Implement child's test evidence.",
       }),
       toolTurn("review-diff", "git_diff", {}),
-      toolTurn("review-test", "run_verification", { command: "npm test" }),
       [
-        { type: "text_delta", text: "Review handoff: diff is scoped and npm test passes." },
+        { type: "text_delta", text: "Review handoff: the diff is scoped and the implementation evidence reports a passing test." },
         { type: "done", stopReason: "complete" },
       ],
       toolTurn("delegate-over-limit", "delegate_task", {
@@ -1185,7 +1183,7 @@ describe("Recurs end-to-end coding harness", () => {
     });
     expect(childByProfile.get("review_v1")?.agentResult).toMatchObject({
       changedFiles: [],
-      evidence: expect.arrayContaining(["npm test exited 0"]),
+      evidence: expect.arrayContaining(["inspected working-tree git diff for ."]),
     });
 
     const parent = await harness.sessions.loadState(harness.runtime.session.id);
@@ -1215,8 +1213,7 @@ describe("Recurs end-to-end coding harness", () => {
       result: {
         metadata: {
           profileId: "review_v1",
-          evidence: expect.arrayContaining(["npm test exited 0"]),
-          checkpointId: expect.any(String),
+          evidence: expect.arrayContaining(["inspected working-tree git diff for ."]),
         },
       },
     });
@@ -1231,17 +1228,10 @@ describe("Recurs end-to-end coding harness", () => {
         sessionId: harness.runtime.session.id,
         toolCallId: "delegate-implement",
       },
-      {
-        phase: "before",
-        sessionId: harness.runtime.session.id,
-        toolCallId: "delegate-review",
-      },
-      {
-        phase: "after",
-        sessionId: harness.runtime.session.id,
-        toolCallId: "delegate-review",
-      },
     ]));
+    expect(checkpoints.captures).not.toContainEqual(expect.objectContaining({
+      toolCallId: "delegate-review",
+    }));
     if (explore?.type !== "completed") {
       throw new Error("Expected completed Explore delegation");
     }
@@ -1278,14 +1268,14 @@ describe("Recurs end-to-end coding harness", () => {
     );
     expect(provider.requests[4]?.tools.map((tool) => tool.name))
       .not.toContain("delegate_task");
-    expect(provider.requests[9]?.tools.map((tool) => tool.name)).toEqual(
-      expect.arrayContaining(["git_diff", "run_verification"]),
-    );
+    expect(provider.requests[9]?.tools.map((tool) => tool.name)).toEqual([
+      "read_file", "list_files", "search_text", "git_status", "git_diff",
+    ]);
     const reviewTools = provider.requests[9]?.tools.map((tool) => tool.name) ?? [];
     expect(reviewTools).not.toContain("apply_patch");
     expect(reviewTools).not.toContain("run_command");
     expect(reviewTools).not.toContain("delegate_task");
-    expect(provider.requests).toHaveLength(14);
+    expect(provider.requests).toHaveLength(13);
   }, 60_000);
 
   it("reads, patches, verifies, persists, resumes, reviews, and safely undoes", async () => {
