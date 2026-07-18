@@ -358,6 +358,8 @@ git commit -m "feat: add versioned team runtime policy contracts"
 - Create: `packages/core/src/jsonl-team-run-store.ts`
 - Create: `packages/core/test/team-run-state.test.ts`
 - Create: `packages/core/test/jsonl-team-run-store.test.ts`
+- Modify: `packages/core/src/session-record-validator.ts`
+- Modify: `packages/core/test/session-runtime-records.test.ts`
 - Modify: `packages/core/src/index.ts`
 
 **Interfaces:**
@@ -394,7 +396,9 @@ expect(created.status).toBe("created");
 expect(() => reduceTeamRunRecord(created, phaseStarted("review"))).toThrow(/implement/u);
 const interrupted = reduceTeamRunRecord(running, runInterrupted("process_restart"));
 expect(interrupted.status).toBe("interrupted");
-expect(() => reduceTeamRunRecord(interrupted, runApproved())).toThrow(/terminal/u);
+const reclaimed = reduceTeamRunRecord(interrupted, runClaimed("owner-2", 2));
+expect(reclaimed.claim).toMatchObject({ ownerId: "owner-2", claimEpoch: 2 });
+expect(() => reduceTeamRunRecord(reclaimed, applyCommitted())).toThrow(/apply/u);
 ```
 
 - [ ] **Step 2: Run reducer tests and verify missing-module failure**
@@ -512,7 +516,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add packages/core/src/team-run-state.ts packages/core/src/jsonl-team-run-store.ts packages/core/test/team-run-state.test.ts packages/core/test/jsonl-team-run-store.test.ts packages/core/src/index.ts
+git add packages/core/src/team-run-state.ts packages/core/src/jsonl-team-run-store.ts packages/core/test/team-run-state.test.ts packages/core/test/jsonl-team-run-store.test.ts packages/core/src/session-record-validator.ts packages/core/test/session-runtime-records.test.ts packages/core/src/index.ts
 git commit -m "feat: add durable team run journal"
 ```
 
