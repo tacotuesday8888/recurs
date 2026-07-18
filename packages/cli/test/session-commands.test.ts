@@ -170,12 +170,17 @@ describe("session commands", () => {
     });
     expect(profiles).toMatchObject({
       text: expect.stringMatching(
-        /Act parent required[\s\S]*run_verification[\s\S]*Team workflow: Implement workers in isolated worktrees under version-3 policies/u,
+        /Act parent required[\s\S]*run_verification[\s\S]*Team workflow: legacy execution uses version-3 policies/u,
       ),
     });
     expect(profiles).toMatchObject({
       text: expect.stringContaining(
         "read-only diff/file and Implement-evidence inspection; no repository execution or verification artifacts",
+      ),
+    });
+    expect(profiles).toMatchObject({
+      text: expect.stringMatching(
+        /Implement \(implement_v2, v2\)[\s\S]*Review \(review_v2, v2\)[\s\S]*Repair \(repair_v1, v1\)[\s\S]*no repository process execution/u,
       ),
     });
     expect(await commands.execute("/agents profiles extra", commandContext))
@@ -207,6 +212,16 @@ describe("session commands", () => {
     expect(await sessions.loadState("agent-mode-session")).toMatchObject({
       agent: { operatingMode: { id: "economy_v1", version: 1 } },
     });
+    expect(await commands.execute("/agents mode balanced_v4", commandContext))
+      .toMatchObject({
+        text: expect.stringMatching(
+          /Balanced \(balanced_v4\)[\s\S]*Policy version: 4[\s\S]*Repair rounds: 1/u,
+        ),
+      });
+    expect(await commands.execute("/agents mode balanced", commandContext))
+      .toMatchObject({
+        text: expect.stringMatching(/Balanced \(balanced_v3\)[\s\S]*Policy version: 3/u),
+      });
   });
 
   it("lists and inspects parent-scoped durable child activity without private paths", async () => {

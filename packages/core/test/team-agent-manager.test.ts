@@ -162,6 +162,7 @@ async function harness(options: HarnessOptions = {}) {
   };
   const discarded: GitPatchArtifactHandle[][] = [];
   const integrated: GitPatchArtifactHandle[][] = [];
+  let preflightCalls = 0;
   const manager = new TeamAgentManager({
     sessions,
     children,
@@ -183,6 +184,7 @@ async function harness(options: HarnessOptions = {}) {
     },
     patches: {
       async preflightParent() {
+        preflightCalls += 1;
         return { repositoryRoot: root, revision: "a".repeat(40) };
       },
       async capture(lease) {
@@ -235,6 +237,7 @@ async function harness(options: HarnessOptions = {}) {
     log,
     integrated,
     discarded,
+    get preflightCalls() { return preflightCalls; },
   };
 }
 
@@ -297,6 +300,25 @@ describe("TeamAgentManager", () => {
       historical.tool.parse(input()),
       historical.context,
     )).rejects.toMatchObject({ code: "tool_unavailable" });
+  });
+
+  it("rejects every non-v3 policy before workspace or child side effects", async () => {
+    const setup = await harness({ modeId: "balanced_v4" });
+
+    await expect(setup.tool.execute(
+      setup.tool.parse(input()),
+      setup.context,
+    )).rejects.toMatchObject({
+      code: "tool_unavailable",
+      message: expect.stringMatching(/version-3/u),
+    });
+    expect(setup.preflightCalls).toBe(0);
+    expect(setup.log).toEqual([]);
+    expect(setup.integrated).toEqual([]);
+    expect(setup.context.delegationBudget).toMatchObject({
+      childrenStarted: 0,
+      requestsReserved: 0,
+    });
   });
 
   it("runs isolated Implement workers concurrently, captures before cleanup, integrates in order, and reviews", async () => {

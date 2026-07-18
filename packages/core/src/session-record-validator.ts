@@ -697,7 +697,7 @@ function isAgentDescriptor(
   if (!isObject(value) || !hasExactKeys(value, [
     "id", "role", "profile", "parentAgentId", "parentSessionId", "depth", "task",
     "operatingMode", "backend", "permissions", "limits",
-  ], ["workspace"]) || !boundedNonEmptyString(value.id, MAX_RUNTIME_ID_LENGTH) ||
+  ], ["workspace", "team"]) || !boundedNonEmptyString(value.id, MAX_RUNTIME_ID_LENGTH) ||
     (value.role !== "parent" && value.role !== "child") ||
     !Number.isSafeInteger(value.depth) || (value.depth as number) < 0 ||
     !isObject(value.operatingMode) ||
@@ -705,9 +705,23 @@ function isAgentDescriptor(
     typeof value.operatingMode.id !== "string" ||
     parseOperatingModeId(value.operatingMode.id) !== value.operatingMode.id ||
     !isObject(value.backend) ||
-    !hasExactKeys(value.backend, ["strategy", "adapterId", "connectionId", "modelId"]) ||
+    !hasExactKeys(
+      value.backend,
+      value.backend.strategy === "policy_route"
+        ? [
+            "strategy", "candidateId", "reason", "adapterId", "connectionId",
+            "modelId",
+          ]
+        : ["strategy", "adapterId", "connectionId", "modelId"],
+    ) ||
     (value.backend.strategy !== "session_pin" &&
-      value.backend.strategy !== "inherit_parent") ||
+      value.backend.strategy !== "inherit_parent" &&
+      value.backend.strategy !== "policy_route") ||
+    (value.backend.strategy === "policy_route" && (
+      !boundedNonEmptyString(value.backend.candidateId, MAX_RUNTIME_ID_LENGTH) ||
+      (value.backend.reason !== "eligible_role_candidate" &&
+        value.backend.reason !== "parent_fallback")
+    )) ||
     value.backend.adapterId !== backend.adapterId ||
     value.backend.connectionId !== backend.connectionId ||
     value.backend.modelId !== backend.modelId ||
@@ -750,7 +764,7 @@ function isAgentDescriptor(
     return value.profile === null &&
       value.parentAgentId === null && value.parentSessionId === null &&
       value.depth === 0 && value.task === null &&
-      value.workspace === undefined &&
+      value.workspace === undefined && value.team === undefined &&
       isDeepStrictEqual(value.limits, policy.orchestration) &&
       value.backend.strategy === "session_pin" &&
       value.permissions.parentExecutionMode === value.permissions.executionMode &&
@@ -788,10 +802,33 @@ function isAgentDescriptor(
     workspace.worktreeRoot === cwd &&
     typeof workspace.revision === "string" && GIT_REVISION.test(workspace.revision)
   );
+  const expectedTeamRole = profile.id === "implement_v2"
+    ? "implement"
+    : profile.id === "review_v2"
+      ? "review"
+      : profile.id === "repair_v1"
+        ? "repair"
+        : null;
+  const team = value.team;
+  const validTeam = team === undefined || (
+    expectedTeamRole !== null && policy.version === 4 && isObject(team) &&
+    hasExactKeys(team, ["runId", "role", "taskIndex", "round", "attemptId"]) &&
+    boundedNonEmptyString(team.runId, MAX_RUNTIME_ID_LENGTH) &&
+    team.role === expectedTeamRole &&
+    Number.isSafeInteger(team.taskIndex) && (team.taskIndex as number) >= 1 &&
+    Number.isSafeInteger(team.round) && (team.round as number) >= 0 &&
+    boundedNonEmptyString(team.attemptId, MAX_RUNTIME_ID_LENGTH)
+  );
   return validWorkspace &&
+    validTeam &&
+    (expectedTeamRole === null || policy.version === 4) &&
     boundedNonEmptyString(value.parentAgentId, MAX_RUNTIME_ID_LENGTH) &&
     boundedNonEmptyString(value.parentSessionId, MAX_RUNTIME_ID_LENGTH) &&
-    (value.depth as number) > 0 && value.backend.strategy === "inherit_parent" &&
+    (value.depth as number) > 0 &&
+    (value.backend.strategy === "inherit_parent" || (
+      value.backend.strategy === "policy_route" &&
+      policy.version === 4 && expectedTeamRole !== null
+    )) &&
     isObject(value.task) && hasExactKeys(value.task, [
       "id", "description", "prompt",
     ]) && boundedNonEmptyString(value.task.id, MAX_RUNTIME_ID_LENGTH) &&

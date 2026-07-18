@@ -10,3 +10,4 @@ export * from "./native-openai-onboarding.js";
 export * from "./native-openai-responses.js";
 export * from "./provider-activation-profiles.js";
 export * from "./runtime.js";
+export * from "./team-runs.js";

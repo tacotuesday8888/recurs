@@ -357,6 +357,12 @@ export class TeamAgentManager {
       throw new ToolError("tool_unavailable", "Parent agent session is unavailable");
     }
     const mode = getOperatingModePolicy(parent.agent.operatingMode.id);
+    if (mode.version !== 3) {
+      throw new ToolError(
+        "tool_unavailable",
+        "Legacy team execution requires an exact version-3 operating policy",
+      );
+    }
     const team = mode.workflow.team;
     if (team === null) {
       throw new ToolError(

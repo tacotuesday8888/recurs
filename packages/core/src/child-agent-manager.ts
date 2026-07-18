@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   createHostInvocation,
@@ -6,13 +7,16 @@ import {
   getOperatingModePolicy,
   narrowAgentPermissionMode,
   parseAgentProfileId,
+  type AgentBackendSelection,
   type AgentGitWorktreeWorkspace,
   type AgentProfileId,
+  type AgentTeamCorrelation,
   type HostInvocation,
   type IntegrationFailure,
   type OperatingModeId,
   type ProviderUsage,
   type RunCoordinator,
+  type TeamRunRole,
   type TrustedRunContext,
 } from "@recurs/contracts";
 import {
@@ -37,6 +41,10 @@ import {
   isDelegationBudgetForAgent,
   scopeAgentPrompt,
 } from "./agent-profile.js";
+import type {
+  AgentBackendRouteDecision,
+  AgentBackendRouter,
+} from "./agent-backend-router.js";
 
 export interface DelegateTaskInput {
   readonly profile: AgentProfileId;
@@ -49,13 +57,23 @@ interface ChildDelegationCorrelation {
     readonly id: string;
     readonly index: number;
   };
-  readonly team?: {
-    readonly id: string;
-    readonly index: number;
-  };
+  readonly team?:
+    | { readonly id: string; readonly index: number }
+    | AgentTeamCorrelation;
 }
 
-export type ChildDelegationOptions = ChildDelegationCorrelation & (
+export interface ChildIdentityReservation {
+  readonly childSessionId: string;
+  readonly childAgentId: string;
+  readonly taskId: string;
+}
+
+interface TrustedChildOptions {
+  readonly identity?: ChildIdentityReservation;
+  readonly backend?: { readonly decision: AgentBackendRouteDecision };
+}
+
+export type ChildDelegationOptions = ChildDelegationCorrelation & TrustedChildOptions & (
   | {
       readonly cwd: string;
       readonly workspace: AgentGitWorktreeWorkspace;
@@ -94,6 +112,7 @@ export interface ChildDelegationResult extends ToolResult {
 
 export interface ChildAgentManagerDependencies {
   readonly sessions: JsonlSessionStore;
+  readonly backendRouter?: Pick<AgentBackendRouter, "validate">;
   getCoordinator(): RunCoordinator | null | undefined;
   emit(event: RecursEvent): Promise<void>;
   readonly createId?: () => string;
@@ -123,6 +142,13 @@ function exactInput(value: unknown): DelegateTaskInput {
   if (profile === null) {
     throw new ToolError("invalid_input", "Unknown agent profile");
   }
+  if (profile !== "explore_v1" && profile !== "implement_v1" &&
+    profile !== "review_v1") {
+    throw new ToolError(
+      "invalid_input",
+      "Internal team profile IDs cannot be selected through delegate_task",
+    );
+  }
   const description = record.description.trim();
   const prompt = record.prompt.trim();
   if (
@@ -148,10 +174,41 @@ function cancelled(failure: IntegrationFailure): boolean {
   return failure.code === "cancelled";
 }
 
+function teamRole(profile: AgentProfileId): TeamRunRole | null {
+  return profile === "implement_v2"
+    ? "implement"
+    : profile === "review_v2"
+      ? "review"
+      : profile === "repair_v1"
+        ? "repair"
+        : null;
+}
+
+function validTeamCorrelation(
+  value: AgentTeamCorrelation,
+  role: TeamRunRole,
+): boolean {
+  return Object.keys(value).sort().join(",") ===
+      "attemptId,role,round,runId,taskIndex" &&
+    value.role === role &&
+    typeof value.runId === "string" && value.runId.length > 0 &&
+    value.runId === value.runId.trim() && value.runId.length <= 512 &&
+    Number.isSafeInteger(value.taskIndex) && value.taskIndex >= 1 &&
+    Number.isSafeInteger(value.round) && value.round >= 0 &&
+    typeof value.attemptId === "string" && value.attemptId.length > 0 &&
+    value.attemptId === value.attemptId.trim() && value.attemptId.length <= 512;
+}
+
 export class ChildAgentManager {
   readonly #createId: () => string;
   readonly #now: () => string;
   readonly #activeChildren = new Map<string, Set<string>>();
+  readonly #identityReservations = new WeakMap<object, {
+    readonly identity: ChildIdentityReservation;
+    readonly parentSessionId: string;
+    readonly input: DelegateTaskInput;
+    readonly team: ChildDelegationCorrelation["team"];
+  }>();
 
   constructor(private readonly dependencies: ChildAgentManagerDependencies) {
     this.#createId = dependencies.createId ?? randomUUID;
@@ -195,6 +252,69 @@ export class ChildAgentManager {
       },
       execute: (input, context) => this.delegate(input, context),
     };
+  }
+
+  reserveIdentity(
+    input: DelegateTaskInput,
+    context: Pick<ToolContext, "sessionId">,
+    options?: Pick<ChildDelegationOptions, "team">,
+  ): ChildIdentityReservation {
+    const identity = Object.freeze({
+      childSessionId: this.#createId(),
+      childAgentId: this.#createId(),
+      taskId: this.#createId(),
+    });
+    this.#identityReservations.set(identity, {
+      identity: { ...identity },
+      parentSessionId: context.sessionId,
+      input: { ...input },
+      team: options?.team === undefined
+        ? undefined
+        : structuredClone(options.team),
+    });
+    return identity;
+  }
+
+  #identity(
+    input: DelegateTaskInput,
+    context: ToolContext,
+    options?: ChildDelegationOptions,
+  ): ChildIdentityReservation {
+    if (options?.identity === undefined) {
+      return {
+        childSessionId: this.#createId(),
+        childAgentId: this.#createId(),
+        taskId: this.#createId(),
+      };
+    }
+    const reservation = this.#identityReservations.get(options.identity);
+    if (reservation === undefined) {
+      throw new ToolError(
+        "permission_denied",
+        "A trusted unused child identity reservation is required",
+      );
+    }
+    this.#identityReservations.delete(options.identity);
+    if (
+      reservation.parentSessionId !== context.sessionId ||
+      !isDeepStrictEqual(reservation.identity, options.identity) ||
+      !isDeepStrictEqual(reservation.input, input) ||
+      !isDeepStrictEqual(reservation.team, options.team)
+    ) {
+      throw new ToolError(
+        "permission_denied",
+        "The child identity reservation does not match this delegation",
+      );
+    }
+    return reservation.identity;
+  }
+
+  async #publish(event: RecursEvent): Promise<void> {
+    try {
+      await this.dependencies.emit(event);
+    } catch {
+      // Durable child state is authoritative; presentation is best effort.
+    }
   }
 
   async #parent(context: ToolContext): Promise<PinnedSessionState> {
@@ -273,6 +393,20 @@ export class ChildAgentManager {
     }
     const mode = getOperatingModePolicy(parent.agent.operatingMode.id);
     const profile = getAgentProfilePolicy(input.profile);
+    const role = teamRole(profile.id);
+    if (role !== null && mode.version !== 4) {
+      throw new ToolError(
+        "tool_unavailable",
+        "Internal team profiles require an exact version-4 operating policy",
+      );
+    }
+    if (options?.team !== undefined && "runId" in options.team &&
+      (role === null || !validTeamCorrelation(options.team, role))) {
+      throw new ToolError(
+        "permission_denied",
+        "Trusted durable team correlation does not match the child profile",
+      );
+    }
     if (profile.executionMode === "act" && context.executionMode !== "act") {
       throw new ToolError(
         "plan_mode_denied",
@@ -354,9 +488,49 @@ export class ChildAgentManager {
       runContext,
     } = await this.#prepare(input, context, options);
 
-    const childSessionId = this.#createId();
-    const childAgentId = this.#createId();
-    const taskId = this.#createId();
+    let childBackend = parent.backend.pin;
+    let backend: AgentBackendSelection = {
+      strategy: "inherit_parent" as const,
+      adapterId: parent.backend.pin.adapterId,
+      connectionId: parent.backend.pin.connectionId,
+      modelId: parent.backend.pin.modelId,
+    };
+    if (options?.backend !== undefined) {
+      const role = teamRole(profile.id);
+      if (role === null || this.dependencies.backendRouter === undefined) {
+        throw new ToolError("permission_denied", "A trusted backend route is required");
+      }
+      const decision = this.dependencies.backendRouter.validate(
+        options.backend.decision,
+        {
+          role,
+          executionMode: profile.executionMode,
+          permissionMode: parent.permissionMode,
+          background: options.backend.decision.background,
+        },
+      );
+      if (decision.strategy === "inherit_parent" &&
+        !isDeepStrictEqual(decision.pin, parent.backend.pin)) {
+        throw new ToolError(
+          "permission_denied",
+          "The parent-fallback backend route does not match the parent pin",
+        );
+      }
+      childBackend = decision.pin;
+      backend = {
+        strategy: "policy_route" as const,
+        candidateId: decision.candidateId,
+        reason: decision.reason,
+        adapterId: decision.pin.adapterId,
+        connectionId: decision.pin.connectionId,
+        modelId: decision.pin.modelId,
+      };
+    }
+    const { childSessionId, childAgentId, taskId } = this.#identity(
+      input,
+      context,
+      options,
+    );
     const release = this.#claim(parent, childSessionId);
     budget.childrenStarted += 1;
     budget.requestsReserved += childRequestLimit;
@@ -368,7 +542,7 @@ export class ChildAgentManager {
       const child = await this.dependencies.sessions.createPinnedSession({
         id: childSessionId,
         cwd: childCwd,
-        backend: parent.backend.pin,
+        backend: childBackend,
         at: this.#now(),
         agent: {
           id: childAgentId,
@@ -379,12 +553,7 @@ export class ChildAgentManager {
           depth: childDepth,
           task: { id: taskId, description: input.description, prompt: input.prompt },
           operatingMode: { id: mode.id, version: mode.version },
-          backend: {
-            strategy: "inherit_parent",
-            adapterId: parent.backend.pin.adapterId,
-            connectionId: parent.backend.pin.connectionId,
-            modelId: parent.backend.pin.modelId,
-          },
+          backend,
           permissions: {
             parentExecutionMode: context.executionMode,
             executionMode: profile.executionMode,
@@ -395,9 +564,17 @@ export class ChildAgentManager {
           ...(options?.workspace === undefined
             ? {}
             : { workspace: options.workspace }),
+          ...(options?.team === undefined || !("runId" in options.team)
+            ? {}
+            : { team: options.team }),
         },
       });
-      await this.dependencies.emit({
+      const legacyTeam = options?.team === undefined
+        ? undefined
+        : "runId" in options.team
+          ? { id: options.team.runId, index: options.team.taskIndex }
+          : options.team;
+      await this.#publish({
         type: "agent_started",
         sessionId: parent.id,
         at: this.#now(),
@@ -411,9 +588,9 @@ export class ChildAgentManager {
         ...(options?.batch === undefined
           ? {}
           : { batchId: options.batch.id, batchIndex: options.batch.index }),
-        ...(options?.team === undefined
+        ...(legacyTeam === undefined
           ? {}
-          : { teamId: options.team.id, teamIndex: options.team.index }),
+          : { teamId: legacyTeam.id, teamIndex: legacyTeam.index }),
       });
       const run = await coordinator.start({
         sessionId: child.id,
@@ -433,7 +610,7 @@ export class ChildAgentManager {
         }
         await this.#persistPreflightTerminal(child.id, outcome.failure);
         if (cancelled(outcome.failure)) {
-          await this.dependencies.emit({
+          await this.#publish({
             type: "agent_cancelled",
             sessionId: parent.id,
             at: this.#now(),
@@ -445,13 +622,13 @@ export class ChildAgentManager {
             ...(options?.batch === undefined
               ? {}
               : { batchId: options.batch.id, batchIndex: options.batch.index }),
-            ...(options?.team === undefined
+            ...(legacyTeam === undefined
               ? {}
-              : { teamId: options.team.id, teamIndex: options.team.index }),
+              : { teamId: legacyTeam.id, teamIndex: legacyTeam.index }),
           });
           throw new ToolError("cancelled", outcome.failure.safeMessage);
         }
-        await this.dependencies.emit({
+        await this.#publish({
           type: "agent_failed",
           sessionId: parent.id,
           at: this.#now(),
@@ -463,9 +640,9 @@ export class ChildAgentManager {
           ...(options?.batch === undefined
             ? {}
             : { batchId: options.batch.id, batchIndex: options.batch.index }),
-          ...(options?.team === undefined
+          ...(legacyTeam === undefined
             ? {}
-            : { teamId: options.team.id, teamIndex: options.team.index }),
+            : { teamId: legacyTeam.id, teamIndex: legacyTeam.index }),
         });
         throw new ToolError("execution_failed", outcome.failure.safeMessage);
       }
@@ -486,7 +663,7 @@ export class ChildAgentManager {
       const costLimitExceeded =
         budget.reportedCostUsd > budget.maxReportedCostUsd;
       const workflow = delegationWorkflowUsage(budget);
-      await this.dependencies.emit({
+      await this.#publish({
         type: "agent_completed",
         sessionId: parent.id,
         at: this.#now(),
@@ -502,9 +679,9 @@ export class ChildAgentManager {
         ...(options?.batch === undefined
           ? {}
           : { batchId: options.batch.id, batchIndex: options.batch.index }),
-        ...(options?.team === undefined
+        ...(legacyTeam === undefined
           ? {}
-          : { teamId: options.team.id, teamIndex: options.team.index }),
+          : { teamId: legacyTeam.id, teamIndex: legacyTeam.index }),
       });
       return {
         output: outcome.result.finalText,
@@ -529,9 +706,9 @@ export class ChildAgentManager {
           ...(options?.batch === undefined
             ? {}
             : { batchId: options.batch.id, batchIndex: options.batch.index }),
-          ...(options?.team === undefined
+          ...(legacyTeam === undefined
             ? {}
-            : { teamId: options.team.id, teamIndex: options.team.index }),
+            : { teamId: legacyTeam.id, teamIndex: legacyTeam.index }),
         },
       };
     } finally {

@@ -25,6 +25,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  AgentBackendRouter,
   AgentLoopDirectExecutor,
   BackendRunCoordinator,
   ChildAgentManager,
@@ -96,6 +97,32 @@ function context(parent: Awaited<ReturnType<typeof storeFixture>>["parent"]) {
   };
 }
 
+function successfulCoordinator(
+  beforeOutcome?: (input: CoordinatedRunInput) => Promise<void> | void,
+): RunCoordinator {
+  return {
+    async start(input) {
+      await beforeOutcome?.(input);
+      return {
+        events: { async *[Symbol.asyncIterator]() {} },
+        outcome: Promise.resolve({
+          ok: true,
+          result: {
+            finalText: "completed",
+            usage: null,
+            usageSource: "unavailable",
+            steps: 1,
+            changedFiles: [],
+            changedFilesSource: "none",
+            evidence: ["host evidence"],
+            evidenceSource: "host_tools",
+          },
+        }),
+      };
+    },
+  };
+}
+
 describe("ChildAgentManager", () => {
   it("requires an exact profile and classifies only effectful children as mutating", async () => {
     const { sessions, parent } = await storeFixture();
@@ -136,6 +163,13 @@ describe("ChildAgentManager", () => {
       description: "Review",
       prompt: "Review the fix",
     })).toThrow("Unknown agent profile");
+    for (const profile of ["implement_v2", "review_v2", "repair_v1"]) {
+      expect(() => tool.parse({
+        profile,
+        description: "Internal team work",
+        prompt: "Do not accept this from the model",
+      })).toThrow(/internal team profile/iu);
+    }
 
     await expect(tool.execute(implement, {
       ...context(parent),
@@ -1055,5 +1089,242 @@ describe("ChildAgentManager", () => {
     )).rejects.toThrow("concurrency limit");
     release();
     await expect(first).rejects.toMatchObject({ code: "execution_failed" });
+  });
+
+  it("persists an authenticated routed pin and durable team correlation before coordinator start", async () => {
+    const { sessions, parent } = await storeFixture("balanced_v4");
+    const router = new AgentBackendRouter();
+    const routedPin = {
+      ...testBackendPin(),
+      connectionId: "routed-connection",
+      modelId: "routed-model",
+    };
+    const decision = router.select({
+      role: "implement",
+      executionMode: "act",
+      permissionMode: "approved_for_me",
+      background: false,
+      candidates: [{
+        id: "implement-primary",
+        pin: routedPin,
+        parent: false,
+        roles: ["implement"],
+        executionModes: ["act"],
+        permissionModes: ["approved_for_me"],
+        hostTools: true,
+        background: true,
+        ready: true,
+      }],
+    });
+    const correlation = {
+      runId: "run-1",
+      role: "implement" as const,
+      taskIndex: 1,
+      round: 0,
+      attemptId: "attempt-1",
+    };
+    let observed: Awaited<ReturnType<JsonlSessionStore["loadState"]>> | undefined;
+    const manager = new ChildAgentManager({
+      sessions,
+      backendRouter: router,
+      getCoordinator: () => successfulCoordinator(async (input) => {
+        observed = await sessions.loadState(input.sessionId);
+      }),
+      async emit() { throw new Error("presentation sink unavailable"); },
+      createId: (() => {
+        const ids = ["routed-session", "routed-agent", "routed-task"];
+        return () => ids.shift()!;
+      })(),
+      now: () => testAt,
+    });
+    const input = {
+      profile: "implement_v2" as const,
+      description: "Implement staged change",
+      prompt: "Implement without running repository code",
+    };
+    const result = await manager.delegate(input, context(parent), {
+      backend: { decision },
+      team: correlation,
+    });
+
+    expect(result.metadata.childSessionId).toBe("routed-session");
+    expect(observed).toMatchObject({
+      backend: { pin: decision.pin },
+      agent: {
+        id: "routed-agent",
+        profile: { id: "implement_v2", version: 2 },
+        team: correlation,
+        backend: {
+          strategy: "policy_route",
+          candidateId: "implement-primary",
+          reason: "eligible_role_candidate",
+          adapterId: decision.pin.adapterId,
+          connectionId: decision.pin.connectionId,
+          modelId: decision.pin.modelId,
+        },
+        permissions: { permissionMode: "approved_for_me" },
+        depth: 1,
+      },
+    });
+    expect(result.output).toBe("completed");
+  });
+
+  it("rejects forged, cross-router, and role-mismatched route decisions before allocation", async () => {
+    const { sessions, parent } = await storeFixture("balanced_v4");
+    const router = new AgentBackendRouter();
+    const other = new AgentBackendRouter();
+    const routeInput = {
+      role: "review" as const,
+      executionMode: "act" as const,
+      permissionMode: "approved_for_me" as const,
+      background: false,
+      candidates: [{
+        id: "review-route",
+        pin: testBackendPin(),
+        parent: true,
+        roles: ["review" as const],
+        executionModes: ["act" as const],
+        permissionModes: ["approved_for_me" as const],
+        hostTools: true,
+        background: true,
+        ready: true,
+      }],
+    };
+    const trustedByOther = other.select(routeInput);
+    const manager = new ChildAgentManager({
+      sessions,
+      backendRouter: router,
+      getCoordinator: () => successfulCoordinator(),
+      async emit() {},
+    });
+    const runContext = context(parent);
+    const review = {
+      profile: "review_v2" as const,
+      description: "Review",
+      prompt: "Review staged changes",
+    };
+    const implement = { ...review, profile: "implement_v2" as const };
+    const trusted = router.select(routeInput);
+
+    await expect(manager.delegate(review, runContext, {
+      backend: { decision: structuredClone(trusted) },
+    })).rejects.toThrow(/trusted backend route/u);
+    await expect(manager.delegate(review, runContext, {
+      backend: { decision: trustedByOther },
+    })).rejects.toThrow(/trusted backend route/u);
+    await expect(manager.delegate(implement, runContext, {
+      backend: { decision: trusted },
+    })).rejects.toThrow(/does not match/u);
+    expect(runContext.delegationBudget).toMatchObject({
+      childrenStarted: 0,
+      requestsReserved: 0,
+    });
+    expect(await sessions.list()).toHaveLength(1);
+  });
+
+  it("rejects internal team profiles under non-v4 policies before allocation", async () => {
+    const { sessions, parent } = await storeFixture("balanced_v3");
+    const manager = new ChildAgentManager({
+      sessions,
+      getCoordinator: () => successfulCoordinator(),
+      async emit() {},
+    });
+    const runContext = context(parent);
+
+    await expect(manager.delegate({
+      profile: "review_v2",
+      description: "Review",
+      prompt: "Review staged changes",
+    }, runContext)).rejects.toThrow(/version-4/u);
+    expect(runContext.delegationBudget).toMatchObject({
+      childrenStarted: 0,
+      requestsReserved: 0,
+    });
+    expect(await sessions.list()).toHaveLength(1);
+  });
+
+  it("consumes authenticated child identity reservations exactly once and rejects mismatch or fabrication", async () => {
+    const { sessions, parent } = await storeFixture("balanced_v4");
+    const manager = new ChildAgentManager({
+      sessions,
+      getCoordinator: () => successfulCoordinator(),
+      async emit() {},
+      createId: (() => {
+        const ids = [
+          "reserved-session", "reserved-agent", "reserved-task",
+          "mismatch-session", "mismatch-agent", "mismatch-task",
+        ];
+        return () => ids.shift()!;
+      })(),
+      now: () => testAt,
+    });
+    const input = {
+      profile: "implement_v2" as const,
+      description: "Implement",
+      prompt: "Implement staged changes",
+    };
+    const runContext = context(parent);
+    const reservation = manager.reserveIdentity(input, runContext);
+
+    await expect(manager.delegate(input, runContext, { identity: reservation }))
+      .resolves.toMatchObject({
+        metadata: {
+          childSessionId: "reserved-session",
+          childAgentId: "reserved-agent",
+          taskId: "reserved-task",
+        },
+      });
+    await expect(manager.delegate(input, runContext, { identity: reservation }))
+      .rejects.toThrow(/reservation/u);
+
+    const mismatch = manager.reserveIdentity(input, runContext);
+    await expect(manager.delegate(
+      { ...input, description: "Different task" },
+      runContext,
+      { identity: mismatch },
+    )).rejects.toThrow(/does not match/u);
+    await expect(manager.delegate(input, runContext, {
+      identity: {
+        childSessionId: "fabricated-session",
+        childAgentId: "fabricated-agent",
+        taskId: "fabricated-task",
+      } as never,
+    })).rejects.toThrow(/reservation/u);
+    expect(runContext.delegationBudget.childrenStarted).toBe(1);
+  });
+
+  it("rejects mismatched durable team correlation before consuming its reservation", async () => {
+    const { sessions, parent } = await storeFixture("balanced_v4");
+    const manager = new ChildAgentManager({
+      sessions,
+      getCoordinator: () => successfulCoordinator(),
+      async emit() {},
+      createId: (() => {
+        const ids = ["correlation-session", "correlation-agent", "correlation-task"];
+        return () => ids.shift()!;
+      })(),
+    });
+    const input = {
+      profile: "implement_v2" as const,
+      description: "Implement",
+      prompt: "Implement staged changes",
+    };
+    const runContext = context(parent);
+    const team = {
+      runId: "run-1",
+      role: "review" as const,
+      taskIndex: 1,
+      round: 0,
+      attemptId: "attempt-1",
+    };
+    const identity = manager.reserveIdentity(input, runContext, { team });
+
+    await expect(manager.delegate(input, runContext, { identity, team }))
+      .rejects.toThrow(/team correlation/u);
+    expect(runContext.delegationBudget).toMatchObject({
+      childrenStarted: 0,
+      requestsReserved: 0,
+    });
+    expect(await sessions.list()).toHaveLength(1);
   });
 });

@@ -13,11 +13,14 @@ import {
 } from "../src/index.js";
 
 describe("agent profile contracts", () => {
-  it("defines three stable specialized profiles", () => {
+  it("preserves v1 profiles and adds stable internal team profiles", () => {
     expect(agentProfilePolicies.map((profile) => profile.id)).toEqual([
       "explore_v1",
       "implement_v1",
       "review_v1",
+      "implement_v2",
+      "review_v2",
+      "repair_v1",
     ]);
     expect(getAgentProfilePolicy("explore_v1")).toMatchObject({
       version: 1,
@@ -99,6 +102,45 @@ describe("agent profile contracts", () => {
       expect(Object.isFrozen(profile.tools.allowedCategories)).toBe(true);
     }
   });
+
+  it("defines no-process v4 team profiles without changing public aliases", () => {
+    expect(getAgentProfilePolicy("implement_v2" as never)).toMatchObject({
+      version: 2,
+      executionMode: "act",
+      tools: {
+        readOnly: false,
+        allowedCategories: ["read", "write"],
+        maxRisk: "normal",
+      },
+    });
+    expect(getAgentProfilePolicy("implement_v2" as never).tools.allowedNames)
+      .toEqual([
+        "read_file",
+        "list_files",
+        "search_text",
+        "apply_patch",
+        "git_status",
+        "git_diff",
+      ]);
+    expect(getAgentProfilePolicy("review_v2" as never)).toMatchObject({
+      version: 2,
+      executionMode: "act",
+      tools: { readOnly: true, allowedCategories: ["read"], maxRisk: "normal" },
+    });
+    expect(getAgentProfilePolicy("repair_v1" as never)).toMatchObject({
+      version: 1,
+      executionMode: "act",
+      tools: {
+        readOnly: false,
+        allowedCategories: ["read", "write"],
+        maxRisk: "normal",
+      },
+    });
+    expect(parseAgentProfileId("implement")).toBe("implement_v1");
+    expect(parseAgentProfileId("review")).toBe("review_v1");
+    expect(parseAgentProfileId("implement_v2")).toBe("implement_v2");
+    expect(parseAgentProfileId("repair")).toBe("repair_v1");
+  });
 });
 
 describe("agent operating-mode contracts", () => {
@@ -119,8 +161,18 @@ describe("agent operating-mode contracts", () => {
       "balanced_v3",
       "performance_v3",
       "max_v3",
+      "economy_v4",
+      "standard_v4",
+      "balanced_v4",
+      "performance_v4",
+      "max_v4",
     ]);
     expect(operatingModePolicies.map((policy) => policy.displayName)).toEqual([
+      "Economy",
+      "Standard",
+      "Balanced",
+      "Performance",
+      "Max",
       "Economy",
       "Standard",
       "Balanced",
@@ -141,6 +193,7 @@ describe("agent operating-mode contracts", () => {
       1, 1, 1, 1, 1,
       2, 2, 2, 2, 2,
       3, 3, 3, 3, 3,
+      4, 4, 4, 4, 4,
     ]);
   });
 
@@ -176,7 +229,7 @@ describe("agent operating-mode contracts", () => {
     expect(operatingModePolicies.slice(5, 10).map((policy) =>
       policy.orchestration.maxConcurrentChildren
     )).toEqual([1, 2, 3, 4, 6]);
-    expect(operatingModePolicies.slice(10).map((policy) =>
+    expect(operatingModePolicies.slice(10, 15).map((policy) =>
       policy.orchestration.maxConcurrentChildren
     )).toEqual([1, 2, 3, 4, 6]);
     expect(operatingModePolicies.map((policy) =>
@@ -185,6 +238,7 @@ describe("agent operating-mode contracts", () => {
       2, 3, 4, 6, 8,
       2, 3, 4, 6, 8,
       2, 3, 4, 6, 8,
+      2, 6, 7, 10, 18,
     ]);
     expect(operatingModePolicies.map((policy) =>
       policy.workflow.maxRequestsPerRun
@@ -192,6 +246,7 @@ describe("agent operating-mode contracts", () => {
       16, 48, 96, 192, 320,
       8, 16, 24, 32, 40,
       8, 18, 32, 60, 96,
+      8, 36, 56, 100, 216,
     ]);
   });
 
@@ -199,7 +254,7 @@ describe("agent operating-mode contracts", () => {
     expect(operatingModePolicies.slice(0, 10).every(
       (policy) => policy.workflow.team === null,
     )).toBe(true);
-    expect(operatingModePolicies.slice(10).map((policy) =>
+    expect(operatingModePolicies.slice(10, 15).map((policy) =>
       policy.workflow.team
     )).toEqual([
       {
@@ -238,7 +293,7 @@ describe("agent operating-mode contracts", () => {
         approvalRule: "unanimous",
       },
     ]);
-    for (const policy of operatingModePolicies.slice(10)) {
+    for (const policy of operatingModePolicies.slice(10, 15)) {
       const team = policy.workflow.team;
       expect(team).not.toBeNull();
       if (team !== null) {
@@ -265,5 +320,61 @@ describe("agent operating-mode contracts", () => {
     expect(Object.isFrozen(balanced.model)).toBe(true);
     expect(Object.isFrozen(balanced.workflow)).toBe(true);
     expect(balanced.workflow.team).toBeNull();
+  });
+
+  it("adds frozen v4 budgets while preserving every historical object shape", () => {
+    expect(getOperatingModePolicy("balanced_v3")).toEqual({
+      id: "balanced_v3",
+      version: 3,
+      displayName: "Balanced",
+      model: { selection: "inherit_parent" },
+      orchestration: {
+        maxDepth: 1,
+        maxConcurrentChildren: 3,
+        maxRetries: 0,
+        maxRequests: 32,
+        maxReportedCostUsd: 3,
+      },
+      workflow: {
+        maxChildrenPerRun: 4,
+        maxRequestsPerRun: 32,
+        team: {
+          qualityStandard: "balanced",
+          maxImplementers: 2,
+          initialReviewers: 1,
+          maxReviewers: 2,
+          approvalRule: "unanimous",
+        },
+      },
+    });
+    expect(getOperatingModePolicy("balanced_v3").workflow.team)
+      .not.toHaveProperty("maxRepairRounds");
+    expect(getOperatingModePolicy("balanced_v4" as never)).toMatchObject({
+      version: 4,
+      orchestration: { maxConcurrentChildren: 3, maxRequests: 56 },
+      workflow: {
+        maxChildrenPerRun: 7,
+        maxRequestsPerRun: 56,
+        team: { maxRepairRounds: 1 },
+      },
+    });
+    expect(operatingModePolicies.slice(-5).map((policy) => [
+      policy.id,
+      policy.orchestration.maxConcurrentChildren,
+      policy.orchestration.maxRequests,
+      policy.workflow.maxChildrenPerRun,
+      policy.workflow.team === null
+        ? null
+        : (policy.workflow.team as { maxRepairRounds?: number }).maxRepairRounds,
+    ])).toEqual([
+      ["economy_v4", 1, 8, 2, 0],
+      ["standard_v4", 2, 36, 6, 1],
+      ["balanced_v4", 3, 56, 7, 1],
+      ["performance_v4", 4, 100, 10, 1],
+      ["max_v4", 6, 216, 18, 2],
+    ]);
+    expect(DEFAULT_OPERATING_MODE_ID).toBe("balanced_v3");
+    expect(parseOperatingModeId("balanced")).toBe("balanced_v3");
+    expect(parseOperatingModeId("balanced_v4")).toBe("balanced_v4");
   });
 });

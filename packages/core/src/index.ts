@@ -1,5 +1,6 @@
 export * from "./agent-loop.js";
 export * from "./agent-activity.js";
+export * from "./agent-backend-router.js";
 export * from "./agent-profile.js";
 export * from "./agent-review-panel.js";
 export * from "./backend-authorization.js";

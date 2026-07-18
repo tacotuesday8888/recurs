@@ -3,11 +3,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type {
+  AgentSessionDescriptor,
   IntegrationFailure,
   RunResult,
   RuntimeContinuationHandle,
   SessionBackendPin,
 } from "@recurs/contracts";
+import { getOperatingModePolicy } from "@recurs/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -1131,5 +1133,108 @@ describe("delegated runtime session records", () => {
         });
       }),
     ).rejects.toMatchObject({ code: "invalid_record" });
+  });
+});
+
+describe("routed team child descriptors", () => {
+  function routedAgent(): AgentSessionDescriptor {
+    const mode = getOperatingModePolicy("balanced_v4");
+    return {
+      id: "routed-agent",
+      role: "child",
+      profile: { id: "review_v2", version: 2 },
+      parentAgentId: "parent-agent",
+      parentSessionId: "parent-session",
+      depth: 1,
+      task: { id: "task-1", description: "Review", prompt: "Review staged diff" },
+      operatingMode: { id: mode.id, version: mode.version },
+      backend: {
+        strategy: "policy_route",
+        candidateId: "review-primary",
+        reason: "eligible_role_candidate",
+        adapterId: directBackend.adapterId,
+        connectionId: directBackend.connectionId,
+        modelId: directBackend.modelId,
+      },
+      permissions: {
+        parentExecutionMode: "act",
+        executionMode: "act",
+        parentPermissionMode: "full_access",
+        permissionMode: "full_access",
+      },
+      limits: { ...mode.orchestration, maxRequests: 8 },
+      team: {
+        runId: "run-1",
+        role: "review",
+        taskIndex: 1,
+        round: 1,
+        attemptId: "attempt-1",
+      },
+    };
+  }
+
+  it("accepts an exact routed child pin and durable team correlation", async () => {
+    const store = await temporaryStore();
+    const agent = routedAgent();
+    await expect(store.createPinnedSession({
+      id: "routed-child",
+      cwd: "/workspace",
+      backend: directBackend,
+      agent,
+      at,
+    })).resolves.toMatchObject({ agent, backend: { pin: directBackend } });
+  });
+
+  it("rejects routed descriptor pin mismatches and malformed correlations", async () => {
+    const mismatchedStore = await temporaryStore();
+    const mismatched = routedAgent();
+    await expect(mismatchedStore.createPinnedSession({
+      id: "mismatched-route-child",
+      cwd: "/workspace",
+      backend: directBackend,
+      agent: {
+        ...mismatched,
+        backend: { ...mismatched.backend, modelId: "different-model" },
+      },
+      at,
+    })).rejects.toMatchObject({ code: "invalid_record" });
+
+    const malformedStore = await temporaryStore();
+    const malformed = routedAgent();
+    await expect(malformedStore.createPinnedSession({
+      id: "malformed-correlation-child",
+      cwd: "/workspace",
+      backend: directBackend,
+      agent: {
+        ...malformed,
+        team: { ...malformed.team!, unexpected: true },
+      } as AgentSessionDescriptor,
+      at,
+    })).rejects.toMatchObject({ code: "invalid_record" });
+  });
+
+  it("rejects v4-only profiles under historical policies", async () => {
+    const store = await temporaryStore();
+    const agent = routedAgent();
+    const historical = getOperatingModePolicy("balanced_v3");
+
+    await expect(store.createPinnedSession({
+      id: "historical-internal-profile",
+      cwd: "/workspace",
+      backend: directBackend,
+      agent: {
+        ...agent,
+        operatingMode: { id: historical.id, version: historical.version },
+        backend: {
+          strategy: "inherit_parent",
+          adapterId: directBackend.adapterId,
+          connectionId: directBackend.connectionId,
+          modelId: directBackend.modelId,
+        },
+        limits: { ...historical.orchestration, maxRequests: 8 },
+        team: undefined,
+      },
+      at,
+    })).rejects.toMatchObject({ code: "invalid_record" });
   });
 });

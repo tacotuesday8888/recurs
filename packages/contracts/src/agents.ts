@@ -11,7 +11,12 @@ export type AgentExecutionMode = "act" | "plan";
 export type AgentProfileId =
   | "explore_v1"
   | "implement_v1"
-  | "review_v1";
+  | "review_v1"
+  | "implement_v2"
+  | "review_v2"
+  | "repair_v1";
+
+export type AgentProfileVersion = 1 | 2;
 
 export type AgentToolPermissionCategory =
   | "read"
@@ -27,7 +32,7 @@ export type AgentToolPermissionRisk = "normal" | "elevated" | "destructive";
 
 export interface AgentProfilePolicy {
   readonly id: AgentProfileId;
-  readonly version: 1;
+  readonly version: AgentProfileVersion;
   readonly displayName: string;
   readonly executionMode: AgentExecutionMode;
   readonly tools: {
@@ -41,6 +46,7 @@ export interface AgentProfilePolicy {
 
 function profile(
   id: AgentProfileId,
+  version: AgentProfileVersion,
   displayName: string,
   executionMode: AgentExecutionMode,
   readOnly: boolean,
@@ -50,7 +56,7 @@ function profile(
 ): AgentProfilePolicy {
   return Object.freeze({
     id,
-    version: 1 as const,
+    version,
     displayName,
     executionMode,
     tools: Object.freeze({
@@ -66,6 +72,7 @@ function profile(
 export const agentProfilePolicies: readonly AgentProfilePolicy[] = Object.freeze([
   profile(
     "explore_v1",
+    1,
     "Explore",
     "plan",
     true,
@@ -75,6 +82,7 @@ export const agentProfilePolicies: readonly AgentProfilePolicy[] = Object.freeze
   ),
   profile(
     "implement_v1",
+    1,
     "Implement",
     "act",
     false,
@@ -87,11 +95,48 @@ export const agentProfilePolicies: readonly AgentProfilePolicy[] = Object.freeze
   ),
   profile(
     "review_v1",
+    1,
     "Review",
     "act",
     true,
     ["read_file", "list_files", "search_text", "git_status", "git_diff"],
     ["read"],
+    "normal",
+  ),
+  profile(
+    "implement_v2",
+    2,
+    "Implement",
+    "act",
+    false,
+    [
+      "read_file", "list_files", "search_text", "apply_patch",
+      "git_status", "git_diff",
+    ],
+    ["read", "write"],
+    "normal",
+  ),
+  profile(
+    "review_v2",
+    2,
+    "Review",
+    "act",
+    true,
+    ["read_file", "list_files", "search_text", "git_status", "git_diff"],
+    ["read"],
+    "normal",
+  ),
+  profile(
+    "repair_v1",
+    1,
+    "Repair",
+    "act",
+    false,
+    [
+      "read_file", "list_files", "search_text", "apply_patch",
+      "git_status", "git_diff",
+    ],
+    ["read", "write"],
     "normal",
   ),
 ]);
@@ -110,11 +155,10 @@ export function getAgentProfilePolicy(id: AgentProfileId): AgentProfilePolicy {
 
 export function parseAgentProfileId(input: string): AgentProfileId | null {
   const normalized = input.trim().toLowerCase();
+  const exact = profilesById.get(normalized as AgentProfileId);
+  if (exact !== undefined) return exact.id;
   for (const item of agentProfilePolicies) {
-    if (
-      normalized === item.id ||
-      normalized === item.displayName.toLowerCase()
-    ) {
+    if (normalized === item.displayName.toLowerCase()) {
       return item.id;
     }
   }
@@ -136,9 +180,14 @@ export type OperatingModeId =
   | "standard_v3"
   | "balanced_v3"
   | "performance_v3"
-  | "max_v3";
+  | "max_v3"
+  | "economy_v4"
+  | "standard_v4"
+  | "balanced_v4"
+  | "performance_v4"
+  | "max_v4";
 
-export type OperatingModeVersion = 1 | 2 | 3;
+export type OperatingModeVersion = 1 | 2 | 3 | 4;
 
 export type AgentTeamQualityStandard =
   | "essential"
@@ -152,6 +201,7 @@ export interface AgentTeamPolicy {
   readonly maxImplementers: number;
   readonly initialReviewers: number;
   readonly maxReviewers: number;
+  readonly maxRepairRounds?: number;
   readonly approvalRule: "unanimous";
 }
 
@@ -225,6 +275,23 @@ function team(
   };
 }
 
+function teamV4(
+  qualityStandard: AgentTeamQualityStandard,
+  maxImplementers: number,
+  initialReviewers: number,
+  maxReviewers: number,
+  maxRepairRounds: number,
+): AgentTeamPolicy {
+  return {
+    qualityStandard,
+    maxImplementers,
+    initialReviewers,
+    maxReviewers,
+    maxRepairRounds,
+    approvalRule: "unanimous",
+  };
+}
+
 export const operatingModePolicies: readonly OperatingModePolicy[] =
   Object.freeze([
     policy("economy_v1", 1, "Economy", 1, 8, 0.25, 2),
@@ -247,6 +314,16 @@ export const operatingModePolicies: readonly OperatingModePolicy[] =
       team("thorough", 3, 2, 3)),
     policy("max_v3", 3, "Max", 6, 96, 25, 8,
       team("maximum", 4, 2, 4)),
+    policy("economy_v4", 4, "Economy", 1, 8, 0.25, 2,
+      teamV4("essential", 1, 1, 1, 0)),
+    policy("standard_v4", 4, "Standard", 2, 36, 1, 6,
+      teamV4("standard", 1, 1, 2, 1)),
+    policy("balanced_v4", 4, "Balanced", 3, 56, 3, 7,
+      teamV4("balanced", 2, 1, 2, 1)),
+    policy("performance_v4", 4, "Performance", 4, 100, 10, 10,
+      teamV4("thorough", 3, 2, 3, 1)),
+    policy("max_v4", 4, "Max", 6, 216, 25, 18,
+      teamV4("maximum", 4, 2, 4, 2)),
   ]);
 
 export const LEGACY_OPERATING_MODE_ID: OperatingModeId = "balanced_v1";
@@ -270,10 +347,10 @@ export function parseOperatingModeId(input: string): OperatingModeId | null {
   if (exact !== undefined) {
     return exact.id;
   }
-  const newestFirst = [...operatingModePolicies].reverse();
-  for (const item of newestFirst) {
+  const defaultVersion = getOperatingModePolicy(DEFAULT_OPERATING_MODE_ID).version;
+  for (const item of operatingModePolicies) {
     if (normalized === item.displayName.toLowerCase()) {
-      return item.id;
+      if (item.version === defaultVersion) return item.id;
     }
   }
   return null;
@@ -300,11 +377,34 @@ export interface AgentTask {
   readonly prompt: string;
 }
 
-export interface AgentBackendSelection {
-  readonly strategy: "session_pin" | "inherit_parent";
-  readonly adapterId: string;
-  readonly connectionId: string;
-  readonly modelId: string;
+export type AgentBackendSelection =
+  | {
+      readonly strategy: "session_pin";
+      readonly adapterId: string;
+      readonly connectionId: string;
+      readonly modelId: string;
+    }
+  | {
+      readonly strategy: "inherit_parent";
+      readonly adapterId: string;
+      readonly connectionId: string;
+      readonly modelId: string;
+    }
+  | {
+      readonly strategy: "policy_route";
+      readonly candidateId: string;
+      readonly reason: "eligible_role_candidate" | "parent_fallback";
+      readonly adapterId: string;
+      readonly connectionId: string;
+      readonly modelId: string;
+    };
+
+export interface AgentTeamCorrelation {
+  readonly runId: string;
+  readonly role: "implement" | "review" | "repair";
+  readonly taskIndex: number;
+  readonly round: number;
+  readonly attemptId: string;
 }
 
 export interface AgentGitWorktreeWorkspace {
@@ -321,7 +421,7 @@ export interface AgentSessionDescriptor {
   readonly role: "parent" | "child";
   readonly profile: {
     readonly id: AgentProfileId;
-    readonly version: 1;
+    readonly version: AgentProfileVersion;
   } | null;
   readonly parentAgentId: string | null;
   readonly parentSessionId: string | null;
@@ -340,6 +440,7 @@ export interface AgentSessionDescriptor {
   };
   readonly limits: AgentLimits;
   readonly workspace?: AgentGitWorktreeWorkspace;
+  readonly team?: AgentTeamCorrelation;
 }
 
 export type AgentLifecycle =

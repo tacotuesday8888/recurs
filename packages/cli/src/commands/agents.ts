@@ -30,6 +30,9 @@ function summary(id: Parameters<typeof getOperatingModePolicy>[0]): string {
     : [
         `Team: up to ${team.maxImplementers} Implement worker${team.maxImplementers === 1 ? "" : "s"}, ${team.initialReviewers} initial and ${team.maxReviewers} maximum Review worker${team.maxReviewers === 1 ? "" : "s"}`,
         `Review rule: ${team.approvalRule}, ${team.qualityStandard} quality standard`,
+        ...(team.maxRepairRounds === undefined
+          ? []
+          : [`Repair rounds: ${team.maxRepairRounds}`]),
       ];
   return [
     `Agent mode: ${policy.displayName} (${policy.id})`,
@@ -51,6 +54,12 @@ function workspaceEffects(profile: AgentProfilePolicy): string {
       return "scoped edits and verification";
     case "review_v1":
       return "read-only diff/file and Implement-evidence inspection; no repository execution or verification artifacts";
+    case "implement_v2":
+      return "staged scoped edits; no repository process execution";
+    case "review_v2":
+      return "staged read-only review; no repository process execution";
+    case "repair_v1":
+      return "staged finding-only repairs; no repository process execution";
   }
 }
 
@@ -64,7 +73,7 @@ function profilesSummary(): string {
       `  Intent ceiling: ${profile.tools.allowedCategories.join("/")} at ${profile.tools.maxRisk} risk`,
     ]),
     "Batch eligibility: Explore and Review through delegate_tasks.",
-    "Team workflow: Implement workers in isolated worktrees under version-3 policies.",
+    "Team workflow: legacy execution uses version-3 policies; version-4 profiles are reserved for the durable team supervisor.",
   ].join("\n");
 }
 
