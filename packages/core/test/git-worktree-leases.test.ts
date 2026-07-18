@@ -1,12 +1,15 @@
 import { execFile } from "node:child_process";
 import {
   access,
+  chmod,
+  lstat,
   mkdir,
   mkdtemp,
   readdir,
   readFile,
   realpath,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -143,6 +146,285 @@ describe("GitWorktreeLeaseManager", () => {
     expect(await git(repository, ["worktree", "list", "--porcelain"]))
       .not.toContain(lease.worktreeRoot);
     await expect(manager.release(lease)).resolves.toBeUndefined();
+  });
+
+  it("holds a private owner lock for the full lease and blocks live recovery", async () => {
+    const { repository, leases } = await fixture();
+    const manager = new GitWorktreeLeaseManager({
+      rootDirectory: leases,
+      createId: ids("owned-live"),
+      processRunner: fastGitRunner,
+    });
+    const lease = await manager.create(repository, new AbortController().signal);
+    const lock = path.join(leases, ".owners", `${lease.id}.lock`);
+    const owner = path.join(lock, "owner.json");
+
+    await expect(manager.assertActive(lease)).resolves.toBeUndefined();
+    expect((await lstat(leases)).mode & 0o777).toBe(0o700);
+    expect((await lstat(path.join(leases, ".owners"))).mode & 0o777).toBe(0o700);
+    expect((await lstat(lock)).mode & 0o777).toBe(0o700);
+    expect((await lstat(owner)).mode & 0o777).toBe(0o600);
+
+    const restarted = new GitWorktreeLeaseManager({
+      rootDirectory: leases,
+      processRunner: fastGitRunner,
+    });
+    await expect(restarted.assertActive(lease))
+      .rejects.toMatchObject({ code: "permission_denied" });
+    await expect(restarted.recoverStale({ repositoryRoot: repository }))
+      .resolves.toEqual({ removedLeaseIds: [], busyLeaseIds: [lease.id] });
+    expect(await readFile(path.join(lease.worktreeRoot, "tracked.txt"), "utf8"))
+      .toBe("committed\n");
+
+    await manager.release(lease);
+    await expect(access(lock)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("reclaims an exactly registered worktree after its owner dies", async () => {
+    const { repository, leases } = await fixture();
+    const manager = new GitWorktreeLeaseManager({
+      rootDirectory: leases,
+      createId: ids("dead-owner"),
+      processRunner: fastGitRunner,
+    });
+    const lease = await manager.create(repository, new AbortController().signal);
+    const owner = path.join(
+      leases,
+      ".owners",
+      `${lease.id}.lock`,
+      "owner.json",
+    );
+    const record = JSON.parse(await readFile(owner, "utf8")) as Record<string, unknown>;
+    await writeFile(owner, `${JSON.stringify({
+      ...record,
+      pid: 2_147_483_647,
+    })}\n`, { mode: 0o600 });
+
+    const restarted = new GitWorktreeLeaseManager({
+      rootDirectory: leases,
+      processRunner: fastGitRunner,
+    });
+    await expect(restarted.recoverStale({ repositoryRoot: repository }))
+      .resolves.toEqual({ removedLeaseIds: [lease.id], busyLeaseIds: [] });
+    await expect(access(lease.worktreeRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(restarted.recoverStale({ repositoryRoot: repository }))
+      .resolves.toEqual({ removedLeaseIds: [], busyLeaseIds: [] });
+  });
+
+  it("allows only one concurrent recovery to claim a dead owner", async () => {
+    const { repository, leases } = await fixture();
+    const manager = new GitWorktreeLeaseManager({
+      rootDirectory: leases,
+      createId: ids("contended-dead-owner"),
+      processRunner: fastGitRunner,
+    });
+    const lease = await manager.create(repository, new AbortController().signal);
+    const owner = path.join(
+      leases,
+      ".owners",
+      `${lease.id}.lock`,
+      "owner.json",
+    );
+    const record = JSON.parse(await readFile(owner, "utf8")) as Record<string, unknown>;
+    await writeFile(owner, `${JSON.stringify({
+      ...record,
+      pid: 2_147_483_647,
+    })}\n`, { mode: 0o600 });
+    const first = new GitWorktreeLeaseManager({
+      rootDirectory: leases,
+      processRunner: fastGitRunner,
+    });
+    const second = new GitWorktreeLeaseManager({
+      rootDirectory: leases,
+      processRunner: fastGitRunner,
+    });
+
+    const outcomes = await Promise.all([
+      first.recoverStale({ repositoryRoot: repository }),
+      second.recoverStale({ repositoryRoot: repository }),
+    ]);
+
+    expect(outcomes.flatMap((outcome) => outcome.removedLeaseIds))
+      .toEqual([lease.id]);
+    await expect(access(lease.worktreeRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(path.join(leases, ".owners", `${lease.id}.lock`)))
+      .rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("preserves registered worktrees without a matching Recurs owner binding", async () => {
+    const missing = await fixture();
+    const prepare = new GitWorktreeLeaseManager({
+      rootDirectory: missing.leases,
+      createId: ids("prepare-owner-root"),
+      processRunner: fastGitRunner,
+    });
+    const prepared = await prepare.create(
+      missing.repository,
+      new AbortController().signal,
+    );
+    await prepare.release(prepared);
+    const manual = path.join(missing.leases, "manual-worktree");
+    await git(missing.repository, [
+      "worktree", "add", "--detach", manual, missing.revision,
+    ]);
+
+    await expect(prepare.recoverStale({ repositoryRoot: missing.repository }))
+      .resolves.toEqual({ removedLeaseIds: [], busyLeaseIds: [] });
+    expect(await readFile(path.join(manual, "tracked.txt"), "utf8"))
+      .toBe("committed\n");
+
+    const mismatch = await fixture();
+    const manager = new GitWorktreeLeaseManager({
+      rootDirectory: mismatch.leases,
+      createId: ids("mismatched-owner"),
+      processRunner: fastGitRunner,
+    });
+    const lease = await manager.create(
+      mismatch.repository,
+      new AbortController().signal,
+    );
+    const owner = path.join(
+      mismatch.leases,
+      ".owners",
+      `${lease.id}.lock`,
+      "owner.json",
+    );
+    const record = JSON.parse(await readFile(owner, "utf8")) as Record<string, unknown>;
+    await writeFile(owner, `${JSON.stringify({
+      ...record,
+      repositoryRoot: path.join(mismatch.base, "different-repository"),
+      revision: "b".repeat(40),
+      pid: 2_147_483_647,
+    })}\n`, { mode: 0o600 });
+    const restarted = new GitWorktreeLeaseManager({
+      rootDirectory: mismatch.leases,
+      processRunner: fastGitRunner,
+    });
+
+    await expect(restarted.recoverStale({ repositoryRoot: mismatch.repository }))
+      .resolves.toEqual({ removedLeaseIds: [], busyLeaseIds: [] });
+    expect(await readFile(path.join(lease.worktreeRoot, "tracked.txt"), "utf8"))
+      .toBe("committed\n");
+  });
+
+  it("fails closed when owner storage becomes permissive or symlinked", async () => {
+    const permissive = await fixture();
+    const manager = new GitWorktreeLeaseManager({
+      rootDirectory: permissive.leases,
+      createId: ids("unsafe-owner-root"),
+      processRunner: fastGitRunner,
+    });
+    const lease = await manager.create(
+      permissive.repository,
+      new AbortController().signal,
+    );
+    await chmod(path.join(permissive.leases, ".owners"), 0o755);
+    await expect(manager.assertActive(lease))
+      .rejects.toMatchObject({ code: "permission_denied" });
+
+    const linked = await fixture();
+    const linkedManager = new GitWorktreeLeaseManager({
+      rootDirectory: linked.leases,
+      createId: ids("unsafe-owner-file"),
+      processRunner: fastGitRunner,
+    });
+    const linkedLease = await linkedManager.create(
+      linked.repository,
+      new AbortController().signal,
+    );
+    const canary = path.join(linked.base, "owner-canary.json");
+    await writeFile(canary, "do not touch\n", "utf8");
+    const owner = path.join(
+      linked.leases,
+      ".owners",
+      `${linkedLease.id}.lock`,
+      "owner.json",
+    );
+    await rm(owner);
+    await symlink(canary, owner);
+    await expect(linkedManager.assertActive(linkedLease))
+      .rejects.toMatchObject({ code: "permission_denied" });
+    expect(await readFile(canary, "utf8")).toBe("do not touch\n");
+  });
+
+  it("rejects drifted, unregistered, and symlink-swapped active targets", async () => {
+    const drifted = await fixture();
+    const driftManager = new GitWorktreeLeaseManager({
+      rootDirectory: drifted.leases,
+      createId: ids("drifted-head"),
+      processRunner: fastGitRunner,
+    });
+    const driftLease = await driftManager.create(
+      drifted.repository,
+      new AbortController().signal,
+    );
+    await git(driftLease.worktreeRoot, [
+      "-c", "user.name=Recurs Tests",
+      "-c", "user.email=tests@recurs.invalid",
+      "commit", "--allow-empty", "--quiet", "-m", "drift",
+    ]);
+    await expect(driftManager.assertActive(driftLease))
+      .rejects.toMatchObject({ code: "permission_denied" });
+    await expect(driftManager.release(driftLease)).resolves.toBeUndefined();
+    await expect(access(driftLease.worktreeRoot))
+      .rejects.toMatchObject({ code: "ENOENT" });
+
+    const unregistered = await fixture();
+    const unregisteredManager = new GitWorktreeLeaseManager({
+      rootDirectory: unregistered.leases,
+      createId: ids("unregistered"),
+      processRunner: fastGitRunner,
+    });
+    const unregisteredLease = await unregisteredManager.create(
+      unregistered.repository,
+      new AbortController().signal,
+    );
+    await git(unregistered.repository, [
+      "worktree", "remove", "--force", unregisteredLease.worktreeRoot,
+    ]);
+    await expect(unregisteredManager.assertActive(unregisteredLease))
+      .rejects.toMatchObject({ code: "permission_denied" });
+
+    const swapped = await fixture();
+    const swappedManager = new GitWorktreeLeaseManager({
+      rootDirectory: swapped.leases,
+      createId: ids("swapped-target"),
+      processRunner: fastGitRunner,
+    });
+    const swappedLease = await swappedManager.create(
+      swapped.repository,
+      new AbortController().signal,
+    );
+    await git(swapped.repository, [
+      "worktree", "remove", "--force", swappedLease.worktreeRoot,
+    ]);
+    const outside = path.join(swapped.base, "outside-target");
+    await mkdir(outside, { mode: 0o700 });
+    await writeFile(path.join(outside, "canary"), "untouched\n", "utf8");
+    await symlink(outside, swappedLease.worktreeRoot);
+    await expect(swappedManager.assertActive(swappedLease))
+      .rejects.toMatchObject({ code: "permission_denied" });
+    expect(await readFile(path.join(outside, "canary"), "utf8"))
+      .toBe("untouched\n");
+  }, 30_000);
+
+  it("leaves unregistered direct children untouched during stale recovery", async () => {
+    const { repository, leases } = await fixture();
+    const manager = new GitWorktreeLeaseManager({
+      rootDirectory: leases,
+      createId: ids("prepare-recovery-root"),
+      processRunner: fastGitRunner,
+    });
+    const lease = await manager.create(repository, new AbortController().signal);
+    await manager.release(lease);
+    const unregistered = path.join(leases, "unregistered-child");
+    await mkdir(unregistered, { mode: 0o700 });
+    await writeFile(path.join(unregistered, "canary"), "untouched\n", "utf8");
+
+    await expect(manager.recoverStale({ repositoryRoot: repository }))
+      .resolves.toEqual({ removedLeaseIds: [], busyLeaseIds: [] });
+    expect(await readFile(path.join(unregistered, "canary"), "utf8"))
+      .toBe("untouched\n");
   });
 
   it("rejects staged, modified, and untracked parent state before creating a lease", async () => {
@@ -290,6 +572,47 @@ describe("GitWorktreeLeaseManager", () => {
     await manager.release(lease);
   });
 
+  it("rejects roots that contain the repository or are permissive or symlinked", async () => {
+    const containing = await fixture();
+    const containsRepository = new GitWorktreeLeaseManager({
+      rootDirectory: containing.base,
+      createId: ids("contains-repository"),
+      processRunner: fastGitRunner,
+    });
+    await expect(containsRepository.create(
+      containing.repository,
+      new AbortController().signal,
+    )).rejects.toMatchObject({ code: "permission_denied" });
+
+    const permissive = await fixture();
+    await mkdir(permissive.leases, { mode: 0o755 });
+    await chmod(permissive.leases, 0o755);
+    const permissiveManager = new GitWorktreeLeaseManager({
+      rootDirectory: permissive.leases,
+      createId: ids("permissive"),
+      processRunner: fastGitRunner,
+    });
+    await expect(permissiveManager.create(
+      permissive.repository,
+      new AbortController().signal,
+    )).rejects.toMatchObject({ code: "permission_denied" });
+
+    const linked = await fixture();
+    const outside = path.join(linked.base, "outside-leases");
+    await mkdir(outside, { mode: 0o700 });
+    await symlink(outside, linked.leases);
+    const linkedManager = new GitWorktreeLeaseManager({
+      rootDirectory: linked.leases,
+      createId: ids("linked"),
+      processRunner: fastGitRunner,
+    });
+    await expect(linkedManager.create(
+      linked.repository,
+      new AbortController().signal,
+    )).rejects.toMatchObject({ code: "permission_denied" });
+    expect(await readdir(outside)).toEqual([]);
+  });
+
   it("honors pre-cancellation without leaving a target", async () => {
     const { repository, leases } = await fixture();
     const controller = new AbortController();
@@ -326,7 +649,8 @@ describe("GitWorktreeLeaseManager", () => {
 
     await expect(manager.create(repository, new AbortController().signal))
       .rejects.toMatchObject({ code: "cancelled" });
-    expect(await readdir(leases)).toEqual([]);
+    expect(await readdir(leases)).toEqual([".owners"]);
+    expect(await readdir(path.join(leases, ".owners"))).toEqual([]);
     expect(await git(repository, ["worktree", "list", "--porcelain"]))
       .not.toContain("cancelled-after-add");
   });
@@ -352,9 +676,86 @@ describe("GitWorktreeLeaseManager", () => {
       code: "process_failed",
       message: "Git worktree cleanup failed",
     });
+    await expect(manager.assertActive(lease)).resolves.toBeUndefined();
+    await expect(access(path.join(
+      leases,
+      ".owners",
+      `${lease.id}.lock`,
+    ))).resolves.toBeUndefined();
     expect(await readFile(path.join(lease.worktreeRoot, "tracked.txt"), "utf8"))
       .toBe("committed\n");
     failRemove = false;
     await expect(manager.release(lease)).resolves.toBeUndefined();
   });
+
+  it("reconciles remove-then-error for release and stale recovery", async () => {
+    const released = await fixture();
+    let releaseThrow = true;
+    const releaseRunner: typeof runProcess = async (...args) => {
+      const result = await fastGitRunner(...args);
+      if (releaseThrow && args[0] === "git" &&
+        hasGitCommand(args[1], "worktree", "remove")) {
+        releaseThrow = false;
+        throw new ToolError("process_failed", "injected post-remove failure");
+      }
+      return result;
+    };
+    const releaseManager = new GitWorktreeLeaseManager({
+      rootDirectory: released.leases,
+      createId: ids("ambiguous-release"),
+      processRunner: releaseRunner,
+    });
+    const releaseLease = await releaseManager.create(
+      released.repository,
+      new AbortController().signal,
+    );
+    await expect(releaseManager.release(releaseLease)).resolves.toBeUndefined();
+    await expect(access(path.join(
+      released.leases,
+      ".owners",
+      `${releaseLease.id}.lock`,
+    ))).rejects.toMatchObject({ code: "ENOENT" });
+
+    const recovered = await fixture();
+    const creator = new GitWorktreeLeaseManager({
+      rootDirectory: recovered.leases,
+      createId: ids("ambiguous-recovery"),
+      processRunner: fastGitRunner,
+    });
+    const stale = await creator.create(
+      recovered.repository,
+      new AbortController().signal,
+    );
+    const owner = path.join(
+      recovered.leases,
+      ".owners",
+      `${stale.id}.lock`,
+      "owner.json",
+    );
+    const record = JSON.parse(await readFile(owner, "utf8")) as Record<string, unknown>;
+    await writeFile(owner, `${JSON.stringify({
+      ...record,
+      pid: 2_147_483_647,
+    })}\n`, { mode: 0o600 });
+    let recoveryThrow = true;
+    const recoveryRunner: typeof runProcess = async (...args) => {
+      const result = await fastGitRunner(...args);
+      if (recoveryThrow && args[0] === "git" &&
+        hasGitCommand(args[1], "worktree", "remove")) {
+        recoveryThrow = false;
+        throw new ToolError("process_failed", "injected post-remove failure");
+      }
+      return result;
+    };
+    const recoveryManager = new GitWorktreeLeaseManager({
+      rootDirectory: recovered.leases,
+      processRunner: recoveryRunner,
+    });
+    await expect(recoveryManager.recoverStale({
+      repositoryRoot: recovered.repository,
+    })).resolves.toEqual({
+      removedLeaseIds: [stale.id],
+      busyLeaseIds: [],
+    });
+  }, 30_000);
 });
