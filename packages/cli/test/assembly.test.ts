@@ -326,7 +326,7 @@ describe("standalone assembly without a provider", () => {
     });
   });
 
-  it("reopens the canonical parent instead of a newer child", async () => {
+  it("reopens the canonical parent instead of newer non-root or other-cwd sessions", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-root-session-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -354,9 +354,9 @@ describe("standalone assembly without a provider", () => {
     );
     await sessions.createPinnedSession({
       id: "newer-child-session",
-      cwd: childWorkspace,
+      cwd: repositoryRoot,
       backend: parent.session.backend.pin,
-      at: "9999-12-31T23:59:59.999Z",
+      at: "9998-12-31T23:59:59.999Z",
       agent: {
         id: "newer-child-agent",
         role: "child",
@@ -384,6 +384,12 @@ describe("standalone assembly without a provider", () => {
         },
         limits: parent.session.agent.limits,
       },
+    });
+    await sessions.createPinnedSession({
+      id: "newer-other-cwd-parent-session",
+      cwd: childWorkspace,
+      backend: parent.session.backend.pin,
+      at: "9999-12-31T23:59:59.999Z",
     });
 
     const restarted = await createStandaloneRuntime(

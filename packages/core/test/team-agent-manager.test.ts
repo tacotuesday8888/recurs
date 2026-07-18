@@ -393,6 +393,37 @@ describe("TeamAgentManager", () => {
     expect(result.output).toContain("Task 1 failed");
   });
 
+  it("does not let sibling cancellation hide a genuine implementation failure", async () => {
+    let taskOneStarted!: () => void;
+    const started = new Promise<void>((resolve) => { taskOneStarted = resolve; });
+    const setup = await harness({
+      async delegate(task, context) {
+        if (task.description === "Implementation 1") {
+          taskOneStarted();
+          await new Promise<void>((resolve) => {
+            context.signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+          throw new ToolError("cancelled", "Task 1 stopped after sibling failure");
+        }
+        await started;
+        throw new ToolError("execution_failed", "Task 2 genuinely failed");
+      },
+    });
+
+    const result = await setup.tool.execute(
+      setup.tool.parse(input()),
+      setup.context,
+    );
+
+    expect(result.output).toContain("Task 2 genuinely failed");
+    expect(setup.events.at(-1)).toMatchObject({
+      type: "agent_team_failed",
+      failure: { code: "execution_failed", message: "Task 2 genuinely failed" },
+    });
+    expect(setup.events.some((event) => event.type === "agent_team_cancelled"))
+      .toBe(false);
+  });
+
   it("gates integration on every implementation and discards successful sibling patches", async () => {
     let call = 0;
     const setup = await harness({

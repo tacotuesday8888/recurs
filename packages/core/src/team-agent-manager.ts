@@ -653,15 +653,21 @@ export class TeamAgentManager {
         )
         .sort((left, right) => left.index - right.index);
       if (incomplete.length > 0) {
+        const genuineFailures = incomplete.filter((item) =>
+          item.status === "failed"
+        );
         const artifacts = [...captured.entries()]
           .sort(([left], [right]) => left - right)
           .map(([, artifact]) => artifact);
         if (artifacts.length > 0) this.dependencies.patches.discard(artifacts);
-        const failure = incomplete[0]?.failure ?? {
+        const failure = genuineFailures[0]?.failure ?? incomplete[0]?.failure ?? {
           code: "execution_failed",
           message: "Team implementation did not complete",
         };
-        if (parentCancelled || failure.code === "cancelled") {
+        if (
+          parentCancelled ||
+          (genuineFailures.length === 0 && failure.code === "cancelled")
+        ) {
           await this.#emitCancellation(
             teamId,
             parent.agent.id,

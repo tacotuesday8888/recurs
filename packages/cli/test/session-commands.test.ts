@@ -173,6 +173,11 @@ describe("session commands", () => {
         /Act parent required[\s\S]*run_verification[\s\S]*Team workflow: Implement workers in isolated worktrees under version-3 policies/u,
       ),
     });
+    expect(profiles).toMatchObject({
+      text: expect.stringContaining(
+        "read-only diff/file and Implement-evidence inspection; no repository execution or verification artifacts",
+      ),
+    });
     expect(await commands.execute("/agents profiles extra", commandContext))
       .toMatchObject({ level: "error" });
     expect(await commands.execute("/agents mode economy", commandContext)).toMatchObject({

@@ -50,7 +50,7 @@ function workspaceEffects(profile: AgentProfilePolicy): string {
     case "implement_v1":
       return "scoped edits and verification";
     case "review_v1":
-      return "no source edits; verification may create artifacts";
+      return "read-only diff/file and Implement-evidence inspection; no repository execution or verification artifacts";
   }
 }
 

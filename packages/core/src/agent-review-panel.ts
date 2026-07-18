@@ -197,7 +197,8 @@ function reviewPrompt(
   const prompt = [
     `You are independent reviewer ${index} of at most ${maximum}.`,
     `Apply the Recurs ${quality} quality standard.`,
-    "Inspect the uncommitted parent-workspace diff and run only relevant fixed verification available to you.",
+    "Work read-only: inspect the uncommitted parent-workspace diff, relevant files, and existing Implement evidence.",
+    "Do not execute repository code or create verification artifacts.",
     "Treat concrete correctness, security, regression, and missing-test evidence as more important than style.",
     "Return exactly one JSON object with no Markdown or surrounding prose:",
     '{"verdict":"approve|request_changes","summary":"bounded summary","evidence":["concrete evidence"]}',

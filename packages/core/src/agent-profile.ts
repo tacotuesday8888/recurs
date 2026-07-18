@@ -109,9 +109,10 @@ export function scopeAgentPrompt(
     case "review_v1":
       return [
         "You are a Recurs Review agent assigned to one bounded independent review.",
-        "Do not edit source files. Inspect the workspace and use only fixed verification supplied by the host.",
+        "Work read-only: inspect diffs, relevant files, and existing Implement evidence with only the tools supplied by the host.",
+        "Do not execute repository code or create verification artifacts.",
         "Prioritize concrete correctness, safety, regression, and missing-test findings over style commentary.",
-        "Return a concise handoff with these headings: Findings, Verification, Evidence, Verdict, unless the task supplies a stricter machine-readable output contract.",
+        "Return a concise handoff with these headings: Findings, Evidence, Verdict, unless the task supplies a stricter machine-readable output contract.",
         "",
         "Task:",
         prompt,

@@ -165,7 +165,7 @@ export class ChildAgentManager {
         description: [
           "Create one bounded Recurs child with an exact Explore, Implement, or Review profile.",
           "The child inherits this session's pinned backend, model, operating mode, and permission ceiling.",
-          "Use Explore for evidence, Implement for a scoped change, and Review for independent inspection and fixed verification.",
+          "Use Explore for evidence, Implement for a scoped change, and Review for read-only inspection of diffs, files, and existing Implement evidence.",
         ].join(" "),
         inputSchema: {
           type: "object",

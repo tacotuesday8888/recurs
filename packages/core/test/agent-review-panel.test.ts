@@ -201,6 +201,13 @@ describe("AgentReviewPanel", () => {
     expect(setup.calls[0]?.prompt).toContain("Return exactly one JSON object");
     expect(setup.calls[0]?.prompt).toContain("thorough");
     expect(setup.calls[0]?.prompt).toContain("src/cache.ts");
+    expect(setup.calls[0]?.prompt).toContain(
+      "inspect the uncommitted parent-workspace diff, relevant files, and existing Implement evidence",
+    );
+    expect(setup.calls[0]?.prompt).toContain(
+      "Do not execute repository code or create verification artifacts.",
+    );
+    expect(setup.calls[0]?.prompt).not.toContain("run only relevant fixed verification");
     expect(setup.calls.map((call) => call.options?.team)).toEqual([
       { id: "team-1", index: 3 },
       { id: "team-1", index: 4 },

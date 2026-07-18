@@ -105,6 +105,10 @@ describe("ChildAgentManager", () => {
       async emit() {},
     });
     const tool = manager.createTool();
+    expect(tool.definition.description).toContain(
+      "Review for read-only inspection of diffs, files, and existing Implement evidence",
+    );
+    expect(tool.definition.description).not.toContain("fixed verification");
     const explore = tool.parse({
       profile: "Explore",
       description: "Inspect",
@@ -227,6 +231,14 @@ describe("ChildAgentManager", () => {
         },
       });
     }
+
+    expect(starts.at(-1)?.prompt).toContain(
+      "Do not execute repository code or create verification artifacts.",
+    );
+    expect(starts.at(-1)?.prompt).toContain(
+      "these headings: Findings, Evidence, Verdict",
+    );
+    expect(starts.at(-1)?.prompt).not.toContain("fixed verification");
 
     expect(events).toHaveLength(6);
     expect(events.every((event) =>
