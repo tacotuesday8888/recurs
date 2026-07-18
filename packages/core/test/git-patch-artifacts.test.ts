@@ -516,6 +516,114 @@ describe("GitPatchArtifactManager", () => {
     await setup.worktrees.release(staging);
   }, 30_000);
 
+  it("prepares and applies one durable candidate without owning journal completion", async () => {
+    const setup = await fixture();
+    const signal = new AbortController().signal;
+    const base = await setup.artifacts.preflightParent(setup.repository, signal);
+    await writeFile(path.join(setup.lease.worktreeRoot, "edit.txt"), "candidate\n", "utf8");
+    await writeFile(path.join(setup.lease.worktreeRoot, "candidate.txt"), "new\n", "utf8");
+    const candidate = await setup.artifacts.capture(setup.lease, signal);
+    if (candidate === null) throw new Error("expected candidate");
+    await setup.worktrees.release(setup.lease);
+
+    const checkpoint = await setup.artifacts.prepareCandidateApply({
+      base,
+      artifact: candidate,
+      sessionId: "parent-session",
+      operationId: "team-run-1",
+      checkpoints: setup.checkpoints,
+      signal,
+    });
+
+    expect(checkpoint).toMatchObject({
+      sessionId: "parent-session",
+      toolCallId: "team-run-1",
+    });
+    expect(checkpoint.after).toBeUndefined();
+    expect(await git(setup.repository, ["status", "--porcelain"])).toBe("");
+
+    await expect(setup.artifacts.applyCandidate({
+      base,
+      artifact: candidate,
+      checkpoint: { ...checkpoint, before: {} },
+      checkpoints: setup.checkpoints,
+      signal,
+    })).rejects.toMatchObject({ code: "checkpoint_corrupt" });
+
+    const applied = await setup.artifacts.applyCandidate({
+      base,
+      artifact: candidate,
+      checkpoint,
+      checkpoints: setup.checkpoints,
+      signal,
+    });
+
+    expect(applied).toEqual({ changedFiles: ["candidate.txt", "edit.txt"] });
+    expect(await readFile(path.join(setup.repository, "edit.txt"), "utf8"))
+      .toBe("candidate\n");
+    expect(await readFile(path.join(setup.repository, "candidate.txt"), "utf8"))
+      .toBe("new\n");
+    await expect(setup.artifactStore.load(candidate)).resolves.toMatchObject({
+      handle: candidate,
+    });
+
+    const reference = {
+      id: checkpoint.id,
+      sessionId: checkpoint.sessionId,
+      toolCallId: checkpoint.toolCallId,
+    };
+    const completed = await setup.checkpoints.complete(reference, setup.repository);
+    await expect(setup.checkpoints.complete(reference, setup.repository))
+      .resolves.toEqual(completed);
+  }, 30_000);
+
+  it("does not apply over parent drift, cancellation, or a closed checkpoint", async () => {
+    for (const mode of ["drift", "cancel", "completed"] as const) {
+      const setup = await fixture();
+      const signal = new AbortController().signal;
+      const base = await setup.artifacts.preflightParent(setup.repository, signal);
+      await writeFile(path.join(setup.lease.worktreeRoot, "edit.txt"), "candidate\n", "utf8");
+      const candidate = await setup.artifacts.capture(setup.lease, signal);
+      if (candidate === null) throw new Error("expected candidate");
+      await setup.worktrees.release(setup.lease);
+      const checkpoint = await setup.artifacts.prepareCandidateApply({
+        base,
+        artifact: candidate,
+        sessionId: "parent-session",
+        operationId: `team-run-${mode}`,
+        checkpoints: setup.checkpoints,
+        signal,
+      });
+      const controller = new AbortController();
+      if (mode === "drift") {
+        await writeFile(path.join(setup.repository, "foreign.txt"), "foreign\n", "utf8");
+      } else if (mode === "cancel") {
+        controller.abort();
+      } else {
+        await setup.checkpoints.complete(checkpoint, setup.repository);
+      }
+
+      await expect(setup.artifacts.applyCandidate({
+        base,
+        artifact: candidate,
+        checkpoint,
+        checkpoints: setup.checkpoints,
+        signal: controller.signal,
+      })).rejects.toMatchObject({
+        code: mode === "drift"
+          ? "permission_denied"
+          : mode === "cancel"
+            ? "cancelled"
+            : "checkpoint_corrupt",
+      });
+      expect(await readFile(path.join(setup.repository, "edit.txt"), "utf8"))
+        .toBe("before\n");
+      await expect(setup.artifactStore.load(candidate)).resolves.toMatchObject({
+        handle: candidate,
+      });
+    }
+  }, 60_000);
+
   it("rolls every integrated patch back when a later patch conflicts", async () => {
     const setup = await fixture();
     const signal = new AbortController().signal;

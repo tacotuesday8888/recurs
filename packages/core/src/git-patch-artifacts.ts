@@ -9,6 +9,7 @@ import {
   runProcess,
   safeGitArguments,
   ToolError,
+  type Checkpoint,
   type CheckpointStore,
 } from "@recurs/tools";
 
@@ -84,6 +85,27 @@ export interface GitPatchStageInput {
 }
 
 export interface GitPatchStageOutcome {
+  readonly changedFiles: readonly string[];
+}
+
+export interface GitPatchCandidatePrepareInput {
+  readonly base: GitPatchBase;
+  readonly artifact: GitPatchArtifactHandle;
+  readonly sessionId: string;
+  readonly operationId: string;
+  readonly checkpoints: CheckpointStore;
+  readonly signal: AbortSignal;
+}
+
+export interface GitPatchCandidateApplyInput {
+  readonly base: GitPatchBase;
+  readonly artifact: GitPatchArtifactHandle;
+  readonly checkpoint: Checkpoint;
+  readonly checkpoints: CheckpointStore;
+  readonly signal: AbortSignal;
+}
+
+export interface GitPatchCandidateApplyOutcome {
   readonly changedFiles: readonly string[];
 }
 
@@ -860,6 +882,219 @@ export class GitPatchArtifactManager {
       }
     }
     await this.#leases.assertActive(lease);
+    return Object.freeze({ changedFiles: Object.freeze([...actualPaths]) });
+  }
+
+  async prepareCandidateApply(
+    input: GitPatchCandidatePrepareInput,
+  ): Promise<Checkpoint> {
+    const { checkpoints, signal } = input;
+    if (signal.aborted) throw cancelled("Candidate apply preparation was cancelled");
+    let base: GitPatchBase;
+    let artifact: GitPatchArtifactHandle;
+    try {
+      base = cloneFreeze(input.base);
+      artifact = cloneFreeze(input.artifact);
+    } catch (error) {
+      throw new ToolError(
+        "permission_denied",
+        "The candidate apply preparation is invalid",
+        { cause: error },
+      );
+    }
+    if (
+      !path.isAbsolute(base.repositoryRoot) ||
+      !GIT_REVISION.test(base.revision) ||
+      !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(input.sessionId) ||
+      !ARTIFACT_ID.test(input.operationId)
+    ) {
+      throw new ToolError(
+        "permission_denied",
+        "The candidate apply preparation is invalid",
+      );
+    }
+    const repositoryRoot = await this.#canonicalRoot(base.repositoryRoot, signal);
+    if (
+      repositoryRoot !== base.repositoryRoot ||
+      await this.#revision(repositoryRoot, signal) !== base.revision
+    ) {
+      throw new ToolError(
+        "permission_denied",
+        "The parent Git revision changed before candidate preparation",
+      );
+    }
+    const status = await this.#git(repositoryRoot, [
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--ignore-submodules=none",
+    ], signal);
+    if (status.stdout.length !== 0) {
+      throw new ToolError(
+        "permission_denied",
+        "Candidate preparation requires an unchanged clean parent workspace",
+      );
+    }
+    await this.#loadOwnedArtifacts([artifact], repositoryRoot, base.revision);
+
+    const checkpoint = await checkpoints.captureBefore(
+      input.sessionId,
+      input.operationId,
+      repositoryRoot,
+    );
+    const verifiedStatus = await this.#git(repositoryRoot, [
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--ignore-submodules=none",
+    ], signal);
+    if (
+      await this.#revision(repositoryRoot, signal) !== base.revision ||
+      verifiedStatus.stdout.length !== 0
+    ) {
+      throw new ToolError(
+        "permission_denied",
+        "The parent workspace changed during candidate preparation",
+      );
+    }
+    if (
+      checkpoint.sessionId !== input.sessionId ||
+      checkpoint.toolCallId !== input.operationId ||
+      !ARTIFACT_ID.test(checkpoint.id) ||
+      typeof checkpoint.before !== "object" ||
+      checkpoint.before === null ||
+      Array.isArray(checkpoint.before) ||
+      checkpoint.after !== undefined
+    ) {
+      throw new ToolError(
+        "checkpoint_corrupt",
+        "Candidate preparation returned an invalid checkpoint",
+      );
+    }
+    await checkpoints.assertPrepared(checkpoint, repositoryRoot);
+    return cloneFreeze(checkpoint);
+  }
+
+  async applyCandidate(
+    input: GitPatchCandidateApplyInput,
+  ): Promise<GitPatchCandidateApplyOutcome> {
+    const { checkpoints, signal } = input;
+    if (signal.aborted) throw cancelled("Candidate apply was cancelled");
+    let base: GitPatchBase;
+    let artifact: GitPatchArtifactHandle;
+    let checkpoint: Checkpoint;
+    try {
+      base = cloneFreeze(input.base);
+      artifact = cloneFreeze(input.artifact);
+      checkpoint = cloneFreeze(input.checkpoint);
+    } catch (error) {
+      throw new ToolError("permission_denied", "The candidate apply input is invalid", {
+        cause: error,
+      });
+    }
+    if (
+      !path.isAbsolute(base.repositoryRoot) ||
+      !GIT_REVISION.test(base.revision) ||
+      !ARTIFACT_ID.test(checkpoint.id) ||
+      !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(checkpoint.sessionId) ||
+      !ARTIFACT_ID.test(checkpoint.toolCallId) ||
+      typeof checkpoint.before !== "object" ||
+      checkpoint.before === null ||
+      Array.isArray(checkpoint.before) ||
+      checkpoint.after !== undefined
+    ) {
+      throw new ToolError("permission_denied", "The candidate apply input is invalid");
+    }
+    const repositoryRoot = await this.#canonicalRoot(base.repositoryRoot, signal);
+    if (
+      repositoryRoot !== base.repositoryRoot ||
+      await this.#revision(repositoryRoot, signal) !== base.revision
+    ) {
+      throw new ToolError(
+        "permission_denied",
+        "The parent Git revision changed before candidate apply",
+      );
+    }
+    const initialStatus = await this.#git(repositoryRoot, [
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--ignore-submodules=none",
+    ], signal);
+    if (initialStatus.stdout.length !== 0) {
+      throw new ToolError(
+        "permission_denied",
+        "The parent workspace changed before candidate apply",
+      );
+    }
+    const [owned] = await this.#loadOwnedArtifacts(
+      [artifact],
+      repositoryRoot,
+      base.revision,
+    );
+    if (owned === undefined) {
+      throw new ToolError("permission_denied", "The candidate artifact is unavailable");
+    }
+    const parsedPaths = parseNumstat((await this.#gitInput(
+      repositoryRoot,
+      ["apply", "--numstat", "-z", "-"],
+      owned.patch,
+      signal,
+    )).stdout);
+    if (!samePaths(parsedPaths, artifact.paths)) {
+      throw new ToolError(
+        "patch_files_mismatch",
+        "The candidate patch no longer matches its captured paths",
+      );
+    }
+    try {
+      await this.#gitInput(
+        repositoryRoot,
+        ["apply", "--check", "--whitespace=nowarn", "-"],
+        owned.patch,
+        signal,
+      );
+    } catch (error) {
+      if (error instanceof ToolError && error.code === "cancelled") throw error;
+      throw new ToolError(
+        "patch_failed",
+        "The candidate patch no longer applies to the clean parent",
+        { cause: error },
+      );
+    }
+    await checkpoints.assertPrepared(checkpoint, repositoryRoot);
+    await this.#gitInput(
+      repositoryRoot,
+      ["apply", "--whitespace=nowarn", "-"],
+      owned.patch,
+      signal,
+    );
+    const status = await this.#git(repositoryRoot, [
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--ignore-submodules=none",
+    ], signal);
+    const actualPaths = status.stdout.length === 0
+      ? []
+      : parseStatus(status.stdout).paths;
+    if (!samePaths(actualPaths, artifact.paths)) {
+      throw new ToolError(
+        "patch_files_mismatch",
+        "Candidate apply changed an unexpected parent path set",
+      );
+    }
+    const after = await fingerprintResult(repositoryRoot, artifact.paths, signal);
+    if (!isDeepStrictEqual(after, owned.after)) {
+      throw new ToolError(
+        "patch_files_mismatch",
+        "Candidate apply did not reproduce its captured result",
+      );
+    }
     return Object.freeze({ changedFiles: Object.freeze([...actualPaths]) });
   }
 

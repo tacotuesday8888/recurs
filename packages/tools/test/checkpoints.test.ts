@@ -270,6 +270,20 @@ describe("FileCheckpointStore", () => {
     });
   }, 30_000);
 
+  it("asserts only the exact incomplete workspace-bound checkpoint", async () => {
+    const prepared = await store.captureBefore("s1", "prepared", cwd);
+
+    await expect(store.assertPrepared(prepared, cwd)).resolves.toBeUndefined();
+    await expect(store.assertPrepared({ ...prepared, before: {} }, cwd)).rejects
+      .toMatchObject({ code: "checkpoint_corrupt" });
+
+    await writeFile(path.join(cwd, "a.txt"), "completed\n", "utf8");
+    await store.complete(prepared, cwd);
+    await expect(store.assertPrepared(prepared, cwd)).rejects.toMatchObject({
+      code: "checkpoint_corrupt",
+    });
+  });
+
   it("linearizes concurrent completion on one durable result", async () => {
     const prepared = await store.captureBefore("s1", "concurrent", cwd);
     const reference = {

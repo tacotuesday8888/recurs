@@ -51,6 +51,14 @@ export interface Checkpoint extends CheckpointReference {
 }
 
 export abstract class CheckpointStore {
+  assertPrepared(checkpoint: Checkpoint, cwd: string): Promise<void> {
+    void checkpoint;
+    void cwd;
+    return Promise.reject(new ToolError(
+      "checkpoint_not_found",
+      "Prepared checkpoint verification is unavailable for this store",
+    ));
+  }
   abstract captureBefore(
     sessionId: string,
     toolCallId: string,
@@ -913,6 +921,33 @@ export class FileCheckpointStore extends CheckpointStore {
     };
     await this.#writeCheckpoint(stored);
     return stored;
+  }
+
+  override async assertPrepared(
+    checkpoint: Checkpoint,
+    cwd: string,
+  ): Promise<void> {
+    await this.#assertStorageLocation(cwd);
+    await this.initialize();
+    const workspaceRoot = await realpath(cwd);
+    if (
+      !isCheckpointReference(checkpoint) ||
+      !isManifest(checkpoint.before) ||
+      checkpoint.after !== undefined
+    ) {
+      throw new ToolError("checkpoint_corrupt", "Invalid prepared checkpoint");
+    }
+    const stored = await this.#readCheckpoint(
+      this.#checkpointFile(checkpoint.sessionId, checkpoint.id),
+    );
+    if (
+      stored.workspaceRoot !== workspaceRoot ||
+      stored.after !== undefined ||
+      stored.undoneAt !== undefined ||
+      !checkpointHandleMatches(checkpoint, stored, false)
+    ) {
+      throw new ToolError("checkpoint_corrupt", "Invalid prepared checkpoint");
+    }
   }
 
   async captureAfter(
