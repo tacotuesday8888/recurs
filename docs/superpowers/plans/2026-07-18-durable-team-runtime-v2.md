@@ -138,7 +138,12 @@ git commit -m "fix: harden team review and restart selection"
 - Modify: `packages/core/src/session-record-validator.ts`
 - Modify: `packages/core/test/session-runtime-records.test.ts`
 - Modify: `packages/core/src/agent-profile.ts`
+- Create: `packages/core/test/agent-profile.test.ts`
+- Modify: `packages/core/src/team-agent-manager.ts`
+- Modify: `packages/core/test/team-agent-manager.test.ts`
 - Modify: `packages/core/src/index.ts`
+- Modify: `packages/cli/src/commands/agents.ts`
+- Modify: `packages/cli/test/session-commands.test.ts`
 
 **Interfaces:**
 - Consumes: `SessionBackendPin`, `AgentPermissionMode`, current v1-v3 policies.
@@ -177,6 +182,14 @@ git commit -m "fix: harden team review and restart selection"
   (`runId`, role, task index, round, attempt ID). It is supplied only by trusted
   team code and lets restart reconciliation identify an orphan child even if
   the process dies around session creation.
+- Add a one-use identity reservation from `ChildAgentManager` so the supervisor
+  can allocate authenticated child/session/task IDs, append `child_reserved`,
+  and only then call `delegate()`. Reject fabricated, reused, or mismatched
+  reservations. Ordinary delegation continues allocating internally.
+- Persist that correlation in the child descriptor before coordinator start and
+  make child presentation events best-effort. An event-sink exception must not
+  strand a ready child, prevent coordinator execution, or turn a completed
+  child into a supervisor-visible failure.
 
 - [ ] **Step 1: Write failing contract tests for stable profiles and v4 budgets**
 
@@ -208,6 +221,10 @@ export type TeamRunStatus =
 export type TeamRunTerminalStatus = Extract<
   TeamRunStatus,
   "approved" | "changes_requested" | "unverified" | "failed" | "cancelled"
+>;
+export type TeamRunNonApprovedTerminalStatus = Exclude<
+  TeamRunTerminalStatus,
+  "approved"
 >;
 export type TeamRunPhase = "implement" | "stage" | "review" | "repair" | "apply";
 
@@ -275,8 +292,14 @@ export class AgentBackendRouter {
   select(input: AgentBackendRouteInput): AgentBackendRouteDecision {
     const eligible = input.candidates.filter((candidate) =>
       candidate.ready && candidate.hostTools &&
+      candidate.roles.includes(input.role) &&
       candidate.executionModes.includes(input.executionMode) &&
-      (!input.background || candidate.background));
+      candidate.permissionModes.includes(input.permissionMode) &&
+      (!input.background || (
+        candidate.background && candidate.pin.kind === "model_provider" &&
+        (candidate.pin.primaryBillingSourceAtCreation === "local_compute" ||
+          candidate.pin.primaryBillingSourceAtCreation === "metered_api")
+      )));
     const selected = eligible.find((candidate) => !candidate.parent) ??
       eligible.find((candidate) => candidate.parent);
     if (selected === undefined) throw new ToolError("tool_unavailable", "No eligible agent backend");
@@ -324,7 +347,7 @@ available, and legacy team execution rejecting v4 before side effects.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add packages/contracts packages/core/src/agent-backend-router.ts packages/core/test/agent-backend-router.test.ts packages/core/src/child-agent-manager.ts packages/core/test/child-agent-manager.test.ts packages/core/src/session-record-validator.ts packages/core/test/session-runtime-records.test.ts packages/core/src/agent-profile.ts packages/core/src/index.ts
+git add packages/contracts packages/core/src/agent-backend-router.ts packages/core/test/agent-backend-router.test.ts packages/core/src/child-agent-manager.ts packages/core/test/child-agent-manager.test.ts packages/core/src/session-record-validator.ts packages/core/test/session-runtime-records.test.ts packages/core/src/agent-profile.ts packages/core/test/agent-profile.test.ts packages/core/src/team-agent-manager.ts packages/core/test/team-agent-manager.test.ts packages/core/src/index.ts packages/cli/src/commands/agents.ts packages/cli/test/session-commands.test.ts
 git commit -m "feat: add versioned team runtime policy contracts"
 ```
 
@@ -394,7 +417,7 @@ export type TeamRunRecordInput =
   | { readonly type: "apply_prepared"; readonly checkpoint: CheckpointRef; readonly at: string }
   | { readonly type: "apply_reset"; readonly reason: "clean_base"; readonly at: string }
   | { readonly type: "apply_committed"; readonly checkpoint: CheckpointRef; readonly changedFiles: readonly string[]; readonly at: string }
-  | { readonly type: "run_terminal"; readonly status: TeamRunTerminalStatus; readonly outcome: TeamRunOutcome; readonly at: string }
+  | { readonly type: "run_terminal"; readonly status: TeamRunNonApprovedTerminalStatus; readonly outcome: TeamRunOutcome; readonly at: string }
   | { readonly type: "cancel_requested"; readonly reason: string; readonly at: string }
   | { readonly type: "run_interrupted"; readonly reason: string; readonly manualAttentionRequired: boolean; readonly at: string };
 
@@ -446,8 +469,9 @@ export interface TeamRunOutcome {
 ```
 
 The reducer must require exact sequence increments, matching run IDs, monotonic
-rounds/counters, legal predecessor phases, bounded arrays/text, one claim owner,
-and immutable descriptor/policy/base/backend fields.
+rounds/counters/claim epochs, legal predecessor phases, bounded arrays/text, one
+active owner per claim epoch, and immutable descriptor/policy/base/backend
+fields.
 
 - [ ] **Step 4: Write store red tests for permissions, fsync replay, fencing, corruption, and partial-tail recovery**
 
@@ -501,9 +525,14 @@ git commit -m "feat: add durable team run journal"
 - Modify: `packages/core/test/git-patch-artifacts.test.ts`
 - Modify: `packages/core/src/git-worktree-leases.ts`
 - Modify: `packages/core/test/git-worktree-leases.test.ts`
+- Modify: `packages/core/src/team-agent-manager.ts`
+- Modify: `packages/core/test/team-agent-manager.test.ts`
 - Modify: `packages/core/src/index.ts`
 - Modify: `packages/tools/src/checkpoints.ts`
 - Modify: `packages/tools/test/checkpoints.test.ts`
+- Modify: `packages/tools/src/types.ts`
+- Modify: `packages/tools/src/registry.ts`
+- Modify: `packages/tools/test/registry.test.ts`
 
 **Interfaces:**
 - Consumes: current patch validation, worktree lease, checkpoint store.
@@ -531,6 +560,13 @@ git commit -m "feat: add durable team run journal"
   recovery must attempt that lock and skip a live/busy owner; an in-memory set
   from a new process is not proof that a lease is stale. Expose
   `assertActive(lease)` and require it before staging/apply.
+- Add a static tool checkpoint-ownership field (`registry` by default,
+  `self_managed` for a tool with its own durable transaction). The registry
+  still performs permissions and Plan-mode checks but skips its outer snapshot
+  for self-managed tools. Mark `delegate_team` self-managed because both v3 and
+  v4 own their integration checkpoint; mark the later `apply_team` likewise.
+  This prevents an outer checkpoint failure from contradicting a journaled
+  successful apply.
 
 - [ ] **Step 1: Write file-store red tests**
 
@@ -576,19 +612,25 @@ const staged = await manager.stage({ lease: stagingLease, artifacts: [a, b], sig
 expect(staged.changedFiles).toEqual(["a.ts", "b.ts"]);
 expect(await gitStatus(parentRoot)).toBe("");
 
-await manager.integrate({
+const checkpoint = await manager.prepareCandidateApply({
   base,
-  artifacts: [candidate],
+  artifact: candidate,
   sessionId,
   operationId,
   checkpoints,
   signal,
-  onPrepared: async (checkpoint) => observed.push(checkpoint),
 });
-expect(observed).toHaveLength(1);
+const applied = await manager.applyCandidate({
+  base,
+  artifact: candidate,
+  checkpoint,
+  signal,
+});
+expect(applied.changedFiles).toEqual(candidate.paths);
+expect((await checkpoints.complete(checkpoint, parentRoot)).after).toBeDefined();
 ```
 
-- [ ] **Step 5: Add `stage`, persistent loading, and apply hooks**
+- [ ] **Step 5: Add `stage`, persistent loading, and split apply primitives**
 
 ```ts
 export interface GitPatchStageInput {
@@ -629,14 +671,14 @@ an arbitrary caller path.
 
 - [ ] **Step 7: Run patch, worktree, and checkpoint suites**
 
-Run: `npx vitest run packages/core/test/file-git-patch-artifact-store.test.ts packages/core/test/git-patch-artifacts.test.ts packages/core/test/git-worktree-leases.test.ts packages/tools/test/checkpoints.test.ts`
+Run: `npx vitest run packages/core/test/file-git-patch-artifact-store.test.ts packages/core/test/git-patch-artifacts.test.ts packages/core/test/git-worktree-leases.test.ts packages/core/test/team-agent-manager.test.ts packages/tools/test/checkpoints.test.ts packages/tools/test/registry.test.ts`
 
 Expected: PASS.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add packages/core/src/file-git-patch-artifact-store.ts packages/core/src/git-patch-artifacts.ts packages/core/src/git-worktree-leases.ts packages/core/src/index.ts packages/core/test/file-git-patch-artifact-store.test.ts packages/core/test/git-patch-artifacts.test.ts packages/core/test/git-worktree-leases.test.ts packages/tools/src/checkpoints.ts packages/tools/test/checkpoints.test.ts
+git add packages/core/src/file-git-patch-artifact-store.ts packages/core/src/git-patch-artifacts.ts packages/core/src/git-worktree-leases.ts packages/core/src/team-agent-manager.ts packages/core/src/index.ts packages/core/test/file-git-patch-artifact-store.test.ts packages/core/test/git-patch-artifacts.test.ts packages/core/test/git-worktree-leases.test.ts packages/core/test/team-agent-manager.test.ts packages/tools/src/checkpoints.ts packages/tools/test/checkpoints.test.ts packages/tools/src/types.ts packages/tools/src/registry.ts packages/tools/test/registry.test.ts
 git commit -m "feat: persist and stage team patch artifacts"
 ```
 
@@ -678,11 +720,21 @@ export interface AgentReviewVerdictV2 extends AgentReviewVerdict {
   readonly findings: readonly TeamReviewFinding[];
 }
 
-export interface AgentReviewPanelRunOptions {
-  readonly contract?: "v1" | "v2";
-  readonly workspace?: { readonly cwd: string; readonly descriptor: AgentGitWorktreeWorkspace };
-  readonly team?: { readonly id: string; readonly indexOffset: number; readonly round: number };
-}
+export type AgentReviewPanelRunOptions =
+  | { readonly contract: "v1"; readonly team?: LegacyTeamCorrelation }
+  | {
+      readonly contract: "v2";
+      readonly workspace: {
+        readonly cwd: string;
+        readonly descriptor: AgentGitWorktreeWorkspace;
+      };
+      readonly team: {
+        readonly id: string;
+        readonly indexOffset: number;
+        readonly round: number;
+      };
+      readonly backend: TrustedAgentBackendRoute;
+    };
 ```
 
 For contract v2, delegate `review_v2` with the supplied staging cwd/workspace.
@@ -692,6 +744,10 @@ Panel precedence is fail-closed: any invalid or failed required reviewer makes
 the panel `unverified`; only an otherwise entirely valid panel containing at
 least one valid change request becomes `changes_requested`; approval requires
 all valid approvals and zero findings. Invalid review never triggers Repair.
+V2 results carry the aggregated findings. Require host-derived evidence from
+each completed child result in addition to model-authored JSON evidence. V2
+prompts call the target a staging workspace, never reveal its absolute path,
+and pass each trusted reviewer route through to `ChildAgentManager`.
 
 - [ ] **Step 4: Write and implement deterministic repair prompt tests**
 
@@ -705,7 +761,8 @@ expect(prompt.length).toBeLessThanOrEqual(32_768);
 The prompt instructs `repair_v1` to change only the staged candidate, satisfy
 each acceptance condition, avoid delegation/process/network use, and return
 changed-file/evidence handoff. Reject oversized aggregate findings before child
-creation.
+creation. Encode objective, paths, and findings as JSON data, enforce UTF-8 byte
+limits rather than JavaScript code-unit counts, and use deterministic ordering.
 
 - [ ] **Step 5: Run review, profile, and child suites**
 
@@ -727,12 +784,58 @@ git commit -m "feat: add structured team review and repair contracts"
 - Create: `packages/core/test/team-run-supervisor.test.ts`
 - Modify: `packages/core/src/team-agent-manager.ts`
 - Modify: `packages/core/test/team-agent-manager.test.ts`
+- Modify: `packages/core/src/child-agent-manager.ts`
+- Modify: `packages/core/test/child-agent-manager.test.ts`
+- Modify: `packages/core/src/team-run-state.ts`
+- Modify: `packages/core/test/team-run-state.test.ts`
+- Modify: `packages/core/src/jsonl-team-run-store.ts`
+- Modify: `packages/core/test/jsonl-team-run-store.test.ts`
+- Modify: `packages/core/src/git-patch-artifacts.ts`
+- Modify: `packages/core/test/git-patch-artifacts.test.ts`
 - Modify: `packages/core/src/events.ts`
+- Create: `packages/core/test/events.test.ts`
 - Modify: `packages/core/src/index.ts`
+- Modify: `packages/contracts/src/agents.ts`
+- Modify: `packages/contracts/test/agents.test.ts`
+- Modify: `packages/cli/src/assembly.ts`
+- Modify: `packages/cli/test/assembly.test.ts`
 
 **Interfaces:**
 - Consumes: team store, patch store/staging, worktrees, children, review panel, router, checkpoints.
 - Produces: `TeamRunSupervisor.startForeground()`, v4 delegation path, durable normalized events.
+
+**Supervisor invariants from the architecture audit:**
+
+- Append `child_reserved` with an authenticated preallocated identity before
+  every delegation. Let the child descriptor carry the same correlation; after
+  any return/throw, load durable child state and append `child_finished`.
+- Wait for all aborted siblings to settle and persist every outcome. The lowest
+  input-index genuine failure is canonical; induced cancellations never hide
+  it.
+- Cancellation intent is durable before abort. Re-read it before each child,
+  stage, review, repair, candidate capture, and apply boundary. After
+  `apply_prepared`, reconciliation—not ordinary cancellation—owns the result.
+- Valid intermediate changes requests are review records, not terminal state.
+  Invalid/failed review is terminal `unverified` with no Repair; exhausted valid
+  findings are terminal `changes_requested`; every non-approved outcome leaves
+  the parent clean.
+- Retain the staging lease only through review/repair/cumulative capture, then
+  release it. Never keep a worktree for `ready_to_apply`. Do not discard worker
+  artifacts until the cumulative candidate link is durable.
+- Freeze the full worst-case allocation at creation, but reserve requests and
+  children only as attempts start so `ChildAgentManager` does not double-count.
+  Reconstruct its mutable budget from journal reservations/outcomes on resume.
+  A started run with opaque steps is charged its full request allowance.
+- Aggregate usage with coverage counts. `reportedCostUsd` is `null` when no
+  child reports cost and explicitly partial when some do not. Known overrun may
+  finish the active child but denies every subsequent child. Interrupted
+  replacement attempts consume the same frozen capacity; resume may truthfully
+  exhaust rather than inventing extra budget.
+- The journal transition is authoritative; publish compact events only after it
+  succeeds and swallow presentation failures. Events contain run ID, sequence,
+  status/phase, round/role/index, mode, safe route strategy/reason, and aggregate
+  counts—never prompts, finding text, patch identifiers/hashes, paths, full
+  pins, account data, or credentials.
 
 - [ ] **Step 1: Write foreground red tests for staged approval and no-parent-change failures**
 
@@ -774,7 +877,9 @@ complete worst-case v4 envelope, route every role, create all Implement siblings
 through `ChildAgentManager`, stage artifacts in input order, review with v2, run
 at most the frozen repair rounds, capture one cumulative candidate, and apply it
 only for foreground approved runs. Use the lowest failed input index as the
-canonical failure. Release every reachable worktree in `finally`.
+canonical failure. Release every reachable worktree in `finally`. Foreground
+invocation of the mutating `delegate_team` tool is itself the explicit apply
+boundary; the tool uses self-managed checkpointing.
 
 - [ ] **Step 4: Write repair-loop red tests**
 
@@ -792,11 +897,11 @@ expect(await gitStatus(parentRoot)).toBe("");
 - [ ] **Step 5: Implement bounded repair and accounting**
 
 Before each new child, read journal cancellation and verify remaining child,
-request, and reported-cost admission. Each Repair is a new `repair_v1` child in
+request, and known-reported-cost admission. Each Repair is a new `repair_v1` child in
 the staging workspace, then review round increments. Invalid/failed review
 becomes `unverified` without Repair. Aggregate provider usage with optional
-fields; keep cost `null` until at least one provider reports it and record which
-children lacked cost telemetry.
+fields; keep cost `null` until at least one provider reports it, record coverage
+counts, and label a numeric total partial when any child lacked cost telemetry.
 
 - [ ] **Step 6: Route v4 `delegate_team` through the supervisor**
 
@@ -820,14 +925,14 @@ records remain unchanged.
 
 - [ ] **Step 7: Run supervisor, legacy team, child, review, patch, and event tests**
 
-Run: `npx vitest run packages/core/test/team-run-supervisor.test.ts packages/core/test/team-agent-manager.test.ts packages/core/test/child-agent-manager.test.ts packages/core/test/agent-review-panel.test.ts packages/core/test/git-patch-artifacts.test.ts`
+Run: `npx vitest run packages/core/test/team-run-supervisor.test.ts packages/core/test/team-run-state.test.ts packages/core/test/jsonl-team-run-store.test.ts packages/core/test/team-agent-manager.test.ts packages/core/test/child-agent-manager.test.ts packages/core/test/agent-review-panel.test.ts packages/core/test/git-patch-artifacts.test.ts packages/core/test/events.test.ts packages/tools/test/registry.test.ts packages/contracts/test/agents.test.ts packages/cli/test/assembly.test.ts`
 
 Expected: PASS with v3 tests unchanged and v4 parent unchanged on every non-approved result.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add packages/core/src/team-run-supervisor.ts packages/core/test/team-run-supervisor.test.ts packages/core/src/team-agent-manager.ts packages/core/test/team-agent-manager.test.ts packages/core/src/events.ts packages/core/src/index.ts
+git add packages/core/src/team-run-supervisor.ts packages/core/test/team-run-supervisor.test.ts packages/core/src/team-agent-manager.ts packages/core/test/team-agent-manager.test.ts packages/core/src/child-agent-manager.ts packages/core/test/child-agent-manager.test.ts packages/core/src/team-run-state.ts packages/core/test/team-run-state.test.ts packages/core/src/jsonl-team-run-store.ts packages/core/test/jsonl-team-run-store.test.ts packages/core/src/git-patch-artifacts.ts packages/core/test/git-patch-artifacts.test.ts packages/core/src/events.ts packages/core/test/events.test.ts packages/core/src/index.ts packages/contracts/src/agents.ts packages/contracts/test/agents.test.ts packages/cli/src/assembly.ts packages/cli/test/assembly.test.ts
 git commit -m "feat: add durable staged team supervisor"
 ```
 
@@ -842,12 +947,38 @@ git commit -m "feat: add durable staged team supervisor"
 - Modify: `packages/cli/src/commands/agents.ts`
 - Modify: `packages/cli/src/commands/create.ts`
 - Modify: `packages/cli/test/commands.test.ts`
+- Modify: `packages/cli/test/session-commands.test.ts`
+- Modify: `packages/cli/src/runtime.ts`
+- Modify: `packages/cli/test/runtime.test.ts`
 - Modify: `packages/cli/src/assembly.ts`
 - Modify: `packages/cli/test/assembly.test.ts`
 
 **Interfaces:**
 - Consumes: `TeamRunSupervisor` control methods and CLI invocation context.
 - Produces: process-lifetime background scheduling, scoped status/wait/cancel/resume/apply model tools and `/agents` subcommands.
+
+**Background/control invariants:**
+
+- Admit background only for a root Act parent in `full_access`, a local/manual/
+  user-present long-lived host, a direct `model_provider` pin, reviewed
+  background capability/billing, and eligible no-process role routes. One-shot
+  commands and foreground-only subscription/runtime paths fail closed.
+- Allow at most one unresolved run per parent, including `ready_to_apply`.
+  Check both the durable store and a process-local claim to prevent races and
+  unbounded candidate accumulation.
+- Never expose journal state directly because it contains prompts and full
+  backend facts. Every control returns a separately constructed safe snapshot.
+- Install the active handle after durable creation/claim and before launching a
+  caught pipeline. Remove it only after durable terminal or `ready_to_apply`.
+- Foreign and missing IDs are indistinguishable `not_found`. Wait is bounded and
+  non-consuming. Cancellation records intent before abort and returns typed
+  `requested`/`already_terminal`; resume returns `started`/`already_active`.
+- `apply_team` and `resume_team` are mutating self-managed tools so Plan mode is
+  denied without an outer workspace checkpoint. Status/wait/cancel never mutate
+  the parent. Resume requires fresh trusted invocation and full access.
+- CLI commands receive the actual branded `HostInvocation` passed to runtime
+  submission. They must not synthesize trust. CLI apply requires current full
+  access or an explicit approval path before calling the supervisor.
 
 - [ ] **Step 1: Write background lifecycle red tests**
 
@@ -868,6 +999,8 @@ agent-runtime pins, and billing sources outside `local_compute`/`metered_api`.
 
 ```ts
 interface ActiveTeamRun {
+  readonly parentSessionId: string;
+  readonly ownerId: string;
   readonly controller: AbortController;
   readonly settled: Promise<void>;
 }
@@ -875,11 +1008,12 @@ interface ActiveTeamRun {
 readonly #active = new Map<string, ActiveTeamRun>();
 ```
 
-Start stores the handle before returning. `wait` accepts 0-30,000 ms and returns
-the latest snapshot on timeout without consuming it. `cancel` returns typed
-truth for requested/already-terminal/not-found and aborts a local controller.
-Every async pipeline catches its own rejection, journals a safe terminal, and
-never creates an unhandled rejection.
+Start persists the descriptor and owner claim, stores the handle, then launches
+the caught pipeline before returning. `wait` accepts 0-30,000 ms and returns
+`{ snapshot, timedOut }` without consuming it. `cancel` returns typed truth for
+requested/already-terminal/not-found and aborts a local controller. Every async
+pipeline catches its own rejection, journals a safe terminal, and never creates
+an unhandled rejection.
 
 - [ ] **Step 3: Write exact model-tool schema tests**
 
@@ -898,8 +1032,8 @@ export function createTeamRunTools(supervisor: TeamRunSupervisor): readonly Tool
 
 Use exact `{ id }`, `{ id, timeoutMs }`, or `{ id, reason }` schemas, bounded
 text, exact parent ownership, `in_process` execution, and truthful structured
-metadata. Only `apply_team` is mutating; `resume_team` may start background work
-but never mutates the parent.
+metadata. `apply_team` and `resume_team` use self-managed checkpointing;
+`resume_team` may start background work but never mutates the parent.
 
 - [ ] **Step 5: Write CLI command red tests**
 
@@ -920,14 +1054,14 @@ status, phase, round, child counts, known usage/cost, updated time, and exact ID
 
 - [ ] **Step 7: Run core tool, CLI command, runtime, and assembly tests**
 
-Run: `npx vitest run packages/core/test/team-run-supervisor.test.ts packages/core/test/team-run-tools.test.ts packages/cli/test/commands.test.ts packages/cli/test/runtime.test.ts packages/cli/test/assembly.test.ts`
+Run: `npx vitest run packages/core/test/team-run-supervisor.test.ts packages/core/test/team-run-tools.test.ts packages/cli/test/commands.test.ts packages/cli/test/session-commands.test.ts packages/cli/test/runtime.test.ts packages/cli/test/assembly.test.ts`
 
 Expected: PASS.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add packages/core/src/team-run-supervisor.ts packages/core/test/team-run-supervisor.test.ts packages/core/src/team-run-tools.ts packages/core/test/team-run-tools.test.ts packages/cli/src/commands packages/cli/src/assembly.ts packages/cli/test/commands.test.ts packages/cli/test/assembly.test.ts
+git add packages/core/src/team-run-supervisor.ts packages/core/test/team-run-supervisor.test.ts packages/core/src/team-run-tools.ts packages/core/test/team-run-tools.test.ts packages/cli/src/commands packages/cli/src/runtime.ts packages/cli/src/assembly.ts packages/cli/test/commands.test.ts packages/cli/test/session-commands.test.ts packages/cli/test/runtime.test.ts packages/cli/test/assembly.test.ts
 git commit -m "feat: add background team controls"
 ```
 
@@ -949,6 +1083,26 @@ git commit -m "feat: add background team controls"
 - Consumes: `apply_prepared` checkpoint, cumulative candidate, child sessions, private worktree root.
 - Produces: `TeamRunSupervisor.recover()`, exact apply reconciliation, interrupted child terminalization, startup wiring.
 
+**Recovery invariants:**
+
+- Recovery first tries the distinct run-owner lock. Busy means a live process;
+  leave that run untouched. Only a safely reclaimed owner may be interrupted or
+  reconciled. Stable `ready_to_apply` and terminal runs need no live owner.
+- Running recovery terminalizes every correlated ready/running child truthfully,
+  releases only dead-owned private worktrees, appends `run_interrupted`, and
+  retains artifacts needed for resume. Resume always creates new depth-one
+  sibling attempts and consumes remaining frozen budget.
+- Prepared apply compares `HEAD`, the exact dirty path set, and stored
+  after-state fingerprints. It must not recapture a patch or use intent-to-add
+  because that would mutate uncertain user state.
+- Clean exact base appends `apply_reset`; exact candidate state calls the
+  checkpoint store's idempotent `complete()` then appends `apply_committed`;
+  anything else becomes manual-attention `interrupted` while retaining the
+  checkpoint and artifact. Never auto-restore or overwrite uncertain work.
+- Startup recovery runs before provider availability or prompt acceptance. Use
+  injected test-only boundary callbacks and subprocess exit fixtures for crash
+  tests; never add environment-controlled production kill switches.
+
 - [ ] **Step 1: Write restart red tests for running and stable states**
 
 ```ts
@@ -963,13 +1117,14 @@ expect((await store.load(id)).status).toBe("ready_to_apply");
 
 - [ ] **Step 2: Implement conservative startup recovery**
 
-`recover()` first reconciles private stale worktrees, then marks every `created`,
-`running`, or non-mutating `applying` record from a dead owner as `interrupted`.
-It preserves `ready_to_apply` and terminals. It terminalizes owned child sessions
-still `ready`/`running` with `turn_interrupted` or `agent_run_cancelled`; it never
-reuses them. Resume verifies the original parent, exact cwd/base/backend/policy,
-clean Git state, current `full_access` permission, and fresh trusted invocation before
-launching new sibling attempts.
+`recover()` attempts each run-owner lock, skips live owners, reconciles private
+dead-owned worktrees, then marks each reclaimed `created` or `running` record
+`interrupted`. An `applying` record follows the prepared-apply rules below. It
+preserves `ready_to_apply` and terminals. It terminalizes correlated child
+sessions still `ready`/`running` with truthful interruption/cancellation records;
+it never reuses them. Resume verifies the original parent, exact cwd/base/
+backend/frozen policy, clean Git state, current `full_access` permission, and
+fresh trusted invocation before launching new sibling attempts.
 
 - [ ] **Step 3: Write apply-preparation crash red tests**
 
@@ -994,11 +1149,12 @@ compareWorkspace(input: {
 }): Promise<"clean_base" | "exact_candidate" | "other">;
 ```
 
-Generate the same bounded full-index, no-rename, no-textconv patch used at
-capture; compare paths, bytes, and digest. For `clean_base`, append back to
-`ready_to_apply`. For `exact_candidate`, complete/capture the checkpoint and
-append approved. For `other`, append interrupted/manual attention and retain the
-artifact/checkpoint; never restore or overwrite unknown user work automatically.
+Compare `HEAD`, exact dirty paths, and the artifact ref's stored per-path result
+fingerprints without changing the index. For `clean_base`, append `apply_reset`
+back to `ready_to_apply`. For `exact_candidate`, idempotently complete the
+checkpoint and append `apply_committed`. For `other`, append interrupted/manual
+attention and retain the artifact/checkpoint; never restore or overwrite unknown
+user work automatically.
 
 - [ ] **Step 5: Add startup assembly ordering tests**
 
@@ -1011,9 +1167,10 @@ expect(order).toEqual([
 ]);
 ```
 
-Assembly constructs stores/managers, runs recovery before accepting prompts,
-then selects only the canonical parent session. Recovery failures produce one
-safe startup error rather than silently proceeding with stale running state.
+Assembly constructs stores/managers, runs recovery even when no provider is
+configured and before accepting prompts, then selects only the canonical parent
+session. Recovery failures produce one safe startup error rather than silently
+proceeding with stale running state.
 
 - [ ] **Step 6: Run recovery, store, patch, session, and assembly suites**
 
