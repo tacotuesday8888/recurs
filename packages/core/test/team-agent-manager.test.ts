@@ -28,6 +28,7 @@ import {
   type GitWorktreeLease,
   type RecursEvent,
 } from "../src/index.js";
+import type { TeamRunSupervisor } from "../src/team-run-supervisor.js";
 import { testAt, testBackendPin } from "../../../tests/support/backend.js";
 
 const directories: string[] = [];
@@ -57,6 +58,8 @@ function childResult(index: number): ChildDelegationResult {
       profileId: "implement_v1",
       usage: { inputTokens: 20, outputTokens: 10, costUsd: 0.02 },
       usageSource: "provider",
+      requestsUsed: 1,
+      evidenceSource: "host_tools",
       changedFiles: [`file-${index}.ts`],
       evidence: [`task ${index} tests passed`],
       costLimitUsd: 3,
@@ -110,6 +113,7 @@ function reviewResult(
 
 interface HarnessOptions {
   modeId?: OperatingModeId;
+  supervisor?: Pick<TeamRunSupervisor, "preflight" | "startForeground">;
   delegate?: Pick<ChildAgentManager, "delegate">["delegate"];
   capture?: (lease: GitWorktreeLease) => Promise<GitPatchArtifactHandle | null>;
   discard?: (handles: readonly GitPatchArtifactHandle[]) => Promise<void>;
@@ -166,6 +170,9 @@ async function harness(options: HarnessOptions = {}) {
   let preflightCalls = 0;
   const manager = new TeamAgentManager({
     sessions,
+    ...(options.supervisor === undefined
+      ? {}
+      : { supervisor: options.supervisor }),
     children,
     worktrees: {
       async create() {
@@ -321,6 +328,59 @@ describe("TeamAgentManager", () => {
       childrenStarted: 0,
       requestsReserved: 0,
     });
+  });
+
+  it("routes an authenticated v4 parent through the durable supervisor", async () => {
+    const calls: Array<{ method: string; input: unknown; context: ToolContext }> = [];
+    const supervised = {
+      output: "Durable team approved",
+      metadata: {
+        teamId: "durable-team-1",
+        status: "approved" as const,
+        operatingModeId: "balanced_v4" as const,
+        repairRounds: 0,
+        accounting: {
+          childrenReserved: 0,
+          childrenFinished: 0,
+          requestsReserved: 0,
+          requestsUsed: 0,
+          usage: null,
+          usageReportedChildren: 0,
+          usageMissingChildren: 0,
+          reportedCostUsd: null,
+          costReportedChildren: 0,
+          costMissingChildren: 0,
+          costCoverage: "none" as const,
+        },
+        changedFiles: ["src/cache.ts"],
+        evidence: ["durable review approved"],
+      },
+    };
+    const setup = await harness({
+      modeId: "balanced_v4",
+      supervisor: {
+        async preflight(value, context) {
+          calls.push({ method: "preflight", input: value, context });
+        },
+        async startForeground(value, context) {
+          calls.push({ method: "startForeground", input: value, context });
+          return supervised;
+        },
+      },
+    });
+    const parsed = setup.tool.parse(input());
+
+    await setup.tool.preflight?.(parsed, setup.context);
+    const result = await setup.tool.execute(parsed, setup.context);
+
+    expect(calls).toEqual([
+      { method: "preflight", input: parsed, context: setup.context },
+      { method: "startForeground", input: parsed, context: setup.context },
+    ]);
+    expect(result).toBe(supervised);
+    expect(setup.preflightCalls).toBe(0);
+    expect(setup.log).toEqual([]);
+    expect(setup.integrated).toEqual([]);
   });
 
   it("runs isolated Implement workers concurrently, captures before cleanup, integrates in order, and reviews", async () => {

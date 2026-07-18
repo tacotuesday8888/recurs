@@ -371,9 +371,9 @@ describe("AgentLoop", () => {
     expect(budgets).toHaveLength(2);
     expect(budgets[0]).toBe(budgets[1]);
     expect(budgets[0]).toEqual({
-      maxChildren: 4,
+      maxChildren: 7,
       childrenStarted: 2,
-      maxRequests: 32,
+      maxRequests: 56,
       requestsReserved: 0,
       requestsUsed: 0,
       maxReportedCostUsd: 3,

@@ -126,6 +126,11 @@ function successfulCoordinator(
 function teamWorkspace(repositoryRoot: string, name = "team-worktree") {
   const worktreeRoot = path.join(repositoryRoot, name);
   return {
+    teamOperatingMode: { id: "balanced_v4" as const, version: 4 as const },
+    teamParentPermissions: {
+      executionMode: "act" as const,
+      permissionMode: "approved_for_me" as const,
+    },
     cwd: worktreeRoot,
     workspace: {
       kind: "git_worktree" as const,
@@ -136,6 +141,29 @@ function teamWorkspace(repositoryRoot: string, name = "team-worktree") {
       revision: "a".repeat(40),
     },
   };
+}
+
+type TeamAuthorityInput = Parameters<ChildAgentManager["authorizeTeamRun"]>[0];
+type TeamAuthorityContext = Parameters<ChildAgentManager["authorizeTeamRun"]>[1];
+
+async function authorizeTeam(
+  manager: ChildAgentManager,
+  runContext: TeamAuthorityContext,
+  options: {
+    readonly team: { readonly runId: string };
+    readonly teamExecution: TeamAuthorityInput["execution"];
+    readonly teamOperatingMode: TeamAuthorityInput["operatingMode"];
+    readonly teamParentPermissions: TeamAuthorityInput["parentPermissions"];
+    readonly workspace: { readonly repositoryRoot: string };
+  },
+) {
+  return await manager.authorizeTeamRun({
+    runId: options.team.runId,
+    execution: options.teamExecution,
+    operatingMode: options.teamOperatingMode,
+    parentPermissions: options.teamParentPermissions,
+    repositoryRoot: options.workspace.repositoryRoot,
+  }, runContext);
 }
 
 describe("ChildAgentManager", () => {
@@ -274,7 +302,7 @@ describe("ChildAgentManager", () => {
         profileId,
         workflow: {
           childrenStarted: index + 1,
-          maxRequests: 32,
+          maxRequests: 56,
           requestsReserved: (index + 1) * 8,
           requestsUsed: index + 1,
         },
@@ -299,8 +327,8 @@ describe("ChildAgentManager", () => {
       changedFiles: ["src/a.ts"],
       workflow: {
         childrenStarted: 3,
-        maxChildren: 4,
-        maxRequests: 32,
+        maxChildren: 7,
+        maxRequests: 56,
         requestsReserved: 24,
         requestsUsed: 3,
         reportedCostUsd: 0.75,
@@ -385,7 +413,7 @@ describe("ChildAgentManager", () => {
     expect(reloadedParent.agent).not.toHaveProperty("workspace");
   });
 
-  it("reserves a bounded request share before concurrent v3 children start", async () => {
+  it("reserves a bounded request share before concurrent default-mode children start", async () => {
     const { sessions, parent } = await storeFixture();
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
@@ -436,7 +464,7 @@ describe("ChildAgentManager", () => {
 
     await ready;
     expect(runContext.delegationBudget).toMatchObject({
-      maxRequests: 32,
+      maxRequests: 56,
       requestsReserved: 24,
       requestsUsed: 0,
       childrenStarted: 3,
@@ -491,7 +519,7 @@ describe("ChildAgentManager", () => {
     }), runContext);
 
     expect(runContext.delegationBudget).toMatchObject({
-      maxRequests: 32,
+      maxRequests: 56,
       requestsReserved: 8,
       requestsUsed: 8,
     });
@@ -760,7 +788,7 @@ describe("ChildAgentManager", () => {
       changedFiles: [],
       workflow: {
         childrenStarted: 1,
-        maxChildren: 4,
+        maxChildren: 7,
         reportedCostUsd: 0,
       },
     });
@@ -979,7 +1007,7 @@ describe("ChildAgentManager", () => {
 
     await expect(tool.execute(input, childLimited)).rejects.toMatchObject({
       code: "permission_denied",
-      message: "Agent child limit reached (4)",
+      message: "Agent child limit reached (7)",
     });
     await expect(tool.execute(input, costLimited)).rejects.toMatchObject({
       code: "permission_denied",
@@ -987,7 +1015,7 @@ describe("ChildAgentManager", () => {
     });
     await expect(tool.execute(input, requestLimited)).rejects.toMatchObject({
       code: "permission_denied",
-      message: "Agent request limit reached (32)",
+      message: "Agent request limit reached (56)",
     });
     expect(starts).toBe(0);
   });
@@ -1158,11 +1186,15 @@ describe("ChildAgentManager", () => {
       prompt: "Implement without running repository code",
     };
     const runContext = context(parent);
-    const options = {
+    const optionBindings = {
       ...teamWorkspace(directory),
       teamExecution: "foreground" as const,
       backend: { decision },
       team: correlation,
+    };
+    const options = {
+      ...optionBindings,
+      teamAuthority: await authorizeTeam(manager, runContext, optionBindings),
     };
     const identity = manager.reserveIdentity(input, runContext, options);
     const result = await manager.delegate(input, runContext, {
@@ -1190,6 +1222,122 @@ describe("ChildAgentManager", () => {
       },
     });
     expect(result.output).toBe("completed");
+  });
+
+  it("runs an internal child under its authenticated frozen v4 mode after the parent mode changes", async () => {
+    const { directory, sessions, parent } = await storeFixture("balanced_v4");
+    const frozen = getOperatingModePolicy("balanced_v4");
+    const router = new AgentBackendRouter();
+    const decision = router.select({
+      role: "review",
+      executionMode: "act",
+      permissionMode: "approved_for_me",
+      background: false,
+      candidates: [{
+        id: "frozen-review",
+        pin: testBackendPin(),
+        parent: true,
+        roles: ["review"],
+        executionModes: ["act"],
+        permissionModes: ["approved_for_me"],
+        hostTools: true,
+        background: true,
+        ready: true,
+      }],
+    });
+    let observed: Awaited<ReturnType<JsonlSessionStore["loadState"]>> | undefined;
+    const manager = new ChildAgentManager({
+      sessions,
+      backendRouter: router,
+      getCoordinator: () => successfulCoordinator(async (input) => {
+        observed = await sessions.loadState(input.sessionId);
+      }),
+      async emit() {},
+      createId: (() => {
+        const ids = ["frozen-session", "frozen-agent", "frozen-task"];
+        return () => ids.shift()!;
+      })(),
+      now: () => testAt,
+    });
+    const input = {
+      profile: "review_v2" as const,
+      description: "Review frozen candidate",
+      prompt: "Review the staged candidate",
+    };
+    const teamOperatingMode = { id: frozen.id, version: frozen.version };
+    const optionBindings = {
+      ...teamWorkspace(directory, "frozen-review-worktree"),
+      teamExecution: "foreground" as const,
+      teamOperatingMode,
+      teamParentPermissions: {
+        executionMode: "act" as const,
+        permissionMode: "approved_for_me" as const,
+      },
+      backend: { decision },
+      team: {
+        runId: "frozen-run",
+        role: "review" as const,
+        taskIndex: 1,
+        round: 0,
+        attemptId: "frozen-attempt",
+      },
+    };
+    const runContext = context(parent);
+    const options = {
+      ...optionBindings,
+      teamAuthority: await authorizeTeam(manager, runContext, optionBindings),
+    };
+    const identity = manager.reserveIdentity(input, runContext, options);
+
+    const current = await sessions.loadState(parent.id);
+    await sessions.withSessionMutation(
+      parent.id,
+      current.lastSequence ?? 0,
+      async (lease) => {
+        const live = getOperatingModePolicy("balanced_v3");
+        await lease.append({
+          type: "agent_policy_updated",
+          operatingModeId: live.id,
+          operatingModeVersion: live.version,
+          at: testAt,
+        });
+        await lease.append({
+          type: "mode_updated",
+          source: "command",
+          executionMode: "act",
+          permissionMode: "ask_always",
+          at: testAt,
+        });
+      },
+    );
+
+    const result = await manager.delegate(input, runContext, {
+      ...options,
+      identity,
+    });
+
+    expect(result.metadata).toMatchObject({
+      operatingModeId: "balanced_v4",
+      profileId: "review_v2",
+      evidenceSource: "host_tools",
+    });
+    expect(observed).toMatchObject({
+      agent: {
+        operatingMode: { id: "balanced_v4", version: 4 },
+        permissions: {
+          parentExecutionMode: "act",
+          parentPermissionMode: "approved_for_me",
+          permissionMode: "approved_for_me",
+        },
+        limits: {
+          ...frozen.orchestration,
+          maxRequests: Math.floor(
+            frozen.workflow.maxRequestsPerRun /
+              frozen.workflow.maxChildrenPerRun,
+          ),
+        },
+      },
+    });
   });
 
   it("rejects forged, cross-router, and role-mismatched route decisions before allocation", async () => {
@@ -1228,13 +1376,13 @@ describe("ChildAgentManager", () => {
     };
     const implement = { ...review, profile: "implement_v2" as const };
     const trusted = router.select(routeInput);
-    const bundle = (
+    const bundle = async (
       input: typeof review | typeof implement,
       decision: typeof trusted,
       role: "review" | "implement",
       suffix: string,
     ) => {
-      const options = {
+      const optionBindings = {
         ...teamWorkspace(directory, suffix),
         teamExecution: "foreground" as const,
         backend: { decision },
@@ -1246,6 +1394,10 @@ describe("ChildAgentManager", () => {
           attemptId: `attempt-${suffix}`,
         },
       };
+      const options = {
+        ...optionBindings,
+        teamAuthority: await authorizeTeam(manager, runContext, optionBindings),
+      };
       return {
         ...options,
         identity: manager.reserveIdentity(input, runContext, options),
@@ -1256,17 +1408,17 @@ describe("ChildAgentManager", () => {
     await expect(manager.delegate(
       review,
       runContext,
-      bundle(review, forged, "review", "forged-route"),
+      await bundle(review, forged, "review", "forged-route"),
     )).rejects.toThrow(/trusted backend route/u);
     await expect(manager.delegate(
       review,
       runContext,
-      bundle(review, trustedByOther, "review", "cross-route"),
+      await bundle(review, trustedByOther, "review", "cross-route"),
     )).rejects.toThrow(/trusted backend route/u);
     await expect(manager.delegate(
       implement,
       runContext,
-      bundle(implement, trusted, "implement", "role-route"),
+      await bundle(implement, trusted, "implement", "role-route"),
     )).rejects.toThrow(/does not match/u);
     expect(runContext.delegationBudget).toMatchObject({
       childrenStarted: 0,
@@ -1389,16 +1541,19 @@ describe("ChildAgentManager", () => {
         ready: true,
       }],
     });
-    const options = {
+    const optionBindings = {
       ...teamWorkspace(directory, "correlation-worktree"),
       teamExecution: "foreground" as const,
       backend: { decision },
       team,
     };
-    const identity = manager.reserveIdentity(input, runContext, options);
+    const options = {
+      ...optionBindings,
+      teamAuthority: await authorizeTeam(manager, runContext, optionBindings),
+    };
 
-    await expect(manager.delegate(input, runContext, { ...options, identity }))
-      .rejects.toThrow(/team correlation/u);
+    expect(() => manager.reserveIdentity(input, runContext, options))
+      .toThrow(/authority/u);
     expect(runContext.delegationBudget).toMatchObject({
       childrenStarted: 0,
       requestsReserved: 0,
@@ -1471,7 +1626,7 @@ describe("ChildAgentManager", () => {
       prompt: "Review staged changes",
     };
     const runContext = context(parent);
-    const options = {
+    const optionBindings = {
       ...teamWorkspace(directory, "execution-mismatch"),
       teamExecution: "background" as const,
       backend: { decision },
@@ -1482,6 +1637,10 @@ describe("ChildAgentManager", () => {
         round: 1,
         attemptId: "attempt-execution",
       },
+    };
+    const options = {
+      ...optionBindings,
+      teamAuthority: await authorizeTeam(manager, runContext, optionBindings),
     };
     const identity = manager.reserveIdentity(input, runContext, options);
 
@@ -1534,11 +1693,15 @@ describe("ChildAgentManager", () => {
       attemptId: "attempt-repair",
     };
     const firstDecision = router.select(routeInput);
-    const reserved = {
+    const reservedBindings = {
       ...teamWorkspace(directory, "reserved-worktree"),
       teamExecution: "foreground" as const,
       backend: { decision: firstDecision },
       team,
+    };
+    const reserved = {
+      ...reservedBindings,
+      teamAuthority: await authorizeTeam(manager, runContext, reservedBindings),
     };
     const workspaceIdentity = manager.reserveIdentity(input, runContext, reserved);
 
@@ -1546,7 +1709,7 @@ describe("ChildAgentManager", () => {
       ...reserved,
       ...teamWorkspace(directory, "different-worktree"),
       identity: workspaceIdentity,
-    })).rejects.toThrow(/reservation does not match/u);
+    })).rejects.toThrow(/authority|reservation does not match/u);
 
     const secondDecision = router.select(routeInput);
     const routeIdentity = manager.reserveIdentity(input, runContext, reserved);
@@ -1555,6 +1718,34 @@ describe("ChildAgentManager", () => {
       backend: { decision: secondDecision },
       identity: routeIdentity,
     })).rejects.toThrow(/reservation does not match/u);
+
+    const permissionIdentity = manager.reserveIdentity(input, runContext, reserved);
+    await expect(manager.delegate(input, runContext, {
+      ...reserved,
+      teamParentPermissions: {
+        executionMode: "act",
+        permissionMode: "ask_always",
+      },
+      identity: permissionIdentity,
+    })).rejects.toThrow(/authority|reservation does not match/u);
+
+    manager.revokeTeamRunAuthority(reserved.teamAuthority);
+    expect(() => manager.reserveIdentity(input, runContext, reserved))
+      .toThrow(/authority/u);
+    expect(() => manager.reserveIdentity(input, runContext, {
+      ...reserved,
+      teamAuthority: { type: "team_child_authority" },
+    })).toThrow(/authority/u);
+    await expect(manager.authorizeTeamRun({
+      runId: team.runId,
+      execution: "foreground",
+      operatingMode: reserved.teamOperatingMode,
+      parentPermissions: {
+        executionMode: "act",
+        permissionMode: "full_access",
+      },
+      repositoryRoot: directory,
+    }, runContext)).rejects.toThrow(/live parent snapshot/u);
     expect(runContext.delegationBudget).toMatchObject({
       childrenStarted: 0,
       requestsReserved: 0,
@@ -1636,7 +1827,7 @@ describe("ChildAgentManager", () => {
     ];
 
     for (const [index, decision] of decisions.entries()) {
-      const options = {
+      const optionBindings = {
         ...teamWorkspace(directory, `route-mismatch-${index}`),
         teamExecution: "foreground" as const,
         backend: { decision },
@@ -1647,6 +1838,10 @@ describe("ChildAgentManager", () => {
           round: 1,
           attemptId: `attempt-route-${index}`,
         },
+      };
+      const options = {
+        ...optionBindings,
+        teamAuthority: await authorizeTeam(manager, runContext, optionBindings),
       };
       const identity = manager.reserveIdentity(input, runContext, options);
       await expect(manager.delegate(input, runContext, { ...options, identity }))

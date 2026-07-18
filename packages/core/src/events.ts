@@ -5,6 +5,11 @@ import type {
   OperatingModeId,
   OperatingModeVersion,
   ProviderUsage,
+  TeamRunBackendRoute,
+  TeamRunExecution,
+  TeamRunPhase,
+  TeamRunRole,
+  TeamRunStatus,
 } from "@recurs/contracts";
 import type {
   ApprovalResponse,
@@ -16,6 +21,10 @@ import type {
 
 import type { Goal } from "./goal.js";
 import type { SessionRecordV2 } from "./session-v2.js";
+import type {
+  TeamRunRecord,
+  TeamRunState,
+} from "./team-run-state.js";
 
 export interface Usage {
   inputTokens: number;
@@ -52,6 +61,16 @@ export interface AgentBatchCounts {
   completed: number;
   failed: number;
   cancelled: number;
+}
+
+export interface DurableTeamActivityCounts {
+  childrenReserved: number;
+  childrenFinished: number;
+  requestsReserved: number;
+  requestsUsed: number;
+  costReportedChildren: number;
+  costMissingChildren: number;
+  costCoverage: TeamRunState["accounting"]["costCoverage"];
 }
 
 export type AgentTeamStatus =
@@ -102,6 +121,23 @@ export type RecursEvent =
       type: "agent_policy_updated";
       operatingModeId: OperatingModeId;
       operatingModeVersion: OperatingModeVersion;
+    })
+  | (EventBase & {
+      type: "agent_team_activity";
+      parentAgentId: string;
+      teamId: string;
+      sequence: number;
+      status: TeamRunStatus;
+      phase: TeamRunPhase | null;
+      round: number;
+      operatingModeId: OperatingModeId;
+      execution: TeamRunExecution;
+      activity: TeamRunRecord["type"];
+      counts: DurableTeamActivityCounts;
+      role?: TeamRunRole;
+      index?: number;
+      routeStrategy?: TeamRunBackendRoute["strategy"];
+      routeReason?: TeamRunBackendRoute["reason"];
     })
   | (EventBase & {
       type: "agent_batch_started";
@@ -263,6 +299,89 @@ export type RecursEvent =
       teamId?: string;
       teamIndex?: number;
     });
+
+type DurableTeamActivityEvent = Extract<
+  RecursEvent,
+  { type: "agent_team_activity" }
+>;
+
+function activityChild(
+  state: TeamRunState,
+  record: TeamRunRecord,
+): TeamRunState["children"][number] | undefined {
+  const attemptId = record.type === "child_reserved"
+    ? record.child.attemptId
+    : record.type === "child_finished"
+      ? record.child.attemptId
+      : record.type === "artifact_linked"
+        ? record.artifact.attemptId ?? undefined
+        : undefined;
+  return attemptId === undefined
+    ? undefined
+    : state.children.find((child) => child.reservation.attemptId === attemptId);
+}
+
+function activityRole(
+  state: TeamRunState,
+  record: TeamRunRecord,
+): { role: TeamRunRole; index?: number } | undefined {
+  const child = activityChild(state, record);
+  if (child !== undefined) {
+    return {
+      role: child.reservation.role,
+      index: child.reservation.index,
+    };
+  }
+  if (record.type === "phase_started" &&
+    (record.phase === "implement" || record.phase === "review" ||
+      record.phase === "repair")) {
+    return { role: record.phase };
+  }
+  if (record.type === "review_recorded") return { role: "review" };
+  return undefined;
+}
+
+export function projectTeamRunActivityEvent(
+  state: TeamRunState,
+): DurableTeamActivityEvent {
+  const record = state.records.at(-1)!;
+  const role = activityRole(state, record);
+  const route = role === undefined
+    ? undefined
+    : state.descriptor.routes.find((candidate) => candidate.role === role.role);
+  const accounting = state.accounting;
+  return {
+    type: "agent_team_activity",
+    sessionId: state.descriptor.parentSessionId,
+    at: record.at,
+    parentAgentId: state.descriptor.parentAgentId,
+    teamId: state.descriptor.id,
+    sequence: state.lastSequence,
+    status: state.status,
+    phase: state.phase,
+    round: state.round,
+    operatingModeId: state.descriptor.operatingModeId,
+    execution: state.descriptor.execution,
+    activity: record.type,
+    counts: {
+      childrenReserved: accounting.childrenReserved,
+      childrenFinished: accounting.childrenFinished,
+      requestsReserved: accounting.requestsReserved,
+      requestsUsed: accounting.requestsUsed,
+      costReportedChildren: accounting.costReportedChildren,
+      costMissingChildren: accounting.costMissingChildren,
+      costCoverage: accounting.costCoverage,
+    },
+    ...(role === undefined ? {} : {
+      role: role.role,
+      ...(role.index === undefined ? {} : { index: role.index }),
+    }),
+    ...(route === undefined ? {} : {
+      routeStrategy: route.strategy,
+      routeReason: route.reason,
+    }),
+  };
+}
 
 export type SessionRecord =
   | ({ version: 1 } & Extract<RecursEvent, { type: "session_created" }>)

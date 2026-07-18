@@ -567,15 +567,65 @@ describe("GitPatchArtifactManager", () => {
       handle: candidate,
     });
 
-    const reference = {
-      id: checkpoint.id,
-      sessionId: checkpoint.sessionId,
-      toolCallId: checkpoint.toolCallId,
-    };
-    const completed = await setup.checkpoints.complete(reference, setup.repository);
-    await expect(setup.checkpoints.complete(reference, setup.repository))
-      .resolves.toEqual(completed);
+    const completed = await setup.artifacts.completeCandidateApply({
+      base,
+      artifact: candidate,
+      checkpoint,
+      checkpoints: setup.checkpoints,
+      signal,
+    });
+    expect(completed.changedFiles).toEqual(["candidate.txt", "edit.txt"]);
+    await expect(setup.artifacts.completeCandidateApply({
+      base,
+      artifact: candidate,
+      checkpoint,
+      checkpoints: setup.checkpoints,
+      signal,
+    })).resolves.toEqual(completed);
   }, 30_000);
+
+  it("refuses to approve workspace drift after candidate application", async () => {
+    for (const drift of ["foreign_path", "candidate_content"] as const) {
+      const setup = await fixture();
+      const signal = new AbortController().signal;
+      const base = await setup.artifacts.preflightParent(setup.repository, signal);
+      await writeFile(path.join(setup.lease.worktreeRoot, "edit.txt"), "candidate\n", "utf8");
+      const candidate = await setup.artifacts.capture(setup.lease, signal);
+      if (candidate === null) throw new Error("expected candidate");
+      await setup.worktrees.release(setup.lease);
+      const checkpoint = await setup.artifacts.prepareCandidateApply({
+        base,
+        artifact: candidate,
+        sessionId: "parent-session",
+        operationId: `team-run-completion-${drift}`,
+        checkpoints: setup.checkpoints,
+        signal,
+      });
+      await setup.artifacts.applyCandidate({
+        base,
+        artifact: candidate,
+        checkpoint,
+        checkpoints: setup.checkpoints,
+        signal,
+      });
+      if (drift === "foreign_path") {
+        await writeFile(path.join(setup.repository, "foreign.txt"), "foreign\n", "utf8");
+      } else {
+        await writeFile(path.join(setup.repository, "edit.txt"), "tampered\n", "utf8");
+      }
+
+      await expect(setup.artifacts.completeCandidateApply({
+        base,
+        artifact: candidate,
+        checkpoint,
+        checkpoints: setup.checkpoints,
+        signal,
+      })).rejects.toMatchObject({
+        code: "patch_files_mismatch",
+        message: "Completed parent state does not match the reviewed candidate",
+      });
+    }
+  }, 60_000);
 
   it("does not apply over parent drift, cancellation, or a closed checkpoint", async () => {
     for (const mode of ["drift", "cancel", "completed"] as const) {

@@ -44,6 +44,10 @@ import type {
 } from "./git-worktree-leases.js";
 import type { JsonlSessionStore } from "./jsonl-session-store.js";
 import { isPinnedSessionState } from "./session-v2.js";
+import type {
+  TeamRunResult,
+  TeamRunSupervisor,
+} from "./team-run-supervisor.js";
 
 const MAX_TASKS = 4;
 const MAX_DESCRIPTION_LENGTH = 256;
@@ -103,6 +107,7 @@ export interface TeamAgentResultMetadata extends Record<string, unknown> {
 
 export interface TeamAgentManagerDependencies {
   readonly sessions: JsonlSessionStore;
+  readonly supervisor?: Pick<TeamRunSupervisor, "preflight" | "startForeground">;
   readonly children: Pick<ChildAgentManager, "delegate">;
   readonly worktrees: GitWorktreeLeasePort;
   readonly patches: Pick<
@@ -276,6 +281,21 @@ export class TeamAgentManager {
     this.#now = dependencies.now ?? (() => new Date().toISOString());
   }
 
+  async #durableSupervisor(
+    context: ToolContext,
+  ): Promise<NonNullable<TeamAgentManagerDependencies["supervisor"]> | null> {
+    const supervisor = this.dependencies.supervisor;
+    if (supervisor === undefined) return null;
+    const parent = await this.dependencies.sessions.loadState(context.sessionId);
+    if (!isPinnedSessionState(parent) || parent.agent.role !== "parent" ||
+      parent.cwd !== context.cwd) {
+      return null;
+    }
+    return getOperatingModePolicy(parent.agent.operatingMode.id).version === 4
+      ? supervisor
+      : null;
+  }
+
   async #publish(event: RecursEvent): Promise<void> {
     try {
       await this.dependencies.emit(event);
@@ -409,6 +429,11 @@ export class TeamAgentManager {
   }
 
   async preflight(input: DelegateTeamInput, context: ToolContext): Promise<void> {
+    const supervisor = await this.#durableSupervisor(context);
+    if (supervisor !== null) {
+      await supervisor.preflight(input, context);
+      return;
+    }
     await this.#prepare(input, context);
   }
 
@@ -587,7 +612,14 @@ export class TeamAgentManager {
   async delegate(
     input: DelegateTeamInput,
     context: ToolContext,
-  ): Promise<ToolResult & { metadata: TeamAgentResultMetadata }> {
+  ): Promise<
+    | (ToolResult & { metadata: TeamAgentResultMetadata })
+    | TeamRunResult
+  > {
+    const supervisor = await this.#durableSupervisor(context);
+    if (supervisor !== null) {
+      return supervisor.startForeground(input, context);
+    }
     const prepared = await this.#prepare(input, context);
     const { parent, mode, team, budget, base } = prepared;
     const teamId = this.#createId();

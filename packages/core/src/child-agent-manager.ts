@@ -7,13 +7,17 @@ import {
   getOperatingModePolicy,
   narrowAgentPermissionMode,
   parseAgentProfileId,
+  parseOperatingModeId,
   type AgentBackendSelection,
   type AgentGitWorktreeWorkspace,
+  type AgentExecutionMode,
+  type AgentPermissionMode,
   type AgentProfileId,
   type AgentTeamCorrelation,
   type HostInvocation,
   type IntegrationFailure,
   type OperatingModeId,
+  type OperatingModeVersion,
   type ProviderUsage,
   type RunCoordinator,
   type TeamRunExecution,
@@ -69,15 +73,43 @@ export interface ChildIdentityReservation {
   readonly taskId: string;
 }
 
+export interface TeamOperatingModeBinding {
+  readonly id: OperatingModeId;
+  readonly version: OperatingModeVersion;
+}
+
+export interface TeamParentPermissionBinding {
+  readonly executionMode: AgentExecutionMode;
+  readonly permissionMode: AgentPermissionMode;
+}
+
+export interface TeamRunAuthorityInput {
+  readonly runId: string;
+  readonly execution: TeamRunExecution;
+  readonly operatingMode: TeamOperatingModeBinding;
+  readonly parentPermissions: TeamParentPermissionBinding;
+  readonly repositoryRoot: string;
+}
+
+export interface TeamChildAuthority {
+  readonly type: "team_child_authority";
+}
+
 interface TrustedChildOptions {
   readonly identity?: ChildIdentityReservation;
   readonly backend?: { readonly decision: AgentBackendRouteDecision };
   readonly teamExecution?: TeamRunExecution;
+  readonly teamOperatingMode?: TeamOperatingModeBinding;
+  readonly teamParentPermissions?: TeamParentPermissionBinding;
+  readonly teamAuthority?: TeamChildAuthority;
 }
 
 export interface ChildIdentityReservationOptions extends ChildDelegationCorrelation {
   readonly backend?: { readonly decision: AgentBackendRouteDecision };
   readonly teamExecution?: TeamRunExecution;
+  readonly teamOperatingMode?: TeamOperatingModeBinding;
+  readonly teamParentPermissions?: TeamParentPermissionBinding;
+  readonly teamAuthority?: TeamChildAuthority;
   readonly cwd?: string;
   readonly workspace?: AgentGitWorktreeWorkspace;
 }
@@ -103,6 +135,13 @@ export interface ChildDelegationMetadata extends Record<string, unknown> {
   readonly profileId: AgentProfileId;
   readonly usage: ProviderUsage | null;
   readonly usageSource: "provider" | "runtime" | "unavailable";
+  readonly requestsUsed: number;
+  readonly evidenceSource:
+    | "host_tools"
+    | "runtime"
+    | "mixed"
+    | "independent_verification"
+    | "none";
   readonly changedFiles: readonly string[];
   readonly evidence: readonly string[];
   readonly costLimitUsd: number;
@@ -208,16 +247,52 @@ function validTeamCorrelation(
     value.attemptId === value.attemptId.trim() && value.attemptId.length <= 512;
 }
 
+function validTeamOperatingModeBinding(
+  value: unknown,
+): value is TeamOperatingModeBinding {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const binding = value as Record<string, unknown>;
+  return Object.keys(binding).sort().join(",") === "id,version" &&
+    typeof binding.id === "string" &&
+    parseOperatingModeId(binding.id) === binding.id &&
+    Number.isSafeInteger(binding.version) && (binding.version as number) >= 1;
+}
+
+function validTeamParentPermissionBinding(
+  value: unknown,
+): value is TeamParentPermissionBinding {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const binding = value as Record<string, unknown>;
+  return Object.keys(binding).sort().join(",") ===
+      "executionMode,permissionMode" &&
+    (binding.executionMode === "act" || binding.executionMode === "plan") &&
+    (binding.permissionMode === "ask_always" ||
+      binding.permissionMode === "approved_for_me" ||
+      binding.permissionMode === "full_access");
+}
+
 export class ChildAgentManager {
   readonly #createId: () => string;
   readonly #now: () => string;
   readonly #activeChildren = new Map<string, Set<string>>();
+  readonly #teamAuthorities = new WeakMap<object, {
+    readonly input: TeamRunAuthorityInput;
+    readonly parentSessionId: string;
+    readonly parentAgentId: string;
+  }>();
   readonly #identityReservations = new WeakMap<object, {
     readonly identity: ChildIdentityReservation;
     readonly parentSessionId: string;
     readonly input: DelegateTaskInput;
     readonly team: ChildDelegationCorrelation["team"];
     readonly teamExecution: TeamRunExecution | undefined;
+    readonly teamOperatingMode: TrustedChildOptions["teamOperatingMode"];
+    readonly teamParentPermissions: TrustedChildOptions["teamParentPermissions"];
+    readonly teamAuthority: TrustedChildOptions["teamAuthority"];
     readonly cwd: string | undefined;
     readonly workspace: AgentGitWorktreeWorkspace | undefined;
     readonly decision: AgentBackendRouteDecision | undefined;
@@ -267,11 +342,85 @@ export class ChildAgentManager {
     };
   }
 
+  async authorizeTeamRun(
+    input: TeamRunAuthorityInput,
+    context: ToolContext,
+  ): Promise<TeamChildAuthority> {
+    if (typeof input !== "object" || input === null || Array.isArray(input) ||
+      context.signal.aborted ||
+      Object.keys(input).sort().join(",") !==
+        "execution,operatingMode,parentPermissions,repositoryRoot,runId" ||
+      typeof input.runId !== "string" || input.runId.trim() !== input.runId ||
+      input.runId.length === 0 || input.runId.length > 512 ||
+      (input.execution !== "foreground" && input.execution !== "background") ||
+      !validTeamOperatingModeBinding(input.operatingMode) ||
+      !validTeamParentPermissionBinding(input.parentPermissions)) {
+      throw new ToolError("permission_denied", "Team run authority is invalid");
+    }
+    const parent = await this.#parent(context);
+    const mode = getOperatingModePolicy(parent.agent.operatingMode.id);
+    if (parent.agent.role !== "parent" || mode.version !== 4 ||
+      input.operatingMode.id !== mode.id ||
+      input.operatingMode.version !== mode.version ||
+      input.parentPermissions.executionMode !== context.executionMode ||
+      input.parentPermissions.executionMode !== parent.executionMode ||
+      input.parentPermissions.permissionMode !== parent.permissionMode ||
+      input.repositoryRoot !== parent.cwd) {
+      throw new ToolError(
+        "permission_denied",
+        "Team run authority does not match the live parent snapshot",
+      );
+    }
+    const authority = Object.freeze({ type: "team_child_authority" as const });
+    this.#teamAuthorities.set(authority, {
+      input: structuredClone(input),
+      parentSessionId: parent.id,
+      parentAgentId: parent.agent.id,
+    });
+    return authority;
+  }
+
+  revokeTeamRunAuthority(authority: TeamChildAuthority): void {
+    this.#teamAuthorities.delete(authority);
+  }
+
+  #validTeamAuthority(
+    input: DelegateTaskInput,
+    context: Pick<ToolContext, "sessionId">,
+    options: ChildIdentityReservationOptions | ChildDelegationOptions,
+    parentAgentId?: string,
+  ): boolean {
+    const role = teamRole(input.profile);
+    const authority = options.teamAuthority;
+    if (role === null) return authority === undefined;
+    const trusted = authority === undefined
+      ? undefined
+      : this.#teamAuthorities.get(authority);
+    const team = options.team;
+    return trusted !== undefined && team !== undefined && "runId" in team &&
+      trusted.parentSessionId === context.sessionId &&
+      (parentAgentId === undefined || trusted.parentAgentId === parentAgentId) &&
+      trusted.input.runId === team.runId &&
+      trusted.input.execution === options.teamExecution &&
+      isDeepStrictEqual(trusted.input.operatingMode, options.teamOperatingMode) &&
+      isDeepStrictEqual(
+        trusted.input.parentPermissions,
+        options.teamParentPermissions,
+      ) && trusted.input.repositoryRoot === options.workspace?.repositoryRoot &&
+      role === team.role;
+  }
+
   reserveIdentity(
     input: DelegateTaskInput,
     context: Pick<ToolContext, "sessionId">,
     options?: ChildIdentityReservationOptions,
   ): ChildIdentityReservation {
+    if (options !== undefined && !this.#validTeamAuthority(input, context, options)) {
+      throw new ToolError(
+        "permission_denied",
+        "A trusted team run authority is required for internal children",
+      );
+    }
     const identity = Object.freeze({
       childSessionId: this.#createId(),
       childAgentId: this.#createId(),
@@ -285,6 +434,13 @@ export class ChildAgentManager {
         ? undefined
         : structuredClone(options.team),
       teamExecution: options?.teamExecution,
+      teamOperatingMode: options?.teamOperatingMode === undefined
+        ? undefined
+        : structuredClone(options.teamOperatingMode),
+      teamParentPermissions: options?.teamParentPermissions === undefined
+        ? undefined
+        : structuredClone(options.teamParentPermissions),
+      teamAuthority: options?.teamAuthority,
       cwd: options?.cwd,
       workspace: options?.workspace === undefined
         ? undefined
@@ -320,6 +476,15 @@ export class ChildAgentManager {
       !isDeepStrictEqual(reservation.input, input) ||
       !isDeepStrictEqual(reservation.team, options.team) ||
       reservation.teamExecution !== options.teamExecution ||
+      !isDeepStrictEqual(
+        reservation.teamOperatingMode,
+        options.teamOperatingMode,
+      ) ||
+      !isDeepStrictEqual(
+        reservation.teamParentPermissions,
+        options.teamParentPermissions,
+      ) ||
+      reservation.teamAuthority !== options.teamAuthority ||
       reservation.cwd !== options.cwd ||
       !isDeepStrictEqual(reservation.workspace, options.workspace) ||
       reservation.decision !== options.backend?.decision
@@ -348,12 +513,16 @@ export class ChildAgentManager {
     return state;
   }
 
-  #claim(parent: PinnedSessionState, childSessionId: string): () => void {
+  #claim(
+    parent: PinnedSessionState,
+    childSessionId: string,
+    maximum: number,
+  ): () => void {
     const active = this.#activeChildren.get(parent.agent.id) ?? new Set<string>();
-    if (active.size >= parent.agent.limits.maxConcurrentChildren) {
+    if (active.size >= maximum) {
       throw new ToolError(
         "permission_denied",
-        `Agent concurrency limit reached (${parent.agent.limits.maxConcurrentChildren})`,
+        `Agent concurrency limit reached (${maximum})`,
       );
     }
     active.add(childSessionId);
@@ -414,9 +583,47 @@ export class ChildAgentManager {
         "Trusted child workspace is invalid",
       );
     }
-    const mode = getOperatingModePolicy(parent.agent.operatingMode.id);
     const profile = getAgentProfilePolicy(input.profile);
     const role = teamRole(profile.id);
+    if (options !== undefined && !this.#validTeamAuthority(
+      input,
+      context,
+      options,
+      parent.agent.id,
+    )) {
+      throw new ToolError(
+        "permission_denied",
+        "Trusted team run authority does not match this child",
+      );
+    }
+    const teamOperatingMode = options?.teamOperatingMode;
+    const teamParentPermissions = options?.teamParentPermissions;
+    if ((teamOperatingMode !== undefined &&
+      !validTeamOperatingModeBinding(teamOperatingMode)) ||
+      (teamParentPermissions !== undefined &&
+        !validTeamParentPermissionBinding(teamParentPermissions))) {
+      throw new ToolError(
+        "permission_denied",
+        "Trusted team policy bindings are invalid",
+      );
+    }
+    const liveMode = getOperatingModePolicy(parent.agent.operatingMode.id);
+    const mode = role !== null && teamOperatingMode !== undefined
+      ? getOperatingModePolicy(teamOperatingMode.id)
+      : liveMode;
+    const parentExecutionMode = options?.teamParentPermissions?.executionMode ??
+      context.executionMode;
+    const parentPermissionMode = options?.teamParentPermissions?.permissionMode ??
+      parent.permissionMode;
+    if ((teamOperatingMode !== undefined || teamParentPermissions !== undefined) &&
+      (role === null || teamOperatingMode === undefined ||
+        teamParentPermissions === undefined ||
+        teamOperatingMode.version !== mode.version)) {
+      throw new ToolError(
+        "permission_denied",
+        "Trusted team policy bindings do not match the child profile",
+      );
+    }
     if (role !== null && mode.version !== 4) {
       throw new ToolError(
         "tool_unavailable",
@@ -435,6 +642,7 @@ export class ChildAgentManager {
       options.cwd === parent.cwd ||
       options.team === undefined || !("runId" in options.team) ||
       options.identity === undefined || options.backend === undefined ||
+      teamOperatingMode === undefined || teamParentPermissions === undefined ||
       (options.teamExecution !== "foreground" &&
         options.teamExecution !== "background")
     )) {
@@ -443,7 +651,7 @@ export class ChildAgentManager {
         "Internal profiles require a complete trusted team bundle",
       );
     }
-    if (profile.executionMode === "act" && context.executionMode !== "act") {
+    if (profile.executionMode === "act" && parentExecutionMode !== "act") {
       throw new ToolError(
         "plan_mode_denied",
         `${profile.displayName} children require an Act parent`,
@@ -464,8 +672,15 @@ export class ChildAgentManager {
       throw new ToolError("tool_unavailable", "Child execution engine is unavailable");
     }
     const budget = context.delegationBudget;
+    const budgetAgent = mode.id === parent.agent.operatingMode.id
+      ? parent.agent
+      : {
+          ...parent.agent,
+          operatingMode: { id: mode.id, version: mode.version },
+          limits: mode.orchestration,
+        };
     if (budget === undefined ||
-      !isDelegationBudgetForAgent(budget, parent.agent)) {
+      !isDelegationBudgetForAgent(budget, budgetAgent)) {
       throw new ToolError("tool_unavailable", "Trusted delegation budget is unavailable");
     }
     if (budget.childrenStarted >= budget.maxChildren) {
@@ -480,7 +695,7 @@ export class ChildAgentManager {
         `Agent reported-cost limit reached ($${budget.maxReportedCostUsd})`,
       );
     }
-    const childRequestLimit = childRequestAllowance(parent.agent);
+    const childRequestLimit = childRequestAllowance(budgetAgent);
     if (budget.requestsReserved + childRequestLimit > budget.maxRequests) {
       throw new ToolError(
         "permission_denied",
@@ -496,6 +711,8 @@ export class ChildAgentManager {
       budget,
       childRequestLimit,
       childCwd,
+      parentExecutionMode,
+      parentPermissionMode,
       runContext: context.runContext,
     };
   }
@@ -521,8 +738,16 @@ export class ChildAgentManager {
       budget,
       childRequestLimit,
       childCwd,
+      parentExecutionMode,
+      parentPermissionMode,
       runContext,
     } = await this.#prepare(input, context, options);
+
+    const { childSessionId, childAgentId, taskId } = this.#identity(
+      input,
+      context,
+      options,
+    );
 
     let childBackend = parent.backend.pin;
     let backend: AgentBackendSelection = {
@@ -541,7 +766,7 @@ export class ChildAgentManager {
         {
           role,
           executionMode: profile.executionMode,
-          permissionMode: parent.permissionMode,
+          permissionMode: parentPermissionMode,
           background: options.teamExecution === "background",
         },
       );
@@ -562,17 +787,16 @@ export class ChildAgentManager {
         modelId: decision.pin.modelId,
       };
     }
-    const { childSessionId, childAgentId, taskId } = this.#identity(
-      input,
-      context,
-      options,
+    const release = this.#claim(
+      parent,
+      childSessionId,
+      mode.orchestration.maxConcurrentChildren,
     );
-    const release = this.#claim(parent, childSessionId);
     budget.childrenStarted += 1;
     budget.requestsReserved += childRequestLimit;
     const permissionMode = narrowAgentPermissionMode(
-      parent.permissionMode,
-      parent.permissionMode,
+      parentPermissionMode,
+      parentPermissionMode,
     );
     try {
       const child = await this.dependencies.sessions.createPinnedSession({
@@ -591,9 +815,9 @@ export class ChildAgentManager {
           operatingMode: { id: mode.id, version: mode.version },
           backend,
           permissions: {
-            parentExecutionMode: context.executionMode,
+            parentExecutionMode,
             executionMode: profile.executionMode,
-            parentPermissionMode: parent.permissionMode,
+            parentPermissionMode,
             permissionMode,
           },
           limits: { ...mode.orchestration, maxRequests: childRequestLimit },
@@ -731,6 +955,8 @@ export class ChildAgentManager {
           profileId: profile.id,
           usage: outcome.result.usage,
           usageSource: outcome.result.usageSource,
+          requestsUsed: usedRequests,
+          evidenceSource: outcome.result.evidenceSource,
           changedFiles: [...outcome.result.changedFiles],
           evidence: [...outcome.result.evidence],
           costLimitUsd: budget.maxReportedCostUsd,

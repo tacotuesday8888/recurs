@@ -11,12 +11,14 @@ import {
   ToolError,
   type Checkpoint,
   type CheckpointStore,
+  type WorkspaceManifest,
 } from "@recurs/tools";
 
 import type {
   GitWorktreeLease,
   GitWorktreeLeaseAuthority,
 } from "./git-worktree-leases.js";
+import { compareStrings, uniqueSortedStrings } from "./stable-order.js";
 
 const GIT_REVISION = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const ARTIFACT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
@@ -109,6 +111,13 @@ export interface GitPatchCandidateApplyOutcome {
   readonly changedFiles: readonly string[];
 }
 
+export type GitPatchCandidateCompleteInput = GitPatchCandidateApplyInput;
+
+export interface GitPatchCandidateCompleteOutcome {
+  readonly checkpoint: Checkpoint;
+  readonly changedFiles: readonly string[];
+}
+
 export interface GitPatchIntegrationInput {
   readonly base: GitPatchBase;
   readonly artifacts: readonly GitPatchArtifactHandle[];
@@ -168,9 +177,7 @@ function safeRelativePath(value: string): string {
 }
 
 function boundedPaths(values: Iterable<string>): string[] {
-  const paths = [...new Set(values)].sort((left, right) =>
-    left.localeCompare(right)
-  );
+  const paths = uniqueSortedStrings(values);
   if (paths.length === 0 || paths.length > MAX_PATHS) {
     throw new ToolError(
       "permission_denied",
@@ -183,6 +190,29 @@ function boundedPaths(values: Iterable<string>): string[] {
 function samePaths(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length &&
     left.every((value, index) => value === right[index]);
+}
+
+function changedManifestPaths(
+  before: WorkspaceManifest,
+  after: WorkspaceManifest,
+): string[] {
+  return uniqueSortedStrings([...Object.keys(before), ...Object.keys(after)])
+    .filter((candidate) =>
+      !isDeepStrictEqual(before[candidate], after[candidate])
+    );
+}
+
+function manifestMatchesArtifact(
+  after: WorkspaceManifest,
+  fingerprints: readonly GitPatchResultFingerprint[],
+): boolean {
+  return fingerprints.every((fingerprint) => {
+    const entry = after[fingerprint.path];
+    if (fingerprint.kind === "deleted") return entry === undefined;
+    return entry?.kind === "file" && entry.blob === fingerprint.sha256 &&
+      entry.size === fingerprint.byteLength &&
+      entry.mode === (fingerprint.mode === "100755" ? 0o755 : 0o644);
+  });
 }
 
 function sameHandle(
@@ -860,9 +890,7 @@ export class GitPatchArtifactManager {
       actualPaths = status.stdout.length === 0
         ? []
         : parseStatus(status.stdout).paths;
-      const expectedPaths = [...changed].sort((left, right) =>
-        left.localeCompare(right)
-      );
+      const expectedPaths = [...changed].sort(compareStrings);
       if (!samePaths(actualPaths, expectedPaths)) {
         throw new ToolError(
           "patch_files_mismatch",
@@ -1096,6 +1124,75 @@ export class GitPatchArtifactManager {
       );
     }
     return Object.freeze({ changedFiles: Object.freeze([...actualPaths]) });
+  }
+
+  async completeCandidateApply(
+    input: GitPatchCandidateCompleteInput,
+  ): Promise<GitPatchCandidateCompleteOutcome> {
+    const { checkpoints, signal } = input;
+    if (signal.aborted) throw cancelled("Candidate completion was cancelled");
+    let base: GitPatchBase;
+    let artifact: GitPatchArtifactHandle;
+    let checkpoint: Checkpoint;
+    try {
+      base = cloneFreeze(input.base);
+      artifact = cloneFreeze(input.artifact);
+      checkpoint = cloneFreeze(input.checkpoint);
+    } catch (error) {
+      throw new ToolError(
+        "permission_denied",
+        "The candidate completion input is invalid",
+        { cause: error },
+      );
+    }
+    if (!path.isAbsolute(base.repositoryRoot) ||
+      !GIT_REVISION.test(base.revision) || !ARTIFACT_ID.test(artifact.id) ||
+      !ARTIFACT_ID.test(checkpoint.id) ||
+      !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(checkpoint.sessionId) ||
+      !ARTIFACT_ID.test(checkpoint.toolCallId) ||
+      typeof checkpoint.before !== "object" || checkpoint.before === null ||
+      Array.isArray(checkpoint.before) || checkpoint.after !== undefined) {
+      throw new ToolError(
+        "permission_denied",
+        "The candidate completion input is invalid",
+      );
+    }
+    const repositoryRoot = await this.#canonicalRoot(base.repositoryRoot, signal);
+    if (repositoryRoot !== base.repositoryRoot ||
+      await this.#revision(repositoryRoot, signal) !== base.revision) {
+      throw new ToolError(
+        "permission_denied",
+        "The parent Git revision changed before candidate completion",
+      );
+    }
+    const [owned] = await this.#loadOwnedArtifacts(
+      [artifact],
+      repositoryRoot,
+      base.revision,
+    );
+    if (owned === undefined) {
+      throw new ToolError("permission_denied", "The candidate artifact is unavailable");
+    }
+    const completed = await checkpoints.complete(checkpoint, repositoryRoot);
+    if (completed.id !== checkpoint.id ||
+      completed.sessionId !== checkpoint.sessionId ||
+      completed.toolCallId !== checkpoint.toolCallId ||
+      !isDeepStrictEqual(completed.before, checkpoint.before) ||
+      completed.after === undefined) {
+      throw new ToolError("checkpoint_corrupt", "Completed checkpoint changed identity");
+    }
+    const changedFiles = changedManifestPaths(completed.before, completed.after);
+    if (!samePaths(changedFiles, artifact.paths) ||
+      !manifestMatchesArtifact(completed.after, owned.after)) {
+      throw new ToolError(
+        "patch_files_mismatch",
+        "Completed parent state does not match the reviewed candidate",
+      );
+    }
+    return Object.freeze({
+      checkpoint: cloneFreeze(completed),
+      changedFiles: Object.freeze([...changedFiles]),
+    });
   }
 
   async discard(handles: readonly GitPatchArtifactHandle[]): Promise<void> {

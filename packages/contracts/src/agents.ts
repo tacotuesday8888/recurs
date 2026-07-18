@@ -327,7 +327,7 @@ export const operatingModePolicies: readonly OperatingModePolicy[] =
   ]);
 
 export const LEGACY_OPERATING_MODE_ID: OperatingModeId = "balanced_v1";
-export const DEFAULT_OPERATING_MODE_ID: OperatingModeId = "balanced_v3";
+export const DEFAULT_OPERATING_MODE_ID: OperatingModeId = "balanced_v4";
 
 const policiesById = new Map(
   operatingModePolicies.map((item) => [item.id, item] as const),
@@ -456,5 +456,17 @@ export interface AgentResult {
   readonly usageSource: "provider" | "runtime" | "unavailable";
   readonly steps: number | null;
   readonly changedFiles: readonly string[];
+  readonly changedFilesSource:
+    | "host_tools"
+    | "runtime"
+    | "mixed"
+    | "workspace_diff"
+    | "none";
   readonly evidence: readonly string[];
+  readonly evidenceSource:
+    | "host_tools"
+    | "runtime"
+    | "mixed"
+    | "independent_verification"
+    | "none";
 }

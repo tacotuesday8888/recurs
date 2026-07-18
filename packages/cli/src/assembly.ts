@@ -25,6 +25,7 @@ import {
   type LocalConnectionRecord,
 } from "@recurs/app";
 import {
+  AgentBackendRouter,
   AgentLoopDirectExecutor,
   AgentReviewPanel,
   BackendRunCoordinator,
@@ -33,10 +34,12 @@ import {
   DelegatedAgentExecutor,
   FileGitPatchArtifactStore,
   JsonlSessionStore,
+  JsonlTeamRunStore,
   GitWorktreeLeaseManager,
   GitPatchArtifactManager,
   ProcessScopedRuntimeContinuationStore,
   TeamAgentManager,
+  TeamRunSupervisor,
   bindRunAuthorization,
   createWorkspaceShell,
   isPinnedSessionState,
@@ -553,8 +556,10 @@ export async function createStandaloneRuntime(
   tools.register(createRunVerificationTool());
   tools.register(createGitStatusTool());
   tools.register(createGitDiffTool());
+  const backendRouter = new AgentBackendRouter();
   const childAgents = new ChildAgentManager({
     sessions,
+    backendRouter,
     getCoordinator: () => coordinatorReference.current,
     emit(event) {
       return events.emit(event);
@@ -573,17 +578,47 @@ export async function createStandaloneRuntime(
     },
   });
   tools.register(childBatches.createTool());
-  const teams = new TeamAgentManager({
+  const patches = new GitPatchArtifactManager({
+    leases: worktrees,
+    store: new FileGitPatchArtifactStore(
+      path.join(projectData, "team-patch-artifacts"),
+    ),
+  });
+  const reviews = new AgentReviewPanel({ sessions, children: childAgents });
+  const teamRuns = new JsonlTeamRunStore(path.join(projectData, "team-runs"));
+  const teamSupervisor = new TeamRunSupervisor({
     sessions,
+    runs: teamRuns,
     children: childAgents,
     worktrees,
-    patches: new GitPatchArtifactManager({
-      leases: worktrees,
-      store: new FileGitPatchArtifactStore(
-        path.join(projectData, "team-patch-artifacts"),
-      ),
-    }),
-    reviews: new AgentReviewPanel({ sessions, children: childAgents }),
+    patches,
+    reviews,
+    router: backendRouter,
+    checkpoints,
+    backendCandidates(parent) {
+      return [{
+        id: "parent-session-pin",
+        pin: parent.backend.pin,
+        parent: true,
+        roles: ["implement", "review", "repair"],
+        executionModes: ["act"],
+        permissionModes: [parent.permissionMode],
+        hostTools: parent.backend.pin.kind === "model_provider",
+        background: false,
+        ready: true,
+      }];
+    },
+    emit(event) {
+      return events.emit(event);
+    },
+  });
+  const teams = new TeamAgentManager({
+    sessions,
+    supervisor: teamSupervisor,
+    children: childAgents,
+    worktrees,
+    patches,
+    reviews,
     checkpoints,
     emit(event) {
       return events.emit(event);

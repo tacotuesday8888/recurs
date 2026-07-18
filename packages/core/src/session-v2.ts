@@ -320,7 +320,9 @@ function agentResult(result: RunResult): AgentResult {
     usageSource: result.usageSource,
     steps: result.steps,
     changedFiles: [...result.changedFiles],
+    changedFilesSource: result.changedFilesSource,
     evidence: [...result.evidence],
+    evidenceSource: result.evidenceSource,
   };
 }
 

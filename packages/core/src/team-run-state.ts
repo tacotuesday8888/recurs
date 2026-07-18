@@ -15,6 +15,7 @@ import {
 import type { GitPatchArtifactHandle } from "./git-patch-artifacts.js";
 import { isCredentialPath } from "@recurs/tools";
 import {
+  boundedNonEmptyString,
   canonicalIso,
   hasExactKeys,
   isBackendPin,
@@ -22,6 +23,7 @@ import {
   isUsage,
 } from "./session-record-validator.js";
 import { SessionStoreError } from "./session-store-error.js";
+import { compareStrings } from "./stable-order.js";
 
 const MAX_DESCRIPTION_BYTES = 1_024;
 const MAX_PROMPT_BYTES = 32_768;
@@ -273,7 +275,7 @@ function boundedPaths(value: unknown, allowEmpty = true): value is string[] {
   }
   const unique = new Set(value);
   if (unique.size !== value.length) return false;
-  const sorted = [...value].sort((left, right) => left.localeCompare(right));
+  const sorted = [...value].sort(compareStrings);
   return value.every((item, index) => item === sorted[index]);
 }
 
@@ -457,8 +459,7 @@ function exactDescriptor(value: unknown, runId: string): value is TeamRunDescrip
     !SAFE_RUNTIME_ID.test(value.id) || value.version !== 1 ||
     typeof value.parentSessionId !== "string" ||
     !SAFE_RUNTIME_ID.test(value.parentSessionId) ||
-    typeof value.parentAgentId !== "string" ||
-    !SAFE_RUNTIME_ID.test(value.parentAgentId) ||
+    !boundedNonEmptyString(value.parentAgentId, 512) ||
     (value.execution !== "foreground" && value.execution !== "background") ||
     value.parentExecutionMode !== "act" || !permission(value.parentPermissionMode) ||
     !isObject(value.invocation) || !hasExactKeys(value.invocation, [

@@ -198,15 +198,15 @@ describe("agent operating-mode contracts", () => {
   });
 
   it("defaults new sessions to v3 while retaining an explicit legacy default", () => {
-    expect(DEFAULT_OPERATING_MODE_ID).toBe("balanced_v3");
+    expect(DEFAULT_OPERATING_MODE_ID).toBe("balanced_v4");
     expect(LEGACY_OPERATING_MODE_ID).toBe("balanced_v1");
     expect(getOperatingModePolicy(DEFAULT_OPERATING_MODE_ID).displayName).toBe("Balanced");
     expect(getOperatingModePolicy(LEGACY_OPERATING_MODE_ID).version).toBe(1);
   });
 
   it("parses display names to latest policies and every exact stable id", () => {
-    expect(parseOperatingModeId("economy")).toBe("economy_v3");
-    expect(parseOperatingModeId("Performance")).toBe("performance_v3");
+    expect(parseOperatingModeId("economy")).toBe("economy_v4");
+    expect(parseOperatingModeId("Performance")).toBe("performance_v4");
     expect(parseOperatingModeId("max_v1")).toBe("max_v1");
     expect(parseOperatingModeId("max_v2")).toBe("max_v2");
     expect(parseOperatingModeId("max_v3")).toBe("max_v3");
@@ -373,8 +373,8 @@ describe("agent operating-mode contracts", () => {
       ["performance_v4", 4, 100, 10, 1],
       ["max_v4", 6, 216, 18, 2],
     ]);
-    expect(DEFAULT_OPERATING_MODE_ID).toBe("balanced_v3");
-    expect(parseOperatingModeId("balanced")).toBe("balanced_v3");
+    expect(DEFAULT_OPERATING_MODE_ID).toBe("balanced_v4");
+    expect(parseOperatingModeId("balanced")).toBe("balanced_v4");
     expect(parseOperatingModeId("balanced_v4")).toBe("balanced_v4");
   });
 });

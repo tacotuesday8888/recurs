@@ -24,5 +24,6 @@ export * from "./runtime-continuation-store.js";
 export * from "./session.js";
 export * from "./session-v2.js";
 export * from "./team-agent-manager.js";
+export * from "./team-run-supervisor.js";
 export * from "./team-run-state.js";
 export * from "./workspace-shell.js";

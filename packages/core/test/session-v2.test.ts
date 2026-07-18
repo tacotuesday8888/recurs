@@ -67,7 +67,7 @@ describe("version 2 sessions", () => {
       parentSessionId: null,
       depth: 0,
       task: null,
-      operatingMode: { id: "balanced_v3", version: 3 },
+      operatingMode: { id: "balanced_v4", version: 4 },
       backend: {
         strategy: "session_pin",
         adapterId: backend.adapterId,

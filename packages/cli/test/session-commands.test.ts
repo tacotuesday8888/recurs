@@ -158,7 +158,7 @@ describe("session commands", () => {
     expect(await commands.execute("/agents", commandContext)).toMatchObject({
       type: "message",
       text: expect.stringMatching(
-        /Balanced \(balanced_v3\)[\s\S]*Policy version: 3[\s\S]*concurrency 3[\s\S]*Workflow: 4 children, 32 total requests, 8 reserved per child[\s\S]*Team: up to 2 Implement workers, 1 initial and 2 maximum Review workers[\s\S]*Review rule: unanimous, balanced quality standard/u,
+          /Balanced \(balanced_v4\)[\s\S]*Policy version: 4[\s\S]*concurrency 3[\s\S]*Workflow: 7 children, 56 total requests, 8 reserved per child[\s\S]*Team: up to 2 Implement workers, 1 initial and 2 maximum Review workers[\s\S]*Review rule: unanimous, balanced quality standard[\s\S]*Repair rounds: 1/u,
       ),
     });
     const profiles = await commands.execute("/agents profiles", commandContext);
@@ -188,13 +188,13 @@ describe("session commands", () => {
     expect(await commands.execute("/agents mode economy", commandContext)).toMatchObject({
       type: "message",
       text: expect.stringMatching(
-        /Economy \(economy_v3\)[\s\S]*concurrency 1 \(sequential fallback\)[\s\S]*Workflow: 2 children, 8 total requests, 4 reserved per child[\s\S]*Team: up to 1 Implement worker, 1 initial and 1 maximum Review worker/u,
+          /Economy \(economy_v4\)[\s\S]*concurrency 1 \(sequential fallback\)[\s\S]*Workflow: 2 children, 8 total requests, 4 reserved per child[\s\S]*Team: up to 1 Implement worker, 1 initial and 1 maximum Review worker/u,
       ),
     });
     const reloaded = await sessions.loadState("agent-mode-session");
     expect(reloaded).toMatchObject({
       agent: {
-        operatingMode: { id: "economy_v3", version: 3 },
+        operatingMode: { id: "economy_v4", version: 4 },
         limits: { maxRequests: 8, maxDepth: 1, maxConcurrentChildren: 1 },
       },
       backend: initial.backend,
@@ -220,7 +220,7 @@ describe("session commands", () => {
       });
     expect(await commands.execute("/agents mode balanced", commandContext))
       .toMatchObject({
-        text: expect.stringMatching(/Balanced \(balanced_v3\)[\s\S]*Policy version: 3/u),
+        text: expect.stringMatching(/Balanced \(balanced_v4\)[\s\S]*Policy version: 4/u),
       });
   });
 

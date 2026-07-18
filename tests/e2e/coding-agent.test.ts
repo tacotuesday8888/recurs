@@ -594,7 +594,8 @@ describe("Recurs end-to-end coding harness", () => {
     expect(children.every((child) =>
       child.cwd.startsWith(path.join(fixture.root, "agent-worktrees"))
     )).toBe(true);
-    expect(await readdir(path.join(fixture.root, "agent-worktrees"))).toEqual([]);
+    expect((await readdir(path.join(fixture.root, "agent-worktrees")))
+      .filter((entry) => entry !== ".owners")).toEqual([]);
     expect(harness.events.filter((event) => event.type.startsWith("agent_batch_"))
       .map((event) => event.type)).toEqual([
       "agent_batch_started",
@@ -666,7 +667,8 @@ describe("Recurs end-to-end coding harness", () => {
       partial: true,
       counts: { completed: 1, failed: 1 },
     });
-    expect(await readdir(path.join(fixture.root, "agent-worktrees"))).toEqual([]);
+    expect((await readdir(path.join(fixture.root, "agent-worktrees")))
+      .filter((entry) => entry !== ".owners")).toEqual([]);
   }, 60_000);
 
   it("cancels active children, skips queued work, and removes every lease", async () => {
@@ -720,7 +722,8 @@ describe("Recurs end-to-end coding harness", () => {
       type: "agent_batch_cancelled",
       counts: { total: 3, completed: 0, cancelled: 3 },
     });
-    expect(await readdir(path.join(fixture.root, "agent-worktrees"))).toEqual([]);
+    expect((await readdir(path.join(fixture.root, "agent-worktrees")))
+      .filter((entry) => entry !== ".owners")).toEqual([]);
   }, 60_000);
 
   it("runs the complete Recurs-owned implementation and review team workflow", async () => {
@@ -792,7 +795,7 @@ describe("Recurs end-to-end coding harness", () => {
     });
 
     await harness.runtime.submit("/permissions approved_for_me");
-    await harness.runtime.submit("/agents mode standard");
+    await harness.runtime.submit("/agents mode standard_v3");
     const result = await harness.runtime.submit(
       "Use a Recurs team to implement and independently review the value change.",
       interactive,
@@ -866,7 +869,8 @@ describe("Recurs end-to-end coding harness", () => {
     expect(harness.events.filter((event) =>
       event.type === "agent_started" && event.teamId === teamId
     )).toHaveLength(2);
-    expect(await readdir(path.join(fixture.root, "agent-worktrees"))).toEqual([]);
+    expect((await readdir(path.join(fixture.root, "agent-worktrees")))
+      .filter((entry) => entry !== ".owners")).toEqual([]);
 
     const implementRequest = provider.requests.find((request) =>
       request.messages.some((message) =>
@@ -932,6 +936,7 @@ describe("Recurs end-to-end coding harness", () => {
     ]);
     const harness = await createTestRuntime(fixture.root, fixture.project, provider);
     await harness.runtime.submit("/permissions approved_for_me");
+    await harness.runtime.submit("/agents mode balanced_v3");
 
     const result = await harness.runtime.submit(
       "Run both conflicting implementation candidates.",
@@ -976,7 +981,8 @@ describe("Recurs end-to-end coding harness", () => {
       "agent_team_patch_captured",
       "agent_team_failed",
     ]);
-    expect(await readdir(path.join(fixture.root, "agent-worktrees"))).toEqual([]);
+    expect((await readdir(path.join(fixture.root, "agent-worktrees")))
+      .filter((entry) => entry !== ".owners")).toEqual([]);
   }, 60_000);
 
   it("keeps integrated changes unverified when Review output is malformed", async () => {
@@ -1022,7 +1028,7 @@ describe("Recurs end-to-end coding harness", () => {
     ]);
     const harness = await createTestRuntime(fixture.root, fixture.project, provider);
     await harness.runtime.submit("/permissions approved_for_me");
-    await harness.runtime.submit("/agents mode economy");
+    await harness.runtime.submit("/agents mode economy_v3");
 
     const result = await harness.runtime.submit(
       "Implement the value change and enforce strict review output.",
@@ -1138,7 +1144,7 @@ describe("Recurs end-to-end coding harness", () => {
     });
 
     await harness.runtime.submit("/permissions approved_for_me");
-    await harness.runtime.submit("/agents mode standard");
+    await harness.runtime.submit("/agents mode standard_v3");
     const result = await harness.runtime.submit(
       "Use specialized children to change value to 2 and verify it.",
       interactive,

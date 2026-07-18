@@ -19,6 +19,8 @@ import {
   JsonlSessionStore,
   createDelegationBudget,
   parseAgentReviewVerdict,
+  parseAgentReviewVerdictV2,
+  repairPrompt,
   type ChildAgentManager,
   type ChildDelegationOptions,
   type ChildDelegationResult,
@@ -46,6 +48,8 @@ function childResult(output: string, index: number): ChildDelegationResult {
       profileId: "review_v1",
       usage: { inputTokens: 10, outputTokens: 5, costUsd: 0.01 },
       usageSource: "provider",
+      requestsUsed: 1,
+      evidenceSource: "host_tools",
       changedFiles: [],
       evidence: [`child evidence ${index}`],
       costLimitUsd: 3,
@@ -59,6 +63,42 @@ function childResult(output: string, index: number): ChildDelegationResult {
         reportedCostUsd: index * 0.01,
         maxReportedCostUsd: 3,
       },
+    },
+  };
+}
+
+function reviewPolicy(modeId: OperatingModeId) {
+  const mode = getOperatingModePolicy(modeId);
+  const team = mode.workflow.team;
+  if (mode.version !== 4 || team === null) {
+    throw new Error("Expected a version-4 team policy");
+  }
+  return {
+    operatingModeId: mode.id,
+    operatingModeVersion: 4 as const,
+    qualityStandard: team.qualityStandard,
+    initialReviewers: team.initialReviewers,
+    maxReviewers: team.maxReviewers,
+  };
+}
+
+function v2ChildResult(
+  output: string,
+  index: number,
+  hostEvidence: readonly string[] = [`host evidence ${index}`],
+  operatingModeId: OperatingModeId = "balanced_v4",
+  evidenceSource: ChildDelegationResult["metadata"]["evidenceSource"] =
+    "host_tools",
+): ChildDelegationResult {
+  const result = childResult(output, index);
+  return {
+    ...result,
+    metadata: {
+      ...result.metadata,
+      operatingModeId,
+      profileId: "review_v2",
+      evidenceSource,
+      evidence: [...hostEvidence],
     },
   };
 }
@@ -170,7 +210,350 @@ describe("parseAgentReviewVerdict", () => {
   });
 });
 
+describe("parseAgentReviewVerdictV2", () => {
+  const finding = {
+    path: "src/cache.ts",
+    problem: "The empty namespace bypasses isolation.",
+    acceptance: "Reject or isolate the empty namespace.",
+    evidence: ["src/cache.ts:42 reaches the shared key"],
+  } as const;
+
+  it("accepts exact structured findings and finding-free approvals", () => {
+    expect(parseAgentReviewVerdictV2(JSON.stringify({
+      verdict: "request_changes",
+      summary: "The empty namespace remains unsafe.",
+      findings: [finding],
+      evidence: ["src/cache.ts:42"],
+    }))).toEqual({
+      verdict: "request_changes",
+      summary: "The empty namespace remains unsafe.",
+      findings: [finding],
+      evidence: ["src/cache.ts:42"],
+    });
+    expect(parseAgentReviewVerdictV2(JSON.stringify({
+      verdict: "approve",
+      summary: "The staged change satisfies the objective.",
+      findings: [],
+      evidence: ["test/cache.test.ts covers empty namespaces"],
+    })).findings).toEqual([]);
+  });
+
+  it.each([
+    {
+      verdict: "approve",
+      summary: "Approval cannot carry repairs.",
+      findings: [finding],
+      evidence: ["proof"],
+    },
+    {
+      verdict: "request_changes",
+      summary: "A change request needs a repair contract.",
+      findings: [],
+      evidence: ["proof"],
+    },
+    {
+      verdict: "request_changes",
+      summary: "Unsafe path.",
+      findings: [{ ...finding, path: "../secret" }],
+      evidence: ["proof"],
+    },
+    {
+      verdict: "request_changes",
+      summary: "Credential path.",
+      findings: [{ ...finding, path: ".env" }],
+      evidence: ["proof"],
+    },
+    {
+      verdict: "request_changes",
+      summary: "Too many findings.",
+      findings: Array.from({ length: 13 }, (_, index) => ({
+        ...finding,
+        path: `src/file-${index}.ts`,
+      })),
+      evidence: ["proof"],
+    },
+  ])("rejects an unsafe or inconsistent structured verdict", (verdict) => {
+    expect(() => parseAgentReviewVerdictV2(JSON.stringify(verdict)))
+      .toThrow(/verdict contract/u);
+  });
+});
+
+describe("repairPrompt", () => {
+  it("encodes deterministic bounded repair data without host paths", () => {
+    const findings = [{
+      path: "src/cache.ts",
+      problem: "The empty namespace bypasses isolation.",
+      acceptance: "Reject or isolate the empty namespace.",
+      evidence: ["src/cache.ts:42 reaches the shared key"],
+    }] as const;
+    const prompt = repairPrompt({
+      objective: "Keep cache namespaces isolated.",
+      changedFiles: ["src/cache.ts", "test/cache.test.ts"],
+      findings,
+      round: 1,
+      maximumRounds: 2,
+    });
+
+    expect(prompt).toContain("Repair round 1 of 2");
+    expect(prompt).toContain(JSON.stringify(findings));
+    expect(prompt).toContain("change only the staged candidate");
+    expect(prompt).toContain("Do not delegate, execute processes, use network resources");
+    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThanOrEqual(32_768);
+    expect(repairPrompt({
+      objective: "Keep cache namespaces isolated.",
+      changedFiles: ["src/cache.ts", "test/cache.test.ts"],
+      findings,
+      round: 1,
+      maximumRounds: 2,
+    })).toBe(prompt);
+    const unicode = repairPrompt({
+      objective: "Repair deterministic ordering.",
+      changedFiles: ["ä.ts", "z.ts"],
+      findings: [{
+        path: "ä.ts",
+        problem: "Ordering differs by locale.",
+        acceptance: "Use stable code-unit ordering.",
+        evidence: ["ö evidence", "a evidence"],
+      }],
+      round: 1,
+      maximumRounds: 1,
+    });
+    expect(unicode).toContain('"changedFiles":["z.ts","ä.ts"]');
+    expect(unicode).toContain('"evidence":["a evidence","ö evidence"]');
+    const reorderedFinding = {
+      evidence: [...findings[0].evidence],
+      acceptance: findings[0].acceptance,
+      problem: findings[0].problem,
+      path: findings[0].path,
+    };
+    expect(repairPrompt({
+      objective: "Keep cache namespaces isolated.",
+      changedFiles: ["src/cache.ts", "test/cache.test.ts"],
+      findings: [reorderedFinding],
+      round: 1,
+      maximumRounds: 2,
+    })).toBe(prompt);
+  });
+
+  it("rejects invalid rounds and oversized aggregate findings", () => {
+    const finding = {
+      path: "src/cache.ts",
+      problem: "x".repeat(20_000),
+      acceptance: "y".repeat(20_000),
+      evidence: ["src/cache.ts:42"],
+    } as const;
+    expect(() => repairPrompt({
+      objective: "Repair cache isolation.",
+      changedFiles: ["src/cache.ts"],
+      findings: [finding],
+      round: 1,
+      maximumRounds: 1,
+    })).toThrow(/repair prompt/u);
+    expect(() => repairPrompt({
+      objective: "Repair cache isolation.",
+      changedFiles: ["src/cache.ts"],
+      findings: [],
+      round: 0,
+      maximumRounds: 1,
+    })).toThrow(/repair prompt/u);
+  });
+});
+
 describe("AgentReviewPanel", () => {
+  it("runs structured v2 review through the supervisor-owned delegation port", async () => {
+    const setup = await harness("economy_v4", []);
+    const calls: Array<{ index: number; profile: string; prompt: string }> = [];
+    const result = await setup.panel.run(task, setup.context, {
+      contract: "v2",
+      policy: reviewPolicy("economy_v4"),
+      async delegateReviewer(index, input) {
+        calls.push({ index, profile: input.profile, prompt: input.prompt });
+        return v2ChildResult(JSON.stringify({
+          verdict: "approve",
+          summary: "The staged candidate satisfies the objective.",
+          findings: [],
+          evidence: ["test/cache.test.ts covers isolation"],
+        }), index, undefined, "economy_v4");
+      },
+    });
+
+    expect(result).toMatchObject({
+      contract: "v2",
+      verdict: "approved",
+      findings: [],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ index: 1, profile: "review_v2" });
+    expect(calls[0]?.prompt).toContain("supplied staging workspace");
+    expect(calls[0]?.prompt).toContain('"findings"');
+    expect(calls[0]?.prompt).not.toContain(setup.context.cwd);
+    expect(setup.calls).toHaveLength(0);
+  });
+
+  it("aggregates bounded structured findings only when every required review is valid", async () => {
+    const setup = await harness("standard_v4", []);
+    const outputs = [
+      v2ChildResult(JSON.stringify({
+        verdict: "request_changes",
+        summary: "The empty namespace is unsafe.",
+        findings: [{
+          path: "src/cache.ts",
+          problem: "The empty namespace reaches the shared key.",
+          acceptance: "Reject or isolate empty namespaces.",
+          evidence: ["src/cache.ts:42"],
+        }],
+        evidence: ["src/cache.ts:42"],
+      }), 1, undefined, "standard_v4"),
+      v2ChildResult(JSON.stringify({
+        verdict: "approve",
+        summary: "No additional issue was found.",
+        findings: [],
+        evidence: ["test/cache.test.ts covers non-empty namespaces"],
+      }), 2, undefined, "standard_v4"),
+    ];
+    let cursor = 0;
+    const result = await setup.panel.run(task, setup.context, {
+      contract: "v2",
+      policy: reviewPolicy("standard_v4"),
+      async delegateReviewer() {
+        return outputs[cursor++]!;
+      },
+    });
+
+    expect(result).toMatchObject({
+      contract: "v2",
+      verdict: "changes_requested",
+      escalated: true,
+      findings: [{
+        path: "src/cache.ts",
+        acceptance: "Reject or isolate empty namespaces.",
+      }],
+    });
+    expect(result.evidence).toEqual([
+      "src/cache.ts:42",
+      "host evidence 1",
+      "test/cache.test.ts covers non-empty namespaces",
+      "host evidence 2",
+    ]);
+  });
+
+  it("fails structured review closed on invalid output or missing host evidence", async () => {
+    for (const output of [
+      v2ChildResult("not json", 1, undefined, "economy_v4"),
+      v2ChildResult(JSON.stringify({
+        verdict: "approve",
+        summary: "Model-only evidence is insufficient.",
+        findings: [],
+        evidence: ["model assertion"],
+      }), 1, [], "economy_v4"),
+      v2ChildResult(JSON.stringify({
+        verdict: "approve",
+        summary: "Runtime-only evidence is insufficient.",
+        findings: [],
+        evidence: ["runtime assertion"],
+      }), 1, ["runtime evidence"], "economy_v4", "runtime"),
+    ]) {
+      const setup = await harness("economy_v4", []);
+      const result = await setup.panel.run(task, setup.context, {
+        contract: "v2",
+        policy: reviewPolicy("economy_v4"),
+        async delegateReviewer() { return output; },
+      });
+      expect(result).toMatchObject({
+        contract: "v2",
+        verdict: "unverified",
+        findings: [],
+      });
+      expect(result.reviews[0]?.status).toBe("invalid");
+    }
+  });
+
+  it("keeps invalid review precedence and propagates durable callback failures", async () => {
+    const mixed = await harness("standard_v4", []);
+    const outputs = [
+      v2ChildResult("not json", 1, undefined, "standard_v4"),
+      v2ChildResult(JSON.stringify({
+        verdict: "request_changes",
+        summary: "A repair is required.",
+        findings: [{
+          path: "src/cache.ts",
+          problem: "The shared key remains reachable.",
+          acceptance: "Isolate the shared key.",
+          evidence: ["src/cache.ts:42"],
+        }],
+        evidence: ["src/cache.ts:42"],
+      }), 2, undefined, "standard_v4"),
+    ];
+    let cursor = 0;
+    const result = await mixed.panel.run(task, mixed.context, {
+      contract: "v2",
+      policy: reviewPolicy("standard_v4"),
+      async delegateReviewer() { return outputs[cursor++]!; },
+    });
+    expect(result).toMatchObject({
+      contract: "v2",
+      verdict: "unverified",
+      findings: [],
+    });
+
+    const durableFailure = await harness("economy_v4", []);
+    await expect(durableFailure.panel.run(task, durableFailure.context, {
+      contract: "v2",
+      policy: reviewPolicy("economy_v4"),
+      async delegateReviewer() {
+        throw new Error("journal append failed");
+      },
+    })).rejects.toThrow("journal append failed");
+  });
+
+  it("uses the canonical frozen policy and rejects reviewer metadata mismatches", async () => {
+    const setup = await harness("economy_v4", []);
+    await expect(setup.panel.run(task, setup.context, {
+      contract: "v2",
+      policy: { ...reviewPolicy("standard_v4"), maxReviewers: 99 },
+      async delegateReviewer() {
+        throw new Error("must not delegate");
+      },
+    })).rejects.toThrow(/frozen team policy/u);
+
+    const frozen = await setup.panel.run(task, setup.context, {
+      contract: "v2",
+      policy: reviewPolicy("balanced_v4"),
+      async delegateReviewer(index) {
+        return v2ChildResult(JSON.stringify({
+          verdict: "approve",
+          summary: "The frozen balanced policy remains authoritative.",
+          findings: [],
+          evidence: ["model evidence"],
+        }), index, ["host evidence"], "balanced_v4");
+      },
+    });
+    expect(frozen).toMatchObject({
+      contract: "v2",
+      operatingModeId: "balanced_v4",
+      verdict: "approved",
+    });
+
+    const mismatched = await setup.panel.run(task, setup.context, {
+      contract: "v2",
+      policy: reviewPolicy("economy_v4"),
+      async delegateReviewer(index) {
+        return v2ChildResult(JSON.stringify({
+          verdict: "approve",
+          summary: "The reviewer metadata is mismatched.",
+          findings: [],
+          evidence: ["model evidence"],
+        }), index, ["host evidence"], "balanced_v4");
+      },
+    });
+    expect(mismatched).toMatchObject({
+      contract: "v2",
+      verdict: "unverified",
+      findings: [],
+    });
+    expect(mismatched.reviews[0]?.status).toBe("invalid");
+  });
+
   it("stops after the initial unanimous approvals selected by the mode", async () => {
     const approve = (index: number) => childResult(JSON.stringify({
       verdict: "approve",

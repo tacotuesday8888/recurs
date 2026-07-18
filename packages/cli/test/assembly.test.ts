@@ -789,6 +789,55 @@ describe("standalone assembly without a provider", () => {
     ]);
   });
 
+  it("routes exact v4 team calls through the assembled durable supervisor", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-v4-team-assembly-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "durable-team-call",
+            name: "delegate_team",
+            arguments: {
+              description: "Implement three bounded slices",
+              tasks: [1, 2, 3].map((index) => ({
+                description: `Implement slice ${index}`,
+                prompt: `Change slice ${index}.`,
+              })),
+              review: { instructions: "Review the complete candidate." },
+            },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "The durable v4 policy rejected excess width." },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        provider,
+      },
+    );
+    runtime.setConfirmHandler(async () => true);
+    await runtime.submit("/agents mode balanced_v4");
+
+    await expect(runtime.submit("Run the requested team.")).resolves.toMatchObject({
+      finalText: "The durable v4 policy rejected excess width.",
+    });
+
+    const toolFeedback = JSON.stringify(provider.requests[1]?.messages ?? []);
+    expect(toolFeedback).toContain("supports at most 2 Implement workers");
+    expect(toolFeedback).not.toContain("Legacy team execution");
+  });
+
   it("assembles one shared delegated continuation foundation per runtime", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-delegated-foundation-"));
     directories.push(root);
