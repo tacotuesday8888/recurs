@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   access,
   chmod,
@@ -125,6 +126,19 @@ describe("FileCheckpointStore", () => {
     expect(await readFile(orphan, "utf8")).toBe("ORPHAN_CHECKPOINT_CANARY\n");
   });
 
+  it("rejects the older checkpoint format instead of misreading sidecars", async () => {
+    await mkdir(dataDirectory, { mode: 0o700 });
+    await writeFile(
+      path.join(dataDirectory, ".format.json"),
+      `${JSON.stringify({ version: 2, credentialPathsExcluded: true })}\n`,
+      { mode: 0o600 },
+    );
+
+    await expect(store.initialize()).rejects.toMatchObject({
+      code: "checkpoint_migration_required",
+    });
+  });
+
   it("converges concurrent initialization on one valid format marker", async () => {
     const first = new FileCheckpointStore(dataDirectory);
     const second = new FileCheckpointStore(dataDirectory);
@@ -133,9 +147,48 @@ describe("FileCheckpointStore", () => {
 
     expect(await readdir(dataDirectory)).toEqual([".format.json"]);
     expect(JSON.parse(await readFile(path.join(dataDirectory, ".format.json"), "utf8")))
-      .toEqual({ version: 2, credentialPathsExcluded: true });
+      .toEqual({
+        version: 3,
+        credentialPathsExcluded: true,
+        atomicCompletionSidecars: true,
+      });
     expect((await lstat(path.join(dataDirectory, ".format.json"))).mode & 0o777)
       .toBe(0o600);
+  });
+
+  it("fsyncs a concurrently visible data directory before initialization returns", async () => {
+    let visible!: () => void;
+    let release!: () => void;
+    const directoryVisible = new Promise<void>((resolve) => {
+      visible = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const creator = new FileCheckpointStore(dataDirectory, {
+      async onBoundary(boundary, detail) {
+        if (boundary !== "directory_visible" || detail !== dataDirectory) return;
+        visible();
+        await released;
+      },
+    });
+    const creating = creator.initialize();
+    await directoryVisible;
+    let parentSyncs = 0;
+    const observer = new FileCheckpointStore(dataDirectory, {
+      async onBoundary(boundary, detail) {
+        if (
+          boundary === "before_directory_parent_sync" &&
+          detail === dataDirectory
+        ) parentSyncs += 1;
+      },
+    });
+
+    await observer.initialize();
+
+    expect(parentSyncs).toBe(1);
+    release();
+    await creating;
   });
 
   it("rejects a symlinked format marker", async () => {
@@ -143,14 +196,18 @@ describe("FileCheckpointStore", () => {
     await mkdir(dataDirectory);
     await writeFile(
       outsideMarker,
-      `${JSON.stringify({ version: 2, credentialPathsExcluded: true })}\n`,
+      `${JSON.stringify({
+        version: 3,
+        credentialPathsExcluded: true,
+        atomicCompletionSidecars: true,
+      })}\n`,
     );
     await symlink(outsideMarker, path.join(dataDirectory, ".format.json"));
 
     await expect(store.initialize()).rejects.toMatchObject({
       code: "checkpoint_migration_required",
     });
-    expect(await readFile(outsideMarker, "utf8")).toContain('"version":2');
+    expect(await readFile(outsideMarker, "utf8")).toContain('"version":3');
   });
 
   it("restores modified/deleted files and deletes files created by the agent", async () => {
@@ -187,6 +244,234 @@ describe("FileCheckpointStore", () => {
     expect(await readFile(path.join(cwd, "a.txt"), "utf8")).toBe("before a\n");
     expect(await readFile(path.join(cwd, "b.txt"), "utf8")).toBe("second agent b\n");
   }, 30_000);
+
+  it("completes one prepared checkpoint idempotently", async () => {
+    const prepared = await store.captureBefore("s1", "two-phase", cwd);
+    const reference = {
+      id: prepared.id,
+      sessionId: prepared.sessionId,
+      toolCallId: prepared.toolCallId,
+    };
+    await writeFile(path.join(cwd, "a.txt"), "applied candidate\n", "utf8");
+
+    const first = await store.complete(reference, cwd);
+    const replayedFromPrepared = await store.complete(reference, cwd);
+    const replayedFromCompleted = await store.complete(first, cwd);
+
+    expect(first.after).toBeDefined();
+    expect(replayedFromPrepared).toEqual(first);
+    expect(replayedFromCompleted).toEqual(first);
+    await expect(store.complete({ ...prepared, before: {} }, cwd)).rejects
+      .toMatchObject({ code: "checkpoint_corrupt" });
+
+    await store.restore(first, cwd);
+    await expect(store.complete(prepared, cwd)).rejects.toMatchObject({
+      code: "checkpoint_not_found",
+    });
+  }, 30_000);
+
+  it("linearizes concurrent completion on one durable result", async () => {
+    const prepared = await store.captureBefore("s1", "concurrent", cwd);
+    const reference = {
+      id: prepared.id,
+      sessionId: prepared.sessionId,
+      toolCallId: prepared.toolCallId,
+    };
+    await writeFile(path.join(cwd, "a.txt"), "concurrent candidate\n", "utf8");
+    let arrivals = 0;
+    let firstEntered!: () => void;
+    let bothEntered!: () => void;
+    let release!: () => void;
+    const firstAtBarrier = new Promise<void>((resolve) => {
+      firstEntered = resolve;
+    });
+    const bothAtBarrier = new Promise<void>((resolve) => {
+      bothEntered = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const onBoundary = async (boundary: string) => {
+      if (boundary !== "before_completion_publish") return;
+      arrivals += 1;
+      if (arrivals === 1) firstEntered();
+      if (arrivals === 2) bothEntered();
+      await released;
+    };
+    const firstStore = new FileCheckpointStore(dataDirectory, {
+      onBoundary,
+    });
+    const secondStore = new FileCheckpointStore(dataDirectory, {
+      onBoundary,
+    });
+
+    const firstPending = firstStore.complete(reference, cwd);
+    await firstAtBarrier;
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    const secondPending = secondStore.complete(reference, cwd);
+    await bothAtBarrier;
+    release();
+    const [first, second] = await Promise.all([firstPending, secondPending]);
+
+    expect(first).toEqual(second);
+    await expect(new FileCheckpointStore(dataDirectory).complete(reference, cwd))
+      .resolves.toEqual(first);
+  }, 30_000);
+
+  it("fsyncs a visible completion before replay acknowledges it", async () => {
+    const prepared = await store.captureBefore("s1", "replay-sync", cwd);
+    const reference = {
+      id: prepared.id,
+      sessionId: prepared.sessionId,
+      toolCallId: prepared.toolCallId,
+    };
+    await writeFile(path.join(cwd, "a.txt"), "durable replay\n", "utf8");
+    let linked!: () => void;
+    let release!: () => void;
+    const sidecarLinked = new Promise<void>((resolve) => {
+      linked = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const publisher = new FileCheckpointStore(dataDirectory, {
+      async onBoundary(boundary) {
+        if (boundary !== "completion_linked") return;
+        linked();
+        await released;
+      },
+    });
+    const publishing = publisher.complete(reference, cwd);
+    await sidecarLinked;
+    let replaySyncs = 0;
+    const replay = new FileCheckpointStore(dataDirectory, {
+      async onBoundary(boundary) {
+        if (boundary !== "before_completion_directory_sync") return;
+        replaySyncs += 1;
+      },
+    });
+
+    const replayed = await replay.complete(reference, cwd);
+
+    expect(replaySyncs).toBe(1);
+    release();
+    await expect(publishing).resolves.toEqual(replayed);
+  }, 30_000);
+
+  it("linearizes captureAfter against idempotent completion", async () => {
+    const prepared = await store.captureBefore("s1", "mixed-concurrent", cwd);
+    const reference = {
+      id: prepared.id,
+      sessionId: prepared.sessionId,
+      toolCallId: prepared.toolCallId,
+    };
+    await writeFile(path.join(cwd, "a.txt"), "mixed candidate\n", "utf8");
+    let arrivals = 0;
+    let firstEntered!: () => void;
+    let bothEntered!: () => void;
+    let release!: () => void;
+    const firstAtBarrier = new Promise<void>((resolve) => {
+      firstEntered = resolve;
+    });
+    const bothAtBarrier = new Promise<void>((resolve) => {
+      bothEntered = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const onBoundary = async (boundary: string) => {
+      if (boundary !== "before_completion_publish") return;
+      arrivals += 1;
+      if (arrivals === 1) firstEntered();
+      if (arrivals === 2) bothEntered();
+      await released;
+    };
+    const firstStore = new FileCheckpointStore(dataDirectory, {
+      onBoundary,
+    });
+    const secondStore = new FileCheckpointStore(dataDirectory, {
+      onBoundary,
+    });
+
+    const firstPending = firstStore.captureAfter(prepared, cwd);
+    await firstAtBarrier;
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    const secondPending = secondStore.complete(reference, cwd);
+    await bothAtBarrier;
+    release();
+    const [first, second] = await Promise.all([firstPending, secondPending]);
+
+    expect(first).toEqual(second);
+  }, 30_000);
+
+  it("rejects a partial pre-existing content-addressed blob", async () => {
+    await store.initialize();
+    const bytes = Buffer.from("before a\n", "utf8");
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    const blobs = path.join(dataDirectory, "blobs");
+    await mkdir(blobs, { mode: 0o700 });
+    await writeFile(path.join(blobs, hash), bytes.subarray(0, 3));
+
+    await expect(store.captureBefore("s1", "partial-blob", cwd)).rejects
+      .toMatchObject({ code: "checkpoint_corrupt" });
+  });
+
+  it("publishes one complete blob under concurrent captures", async () => {
+    await rm(path.join(cwd, "b.txt"));
+    await execFileAsync("git", ["rm", "--cached", "b.txt"], { cwd });
+    let arrivals = 0;
+    let firstEntered!: () => void;
+    let bothEntered!: () => void;
+    let release!: () => void;
+    const firstAtBarrier = new Promise<void>((resolve) => {
+      firstEntered = resolve;
+    });
+    const bothAtBarrier = new Promise<void>((resolve) => {
+      bothEntered = resolve;
+    });
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const onBoundary = async (boundary: string) => {
+      if (boundary !== "before_blob_publish") return;
+      arrivals += 1;
+      if (arrivals === 1) firstEntered();
+      if (arrivals === 2) bothEntered();
+      await released;
+    };
+    const firstStore = new FileCheckpointStore(dataDirectory, {
+      onBoundary,
+    });
+    const secondStore = new FileCheckpointStore(dataDirectory, {
+      onBoundary,
+    });
+
+    const firstPending = firstStore.captureBefore("s1", "first", cwd);
+    await firstAtBarrier;
+    const secondPending = secondStore.captureBefore("s2", "second", cwd);
+    await bothAtBarrier;
+    release();
+    const [first, second] = await Promise.all([firstPending, secondPending]);
+
+    expect(first.before).toEqual(second.before);
+    const hash = createHash("sha256").update("before a\n").digest("hex");
+    expect(await readFile(path.join(dataDirectory, "blobs", hash), "utf8"))
+      .toBe("before a\n");
+  }, 30_000);
+
+  it("refuses to complete a prepared checkpoint in another workspace", async () => {
+    const prepared = await store.captureBefore("s1", "two-phase", cwd);
+    const foreign = path.join(root, "foreign-project");
+    await mkdir(foreign);
+    await execFileAsync("git", ["init", "--quiet"], { cwd: foreign });
+    await writeFile(path.join(foreign, "foreign.txt"), "foreign\n", "utf8");
+    await execFileAsync("git", ["add", "foreign.txt"], { cwd: foreign });
+
+    await expect(store.complete(prepared, foreign)).rejects.toMatchObject({
+      code: "checkpoint_corrupt",
+      message: "Checkpoint belongs to a different workspace",
+    });
+  });
 
   it("rejects incomplete, tampered, foreign, and already-restored handles", async () => {
     const before = await store.captureBefore("s1", "exact", cwd);

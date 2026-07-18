@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import {
   chmod,
+  link,
   lstat,
   mkdir,
   open,
@@ -21,8 +23,9 @@ import { ToolError } from "./types.js";
 
 const CHECKPOINT_FORMAT_FILE = ".format.json";
 const CHECKPOINT_FORMAT = {
-  version: 2,
+  version: 3,
   credentialPathsExcluded: true,
+  atomicCompletionSidecars: true,
 } as const;
 const FORMAT_INITIALIZATION_ATTEMPTS = 20;
 
@@ -36,10 +39,13 @@ export interface WorkspaceManifestEntry {
 
 export type WorkspaceManifest = Record<string, WorkspaceManifestEntry>;
 
-export interface Checkpoint {
+export interface CheckpointReference {
   id: string;
   sessionId: string;
   toolCallId: string;
+}
+
+export interface Checkpoint extends CheckpointReference {
   before: WorkspaceManifest;
   after?: WorkspaceManifest;
 }
@@ -54,6 +60,17 @@ export abstract class CheckpointStore {
     checkpoint: Checkpoint,
     cwd: string,
   ): Promise<Checkpoint>;
+  complete(
+    checkpoint: CheckpointReference | Checkpoint,
+    cwd: string,
+  ): Promise<Checkpoint> {
+    void checkpoint;
+    void cwd;
+    return Promise.reject(new ToolError(
+      "checkpoint_not_found",
+      "Idempotent checkpoint completion is unavailable for this store",
+    ));
+  }
   abstract undoLatest(
     sessionId: string,
     cwd: string,
@@ -71,10 +88,27 @@ export abstract class CheckpointStore {
   }
 }
 
+export type FileCheckpointStoreBoundary =
+  | "completion_linked"
+  | "directory_visible"
+  | "before_blob_publish"
+  | "before_completion_directory_sync"
+  | "before_completion_publish"
+  | "before_directory_parent_sync";
+
+export interface FileCheckpointStoreOptions {
+  /** Deterministic lifecycle observation for embedding and crash tests. */
+  readonly onBoundary?: (
+    boundary: FileCheckpointStoreBoundary,
+    detail?: string,
+  ) => Promise<void>;
+}
+
 interface StoredCheckpoint extends Checkpoint {
   createdAt: string;
   completedAt?: string;
   undoneAt?: string;
+  workspaceRoot?: string;
 }
 
 interface WorkspaceContent {
@@ -100,6 +134,16 @@ function isAlreadyExists(error: unknown): boolean {
   );
 }
 
+async function syncDirectory(directory: string): Promise<void> {
+  if (process.platform === "win32") return;
+  const handle = await open(directory, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
 function migrationRequired(): ToolError {
   return new ToolError(
     "checkpoint_migration_required",
@@ -107,16 +151,73 @@ function migrationRequired(): ToolError {
   );
 }
 
+async function ensurePrivateDirectory(
+  directory: string,
+  invalid: () => ToolError,
+  hooks: FileCheckpointStoreOptions = {},
+): Promise<void> {
+  const absolute = path.resolve(directory);
+  const missing: string[] = [];
+  let ancestor = absolute;
+  for (;;) {
+    try {
+      const stats = await lstat(ancestor);
+      if (!stats.isDirectory() || stats.isSymbolicLink()) throw invalid();
+      break;
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+      const parent = path.dirname(ancestor);
+      if (parent === ancestor) throw invalid();
+      missing.unshift(path.basename(ancestor));
+      ancestor = parent;
+    }
+  }
+  for (const part of missing) {
+    const child = path.join(ancestor, part);
+    try {
+      await mkdir(child, { mode: 0o700 });
+    } catch (error) {
+      if (!isAlreadyExists(error)) throw error;
+    }
+    const stats = await lstat(child);
+    if (
+      !stats.isDirectory() ||
+      stats.isSymbolicLink() ||
+      (stats.mode & 0o077) !== 0
+    ) {
+      throw invalid();
+    }
+    await hooks.onBoundary?.("directory_visible", child);
+    if (child !== absolute) {
+      await hooks.onBoundary?.("before_directory_parent_sync", child);
+    }
+    await syncDirectory(ancestor);
+    ancestor = child;
+  }
+  const stats = await lstat(absolute);
+  if (
+    !stats.isDirectory() ||
+    stats.isSymbolicLink() ||
+    (stats.mode & 0o077) !== 0
+  ) {
+    throw invalid();
+  }
+  await hooks.onBoundary?.("before_directory_parent_sync", absolute);
+  await syncDirectory(path.dirname(absolute));
+}
+
 function validCheckpointFormat(value: unknown): boolean {
   return (
     typeof value === "object" &&
     value !== null &&
     !Array.isArray(value) &&
-    Object.keys(value).length === 2 &&
+    Object.keys(value).length === 3 &&
     "version" in value &&
     value.version === CHECKPOINT_FORMAT.version &&
     "credentialPathsExcluded" in value &&
-    value.credentialPathsExcluded === CHECKPOINT_FORMAT.credentialPathsExcluded
+    value.credentialPathsExcluded === CHECKPOINT_FORMAT.credentialPathsExcluded &&
+    "atomicCompletionSidecars" in value &&
+    value.atomicCompletionSidecars === CHECKPOINT_FORMAT.atomicCompletionSidecars
   );
 }
 
@@ -142,6 +243,15 @@ function validateSessionId(sessionId: string): void {
 
 function validIdentifier(value: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9_-]*$/u.test(value);
+}
+
+function isCheckpointReference(value: unknown): value is CheckpointReference {
+  return typeof value === "object" && value !== null &&
+    "id" in value && typeof value.id === "string" && validIdentifier(value.id) &&
+    "sessionId" in value && typeof value.sessionId === "string" &&
+    validIdentifier(value.sessionId) &&
+    "toolCallId" in value && typeof value.toolCallId === "string" &&
+    value.toolCallId.length > 0 && value.toolCallId.length <= 512;
 }
 
 function validHash(value: string): boolean {
@@ -409,7 +519,11 @@ function parseStoredCheckpoint(value: unknown): StoredCheckpoint {
       typeof value.completedAt !== "string") ||
     ("undoneAt" in value &&
       value.undoneAt !== undefined &&
-      typeof value.undoneAt !== "string")
+      typeof value.undoneAt !== "string") ||
+    ("workspaceRoot" in value &&
+      value.workspaceRoot !== undefined &&
+      (typeof value.workspaceRoot !== "string" ||
+        !path.isAbsolute(value.workspaceRoot)))
   ) {
     throw new ToolError("checkpoint_corrupt", "Invalid checkpoint record");
   }
@@ -419,7 +533,10 @@ function parseStoredCheckpoint(value: unknown): StoredCheckpoint {
 export class FileCheckpointStore extends CheckpointStore {
   #initialization: Promise<void> | undefined;
 
-  constructor(private readonly dataDirectory: string) {
+  constructor(
+    private readonly dataDirectory: string,
+    private readonly options: FileCheckpointStoreOptions = {},
+  ) {
     super();
   }
 
@@ -429,9 +546,17 @@ export class FileCheckpointStore extends CheckpointStore {
   }
 
   async #initialize(): Promise<void> {
-    await mkdir(this.dataDirectory, { recursive: true, mode: 0o700 });
+    await ensurePrivateDirectory(
+      this.dataDirectory,
+      migrationRequired,
+      this.options,
+    );
     const directoryStats = await lstat(this.dataDirectory);
-    if (!directoryStats.isDirectory() || directoryStats.isSymbolicLink()) {
+    if (
+      !directoryStats.isDirectory() ||
+      directoryStats.isSymbolicLink() ||
+      (directoryStats.mode & 0o077) !== 0
+    ) {
       throw migrationRequired();
     }
 
@@ -489,6 +614,7 @@ export class FileCheckpointStore extends CheckpointStore {
         handle = await open(marker, "wx", 0o600);
         await handle.writeFile(`${JSON.stringify(CHECKPOINT_FORMAT)}\n`, "utf8");
         await handle.sync();
+        await syncDirectory(this.dataDirectory);
         return;
       } catch (error) {
         if (!isAlreadyExists(error)) {
@@ -552,25 +678,84 @@ export class FileCheckpointStore extends CheckpointStore {
   }
 
   async #writeBlob(hash: string, bytes: Buffer): Promise<void> {
+    if (hashBlob(bytes) !== hash) {
+      throw new ToolError("checkpoint_corrupt", "Checkpoint blob hash is invalid");
+    }
     const directory = path.join(this.dataDirectory, "blobs");
-    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await ensurePrivateDirectory(
+      directory,
+      () => new ToolError(
+        "checkpoint_storage",
+        "Checkpoint blob storage is not private",
+      ),
+      this.options,
+    );
     const file = path.join(directory, hash);
-    let handle;
+    const temporary = path.join(directory, `.${hash}.${randomUUID()}.tmp`);
+    let temporaryCreated = false;
     try {
-      handle = await open(file, "wx", 0o600);
-      await handle.writeFile(bytes);
-      await handle.sync();
-    } catch (error) {
-      if (
-        typeof error !== "object" ||
-        error === null ||
-        !("code" in error) ||
-        error.code !== "EEXIST"
-      ) {
-        throw error;
+      const handle = await open(temporary, "wx", 0o600);
+      temporaryCreated = true;
+      try {
+        await handle.writeFile(bytes);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await this.options.onBoundary?.("before_blob_publish", hash);
+      try {
+        await link(temporary, file);
+        await syncDirectory(directory);
+      } catch (error) {
+        if (!isAlreadyExists(error)) throw error;
+        let winner;
+        try {
+          winner = await open(
+            file,
+            constants.O_RDONLY |
+              (constants.O_NONBLOCK ?? 0) |
+              (constants.O_NOFOLLOW ?? 0),
+          );
+          const stats = await winner.stat();
+          if (
+            !stats.isFile() ||
+            stats.isSymbolicLink() ||
+            (stats.mode & 0o077) !== 0 ||
+            stats.size !== bytes.byteLength
+          ) {
+            throw new ToolError(
+              "checkpoint_corrupt",
+              `Checkpoint blob is corrupt for ${hash}`,
+            );
+          }
+          const existing = await winner.readFile();
+          if (
+            existing.byteLength !== bytes.byteLength ||
+            hashBlob(existing) !== hash ||
+            !existing.equals(bytes)
+          ) {
+            throw new ToolError(
+              "checkpoint_corrupt",
+              `Checkpoint blob is corrupt for ${hash}`,
+            );
+          }
+        } catch (winnerError) {
+          if (winnerError instanceof ToolError) throw winnerError;
+          throw new ToolError(
+            "checkpoint_corrupt",
+            `Checkpoint blob is corrupt for ${hash}`,
+            { cause: winnerError },
+          );
+        } finally {
+          await winner?.close();
+        }
+        await syncDirectory(directory);
       }
     } finally {
-      await handle?.close();
+      if (temporaryCreated) {
+        await rm(temporary, { force: true });
+        await syncDirectory(directory);
+      }
     }
   }
 
@@ -605,30 +790,108 @@ export class FileCheckpointStore extends CheckpointStore {
 
   async #writeCheckpoint(checkpoint: StoredCheckpoint): Promise<void> {
     const directory = this.#sessionDirectory(checkpoint.sessionId);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await ensurePrivateDirectory(
+      directory,
+      () => new ToolError(
+        "checkpoint_storage",
+        "Checkpoint session storage is not private",
+      ),
+      this.options,
+    );
     const target = this.#checkpointFile(checkpoint.sessionId, checkpoint.id);
     const temporary = `${target}.${randomUUID()}.tmp`;
-    const handle = await open(temporary, "wx", 0o600);
+    let published = false;
     try {
-      await handle.writeFile(`${JSON.stringify(checkpoint)}\n`, "utf8");
-      await handle.sync();
+      const handle = await open(temporary, "wx", 0o600);
+      try {
+        await handle.writeFile(`${JSON.stringify(checkpoint)}\n`, "utf8");
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await rename(temporary, target);
+      published = true;
+      await syncDirectory(directory);
     } finally {
-      await handle.close();
+      if (!published) await rm(temporary, { force: true });
     }
-    await rename(temporary, target);
   }
 
-  async #readCheckpoint(file: string): Promise<StoredCheckpoint> {
+  async #readCheckpointFile(
+    file: string,
+    optional = false,
+  ): Promise<StoredCheckpoint | null> {
     try {
       const value: unknown = JSON.parse(await readFile(file, "utf8"));
       return parseStoredCheckpoint(value);
     } catch (error) {
+      if (optional && isMissing(error)) return null;
       if (error instanceof ToolError) {
         throw error;
       }
       throw new ToolError("checkpoint_corrupt", `Cannot read ${file}`, {
         cause: error,
       });
+    }
+  }
+
+  async #readCheckpoint(file: string): Promise<StoredCheckpoint> {
+    const primary = await this.#readCheckpointFile(file);
+    if (primary === null) {
+      throw new ToolError("checkpoint_corrupt", `Cannot read ${file}`);
+    }
+    const completion = await this.#readCheckpointFile(`${file}.completed`, true);
+    if (completion === null) return primary;
+    if (
+      completion.after === undefined ||
+      completion.completedAt === undefined ||
+      completion.undoneAt !== undefined ||
+      !checkpointHandleMatches(completion, primary, false) ||
+      completion.createdAt !== primary.createdAt ||
+      completion.workspaceRoot !== primary.workspaceRoot
+    ) {
+      throw new ToolError("checkpoint_corrupt", "Invalid checkpoint completion");
+    }
+    if (primary.after === undefined) return completion;
+    if (
+      primary.completedAt !== completion.completedAt ||
+      !checkpointHandleMatches(completion, primary, true)
+    ) {
+      throw new ToolError("checkpoint_corrupt", "Conflicting checkpoint completion");
+    }
+    return primary;
+  }
+
+  async #publishCompletion(completed: StoredCheckpoint): Promise<StoredCheckpoint> {
+    const directory = this.#sessionDirectory(completed.sessionId);
+    const checkpointFile = this.#checkpointFile(completed.sessionId, completed.id);
+    const target = `${checkpointFile}.completed`;
+    const temporary = `${target}.${randomUUID()}.tmp`;
+    let temporaryCreated = false;
+    try {
+      const handle = await open(temporary, "wx", 0o600);
+      temporaryCreated = true;
+      try {
+        await handle.writeFile(`${JSON.stringify(completed)}\n`, "utf8");
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await this.options.onBoundary?.("before_completion_publish");
+      try {
+        await link(temporary, target);
+        await this.options.onBoundary?.("completion_linked");
+      } catch (error) {
+        if (!isAlreadyExists(error)) throw error;
+      }
+      await this.options.onBoundary?.("before_completion_directory_sync");
+      await syncDirectory(directory);
+      return await this.#readCheckpoint(checkpointFile);
+    } finally {
+      if (temporaryCreated) {
+        await rm(temporary, { force: true });
+        await syncDirectory(directory);
+      }
     }
   }
 
@@ -639,12 +902,14 @@ export class FileCheckpointStore extends CheckpointStore {
   ): Promise<Checkpoint> {
     await this.#assertStorageLocation(cwd);
     await this.initialize();
+    const workspaceRoot = await realpath(cwd);
     const stored: StoredCheckpoint = {
       id: randomUUID(),
       sessionId,
       toolCallId,
-      before: await this.#captureManifest(cwd),
+      before: await this.#captureManifest(workspaceRoot),
       createdAt: new Date().toISOString(),
+      workspaceRoot,
     };
     await this.#writeCheckpoint(stored);
     return stored;
@@ -656,9 +921,19 @@ export class FileCheckpointStore extends CheckpointStore {
   ): Promise<Checkpoint> {
     await this.#assertStorageLocation(cwd);
     await this.initialize();
+    const workspaceRoot = await realpath(cwd);
     const stored = await this.#readCheckpoint(
       this.#checkpointFile(checkpoint.sessionId, checkpoint.id),
     );
+    if (
+      stored.workspaceRoot !== undefined &&
+      stored.workspaceRoot !== workspaceRoot
+    ) {
+      throw new ToolError(
+        "checkpoint_corrupt",
+        "Checkpoint belongs to a different workspace",
+      );
+    }
     if (
       checkpoint.after !== undefined ||
       stored.after !== undefined ||
@@ -668,11 +943,80 @@ export class FileCheckpointStore extends CheckpointStore {
     }
     const completed: StoredCheckpoint = {
       ...stored,
-      after: await this.#captureManifest(cwd),
+      after: await this.#captureManifest(workspaceRoot),
       completedAt: new Date().toISOString(),
     };
-    await this.#writeCheckpoint(completed);
-    return completed;
+    if (stored.workspaceRoot === undefined) {
+      await this.#writeCheckpoint(completed);
+      return completed;
+    }
+    return this.#publishCompletion(completed);
+  }
+
+  override async complete(
+    checkpoint: CheckpointReference | Checkpoint,
+    cwd: string,
+  ): Promise<Checkpoint> {
+    await this.#assertStorageLocation(cwd);
+    await this.initialize();
+    const workspaceRoot = await realpath(cwd);
+    if (!isCheckpointReference(checkpoint)) {
+      throw new ToolError("checkpoint_corrupt", "Invalid checkpoint handle");
+    }
+    const stored = await this.#readCheckpoint(
+      this.#checkpointFile(checkpoint.sessionId, checkpoint.id),
+    );
+    if (stored.workspaceRoot !== workspaceRoot) {
+      throw new ToolError(
+        "checkpoint_corrupt",
+        "Checkpoint belongs to a different workspace",
+      );
+    }
+    const hasManifest = "before" in checkpoint;
+    if (
+      checkpoint.id !== stored.id ||
+      checkpoint.sessionId !== stored.sessionId ||
+      checkpoint.toolCallId !== stored.toolCallId ||
+      (!hasManifest && "after" in checkpoint) ||
+      (hasManifest && (
+        !isManifest(checkpoint.before) ||
+        ("after" in checkpoint && checkpoint.after !== undefined &&
+          !isManifest(checkpoint.after)) ||
+        !checkpointHandleMatches(
+          checkpoint as Checkpoint,
+          stored,
+          checkpoint.after !== undefined,
+        ) ||
+        (checkpoint.after !== undefined && stored.after === undefined)
+      ))
+    ) {
+      throw new ToolError("checkpoint_corrupt", "Invalid checkpoint handle");
+    }
+    if (stored.undoneAt !== undefined) {
+      throw new ToolError(
+        "checkpoint_not_found",
+        "Checkpoint was already restored",
+      );
+    }
+    if (stored.after !== undefined) {
+      await this.options.onBoundary?.("before_completion_directory_sync");
+      await syncDirectory(this.#sessionDirectory(stored.sessionId));
+      return stored;
+    }
+
+    const completed: StoredCheckpoint = {
+      ...stored,
+      after: await this.#captureManifest(workspaceRoot),
+      completedAt: new Date().toISOString(),
+    };
+    const published = await this.#publishCompletion(completed);
+    if (published.undoneAt !== undefined) {
+      throw new ToolError(
+        "checkpoint_not_found",
+        "Checkpoint was already restored",
+      );
+    }
+    return published;
   }
 
   async #latest(sessionId: string): Promise<StoredCheckpoint> {
@@ -726,8 +1070,9 @@ export class FileCheckpointStore extends CheckpointStore {
   ): Promise<{ restored: string[]; deleted: string[] }> {
     await this.#assertStorageLocation(cwd);
     await this.initialize();
+    const workspaceRoot = await realpath(cwd);
     const checkpoint = await this.#latest(sessionId);
-    return this.#restoreCheckpoint(checkpoint, cwd);
+    return this.#restoreCheckpoint(checkpoint, workspaceRoot);
   }
 
   override async restore(
@@ -736,6 +1081,7 @@ export class FileCheckpointStore extends CheckpointStore {
   ): Promise<{ restored: string[]; deleted: string[] }> {
     await this.#assertStorageLocation(cwd);
     await this.initialize();
+    const workspaceRoot = await realpath(cwd);
     if (checkpoint.after === undefined) {
       throw new ToolError(
         "checkpoint_corrupt",
@@ -764,13 +1110,31 @@ export class FileCheckpointStore extends CheckpointStore {
         "Checkpoint was already restored",
       );
     }
-    return this.#restoreCheckpoint(stored, cwd);
+    if (
+      stored.workspaceRoot !== undefined &&
+      stored.workspaceRoot !== workspaceRoot
+    ) {
+      throw new ToolError(
+        "checkpoint_corrupt",
+        "Checkpoint belongs to a different workspace",
+      );
+    }
+    return this.#restoreCheckpoint(stored, workspaceRoot);
   }
 
   async #restoreCheckpoint(
     checkpoint: StoredCheckpoint,
     cwd: string,
   ): Promise<{ restored: string[]; deleted: string[] }> {
+    if (
+      checkpoint.workspaceRoot !== undefined &&
+      checkpoint.workspaceRoot !== cwd
+    ) {
+      throw new ToolError(
+        "checkpoint_corrupt",
+        "Checkpoint belongs to a different workspace",
+      );
+    }
     const after = checkpoint.after;
     if (after === undefined) {
       throw new ToolError("checkpoint_corrupt", "Checkpoint has no after state");
