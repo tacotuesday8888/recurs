@@ -1,6 +1,6 @@
 # Durable Team Runtime v2 Design
 
-**Status:** Approved for implementation by the user's explicit direction to set an aggressive goal and continue without intermediate approval stops.
+**Status:** Implemented on `codex/durable-team-runtime-v2`; verification evidence and the local-integration procedure are recorded in the matching implementation plan.
 
 ## Purpose
 
@@ -112,10 +112,11 @@ every child, staging, review, repair, and apply boundary. Terminal states cannot
 restart except `interrupted`, whose resume creates new sibling attempts while
 retaining the original history.
 
-Raw patch bodies are not written to the team log or events. Task prompts and
-review instructions are persisted because deterministic resume needs them;
-they stay in the local mode-0600 journal and are never rendered by list/status
-surfaces.
+Raw patch bodies are not written to the team journal or normalized
+`agent_team_activity` events. Task prompts and review instructions are persisted
+because deterministic resume needs them; the private team journal and child
+session logs contain assigned prompts and tool calls. `/agents` projections omit
+them, but general session/JSONL transcripts are not redacted audit feeds.
 
 ### Staging and patch ownership
 
@@ -156,7 +157,8 @@ it never launches repository code or mutates the parent.
 An approved background result stops at `ready_to_apply`; a later explicit
 `apply_team` action performs the parent transaction while the normal CLI is
 idle. Background is initially limited to eligible direct model-provider pins,
-local/manual invocation, the v4 no-process profiles, and `full_access` so no
+local/manual invocation, the v4 profiles without arbitrary-command or
+verification tools, and `full_access` so no
 interactive approval is deferred beyond the initiating turn. External,
 sensitive, credential, network, and deploy intents remain denied by the exact
 profile even under `full_access`. Subscription/coding-plan paths whose policy

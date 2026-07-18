@@ -23,7 +23,7 @@ It is not an IDE. Users may keep their editor of choice. Recurs manages the peop
 
 Core v0, the provider/authentication catalog foundation, and the TypeScript tool-safety precursor are implemented: a provider-neutral loop, eight host tools, three owned delegation primitives, three permission presets, Plan and review modes, goals, pinned version-2 sessions, cross-process mutation leases, trusted run context, direct and delegated coordinator lanes, interrupted-work recovery, compaction, checkpoints/undo, sessionless workspace shell, interactive and JSONL CLI paths, and full end-to-end coding workflows.
 
-The first Recurs-owned team vertical is also real. A parent can create one durable Explore, Implement, or Review child, run a bounded foreground Explore/Review batch, or ask `delegate_team` to run up to four isolated Implement workers and a mode-selected Review panel. Version-3 Economy through Max policies combine a named quality standard with implementation width, initial/maximum reviewers, child/request limits, concurrency, depth, retries, and reported-cost ceilings. Team patches are bounded, text-only, hash-addressed, and applied in task order behind an exact rollback checkpoint; all workers must succeed, permissions cannot widen, cancellation is linked, and strict Review output produces `approved`, `changes_requested`, or `unverified`. Durable `/agents activity` exposes child status, usage, files, evidence, and isolation revision. Background work, resumption, recursion, automatic repair, dirty-parent snapshots, auto-commit, and independent child-model routing are intentionally absent.
+The Recurs-owned team vertical is now durable. A parent can create one Explore, Implement, or Review child, run a bounded foreground Explore/Review batch, or ask `delegate_team` to run up to four isolated Implement workers followed by strict Review and bounded finding-driven Repair. Version-4 Economy through Max policies combine quality, team width, reviewers, repair rounds, child/request limits, concurrency, depth, retries, and reported-cost ceilings. All v4 candidate work stays in private staging until approval. Foreground applies an approved candidate through a two-phase checkpoint transaction; process-lifetime background stops at `ready_to_apply` for explicit control. A sequenced journal, cross-process owner leases, truthful interruption/resume, startup recovery, normalized events, `/agents` controls, and model control tools make lifecycle and evidence inspectable. Recursion, automatic task decomposition, a persistent daemon, dirty-parent snapshots, auto-commit/push/deploy, and multiple live role-specific backends are intentionally absent.
 
 Built-in tools now share a permanent credential-path denial, aggregate tools and new checkpoints exclude those paths, child processes receive clean synthetic state, and provider/tool/CLI failures are sanitized before durable or user-visible boundaries. Hosts may choose the default `local_guarded` tool profile or a fail-closed `tools_disabled` profile that exposes no model tools.
 
@@ -47,11 +47,12 @@ Additional providers and delegated runtimes remain provider-specific integration
 
 ### 2. Sub-agent company runtime
 
-The durable parent/child contracts, exact worker profiles, shared budgets, foreground delegation, normalized activity, isolated Explore/Review batches, parallel Implement patch integration, exact rollback, and adaptive Review slice are implemented. Continue the primary product differentiator with:
+The durable parent/child and team-run contracts, exact worker profiles, shared budgets, foreground and process-lifetime background delegation, normalized activity, isolated staging, strict Review, bounded Repair, explicit apply, ownership fencing, and restart recovery are implemented. Continue the primary product differentiator with:
 
-- durable background ownership, resumption, and escalation without duplicating the execution engine;
-- carefully expanded role contracts, automatic correction loops, and model routing behind versioned policy and hard spend limits;
-- a company-level operating view over the existing goals, budgets, cancellation, handoffs, review, and normalized activity stream.
+- reviewed role/model candidates behind capability, billing, connection, and hard-spend policy rather than brand ranking;
+- an enforceable process/filesystem/network boundary before persistent or unattended arbitrary-command workers;
+- a separately designed durable worker host if work must continue after the CLI exits;
+- a company-level operating view over the existing goals, modes, budgets, cancellation, handoffs, review, repair, and normalized activity stream.
 
 Before unattended local workers run arbitrary commands, add an enforceable process/filesystem/network isolation layer.
 

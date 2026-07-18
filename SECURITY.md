@@ -145,16 +145,43 @@ authority.
 Parallel Explore/Review batches and team Implement workers run in detached
 worktrees only after the parent is verified as the canonical root of a clean
 Git repository at exact committed `HEAD`. The worktrees omit ignored local
-state, live outside the repository, and are removed before settlement. Batch
-changes are discarded. A team can import only a parent-owned, hash-verified,
-text-only patch after exact path, credential-path, mode, binary, symlink,
-submodule, size, base-revision, and ownership checks. Artifacts are applied in
-declared order behind an exact checkpoint, and any conflict after mutation
-triggers whole-transaction rollback. Successful integration stays uncommitted;
-a rejected or unavailable Review leaves that visible change for correction or
-`/undo`. These controls separate sibling workspace effects and constrain the
-import boundary, but they do not restrict host filesystem, network, IPC, or
-process authority and do not make children credential-safe sandboxes.
+state and live under private project data. Batch changes are discarded. A team
+can retain only a parent-owned, hash-verified, text-only patch after exact path,
+credential-path, mode, binary, symlink, submodule, size, base-revision, and
+ownership checks.
+
+The default version-4 team path applies worker artifacts to a private staging
+worktree and uses exact Implement, Review, and Repair profiles with no
+arbitrary-command or verification tools. Only hardened Git inspection may
+spawn a process, and project scripts cannot be executed by these roles. Only valid
+bounded Review findings can start a Repair sibling, and the frozen policy caps
+the rounds, children, requests, concurrency, and reported cost. Child depth
+remains one, permissions cannot exceed the parent, and delegation tools are not
+visible to children. The private team journal and spawned child session logs
+persist assigned prompts and tool calls. `/agents` projections and
+`agent_team_activity` omit prompts, patch bodies, private paths, credentials,
+and account data; the general JSONL transcript can include prompts and tool
+arguments and is not a redacted audit feed.
+
+An approved foreground candidate is imported through a durable two-phase
+checkpoint transaction. An approved background candidate never mutates the
+parent until explicit apply, and background is only process-lifetime work—not a
+daemon. Starting or resuming background work requires a local, manual,
+user-present Act session, Full Access, and an eligible backend; apply requires
+Full Access or one explicit elevated write approval. Cross-process owner leases prevent
+two live writers but are not an OS security boundary.
+
+Startup recovery validates the frozen parent, task, workspace lease, assignment
+hash, child session, and artifact bindings before trusting durable work. It
+removes only owned stale paths below Recurs's private worktree root. An
+interrupted apply is completed only when the parent exactly matches the
+candidate, reset to `ready_to_apply` only when the base is unchanged, and
+otherwise marked for manual attention without overwriting the workspace.
+Recovery runs before provider/session activation, sanitizes per-run failures,
+and blocks startup with one safe error if any run cannot be reconciled.
+These controls constrain the import and lifecycle boundaries; they still do
+not restrict host filesystem, network, IPC, or process authority and do not
+make children credential-safe sandboxes.
 
 The private signed path implements OpenAI API, Anthropic API, and Kimi Code.
 Other direct API, coding-plan, OAuth, and cloud-identity credential flows remain

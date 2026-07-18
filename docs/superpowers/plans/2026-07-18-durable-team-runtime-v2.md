@@ -4,7 +4,7 @@
 
 **Goal:** Deliver a restart-truthful, bounded Recurs team runtime with isolated staging, structured review/repair, process-lifetime background control, explicit apply, durable activity, and capability-aware parent-backend routing.
 
-**Architecture:** Preserve `ChildAgentManager` and `BackendRunCoordinator` as the only child execution path. Put team progress in a separate sequenced JSONL journal, build candidates in an isolated staging worktree, persist cumulative patch artifacts, and mutate the parent only at an explicit two-phase apply boundary. New v4 policies use no-process Implement/Review/Repair profiles and depth-one sibling repair attempts.
+**Architecture:** Preserve `ChildAgentManager` and `BackendRunCoordinator` as the only child execution path. Put team progress in a separate sequenced JSONL journal, build candidates in an isolated staging worktree, persist cumulative patch artifacts, and mutate the parent only at an explicit two-phase apply boundary. New v4 policies use Implement/Review/Repair profiles without arbitrary-command or verification tools and depth-one sibling repair attempts; hardened Git inspection may still spawn a process.
 
 **Tech Stack:** TypeScript 6, Node.js 22, Vitest, append-only JSONL stores, existing Git worktree/patch/checkpoint ports, existing CLI runtime and command registry.
 
@@ -17,9 +17,31 @@
 - Background work is process-lifetime only, never mutates the parent, and becomes `interrupted` after restart unless it already reached a stable `ready_to_apply` state.
 - Only an explicit apply may mutate the parent; never auto-commit, push, open a PR, deploy, or contact an external service.
 - Provider routing uses capability facts and stable IDs, never hard-coded model brands; production may expose only the parent pin and must say so.
-- Raw prompts and patch bodies never enter events, list/status output, or tool metadata. Persisted prompts remain only in mode-0600 local team journals for resume.
+- `/agents` projections and `agent_team_activity` never expose prompts, patch bodies, private paths, credentials, or account data. The private team journal and child session logs persist assigned prompts and tool calls; general session/JSONL transcripts are not redacted audit feeds.
 - Unknown provider cost remains unknown; do not report or enforce it as zero.
 - Use test-first red/green/refactor for every behavior change and make focused commits.
+
+## Implementation outcome
+
+Tasks 1–10 are implemented in focused commits through `d8a5999`, including the
+final cross-process handoff, recovery-privacy, resume-budget, and deterministic
+artifact fixes. The real assembled foreground E2E covers two Implement
+children, two initial reviewers,
+finding-driven Repair, re-review, parent synthesis/apply, five completed
+depth-one children, normalized activity, and zero leaked worktrees. Background
+ready/apply, interruption/resume, ownership fencing, and crash reconciliation
+are covered by supervisor integration, recovery, assembly, and CLI tests rather
+than a second duplicate provider-scripted E2E.
+
+The exact committed implementation passed the full repository gate with 88
+test files and 1,368 tests, followed by the TypeScript build and native engine
+bundle, bridge, and doctor smokes. Native build and resource lint also passed;
+the known-good Swift selection passed 755 tests in 73 suites while excluding
+only the three unchanged host-blocked controlling-PTY suites. No native source
+or dependency manifest changed. Independent whole-branch review and re-review
+found no remaining critical, important, or minor issue. The verified history is
+intended for a recoverable `--ff-only` integration into local `main`; nothing is
+pushed.
 
 ---
 
@@ -175,7 +197,7 @@ git commit -m "fix: harden team review and restart selection"
 - Background eligibility fails closed for non-direct runtimes and unreviewed
   billing sources. Production may provide only the parent candidate, but tests
   must prove deterministic role-candidate selection and parent fallback.
-- Add explicit no-process prompt scopes and update exhaustive CLI switches; do
+- Add explicit no-arbitrary-command/no-verification prompt scopes and update exhaustive CLI switches; do
   not expose the new internal profiles through the existing model-controlled
   `delegate_task` schema.
 - Extend child descriptors with exact optional team correlation
@@ -965,7 +987,7 @@ git commit -m "feat: add durable staged team supervisor"
 
 - Admit background only for a root Act parent in `full_access`, a local/manual/
   user-present long-lived host, a direct `model_provider` pin, reviewed
-  background capability/billing, and eligible no-process role routes. One-shot
+  background capability/billing, and eligible no-arbitrary-command role routes. One-shot
   commands and foreground-only subscription/runtime paths fail closed.
 - Allow at most one unresolved run per parent, including `ready_to_apply`.
   Check both the durable store and a process-local claim to prevent races and
@@ -1230,10 +1252,10 @@ interrupted, and resume creates new depth-one sibling IDs under the same team ID
 
 - [ ] **Step 4: Add security/failure E2E tests**
 
-Cover no-process v4 tool visibility, event-sink failure, patch conflict, dirty
+Cover v4 command/verification-tool exclusion, event-sink failure, patch conflict, dirty
 parent apply denial, malformed review no-repair, repair exhaustion, cancellation,
 foreign-parent controls, cost/child/request admission, and no prompts/patches/
-private paths in JSONL event rendering.
+private paths in `/agents` projections or `agent_team_activity` rendering.
 
 - [ ] **Step 5: Run E2E, render, runtime, and complete targeted orchestration gate**
 
@@ -1266,7 +1288,7 @@ git commit -m "test: prove durable team runtime end to end"
 
 - [ ] **Step 1: Document only implemented behavior**
 
-Document v4 policy values, no-process profiles, durable journal, staging,
+Document v4 policy values, profiles without arbitrary-command/verification tools, durable journal, staging,
 structured repair, background process-lifetime semantics, explicit apply,
 recovery states, commands/tools, routing fallback, accounting limits, and event
 privacy. State prominently that there is no daemon, deep recursion, automatic
