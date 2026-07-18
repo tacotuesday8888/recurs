@@ -15,6 +15,7 @@ export type ToolExecutionClass =
   | "fixed_process"
   | "arbitrary_process";
 export type ToolSecurityProfile = "local_guarded" | "tools_disabled";
+export type ToolCheckpointOwnership = "registry" | "self_managed";
 
 export type PermissionCategory =
   | "read"
@@ -79,6 +80,7 @@ export interface Tool<Input = unknown> {
   readonly definition: ToolDefinition;
   readonly executionClass: ToolExecutionClass;
   readonly mutating: boolean;
+  readonly checkpointOwnership?: ToolCheckpointOwnership;
   isMutating?(input: Input, context: ToolContext): boolean;
   parse(input: unknown): Input;
   permissions(input: Input, context: ToolContext): PermissionIntent[];

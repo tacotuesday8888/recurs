@@ -324,6 +324,7 @@ export class TeamAgentManager {
       },
       executionClass: "in_process",
       mutating: true,
+      checkpointOwnership: "self_managed",
       parse: parseInput,
       permissions() {
         return [

@@ -26,6 +26,7 @@ function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
     definition: tool.definition,
     executionClass: tool.executionClass,
     mutating: tool.mutating,
+    checkpointOwnership: tool.checkpointOwnership ?? "registry",
     ...(isMutating === undefined
       ? {}
       : {
@@ -303,7 +304,11 @@ export class ToolRegistry {
 
     await preflightTool(tool, call.name, input, context);
 
-    if (!mutating || this.#checkpoints === undefined) {
+    if (
+      !mutating ||
+      this.#checkpoints === undefined ||
+      tool.checkpointOwnership === "self_managed"
+    ) {
       return applyToolPolicyMetadata(
         await executeTool(tool, call.name, input, context),
         context.toolPolicy,

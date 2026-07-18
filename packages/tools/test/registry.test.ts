@@ -342,6 +342,43 @@ describe("ToolRegistry", () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
+  it("lets a self-managed mutating tool own its durable checkpoint boundary", async () => {
+    const events: string[] = [];
+    const tool = textTool(true);
+    tool.checkpointOwnership = "self_managed";
+    tool.preflight = async () => {
+      events.push("preflight");
+    };
+    tool.execute = async (input) => {
+      events.push("execute");
+      return { output: input.text, metadata: { durable: true } };
+    };
+    const checkpoints = {
+      captureBefore: vi.fn(),
+      captureAfter: vi.fn(),
+      undoLatest: vi.fn(),
+    } as unknown as CheckpointStore;
+    const approvals: ApprovalHandler = {
+      request: vi.fn(async () => {
+        events.push("approval");
+        return "allow_once" as const;
+      }),
+    };
+    const registry = new ToolRegistry([tool], { checkpoints });
+
+    const result = await registry.invoke(
+      { id: "self-managed", name: "write_text", arguments: { text: "src/a.ts" } },
+      context(),
+      new PermissionEngine("ask_always"),
+      approvals,
+    );
+
+    expect(events).toEqual(["approval", "preflight", "execute"]);
+    expect(checkpoints.captureBefore).not.toHaveBeenCalled();
+    expect(checkpoints.captureAfter).not.toHaveBeenCalled();
+    expect(result.metadata).toEqual({ durable: true });
+  });
+
   it("does not checkpoint or execute when preflight rejects", async () => {
     const tool = textTool(true);
     tool.preflight = async () => {

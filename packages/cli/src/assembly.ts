@@ -31,6 +31,7 @@ import {
   ChildAgentBatchManager,
   ChildAgentManager,
   DelegatedAgentExecutor,
+  FileGitPatchArtifactStore,
   JsonlSessionStore,
   GitWorktreeLeaseManager,
   GitPatchArtifactManager,
@@ -576,7 +577,12 @@ export async function createStandaloneRuntime(
     sessions,
     children: childAgents,
     worktrees,
-    patches: new GitPatchArtifactManager(),
+    patches: new GitPatchArtifactManager({
+      leases: worktrees,
+      store: new FileGitPatchArtifactStore(
+        path.join(projectData, "team-patch-artifacts"),
+      ),
+    }),
     reviews: new AgentReviewPanel({ sessions, children: childAgents }),
     checkpoints,
     emit(event) {
