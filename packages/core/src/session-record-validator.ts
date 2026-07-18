@@ -19,11 +19,11 @@ import type {
 import { SessionStoreError } from "./session-store-error.js";
 import type { SessionRecordV2 } from "./session-v2.js";
 
-function isObject(value: unknown): value is Record<string, unknown> {
+export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function hasExactKeys(
+export function hasExactKeys(
   value: Record<string, unknown>,
   required: readonly string[],
   optional: readonly string[] = [],
@@ -49,11 +49,11 @@ const SHA256_DIGEST = /^sha256:[0-9a-f]{64}$/;
 const GIT_REVISION = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const LEASE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
-function boundedString(value: unknown, maximum: number): value is string {
+export function boundedString(value: unknown, maximum: number): value is string {
   return typeof value === "string" && value.length <= maximum;
 }
 
-function boundedNonEmptyString(
+export function boundedNonEmptyString(
   value: unknown,
   maximum: number,
 ): value is string {
@@ -237,7 +237,7 @@ function isDirectContinuationHandle(value: unknown): boolean {
     (value.expiresAt === undefined || typeof value.expiresAt === "string");
 }
 
-function canonicalIso(value: unknown): value is string {
+export function canonicalIso(value: unknown): value is string {
   if (typeof value !== "string") {
     return false;
   }
@@ -331,7 +331,7 @@ function isModelMessage(value: unknown): boolean {
     value.providerStateHandle === undefined;
 }
 
-function isUsage(value: unknown): boolean {
+export function isUsage(value: unknown): boolean {
   if (!isObject(value) || !hasExactKeys(
     value,
     ["inputTokens", "outputTokens"],
@@ -628,7 +628,7 @@ function isBillingSelection(value: unknown): boolean {
     typeof value.acknowledgedAt === "string";
 }
 
-function isBackendPin(value: unknown): value is SessionBackendPin {
+export function isBackendPin(value: unknown): value is SessionBackendPin {
   if (!isObject(value)) {
     return false;
   }
