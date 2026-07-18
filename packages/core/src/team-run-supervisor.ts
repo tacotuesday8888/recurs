@@ -46,6 +46,7 @@ import type {
   DelegateTaskInput,
   TeamChildAuthority,
 } from "./child-agent-manager.js";
+import { teamChildAssignmentSha256 } from "./team-child-binding.js";
 import {
   projectTeamRunActivityEvent,
   type RecursEvent,
@@ -74,6 +75,10 @@ import type {
   TeamRunRecordInput,
   TeamRunState,
 } from "./team-run-state.js";
+import type {
+  TeamRunOwnerLease,
+  TeamRunOwnerLeaseManager,
+} from "./team-run-owner-lease.js";
 import type {
   DelegateTeamInput,
 } from "./team-agent-manager.js";
@@ -136,6 +141,7 @@ export const TEAM_APPLY_PERMISSION = Object.freeze({
 export interface TeamRunSupervisorDependencies {
   readonly sessions: Pick<JsonlSessionStore, "loadState">;
   readonly runs: Pick<JsonlTeamRunStore, "create" | "append" | "load" | "list">;
+  readonly owners: Pick<TeamRunOwnerLeaseManager, "tryAcquire">;
   readonly children: Pick<
     ChildAgentManager,
     | "authorizeTeamRun"
@@ -210,6 +216,7 @@ class RunJournal {
     state: TeamRunState,
     private readonly store: TeamRunSupervisorDependencies["runs"],
     private readonly publish: (state: TeamRunState) => Promise<void>,
+    private readonly assertOwned: () => Promise<void>,
   ) {
     this.#state = state;
   }
@@ -220,6 +227,7 @@ class RunJournal {
 
   append(input: TeamRunRecordInput): Promise<TeamRunState> {
     const operation = this.#tail.then(async () => {
+      await this.assertOwned();
       this.#state = await this.store.append(
         this.#state.descriptor.id,
         this.#state.lastSequence,
@@ -542,6 +550,23 @@ export class TeamRunSupervisor {
     } catch {
       // The sequenced team journal is authoritative; presentation is best effort.
     }
+  }
+
+  async #acquireOwner(
+    runId: string,
+    parentSessionId: string,
+  ): Promise<TeamRunOwnerLease> {
+    const ownership = await this.dependencies.owners.tryAcquire(
+      runId,
+      parentSessionId,
+    );
+    if (ownership.status === "busy") {
+      throw new ToolError(
+        "permission_denied",
+        "Team run is owned by another live process",
+      );
+    }
+    return ownership.lease;
   }
 
   async #prepare(
@@ -881,6 +906,13 @@ export class TeamRunSupervisor {
         childAgentId: identity.childAgentId,
         childSessionId: identity.childSessionId,
         requestAllowance: journal.state.descriptor.allocation.requestAllowance,
+        taskId: identity.taskId,
+        workspaceLeaseId: lease.id,
+        assignmentSha256: teamChildAssignmentSha256(
+          input.profile,
+          input.description,
+          input.prompt,
+        ),
       },
       at: this.#now(),
     });
@@ -1043,6 +1075,7 @@ export class TeamRunSupervisor {
     if (this.#activeParents.has(parent.agent.id)) {
       throw new ToolError("permission_denied", "A team is already active for this parent");
     }
+    const owner = await this.#acquireOwner(descriptor.id, parent.id);
     this.#activeParents.add(parent.agent.id);
 
     const leases = new Map<string, GitWorktreeLease>();
@@ -1100,6 +1133,28 @@ export class TeamRunSupervisor {
     context.signal.addEventListener("abort", onParentAbort, { once: true });
 
     try {
+      await owner.assertOwned();
+      const resumedRunId = hooks.resumeState?.descriptor.id;
+      const conflicting = (await this.dependencies.runs.list(parent.id)).find((run) =>
+        !terminalStatus(run.status) && run.id !== resumedRunId
+      );
+      if (conflicting !== undefined) {
+        throw new ToolError(
+          "permission_denied",
+          `Parent already has an unresolved team run (${conflicting.id})`,
+        );
+      }
+      let resumedState = hooks.resumeState;
+      if (resumedState !== undefined) {
+        const current = await this.dependencies.runs.load(descriptor.id);
+        if (current.lastSequence !== resumedState.lastSequence) {
+          throw new ToolError(
+            "permission_denied",
+            "Team run changed while ownership was being acquired",
+          );
+        }
+        resumedState = current;
+      }
       const runAuthority = await this.dependencies.children.authorizeTeamRun({
         runId: descriptor.id,
         execution: descriptor.execution,
@@ -1114,21 +1169,23 @@ export class TeamRunSupervisor {
         repositoryRoot: descriptor.repositoryRoot,
       }, context);
       authority = runAuthority;
-      const created = hooks.resumeState ??
+      await owner.assertOwned();
+      const created = resumedState ??
         await this.dependencies.runs.create(descriptor, this.#now());
-      if (hooks.resumeState === undefined) await this.#publish(created);
+      if (resumedState === undefined) await this.#publish(created);
       journal = new RunJournal(
         created,
         this.dependencies.runs,
         (state) => this.#publish(state),
+        () => owner.assertOwned(),
       );
       await cancellationBoundary();
       await journal.append({
         type: "run_claimed",
-        ownerId: this.#createId(),
-        claimEpoch: hooks.resumeState === undefined
+        ownerId: owner.ownerId,
+        claimEpoch: resumedState === undefined
           ? 1
-          : (hooks.resumeState.claim?.claimEpoch ?? 0) + 1,
+          : (resumedState.claim?.claimEpoch ?? 0) + 1,
         at: this.#now(),
       });
       hooks.onClaimed?.(journal, requestCancellation);
@@ -1510,6 +1567,18 @@ export class TeamRunSupervisor {
       return resultFromState(journal.state, evidence);
     } catch (error) {
       if (journal === undefined) throw error;
+      if (journal.state.status === "applying" && journal.state.apply === null) {
+        try {
+          await journal.append({
+            type: "apply_reset",
+            reason: "clean_base",
+            at: this.#now(),
+          });
+          return resultFromState(journal.state, evidence);
+        } catch {
+          throw error;
+        }
+      }
       if (journal.state.apply !== null && !journal.state.apply.committed) {
         try {
           await journal.append({
@@ -1538,6 +1607,9 @@ export class TeamRunSupervisor {
           evidence,
         );
       }
+      if (journal.state.status === "ready_to_apply") {
+        return resultFromState(journal.state, evidence);
+      }
       const failure = safeFailure(error);
       return await this.#terminal(journal, "failed", failure, evidence);
     } finally {
@@ -1565,8 +1637,12 @@ export class TeamRunSupervisor {
         await this.dependencies.patches.discard(reviewSnapshots).catch(() => undefined);
       }
       this.#activeParents.delete(parent.agent.id);
-      if (authority !== undefined) {
-        this.dependencies.children.revokeTeamRunAuthority(authority);
+      try {
+        if (authority !== undefined) {
+          this.dependencies.children.revokeTeamRunAuthority(authority);
+        }
+      } finally {
+        await owner.release();
       }
     }
   }
@@ -1736,54 +1812,102 @@ export class TeamRunSupervisor {
       });
     }
     const active = this.#active.get(runId);
-    if (state.status !== "ready_to_apply" && active !== undefined &&
-      active.parentSessionId === parentSessionId) {
+    if (active !== undefined && active.parentSessionId === parentSessionId) {
       if (active.ownerId !== state.claim?.ownerId) {
         throw new ToolError("permission_denied", "Active team ownership is stale");
       }
       await active.requestCancel(reason);
-      return Object.freeze({
-        result: "requested",
-        snapshot: await this.status(parentSessionId, runId),
-      });
+      if (state.status !== "ready_to_apply") {
+        return Object.freeze({
+          result: "requested",
+          snapshot: await this.status(parentSessionId, runId),
+        });
+      }
+      await active.settled;
+      state = await this.#ownedState(parentSessionId, runId);
+      if (terminalStatus(state.status)) {
+        return Object.freeze({
+          result: "requested",
+          snapshot: snapshotFromState(state),
+        });
+      }
     }
-    if (state.apply !== null && !state.apply.committed) {
+    if (state.status !== "ready_to_apply" && state.status !== "interrupted") {
       throw new ToolError(
-        "checkpoint_conflict",
-        "A prepared team apply must be reconciled before cancellation",
+        "permission_denied",
+        "An inactive running team must be recovered before cancellation",
       );
     }
-    const journal = new RunJournal(
-      state,
-      this.dependencies.runs,
-      (next) => this.#publish(next),
-    );
-    const safeReason = truncateUtf8(reason.trim() || "Team run cancelled", MAX_SAFE_TEXT);
-    await journal.append({
-      type: "cancel_requested",
-      reason: safeReason,
-      at: this.#now(),
-    });
-    await journal.append({
-      type: "run_terminal",
-      status: "cancelled",
-      outcome: {
-        changedFiles: [],
-        evidence: [],
-        failure: { code: "cancelled", message: safeReason },
-      },
-      at: this.#now(),
-    });
-    state = journal.state;
-    if (state.candidate !== null) {
-      await this.dependencies.patches.discard([state.candidate.artifact])
-        .catch(() => undefined);
+    const owner = await this.#acquireOwner(runId, parentSessionId);
+    try {
+      await owner.assertOwned();
+      state = await this.#ownedState(parentSessionId, runId);
+      if (terminalStatus(state.status)) {
+        return Object.freeze({
+          result: "already_terminal",
+          snapshot: snapshotFromState(state),
+        });
+      }
+      if (state.status !== "ready_to_apply" && state.status !== "interrupted") {
+        throw new ToolError(
+          "permission_denied",
+          "Team run is no longer stable for cancellation",
+        );
+      }
+      if (state.status === "interrupted" && state.phase === "apply") {
+        throw new ToolError(
+          "checkpoint_conflict",
+          "An interrupted team apply must be reconciled before cancellation",
+        );
+      }
+      if (state.apply !== null && !state.apply.committed) {
+        throw new ToolError(
+          "checkpoint_conflict",
+          "A prepared team apply must be reconciled before cancellation",
+        );
+      }
+      const journal = new RunJournal(
+        state,
+        this.dependencies.runs,
+        (next) => this.#publish(next),
+        () => owner.assertOwned(),
+      );
+      const safeReason = truncateUtf8(
+        reason.trim() || "Team run cancelled",
+        MAX_SAFE_TEXT,
+      );
+      if (journal.state.cancellation === null) {
+        await journal.append({
+          type: "cancel_requested",
+          reason: safeReason,
+          at: this.#now(),
+        });
+      }
+      await journal.append({
+        type: "run_terminal",
+        status: "cancelled",
+        outcome: {
+          changedFiles: [],
+          evidence: [],
+          failure: {
+            code: "cancelled",
+            message: journal.state.cancellation?.reason ?? safeReason,
+          },
+        },
+        at: this.#now(),
+      });
+      state = journal.state;
+      if (state.candidate !== null) {
+        await this.dependencies.patches.discard([state.candidate.artifact])
+          .catch(() => undefined);
+      }
+      return Object.freeze({
+        result: "requested",
+        snapshot: snapshotFromState(state),
+      });
+    } finally {
+      await owner.release();
     }
-    active?.controller.abort();
-    return Object.freeze({
-      result: "requested",
-      snapshot: await this.status(parentSessionId, runId),
-    });
   }
 
   async #controlParent(
@@ -1876,27 +2000,37 @@ export class TeamRunSupervisor {
     runId: string,
     context: ToolContext,
   ): Promise<TeamRunResult> {
-    const state = await this.#ownedState(parentSessionId, runId);
-    if (state.status !== "ready_to_apply" || state.candidate === null ||
-      state.cancellation !== null || state.descriptor.execution !== "background") {
-      throw new ToolError("permission_denied", "Team run is not ready to apply");
-    }
-    const parent = await this.#controlParent(state, context, false);
-    if (this.#activeParents.has(parent.agent.id)) {
-      throw new ToolError("permission_denied", "A team is already active for this parent");
-    }
-    this.#activeParents.add(parent.agent.id);
-    const journal = new RunJournal(
-      state,
-      this.dependencies.runs,
-      (next) => this.#publish(next),
-    );
-    const base = {
-      repositoryRoot: state.descriptor.repositoryRoot,
-      revision: state.descriptor.baseRevision,
-    };
-    const candidate = state.candidate.artifact;
+    const observed = await this.#ownedState(parentSessionId, runId);
+    await this.#controlParent(observed, context, false);
+    const owner = await this.#acquireOwner(runId, parentSessionId);
+    let activeParentAgentId: string | undefined;
+    let transactionJournal: RunJournal | undefined;
     try {
+      await owner.assertOwned();
+      const state = await this.#ownedState(parentSessionId, runId);
+      if (state.status !== "ready_to_apply" || state.candidate === null ||
+        state.cancellation !== null) {
+        throw new ToolError("permission_denied", "Team run is not ready to apply");
+      }
+      const parent = await this.#controlParent(state, context, false);
+      if (this.#activeParents.has(parent.agent.id)) {
+        throw new ToolError("permission_denied", "A team is already active for this parent");
+      }
+      this.#activeParents.add(parent.agent.id);
+      activeParentAgentId = parent.agent.id;
+      const journal = new RunJournal(
+        state,
+        this.dependencies.runs,
+        (next) => this.#publish(next),
+        () => owner.assertOwned(),
+      );
+      transactionJournal = journal;
+      const base = {
+        repositoryRoot: state.descriptor.repositoryRoot,
+        revision: state.descriptor.baseRevision,
+      };
+      const candidate = state.candidate.artifact;
+      await owner.assertOwned();
       const currentBase = await this.dependencies.patches.preflightParent(
         parent.cwd,
         context.signal,
@@ -1904,6 +2038,7 @@ export class TeamRunSupervisor {
       if (!isDeepStrictEqual(currentBase, base)) {
         throw new ToolError("permission_denied", "Team parent base revision changed");
       }
+      await owner.assertOwned();
       const checkpoint = await this.dependencies.patches.prepareCandidateApply({
         base,
         artifact: candidate,
@@ -1923,6 +2058,7 @@ export class TeamRunSupervisor {
         checkpoint: checkpointReference(checkpoint),
         at: this.#now(),
       });
+      await owner.assertOwned();
       const applied = await this.dependencies.patches.applyCandidate({
         base,
         artifact: candidate,
@@ -1930,6 +2066,7 @@ export class TeamRunSupervisor {
         checkpoints: this.dependencies.checkpoints,
         signal: context.signal,
       });
+      await owner.assertOwned();
       const completed = await this.dependencies.patches.completeCandidateApply({
         base,
         artifact: candidate,
@@ -1953,18 +2090,39 @@ export class TeamRunSupervisor {
       await this.dependencies.patches.discard([candidate]).catch(() => undefined);
       return resultFromState(journal.state, durableEvidence(journal.state));
     } catch (error) {
-      if (journal.state.apply !== null && !journal.state.apply.committed) {
+      const journal = transactionJournal;
+      const applyState = journal?.state.apply;
+      if (journal?.state.status === "applying" && applyState === null) {
+        try {
+          await journal.append({
+            type: "apply_reset",
+            reason: "clean_base",
+            at: this.#now(),
+          });
+          return resultFromState(journal.state, durableEvidence(journal.state));
+        } catch {
+          throw error;
+        }
+      }
+      if (journal !== undefined && applyState !== null && applyState !== undefined &&
+        !applyState.committed) {
         await journal.append({
           type: "run_interrupted",
           reason: safeFailure(error).message,
           manualAttentionRequired: true,
           at: this.#now(),
         });
-        return resultFromState(journal.state, durableEvidence(journal.state));
+        return resultFromState(
+          journal.state,
+          durableEvidence(journal.state),
+        );
       }
       throw error;
     } finally {
-      this.#activeParents.delete(parent.agent.id);
+      if (activeParentAgentId !== undefined) {
+        this.#activeParents.delete(activeParentAgentId);
+      }
+      await owner.release();
     }
   }
 }

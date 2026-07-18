@@ -111,12 +111,29 @@ export interface GitPatchCandidateApplyOutcome {
   readonly changedFiles: readonly string[];
 }
 
-export type GitPatchCandidateCompleteInput = GitPatchCandidateApplyInput;
+export interface GitPatchCandidateCompleteInput {
+  readonly base: GitPatchBase;
+  readonly artifact: GitPatchArtifactHandle;
+  readonly checkpoint: Checkpoint;
+  readonly checkpoints: Pick<CheckpointStore, "complete">;
+  readonly signal: AbortSignal;
+}
 
 export interface GitPatchCandidateCompleteOutcome {
   readonly checkpoint: Checkpoint;
   readonly changedFiles: readonly string[];
 }
+
+export interface GitPatchCandidateWorkspaceInspectInput {
+  readonly base: GitPatchBase;
+  readonly artifact: GitPatchArtifactHandle;
+  readonly signal: AbortSignal;
+}
+
+export type GitPatchCandidateWorkspaceState =
+  | "clean_base"
+  | "exact_candidate"
+  | "other";
 
 export interface GitPatchIntegrationInput {
   readonly base: GitPatchBase;
@@ -911,6 +928,109 @@ export class GitPatchArtifactManager {
     }
     await this.#leases.assertActive(lease);
     return Object.freeze({ changedFiles: Object.freeze([...actualPaths]) });
+  }
+
+  async inspectCandidateWorkspace(
+    input: GitPatchCandidateWorkspaceInspectInput,
+  ): Promise<GitPatchCandidateWorkspaceState> {
+    const { signal } = input;
+    if (signal.aborted) throw cancelled("Candidate inspection was cancelled");
+    let base: GitPatchBase;
+    let artifact: GitPatchArtifactHandle;
+    try {
+      base = cloneFreeze(input.base);
+      artifact = cloneFreeze(input.artifact);
+    } catch (error) {
+      throw new ToolError(
+        "permission_denied",
+        "The candidate inspection input is invalid",
+        { cause: error },
+      );
+    }
+    if (!path.isAbsolute(base.repositoryRoot) ||
+      !GIT_REVISION.test(base.revision)) {
+      throw new ToolError(
+        "permission_denied",
+        "The candidate inspection input is invalid",
+      );
+    }
+    const repositoryRoot = await this.#canonicalRoot(base.repositoryRoot, signal);
+    if (repositoryRoot !== base.repositoryRoot) {
+      throw new ToolError(
+        "permission_denied",
+        "The candidate inspection input is invalid",
+      );
+    }
+    const [owned] = await this.#loadOwnedArtifacts(
+      [artifact],
+      repositoryRoot,
+      base.revision,
+    );
+    if (owned === undefined) {
+      throw new ToolError(
+        "permission_denied",
+        "The candidate artifact is unavailable",
+      );
+    }
+
+    const statusPaths = async (): Promise<readonly string[] | null> => {
+      const status = await this.#git(repositoryRoot, [
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+      ], signal);
+      if (status.stdout.length === 0) return [];
+      try {
+        return parseStatus(status.stdout).paths;
+      } catch (error) {
+        if (error instanceof ToolError && error.code === "permission_denied") {
+          return null;
+        }
+        throw error;
+      }
+    };
+    const matchesRevisionAndPaths = async (
+      expectedPaths: readonly string[],
+    ): Promise<boolean> => {
+      if (await this.#revision(repositoryRoot, signal) !== base.revision) {
+        return false;
+      }
+      const currentPaths = await statusPaths();
+      return currentPaths !== null && samePaths(currentPaths, expectedPaths);
+    };
+    const matchesCandidateFingerprint = async (): Promise<boolean> => {
+      try {
+        return isDeepStrictEqual(
+          await fingerprintResult(repositoryRoot, artifact.paths, signal),
+          owned.after,
+        );
+      } catch (error) {
+        if (error instanceof ToolError && error.code !== "cancelled") return false;
+        throw error;
+      }
+    };
+
+    if (await this.#revision(repositoryRoot, signal) !== base.revision) {
+      return "other";
+    }
+    const initialPaths = await statusPaths();
+    if (initialPaths === null) return "other";
+    if (initialPaths.length === 0) {
+      return await matchesRevisionAndPaths([]) ? "clean_base" : "other";
+    }
+    if (!samePaths(initialPaths, artifact.paths)) return "other";
+
+    if (!await matchesCandidateFingerprint() ||
+      !await matchesRevisionAndPaths(artifact.paths)) {
+      return "other";
+    }
+    if (!await matchesCandidateFingerprint() ||
+      !await matchesRevisionAndPaths(artifact.paths)) {
+      return "other";
+    }
+    return "exact_candidate";
   }
 
   async prepareCandidateApply(

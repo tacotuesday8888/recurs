@@ -37,6 +37,7 @@ import { GitPatchArtifactManager } from "../src/git-patch-artifacts.js";
 import { GitWorktreeLeaseManager } from "../src/git-worktree-leases.js";
 import { JsonlSessionStore } from "../src/jsonl-session-store.js";
 import { JsonlTeamRunStore } from "../src/jsonl-team-run-store.js";
+import { TeamRunOwnerLeaseManager } from "../src/team-run-owner-lease.js";
 import { TeamRunSupervisor } from "../src/team-run-supervisor.js";
 import { testAt, testBackendPin } from "../../../tests/support/backend.js";
 
@@ -284,6 +285,7 @@ describe("TeamRunSupervisor Git integration", () => {
     const supervisor = new TeamRunSupervisor({
       sessions,
       runs,
+      owners: new TeamRunOwnerLeaseManager({ rootDirectory: root }),
       children,
       worktrees,
       patches,

@@ -49,6 +49,9 @@ export interface TeamRunChildReservation {
   readonly childAgentId: string;
   readonly childSessionId: string;
   readonly requestAllowance: number;
+  readonly taskId?: string;
+  readonly workspaceLeaseId?: string;
+  readonly assignmentSha256?: string;
 }
 
 export interface TeamRunChildRecord {
@@ -345,15 +348,26 @@ function exactReview(value: unknown): value is TeamRunReviewRecord {
 }
 
 function exactReservation(value: unknown): value is TeamRunChildReservation {
-  return isObject(value) && hasExactKeys(value, [
+  if (!isObject(value)) return false;
+  const legacyKeys = [
     "attemptId", "role", "index", "round", "childAgentId", "childSessionId",
     "requestAllowance",
-  ]) && typeof value.attemptId === "string" && SAFE_RUNTIME_ID.test(value.attemptId) &&
+  ];
+  const bound = hasExactKeys(value, [
+    ...legacyKeys,
+    "taskId", "workspaceLeaseId", "assignmentSha256",
+  ]);
+  return (bound || hasExactKeys(value, legacyKeys)) &&
+    typeof value.attemptId === "string" && SAFE_RUNTIME_ID.test(value.attemptId) &&
     (value.role === "implement" || value.role === "review" || value.role === "repair") &&
     integer(value.index, 1) && integer(value.round) &&
     typeof value.childAgentId === "string" && SAFE_RUNTIME_ID.test(value.childAgentId) &&
     typeof value.childSessionId === "string" && SAFE_RUNTIME_ID.test(value.childSessionId) &&
-    integer(value.requestAllowance, 1);
+    integer(value.requestAllowance, 1) && (!bound || (
+      typeof value.taskId === "string" && SAFE_RUNTIME_ID.test(value.taskId) &&
+      typeof value.workspaceLeaseId === "string" && SAFE_ID.test(value.workspaceLeaseId) &&
+      typeof value.assignmentSha256 === "string" && SHA256.test(value.assignmentSha256)
+    ));
 }
 
 function exactTeamUsage(value: unknown): value is ProviderUsage {
@@ -1084,9 +1098,9 @@ export function reduceTeamRunRecord(
     }
     case "apply_reset": {
       if ((state.status !== "applying" && state.status !== "interrupted") ||
-        state.apply === null ||
-        state.apply.committed) {
-        invalid("Only a prepared apply can reset to the clean base");
+        state.phase !== "apply" || state.candidate === null ||
+        state.cancellation !== null || state.apply?.committed === true) {
+        invalid("Only an unresolved apply can reset to the clean base");
       }
       state.status = "ready_to_apply";
       state.apply = null;

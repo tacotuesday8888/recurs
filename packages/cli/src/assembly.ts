@@ -39,11 +39,14 @@ import {
   GitPatchArtifactManager,
   ProcessScopedRuntimeContinuationStore,
   TeamAgentManager,
+  TeamRunOwnerLeaseManager,
+  TeamRunRecoveryCoordinator,
   TeamRunSupervisor,
   bindRunAuthorization,
   createWorkspaceShell,
   createTeamRunTools,
   isPinnedSessionState,
+  recoverDurableTeamChild,
   type EventSink,
   type PinnedSessionState,
   type SessionState,
@@ -587,9 +590,25 @@ export async function createStandaloneRuntime(
   });
   const reviews = new AgentReviewPanel({ sessions, children: childAgents });
   const teamRuns = new JsonlTeamRunStore(path.join(projectData, "team-runs"));
+  const teamOwners = new TeamRunOwnerLeaseManager({ rootDirectory: projectData });
+  const teamRecovery = new TeamRunRecoveryCoordinator({
+    runs: teamRuns,
+    owners: teamOwners,
+    worktrees,
+    patches,
+    checkpoints,
+    recoverChild(input) {
+      return recoverDurableTeamChild(sessions, input);
+    },
+    emit(event) {
+      return events.emit(event);
+    },
+  });
+  await teamRecovery.recover();
   const teamSupervisor = new TeamRunSupervisor({
     sessions,
     runs: teamRuns,
+    owners: teamOwners,
     children: childAgents,
     worktrees,
     patches,

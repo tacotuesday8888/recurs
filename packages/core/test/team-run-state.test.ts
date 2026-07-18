@@ -848,6 +848,29 @@ describe("team run state", () => {
     });
   });
 
+  it("resets a clean apply phase that crashed before preparation was journaled", () => {
+    const applyingWithoutCheckpoint = reduceTeamRunRecords(
+      approvedState().records.slice(0, -2),
+    );
+    expect(applyingWithoutCheckpoint).toMatchObject({
+      status: "applying",
+      phase: "apply",
+      apply: null,
+      candidate: { artifact: { id: "candidate-1" } },
+    });
+
+    const reset = reduceTeamRunRecord(applyingWithoutCheckpoint, record(17, {
+      type: "apply_reset",
+      reason: "clean_base",
+      at: at(17),
+    }));
+    expect(reset).toMatchObject({
+      status: "ready_to_apply",
+      apply: null,
+      interruption: null,
+    });
+  });
+
   it("keeps prepared apply uncertainty non-terminal until exact reconciliation", () => {
     const beforeCommit = reduceTeamRunRecords(
       approvedState().records.slice(0, -1),

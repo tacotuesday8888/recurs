@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readdir, realpath, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import type {
   AgentRuntime,
@@ -12,8 +14,10 @@ import type {
   SessionBackendPin,
   TrustedRunContext,
   NativeOpenAIResponsesPort,
+  TeamRunDescriptor,
+  TeamRunPolicySnapshot,
 } from "@recurs/contracts";
-import { createHostInvocation } from "@recurs/contracts";
+import { createHostInvocation, getOperatingModePolicy } from "@recurs/contracts";
 import {
   ConnectionLifecycleService,
   FileConnectionRegistry,
@@ -25,6 +29,8 @@ import {
   CoordinatedRunError,
   DelegatedAgentExecutor,
   JsonlSessionStore,
+  JsonlTeamRunStore,
+  type RecursEvent,
   verifyRunAuthorization,
 } from "@recurs/core";
 import { ScriptedProvider } from "@recurs/providers";
@@ -37,6 +43,7 @@ import {
 } from "../src/index.js";
 
 const directories: string[] = [];
+const execFileAsync = promisify(execFile);
 
 const codexConnection: DelegatedConnectionRecord = {
   kind: "delegated_agent",
@@ -400,6 +407,131 @@ describe("standalone assembly without a provider", () => {
     expect(restarted.session.id).toBe(parent.session.id);
     expect(restarted.session.agent.role).toBe("parent");
     expect(restarted.session.cwd).toBe(repositoryRoot);
+  });
+
+  it("reconciles an ownerless running team before returning a restarted runtime", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-team-restart-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    await execFileAsync("git", ["init", "--quiet"], { cwd: workspace });
+    await writeFile(path.join(workspace, "value.txt"), "before\n", "utf8");
+    await execFileAsync("git", ["add", "value.txt"], { cwd: workspace });
+    await execFileAsync("git", [
+      "-c", "user.name=Recurs Tests",
+      "-c", "user.email=tests@recurs.invalid",
+      "commit", "--quiet", "-m", "initial",
+    ], { cwd: workspace });
+    const repositoryRoot = await realpath(workspace);
+    const revision = (await execFileAsync(
+      "git",
+      ["rev-parse", "HEAD"],
+      { cwd: repositoryRoot },
+    )).stdout.trim();
+    const dataDirectory = path.join(root, "data");
+    const providerId = "team-restart-provider";
+    const first = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: repositoryRoot,
+        dataDirectory,
+        provider: new ScriptedProvider([], providerId),
+      },
+    );
+    const projectId = createHash("sha256")
+      .update(repositoryRoot)
+      .digest("hex")
+      .slice(0, 24);
+    const teamRuns = new JsonlTeamRunStore(path.join(
+      dataDirectory,
+      "projects",
+      projectId,
+      "team-runs",
+    ));
+    const mode = structuredClone(
+      getOperatingModePolicy("balanced_v4"),
+    ) as TeamRunPolicySnapshot;
+    const descriptor: TeamRunDescriptor = {
+      id: "restart-team",
+      version: 1,
+      parentSessionId: first.session.id,
+      parentAgentId: first.session.agent.id,
+      execution: "background",
+      parentExecutionMode: "act",
+      parentPermissionMode: "full_access",
+      invocation: {
+        invocation: "repl",
+        presence: "present",
+        location: "local",
+        automation: "manual",
+        embedding: "cli",
+      },
+      operatingModeId: mode.id,
+      operatingModeVersion: mode.version,
+      policy: mode,
+      allocation: {
+        maxChildren: mode.workflow.maxChildrenPerRun,
+        maxRequests: mode.workflow.maxRequestsPerRun,
+        requestAllowance: 8,
+        maxReportedCostUsd: mode.orchestration.maxReportedCostUsd,
+      },
+      routes: ([
+        ["implement", "implement_v2"],
+        ["review", "review_v2"],
+        ["repair", "repair_v1"],
+      ] as const).map(([role, profileId]) => ({
+        role,
+        profileId,
+        executionMode: "act",
+        permissionMode: "full_access",
+        strategy: "inherit_parent",
+        candidateId: "parent-session-pin",
+        reason: "parent_fallback",
+        pin: first.session.backend.pin,
+      })),
+      backend: first.session.backend.pin,
+      repositoryRoot,
+      baseRevision: revision,
+      request: {
+        description: "Recover the interrupted team",
+        tasks: [{ description: "Implement value", prompt: "Change value.txt" }],
+        review: { instructions: "Review the result" },
+      },
+    };
+    await teamRuns.create(descriptor, "2026-07-18T00:00:00.000Z");
+    await teamRuns.append("restart-team", 0, {
+      type: "run_claimed",
+      ownerId: "dead-owner",
+      claimEpoch: 1,
+      at: "2026-07-18T00:00:01.000Z",
+    });
+    await teamRuns.append("restart-team", 1, {
+      type: "phase_started",
+      phase: "implement",
+      round: 0,
+      at: "2026-07-18T00:00:02.000Z",
+    });
+    const events: RecursEvent[] = [];
+
+    await createStandaloneRuntime(
+      { async emit(event) { events.push(event); } },
+      {
+        cwd: repositoryRoot,
+        dataDirectory,
+        provider: new ScriptedProvider([], providerId),
+      },
+    );
+
+    expect(await teamRuns.load("restart-team")).toMatchObject({
+      status: "interrupted",
+      interruption: { manualAttentionRequired: false },
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "agent_team_activity",
+      teamId: "restart-team",
+      activity: "run_interrupted",
+      status: "interrupted",
+    }));
   });
 
   it("starts a current session when stored connection metadata changed", async () => {

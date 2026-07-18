@@ -38,6 +38,7 @@ import type {
 import type { GitWorktreeLease } from "../src/git-worktree-leases.js";
 import { JsonlSessionStore } from "../src/jsonl-session-store.js";
 import { JsonlTeamRunStore } from "../src/jsonl-team-run-store.js";
+import { TeamRunOwnerLeaseManager } from "../src/team-run-owner-lease.js";
 import {
   TEAM_APPLY_PERMISSION,
   TeamRunSupervisor,
@@ -160,6 +161,7 @@ interface HarnessOptions {
     readonly message: string;
   }>;
   readonly applyFailure?: Error;
+  readonly prepareFailures?: number;
   readonly eventSinkFailure?: boolean;
   readonly tamperReturnedChild?: boolean;
   readonly cancelAfterImplementStarts?: number;
@@ -184,6 +186,7 @@ async function harness(options: HarnessOptions = {}) {
     releaseCandidateReady = resolve;
   });
   let currentLeasePhase: TeamRunState["phase"] = null;
+  let prepareFailuresRemaining = options.prepareFailures ?? 0;
   let implementationLeaseIndex = 0;
   const implementationLeaseIndexById = new Map<string, number>();
   const pin = testBackendPin("team-model");
@@ -477,6 +480,10 @@ async function harness(options: HarnessOptions = {}) {
       operationId: string;
     }) {
       log.push("patch:prepare");
+      if (prepareFailuresRemaining > 0) {
+        prepareFailuresRemaining -= 1;
+        throw new ToolError("checkpoint_conflict", "Checkpoint preparation failed");
+      }
       return checkpoints.prepared(input.sessionId, input.operationId);
     },
     async applyCandidate() {
@@ -499,9 +506,11 @@ async function harness(options: HarnessOptions = {}) {
   const reviews = new AgentReviewPanel({ sessions, children });
   const attemptedEvents: unknown[] = [];
   let supervisorId = 0;
-  const supervisor = new TeamRunSupervisor({
+  const owners = new TeamRunOwnerLeaseManager({ rootDirectory: root });
+  const createSupervisor = () => new TeamRunSupervisor({
     sessions,
     runs,
+    owners,
     children,
     worktrees,
     patches,
@@ -528,6 +537,7 @@ async function harness(options: HarnessOptions = {}) {
     createId: () => `supervisor-id-${++supervisorId}`,
     now: () => testAt,
   });
+  const supervisor = createSupervisor();
   const context: ToolContext = {
     sessionId: parent.id,
     cwd: parent.cwd,
@@ -617,6 +627,8 @@ async function harness(options: HarnessOptions = {}) {
 
   return {
     supervisor,
+    createSupervisor,
+    owners,
     childManager,
     context,
     input,
@@ -630,6 +642,7 @@ async function harness(options: HarnessOptions = {}) {
     reviewPrompts,
     parentMutationCount: () => parentMutationCount,
     listRuns: () => durableRuns.list(parent.id),
+    appendRun: durableRuns.append.bind(durableRuns),
     seedInterruptedRun,
     candidateReadyGate,
     releaseCandidateReady,
@@ -655,6 +668,127 @@ function implementationFinishOrder(state: TeamRunState): number[] {
 }
 
 describe("TeamRunSupervisor durable foreground pipeline", () => {
+  it("admits one cross-instance team, records the lease owner, and releases it", async () => {
+    const test = await harness();
+    const other = test.createSupervisor();
+    const context = {
+      ...test.context,
+      delegationBudget: { ...test.context.delegationBudget! },
+    };
+
+    const attempts = await Promise.allSettled([
+      test.supervisor.startForeground(test.input, test.context),
+      other.startForeground(test.input, context),
+    ]);
+
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    const rejected = attempts.find((attempt) => attempt.status === "rejected");
+    expect(rejected).toMatchObject({
+      status: "rejected",
+      reason: { code: "permission_denied" },
+    });
+    const [first] = await test.listRuns();
+    expect(first).toBeDefined();
+    const state = await test.state(first!.id);
+    expect(state.claim?.ownerId).toMatch(/^[a-f0-9-]{36}$/u);
+    expect(state.claim?.ownerId).not.toMatch(/^supervisor-id-/u);
+
+    await expect(other.startForeground(test.input, {
+      ...test.context,
+      delegationBudget: { ...test.context.delegationBudget!,
+        childrenStarted: 0,
+        requestsReserved: 0,
+        requestsUsed: 0,
+        reportedCostUsd: 0,
+      },
+    })).resolves.toMatchObject({ metadata: { status: "approved" } });
+  });
+
+  it("denies apply and stable cancellation while another live owner holds the run", async () => {
+    const test = await harness({ permissionMode: "full_access" });
+    const started = await test.supervisor.startBackground(
+      { ...test.input, execution: "background" },
+      test.context,
+    );
+    await test.supervisor.wait(
+      test.context.sessionId,
+      started.metadata.teamId,
+      30_000,
+      new AbortController().signal,
+    );
+    const ownership = await test.owners.tryAcquire(
+      started.metadata.teamId,
+      test.context.sessionId,
+    );
+    expect(ownership.status).toBe("acquired");
+    if (ownership.status !== "acquired") throw new Error("Expected ownership");
+    const other = test.createSupervisor();
+
+    await expect(other.apply(
+      test.context.sessionId,
+      started.metadata.teamId,
+      test.context,
+    )).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(other.cancel(
+      test.context.sessionId,
+      started.metadata.teamId,
+      "Must not cross a live owner",
+    )).rejects.toMatchObject({ code: "permission_denied" });
+    expect(await test.state(started.metadata.teamId)).toMatchObject({
+      status: "ready_to_apply",
+      cancellation: null,
+    });
+
+    await ownership.lease.release();
+    await expect(other.cancel(
+      test.context.sessionId,
+      started.metadata.teamId,
+      "Cancel after ownership is released",
+    )).resolves.toMatchObject({
+      result: "requested",
+      snapshot: { status: "cancelled" },
+    });
+  });
+
+  it("refuses to cancel an interrupted apply with uncertain parent workspace truth", async () => {
+    const test = await harness({ permissionMode: "full_access" });
+    const started = await test.supervisor.startBackground(
+      { ...test.input, execution: "background" },
+      test.context,
+    );
+    await test.supervisor.wait(
+      test.context.sessionId,
+      started.metadata.teamId,
+      30_000,
+      new AbortController().signal,
+    );
+    const ready = await test.state(started.metadata.teamId);
+    const applying = await test.appendRun(started.metadata.teamId, ready.lastSequence, {
+      type: "phase_started",
+      phase: "apply",
+      round: ready.round,
+      at: testAt,
+    });
+    await test.appendRun(started.metadata.teamId, applying.lastSequence, {
+      type: "run_interrupted",
+      reason: "Exact candidate may already be present without a durable checkpoint",
+      manualAttentionRequired: true,
+      at: testAt,
+    });
+
+    await expect(test.supervisor.cancel(
+      test.context.sessionId,
+      started.metadata.teamId,
+      "Do not erase uncertain workspace truth",
+    )).rejects.toMatchObject({ code: "checkpoint_conflict" });
+    expect(await test.state(started.metadata.teamId)).toMatchObject({
+      status: "interrupted",
+      phase: "apply",
+      cancellation: null,
+      interruption: { manualAttentionRequired: true },
+    });
+  });
+
   it("runs a background team to ready, keeps the parent clean, then applies explicitly", async () => {
     const test = await harness({ permissionMode: "full_access" });
     const backgroundInput = { ...test.input, execution: "background" as const };
@@ -1055,6 +1189,11 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
     for (const child of state.children.filter((item) =>
       item.reservation.role === "implement"
     )) {
+      expect(child.reservation).toMatchObject({
+        taskId: expect.stringMatching(/^[A-Za-z0-9_-]+$/u),
+        workspaceLeaseId: `lease-${child.reservation.index}`,
+        assignmentSha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+      });
       const session = await test.sessions.loadState(child.reservation.childSessionId);
       expect(session.version).toBe(2);
       if (session.version === 2) {
@@ -1328,6 +1467,29 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
     expect(test.createdLeases.map((lease) => lease.id).sort()).toEqual(
       test.releasedLeases.map((lease) => lease.id).sort(),
     );
+  });
+
+  it("retains and explicitly retries a foreground candidate after preparation fails", async () => {
+    const test = await harness({
+      permissionMode: "full_access",
+      prepareFailures: 1,
+    });
+    const first = await test.supervisor.startForeground(test.input, test.context);
+
+    expect(first.metadata.status).toBe("ready_to_apply");
+    expect(await test.state(first.metadata.teamId)).toMatchObject({
+      status: "ready_to_apply",
+      apply: null,
+      candidate: { changedFiles: ["file-1.ts", "file-2.ts"] },
+    });
+    expect(test.parentMutationCount()).toBe(0);
+
+    await expect(test.supervisor.apply(
+      test.context.sessionId,
+      first.metadata.teamId,
+      test.context,
+    )).resolves.toMatchObject({ metadata: { status: "approved" } });
+    expect(test.parentMutationCount()).toBe(1);
   });
 
   it("keeps approved durable and workspace truth when every presentation event fails", async () => {

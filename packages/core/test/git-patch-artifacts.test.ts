@@ -584,6 +584,163 @@ describe("GitPatchArtifactManager", () => {
     })).resolves.toEqual(completed);
   }, 30_000);
 
+  it("classifies a clean base and an exact candidate without running Git mutations", async () => {
+    const setup = await fixture();
+    const signal = new AbortController().signal;
+    const base = Object.freeze(
+      await setup.artifacts.preflightParent(setup.repository, signal),
+    );
+    await writeFile(path.join(setup.lease.worktreeRoot, "edit.txt"), "candidate\n", "utf8");
+    await writeFile(path.join(setup.lease.worktreeRoot, "candidate.txt"), "new\n", "utf8");
+    const candidate = await setup.artifacts.capture(setup.lease, signal);
+    if (candidate === null) throw new Error("expected candidate");
+    await setup.worktrees.release(setup.lease);
+
+    const observed: Array<{
+      readonly args: readonly string[];
+      readonly stdin: string | undefined;
+    }> = [];
+    const observingRunner: typeof runProcess = async (command, args, options) => {
+      observed.push({ args: [...args], stdin: options.stdin });
+      return fastGitRunner(command, args, options);
+    };
+    const inspector = new GitPatchArtifactManager({
+      processRunner: observingRunner,
+      store: new FileGitPatchArtifactStore(setup.artifactDirectory),
+    });
+
+    await expect(inspector.inspectCandidateWorkspace({
+      base,
+      artifact: candidate,
+      signal,
+    })).resolves.toBe("clean_base");
+    expect(await readFile(path.join(setup.repository, "edit.txt"), "utf8"))
+      .toBe("before\n");
+
+    const checkpoint = await setup.artifacts.prepareCandidateApply({
+      base,
+      artifact: candidate,
+      sessionId: "parent-session",
+      operationId: "team-inspection",
+      checkpoints: setup.checkpoints,
+      signal,
+    });
+    await setup.artifacts.applyCandidate({
+      base,
+      artifact: candidate,
+      checkpoint,
+      checkpoints: setup.checkpoints,
+      signal,
+    });
+    await expect(inspector.inspectCandidateWorkspace({
+      base,
+      artifact: candidate,
+      signal,
+    })).resolves.toBe("exact_candidate");
+    expect(await readFile(path.join(setup.repository, "edit.txt"), "utf8"))
+      .toBe("candidate\n");
+
+    const mutationCommands = new Set([
+      "add",
+      "apply",
+      "checkout",
+      "clean",
+      "commit",
+      "reset",
+      "restore",
+      "update-index",
+    ]);
+    expect(observed.some(({ args }) =>
+      args.some((argument) => mutationCommands.has(argument))
+    )).toBe(false);
+    expect(observed.every(({ stdin }) => stdin === undefined)).toBe(true);
+  }, 30_000);
+
+  it.each([
+    ["foreign paths", async (repository: string) => {
+      await writeFile(path.join(repository, "foreign.txt"), "foreign\n", "utf8");
+    }],
+    ["a partial candidate", async (repository: string) => {
+      await writeFile(path.join(repository, "edit.txt"), "before\n", "utf8");
+    }],
+    ["candidate content drift", async (repository: string) => {
+      await writeFile(path.join(repository, "edit.txt"), "tampered\n", "utf8");
+    }],
+  ] as const)("classifies %s as other", async (_name, mutate) => {
+    const setup = await fixture();
+    const signal = new AbortController().signal;
+    const base = await setup.artifacts.preflightParent(setup.repository, signal);
+    await writeFile(path.join(setup.lease.worktreeRoot, "edit.txt"), "candidate\n", "utf8");
+    await writeFile(path.join(setup.lease.worktreeRoot, "candidate.txt"), "new\n", "utf8");
+    const candidate = await setup.artifacts.capture(setup.lease, signal);
+    if (candidate === null) throw new Error("expected candidate");
+    await setup.worktrees.release(setup.lease);
+    const checkpoint = await setup.artifacts.prepareCandidateApply({
+      base,
+      artifact: candidate,
+      sessionId: "parent-session",
+      operationId: `team-inspection-${_name.replaceAll(" ", "-")}`,
+      checkpoints: setup.checkpoints,
+      signal,
+    });
+    await setup.artifacts.applyCandidate({
+      base,
+      artifact: candidate,
+      checkpoint,
+      checkpoints: setup.checkpoints,
+      signal,
+    });
+    await mutate(setup.repository);
+
+    await expect(setup.artifacts.inspectCandidateWorkspace({
+      base,
+      artifact: candidate,
+      signal,
+    })).resolves.toBe("other");
+  }, 30_000);
+
+  it("classifies parent HEAD drift as other", async () => {
+    const setup = await fixture();
+    const signal = new AbortController().signal;
+    const base = await setup.artifacts.preflightParent(setup.repository, signal);
+    await writeFile(path.join(setup.lease.worktreeRoot, "edit.txt"), "candidate\n", "utf8");
+    const candidate = await setup.artifacts.capture(setup.lease, signal);
+    if (candidate === null) throw new Error("expected candidate");
+    await setup.worktrees.release(setup.lease);
+    await git(setup.repository, [
+      "-c", "user.name=Recurs Tests",
+      "-c", "user.email=tests@recurs.invalid",
+      "commit", "--allow-empty", "--quiet", "-m", "head drift",
+    ]);
+
+    await expect(setup.artifacts.inspectCandidateWorkspace({
+      base,
+      artifact: candidate,
+      signal,
+    })).resolves.toBe("other");
+  }, 30_000);
+
+  it("rejects a non-canonical parent instead of inspecting another workspace", async () => {
+    const setup = await fixture();
+    const signal = new AbortController().signal;
+    const base = await setup.artifacts.preflightParent(setup.repository, signal);
+    await writeFile(path.join(setup.lease.worktreeRoot, "edit.txt"), "candidate\n", "utf8");
+    const candidate = await setup.artifacts.capture(setup.lease, signal);
+    if (candidate === null) throw new Error("expected candidate");
+    await setup.worktrees.release(setup.lease);
+    const nested = path.join(setup.repository, "nested");
+    await mkdir(nested);
+
+    await expect(setup.artifacts.inspectCandidateWorkspace({
+      base: { ...base, repositoryRoot: nested },
+      artifact: candidate,
+      signal,
+    })).rejects.toMatchObject({
+      code: "permission_denied",
+      message: "The patch artifact handle is not owned by this workflow",
+    });
+  }, 30_000);
+
   it("refuses to approve workspace drift after candidate application", async () => {
     for (const drift of ["foreign_path", "candidate_content"] as const) {
       const setup = await fixture();
