@@ -757,5 +757,49 @@ describe("GitWorktreeLeaseManager", () => {
       removedLeaseIds: [stale.id],
       busyLeaseIds: [],
     });
+
+    const retry = await fixture();
+    const retryCreator = new GitWorktreeLeaseManager({
+      rootDirectory: retry.leases,
+      createId: ids("retry-stale-recovery"),
+      processRunner: fastGitRunner,
+    });
+    const retryLease = await retryCreator.create(
+      retry.repository,
+      new AbortController().signal,
+    );
+    const retryOwner = path.join(
+      retry.leases,
+      ".owners",
+      `${retryLease.id}.lock`,
+      "owner.json",
+    );
+    const retryRecord = JSON.parse(
+      await readFile(retryOwner, "utf8"),
+    ) as Record<string, unknown>;
+    await writeFile(retryOwner, `${JSON.stringify({
+      ...retryRecord,
+      pid: 2_147_483_647,
+    })}\n`, { mode: 0o600 });
+    let failBeforeRemove = true;
+    const retryRunner: typeof runProcess = async (...args) => {
+      if (failBeforeRemove && args[0] === "git" &&
+        hasGitCommand(args[1], "worktree", "remove")) {
+        failBeforeRemove = false;
+        throw new ToolError("process_failed", "injected pre-remove failure");
+      }
+      return fastGitRunner(...args);
+    };
+    const retryManager = new GitWorktreeLeaseManager({
+      rootDirectory: retry.leases,
+      processRunner: retryRunner,
+    });
+    await expect(retryManager.recoverStale({ repositoryRoot: retry.repository }))
+      .rejects.toMatchObject({ code: "process_failed" });
+    await expect(retryManager.recoverStale({ repositoryRoot: retry.repository }))
+      .resolves.toEqual({
+        removedLeaseIds: [retryLease.id],
+        busyLeaseIds: [],
+      });
   }, 30_000);
 });

@@ -622,32 +622,67 @@ export class GitWorktreeLeaseManager implements GitWorktreeLeaseAuthority {
       if (reclaimed.status !== "acquired") continue;
       const owner = reclaimed.lock;
       try {
-        const registration = (await this.#registrations(repository)).get(target);
+        await owner.assertOwned();
+      } catch {
+        busyLeaseIds.push(id);
+        continue;
+      }
+      let registration: WorktreeRegistration | undefined;
+      let revision: string;
+      try {
+        registration = (await this.#registrations(repository)).get(target);
         if (registration === undefined ||
           registration.revision !== owner.binding.revision ||
           !await exactWorktreeDirectory(root, id, target)) {
+          await owner.abandon();
           continue;
         }
-        const revision = (await this.#git(target, [
+        revision = (await this.#git(target, [
           "rev-parse", "--verify", "HEAD^{commit}",
         ])).stdout.trim();
         if (revision !== registration.revision) {
-          throw new ToolError(
-            "permission_denied",
-            "A stale worktree changed during recovery",
-          );
+          await owner.abandon();
+          continue;
         }
+      } catch (error) {
         try {
-          await this.#git(repository, ["worktree", "remove", "--force", target]);
-        } catch (error) {
-          if (!await this.#isWorktreeRemoved(repository, target)) throw error;
+          await owner.abandon();
+        } catch {
+          // A competing recovery now owns the exact binding.
         }
+        throw error;
+      }
+      try {
+        await owner.assertOwned();
+      } catch {
+        busyLeaseIds.push(id);
+        continue;
+      }
+      try {
+        await this.#git(repository, ["worktree", "remove", "--force", target]);
+      } catch (error) {
         if (!await this.#isWorktreeRemoved(repository, target)) {
-          throw new ToolError("process_failed", "Stale worktree recovery was ambiguous");
+          try {
+            await owner.abandon();
+          } catch {
+            // Preserve the primary Git failure if ownership changed concurrently.
+          }
+          throw error;
         }
-        removedLeaseIds.push(id);
-      } finally {
+      }
+      if (!await this.#isWorktreeRemoved(repository, target)) {
+        try {
+          await owner.abandon();
+        } catch {
+          // Preserve the ambiguous removal result if ownership changed concurrently.
+        }
+        throw new ToolError("process_failed", "Stale worktree recovery was ambiguous");
+      }
+      removedLeaseIds.push(id);
+      try {
         await owner.release();
+      } catch {
+        // The worktree is confirmed absent; owner cleanup is now orphan collection.
       }
     }
     return { removedLeaseIds, busyLeaseIds };

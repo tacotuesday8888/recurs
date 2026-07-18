@@ -38,6 +38,7 @@ interface OwnerRecord extends PrivateOwnerBinding {
 export interface PrivateOwnerLock {
   readonly binding: PrivateOwnerBinding;
   assertOwned(): Promise<void>;
+  abandon(): Promise<void>;
   release(): Promise<void>;
 }
 
@@ -161,13 +162,10 @@ async function readOwner(lock: string, leaseId: string): Promise<OwnerRecord> {
   await privateDirectory(path.dirname(owners), false);
   await privateDirectory(owners, false);
   await privateDirectory(lock, false);
-  const entries = (await readdir(lock)).sort();
-  const reclaiming = entries.length === 2 &&
-    entries[0] === "owner.json" && entries[1] === "reclaim";
-  if ((entries.length !== 1 || entries[0] !== "owner.json") && !reclaiming) {
+  const entries = await readdir(lock);
+  if (entries.length !== 1 || entries[0] !== "owner.json") {
     denied("Worktree owner lock has an invalid shape");
   }
-  if (reclaiming) await privateDirectory(path.join(lock, "reclaim"), false);
   const file = path.join(lock, "owner.json");
   const details = await lstat(file);
   if (!details.isFile() || details.isSymbolicLink() ||
@@ -239,40 +237,39 @@ function processIsAlive(pid: number): boolean {
   }
 }
 
-async function claimDeadOwner(
+async function replaceOwner(
+  owners: string,
   lock: string,
-  leaseId: string,
   observed: OwnerRecord,
   replacement: OwnerRecord,
+  requireDead: boolean,
 ): Promise<boolean> {
-  const reclaim = path.join(lock, "reclaim");
-  try {
-    await mkdir(reclaim, { mode: DIRECTORY_MODE });
-  } catch (error) {
-    if (code(error) === "EEXIST") return false;
-    throw error;
-  }
+  const candidate = path.join(
+    owners,
+    `.${observed.leaseId}.${replacement.nonce}.owner.tmp`,
+  );
   let handle;
   try {
-    const current = await readOwner(lock, leaseId);
-    if (!sameBinding(current, observed) ||
-      current.nonce !== observed.nonce || current.pid !== observed.pid ||
-      processIsAlive(current.pid)) {
-      return false;
-    }
-    const candidate = path.join(reclaim, "owner.json");
     handle = await open(candidate, "wx", FILE_MODE);
     await handle.writeFile(serializeOwner(replacement), "utf8");
     await handle.sync();
     await handle.close();
     handle = undefined;
+    const current = await readOwner(lock, observed.leaseId);
+    if (!sameBinding(current, observed) ||
+      current.nonce !== observed.nonce || current.pid !== observed.pid ||
+      (requireDead && processIsAlive(current.pid))) {
+      return false;
+    }
     await rename(candidate, path.join(lock, "owner.json"));
     await syncDirectory(lock);
-    return true;
+    const published = await readOwner(lock, replacement.leaseId);
+    return sameBinding(published, replacement) &&
+      published.nonce === replacement.nonce &&
+      published.pid === replacement.pid;
   } finally {
     await handle?.close().catch(() => undefined);
-    await rm(reclaim, { recursive: true, force: true });
-    await syncDirectory(lock);
+    await rm(candidate, { force: true });
   }
 }
 
@@ -280,6 +277,7 @@ function acquiredLock(
   owners: string,
   lock: string,
   record: OwnerRecord,
+  abandoned?: OwnerRecord,
 ): PrivateOwnerLock {
   let retired: string | null = null;
   let released = false;
@@ -299,6 +297,15 @@ function acquiredLock(
         observed.nonce !== record.nonce || observed.pid !== record.pid) {
         denied("Worktree owner lock is no longer owned by this process");
       }
+    },
+    async abandon() {
+      if (released || retired !== null || abandoned === undefined) {
+        denied("Worktree owner lock cannot be abandoned");
+      }
+      if (!await replaceOwner(owners, lock, record, abandoned, false)) {
+        denied("Worktree owner lock changed before it could be abandoned");
+      }
+      released = true;
     },
     async release() {
       if (released) return;
@@ -410,16 +417,17 @@ export async function reclaimPrivateOwnerLock(
     nonce: randomUUID(),
     pid: process.pid,
   };
-  if (!await claimDeadOwner(
+  if (!await replaceOwner(
+    owners,
     lock,
-    stable.leaseId,
     observed,
     replacement,
+    true,
   )) {
     return { status: "busy" };
   }
   return {
     status: "acquired",
-    lock: acquiredLock(owners, lock, replacement),
+    lock: acquiredLock(owners, lock, replacement, observed),
   };
 }
