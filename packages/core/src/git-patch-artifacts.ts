@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { realpath } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, realpath } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   isCredentialPath,
@@ -38,15 +40,36 @@ export interface GitPatchArtifactHandle {
   readonly paths: readonly string[];
 }
 
-interface OwnedPatchArtifact {
+export type GitPatchResultFingerprint =
+  | {
+      readonly path: string;
+      readonly kind: "file";
+      readonly sha256: string;
+      readonly byteLength: number;
+      readonly mode: "100644" | "100755";
+    }
+  | {
+      readonly path: string;
+      readonly kind: "deleted";
+    };
+
+export interface StoredGitPatchArtifact {
   readonly handle: GitPatchArtifactHandle;
   readonly repositoryRoot: string;
   readonly patch: string;
+  readonly after: readonly GitPatchResultFingerprint[];
+}
+
+export interface GitPatchArtifactStore {
+  put(artifact: StoredGitPatchArtifact): Promise<void>;
+  load(handle: GitPatchArtifactHandle): Promise<StoredGitPatchArtifact>;
+  remove(handles: readonly GitPatchArtifactHandle[]): Promise<void>;
 }
 
 export interface GitPatchArtifactManagerOptions {
   readonly createId?: () => string;
   readonly processRunner?: GitProcessRunner;
+  readonly store?: GitPatchArtifactStore;
 }
 
 export interface GitPatchIntegrationInput {
@@ -135,6 +158,147 @@ function sameHandle(
     left.sha256 === right.sha256 &&
     left.byteLength === right.byteLength &&
     samePaths(left.paths, right.paths);
+}
+
+function errorCode(error: unknown): string | null {
+  return typeof error === "object" && error !== null && "code" in error &&
+      typeof error.code === "string"
+    ? error.code
+    : null;
+}
+
+async function fingerprintResult(
+  worktreeRoot: string,
+  files: readonly string[],
+  signal: AbortSignal,
+): Promise<GitPatchResultFingerprint[]> {
+  const results: GitPatchResultFingerprint[] = [];
+  for (const file of files) {
+    if (signal.aborted) throw cancelled("Patch capture was cancelled");
+    const target = path.join(worktreeRoot, safeRelativePath(file));
+    let handle;
+    try {
+      handle = await open(
+        target,
+        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+      );
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") {
+        results.push({ path: file, kind: "deleted" });
+        continue;
+      }
+      if (errorCode(error) === "ELOOP") {
+        throw new ToolError(
+          "permission_denied",
+          "Team patch artifacts cannot contain symbolic links",
+        );
+      }
+      throw new ToolError(
+        "process_failed",
+        "A team patch result could not be inspected",
+        { cause: error },
+      );
+    }
+    try {
+      const before = await handle.stat();
+      if (!before.isFile() || !Number.isSafeInteger(before.size)) {
+        throw new ToolError(
+          "permission_denied",
+          "Team patch artifacts can contain only regular files",
+        );
+      }
+      const hash = createHash("sha256");
+      const buffer = Buffer.allocUnsafe(64 * 1024);
+      let byteLength = 0;
+      for (;;) {
+        if (signal.aborted) throw cancelled("Patch capture was cancelled");
+        const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, null);
+        if (bytesRead === 0) break;
+        byteLength += bytesRead;
+        if (!Number.isSafeInteger(byteLength)) {
+          throw new ToolError(
+            "permission_denied",
+            "A team patch result is too large to fingerprint safely",
+          );
+        }
+        hash.update(buffer.subarray(0, bytesRead));
+      }
+      const after = await handle.stat();
+      if (
+        before.dev !== after.dev ||
+        before.ino !== after.ino ||
+        before.size !== after.size ||
+        before.mode !== after.mode ||
+        before.mtimeMs !== after.mtimeMs ||
+        before.ctimeMs !== after.ctimeMs ||
+        byteLength !== after.size
+      ) {
+        throw new ToolError(
+          "permission_denied",
+          "A team patch result changed while it was fingerprinted",
+        );
+      }
+      results.push({
+        path: file,
+        kind: "file",
+        sha256: hash.digest("hex"),
+        byteLength,
+        mode: (after.mode & 0o111) === 0 ? "100644" : "100755",
+      });
+    } finally {
+      await handle.close();
+    }
+  }
+  return results;
+}
+
+function cloneFreeze<T>(value: T): T {
+  const cloned = structuredClone(value);
+  const freeze = (item: unknown): void => {
+    if (typeof item !== "object" || item === null || Object.isFrozen(item)) return;
+    for (const child of Object.values(item)) freeze(child);
+    Object.freeze(item);
+  };
+  freeze(cloned);
+  return cloned;
+}
+
+export class InMemoryGitPatchArtifactStore implements GitPatchArtifactStore {
+  readonly #artifacts = new Map<string, StoredGitPatchArtifact>();
+
+  async put(artifact: StoredGitPatchArtifact): Promise<void> {
+    const existing = this.#artifacts.get(artifact.handle.id);
+    if (existing !== undefined && !isDeepStrictEqual(existing, artifact)) {
+      throw new ToolError(
+        "permission_denied",
+        "Patch artifact ID is already bound to different content",
+      );
+    }
+    if (existing === undefined) {
+      this.#artifacts.set(artifact.handle.id, cloneFreeze(artifact));
+    }
+  }
+
+  async load(handle: GitPatchArtifactHandle): Promise<StoredGitPatchArtifact> {
+    const artifact = this.#artifacts.get(handle.id);
+    if (artifact === undefined || !sameHandle(handle, artifact.handle)) {
+      throw new ToolError("not_found", "Patch artifact was not found");
+    }
+    return cloneFreeze(artifact);
+  }
+
+  async remove(handles: readonly GitPatchArtifactHandle[]): Promise<void> {
+    for (const handle of handles) {
+      const artifact = this.#artifacts.get(handle.id);
+      if (artifact !== undefined && !sameHandle(handle, artifact.handle)) {
+        throw new ToolError(
+          "permission_denied",
+          "Patch artifact handle failed its integrity check",
+        );
+      }
+    }
+    for (const handle of handles) this.#artifacts.delete(handle.id);
+  }
 }
 
 function parseStatus(output: string): {
@@ -239,11 +403,12 @@ function parseNumstat(output: string): string[] {
 export class GitPatchArtifactManager {
   readonly #createId: () => string;
   readonly #processRunner: GitProcessRunner;
-  readonly #artifacts = new Map<string, OwnedPatchArtifact>();
+  readonly #store: GitPatchArtifactStore;
 
   constructor(options: GitPatchArtifactManagerOptions = {}) {
     this.#createId = options.createId ?? randomUUID;
     this.#processRunner = options.processRunner ?? runProcess;
+    this.#store = options.store ?? new InMemoryGitPatchArtifactStore();
   }
 
   async #git(
@@ -412,7 +577,6 @@ export class GitPatchArtifactManager {
         signal,
       );
     }
-    const diffArguments = ["diff", "--no-renames", "HEAD", "--"] as const;
     const raw = parseRawDiff((await this.#git(
       worktreeRoot,
       ["diff", "--raw", "-z", "--full-index", "--no-renames", "HEAD", "--"],
@@ -429,18 +593,21 @@ export class GitPatchArtifactManager {
         "Git patch paths changed while the artifact was captured",
       );
     }
+    const patchArguments = [
+      "diff",
+      "--binary",
+      "--full-index",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--no-renames",
+      "HEAD",
+      "--",
+    ] as const;
     let patch: string;
     try {
       patch = (await this.#git(
         worktreeRoot,
-        [
-          diffArguments[0],
-          "--binary",
-          "--full-index",
-          "--no-ext-diff",
-          "--no-textconv",
-          ...diffArguments.slice(1),
-        ],
+        patchArguments,
         signal,
         MAX_PATCH_PROCESS_BYTES,
       )).stdout;
@@ -460,8 +627,21 @@ export class GitPatchArtifactManager {
         `Patch exceeds the ${MAX_PATCH_BYTES}-byte team artifact limit`,
       );
     }
+    const after = await fingerprintResult(worktreeRoot, raw, signal);
+    const verifiedPatch = (await this.#git(
+      worktreeRoot,
+      patchArguments,
+      signal,
+      MAX_PATCH_PROCESS_BYTES,
+    )).stdout;
+    if (verifiedPatch !== patch) {
+      throw new ToolError(
+        "permission_denied",
+        "The child workspace changed while the patch artifact was captured",
+      );
+    }
     const id = this.#createId();
-    if (!ARTIFACT_ID.test(id) || this.#artifacts.has(id)) {
+    if (!ARTIFACT_ID.test(id)) {
       throw new ToolError("permission_denied", "The patch artifact ID is invalid");
     }
     const paths = Object.freeze([...raw]);
@@ -473,22 +653,12 @@ export class GitPatchArtifactManager {
       byteLength,
       paths,
     });
-    this.#artifacts.set(id, { handle, repositoryRoot, patch });
+    await this.#store.put({ handle, repositoryRoot, patch, after });
     return handle;
   }
 
-  discard(handles: readonly GitPatchArtifactHandle[]): void {
-    const owned = handles.map((handle) => {
-      const artifact = this.#artifacts.get(handle.id);
-      if (artifact === undefined || !sameHandle(handle, artifact.handle)) {
-        throw new ToolError(
-          "permission_denied",
-          "The patch artifact handle is not owned by this workflow",
-        );
-      }
-      return artifact;
-    });
-    for (const artifact of owned) this.#artifacts.delete(artifact.handle.id);
+  async discard(handles: readonly GitPatchArtifactHandle[]): Promise<void> {
+    await this.#store.remove(handles);
   }
 
   async integrate(
@@ -532,10 +702,18 @@ export class GitPatchArtifactManager {
     if (uniqueIds.size !== artifacts.length) {
       throw new ToolError("permission_denied", "Patch artifacts must be unique");
     }
-    const owned = artifacts.map((handle) => {
-      const artifact = this.#artifacts.get(handle.id);
+    const owned = await Promise.all(artifacts.map(async (handle) => {
+      let artifact: StoredGitPatchArtifact;
+      try {
+        artifact = await this.#store.load(handle);
+      } catch (error) {
+        throw new ToolError(
+          "permission_denied",
+          "The patch artifact handle is not owned by this workflow",
+          { cause: error },
+        );
+      }
       if (
-        artifact === undefined ||
         !sameHandle(handle, artifact.handle) ||
         artifact.repositoryRoot !== repositoryRoot ||
         artifact.handle.baseRevision !== base.revision ||
@@ -549,14 +727,14 @@ export class GitPatchArtifactManager {
         );
       }
       return artifact;
-    });
+    }));
 
     const before = await input.checkpoints.captureBefore(
       input.sessionId,
       input.operationId,
       repositoryRoot,
     );
-    for (const artifact of owned) this.#artifacts.delete(artifact.handle.id);
+    await this.#store.remove(artifacts);
     const integrated: string[] = [];
     const changed = new Set<string>();
     let currentPaths: string[] = [];

@@ -11,6 +11,7 @@ export * from "./compatibility-coordinator.js";
 export * from "./direct-model-executor.js";
 export * from "./delegated-agent-executor.js";
 export * from "./events.js";
+export * from "./file-git-patch-artifact-store.js";
 export * from "./goal.js";
 export * from "./git-worktree-leases.js";
 export * from "./git-patch-artifacts.js";

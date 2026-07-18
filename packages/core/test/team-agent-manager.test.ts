@@ -112,6 +112,7 @@ interface HarnessOptions {
   modeId?: OperatingModeId;
   delegate?: Pick<ChildAgentManager, "delegate">["delegate"];
   capture?: (lease: GitWorktreeLease) => Promise<GitPatchArtifactHandle | null>;
+  discard?: (handles: readonly GitPatchArtifactHandle[]) => Promise<void>;
   release?: (lease: GitWorktreeLease) => Promise<void>;
   integration?: GitPatchIntegrationOutcome;
   review?: AgentReviewPanelResult | Error;
@@ -192,8 +193,9 @@ async function harness(options: HarnessOptions = {}) {
         return options.capture?.(lease) ??
           patchHandle(Number.parseInt(lease.id.slice("lease-".length), 10));
       },
-      discard(handles) {
+      async discard(handles) {
         discarded.push([...handles]);
+        await options.discard?.(handles);
       },
       async integrate(input) {
         integrated.push([...input.artifacts]);
@@ -465,6 +467,29 @@ describe("TeamAgentManager", () => {
       type: "agent_team_failed",
       phase: "implementation",
       partial: false,
+    });
+  });
+
+  it("does not let best-effort artifact cleanup hide an implementation failure", async () => {
+    let call = 0;
+    const setup = await harness({
+      async delegate() {
+        call += 1;
+        if (call === 1) return childResult(1);
+        throw new ToolError("execution_failed", "Canonical implementation failure");
+      },
+      async discard() {
+        throw new ToolError("process_failed", "Injected artifact cleanup failure");
+      },
+    });
+
+    const result = await setup.tool.execute(setup.tool.parse(input()), setup.context);
+
+    expect(result.output).toContain("Canonical implementation failure");
+    expect(result.metadata).toMatchObject({ status: "failed" });
+    expect(setup.events.at(-1)).toMatchObject({
+      type: "agent_team_failed",
+      failure: { message: "Canonical implementation failure" },
     });
   });
 

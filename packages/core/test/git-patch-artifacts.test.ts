@@ -21,6 +21,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  FileGitPatchArtifactStore,
   GitPatchArtifactManager,
   GitWorktreeLeaseManager,
 } from "../src/index.js";
@@ -112,9 +113,12 @@ async function fixture() {
     repository,
     new AbortController().signal,
   );
+  const artifactDirectory = path.join(root, "artifacts");
+  const artifactStore = new FileGitPatchArtifactStore(artifactDirectory);
   const artifacts = new GitPatchArtifactManager({
     createId: () => `patch-${++patchId}`,
     processRunner: fastGitRunner,
+    store: artifactStore,
   });
   const checkpoints = new FileCheckpointStore(path.join(root, "checkpoints"));
   return {
@@ -124,6 +128,8 @@ async function fixture() {
     worktrees,
     lease,
     artifacts,
+    artifactStore,
+    artifactDirectory,
     checkpoints,
   };
 }
@@ -161,6 +167,27 @@ describe("GitPatchArtifactManager", () => {
     expect(Object.isFrozen(artifact)).toBe(true);
     expect(Object.isFrozen(artifact?.paths)).toBe(true);
     expect(artifact).not.toHaveProperty("patch");
+    if (artifact === null) throw new Error("expected artifact");
+    await expect(setup.artifactStore.load(artifact)).resolves.toMatchObject({
+      repositoryRoot: setup.repository,
+      after: [
+        {
+          path: "added.txt",
+          kind: "file",
+          sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+          byteLength: 6,
+          mode: "100644",
+        },
+        { path: "delete.txt", kind: "deleted" },
+        {
+          path: "edit.txt",
+          kind: "file",
+          sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+          byteLength: 6,
+          mode: "100644",
+        },
+      ],
+    });
     expect(await readFile(path.join(setup.repository, "edit.txt"), "utf8"))
       .toBe("before\n");
     await setup.worktrees.release(setup.lease);
@@ -294,6 +321,37 @@ describe("GitPatchArtifactManager", () => {
       .toBe("first patch\n");
     expect(await readFile(path.join(setup.repository, "second.txt"), "utf8"))
       .toBe("second patch\n");
+  }, 30_000);
+
+  it("loads and integrates a captured artifact after the manager restarts", async () => {
+    const setup = await fixture();
+    const signal = new AbortController().signal;
+    const base = await setup.artifacts.preflightParent(setup.repository, signal);
+    await writeFile(path.join(setup.lease.worktreeRoot, "edit.txt"), "durable\n", "utf8");
+    const artifact = await setup.artifacts.capture(setup.lease, signal);
+    if (artifact === null) throw new Error("expected artifact");
+    await setup.worktrees.release(setup.lease);
+
+    const restarted = new GitPatchArtifactManager({
+      processRunner: fastGitRunner,
+      store: new FileGitPatchArtifactStore(setup.artifactDirectory),
+    });
+    const outcome = await restarted.integrate({
+      base,
+      artifacts: [artifact],
+      sessionId: "parent-session",
+      operationId: "team-integration-restarted",
+      checkpoints: setup.checkpoints,
+      signal,
+    });
+
+    expect(outcome).toMatchObject({
+      ok: true,
+      artifactIds: [artifact.id],
+      changedFiles: ["edit.txt"],
+    });
+    expect(await readFile(path.join(setup.repository, "edit.txt"), "utf8"))
+      .toBe("durable\n");
   }, 30_000);
 
   it("rolls every integrated patch back when a later patch conflicts", async () => {

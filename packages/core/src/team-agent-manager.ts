@@ -665,7 +665,13 @@ export class TeamAgentManager {
         const artifacts = [...captured.entries()]
           .sort(([left], [right]) => left - right)
           .map(([, artifact]) => artifact);
-        if (artifacts.length > 0) this.dependencies.patches.discard(artifacts);
+        if (artifacts.length > 0) {
+          try {
+            await this.dependencies.patches.discard(artifacts);
+          } catch {
+            // Durable refs can be reclaimed later; preserve the real workflow failure.
+          }
+        }
         const failure = genuineFailures[0]?.failure ?? incomplete[0]?.failure ?? {
           code: "execution_failed",
           message: "Team implementation did not complete",
