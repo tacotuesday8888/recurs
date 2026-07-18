@@ -289,6 +289,71 @@ describe("GitPatchArtifactManager", () => {
     await setup.worktrees.release(setup.lease);
   });
 
+  it("bounds exact result fingerprinting even when the text patch is small", async () => {
+    const setup = await fixture();
+    await setup.worktrees.release(setup.lease);
+    const large = `before\n${"unchanged\n".repeat(1_700_000)}`;
+    await writeFile(path.join(setup.repository, "large.txt"), large, "utf8");
+    await git(setup.repository, ["add", "large.txt"]);
+    await git(setup.repository, [
+      "-c", "user.name=Recurs Tests",
+      "-c", "user.email=tests@recurs.invalid",
+      "commit", "--quiet", "-m", "large text fixture",
+    ]);
+    const lease = await setup.worktrees.create(
+      setup.repository,
+      new AbortController().signal,
+    );
+    await writeFile(
+      path.join(lease.worktreeRoot, "large.txt"),
+      large.replace("before\n", "after\n"),
+      "utf8",
+    );
+
+    await expect(setup.artifacts.capture(
+      lease,
+      new AbortController().signal,
+    )).rejects.toMatchObject({
+      code: "permission_denied",
+      message: expect.stringContaining("result file exceeds"),
+    });
+    await setup.worktrees.release(lease);
+  }, 30_000);
+
+  it.runIf(process.platform !== "win32")(
+    "rejects a FIFO swapped in after Git validation without blocking",
+    async () => {
+      const setup = await fixture();
+      const target = path.join(setup.lease.worktreeRoot, "edit.txt");
+      await writeFile(target, "after\n", "utf8");
+      let replaced = false;
+      const processRunner: typeof runProcess = async (...args) => {
+        const result = await fastGitRunner(...args);
+        if (!replaced && args[0] === "git" && args[1].includes("--binary")) {
+          replaced = true;
+          await rm(target);
+          await execFileAsync("mkfifo", [target]);
+        }
+        return result;
+      };
+      const artifacts = new GitPatchArtifactManager({
+        createId: () => "fifo-artifact",
+        processRunner,
+        store: setup.artifactStore,
+      });
+
+      await expect(artifacts.capture(
+        setup.lease,
+        new AbortController().signal,
+      )).rejects.toMatchObject({
+        code: "permission_denied",
+        message: expect.stringContaining("regular files"),
+      });
+      await setup.worktrees.release(setup.lease);
+    },
+    10_000,
+  );
+
   it("integrates owned artifacts in input order and records one transaction checkpoint", async () => {
     const setup = await fixture();
     const signal = new AbortController().signal;

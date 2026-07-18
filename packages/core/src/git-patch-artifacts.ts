@@ -19,6 +19,7 @@ const ARTIFACT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const RAW_DIFF_HEADER = /^:(\d{6}) (\d{6}) [0-9a-f]+ [0-9a-f]+ ([A-Z])\d*$/u;
 const MAX_PATCH_BYTES = 1024 * 1024;
 const MAX_PATCH_PROCESS_BYTES = MAX_PATCH_BYTES + 64 * 1024;
+const MAX_RESULT_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_STATUS_BYTES = 256 * 1024;
 const MAX_PATHS = 256;
 const GIT_TIMEOUT_MS = 30_000;
@@ -180,7 +181,9 @@ async function fingerprintResult(
     try {
       handle = await open(
         target,
-        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+        constants.O_RDONLY |
+          (constants.O_NONBLOCK ?? 0) |
+          (constants.O_NOFOLLOW ?? 0),
       );
     } catch (error) {
       if (errorCode(error) === "ENOENT") {
@@ -201,26 +204,37 @@ async function fingerprintResult(
     }
     try {
       const before = await handle.stat();
-      if (!before.isFile() || !Number.isSafeInteger(before.size)) {
+      if (!before.isFile() || !Number.isSafeInteger(before.size) ||
+        before.size < 0) {
         throw new ToolError(
           "permission_denied",
           "Team patch artifacts can contain only regular files",
         );
       }
+      if (before.size > MAX_RESULT_FILE_BYTES) {
+        throw new ToolError(
+          "permission_denied",
+          `A team patch result file exceeds the ${MAX_RESULT_FILE_BYTES}-byte limit`,
+        );
+      }
       const hash = createHash("sha256");
       const buffer = Buffer.allocUnsafe(64 * 1024);
       let byteLength = 0;
-      for (;;) {
+      while (byteLength < before.size) {
         if (signal.aborted) throw cancelled("Patch capture was cancelled");
-        const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, null);
-        if (bytesRead === 0) break;
-        byteLength += bytesRead;
-        if (!Number.isSafeInteger(byteLength)) {
+        const { bytesRead } = await handle.read(
+          buffer,
+          0,
+          Math.min(buffer.byteLength, before.size - byteLength),
+          byteLength,
+        );
+        if (bytesRead === 0) {
           throw new ToolError(
             "permission_denied",
-            "A team patch result is too large to fingerprint safely",
+            "A team patch result changed while it was fingerprinted",
           );
         }
+        byteLength += bytesRead;
         hash.update(buffer.subarray(0, bytesRead));
       }
       const after = await handle.stat();
