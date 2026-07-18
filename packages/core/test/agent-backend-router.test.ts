@@ -100,8 +100,42 @@ describe("AgentBackendRouter", () => {
         primaryBillingSourceAtCreation: "included_subscription",
       }),
     });
+    const mixedSources = candidate("mixed-sources", {
+      pin: pin("mixed-sources", {
+        primaryBillingSourceAtCreation: "local_compute",
+        billingSelectionAtCreation: {
+          ...pin("mixed-sources").billingSelectionAtCreation,
+          allowedSources: ["local_compute", "included_subscription"],
+        },
+      }),
+    });
+    const emptySources = candidate("empty-sources", {
+      pin: pin("empty-sources", {
+        primaryBillingSourceAtCreation: "local_compute",
+        billingSelectionAtCreation: {
+          ...pin("empty-sources").billingSelectionAtCreation,
+          allowedSources: [],
+        },
+      }),
+    });
+    const missingPrimary = candidate("missing-primary", {
+      pin: pin("missing-primary", {
+        primaryBillingSourceAtCreation: "local_compute",
+        billingSelectionAtCreation: {
+          ...pin("missing-primary").billingSelectionAtCreation,
+          allowedSources: ["metered_api"],
+        },
+      }),
+    });
 
-    for (const item of [foregroundOnly, runtime, subscription]) {
+    for (const item of [
+      foregroundOnly,
+      runtime,
+      subscription,
+      mixedSources,
+      emptySources,
+      missingPrimary,
+    ]) {
       expect(() => router.select(input(
         [item],
         { role: "repair", background: true },

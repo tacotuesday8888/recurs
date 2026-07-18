@@ -821,7 +821,10 @@ function isAgentDescriptor(
   );
   return validWorkspace &&
     validTeam &&
-    (expectedTeamRole === null || policy.version === 4) &&
+    (expectedTeamRole === null || (
+      policy.version === 4 && workspace !== undefined && team !== undefined &&
+      value.backend.strategy === "policy_route"
+    )) &&
     boundedNonEmptyString(value.parentAgentId, MAX_RUNTIME_ID_LENGTH) &&
     boundedNonEmptyString(value.parentSessionId, MAX_RUNTIME_ID_LENGTH) &&
     (value.depth as number) > 0 &&

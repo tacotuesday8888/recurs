@@ -16,6 +16,7 @@ import {
   type OperatingModeId,
   type ProviderUsage,
   type RunCoordinator,
+  type TeamRunExecution,
   type TeamRunRole,
   type TrustedRunContext,
 } from "@recurs/contracts";
@@ -71,6 +72,14 @@ export interface ChildIdentityReservation {
 interface TrustedChildOptions {
   readonly identity?: ChildIdentityReservation;
   readonly backend?: { readonly decision: AgentBackendRouteDecision };
+  readonly teamExecution?: TeamRunExecution;
+}
+
+export interface ChildIdentityReservationOptions extends ChildDelegationCorrelation {
+  readonly backend?: { readonly decision: AgentBackendRouteDecision };
+  readonly teamExecution?: TeamRunExecution;
+  readonly cwd?: string;
+  readonly workspace?: AgentGitWorktreeWorkspace;
 }
 
 export type ChildDelegationOptions = ChildDelegationCorrelation & TrustedChildOptions & (
@@ -208,6 +217,10 @@ export class ChildAgentManager {
     readonly parentSessionId: string;
     readonly input: DelegateTaskInput;
     readonly team: ChildDelegationCorrelation["team"];
+    readonly teamExecution: TeamRunExecution | undefined;
+    readonly cwd: string | undefined;
+    readonly workspace: AgentGitWorktreeWorkspace | undefined;
+    readonly decision: AgentBackendRouteDecision | undefined;
   }>();
 
   constructor(private readonly dependencies: ChildAgentManagerDependencies) {
@@ -257,7 +270,7 @@ export class ChildAgentManager {
   reserveIdentity(
     input: DelegateTaskInput,
     context: Pick<ToolContext, "sessionId">,
-    options?: Pick<ChildDelegationOptions, "team">,
+    options?: ChildIdentityReservationOptions,
   ): ChildIdentityReservation {
     const identity = Object.freeze({
       childSessionId: this.#createId(),
@@ -271,6 +284,12 @@ export class ChildAgentManager {
       team: options?.team === undefined
         ? undefined
         : structuredClone(options.team),
+      teamExecution: options?.teamExecution,
+      cwd: options?.cwd,
+      workspace: options?.workspace === undefined
+        ? undefined
+        : structuredClone(options.workspace),
+      decision: options?.backend?.decision,
     });
     return identity;
   }
@@ -299,7 +318,11 @@ export class ChildAgentManager {
       reservation.parentSessionId !== context.sessionId ||
       !isDeepStrictEqual(reservation.identity, options.identity) ||
       !isDeepStrictEqual(reservation.input, input) ||
-      !isDeepStrictEqual(reservation.team, options.team)
+      !isDeepStrictEqual(reservation.team, options.team) ||
+      reservation.teamExecution !== options.teamExecution ||
+      reservation.cwd !== options.cwd ||
+      !isDeepStrictEqual(reservation.workspace, options.workspace) ||
+      reservation.decision !== options.backend?.decision
     ) {
       throw new ToolError(
         "permission_denied",
@@ -407,6 +430,19 @@ export class ChildAgentManager {
         "Trusted durable team correlation does not match the child profile",
       );
     }
+    if (role !== null && (
+      options?.workspace === undefined || options.cwd === undefined ||
+      options.cwd === parent.cwd ||
+      options.team === undefined || !("runId" in options.team) ||
+      options.identity === undefined || options.backend === undefined ||
+      (options.teamExecution !== "foreground" &&
+        options.teamExecution !== "background")
+    )) {
+      throw new ToolError(
+        "permission_denied",
+        "Internal profiles require a complete trusted team bundle",
+      );
+    }
     if (profile.executionMode === "act" && context.executionMode !== "act") {
       throw new ToolError(
         "plan_mode_denied",
@@ -506,7 +542,7 @@ export class ChildAgentManager {
           role,
           executionMode: profile.executionMode,
           permissionMode: parent.permissionMode,
-          background: options.backend.decision.background,
+          background: options.teamExecution === "background",
         },
       );
       if (decision.strategy === "inherit_parent" &&

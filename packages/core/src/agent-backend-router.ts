@@ -55,10 +55,14 @@ function trustedPin(pin: SessionBackendPin): SessionBackendPin {
 }
 
 function backgroundEligible(pin: SessionBackendPin): boolean {
+  const safeSources = new Set(["local_compute", "metered_api"]);
+  const allowedSources = pin.billingSelectionAtCreation.allowedSources;
   return pin.kind === "model_provider" && (
     pin.primaryBillingSourceAtCreation === "local_compute" ||
     pin.primaryBillingSourceAtCreation === "metered_api"
-  );
+  ) && allowedSources.length > 0 &&
+    allowedSources.includes(pin.primaryBillingSourceAtCreation) &&
+    allowedSources.every((source) => safeSources.has(source));
 }
 
 export class AgentBackendRouter {

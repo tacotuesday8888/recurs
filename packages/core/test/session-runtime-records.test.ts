@@ -1137,6 +1137,8 @@ describe("delegated runtime session records", () => {
 });
 
 describe("routed team child descriptors", () => {
+  const teamWorktree = "/recurs-data/team-worktrees/review-1";
+
   function routedAgent(): AgentSessionDescriptor {
     const mode = getOperatingModePolicy("balanced_v4");
     return {
@@ -1170,6 +1172,14 @@ describe("routed team child descriptors", () => {
         round: 1,
         attemptId: "attempt-1",
       },
+      workspace: {
+        kind: "git_worktree",
+        version: 1,
+        leaseId: "review-1",
+        repositoryRoot: "/workspace",
+        worktreeRoot: teamWorktree,
+        revision: "a".repeat(40),
+      },
     };
   }
 
@@ -1178,7 +1188,7 @@ describe("routed team child descriptors", () => {
     const agent = routedAgent();
     await expect(store.createPinnedSession({
       id: "routed-child",
-      cwd: "/workspace",
+      cwd: teamWorktree,
       backend: directBackend,
       agent,
       at,
@@ -1190,7 +1200,7 @@ describe("routed team child descriptors", () => {
     const mismatched = routedAgent();
     await expect(mismatchedStore.createPinnedSession({
       id: "mismatched-route-child",
-      cwd: "/workspace",
+      cwd: teamWorktree,
       backend: directBackend,
       agent: {
         ...mismatched,
@@ -1203,7 +1213,7 @@ describe("routed team child descriptors", () => {
     const malformed = routedAgent();
     await expect(malformedStore.createPinnedSession({
       id: "malformed-correlation-child",
-      cwd: "/workspace",
+      cwd: teamWorktree,
       backend: directBackend,
       agent: {
         ...malformed,
@@ -1220,7 +1230,7 @@ describe("routed team child descriptors", () => {
 
     await expect(store.createPinnedSession({
       id: "historical-internal-profile",
-      cwd: "/workspace",
+      cwd: teamWorktree,
       backend: directBackend,
       agent: {
         ...agent,
@@ -1236,5 +1246,33 @@ describe("routed team child descriptors", () => {
       },
       at,
     })).rejects.toMatchObject({ code: "invalid_record" });
+  });
+
+  it("requires workspace, correlation, and policy route together for internal profiles", async () => {
+    const exact = routedAgent();
+    const cases: readonly [string, AgentSessionDescriptor, string][] = [
+      ["missing-workspace", { ...exact, workspace: undefined }, teamWorktree],
+      ["missing-correlation", { ...exact, team: undefined }, teamWorktree],
+      ["inherited-route", {
+        ...exact,
+        backend: {
+          strategy: "inherit_parent",
+          adapterId: directBackend.adapterId,
+          connectionId: directBackend.connectionId,
+          modelId: directBackend.modelId,
+        },
+      }, teamWorktree],
+    ];
+
+    for (const [id, agent, cwd] of cases) {
+      const store = await temporaryStore();
+      await expect(store.createPinnedSession({
+        id,
+        cwd,
+        backend: directBackend,
+        agent,
+        at,
+      })).rejects.toMatchObject({ code: "invalid_record" });
+    }
   });
 });

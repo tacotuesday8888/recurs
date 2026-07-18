@@ -123,6 +123,21 @@ function successfulCoordinator(
   };
 }
 
+function teamWorkspace(repositoryRoot: string, name = "team-worktree") {
+  const worktreeRoot = path.join(repositoryRoot, name);
+  return {
+    cwd: worktreeRoot,
+    workspace: {
+      kind: "git_worktree" as const,
+      version: 1 as const,
+      leaseId: name,
+      repositoryRoot,
+      worktreeRoot,
+      revision: "a".repeat(40),
+    },
+  };
+}
+
 describe("ChildAgentManager", () => {
   it("requires an exact profile and classifies only effectful children as mutating", async () => {
     const { sessions, parent } = await storeFixture();
@@ -1092,7 +1107,7 @@ describe("ChildAgentManager", () => {
   });
 
   it("persists an authenticated routed pin and durable team correlation before coordinator start", async () => {
-    const { sessions, parent } = await storeFixture("balanced_v4");
+    const { directory, sessions, parent } = await storeFixture("balanced_v4");
     const router = new AgentBackendRouter();
     const routedPin = {
       ...testBackendPin(),
@@ -1142,9 +1157,17 @@ describe("ChildAgentManager", () => {
       description: "Implement staged change",
       prompt: "Implement without running repository code",
     };
-    const result = await manager.delegate(input, context(parent), {
+    const runContext = context(parent);
+    const options = {
+      ...teamWorkspace(directory),
+      teamExecution: "foreground" as const,
       backend: { decision },
       team: correlation,
+    };
+    const identity = manager.reserveIdentity(input, runContext, options);
+    const result = await manager.delegate(input, runContext, {
+      ...options,
+      identity,
     });
 
     expect(result.metadata.childSessionId).toBe("routed-session");
@@ -1170,7 +1193,7 @@ describe("ChildAgentManager", () => {
   });
 
   it("rejects forged, cross-router, and role-mismatched route decisions before allocation", async () => {
-    const { sessions, parent } = await storeFixture("balanced_v4");
+    const { directory, sessions, parent } = await storeFixture("balanced_v4");
     const router = new AgentBackendRouter();
     const other = new AgentBackendRouter();
     const routeInput = {
@@ -1205,16 +1228,46 @@ describe("ChildAgentManager", () => {
     };
     const implement = { ...review, profile: "implement_v2" as const };
     const trusted = router.select(routeInput);
+    const bundle = (
+      input: typeof review | typeof implement,
+      decision: typeof trusted,
+      role: "review" | "implement",
+      suffix: string,
+    ) => {
+      const options = {
+        ...teamWorkspace(directory, suffix),
+        teamExecution: "foreground" as const,
+        backend: { decision },
+        team: {
+          runId: "run-routes",
+          role,
+          taskIndex: 1,
+          round: 0,
+          attemptId: `attempt-${suffix}`,
+        },
+      };
+      return {
+        ...options,
+        identity: manager.reserveIdentity(input, runContext, options),
+      };
+    };
+    const forged = structuredClone(trusted);
 
-    await expect(manager.delegate(review, runContext, {
-      backend: { decision: structuredClone(trusted) },
-    })).rejects.toThrow(/trusted backend route/u);
-    await expect(manager.delegate(review, runContext, {
-      backend: { decision: trustedByOther },
-    })).rejects.toThrow(/trusted backend route/u);
-    await expect(manager.delegate(implement, runContext, {
-      backend: { decision: trusted },
-    })).rejects.toThrow(/does not match/u);
+    await expect(manager.delegate(
+      review,
+      runContext,
+      bundle(review, forged, "review", "forged-route"),
+    )).rejects.toThrow(/trusted backend route/u);
+    await expect(manager.delegate(
+      review,
+      runContext,
+      bundle(review, trustedByOther, "review", "cross-route"),
+    )).rejects.toThrow(/trusted backend route/u);
+    await expect(manager.delegate(
+      implement,
+      runContext,
+      bundle(implement, trusted, "implement", "role-route"),
+    )).rejects.toThrow(/does not match/u);
     expect(runContext.delegationBudget).toMatchObject({
       childrenStarted: 0,
       requestsReserved: 0,
@@ -1259,9 +1312,9 @@ describe("ChildAgentManager", () => {
       now: () => testAt,
     });
     const input = {
-      profile: "implement_v2" as const,
-      description: "Implement",
-      prompt: "Implement staged changes",
+      profile: "explore_v1" as const,
+      description: "Inspect",
+      prompt: "Inspect one bounded area",
     };
     const runContext = context(parent);
     const reservation = manager.reserveIdentity(input, runContext);
@@ -1294,9 +1347,11 @@ describe("ChildAgentManager", () => {
   });
 
   it("rejects mismatched durable team correlation before consuming its reservation", async () => {
-    const { sessions, parent } = await storeFixture("balanced_v4");
+    const { directory, sessions, parent } = await storeFixture("balanced_v4");
+    const router = new AgentBackendRouter();
     const manager = new ChildAgentManager({
       sessions,
+      backendRouter: router,
       getCoordinator: () => successfulCoordinator(),
       async emit() {},
       createId: (() => {
@@ -1317,10 +1372,286 @@ describe("ChildAgentManager", () => {
       round: 0,
       attemptId: "attempt-1",
     };
-    const identity = manager.reserveIdentity(input, runContext, { team });
+    const decision = router.select({
+      role: "implement",
+      executionMode: "act",
+      permissionMode: "approved_for_me",
+      background: false,
+      candidates: [{
+        id: "correlation-route",
+        pin: testBackendPin(),
+        parent: true,
+        roles: ["implement"],
+        executionModes: ["act"],
+        permissionModes: ["approved_for_me"],
+        hostTools: true,
+        background: true,
+        ready: true,
+      }],
+    });
+    const options = {
+      ...teamWorkspace(directory, "correlation-worktree"),
+      teamExecution: "foreground" as const,
+      backend: { decision },
+      team,
+    };
+    const identity = manager.reserveIdentity(input, runContext, options);
 
-    await expect(manager.delegate(input, runContext, { identity, team }))
+    await expect(manager.delegate(input, runContext, { ...options, identity }))
       .rejects.toThrow(/team correlation/u);
+    expect(runContext.delegationBudget).toMatchObject({
+      childrenStarted: 0,
+      requestsReserved: 0,
+    });
+    expect(await sessions.list()).toHaveLength(1);
+  });
+
+  it("denies an unbundled internal child before IDs, budget, session, event, or coordinator effects", async () => {
+    const { sessions, parent } = await storeFixture("balanced_v4");
+    let idsCreated = 0;
+    let coordinatorStarts = 0;
+    let events = 0;
+    const manager = new ChildAgentManager({
+      sessions,
+      getCoordinator: () => successfulCoordinator(() => {
+        coordinatorStarts += 1;
+      }),
+      async emit() { events += 1; },
+      createId() {
+        idsCreated += 1;
+        return `forbidden-id-${idsCreated}`;
+      },
+    });
+    const runContext = context(parent);
+
+    await expect(manager.delegate({
+      profile: "implement_v2",
+      description: "Unsafe direct implementation",
+      prompt: "Edit the parent with inherited defaults",
+    }, runContext)).rejects.toThrow(/trusted team bundle/u);
+    expect(idsCreated).toBe(0);
+    expect(coordinatorStarts).toBe(0);
+    expect(events).toBe(0);
+    expect(runContext.delegationBudget).toMatchObject({
+      childrenStarted: 0,
+      requestsReserved: 0,
+    });
+    expect(await sessions.list()).toHaveLength(1);
+  });
+
+  it("binds team execution independently and rejects foreground/background mismatch before allocation", async () => {
+    const { directory, sessions, parent } = await storeFixture("balanced_v4");
+    const router = new AgentBackendRouter();
+    const decision = router.select({
+      role: "review",
+      executionMode: "act",
+      permissionMode: "approved_for_me",
+      background: false,
+      candidates: [{
+        id: "foreground-review",
+        pin: testBackendPin(),
+        parent: true,
+        roles: ["review"],
+        executionModes: ["act"],
+        permissionModes: ["approved_for_me"],
+        hostTools: true,
+        background: true,
+        ready: true,
+      }],
+    });
+    const manager = new ChildAgentManager({
+      sessions,
+      backendRouter: router,
+      getCoordinator: () => successfulCoordinator(),
+      async emit() {},
+    });
+    const input = {
+      profile: "review_v2" as const,
+      description: "Review",
+      prompt: "Review staged changes",
+    };
+    const runContext = context(parent);
+    const options = {
+      ...teamWorkspace(directory, "execution-mismatch"),
+      teamExecution: "background" as const,
+      backend: { decision },
+      team: {
+        runId: "run-execution",
+        role: "review" as const,
+        taskIndex: 1,
+        round: 1,
+        attemptId: "attempt-execution",
+      },
+    };
+    const identity = manager.reserveIdentity(input, runContext, options);
+
+    await expect(manager.delegate(input, runContext, { ...options, identity }))
+      .rejects.toThrow(/does not match/u);
+    expect(runContext.delegationBudget).toMatchObject({
+      childrenStarted: 0,
+      requestsReserved: 0,
+    });
+    expect(await sessions.list()).toHaveLength(1);
+  });
+
+  it("binds reservations to exact workspace and authenticated route", async () => {
+    const { directory, sessions, parent } = await storeFixture("balanced_v4");
+    const router = new AgentBackendRouter();
+    const routeInput = {
+      role: "repair" as const,
+      executionMode: "act" as const,
+      permissionMode: "approved_for_me" as const,
+      background: false,
+      candidates: [{
+        id: "repair-route",
+        pin: testBackendPin(),
+        parent: true,
+        roles: ["repair" as const],
+        executionModes: ["act" as const],
+        permissionModes: ["approved_for_me" as const],
+        hostTools: true,
+        background: true,
+        ready: true,
+      }],
+    };
+    const manager = new ChildAgentManager({
+      sessions,
+      backendRouter: router,
+      getCoordinator: () => successfulCoordinator(),
+      async emit() {},
+    });
+    const input = {
+      profile: "repair_v1" as const,
+      description: "Repair",
+      prompt: "Repair exact findings",
+    };
+    const runContext = context(parent);
+    const team = {
+      runId: "run-repair",
+      role: "repair" as const,
+      taskIndex: 1,
+      round: 1,
+      attemptId: "attempt-repair",
+    };
+    const firstDecision = router.select(routeInput);
+    const reserved = {
+      ...teamWorkspace(directory, "reserved-worktree"),
+      teamExecution: "foreground" as const,
+      backend: { decision: firstDecision },
+      team,
+    };
+    const workspaceIdentity = manager.reserveIdentity(input, runContext, reserved);
+
+    await expect(manager.delegate(input, runContext, {
+      ...reserved,
+      ...teamWorkspace(directory, "different-worktree"),
+      identity: workspaceIdentity,
+    })).rejects.toThrow(/reservation does not match/u);
+
+    const secondDecision = router.select(routeInput);
+    const routeIdentity = manager.reserveIdentity(input, runContext, reserved);
+    await expect(manager.delegate(input, runContext, {
+      ...reserved,
+      backend: { decision: secondDecision },
+      identity: routeIdentity,
+    })).rejects.toThrow(/reservation does not match/u);
+    expect(runContext.delegationBudget).toMatchObject({
+      childrenStarted: 0,
+      requestsReserved: 0,
+    });
+    expect(await sessions.list()).toHaveLength(1);
+  });
+
+  it("rejects execution, permission, and parent-fallback pin route mismatches before allocation", async () => {
+    const { directory, sessions, parent } = await storeFixture("balanced_v4");
+    const router = new AgentBackendRouter();
+    const manager = new ChildAgentManager({
+      sessions,
+      backendRouter: router,
+      getCoordinator: () => successfulCoordinator(),
+      async emit() {},
+    });
+    const input = {
+      profile: "review_v2" as const,
+      description: "Review",
+      prompt: "Review staged changes",
+    };
+    const runContext = context(parent);
+    const mismatchedPin = {
+      ...testBackendPin(),
+      modelId: "different-parent-model",
+    };
+    const decisions = [
+      router.select({
+        role: "review",
+        executionMode: "plan",
+        permissionMode: "approved_for_me",
+        background: false,
+        candidates: [{
+          id: "plan-route",
+          pin: testBackendPin(),
+          parent: true,
+          roles: ["review"],
+          executionModes: ["plan"],
+          permissionModes: ["approved_for_me"],
+          hostTools: true,
+          background: true,
+          ready: true,
+        }],
+      }),
+      router.select({
+        role: "review",
+        executionMode: "act",
+        permissionMode: "full_access",
+        background: false,
+        candidates: [{
+          id: "permission-route",
+          pin: testBackendPin(),
+          parent: true,
+          roles: ["review"],
+          executionModes: ["act"],
+          permissionModes: ["full_access"],
+          hostTools: true,
+          background: true,
+          ready: true,
+        }],
+      }),
+      router.select({
+        role: "review",
+        executionMode: "act",
+        permissionMode: "approved_for_me",
+        background: false,
+        candidates: [{
+          id: "different-parent",
+          pin: mismatchedPin,
+          parent: true,
+          roles: ["review"],
+          executionModes: ["act"],
+          permissionModes: ["approved_for_me"],
+          hostTools: true,
+          background: true,
+          ready: true,
+        }],
+      }),
+    ];
+
+    for (const [index, decision] of decisions.entries()) {
+      const options = {
+        ...teamWorkspace(directory, `route-mismatch-${index}`),
+        teamExecution: "foreground" as const,
+        backend: { decision },
+        team: {
+          runId: "run-route-mismatch",
+          role: "review" as const,
+          taskIndex: 1,
+          round: 1,
+          attemptId: `attempt-route-${index}`,
+        },
+      };
+      const identity = manager.reserveIdentity(input, runContext, options);
+      await expect(manager.delegate(input, runContext, { ...options, identity }))
+        .rejects.toThrow(index === 2 ? /parent pin/u : /does not match/u);
+    }
     expect(runContext.delegationBudget).toMatchObject({
       childrenStarted: 0,
       requestsReserved: 0,
