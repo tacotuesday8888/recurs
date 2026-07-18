@@ -12,25 +12,34 @@ import { promisify } from "node:util";
 import { ScriptedProvider } from "@recurs/providers";
 import {
   getOperatingModePolicy,
+  createHostInvocation,
   type AgentSessionDescriptor,
   type ModelProvider,
   type SessionBackendPin,
 } from "@recurs/contracts";
 import {
   JsonlSessionStore,
+  TEAM_APPLY_PERMISSION,
   createSessionState,
   reduceSessionRecord,
   type SessionRecord,
   type SessionState,
+  type TeamRunResult,
+  type TeamRunSnapshot,
 } from "@recurs/core";
 import type { Checkpoint } from "@recurs/tools";
-import { CheckpointStore, ToolError } from "@recurs/tools";
+import {
+  CheckpointStore,
+  ToolError,
+  permissionIntentKey,
+} from "@recurs/tools";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyCommandSessionRecord,
   createCommandRegistry,
   type CommandContext,
+  type CommandDependencies,
 } from "../src/index.js";
 import { testBackendPin } from "../../../tests/support/backend.js";
 
@@ -113,6 +122,13 @@ function context(
 ): CommandContext {
   const commandContext: CommandContext = {
     session: state,
+    invocation: createHostInvocation({
+      invocation: "repl",
+      userPresent: true,
+      remote: false,
+      scripted: false,
+      embedding: "cli",
+    }),
     confirm,
     async cancelActiveRun() {
       return false;
@@ -147,6 +163,67 @@ class FakeCheckpointStore extends CheckpointStore {
   async undoLatest(sessionId: string, workingDirectory: string) {
     return this.undo(sessionId, workingDirectory);
   }
+}
+
+function teamSnapshot(
+  overrides: Partial<TeamRunSnapshot> = {},
+): TeamRunSnapshot {
+  return {
+    id: "team-run-1",
+    execution: "background",
+    operatingModeId: "balanced_v4",
+    status: "ready_to_apply",
+    phase: "review",
+    round: 1,
+    childrenReserved: 4,
+    childrenFinished: 4,
+    usage: { inputTokens: 120, outputTokens: 40 },
+    reportedCostUsd: 0.0125,
+    costCoverage: "complete",
+    manualAttentionRequired: false,
+    updatedAt: at,
+    ...overrides,
+  };
+}
+
+function appliedTeamResult(id = "team-run-1"): TeamRunResult {
+  return {
+    output: `Applied reviewed team candidate ${id}`,
+    metadata: {
+      teamId: id,
+      status: "approved",
+      operatingModeId: "balanced_v4",
+      repairRounds: 0,
+      accounting: {
+        childrenReserved: 4,
+        childrenFinished: 4,
+        requestsReserved: 16,
+        requestsUsed: 12,
+        usage: { inputTokens: 120, outputTokens: 40 },
+        usageReportedChildren: 4,
+        usageMissingChildren: 0,
+        reportedCostUsd: 0.0125,
+        costReportedChildren: 4,
+        costMissingChildren: 0,
+        costCoverage: "complete",
+      },
+      changedFiles: ["src/cache.ts"],
+      evidence: ["npm test"],
+    },
+  };
+}
+
+function teamRunControls(
+  snapshot = teamSnapshot(),
+): NonNullable<CommandDependencies["teamRuns"]> {
+  return {
+    list: vi.fn(async () => [snapshot]),
+    status: vi.fn(async () => snapshot),
+    wait: vi.fn(async () => ({ snapshot, timedOut: false })),
+    cancel: vi.fn(async () => ({ result: "requested", snapshot })),
+    resume: vi.fn(async () => ({ result: "started", snapshot })),
+    apply: vi.fn(async () => appliedTeamResult(snapshot.id)),
+  };
 }
 
 describe("session commands", () => {
@@ -313,6 +390,182 @@ describe("session commands", () => {
       level: "warning",
       text: expect.stringContaining("model connection"),
     });
+  });
+
+  it("lists, inspects, waits for, and cancels only safe team-run projections", async () => {
+    const initial = await storeSession("team-controls-parent");
+    const snapshot = {
+      ...teamSnapshot(),
+      internalPrompt: "PRIVATE TEAM PROMPT",
+      backend: { apiKey: "PRIVATE BACKEND KEY" },
+      artifactPath: "/private/recurs/team-candidate.patch",
+    };
+    const teamRuns = teamRunControls(snapshot);
+    const signal = new AbortController().signal;
+    const commands = createCommandRegistry({
+      sessions,
+      teamRuns,
+      signal: () => signal,
+    });
+    const commandContext = context(initial);
+
+    const results = await Promise.all([
+      commands.execute("/agents teams", commandContext),
+      commands.execute("/agents team team-run-1", commandContext),
+      commands.execute("/agents wait team-run-1", commandContext),
+      commands.execute("/agents cancel team-run-1", commandContext),
+    ]);
+
+    expect(results[0]).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+        /1 durable team run[\s\S]*ready_to_apply \| review \| round 1 \| 4\/4 children \| team-run-1/u,
+      ),
+    });
+    expect(results[1]).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+        /Team run: team-run-1[\s\S]*Execution: background[\s\S]*Mode: balanced_v4[\s\S]*Usage: 120 input, 40 output tokens[\s\S]*Cost: \$0\.0125 \(complete coverage\)/u,
+      ),
+    });
+    expect(results[2]).toMatchObject({
+      type: "message",
+      text: expect.stringContaining("Timed out: no"),
+    });
+    expect(results[3]).toMatchObject({
+      type: "message",
+      text: expect.stringContaining("Cancellation: requested"),
+    });
+    expect(JSON.stringify(results)).not.toMatch(
+      /PRIVATE TEAM PROMPT|PRIVATE BACKEND KEY|team-candidate\.patch|internalPrompt|artifactPath/u,
+    );
+    expect(teamRuns.list).toHaveBeenCalledWith(initial.id);
+    expect(teamRuns.status).toHaveBeenCalledWith(initial.id, "team-run-1");
+    expect(teamRuns.wait).toHaveBeenCalledWith(
+      initial.id,
+      "team-run-1",
+      30_000,
+      signal,
+    );
+    expect(teamRuns.cancel).toHaveBeenCalledWith(
+      initial.id,
+      "team-run-1",
+      "Cancelled from the Recurs CLI",
+    );
+  });
+
+  it("does not disclose whether a missing team run belongs to another parent", async () => {
+    const initial = await storeSession("team-not-found-parent");
+    const teamRuns = teamRunControls();
+    vi.mocked(teamRuns.status).mockRejectedValueOnce(new ToolError(
+      "not_found",
+      "Foreign team belongs to private-parent-session",
+    ));
+    vi.mocked(teamRuns.wait).mockRejectedValueOnce(new ToolError(
+      "not_found",
+      "Missing team journal at /private/recurs/team.jsonl",
+    ));
+    const commands = createCommandRegistry({ sessions, teamRuns });
+    const commandContext = context(initial);
+
+    await expect(commands.execute(
+      "/agents team foreign-team",
+      commandContext,
+    )).resolves.toEqual({
+      type: "message",
+      level: "error",
+      text: "Team run not found",
+    });
+    await expect(commands.execute(
+      "/agents wait missing-team",
+      commandContext,
+    )).resolves.toEqual({
+      type: "message",
+      level: "error",
+      text: "Team run not found",
+    });
+  });
+
+  it("requires Full Access to resume and passes the trusted CLI context", async () => {
+    const initial = await storeSession("team-resume-parent");
+    const teamRuns = teamRunControls(teamSnapshot({ status: "interrupted" }));
+    const commands = createCommandRegistry({ sessions, teamRuns });
+    const commandContext = context(initial);
+
+    expect(await commands.execute(
+      "/agents resume team-run-1",
+      commandContext,
+    )).toEqual({
+      type: "message",
+      level: "error",
+      text: "Resuming a background team requires Full Access",
+    });
+    expect(teamRuns.resume).not.toHaveBeenCalled();
+
+    await commands.execute("/permissions full", commandContext);
+    expect(await commands.execute(
+      "/agents resume team-run-1",
+      commandContext,
+    )).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(/Resume: started[\s\S]*Status: interrupted/u),
+    });
+    expect(teamRuns.resume).toHaveBeenCalledTimes(1);
+    const resumeContext = vi.mocked(teamRuns.resume).mock.calls[0]![2];
+    expect(resumeContext).toMatchObject({
+      sessionId: initial.id,
+      cwd,
+      executionMode: "act",
+      runContext: {
+        invocation: "repl",
+        presence: "present",
+        location: "local",
+        automation: "manual",
+      },
+    });
+    expect(resumeContext.approvedIntents).toBeUndefined();
+  });
+
+  it("applies in Approved for Me only after an exact explicit approval", async () => {
+    const initial = await storeSession("team-apply-parent");
+    const teamRuns = teamRunControls();
+    const confirm = vi.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const commands = createCommandRegistry({ sessions, teamRuns });
+    const commandContext = context(initial, confirm);
+    await commands.execute("/permissions approved", commandContext);
+
+    expect(await commands.execute(
+      "/agents apply team-run-1",
+      commandContext,
+    )).toEqual({
+      type: "message",
+      level: "warning",
+      text: "Team apply was not approved",
+    });
+    expect(teamRuns.apply).not.toHaveBeenCalled();
+
+    expect(await commands.execute(
+      "/agents apply team-run-1",
+      commandContext,
+    )).toMatchObject({
+      type: "message",
+      text: "Applied reviewed team candidate team-run-1",
+    });
+    expect(confirm).toHaveBeenNthCalledWith(
+      1,
+      "Apply reviewed team candidate team-run-1 to the current workspace?",
+    );
+    expect(confirm).toHaveBeenNthCalledWith(
+      2,
+      "Apply reviewed team candidate team-run-1 to the current workspace?",
+    );
+    expect(teamRuns.apply).toHaveBeenCalledTimes(1);
+    const applyContext = vi.mocked(teamRuns.apply).mock.calls[0]![2];
+    expect(applyContext.approvedIntents).toEqual(new Set([
+      permissionIntentKey(TEAM_APPLY_PERMISSION),
+    ]));
   });
 
   it("creates AGENTS.md once after confirmation and never overwrites it", async () => {

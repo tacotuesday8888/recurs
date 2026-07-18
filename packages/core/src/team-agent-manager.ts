@@ -4,6 +4,7 @@ import {
   getOperatingModePolicy,
   type AgentGitWorktreeWorkspace,
   type OperatingModeId,
+  type TeamRunExecution,
 } from "@recurs/contracts";
 import {
   ToolError,
@@ -65,6 +66,7 @@ export interface DelegateTeamInput {
   readonly description: string;
   readonly tasks: readonly TeamImplementationTask[];
   readonly review: { readonly instructions: string };
+  readonly execution?: TeamRunExecution;
 }
 
 interface SafeTeamFailure {
@@ -107,7 +109,10 @@ export interface TeamAgentResultMetadata extends Record<string, unknown> {
 
 export interface TeamAgentManagerDependencies {
   readonly sessions: JsonlSessionStore;
-  readonly supervisor?: Pick<TeamRunSupervisor, "preflight" | "startForeground">;
+  readonly supervisor?: Pick<
+    TeamRunSupervisor,
+    "preflight" | "startForeground" | "startBackground"
+  >;
   readonly children: Pick<ChildAgentManager, "delegate">;
   readonly worktrees: GitWorktreeLeasePort;
   readonly patches: Pick<
@@ -157,11 +162,23 @@ function boundedText(
 }
 
 function parseInput(value: unknown): DelegateTeamInput {
-  const record = exactKeys(
-    value,
-    ["description", "tasks", "review"],
-    "delegate_team requires exactly description, tasks, and review",
-  );
+  const raw = typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const hasExecution = Object.hasOwn(raw, "execution");
+  const record = exactKeys(value, [
+    "description",
+    "tasks",
+    "review",
+    ...(hasExecution ? ["execution"] : []),
+  ], "delegate_team requires description, tasks, review, and optional execution");
+  if (hasExecution && record.execution !== "foreground" &&
+    record.execution !== "background") {
+    throw new ToolError(
+      "invalid_input",
+      "delegate_team execution must be foreground or background",
+    );
+  }
   if (!Array.isArray(record.tasks) ||
     record.tasks.length < 1 || record.tasks.length > MAX_TASKS) {
     throw new ToolError(
@@ -195,6 +212,9 @@ function parseInput(value: unknown): DelegateTeamInput {
         true,
       ),
     },
+    ...(hasExecution
+      ? { execution: record.execution as TeamRunExecution }
+      : {}),
   };
 }
 
@@ -309,8 +329,8 @@ export class TeamAgentManager {
       definition: {
         name: "delegate_team",
         description: [
-          "Run one foreground Recurs-owned implementation team.",
-          "Each supplied task executes in an isolated Git worktree; Recurs validates and integrates every patch in task order, then runs the operating mode's independent Review policy.",
+          "Run one Recurs-owned implementation team in foreground by default or explicitly in background.",
+          "Each task executes in an isolated Git worktree before independent review; foreground runs apply an approved candidate, while background runs stop for explicit apply_team control.",
           "Use only for concrete, disjoint implementation tasks in a clean committed Git workspace.",
         ].join(" "),
         inputSchema: {
@@ -336,6 +356,10 @@ export class TeamAgentManager {
               properties: { instructions: { type: "string" } },
               required: ["instructions"],
               additionalProperties: false,
+            },
+            execution: {
+              type: "string",
+              enum: ["foreground", "background"],
             },
           },
           required: ["description", "tasks", "review"],
@@ -368,6 +392,12 @@ export class TeamAgentManager {
   async #prepare(input: DelegateTeamInput, context: ToolContext) {
     if (context.signal.aborted) {
       throw new ToolError("cancelled", "Team delegation was cancelled");
+    }
+    if (input.execution === "background") {
+      throw new ToolError(
+        "tool_unavailable",
+        "Background teams require the durable version-4 supervisor",
+      );
     }
     if (context.executionMode !== "act") {
       throw new ToolError("plan_mode_denied", "Team implementation requires an Act parent");
@@ -618,7 +648,9 @@ export class TeamAgentManager {
   > {
     const supervisor = await this.#durableSupervisor(context);
     if (supervisor !== null) {
-      return supervisor.startForeground(input, context);
+      return input.execution === "background"
+        ? supervisor.startBackground(input, context)
+        : supervisor.startForeground(input, context);
     }
     const prepared = await this.#prepare(input, context);
     const { parent, mode, team, budget, base } = prepared;

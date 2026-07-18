@@ -2,9 +2,14 @@ import type {
   JsonlSessionStore,
   SessionRecord,
   SessionState,
+  TeamRunCancelResult,
+  TeamRunResult,
+  TeamRunResumeResult,
+  TeamRunSnapshot,
 } from "@recurs/core";
+import type { HostInvocation } from "@recurs/contracts";
 import type { ModelProvider } from "@recurs/providers";
-import type { CheckpointStore, ExecutionMode } from "@recurs/tools";
+import type { CheckpointStore, ExecutionMode, ToolContext } from "@recurs/tools";
 
 export interface ParsedCommand {
   name: string;
@@ -18,6 +23,7 @@ export type CommandResult =
 
 export interface CommandContext {
   session: SessionState;
+  invocation: HostInvocation;
   now(): string;
   confirm(message: string): Promise<boolean>;
   cancelActiveRun(): Promise<boolean>;
@@ -33,6 +39,31 @@ export interface CommandDependencies {
   ): Promise<ModelProvider | null>;
   checkpoints?: CheckpointStore;
   signal?(): AbortSignal;
+  teamRuns?: {
+    list(parentSessionId: string): Promise<readonly TeamRunSnapshot[]>;
+    status(parentSessionId: string, runId: string): Promise<TeamRunSnapshot>;
+    wait(
+      parentSessionId: string,
+      runId: string,
+      timeoutMs: number,
+      signal: AbortSignal,
+    ): Promise<{ readonly snapshot: TeamRunSnapshot; readonly timedOut: boolean }>;
+    cancel(
+      parentSessionId: string,
+      runId: string,
+      reason: string,
+    ): Promise<TeamRunCancelResult>;
+    resume(
+      parentSessionId: string,
+      runId: string,
+      context: ToolContext,
+    ): Promise<TeamRunResumeResult>;
+    apply(
+      parentSessionId: string,
+      runId: string,
+      context: ToolContext,
+    ): Promise<TeamRunResult>;
+  };
 }
 
 export interface Command {

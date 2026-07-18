@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { createHostInvocation } from "@recurs/contracts";
+
 import {
   activeGoal,
   createSessionState,
@@ -32,6 +34,13 @@ function commandContext(
       }),
       ...overrides,
     },
+    invocation: createHostInvocation({
+      invocation: "repl",
+      userPresent: true,
+      remote: false,
+      scripted: false,
+      embedding: "cli",
+    }),
     records: [],
     confirm,
     cancelActiveRun,

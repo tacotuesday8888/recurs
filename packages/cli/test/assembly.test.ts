@@ -786,6 +786,11 @@ describe("standalone assembly without a provider", () => {
       "delegate_task",
       "delegate_tasks",
       "delegate_team",
+      "team_status",
+      "wait_team",
+      "cancel_team",
+      "resume_team",
+      "apply_team",
     ]);
   });
 

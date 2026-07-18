@@ -42,6 +42,7 @@ import {
   TeamRunSupervisor,
   bindRunAuthorization,
   createWorkspaceShell,
+  createTeamRunTools,
   isPinnedSessionState,
   type EventSink,
   type PinnedSessionState,
@@ -604,7 +605,7 @@ export async function createStandaloneRuntime(
         executionModes: ["act"],
         permissionModes: [parent.permissionMode],
         hostTools: parent.backend.pin.kind === "model_provider",
-        background: false,
+        background: parent.backend.pin.kind === "model_provider",
         ready: true,
       }];
     },
@@ -625,6 +626,7 @@ export async function createStandaloneRuntime(
     },
   });
   tools.register(teams.createTool());
+  for (const tool of createTeamRunTools(teamSupervisor)) tools.register(tool);
 
   const runtimeReference: { current?: RecursRuntime } = {};
   const approvals = {
@@ -877,6 +879,7 @@ export async function createStandaloneRuntime(
       : {}),
     resolveProvider: resolveCommandProvider,
     checkpoints,
+    teamRuns: teamSupervisor,
     signal: () =>
       runtimeReference.current?.currentSignal() ?? new AbortController().signal,
   });

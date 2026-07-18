@@ -21,6 +21,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  CommandRegistry,
   RecursRuntime,
   createCommandRegistry,
 } from "../src/index.js";
@@ -82,6 +83,41 @@ async function runtimeWith(provider: ScriptedProvider): Promise<RecursRuntime> {
 }
 
 describe("RecursRuntime", () => {
+  it("threads the exact trusted host invocation into slash-command context", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-command-invocation-"));
+    directories.push(directory);
+    const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
+    const session = await sessions.createPinnedSession({
+      id: "s1",
+      at: testAt,
+      cwd: directory,
+      backend: testBackendPin(),
+    });
+    let received: unknown;
+    const commands = new CommandRegistry([{
+      name: "capture",
+      description: "Capture command trust context",
+      usage: "/capture",
+      async execute(_args, context) {
+        received = context.invocation;
+        return { type: "message", level: "info", text: "captured" };
+      },
+    }]);
+    const runtime = new RecursRuntime({ commands, sessions }, session);
+    const invocation = createHostInvocation({
+      invocation: "repl",
+      userPresent: true,
+      remote: false,
+      scripted: false,
+      embedding: "cli",
+    });
+
+    await expect(runtime.submit("/capture", invocation)).resolves.toMatchObject({
+      text: "captured",
+    });
+    expect(received).toBe(invocation);
+  });
+
   it("explains agent modes honestly before onboarding creates a session", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "recurs-agent-mode-guide-"));
     directories.push(directory);

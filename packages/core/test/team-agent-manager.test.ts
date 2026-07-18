@@ -113,7 +113,10 @@ function reviewResult(
 
 interface HarnessOptions {
   modeId?: OperatingModeId;
-  supervisor?: Pick<TeamRunSupervisor, "preflight" | "startForeground">;
+  supervisor?: Pick<
+    TeamRunSupervisor,
+    "preflight" | "startForeground" | "startBackground"
+  >;
   delegate?: Pick<ChildAgentManager, "delegate">["delegate"];
   capture?: (lease: GitWorktreeLease) => Promise<GitPatchArtifactHandle | null>;
   discard?: (handles: readonly GitPatchArtifactHandle[]) => Promise<void>;
@@ -272,8 +275,12 @@ describe("TeamAgentManager", () => {
       { category: "write", resource: "team workspace integration", risk: "elevated" },
       { category: "shell", resource: "fixed Git worktree orchestration", risk: "normal" },
     ]);
+    expect(setup.tool.parse({ ...input(), execution: "background" })).toEqual({
+      ...input(),
+      execution: "background",
+    });
     expect(() => setup.tool.parse({ ...input(), background: true })).toThrow(
-      "exactly description, tasks, and review",
+      "description, tasks, review, and optional execution",
     );
     expect(() => setup.tool.parse({ ...input(), tasks: [] })).toThrow("between 1 and 4");
     expect(() => setup.tool.parse(input(5))).toThrow("between 1 and 4");
@@ -366,6 +373,10 @@ describe("TeamAgentManager", () => {
           calls.push({ method: "startForeground", input: value, context });
           return supervised;
         },
+        async startBackground(value, context) {
+          calls.push({ method: "startBackground", input: value, context });
+          return supervised;
+        },
       },
     });
     const parsed = setup.tool.parse(input());
@@ -381,6 +392,14 @@ describe("TeamAgentManager", () => {
     expect(setup.preflightCalls).toBe(0);
     expect(setup.log).toEqual([]);
     expect(setup.integrated).toEqual([]);
+
+    const background = setup.tool.parse({ ...input(), execution: "background" });
+    await setup.tool.execute(background, setup.context);
+    expect(calls.at(-1)).toEqual({
+      method: "startBackground",
+      input: background,
+      context: setup.context,
+    });
   });
 
   it("runs isolated Implement workers concurrently, captures before cleanup, integrates in order, and reviews", async () => {

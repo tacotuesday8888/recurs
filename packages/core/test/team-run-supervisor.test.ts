@@ -13,6 +13,7 @@ import {
 } from "@recurs/contracts";
 import {
   CheckpointStore,
+  permissionIntentKey,
   type Checkpoint,
   type ToolContext,
 } from "@recurs/tools";
@@ -37,7 +38,10 @@ import type {
 import type { GitWorktreeLease } from "../src/git-worktree-leases.js";
 import { JsonlSessionStore } from "../src/jsonl-session-store.js";
 import { JsonlTeamRunStore } from "../src/jsonl-team-run-store.js";
-import { TeamRunSupervisor } from "../src/team-run-supervisor.js";
+import {
+  TEAM_APPLY_PERMISSION,
+  TeamRunSupervisor,
+} from "../src/team-run-supervisor.js";
 import type {
   TeamRunRecordInput,
   TeamRunState,
@@ -160,6 +164,9 @@ interface HarnessOptions {
   readonly tamperReturnedChild?: boolean;
   readonly cancelAfterImplementStarts?: number;
   readonly repairActualPaths?: readonly string[];
+  readonly permissionMode?: "approved_for_me" | "full_access";
+  readonly backgroundCandidate?: boolean;
+  readonly pauseCandidateReady?: boolean;
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -168,6 +175,17 @@ async function harness(options: HarnessOptions = {}) {
   const log: string[] = [];
   const sessions = new JsonlSessionStore(path.join(root, "sessions"));
   const durableRuns = new JsonlTeamRunStore(path.join(root, "team-runs"));
+  let candidateReadyEntered!: () => void;
+  let releaseCandidateReady!: () => void;
+  const candidateReadyGate = new Promise<void>((resolve) => {
+    candidateReadyEntered = resolve;
+  });
+  const candidateReadyRelease = new Promise<void>((resolve) => {
+    releaseCandidateReady = resolve;
+  });
+  let currentLeasePhase: TeamRunState["phase"] = null;
+  let implementationLeaseIndex = 0;
+  const implementationLeaseIndexById = new Map<string, number>();
   const pin = testBackendPin("team-model");
   let parent = await sessions.createPinnedSession({
     id: "parent-session",
@@ -181,7 +199,7 @@ async function harness(options: HarnessOptions = {}) {
       type: "mode_updated",
       source: "command",
       executionMode: "act",
-      permissionMode: "approved_for_me",
+      permissionMode: options.permissionMode ?? "approved_for_me",
       at: testAt,
     });
     await lease.append({
@@ -204,8 +222,16 @@ async function harness(options: HarnessOptions = {}) {
       expectedSequence: number,
       input: TeamRunRecordInput,
     ) {
+      if (input.type === "candidate_ready" && options.pauseCandidateReady === true) {
+        candidateReadyEntered();
+        await candidateReadyRelease;
+      }
       const state = await durableRuns.append(runId, expectedSequence, input);
       log.push(recordLabel(input));
+      if (input.type === "phase_started") {
+        currentLeasePhase = input.phase;
+        if (input.phase === "implement") implementationLeaseIndex = 0;
+      }
       return state;
     },
     load: durableRuns.load.bind(durableRuns),
@@ -389,6 +415,9 @@ async function harness(options: HarnessOptions = {}) {
         revision,
       });
       createdLeases.push(lease);
+      if (currentLeasePhase === "implement") {
+        implementationLeaseIndexById.set(id, ++implementationLeaseIndex);
+      }
       log.push(`worktree:create:${id}`);
       return lease;
     },
@@ -405,27 +434,31 @@ async function harness(options: HarnessOptions = {}) {
     async capture(lease: GitWorktreeLease): Promise<GitPatchArtifactHandle> {
       log.push(`patch:capture:${lease.id}`);
       const numericId = Number.parseInt(lease.id.slice("lease-".length), 10);
-      const existing = numericId <= 2 ? workerArtifacts.get(lease.id) : undefined;
+      const implementationIndex = implementationLeaseIndexById.get(lease.id);
+      const existing = implementationIndex === undefined
+        ? undefined
+        : workerArtifacts.get(lease.id);
       if (existing !== undefined) return existing;
-      if (numericId > 2 && log.includes("child:repair:1:finish") &&
+      if (implementationIndex === undefined &&
+        log.includes("child:repair:1:finish") &&
         options.repairActualPaths !== undefined) {
         stagedPaths = [...options.repairActualPaths];
       }
-      const paths = numericId <= 2
-        ? [`file-${numericId}.ts`]
-        : [...stagedPaths];
+      const paths = implementationIndex === undefined
+        ? [...stagedPaths]
+        : [`file-${implementationIndex}.ts`];
       const captureIndex = [...workerArtifacts.keys()]
         .filter((id) => id.startsWith(`${lease.id}:`)).length + 1;
       const handle = patchHandle(
-        numericId <= 2
-          ? `artifact-${lease.id}`
-          : `artifact-${lease.id}-snapshot-${captureIndex}`,
+        implementationIndex === undefined
+          ? `artifact-${lease.id}-snapshot-${captureIndex}`
+          : `artifact-${lease.id}`,
         lease.id,
         paths,
         ["a", "b", "c", "d"][numericId - 1] ?? "e",
       );
       workerArtifacts.set(
-        numericId <= 2 ? lease.id : `${lease.id}:${captureIndex}`,
+        implementationIndex === undefined ? `${lease.id}:${captureIndex}` : lease.id,
         handle,
       );
       return handle;
@@ -484,7 +517,7 @@ async function harness(options: HarnessOptions = {}) {
         executionModes: ["act"],
         permissionModes: [candidateParent.permissionMode],
         hostTools: true,
-        background: true,
+        background: options.backgroundCandidate ?? true,
         ready: true,
       }];
     },
@@ -523,8 +556,68 @@ async function harness(options: HarnessOptions = {}) {
     return await durableRuns.load(teamId);
   }
 
+  async function seedInterruptedRun(
+    sourceTeamId: string,
+    runId = "resumable-team",
+    includeAccountedChild = false,
+  ): Promise<TeamRunState> {
+    const source = await durableRuns.load(sourceTeamId);
+    let interrupted = await durableRuns.create({
+      ...structuredClone(source.descriptor),
+      id: runId,
+    }, testAt);
+    interrupted = await durableRuns.append(runId, interrupted.lastSequence, {
+      type: "run_claimed",
+      ownerId: "crashed-owner",
+      claimEpoch: 1,
+      at: testAt,
+    });
+    interrupted = await durableRuns.append(runId, interrupted.lastSequence, {
+      type: "phase_started",
+      phase: "implement",
+      round: 0,
+      at: testAt,
+    });
+    if (includeAccountedChild) {
+      interrupted = await durableRuns.append(runId, interrupted.lastSequence, {
+        type: "child_reserved",
+        child: {
+          attemptId: "orphaned-attempt",
+          role: "implement",
+          index: 1,
+          round: 0,
+          childAgentId: "orphaned-agent",
+          childSessionId: "orphaned-session",
+          requestAllowance: source.descriptor.allocation.requestAllowance,
+        },
+        at: testAt,
+      });
+      interrupted = await durableRuns.append(runId, interrupted.lastSequence, {
+        type: "child_finished",
+        child: {
+          attemptId: "orphaned-attempt",
+          status: "completed",
+          requestsUsed: 1,
+          usage: { inputTokens: 5, outputTokens: 2, costUsd: 0.01 },
+          usageSource: "provider",
+          changedFiles: ["file-1.ts"],
+          evidence: ["Orphaned attempt completed before the process stopped."],
+          failure: null,
+        },
+        at: testAt,
+      });
+    }
+    return await durableRuns.append(runId, interrupted.lastSequence, {
+      type: "run_interrupted",
+      reason: "process_restart",
+      manualAttentionRequired: false,
+      at: testAt,
+    });
+  }
+
   return {
     supervisor,
+    childManager,
     context,
     input,
     sessions,
@@ -537,6 +630,9 @@ async function harness(options: HarnessOptions = {}) {
     reviewPrompts,
     parentMutationCount: () => parentMutationCount,
     listRuns: () => durableRuns.list(parent.id),
+    seedInterruptedRun,
+    candidateReadyGate,
+    releaseCandidateReady,
   };
 }
 
@@ -559,6 +655,351 @@ function implementationFinishOrder(state: TeamRunState): number[] {
 }
 
 describe("TeamRunSupervisor durable foreground pipeline", () => {
+  it("runs a background team to ready, keeps the parent clean, then applies explicitly", async () => {
+    const test = await harness({ permissionMode: "full_access" });
+    const backgroundInput = { ...test.input, execution: "background" as const };
+
+    const started = await test.supervisor.startBackground(
+      backgroundInput,
+      test.context,
+    );
+
+    expect(started.metadata.status).toBe("running");
+    expect(test.parentMutationCount()).toBe(0);
+    const waiting = await test.supervisor.wait(
+      test.context.sessionId,
+      started.metadata.teamId,
+      30_000,
+      new AbortController().signal,
+    );
+    expect(waiting).toMatchObject({
+      timedOut: false,
+      snapshot: { status: "ready_to_apply", execution: "background" },
+    });
+    expect(test.parentMutationCount()).toBe(0);
+
+    const applied = await test.supervisor.apply(
+      test.context.sessionId,
+      started.metadata.teamId,
+      test.context,
+    );
+
+    expect(applied.metadata).toMatchObject({
+      status: "approved",
+      changedFiles: ["file-1.ts", "file-2.ts"],
+      evidence: expect.arrayContaining([
+        "implement evidence 1",
+        "implement evidence 2",
+        "Reviewed the complete staged diff.",
+      ]),
+    });
+    expect(test.parentMutationCount()).toBe(1);
+  });
+
+  it("requires Full Access or the exact approved intent for explicit apply", async () => {
+    const test = await harness({ permissionMode: "full_access" });
+    const started = await test.supervisor.startBackground(
+      { ...test.input, execution: "background" },
+      test.context,
+    );
+    await test.supervisor.wait(
+      test.context.sessionId,
+      started.metadata.teamId,
+      30_000,
+      new AbortController().signal,
+    );
+    const parent = await test.sessions.loadState(test.context.sessionId);
+    await test.sessions.withSessionMutation(
+      parent.id,
+      parent.lastSequence ?? 0,
+      async (lease) => {
+        await lease.append({
+          type: "mode_updated",
+          source: "command",
+          executionMode: "act",
+          permissionMode: "approved_for_me",
+          at: testAt,
+        });
+      },
+    );
+
+    await expect(test.supervisor.apply(
+      test.context.sessionId,
+      started.metadata.teamId,
+      test.context,
+    )).rejects.toMatchObject({ code: "permission_denied" });
+
+    const applied = await test.supervisor.apply(
+      test.context.sessionId,
+      started.metadata.teamId,
+      {
+        ...test.context,
+        approvedIntents: new Set([
+          permissionIntentKey(TEAM_APPLY_PERMISSION),
+        ]),
+      },
+    );
+    expect(applied.metadata.status).toBe("approved");
+    expect(test.parentMutationCount()).toBe(1);
+  });
+
+  it("denies background teams without full access or an eligible background route", async () => {
+    const ordinary = await harness();
+    await expect(ordinary.supervisor.startBackground(
+      { ...ordinary.input, execution: "background" },
+      ordinary.context,
+    )).rejects.toMatchObject({ code: "permission_denied" });
+    expect(await ordinary.listRuns()).toEqual([]);
+
+    const foregroundOnly = await harness({
+      permissionMode: "full_access",
+      backgroundCandidate: false,
+    });
+    await expect(foregroundOnly.supervisor.startBackground(
+      { ...foregroundOnly.input, execution: "background" },
+      foregroundOnly.context,
+    )).rejects.toMatchObject({ code: "tool_unavailable" });
+    expect(await foregroundOnly.listRuns()).toEqual([]);
+  });
+
+  it("denies unattended, remote, and scripted background admission", async () => {
+    const invocations = [
+      createHostInvocation({
+        invocation: "one_shot",
+        userPresent: false,
+        remote: false,
+        scripted: true,
+        embedding: "cli",
+      }),
+      createHostInvocation({
+        invocation: "repl",
+        userPresent: true,
+        remote: true,
+        scripted: false,
+        embedding: "cli",
+      }),
+      createHostInvocation({
+        invocation: "repl",
+        userPresent: true,
+        remote: false,
+        scripted: true,
+        embedding: "cli",
+      }),
+    ];
+    for (const invocation of invocations) {
+      const test = await harness({ permissionMode: "full_access" });
+      await expect(test.supervisor.startBackground(
+        { ...test.input, execution: "background" },
+        {
+          ...test.context,
+          runContext: deriveTrustedRunContext(invocation),
+        },
+      )).rejects.toMatchObject({ code: "permission_denied" });
+      expect(await test.listRuns()).toEqual([]);
+    }
+  });
+
+  it("reserves the detached team budget before ordinary delegation can start", async () => {
+    const test = await harness({ permissionMode: "full_access" });
+    const started = await test.supervisor.startBackground(
+      { ...test.input, execution: "background" },
+      test.context,
+    );
+    expect(test.context.delegationBudget).toMatchObject({
+      childrenStarted: 7,
+      requestsReserved: 56,
+      requestsUsed: 0,
+    });
+
+    await expect(test.childManager.delegate({
+      profile: "explore_v1",
+      description: "Attempt work outside the detached reservation",
+      prompt: "Inspect one more thing.",
+    }, test.context)).rejects.toMatchObject({ code: "permission_denied" });
+
+    await test.supervisor.wait(
+      test.context.sessionId,
+      started.metadata.teamId,
+      30_000,
+      new AbortController().signal,
+    );
+    expect(test.context.delegationBudget).toMatchObject({
+      childrenStarted: 7,
+      requestsReserved: 56,
+      requestsUsed: 3,
+      reportedCostUsd: 0.03,
+    });
+    await test.supervisor.cancel(
+      test.context.sessionId,
+      started.metadata.teamId,
+      "Clean up the detached reservation test",
+    );
+  });
+
+  it("enforces one unresolved background run and records cancellation before abort", async () => {
+    const test = await harness({ permissionMode: "full_access" });
+    const input = { ...test.input, execution: "background" as const };
+    const started = await test.supervisor.startBackground(input, test.context);
+
+    await expect(test.supervisor.startBackground(input, test.context))
+      .rejects.toMatchObject({ code: "permission_denied" });
+    const cancelled = await test.supervisor.cancel(
+      test.context.sessionId,
+      started.metadata.teamId,
+      "User cancelled the background team",
+    );
+    expect(cancelled.result).toBe("requested");
+    const settled = await test.supervisor.wait(
+      test.context.sessionId,
+      started.metadata.teamId,
+      30_000,
+      new AbortController().signal,
+    );
+    expect(settled).toMatchObject({
+      timedOut: false,
+      snapshot: { status: "cancelled" },
+    });
+    const state = await test.state(started.metadata.teamId);
+    const cancelledAt = state.records.findIndex((record) =>
+      record.type === "cancel_requested"
+    );
+    const terminalAt = state.records.findIndex((record) =>
+      record.type === "run_terminal"
+    );
+    expect(cancelledAt).toBeGreaterThanOrEqual(0);
+    expect(cancelledAt).toBeLessThan(terminalAt);
+    expect(state.cancellation?.reason).toBe("User cancelled the background team");
+  });
+
+  it("terminalizes cancellation queued behind candidate publication", async () => {
+    const test = await harness({
+      permissionMode: "full_access",
+      pauseCandidateReady: true,
+    });
+    const started = await test.supervisor.startBackground(
+      { ...test.input, execution: "background" },
+      test.context,
+    );
+    await test.candidateReadyGate;
+    const cancellation = test.supervisor.cancel(
+      test.context.sessionId,
+      started.metadata.teamId,
+      "Cancel at the ready boundary",
+    );
+    await wait(0);
+    test.releaseCandidateReady();
+    await cancellation;
+
+    const settled = await test.supervisor.wait(
+      test.context.sessionId,
+      started.metadata.teamId,
+      30_000,
+      new AbortController().signal,
+    );
+    expect(settled).toMatchObject({
+      timedOut: false,
+      snapshot: { status: "cancelled" },
+    });
+    const state = await test.state(started.metadata.teamId);
+    const cancellationIndex = state.records.findIndex((record) =>
+      record.type === "cancel_requested"
+    );
+    const terminalIndex = state.records.findIndex((record) =>
+      record.type === "run_terminal"
+    );
+    expect(cancellationIndex).toBeGreaterThanOrEqual(0);
+    expect(cancellationIndex).toBeLessThan(terminalIndex);
+  });
+
+  it("resumes an unspent interrupted background run under a fresh claim", async () => {
+    const test = await harness({ permissionMode: "full_access" });
+    const input = { ...test.input, execution: "background" as const };
+    const source = await test.supervisor.startBackground(input, test.context);
+    await test.supervisor.wait(
+      test.context.sessionId,
+      source.metadata.teamId,
+      30_000,
+      new AbortController().signal,
+    );
+    await test.supervisor.cancel(
+      test.context.sessionId,
+      source.metadata.teamId,
+      "Retire the source run used to freeze a valid descriptor",
+    );
+    const interrupted = await test.seedInterruptedRun(source.metadata.teamId);
+
+    const resumed = await test.supervisor.resume(
+      test.context.sessionId,
+      interrupted.descriptor.id,
+      test.context,
+    );
+    expect(resumed).toMatchObject({
+      result: "started",
+      snapshot: { id: interrupted.descriptor.id, status: "running" },
+    });
+
+    const settled = await test.supervisor.wait(
+      test.context.sessionId,
+      interrupted.descriptor.id,
+      30_000,
+      new AbortController().signal,
+    );
+    expect(settled).toMatchObject({
+      timedOut: false,
+      snapshot: { status: "ready_to_apply" },
+    });
+    const state = await test.state(interrupted.descriptor.id);
+    expect(state.claim).toMatchObject({ claimEpoch: 2 });
+    expect(state.accounting).toMatchObject({
+      childrenReserved: 3,
+      childrenFinished: 3,
+      requestsReserved: 24,
+      requestsUsed: 3,
+      reportedCostUsd: 0.03,
+      costCoverage: "complete",
+    });
+    expect(test.parentMutationCount()).toBe(0);
+
+    await test.supervisor.cancel(
+      test.context.sessionId,
+      interrupted.descriptor.id,
+      "Clean up the resumed candidate",
+    );
+  });
+
+  it("rejects resume when prior work leaves less than the complete frozen plan", async () => {
+    const test = await harness({ permissionMode: "full_access" });
+    const input = { ...test.input, execution: "background" as const };
+    const source = await test.supervisor.startBackground(input, test.context);
+    await test.supervisor.wait(
+      test.context.sessionId,
+      source.metadata.teamId,
+      30_000,
+      new AbortController().signal,
+    );
+    await test.supervisor.cancel(
+      test.context.sessionId,
+      source.metadata.teamId,
+      "Retire the source run used to freeze a valid descriptor",
+    );
+    const interrupted = await test.seedInterruptedRun(
+      source.metadata.teamId,
+      "spent-interrupted-team",
+      true,
+    );
+
+    await expect(test.supervisor.resume(
+      test.context.sessionId,
+      interrupted.descriptor.id,
+      test.context,
+    )).rejects.toMatchObject({ code: "permission_denied" });
+    expect(await test.state(interrupted.descriptor.id)).toMatchObject({
+      status: "interrupted",
+      claim: { claimEpoch: 1 },
+      accounting: { childrenReserved: 1, requestsReserved: 8 },
+    });
+  });
+
   it("claims and reserves before concurrent delegation, then stages and applies in authoritative order", async () => {
     const test = await harness();
     const result = await test.supervisor.startForeground(test.input, test.context);

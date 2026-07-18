@@ -3,17 +3,27 @@ import {
   getAgentProfilePolicy,
   getOperatingModePolicy,
   parseOperatingModeId,
+  deriveTrustedRunContext,
   type AgentProfilePolicy,
 } from "@recurs/contracts";
 import {
   AgentActivityService,
+  TEAM_APPLY_PERMISSION,
+  createDelegationBudget,
   isPinnedSessionState,
   type AgentActivity,
-  type JsonlSessionStore,
   type SessionRecord,
+  type TeamRunSnapshot,
 } from "@recurs/core";
+import { permissionIntentKey, ToolError, type ToolContext } from "@recurs/tools";
 
-import { message, type Command } from "./types.js";
+import {
+  message,
+  type Command,
+  type CommandContext,
+  type CommandDependencies,
+  type CommandResult,
+} from "./types.js";
 
 function summary(id: Parameters<typeof getOperatingModePolicy>[0]): string {
   const policy = getOperatingModePolicy(id);
@@ -146,15 +156,84 @@ function activityDetail(activity: AgentActivity): string {
   ].join("\n");
 }
 
-export function createAgentsCommand(sessions?: JsonlSessionStore): Command {
-  const activity = sessions === undefined
+function teamCost(snapshot: TeamRunSnapshot): string {
+  if (snapshot.reportedCostUsd === null) {
+    return `Cost: unavailable (${snapshot.costCoverage} coverage)`;
+  }
+  return `Cost: $${snapshot.reportedCostUsd.toFixed(4)} (${snapshot.costCoverage} coverage)`;
+}
+
+function teamLine(snapshot: TeamRunSnapshot): string {
+  return [
+    snapshot.status,
+    snapshot.phase ?? "none",
+    `round ${snapshot.round}`,
+    `${snapshot.childrenFinished}/${snapshot.childrenReserved} children`,
+    snapshot.id,
+  ].join(" | ");
+}
+
+function teamDetail(snapshot: TeamRunSnapshot): string {
+  const usage = snapshot.usage === null
+    ? "Usage: unavailable"
+    : `Usage: ${snapshot.usage.inputTokens} input, ${snapshot.usage.outputTokens} output tokens`;
+  return [
+    `Team run: ${snapshot.id}`,
+    `Status: ${snapshot.status}`,
+    `Execution: ${snapshot.execution}`,
+    `Mode: ${snapshot.operatingModeId}`,
+    `Phase: ${snapshot.phase ?? "none"}`,
+    `Round: ${snapshot.round}`,
+    `Children: ${snapshot.childrenFinished}/${snapshot.childrenReserved} finished`,
+    usage,
+    teamCost(snapshot),
+    `Updated: ${snapshot.updatedAt}`,
+    `Manual attention: ${snapshot.manualAttentionRequired ? "required" : "no"}`,
+  ].join("\n");
+}
+
+function teamToolContext(
+  context: CommandContext,
+  signal: AbortSignal,
+  explicitlyApproved: boolean,
+): ToolContext {
+  if (!isPinnedSessionState(context.session)) {
+    throw new ToolError("tool_unavailable", "Team controls require a pinned session");
+  }
+  return {
+    sessionId: context.session.id,
+    cwd: context.session.cwd,
+    signal,
+    executionMode: context.session.executionMode,
+    readRevisions: new Map(),
+    runContext: deriveTrustedRunContext(context.invocation),
+    delegationBudget: createDelegationBudget(context.session.agent),
+    ...(explicitlyApproved
+      ? { approvedIntents: new Set([permissionIntentKey(TEAM_APPLY_PERMISSION)]) }
+      : {}),
+  };
+}
+
+function controlError(error: unknown): CommandResult {
+  if (error instanceof ToolError) {
+    return error.code === "not_found"
+      ? message("Team run not found", "error")
+      : message(oneLine(error.message), "error");
+  }
+  throw error;
+}
+
+export function createAgentsCommand(
+  dependencies: CommandDependencies = {},
+): Command {
+  const activity = dependencies.sessions === undefined
     ? null
-    : new AgentActivityService(sessions);
+    : new AgentActivityService(dependencies.sessions);
   return {
     name: "agents",
     aliases: ["agent"],
-    description: "Inspect or change the bounded child-agent operating mode",
-    usage: "/agents [profiles|activity [exact-id]|mode economy|standard|balanced|performance|max]",
+    description: "Inspect child-agent modes, activity, and durable team runs",
+    usage: "/agents [profiles|activity [exact-id]|teams|team <id>|wait <id>|cancel <id>|resume <id>|apply <id>|mode economy|standard|balanced|performance|max]",
     async execute(args, context) {
       const trimmed = args.trim();
       if (trimmed.toLowerCase() === "profiles") {
@@ -162,6 +241,91 @@ export function createAgentsCommand(sessions?: JsonlSessionStore): Command {
       }
       if (!isPinnedSessionState(context.session)) {
         return message("Agent modes become available after a model connection creates a session", "warning");
+      }
+      const teamMatch = /^(teams|team|wait|cancel|resume|apply)(?:\s+(\S+))?$/iu
+        .exec(trimmed);
+      if (teamMatch !== null) {
+        const controls = dependencies.teamRuns;
+        if (controls === undefined) {
+          return message("Durable team controls are unavailable", "error");
+        }
+        const action = teamMatch[1]!.toLowerCase();
+        const exactId = teamMatch[2];
+        if ((action === "teams") !== (exactId === undefined)) {
+          return message(
+            action === "teams"
+              ? "Use /agents teams without an ID"
+              : `Use /agents ${action} <exact-id>`,
+            "error",
+          );
+        }
+        try {
+          if (action === "teams") {
+            const runs = await controls.list(context.session.id);
+            return runs.length === 0
+              ? message("No durable team runs belong to this session")
+              : message([
+                  `${runs.length} durable team run${runs.length === 1 ? "" : "s"}:`,
+                  ...runs.map(teamLine),
+                ].join("\n"));
+          }
+          const id = exactId!;
+          if (action === "team") {
+            return message(teamDetail(await controls.status(context.session.id, id)));
+          }
+          if (action === "wait") {
+            const waited = await controls.wait(
+              context.session.id,
+              id,
+              30_000,
+              dependencies.signal?.() ?? new AbortController().signal,
+            );
+            return message([
+              teamDetail(waited.snapshot),
+              `Timed out: ${waited.timedOut ? "yes" : "no"}`,
+            ].join("\n"));
+          }
+          if (action === "cancel") {
+            const cancelled = await controls.cancel(
+              context.session.id,
+              id,
+              "Cancelled from the Recurs CLI",
+            );
+            return message([
+              `Cancellation: ${cancelled.result}`,
+              teamDetail(cancelled.snapshot),
+            ].join("\n"));
+          }
+          const signal = dependencies.signal?.() ?? new AbortController().signal;
+          if (action === "resume") {
+            if (context.session.permissionMode !== "full_access") {
+              return message("Resuming a background team requires Full Access", "error");
+            }
+            const resumed = await controls.resume(
+              context.session.id,
+              id,
+              teamToolContext(context, signal, false),
+            );
+            return message([
+              `Resume: ${resumed.result}`,
+              teamDetail(resumed.snapshot),
+            ].join("\n"));
+          }
+          const explicitlyApproved = context.session.permissionMode !== "full_access";
+          if (explicitlyApproved && !await context.confirm(
+            `Apply reviewed team candidate ${oneLine(id)} to the current workspace?`,
+          )) {
+            return message("Team apply was not approved", "warning");
+          }
+          const applied = await controls.apply(
+            context.session.id,
+            id,
+            teamToolContext(context, signal, explicitlyApproved),
+          );
+          return message(applied.output);
+        } catch (error) {
+          return controlError(error);
+        }
       }
       const activityMatch = /^activity(?:\s+(\S+))?$/iu.exec(trimmed);
       if (activityMatch !== null) {
@@ -184,7 +348,7 @@ export function createAgentsCommand(sessions?: JsonlSessionStore): Command {
       const id = match?.[1] === undefined ? null : parseOperatingModeId(match[1]);
       if (id === null) {
         return message(
-          "Choose /agents mode economy, standard, balanced, performance, or max; use /agents profiles; or use /agents activity",
+          "Choose /agents mode economy, standard, balanced, performance, or max; use /agents profiles, /agents activity, or /agents teams",
           "error",
         );
       }

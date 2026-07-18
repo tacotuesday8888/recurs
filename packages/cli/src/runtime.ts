@@ -171,9 +171,10 @@ export class RecursRuntime {
     return true;
   }
 
-  #commandContext(): CommandContext {
+  #commandContext(invocation: HostInvocation): CommandContext {
     const context: CommandContext = {
       session: this.session,
+      invocation,
       now: () => this.dependencies.now?.() ?? new Date().toISOString(),
       confirm: (message) => this.confirm(message),
       cancelActiveRun: async () => this.cancel(),
@@ -189,7 +190,7 @@ export class RecursRuntime {
     return context;
   }
 
-  #workspaceContext(): CommandContext {
+  #workspaceContext(invocation: HostInvocation): CommandContext {
     const workspace = this.#workspace;
     if (workspace === null) {
       throw new RuntimeError("invalid_input", "Workspace shell is unavailable");
@@ -202,6 +203,7 @@ export class RecursRuntime {
     });
     const context: CommandContext = {
       session: transient,
+      invocation,
       now: () => this.dependencies.now?.() ?? new Date().toISOString(),
       confirm: (message) => this.confirm(message),
       cancelActiveRun: async () => this.cancel(),
@@ -219,6 +221,7 @@ export class RecursRuntime {
   async #submitWorkspaceCommand(
     name: string,
     args: string,
+    invocation: HostInvocation,
   ): Promise<CommandResult> {
     const workspace = this.#workspace;
     if (workspace === null) {
@@ -313,7 +316,7 @@ export class RecursRuntime {
         text: `/${name} requires an active model session`,
       };
     }
-    const context = this.#workspaceContext();
+    const context = this.#workspaceContext(invocation);
     const result = await this.dependencies.commands.execute(
       { name, args },
       context,
@@ -374,7 +377,7 @@ export class RecursRuntime {
     const parsed = parseCommand(trimmed);
     if (parsed !== null) {
       if (this.#workspace !== null) {
-        return this.#submitWorkspaceCommand(parsed.name, parsed.args);
+        return this.#submitWorkspaceCommand(parsed.name, parsed.args, invocation);
       }
       if (
         this.#activeController !== null &&
@@ -405,7 +408,7 @@ export class RecursRuntime {
       if (ownsController) {
         this.#activeController = new AbortController();
       }
-      const context = this.#commandContext();
+      const context = this.#commandContext(invocation);
       let result: CommandResult;
       try {
         result = await this.dependencies.commands.execute(parsed, context);
