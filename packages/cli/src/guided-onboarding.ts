@@ -20,6 +20,11 @@ import type {
   AccountSummary,
   ProviderSummary,
 } from "./provider-account.js";
+import {
+  isValidProjectBriefText,
+  type ProjectBriefInput,
+  type ProjectInstructionDocument,
+} from "./project-instructions.js";
 import { writeOutput } from "./render.js";
 
 export interface GuidedChoice {
@@ -273,6 +278,10 @@ export interface GuidedOnboardingPorts {
     credentialEnvironmentVariable: string,
     signal?: AbortSignal,
   ): Promise<readonly EnvironmentModelDescriptor[]>;
+  inspectProjectInstructions?(): Promise<readonly ProjectInstructionDocument[]>;
+  createProjectInstructions?(
+    input: ProjectBriefInput,
+  ): Promise<"created" | "exists">;
   executeCommand(argv: readonly string[]): Promise<number>;
 }
 
@@ -611,6 +620,93 @@ async function configureTeamRoutes(
   return true;
 }
 
+async function setupProjectContext(
+  ports: GuidedOnboardingPorts,
+): Promise<void> {
+  if (ports.inspectProjectInstructions === undefined) {
+    await writeOutput(
+      ports.stdout,
+      "Project context: run /init later to create AGENTS.md instructions.\n",
+    );
+    return;
+  }
+  const existing = await ports.inspectProjectInstructions();
+  if (existing.length > 0) {
+    await writeOutput(
+      ports.stdout,
+      `Project context: ${existing.map((document) => document.source).join(" → ")} will load at the start of every agent turn.\n`,
+    );
+    return;
+  }
+  if (ports.createProjectInstructions === undefined || ports.confirm === undefined) {
+    await writeOutput(
+      ports.stdout,
+      "Project context: no AGENTS.md found; run /init later to create one.\n",
+    );
+    return;
+  }
+  const action = await ports.selectChoice(
+    "Give the new agent team project context",
+    Object.freeze([
+      Object.freeze({
+        id: "create",
+        label: "Create a project brief (recommended)",
+        detail: "write a confirmed AGENTS.md without overwriting existing files",
+      }),
+      Object.freeze({
+        id: "skip",
+        label: "Skip for now",
+        detail: "use /init or write AGENTS.md later",
+      }),
+    ]),
+  );
+  if (action !== "create") return;
+  const purpose = (await ports.promptText(
+    "Describe what this project is building in one or two sentences",
+  ))?.trim() ?? "";
+  if (!isValidProjectBriefText(purpose)) {
+    await writeOutput(
+      ports.stdout,
+      "Project brief skipped because no valid project description was entered.\n",
+    );
+    return;
+  }
+  const rawNotes = (await ports.promptText(
+    "Add important build, test, architecture, or safety notes (optional)",
+  ))?.trim() ?? "";
+  const notes = rawNotes.length === 0
+    ? undefined
+    : isValidProjectBriefText(rawNotes)
+      ? rawNotes
+      : null;
+  if (notes === null) {
+    await writeOutput(
+      ports.stdout,
+      "Project brief skipped because the project notes were not valid text of at most 2000 characters.\n",
+    );
+    return;
+  }
+  const confirmed = await ports.confirm([
+    "Create AGENTS.md with this project context? Recurs will never overwrite an existing project-instruction file.",
+    `Project: ${purpose}`,
+    ...(notes === undefined ? [] : [`Working agreements: ${notes}`]),
+  ].join("\n"));
+  if (!confirmed) {
+    await writeOutput(ports.stdout, "Project brief was not created.\n");
+    return;
+  }
+  const result = await ports.createProjectInstructions({
+    purpose,
+    ...(notes === undefined ? {} : { notes }),
+  });
+  await writeOutput(
+    ports.stdout,
+    result === "created"
+      ? "Project context: created AGENTS.md; it will load at the start of every agent turn.\n"
+      : "Project context appeared concurrently; Recurs did not overwrite it.\n",
+  );
+}
+
 export async function runGuidedOnboarding(
   ports: GuidedOnboardingPorts,
 ): Promise<GuidedOnboardingOutcome> {
@@ -645,7 +741,7 @@ export async function runGuidedOnboarding(
     );
     return { state: "skipped" };
   }
-  await writeOutput(ports.stdout, "1 / 4 · Parent model\n");
+  await writeOutput(ports.stdout, "1 / 5 · Parent model\n");
   const selectedId = await ports.selectChoice(
     "Choose how Recurs should access a model",
     choices,
@@ -670,11 +766,11 @@ export async function runGuidedOnboarding(
   if (connectionExit !== 0) {
     return { state: "failed", exitCode: connectionExit };
   }
-  await writeOutput(ports.stdout, "\n2 / 4 · Safety boundary\n");
+  await writeOutput(ports.stdout, "\n2 / 5 · Safety boundary\n");
   const permissionMode = await selectPermission(ports);
-  await writeOutput(ports.stdout, "\n3 / 4 · Team operating mode\n");
+  await writeOutput(ports.stdout, "\n3 / 5 · Team operating mode\n");
   const operatingModeId = await selectOperatingMode(ports);
-  await writeOutput(ports.stdout, "\n4 / 4 · Specialist routing\n");
+  await writeOutput(ports.stdout, "\n4 / 5 · Specialist routing\n");
   const accountsAfterConnection = await ports.listAccounts?.() ?? [];
   const routed = await configureTeamRoutes(
     accountsAfterConnection,
@@ -682,6 +778,8 @@ export async function runGuidedOnboarding(
     ports,
   );
   if (!routed) return { state: "failed", exitCode: 2 };
+  await writeOutput(ports.stdout, "\n5 / 5 · Project context\n");
+  await setupProjectContext(ports);
   const accountsAfterRouting = await ports.listAccounts?.() ?? accountsAfterConnection;
   const primary = accountsAfterRouting.find((account) => account.primary);
   const operatingMode = getOperatingModePolicy(operatingModeId);

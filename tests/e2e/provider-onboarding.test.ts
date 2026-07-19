@@ -168,6 +168,7 @@ describe("provider onboarding end to end", () => {
       "anthropic/claude-test",
       "approved_for_me",
       "balanced_v5",
+      "create",
     ];
     let createdRuntime: Awaited<ReturnType<typeof createStandaloneRuntime>> | undefined;
 
@@ -204,8 +205,11 @@ describe("provider onboarding end to end", () => {
         expect(choices.some((choice) => choice.id === selected)).toBe(true);
         return selected;
       },
-      async promptText(_message, suggestion) {
-        return suggestion ?? null;
+      async promptText(message, suggestion) {
+        if (suggestion !== undefined) return suggestion;
+        return message.startsWith("Describe what this project")
+          ? "Build the Recurs provider onboarding path."
+          : "Keep credentials out of project files.";
       },
       async confirm() { return true; },
       setupEnvironment: (input) => setupEnvironmentConnection(
@@ -240,6 +244,8 @@ describe("provider onboarding end to end", () => {
       path.join(dataDirectory, "config", "connections.json"),
       "utf8",
     )).not.toContain(key);
+    expect(await readFile(path.join(project, "AGENTS.md"), "utf8"))
+      .toContain("Build the Recurs provider onboarding path.");
   });
 
   it("configures, selects, and runs a saved public BYOK provider without persisting its key", async () => {

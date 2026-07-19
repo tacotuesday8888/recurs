@@ -87,7 +87,9 @@ export interface AgentLoopDependencies {
     context?: TrustedRunContext,
   ): ToolContext;
   authorization?: RunAuthorization;
-  contextInstructions?(state: SessionState): readonly string[];
+  contextInstructions?(
+    state: SessionState,
+  ): readonly string[] | Promise<readonly string[]>;
 }
 
 export type AgentLoopErrorCode =
@@ -861,6 +863,9 @@ async function runAgentLoopUnlocked(
   await emitPersistedEvent(deps, turnStarted);
 
   try {
+    const contextInstructions = await deps.contextInstructions?.(
+      executionState(),
+    ) ?? [];
     for (;;) {
       throwIfAborted(signal);
       if (steps >= maxSteps) {
@@ -879,7 +884,7 @@ async function runAgentLoopUnlocked(
             turnId,
             steps,
             deps.provider.harnessProfile,
-            deps.contextInstructions?.(executionState()) ?? [],
+            contextInstructions,
           ),
           ...state.messages,
         ],

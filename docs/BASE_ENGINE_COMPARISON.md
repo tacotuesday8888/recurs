@@ -12,6 +12,8 @@ Parallel scheduling was rechecked on 2026-07-19 against current [Codex](https://
 
 MCP lifecycle was rechecked on 2026-07-19 against current [Codex](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/core/src/session/mcp.rs), which retains a session-owned manager when the effective server projection is unchanged, current [Gemini CLI](https://github.com/google-gemini/gemini-cli/blob/acae7124bdd849e554eaa5e090199a0cf08cd782/packages/core/src/tools/mcp-client.ts), which keeps successful server connections and exposes their state, and the [MCP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle), which defines initialization, per-request timeout/cancellation, ping, and transport shutdown responsibilities.
 
+Project instructions were rechecked on 2026-07-19 against current [Codex](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/core/src/agents_md.rs), which discovers `AGENTS.md` from the nearest configured project root through the cwd, prefers an override filename, and applies one aggregate byte budget. Recurs adopts the hierarchy and bounded turn context but rejects symlinks, invalid UTF-8, mid-read changes, and over-limit aggregates instead of following or truncating them.
+
 Kilo's CLI is a fork of OpenCode, as Kilo states in its [README](https://github.com/Kilo-Org/kilocode/blob/8324cf7ddc6539993f7d1743175716ae2705d195/README.md). They are therefore one engine lineage for this comparison; Kilo-specific guards are considered separately.
 
 ## What the mature engines establish
@@ -31,7 +33,7 @@ Kilo's CLI is a fork of OpenCode, as Kilo states in its [README](https://github.
 
 ## Recurs base assessment
 
-The current code is a real harness, not a placeholder. Beyond the original provider-neutral loop, tools, permissions, Plan mode, goals, sessions, compaction, checkpoints, structured output, cancellation, and loop guards, it now has reviewed provider onboarding, immutable backend pins, direct/delegated coordination, ACP/MCP/skills interoperability, owned child and durable team execution, and fail-closed macOS/Linux tool containment.
+The current code is a real harness, not a placeholder. Beyond the original provider-neutral loop, tools, permissions, Plan mode, goals, sessions, compaction, checkpoints, structured output, cancellation, and loop guards, it now has reviewed provider onboarding, immutable backend pins, bounded root-to-cwd project instructions, direct/delegated coordination, ACP/MCP/skills interoperability, owned child and durable team execution, and fail-closed macOS/Linux tool containment.
 
 Its useful difference is size. Recurs can keep the single-agent engine understandable while placing future complexity in provider adapters and the sub-agent orchestration layer.
 

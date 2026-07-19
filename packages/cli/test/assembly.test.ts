@@ -1448,15 +1448,22 @@ describe("standalone assembly without a provider", () => {
     });
   });
 
-  it("registers single and batch delegation through the assembled provider runtime", async () => {
+  it("assembles tools and reloads project instructions once per new turn", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-agent-tools-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
     await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
-    const provider = new ScriptedProvider([[
-      { type: "text_delta", text: "ready" },
-      { type: "done", stopReason: "complete" },
-    ]]);
+    await writeFile(path.join(workspace, "AGENTS.md"), "first project policy\n");
+    const provider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: "ready" },
+        { type: "done", stopReason: "complete" },
+      ],
+      [
+        { type: "text_delta", text: "updated" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
     const runtime = await createStandaloneRuntime(
       { async emit() {} },
       {
@@ -1488,6 +1495,16 @@ describe("standalone assembly without a provider", () => {
       "resume_team",
       "apply_team",
     ]);
+    expect(JSON.stringify(provider.requests[0]?.messages))
+      .toContain("first project policy");
+
+    await writeFile(path.join(workspace, "AGENTS.md"), "second project policy\n");
+    await expect(runtime.submit("inspect the updated context")).resolves
+      .toMatchObject({ finalText: "updated" });
+    expect(JSON.stringify(provider.requests[1]?.messages))
+      .toContain("second project policy");
+    expect(JSON.stringify(provider.requests[1]?.messages))
+      .not.toContain("first project policy");
   });
 
   it("routes exact v4 team calls through the assembled durable supervisor", async () => {

@@ -51,9 +51,12 @@ Run `recurs setup`, or launch `recurs` with no configured connection. The same l
 3. executes the existing provider-specific credential and billing disclosure—generic onboarding never asks for a key value;
 4. selects Ask Always, Approved for Me, or Full Access;
 5. selects a current versioned Economy, Standard, Balanced, Performance, or Max operating mode; Balanced is recommended; and
-6. when another eligible saved Act + Plan connection exists, optionally assigns Implement, Review, and Repair specialist candidates before creating a fresh durable session and entering the ordinary REPL.
+6. when another eligible saved Act + Plan connection exists, optionally assigns Implement, Review, and Repair specialist candidates; and
+7. reports existing project instructions or offers to create a concise user-confirmed `AGENTS.md` brief without overwriting any existing instruction file, then creates a fresh durable session and enters the ordinary REPL.
 
 Approved for Me is the recommended interactive preset. Full Access still requires a separate warning and confirmation. Cancelling that confirmation safely falls back to Ask Always. The selected permission and operating mode are stored in the new session rather than mutable global preferences; existing sessions keep their recorded boundaries. Role customization never changes the parent connection, excludes Plan-only delegated runtimes and billing classes ineligible for the chosen mode, and uses the existing confirmation-gated `account route` command for every changed role. Keeping current routing is the default. With no eligible secondary connection, every role honestly inherits the parent. Skipping connection setup leaves the sessionless `/provider` workspace available.
+
+At the start of each direct-model turn, Recurs discovers one `AGENTS.override.md` or `AGENTS.md` per directory from the nearest `.git` project root through the session cwd, preferring the override at each level. Without a project marker it reads only the cwd. The root-to-cwd contents are snapshotted once for the complete turn and supplied to parent and child agents; a later turn sees confirmed edits or a newly created `/init` file. The aggregate is limited to 32 KiB. Symlinks, non-regular files, invalid UTF-8, mid-read changes, and over-limit instruction sets fail closed rather than becoming partial model policy. These files never grant tools, permissions, credentials, or higher delegation limits.
 
 For a catalog with many models, the guide asks for a search first and then shows at most 30 exact matches. Public catalog metadata helps selection but does not activate an unreviewed provider, supply credentials, or override Recurs's manifest and billing policy. OpenAI, Anthropic, OpenRouter, DeepSeek, and MiniMax instead use the named environment credential against their exact reviewed model-list endpoint and do not silently fall back to public metadata when authentication or transport fails.
 
@@ -433,7 +436,7 @@ A daemon that outlives the CLI, recursive depth, automatic task decomposition, t
 | `/skills [enable-project\|disable-project]` | List Agent Skills or change process-lifetime trust for repository skills. |
 | `/mcp [list\|trust-project\|untrust-project]` | List stdio MCP servers and live state, or manage exact digest-bound project trust. |
 | `/status` | Show session, workspace, model identifier, modes, goal, usage, and pending tools. |
-| `/init` | Confirm and create a starter `AGENTS.md`; never overwrite an existing path. |
+| `/init` | Confirm and create a starter `AGENTS.md`; never overwrite existing `AGENTS.md` or `AGENTS.override.md`. The next turn loads it. |
 | `/new` | Start a new durable session in the same workspace. |
 | `/resume [id]` | List sessions newest-first or resume one exact ID. Prefix matching is not used. |
 | `/compact` | Ask a direct provider for a continuation summary and retain roughly the latest six messages without splitting tool-call/result groups. Delegated Codex sessions reject this because the vendor runtime owns its transcript. |
