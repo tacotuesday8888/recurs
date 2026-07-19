@@ -5,7 +5,7 @@ import Testing
 
 @testable import RecursLauncher
 
-@Suite("Launcher process signal coordinator")
+@Suite("Launcher process signal coordinator", .serialized)
 struct LauncherProcessSignalCoordinatorTests {
   @Test(arguments: [SIGINT, SIGTERM, SIGHUP, SIGQUIT])
   func terminationSignalsRequestOneBoundedChildShutdown(signal: Int32) async {

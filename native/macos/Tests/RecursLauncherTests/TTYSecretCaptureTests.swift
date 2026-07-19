@@ -4,7 +4,7 @@ import Testing
 
 @testable import RecursLauncher
 
-@Suite("TTY secret capture")
+@Suite("TTY secret capture", .serialized)
 struct TTYSecretCaptureTests {
   @Test
   func requiresAnExplicitUserPresentNonAutomatedTerminal() throws {
