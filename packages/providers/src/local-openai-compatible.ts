@@ -407,6 +407,7 @@ function reviewedChatEndpoint(providerId: string): string {
   );
   if (
     manifest === null ||
+    manifest.protocol !== "openai_chat" ||
     endpoint === undefined ||
     !endpoint.value.startsWith("https://")
   ) {

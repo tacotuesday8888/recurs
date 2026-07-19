@@ -52,7 +52,7 @@ afterEach(async () => {
 });
 
 describe("saved environment BYOK connections", () => {
-  it("advertises reviewed Chat and Anthropic Messages paths as BYOK without widening blocked providers", () => {
+  it("advertises reviewed Responses, Chat, and Messages paths as BYOK without widening blocked providers", () => {
     const entries = new OnboardingCatalog(undefined, {
       now: () => new Date(AT),
     }).list({ includeBlocked: true });
@@ -73,7 +73,39 @@ describe("saved environment BYOK connections", () => {
         connectionOwner: "process_environment",
       });
     expect(entries.find((entry) => entry.id === "openai-api"))
-      .toMatchObject({ status: "requires_native_broker" });
+      .toMatchObject({
+        status: "runnable_byok",
+        protocol: "openai_responses",
+        connectionOwner: "process_environment",
+      });
+  });
+
+  it("persists only a Responses binding after verified OpenAI model discovery", async () => {
+    const directory = await root();
+    const key = "openai-private-value";
+    const configured = await setupEnvironmentConnection(directory, {
+      providerId: "openai-api",
+      modelId: "gpt-5.6-terra",
+      credentialEnvironmentVariable: "OPENAI_API_KEY",
+      billingSelection: "strict_primary_only",
+      environment: { OPENAI_API_KEY: key },
+      now: AT,
+    }, {
+      fetch: async () => openAIModels("unrelated-model", "gpt-5.6-terra"),
+    });
+
+    const storedText = await readFile(connectionRegistryPath(directory), "utf8");
+    expect(storedText).not.toContain(key);
+    expect((await new FileConnectionRegistry(directory).read()).connections)
+      .toEqual([
+        expect.objectContaining({
+          id: configured.id,
+          kind: "environment_model_provider",
+          providerId: "openai-api",
+          adapterId: "openai-responses",
+          modelId: "gpt-5.6-terra",
+        }),
+      ]);
   });
 
   it("stores only an environment reference and fingerprint, then runs through account lifecycle", async () => {

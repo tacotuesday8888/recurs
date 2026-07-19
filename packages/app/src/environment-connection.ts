@@ -22,9 +22,17 @@ import type {
   EnvironmentModelProviderConnectionRecord,
 } from "./connection-registry-model.js";
 import { OnboardingCatalog } from "./onboarding-catalog.js";
+import { compatibleOpenAIResponsesModelIds } from "./openai-model-capabilities.js";
 
 const ENVIRONMENT_VARIABLE = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/u;
+
+function isEnvironmentAdapterId(
+  value: string,
+): value is EnvironmentModelProviderConnectionRecord["adapterId"] {
+  return value === "openai-responses" || value === "anthropic-messages" ||
+    value === "openai-chat-completions";
+}
 
 export class EnvironmentConnectionError extends Error {
   constructor(
@@ -187,12 +195,17 @@ export async function discoverEnvironmentConnectionModels(
     );
   }
   try {
-    return await listEnvironmentProviderModels({
+    const models = await listEnvironmentProviderModels({
       providerId: input.providerId,
       apiKey,
       ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch }),
       ...(dependencies.signal === undefined ? {} : { signal: dependencies.signal }),
     });
+    if (input.providerId !== "openai-api") return models;
+    const compatible = new Set(
+      compatibleOpenAIResponsesModelIds(models.map((model) => model.id)),
+    );
+    return Object.freeze(models.filter((model) => compatible.has(model.id)));
   } catch (error) {
     throw modelDiscoveryFailure(error);
   }
@@ -246,6 +259,12 @@ export async function setupEnvironmentConnection(
       { cause: error },
     );
   }
+  if (!isEnvironmentAdapterId(bound.provider.adapterId)) {
+    throw new EnvironmentConnectionError(
+      "configuration_invalid",
+      "BYOK provider adapter is invalid",
+    );
+  }
   if (hasEnvironmentProviderModelDiscovery(input.providerId)) {
     const models = await discoverEnvironmentConnectionModels({
       providerId: input.providerId,
@@ -288,9 +307,7 @@ export async function setupEnvironmentConnection(
         kind: "environment_model_provider",
         id: previous?.id ?? proposedId,
         providerId: input.providerId,
-        adapterId: bound.provider.adapterId === "anthropic-messages"
-          ? "anthropic-messages"
-          : "openai-chat-completions",
+        adapterId: bound.provider.adapterId,
         label: `${entry.displayName} BYOK`,
         modelId: input.modelId,
         credentialEnvironmentVariable: input.credentialEnvironmentVariable,

@@ -348,8 +348,8 @@ describe("provider onboarding end to end", () => {
       }),
       expect.objectContaining({
         id: "openai-api",
-        status: "requires_native_broker",
-        connectionOwner: "recurs_broker",
+        status: "runnable_byok",
+        connectionOwner: "process_environment",
       }),
       expect.objectContaining({
         id: "openrouter-api",

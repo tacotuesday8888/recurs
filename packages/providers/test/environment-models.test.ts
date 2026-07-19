@@ -89,6 +89,7 @@ describe("environment provider model discovery", () => {
   });
 
   it.each([
+    ["openai-api", "https://api.openai.com/v1/models"],
     ["openrouter-api", "https://openrouter.ai/api/v1/models"],
     ["deepseek-api", "https://api.deepseek.com/models"],
     ["minimax-api", "https://api.minimax.io/v1/models"],

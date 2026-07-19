@@ -4,12 +4,14 @@ import { BUNDLED_PROVIDER_MANIFESTS } from "./bundled-manifests.js";
 
 export type EnvironmentByokAdapterId =
   | "anthropic-messages"
-  | "openai-chat-completions";
+  | "openai-chat-completions"
+  | "openai-responses";
 
 export function environmentByokAdapterId(
   manifest: ProviderManifest,
 ): EnvironmentByokAdapterId | null {
   if (manifest.protocol === "openai_chat") return "openai-chat-completions";
+  if (manifest.protocol === "openai_responses") return "openai-responses";
   if (manifest.protocol === "anthropic_messages") return "anthropic-messages";
   return null;
 }
@@ -22,6 +24,9 @@ export function isEnvironmentByokManifest(
     (endpoint) => endpoint.kind === "origin" &&
       (adapterId === "openai-chat-completions"
         ? endpoint.value.startsWith("https://")
+        : adapterId === "openai-responses"
+        ? manifest.id === "openai-api" &&
+          endpoint.value === "https://api.openai.com/v1"
         : manifest.id === "anthropic-api" &&
           endpoint.value === "https://api.anthropic.com/v1"),
   );
