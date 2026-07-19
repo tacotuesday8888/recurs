@@ -945,8 +945,8 @@ struct LauncherNodeSessionTests {
   }
 
   @Test
-  func cancellingActiveHandshakeBeforeItRunsCancelsBrokerTask() async throws {
-    let system = ScriptedSessionBrokerConnection()
+  func cancellingHandshakeAtPreExchangeBoundaryCancelsBrokerTask() async throws {
+    let system = ScriptedSessionBrokerConnection(deferHelloUntilInvalidation: true)
     let factory = try makeBrokerFactory(system)
     let output = RecordingSessionOutput()
     let session = LauncherNodeSession(
@@ -956,16 +956,18 @@ struct LauncherNodeSessionTests {
       output: output
     )
 
+    await session.receive(try helloFrame(requestID: 1))
+    await eventually("handshake reaches the pre-exchange boundary") {
+      system.deferredHelloCount == 1
+    }
     await session.receive(
-      concatenate([
-        try helloFrame(requestID: 1),
-        try CancelMessage(targetRequestID: 1).encodedFrame(requestID: 2),
-      ]))
+      try CancelMessage(targetRequestID: 1).encodedFrame(requestID: 2)
+    )
     await eventually("handshake cancellation closes") {
       await output.snapshot().closeCount == 1
     }
-    await Task.yield()
 
+    #expect(system.deferredHelloCount == 0)
     #expect(system.exchangeFrames.isEmpty)
     #expect((await output.snapshot()).written.isEmpty)
     #expect((await output.snapshot()).closeCount == 1)
@@ -1346,10 +1348,18 @@ private final class ScriptedSessionBrokerConnection: BrokerXPCConnectionHandling
   }
 
   private let lock = NSLock()
+  private let deferHelloUntilInvalidation: Bool
   private var frames: [NativeFrame] = []
   private var pending: [Pending] = []
+  private var deferredHelloReplies:
+    [@Sendable (Result<Data, BrokerXPCExchangeError>) -> Void] = []
   private var onboardingSecrets: [[UInt8]] = []
   private var invalidations = 0
+  private var invalidated = false
+
+  init(deferHelloUntilInvalidation: Bool = false) {
+    self.deferHelloUntilInvalidation = deferHelloUntilInvalidation
+  }
 
   let onboardingConnectionID = UUID(
     uuidString: "7b000000-0000-4000-8000-000000000001"
@@ -1372,6 +1382,10 @@ private final class ScriptedSessionBrokerConnection: BrokerXPCConnectionHandling
     lock.withLock { pending.filter { $0.frame.type == .health }.count }
   }
 
+  var deferredHelloCount: Int {
+    lock.withLock { deferredHelloReplies.count }
+  }
+
   var invalidationCount: Int {
     lock.withLock { invalidations }
   }
@@ -1390,6 +1404,16 @@ private final class ScriptedSessionBrokerConnection: BrokerXPCConnectionHandling
   ) {
     do {
       let frame = try decodeSingleFrame(encoded)
+      if frame.type == .hello, deferHelloUntilInvalidation {
+        _ = try HelloMessage.decode(frame)
+        let reject = lock.withLock { () -> Bool in
+          guard !invalidated else { return true }
+          deferredHelloReplies.append(reply)
+          return false
+        }
+        if reject { reply(.failure(.brokerUnavailable)) }
+        return
+      }
       lock.withLock { frames.append(frame) }
       switch frame.type {
       case .hello:
@@ -1563,7 +1587,14 @@ private final class ScriptedSessionBrokerConnection: BrokerXPCConnectionHandling
   }
 
   func invalidate() {
-    lock.withLock { invalidations += 1 }
+    let replies = lock.withLock {
+      invalidations += 1
+      invalidated = true
+      let selected = deferredHelloReplies
+      deferredHelloReplies.removeAll(keepingCapacity: false)
+      return selected
+    }
+    for reply in replies { reply(.failure(.brokerUnavailable)) }
   }
 
   func replyNextHealth(
