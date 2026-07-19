@@ -215,7 +215,11 @@ describe("GitPatchArtifactManager", () => {
       message: "Team implementation requires a clean Git working tree",
     });
     await rm(path.join(setup.repository, "untracked.txt"));
-    await git(setup.repository, ["commit", "--allow-empty", "-m", "drift"]);
+    await git(setup.repository, [
+      "-c", "user.name=Recurs Tests",
+      "-c", "user.email=tests@recurs.invalid",
+      "commit", "--allow-empty", "-m", "drift",
+    ]);
     await expect(setup.artifacts.capture(
       setup.lease,
       new AbortController().signal,

@@ -235,7 +235,11 @@ describe("native authority client", () => {
     try {
       const client = await connectNativeAuthorityClient(
         inheritedPipe,
-        connectOptions,
+        {
+          ...connectOptions,
+          handshakeTimeoutMilliseconds: 2_000,
+          requestTimeoutMilliseconds: 2_000,
+        },
       );
       await expect(client.status()).resolves.toMatchObject({
         state: "ready",

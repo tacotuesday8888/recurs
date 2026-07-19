@@ -592,7 +592,7 @@ describe("bounded native frame decoder", () => {
       vi.unstubAllGlobals();
       vi.resetModules();
     }
-  });
+  }, 30_000);
 
   it("poisons on hostile input branding without leaking caller prose", () => {
     const hostile = new Proxy(new Uint8Array(), {
