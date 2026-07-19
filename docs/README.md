@@ -14,6 +14,7 @@ Reviewed specifications and implementation plans:
 - [Core v0 design](superpowers/specs/2026-07-10-recurs-core-v0-design.md) — implemented single-agent foundation.
 - [Provider, authentication, and onboarding design](superpowers/specs/2026-07-10-recurs-provider-auth-design.md) — reviewed umbrella design; contracts, the 25-path catalog, non-secret registry, local setup, official Codex delegated path, and private native OpenAI/Anthropic/Kimi direct-provider verticals are implemented. Credential-bearing setup remains production-signed-macOS-only and is not yet distributed.
 - [Saved public BYOK design](superpowers/specs/2026-07-19-saved-public-byok-design.md) — reviewed fixed-origin OpenAI Chat providers, environment-reference setup, non-secret persistence, billing acknowledgement, immutable pins, and fail-closed runtime binding.
+- [npm release-readiness design](superpowers/specs/2026-07-19-npm-release-readiness-design.md) — single-file Recurs bundle, exact runtime dependencies, minimal tarball allowlist, empty-prefix install smoke, and the deliberate license/version publication gate.
 - [Provider Activation v1 design](superpowers/specs/2026-07-13-provider-activation-v1-design.md), [native-authority foundation plan](superpowers/plans/2026-07-13-native-provider-authority.md), and [native provider-binding plan](superpowers/plans/2026-07-13-native-provider-binding.md) — approved CLI-only architecture and implemented Keychain/recovery, exact-peer, lifecycle XPC, route-reservation, model-catalog, strict streaming, onboarding, and runtime assembly for OpenAI API, Anthropic API, and Kimi Code. The explicit public-HTTPS custom profile and installed-artifact production smoke remain outstanding.
 - [Broker credential-state contract](superpowers/specs/2026-07-13-broker-credential-state-contract.md) and [broker journal contract](superpowers/specs/2026-07-13-broker-journal-contract.md) — reviewed native generation, fencing, reservation, crash-journal, recovery, and authoritative-projection invariants.
 - [Provider authentication matrix design](superpowers/specs/2026-07-11-provider-auth-matrix-design.md) and [implementation plan](superpowers/plans/2026-07-11-provider-auth-matrix.md) — exact catalog and first delegated-runtime slice.
@@ -27,8 +28,8 @@ Reviewed specifications and implementation plans:
 
 ## Release status
 
-Recurs is currently source-installable with npm and runs on Node.js; no npm package, Bun runtime, Homebrew formula, curl installer, or signed binary has been published. npm is the likely first preview channel. Bun may later install the npm package while Node remains the runtime; Homebrew and curl wait for versioned signed artifacts.
+Recurs is currently source-installable with npm and runs on Node.js. The repository builds and verifies a minimal npm artifact and installs it into an empty temporary prefix in CI, but no npm package, Bun runtime, Homebrew formula, curl installer, or signed binary has been published. npm remains the likely first preview channel. Bun may later install the npm package while Node remains the runtime; Homebrew and curl wait for versioned signed artifacts.
 
-The repository is intended to become open source but has no license yet. It must be described as source-available, not legally open source, until the owner selects and adds a license.
+The repository is intended to become open source but has no license yet. The package therefore remains `private`, version `0.0.0`, and `UNLICENSED`; it must be described as source-available, not legally open source, until the owner selects and adds a license.
 
 Earlier exploration is preserved in [historical research](research/README.md). It may use the old “Subagents IDE” working name or describe options that are not current commitments.

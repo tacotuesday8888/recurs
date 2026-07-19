@@ -22,7 +22,16 @@ npm run build
 node packages/cli/dist/main.js --help
 ```
 
-You can expose the root package's `recurs` binary locally with `npm link` after building. No package or installer is published today. An npm package is the likely first preview channel. Bun may later install that npm package, but Node remains the supported runtime and Bun runtime compatibility has not been implemented. Homebrew and curl wait for versioned, signed artifacts; Windows packaging remains later work.
+You can expose the root package's bundled `recurs` binary locally with `npm link` after building. The release candidate can be checked without publishing:
+
+```bash
+npm run package:check
+npm run package:smoke-install
+```
+
+The first command verifies one executable bundle, its exact external dependencies, size, mode, absence of private workspace imports and build-machine paths, and the four-file tarball allowlist. The second packs the artifact, installs it into an empty temporary prefix, and runs `recurs --help` plus a fresh account-list command. CI runs both boundaries.
+
+No package or installer is published today. The package remains `private`, version `0.0.0`, and `UNLICENSED` until the owner selects a license, a preview version, and complete third-party notices. Bun may later install the npm package, but Node remains the supported runtime and Bun runtime compatibility has not been implemented. Homebrew and curl wait for versioned, signed artifacts; Windows packaging remains later work.
 
 Source/npm execution supports credential-free local, environment-BYOK, and vendor-owned Codex paths. It cannot persist a Recurs-owned credential: the native authority requires a correctly bundled, production-signed macOS 14.4+ launcher and broker, and source, unsigned, or ad-hoc builds fail closed without a plaintext fallback.
 
@@ -467,7 +476,7 @@ Recurs does not perform this move automatically. The marker is an upgrade-safety
 - `local_guarded` arbitrary commands have host filesystem, network, IPC, and process authority. Shell classification is conservative but cannot prove scripts safe.
 - Permanent credential-path denial covers every built-in tool. On macOS, the workspace sandbox additionally denies common host credential locations to shell children. No profile makes the TypeScript process an appropriate persistent credential authority.
 - The macOS component foundation supplies the fixed launcher-created engine bridge, production-gated recovered broker lifecycle, authenticated journal-v2 profile binding, bounded OpenAI/Anthropic/Kimi onboarding, exact model-catalog verification, broker-owned Responses/Messages/Chat Completions streaming, encrypted OpenAI continuation storage, and route authority. There is no signed/notarized installed artifact or successful production smoke.
-- The sealed-engine builder is configured to preserve legal comments, but release packaging still needs complete third-party notices and license review.
+- The npm builder keeps third-party libraries as exact dependencies, preserves legal comments in Recurs' bundle, and enforces a four-file tarball allowlist. Publication still requires a selected project license, complete third-party notices, and a non-placeholder version.
 - Checkpoints enumerate Git tracked and non-ignored untracked files; ignored files are not restored by checkpoint undo.
 - Output, read, patch, command-time, and agent-step limits are bounded, but very large repositories can still make full snapshots expensive.
 - OpenAI API, Anthropic API, and Kimi Code setup and generation exist only through the private native authority and have not shipped as an installed artifact. There is still no arbitrary public-endpoint/cloud-identity onboarding, general model picker, plugin system, MCP marketplace/project loading/remote OAuth, persistent background daemon, recursive company coordinator, desktop app, cloud worker, scheduler, or endless `/loop` in v0. Agent Skills are bounded text/resource context, not executable plugins. The ACP endpoint exposes the real current Recurs runtime; it does not add those absent capabilities. Team `background` means process-lifetime work with durable interruption and explicit resume/apply controls.

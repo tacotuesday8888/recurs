@@ -9,6 +9,16 @@ accidental disclosure through built-in tools, checkpoints, child environments,
 and error messages; arbitrary commands still run with the user's host
 filesystem, network, IPC, and process authority.
 
+The source tree now produces a minimal npm candidate containing only the
+bundled public CLI, package metadata, README, and this security policy. Recurs-
+owned workspace packages are bundled; pinned ACP, Codex, YAML, and schema
+libraries remain normal exact npm dependencies. Package checks reject private
+workspace imports, build-machine paths, unexpected files, missing executable
+mode, and size drift, and CI installs the tarball into an empty prefix before
+running it. This is packaging evidence, not a public release: the package is
+still private, version `0.0.0`, and `UNLICENSED`, and it contains no signed
+native credential authority.
+
 The repository includes a macOS 14.4+ native process boundary and complete
 private OpenAI API, Anthropic API, and Kimi Code activation/generation
 verticals. It has tested Data Protection Keychain, credential-state/journal
