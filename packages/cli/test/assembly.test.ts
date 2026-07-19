@@ -381,6 +381,83 @@ describe("standalone assembly without a provider", () => {
     expect(JSON.stringify(runtime.session)).not.toContain(key);
   });
 
+  it("runs through an explicit Anthropic Messages environment BYOK provider", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-anthropic-assembly-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const key = "anthropic-environment-key-canary";
+    let requestUrl = "";
+    let apiKey = "";
+    let version = "";
+    let body = "";
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        environment: {
+          RECURS_PROVIDER: "anthropic-api",
+          RECURS_MODEL: "claude-test",
+          RECURS_API_KEY: key,
+        },
+        environmentFetch: async (input, init) => {
+          requestUrl = String(input);
+          const headers = new Headers(init?.headers);
+          apiKey = headers.get("x-api-key") ?? "";
+          version = headers.get("anthropic-version") ?? "";
+          body = String(init?.body ?? "");
+          const event = (type: string, value: Record<string, unknown>) =>
+            `event: ${type}\ndata: ${JSON.stringify({ type, ...value })}\n\n`;
+          return new Response([
+            event("message_start", {
+              message: {
+                id: "msg_1",
+                type: "message",
+                role: "assistant",
+                model: "claude-test",
+                content: [],
+                stop_reason: null,
+                stop_sequence: null,
+                usage: { input_tokens: 2, output_tokens: 1 },
+              },
+            }),
+            event("content_block_start", {
+              index: 0,
+              content_block: { type: "text", text: "" },
+            }),
+            event("content_block_delta", {
+              index: 0,
+              delta: { type: "text_delta", text: "anthropic ready" },
+            }),
+            event("content_block_stop", { index: 0 }),
+            event("message_delta", {
+              delta: { stop_reason: "end_turn", stop_sequence: null },
+              usage: { output_tokens: 3 },
+            }),
+            event("message_stop", {}),
+          ].join(""), { status: 200 });
+        },
+      },
+    );
+
+    expect(runtime.session.backend.pin).toMatchObject({
+      providerId: "anthropic-api",
+      adapterId: "anthropic-messages",
+      connectionId: "environment:anthropic-api",
+      modelId: "claude-test",
+      primaryBillingSourceAtCreation: "metered_api",
+    });
+    await expect(runtime.submit("Respond when ready")).resolves.toMatchObject({
+      finalText: "anthropic ready",
+    });
+    expect(requestUrl).toBe("https://api.anthropic.com/v1/messages");
+    expect(apiKey).toBe(key);
+    expect(version).toBe("2023-06-01");
+    expect(body).not.toContain(key);
+    expect(JSON.stringify(runtime.session)).not.toContain(key);
+  });
+
   it("runs a saved BYOK account only with the exact configured environment credential", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-saved-byok-"));
     directories.push(root);

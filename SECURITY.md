@@ -130,6 +130,12 @@ process. Managed tool and MCP subprocess environments remove credential,
 provider, cloud, proxy, Keychain, and socket variables. The standalone Linux
 default additionally contains arbitrary commands with Bubblewrap; Windows and
 an explicitly selected `local_guarded` profile retain broad host authority.
+The public Anthropic Messages adapter accepts only the bundled Anthropic origin,
+uses `x-api-key` plus the fixed reviewed API version, denies redirects, bounds
+request and event sizes/counts, strictly reconstructs native tool calls, and
+detects the complete credential even when it spans response chunks. This is
+still process-environment BYOK, not native credential custody; same-user host
+authority can inspect the Recurs process.
 
 ## Supported versions
 

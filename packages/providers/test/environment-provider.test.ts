@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   EnvironmentProviderError,
   createEnvironmentProviderConfiguration,
+  BUNDLED_PROVIDER_MANIFESTS,
   environmentByokProviderIds,
   environmentCredentialFingerprint,
+  isEnvironmentByokManifest,
   resolveEnvironmentProvider,
 } from "../src/index.js";
 
@@ -35,6 +37,26 @@ describe("environment provider resolution", () => {
     expect(JSON.stringify(resolved)).not.toContain(key);
   });
 
+  it("selects the Anthropic Messages adapter from reviewed manifest protocol", async () => {
+    const key = "anthropic-environment-key";
+    const resolved = await resolveEnvironmentProvider({
+      RECURS_PROVIDER: "anthropic-api",
+      RECURS_MODEL: "claude-test",
+      RECURS_API_KEY: key,
+    });
+
+    expect(resolved).toMatchObject({
+      providerId: "anthropic-api",
+      modelId: "claude-test",
+      connectionId: "environment:anthropic-api",
+      provider: {
+        id: "anthropic-api",
+        adapterId: "anthropic-messages",
+      },
+    });
+    expect(JSON.stringify(resolved)).not.toContain(key);
+  });
+
   it("fails closed for partial, invalid, or unsupported selection", async () => {
     for (const environment of [
       { RECURS_PROVIDER: "openrouter-api" },
@@ -57,6 +79,7 @@ describe("environment provider resolution", () => {
 
   it("exposes only reviewed fixed-origin BYOK profiles, including one coding plan", async () => {
     expect(environmentByokProviderIds()).toEqual(expect.arrayContaining([
+      "anthropic-api",
       "openrouter-api",
       "opencode-go",
       "kilo-gateway",
@@ -86,5 +109,17 @@ describe("environment provider resolution", () => {
       "kimi-code",
       "coding-plan-private-value",
     )).toBe(configured.credentialFingerprint);
+  });
+
+  it("does not admit an Anthropic-shaped manifest at an unimplemented origin", () => {
+    const anthropic = BUNDLED_PROVIDER_MANIFESTS.find(
+      (manifest) => manifest.id === "anthropic-api",
+    );
+    if (anthropic === undefined) throw new Error("missing Anthropic manifest");
+    expect(isEnvironmentByokManifest({
+      ...structuredClone(anthropic),
+      id: "unreviewed-anthropic",
+      endpoints: [{ kind: "origin", value: "https://attacker.invalid/v1" }],
+    })).toBe(false);
   });
 });

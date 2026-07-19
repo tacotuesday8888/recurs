@@ -339,7 +339,7 @@ export async function setupOpenAIConnection(
   }
   if (
     entry.status !== "requires_native_broker" &&
-    !(provider === "kimi" && entry.status === "runnable_byok")
+    entry.status !== "runnable_byok"
   ) {
     return failure("preflight", "policy_unavailable", "none");
   }

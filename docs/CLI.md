@@ -58,7 +58,7 @@ The interaction follows current official patterns reviewed on 2026-07-19: [Kimi 
 
 ## Provider boundary
 
-Recurs exposes a validated catalog of 25 provider/authentication paths. Source installs can run credential-free literal-loopback Ollama/LM Studio, an existing ChatGPT account through the pinned official Codex ACP adapter, or saved/ephemeral BYOK for a supported reviewed OpenAI Chat-compatible HTTPS provider. The private production-signed macOS path also implements persistent OpenAI API, Anthropic API, and Kimi Code onboarding plus broker-owned generation; it is not distributed yet. Catalog entries outside those implemented protocol paths remain discovery metadata rather than live transports.
+Recurs exposes a validated catalog of 25 provider/authentication paths. Source installs can run credential-free literal-loopback Ollama/LM Studio, an existing ChatGPT account through the pinned official Codex ACP adapter, or saved/ephemeral BYOK for a supported reviewed fixed-origin OpenAI Chat-compatible or Anthropic Messages provider. The private production-signed macOS path also implements persistent OpenAI API, Anthropic API, and Kimi Code onboarding plus broker-owned generation; it is not distributed yet. Catalog entries outside those implemented protocol paths remain discovery metadata rather than live transports.
 
 The strongest persistent path keeps keys outside TypeScript: `recurs setup openai`, `recurs setup anthropic --model <exact-id>`, and `recurs setup kimi --model <exact-id>` delegate foreground capture to the signed native authority. Cross-platform source installs may save a provider/model binding while keeping the key in a named environment variable:
 
@@ -68,11 +68,17 @@ recurs setup byok \
   --provider openrouter-api \
   --model <provider/model> \
   --key-env OPENROUTER_API_KEY
+
+export ANTHROPIC_API_KEY=<key>
+recurs setup byok \
+  --provider anthropic-api \
+  --model <exact-model-id> \
+  --key-env ANTHROPIC_API_KEY
 ```
 
 Setup is local, interactive, and manual. It validates the current reviewed manifest and billing selection, shows the fixed-origin and billing disclosure, and saves only non-secret metadata: provider, model, adapter/policy/billing revisions, the environment-variable name, and a provider-bound SHA-256 credential fingerprint. The key value is neither written to the registry nor copied into a session. The first account becomes primary; later accounts require `account set-primary`. `--billing strict` is the default. Use `--billing allow-additional` only when the provider policy declares another source and the user accepts it; OpenCode Go is the current such profile.
 
-The current reviewed saved-BYOK set is OpenRouter API, OpenCode Go, Kilo Gateway, Alibaba Model Studio API, Kimi Platform API, Kimi Code, MiniMax API, Z.ai API, and DeepSeek API. `provider list` is authoritative because support and policy review can change. Blocked or conditional coding-plan paths do not become runnable merely because they use a compatible protocol.
+The current reviewed saved-BYOK set is Anthropic API, OpenRouter API, OpenCode Go, Kilo Gateway, Alibaba Model Studio API, Kimi Platform API, Kimi Code, MiniMax API, Z.ai API, and DeepSeek API. `provider list` is authoritative because support and policy review can change. Blocked or conditional coding-plan paths do not become runnable merely because they use a compatible protocol.
 
 For a one-process override without a saved record:
 
@@ -83,7 +89,7 @@ RECURS_API_KEY=<key> \
 recurs
 ```
 
-All three variables are required together. The provider must have a supported reviewed `openai_chat` manifest with a fixed HTTPS origin. This explicit triple overrides saved selection for that process. In both forms, the key remains in a private provider field, is not written to the session log, and is stripped from tool subprocesses. This does not turn Responses, Anthropic, Gemini, cloud-identity, blocked coding-plan, or arbitrary custom endpoints into runnable paths.
+All three variables are required together. The provider must have a supported reviewed fixed HTTPS origin and an implemented `openai_chat` or `anthropic_messages` environment adapter. This explicit triple overrides saved selection for that process. In both forms, the key remains in a private provider field, is not written to the session log, and is stripped from tool subprocesses. This does not turn Responses, Gemini, cloud-identity, blocked coding-plan, or arbitrary custom endpoints into runnable paths. The Anthropic adapter sends the key only in `x-api-key`, requires API version `2023-06-01`, translates native tool blocks, bounds request/SSE parsing, rejects redirects, and fails closed if credential bytes appear across response chunks.
 
 Inspect the catalog and configured accounts without revealing account labels, account fingerprints, local endpoints, or credential material:
 
