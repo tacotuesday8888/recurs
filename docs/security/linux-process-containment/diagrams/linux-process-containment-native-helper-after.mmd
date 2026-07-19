@@ -1,0 +1,7 @@
+flowchart LR
+  M["Model tool call"] --> P["Permission engine"]
+  P --> H["Recurs native sandbox helper"]
+  H --> F["Bubblewrap filesystem namespaces"]
+  H --> C["no_new_privs + seccomp policy"]
+  H --> N["Intent-gated network namespace"]
+  F --> W["Writable workspace + private temp"]

@@ -1,0 +1,7 @@
+flowchart LR
+  M["Model tool call"] --> P["Permission engine"]
+  P --> R["runProcess / startProcessSession"]
+  R --> E["Filtered child environment"]
+  E --> L["Linux child with host namespaces"]
+  L --> W["Workspace and host filesystem"]
+  L --> N["Host network and IPC"]

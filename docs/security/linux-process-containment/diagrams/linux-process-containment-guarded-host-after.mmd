@@ -1,0 +1,6 @@
+flowchart LR
+  M["Model tool call"] --> P["Permission engine"]
+  P --> R["Bounded process lifecycle"]
+  R --> E["Filtered child environment"]
+  E --> L["Linux child with host namespaces"]
+  L --> W["Application-level path and approval guards"]
