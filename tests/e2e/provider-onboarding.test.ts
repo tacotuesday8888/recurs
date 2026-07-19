@@ -167,6 +167,7 @@ describe("provider onboarding end to end", () => {
       "byok:openrouter-api",
       "anthropic/claude-test",
       "approved_for_me",
+      "balanced_v5",
     ];
     let createdRuntime: Awaited<ReturnType<typeof createStandaloneRuntime>> | undefined;
 
@@ -217,6 +218,7 @@ describe("provider onboarding end to end", () => {
           cwd: project,
           dataDirectory,
           environment,
+          operatingModeId: options?.operatingModeId,
           permissionMode: options?.permissionMode,
           reuseExistingSession: options?.reuseExistingSession,
         });
@@ -229,7 +231,10 @@ describe("provider onboarding end to end", () => {
     expect(stdout.value).not.toContain(key);
     expect(createdRuntime?.state).toMatchObject({
       type: "session",
-      session: { permissionMode: "approved_for_me" },
+      session: {
+        permissionMode: "approved_for_me",
+        agent: { operatingMode: { id: "balanced_v5", version: 5 } },
+      },
     });
     expect(await readFile(
       path.join(dataDirectory, "config", "connections.json"),

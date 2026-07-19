@@ -1121,7 +1121,7 @@ describe("standalone assembly without a provider", () => {
     expect(files.filter((file) => file.endsWith(".jsonl"))).toEqual([]);
   });
 
-  it("pins a guided permission preset into a fresh model session", async () => {
+  it("pins guided permission and operating-mode choices into a fresh session", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-guided-permission-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -1133,6 +1133,7 @@ describe("standalone assembly without a provider", () => {
         cwd: workspace,
         dataDirectory: path.join(root, "data"),
         provider: new ScriptedProvider([], "guided-provider"),
+        operatingModeId: "performance_v5",
         permissionMode: "approved_for_me",
         reuseExistingSession: false,
       },
@@ -1143,6 +1144,7 @@ describe("standalone assembly without a provider", () => {
       session: {
         permissionMode: "approved_for_me",
         agent: {
+          operatingMode: { id: "performance_v5", version: 5 },
           permissions: {
             parentPermissionMode: "approved_for_me",
             permissionMode: "approved_for_me",

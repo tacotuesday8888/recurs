@@ -7,11 +7,13 @@ import {
   type ProviderSummary,
 } from "../src/index.js";
 import {
+  GUIDED_OPERATING_MODE_CHOICES,
   GUIDED_PERMISSION_CHOICES,
   catalogProviderId,
   credentialEnvironmentSuggestion,
   filterCatalogModels,
   guidedConnectionChoices,
+  guidedOperatingModeId,
   guidedPermissionMode,
   runGuidedOnboarding,
 } from "../src/guided-onboarding.js";
@@ -78,6 +80,7 @@ const account: AccountSummary = {
   account: "environment credential (value not stored)",
   execution: "Act + Plan",
   billingSources: ["prepaid_credits"],
+  agentRoles: [],
 };
 
 describe("guided onboarding policy", () => {
@@ -132,8 +135,25 @@ describe("guided onboarding policy", () => {
       .toBe("KILO_API_KEY");
   });
 
+  it("offers only current stable operating-mode policies", () => {
+    expect(GUIDED_OPERATING_MODE_CHOICES.map((choice) => choice.id)).toEqual([
+      "economy_v5",
+      "standard_v5",
+      "balanced_v5",
+      "performance_v5",
+      "max_v5",
+    ]);
+    expect(guidedOperatingModeId("balanced_v5")).toBe("balanced_v5");
+    expect(guidedOperatingModeId("balanced_v4")).toBeNull();
+  });
+
   it("retains public-catalog model selection when authenticated discovery is not reviewed", async () => {
-    const selections = ["byok:kilo-gateway", "kilo/model", "ask_always"];
+    const selections = [
+      "byok:kilo-gateway",
+      "kilo/model",
+      "ask_always",
+      "balanced_v5",
+    ];
     const commands: string[][] = [];
     const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
     const outcome = await runGuidedOnboarding({
@@ -185,6 +205,7 @@ describe("guided onboarding policy", () => {
     expect(outcome).toEqual({
       state: "configured",
       permissionMode: "ask_always",
+      operatingModeId: "balanced_v5",
     });
     expect(commands).toEqual([[
       "setup", "byok",
@@ -192,5 +213,76 @@ describe("guided onboarding policy", () => {
       "--model", "kilo/model",
       "--key-env", "KILO_API_KEY",
     ]]);
+  });
+
+  it("configures eligible specialist routes without changing the parent", async () => {
+    let roles: readonly string[] = [];
+    const primary: AccountSummary = {
+      ...account,
+      id: "parent",
+      label: "Parent model",
+      modelId: "parent/model",
+      primary: true,
+      billingSources: ["metered_api"],
+      agentRoles: [],
+    };
+    const specialist = (): AccountSummary => ({
+      ...account,
+      id: "specialist",
+      label: "Specialist model",
+      modelId: "specialist/model",
+      primary: false,
+      billingSources: ["metered_api"],
+      agentRoles: roles as AccountSummary["agentRoles"],
+    });
+    const selections = [
+      "account:parent",
+      "approved_for_me",
+      "performance_v5",
+      "customize",
+      "specialist",
+      "specialist",
+      "parent",
+    ];
+    const commands: string[][] = [];
+    const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
+    const outcome = await runGuidedOnboarding({
+      stdout: sink,
+      stderr: sink,
+      interactive: true,
+      automation: false,
+      nativeProviders: new Set(),
+      async listAccounts() { return [primary, specialist()]; },
+      async detectProviders() { return []; },
+      async listProviders() { return []; },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText() { return null; },
+      async executeCommand(argv) {
+        commands.push([...argv]);
+        if (argv[0] === "account" && argv[1] === "route") {
+          const role = argv[2]!;
+          roles = argv[3] === "parent"
+            ? roles.filter((candidate) => candidate !== role)
+            : [...new Set([...roles, role])];
+        }
+        return 0;
+      },
+    });
+
+    expect(outcome).toEqual({
+      state: "configured",
+      permissionMode: "approved_for_me",
+      operatingModeId: "performance_v5",
+    });
+    expect(commands).toEqual([
+      ["account", "verify", "parent"],
+      ["account", "set-primary", "parent"],
+      ["account", "route", "implement", "specialist"],
+      ["account", "route", "review", "specialist"],
+    ]);
   });
 });

@@ -11,6 +11,7 @@ import { createInterface } from "node:readline/promises";
 
 import {
   createHostInvocation,
+  type OperatingModeId,
   type IntegrationFailure,
   type NativeAuthorityPort,
   type NativeAuthorityStatus,
@@ -164,6 +165,7 @@ export interface CliDependencies {
   createRuntime(
     events: EventSink,
     options?: {
+      readonly operatingModeId?: OperatingModeId;
       readonly permissionMode?: PermissionMode;
       readonly reuseExistingSession?: boolean;
     },
@@ -867,6 +869,7 @@ export async function runCli(
         if (onboarding.state === "configured") {
           await runtime.close?.();
           runtime = await dependencies.createRuntime(renderer, {
+            operatingModeId: onboarding.operatingModeId,
             permissionMode: onboarding.permissionMode,
             reuseExistingSession: false,
           });
@@ -896,6 +899,7 @@ export async function runCli(
       if (onboarding.state === "skipped") return 0;
       const renderer = new TextEventRenderer(dependencies.stdout);
       const runtime = await dependencies.createRuntime(renderer, {
+        operatingModeId: onboarding.operatingModeId,
         permissionMode: onboarding.permissionMode,
         reuseExistingSession: false,
       });
@@ -1516,6 +1520,9 @@ export async function runCliProcess(
           ...(options?.permissionMode === undefined
             ? {}
             : { permissionMode: options.permissionMode }),
+          ...(options?.operatingModeId === undefined
+            ? {}
+            : { operatingModeId: options.operatingModeId }),
           ...(options?.reuseExistingSession === undefined
             ? {}
             : { reuseExistingSession: options.reuseExistingSession }),

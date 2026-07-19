@@ -9,6 +9,7 @@ import type {
   BackendResolver,
   ConnectionBoundModelProvider,
   IntegrationFailure,
+  OperatingModeId,
   RuntimeApprovalRequest,
   RuntimeContinuationStore,
   SessionBackendPin,
@@ -108,6 +109,7 @@ export interface StandaloneRuntimeOptions {
   environment?: Readonly<NodeJS.ProcessEnv>;
   environmentFetch?: typeof globalThis.fetch;
   reuseExistingSession?: boolean;
+  operatingModeId?: OperatingModeId;
   permissionMode?: PermissionMode;
   skillHomeDirectory?: string;
 }
@@ -728,7 +730,7 @@ export async function createStandaloneRuntime(
         agent: createRootAgentDescriptor(
           sessionId,
           backend,
-          undefined,
+          options.operatingModeId,
           options.permissionMode,
         ),
         at: createdAt,

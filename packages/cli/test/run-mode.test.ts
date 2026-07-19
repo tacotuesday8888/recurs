@@ -367,7 +367,7 @@ describe("runCli", () => {
   it("guides explicit local setup and falls back safely when Full Access is declined", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
-    const selections = ["local:ollama", "full_access"];
+    const selections = ["local:ollama", "full_access", "balanced_v5"];
     let localInput: unknown;
     let runtimeOptions: unknown;
     const runtime = {
@@ -428,6 +428,7 @@ describe("runCli", () => {
       modelId: "qwen-coder",
     });
     expect(runtimeOptions).toEqual({
+      operatingModeId: "balanced_v5",
       permissionMode: "ask_always",
       reuseExistingSession: false,
     });
@@ -446,6 +447,7 @@ describe("runCli", () => {
       "byok:openrouter-api",
       "anthropic/claude-test",
       "approved_for_me",
+      "balanced_v5",
     ];
     let configured = false;
     let setupInput: unknown;
@@ -491,6 +493,7 @@ describe("runCli", () => {
               account: "environment credential (value not stored)",
               execution: "Act + Plan",
               billingSources: ["prepaid_credits" as const],
+              agentRoles: [],
             }]
           : [];
       },
@@ -562,7 +565,11 @@ describe("runCli", () => {
     });
     expect(runtimeOptions).toEqual([
       undefined,
-      { permissionMode: "approved_for_me", reuseExistingSession: false },
+      {
+        operatingModeId: "balanced_v5",
+        permissionMode: "approved_for_me",
+        reuseExistingSession: false,
+      },
     ]);
     expect(stdout.value).toContain(
       "Connection: OpenRouter API BYOK · anthropic/claude-test",
@@ -577,6 +584,7 @@ describe("runCli", () => {
       "byok:anthropic-api",
       "claude-sonnet-visible",
       "approved_for_me",
+      "balanced_v5",
     ];
     let configured = false;
     let discovered: readonly string[] | undefined;
@@ -617,6 +625,7 @@ describe("runCli", () => {
               account: "environment credential (value not stored)",
               execution: "Act + Plan",
               billingSources: ["metered_api" as const],
+              agentRoles: [],
             }]
           : [];
       },

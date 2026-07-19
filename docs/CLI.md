@@ -49,10 +49,11 @@ Run `recurs setup`, or launch `recurs` with no configured connection. The same l
 1. shows saved connections, safely detected Ollama/LM Studio runtimes, the official Codex path, reviewed environment-BYOK providers, and installed-native paths that the current build can attempt;
 2. after the environment-variable name is chosen, selects an exact credential-visible model from the reviewed Anthropic, OpenRouter, DeepSeek, or MiniMax endpoint; other reviewed BYOK paths use bounded `models.dev` metadata or ask for an exact model ID when authoritative discovery is unavailable;
 3. executes the existing provider-specific credential and billing disclosure—generic onboarding never asks for a key value;
-4. selects Ask Always, Approved for Me, or Full Access; and
-5. creates a fresh durable session with that permission preset and enters the ordinary REPL.
+4. selects Ask Always, Approved for Me, or Full Access;
+5. selects a current versioned Economy, Standard, Balanced, Performance, or Max operating mode; Balanced is recommended; and
+6. when another eligible saved Act + Plan connection exists, optionally assigns Implement, Review, and Repair specialist candidates before creating a fresh durable session and entering the ordinary REPL.
 
-Approved for Me is the recommended interactive preset. Full Access still requires a separate warning and confirmation. Cancelling that confirmation safely falls back to Ask Always. The selected permission is stored in the new session rather than a mutable global preference; existing sessions keep their recorded boundary. Skipping connection setup leaves the sessionless `/provider` workspace available.
+Approved for Me is the recommended interactive preset. Full Access still requires a separate warning and confirmation. Cancelling that confirmation safely falls back to Ask Always. The selected permission and operating mode are stored in the new session rather than mutable global preferences; existing sessions keep their recorded boundaries. Role customization never changes the parent connection, excludes Plan-only delegated runtimes and billing classes ineligible for the chosen mode, and uses the existing confirmation-gated `account route` command for every changed role. Keeping current routing is the default. With no eligible secondary connection, every role honestly inherits the parent. Skipping connection setup leaves the sessionless `/provider` workspace available.
 
 For a catalog with many models, the guide asks for a search first and then shows at most 30 exact matches. Public catalog metadata helps selection but does not activate an unreviewed provider, supply credentials, or override Recurs's manifest and billing policy. OpenAI, Anthropic, OpenRouter, DeepSeek, and MiniMax instead use the named environment credential against their exact reviewed model-list endpoint and do not silently fall back to public metadata when authentication or transport fails.
 
