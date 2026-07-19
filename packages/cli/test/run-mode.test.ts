@@ -270,6 +270,48 @@ describe("public CLI process boundary", () => {
   );
 });
 
+describe("ACP command", () => {
+  it("runs the stdio server without creating the ordinary CLI runtime", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let served = 0;
+    const exitCode = await runCli(["acp"], {
+      stdout,
+      stderr,
+      async createRuntime() {
+        throw new Error("ordinary runtime must not start");
+      },
+      async runAcp() {
+        served += 1;
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(served).toBe(1);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toBe("");
+  });
+
+  it("rejects ACP arguments before starting the protocol stream", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let served = false;
+    const exitCode = await runCli(["acp", "extra"], {
+      stdout,
+      stderr,
+      async createRuntime() {
+        throw new Error("ordinary runtime must not start");
+      },
+      async runAcp() { served = true; },
+    });
+
+    expect(exitCode).toBe(2);
+    expect(served).toBe(false);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toContain("recurs acp");
+  });
+});
+
 describe("runCli", () => {
   it("classifies common CI markers while honoring explicit false values", () => {
     expect(isAutomationEnvironment({ CI: "true" })).toBe(true);

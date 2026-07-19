@@ -27,6 +27,7 @@ The repository contains a usable agent base and a bounded, Recurs-owned child-ag
 - Ask Always, Approved for Me, Full Access, enforced Plan mode, and a read-only Review profile;
 - durable `/goal` state, append-only JSONL sessions, interrupted-tool recovery, compaction, checkpoints, and conflict-safe undo;
 - interactive and non-interactive CLI paths with text or normalized JSONL output;
+- a Recurs-owned ACP v1 stdio agent endpoint for editor and agent-client integration, with isolated sessions, streamed model/tool/child/team activity, one-shot permission forwarding, cancellation, and honest capability negotiation;
 - immutable backend pins, strict version-2 session records, cross-process mutation leases, typed preflight failures, and durable delegated-runtime results and recovery;
 - one credential-path policy enforced across direct and aggregate built-in tools, permanent denial of classified credential intents, and checkpoint capture that excludes those paths;
 - clean per-child environments, bounded process-group cleanup, safe provider/tool/CLI failures, and explicit `workspace_sandboxed`, `local_guarded`, or fail-closed `tools_disabled` composition;
@@ -52,6 +53,7 @@ node packages/cli/dist/main.js account verify <connection-id>
 node packages/cli/dist/main.js account set-primary <connection-id>
 node packages/cli/dist/main.js account disconnect <connection-id>
 node packages/cli/dist/main.js doctor native --json
+node packages/cli/dist/main.js acp
 node packages/cli/dist/main.js setup local --url http://127.0.0.1:11434/v1 --model qwen2.5-coder:7b
 # Or use a reviewed OpenAI Chat-compatible provider without saving its key:
 RECURS_PROVIDER=openrouter-api RECURS_MODEL=<provider/model> RECURS_API_KEY=<key> node packages/cli/dist/main.js
@@ -78,7 +80,7 @@ packages/app         Non-secret connection registry, lifecycle service, onboardi
 packages/runtimes    Bounded ACP transport and the pinned official Codex runtime profile
 packages/tools       Tool registry, permissions, path policy, Git, and checkpoints
 packages/core        Direct/delegated execution, events, sessions, goals, compaction, and recovery
-packages/cli         Runtime assembly, slash commands, renderers, REPL, and executable
+packages/cli         Runtime assembly, slash commands, renderers, REPL, ACP server, and executable
 packages/native-engine  Sealed launcher-only host for the health bridge
 native/macos         Native security/state libraries and recovered broker/launcher executables
 tests/e2e            Public-interface coding workflow proof

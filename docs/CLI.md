@@ -168,6 +168,25 @@ node packages/cli/dist/main.js run "inspect the repository" --format jsonl
 
 The no-argument interactive CLI requires a user-present local terminal and rejects recognized automation even when it allocates a TTY. The one-shot prompt examples require a configured local provider or an injected provider. Codex deliberately rejects this unattended path; use the interactive CLI for user-present Codex Plan work. `--format jsonl` emits the same normalized events used by the interactive runtime; it is not a separate agent path.
 
+### ACP stdio agent
+
+`recurs acp` serves Recurs as an Agent Client Protocol v1 agent over standard input and output. It is a thin host over the same standalone runtime: every ACP `session/new` creates a distinct pinned Recurs session, and `session/prompt` uses the ordinary coordinator, provider, permissions, tools, sessions, and child/team engine. Model text and reasoning, tool lifecycles, and Recurs child, batch, and team activity are projected into typed ACP session updates. A client permission prompt can grant or reject one operation; Recurs does not advertise an always-allow choice through this boundary.
+
+The endpoint deliberately classifies prompts as local, unattended, scripted SDK work. Direct local, environment-BYOK, and supported brokered-model providers can run only when their existing policy admits that context. The ChatGPT Codex subscription adapter remains local, manual, user-present CLI-only and therefore fails closed through ACP. An editor connection is not treated as proof that a user is present.
+
+The v0 handshake advertises baseline text and resource-link prompts plus session cancellation and close. Image, audio, and embedded-resource prompts are rejected. Additional workspace roots and client-supplied MCP servers are rejected, and no MCP capability is advertised. Recurs uses its own bounded host tools rather than delegating filesystem or terminal authority to the ACP client. On connection loss, active Recurs runtimes are cancelled.
+
+Example editor agent command configuration:
+
+```json
+{
+  "command": "recurs",
+  "args": ["acp"]
+}
+```
+
+Build and `npm link` the source checkout first. No ACP package or release artifact is published yet.
+
 Exit codes:
 
 - `0`: success.
@@ -402,4 +421,4 @@ Recurs does not perform this move automatically. The marker is an upgrade-safety
 - The sealed-engine builder is configured to preserve legal comments, but release packaging still needs complete third-party notices and license review.
 - Checkpoints enumerate Git tracked and non-ignored untracked files; ignored files are not restored by checkpoint undo.
 - Output, read, patch, command-time, and agent-step limits are bounded, but very large repositories can still make full snapshots expensive.
-- OpenAI API, Anthropic API, and Kimi Code setup and generation exist only through the private native authority and have not shipped as an installed artifact. There is still no arbitrary public-endpoint/cloud-identity onboarding, general model picker, plugin system, public MCP loading, persistent background daemon, recursive company runtime, desktop app, cloud worker, scheduler, or endless `/loop` in v0. Team `background` means process-lifetime work with durable interruption and explicit resume/apply controls.
+- OpenAI API, Anthropic API, and Kimi Code setup and generation exist only through the private native authority and have not shipped as an installed artifact. There is still no arbitrary public-endpoint/cloud-identity onboarding, general model picker, plugin system, public MCP loading, persistent background daemon, recursive company coordinator, desktop app, cloud worker, scheduler, or endless `/loop` in v0. The ACP endpoint exposes the real current Recurs runtime; it does not add those absent capabilities. Team `background` means process-lifetime work with durable interruption and explicit resume/apply controls.
