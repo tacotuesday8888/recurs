@@ -306,9 +306,12 @@ const bundled = [
     billingPolicy: billingPolicy("openrouter-api", "prepaid_credits"),
     supportStatus: "supported",
     runnable: false,
-    sourceUrls: ["https://openrouter.ai/docs/api/reference/authentication"],
+    sourceUrls: [
+      "https://openrouter.ai/docs/api/reference/authentication",
+      "https://openrouter.ai/docs/api/api-reference/models/get-models",
+    ],
     evidenceSummary:
-      "OpenRouter documents API-key and OAuth-capable OpenAI-compatible access with account credit billing.",
+      "OpenRouter documents API-key and OAuth-capable OpenAI-compatible access, account credit billing, and authenticated model listing.",
   }),
   manifest({
     id: "opencode-zen",
@@ -528,9 +531,12 @@ const bundled = [
     billingPolicy: billingPolicy("minimax-api", "metered_api"),
     supportStatus: "supported",
     runnable: false,
-    sourceUrls: ["https://platform.minimax.io/docs/pricing/overview"],
+    sourceUrls: [
+      "https://platform.minimax.io/docs/pricing/overview",
+      "https://platform.minimax.io/docs/api-reference/models/openai/list-models",
+    ],
     evidenceSummary:
-      "MiniMax documents standard metered API access separately from its Token Plan.",
+      "MiniMax documents standard metered API access and an authenticated OpenAI-compatible model list separately from its Token Plan.",
   }),
   manifest({
     id: "minimax-token-plan",
@@ -634,9 +640,12 @@ const bundled = [
     billingPolicy: billingPolicy("deepseek-api", "metered_api"),
     supportStatus: "supported",
     runnable: false,
-    sourceUrls: ["https://api-docs.deepseek.com/"],
+    sourceUrls: [
+      "https://api-docs.deepseek.com/",
+      "https://api-docs.deepseek.com/api/list-models",
+    ],
     evidenceSummary:
-      "DeepSeek documents metered programmatic API access through compatible endpoints.",
+      "DeepSeek documents metered programmatic API access and authenticated model listing through compatible endpoints.",
   }),
   manifest({
     id: "aws-bedrock",

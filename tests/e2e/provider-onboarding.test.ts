@@ -111,6 +111,13 @@ async function temporaryRoot(prefix: string): Promise<string> {
   return root;
 }
 
+function openAIModels(...ids: string[]): Response {
+  return new Response(JSON.stringify({
+    object: "list",
+    data: ids.map((id) => ({ id, object: "model" })),
+  }));
+}
+
 function codexConnection(): DelegatedConnectionRecord {
   return {
     kind: "delegated_agent",
@@ -178,16 +185,18 @@ describe("provider onboarding end to end", () => {
       },
       async detectProviders() { return []; },
       async discoverProviders() {
-        return {
-          source: "https://models.dev/api.json" as const,
-          providers: [{
-            id: "openrouter",
-            name: "OpenRouter",
-            wire: "openai-compatible" as const,
-            modelCount: 2,
-            modelIds: ["anthropic/claude-test", "openai/gpt-test"],
-          }],
-        };
+        throw new Error("reviewed authenticated discovery must take precedence");
+      },
+      async discoverEnvironmentModels(providerId, environmentVariable) {
+        expect(providerId).toBe("openrouter-api");
+        expect(environmentVariable).toBe("OPENROUTER_API_KEY");
+        return [{
+          id: "anthropic/claude-test",
+          displayName: "Claude Test",
+          createdAt: null,
+          maxInputTokens: 200_000,
+          maxOutputTokens: null,
+        }];
       },
       async selectChoice(_message, choices) {
         const selected = selections.shift() ?? null;
@@ -201,6 +210,7 @@ describe("provider onboarding end to end", () => {
       setupEnvironment: (input) => setupEnvironmentConnection(
         dataDirectory,
         { ...input, environment, now: "2026-07-19T00:00:00.000Z" },
+        { fetch: async () => openAIModels("anthropic/claude-test") },
       ),
       async createRuntime(events, options) {
         createdRuntime = await createStandaloneRuntime(events, {
@@ -252,6 +262,7 @@ describe("provider onboarding end to end", () => {
       setupEnvironment: (input) => setupEnvironmentConnection(
         dataDirectory,
         { ...input, environment, now: "2026-07-19T00:00:00.000Z" },
+        { fetch: async () => openAIModels("anthropic/claude-sonnet") },
       ),
     })).toBe(0);
     expect(stderr.value).toBe("");

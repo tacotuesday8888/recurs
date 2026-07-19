@@ -439,7 +439,7 @@ describe("runCli", () => {
     expect(stderr.value).toBe("");
   });
 
-  it("offers guided BYOK onboarding from a sessionless launch and selects a catalog model", async () => {
+  it("offers guided BYOK onboarding and selects a credential-visible model", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
     const selections = [
@@ -513,17 +513,16 @@ describe("runCli", () => {
         }];
       },
       async detectProviders() { return []; },
-      async discoverProviders() {
-        return {
-          source: "https://models.dev/api.json" as const,
-          providers: [{
-            id: "openrouter",
-            name: "OpenRouter",
-            wire: "openai-compatible" as const,
-            modelCount: 2,
-            modelIds: ["anthropic/claude-test", "openai/gpt-test"],
-          }],
-        };
+      async discoverEnvironmentModels(providerId, environmentVariable) {
+        expect(providerId).toBe("openrouter-api");
+        expect(environmentVariable).toBe("OPENROUTER_API_KEY");
+        return [{
+          id: "anthropic/claude-test",
+          displayName: "Claude Test",
+          createdAt: null,
+          maxInputTokens: 200_000,
+          maxOutputTokens: null,
+        }];
       },
       async selectChoice(_message, choices) {
         const selected = selections.shift() ?? null;
