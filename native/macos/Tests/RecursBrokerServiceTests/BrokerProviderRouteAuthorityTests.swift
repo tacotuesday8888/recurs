@@ -735,6 +735,9 @@ struct BrokerProviderRouteAuthorityTests {
         byteBudget: 1
       )
       await credentialAuthority.pauseNextReservation()
+      if interruption == .taskCancellation {
+        await credentialAuthority.cancelTaskBeforeReturningNextReservation()
+      }
       let task = Task {
         try await authority.reserveCredentialUse(
           handle,
@@ -757,7 +760,8 @@ struct BrokerProviderRouteAuthorityTests {
           )
         }
       case .taskCancellation:
-        task.cancel()
+        // The injected authority cancels this task at the reservation return boundary.
+        break
       case .expiry:
         clock.set(now.addingTimeInterval(61))
       case .close:
@@ -1485,7 +1489,7 @@ private enum BudgetRace: CaseIterable, Equatable {
   }
 }
 
-private enum Interruption: CaseIterable {
+private enum Interruption: CaseIterable, Equatable {
   case capabilityCancellation
   case taskCancellation
   case expiry
@@ -1622,6 +1626,7 @@ private actor RouteCredentialAuthority: BrokerProviderCredentialUseAuthority {
   private var reserveError: CredentialUseError?
   private var mismatch: ReservationMismatch?
   private var shouldPauseNextReservation = false
+  private var shouldCancelTaskBeforeReturningReservation = false
   private var isReservationPaused = false
   private var pauseArrivalContinuations: [CheckedContinuation<Void, Never>] = []
   private var pauseReleaseContinuations: [CheckedContinuation<Void, Never>] = []
@@ -1706,6 +1711,10 @@ private actor RouteCredentialAuthority: BrokerProviderCredentialUseAuthority {
       await withCheckedContinuation { pauseReleaseContinuations.append($0) }
       isReservationPaused = false
     }
+    if shouldCancelTaskBeforeReturningReservation {
+      shouldCancelTaskBeforeReturningReservation = false
+      withUnsafeCurrentTask { $0?.cancel() }
+    }
     return reservation
   }
 
@@ -1759,6 +1768,10 @@ private actor RouteCredentialAuthority: BrokerProviderCredentialUseAuthority {
 
   func pauseNextReservation() {
     shouldPauseNextReservation = true
+  }
+
+  func cancelTaskBeforeReturningNextReservation() {
+    shouldCancelTaskBeforeReturningReservation = true
   }
 
   func waitUntilReservationPaused() async {
