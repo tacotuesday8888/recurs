@@ -21,7 +21,7 @@ The repository contains a usable agent base and a bounded, Recurs-owned child-ag
 - cross-platform saved and ephemeral BYOK for reviewed fixed-origin OpenAI Chat-compatible and Anthropic Messages providers; saved setup retains only provider/model policy metadata, an environment-variable name, and a credential fingerprint, while key values are never persisted or forwarded to tools;
 - private signed-macOS activation paths for OpenAI API, Anthropic API, and Kimi Code credentials, with native model discovery and streamed tool calling;
 - a validated 25-path provider/authentication catalog, a revisioned non-secret connection registry, and exact-ID account listing, verification, primary selection, and metadata-only disconnection;
-- a bounded `models.dev` discovery catalog, fixed-port loopback detection for Ollama and LM Studio, and one `/provider` surface shared with first-run onboarding;
+- a bounded `models.dev` discovery catalog, fixed-origin credential-visible Anthropic model discovery, fixed-port loopback detection for Ollama and LM Studio, and one `/provider` surface shared with first-run onboarding;
 - an official Codex ACP path for an existing ChatGPT login, constrained to local, interactive, user-present, Plan-only work;
 - eight tools for file reading, listing, search, patching, bounded shell execution, shell-free allowlisted verification, Git status, and Git diff; each child profile receives an exact host-tool and intent ceiling;
 - Ask Always, Approved for Me, Full Access, enforced Plan mode, and a read-only Review profile;
@@ -74,6 +74,7 @@ export OPENROUTER_API_KEY=<key>
 node packages/cli/dist/main.js setup byok --provider openrouter-api --model <provider/model> --key-env OPENROUTER_API_KEY
 # Anthropic Messages is also available without persisting its key:
 export ANTHROPIC_API_KEY=<key>
+node packages/cli/dist/main.js provider models --provider anthropic-api --key-env ANTHROPIC_API_KEY
 node packages/cli/dist/main.js setup byok --provider anthropic-api --model <exact-model-id> --key-env ANTHROPIC_API_KEY
 # Or use a reviewed provider for one process without saving its key:
 RECURS_PROVIDER=openrouter-api RECURS_MODEL=<provider/model> RECURS_API_KEY=<key> node packages/cli/dist/main.js
@@ -134,13 +135,13 @@ The broker is no longer health-only: its production-gated startup derives and va
 
 The broker also has internal setup/run/maintenance route authority. It derives every capability from authenticated journal binding and candidate or usable-ready state, rechecks that state across actor suspension, and atomically couples exact scope, expiry, cancellation, and checked budgets to a one-use reservation for the matching Keychain generation. Pre-authorization failures clean up without a debit; a returned reservation is conservatively charged exactly once. The launcher performs foreground TTY capture for OpenAI onboarding; capture restores exact terminal state, cancellation is sticky, transient secret buffers are erased, lifecycle request IDs are independently correlated, and replies remain redacted. One process coordinator owns launcher termination signals and capture suspension handling, and real controlling-PTY tests prove restoration with no input echo across interrupt, termination, hangup, and suspend/resume.
 
-The private native path supports crash-safe OpenAI API, Anthropic API, and Kimi Code activation. It remains the stronger persistent-credential path and is still undistributed pending a signed/notarized artifact. Source/npm builds can now use a separate explicit environment-BYOK path for reviewed fixed-origin OpenAI Chat-compatible and Anthropic Messages providers; it neither collects nor persists a key and does not weaken native connection records. The public Anthropic transport uses the required versioned headers, strict bounded tool/SSE decoding, normalized usage, redirect denial, and split-chunk credential-echo detection. Broker-owned generation retains its stricter reservation, custody, continuation, and lifecycle guarantees. The macOS/Linux command sandboxes are defense in depth for tool subprocesses; neither replaces the native credential authority, and Windows containment remains absent.
+The private native path supports crash-safe OpenAI API, Anthropic API, and Kimi Code activation. It remains the stronger persistent-credential path and is still undistributed pending a signed/notarized artifact. Source/npm builds can now use a separate explicit environment-BYOK path for reviewed fixed-origin OpenAI Chat-compatible and Anthropic Messages providers; it neither collects nor persists a key and does not weaken native connection records. Anthropic setup and `provider models` authenticate against the fixed `/v1/models` endpoint, expose only credential-visible model metadata, and require the selected exact model before saving. The public Anthropic transport uses the required versioned headers, strict bounded tool/SSE decoding, normalized usage, redirect denial, and split-chunk credential-echo detection. Broker-owned generation retains its stricter reservation, custody, continuation, and lifecycle guarantees. The macOS/Linux command sandboxes are defense in depth for tool subprocesses; neither replaces the native credential authority, and Windows containment remains absent.
 
 ## Next
 
 1. Produce and verify a signed/notarized installed launcher bundle, including the isolated owner-run broker recovery smoke.
 2. Exercise the completed OpenAI, Anthropic, and Kimi Code verticals through installed-artifact security and credential-canary tests.
-3. Expand the fixed-origin environment-BYOK path to OpenAI Responses and provider-specific model discovery without permitting arbitrary remote URLs.
+3. Expand the fixed-origin environment-BYOK path to OpenAI Responses and additional reviewed providers' authenticated model discovery without permitting arbitrary remote URLs.
 4. Extend MCP only through separately reviewed persistent-session health, authenticated Streamable HTTP, project trust, and versioned child-profile slices; stdio v1 does not imply those authorities.
 5. Give any delegated runtime included in the sealed engine its own fixed signed layout; expand delegated runtimes only through documented integrations and provider-specific policy review.
 6. Extend team execution only through enforceable OS containment, reviewed role/model candidates, and a separately designed durable worker host; do not mistake process-lifetime background work for a daemon or turn repair into unbounded token burn.

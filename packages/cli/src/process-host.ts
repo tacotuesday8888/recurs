@@ -18,6 +18,7 @@ import {
 } from "@recurs/contracts";
 import {
   detectLocalRuntimes,
+  type EnvironmentModelDescriptor,
   type LocalRuntimeDetection,
   type ProviderCatalogSnapshot,
 } from "@recurs/providers";
@@ -25,6 +26,8 @@ import type { PermissionMode } from "@recurs/tools";
 import {
   CodexOnboardingError,
   ConnectionLifecycleError,
+  discoverEnvironmentConnectionModels,
+  EnvironmentConnectionError,
   NativeAuthorityService,
   OPENAI_RESPONSES_EXACT_MODEL_IDS,
   anthropicOnboardingDisclosure,
@@ -63,6 +66,7 @@ import {
 } from "./provider-account.js";
 import {
   discoverProviderCatalog,
+  environmentModelsText,
   localRuntimeText,
   providerCatalogText,
 } from "./provider-discovery.js";
@@ -109,6 +113,7 @@ Usage:
   recurs provider list [--all] [--json]
   recurs provider catalog [query] [--json]
   recurs provider detect [--json]
+  recurs provider models --provider <id> --key-env <ENV> [--json]
   recurs account list [--json]
   recurs account set-primary <id>
   recurs account verify <id>
@@ -179,6 +184,11 @@ export interface CliDependencies {
     query: string,
     signal?: AbortSignal,
   ): Promise<ProviderCatalogSnapshot>;
+  discoverEnvironmentModels?(
+    providerId: string,
+    credentialEnvironmentVariable: string,
+    signal?: AbortSignal,
+  ): Promise<readonly EnvironmentModelDescriptor[]>;
   detectProviders?(
     signal?: AbortSignal,
   ): Promise<readonly LocalRuntimeDetection[]>;
@@ -500,7 +510,13 @@ function parseListArguments(
 type ProviderCommand =
   | { readonly kind: "list"; readonly json: boolean; readonly includeBlocked: boolean }
   | { readonly kind: "catalog"; readonly json: boolean; readonly query: string }
-  | { readonly kind: "detect"; readonly json: boolean };
+  | { readonly kind: "detect"; readonly json: boolean }
+  | {
+    readonly kind: "models";
+    readonly json: boolean;
+    readonly providerId: string;
+    readonly credentialEnvironmentVariable: string;
+  };
 
 function parseProviderCommand(args: readonly string[]): ProviderCommand | null {
   const listed = parseListArguments(args, true);
@@ -511,6 +527,42 @@ function parseProviderCommand(args: readonly string[]): ProviderCommand | null {
       return { kind: "detect", json: true };
     }
     return null;
+  }
+  if (args[0] === "models") {
+    let providerId: string | undefined;
+    let credentialEnvironmentVariable: string | undefined;
+    let json = false;
+    for (let index = 1; index < args.length; index += 1) {
+      const flag = args[index];
+      if (flag === "--json" && !json) {
+        json = true;
+        continue;
+      }
+      const value = args[index + 1];
+      if (value === undefined || value.startsWith("--")) return null;
+      if (flag === "--provider" && providerId === undefined) {
+        providerId = value;
+      } else if (
+        flag === "--key-env" &&
+        credentialEnvironmentVariable === undefined
+      ) {
+        credentialEnvironmentVariable = value;
+      } else {
+        return null;
+      }
+      index += 1;
+    }
+    return providerId !== undefined &&
+        credentialEnvironmentVariable !== undefined &&
+        SAFE_BYOK_PROVIDER_ID.test(providerId) &&
+        isSafeCredentialEnvironmentVariable(credentialEnvironmentVariable)
+      ? {
+          kind: "models",
+          json,
+          providerId,
+          credentialEnvironmentVariable,
+        }
+      : null;
   }
   if (args[0] !== "catalog") return null;
   let json = false;
@@ -597,6 +649,9 @@ function exitCodeFor(error: unknown): number {
     return 2;
   }
   if (error instanceof LocalConnectionError) return 2;
+  if (error instanceof EnvironmentConnectionError) {
+    return error.code === "cancelled" ? 130 : 2;
+  }
   if (error instanceof CodexOnboardingError) return 2;
   if (error instanceof ConnectionLifecycleError) {
     return error.code === "cancelled" ? 130 : 2;
@@ -668,6 +723,9 @@ async function runGuidedOnboarding(
     ...(dependencies.discoverProviders === undefined
       ? {}
       : { discoverProviders: dependencies.discoverProviders }),
+    ...(dependencies.discoverEnvironmentModels === undefined
+      ? {}
+      : { discoverEnvironmentModels: dependencies.discoverEnvironmentModels }),
   });
 }
 
@@ -865,7 +923,7 @@ export async function runCli(
             ? `${JSON.stringify({ version: 1, ...snapshot })}\n`
             : providerCatalogText(snapshot),
         );
-      } else {
+      } else if (parsed.kind === "detect") {
         if (dependencies.detectProviders === undefined) {
           await writeOutput(dependencies.stderr, help);
           return 2;
@@ -876,6 +934,26 @@ export async function runCli(
           parsed.json
             ? `${JSON.stringify({ version: 1, providers })}\n`
             : localRuntimeText(providers),
+        );
+      } else {
+        if (dependencies.discoverEnvironmentModels === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const models = await dependencies.discoverEnvironmentModels(
+          parsed.providerId,
+          parsed.credentialEnvironmentVariable,
+          dependencies.signal,
+        );
+        await writeOutput(
+          dependencies.stdout,
+          parsed.json
+            ? `${JSON.stringify({
+                version: 1,
+                providerId: parsed.providerId,
+                models,
+              })}\n`
+            : environmentModelsText(parsed.providerId, models),
         );
       }
       return 0;
@@ -1217,19 +1295,20 @@ export async function runCliProcess(
     argv[0] === "doctor" &&
     argv[1] === "native" &&
     (argv.length === 2 || (argv.length === 3 && argv[2] === "--json"));
-  const nativeOperationRequested = nativeDoctorRequested ||
+  const interactiveOperationRequested = nativeDoctorRequested ||
     argv.length === 0 ||
+    (argv[0] === "provider" && argv[1] === "models") ||
     (argv[0] === "setup" &&
-      (argv.length === 1 || argv[1] === "openai" ||
+      (argv.length === 1 || argv[1] === "byok" || argv[1] === "openai" ||
         argv[1] === "anthropic" || argv[1] === "kimi"));
-  const nativeOperationController = nativeOperationRequested
+  const interactiveOperationController = interactiveOperationRequested
     ? new AbortController()
     : undefined;
-  const cancelNativeOperation = (): void => {
-    nativeOperationController?.abort();
+  const cancelInteractiveOperation = (): void => {
+    interactiveOperationController?.abort();
   };
-  if (nativeOperationController !== undefined) {
-    process.once("SIGINT", cancelNativeOperation);
+  if (interactiveOperationController !== undefined) {
+    process.once("SIGINT", cancelInteractiveOperation);
   }
   const confirm = async (message: string): Promise<boolean> => {
     const terminal = createInterface({
@@ -1239,9 +1318,9 @@ export async function runCliProcess(
     try {
       const answer = await terminal.question(
         `${message}\nContinue? [y/N] `,
-        nativeOperationController === undefined
+        interactiveOperationController === undefined
           ? {}
-          : { signal: nativeOperationController.signal },
+          : { signal: interactiveOperationController.signal },
       );
       return answer.trim().toLowerCase() === "y" ||
         answer.trim().toLowerCase() === "yes";
@@ -1261,9 +1340,9 @@ export async function runCliProcess(
       const suffix = suggestion === undefined ? "" : ` [${suggestion}]`;
       const answer = (await terminal.question(
         `${message}${suffix}: `,
-        nativeOperationController === undefined
+        interactiveOperationController === undefined
           ? {}
-          : { signal: nativeOperationController.signal },
+          : { signal: interactiveOperationController.signal },
       )).trim();
       return answer.length > 0 ? answer : suggestion ?? null;
     } finally {
@@ -1308,9 +1387,9 @@ export async function runCliProcess(
       cwd: process.cwd(),
       interactive: processStdin.isTTY === true && processStdout.isTTY === true,
       automation: isAutomationEnvironment(process.env),
-      ...(nativeOperationController === undefined
+      ...(interactiveOperationController === undefined
         ? {}
-        : { signal: nativeOperationController.signal }),
+        : { signal: interactiveOperationController.signal }),
       confirm,
       promptText,
       selectChoice,
@@ -1386,12 +1465,24 @@ export async function runCliProcess(
       setupEnvironment: (input) => setupEnvironmentConnection(
         dataDirectory,
         { ...input, environment: process.env },
+        interactiveOperationController === undefined
+          ? {}
+          : { signal: interactiveOperationController.signal },
       ),
       setupCodex: (input) => setupCodexSubscription(dataDirectory, input),
       listProviders: async ({ includeBlocked }) =>
         listProviderSummaries(includeBlocked),
       discoverProviders: (query, signal) =>
         discoverProviderCatalog(query, signal),
+      discoverEnvironmentModels: (
+        providerId,
+        credentialEnvironmentVariable,
+        signal,
+      ) => discoverEnvironmentConnectionModels({
+        providerId,
+        credentialEnvironmentVariable,
+        environment: process.env,
+      }, signal === undefined ? {} : { signal }),
       detectProviders: (signal) =>
         detectLocalRuntimes(signal === undefined ? {} : { signal }),
       listAccounts: () => listAccountSummaries(dataDirectory),
@@ -1406,6 +1497,6 @@ export async function runCliProcess(
       disconnectAccount: (id) => disconnectAccount(dataDirectory, id),
     });
   } finally {
-    process.removeListener("SIGINT", cancelNativeOperation);
+    process.removeListener("SIGINT", cancelInteractiveOperation);
   }
 }

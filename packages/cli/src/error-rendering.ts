@@ -14,6 +14,7 @@ import {
 import {
   CodexOnboardingError,
   ConnectionLifecycleError,
+  EnvironmentConnectionError,
 } from "@recurs/app";
 
 import { RuntimeError } from "./runtime.js";
@@ -37,6 +38,7 @@ export function safeCliErrorMessage(error: unknown): string {
     error instanceof RuntimeError ||
     error instanceof LocalConnectionError ||
     error instanceof CodexOnboardingError ||
+    error instanceof EnvironmentConnectionError ||
     error instanceof ConnectionLifecycleError ||
     error instanceof CoordinatedRunError
   ) {

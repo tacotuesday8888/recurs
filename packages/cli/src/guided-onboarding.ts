@@ -2,6 +2,7 @@ import type { Writable } from "node:stream";
 
 import type {
   DiscoveredCatalogProvider,
+  EnvironmentModelDescriptor,
   LocalRuntimeDetection,
   ProviderCatalogSnapshot,
 } from "@recurs/providers";
@@ -230,6 +231,11 @@ export interface GuidedOnboardingPorts {
     query: string,
     signal?: AbortSignal,
   ): Promise<ProviderCatalogSnapshot>;
+  discoverEnvironmentModels?(
+    providerId: string,
+    credentialEnvironmentVariable: string,
+    signal?: AbortSignal,
+  ): Promise<readonly EnvironmentModelDescriptor[]>;
   executeCommand(argv: readonly string[]): Promise<number>;
 }
 
@@ -294,6 +300,61 @@ async function selectCatalogModel(
   return selected !== null && models.includes(selected) ? selected : null;
 }
 
+async function selectEnvironmentModel(
+  providerId: string,
+  label: string,
+  credentialEnvironmentVariable: string,
+  ports: GuidedOnboardingPorts,
+): Promise<string | null> {
+  if (ports.discoverEnvironmentModels === undefined) {
+    await writeOutput(
+      ports.stderr,
+      `Error: Authenticated model discovery is unavailable for ${label}\n`,
+    );
+    return null;
+  }
+  const discovered = await ports.discoverEnvironmentModels(
+    providerId,
+    credentialEnvironmentVariable,
+    ports.signal,
+  );
+  if (discovered.length === 0) {
+    await writeOutput(
+      ports.stderr,
+      `Error: The ${label} credential reported no available models\n`,
+    );
+    return null;
+  }
+  let models = discovered;
+  if (models.length > 30) {
+    const query = (await ports.promptText(
+      `Search ${models.length} credential-visible models for ${label}`,
+    ))?.trim().toLowerCase();
+    if (query === undefined) return null;
+    models = models.filter((model) =>
+      `${model.id} ${model.displayName}`.toLowerCase().includes(query)
+    ).slice(0, 30);
+    if (models.length === 0) {
+      await writeOutput(
+        ports.stderr,
+        `Error: No credential-visible ${label} models matched that search\n`,
+      );
+      return null;
+    }
+  }
+  const selected = await ports.selectChoice(
+    `Choose a credential-visible model for ${label}`,
+    models.map((model) => ({
+      id: model.id,
+      label: model.displayName,
+      detail: `${model.id} · ${model.maxInputTokens ?? "unknown"} input tokens`,
+    })),
+  );
+  return selected !== null && models.some((model) => model.id === selected)
+    ? selected
+    : null;
+}
+
 async function executeConnectionAction(
   action: GuidedConnectionAction,
   providers: readonly ProviderSummary[],
@@ -328,8 +389,6 @@ async function executeConnectionAction(
   if (action.kind === "byok") {
     const summary = providers.find((provider) => provider.id === action.providerId);
     const label = summary?.displayName ?? action.providerId;
-    const modelId = await selectCatalogModel(action.providerId, label, ports);
-    if (modelId === null) return 2;
     const suggestion = credentialEnvironmentSuggestion(action.providerId);
     const environmentVariable = (await ports.promptText(
       `Environment variable containing the ${label} credential`,
@@ -342,6 +401,15 @@ async function executeConnectionAction(
       );
       return 2;
     }
+    const modelId = action.providerId === "anthropic-api"
+      ? await selectEnvironmentModel(
+          action.providerId,
+          label,
+          environmentVariable,
+          ports,
+        )
+      : await selectCatalogModel(action.providerId, label, ports);
+    if (modelId === null) return 2;
     return await ports.executeCommand([
       "setup",
       "byok",

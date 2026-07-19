@@ -34,6 +34,13 @@ environment-variable, duplicate flag, policy, and billing validation happen
 before commit. The user must accept the fixed-origin, credential-storage, and
 billing disclosure.
 
+Anthropic setup uses the named environment credential to fetch the bounded
+official model list from the reviewed fixed origin. It fails closed on
+authentication, redirect, malformed data, transport failure, or a selected
+model absent from that credential-visible list. `recurs provider models` exposes
+the same read-only discovery in text or JSON. Other admitted environment-BYOK
+profiles still use public metadata or an exact user-supplied ID.
+
 The schema-v1 non-secret registry records:
 
 - provider, adapter, model, and stable connection identity;
@@ -66,8 +73,9 @@ credit for the key. `account disconnect` removes Recurs metadata only.
 - No key capture, Keychain storage, OAuth, token import, or provider-login flow.
 - No arbitrary base URLs, redirects, custom headers, or proxy environment
   configuration.
-- No provider-specific model discovery; the user supplies a valid model ID and
-  the provider validates it on request.
+- Authenticated provider-specific model discovery is implemented only for the
+  fixed Anthropic API profile; other providers validate the selected ID on the
+  first generation request.
 - No OpenAI Responses transport through this path.
 - A fingerprint is a change detector for high-entropy provider keys, not
   encryption or a password hashing scheme.

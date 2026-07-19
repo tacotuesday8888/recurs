@@ -9,6 +9,7 @@ import {
 } from "@recurs/contracts";
 import {
   ConnectionLifecycleError,
+  EnvironmentConnectionError,
 } from "@recurs/app";
 import type { EventSink } from "@recurs/core";
 import {
@@ -567,6 +568,121 @@ describe("runCli", () => {
     expect(stdout.value).toContain(
       "Connection: OpenRouter API BYOK · anthropic/claude-test",
     );
+    expect(stderr.value).toBe("");
+  });
+
+  it("selects an Anthropic model reported by the entered environment credential", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const selections = [
+      "byok:anthropic-api",
+      "claude-sonnet-visible",
+      "approved_for_me",
+    ];
+    let configured = false;
+    let discovered: readonly string[] | undefined;
+    let setupInput: unknown;
+    const workspaceRuntime = {
+      state: { type: "workspace", cwd: "/tmp/workspace", permissionMode: "ask_always" },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+    const sessionRuntime = {
+      state: { type: "session" },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+
+    expect(await runCli([], {
+      stdin: Readable.from(["/quit\n"]),
+      stdout,
+      stderr,
+      cwd: "/tmp/workspace",
+      interactive: true,
+      automation: false,
+      async createRuntime(_events, options) {
+        return options === undefined ? workspaceRuntime : sessionRuntime;
+      },
+      async listAccounts() {
+        return configured
+          ? [{
+              id: "byok-anthropic",
+              label: "Anthropic API BYOK",
+              providerId: "anthropic-api",
+              adapterId: "anthropic-messages" as const,
+              kind: "environment_model_provider" as const,
+              modelId: "claude-sonnet-visible",
+              primary: true,
+              account: "environment credential (value not stored)",
+              execution: "Act + Plan",
+              billingSources: ["metered_api" as const],
+            }]
+          : [];
+      },
+      async listProviders() {
+        return [{
+          id: "anthropic-api",
+          displayName: "Anthropic API",
+          status: "runnable_byok" as const,
+          supportStatus: "supported" as const,
+          adapterKind: "model_provider" as const,
+          accessKind: "api" as const,
+          protocol: "anthropic_messages" as const,
+          connectionOwner: "process_environment" as const,
+          billing: {
+            primarySource: "metered_api" as const,
+            possibleAdditionalSources: [],
+            providerFallback: "none" as const,
+          },
+          restrictions: [],
+        }];
+      },
+      async detectProviders() { return []; },
+      async discoverEnvironmentModels(providerId, environmentVariable) {
+        discovered = [providerId, environmentVariable];
+        return [{
+          id: "claude-sonnet-visible",
+          displayName: "Claude Sonnet Visible",
+          createdAt: "2026-07-01T00:00:00Z",
+          maxInputTokens: 200_000,
+          maxOutputTokens: 64_000,
+        }];
+      },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText(message, suggestion) {
+        expect(message).toContain("Environment variable");
+        expect(suggestion).toBe("ANTHROPIC_API_KEY");
+        return suggestion ?? null;
+      },
+      async confirm() { return true; },
+      async setupEnvironment(input) {
+        configured = true;
+        setupInput = input;
+        return {
+          id: "byok-anthropic",
+          label: "Anthropic API BYOK",
+          providerId: input.providerId,
+          modelId: input.modelId,
+          credentialEnvironmentVariable: input.credentialEnvironmentVariable,
+          primary: true,
+          billingSelection: input.billingSelection,
+        };
+      },
+    })).toBe(0);
+
+    expect(discovered).toEqual(["anthropic-api", "ANTHROPIC_API_KEY"]);
+    expect(setupInput).toMatchObject({
+      providerId: "anthropic-api",
+      modelId: "claude-sonnet-visible",
+      credentialEnvironmentVariable: "ANTHROPIC_API_KEY",
+    });
+    expect(stdout.value).toContain("Anthropic API BYOK · claude-sonnet-visible");
     expect(stderr.value).toBe("");
   });
 
@@ -1186,10 +1302,80 @@ describe("runCli", () => {
     expect(localErr.value).toBe("");
   });
 
+  it("renders credential-visible provider models in text and JSON", async () => {
+    const models = [{
+      id: "claude-sonnet-visible",
+      displayName: "Claude Sonnet Visible",
+      createdAt: "2026-07-01T00:00:00Z",
+      maxInputTokens: 200_000,
+      maxOutputTokens: 64_000,
+    }];
+    for (const json of [false, true]) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      let received: readonly string[] | undefined;
+      const argv = [
+        "provider", "models",
+        "--provider", "anthropic-api",
+        "--key-env", "ANTHROPIC_API_KEY",
+        ...(json ? ["--json"] : []),
+      ];
+      expect(await runCli(argv, {
+        stdout,
+        stderr,
+        async createRuntime() { throw new Error("runtime must not start"); },
+        async discoverEnvironmentModels(providerId, environmentVariable) {
+          received = [providerId, environmentVariable];
+          return models;
+        },
+      })).toBe(0);
+      expect(received).toEqual(["anthropic-api", "ANTHROPIC_API_KEY"]);
+      if (json) {
+        expect(JSON.parse(stdout.value)).toMatchObject({
+          version: 1,
+          providerId: "anthropic-api",
+          models: [{ id: "claude-sonnet-visible" }],
+        });
+      } else {
+        expect(stdout.value).toContain("Credential-visible models for anthropic-api");
+        expect(stdout.value).toContain(
+          "Claude Sonnet Visible — claude-sonnet-visible",
+        );
+        expect(stdout.value).toContain("Input: 200000 tokens");
+      }
+      expect(stderr.value).toBe("");
+    }
+  });
+
+  it("renders a safe provider-model authentication failure", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    expect(await runCli([
+      "provider", "models",
+      "--provider", "anthropic-api",
+      "--key-env", "ANTHROPIC_API_KEY",
+    ], {
+      stdout,
+      stderr,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async discoverEnvironmentModels() {
+        throw new EnvironmentConnectionError(
+          "credential_rejected",
+          "The provider rejected the environment credential",
+        );
+      },
+    })).toBe(2);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toBe(
+      "Error: The provider rejected the environment credential\n",
+    );
+  });
+
   it("rejects malformed provider/account list flags without calling services", async () => {
     for (const argv of [
       ["provider", "list", "--bad"],
       ["provider", "show"],
+      ["provider", "models", "--provider", "anthropic-api", "--key-env", "ANTHROPIC_CREDENTIAL"],
       ["account", "list", "--all"],
     ]) {
       const stdout = new TextOutput();

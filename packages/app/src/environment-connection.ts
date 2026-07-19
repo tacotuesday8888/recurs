@@ -7,6 +7,9 @@ import type {
 import {
   createEnvironmentProviderConfiguration,
   environmentCredentialFingerprint,
+  listEnvironmentProviderModels,
+  type EnvironmentModelDescriptor,
+  ProviderError,
 } from "@recurs/providers";
 
 import {
@@ -27,8 +30,12 @@ export class EnvironmentConnectionError extends Error {
     public readonly code:
       | "configuration_invalid"
       | "credential_unavailable"
+      | "credential_rejected"
       | "provider_unsupported"
-      | "billing_policy_blocked",
+      | "provider_unavailable"
+      | "model_unavailable"
+      | "billing_policy_blocked"
+      | "cancelled",
     message: string,
     options?: ErrorOptions,
   ) {
@@ -54,6 +61,17 @@ export interface EnvironmentConnectionConfiguration {
   readonly credentialEnvironmentVariable: string;
   readonly primary: boolean;
   readonly billingSelection: BillingSelectionMode;
+}
+
+export interface EnvironmentConnectionDependencies {
+  readonly fetch?: typeof globalThis.fetch;
+  readonly signal?: AbortSignal;
+}
+
+export interface DiscoverEnvironmentConnectionModelsInput {
+  readonly providerId: string;
+  readonly credentialEnvironmentVariable: string;
+  readonly environment: Readonly<Record<string, string | undefined>>;
 }
 
 export type EnvironmentConnectionVerification =
@@ -128,9 +146,61 @@ function safeFailure(error: unknown): EnvironmentConnectionError {
   );
 }
 
+function modelDiscoveryFailure(error: unknown): EnvironmentConnectionError {
+  if (error instanceof EnvironmentConnectionError) return error;
+  if (error instanceof ProviderError) {
+    const code = error.code === "authentication"
+      ? "credential_rejected"
+      : error.code === "cancelled"
+      ? "cancelled"
+      : "provider_unavailable";
+    const message = code === "credential_rejected"
+      ? "The provider rejected the environment credential"
+      : code === "cancelled"
+      ? "Provider model verification was cancelled"
+      : "The provider model catalog could not be verified";
+    return new EnvironmentConnectionError(code, message, { cause: error });
+  }
+  return new EnvironmentConnectionError(
+    "configuration_invalid",
+    "BYOK credential or provider configuration is invalid",
+    { cause: error },
+  );
+}
+
+export async function discoverEnvironmentConnectionModels(
+  input: DiscoverEnvironmentConnectionModelsInput,
+  dependencies: EnvironmentConnectionDependencies = {},
+): Promise<readonly EnvironmentModelDescriptor[]> {
+  if (!validCredentialEnvironmentVariable(input.credentialEnvironmentVariable)) {
+    throw new EnvironmentConnectionError(
+      "configuration_invalid",
+      "BYOK credential environment-variable name is invalid",
+    );
+  }
+  const apiKey = input.environment[input.credentialEnvironmentVariable];
+  if (apiKey === undefined || apiKey.length === 0) {
+    throw new EnvironmentConnectionError(
+      "credential_unavailable",
+      `Credential environment variable ${input.credentialEnvironmentVariable} is not set`,
+    );
+  }
+  try {
+    return await listEnvironmentProviderModels({
+      providerId: input.providerId,
+      apiKey,
+      ...(dependencies.fetch === undefined ? {} : { fetch: dependencies.fetch }),
+      ...(dependencies.signal === undefined ? {} : { signal: dependencies.signal }),
+    });
+  } catch (error) {
+    throw modelDiscoveryFailure(error);
+  }
+}
+
 export async function setupEnvironmentConnection(
   dataDirectory: string,
   input: SetupEnvironmentConnectionInput,
+  dependencies: EnvironmentConnectionDependencies = {},
 ): Promise<EnvironmentConnectionConfiguration> {
   if (
     !MODEL_ID.test(input.modelId) ||
@@ -174,6 +244,19 @@ export async function setupEnvironmentConnection(
       "BYOK credential or provider configuration is invalid",
       { cause: error },
     );
+  }
+  if (bound.provider.adapterId === "anthropic-messages") {
+    const models = await discoverEnvironmentConnectionModels({
+      providerId: input.providerId,
+      credentialEnvironmentVariable: input.credentialEnvironmentVariable,
+      environment: input.environment,
+    }, dependencies);
+    if (!models.some((model) => model.id === input.modelId)) {
+      throw new EnvironmentConnectionError(
+        "model_unavailable",
+        "The selected model was not reported for this provider credential",
+      );
+    }
   }
   const now = input.now ?? new Date().toISOString();
   const billingSelection = selection(input.billingSelection, entry, now);
