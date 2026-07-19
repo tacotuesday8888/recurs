@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { access, chmod, link, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -45,6 +46,27 @@ async function writeConfiguration(
   await chmod(file, 0o600);
 }
 
+async function writeProjectConfiguration(
+  workspace: string,
+  overrides: Record<string, unknown> = {},
+): Promise<void> {
+  const config = path.join(workspace, ".recurs");
+  await mkdir(config, { recursive: true });
+  const file = path.join(config, "mcp-servers.json");
+  await writeFile(file, JSON.stringify({
+    version: 1,
+    servers: [{
+      id: "project-server",
+      description: "Project-owned deterministic tools",
+      command: process.execPath,
+      args: [fixture],
+      network: "deny",
+      ...overrides,
+    }],
+  }), { mode: 0o644 });
+  await chmod(file, 0o644);
+}
+
 function context(
   cwd: string,
   signal = new AbortController().signal,
@@ -81,6 +103,187 @@ afterEach(async () => {
 });
 
 describe("McpServerCatalog", () => {
+  it("keeps project servers disabled until exact digest-bound trust persists", async () => {
+    const data = await root();
+    const workspace = await root();
+    const projectData = path.join(data, "project-data");
+    await writeProjectConfiguration(workspace);
+
+    const catalog = await McpServerCatalog.load({
+      dataDirectory: data,
+      workspace,
+      projectDataDirectory: projectData,
+    });
+    expect(catalog.snapshot()).toMatchObject({
+      projectTrust: "untrusted",
+      servers: [{
+        id: "project-server",
+        source: "project",
+        enabled: false,
+      }],
+    });
+    expect(catalog.contextInstructions().join("\n")).not.toContain("project-server");
+    const tool = catalog.createTool();
+    expect(() => tool.execute(
+      tool.parse({ server: "project-server", action: "list_tools" }),
+      context(workspace),
+    )).toThrow("untrusted");
+
+    await catalog.trustProject();
+    expect(catalog.snapshot()).toMatchObject({
+      projectTrust: "trusted",
+      servers: [{ enabled: true }],
+    });
+    expect(catalog.contextInstructions().join("\n")).toContain("project-server");
+    await catalog.close();
+
+    const restarted = await McpServerCatalog.load({
+      dataDirectory: data,
+      workspace,
+      projectDataDirectory: projectData,
+    });
+    expect(restarted.snapshot().projectTrust).toBe("trusted");
+    expect(restarted.snapshot().servers[0]?.enabled).toBe(true);
+    await restarted.close();
+  });
+
+  it("invalidates persistent project trust when exact configuration bytes change", async () => {
+    const data = await root();
+    const workspace = await root();
+    const projectData = path.join(data, "project-data");
+    await writeProjectConfiguration(workspace);
+    const loaded = await McpServerCatalog.load({
+      dataDirectory: data,
+      workspace,
+      projectDataDirectory: projectData,
+    });
+    await writeProjectConfiguration(workspace, {
+      description: "Changed before trust",
+    });
+    await expect(loaded.trustProject()).rejects.toThrow("changed");
+    expect(loaded.snapshot().projectTrust).toBe("stale");
+    await loaded.close();
+
+    const catalog = await McpServerCatalog.load({
+      dataDirectory: data,
+      workspace,
+      projectDataDirectory: projectData,
+    });
+    await catalog.trustProject();
+    await writeProjectConfiguration(workspace, {
+      description: "Changed after trust",
+    });
+    const tool = catalog.createTool();
+    await expect(tool.preflight!(
+      tool.parse({ server: "project-server", action: "list_tools" }),
+      context(workspace),
+    )).rejects.toThrow("changed");
+    expect(catalog.snapshot().projectTrust).toBe("stale");
+    await catalog.close();
+
+    const changed = await McpServerCatalog.load({
+      dataDirectory: data,
+      workspace,
+      projectDataDirectory: projectData,
+    });
+    expect(changed.snapshot()).toMatchObject({
+      projectTrust: "stale",
+      servers: [{ enabled: false }],
+    });
+    await changed.untrustProject();
+    expect(changed.snapshot().projectTrust).toBe("untrusted");
+    await changed.close();
+  });
+
+  it("revokes active and queued project operations before removing durable trust", async () => {
+    const data = await root();
+    const workspace = await root();
+    const projectData = path.join(data, "project-data");
+    const journal = path.join(data, "project-revocation.log");
+    await writeProjectConfiguration(workspace, {
+      args: [fixture, "hang-tool", journal],
+    });
+    const catalog = await McpServerCatalog.load({
+      dataDirectory: data,
+      workspace,
+      projectDataDirectory: projectData,
+    });
+    await catalog.trustProject();
+    const tool = catalog.createTool();
+    const hanging = tool.execute(
+      tool.parse({
+        server: "project-server",
+        action: "call_tool",
+        tool: "hang",
+      }),
+      context(workspace),
+    );
+    await expect.poll(async () => (await lines(journal)).some((line) =>
+      line.startsWith("started:")
+    )).toBe(true);
+    const pid = Number.parseInt(
+      (await lines(journal)).find((line) => line.startsWith("init:"))!.slice(5),
+      10,
+    );
+    const queued = tool.execute(
+      tool.parse({ server: "project-server", action: "list_tools" }),
+      context(workspace),
+    );
+    const hangingResult = expect(hanging).rejects.toMatchObject({ code: "cancelled" });
+    const queuedResult = expect(queued).rejects.toThrow("untrusted");
+
+    await catalog.untrustProject();
+    await hangingResult;
+    await queuedResult;
+    expect(processExists(pid)).toBe(false);
+    expect(catalog.snapshot()).toMatchObject({
+      projectTrust: "untrusted",
+      servers: [{ enabled: false, state: "idle" }],
+    });
+    await catalog.close();
+
+    const restarted = await McpServerCatalog.load({
+      dataDirectory: data,
+      workspace,
+      projectDataDirectory: projectData,
+    });
+    expect(restarted.snapshot().projectTrust).toBe("untrusted");
+    await restarted.close();
+  });
+
+  it("fails project configuration closed without blocking safe user servers", async () => {
+    const data = await root();
+    const workspace = await root();
+    const projectData = path.join(data, "project-data");
+    await writeConfiguration(data);
+    await writeProjectConfiguration(workspace, { id: "test-server" });
+    const collision = await McpServerCatalog.load({
+      dataDirectory: data,
+      workspace,
+      projectDataDirectory: projectData,
+    });
+    expect(collision.snapshot().projectTrust).toBe("invalid");
+    expect(collision.snapshot().warnings.join("\n")).toContain("conflicts");
+    expect(collision.snapshot().servers.find((server) => server.source === "user"))
+      .toMatchObject({ enabled: true });
+    expect(collision.snapshot().servers.find((server) => server.source === "project"))
+      .toMatchObject({ enabled: false });
+    await expect(collision.trustProject()).rejects.toThrow("not trustable");
+    await collision.close();
+
+    const unsafe = await root();
+    await writeProjectConfiguration(unsafe);
+    await chmod(path.join(unsafe, ".recurs", "mcp-servers.json"), 0o666);
+    const malformed = await McpServerCatalog.load({
+      dataDirectory: data,
+      workspace: unsafe,
+      projectDataDirectory: path.join(data, "unsafe-project"),
+    });
+    expect(malformed.snapshot().projectTrust).toBe("invalid");
+    expect(malformed.snapshot().warnings).not.toHaveLength(0);
+    await malformed.close();
+  });
+
   it("loads private user configuration and renders it without starting a server", async () => {
     const data = await root();
     await writeConfiguration(data);
@@ -540,5 +743,77 @@ describe("McpServerCatalog", () => {
       callId: "mcp-list",
     }));
     await runtime.close();
+  });
+
+  it("gates project trust and exposes a trusted project server to the real loop", async () => {
+    const data = await root();
+    const workspace = await root();
+    await writeProjectConfiguration(workspace);
+    await writeFile(path.join(workspace, "README.md"), "# Project MCP fixture\n");
+    await runProcess("git", ["init"], { cwd: workspace });
+    await runProcess("git", ["add", "README.md", ".recurs/mcp-servers.json"], {
+      cwd: workspace,
+    });
+    await runProcess("git", [
+      "-c", "user.name=Recurs Test",
+      "-c", "user.email=recurs@example.invalid",
+      "commit", "-m", "initial",
+    ], { cwd: workspace });
+    const provider = new ScriptedProvider([
+      [{
+        type: "tool_call",
+        call: {
+          id: "project-mcp-list",
+          name: "mcp",
+          arguments: { server: "project-server", action: "list_tools" },
+        },
+      }, { type: "done", stopReason: "tool_calls" }],
+      [{ type: "text_delta", text: "Project MCP tools inspected." },
+        { type: "done", stopReason: "complete" }],
+    ]);
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: data,
+        provider,
+        toolSecurityProfile: "local_guarded",
+        skillHomeDirectory: path.join(data, "empty-home"),
+      },
+    );
+    runtime.setConfirmHandler(async () => true);
+    await expect(runtime.submit("/mcp trust-project")).resolves.toMatchObject({
+      type: "message",
+      level: "error",
+    });
+    const localUser = createHostInvocation({
+      invocation: "repl",
+      userPresent: true,
+      remote: false,
+      scripted: false,
+      embedding: "cli",
+    });
+    await expect(runtime.submit("/mcp trust-project", localUser)).resolves
+      .toMatchObject({
+        type: "message",
+        text: expect.stringContaining("trusted"),
+      });
+    await expect(runtime.submit("Inspect the project MCP tools", localUser)).resolves
+      .toMatchObject({ finalText: "Project MCP tools inspected." });
+    expect(provider.requests[0]?.messages[0]?.content).toContain("project-server");
+    expect(JSON.stringify(provider.requests[1]?.messages)).toContain("inspect_environment");
+    await runtime.close();
+
+    const restarted = await McpServerCatalog.load({
+      dataDirectory: data,
+      workspace,
+      projectDataDirectory: path.join(
+        data,
+        "projects",
+        createHash("sha256").update(await realpath(workspace)).digest("hex").slice(0, 24),
+      ),
+    });
+    expect(restarted.snapshot().projectTrust).toBe("trusted");
+    await restarted.close();
   });
 });
