@@ -29,7 +29,7 @@
     "native:engine-bundle-smoke": "node scripts/check-native-engine-bundle.mjs",
     "native:lint-resources": "plutil -lint native/macos/Resources/*.plist native/macos/Resources/*.entitlements",
     "native:smoke": "node scripts/check-native-source-launcher.mjs",
-    "native:test": "swift test --package-path native/macos",
+    "native:test": "swift test --package-path native/macos --no-parallel",
     "test": "vitest run",
     "recurs": "node packages/cli/dist/main.js"
   },
