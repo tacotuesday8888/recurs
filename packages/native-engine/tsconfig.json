@@ -1,0 +1,28 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../app"
+    },
+    {
+      "path": "../auth"
+    },
+    {
+      "path": "../cli"
+    },
+    {
+      "path": "../contracts"
+    }
+  ]
+}

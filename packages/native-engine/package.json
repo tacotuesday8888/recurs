@@ -1,0 +1,15 @@
+{
+  "name": "@recurs/native-engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@recurs/app": "0.0.0",
+    "@recurs/auth": "0.0.0",
+    "@recurs/cli": "0.0.0",
+    "@recurs/contracts": "0.0.0"
+  }
+}

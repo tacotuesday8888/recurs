@@ -13,7 +13,13 @@
   ],
   "references": [
     {
+      "path": "../app"
+    },
+    {
       "path": "../providers"
+    },
+    {
+      "path": "../runtimes"
     },
     {
       "path": "../tools"

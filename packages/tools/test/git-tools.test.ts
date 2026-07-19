@@ -90,6 +90,10 @@ describe("credential-safe Git inspection", () => {
     expect(diff.output).toContain("safe after");
     expect(diff.output).not.toContain("GIT_CANARY");
     expect(diff.output).not.toContain(".ENV");
+    expect(status.metadata?.sources).toEqual(["inspected git status"]);
+    expect(diff.metadata?.sources).toEqual([
+      "inspected working-tree git diff for .",
+    ]);
   });
 
   it("excludes credential directory names used as tracked Git nodes", async () => {

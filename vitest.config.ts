@@ -11,6 +11,12 @@ export default defineConfig({
       "@recurs/providers": fileURLToPath(
         new URL("./packages/providers/src/index.ts", import.meta.url),
       ),
+      "@recurs/app": fileURLToPath(
+        new URL("./packages/app/src/index.ts", import.meta.url),
+      ),
+      "@recurs/runtimes": fileURLToPath(
+        new URL("./packages/runtimes/src/index.ts", import.meta.url),
+      ),
       "@recurs/tools": fileURLToPath(
         new URL("./packages/tools/src/index.ts", import.meta.url),
       ),
@@ -24,6 +30,7 @@ export default defineConfig({
   },
   test: {
     include: ["packages/*/test/**/*.test.ts", "tests/e2e/**/*.test.ts"],
+    maxWorkers: 4,
     testTimeout: 10_000,
     hookTimeout: 10_000,
   },

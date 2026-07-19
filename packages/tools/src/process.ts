@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { realpathSync } from "node:fs";
+import path from "node:path";
 
 import { createIsolatedProcessEnvironment } from "./process-environment.js";
 import { ToolError } from "./types.js";
@@ -8,6 +10,30 @@ const PROCESS_GROUP_KILL_WAIT_MS = 1_000;
 const PROCESS_GROUP_POLL_MS = 10;
 const PROCESS_PIPE_DRAIN_GRACE_MS = 250;
 
+export const TOOL_CHILD_STDIO = Object.freeze([
+  "pipe",
+  "pipe",
+  "pipe",
+] as const);
+
+export function assertToolChildStdio(stdio: readonly unknown[]): void {
+  if (
+    stdio.length !== TOOL_CHILD_STDIO.length ||
+    stdio.some((descriptor, index) => descriptor !== TOOL_CHILD_STDIO[index])
+  ) {
+    throw new ToolError(
+      "process_failed",
+      "The tool child stdio boundary is invalid",
+    );
+  }
+}
+
+function createToolChildStdio(): ["pipe", "pipe", "pipe"] {
+  const stdio: ["pipe", "pipe", "pipe"] = [...TOOL_CHILD_STDIO];
+  assertToolChildStdio(stdio);
+  return stdio;
+}
+
 export interface RunProcessOptions {
   cwd: string;
   stdin?: string;
@@ -15,12 +41,121 @@ export interface RunProcessOptions {
   maxOutputBytes?: number;
   acceptableExitCodes?: readonly number[];
   timeoutMs?: number;
+  sandbox?: {
+    readonly mode: "workspace";
+    readonly network: "allow" | "deny";
+  };
 }
 
 export interface ProcessResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+}
+
+interface ProcessLaunch {
+  readonly command: string;
+  readonly args: readonly string[];
+}
+
+const DARWIN_SANDBOX_PROFILE = [
+  "(version 1)",
+  "(deny default)",
+  "(allow process-exec process-fork)",
+  "(allow process-info* (target same-sandbox))",
+  "(allow signal (target same-sandbox))",
+  "(allow sysctl-read)",
+  "(allow sysctl-write (sysctl-name \"kern.grade_cputype\"))",
+  "(allow mach-lookup)",
+  "(allow ipc-posix*)",
+  "(allow iokit-open)",
+  "(allow pseudo-tty)",
+  "(allow file-ioctl)",
+  "(allow user-preference-read)",
+  "(allow file-read*",
+  "  (require-all",
+  '    (subpath "/")',
+  '    (require-not (literal (param "HOME_SSH")))',
+  '    (require-not (subpath (param "HOME_SSH")))',
+  '    (require-not (literal (param "HOME_AWS")))',
+  '    (require-not (subpath (param "HOME_AWS")))',
+  '    (require-not (literal (param "HOME_GCLOUD")))',
+  '    (require-not (subpath (param "HOME_GCLOUD")))',
+  '    (require-not (literal (param "HOME_KUBE")))',
+  '    (require-not (subpath (param "HOME_KUBE")))',
+  '    (require-not (literal (param "HOME_DOCKER")))',
+  '    (require-not (subpath (param "HOME_DOCKER")))',
+  '    (require-not (literal (param "HOME_KEYCHAINS")))',
+  '    (require-not (subpath (param "HOME_KEYCHAINS")))',
+  '    (require-not (literal (param "HOME_NETRC")))',
+  '    (require-not (literal (param "HOME_NPMRC")))',
+  '    (require-not (literal (param "HOME_GIT_CREDENTIALS")))',
+  "  )",
+  ")",
+  '(allow file-write* (subpath (param "WORKSPACE")))',
+  '(allow file-write* (subpath (param "PRIVATE_ROOT")))',
+  '(allow file-write-data (literal "/dev/null"))',
+].join("\n");
+
+function sandboxLaunch(
+  command: string,
+  args: readonly string[],
+  options: NonNullable<RunProcessOptions["sandbox"]>,
+  environment: Awaited<ReturnType<typeof createIsolatedProcessEnvironment>>,
+): ProcessLaunch {
+  if (process.platform !== "darwin") {
+    throw new ToolError(
+      "sandbox_unavailable",
+      `Workspace sandboxing is unavailable on ${process.platform}`,
+    );
+  }
+  const configuredHostHome = process.env.HOME;
+  if (configuredHostHome === undefined || !path.isAbsolute(configuredHostHome)) {
+    throw new ToolError(
+      "sandbox_unavailable",
+      "Workspace sandboxing requires a canonical host home",
+    );
+  }
+  let hostHome: string;
+  let workspaceRoot: string;
+  let privateRoot: string;
+  try {
+    hostHome = realpathSync(configuredHostHome);
+    workspaceRoot = realpathSync(environment.workspaceRoot);
+    privateRoot = realpathSync(environment.privateRoot);
+  } catch (error) {
+    throw new ToolError(
+      "sandbox_unavailable",
+      "Workspace sandboxing could not canonicalize its filesystem roots",
+      { cause: error },
+    );
+  }
+  const profile = options.network === "deny"
+    ? DARWIN_SANDBOX_PROFILE
+    : `${DARWIN_SANDBOX_PROFILE}\n(allow network*)`;
+  const definitions = [
+    ["WORKSPACE", workspaceRoot],
+    ["PRIVATE_ROOT", privateRoot],
+    ["HOME_SSH", path.join(hostHome, ".ssh")],
+    ["HOME_AWS", path.join(hostHome, ".aws")],
+    ["HOME_GCLOUD", path.join(hostHome, ".config", "gcloud")],
+    ["HOME_KUBE", path.join(hostHome, ".kube")],
+    ["HOME_DOCKER", path.join(hostHome, ".docker")],
+    ["HOME_KEYCHAINS", path.join(hostHome, "Library", "Keychains")],
+    ["HOME_NETRC", path.join(hostHome, ".netrc")],
+    ["HOME_NPMRC", path.join(hostHome, ".npmrc")],
+    ["HOME_GIT_CREDENTIALS", path.join(hostHome, ".git-credentials")],
+  ] as const;
+  return {
+    command: "/usr/bin/sandbox-exec",
+    args: [
+      "-p",
+      profile,
+      ...definitions.flatMap(([key, value]) => ["-D", `${key}=${value}`]),
+      command,
+      ...args,
+    ],
+  };
 }
 
 export function assertSupportedProcessPlatform(
@@ -153,18 +288,26 @@ export async function runProcess(
   }
   const isolatedEnvironment = await createIsolatedProcessEnvironment(
     options.cwd,
+    process.env,
+    {
+      seedAppleDeveloperToolCache:
+        command === "git" || command === "/usr/bin/git",
+    },
   );
 
   try {
     if (isAborted(options.signal)) {
       throw new ToolError("cancelled", `${command} was cancelled`);
     }
+    const launch = options.sandbox === undefined
+      ? { command, args }
+      : sandboxLaunch(command, args, options.sandbox, isolatedEnvironment);
     return await new Promise<ProcessResult>((resolve, reject) => {
-      const child = spawn(command, [...args], {
+      const child = spawn(launch.command, [...launch.args], {
         cwd: options.cwd,
         env: isolatedEnvironment.environment,
         shell: false,
-        stdio: ["pipe", "pipe", "pipe"],
+        stdio: createToolChildStdio(),
         windowsHide: true,
         detached: true,
       });

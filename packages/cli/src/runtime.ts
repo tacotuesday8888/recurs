@@ -48,6 +48,24 @@ export interface RuntimeDependencies {
   confirm(message: string): Promise<boolean>;
   now?: () => string;
   promptUnavailableMessage?: string;
+  providerGuide?(query: string, signal: AbortSignal): Promise<string>;
+}
+
+const MAX_CONFIRMATION_TEXT_LENGTH = 8_192;
+const TERMINAL_CONTROL = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u;
+
+function terminalSafeConfirmationText(message: string): string {
+  let safe = "";
+  for (const character of message) {
+    const rendered = TERMINAL_CONTROL.test(character)
+      ? `\\u{${character.codePointAt(0)!.toString(16).toUpperCase()}}`
+      : character;
+    if (safe.length + rendered.length > MAX_CONFIRMATION_TEXT_LENGTH) {
+      return `${safe}…`;
+    }
+    safe += rendered;
+  }
+  return safe;
 }
 
 function isWorkspaceShellState(
@@ -56,13 +74,13 @@ function isWorkspaceShellState(
   return "type" in state && state.type === "workspace";
 }
 
-function interactiveInvocation(): HostInvocation {
+function untrustedProgrammaticInvocation(): HostInvocation {
   return createHostInvocation({
-    invocation: "repl",
-    userPresent: true,
+    invocation: "one_shot",
+    userPresent: false,
     remote: false,
-    scripted: false,
-    embedding: "cli",
+    scripted: true,
+    embedding: "sdk",
   });
 }
 
@@ -72,12 +90,17 @@ export class RecursRuntime {
   #session: SessionState | null;
   #workspace: WorkspaceShellState | null;
   #runner: CoordinatedRuntime | null;
+  readonly #coordinator: RunCoordinator | null;
 
   constructor(
     private readonly dependencies: RuntimeDependencies,
     initialState: SessionState | WorkspaceShellState,
   ) {
     this.#confirm = dependencies.confirm;
+    this.#coordinator = dependencies.coordinator ??
+      (dependencies.loop === undefined
+        ? null
+        : new CompatibilityRunCoordinator(dependencies.loop));
     if (isWorkspaceShellState(initialState)) {
       this.#session = null;
       this.#workspace = initialState;
@@ -85,22 +108,28 @@ export class RecursRuntime {
     } else {
       this.#session = initialState;
       this.#workspace = null;
-      const coordinator = dependencies.coordinator ??
-        (dependencies.loop === undefined
-          ? null
-          : new CompatibilityRunCoordinator(dependencies.loop));
-      this.#runner = coordinator === null
+      this.#runner = this.#coordinator === null
         ? null
         : new CoordinatedRuntime(
-            { sessions: dependencies.sessions, coordinator },
+            { sessions: dependencies.sessions, coordinator: this.#coordinator },
             initialState,
           );
     }
   }
 
-  #setSession(session: SessionState): void {
+  #activateSession(session: SessionState): void {
     this.#session = session;
-    this.#runner?.replaceSession(session);
+    this.#workspace = null;
+    if (this.#coordinator === null) {
+      this.#runner = null;
+    } else if (this.#runner === null) {
+      this.#runner = new CoordinatedRuntime(
+        { sessions: this.dependencies.sessions, coordinator: this.#coordinator },
+        session,
+      );
+    } else {
+      this.#runner.replaceSession(session);
+    }
   }
 
   get state():
@@ -127,7 +156,7 @@ export class RecursRuntime {
   }
 
   confirm(message: string): Promise<boolean> {
-    return this.#confirm(message);
+    return this.#confirm(terminalSafeConfirmationText(message));
   }
 
   currentSignal(): AbortSignal {
@@ -142,9 +171,10 @@ export class RecursRuntime {
     return true;
   }
 
-  #commandContext(): CommandContext {
+  #commandContext(invocation: HostInvocation): CommandContext {
     const context: CommandContext = {
       session: this.session,
+      invocation,
       now: () => this.dependencies.now?.() ?? new Date().toISOString(),
       confirm: (message) => this.confirm(message),
       cancelActiveRun: async () => this.cancel(),
@@ -154,13 +184,13 @@ export class RecursRuntime {
           context.session,
           record,
         );
-        this.#setSession(context.session);
+        this.#activateSession(context.session);
       },
     };
     return context;
   }
 
-  #workspaceContext(): CommandContext {
+  #workspaceContext(invocation: HostInvocation): CommandContext {
     const workspace = this.#workspace;
     if (workspace === null) {
       throw new RuntimeError("invalid_input", "Workspace shell is unavailable");
@@ -173,6 +203,7 @@ export class RecursRuntime {
     });
     const context: CommandContext = {
       session: transient,
+      invocation,
       now: () => this.dependencies.now?.() ?? new Date().toISOString(),
       confirm: (message) => this.confirm(message),
       cancelActiveRun: async () => this.cancel(),
@@ -190,6 +221,7 @@ export class RecursRuntime {
   async #submitWorkspaceCommand(
     name: string,
     args: string,
+    invocation: HostInvocation,
   ): Promise<CommandResult> {
     const workspace = this.#workspace;
     if (workspace === null) {
@@ -201,9 +233,11 @@ export class RecursRuntime {
         level: "info",
         text: [
           "/help                         Show workspace commands",
-          "/connect                      Set up a model connection (coming next)",
+          "/provider [search]            Discover, detect, and connect providers",
+          "/connect                      Alias for /provider",
           "/model                        Inspect model configuration",
           "/permissions [mode]           Set the next-session permission default",
+          "/agents [profiles]            Explain modes or inspect agent profiles",
           "/status                       Show workspace configuration",
           "/resume                       List historical sessions",
           "/init                         Create AGENTS.md without overwriting it",
@@ -224,31 +258,51 @@ export class RecursRuntime {
         ].join("\n"),
       };
     }
+    if ((name === "provider" || name === "connect") && this.dependencies.providerGuide !== undefined) {
+      return {
+        type: "message",
+        level: "info",
+        text: await this.dependencies.providerGuide(args, this.currentSignal()),
+      };
+    }
     if (name === "connect") {
       return {
         type: "message",
         level: "warning",
-        text: "Provider onboarding is the next implementation slice; no credential was requested or stored.",
+        text: [
+          "Choose one setup path, then restart Recurs:",
+          "  recurs setup codex",
+          "  recurs setup local --url http://127.0.0.1:11434/v1 --model <model-id>",
+          "  RECURS_PROVIDER=<id> RECURS_MODEL=<id> RECURS_API_KEY=<key> recurs",
+          "Codex delegates sign-in to its official runtime; local setup is credential-free; environment BYOK is ephemeral.",
+        ].join("\n"),
       };
     }
     if (name === "model") {
       return {
         type: "message",
         level: "warning",
-        text: "No model connection is configured. Run recurs setup after onboarding is available.",
+        text: "No model connection is configured. Use /connect for Codex, local, or ephemeral environment BYOK instructions.",
       };
     }
-    if (name === "resume" && args.trim().length > 0) {
+    if (
+      (name === "agents" || name === "agent") &&
+      args.trim().toLowerCase() !== "profiles"
+    ) {
       return {
         type: "message",
-        level: "error",
-        text: "Resuming model work requires a configured provider connection",
+        level: args.trim().length === 0 ? "info" : "warning",
+        text: args.trim().length === 0
+          ? "Agent modes are session policy. Connect a model first; new sessions default to Balanced and currently inherit their pinned backend."
+          : "Connect a model before changing the agent operating mode.",
       };
     }
     const allowed = new Set([
       "help",
       "permissions",
       "permission",
+      "agents",
+      "agent",
       "resume",
       "init",
       "diff",
@@ -263,16 +317,21 @@ export class RecursRuntime {
         text: `/${name} requires an active model session`,
       };
     }
-    return this.dependencies.commands.execute(
+    const context = this.#workspaceContext(invocation);
+    const result = await this.dependencies.commands.execute(
       { name, args },
-      this.#workspaceContext(),
+      context,
     );
+    if (context.session.id !== "workspace-shell") {
+      this.#activateSession(context.session);
+    }
+    return result;
   }
 
   async #runPrompt(
     prompt: string,
     executionMode?: "act" | "plan",
-    invocation: HostInvocation = interactiveInvocation(),
+    invocation: HostInvocation = untrustedProgrammaticInvocation(),
   ): Promise<RunResult> {
     if (this.#activeController !== null) {
       throw new RuntimeError("busy", "An agent run is already active");
@@ -296,7 +355,7 @@ export class RecursRuntime {
       return result;
     } catch (error) {
       try {
-        this.#setSession(
+        this.#activateSession(
           await this.dependencies.sessions.loadState(this.#session.id),
         );
       } catch {
@@ -310,7 +369,7 @@ export class RecursRuntime {
 
   async submit(
     input: string,
-    invocation: HostInvocation = interactiveInvocation(),
+    invocation: HostInvocation = untrustedProgrammaticInvocation(),
   ): Promise<CommandResult | RunResult> {
     const trimmed = input.trim();
     if (trimmed.length === 0) {
@@ -319,7 +378,7 @@ export class RecursRuntime {
     const parsed = parseCommand(trimmed);
     if (parsed !== null) {
       if (this.#workspace !== null) {
-        return this.#submitWorkspaceCommand(parsed.name, parsed.args);
+        return this.#submitWorkspaceCommand(parsed.name, parsed.args, invocation);
       }
       if (
         this.#activeController !== null &&
@@ -332,16 +391,29 @@ export class RecursRuntime {
           "Only /cancel, /status, and /help are available during an active run",
         );
       }
+      if (
+        (parsed.name === "provider" || parsed.name === "connect") &&
+        this.dependencies.providerGuide !== undefined
+      ) {
+        return {
+          type: "message",
+          level: "info",
+          text: await this.dependencies.providerGuide(
+            parsed.args,
+            this.currentSignal(),
+          ),
+        };
+      }
       const ownsController =
         this.#activeController === null && parsed.name !== "cancel";
       if (ownsController) {
         this.#activeController = new AbortController();
       }
-      const context = this.#commandContext();
+      const context = this.#commandContext(invocation);
       let result: CommandResult;
       try {
         result = await this.dependencies.commands.execute(parsed, context);
-        this.#setSession(context.session);
+        this.#activateSession(context.session);
       } finally {
         if (ownsController) {
           this.#activeController = null;

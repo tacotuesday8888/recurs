@@ -12,6 +12,8 @@ import {
   type Tool,
   type ToolContext,
   type ToolResult,
+  type ToolPolicy,
+  type PermissionRisk,
   type ToolSecurityProfile,
 } from "./types.js";
 
@@ -19,10 +21,19 @@ type RegisteredTool = Tool<unknown>;
 
 function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
   const preflight = tool.preflight?.bind(tool);
+  const isMutating = tool.isMutating?.bind(tool);
   return {
     definition: tool.definition,
     executionClass: tool.executionClass,
     mutating: tool.mutating,
+    checkpointOwnership: tool.checkpointOwnership ?? "registry",
+    ...(isMutating === undefined
+      ? {}
+      : {
+          isMutating(input: unknown, context: ToolContext) {
+            return isMutating(input as Input, context);
+          },
+        }),
     parse(input) {
       return tool.parse(input);
     },
@@ -42,6 +53,23 @@ function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
   };
 }
 
+const PERMISSION_RISK_RANK = Object.freeze({
+  normal: 0,
+  elevated: 1,
+  destructive: 2,
+} satisfies Record<
+  PermissionRisk,
+  number
+>);
+
+function profileAllowsIntent(
+  policy: ToolPolicy,
+  intent: ReturnType<RegisteredTool["permissions"]>[number],
+): boolean {
+  return policy.allowedCategories.includes(intent.category) &&
+    PERMISSION_RISK_RANK[intent.risk] <= PERMISSION_RISK_RANK[policy.maxRisk];
+}
+
 async function executeTool(
   tool: RegisteredTool,
   name: string,
@@ -56,6 +84,23 @@ async function executeTool(
     }
     throw new ToolError("execution_failed", `Tool ${name} failed`);
   }
+}
+
+function sandboxedContext(
+  profile: ToolSecurityProfile,
+  context: ToolContext,
+  intents: readonly { readonly category: string }[],
+): ToolContext {
+  if (profile !== "workspace_sandboxed") return context;
+  return {
+    ...context,
+    processSandbox: {
+      mode: "workspace",
+      network: intents.some((intent) => intent.category === "network")
+        ? "allow"
+        : "deny",
+    },
+  };
 }
 
 async function preflightTool(
@@ -75,6 +120,35 @@ async function preflightTool(
     }
     throw new ToolError("execution_failed", `Tool ${name} failed`);
   }
+}
+
+function applyToolPolicyMetadata(
+  result: ToolResult,
+  policy: ToolPolicy | undefined,
+): ToolResult {
+  if (!policy?.evidenceFromSources || result.metadata === undefined) {
+    return result;
+  }
+  const sources = Array.isArray(result.metadata.sources)
+    ? result.metadata.sources.filter(
+        (source): source is string => typeof source === "string",
+      )
+    : [];
+  if (sources.length === 0) {
+    return result;
+  }
+  const current = Array.isArray(result.metadata.evidence)
+    ? result.metadata.evidence.filter(
+        (item): item is string => typeof item === "string",
+      )
+    : [];
+  return {
+    ...result,
+    metadata: {
+      ...result.metadata,
+      evidence: [...new Set([...current, ...sources])],
+    },
+  };
 }
 
 export class ToolRegistry {
@@ -104,12 +178,20 @@ export class ToolRegistry {
     this.#tools.set(name, eraseTool(tool));
   }
 
-  definitions(executionMode: ExecutionMode): ToolDefinition[] {
+  definitions(
+    executionMode: ExecutionMode,
+    policy?: ToolPolicy,
+  ): ToolDefinition[] {
     if (this.#securityProfile === "tools_disabled") {
       return [];
     }
     return [...this.#tools.values()]
-      .filter((tool) => executionMode === "act" || !tool.mutating)
+      .filter((tool) =>
+        (executionMode === "act" || !tool.mutating) &&
+        (policy === undefined ||
+          (policy.allowedNames.includes(tool.definition.name) &&
+            (!policy.readOnly || !tool.mutating)))
+      )
       .map((tool) => tool.definition);
   }
 
@@ -130,10 +212,13 @@ export class ToolRegistry {
       throw new ToolError("unknown_tool", `Unknown tool: ${call.name}`);
     }
 
-    if (context.executionMode === "plan" && tool.mutating) {
+    if (
+      context.toolPolicy !== undefined &&
+      !context.toolPolicy.allowedNames.includes(call.name)
+    ) {
       throw new ToolError(
-        "plan_mode_denied",
-        `Tool ${call.name} is unavailable in Plan mode`,
+        "tool_unavailable",
+        `Tool ${call.name} is unavailable to this agent profile`,
       );
     }
 
@@ -154,6 +239,30 @@ export class ToolRegistry {
       );
     }
 
+    let mutating: boolean;
+    try {
+      mutating = tool.mutating || (tool.isMutating?.(input, context) ?? false);
+    } catch (error) {
+      if (error instanceof ToolError) {
+        throw error;
+      }
+      throw new ToolError("execution_failed", `Tool ${call.name} failed`);
+    }
+
+    if (context.toolPolicy?.readOnly === true && mutating) {
+      throw new ToolError(
+        "tool_unavailable",
+        `Tool ${call.name} is unavailable to this agent profile`,
+      );
+    }
+
+    if (context.executionMode === "plan" && mutating) {
+      throw new ToolError(
+        "plan_mode_denied",
+        `Tool ${call.name} is unavailable in Plan mode`,
+      );
+    }
+
     let intents: ReturnType<RegisteredTool["permissions"]>;
     try {
       intents = tool.permissions(input, context);
@@ -162,6 +271,17 @@ export class ToolRegistry {
         throw error;
       }
       throw new ToolError("execution_failed", `Tool ${call.name} failed`);
+    }
+
+    if (context.toolPolicy !== undefined) {
+      for (const intent of intents) {
+        if (!profileAllowsIntent(context.toolPolicy, intent)) {
+          throw new ToolError(
+            "permission_denied",
+            `Agent profile denied ${intent.category} access to ${intent.resource}`,
+          );
+        }
+      }
     }
 
     for (const intent of intents) {
@@ -199,10 +319,22 @@ export class ToolRegistry {
       (context.approvedIntents ??= new Set()).add(permissionIntentKey(intent));
     }
 
-    await preflightTool(tool, call.name, input, context);
+    const executionContext = sandboxedContext(
+      this.#securityProfile,
+      context,
+      intents,
+    );
+    await preflightTool(tool, call.name, input, executionContext);
 
-    if (!tool.mutating || this.#checkpoints === undefined) {
-      return executeTool(tool, call.name, input, context);
+    if (
+      !mutating ||
+      this.#checkpoints === undefined ||
+      tool.checkpointOwnership === "self_managed"
+    ) {
+      return applyToolPolicyMetadata(
+        await executeTool(tool, call.name, input, executionContext),
+        context.toolPolicy,
+      );
     }
 
     const checkpoint = await this.#checkpoints.captureBefore(
@@ -212,7 +344,7 @@ export class ToolRegistry {
     );
     let result: ToolResult;
     try {
-      result = await executeTool(tool, call.name, input, context);
+      result = await executeTool(tool, call.name, input, executionContext);
     } catch (error) {
       await this.#checkpoints.captureAfter(checkpoint, context.cwd);
       throw error;
@@ -221,10 +353,14 @@ export class ToolRegistry {
       checkpoint,
       context.cwd,
     );
+    const withPolicyMetadata = applyToolPolicyMetadata(
+      result,
+      context.toolPolicy,
+    );
     return {
-      ...result,
+      ...withPolicyMetadata,
       metadata: {
-        ...result.metadata,
+        ...withPolicyMetadata.metadata,
         checkpointId: completed.id,
       },
     };

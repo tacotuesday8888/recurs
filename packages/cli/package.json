@@ -18,9 +18,11 @@
     "dist"
   ],
   "dependencies": {
+    "@recurs/app": "0.0.0",
     "@recurs/contracts": "0.0.0",
     "@recurs/core": "0.0.0",
     "@recurs/providers": "0.0.0",
+    "@recurs/runtimes": "0.0.0",
     "@recurs/tools": "0.0.0"
   }
 }

@@ -22,6 +22,7 @@ import {
   AgentLoopError,
   JsonlSessionStore,
   activeGoal,
+  createBackendFingerprint,
   runAgentLoop,
   safeAgentLoopErrorMessage,
   type RecursEvent,
@@ -270,6 +271,42 @@ describe("AgentLoop", () => {
     expect(events.some((event) => "version" in event)).toBe(false);
   });
 
+  it("applies the provider's versioned harness profile to every model step", async () => {
+    const systemMessages: string[] = [];
+    const provider: ModelProvider = {
+      id: "compatible-provider",
+      harnessProfile: {
+        id: "compatible_tool_use_v1",
+        version: 1,
+        toolCallStyle: "conservative",
+        instructions: ["Wait for each tool result before choosing another tool."],
+      },
+      async *stream(request) {
+        systemMessages.push(
+          request.messages.find((message) => message.role === "system")
+            ?.content ?? "",
+        );
+        yield { type: "text_delta", text: "done" };
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const { loop } = await harness(provider);
+
+    await loop.run({ sessionId: "s1", prompt: "work" });
+
+    expect(systemMessages).toHaveLength(1);
+    expect(JSON.parse(systemMessages[0] ?? "{}")).toMatchObject({
+      harnessProfile: {
+        id: "compatible_tool_use_v1",
+        version: 1,
+        toolCallStyle: "conservative",
+      },
+      instructions: expect.arrayContaining([
+        "Wait for each tool result before choosing another tool.",
+      ]),
+    });
+  });
+
   it("runs pinned sessions entirely through sequenced version 2 records", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "recurs-loop-v2-"));
     temporaryDirectories.push(directory);
@@ -326,6 +363,91 @@ describe("AgentLoop", () => {
       "a",
       "b",
     ]);
+  });
+
+  it("shares one host-created operating-mode delegation budget across a run", async () => {
+    type Budget = {
+      maxChildren: number;
+      childrenStarted: number;
+      maxRequests: number;
+      requestsReserved: number;
+      requestsUsed: number;
+      maxReportedCostUsd: number;
+      reportedCostUsd: number;
+    };
+    const budgets: Budget[] = [];
+    const base = echoTool();
+    const observe: Tool<{ text: string }> = {
+      ...base,
+      async execute(input, context) {
+        const budget = Reflect.get(context, "delegationBudget") as
+          | Budget
+          | undefined;
+        expect(budget).toBeDefined();
+        budgets.push(budget!);
+        budget!.childrenStarted += 1;
+        return { output: input.text };
+      },
+    };
+    const provider = new ScriptedProvider([
+      [
+        { type: "tool_call", call: { id: "budget-1", name: "echo", arguments: { text: "one" } } },
+        { type: "tool_call", call: { id: "budget-2", name: "echo", arguments: { text: "two" } } },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "done" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const { loop } = await harness(provider, [observe]);
+
+    await loop.run({ sessionId: "s1", prompt: "work" });
+
+    expect(budgets).toHaveLength(2);
+    expect(budgets[0]).toBe(budgets[1]);
+    expect(budgets[0]).toEqual({
+      maxChildren: 7,
+      childrenStarted: 2,
+      maxRequests: 56,
+      requestsReserved: 0,
+      requestsUsed: 0,
+      maxReportedCostUsd: 3,
+      reportedCostUsd: 0,
+    });
+  });
+
+  it("persists broker-minted direct provider state on its assistant message", async () => {
+    const pin = testBackendPin();
+    const handle = {
+      kind: "direct" as const,
+      id: "continuation-1",
+      storageClass: "persistent_broker" as const,
+      recursSessionId: "s1",
+      connectionId: pin.connectionId,
+      adapterId: pin.adapterId,
+      modelId: pin.modelId,
+      backendFingerprint: createBackendFingerprint(pin),
+      stateVersion: 1,
+      originTurnId: "turn-1",
+      continuationSequence: 1,
+      status: "committed" as const,
+    };
+    const provider = new ScriptedProvider([
+      [
+        { type: "provider_state", handle },
+        { type: "text_delta", text: "done" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const { loop, store } = await harness(provider, []);
+
+    await loop.run({ sessionId: "s1", turnId: "turn-1", prompt: "work" });
+
+    expect((await store.loadState("s1")).messages.at(-1)).toMatchObject({
+      role: "assistant",
+      providerStateHandle: handle,
+    });
   });
 
   it("shares current-turn read revisions across sequential tool calls", async () => {

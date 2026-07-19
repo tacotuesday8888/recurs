@@ -4,8 +4,14 @@ import path from "node:path";
 
 import { ScriptedProvider } from "@recurs/providers";
 import {
+  createHostInvocation,
+  type CoordinatedRunInput,
+  type RunCoordinator,
+} from "@recurs/contracts";
+import {
   AgentLoop,
   JsonlSessionStore,
+  createWorkspaceShell,
   type EventSink,
 } from "@recurs/core";
 import {
@@ -15,6 +21,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  CommandRegistry,
   RecursRuntime,
   createCommandRegistry,
 } from "../src/index.js";
@@ -76,6 +83,100 @@ async function runtimeWith(provider: ScriptedProvider): Promise<RecursRuntime> {
 }
 
 describe("RecursRuntime", () => {
+  it("threads the exact trusted host invocation into slash-command context", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-command-invocation-"));
+    directories.push(directory);
+    const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
+    const session = await sessions.createPinnedSession({
+      id: "s1",
+      at: testAt,
+      cwd: directory,
+      backend: testBackendPin(),
+    });
+    let received: unknown;
+    const commands = new CommandRegistry([{
+      name: "capture",
+      description: "Capture command trust context",
+      usage: "/capture",
+      async execute(_args, context) {
+        received = context.invocation;
+        return { type: "message", level: "info", text: "captured" };
+      },
+    }]);
+    const runtime = new RecursRuntime({ commands, sessions }, session);
+    const invocation = createHostInvocation({
+      invocation: "repl",
+      userPresent: true,
+      remote: false,
+      scripted: false,
+      embedding: "cli",
+    });
+
+    await expect(runtime.submit("/capture", invocation)).resolves.toMatchObject({
+      text: "captured",
+    });
+    expect(received).toBe(invocation);
+  });
+
+  it("explains agent modes honestly before onboarding creates a session", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-agent-mode-guide-"));
+    directories.push(directory);
+    const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
+    const runtime = new RecursRuntime(
+      {
+        commands: createCommandRegistry({ sessions }),
+        sessions,
+        confirm: async () => true,
+      },
+      createWorkspaceShell(directory),
+    );
+
+    await expect(runtime.submit("/agents")).resolves.toMatchObject({
+      type: "message",
+      level: "info",
+      text: expect.stringContaining("default to Balanced"),
+    });
+    await expect(runtime.submit("/agents profiles")).resolves.toMatchObject({
+      type: "message",
+      level: "info",
+      text: expect.stringMatching(/Explore[\s\S]*Implement[\s\S]*Review/u),
+    });
+    await expect(runtime.submit("/agents mode economy")).resolves.toMatchObject({
+      type: "message",
+      level: "warning",
+      text: expect.stringContaining("Connect a model"),
+    });
+  });
+
+  it("serves one shared provider guide from the sessionless shell", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-provider-guide-"));
+    directories.push(directory);
+    const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
+    const queries: string[] = [];
+    const runtime = new RecursRuntime(
+      {
+        commands: createCommandRegistry({ sessions }),
+        sessions,
+        confirm: async () => true,
+        async providerGuide(query) {
+          queries.push(query);
+          return "Connected\n  None yet\n\nDetected locally\n  Ollama";
+        },
+      },
+      createWorkspaceShell(directory),
+    );
+
+    await expect(runtime.submit("/provider kimi")).resolves.toMatchObject({
+      type: "message",
+      text: expect.stringContaining("Detected locally"),
+    });
+    await expect(runtime.submit("/connect")).resolves.toMatchObject({
+      type: "message",
+      text: expect.stringContaining("Connected"),
+    });
+    expect(queries).toEqual(["kimi", ""]);
+  });
+
   it("sanitizes an AgentLoop failure after compatibility wrapping", async () => {
     const canary = "RECURS_COMPATIBILITY_TOOL_NAME_CANARY";
     const provider = new ScriptedProvider(
@@ -153,5 +254,70 @@ describe("RecursRuntime", () => {
     expect(provider.requests[0]?.messages[0]?.content).toContain(
       '"executionMode":"plan"',
     );
+  });
+
+  it("resumes exact pinned history from the workspace shell and activates its coordinator", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-workspace-resume-"));
+    directories.push(directory);
+    const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
+    await sessions.createPinnedSession({
+      id: "historical",
+      at: testAt,
+      cwd: directory,
+      backend: testBackendPin(),
+    });
+    const started: CoordinatedRunInput[] = [];
+    const coordinator: RunCoordinator = {
+      async start(input) {
+        started.push(input);
+        return {
+          events: (async function* () {})(),
+          outcome: Promise.resolve({
+            ok: true,
+            result: {
+              finalText: "resumed run",
+              usage: null,
+              usageSource: "unavailable",
+              steps: null,
+              changedFiles: [],
+              changedFilesSource: "none",
+              evidence: [],
+              evidenceSource: "none",
+            },
+          }),
+        };
+      },
+    };
+    const runtime = new RecursRuntime(
+      {
+        commands: createCommandRegistry({ sessions }),
+        coordinator,
+        sessions,
+        confirm: async () => true,
+      },
+      createWorkspaceShell(directory),
+    );
+
+    await expect(runtime.submit("/resume historical")).resolves.toMatchObject({
+      type: "message",
+      text: "Resumed session historical",
+    });
+    expect(runtime.state).toMatchObject({
+      type: "session",
+      session: { id: "historical" },
+    });
+
+    await expect(runtime.submit("continue", createHostInvocation({
+      invocation: "repl",
+      userPresent: true,
+      remote: false,
+      scripted: false,
+      embedding: "cli",
+    }))).resolves.toMatchObject({ finalText: "resumed run" });
+    expect(started).toHaveLength(1);
+    expect(started[0]).toMatchObject({
+      sessionId: "historical",
+      prompt: "continue",
+    });
   });
 });

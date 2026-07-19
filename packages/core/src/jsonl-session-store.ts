@@ -7,7 +7,10 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
-import type { SessionBackendPin } from "@recurs/contracts";
+import type {
+  AgentSessionDescriptor,
+  SessionBackendPin,
+} from "@recurs/contracts";
 
 import type { AnySessionRecord, SessionRecord } from "./events.js";
 import { parseSessionRecordV2 } from "./session-record-validator.js";
@@ -18,6 +21,7 @@ import type {
   SessionRecordV2,
 } from "./session-v2.js";
 import {
+  createRootAgentDescriptor,
   isPinnedSessionState,
   reduceSessionRecordV2,
 } from "./session-v2.js";
@@ -44,6 +48,7 @@ export interface CreatePinnedSessionOptions {
   id: string;
   cwd: string;
   backend: SessionBackendPin;
+  agent?: AgentSessionDescriptor;
   at: string;
 }
 
@@ -203,6 +208,7 @@ export class JsonlSessionStore {
         at: options.at,
         cwd: options.cwd,
         backend: options.backend,
+        agent: options.agent ?? createRootAgentDescriptor(options.id, options.backend),
       };
       parseSessionRecordV2(created, options.id);
       await appendAndSync(file, `${JSON.stringify(created)}\n`);
@@ -308,22 +314,52 @@ export class JsonlSessionStore {
     at: string,
   ): Promise<boolean> {
     const state = await this.loadState(sessionId);
-    if (!isPinnedSessionState(state) || state.pendingCompaction === null) {
+    if (!isPinnedSessionState(state)) {
       return false;
     }
-    const pending = state.pendingCompaction;
+    if (state.pendingCompaction !== null) {
+      const pending = state.pendingCompaction;
+      await this.withSessionMutation(
+        sessionId,
+        state.lastSequence,
+        async (lease) => {
+          await lease.append({
+            type: "compaction_interrupted",
+            operationId: pending.operationId,
+            at,
+            reason: "The process ended before compaction recorded a terminal result",
+            usage: null,
+            usageSource: "unknown",
+          });
+        },
+      );
+      return true;
+    }
+    if (
+      state.backend.pin.kind !== "agent_runtime" ||
+      state.openTurnId === null
+    ) {
+      return false;
+    }
+    const turnId = state.openTurnId;
+    const pending = state.pendingRuntimeCompletion;
     await this.withSessionMutation(
       sessionId,
       state.lastSequence,
       async (lease) => {
-        await lease.append({
-          type: "compaction_interrupted",
-          operationId: pending.operationId,
-          at,
-          reason: "The process ended before compaction recorded a terminal result",
-          usage: null,
-          usageSource: "unknown",
-        });
+        await lease.append(pending === null
+          ? {
+              type: "turn_interrupted",
+              turnId,
+              at,
+              reason: "The process ended before the delegated runtime recorded a terminal result",
+            }
+          : {
+              type: "turn_completed",
+              turnId,
+              at,
+              result: pending.result,
+            });
       },
     );
     return true;

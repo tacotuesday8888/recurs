@@ -11,20 +11,35 @@ import { promisify } from "node:util";
 
 import { ScriptedProvider } from "@recurs/providers";
 import {
+  getOperatingModePolicy,
+  createHostInvocation,
+  type AgentSessionDescriptor,
+  type ModelProvider,
+  type SessionBackendPin,
+} from "@recurs/contracts";
+import {
   JsonlSessionStore,
+  TEAM_APPLY_PERMISSION,
   createSessionState,
   reduceSessionRecord,
   type SessionRecord,
   type SessionState,
+  type TeamRunResult,
+  type TeamRunSnapshot,
 } from "@recurs/core";
 import type { Checkpoint } from "@recurs/tools";
-import { CheckpointStore, ToolError } from "@recurs/tools";
+import {
+  CheckpointStore,
+  ToolError,
+  permissionIntentKey,
+} from "@recurs/tools";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   applyCommandSessionRecord,
   createCommandRegistry,
   type CommandContext,
+  type CommandDependencies,
 } from "../src/index.js";
 import { testBackendPin } from "../../../tests/support/backend.js";
 
@@ -49,12 +64,13 @@ async function storeSession(
   id: string,
   createdAt = at,
   messages: SessionState["messages"] = [],
+  backend: SessionBackendPin = testBackendPin(),
 ): Promise<SessionState> {
   await sessions.createPinnedSession({
     id,
     at: createdAt,
     cwd,
-    backend: testBackendPin(),
+    backend,
   });
   if (messages.length > 0) {
     await sessions.withSessionMutation(id, 0, async (lease) => {
@@ -106,6 +122,13 @@ function context(
 ): CommandContext {
   const commandContext: CommandContext = {
     session: state,
+    invocation: createHostInvocation({
+      invocation: "repl",
+      userPresent: true,
+      remote: false,
+      scripted: false,
+      embedding: "cli",
+    }),
     confirm,
     async cancelActiveRun() {
       return false;
@@ -142,7 +165,409 @@ class FakeCheckpointStore extends CheckpointStore {
   }
 }
 
+function teamSnapshot(
+  overrides: Partial<TeamRunSnapshot> = {},
+): TeamRunSnapshot {
+  return {
+    id: "team-run-1",
+    execution: "background",
+    operatingModeId: "balanced_v4",
+    status: "ready_to_apply",
+    phase: "review",
+    round: 1,
+    childrenReserved: 4,
+    childrenFinished: 4,
+    usage: { inputTokens: 120, outputTokens: 40 },
+    reportedCostUsd: 0.0125,
+    costCoverage: "complete",
+    manualAttentionRequired: false,
+    updatedAt: at,
+    ...overrides,
+  };
+}
+
+function appliedTeamResult(id = "team-run-1"): TeamRunResult {
+  return {
+    output: `Applied reviewed team candidate ${id}`,
+    metadata: {
+      teamId: id,
+      status: "approved",
+      operatingModeId: "balanced_v4",
+      repairRounds: 0,
+      accounting: {
+        childrenReserved: 4,
+        childrenFinished: 4,
+        requestsReserved: 16,
+        requestsUsed: 12,
+        usage: { inputTokens: 120, outputTokens: 40 },
+        usageReportedChildren: 4,
+        usageMissingChildren: 0,
+        reportedCostUsd: 0.0125,
+        costReportedChildren: 4,
+        costMissingChildren: 0,
+        costCoverage: "complete",
+      },
+      changedFiles: ["src/cache.ts"],
+      evidence: ["npm test"],
+    },
+  };
+}
+
+function teamRunControls(
+  snapshot = teamSnapshot(),
+): NonNullable<CommandDependencies["teamRuns"]> {
+  return {
+    list: vi.fn(async () => [snapshot]),
+    status: vi.fn(async () => snapshot),
+    wait: vi.fn(async () => ({ snapshot, timedOut: false })),
+    cancel: vi.fn(async () => ({ result: "requested", snapshot })),
+    resume: vi.fn(async () => ({ result: "started", snapshot })),
+    apply: vi.fn(async () => appliedTeamResult(snapshot.id)),
+  };
+}
+
 describe("session commands", () => {
+  it("persists an exact child-agent operating mode without changing the backend", async () => {
+    const initial = await storeSession("agent-mode-session");
+    const commands = createCommandRegistry({ sessions });
+    const commandContext = context(initial);
+
+    expect(await commands.execute("/agents", commandContext)).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+          /Balanced \(balanced_v4\)[\s\S]*Policy version: 4[\s\S]*concurrency 3[\s\S]*Workflow: 7 children, 56 total requests, 8 reserved per child[\s\S]*Team: up to 2 Implement workers, 1 initial and 2 maximum Review workers[\s\S]*Review rule: unanimous, balanced quality standard[\s\S]*Repair rounds: 1/u,
+      ),
+    });
+    const profiles = await commands.execute("/agents profiles", commandContext);
+    expect(profiles).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+        /Explore \(explore_v1, v1\)[\s\S]*Implement \(implement_v1, v1\)[\s\S]*Review \(review_v1, v1\)/u,
+      ),
+    });
+    expect(profiles).toMatchObject({
+      text: expect.stringMatching(
+        /Act parent required[\s\S]*run_verification[\s\S]*Team workflow: legacy execution uses version-3 policies/u,
+      ),
+    });
+    expect(profiles).toMatchObject({
+      text: expect.stringContaining(
+        "read-only diff/file and Implement-evidence inspection; no repository execution or verification artifacts",
+      ),
+    });
+    expect(profiles).toMatchObject({
+      text: expect.stringMatching(
+        /Implement \(implement_v2, v2\)[\s\S]*Review \(review_v2, v2\)[\s\S]*Repair \(repair_v1, v1\)[\s\S]*no repository process execution/u,
+      ),
+    });
+    expect(await commands.execute("/agents profiles extra", commandContext))
+      .toMatchObject({ level: "error" });
+    expect(await commands.execute("/agents mode economy", commandContext)).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+          /Economy \(economy_v4\)[\s\S]*concurrency 1 \(sequential fallback\)[\s\S]*Workflow: 2 children, 8 total requests, 4 reserved per child[\s\S]*Team: up to 1 Implement worker, 1 initial and 1 maximum Review worker/u,
+      ),
+    });
+    const reloaded = await sessions.loadState("agent-mode-session");
+    expect(reloaded).toMatchObject({
+      agent: {
+        operatingMode: { id: "economy_v4", version: 4 },
+        limits: { maxRequests: 8, maxDepth: 1, maxConcurrentChildren: 1 },
+      },
+      backend: initial.backend,
+    });
+    expect(await commands.execute("/agents mode eco", commandContext)).toMatchObject({
+      level: "error",
+      text: expect.stringContaining("Choose /agents mode"),
+    });
+    expect(await commands.execute("/agents mode economy_v1", commandContext))
+      .toMatchObject({
+        text: expect.stringMatching(
+          /Economy \(economy_v1\)[\s\S]*Policy version: 1[\s\S]*Workflow: 2 children, 16 total requests, 8 reserved per child/u,
+        ),
+      });
+    expect(await sessions.loadState("agent-mode-session")).toMatchObject({
+      agent: { operatingMode: { id: "economy_v1", version: 1 } },
+    });
+    expect(await commands.execute("/agents mode balanced_v4", commandContext))
+      .toMatchObject({
+        text: expect.stringMatching(
+          /Balanced \(balanced_v4\)[\s\S]*Policy version: 4[\s\S]*Repair rounds: 1/u,
+        ),
+      });
+    expect(await commands.execute("/agents mode balanced", commandContext))
+      .toMatchObject({
+        text: expect.stringMatching(/Balanced \(balanced_v4\)[\s\S]*Policy version: 4/u),
+      });
+  });
+
+  it("lists and inspects parent-scoped durable child activity without private paths", async () => {
+    const initial = await storeSession("activity-parent");
+    if (initial.version !== 2) throw new Error("expected pinned parent");
+    const mode = getOperatingModePolicy("balanced_v3");
+    const childCwd = "/private/recurs/worktrees/activity-child";
+    const agent: AgentSessionDescriptor = {
+      id: "activity-child-agent",
+      role: "child",
+      profile: { id: "implement_v1", version: 1 },
+      parentAgentId: initial.agent.id,
+      parentSessionId: initial.id,
+      depth: 1,
+      task: {
+        id: "activity-task",
+        description: "Fix cache isolation",
+        prompt: "private task prompt must remain hidden",
+      },
+      operatingMode: { id: mode.id, version: mode.version },
+      backend: {
+        strategy: "inherit_parent",
+        adapterId: initial.backend.pin.adapterId,
+        connectionId: initial.backend.pin.connectionId,
+        modelId: initial.backend.pin.modelId,
+      },
+      permissions: {
+        parentExecutionMode: "act",
+        executionMode: "act",
+        parentPermissionMode: "ask_always",
+        permissionMode: "ask_always",
+      },
+      limits: { ...mode.orchestration, maxRequests: 8 },
+      workspace: {
+        kind: "git_worktree",
+        version: 1,
+        leaseId: "activity-lease",
+        repositoryRoot: cwd,
+        worktreeRoot: childCwd,
+        revision: "b".repeat(40),
+      },
+    };
+    await sessions.createPinnedSession({
+      id: "activity-child-session",
+      cwd: childCwd,
+      backend: initial.backend.pin,
+      agent,
+      at: "2026-07-10T00:01:00.000Z",
+    });
+    const commands = createCommandRegistry({ sessions });
+    const commandContext = context(initial);
+
+    const list = await commands.execute("/agents activity", commandContext);
+    expect(list).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+        /1 child agent[\s\S]*ready[\s\S]*Implement[\s\S]*Fix cache isolation[\s\S]*activity-child-session/u,
+      ),
+    });
+    const detail = await commands.execute(
+      "/agents activity activity-child-agent",
+      commandContext,
+    );
+    expect(detail).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+        /Agent: Fix cache isolation[\s\S]*Status: ready[\s\S]*Profile: Implement \(implement_v1\)[\s\S]*Isolation: Git worktree at b{12}/u,
+      ),
+    });
+    expect(JSON.stringify([list, detail])).not.toContain("private task prompt");
+    expect(JSON.stringify([list, detail])).not.toContain("/private/recurs");
+    expect(await commands.execute(
+      "/agents activity activity",
+      commandContext,
+    )).toMatchObject({ level: "error", text: expect.stringContaining("not found") });
+    expect(await createCommandRegistry().execute(
+      "/agents activity",
+      commandContext,
+    )).toMatchObject({
+      level: "error",
+      text: "Durable agent activity is unavailable",
+    });
+    const shell = context(createSessionState({
+      id: "activity-shell",
+      cwd,
+      model: "unconfigured",
+    }));
+    expect(await commands.execute("/agents activity", shell)).toMatchObject({
+      level: "warning",
+      text: expect.stringContaining("model connection"),
+    });
+  });
+
+  it("lists, inspects, waits for, and cancels only safe team-run projections", async () => {
+    const initial = await storeSession("team-controls-parent");
+    const snapshot = {
+      ...teamSnapshot(),
+      internalPrompt: "PRIVATE TEAM PROMPT",
+      backend: { apiKey: "PRIVATE BACKEND KEY" },
+      artifactPath: "/private/recurs/team-candidate.patch",
+    };
+    const teamRuns = teamRunControls(snapshot);
+    const signal = new AbortController().signal;
+    const commands = createCommandRegistry({
+      sessions,
+      teamRuns,
+      signal: () => signal,
+    });
+    const commandContext = context(initial);
+
+    const results = await Promise.all([
+      commands.execute("/agents teams", commandContext),
+      commands.execute("/agents team team-run-1", commandContext),
+      commands.execute("/agents wait team-run-1", commandContext),
+      commands.execute("/agents cancel team-run-1", commandContext),
+    ]);
+
+    expect(results[0]).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+        /1 durable team run[\s\S]*ready_to_apply \| review \| round 1 \| 4\/4 children \| team-run-1/u,
+      ),
+    });
+    expect(results[1]).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+        /Team run: team-run-1[\s\S]*Execution: background[\s\S]*Mode: balanced_v4[\s\S]*Usage: 120 input, 40 output tokens[\s\S]*Cost: \$0\.0125 \(complete coverage\)/u,
+      ),
+    });
+    expect(results[2]).toMatchObject({
+      type: "message",
+      text: expect.stringContaining("Timed out: no"),
+    });
+    expect(results[3]).toMatchObject({
+      type: "message",
+      text: expect.stringContaining("Cancellation: requested"),
+    });
+    expect(JSON.stringify(results)).not.toMatch(
+      /PRIVATE TEAM PROMPT|PRIVATE BACKEND KEY|team-candidate\.patch|internalPrompt|artifactPath/u,
+    );
+    expect(teamRuns.list).toHaveBeenCalledWith(initial.id);
+    expect(teamRuns.status).toHaveBeenCalledWith(initial.id, "team-run-1");
+    expect(teamRuns.wait).toHaveBeenCalledWith(
+      initial.id,
+      "team-run-1",
+      30_000,
+      signal,
+    );
+    expect(teamRuns.cancel).toHaveBeenCalledWith(
+      initial.id,
+      "team-run-1",
+      "Cancelled from the Recurs CLI",
+    );
+  });
+
+  it("does not disclose whether a missing team run belongs to another parent", async () => {
+    const initial = await storeSession("team-not-found-parent");
+    const teamRuns = teamRunControls();
+    vi.mocked(teamRuns.status).mockRejectedValueOnce(new ToolError(
+      "not_found",
+      "Foreign team belongs to private-parent-session",
+    ));
+    vi.mocked(teamRuns.wait).mockRejectedValueOnce(new ToolError(
+      "not_found",
+      "Missing team journal at /private/recurs/team.jsonl",
+    ));
+    const commands = createCommandRegistry({ sessions, teamRuns });
+    const commandContext = context(initial);
+
+    await expect(commands.execute(
+      "/agents team foreign-team",
+      commandContext,
+    )).resolves.toEqual({
+      type: "message",
+      level: "error",
+      text: "Team run not found",
+    });
+    await expect(commands.execute(
+      "/agents wait missing-team",
+      commandContext,
+    )).resolves.toEqual({
+      type: "message",
+      level: "error",
+      text: "Team run not found",
+    });
+  });
+
+  it("requires Full Access to resume and passes the trusted CLI context", async () => {
+    const initial = await storeSession("team-resume-parent");
+    const teamRuns = teamRunControls(teamSnapshot({ status: "interrupted" }));
+    const commands = createCommandRegistry({ sessions, teamRuns });
+    const commandContext = context(initial);
+
+    expect(await commands.execute(
+      "/agents resume team-run-1",
+      commandContext,
+    )).toEqual({
+      type: "message",
+      level: "error",
+      text: "Resuming a background team requires Full Access",
+    });
+    expect(teamRuns.resume).not.toHaveBeenCalled();
+
+    await commands.execute("/permissions full", commandContext);
+    expect(await commands.execute(
+      "/agents resume team-run-1",
+      commandContext,
+    )).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(/Resume: started[\s\S]*Status: interrupted/u),
+    });
+    expect(teamRuns.resume).toHaveBeenCalledTimes(1);
+    const resumeContext = vi.mocked(teamRuns.resume).mock.calls[0]![2];
+    expect(resumeContext).toMatchObject({
+      sessionId: initial.id,
+      cwd,
+      executionMode: "act",
+      runContext: {
+        invocation: "repl",
+        presence: "present",
+        location: "local",
+        automation: "manual",
+      },
+    });
+    expect(resumeContext.approvedIntents).toBeUndefined();
+  });
+
+  it("applies in Approved for Me only after an exact explicit approval", async () => {
+    const initial = await storeSession("team-apply-parent");
+    const teamRuns = teamRunControls();
+    const confirm = vi.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const commands = createCommandRegistry({ sessions, teamRuns });
+    const commandContext = context(initial, confirm);
+    await commands.execute("/permissions approved", commandContext);
+
+    expect(await commands.execute(
+      "/agents apply team-run-1",
+      commandContext,
+    )).toEqual({
+      type: "message",
+      level: "warning",
+      text: "Team apply was not approved",
+    });
+    expect(teamRuns.apply).not.toHaveBeenCalled();
+
+    expect(await commands.execute(
+      "/agents apply team-run-1",
+      commandContext,
+    )).toMatchObject({
+      type: "message",
+      text: "Applied reviewed team candidate team-run-1",
+    });
+    expect(confirm).toHaveBeenNthCalledWith(
+      1,
+      "Apply reviewed team candidate team-run-1 to the current workspace?",
+    );
+    expect(confirm).toHaveBeenNthCalledWith(
+      2,
+      "Apply reviewed team candidate team-run-1 to the current workspace?",
+    );
+    expect(teamRuns.apply).toHaveBeenCalledTimes(1);
+    const applyContext = vi.mocked(teamRuns.apply).mock.calls[0]![2];
+    expect(applyContext.approvedIntents).toEqual(new Set([
+      permissionIntentKey(TEAM_APPLY_PERMISSION),
+    ]));
+  });
+
   it("creates AGENTS.md once after confirmation and never overwrites it", async () => {
     const state = createSessionState({ id: "s1", cwd, model: "scripted" });
     const registry = createCommandRegistry({ sessions });
@@ -174,6 +599,27 @@ describe("session commands", () => {
     expect(await registry.execute("/resume s", commandContext)).toMatchObject({
       level: "error",
     });
+  });
+
+  it("preserves Plan and permission safety when creating another session", async () => {
+    const original = await storeSession("s1");
+    const registry = createCommandRegistry({ sessions });
+    const commandContext = context(original);
+    await registry.execute("/permissions approved", commandContext);
+    await registry.execute("/plan", commandContext);
+
+    await registry.execute("/new", commandContext);
+
+    expect(commandContext.session).toMatchObject({
+      executionMode: "plan",
+      permissionMode: "approved_for_me",
+      prePlanPermissionMode: "approved_for_me",
+    });
+    await expect(sessions.loadState(commandContext.session.id)).resolves
+      .toMatchObject({
+        executionMode: "plan",
+        permissionMode: "approved_for_me",
+      });
   });
 
   it("lists resumable sessions newest first", async () => {
@@ -211,6 +657,73 @@ describe("session commands", () => {
     expect(commandContext.session.summary).toBe("Earlier work summarized");
     expect(commandContext.session.messages).toEqual(durableMessages.slice(-6));
     expect((await sessions.loadState("s1")).summary).toBe("Earlier work summarized");
+  });
+
+  it("resolves the compaction provider from the active session pin", async () => {
+    const messages = Array.from({ length: 8 }, (_, index) => ({
+      id: `dynamic-${index}`,
+      role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      content: `dynamic message ${index}`,
+    }));
+    const state = await storeSession("dynamic", at, messages);
+    const startupProvider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: "wrong provider" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ], "startup-provider");
+    const pinnedProvider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: "pinned provider summary" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ], "pinned-provider");
+    const resolveProvider = vi.fn(async (session: SessionState) => {
+      expect(session.id).toBe("dynamic");
+      return pinnedProvider;
+    });
+    const registry = createCommandRegistry({
+      sessions,
+      provider: startupProvider,
+      resolveProvider,
+    });
+    const commandContext = context(state);
+
+    await registry.execute("/compact", commandContext);
+
+    expect(resolveProvider).toHaveBeenCalledOnce();
+    expect(startupProvider.requests).toHaveLength(0);
+    expect(pinnedProvider.requests).toHaveLength(1);
+    expect(commandContext.session.summary).toBe("pinned provider summary");
+  });
+
+  it("rejects delegated compaction before invoking a provider", async () => {
+    const backend: SessionBackendPin = {
+      ...testBackendPin(),
+      kind: "agent_runtime",
+      runtimeCapabilityProfileRevisionAtCreation: "runtime-capabilities-v1",
+    };
+    const state = await storeSession("delegated", at, [], backend);
+    const stream = vi.fn(async function* () {
+      yield { type: "done", stopReason: "complete" } as const;
+    });
+    const provider: ModelProvider = { id: "must-not-run", stream };
+    const resolveProvider = vi.fn(async () => provider);
+    const registry = createCommandRegistry({
+      sessions,
+      provider,
+      resolveProvider,
+    });
+    const commandContext = context(state);
+
+    await expect(registry.execute("/compact", commandContext)).resolves.toMatchObject({
+      type: "message",
+      level: "error",
+      text: expect.stringMatching(/delegated/iu),
+    });
+    expect(stream).not.toHaveBeenCalled();
+    expect(resolveProvider).not.toHaveBeenCalled();
+    expect((await sessions.load("delegated")).records).toHaveLength(1);
   });
 });
 

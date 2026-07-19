@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { createHostInvocation } from "@recurs/contracts";
+
 import {
   activeGoal,
   createSessionState,
@@ -32,6 +34,13 @@ function commandContext(
       }),
       ...overrides,
     },
+    invocation: createHostInvocation({
+      invocation: "repl",
+      userPresent: true,
+      remote: false,
+      scripted: false,
+      embedding: "cli",
+    }),
     records: [],
     confirm,
     cancelActiveRun,
@@ -229,7 +238,7 @@ describe("foundation slash commands", () => {
       text: expect.stringContaining("Ask Always"),
     });
     expect(await registry.execute("/help", context)).toMatchObject({
-      text: expect.stringContaining("/goal"),
+      text: expect.stringMatching(/\/goal[\s\S]*\/agents \[profiles\|mode name\]/u),
     });
     expect(await registry.execute("/cancel", context)).toMatchObject({ level: "info" });
     expect(cancel).toHaveBeenCalledOnce();

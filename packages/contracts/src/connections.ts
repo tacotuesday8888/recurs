@@ -95,4 +95,5 @@ export interface SessionBackendPin {
   primaryBillingSourceAtCreation: BillingSource;
   billingSelectionAtCreation: BillingSelection;
   accountSubjectFingerprint: string;
+  runtimeCapabilityProfileRevisionAtCreation?: string;
 }

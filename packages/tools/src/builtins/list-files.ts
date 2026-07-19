@@ -90,6 +90,9 @@ export function createListFilesTool(
           count: selected.length,
           total: files.length,
           truncated: files.length > selected.length,
+          sources: [
+            `listed ${resolved.relative} (${selected.length} of ${files.length} files)`,
+          ],
         },
       };
     },

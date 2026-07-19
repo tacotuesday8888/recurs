@@ -133,6 +133,42 @@ describe("ToolRegistry", () => {
     expect(checkpoints.captureAfter).not.toHaveBeenCalled();
   });
 
+  it("binds workspace sandbox network policy to approved intents", async () => {
+    const observed: ToolContext["processSandbox"][] = [];
+    const tool = textTool();
+    tool.permissions = (input) => [{
+      category: input.text === "network" ? "network" : "shell",
+      resource: input.text,
+      risk: "normal",
+    }];
+    tool.execute = async (input, executionContext) => {
+      observed.push(executionContext.processSandbox);
+      return { output: input.text };
+    };
+    const registry = new ToolRegistry([tool], {
+      securityProfile: "workspace_sandboxed",
+    });
+    const permissions = new PermissionEngine("full_access");
+
+    await registry.invoke(
+      { id: "shell", name: "echo", arguments: { text: "shell" } },
+      context(),
+      permissions,
+      deny,
+    );
+    await registry.invoke(
+      { id: "network", name: "echo", arguments: { text: "network" } },
+      context(),
+      permissions,
+      deny,
+    );
+
+    expect(observed).toEqual([
+      { mode: "workspace", network: "deny" },
+      { mode: "workspace", network: "allow" },
+    ]);
+  });
+
   it("snapshots the disabled profile at construction", () => {
     const options: {
       securityProfile: "local_guarded" | "tools_disabled";
@@ -342,6 +378,43 @@ describe("ToolRegistry", () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
+  it("lets a self-managed mutating tool own its durable checkpoint boundary", async () => {
+    const events: string[] = [];
+    const tool = textTool(true);
+    tool.checkpointOwnership = "self_managed";
+    tool.preflight = async () => {
+      events.push("preflight");
+    };
+    tool.execute = async (input) => {
+      events.push("execute");
+      return { output: input.text, metadata: { durable: true } };
+    };
+    const checkpoints = {
+      captureBefore: vi.fn(),
+      captureAfter: vi.fn(),
+      undoLatest: vi.fn(),
+    } as unknown as CheckpointStore;
+    const approvals: ApprovalHandler = {
+      request: vi.fn(async () => {
+        events.push("approval");
+        return "allow_once" as const;
+      }),
+    };
+    const registry = new ToolRegistry([tool], { checkpoints });
+
+    const result = await registry.invoke(
+      { id: "self-managed", name: "write_text", arguments: { text: "src/a.ts" } },
+      context(),
+      new PermissionEngine("ask_always"),
+      approvals,
+    );
+
+    expect(events).toEqual(["approval", "preflight", "execute"]);
+    expect(checkpoints.captureBefore).not.toHaveBeenCalled();
+    expect(checkpoints.captureAfter).not.toHaveBeenCalled();
+    expect(result.metadata).toEqual({ durable: true });
+  });
+
   it("does not checkpoint or execute when preflight rejects", async () => {
     const tool = textTool(true);
     tool.preflight = async () => {
@@ -375,5 +448,163 @@ describe("ToolRegistry", () => {
     expect(registry.definitions("plan").map((tool) => tool.name)).toEqual([
       "echo",
     ]);
+  });
+
+  it("enforces a host-derived read-only allowlist in definitions and invocation", async () => {
+    const read = textTool();
+    const write = textTool(true);
+    const executeWrite = vi.spyOn(write, "execute");
+    const registry = new ToolRegistry([read, write]);
+    const toolPolicy = {
+      readOnly: true,
+      evidenceFromSources: true,
+      allowedNames: ["echo", "write_text"],
+      allowedCategories: ["read"],
+      maxRisk: "normal",
+    } as const;
+
+    expect(registry.definitions("act", toolPolicy).map((tool) => tool.name))
+      .toEqual(["echo"]);
+    await expect(registry.invoke(
+      { id: "policy-write", name: "write_text", arguments: { text: "x" } },
+      { ...context(), toolPolicy },
+      new PermissionEngine("full_access"),
+      deny,
+    )).rejects.toMatchObject({
+      code: "tool_unavailable",
+      message: "Tool write_text is unavailable to this agent profile",
+    });
+    expect(executeWrite).not.toHaveBeenCalled();
+  });
+
+  it("rejects tools outside an agent profile allowlist before parsing", async () => {
+    const tool = textTool();
+    const parse = vi.spyOn(tool, "parse");
+    const registry = new ToolRegistry([tool]);
+    const toolPolicy = {
+      readOnly: true,
+      evidenceFromSources: true,
+      allowedNames: [],
+      allowedCategories: ["read"],
+      maxRisk: "normal",
+    } as const;
+
+    expect(registry.definitions("plan", toolPolicy)).toEqual([]);
+    await expect(registry.invoke(
+      { id: "policy-hidden", name: "echo", arguments: { text: 42 } },
+      { ...context("plan"), toolPolicy },
+      new PermissionEngine("full_access"),
+      deny,
+    )).rejects.toMatchObject({ code: "tool_unavailable" });
+    expect(parse).not.toHaveBeenCalled();
+  });
+
+  it("promotes source traces to evidence only for profiles that request it", async () => {
+    const tool = textTool();
+    tool.execute = async (input) => ({
+      output: input.text,
+      metadata: { sources: ["read src/a.ts:1-3"] },
+    });
+    const registry = new ToolRegistry([tool]);
+    const call = { id: "source", name: "echo", arguments: { text: "ok" } };
+
+    const rootResult = await registry.invoke(
+      call,
+      context(),
+      new PermissionEngine("full_access"),
+      deny,
+    );
+    const exploreResult = await registry.invoke(
+      { ...call, id: "explore-source" },
+      {
+        ...context("plan"),
+        toolPolicy: {
+          readOnly: true,
+          evidenceFromSources: true,
+          allowedNames: ["echo"],
+          allowedCategories: ["read"],
+          maxRisk: "normal",
+        },
+      },
+      new PermissionEngine("full_access"),
+      deny,
+    );
+
+    expect(rootResult.metadata).toEqual({ sources: ["read src/a.ts:1-3"] });
+    expect(exploreResult.metadata).toEqual({
+      sources: ["read src/a.ts:1-3"],
+      evidence: ["read src/a.ts:1-3"],
+    });
+  });
+
+  it("uses input-dependent mutation for Plan denial and checkpoint capture", async () => {
+    const tool = textTool();
+    const dynamic = tool as typeof tool & {
+      isMutating(input: { text: string }, context: ToolContext): boolean;
+    };
+    dynamic.isMutating = (input) => input.text.startsWith("write:");
+    const checkpoint = {
+      id: "dynamic-checkpoint",
+      sessionId: "session-1",
+      toolCallId: "dynamic-act",
+      before: {},
+    };
+    const checkpoints = {
+      captureBefore: vi.fn(async () => checkpoint),
+      captureAfter: vi.fn(async () => ({ ...checkpoint, after: {} })),
+      undoLatest: vi.fn(),
+    } as unknown as CheckpointStore;
+    const registry = new ToolRegistry([dynamic], { checkpoints });
+
+    expect(registry.definitions("plan").map((definition) => definition.name))
+      .toEqual(["echo"]);
+    await expect(registry.invoke(
+      { id: "dynamic-plan", name: "echo", arguments: { text: "write:file" } },
+      context("plan"),
+      new PermissionEngine("full_access"),
+      deny,
+    )).rejects.toMatchObject({ code: "plan_mode_denied" });
+    const result = await registry.invoke(
+      { id: "dynamic-act", name: "echo", arguments: { text: "write:file" } },
+      context("act"),
+      new PermissionEngine("full_access"),
+      deny,
+    );
+
+    expect(checkpoints.captureBefore).toHaveBeenCalledTimes(1);
+    expect(checkpoints.captureAfter).toHaveBeenCalledTimes(1);
+    expect(result.metadata).toMatchObject({ checkpointId: "dynamic-checkpoint" });
+  });
+
+  it("denies profile-disallowed intent categories and risk before approval", async () => {
+    const tool = textTool();
+    tool.permissions = () => [
+      { category: "shell", resource: "npm test", risk: "normal" },
+      { category: "read", resource: ".", risk: "destructive" },
+    ];
+    const execute = vi.spyOn(tool, "execute");
+    const approvals: ApprovalHandler = { request: vi.fn() };
+    const registry = new ToolRegistry([tool]);
+
+    await expect(registry.invoke(
+      { id: "intent-policy", name: "echo", arguments: { text: "inspect" } },
+      {
+        ...context(),
+        toolPolicy: {
+          readOnly: false,
+          evidenceFromSources: true,
+          allowedNames: ["echo"],
+          allowedCategories: ["read"],
+          maxRisk: "elevated",
+        },
+      },
+      new PermissionEngine("full_access"),
+      approvals,
+    )).rejects.toMatchObject({
+      code: "permission_denied",
+      message: "Agent profile denied shell access to npm test",
+    });
+    expect(approvals.request).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
   });
 });

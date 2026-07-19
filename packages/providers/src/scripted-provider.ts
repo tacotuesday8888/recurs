@@ -1,21 +1,32 @@
 import {
   ProviderError,
-  type ModelProvider,
+  type ConnectionBoundModelProvider,
   type ProviderEvent,
   type ProviderRequest,
 } from "./types.js";
 
 export type ScriptedResponse = readonly ProviderEvent[] | Error;
 
-export class ScriptedProvider implements ModelProvider {
+export class ScriptedProvider implements ConnectionBoundModelProvider {
   readonly id: string;
+  readonly adapterId: string;
+  readonly connectionId: string;
   readonly requests: ProviderRequest[] = [];
 
   constructor(
     private readonly responses: readonly ScriptedResponse[],
     id = "scripted",
+    identity: {
+      readonly adapterId: string;
+      readonly connectionId: string;
+    } = {
+      adapterId: "scripted-v1",
+      connectionId: "test-connection",
+    },
   ) {
     this.id = id;
+    this.adapterId = identity.adapterId;
+    this.connectionId = identity.connectionId;
   }
 
   async *stream(request: ProviderRequest): AsyncIterable<ProviderEvent> {

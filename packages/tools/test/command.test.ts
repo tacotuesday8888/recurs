@@ -1,12 +1,16 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   access,
   chmod,
+  mkdir,
   mkdtemp,
+  open,
   readFile,
   rm,
   writeFile,
 } from "node:fs/promises";
+import { createServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -134,6 +138,22 @@ describe("command classification", () => {
 });
 
 describe("run_command", () => {
+  it("settles a clean Git child without waiting for process-group kill grace", async () => {
+    // The first child discovers and validates the host-selected developer
+    // directory once; subsequent isolated Git processes reuse that authority.
+    await toolExports.runProcess("git", ["--version"], { cwd });
+    const startedAt = performance.now();
+
+    const result = await toolExports.runProcess(
+      "git",
+      ["--version"],
+      { cwd },
+    );
+
+    expect(result.stdout).toMatch(/^git version /u);
+    expect(performance.now() - startedAt).toBeLessThan(900);
+  });
+
   it("does not expose child stderr or a cause when a process exits nonzero", async () => {
     const canary = "RECURS_CHILD_STDERR_CANARY";
     let thrown: unknown;
@@ -157,12 +177,110 @@ describe("run_command", () => {
     expect(String((thrown as Error).message)).not.toContain(canary);
   });
 
+  it.runIf(process.platform === "darwin")(
+    "enforces workspace-only writes with the macOS process sandbox",
+    async () => {
+      const inside = path.join(cwd, "inside.txt");
+      const outside = path.join(
+        tmpdir(),
+        `recurs-sandbox-outside-${process.pid}-${Date.now()}`,
+      );
+      try {
+        await toolExports.runProcess(
+          "/bin/sh",
+          ["-c", `printf inside > ${shellQuote(inside)}`],
+          {
+            cwd,
+            sandbox: { mode: "workspace", network: "deny" },
+          },
+        );
+        expect(await readFile(inside, "utf8")).toBe("inside");
+
+        await expect(toolExports.runProcess(
+          "/bin/sh",
+          ["-c", `printf outside > ${shellQuote(outside)}`],
+          {
+            cwd,
+            sandbox: { mode: "workspace", network: "deny" },
+          },
+        )).rejects.toMatchObject({ code: "process_failed" });
+        await expect(access(outside)).rejects.toMatchObject({ code: "ENOENT" });
+      } finally {
+        await rm(outside, { force: true });
+      }
+    },
+  );
+
+  it.runIf(process.platform === "darwin")(
+    "denies host credential paths even when they are below the workspace",
+    async () => {
+      const originalHome = process.env.HOME;
+      const hostHome = path.join(cwd, "host-home");
+      const secret = path.join(hostHome, ".ssh", "id_test");
+      await mkdir(path.dirname(secret), { recursive: true });
+      await writeFile(secret, "credential-canary", "utf8");
+      process.env.HOME = hostHome;
+      try {
+        await expect(toolExports.runProcess(
+          "/bin/sh",
+          ["-c", `cat ${shellQuote(secret)}`],
+          {
+            cwd,
+            sandbox: { mode: "workspace", network: "deny" },
+          },
+        )).rejects.toMatchObject({ code: "process_failed" });
+      } finally {
+        if (originalHome === undefined) delete process.env.HOME;
+        else process.env.HOME = originalHome;
+      }
+    },
+  );
+
+  it.runIf(process.platform === "darwin")(
+    "denies network unless the approved command intent allows it",
+    async () => {
+      const server = createServer((_request, response) => response.end("ok"));
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      try {
+        const address = server.address();
+        if (address === null || typeof address === "string") {
+          throw new Error("Expected a TCP fixture");
+        }
+        const script = `fetch('http://127.0.0.1:${address.port}').then(r=>r.text()).then(t=>process.stdout.write(t))`;
+        await expect(toolExports.runProcess(
+          process.execPath,
+          ["-e", script],
+          {
+            cwd,
+            sandbox: { mode: "workspace", network: "deny" },
+          },
+        )).rejects.toMatchObject({ code: "process_failed" });
+        await expect(toolExports.runProcess(
+          process.execPath,
+          ["-e", script],
+          {
+            cwd,
+            sandbox: { mode: "workspace", network: "allow" },
+          },
+        )).resolves.toMatchObject({ stdout: "ok", exitCode: 0 });
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => error === undefined ? resolve() : reject(error));
+        });
+      }
+    },
+  );
+
   it("does not pass parent secrets or the real home to descendants", async () => {
     const parentEnvironment = {
       GITHUB_TOKEN: process.env.GITHUB_TOKEN,
       HTTP_PROXY: process.env.HTTP_PROXY,
       PATH: process.env.PATH,
       RECURS_PROCESS_CANARY: process.env.RECURS_PROCESS_CANARY,
+      DEVELOPER_DIR: process.env.DEVELOPER_DIR,
       SHELL: process.env.SHELL,
       TEMP: process.env.TEMP,
       TMP: process.env.TMP,
@@ -172,6 +290,7 @@ describe("run_command", () => {
     process.env.GITHUB_TOKEN = "github-secret";
     process.env.HTTP_PROXY = "http://proxy-secret.invalid";
     process.env.RECURS_PROCESS_CANARY = "parent-secret";
+    process.env.DEVELOPER_DIR = path.join(cwd, "parent-controlled-developer-dir");
     process.env.SHELL = "/definitely/not/the/child/shell";
     process.env.TMPDIR = parentTemp;
     process.env.TMP = parentTemp;
@@ -190,6 +309,7 @@ describe("run_command", () => {
         "github: process.env.GITHUB_TOKEN ?? null,",
         "proxy: process.env.HTTP_PROXY ?? null,",
         "shell: process.env.SHELL ?? null,",
+        "developerDir: process.env.DEVELOPER_DIR ?? null,",
         "home: process.env.HOME,",
         "config: process.env.XDG_CONFIG_HOME,",
         "cache: process.env.XDG_CACHE_HOME,",
@@ -208,6 +328,23 @@ describe("run_command", () => {
         proxy: null,
         shell: null,
       });
+      if (process.platform === "darwin") {
+        const selected = await execFileAsync(
+          "/usr/bin/xcode-select",
+          ["-p"],
+          { env: { PATH: "/usr/bin:/bin" } },
+        );
+        expect(child.developerDir).toBe(
+          await import("node:fs/promises").then(({ realpath }) =>
+            realpath(selected.stdout.trim())
+          ),
+        );
+      } else {
+        expect(child.developerDir).toBeNull();
+      }
+      expect(child.developerDir).not.toBe(
+        path.join(cwd, "parent-controlled-developer-dir"),
+      );
       expect(child.home).not.toBe(homedir());
       expect(child.home).not.toContain(cwd);
       expect(child.tmp).not.toBe(parentTemp);
@@ -231,6 +368,116 @@ describe("run_command", () => {
         }
       }
     }
+  });
+
+  it("removes native authority, Keychain, token, and proxy variables", async () => {
+    const deniedEnvironment = {
+      RECURS_NATIVE_FD: "71",
+      RECURS_NATIVE_AUTHORITY: "native-authority-canary",
+      RECURS_BROKER_ENDPOINT: "broker-endpoint-canary",
+      RECURS_BROKER_TOKEN: "broker-token-canary",
+      RECURS_LAUNCHER_FD: "72",
+      RECURS_LAUNCHER_DESCRIPTOR: "launcher-descriptor-canary",
+      RECURS_PROVIDER_AUTHORITY_HANDLE: "authority-handle-canary",
+      KEYCHAIN_ACCESS_GROUP: "keychain-canary",
+      OPENAI_API_KEY: "openai-key-canary",
+      PROVIDER_CLIENT_SECRET: "provider-secret-canary",
+      GITHUB_TOKEN: "github-token-canary",
+      HTTPS_PROXY: "https://proxy-canary.invalid",
+      NO_PROXY: "proxy-bypass-canary",
+    } as const;
+    const originalEnvironment = Object.fromEntries(
+      Object.keys(deniedEnvironment).map((key) => [key, process.env[key]]),
+    );
+    Object.assign(process.env, deniedEnvironment);
+
+    try {
+      const keys = Object.keys(deniedEnvironment);
+      const script = [
+        `const keys = ${JSON.stringify(keys)};`,
+        "const present = Object.fromEntries(keys.map((key) => [key, Object.hasOwn(process.env, key)]));",
+        "process.stdout.write(JSON.stringify(present));",
+      ].join("");
+      const result = await toolExports.runProcess(
+        process.execPath,
+        ["-e", script],
+        { cwd },
+      );
+
+      expect(JSON.parse(result.stdout)).toEqual(
+        Object.fromEntries(keys.map((key) => [key, false])),
+      );
+      expect(result.stderr).toBe("");
+      for (const canary of Object.values(deniedEnvironment)) {
+        expect(result.stdout).not.toContain(canary);
+        expect(result.stderr).not.toContain(canary);
+      }
+    } finally {
+      for (const [key, value] of Object.entries(originalEnvironment)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+  });
+
+  it("does not inherit an extra readable parent descriptor", async () => {
+    const canary = "parent-descriptor-canary";
+    const canaryPath = path.join(cwd, "descriptor-canary");
+    await writeFile(canaryPath, canary, "utf8");
+    const parentFile = await open(canaryPath, "r");
+    const canaryDigest = createHash("sha256").update(canary).digest("hex");
+
+    try {
+      expect(parentFile.fd).toBeGreaterThan(2);
+      const parentRead = await parentFile.read({
+        buffer: Buffer.alloc(Buffer.byteLength(canary)),
+        position: 0,
+      });
+      expect(parentRead.buffer.toString("utf8")).toBe(canary);
+
+      const script = [
+        'const { readFileSync } = require("node:fs");',
+        'const { createHash } = require("node:crypto");',
+        "let inherited = false;",
+        `try { inherited = createHash("sha256").update(readFileSync(${parentFile.fd})).digest("hex") === ${JSON.stringify(canaryDigest)}; } catch {}`,
+        'process.stdout.write(inherited ? "inherited" : "closed");',
+      ].join("");
+      const result = await toolExports.runProcess(
+        process.execPath,
+        ["-e", script],
+        { cwd },
+      );
+
+      expect(result).toEqual({ stdout: "closed", stderr: "", exitCode: 0 });
+      expect(result.stdout).not.toContain(canary);
+      expect(result.stderr).not.toContain(canary);
+    } finally {
+      await parentFile.close();
+    }
+  });
+
+  it("pins tool child stdio to descriptors zero through two", () => {
+    expect(toolExports.TOOL_CHILD_STDIO).toEqual(["pipe", "pipe", "pipe"]);
+    expect(Object.isFrozen(toolExports.TOOL_CHILD_STDIO)).toBe(true);
+    expect(() =>
+      toolExports.assertToolChildStdio(toolExports.TOOL_CHILD_STDIO),
+    ).not.toThrow();
+    expect(() =>
+      toolExports.assertToolChildStdio([
+        "pipe",
+        "pipe",
+        "pipe",
+        "inherit",
+      ]),
+    ).toThrow(
+      expect.objectContaining({
+        code: "process_failed",
+        message: "The tool child stdio boundary is invalid",
+      }),
+    );
   });
 
   it("does not search the workspace when every parent PATH entry is removed", async () => {

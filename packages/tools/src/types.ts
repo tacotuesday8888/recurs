@@ -1,4 +1,7 @@
-import type { ToolDefinition } from "@recurs/contracts";
+import type {
+  ToolDefinition,
+  TrustedRunContext,
+} from "@recurs/contracts";
 
 export type PermissionMode =
   | "ask_always"
@@ -11,7 +14,11 @@ export type ToolExecutionClass =
   | "in_process"
   | "fixed_process"
   | "arbitrary_process";
-export type ToolSecurityProfile = "local_guarded" | "tools_disabled";
+export type ToolSecurityProfile =
+  | "workspace_sandboxed"
+  | "local_guarded"
+  | "tools_disabled";
+export type ToolCheckpointOwnership = "registry" | "self_managed";
 
 export type PermissionCategory =
   | "read"
@@ -37,6 +44,16 @@ export interface ApprovalHandler {
   request(intent: PermissionIntent): Promise<ApprovalResponse>;
 }
 
+export interface DelegationBudget {
+  readonly maxChildren: number;
+  childrenStarted: number;
+  readonly maxRequests: number;
+  requestsReserved: number;
+  requestsUsed: number;
+  readonly maxReportedCostUsd: number;
+  reportedCostUsd: number;
+}
+
 export interface ToolContext {
   sessionId: string;
   cwd: string;
@@ -44,6 +61,21 @@ export interface ToolContext {
   executionMode: ExecutionMode;
   readRevisions: Map<string, string>;
   approvedIntents?: Set<string>;
+  runContext?: TrustedRunContext;
+  toolPolicy?: ToolPolicy;
+  delegationBudget?: DelegationBudget;
+  processSandbox?: {
+    readonly mode: "workspace";
+    readonly network: "allow" | "deny";
+  };
+}
+
+export interface ToolPolicy {
+  readonly readOnly: boolean;
+  readonly evidenceFromSources: boolean;
+  readonly allowedNames: readonly string[];
+  readonly allowedCategories: readonly PermissionCategory[];
+  readonly maxRisk: PermissionRisk;
 }
 
 export interface ToolResult {
@@ -55,6 +87,8 @@ export interface Tool<Input = unknown> {
   readonly definition: ToolDefinition;
   readonly executionClass: ToolExecutionClass;
   readonly mutating: boolean;
+  readonly checkpointOwnership?: ToolCheckpointOwnership;
+  isMutating?(input: Input, context: ToolContext): boolean;
   parse(input: unknown): Input;
   permissions(input: Input, context: ToolContext): PermissionIntent[];
   /** Validate without mutating workspace or external state. */
@@ -77,6 +111,7 @@ export type ToolErrorCode =
   | "not_a_directory"
   | "output_limit"
   | "process_failed"
+  | "sandbox_unavailable"
   | "unsupported_platform"
   | "unsupported_git_version"
   | "command_timeout"

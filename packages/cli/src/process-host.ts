@@ -1,0 +1,1079 @@
+import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
+import path from "node:path";
+import {
+  stderr as processStderr,
+  stdin as processStdin,
+  stdout as processStdout,
+} from "node:process";
+import type { Readable, Writable } from "node:stream";
+import { createInterface } from "node:readline/promises";
+
+import {
+  createHostInvocation,
+  type IntegrationFailure,
+  type NativeAuthorityPort,
+  type NativeAuthorityStatus,
+  type NativeOpenAIResponsesPort,
+} from "@recurs/contracts";
+import {
+  detectLocalRuntimes,
+  type LocalRuntimeDetection,
+  type ProviderCatalogSnapshot,
+} from "@recurs/providers";
+import {
+  CodexOnboardingError,
+  ConnectionLifecycleError,
+  NativeAuthorityService,
+  OPENAI_RESPONSES_EXACT_MODEL_IDS,
+  anthropicOnboardingDisclosure,
+  kimiOnboardingDisclosure,
+  openAIOnboardingDisclosure,
+  recoverPendingOpenAIConnection,
+  setupOpenAIConnection,
+  type ConnectionDisconnection,
+  type ConnectionVerification,
+  type CodexConnectionConfiguration,
+  type OpenAIOnboardingDisclosure,
+  type AnthropicOnboardingDisclosure,
+  type KimiOnboardingDisclosure,
+  type OpenAIRecoveryOutcome,
+  type OpenAISetupOutcome,
+  type SetupOpenAIConnectionInput,
+} from "@recurs/app";
+import { CoordinatedRunError, type EventSink } from "@recurs/core";
+
+import { createStandaloneRuntime } from "./assembly.js";
+import { setupCodexSubscription } from "./codex-connection.js";
+import {
+  listAccountSummaries,
+  listProviderSummaries,
+  disconnectAccount,
+  setPrimaryAccount,
+  verifyAccount,
+  type AccountSummary,
+  type ProviderSummary,
+} from "./provider-account.js";
+import {
+  discoverProviderCatalog,
+  localRuntimeText,
+  providerCatalogText,
+} from "./provider-discovery.js";
+import {
+  LocalConnectionError,
+  setupLocalConnection,
+  type LocalConnectionConfiguration,
+} from "./local-connection.js";
+import type { CommandResult } from "./commands/types.js";
+import {
+  JsonlEventRenderer,
+  TextEventRenderer,
+  renderCommandResult,
+  writeOutput,
+} from "./render.js";
+import { safeCliErrorMessage } from "./error-rendering.js";
+import { startRepl } from "./repl.js";
+import {
+  RuntimeError,
+  isCancellation,
+  type RecursRuntime,
+} from "./runtime.js";
+
+const help = `Recurs coding-agent harness
+
+Usage:
+  recurs                         Open the interactive CLI
+  recurs run <prompt>            Run one prompt
+  recurs run <prompt> --format text|jsonl
+  recurs setup local --url <loopback-url> --model <model-id>
+  recurs setup codex             Connect an existing ChatGPT Codex subscription
+  recurs setup openai [--model <exact-id>]
+  recurs setup openai --recover  Reconcile interrupted OpenAI API setup
+  recurs setup anthropic --model <exact-id>
+  recurs setup kimi --model <exact-id>
+  recurs provider list [--all] [--json]
+  recurs provider catalog [query] [--json]
+  recurs provider detect [--json]
+  recurs account list [--json]
+  recurs account set-primary <id>
+  recurs account verify <id>
+  recurs account disconnect <id>
+  recurs doctor native [--json]  Inspect native authority status
+  recurs --help                  Show this help
+
+Local setup supports credential-free OpenAI-compatible servers on literal loopback only.
+Cross-platform ephemeral BYOK: set RECURS_PROVIDER, RECURS_MODEL, and RECURS_API_KEY together.
+The key stays process-local, is not saved, and is removed from tool subprocess environments.
+Codex setup is interactive and Plan-only. It never imports or stores vendor credentials.
+OpenAI API setup captures credentials only in the native authority; API billing is separate from ChatGPT.
+Anthropic API setup captures credentials only in the native authority; API billing is separate from Claude subscriptions.
+Kimi Code setup captures its coding-plan key only in the native authority.
+`;
+
+export interface OpenAICliOnboardingPort {
+  readonly provider?: "openai" | "anthropic" | "kimi";
+  readonly disclosure: OpenAIOnboardingDisclosure | AnthropicOnboardingDisclosure | KimiOnboardingDisclosure;
+  readonly modelIds: readonly string[];
+  setup(input: SetupOpenAIConnectionInput): Promise<OpenAISetupOutcome>;
+  recover(signal?: AbortSignal): Promise<OpenAIRecoveryOutcome>;
+}
+
+export interface CliDependencies {
+  stdout: Writable;
+  stderr: Writable;
+  stdin?: Readable;
+  cwd?: string;
+  interactive?: boolean;
+  automation?: boolean;
+  signal?: AbortSignal;
+  confirm?(message: string): Promise<boolean>;
+  selectOpenAIModel?(modelIds: readonly string[]): Promise<string | null>;
+  nativeAuthority?: NativeAuthorityPort;
+  openAIOnboarding?: OpenAICliOnboardingPort;
+  anthropicOnboarding?: OpenAICliOnboardingPort;
+  kimiOnboarding?: OpenAICliOnboardingPort;
+  createRuntime(events: EventSink): Promise<RecursRuntime>;
+  setupLocal?(input: { baseUrl: string; modelId: string }): Promise<Pick<LocalConnectionConfiguration, "id" | "label" | "baseUrl" | "modelId" | "primary">>;
+  setupCodex?(input: {
+    cwd: string;
+    interactive: true;
+    billingSelection: "allow_declared_additional";
+  }): Promise<Pick<CodexConnectionConfiguration, "id" | "label" | "modelId" | "planOnly" | "primary">>;
+  listProviders?(input: {
+    includeBlocked: boolean;
+  }): Promise<readonly ProviderSummary[]>;
+  discoverProviders?(
+    query: string,
+    signal?: AbortSignal,
+  ): Promise<ProviderCatalogSnapshot>;
+  detectProviders?(
+    signal?: AbortSignal,
+  ): Promise<readonly LocalRuntimeDetection[]>;
+  listAccounts?(): Promise<readonly AccountSummary[]>;
+  setPrimaryAccount?(id: string): Promise<AccountSummary>;
+  verifyAccount?(id: string, cwd: string): Promise<ConnectionVerification>;
+  disconnectAccount?(id: string): Promise<ConnectionDisconnection>;
+}
+
+interface RunArguments {
+  prompt: string;
+  format: "text" | "jsonl";
+}
+
+function nativeAuthorityText(status: NativeAuthorityStatus): string {
+  if (status.state === "unavailable") {
+    return `Native authority: unavailable\nReason: ${status.reason}\n`;
+  }
+  return [
+    "Native authority: available",
+    `Protocol: ${status.attestation.protocolVersion}`,
+    `Launcher: ${status.attestation.launcherVersion}`,
+    `Broker: ${status.attestation.brokerVersion}`,
+    `Platform: ${status.attestation.platform} (macOS ${status.attestation.minimumMacosVersion}+)`,
+    `Production signed: ${status.attestation.productionSigned ? "yes" : "no"}`,
+    `Persistent credentials: ${status.attestation.persistentCredentials ? "yes" : "no"}`,
+    `Keychain: ${status.health.keychain}`,
+    `Peer identity: ${status.health.peerIdentity}`,
+    "",
+  ].join("\n");
+}
+
+function isAbortError(error: unknown): boolean {
+  try {
+    return error instanceof DOMException && error.name === "AbortError";
+  } catch {
+    return false;
+  }
+}
+
+function parseRunArguments(args: readonly string[]): RunArguments | null {
+  let format: RunArguments["format"] = "text";
+  const prompt: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index] ?? "";
+    if (argument === "--format") {
+      const value = args[index + 1];
+      if (value !== "text" && value !== "jsonl") {
+        return null;
+      }
+      format = value;
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith("--")) {
+      return null;
+    }
+    prompt.push(argument);
+  }
+  const joined = prompt.join(" ").trim();
+  return joined.length === 0 ? null : { prompt: joined, format };
+}
+
+function parseLocalSetupArguments(
+  args: readonly string[],
+): { baseUrl: string; modelId: string } | null {
+  if (args[0] !== "local") return null;
+  let baseUrl: string | undefined;
+  let modelId: string | undefined;
+  for (let index = 1; index < args.length; index += 2) {
+    const flag = args[index];
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith("--")) return null;
+    if (flag === "--url" && baseUrl === undefined) baseUrl = value;
+    else if (flag === "--model" && modelId === undefined) modelId = value;
+    else return null;
+  }
+  return baseUrl === undefined || modelId === undefined
+    ? null
+    : { baseUrl, modelId };
+}
+
+type OpenAISetupCommand =
+  | {
+    readonly kind: "setup";
+    readonly provider: "openai" | "anthropic" | "kimi";
+    readonly modelId?: string;
+  }
+  | { readonly kind: "recover"; readonly provider: "openai" };
+
+const SAFE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/u;
+
+function parseOpenAISetupCommand(
+  args: readonly string[],
+): OpenAISetupCommand | null {
+  const provider = args[0];
+  if (provider !== "openai" && provider !== "anthropic" && provider !== "kimi") return null;
+  if (args.length === 1 && provider === "openai") {
+    return { kind: "setup", provider };
+  }
+  if (args.length === 2 && args[1] === "--recover" && provider === "openai") {
+    return { kind: "recover", provider };
+  }
+  if (
+    args.length === 3 &&
+    args[1] === "--model" &&
+    args[2] !== undefined &&
+    SAFE_MODEL_ID.test(args[2])
+  ) {
+    return { kind: "setup", provider, modelId: args[2] };
+  }
+  return null;
+}
+
+function openAISetupDisclosureText(
+  disclosure: OpenAIOnboardingDisclosure | AnthropicOnboardingDisclosure | KimiOnboardingDisclosure,
+): string {
+  return [
+    `Connect ${disclosure.displayName} at ${disclosure.endpoint}.`,
+    "The API key is captured from the terminal by Recurs's native credential authority and stored in Keychain; Node never receives it.",
+    disclosure.billingNotice,
+    "The system proxy and configured certificate roots are trusted in v1.",
+    "This setup path is restricted to a local, user-present CLI.",
+    "Continue and accept the current credential, billing, proxy, and run-context disclosure?",
+  ].join("\n");
+}
+
+async function renderOpenAIOutcome(
+  outcome: OpenAISetupOutcome,
+  dependencies: Pick<CliDependencies, "stdout" | "stderr">,
+): Promise<number> {
+  if (outcome.state === "cancelled") {
+    await writeOutput(dependencies.stderr, "Error: Provider setup was cancelled\n");
+    return 130;
+  }
+  if (outcome.state === "failed") {
+    const recovery = outcome.recovery === "pending_reconciliation"
+      ? "\nRun recurs setup openai --recover before trying setup again."
+      : "";
+    await writeOutput(
+      dependencies.stderr,
+      `Error: ${outcome.safeMessage}${recovery}\n`,
+    );
+    return 2;
+  }
+  const connection = outcome.connection;
+  await writeOutput(
+    dependencies.stdout,
+    `Stored — ${connection.label} · ${connection.modelId}\nCredential: native authority (identifier redacted)\nBilling: metered provider API, separate from consumer subscriptions\nActivation: ready through the signed native authority\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}${outcome.cleanupPending ? "Activation cleanup remains pending; run recurs setup openai --recover.\n" : ""}`,
+  );
+  return 0;
+}
+
+async function runOpenAISetupCommand(
+  command: OpenAISetupCommand,
+  onboarding: OpenAICliOnboardingPort,
+  dependencies: CliDependencies,
+): Promise<number> {
+  if (command.kind === "recover") {
+    const recovered = await onboarding.recover(dependencies.signal);
+    if (recovered.state === "none") {
+      await writeOutput(
+        dependencies.stdout,
+        "No pending OpenAI activation requires recovery.\n",
+      );
+      return 0;
+    }
+    if (recovered.state === "discarded") {
+      await writeOutput(
+        dependencies.stdout,
+        `Recovered — discarded inactive OpenAI activation ${recovered.connectionId}.\nRun recurs setup openai to start again.\n`,
+      );
+      return 0;
+    }
+    return renderOpenAIOutcome(recovered, dependencies);
+  }
+  if (
+    dependencies.confirm === undefined ||
+    (command.modelId === undefined &&
+      dependencies.selectOpenAIModel === undefined)
+  ) {
+    await writeOutput(dependencies.stderr, help);
+    return 2;
+  }
+  const accepted = await dependencies.confirm(
+    openAISetupDisclosureText(onboarding.disclosure),
+  );
+  if (!accepted) {
+    await writeOutput(
+      dependencies.stderr,
+      `Error: ${onboarding.disclosure.displayName} credential and billing disclosure was not accepted\n`,
+    );
+    return 2;
+  }
+  const modelId = command.modelId ??
+    await dependencies.selectOpenAIModel?.(onboarding.modelIds);
+  if (modelId === null || modelId === undefined) {
+    await writeOutput(
+      dependencies.stderr,
+      "Error: Provider model selection was cancelled\n",
+    );
+    return 2;
+  }
+  if (
+    (onboarding.provider ?? "openai") === "openai" &&
+    !onboarding.modelIds.includes(modelId)
+  ) {
+    await writeOutput(
+      dependencies.stderr,
+      "Error: The selected OpenAI model is outside the reviewed capability profile\n",
+    );
+    return 2;
+  }
+  const disclosure = onboarding.disclosure;
+  const outcome = await onboarding.setup({
+    modelId,
+    acknowledgement: {
+      policyRevision: disclosure.policyRevision,
+      billingPolicyRevision: disclosure.billingPolicyRevision,
+      billingDisclosureRevision: disclosure.billingDisclosureRevision,
+      mode: "strict_primary_only",
+    },
+    ...(command.provider !== "openai"
+      ? { provider: command.provider }
+      : {}),
+    ...(dependencies.signal === undefined
+      ? {}
+      : { signal: dependencies.signal }),
+  });
+  return renderOpenAIOutcome(outcome, dependencies);
+}
+
+function parseListArguments(
+  args: readonly string[],
+  allowAll: boolean,
+): { json: boolean; includeBlocked: boolean } | null {
+  if (args[0] !== "list") return null;
+  let json = false;
+  let includeBlocked = false;
+  for (const flag of args.slice(1)) {
+    if (flag === "--json" && !json) json = true;
+    else if (flag === "--all" && allowAll && !includeBlocked) {
+      includeBlocked = true;
+    } else {
+      return null;
+    }
+  }
+  return { json, includeBlocked };
+}
+
+type ProviderCommand =
+  | { readonly kind: "list"; readonly json: boolean; readonly includeBlocked: boolean }
+  | { readonly kind: "catalog"; readonly json: boolean; readonly query: string }
+  | { readonly kind: "detect"; readonly json: boolean };
+
+function parseProviderCommand(args: readonly string[]): ProviderCommand | null {
+  const listed = parseListArguments(args, true);
+  if (listed !== null) return { kind: "list", ...listed };
+  if (args[0] === "detect") {
+    if (args.length === 1) return { kind: "detect", json: false };
+    if (args.length === 2 && args[1] === "--json") {
+      return { kind: "detect", json: true };
+    }
+    return null;
+  }
+  if (args[0] !== "catalog") return null;
+  let json = false;
+  const query: string[] = [];
+  for (const argument of args.slice(1)) {
+    if (argument === "--json" && !json) json = true;
+    else if (argument.startsWith("--")) return null;
+    else query.push(argument);
+  }
+  const joined = query.join(" ").trim();
+  return joined.length <= 256 ? { kind: "catalog", json, query: joined } : null;
+}
+
+type AccountCommand =
+  | { readonly kind: "list"; readonly json: boolean }
+  | { readonly kind: "set_primary"; readonly id: string }
+  | { readonly kind: "verify"; readonly id: string }
+  | { readonly kind: "disconnect"; readonly id: string };
+
+const ACCOUNT_CONNECTION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
+
+function parseAccountCommand(args: readonly string[]): AccountCommand | null {
+  const listed = parseListArguments(args, false);
+  if (listed !== null) return { kind: "list", json: listed.json };
+  if (args.length !== 2) return null;
+  const [action, id] = args;
+  if (id === undefined || !ACCOUNT_CONNECTION_ID.test(id)) return null;
+  if (action === "set-primary") return { kind: "set_primary", id };
+  if (action === "verify") return { kind: "verify", id };
+  if (action === "disconnect") return { kind: "disconnect", id };
+  return null;
+}
+
+function providerText(providers: readonly ProviderSummary[]): string {
+  if (providers.length === 0) return "No provider paths are available.\n";
+  return `${providers.map((provider) => {
+    const sources = [
+      provider.billing.primarySource,
+      ...provider.billing.possibleAdditionalSources,
+    ].join(" + ");
+    return [
+      `${provider.id} — ${provider.displayName}`,
+      `  Status: ${provider.status} (${provider.supportStatus})`,
+      `  Access: ${provider.accessKind} · ${provider.adapterKind} · ${provider.protocol}`,
+      `  Credential owner: ${provider.connectionOwner}`,
+      `  Billing: ${sources} · fallback ${provider.billing.providerFallback}`,
+      ...provider.restrictions.slice(0, 2).map(
+        (restriction) => `  Restriction: ${restriction}`,
+      ),
+    ].join("\n");
+  }).join("\n\n")}\n`;
+}
+
+function accountText(accounts: readonly AccountSummary[]): string {
+  if (accounts.length === 0) return "No configured accounts.\n";
+  return `${accounts.map((account) => [
+    `${account.primary ? "*" : " "} ${account.id} — ${account.label}`,
+    `  Provider: ${account.providerId} · ${account.adapterId}`,
+    `  Model: ${account.modelId} · ${account.execution}`,
+    `  Account: ${account.account}`,
+    `  Billing: ${account.billingSources.join(" + ")}`,
+  ].join("\n")).join("\n\n")}\n`;
+}
+
+function isCommandResult(value: unknown): value is CommandResult {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    (value.type === "message" ||
+      value.type === "submit_prompt" ||
+      value.type === "quit")
+  );
+}
+
+function exitCodeFor(error: unknown): number {
+  if (isCancellation(error)) {
+    return 130;
+  }
+  if (
+    error instanceof RuntimeError &&
+    (error.code === "invalid_input" || error.code === "provider_not_configured")
+  ) {
+    return 2;
+  }
+  if (error instanceof LocalConnectionError) return 2;
+  if (error instanceof CodexOnboardingError) return 2;
+  if (error instanceof ConnectionLifecycleError) {
+    return error.code === "cancelled" ? 130 : 2;
+  }
+  if (error instanceof CoordinatedRunError && error.failure.phase === "preflight") {
+    return 2;
+  }
+  return 1;
+}
+
+function configurationFailure(error: unknown): IntegrationFailure | null {
+  if (error instanceof CoordinatedRunError && error.failure.phase === "preflight") {
+    return error.failure;
+  }
+  if (
+    error instanceof RuntimeError &&
+    (error.code === "invalid_input" || error.code === "provider_not_configured")
+  ) {
+    return {
+      domain: "connection",
+      phase: "preflight",
+      code: "connection_invalid",
+      safeMessage: error.message,
+      diagnosticId: randomUUID(),
+      retryable: false,
+      action: "select_connection",
+    };
+  }
+  return null;
+}
+
+export async function runCli(
+  argv: readonly string[],
+  dependencies: CliDependencies,
+): Promise<number> {
+  if (
+    argv.length === 1 &&
+    (argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help")
+  ) {
+    await writeOutput(dependencies.stdout, help);
+    return 0;
+  }
+
+  if (argv[0] === "doctor") {
+    const json = argv.length === 3 && argv[2] === "--json";
+    const nativeAuthority = dependencies.nativeAuthority;
+    const valid =
+      argv[1] === "native" &&
+      (argv.length === 2 || json) &&
+      nativeAuthority !== undefined;
+    if (!valid) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    try {
+      const status = await new NativeAuthorityService(nativeAuthority).status(
+        dependencies.signal,
+      );
+      await writeOutput(
+        dependencies.stdout,
+        json
+          ? `${JSON.stringify({ version: 1, nativeAuthority: status })}\n`
+          : nativeAuthorityText(status),
+      );
+      return 0;
+    } catch (error) {
+      if (isAbortError(error)) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: Native authority check was cancelled\n",
+        );
+        return 130;
+      }
+      const status: NativeAuthorityStatus = Object.freeze({
+        state: "unavailable",
+        reason: "broker_unavailable",
+      });
+      await writeOutput(
+        dependencies.stdout,
+        json
+          ? `${JSON.stringify({ version: 1, nativeAuthority: status })}\n`
+          : nativeAuthorityText(status),
+      );
+      return 0;
+    }
+  }
+
+  if (argv.length === 0) {
+    if (
+      dependencies.interactive !== true ||
+      dependencies.automation === true
+    ) {
+      await writeOutput(
+        dependencies.stderr,
+        "Error: The interactive CLI requires a user-present local terminal. Use recurs run for supported noninteractive providers.\n",
+      );
+      return 2;
+    }
+    const renderer = new TextEventRenderer(dependencies.stdout);
+    try {
+      const runtime = await dependencies.createRuntime(renderer);
+      await startRepl(runtime, {
+        ...(dependencies.stdin === undefined ? {} : { input: dependencies.stdin }),
+        output: dependencies.stdout,
+        invocation: createHostInvocation({
+          invocation: "repl",
+          userPresent: true,
+          remote: false,
+          scripted: false,
+          embedding: "cli",
+        }),
+      });
+      return 0;
+    } catch (error) {
+      await writeOutput(
+        dependencies.stderr,
+        `Error: ${safeCliErrorMessage(error)}\n`,
+      );
+      return exitCodeFor(error);
+    }
+  }
+
+  if (argv[0] === "provider") {
+    const parsed = parseProviderCommand(argv.slice(1));
+    if (parsed === null) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    try {
+      if (parsed.kind === "list") {
+        if (dependencies.listProviders === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const providers = await dependencies.listProviders({
+          includeBlocked: parsed.includeBlocked,
+        });
+        await writeOutput(
+          dependencies.stdout,
+          parsed.json
+            ? `${JSON.stringify({ version: 1, providers })}\n`
+            : providerText(providers),
+        );
+      } else if (parsed.kind === "catalog") {
+        if (dependencies.discoverProviders === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const snapshot = await dependencies.discoverProviders(
+          parsed.query,
+          dependencies.signal,
+        );
+        await writeOutput(
+          dependencies.stdout,
+          parsed.json
+            ? `${JSON.stringify({ version: 1, ...snapshot })}\n`
+            : providerCatalogText(snapshot),
+        );
+      } else {
+        if (dependencies.detectProviders === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const providers = await dependencies.detectProviders(dependencies.signal);
+        await writeOutput(
+          dependencies.stdout,
+          parsed.json
+            ? `${JSON.stringify({ version: 1, providers })}\n`
+            : localRuntimeText(providers),
+        );
+      }
+      return 0;
+    } catch (error) {
+      await writeOutput(
+        dependencies.stderr,
+        `Error: ${safeCliErrorMessage(error)}\n`,
+      );
+      return exitCodeFor(error);
+    }
+  }
+
+  if (argv[0] === "account") {
+    const command = parseAccountCommand(argv.slice(1));
+    if (command === null) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    try {
+      if (command.kind === "list") {
+        if (dependencies.listAccounts === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const accounts = await dependencies.listAccounts();
+        await writeOutput(
+          dependencies.stdout,
+          command.json
+            ? `${JSON.stringify({ version: 1, accounts })}\n`
+            : accountText(accounts),
+        );
+        return 0;
+      }
+      if (command.kind === "set_primary") {
+        if (dependencies.setPrimaryAccount === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const account = await dependencies.setPrimaryAccount(command.id);
+        await writeOutput(
+          dependencies.stdout,
+          `Primary connection — ${account.id} · ${account.modelId}\nProvider: ${account.providerId} · Billing: ${account.billingSources.join(" + ")}\nExisting sessions keep their pinned backend.\n`,
+        );
+        return 0;
+      }
+      if (
+        dependencies.interactive !== true ||
+        dependencies.automation === true
+      ) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: Account verification and disconnection require a user-present local terminal\n",
+        );
+        return 2;
+      }
+      if (command.kind === "verify") {
+        if (dependencies.verifyAccount === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const result = await dependencies.verifyAccount(
+          command.id,
+          dependencies.cwd ?? process.cwd(),
+        );
+        await writeOutput(
+          dependencies.stdout,
+          `Verified — ${result.connection.id} · ${result.connection.modelId}\nProvider: ${result.connection.providerId} · ${result.connection.execution}\n`,
+        );
+        return 0;
+      }
+      if (
+        dependencies.confirm === undefined ||
+        dependencies.disconnectAccount === undefined
+      ) {
+        await writeOutput(dependencies.stderr, help);
+        return 2;
+      }
+      const confirmed = await dependencies.confirm(
+        `Disconnect ${command.id} from Recurs? This removes Recurs metadata only; vendor authentication will not be changed.`,
+      );
+      if (!confirmed) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: Account disconnection was not confirmed\n",
+        );
+        return 2;
+      }
+      const result = await dependencies.disconnectAccount(command.id);
+      await writeOutput(
+        dependencies.stdout,
+        `Disconnected ${result.connectionId}. Vendor authentication was not changed.\n${result.primaryCleared ? "No primary connection is selected.\n" : ""}`,
+      );
+      return 0;
+    } catch (error) {
+      await writeOutput(
+        dependencies.stderr,
+        `Error: ${safeCliErrorMessage(error)}\n`,
+      );
+      return exitCodeFor(error);
+    }
+  }
+
+  if (argv[0] === "setup") {
+    const openAICommand = parseOpenAISetupCommand(argv.slice(1));
+    if (openAICommand !== null) {
+      const onboarding = openAICommand.provider === "anthropic"
+        ? dependencies.anthropicOnboarding
+        : openAICommand.provider === "kimi"
+        ? dependencies.kimiOnboarding
+        : dependencies.openAIOnboarding;
+      if (
+        dependencies.interactive !== true ||
+        dependencies.automation === true ||
+        onboarding === undefined
+      ) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: Provider API setup requires an interactive local terminal and the native credential authority\n",
+        );
+        return 2;
+      }
+      try {
+        return await runOpenAISetupCommand(
+          openAICommand,
+          onboarding,
+          dependencies,
+        );
+      } catch (error) {
+        if (dependencies.signal?.aborted === true || isAbortError(error)) {
+          await writeOutput(
+            dependencies.stderr,
+            "Error: Provider setup was cancelled\n",
+          );
+          return 130;
+        }
+        await writeOutput(
+          dependencies.stderr,
+          `Error: ${safeCliErrorMessage(error)}\n`,
+        );
+        return 2;
+      }
+    }
+    if (argv.length === 2 && argv[1] === "codex") {
+      if (
+        dependencies.interactive !== true ||
+        dependencies.automation === true ||
+        dependencies.confirm === undefined ||
+        dependencies.setupCodex === undefined
+      ) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: Codex setup requires an interactive local terminal\n",
+        );
+        return 2;
+      }
+      const accepted = await dependencies.confirm(
+        "OpenAI documents Codex as included with eligible ChatGPT plans. After included limits, Codex may automatically use prepaid credits when available. Continue and allow both included subscription usage and that declared prepaid-credit fallback?",
+      );
+      if (!accepted) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: Codex billing disclosure was not accepted\n",
+        );
+        return 2;
+      }
+      try {
+        const connection = await dependencies.setupCodex({
+          cwd: dependencies.cwd ?? process.cwd(),
+          interactive: true,
+          billingSelection: "allow_declared_additional",
+        });
+        await writeOutput(
+          dependencies.stdout,
+          `Ready — ${connection.label} · ${connection.modelId}\nMode: Plan-only (read-only Codex runtime)\nAccount: verified by the vendor runtime; credentials remain vendor-owned\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}`,
+        );
+        return 0;
+      } catch (error) {
+        await writeOutput(
+          dependencies.stderr,
+          `Error: ${safeCliErrorMessage(error)}\n`,
+        );
+        return exitCodeFor(error);
+      }
+    }
+    const input = parseLocalSetupArguments(argv.slice(1));
+    if (input === null || dependencies.setupLocal === undefined) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    try {
+      const connection = await dependencies.setupLocal(input);
+      await writeOutput(
+        dependencies.stdout,
+        `Ready — ${connection.label} · ${connection.modelId}\nEndpoint: ${connection.baseUrl}\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}`,
+      );
+      return 0;
+    } catch (error) {
+      await writeOutput(dependencies.stderr, `Error: ${safeCliErrorMessage(error)}\n`);
+      return exitCodeFor(error);
+    }
+  }
+
+  if (argv[0] !== "run") {
+    await writeOutput(dependencies.stderr, help);
+    return 2;
+  }
+  const parsed = parseRunArguments(argv.slice(1));
+  if (parsed === null) {
+    await writeOutput(dependencies.stderr, help);
+    return 2;
+  }
+  const renderer = parsed.format === "jsonl"
+    ? new JsonlEventRenderer(dependencies.stdout)
+    : new TextEventRenderer(dependencies.stdout);
+  try {
+    const runtime = await dependencies.createRuntime(renderer);
+    const result = await runtime.submit(
+      parsed.prompt,
+      createHostInvocation({
+        invocation: "one_shot",
+        userPresent: false,
+        remote: false,
+        scripted: true,
+        embedding: "cli",
+      }),
+    );
+    if (isCommandResult(result)) {
+      await renderCommandResult(result, dependencies.stdout, dependencies.stderr);
+    }
+    return 0;
+  } catch (error) {
+    const failure = configurationFailure(error);
+    if (parsed.format === "jsonl" && failure !== null) {
+      await writeOutput(
+        dependencies.stdout,
+        `${JSON.stringify({
+          version: 1,
+          type: "configuration_error",
+          error: failure,
+        })}\n`,
+      );
+      return 2;
+    }
+    await writeOutput(
+      dependencies.stderr,
+      `Error: ${safeCliErrorMessage(error)}\n`,
+    );
+    return exitCodeFor(error);
+  }
+}
+
+const AUTOMATION_ENVIRONMENT_KEYS = Object.freeze([
+  "CI",
+  "CONTINUOUS_INTEGRATION",
+  "GITHUB_ACTIONS",
+  "GITLAB_CI",
+  "BUILDKITE",
+  "CIRCLECI",
+  "TF_BUILD",
+  "TEAMCITY_VERSION",
+  "JENKINS_URL",
+  "BITBUCKET_BUILD_NUMBER",
+  "CODEBUILD_BUILD_ID",
+]);
+
+export function isAutomationEnvironment(
+  environment: Readonly<NodeJS.ProcessEnv>,
+): boolean {
+  return AUTOMATION_ENVIRONMENT_KEYS.some((key) => {
+    const value = environment[key]?.trim().toLowerCase();
+    return value !== undefined && value !== "" && value !== "0" &&
+      value !== "false" && value !== "no" && value !== "off";
+  });
+}
+
+export async function runCliProcess(
+  nativeAuthority: NativeAuthorityPort,
+  nativeOpenAIResponses?: NativeOpenAIResponsesPort,
+): Promise<void> {
+  const argv = process.argv.slice(2);
+  const nativeDoctorRequested =
+    argv[0] === "doctor" &&
+    argv[1] === "native" &&
+    (argv.length === 2 || (argv.length === 3 && argv[2] === "--json"));
+  const nativeOperationRequested = nativeDoctorRequested ||
+    (argv[0] === "setup" &&
+      (argv[1] === "openai" || argv[1] === "anthropic"));
+  const nativeOperationController = nativeOperationRequested
+    ? new AbortController()
+    : undefined;
+  const cancelNativeOperation = (): void => {
+    nativeOperationController?.abort();
+  };
+  if (nativeOperationController !== undefined) {
+    process.once("SIGINT", cancelNativeOperation);
+  }
+  const confirm = async (message: string): Promise<boolean> => {
+    const terminal = createInterface({
+      input: processStdin,
+      output: processStdout,
+    });
+    try {
+      const answer = await terminal.question(`${message}\nContinue? [y/N] `);
+      return answer.trim().toLowerCase() === "y" ||
+        answer.trim().toLowerCase() === "yes";
+    } finally {
+      terminal.close();
+    }
+  };
+  const selectOpenAIModel = async (
+    modelIds: readonly string[],
+  ): Promise<string | null> => {
+    const terminal = createInterface({
+      input: processStdin,
+      output: processStdout,
+    });
+    try {
+      const choices = modelIds.map((modelId, index) =>
+        `  ${index + 1}. ${modelId}`
+      ).join("\n");
+      const answer = await terminal.question(
+        `Select one exact reviewed OpenAI model:\n${choices}\nModel number or ID: `,
+      );
+      const trimmed = answer.trim();
+      if (/^[1-9][0-9]*$/u.test(trimmed)) {
+        const index = Number(trimmed) - 1;
+        return modelIds[index] ?? null;
+      }
+      return modelIds.includes(trimmed) ? trimmed : null;
+    } finally {
+      terminal.close();
+    }
+  };
+  const dataDirectory = process.env.RECURS_HOME ?? path.join(homedir(), ".recurs");
+  const disclosure = openAIOnboardingDisclosure();
+  const anthropicDisclosure = anthropicOnboardingDisclosure();
+  const kimiDisclosure = kimiOnboardingDisclosure();
+  try {
+    process.exitCode = await runCli(argv, {
+      stdin: processStdin,
+      stdout: processStdout,
+      stderr: processStderr,
+      cwd: process.cwd(),
+      interactive: processStdin.isTTY === true && processStdout.isTTY === true,
+      automation: isAutomationEnvironment(process.env),
+      ...(nativeOperationController === undefined
+        ? {}
+        : { signal: nativeOperationController.signal }),
+      confirm,
+      selectOpenAIModel,
+      nativeAuthority,
+      openAIOnboarding: {
+        provider: "openai",
+        disclosure,
+        modelIds: OPENAI_RESPONSES_EXACT_MODEL_IDS,
+        setup: (input) => setupOpenAIConnection(
+          dataDirectory,
+          input,
+          { nativeAuthority },
+        ),
+        recover: (signal) => recoverPendingOpenAIConnection(
+          dataDirectory,
+          { nativeAuthority },
+          signal === undefined ? {} : { signal },
+        ),
+      },
+      anthropicOnboarding: {
+        provider: "anthropic",
+        disclosure: anthropicDisclosure,
+        modelIds: [],
+        setup: (input) => setupOpenAIConnection(
+          dataDirectory,
+          { ...input, provider: "anthropic" },
+          { nativeAuthority },
+        ),
+        recover: async () => ({ state: "none" }),
+      },
+      kimiOnboarding: {
+        provider: "kimi",
+        disclosure: kimiDisclosure,
+        modelIds: [],
+        setup: (input) => setupOpenAIConnection(
+          dataDirectory,
+          { ...input, provider: "kimi" },
+          { nativeAuthority },
+        ),
+        recover: async () => ({ state: "none" }),
+      },
+      createRuntime: (events) => createStandaloneRuntime(
+        events,
+        nativeOpenAIResponses === undefined ? {} : { nativeOpenAIResponses },
+      ),
+      setupLocal: (input) => setupLocalConnection(
+        dataDirectory,
+        input,
+      ),
+      setupCodex: (input) => setupCodexSubscription(dataDirectory, input),
+      listProviders: async ({ includeBlocked }) =>
+        listProviderSummaries(includeBlocked),
+      discoverProviders: (query, signal) =>
+        discoverProviderCatalog(query, signal),
+      detectProviders: (signal) =>
+        detectLocalRuntimes(signal === undefined ? {} : { signal }),
+      listAccounts: () => listAccountSummaries(dataDirectory),
+      setPrimaryAccount: (id) => setPrimaryAccount(dataDirectory, id),
+      verifyAccount: (id, cwd) => verifyAccount(dataDirectory, id, cwd),
+      disconnectAccount: (id) => disconnectAccount(dataDirectory, id),
+    });
+  } finally {
+    process.removeListener("SIGINT", cancelNativeOperation);
+  }
+}

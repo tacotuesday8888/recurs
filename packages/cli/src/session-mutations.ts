@@ -45,6 +45,14 @@ export async function applyCommandSessionRecord(
             : { prePlanPermissionMode: record.prePlanPermissionMode }),
         });
         state = reduceSessionRecordV2(state, persisted);
+      } else if (record.type === "agent_policy_updated") {
+        const persisted = await lease.append({
+          type: "agent_policy_updated",
+          at: record.at,
+          operatingModeId: record.operatingModeId,
+          operatingModeVersion: record.operatingModeVersion,
+        });
+        state = reduceSessionRecordV2(state, persisted);
       } else if (record.type === "session_compacted") {
         const operationId = randomUUID();
         const inputBaseSequence = state.lastSequence;

@@ -94,12 +94,18 @@ export function createSearchTextTool(
         maxOutputBytes: MAX_SEARCH_BYTES,
         acceptableExitCodes: [0, 1],
       });
+      const matches = process.stdout === ""
+        ? 0
+        : process.stdout.trimEnd().split("\n").length;
       return {
         output: process.stdout,
         metadata: {
           path: resolved.relative,
           target: targetStat.isDirectory() ? "directory" : "file",
-          matches: process.stdout === "" ? 0 : process.stdout.trimEnd().split("\n").length,
+          matches,
+          sources: [
+            `searched ${resolved.relative} (${matches} ${matches === 1 ? "match" : "matches"})`,
+          ],
         },
       };
     },

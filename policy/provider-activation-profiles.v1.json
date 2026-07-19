@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "profiles": [
+    {
+      "id": "anthropic_api_v1",
+      "bundledProviderId": "anthropic-api"
+    },
+    {
+      "id": "custom_openai_compatible_v1",
+      "bundledProviderId": null
+    },
+    {
+      "id": "kimi_code_v1",
+      "bundledProviderId": "kimi-code"
+    },
+    {
+      "id": "openai_api_v1",
+      "bundledProviderId": "openai-api"
+    }
+  ]
+}

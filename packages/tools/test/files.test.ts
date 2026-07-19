@@ -120,6 +120,7 @@ describe("workspace file tools", () => {
       startLine: 2,
       endLine: 3,
       totalLines: 3,
+      sources: [expect.stringMatching(/^read src\/a\.ts:2-3 \(sha256 [0-9a-f]{64}\)$/u)],
     });
     expect(toolContext.readRevisions.get(absolute)).toBe(result.metadata?.sha256);
   });
@@ -214,6 +215,12 @@ describe("workspace file tools", () => {
     expect(listed.output).toContain("src/a.ts");
     expect(listed.output).toContain("src/shell.ts");
     expect(searched.output).toContain("src/shell.ts:1:");
+    expect(listed.metadata?.sources).toEqual([
+      "listed src (2 of 2 files)",
+    ]);
+    expect(searched.metadata?.sources).toEqual([
+      "searched src (1 match)",
+    ]);
     await expect(
       import("node:fs/promises").then(({ access }) => access(path.join(cwd, "nope"))),
     ).rejects.toBeDefined();

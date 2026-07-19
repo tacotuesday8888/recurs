@@ -9,6 +9,20 @@ import {
 
 describe("provider protocol", () => {
   it("collects streamed text, tool calls, usage, and the stop reason", async () => {
+    const providerStateHandle = {
+      kind: "direct" as const,
+      id: "continuation-1",
+      storageClass: "persistent_broker" as const,
+      recursSessionId: "session-1",
+      connectionId: "connection-1",
+      adapterId: "openai-responses",
+      modelId: "gpt-5.6-sol",
+      backendFingerprint: `sha256:${"a".repeat(64)}`,
+      stateVersion: 1,
+      originTurnId: "turn-1",
+      continuationSequence: 1,
+      status: "committed" as const,
+    };
     async function* events(): AsyncIterable<ProviderEvent> {
       yield { type: "text_delta", text: "hel" };
       yield { type: "text_delta", text: "lo" };
@@ -20,6 +34,7 @@ describe("provider protocol", () => {
           arguments: { path: "a.ts" },
         },
       };
+      yield { type: "provider_state", handle: providerStateHandle };
       yield { type: "usage", inputTokens: 10, outputTokens: 4 };
       yield { type: "done", stopReason: "tool_calls" };
     }
@@ -35,6 +50,43 @@ describe("provider protocol", () => {
       ],
       usage: { inputTokens: 10, outputTokens: 4 },
       stopReason: "tool_calls",
+      providerStateHandle,
+    });
+  });
+
+  it("accepts at most one committed direct provider-state handle", async () => {
+    const handle = {
+      kind: "direct" as const,
+      id: "continuation-1",
+      storageClass: "persistent_broker" as const,
+      recursSessionId: "session-1",
+      connectionId: "connection-1",
+      adapterId: "openai-responses",
+      modelId: "gpt-5.6-sol",
+      backendFingerprint: `sha256:${"a".repeat(64)}`,
+      stateVersion: 1,
+      originTurnId: "turn-1",
+      continuationSequence: 1,
+      status: "committed" as const,
+    };
+    async function* duplicate(): AsyncIterable<ProviderEvent> {
+      yield { type: "provider_state", handle };
+      yield { type: "provider_state", handle };
+      yield { type: "done", stopReason: "complete" };
+    }
+    async function* uncertain(): AsyncIterable<ProviderEvent> {
+      yield {
+        type: "provider_state",
+        handle: { ...handle, status: "uncertain" },
+      };
+      yield { type: "done", stopReason: "complete" };
+    }
+
+    await expect(collectProviderEvents(duplicate())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    await expect(collectProviderEvents(uncertain())).rejects.toMatchObject({
+      code: "invalid_response",
     });
   });
 

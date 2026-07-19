@@ -5,7 +5,9 @@ import { randomUUID } from "node:crypto";
 import { SessionStoreError } from "./session-store-error.js";
 
 export interface AcquiredSessionLock {
-  fencingToken: number;
+  readonly ownerId: string;
+  readonly fencingToken: number;
+  assertOwned(): Promise<void>;
   release(): Promise<void>;
 }
 
@@ -96,6 +98,12 @@ async function nextFence(root: string, sessionId: string): Promise<number> {
       throw error;
     }
   }
+  if (current === Number.MAX_SAFE_INTEGER) {
+    throw new SessionStoreError(
+      "corrupt_log",
+      `Mutation fence for session ${sessionId} is exhausted`,
+    );
+  }
   const next = current + 1;
   const temporary = `${file}.${randomUUID()}.tmp`;
   const handle = await open(temporary, "wx", 0o600);
@@ -145,7 +153,28 @@ export async function acquireSessionLock(
     try {
       const fencingToken = await nextFence(root, sessionId);
       return {
+        ownerId: owner,
         fencingToken,
+        async assertOwned() {
+          let observed: LockOwner | null;
+          try {
+            observed = parseOwner(
+              await readFile(path.join(lock, "owner"), "utf8"),
+            );
+          } catch (error) {
+            throw new SessionStoreError(
+              "session_busy",
+              `Session ${sessionId} mutation ownership was lost`,
+              { cause: error },
+            );
+          }
+          if (observed?.owner !== owner || observed.pid !== process.pid) {
+            throw new SessionStoreError(
+              "session_busy",
+              `Session ${sessionId} mutation ownership was lost`,
+            );
+          }
+        },
         async release() {
           let observed: LockOwner | null;
           try {

@@ -1,17 +1,23 @@
 import type {
   ProviderEvent,
+  DirectContinuationHandle,
   StopReason,
   ToolCall,
 } from "@recurs/contracts";
 
 export type {
   JsonValue,
+  ConnectionBoundModelProvider,
+  DirectContinuationHandle,
+  DirectProviderRunContext,
   MessageRole,
   ModelMessage,
   ModelProvider,
   ProviderEvent,
   ProviderRequest,
   ProviderUsage,
+  ProviderBackedMessage,
+  RunAuthorization,
   StopReason,
   ToolCall,
   ToolDefinition,
@@ -45,6 +51,7 @@ export interface CollectedProviderEvents {
     outputTokens: number;
   };
   stopReason: StopReason;
+  providerStateHandle?: DirectContinuationHandle;
 }
 
 export interface CollectProviderEventsOptions {

@@ -1,4 +1,5 @@
 import type { JsonValue } from "./json.js";
+import type { RunAuthorization } from "./runtime.js";
 
 export type MessageRole = "system" | "user" | "assistant" | "tool";
 
@@ -43,18 +44,42 @@ export interface ProviderRequest {
   messages: readonly ModelMessage[];
   tools: readonly ToolDefinition[];
   signal: AbortSignal;
+  directContext?: DirectProviderRunContext;
+}
+
+export type ModelHarnessProfileId =
+  | "native_tool_use_v1"
+  | "compatible_tool_use_v1";
+
+export interface ModelHarnessProfile {
+  readonly id: ModelHarnessProfileId;
+  readonly version: 1;
+  readonly toolCallStyle: "native" | "conservative";
+  readonly instructions: readonly string[];
+}
+
+export interface DirectProviderRunContext {
+  readonly authorization: RunAuthorization;
+  readonly expectedSessionRecordSequence: number;
 }
 
 export type ProviderEvent =
   | { type: "text_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
   | { type: "tool_call"; call: ToolCall }
+  | { type: "provider_state"; handle: DirectContinuationHandle }
   | { type: "usage"; inputTokens: number; outputTokens: number }
   | { type: "done"; stopReason: StopReason };
 
 export interface ModelProvider {
   readonly id: string;
+  readonly harnessProfile?: ModelHarnessProfile;
   stream(request: ProviderRequest): AsyncIterable<ProviderEvent>;
+}
+
+export interface ConnectionBoundModelProvider extends ModelProvider {
+  readonly adapterId: string;
+  readonly connectionId: string;
 }
 
 export interface ProviderBackedMessage extends ModelMessage {
