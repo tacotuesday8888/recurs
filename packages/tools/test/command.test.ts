@@ -303,14 +303,19 @@ describe("run_command", () => {
       await writeFile(secret, "credential-file-canary", "utf8");
       process.env.HOME = hostHome;
       try {
-        await expect(toolExports.runProcess(
+        const maskedFileResult = await toolExports.runProcess(
           "/bin/sh",
           ["-c", `cat ${shellQuote(secret)}`],
           {
             cwd: workspace,
             sandbox: { mode: "workspace", network: "deny" },
+            acceptableExitCodes: [0, 1],
           },
-        )).resolves.toMatchObject({ stdout: "", exitCode: 0 });
+        );
+        expect(maskedFileResult, maskedFileResult.stderr).toMatchObject({
+          stdout: "",
+          exitCode: 0,
+        });
         expect(await readFile(secret, "utf8")).toBe("credential-file-canary");
       } finally {
         if (originalHome === undefined) delete process.env.HOME;
