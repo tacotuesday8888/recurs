@@ -22,7 +22,7 @@ second NUL separator in the order below.
 | E006 | `SECURITY.md` | The security model does not currently claim Linux process containment. |
 | E007 | `.github/workflows/ci.yml` | Linux verification installs ripgrep but no sandbox runtime. |
 | E008 | Codex `codex-rs/linux-sandbox/src/bwrap.rs` | Current Codex composes Bubblewrap filesystem/user/PID/network namespaces with a separate seccomp layer. |
-| E009 | Vendored Bubblewrap `README.md` in Codex | Bubblewrap arguments, not the binary alone, define sandbox policy; a new terminal session is required without a TIOCSTI seccomp rule. Recurs supplies that boundary with Node's detached spawn, which calls `setsid(2)` before Bubblewrap starts. |
+| E009 | Vendored Bubblewrap `README.md` in Codex | Bubblewrap arguments, not the binary alone, define sandbox policy; `--new-session` is required without a TIOCSTI seccomp rule. |
 | E010 | Vendored Bubblewrap `SECURITY.md` in Codex | Bubblewrap is a policy toolkit and does not by itself provide a user-to-OS privilege boundary. |
 
 No exploit report or sealed Codex Security scan supplied this evidence. The

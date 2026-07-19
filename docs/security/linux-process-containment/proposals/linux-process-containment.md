@@ -21,7 +21,7 @@ workspace containment, not as a complete syscall sandbox.
 | E001-E003 | Shared Recurs process boundary | Process lifecycle and environment isolation are centralized; approved intents already determine network policy. |
 | E004-E007 | Linux fallback and disclosure | Linux defaults to guarded host execution and CI does not install a sandbox helper. |
 | E008 | Current Codex Bubblewrap path | Codex uses Bubblewrap for filesystem/user/PID/network namespaces and separately applies seccomp plus `no_new_privs`. |
-| E009-E010 | Bubblewrap policy constraints | The caller owns the security policy; terminal-session isolation, socket visibility, and mount arguments are security-relevant. |
+| E009-E010 | Bubblewrap policy constraints | The caller owns the security policy; `--new-session`, socket visibility, and mount arguments are security-relevant. |
 
 The Recurs evidence is repository-local. The external sources are pinned to
 [OpenAI Codex commit `0fb559f`](https://github.com/openai/codex/tree/0fb559f0f6e231a88ac02ea002d3ecd248e2b515),
@@ -96,7 +96,7 @@ Recurs validates one fixed, root-owned, non-writable, non-setuid
 `/usr/bin/bwrap`, then supplies a fixed policy: a read-only host root, minimal
 `/dev`, hidden host temporary/runtime state, masked credential paths, explicit
 writable binds for the workspace and private child root, a fresh user and PID
-namespace, a fresh `/proc`, a detached `setsid(2)` launch boundary, and a network namespace unless
+namespace, a fresh `/proc`, `--new-session`, and a network namespace unless
 the permission engine approved network access.
 
 The attractive part is the fit. Both one-shot commands and streaming MCP

@@ -186,14 +186,19 @@ describe("run_command", () => {
         `recurs-sandbox-outside-${process.pid}-${Date.now()}`,
       );
       try {
-        await toolExports.runProcess(
+        const insideResult = await toolExports.runProcess(
           "/bin/sh",
           ["-c", `printf inside > ${shellQuote(inside)}`],
           {
             cwd,
             sandbox: { mode: "workspace", network: "deny" },
+            // This fixed command has no stderr. Accepting the launcher's
+            // conventional failure code lets CI surface Bubblewrap/Seatbelt
+            // setup diagnostics without exposing arbitrary tool output.
+            acceptableExitCodes: [0, 1],
           },
         );
+        expect(insideResult, insideResult.stderr).toMatchObject({ exitCode: 0 });
         expect(await readFile(inside, "utf8")).toBe("inside");
 
         await expect(toolExports.runProcess(
