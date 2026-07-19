@@ -42,7 +42,11 @@ The standalone CLI can use credential-free OpenAI-compatible servers on literal 
 
 Requirements: Node.js 22.22 or newer, Git 2.45 or newer, and ripgrep. Linux
 also requires the distribution `bubblewrap` package at `/usr/bin/bwrap` with
-unprivileged user namespaces enabled.
+unprivileged user namespaces enabled. On AppArmor-restricted Ubuntu systems,
+the distribution `bwrap-userns-restrict` profile must also permit Bubblewrap's
+namespace setup. Recurs fails closed if the host blocks that boundary; see
+[Ubuntu bug 2141298](https://bugs.launchpad.net/bugs/2141298) for the current
+Ubuntu 24.04 profile/kernel regression and distribution workaround.
 
 ```bash
 npm install
