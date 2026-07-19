@@ -71,7 +71,7 @@ export function createPermissionsCommand(): Command {
       }
       if (mode === "full_access" && context.session.permissionMode !== mode) {
         const confirmed = await context.confirm(
-          "Full Access skips routine prompts for workspace changes, commands, network access, and deployment. Direct credential requests remain blocked, and sensitive or external paths still ask. Full Access is not credential-safe because shell commands are not isolated from host files or the network. Enable it?",
+          "Full Access skips routine prompts for workspace changes, commands, network access, and deployment inside Recurs's active execution boundary. Direct credential requests remain blocked, and sensitive or external paths still ask. Commands may access anything exposed by the current platform sandbox; Windows does not yet have Recurs-owned OS containment. Enable it?",
         );
         if (!confirmed) {
           return message("Full Access was not enabled", "warning");

@@ -36,7 +36,7 @@ The repository contains a usable agent base and a bounded, Recurs-owned child-ag
 - a macOS 14.4+ native-authority foundation with tested binary framing, Data Protection Keychain, credential-state/journal, exact signed peers, production-gated broker recovery, bounded OpenAI onboarding, fixed sealed-bundle paths, and redacted diagnostics;
 - one `npm run check` path covering lint, type checking, tests, build output, and the exact npm package manifest; CI also installs the packed artifact into an empty prefix and runs its `recurs` binary.
 
-The standalone CLI can use credential-free OpenAI-compatible servers on literal `127.0.0.1` or `[::1]`, saved or ephemeral environment BYOK for a reviewed Chat-compatible provider, or the pinned official `@agentclientprotocol/codex-acp` adapter with an existing ChatGPT account. Saved connections retain explicit primary selection and immutable historical pins. A complete `RECURS_PROVIDER`/`RECURS_MODEL`/`RECURS_API_KEY` selection overrides saved selection for that process. Codex is read-only/Plan-only, local, manual, and user-present: one-shot and unattended runs fail closed. Without any connection the CLI starts a sessionless workspace shell. Test hosts can also inject the public `ModelProvider` interface.
+The standalone CLI can use credential-free OpenAI-compatible servers on literal `127.0.0.1` or `[::1]`, saved or ephemeral environment BYOK for a reviewed Chat-compatible provider, or the pinned official `@agentclientprotocol/codex-acp` adapter with an existing ChatGPT account. Saved connections retain explicit primary selection and immutable historical pins. A complete `RECURS_PROVIDER`/`RECURS_MODEL`/`RECURS_API_KEY` selection overrides saved selection for that process. Codex is read-only/Plan-only, local, manual, and user-present: one-shot and unattended runs fail closed. Without any connection, an interactive launch offers one guided provider, exact-model, and permission flow; skipping it keeps the honest sessionless workspace shell. Test hosts can also inject the public `ModelProvider` interface.
 
 ## Quick start
 
@@ -53,6 +53,9 @@ npm install
 npm run check
 npm run build
 node packages/cli/dist/main.js --help
+# Recommended first run: connect a reviewed path, select a model and permission
+# preset, then enter a fresh durable Recurs session.
+node packages/cli/dist/main.js setup
 node packages/cli/dist/main.js provider list
 node packages/cli/dist/main.js provider catalog kimi
 node packages/cli/dist/main.js provider detect
@@ -74,6 +77,7 @@ RECURS_PROVIDER=openrouter-api RECURS_MODEL=<provider/model> RECURS_API_KEY=<key
 # recurs setup openai [--model <exact-id>]
 # recurs setup anthropic --model <exact-id>
 # recurs setup kimi --model <exact-id>
+# A plain interactive launch offers the same guide when no model is configured.
 node packages/cli/dist/main.js
 ```
 

@@ -44,6 +44,7 @@ import {
   TeamRunRecoveryCoordinator,
   TeamRunSupervisor,
   bindRunAuthorization,
+  createRootAgentDescriptor,
   createWorkspaceShell,
   createTeamRunTools,
   isPinnedSessionState,
@@ -76,6 +77,7 @@ import {
   createRunCommandTool,
   createRunVerificationTool,
   createSearchTextTool,
+  type PermissionMode,
   type ToolSecurityProfile,
 } from "@recurs/tools";
 
@@ -104,6 +106,7 @@ export interface StandaloneRuntimeOptions {
   environment?: Readonly<NodeJS.ProcessEnv>;
   environmentFetch?: typeof globalThis.fetch;
   reuseExistingSession?: boolean;
+  permissionMode?: PermissionMode;
   skillHomeDirectory?: string;
 }
 
@@ -682,7 +685,7 @@ export async function createStandaloneRuntime(
   const existing = await sessions.list();
   let state: PinnedSessionState | WorkspaceShellState;
   if (initialBackend === undefined) {
-    state = createWorkspaceShell(cwd);
+    state = createWorkspaceShell(cwd, options.permissionMode);
   } else {
     let matching: PinnedSessionState | null = null;
     if (options.reuseExistingSession !== false) {
@@ -707,10 +710,18 @@ export async function createStandaloneRuntime(
     let pinnedState: PinnedSessionState;
     if (matching === null) {
       const createdAt = new Date().toISOString();
+      const sessionId = randomUUID();
+      const backend = initialBackend.pin(createdAt);
       pinnedState = await sessions.createPinnedSession({
-        id: randomUUID(),
+        id: sessionId,
         cwd,
-        backend: initialBackend.pin(createdAt),
+        backend,
+        agent: createRootAgentDescriptor(
+          sessionId,
+          backend,
+          undefined,
+          options.permissionMode,
+        ),
         at: createdAt,
       });
     } else {

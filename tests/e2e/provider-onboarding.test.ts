@@ -147,6 +147,86 @@ function codexConnection(): DelegatedConnectionRecord {
 }
 
 describe("provider onboarding end to end", () => {
+  it("guides a fresh user from reviewed BYOK discovery into a pinned session", async () => {
+    const root = await temporaryRoot("recurs-guided-byok-e2e-");
+    const project = path.join(root, "project");
+    const dataDirectory = path.join(root, "data");
+    await mkdir(project);
+    const key = "guided-credential-canary";
+    const environment = { OPENROUTER_API_KEY: key };
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const selections = [
+      "byok:openrouter-api",
+      "anthropic/claude-test",
+      "approved_for_me",
+    ];
+    let createdRuntime: Awaited<ReturnType<typeof createStandaloneRuntime>> | undefined;
+
+    expect(await runCli(["setup"], {
+      stdin: Readable.from(["/quit\n"]),
+      stdout,
+      stderr,
+      cwd: project,
+      interactive: true,
+      automation: false,
+      async listAccounts() {
+        return await listAccountSummaries(dataDirectory);
+      },
+      async listProviders({ includeBlocked }) {
+        return listProviderSummaries(includeBlocked);
+      },
+      async detectProviders() { return []; },
+      async discoverProviders() {
+        return {
+          source: "https://models.dev/api.json" as const,
+          providers: [{
+            id: "openrouter",
+            name: "OpenRouter",
+            wire: "openai-compatible" as const,
+            modelCount: 2,
+            modelIds: ["anthropic/claude-test", "openai/gpt-test"],
+          }],
+        };
+      },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText(_message, suggestion) {
+        return suggestion ?? null;
+      },
+      async confirm() { return true; },
+      setupEnvironment: (input) => setupEnvironmentConnection(
+        dataDirectory,
+        { ...input, environment, now: "2026-07-19T00:00:00.000Z" },
+      ),
+      async createRuntime(events, options) {
+        createdRuntime = await createStandaloneRuntime(events, {
+          cwd: project,
+          dataDirectory,
+          environment,
+          permissionMode: options?.permissionMode,
+          reuseExistingSession: options?.reuseExistingSession,
+        });
+        return createdRuntime;
+      },
+    })).toBe(0);
+
+    expect(stderr.value).toBe("");
+    expect(stdout.value).toContain("Onboarding complete");
+    expect(stdout.value).not.toContain(key);
+    expect(createdRuntime?.state).toMatchObject({
+      type: "session",
+      session: { permissionMode: "approved_for_me" },
+    });
+    expect(await readFile(
+      path.join(dataDirectory, "config", "connections.json"),
+      "utf8",
+    )).not.toContain(key);
+  });
+
   it("configures, selects, and runs a saved public BYOK provider without persisting its key", async () => {
     const root = await temporaryRoot("recurs-byok-e2e-");
     const project = path.join(root, "project");

@@ -225,7 +225,7 @@ describe("foundation slash commands", () => {
       "Direct credential requests remain blocked",
     );
     expect(acceptedConfirm.mock.calls[0]?.[0]).toContain(
-      "shell commands are not isolated",
+      "current platform sandbox",
     );
   });
 
