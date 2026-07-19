@@ -24,6 +24,7 @@ describe("OnboardingCatalog", () => {
       "openai-codex-chatgpt",
       "ollama-local",
       "lm-studio-local",
+      "openai-api",
       "anthropic-api",
       "openrouter-api",
       "opencode-go",
@@ -34,7 +35,6 @@ describe("OnboardingCatalog", () => {
       "minimax-api",
       "zai-api",
       "deepseek-api",
-      "openai-api",
       "opencode-zen",
       "alibaba-coding-plan",
       "minimax-token-plan",
@@ -52,7 +52,7 @@ describe("OnboardingCatalog", () => {
       entries.map((entry) => [entry.id, entry.status]),
     );
     expect(statuses).toEqual({
-      "openai-api": "requires_native_broker",
+      "openai-api": "runnable_byok",
       "openai-codex-chatgpt": "runnable",
       "anthropic-api": "runnable_byok",
       "anthropic-claude-subscription": "blocked",

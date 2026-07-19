@@ -2,6 +2,7 @@ import type { ConnectionBoundModelProvider } from "@recurs/contracts";
 
 import { RemoteAnthropicMessagesProvider } from "./anthropic-messages.js";
 import { RemoteOpenAICompatibleProvider } from "./local-openai-compatible.js";
+import { RemoteOpenAIResponsesProvider } from "./openai-responses.js";
 import {
   environmentByokAdapterId,
   environmentByokManifest,
@@ -72,7 +73,9 @@ export async function createEnvironmentProviderConfiguration(
       apiKey: input.apiKey,
       ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
     };
-    provider = adapterId === "anthropic-messages"
+    provider = adapterId === "openai-responses"
+      ? new RemoteOpenAIResponsesProvider(options)
+      : adapterId === "anthropic-messages"
       ? new RemoteAnthropicMessagesProvider(options)
       : adapterId === "openai-chat-completions"
       ? new RemoteOpenAICompatibleProvider(options)

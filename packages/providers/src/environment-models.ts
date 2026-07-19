@@ -28,6 +28,7 @@ type ModelDiscoveryProfile =
 
 const OPENAI_MODEL_DISCOVERY_ORIGINS: Readonly<Record<string, string>> =
   Object.freeze({
+    "openai-api": "https://api.openai.com/v1",
     "openrouter-api": "https://openrouter.ai/api/v1",
     "deepseek-api": "https://api.deepseek.com",
     "minimax-api": "https://api.minimax.io/v1",
@@ -61,7 +62,8 @@ function discoveryProfile(providerId: string): ModelDiscoveryProfile | null {
     origin?.value !== "https://api.anthropic.com/v1"
   ) {
     const reviewedOrigin = OPENAI_MODEL_DISCOVERY_ORIGINS[providerId];
-    return manifest?.protocol === "openai_chat" &&
+    return (manifest?.protocol === "openai_chat" ||
+        manifest?.protocol === "openai_responses") &&
         reviewedOrigin !== undefined && origin?.value === reviewedOrigin
       ? { kind: "openai", origin: reviewedOrigin }
       : null;

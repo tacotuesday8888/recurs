@@ -133,8 +133,8 @@ describe("provider and account projections", () => {
       });
     expect(normal.find((entry) => entry.id === "openai-api"))
       .toMatchObject({
-        status: "requires_native_broker",
-        connectionOwner: "recurs_broker",
+        status: "runnable_byok",
+        connectionOwner: "process_environment",
       });
     expect(normal.find((entry) => entry.id === "openrouter-api"))
       .toMatchObject({

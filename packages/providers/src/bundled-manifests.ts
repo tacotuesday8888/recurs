@@ -129,9 +129,13 @@ const bundled = [
     billingPolicy: billingPolicy("openai-api", "metered_api"),
     supportStatus: "supported",
     runnable: false,
-    sourceUrls: ["https://developers.openai.com/api/docs/models"],
+    sourceUrls: [
+      "https://developers.openai.com/api/docs/models",
+      "https://developers.openai.com/api/docs/guides/function-calling",
+      "https://developers.openai.com/api/docs/guides/streaming-responses",
+    ],
     evidenceSummary:
-      "OpenAI documents direct API access with separate platform billing; activation awaits the native credential broker.",
+      "OpenAI documents direct Responses API access with separate platform billing; environment BYOK is process-scoped while persistent credential custody requires the native broker.",
   }),
   manifest({
     id: "openai-codex-chatgpt",

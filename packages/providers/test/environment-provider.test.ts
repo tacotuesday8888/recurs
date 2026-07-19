@@ -66,7 +66,7 @@ describe("environment provider resolution", () => {
         RECURS_API_KEY: "key",
       },
       {
-        RECURS_PROVIDER: "openai-api",
+        RECURS_PROVIDER: "google-gemini-api",
         RECURS_MODEL: "model",
         RECURS_API_KEY: "key",
       },
@@ -79,6 +79,7 @@ describe("environment provider resolution", () => {
 
   it("exposes only reviewed fixed-origin BYOK profiles, including one coding plan", async () => {
     expect(environmentByokProviderIds()).toEqual(expect.arrayContaining([
+      "openai-api",
       "anthropic-api",
       "openrouter-api",
       "opencode-go",
@@ -92,7 +93,18 @@ describe("environment provider resolution", () => {
     ]));
     expect(environmentByokProviderIds()).not.toContain("zai-glm-coding-plan");
     expect(environmentByokProviderIds()).not.toContain("alibaba-coding-plan");
-    expect(environmentByokProviderIds()).not.toContain("openai-api");
+
+    const openai = await createEnvironmentProviderConfiguration({
+      providerId: "openai-api",
+      modelId: "gpt-test",
+      connectionId: "saved-openai",
+      apiKey: "openai-private-value",
+    });
+    expect(openai).toMatchObject({
+      providerId: "openai-api",
+      connectionId: "saved-openai",
+      provider: { adapterId: "openai-responses" },
+    });
 
     const configured = await createEnvironmentProviderConfiguration({
       providerId: "kimi-code",

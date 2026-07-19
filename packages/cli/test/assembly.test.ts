@@ -381,6 +381,107 @@ describe("standalone assembly without a provider", () => {
     expect(JSON.stringify(runtime.session)).not.toContain(key);
   });
 
+  it("runs the agent loop through explicit OpenAI Responses environment BYOK", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-openai-responses-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const key = "openai-environment-key-canary";
+    let requestUrl = "";
+    let requestBody = "";
+    const sse = (sequence: number, type: string, body: Record<string, unknown>) =>
+      `event: ${type}\ndata: ${JSON.stringify({ type, sequence_number: sequence, ...body })}`;
+    const added = {
+      id: "msg_1",
+      type: "message",
+      status: "in_progress",
+      role: "assistant",
+      content: [],
+    };
+    const completed = {
+      ...added,
+      status: "completed",
+      content: [{ type: "output_text", text: "responses ready", annotations: [] }],
+    };
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        environment: {
+          RECURS_PROVIDER: "openai-api",
+          RECURS_MODEL: "gpt-5.6-terra",
+          RECURS_API_KEY: key,
+        },
+        environmentFetch: async (input, init) => {
+          requestUrl = String(input);
+          requestBody = String(init?.body ?? "");
+          return new Response([
+            sse(0, "response.created", {
+              response: { id: "resp_1", status: "in_progress", output: [] },
+            }),
+            sse(1, "response.in_progress", {
+              response: { id: "resp_1", status: "in_progress", output: [] },
+            }),
+            sse(2, "response.output_item.added", { output_index: 0, item: added }),
+            sse(3, "response.content_part.added", {
+              item_id: "msg_1",
+              output_index: 0,
+              content_index: 0,
+              part: { type: "output_text", text: "", annotations: [] },
+            }),
+            sse(4, "response.output_text.delta", {
+              item_id: "msg_1",
+              output_index: 0,
+              content_index: 0,
+              delta: "responses ready",
+            }),
+            sse(5, "response.output_text.done", {
+              item_id: "msg_1",
+              output_index: 0,
+              content_index: 0,
+              text: "responses ready",
+            }),
+            sse(6, "response.content_part.done", {
+              item_id: "msg_1",
+              output_index: 0,
+              content_index: 0,
+              part: { type: "output_text", text: "responses ready", annotations: [] },
+            }),
+            sse(7, "response.output_item.done", { output_index: 0, item: completed }),
+            sse(8, "response.completed", {
+              response: {
+                id: "resp_1",
+                status: "completed",
+                output: [completed],
+                usage: { input_tokens: 4, output_tokens: 2, total_tokens: 6 },
+              },
+            }),
+          ].join("\n\n") + "\n\n", {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      },
+    );
+
+    expect(runtime.session.backend.pin).toMatchObject({
+      providerId: "openai-api",
+      adapterId: "openai-responses",
+      connectionId: "environment:openai-api",
+      modelId: "gpt-5.6-terra",
+      primaryBillingSourceAtCreation: "metered_api",
+    });
+    await expect(runtime.submit("Respond when ready")).resolves.toMatchObject({
+      finalText: "responses ready",
+    });
+    expect(requestUrl).toBe("https://api.openai.com/v1/responses");
+    expect(requestBody).not.toContain(key);
+    expect(JSON.stringify(runtime.session)).not.toContain(key);
+    expect(runtime.session.messages.at(-1)).toMatchObject({ role: "assistant" });
+    expect(runtime.session.messages.at(-1)).not.toHaveProperty("providerStateHandle");
+  });
+
   it("runs through an explicit Anthropic Messages environment BYOK provider", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-anthropic-assembly-"));
     directories.push(root);
