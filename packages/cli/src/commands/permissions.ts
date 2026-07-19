@@ -9,7 +9,7 @@ const labels: Record<PermissionMode, string> = {
   full_access: "Full Access",
 };
 
-function parseMode(input: string): PermissionMode | null {
+export function parsePermissionMode(input: string): PermissionMode | null {
   const normalized = input
     .trim()
     .toLowerCase()
@@ -62,7 +62,7 @@ export function createPermissionsCommand(): Command {
       if (args.trim().length === 0) {
         return message(`Permission mode: ${permissionLabel(context.session.permissionMode)}`);
       }
-      const mode = parseMode(args);
+      const mode = parsePermissionMode(args);
       if (mode === null) {
         return message(
           "Choose Ask Always, Approved for Me, or Full Access",

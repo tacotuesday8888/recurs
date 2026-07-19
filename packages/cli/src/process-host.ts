@@ -49,6 +49,9 @@ import { CoordinatedRunError, type EventSink } from "@recurs/core";
 import { createStandaloneRuntime } from "./assembly.js";
 import { serveRecursAcpStdio } from "./acp-server.js";
 import { setupCodexSubscription } from "./codex-connection.js";
+import { parsePermissionMode } from "./commands/permissions.js";
+import type { CommandResult } from "./commands/types.js";
+import { safeCliErrorMessage } from "./error-rendering.js";
 import {
   listAccountSummaries,
   listProviderSummaries,
@@ -75,14 +78,12 @@ import {
   setupLocalConnection,
   type LocalConnectionConfiguration,
 } from "./local-connection.js";
-import type { CommandResult } from "./commands/types.js";
 import {
   JsonlEventRenderer,
   TextEventRenderer,
   renderCommandResult,
   writeOutput,
 } from "./render.js";
-import { safeCliErrorMessage } from "./error-rendering.js";
 import { startRepl } from "./repl.js";
 import {
   RuntimeError,
@@ -96,7 +97,7 @@ Usage:
   recurs                         Open the interactive CLI
   recurs setup                   Guide provider, model, and permission setup
   recurs run <prompt>            Run one prompt
-  recurs run <prompt> --format text|jsonl
+  recurs run <prompt> [--format text|jsonl] [--permissions ask|approved|full]
   recurs acp                     Serve Recurs over ACP on stdio
   recurs setup local --url <loopback-url> --model <model-id>
   recurs setup byok --provider <id> --model <id> --key-env <ENV> [--billing strict|allow-additional]
@@ -190,6 +191,7 @@ export interface CliDependencies {
 interface RunArguments {
   prompt: string;
   format: "text" | "jsonl";
+  permissionMode?: PermissionMode;
 }
 
 function nativeAuthorityText(status: NativeAuthorityStatus): string {
@@ -220,6 +222,7 @@ function isAbortError(error: unknown): boolean {
 
 function parseRunArguments(args: readonly string[]): RunArguments | null {
   let format: RunArguments["format"] = "text";
+  let permissionMode: PermissionMode | undefined;
   const prompt: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index] ?? "";
@@ -232,13 +235,28 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
       index += 1;
       continue;
     }
+    if (argument === "--permissions") {
+      const value = args[index + 1];
+      if (value === undefined || permissionMode !== undefined) return null;
+      const parsed = parsePermissionMode(value);
+      if (parsed === null) return null;
+      permissionMode = parsed;
+      index += 1;
+      continue;
+    }
     if (argument.startsWith("--")) {
       return null;
     }
     prompt.push(argument);
   }
   const joined = prompt.join(" ").trim();
-  return joined.length === 0 ? null : { prompt: joined, format };
+  return joined.length === 0
+    ? null
+    : {
+        prompt: joined,
+        format,
+        ...(permissionMode === undefined ? {} : { permissionMode }),
+      };
 }
 
 function parseLocalSetupArguments(
@@ -1122,7 +1140,15 @@ export async function runCli(
     ? new JsonlEventRenderer(dependencies.stdout)
     : new TextEventRenderer(dependencies.stdout);
   try {
-    const runtime = await dependencies.createRuntime(renderer);
+    const runtime = await dependencies.createRuntime(
+      renderer,
+      parsed.permissionMode === undefined
+        ? undefined
+        : {
+            permissionMode: parsed.permissionMode,
+            reuseExistingSession: false,
+          },
+    );
     const result = await runtime.submit(
       parsed.prompt,
       createHostInvocation({
