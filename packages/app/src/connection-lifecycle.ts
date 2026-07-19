@@ -9,6 +9,7 @@ import type {
   ConnectionRegistryDocument,
   ConnectionRegistryMutation,
   DelegatedConnectionRecord,
+  EnvironmentModelProviderConnectionRecord,
   LocalConnectionRecord,
 } from "./connection-registry-model.js";
 
@@ -77,12 +78,14 @@ export interface ConnectionSummary {
   readonly kind:
     | "local_openai_compatible"
     | "delegated_agent"
-    | "brokered_model_provider";
+    | "brokered_model_provider"
+    | "environment_model_provider";
   readonly modelId: string;
   readonly primary: boolean;
   readonly account:
     | "verified (identifier redacted)"
-    | "local endpoint (no credential)";
+    | "local endpoint (no credential)"
+    | "environment credential (value not stored)";
   readonly execution: "Plan-only" | "Act + Plan";
   readonly billingSources: readonly BillingSource[];
 }
@@ -101,6 +104,10 @@ export interface ConnectionVerifier {
   ): Promise<ConnectionVerificationDecision>;
   verifyDelegated(
     record: Readonly<DelegatedConnectionRecord>,
+    signal: AbortSignal,
+  ): Promise<ConnectionVerificationDecision>;
+  verifyEnvironment?(
+    record: Readonly<EnvironmentModelProviderConnectionRecord>,
     signal: AbortSignal,
   ): Promise<ConnectionVerificationDecision>;
 }
@@ -140,6 +147,20 @@ function summary(
       account: "local endpoint (no credential)" as const,
       execution: "Act + Plan" as const,
       billingSources: ["local_compute" as const],
+    });
+  }
+  if (connection.kind === "environment_model_provider") {
+    return deepFreeze({
+      id: connection.id,
+      label: connection.label,
+      providerId: connection.providerId,
+      adapterId: connection.adapterId,
+      kind: connection.kind,
+      modelId: connection.modelId,
+      primary: primaryConnectionId === connection.id,
+      account: "environment credential (value not stored)" as const,
+      execution: "Act + Plan" as const,
+      billingSources: [...connection.billingSelection.allowedSources],
     });
   }
   return deepFreeze({
@@ -356,6 +377,9 @@ export class ConnectionLifecycleService {
         ? await verifier.verifyLocal(record, signal)
         : record.kind === "delegated_agent"
           ? await verifier.verifyDelegated(record, signal)
+          : record.kind === "environment_model_provider" &&
+              verifier.verifyEnvironment !== undefined
+            ? await verifier.verifyEnvironment(record, signal)
           : { status: "failed", reason: "adapter_unavailable" } as const;
       throwIfAborted(signal);
       if (decision.status === "failed") {

@@ -16,6 +16,7 @@ import type { AddressInfo } from "node:net";
 import {
   FileConnectionRegistry,
   legacyLocalConnectionPath,
+  setupEnvironmentConnection,
   type DelegatedConnectionRecord,
 } from "@recurs/app";
 import {
@@ -146,6 +147,64 @@ function codexConnection(): DelegatedConnectionRecord {
 }
 
 describe("provider onboarding end to end", () => {
+  it("configures, selects, and runs a saved public BYOK provider without persisting its key", async () => {
+    const root = await temporaryRoot("recurs-byok-e2e-");
+    const project = path.join(root, "project");
+    const dataDirectory = path.join(root, "data");
+    await mkdir(project);
+    const key = "e2e-private-byok-value";
+    const environment = { OPENROUTER_API_KEY: key };
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    expect(await runCli([
+      "setup", "byok",
+      "--provider", "openrouter-api",
+      "--model", "anthropic/claude-sonnet",
+      "--key-env", "OPENROUTER_API_KEY",
+    ], {
+      stdout,
+      stderr,
+      cwd: project,
+      interactive: true,
+      automation: false,
+      async confirm() { return true; },
+      async createRuntime() { throw new Error("setup must not start runtime"); },
+      setupEnvironment: (input) => setupEnvironmentConnection(
+        dataDirectory,
+        { ...input, environment, now: "2026-07-19T00:00:00.000Z" },
+      ),
+    })).toBe(0);
+    expect(stderr.value).toBe("");
+    expect(stdout.value).toContain("OPENROUTER_API_KEY (value not stored");
+    expect(await readFile(
+      path.join(dataDirectory, "config", "connections.json"),
+      "utf8",
+    )).not.toContain(key);
+
+    let authorization = "";
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: project,
+        dataDirectory,
+        environment,
+        environmentFetch: async (_input, init) => {
+          authorization = new Headers(init?.headers).get("authorization") ?? "";
+          return new Response([
+            'data: {"choices":[{"delta":{"content":"BYOK ready"},"finish_reason":"stop"}]}',
+            'data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2}}',
+            "data: [DONE]",
+            "",
+          ].join("\n\n"), { status: 200 });
+        },
+      },
+    );
+    await expect(runtime.submit("Confirm provider readiness")).resolves
+      .toMatchObject({ finalText: "BYOK ready" });
+    expect(authorization).toBe(`Bearer ${key}`);
+    expect(JSON.stringify(runtime.session)).not.toContain(key);
+  });
+
   it("lists the catalog and migrates a redacted local account without creating a session", async () => {
     const dataDirectory = await temporaryRoot("recurs-provider-e2e-");
     const legacy = legacyLocalConnectionPath(dataDirectory);
@@ -200,6 +259,11 @@ describe("provider onboarding end to end", () => {
         id: "openai-api",
         status: "requires_native_broker",
         connectionOwner: "recurs_broker",
+      }),
+      expect.objectContaining({
+        id: "openrouter-api",
+        status: "runnable_byok",
+        connectionOwner: "process_environment",
       }),
     ]));
     expect(providerPayload.providers.some(

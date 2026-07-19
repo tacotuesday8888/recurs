@@ -2,7 +2,7 @@
 
 Recurs Core v0 is a provider-neutral coding-agent harness. The CLI, direct agent loop, delegated-runtime executor, owned single-child and bounded parallel analysis/review paths, durable implementation/review/repair teams, tools, permissions, Plan mode, sessions, goals, checkpoints, structured output, credential-free local transport, bounded stdio MCP client, and first official Codex ACP path are implemented.
 
-The executable starts in a sessionless workspace shell when no provider is available. Coding prompts require a configured literal-loopback local server, an eligible interactive Codex connection, or an injected test/embedding `ModelProvider`; no fake `unconfigured` session is written.
+The executable starts in a sessionless workspace shell when no provider is available. Coding prompts require a configured literal-loopback local server, a saved or ephemeral reviewed BYOK connection, an eligible interactive Codex connection, or an injected test/embedding `ModelProvider`; no fake `unconfigured` session is written.
 
 ## Install from source
 
@@ -24,15 +24,29 @@ node packages/cli/dist/main.js --help
 
 You can expose the root package's `recurs` binary locally with `npm link` after building. No package or installer is published today. An npm package is the likely first preview channel. Bun may later install that npm package, but Node remains the supported runtime and Bun runtime compatibility has not been implemented. Homebrew and curl wait for versioned, signed artifacts; Windows packaging remains later work.
 
-Source/npm execution supports the existing credential-free local and vendor-owned Codex paths. It cannot activate persistent Recurs-owned credentials: the native authority requires a correctly bundled, production-signed macOS 14.4+ launcher and broker, and source, unsigned, or ad-hoc builds fail closed without a plaintext fallback.
+Source/npm execution supports credential-free local, environment-BYOK, and vendor-owned Codex paths. It cannot persist a Recurs-owned credential: the native authority requires a correctly bundled, production-signed macOS 14.4+ launcher and broker, and source, unsigned, or ad-hoc builds fail closed without a plaintext fallback.
 
 The repository does not yet contain a license. Although it is intended to become open source, it remains source-available rather than legally open source until the owner selects and adds a license.
 
 ## Provider boundary
 
-Recurs exposes a validated catalog of 25 provider/authentication paths. Source installs can run credential-free literal-loopback Ollama/LM Studio, an existing ChatGPT account through the pinned official Codex ACP adapter, or an explicit ephemeral BYOK connection to a supported reviewed OpenAI Chat-compatible HTTPS provider. The private production-signed macOS path also implements persistent OpenAI API, Anthropic API, and Kimi Code onboarding plus broker-owned generation; it is not distributed yet. Catalog entries outside those implemented protocol paths remain discovery metadata rather than live transports.
+Recurs exposes a validated catalog of 25 provider/authentication paths. Source installs can run credential-free literal-loopback Ollama/LM Studio, an existing ChatGPT account through the pinned official Codex ACP adapter, or saved/ephemeral BYOK for a supported reviewed OpenAI Chat-compatible HTTPS provider. The private production-signed macOS path also implements persistent OpenAI API, Anthropic API, and Kimi Code onboarding plus broker-owned generation; it is not distributed yet. Catalog entries outside those implemented protocol paths remain discovery metadata rather than live transports.
 
-The recommended persistent path keeps keys outside TypeScript: `recurs setup openai`, `recurs setup anthropic --model <exact-id>`, and `recurs setup kimi --model <exact-id>` delegate foreground capture to the signed native authority. Cross-platform source installs may instead opt into ephemeral BYOK:
+The strongest persistent path keeps keys outside TypeScript: `recurs setup openai`, `recurs setup anthropic --model <exact-id>`, and `recurs setup kimi --model <exact-id>` delegate foreground capture to the signed native authority. Cross-platform source installs may save a provider/model binding while keeping the key in a named environment variable:
+
+```bash
+export OPENROUTER_API_KEY=<key>
+recurs setup byok \
+  --provider openrouter-api \
+  --model <provider/model> \
+  --key-env OPENROUTER_API_KEY
+```
+
+Setup is local, interactive, and manual. It validates the current reviewed manifest and billing selection, shows the fixed-origin and billing disclosure, and saves only non-secret metadata: provider, model, adapter/policy/billing revisions, the environment-variable name, and a provider-bound SHA-256 credential fingerprint. The key value is neither written to the registry nor copied into a session. The first account becomes primary; later accounts require `account set-primary`. `--billing strict` is the default. Use `--billing allow-additional` only when the provider policy declares another source and the user accepts it; OpenCode Go is the current such profile.
+
+The current reviewed saved-BYOK set is OpenRouter API, OpenCode Go, Kilo Gateway, Alibaba Model Studio API, Kimi Platform API, Kimi Code, MiniMax API, Z.ai API, and DeepSeek API. `provider list` is authoritative because support and policy review can change. Blocked or conditional coding-plan paths do not become runnable merely because they use a compatible protocol.
+
+For a one-process override without a saved record:
 
 ```bash
 RECURS_PROVIDER=openrouter-api \
@@ -41,7 +55,7 @@ RECURS_API_KEY=<key> \
 recurs
 ```
 
-All three variables are required together. The provider must have a supported reviewed `openai_chat` manifest with a fixed HTTPS origin. The key remains in a private provider field for that process, is not written to the connection registry or session log, and is stripped from tool subprocesses. This does not turn Responses, Anthropic, Gemini, cloud-identity, blocked coding-plan, or arbitrary custom endpoints into runnable paths.
+All three variables are required together. The provider must have a supported reviewed `openai_chat` manifest with a fixed HTTPS origin. This explicit triple overrides saved selection for that process. In both forms, the key remains in a private provider field, is not written to the session log, and is stripped from tool subprocesses. This does not turn Responses, Anthropic, Gemini, cloud-identity, blocked coding-plan, or arbitrary custom endpoints into runnable paths.
 
 Inspect the catalog and configured accounts without revealing account labels, account fingerprints, local endpoints, or credential material:
 
@@ -62,7 +76,7 @@ recurs doctor native
 recurs doctor native --json
 ```
 
-The normal provider list hides blocked paths; `--all` includes them. Both text and JSON distinguish runnable, native-broker-required, and blocked paths and report structured billing and restrictions. Account output marks the primary connection and omits local endpoints, delegated account labels, fingerprints, and credentials.
+The normal provider list hides blocked paths; `--all` includes them. Both text and JSON distinguish runnable, environment-BYOK, native-broker-required, and blocked paths and report structured billing and restrictions. Account output marks the primary connection and omits local endpoints, delegated account labels, fingerprints, and credentials.
 
 These commands intentionally separate three sources that other harnesses can make look like one operation:
 
@@ -72,7 +86,7 @@ These commands intentionally separate three sources that other harnesses can mak
 
 Inside the interactive CLI, `/provider [search]` combines connected accounts, safe local detection, the public catalog, and Recurs's truthful setup status in one view. `/connect` remains an alias. When Recurs starts without a configured model, this provider view is the first onboarding step; the same discovery service will support the broader project-and-team onboarding flow rather than becoming a separate settings system. A public catalog match is never presented as runnable until Recurs has the complete reviewed authentication, billing, transport, and execution path.
 
-Account mutations require one full exact ID; prefixes, labels, indexes, extra flags, and control characters are rejected. `verify` is read-only and runs only from a local, user-present, non-automation terminal because Codex is one supported path. It rechecks the exact local model or official Codex account/model/read-only profile; it does not sign in, repair billing acknowledgement, or mutate the registry. Use `recurs setup codex` when Codex requires authentication or policy acknowledgement again.
+Account mutations require one full exact ID; prefixes, labels, indexes, extra flags, and control characters are rejected. `verify` is read-only and runs only from a local, user-present, non-automation terminal because Codex is one supported path. It rechecks the exact local model or official Codex account/model/read-only profile. For saved BYOK it proves only that the named environment variable is present and matches the setup fingerprint; the provider authenticates the key on the first model request. Verification does not sign in, repair billing acknowledgement, make a network request for BYOK, or mutate the registry.
 
 `set-primary` changes only the default for a future new session. Every existing session continues through its immutable connection/model/account/policy/billing pin. `disconnect` requires interactive confirmation and removes only Recurs metadata; it does not sign out, revoke, or delete vendor-owned authentication. Removing the primary leaves no primary instead of selecting another billing source implicitly.
 
@@ -149,7 +163,7 @@ interface ModelProvider {
 
 The normalized request contains the model name, immutable message snapshot, visible tool definitions, and an abort signal. The stream returns text/reasoning deltas, normalized tool calls, usage, and one terminal event. `ScriptedProvider` supplies deterministic responses for tests and embedded development.
 
-`createStandaloneRuntime(eventSink, { provider, model })` remains the test/embedding assembly point for an injected provider. Normal standalone assembly also resolves saved local and Codex records into immutable version-2 backend pins. Launching the compiled CLI without a connection keeps workspace commands available, but `recurs run <prompt>` exits with configuration code `2` before persisting the prompt. JSONL mode emits one `configuration_error` object without prose on standard output.
+`createStandaloneRuntime(eventSink, { provider, model })` remains the test/embedding assembly point for an injected provider. Normal standalone assembly also resolves saved local, environment-BYOK, brokered-native, and Codex records into immutable version-2 backend pins. A saved BYOK record runs only when the exact named credential matches its stored fingerprint; missing or changed credentials fail before provider work with the required variable named safely. Launching the compiled CLI without a connection keeps workspace commands available, but `recurs run <prompt>` exits with configuration code `2` before persisting the prompt. JSONL mode emits one `configuration_error` object without prose on standard output.
 
 ## Start and run
 

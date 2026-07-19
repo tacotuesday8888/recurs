@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   EnvironmentProviderError,
+  createEnvironmentProviderConfiguration,
+  environmentByokProviderIds,
+  environmentCredentialFingerprint,
   resolveEnvironmentProvider,
 } from "../src/index.js";
 
@@ -50,5 +53,38 @@ describe("environment provider resolution", () => {
         EnvironmentProviderError,
       );
     }
+  });
+
+  it("exposes only reviewed fixed-origin BYOK profiles, including one coding plan", async () => {
+    expect(environmentByokProviderIds()).toEqual(expect.arrayContaining([
+      "openrouter-api",
+      "opencode-go",
+      "kilo-gateway",
+      "alibaba-model-studio-api",
+      "kimi-platform-api",
+      "kimi-code",
+      "minimax-api",
+      "zai-api",
+      "deepseek-api",
+    ]));
+    expect(environmentByokProviderIds()).not.toContain("zai-glm-coding-plan");
+    expect(environmentByokProviderIds()).not.toContain("alibaba-coding-plan");
+    expect(environmentByokProviderIds()).not.toContain("openai-api");
+
+    const configured = await createEnvironmentProviderConfiguration({
+      providerId: "kimi-code",
+      modelId: "kimi-for-coding",
+      connectionId: "saved-kimi",
+      apiKey: "coding-plan-private-value",
+    });
+    expect(configured).toMatchObject({
+      providerId: "kimi-code",
+      connectionId: "saved-kimi",
+      provider: { adapterId: "openai-chat-completions" },
+    });
+    expect(await environmentCredentialFingerprint(
+      "kimi-code",
+      "coding-plan-private-value",
+    )).toBe(configured.credentialFingerprint);
   });
 });

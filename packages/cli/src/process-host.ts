@@ -30,10 +30,12 @@ import {
   kimiOnboardingDisclosure,
   openAIOnboardingDisclosure,
   recoverPendingOpenAIConnection,
+  setupEnvironmentConnection,
   setupOpenAIConnection,
   type ConnectionDisconnection,
   type ConnectionVerification,
   type CodexConnectionConfiguration,
+  type EnvironmentConnectionConfiguration,
   type OpenAIOnboardingDisclosure,
   type AnthropicOnboardingDisclosure,
   type KimiOnboardingDisclosure,
@@ -88,6 +90,7 @@ Usage:
   recurs run <prompt> --format text|jsonl
   recurs acp                     Serve Recurs over ACP on stdio
   recurs setup local --url <loopback-url> --model <model-id>
+  recurs setup byok --provider <id> --model <id> --key-env <ENV> [--billing strict|allow-additional]
   recurs setup codex             Connect an existing ChatGPT Codex subscription
   recurs setup openai [--model <exact-id>]
   recurs setup openai --recover  Reconcile interrupted OpenAI API setup
@@ -104,8 +107,8 @@ Usage:
   recurs --help                  Show this help
 
 Local setup supports credential-free OpenAI-compatible servers on literal loopback only.
-Cross-platform ephemeral BYOK: set RECURS_PROVIDER, RECURS_MODEL, and RECURS_API_KEY together.
-The key stays process-local, is not saved, and is removed from tool subprocess environments.
+Cross-platform BYOK saves provider/model metadata and an environment-variable name, never the key.
+Ephemeral override remains available with RECURS_PROVIDER, RECURS_MODEL, and RECURS_API_KEY together.
 Codex setup is interactive and Plan-only. It never imports or stores vendor credentials.
 OpenAI API setup captures credentials only in the native authority; API billing is separate from ChatGPT.
 Anthropic API setup captures credentials only in the native authority; API billing is separate from Claude subscriptions.
@@ -142,6 +145,12 @@ export interface CliDependencies {
     interactive: true;
     billingSelection: "allow_declared_additional";
   }): Promise<Pick<CodexConnectionConfiguration, "id" | "label" | "modelId" | "planOnly" | "primary">>;
+  setupEnvironment?(input: {
+    providerId: string;
+    modelId: string;
+    credentialEnvironmentVariable: string;
+    billingSelection: "strict_primary_only" | "allow_declared_additional";
+  }): Promise<EnvironmentConnectionConfiguration>;
   listProviders?(input: {
     includeBlocked: boolean;
   }): Promise<readonly ProviderSummary[]>;
@@ -231,6 +240,69 @@ function parseLocalSetupArguments(
     : { baseUrl, modelId };
 }
 
+interface ByokSetupArguments {
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly credentialEnvironmentVariable: string;
+  readonly billingSelection:
+    | "strict_primary_only"
+    | "allow_declared_additional";
+}
+
+const SAFE_BYOK_PROVIDER_ID = /^[a-z0-9][a-z0-9-]{0,127}$/u;
+const SAFE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/u;
+const SAFE_CREDENTIAL_ENVIRONMENT_VARIABLE = /^[A-Z][A-Z0-9_]{0,127}$/u;
+
+function safeCredentialEnvironmentVariable(value: string): boolean {
+  if (!SAFE_CREDENTIAL_ENVIRONMENT_VARIABLE.test(value)) return false;
+  const segments = new Set(value.split("_"));
+  return segments.has("KEY") || segments.has("TOKEN") ||
+    segments.has("SECRET");
+}
+
+function parseByokSetupArguments(
+  args: readonly string[],
+): ByokSetupArguments | null {
+  if (args[0] !== "byok") return null;
+  let providerId: string | undefined;
+  let modelId: string | undefined;
+  let credentialEnvironmentVariable: string | undefined;
+  let billingSelection: ByokSetupArguments["billingSelection"] =
+    "strict_primary_only";
+  let billingProvided = false;
+  for (let index = 1; index < args.length; index += 2) {
+    const flag = args[index];
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith("--")) return null;
+    if (flag === "--provider" && providerId === undefined) providerId = value;
+    else if (flag === "--model" && modelId === undefined) modelId = value;
+    else if (
+      flag === "--key-env" &&
+      credentialEnvironmentVariable === undefined
+    ) {
+      credentialEnvironmentVariable = value;
+    } else if (flag === "--billing" && !billingProvided) {
+      billingProvided = true;
+      if (value === "strict") billingSelection = "strict_primary_only";
+      else if (value === "allow-additional") {
+        billingSelection = "allow_declared_additional";
+      } else return null;
+    } else return null;
+  }
+  return providerId === undefined || modelId === undefined ||
+      credentialEnvironmentVariable === undefined ||
+      !SAFE_BYOK_PROVIDER_ID.test(providerId) ||
+      !SAFE_MODEL_ID.test(modelId) ||
+      !safeCredentialEnvironmentVariable(credentialEnvironmentVariable)
+    ? null
+    : {
+        providerId,
+        modelId,
+        credentialEnvironmentVariable,
+        billingSelection,
+      };
+}
+
 type OpenAISetupCommand =
   | {
     readonly kind: "setup";
@@ -238,8 +310,6 @@ type OpenAISetupCommand =
     readonly modelId?: string;
   }
   | { readonly kind: "recover"; readonly provider: "openai" };
-
-const SAFE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/u;
 
 function parseOpenAISetupCommand(
   args: readonly string[],
@@ -749,9 +819,13 @@ export async function runCli(
           command.id,
           dependencies.cwd ?? process.cwd(),
         );
+        const verification = result.connection.kind ===
+            "environment_model_provider"
+          ? "Credential binding verified"
+          : "Verified";
         await writeOutput(
           dependencies.stdout,
-          `Verified — ${result.connection.id} · ${result.connection.modelId}\nProvider: ${result.connection.providerId} · ${result.connection.execution}\n`,
+          `${verification} — ${result.connection.id} · ${result.connection.modelId}\nProvider: ${result.connection.providerId} · ${result.connection.execution}\n`,
         );
         return 0;
       }
@@ -788,6 +862,51 @@ export async function runCli(
   }
 
   if (argv[0] === "setup") {
+    const byokCommand = parseByokSetupArguments(argv.slice(1));
+    if (byokCommand !== null) {
+      if (
+        dependencies.interactive !== true ||
+        dependencies.automation === true ||
+        dependencies.confirm === undefined ||
+        dependencies.setupEnvironment === undefined
+      ) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: BYOK setup requires an interactive local terminal\n",
+        );
+        return 2;
+      }
+      const accepted = await dependencies.confirm([
+        `Connect ${byokCommand.providerId} with model ${byokCommand.modelId}.`,
+        `Recurs will save the environment-variable name ${byokCommand.credentialEnvironmentVariable} and a one-way credential fingerprint, never the key value.`,
+        "Requests use the reviewed fixed HTTPS origin for this provider.",
+        byokCommand.billingSelection === "strict_primary_only"
+          ? "Only the provider policy's primary billing source is acknowledged."
+          : "All billing sources declared by the reviewed provider policy are acknowledged.",
+        "The provider validates and bills the credential when a model request runs.",
+      ].join("\n"));
+      if (!accepted) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: BYOK credential and billing disclosure was not accepted\n",
+        );
+        return 2;
+      }
+      try {
+        const connection = await dependencies.setupEnvironment(byokCommand);
+        await writeOutput(
+          dependencies.stdout,
+          `Ready — ${connection.label} · ${connection.modelId}\nProvider: ${connection.providerId}\nCredential: ${connection.credentialEnvironmentVariable} (value not stored; fingerprint bound)\nBilling: ${connection.billingSelection}\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}`,
+        );
+        return 0;
+      } catch (error) {
+        await writeOutput(
+          dependencies.stderr,
+          `Error: ${safeCliErrorMessage(error)}\n`,
+        );
+        return exitCodeFor(error);
+      }
+    }
     const openAICommand = parseOpenAISetupCommand(argv.slice(1));
     if (openAICommand !== null) {
       const onboarding = openAICommand.provider === "anthropic"
@@ -1095,6 +1214,10 @@ export async function runCliProcess(
         dataDirectory,
         input,
       ),
+      setupEnvironment: (input) => setupEnvironmentConnection(
+        dataDirectory,
+        { ...input, environment: process.env },
+      ),
       setupCodex: (input) => setupCodexSubscription(dataDirectory, input),
       listProviders: async ({ includeBlocked }) =>
         listProviderSummaries(includeBlocked),
@@ -1104,7 +1227,13 @@ export async function runCliProcess(
         detectLocalRuntimes(signal === undefined ? {} : { signal }),
       listAccounts: () => listAccountSummaries(dataDirectory),
       setPrimaryAccount: (id) => setPrimaryAccount(dataDirectory, id),
-      verifyAccount: (id, cwd) => verifyAccount(dataDirectory, id, cwd),
+      verifyAccount: (id, cwd) => verifyAccount(
+        dataDirectory,
+        id,
+        cwd,
+        undefined,
+        { environment: process.env },
+      ),
       disconnectAccount: (id) => disconnectAccount(dataDirectory, id),
     });
   } finally {

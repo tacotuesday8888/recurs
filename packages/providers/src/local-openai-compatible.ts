@@ -7,7 +7,7 @@ import type {
 
 import { ProviderError } from "./types.js";
 import { COMPATIBLE_TOOL_USE_PROFILE } from "./harness-profile.js";
-import { BUNDLED_PROVIDER_MANIFESTS } from "./bundled-manifests.js";
+import { environmentByokManifest } from "./environment-provider-policy.js";
 
 const URL_ERROR =
   "Local model URL must be plain HTTP on literal 127.0.0.1 or [::1]";
@@ -401,16 +401,12 @@ export interface RemoteOpenAICompatibleProviderOptions {
 }
 
 function reviewedChatEndpoint(providerId: string): string {
-  const manifest = BUNDLED_PROVIDER_MANIFESTS.find(
-    (candidate) => candidate.id === providerId,
-  );
+  const manifest = environmentByokManifest(providerId);
   const endpoint = manifest?.endpoints.find(
     (candidate) => candidate.kind === "origin",
   );
   if (
-    manifest === undefined ||
-    manifest.protocol !== "openai_chat" ||
-    manifest.supportStatus !== "supported" ||
+    manifest === null ||
     endpoint === undefined ||
     !endpoint.value.startsWith("https://")
   ) {

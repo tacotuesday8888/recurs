@@ -363,6 +363,145 @@ describe("runCli", () => {
     expect(stderr.value).toContain("recurs setup local --url");
   });
 
+  it("configures saved BYOK metadata after an explicit credential and billing disclosure", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let disclosure = "";
+    let received: unknown;
+    const exitCode = await runCli([
+      "setup", "byok",
+      "--provider", "openrouter-api",
+      "--model", "anthropic/claude-sonnet",
+      "--key-env", "OPENROUTER_API_KEY",
+    ], {
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async confirm(message) {
+        disclosure = message;
+        return true;
+      },
+      async setupEnvironment(input) {
+        received = input;
+        return {
+          id: "byok:openrouter-api:stable",
+          label: "OpenRouter API BYOK",
+          providerId: input.providerId,
+          modelId: input.modelId,
+          credentialEnvironmentVariable:
+            input.credentialEnvironmentVariable,
+          primary: true,
+          billingSelection: input.billingSelection,
+        };
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(received).toEqual({
+      providerId: "openrouter-api",
+      modelId: "anthropic/claude-sonnet",
+      credentialEnvironmentVariable: "OPENROUTER_API_KEY",
+      billingSelection: "strict_primary_only",
+    });
+    expect(disclosure).toContain("one-way credential fingerprint");
+    expect(disclosure).toContain("reviewed fixed HTTPS origin");
+    expect(stdout.value).toContain("OPENROUTER_API_KEY (value not stored");
+    expect(stdout.value).not.toContain("private");
+    expect(stderr.value).toBe("");
+  });
+
+  it("supports explicit declared billing fallback and rejects unattended BYOK setup", async () => {
+    const args = [
+      "setup", "byok",
+      "--provider", "opencode-go",
+      "--model", "model",
+      "--key-env", "OPENCODE_API_KEY",
+      "--billing", "allow-additional",
+    ];
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let called = false;
+    expect(await runCli(args, {
+      stdout,
+      stderr,
+      interactive: false,
+      automation: true,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async setupEnvironment() {
+        called = true;
+        throw new Error("unexpected");
+      },
+    })).toBe(2);
+    expect(called).toBe(false);
+    expect(stderr.value).toContain("interactive local terminal");
+
+    const interactiveOut = new TextOutput();
+    const interactiveErr = new TextOutput();
+    let billing: string | undefined;
+    expect(await runCli(args, {
+      stdout: interactiveOut,
+      stderr: interactiveErr,
+      interactive: true,
+      automation: false,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async confirm() { return true; },
+      async setupEnvironment(input) {
+        billing = input.billingSelection;
+        return {
+          id: "byok:opencode-go:stable",
+          label: "OpenCode Go BYOK",
+          providerId: input.providerId,
+          modelId: input.modelId,
+          credentialEnvironmentVariable:
+            input.credentialEnvironmentVariable,
+          primary: false,
+          billingSelection: input.billingSelection,
+        };
+      },
+    })).toBe(0);
+    expect(billing).toBe("allow_declared_additional");
+    expect(interactiveErr.value).toBe("");
+  });
+
+  it("rejects duplicate or unsafe BYOK flags before rendering a disclosure", async () => {
+    for (const args of [
+      [
+        "setup", "byok", "--provider", "openrouter-api", "--model", "model",
+        "--key-env", "OPENROUTER_API_KEY", "--billing", "strict",
+        "--billing", "strict",
+      ],
+      [
+        "setup", "byok", "--provider", "openrouter-api\nunsafe", "--model",
+        "model", "--key-env", "OPENROUTER_API_KEY",
+      ],
+      [
+        "setup", "byok", "--provider", "openrouter-api", "--model", "model",
+        "--key-env", "OPENROUTER_CREDENTIAL",
+      ],
+    ]) {
+      let confirmed = false;
+      let configured = false;
+      const stderr = new TextOutput();
+      expect(await runCli(args, {
+        stdout: new TextOutput(),
+        stderr,
+        interactive: true,
+        automation: false,
+        async createRuntime() { throw new Error("runtime must not start"); },
+        async confirm() { confirmed = true; return true; },
+        async setupEnvironment() {
+          configured = true;
+          throw new Error("setup must not start");
+        },
+      })).toBe(2);
+      expect(confirmed).toBe(false);
+      expect(configured).toBe(false);
+      expect(stderr.value).toContain("recurs setup byok");
+    }
+  });
+
   it("renders local setup failures without an opaque diagnostic", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
@@ -928,6 +1067,34 @@ describe("runCli", () => {
     expect(verified).toBe("local-1");
     expect(stdout.value).toContain("Verified — local-1 · qwen");
     expect(stderr.value).toBe("");
+
+    const byokOutput = new TextOutput();
+    expect(await runCli(["account", "verify", "byok-1"], {
+      stdout: byokOutput,
+      stderr: new TextOutput(),
+      cwd: "/tmp/workspace",
+      interactive: true,
+      automation: false,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async verifyAccount(id) {
+        return {
+          verified: true,
+          connection: {
+            id,
+            label: "OpenRouter BYOK",
+            providerId: "openrouter-api",
+            adapterId: "openai-chat-completions",
+            kind: "environment_model_provider",
+            modelId: "provider/model",
+            primary: true,
+            account: "environment credential (value not stored)",
+            execution: "Act + Plan",
+            billingSources: ["prepaid_credits"],
+          },
+        };
+      },
+    })).toBe(0);
+    expect(byokOutput.value).toContain("Credential binding verified — byok-1");
 
     for (const [interactive, automation] of [
       [false, false],

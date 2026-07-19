@@ -23,6 +23,7 @@ export {
   type ConnectionRegistryMutation,
   type ConnectionRegistryMutationResult,
   type DelegatedConnectionRecord,
+  type EnvironmentModelProviderConnectionRecord,
   type FileConnectionRegistryOptions,
   type LocalConnectionRecord,
   type RegistryFaultPoint,

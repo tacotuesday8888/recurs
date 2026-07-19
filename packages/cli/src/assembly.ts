@@ -22,6 +22,7 @@ import {
   type BrokeredModelProviderConnectionRecord,
   type ConnectionRecord,
   type DelegatedConnectionRecord,
+  type EnvironmentModelProviderConnectionRecord,
   type LocalConnectionRecord,
 } from "@recurs/app";
 import {
@@ -54,6 +55,8 @@ import {
 } from "@recurs/core";
 import {
   BUNDLED_PROVIDER_MANIFESTS,
+  createEnvironmentProviderConfiguration,
+  environmentCredentialFingerprint,
   LocalOpenAICompatibleProvider,
   NativeOpenAIResponsesProvider,
   resolveEnvironmentProvider,
@@ -308,6 +311,26 @@ function brokeredOpenAIBackendPin(
   };
 }
 
+function savedEnvironmentBackendPin(
+  connection: EnvironmentModelProviderConnectionRecord,
+): SessionBackendPin {
+  return {
+    kind: "model_provider",
+    providerId: connection.providerId,
+    adapterId: connection.adapterId,
+    connectionId: connection.id,
+    modelId: connection.modelId,
+    modelIdentityKind: "mutable_alias",
+    providerResolvedModelRevisionAtCreation: null,
+    catalogRevision: connection.policyRevision,
+    policyRevisionAtCreation: connection.policyRevision,
+    billingPolicyRevisionAtCreation: connection.billingPolicy.revision,
+    primaryBillingSourceAtCreation: connection.billingPolicy.primarySource,
+    billingSelectionAtCreation: structuredClone(connection.billingSelection),
+    accountSubjectFingerprint: connection.credentialIdentityFingerprint,
+  };
+}
+
 function policyBlocked(
   diagnosticId: string,
   message: string,
@@ -334,6 +357,14 @@ function connectionInvalid(diagnosticId: string): IntegrationFailure {
     retryable: false,
     action: "select_connection",
   };
+}
+
+function unavailableConnectionMessage(connection: ConnectionRecord): string {
+  return connection.kind === "environment_model_provider"
+    ? `The selected BYOK connection requires ${connection.credentialEnvironmentVariable} with the credential used during setup.`
+    : connection.kind === "brokered_model_provider"
+    ? "The selected brokered provider is connected, but brokered provider execution is not available yet."
+    : "The selected provider connection is not available.";
 }
 
 function assertCodexPolicy(
@@ -389,7 +420,9 @@ function assertBrokeredProviderPolicy(
   );
   if (
     entry === undefined ||
-    entry.status !== "requires_native_broker" ||
+    (entry.status !== "requires_native_broker" &&
+      !(connection.providerId === "kimi-code" &&
+        entry.status === "runnable_byok")) ||
     !(
       (connection.providerId === "openai-api" &&
         connection.adapterId === "openai-responses" &&
@@ -430,12 +463,43 @@ function assertBrokeredProviderPolicy(
   }
 }
 
-function backendForConnection(
+function assertEnvironmentProviderPolicy(
+  connection: EnvironmentModelProviderConnectionRecord,
+  diagnosticId: string,
+): void {
+  const entry = new OnboardingCatalog().list({ includeBlocked: true }).find(
+    (candidate) => candidate.id === connection.providerId,
+  );
+  if (
+    entry === undefined ||
+    entry.status !== "runnable_byok" ||
+    entry.connectionOwner !== "process_environment" ||
+    connection.adapterId !== "openai-chat-completions" ||
+    connection.policyRevision !== entry.policy.revision ||
+    !isDeepStrictEqual(connection.billingPolicy, entry.billing) ||
+    connection.billingSelection.policyRevision !== entry.billing.revision ||
+    connection.billingSelection.disclosureRevision !==
+      entry.billing.disclosureRevision ||
+    !entry.billing.availableSelections.includes(
+      connection.billingSelection.mode,
+    )
+  ) {
+    throw policyBlocked(
+      diagnosticId,
+      "The BYOK connection no longer matches the reviewed provider policy",
+      "policy_stale",
+    );
+  }
+}
+
+async function backendForConnection(
   connection: ConnectionRecord,
   delegatedRuntimeFactory: DelegatedRuntimeFactory,
   diagnosticId: string,
   nativeOpenAIResponses?: NativeOpenAIResponsesPort,
-): RuntimeBackend | null {
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+  environmentFetch?: typeof globalThis.fetch,
+): Promise<RuntimeBackend | null> {
   if (connection.kind === "local_openai_compatible") {
     const localConnection = localConfiguration(connection);
     return {
@@ -466,6 +530,36 @@ function backendForConnection(
       pin: () => brokeredOpenAIBackendPin(connection),
       commandProvider: provider(),
       createProvider: provider,
+    };
+  }
+  if (connection.kind === "environment_model_provider") {
+    assertEnvironmentProviderPolicy(connection, diagnosticId);
+    const apiKey = environment[connection.credentialEnvironmentVariable];
+    if (
+      apiKey === undefined ||
+      apiKey.length === 0 ||
+      await environmentCredentialFingerprint(connection.providerId, apiKey) !==
+        connection.credentialIdentityFingerprint
+    ) {
+      return null;
+    }
+    let bound: EnvironmentProviderConfiguration;
+    try {
+      bound = await createEnvironmentProviderConfiguration({
+        providerId: connection.providerId,
+        modelId: connection.modelId,
+        connectionId: connection.id,
+        apiKey,
+        ...(environmentFetch === undefined ? {} : { fetch: environmentFetch }),
+      });
+    } catch {
+      return null;
+    }
+    return {
+      kind: "direct",
+      pin: () => savedEnvironmentBackendPin(connection),
+      commandProvider: bound.provider,
+      createProvider: () => bound.provider,
     };
   }
   assertCodexPolicy(connection, diagnosticId);
@@ -536,9 +630,10 @@ export async function createStandaloneRuntime(
     );
   }
   const injected = options.provider;
+  const runtimeEnvironment = options.environment ?? process.env;
   const environmentConnection = injected === undefined
     ? await resolveEnvironmentProvider(
-        options.environment ?? process.env,
+        runtimeEnvironment,
         options.environmentFetch,
       )
     : null;
@@ -576,11 +671,13 @@ export async function createStandaloneRuntime(
         }
     : configuredConnection === null
       ? undefined
-      : backendForConnection(
+      : await backendForConnection(
           configuredConnection,
           delegatedRuntimeFactory,
           randomUUID(),
           options.nativeOpenAIResponses,
+          runtimeEnvironment,
+          options.environmentFetch,
         ) ?? undefined;
   const existing = await sessions.list();
   let state: PinnedSessionState | WorkspaceShellState;
@@ -842,16 +939,18 @@ export async function createStandaloneRuntime(
         );
         if (connection === undefined) throw connectionInvalid(input.operationId);
         try {
-          const resolved = backendForConnection(
+          const resolved = await backendForConnection(
             connection,
             delegatedRuntimeFactory,
             input.operationId,
             options.nativeOpenAIResponses,
+            runtimeEnvironment,
+            options.environmentFetch,
           );
           if (resolved === null) {
             throw policyBlocked(
               input.operationId,
-              "The selected brokered provider is connected, but brokered provider execution is not available yet.",
+              unavailableConnectionMessage(connection),
             );
           }
           selected = resolved;
@@ -959,11 +1058,13 @@ export async function createStandaloneRuntime(
           (candidate) => candidate.id === session.backend.pin.connectionId,
         );
         if (connection === undefined) return null;
-        const resolved = backendForConnection(
+        const resolved = await backendForConnection(
           connection,
           delegatedRuntimeFactory,
           randomUUID(),
           options.nativeOpenAIResponses,
+          runtimeEnvironment,
+          options.environmentFetch,
         );
         if (resolved === null) return null;
         selected = resolved;
@@ -1005,10 +1106,9 @@ export async function createStandaloneRuntime(
         ),
       ...(initialBackend === undefined
         ? {
-            promptUnavailableMessage:
-              configuredConnection?.kind === "brokered_model_provider"
-                ? "The selected brokered provider is connected, but brokered provider execution is not available yet."
-                : "No model connection is ready. Run recurs setup in an interactive terminal, then try again.",
+            promptUnavailableMessage: configuredConnection === null
+              ? "No model connection is ready. Run recurs setup in an interactive terminal, then try again."
+              : unavailableConnectionMessage(configuredConnection),
           }
         : {}),
     },

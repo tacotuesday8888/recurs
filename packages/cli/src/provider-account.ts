@@ -10,6 +10,7 @@ import {
   ConnectionLifecycleService,
   FileConnectionRegistry,
   OnboardingCatalog,
+  verifyEnvironmentConnection,
   verifyLocalConnection,
   type ConnectionDisconnection,
   type ConnectionSummary,
@@ -28,7 +29,9 @@ export interface ProviderSummary {
   readonly adapterKind: AdapterKind;
   readonly accessKind: AccessKind;
   readonly protocol: ProviderProtocol;
-  readonly connectionOwner: ProviderManifest["credentialOwner"];
+  readonly connectionOwner:
+    | ProviderManifest["credentialOwner"]
+    | "process_environment";
   readonly billing: {
     readonly primarySource: BillingSource;
     readonly possibleAdditionalSources: readonly BillingSource[];
@@ -99,16 +102,24 @@ export async function disconnectAccount(
   ).disconnect(id, signal === undefined ? {} : { signal });
 }
 
-export function createConnectionVerifier(cwd: string): ConnectionVerifier {
+export function createConnectionVerifier(
+  cwd: string,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): ConnectionVerifier {
   return {
     verifyLocal: (record, signal) => verifyLocalConnection(record, { signal }),
     verifyDelegated: (record, signal) =>
       verifyCodexSubscriptionConnection(record, cwd, signal),
+    async verifyEnvironment(record, signal) {
+      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+      return verifyEnvironmentConnection(record, environment);
+    },
   };
 }
 
 export interface VerifyAccountDependencies {
   readonly verifier?: ConnectionVerifier;
+  readonly environment?: Readonly<Record<string, string | undefined>>;
 }
 
 export async function verifyAccount(
@@ -122,7 +133,10 @@ export async function verifyAccount(
     new FileConnectionRegistry(dataDirectory),
   ).verify(
     id,
-    dependencies.verifier ?? createConnectionVerifier(cwd),
+    dependencies.verifier ?? createConnectionVerifier(
+      cwd,
+      dependencies.environment ?? process.env,
+    ),
     signal === undefined ? {} : { signal },
   );
 }

@@ -9,10 +9,14 @@ import type {
   ProviderUsagePolicy,
   SupportStatus,
 } from "@recurs/contracts";
-import { ProviderManifestRegistry } from "@recurs/providers";
+import {
+  ProviderManifestRegistry,
+  isEnvironmentByokManifest,
+} from "@recurs/providers";
 
 export type OnboardingStatus =
   | "runnable"
+  | "runnable_byok"
   | "requires_native_broker"
   | "blocked";
 
@@ -24,7 +28,9 @@ export interface OnboardingCatalogEntry {
   protocol: ProviderProtocol;
   status: OnboardingStatus;
   supportStatus: SupportStatus;
-  connectionOwner: ProviderManifest["credentialOwner"];
+  connectionOwner:
+    | ProviderManifest["credentialOwner"]
+    | "process_environment";
   endpoints: readonly ProviderEndpoint[];
   regionAvailability: ProviderRegionAvailability;
   billing: BillingPolicy;
@@ -79,6 +85,7 @@ function statusFor(
     return "blocked";
   }
   if (manifest.runnable && RUNNABLE_IDS.has(manifest.id)) return "runnable";
+  if (isEnvironmentByokManifest(manifest)) return "runnable_byok";
   if (
     manifest.credentialOwner === "recurs_broker" &&
     manifest.endpoints.length > 0
@@ -104,6 +111,10 @@ function restrictionsFor(
     restrictions.push("Unknown provider billing fallback is blocked.");
   } else if (status === "requires_native_broker") {
     restrictions.push("Activation requires the native credential broker.");
+  } else if (status === "runnable_byok") {
+    restrictions.push(
+      "BYOK stores only provider/model metadata, an environment-variable name, and a one-way credential fingerprint; the key remains in the process environment.",
+    );
   } else if (status === "blocked") {
     restrictions.push("This path is blocked by its reviewed support or runtime policy.");
   }
@@ -129,7 +140,9 @@ function entryFor(
     protocol: manifest.protocol,
     status,
     supportStatus: manifest.supportStatus,
-    connectionOwner: manifest.credentialOwner,
+    connectionOwner: isEnvironmentByokManifest(manifest)
+      ? "process_environment"
+      : manifest.credentialOwner,
     endpoints: structuredClone(manifest.endpoints),
     regionAvailability: structuredClone(manifest.regionAvailability),
     billing: structuredClone(manifest.billingPolicy),
@@ -140,8 +153,9 @@ function entryFor(
 
 const STATUS_ORDER: Readonly<Record<OnboardingStatus, number>> = {
   runnable: 0,
-  requires_native_broker: 1,
-  blocked: 2,
+  runnable_byok: 1,
+  requires_native_broker: 2,
+  blocked: 3,
 };
 
 export class OnboardingCatalog {
