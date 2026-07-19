@@ -35,7 +35,7 @@ The private macOS authority implements complete OpenAI API, Anthropic API, and K
 
 On macOS and Linux, `workspace_sandboxed` gives command and verification children canonical workspace-only host writes, hides host credential/runtime state, and binds network access to approved command intent. Linux uses system Bubblewrap namespaces and deliberately does not claim a Recurs seccomp policy. Windows still selects `local_guarded` but rejects subprocess execution as unsupported; an explicit guarded profile on macOS/Linux retains host authority. `tools_disabled` avoids model tools but is not a usable coding profile and does not replace the private credential boundary.
 
-The repository is intended to become open source, but it has no license yet and cannot legally be described as open source until the owner adds one. It is source-installable only; no npm, Bun, Homebrew, curl, or binary release has been published.
+The repository is intended to become open source, but it has no license yet and cannot legally be described as open source until the owner adds one. It is source-installable only; no npm, Bun, Homebrew, curl, or binary release has been published. The guarded release path is prepared: one exact npm tarball feeds trusted npm publishing, a checksum-verifying user-local installer, a generated Homebrew formula, GitHub release assets, and provenance attestations. The workflow remains fail-closed until the owner selects the license/version, makes the repository public, and configures the protected publishing identities.
 
 ## Roadmap
 
@@ -60,7 +60,7 @@ Before unattended local workers run arbitrary commands, add an enforceable proce
 
 ### 3. Product surfaces and ecosystem
 
-Add the company-style desktop client, plugin packaging and later MCP trust/remote/profile slices, background/cloud execution, and distribution. An npm package is the likely first preview channel; Bun may later install it while Node remains the runtime. Homebrew and curl wait for versioned signed artifacts, and Windows support remains later work.
+Add the company-style desktop client, plugin packaging and later MCP trust/remote/profile slices, background/cloud execution, and distribution. npm, checksum-bound curl, and a Homebrew formula now share one prepared versioned artifact path, but none is live until the release gate is satisfied; a tap is still absent. Bun may later install the package while Node remains the runtime, and Windows support remains later work.
 
 ## Not current commitments
 
