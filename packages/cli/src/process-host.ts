@@ -44,6 +44,7 @@ import {
 import { CoordinatedRunError, type EventSink } from "@recurs/core";
 
 import { createStandaloneRuntime } from "./assembly.js";
+import { serveRecursAcpStdio } from "./acp-server.js";
 import { setupCodexSubscription } from "./codex-connection.js";
 import {
   listAccountSummaries,
@@ -85,6 +86,7 @@ Usage:
   recurs                         Open the interactive CLI
   recurs run <prompt>            Run one prompt
   recurs run <prompt> --format text|jsonl
+  recurs acp                     Serve Recurs over ACP on stdio
   recurs setup local --url <loopback-url> --model <model-id>
   recurs setup codex             Connect an existing ChatGPT Codex subscription
   recurs setup openai [--model <exact-id>]
@@ -133,6 +135,7 @@ export interface CliDependencies {
   anthropicOnboarding?: OpenAICliOnboardingPort;
   kimiOnboarding?: OpenAICliOnboardingPort;
   createRuntime(events: EventSink): Promise<RecursRuntime>;
+  runAcp?(): Promise<void>;
   setupLocal?(input: { baseUrl: string; modelId: string }): Promise<Pick<LocalConnectionConfiguration, "id" | "label" | "baseUrl" | "modelId" | "primary">>;
   setupCodex?(input: {
     cwd: string;
@@ -618,6 +621,23 @@ export async function runCli(
     }
   }
 
+  if (argv[0] === "acp") {
+    if (argv.length !== 1 || dependencies.runAcp === undefined) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    try {
+      await dependencies.runAcp();
+      return 0;
+    } catch (error) {
+      await writeOutput(
+        dependencies.stderr,
+        `Error: ${safeCliErrorMessage(error)}\n`,
+      );
+      return exitCodeFor(error);
+    }
+  }
+
   if (argv[0] === "provider") {
     const parsed = parseProviderCommand(argv.slice(1));
     if (parsed === null) {
@@ -1056,6 +1076,20 @@ export async function runCliProcess(
       createRuntime: (events) => createStandaloneRuntime(
         events,
         nativeOpenAIResponses === undefined ? {} : { nativeOpenAIResponses },
+      ),
+      runAcp: () => serveRecursAcpStdio(
+        {
+          createRuntime: (cwd, events) => createStandaloneRuntime(events, {
+            cwd,
+            dataDirectory,
+            reuseExistingSession: false,
+            ...(nativeOpenAIResponses === undefined
+              ? {}
+              : { nativeOpenAIResponses }),
+          }),
+        },
+        processStdin,
+        processStdout,
       ),
       setupLocal: (input) => setupLocalConnection(
         dataDirectory,

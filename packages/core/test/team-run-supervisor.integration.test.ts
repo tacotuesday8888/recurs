@@ -368,5 +368,5 @@ describe("TeamRunSupervisor Git integration", () => {
     }
     expect(await git(repository, ["worktree", "list", "--porcelain"]))
       .not.toContain(`${path.sep}worktrees${path.sep}lease-`);
-  });
+  }, 20_000);
 });

@@ -9,6 +9,7 @@ export * from "./commands/repository.js";
 export * from "./commands/session.js";
 export * from "./commands/types.js";
 export * from "./assembly.js";
+export * from "./acp-server.js";
 export * from "./codex-connection.js";
 export * from "./local-connection.js";
 export * from "./provider-account.js";

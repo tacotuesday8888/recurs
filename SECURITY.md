@@ -78,6 +78,17 @@ The sealed private engine explicitly returns a fixed safe unavailable error for
 Codex and does not resolve an ambient adapter or binary. It remains denied there
 until both have a reviewed fixed signed-bundle layout.
 
+`recurs acp` is a local stdio protocol endpoint over the public/source CLI. It
+does not receive or expose provider credentials, grant trust to an editor, or
+expand provider policy. Each ACP conversation gets a distinct pinned Recurs
+session, while every prompt is classified as unattended, scripted SDK work.
+Consequently, the manual user-present Codex subscription path remains denied.
+The endpoint forwards only allow-once and reject-once permission choices to the
+client, cancels active work on protocol cancellation or disconnect, and uses
+Recurs-owned tools rather than client filesystem or terminal methods. It does
+not advertise MCP support and rejects client-supplied MCP servers and additional
+workspace roots. Standard output is reserved exclusively for ACP frames.
+
 Connection management stores and removes Recurs metadata only.
 `recurs account disconnect` does not revoke, sign out, or delete vendor
 authentication. Public account output omits local endpoints, vendor account

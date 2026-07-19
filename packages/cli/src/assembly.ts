@@ -98,6 +98,7 @@ export interface StandaloneRuntimeOptions {
   nativeOpenAIResponses?: NativeOpenAIResponsesPort;
   environment?: Readonly<NodeJS.ProcessEnv>;
   environmentFetch?: typeof globalThis.fetch;
+  reuseExistingSession?: boolean;
 }
 
 function injectedBackendPin(
@@ -578,21 +579,23 @@ export async function createStandaloneRuntime(
     state = createWorkspaceShell(cwd);
   } else {
     let matching: PinnedSessionState | null = null;
-    for (const entry of existing) {
-      const candidate = await sessions.loadState(entry.id);
-      if (
-        isPinnedSessionState(candidate) &&
-        candidate.agent.role === "parent" &&
-        candidate.cwd === cwd &&
-        isDeepStrictEqual(
-          candidate.backend.pin,
-          initialBackend.pin(
-            candidate.backend.pin.billingSelectionAtCreation.acknowledgedAt,
-          ),
-        )
-      ) {
-        matching = candidate;
-        break;
+    if (options.reuseExistingSession !== false) {
+      for (const entry of existing) {
+        const candidate = await sessions.loadState(entry.id);
+        if (
+          isPinnedSessionState(candidate) &&
+          candidate.agent.role === "parent" &&
+          candidate.cwd === cwd &&
+          isDeepStrictEqual(
+            candidate.backend.pin,
+            initialBackend.pin(
+              candidate.backend.pin.billingSelectionAtCreation.acknowledgedAt,
+            ),
+          )
+        ) {
+          matching = candidate;
+          break;
+        }
       }
     }
     let pinnedState: PinnedSessionState;

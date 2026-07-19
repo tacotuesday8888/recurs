@@ -1143,6 +1143,32 @@ describe("standalone assembly without a provider", () => {
     });
   });
 
+  it("creates distinct pinned sessions when host isolation disables reuse", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-isolated-session-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const provider = new ScriptedProvider([]);
+    const options = {
+      cwd: workspace,
+      dataDirectory: path.join(root, "data"),
+      provider,
+      reuseExistingSession: false,
+    } as const;
+
+    const first = await createStandaloneRuntime({ async emit() {} }, options);
+    const second = await createStandaloneRuntime({ async emit() {} }, options);
+
+    expect(second.session.id).not.toBe(first.session.id);
+    expect(second.session.backend.pin).toMatchObject({
+      kind: first.session.backend.pin.kind,
+      providerId: first.session.backend.pin.providerId,
+      adapterId: first.session.backend.pin.adapterId,
+      connectionId: first.session.backend.pin.connectionId,
+      modelId: first.session.backend.pin.modelId,
+    });
+  });
+
   it("registers single and batch delegation through the assembled provider runtime", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-agent-tools-"));
     directories.push(root);
