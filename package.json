@@ -11,7 +11,8 @@
   "files": [
     "dist/cli/main.js",
     "README.md",
-    "SECURITY.md"
+    "SECURITY.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "repository": {
     "type": "git",
@@ -53,7 +54,7 @@
     "native:smoke": "node scripts/check-native-source-launcher.mjs",
     "native:test": "swift test --package-path native/macos --no-parallel",
     "package:build": "node scripts/build-npm-package.mjs",
-    "package:check": "node scripts/check-npm-package.mjs",
+    "package:check": "node --test scripts/check-npm-release.test.mjs && node scripts/check-npm-release.mjs --check-state && node scripts/check-npm-package.mjs",
     "package:smoke-install": "node scripts/smoke-install-npm-package.mjs",
     "prepack": "npm run package:build && npm run package:check",
     "test": "vitest run",

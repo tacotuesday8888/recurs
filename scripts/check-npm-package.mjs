@@ -6,10 +6,17 @@ import process from "node:process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
+import {
+  publicationStateForFailures,
+  releaseMetadataFailures,
+} from "./check-npm-release.mjs";
+
 const execFileAsync = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJsonPath = path.join(root, "package.json");
 const bundlePath = path.join(root, "dist/cli/main.js");
+const licensePath = path.join(root, "LICENSE");
+const noticesPath = path.join(root, "THIRD_PARTY_NOTICES.md");
 const expectedDependencies = Object.freeze({
   "@agentclientprotocol/codex-acp": "1.1.2",
   "@agentclientprotocol/sdk": "1.2.1",
@@ -17,13 +24,13 @@ const expectedDependencies = Object.freeze({
   yaml: "2.9.0",
   zod: "4.4.3",
 });
-const expectedFiles = [
-  "README.md",
-  "SECURITY.md",
-  "dist/cli/main.js",
-  "package.json",
-];
-
+const expectedNoticeRows = Object.freeze([
+  "| `@agentclientprotocol/codex-acp` | 1.1.2 | Apache-2.0 |",
+  "| `@agentclientprotocol/sdk` | 1.2.1 | Apache-2.0 |",
+  "| `@openai/codex` | 0.144.0 | Apache-2.0 |",
+  "| `yaml` | 2.9.0 | ISC |",
+  "| `zod` | 4.4.3 | MIT |",
+]);
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -31,14 +38,53 @@ function assert(condition, message) {
 }
 
 const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+const licenseText = await readFile(licensePath, "utf8").catch((error) => {
+  if (error?.code === "ENOENT") return null;
+  throw error;
+});
+const notices = await readFile(noticesPath, "utf8");
+const publicationState = publicationStateForFailures(
+  releaseMetadataFailures({ packageJson, licenseText, noticesText: notices }),
+);
+assert(
+  publicationState !== "invalid",
+  "The package publication metadata is partially configured.",
+);
+const expectedFiles = [
+  ...(publicationState === "ready" ? ["LICENSE"] : []),
+  "README.md",
+  "SECURITY.md",
+  "THIRD_PARTY_NOTICES.md",
+  "dist/cli/main.js",
+  "package.json",
+];
+
 assert(packageJson.name === "recurs", "The release package name must be recurs.");
-assert(packageJson.private === true, "Publishing must remain blocked until licensing is complete.");
-assert(packageJson.license === "UNLICENSED", "The package must truthfully declare its current license state.");
+if (publicationState === "locked") {
+  assert(packageJson.private === true, "The unpublished package must remain private.");
+  assert(
+    packageJson.license === "UNLICENSED",
+    "The unpublished package must truthfully declare its license state.",
+  );
+} else {
+  assert(packageJson.private !== true, "A release-ready package cannot be private.");
+  assert(licenseText !== null, "A release-ready package must include its license.");
+}
+assert(
+  packageJson.files?.includes("THIRD_PARTY_NOTICES.md"),
+  "The package must include its reviewed third-party notices.",
+);
 assert(packageJson.bin?.recurs === "dist/cli/main.js", "The package binary must target the bundled CLI.");
 assert(
   JSON.stringify(packageJson.dependencies) === JSON.stringify(expectedDependencies),
   "Runtime dependencies must remain exact and reviewed.",
 );
+for (const row of expectedNoticeRows) {
+  assert(
+    notices.includes(row),
+    `The third-party notice is missing an exact runtime dependency row: ${row}`,
+  );
+}
 
 const bundle = await readFile(bundlePath, "utf8");
 const bundleStat = await stat(bundlePath);
