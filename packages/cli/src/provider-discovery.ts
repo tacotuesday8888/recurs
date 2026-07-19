@@ -4,6 +4,7 @@ import {
   fetchProviderCatalog,
   searchProviderCatalog,
   type DiscoveredCatalogProvider,
+  type EnvironmentModelDescriptor,
   type LocalRuntimeDetection,
   type ProviderCatalogSnapshot,
 } from "@recurs/providers";
@@ -106,6 +107,25 @@ export function localRuntimeText(
   return `${detected.map((runtime) =>
     `${runtime.name} — detected\n  ${runtime.baseUrl}`
   ).join("\n\n")}\n`;
+}
+
+export function environmentModelsText(
+  providerId: string,
+  models: readonly EnvironmentModelDescriptor[],
+): string {
+  if (models.length === 0) {
+    return `No credential-visible models were reported for ${providerId}.\n`;
+  }
+  return [
+    `Credential-visible models for ${providerId}`,
+    "",
+    ...models.flatMap((model, index) => [
+      `${model.displayName} — ${model.id}`,
+      `  Input: ${model.maxInputTokens ?? "unknown"} tokens · Output: ${model.maxOutputTokens ?? "unknown"} tokens · Created: ${model.createdAt}`,
+      ...(index === models.length - 1 ? [] : [""]),
+    ]),
+    "",
+  ].join("\n");
 }
 
 export function providerOverviewText(

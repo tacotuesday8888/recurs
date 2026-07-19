@@ -16,6 +16,22 @@ import {
 const roots: string[] = [];
 const AT = "2026-07-19T00:00:00.000Z";
 
+function anthropicModels(...ids: string[]): Response {
+  return new Response(JSON.stringify({
+    data: ids.map((id) => ({
+      id,
+      type: "model",
+      display_name: id,
+      created_at: "2026-01-01T00:00:00Z",
+      max_input_tokens: 200_000,
+      max_tokens: 64_000,
+    })),
+    has_more: false,
+    first_id: ids[0] ?? null,
+    last_id: ids.at(-1) ?? null,
+  }));
+}
+
 async function root(): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "recurs-byok-"));
   roots.push(directory);
@@ -124,6 +140,8 @@ describe("saved environment BYOK connections", () => {
       billingSelection: "strict_primary_only",
       environment: { ANTHROPIC_API_KEY: key },
       now: AT,
+    }, {
+      fetch: async () => anthropicModels("claude-test"),
     });
 
     const storedText = await readFile(connectionRegistryPath(directory), "utf8");
@@ -139,6 +157,27 @@ describe("saved environment BYOK connections", () => {
           modelId: "claude-test",
         }),
       ]);
+  });
+
+  it("verifies Anthropic credential visibility before saving a model", async () => {
+    const directory = await root();
+    const input = {
+      providerId: "anthropic-api",
+      modelId: "claude-selected",
+      credentialEnvironmentVariable: "ANTHROPIC_API_KEY",
+      billingSelection: "strict_primary_only" as const,
+      environment: { ANTHROPIC_API_KEY: "anthropic-private-value" },
+      now: AT,
+    };
+
+    await expect(setupEnvironmentConnection(directory, input, {
+      fetch: async () => anthropicModels("claude-other"),
+    })).rejects.toMatchObject({ code: "model_unavailable" });
+    await expect(setupEnvironmentConnection(directory, input, {
+      fetch: async () => new Response("rejected", { status: 401 }),
+    })).rejects.toMatchObject({ code: "credential_rejected" });
+    await expect(new FileConnectionRegistry(directory).read()).resolves
+      .toMatchObject({ connections: [], primaryConnectionId: null });
   });
 
   it("updates an explicit provider/env binding without redirecting its stable identity", async () => {
