@@ -102,7 +102,7 @@ describe("native OpenAI Responses provider", () => {
     expect(provider).toMatchObject({
       id: "anthropic-api",
       adapterId: "anthropic-messages",
-      harnessProfile: { id: "native_tool_use_v1", version: 1 },
+      harnessProfile: { id: "native_tool_use_v2", version: 2 },
     });
   });
 
@@ -134,7 +134,7 @@ describe("native OpenAI Responses provider", () => {
       id: "openai-api",
       adapterId: "openai-responses",
       connectionId: "connection-1",
-      harnessProfile: { id: "native_tool_use_v1", version: 1 },
+      harnessProfile: { id: "native_tool_use_v2", version: 2 },
     });
   });
 

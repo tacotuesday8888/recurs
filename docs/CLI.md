@@ -200,6 +200,8 @@ interface ModelProvider {
 
 The normalized request contains the model name, immutable message snapshot, visible tool definitions, and an abort signal. The stream returns text/reasoning deltas, normalized tool calls, usage, and one terminal event. `ScriptedProvider` supplies deterministic responses for tests and embedded development.
 
+Native-tool providers use the provider-neutral `native_tool_use_v2` profile. They may emit up to four independent built-in read calls together; Recurs starts and settles that bounded group concurrently but persists tool events and returns results in provider call order. Only `read_file`, `list_files`, `search_text`, `git_status`, and `git_diff` opt in. A call that is mutating, dynamically mutating, approval-requiring, malformed, policy-disallowed, unknown, or not explicitly marked safe becomes a serial barrier. The `compatible_tool_use_v1` profile remains one call at a time for conservative OpenAI Chat-compatible models.
+
 `createStandaloneRuntime(eventSink, { provider, model })` remains the test/embedding assembly point for an injected provider. Normal standalone assembly also resolves saved local, environment-BYOK, brokered-native, and Codex records into immutable version-2 backend pins. A saved BYOK record runs only when the exact named credential matches its stored fingerprint; missing or changed credentials fail before provider work with the required variable named safely. Launching the compiled CLI without a connection keeps workspace commands available, but `recurs run <prompt>` exits with configuration code `2` before persisting the prompt. JSONL mode emits one `configuration_error` object without prose on standard output.
 
 ## Start and run

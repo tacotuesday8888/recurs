@@ -85,15 +85,68 @@ describe("ToolRegistry", () => {
       createGitStatusTool(),
       createGitDiffTool(),
       createRunCommandTool(),
-    ].map((tool) => [tool.definition.name, tool.executionClass])).toEqual([
-      ["read_file", "in_process"],
-      ["list_files", "fixed_process"],
-      ["search_text", "fixed_process"],
-      ["apply_patch", "fixed_process"],
-      ["git_status", "fixed_process"],
-      ["git_diff", "fixed_process"],
-      ["run_command", "arbitrary_process"],
+    ].map((tool) => [
+      tool.definition.name,
+      tool.executionClass,
+      tool.parallelSafe === true,
+    ])).toEqual([
+      ["read_file", "in_process", true],
+      ["list_files", "fixed_process", true],
+      ["search_text", "fixed_process", true],
+      ["apply_patch", "fixed_process", false],
+      ["git_status", "fixed_process", true],
+      ["git_diff", "fixed_process", true],
+      ["run_command", "arbitrary_process", false],
     ]);
+  });
+
+  it("admits only explicit, non-mutating, approval-free concurrent calls", () => {
+    const safe: Tool<{ text: string }> = {
+      ...textTool(),
+      parallelSafe: true,
+    };
+    const dynamic: Tool<{ text: string }> = {
+      ...safe,
+      definition: { ...safe.definition, name: "dynamic" },
+      isMutating: (input) => input.text === "write",
+    };
+    const approval: Tool<{ text: string }> = {
+      ...safe,
+      definition: { ...safe.definition, name: "external" },
+      permissions: (input) => [{
+        category: "external_path",
+        resource: input.text,
+        risk: "elevated",
+      }],
+    };
+    const registry = new ToolRegistry([safe, dynamic, approval]);
+    const permissions = new PermissionEngine("ask_always");
+
+    expect(registry.canRunConcurrently(
+      { id: "safe", name: "echo", arguments: { text: "read" } },
+      context(),
+      permissions,
+    )).toBe(true);
+    expect(registry.canRunConcurrently(
+      { id: "write", name: "dynamic", arguments: { text: "write" } },
+      context(),
+      permissions,
+    )).toBe(false);
+    expect(registry.canRunConcurrently(
+      { id: "approval", name: "external", arguments: { text: "/outside" } },
+      context(),
+      permissions,
+    )).toBe(false);
+    expect(registry.canRunConcurrently(
+      { id: "invalid", name: "echo", arguments: { text: 42 } },
+      context(),
+      permissions,
+    )).toBe(false);
+    expect(new ToolRegistry([textTool()]).canRunConcurrently(
+      { id: "implicit", name: "echo", arguments: { text: "read" } },
+      context(),
+      permissions,
+    )).toBe(false);
   });
 
   it("tools_disabled advertises and executes no model tools", async () => {

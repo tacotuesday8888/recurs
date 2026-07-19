@@ -26,6 +26,7 @@ function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
     definition: tool.definition,
     executionClass: tool.executionClass,
     mutating: tool.mutating,
+    parallelSafe: tool.parallelSafe ?? false,
     checkpointOwnership: tool.checkpointOwnership ?? "registry",
     ...(isMutating === undefined
       ? {}
@@ -193,6 +194,44 @@ export class ToolRegistry {
             (!policy.readOnly || !tool.mutating)))
       )
       .map((tool) => tool.definition);
+  }
+
+  canRunConcurrently(
+    call: ToolCall,
+    context: ToolContext,
+    permissions: PermissionEngine,
+  ): boolean {
+    if (this.#securityProfile === "tools_disabled" || context.signal.aborted) {
+      return false;
+    }
+    const tool = this.#tools.get(call.name);
+    if (tool?.parallelSafe !== true) {
+      return false;
+    }
+    if (
+      context.toolPolicy !== undefined &&
+      !context.toolPolicy.allowedNames.includes(call.name)
+    ) {
+      return false;
+    }
+
+    try {
+      const input = tool.parse(call.arguments);
+      const mutating = tool.mutating ||
+        (tool.isMutating?.(input, context) ?? false);
+      if (mutating) {
+        return false;
+      }
+      const intents = tool.permissions(input, context);
+      return intents.every((intent) =>
+        (context.toolPolicy === undefined ||
+          profileAllowsIntent(context.toolPolicy, intent)) &&
+        permissions.evaluate(intent) === "allow"
+      );
+    } catch {
+      // Normal invocation owns canonical parsing and failure reporting.
+      return false;
+    }
   }
 
   async invoke(

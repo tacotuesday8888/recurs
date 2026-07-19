@@ -79,6 +79,17 @@ function echoTool(
   };
 }
 
+function deferred(): {
+  promise: Promise<void>;
+  resolve(): void;
+} {
+  let resolve!: () => void;
+  const promise = new Promise<void>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
 function writeTool(executions: string[] = []): Tool<{ text: string }> {
   const base = echoTool(executions);
   return {
@@ -363,6 +374,155 @@ describe("AgentLoop", () => {
       "a",
       "b",
     ]);
+  });
+
+  it("runs opted-in reads concurrently but persists results in call order", async () => {
+    const bothStarted = deferred();
+    const releaseA = deferred();
+    const releaseB = deferred();
+    const starts: string[] = [];
+    const finishes: string[] = [];
+    const tool: Tool<{ text: string }> = {
+      ...echoTool(),
+      parallelSafe: true,
+      async execute(input) {
+        starts.push(input.text);
+        if (starts.length === 2) bothStarted.resolve();
+        await (input.text === "a" ? releaseA.promise : releaseB.promise);
+        finishes.push(input.text);
+        return { output: input.text };
+      },
+    };
+    const provider = new ScriptedProvider([
+      [
+        { type: "tool_call", call: { id: "1", name: "echo", arguments: { text: "a" } } },
+        { type: "tool_call", call: { id: "2", name: "echo", arguments: { text: "b" } } },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "done" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const { loop, events } = await harness(provider, [tool]);
+
+    const running = loop.run({ sessionId: "s1", prompt: "work" });
+    await bothStarted.promise;
+    releaseB.resolve();
+    await vi.waitFor(() => expect(finishes).toEqual(["b"]));
+    releaseA.resolve();
+    await expect(running).resolves.toMatchObject({ finalText: "done" });
+
+    expect(starts).toEqual(["a", "b"]);
+    expect(finishes).toEqual(["b", "a"]);
+    expect(provider.requests[1]?.messages.slice(-2).map((message) =>
+      message.content
+    )).toEqual(["a", "b"]);
+    expect(events.filter((event) =>
+      event.type === "tool_started" || event.type === "tool_completed"
+    ).map((event) =>
+      event.type === "tool_started"
+        ? [event.type, event.call.id]
+        : [event.type, event.callId]
+    )).toEqual([
+      ["tool_started", "1"],
+      ["tool_started", "2"],
+      ["tool_completed", "1"],
+      ["tool_completed", "2"],
+    ]);
+  });
+
+  it("keeps serial calls as barriers between parallel read groups", async () => {
+    const firstGroupStarted = deferred();
+    const releaseFirstGroup = deferred();
+    const execution: string[] = [];
+    const read: Tool<{ text: string }> = {
+      ...echoTool(),
+      parallelSafe: true,
+      async execute(input) {
+        execution.push(`start:${input.text}`);
+        if (execution.length === 2) firstGroupStarted.resolve();
+        if (input.text !== "c") await releaseFirstGroup.promise;
+        execution.push(`end:${input.text}`);
+        return { output: input.text };
+      },
+    };
+    const write: Tool<{ text: string }> = {
+      ...writeTool(),
+      async execute(input) {
+        execution.push(`write:${input.text}`);
+        return { output: input.text };
+      },
+    };
+    const provider = new ScriptedProvider([
+      [
+        { type: "tool_call", call: { id: "1", name: "echo", arguments: { text: "a" } } },
+        { type: "tool_call", call: { id: "2", name: "echo", arguments: { text: "b" } } },
+        { type: "tool_call", call: { id: "3", name: "write_text", arguments: { text: "w" } } },
+        { type: "tool_call", call: { id: "4", name: "echo", arguments: { text: "c" } } },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "done" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const { loop } = await harness(provider, [read, write], {
+      async request() { return "allow_once"; },
+    });
+
+    const running = loop.run({ sessionId: "s1", prompt: "work" });
+    await firstGroupStarted.promise;
+    expect(execution).toEqual(["start:a", "start:b"]);
+    releaseFirstGroup.resolve();
+    await running;
+
+    expect(execution.indexOf("write:w")).toBeGreaterThan(
+      execution.indexOf("end:a"),
+    );
+    expect(execution.indexOf("write:w")).toBeGreaterThan(
+      execution.indexOf("end:b"),
+    );
+    expect(execution.indexOf("start:c")).toBeGreaterThan(
+      execution.indexOf("write:w"),
+    );
+  });
+
+  it("bounds each parallel read group to four calls", async () => {
+    const firstFourStarted = deferred();
+    const release = deferred();
+    const starts: string[] = [];
+    const tool: Tool<{ text: string }> = {
+      ...echoTool(),
+      parallelSafe: true,
+      async execute(input) {
+        starts.push(input.text);
+        if (starts.length === 4) firstFourStarted.resolve();
+        await release.promise;
+        return { output: input.text };
+      },
+    };
+    const provider = new ScriptedProvider([
+      [
+        ...["a", "b", "c", "d", "e"].map((text, index) => ({
+          type: "tool_call" as const,
+          call: { id: String(index), name: "echo", arguments: { text } },
+        })),
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "done" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const { loop } = await harness(provider, [tool]);
+
+    const running = loop.run({ sessionId: "s1", prompt: "work" });
+    await firstFourStarted.promise;
+    expect(starts).toEqual(["a", "b", "c", "d"]);
+    release.resolve();
+    await running;
+    expect(starts).toEqual(["a", "b", "c", "d", "e"]);
   });
 
   it("shares one host-created operating-mode delegation budget across a run", async () => {
@@ -795,6 +955,55 @@ describe("AgentLoop", () => {
         expect.objectContaining({ type: "turn_cancelled" }),
       ]),
     );
+  });
+
+  it("terminalizes every started parallel read when cancellation interrupts the group", async () => {
+    const bothStarted = deferred();
+    const starts: string[] = [];
+    const waitingTool: Tool<{ text: string }> = {
+      ...echoTool(),
+      parallelSafe: true,
+      async execute(input, context) {
+        starts.push(input.text);
+        if (starts.length === 2) bothStarted.resolve();
+        await new Promise<void>((_resolve, reject) => {
+          context.signal.addEventListener(
+            "abort",
+            () => reject(new ToolError("cancelled", `${input.text} cancelled`)),
+            { once: true },
+          );
+        });
+        return { output: "unreachable" };
+      },
+    };
+    const provider = new ScriptedProvider([
+      [
+        { type: "tool_call", call: { id: "wait-a", name: "echo", arguments: { text: "a" } } },
+        { type: "tool_call", call: { id: "wait-b", name: "echo", arguments: { text: "b" } } },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+    ]);
+    const { loop, store, events } = await harness(provider, [waitingTool]);
+    const controller = new AbortController();
+
+    const running = loop.run({
+      sessionId: "s1",
+      prompt: "wait",
+      signal: controller.signal,
+    });
+    await bothStarted.promise;
+    controller.abort();
+
+    await expect(running).rejects.toMatchObject({ code: "cancelled" });
+    const restored = await store.loadState("s1");
+    expect(restored.pendingToolCalls).toEqual([]);
+    expect(restored.messages.filter((message) => message.role === "tool").map(
+      (message) => message.toolCallId,
+    )).toEqual(["wait-a", "wait-b"]);
+    expect(events.filter((event) => event.type === "tool_failed").map(
+      (event) => event.callId,
+    )).toEqual(["wait-a", "wait-b"]);
+    expect(events.at(-1)).toMatchObject({ type: "turn_cancelled" });
   });
 
   it("reconciles a missing tool result before the next provider request", async () => {

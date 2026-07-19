@@ -8,6 +8,8 @@ Reviewed on 2026-07-10 through the GitHub connector:
 - [OpenCode](https://github.com/anomalyco/opencode/tree/8a03fc265b6d73c2e15881fcc702c9cb3027dd0e)
 - [Codex](https://github.com/openai/codex/tree/dc5ae378967cff0de2cfb30b98c52047ab978e3d)
 
+Parallel scheduling was rechecked on 2026-07-19 against current [Codex](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/core/src/tools/parallel.rs), which uses an explicit per-tool capability behind a shared/exclusive execution gate, and [Gemini CLI](https://github.com/google-gemini/gemini-cli/blob/acae7124bdd849e554eaa5e090199a0cf08cd782/packages/core/src/scheduler/scheduler.ts), which batches contiguous calls with an explicit ordering barrier.
+
 Kilo's CLI is a fork of OpenCode, as Kilo states in its [README](https://github.com/Kilo-Org/kilocode/blob/8324cf7ddc6539993f7d1743175716ae2705d195/README.md). They are therefore one engine lineage for this comparison; Kilo-specific guards are considered separately.
 
 ## What the mature engines establish
@@ -16,6 +18,7 @@ Kilo's CLI is a fork of OpenCode, as Kilo states in its [README](https://github.
 | --- | --- | --- | --- |
 | Turn loop | A stream processor persists text, reasoning, tool state, snapshots, and completion state as events arrive. | A turn-scoped sampling loop records response items, executes tools, handles follow-up requests, and compacts when needed. | Keep one small deterministic loop, but centralize stream validation and make partial-stream retry behavior explicit. |
 | Tool lifecycle | OpenCode's [processor](https://github.com/anomalyco/opencode/blob/8a03fc265b6d73c2e15881fcc702c9cb3027dd0e/packages/opencode/src/session/processor.ts) settles running tools and marks unfinished tools as aborted during cleanup. Kilo adds guards for empty tool-call finishes and incomplete output. | Tool events and cancellation are first-class parts of the turn protocol. | A started tool must always receive a durable terminal record and a model-visible tool result, including after cancellation or process restart. |
+| Parallel tool calls | Gemini CLI batches contiguous calls and exposes an explicit `wait_for_previous` barrier. OpenCode's provider-facing tools run through independent async execute functions. | Codex marks tools that support parallel execution and uses a read/write gate so unsupported calls are exclusive. | Use explicit opt-in, never inference from `mutating: false` alone. Run at most four approval-free built-in reads together; mutations, approvals, commands, MCP, delegation, and unknown tools stay serial. Persist starts, terminal records, and provider results in call order even when completion order differs. |
 | Loop protection | OpenCode asks on three repeated identical tool calls. Kilo retains that guard. | The turn loop is bounded by cancellation, context policy, and explicit lifecycle state. | Keep Recurs's existing repeated-interaction detector and step budget. Do not add more heuristics yet. |
 | Retry behavior | OpenCode uses a provider-aware backoff policy and exposes retry status. Kilo adds offline handling and a configured retry limit. | Codex has bounded stream retries, transport fallback, user-visible reconnect events, and cancellation. | Keep two bounded retries, but only before semantic output. Retrying after text or a tool call risks duplicated work and confusing output. |
 | Permissions | OpenCode/Kilo use ordered allow, ask, and deny rules per tool or target. Their autonomous mode can remove prompts. | Codex separates approval decisions from an enforceable filesystem/network sandbox; session approvals use exact cached keys. | Preserve Ask Always, Approved for Me, and Full Access as a layer separate from containment. Recurs now pins the chosen preset into each session and keeps Full Access behind an explicit warning. |
@@ -42,7 +45,6 @@ The original four hardening requirements are now implemented:
 The remaining material gaps are narrower and explicit:
 
 - Windows OS-level filesystem/network sandboxing and a Linux seccomp layer (macOS uses fail-closed Seatbelt; Linux uses fail-closed system Bubblewrap namespaces and mount policy);
-- parallel tool execution;
 - a reviewed general plugin lifecycle, remote MCP/OAuth, and desktop UI;
 - additional live provider-specific transports beyond the current local, fixed-origin Chat, Codex ACP, and private native OpenAI/Anthropic/Kimi paths;
 - Codex's transport fallback, hooks, connectors, and mature multi-agent protocol.

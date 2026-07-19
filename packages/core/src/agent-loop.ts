@@ -155,6 +155,15 @@ interface ModelTurn {
   providerStateHandle?: DirectContinuationHandle;
 }
 
+const MAX_PARALLEL_TOOL_CALLS = 4;
+
+interface ToolCallOutcome {
+  call: ToolCall;
+  result: ToolResult;
+  failure?: IntegrationFailure;
+  cancelled: boolean;
+}
+
 function now(): string {
   return new Date().toISOString();
 }
@@ -675,6 +684,133 @@ async function runAgentLoopUnlocked(
     return persisted;
   }
 
+  function approvalHandler(): ApprovalHandler {
+    return {
+      request: async (intent) => {
+        await deps.emit({
+          type: "permission_requested",
+          sessionId: input.sessionId,
+          at: now(),
+          intent,
+        });
+        const decision = await deps.approvals.request(intent);
+        const resolved = await appendPinned({
+          type: "permission_resolved",
+          turnId,
+          at: now(),
+          intent,
+          decision,
+        });
+        await emitPersistedEvent(deps, resolved);
+        return decision;
+      },
+    };
+  }
+
+  async function invokeToolCall(call: ToolCall): Promise<ToolCallOutcome> {
+    try {
+      const result = await deps.tools.invoke(
+        call,
+        toolContext,
+        permissions,
+        approvalHandler(),
+      );
+      return { call, result, cancelled: false };
+    } catch (error) {
+      const cancelled = signal.aborted;
+      const failure = cancelled
+        ? new ToolError("cancelled", `Tool ${call.name} was cancelled`)
+        : error instanceof ToolError
+          ? error
+          : new ToolError("execution_failed", `Tool ${call.name} failed`);
+      return {
+        call,
+        result: toolFailureResult(failure),
+        failure: integrationFailure(serializeError(failure), "tool"),
+        cancelled,
+      };
+    }
+  }
+
+  async function runToolCallGroup(calls: readonly ToolCall[]): Promise<void> {
+    for (const call of calls) {
+      const started = await appendPinned({
+        type: "tool_started",
+        turnId,
+        at: now(),
+        call,
+      });
+      await emitPersistedEvent(deps, started);
+    }
+
+    const outcomes = await Promise.all(calls.map(invokeToolCall));
+    for (const outcome of outcomes) {
+      const terminal = await appendPinned(
+        outcome.failure === undefined
+          ? {
+              type: "tool_completed",
+              turnId,
+              at: now(),
+              callId: outcome.call.id,
+              result: outcome.result,
+            }
+          : {
+              type: "tool_failed",
+              turnId,
+              at: now(),
+              callId: outcome.call.id,
+              error: outcome.failure,
+            },
+      );
+      await emitPersistedEvent(deps, terminal);
+    }
+
+    if (signal.aborted || outcomes.some((outcome) => outcome.cancelled)) {
+      throw new AgentLoopError("cancelled", "Agent run cancelled");
+    }
+
+    for (const outcome of outcomes) {
+      const resultChangedFiles = metadataStrings(
+        outcome.result,
+        "changedFiles",
+      );
+      if (resultChangedFiles.length > 0) {
+        addUnique(changedFiles, resultChangedFiles);
+        const record = await appendPinned({
+          type: "files_changed",
+          turnId,
+          at: now(),
+          paths: resultChangedFiles,
+        });
+        await emitPersistedEvent(deps, record);
+      }
+      const resultEvidence = metadataStrings(outcome.result, "evidence");
+      if (resultEvidence.length > 0) {
+        addUnique(evidence, resultEvidence);
+        const record = await appendPinned({
+          type: "verification_recorded",
+          turnId,
+          at: now(),
+          evidence: resultEvidence,
+        });
+        await emitPersistedEvent(deps, record);
+      }
+
+      if (
+        loopDetector.observe(
+          outcome.call.name,
+          outcome.call.arguments,
+          outcome.result,
+        )
+      ) {
+        throw new AgentLoopError(
+          "stuck_loop",
+          `Repeated tool interaction detected for ${outcome.call.name}`,
+        );
+      }
+    }
+  }
+
   const unresolvedCalls = unresolvedToolCalls(state.messages);
   const interruptedCalls = new Map(
     state.pendingToolCalls.map((call) => [call.id, call]),
@@ -862,111 +998,30 @@ async function runAgentLoopUnlocked(
         );
       }
 
-      for (const call of modelTurn.toolCalls) {
+      for (let index = 0; index < modelTurn.toolCalls.length;) {
         throwIfAborted(signal);
-        const started = await appendPinned({
-          type: "tool_started",
-          turnId,
-          at: now(),
-          call,
-        });
-        await emitPersistedEvent(deps, started);
-
-        let result: ToolResult;
-        let terminalInput: SessionRecordInputV2;
-        let cancelledDuringTool = false;
-        try {
-          const approvals: ApprovalHandler = {
-            request: async (intent) => {
-              await deps.emit({
-                type: "permission_requested",
-                sessionId: input.sessionId,
-                at: now(),
-                intent,
-              });
-              const decision = await deps.approvals.request(intent);
-              const resolved = await appendPinned({
-                type: "permission_resolved",
-                turnId,
-                at: now(),
-                intent,
-                decision,
-              });
-              await emitPersistedEvent(deps, resolved);
-              return decision;
-            },
-          };
-          result = await deps.tools.invoke(
-            call,
-            toolContext,
-            permissions,
-            approvals,
-          );
-          terminalInput = {
-            type: "tool_completed",
-            turnId,
-            at: now(),
-            callId: call.id,
-            result,
-          };
-        } catch (error) {
-          const failure = signal.aborted
-            ? new ToolError("cancelled", `Tool ${call.name} was cancelled`)
-            : error instanceof ToolError
-              ? error
-              : new ToolError("execution_failed", `Tool ${call.name} failed`);
-          const serialized = serializeError(
-            failure instanceof Error
-              ? failure
-              : new Error("Unknown tool failure"),
-          );
-          terminalInput = {
-            type: "tool_failed",
-            turnId,
-            at: now(),
-            callId: call.id,
-            error: integrationFailure(serialized, "tool"),
-          };
-          result = toolFailureResult(failure);
-          cancelledDuringTool = signal.aborted;
+        const first = modelTurn.toolCalls[index]!;
+        const group = [first];
+        if (deps.tools.canRunConcurrently(first, toolContext, permissions)) {
+          while (
+            group.length < MAX_PARALLEL_TOOL_CALLS &&
+            index + group.length < modelTurn.toolCalls.length
+          ) {
+            const candidate = modelTurn.toolCalls[index + group.length]!;
+            if (
+              !deps.tools.canRunConcurrently(
+                candidate,
+                toolContext,
+                permissions,
+              )
+            ) {
+              break;
+            }
+            group.push(candidate);
+          }
         }
-
-        const persistedTerminal = await appendPinned(terminalInput);
-        await emitPersistedEvent(deps, persistedTerminal);
-
-        if (cancelledDuringTool) {
-          throw new AgentLoopError("cancelled", "Agent run cancelled");
-        }
-
-        const resultChangedFiles = metadataStrings(result, "changedFiles");
-        if (resultChangedFiles.length > 0) {
-          addUnique(changedFiles, resultChangedFiles);
-          const record = await appendPinned({
-            type: "files_changed",
-            turnId,
-            at: now(),
-            paths: resultChangedFiles,
-          });
-          await emitPersistedEvent(deps, record);
-        }
-        const resultEvidence = metadataStrings(result, "evidence");
-        if (resultEvidence.length > 0) {
-          addUnique(evidence, resultEvidence);
-          const record = await appendPinned({
-            type: "verification_recorded",
-            turnId,
-            at: now(),
-            evidence: resultEvidence,
-          });
-          await emitPersistedEvent(deps, record);
-        }
-
-        if (loopDetector.observe(call.name, call.arguments, result)) {
-          throw new AgentLoopError(
-            "stuck_loop",
-            `Repeated tool interaction detected for ${call.name}`,
-          );
-        }
+        await runToolCallGroup(group);
+        index += group.length;
       }
     }
   } catch (error) {

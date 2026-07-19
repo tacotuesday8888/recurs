@@ -51,6 +51,7 @@ export function createListFilesTool(
     },
     executionClass: "fixed_process",
     mutating: false,
+    parallelSafe: true,
     parse: parseListFilesInput,
     permissions(input) {
       return pathPermissionIntents("read", input.path, options.sensitivePatterns);

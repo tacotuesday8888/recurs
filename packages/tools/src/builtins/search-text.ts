@@ -64,6 +64,7 @@ export function createSearchTextTool(
     },
     executionClass: "fixed_process",
     mutating: false,
+    parallelSafe: true,
     parse: parseSearchTextInput,
     permissions(input) {
       return pathPermissionIntents("read", input.path, options.sensitivePatterns);

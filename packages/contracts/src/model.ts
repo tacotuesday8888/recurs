@@ -49,14 +49,19 @@ export interface ProviderRequest {
 
 export type ModelHarnessProfileId =
   | "native_tool_use_v1"
+  | "native_tool_use_v2"
   | "compatible_tool_use_v1";
 
-export interface ModelHarnessProfile {
-  readonly id: ModelHarnessProfileId;
-  readonly version: 1;
+interface ModelHarnessProfileBase {
   readonly toolCallStyle: "native" | "conservative";
   readonly instructions: readonly string[];
 }
+
+export type ModelHarnessProfile = ModelHarnessProfileBase & (
+  | { readonly id: "native_tool_use_v1"; readonly version: 1 }
+  | { readonly id: "native_tool_use_v2"; readonly version: 2 }
+  | { readonly id: "compatible_tool_use_v1"; readonly version: 1 }
+);
 
 export interface DirectProviderRunContext {
   readonly authorization: RunAuthorization;

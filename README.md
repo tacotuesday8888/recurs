@@ -16,14 +16,14 @@ The repository contains a usable agent base and a bounded, Recurs-owned child-ag
 - process-lifetime background team control through model tools and `/agents`, with cross-process owner leases, truthful interruption, safe resume boundaries, two-phase parent apply, conservative startup recovery, and stale private-worktree cleanup;
 - five version-4 operating modes, with Balanced v4 as the default, plus immutable version-1 through version-3 replay policies, provider-neutral role-routing contracts, honest parent-backend inheritance in the production assembly, and per-run child/request/reported-cost policy;
 - strict provider-event validation and normalized text, reasoning, tool, usage, and completion events;
-- versioned protocol-level harness profiles that give native-tool and compatibility models different, stable tool-use instructions without baking model brands into policy;
+- versioned protocol-level harness profiles that give native-tool and compatibility models different, stable tool-use instructions without baking model brands into policy; native v2 may request up to four independent reads together, while compatibility v1 remains sequential;
 - credential-free OpenAI-compatible local model setup for literal-loopback Ollama and LM Studio servers;
 - cross-platform saved and ephemeral BYOK for reviewed fixed-origin OpenAI Chat-compatible and Anthropic Messages providers; saved setup retains only provider/model policy metadata, an environment-variable name, and a credential fingerprint, while key values are never persisted or forwarded to tools;
 - private signed-macOS activation paths for OpenAI API, Anthropic API, and Kimi Code credentials, with native model discovery and streamed tool calling;
 - a validated 25-path provider/authentication catalog, a revisioned non-secret connection registry, and exact-ID account listing, verification, primary selection, and metadata-only disconnection;
 - a bounded `models.dev` discovery catalog, fixed-origin credential-visible Anthropic model discovery, fixed-port loopback detection for Ollama and LM Studio, and one `/provider` surface shared with first-run onboarding;
 - an official Codex ACP path for an existing ChatGPT login, constrained to local, interactive, user-present, Plan-only work;
-- eight tools for file reading, listing, search, patching, bounded shell execution, shell-free allowlisted verification, Git status, and Git diff; each child profile receives an exact host-tool and intent ceiling;
+- eight tools for file reading, listing, search, patching, bounded shell execution, shell-free allowlisted verification, Git status, and Git diff; independent built-in reads can run in bounded parallel groups, while mutations, approvals, MCP, delegation, and commands remain ordered barriers; each child profile receives an exact host-tool and intent ceiling;
 - Ask Always, Approved for Me, Full Access, enforced Plan mode, and a read-only Review profile;
 - durable `/goal` state, append-only JSONL sessions, interrupted-tool recovery, compaction, checkpoints, and conflict-safe undo;
 - interactive and non-interactive CLI paths with text or normalized JSONL output, including explicit fresh-session permission pinning for headless runs;
