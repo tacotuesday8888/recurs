@@ -36,6 +36,7 @@ The npm tarball allowlist is exactly:
 - `package.json`
 - `README.md`
 - `SECURITY.md`
+- `THIRD_PARTY_NOTICES.md`
 
 It excludes TypeScript source, tests, research, native source and resources,
 local state, worktrees, and development configuration. The public npm artifact
@@ -63,15 +64,24 @@ behavior without touching user configuration.
 ## Publication gate
 
 The package stays at version `0.0.0`, has `private: true`, and declares
-`UNLICENSED`. npm therefore cannot publish it accidentally. Public preview
-release work must deliberately:
+`UNLICENSED`. npm therefore cannot publish it accidentally. Reviewed notices
+for all exact direct runtime dependencies are now included in the artifact.
+Public preview release work must deliberately:
 
 1. add the owner-selected project license;
-2. complete and ship third-party notices;
-3. choose a real semantic preview version and release/tag policy;
-4. change the package license field and remove the private gate;
-5. verify provenance and package signatures in release CI; and
-6. publish from a protected GitHub environment with no long-lived npm token.
+2. make the source repository public so npm provenance can be generated;
+3. choose a real semantic preview version;
+4. change the package license field, package the license, remove the private
+   gate, and add exact public npm registry metadata;
+5. configure the `npm` protected GitHub environment and the package's trusted
+   publisher relationship to `.github/workflows/publish-npm.yml`; and
+6. dispatch that workflow from the exact `vVERSION` tag.
+
+The prepared workflow uses GitHub-hosted OIDC, rejects long-lived npm tokens,
+requires a public repository and a tag commit reachable from `main`, reruns the
+Linux and package verification boundary, and relies on npm trusted publishing
+for automatic provenance. `scripts/check-npm-release.mjs` keeps it inert until
+all owner-controlled metadata is complete and mutually consistent.
 
 Homebrew and curl distribution remain separate because their intended macOS
 artifact must include a signed/notarized native bundle and installed-artifact

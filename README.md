@@ -52,6 +52,9 @@ Ubuntu 24.04 profile/kernel regression and distribution workaround.
 npm install
 npm run check
 npm run build
+npm link
+recurs --help
+recurs setup
 node packages/cli/dist/main.js --help
 # Recommended first run: connect a reviewed path, select a model and permission
 # preset, then enter a fresh durable Recurs session.
@@ -81,11 +84,12 @@ RECURS_PROVIDER=openrouter-api RECURS_MODEL=<provider/model> RECURS_API_KEY=<key
 node packages/cli/dist/main.js
 ```
 
-After building, `npm link` exposes the local `recurs` command.
+After building, `npm link` exposes the local `recurs` command. It can be removed
+with `npm unlink --global recurs`.
 
-This is currently the only installation path. The root build also produces a self-contained Recurs-code bundle at `dist/cli/main.js`; `npm run package:check` proves the tarball contains only that executable, `package.json`, `README.md`, and `SECURITY.md`, while `npm run package:smoke-install` packs it, installs it into an empty temporary prefix, and runs the installed command. Runtime packages remain exact dependencies rather than copied third-party source.
+This is currently the only installation path. The root build also produces a self-contained Recurs-code bundle at `dist/cli/main.js`; `npm run package:check` proves the tarball contains only that executable, `package.json`, `README.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md`, while `npm run package:smoke-install` packs it, installs it into an empty temporary prefix, and runs the installed command. Runtime packages remain exact dependencies rather than copied third-party source.
 
-The package is deliberately `private` and declares `UNLICENSED`, so npm publication remains blocked until the owner selects a license, chooses a real preview version, and completes third-party notice review. No package or installer is published today. Bun may later install the npm artifact while Node remains the supported runtime; Bun runtime support is not implemented. Homebrew and curl installers wait for versioned, signed release artifacts.
+The package is deliberately `private` and declares `UNLICENSED`, so npm publication remains blocked until the owner selects a license, chooses a real preview version, and makes the source repository public. Reviewed direct-runtime dependency notices now ship in `THIRD_PARTY_NOTICES.md`. A manual, protected-environment GitHub workflow is prepared for npm trusted publishing with OIDC and provenance, but its preflight refuses the placeholder version, missing project license, private source repository, non-public package metadata, wrong repository/workflow/tag, or a long-lived npm token. Nothing is published today. Bun may later install the npm artifact while Node remains the supported runtime; Bun runtime support is not implemented. Homebrew and curl installers wait for versioned release artifacts.
 
 ## Packages
 

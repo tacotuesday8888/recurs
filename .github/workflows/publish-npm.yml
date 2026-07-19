@@ -1,0 +1,49 @@
+name: Publish npm package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    environment: npm
+    env:
+      RECURS_REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+      - name: Require a release tag on main
+        run: |
+          test "$GITHUB_REF_TYPE" = tag
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes apparmor-profiles apparmor-utils bubblewrap ripgrep
+          if [[ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)" == "1" ]]; then
+            sudo install -m 0644 \
+              /usr/share/apparmor/extra-profiles/bwrap-userns-restrict \
+              /etc/apparmor.d/bwrap-userns-restrict
+            sudo sed -i 's/abi <abi\/5\.0>,/abi <abi\/4.0>,/' /etc/apparmor.d/bwrap-userns-restrict
+            sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
+          fi
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - run: npm run package:smoke-install
+      - name: Verify release authority and metadata
+        run: node scripts/check-npm-release.mjs --tag "$GITHUB_REF_NAME"
+      - run: npm publish --access public

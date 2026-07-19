@@ -19,6 +19,9 @@ Build and inspect the CLI:
 npm install
 npm run check
 npm run build
+npm link
+recurs --help
+recurs setup
 node packages/cli/dist/main.js --help
 ```
 
@@ -29,9 +32,9 @@ npm run package:check
 npm run package:smoke-install
 ```
 
-The first command verifies one executable bundle, its exact external dependencies, size, mode, absence of private workspace imports and build-machine paths, and the four-file tarball allowlist. The second packs the artifact, installs it into an empty temporary prefix, and runs `recurs --help` plus a fresh account-list command. CI runs both boundaries.
+The first command verifies one executable bundle, its exact external dependencies, size, mode, absence of private workspace imports and build-machine paths, and the five-file tarball allowlist including `THIRD_PARTY_NOTICES.md`. It also runs the release-policy tests and proves publication remains blocked for the exact deliberate license/version/package gates. The second packs the artifact, installs it into an empty temporary prefix, and runs `recurs --help` plus a fresh account-list command. CI runs both boundaries.
 
-No package or installer is published today. The package remains `private`, version `0.0.0`, and `UNLICENSED` until the owner selects a license, a preview version, and complete third-party notices. Bun may later install the npm package, but Node remains the supported runtime and Bun runtime compatibility has not been implemented. Homebrew and curl wait for versioned, signed artifacts; Windows packaging remains later work.
+No package or installer is published today. The package remains `private`, version `0.0.0`, and `UNLICENSED` until the owner selects a license and preview version and makes the source repository public. Direct-runtime dependency notices are complete for the current exact package set. `.github/workflows/publish-npm.yml` is a manual, protected-environment OIDC workflow: it requires a public source repository and exact `vVERSION` tag reachable from `main`, reruns the full Linux/package gates, rejects tokens and mismatched release metadata, and then uses npm trusted publishing with automatic provenance. The npm package/environment trust relationship still has to be configured by the owner before the first release. Bun may later install the npm package, but Node remains the supported runtime and Bun runtime compatibility has not been implemented. Homebrew and curl wait for versioned artifacts; Windows packaging remains later work.
 
 Source/npm execution supports credential-free local, environment-BYOK, and vendor-owned Codex paths. It cannot persist a Recurs-owned credential: the native authority requires a correctly bundled, production-signed macOS 14.4+ launcher and broker, and source, unsigned, or ad-hoc builds fail closed without a plaintext fallback.
 
