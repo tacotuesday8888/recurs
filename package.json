@@ -1,11 +1,33 @@
 {
   "name": "recurs",
   "version": "0.0.0",
+  "description": "A coding-agent harness with durable, bounded team orchestration",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "bin": {
-    "recurs": "packages/cli/dist/main.js"
+    "recurs": "dist/cli/main.js"
   },
+  "files": [
+    "dist/cli/main.js",
+    "README.md",
+    "SECURITY.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tacotuesday8888/recurs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tacotuesday8888/recurs/issues"
+  },
+  "homepage": "https://github.com/tacotuesday8888/recurs#readme",
+  "keywords": [
+    "agent",
+    "cli",
+    "coding-agent",
+    "llm",
+    "subagents"
+  ],
   "workspaces": [
     "packages/*"
   ],
@@ -13,8 +35,8 @@
     "node": ">=22.22.0"
   },
   "scripts": {
-    "build": "tsc -b",
-    "check": "npm run check:generated && npm run lint && npm run typecheck && npm test && npm run build && npm run native:engine-bundle-smoke && npm run native:engine-bridge-smoke && npm run native:doctor-smoke",
+    "build": "tsc -b && npm run package:build",
+    "check": "npm run check:generated && npm run lint && npm run typecheck && npm test && npm run build && npm run package:check && npm run native:engine-bundle-smoke && npm run native:engine-bridge-smoke && npm run native:doctor-smoke",
     "check:generated": "node scripts/generate-non-secret-policy.mjs --check && node scripts/generate-native-component-version.mjs --check && node scripts/generate-provider-activation-profiles.mjs --check",
     "check:native": "npm run check:generated && npm run build && npm run native:engine-bundle-smoke && npm run native:build && npm run native:engine-bridge-smoke && npm run native:doctor-smoke && npm run native:test && npm run native:lint-resources && npm run native:smoke",
     "generate:non-secret-policy": "node scripts/generate-non-secret-policy.mjs",
@@ -30,8 +52,19 @@
     "native:lint-resources": "plutil -lint native/macos/Resources/*.plist native/macos/Resources/*.entitlements",
     "native:smoke": "node scripts/check-native-source-launcher.mjs",
     "native:test": "swift test --package-path native/macos --no-parallel",
+    "package:build": "node scripts/build-npm-package.mjs",
+    "package:check": "node scripts/check-npm-package.mjs",
+    "package:smoke-install": "node scripts/smoke-install-npm-package.mjs",
+    "prepack": "npm run package:build && npm run package:check",
     "test": "vitest run",
-    "recurs": "node packages/cli/dist/main.js"
+    "recurs": "node dist/cli/main.js"
+  },
+  "dependencies": {
+    "@agentclientprotocol/codex-acp": "1.1.2",
+    "@agentclientprotocol/sdk": "1.2.1",
+    "@openai/codex": "0.144.0",
+    "yaml": "2.9.0",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

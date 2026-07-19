@@ -34,7 +34,7 @@ The repository contains a usable agent base and a bounded, Recurs-owned child-ag
 - one credential-path policy enforced across direct and aggregate built-in tools, permanent denial of classified credential intents, and checkpoint capture that excludes those paths;
 - clean per-child environments, bounded process-group cleanup, safe provider/tool/CLI failures, and explicit `workspace_sandboxed`, `local_guarded`, or fail-closed `tools_disabled` composition;
 - a macOS 14.4+ native-authority foundation with tested binary framing, Data Protection Keychain, credential-state/journal, exact signed peers, production-gated broker recovery, bounded OpenAI onboarding, fixed sealed-bundle paths, and redacted diagnostics;
-- one `npm run check` path covering lint, type checking, tests, and build output.
+- one `npm run check` path covering lint, type checking, tests, build output, and the exact npm package manifest; CI also installs the packed artifact into an empty prefix and runs its `recurs` binary.
 
 The standalone CLI can use credential-free OpenAI-compatible servers on literal `127.0.0.1` or `[::1]`, saved or ephemeral environment BYOK for a reviewed Chat-compatible provider, or the pinned official `@agentclientprotocol/codex-acp` adapter with an existing ChatGPT account. Saved connections retain explicit primary selection and immutable historical pins. A complete `RECURS_PROVIDER`/`RECURS_MODEL`/`RECURS_API_KEY` selection overrides saved selection for that process. Codex is read-only/Plan-only, local, manual, and user-present: one-shot and unattended runs fail closed. Without any connection the CLI starts a sessionless workspace shell. Test hosts can also inject the public `ModelProvider` interface.
 
@@ -73,7 +73,9 @@ node packages/cli/dist/main.js
 
 After building, `npm link` exposes the local `recurs` command.
 
-This is currently the only installation path. An npm package is the likely first preview channel. Bun may later install that npm package, while Node remains the supported runtime; Bun runtime support is not implemented. Homebrew and curl installers wait for versioned, signed release artifacts. Nothing is published by this repository today.
+This is currently the only installation path. The root build also produces a self-contained Recurs-code bundle at `dist/cli/main.js`; `npm run package:check` proves the tarball contains only that executable, `package.json`, `README.md`, and `SECURITY.md`, while `npm run package:smoke-install` packs it, installs it into an empty temporary prefix, and runs the installed command. Runtime packages remain exact dependencies rather than copied third-party source.
+
+The package is deliberately `private` and declares `UNLICENSED`, so npm publication remains blocked until the owner selects a license, chooses a real preview version, and completes third-party notice review. No package or installer is published today. Bun may later install the npm artifact while Node remains the supported runtime; Bun runtime support is not implemented. Homebrew and curl installers wait for versioned, signed release artifacts.
 
 ## Packages
 

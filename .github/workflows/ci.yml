@@ -27,6 +27,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install --yes ripgrep
       - run: npm ci
       - run: npm run check
+      - run: npm run package:smoke-install
 
   native:
     runs-on: macos-15
