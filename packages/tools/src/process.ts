@@ -10,6 +10,7 @@ const PROCESS_GROUP_TERM_GRACE_MS = 250;
 const PROCESS_GROUP_KILL_WAIT_MS = 1_000;
 const PROCESS_GROUP_POLL_MS = 10;
 const PROCESS_PIPE_DRAIN_GRACE_MS = 250;
+const PROCESS_STDIN_CLOSE_GRACE_MS = 100;
 const LINUX_BUBBLEWRAP_PATH = "/usr/bin/bwrap";
 const LINUX_HIDDEN_DIRECTORY_MODE = "111";
 
@@ -725,6 +726,10 @@ export async function startProcessSession(
     completion,
     async close() {
       childStdin.end();
+      await Promise.race([
+        completion.then(() => undefined, () => undefined),
+        delay(PROCESS_STDIN_CLOSE_GRACE_MS),
+      ]);
       try {
         await startTermination();
       } catch {

@@ -49,6 +49,7 @@ export interface RuntimeDependencies {
   now?: () => string;
   promptUnavailableMessage?: string;
   providerGuide?(query: string, signal: AbortSignal): Promise<string>;
+  dispose?(): Promise<void>;
 }
 
 const MAX_CONFIRMATION_TEXT_LENGTH = 8_192;
@@ -91,6 +92,8 @@ export class RecursRuntime {
   #workspace: WorkspaceShellState | null;
   #runner: CoordinatedRuntime | null;
   readonly #coordinator: RunCoordinator | null;
+  #closed = false;
+  #closePromise: Promise<void> | undefined;
 
   constructor(
     private readonly dependencies: RuntimeDependencies,
@@ -169,6 +172,14 @@ export class RecursRuntime {
     }
     this.#activeController.abort();
     return true;
+  }
+
+  close(): Promise<void> {
+    if (this.#closePromise !== undefined) return this.#closePromise;
+    this.#closed = true;
+    this.cancel();
+    this.#closePromise = this.dependencies.dispose?.() ?? Promise.resolve();
+    return this.#closePromise;
   }
 
   #commandContext(invocation: HostInvocation): CommandContext {
@@ -375,6 +386,9 @@ export class RecursRuntime {
     input: string,
     invocation: HostInvocation = untrustedProgrammaticInvocation(),
   ): Promise<CommandResult | RunResult> {
+    if (this.#closed) {
+      throw new RuntimeError("busy", "Runtime is closed");
+    }
     const trimmed = input.trim();
     if (trimmed.length === 0) {
       throw new RuntimeError("invalid_input", "Input cannot be empty");

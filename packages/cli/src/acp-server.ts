@@ -31,6 +31,7 @@ export interface AcpRuntime {
   ): Promise<CommandResult | RunResult>;
   cancel(): boolean;
   setConfirmHandler(confirm: (message: string) => Promise<boolean>): void;
+  close?(): Promise<void>;
 }
 
 export interface RecursAcpDependencies {
@@ -400,11 +401,16 @@ export function createRecursAcpApp(
   return acp.agent({ name: "recurs" })
     .onConnect((connection) => {
       connection.signal.addEventListener("abort", () => {
+        const closing: Promise<void>[] = [];
         for (const current of sessions.values()) {
           current.cancellationRequested = current.active;
           current.runtime.cancel();
+          if (current.runtime.close !== undefined) {
+            closing.push(current.runtime.close());
+          }
         }
         sessions.clear();
+        void Promise.allSettled(closing);
       }, { once: true });
     })
     .onRequest(acp.methods.agent.initialize, () => ({
@@ -506,11 +512,12 @@ export function createRecursAcpApp(
       current.cancellationRequested = true;
       current.runtime.cancel();
     })
-    .onRequest(acp.methods.agent.session.close, (context) => {
+    .onRequest(acp.methods.agent.session.close, async (context) => {
       const current = session(context.params.sessionId);
       current.cancellationRequested = current.active;
       current.runtime.cancel();
       sessions.delete(context.params.sessionId);
+      await current.runtime.close?.();
       return {};
     });
 }

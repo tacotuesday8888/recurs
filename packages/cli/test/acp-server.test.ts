@@ -34,6 +34,7 @@ class FakeRuntime implements AcpRuntime {
   #confirm: (message: string) => Promise<boolean> = async () => false;
   readonly invocations: HostInvocation[] = [];
   cancelled = false;
+  closed = 0;
 
   constructor(
     private readonly events: EventSink,
@@ -47,6 +48,10 @@ class FakeRuntime implements AcpRuntime {
   cancel(): boolean {
     this.cancelled = true;
     return true;
+  }
+
+  async close(): Promise<void> {
+    this.closed += 1;
   }
 
   async submit(_input: string, invocation: HostInvocation): Promise<RunResult> {
@@ -198,6 +203,7 @@ describe("Recurs ACP agent", () => {
 
     expect(receivedCwd).toBe(cwd);
     expect(runtime?.invocations).toHaveLength(1);
+    expect(runtime?.closed).toBe(1);
     expect(runtime?.invocations[0]).toMatchObject({
       invocation: "one_shot",
       userPresent: false,
@@ -266,6 +272,7 @@ describe("Recurs ACP agent", () => {
     });
 
     expect(runtime?.cancelled).toBe(true);
+    expect(runtime?.closed).toBe(1);
   });
 
   it("rejects unsupported roots, MCP servers, content, and closed sessions", async () => {

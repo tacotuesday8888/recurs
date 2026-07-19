@@ -11,12 +11,18 @@ function renderCatalog(catalog: McpServerCatalog): string {
     ].join("\n");
   }
   return [
-    "MCP servers (stdio, user configured):",
+    "MCP servers (persistent stdio, user configured):",
     ...snapshot.servers.map((server) =>
-      `${server.id}  ${server.description}  network:${server.network}`
+      [
+        `${server.id}  ${server.description}  ${server.state}  network:${server.network}`,
+        ...(server.state === "connected"
+          ? [`  ${server.serverName}@${server.serverVersion} · MCP ${server.protocolVersion}`]
+          : []),
+      ].join("\n")
     ),
     `Config: ${snapshot.configPath}`,
-    "Servers start only after normal shell/network permission checks. Their environment excludes host credentials.",
+    "Servers start only after normal shell/network permission checks, stay scoped to this Recurs runtime, and close with it.",
+    "A reused session must answer MCP ping before another operation. Failed health checks restart before, never during, a tool call.",
   ].join("\n");
 }
 

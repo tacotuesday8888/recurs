@@ -2212,4 +2212,67 @@ describe("runCli", () => {
     });
     expect(stderr.value).toBe("");
   });
+
+  it("closes one-shot runtime resources after success and failure", async () => {
+    for (const failure of [false, true]) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      let closed = 0;
+      const runtime = {
+        async submit() {
+          if (failure) throw new AgentLoopError("provider_failed", "failed");
+          return {
+            finalText: "done",
+            stopReason: "complete",
+            usage: null,
+            changedFiles: [],
+            evidence: [],
+          };
+        },
+        async close() { closed += 1; },
+      } as unknown as RecursRuntime;
+
+      expect(await runCli(["run", "inspect"], {
+        stdout,
+        stderr,
+        async createRuntime() { return runtime; },
+      })).toBe(failure ? 1 : 0);
+      expect(closed).toBe(1);
+    }
+  });
+
+  it("fails safely when one-shot runtime resources cannot close", async () => {
+    for (const failure of [false, true]) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      const runtime = {
+        async submit() {
+          if (failure) {
+            throw new RuntimeError(
+              "provider_not_configured",
+              "No model connection is ready",
+            );
+          }
+          return {
+            finalText: "done",
+            stopReason: "complete",
+            usage: null,
+            changedFiles: [],
+            evidence: [],
+          };
+        },
+        async close() { throw new Error("private cleanup detail"); },
+      } as unknown as RecursRuntime;
+
+      expect(await runCli(["run", "inspect"], {
+        stdout,
+        stderr,
+        async createRuntime() { return runtime; },
+      })).toBe(failure ? 2 : 1);
+      expect(stderr.value).toContain(
+        "Error: Runtime resources could not be closed safely",
+      );
+      expect(stderr.value).not.toContain("private cleanup detail");
+    }
+  });
 });

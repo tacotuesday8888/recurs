@@ -662,6 +662,23 @@ function exitCodeFor(error: unknown): number {
   return 1;
 }
 
+async function closeRuntime(
+  runtime: RecursRuntime | undefined,
+  stderr: Writable,
+): Promise<boolean> {
+  if (runtime?.close === undefined) return true;
+  try {
+    await runtime.close();
+    return true;
+  } catch {
+    await writeOutput(
+      stderr,
+      "Error: Runtime resources could not be closed safely\n",
+    );
+    return false;
+  }
+}
+
 function configurationFailure(error: unknown): IntegrationFailure | null {
   if (error instanceof CoordinatedRunError && error.failure.phase === "preflight") {
     return error.failure;
@@ -814,8 +831,9 @@ export async function runCli(
       return 2;
     }
     const renderer = new TextEventRenderer(dependencies.stdout);
+    let runtime: RecursRuntime | undefined;
     try {
-      let runtime = await dependencies.createRuntime(renderer);
+      runtime = await dependencies.createRuntime(renderer);
       if (
         runtime.state?.type === "workspace" &&
         dependencies.selectChoice !== undefined &&
@@ -824,6 +842,7 @@ export async function runCli(
         const onboarding = await runGuidedOnboarding(dependencies);
         if (onboarding.state === "failed") return onboarding.exitCode;
         if (onboarding.state === "configured") {
+          await runtime.close?.();
           runtime = await dependencies.createRuntime(renderer, {
             permissionMode: onboarding.permissionMode,
             reuseExistingSession: false,
@@ -842,6 +861,8 @@ export async function runCli(
         `Error: ${safeCliErrorMessage(error)}\n`,
       );
       return exitCodeFor(error);
+    } finally {
+      await runtime?.close?.().catch(() => {});
     }
   }
 
@@ -1217,8 +1238,10 @@ export async function runCli(
   const renderer = parsed.format === "jsonl"
     ? new JsonlEventRenderer(dependencies.stdout)
     : new TextEventRenderer(dependencies.stdout);
+  let runtime: RecursRuntime | undefined;
+  let exitCode = 0;
   try {
-    const runtime = await dependencies.createRuntime(
+    runtime = await dependencies.createRuntime(
       renderer,
       parsed.permissionMode === undefined
         ? undefined
@@ -1240,7 +1263,6 @@ export async function runCli(
     if (isCommandResult(result)) {
       await renderCommandResult(result, dependencies.stdout, dependencies.stderr);
     }
-    return 0;
   } catch (error) {
     const failure = configurationFailure(error);
     if (parsed.format === "jsonl" && failure !== null) {
@@ -1252,14 +1274,17 @@ export async function runCli(
           error: failure,
         })}\n`,
       );
-      return 2;
+      exitCode = 2;
+    } else {
+      await writeOutput(
+        dependencies.stderr,
+        `Error: ${safeCliErrorMessage(error)}\n`,
+      );
+      exitCode = exitCodeFor(error);
     }
-    await writeOutput(
-      dependencies.stderr,
-      `Error: ${safeCliErrorMessage(error)}\n`,
-    );
-    return exitCodeFor(error);
   }
+  const closed = await closeRuntime(runtime, dependencies.stderr);
+  return closed ? exitCode : exitCode === 0 ? 1 : exitCode;
 }
 
 const AUTOMATION_ENVIRONMENT_KEYS = Object.freeze([

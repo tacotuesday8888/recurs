@@ -94,7 +94,7 @@ The registry parses tool input, evaluates every permission intent, asks when req
 
 Plan mode removes mutating tools from the provider-visible registry and rejects them if called directly. It is an enforced capability boundary, not a prompt convention.
 
-The parent direct-provider loop may register one generic `mcp` tool from private user-owned configuration. MCP server startup is always mutating/elevated shell authority, optional network authority is explicit, and each operation runs through the same isolated managed-process and sandbox composition before the full process group is closed. Protocol metadata and results are untrusted data. Historical child/team profiles do not include the tool. Project configuration, remote authentication/transports, persistent servers, and ACP-client declarations remain outside this boundary.
+The parent direct-provider loop may register one generic `mcp` tool from private user-owned configuration. MCP server startup is always mutating/elevated shell authority and optional network authority is explicit. One runtime may retain a single serialized stdio session for each exact server/workspace/sandbox identity. Reuse requires a protocol ping; failed health may restart only before an operation, never after an ambiguous tool call. Cancellation, timeout, failure, runtime close, one-shot settlement, REPL exit, and ACP close/disconnect converge on complete process-group cleanup. Protocol metadata and results are untrusted data. Historical child/team profiles do not include the tool. Project configuration, remote authentication/transports, cross-runtime daemons, and ACP-client declarations remain outside this boundary.
 
 Permission engines and reusable grants are isolated by session. The three presets are:
 
@@ -169,6 +169,6 @@ The remaining extension order is deliberate:
 4. add official delegated runtimes to the sealed host only with fixed signed layouts plus provider-specific capability and policy proof;
 5. add enforceable process/filesystem/network containment before unattended arbitrary-command workers, then design any persistent worker host as a separately authenticated owner rather than extending the CLI promise;
 6. admit multiple live role/model candidates only through reviewed capability, billing, and connection policy, preserving frozen routing and accounting truth;
-7. extend MCP only through separately reviewed persistent-session, authenticated remote, project-trust, and child-profile slices; add the company coordinator, desktop, plugin packaging, and distribution over the same durable contracts and the live ACP client boundary.
+7. extend MCP only through separately reviewed authenticated remote, project-trust, prompt/resource, and child-profile slices; add the company coordinator, desktop, plugin packaging, and distribution over the same durable contracts and the live ACP client boundary.
 
 See [the engine comparison](docs/BASE_ENGINE_COMPARISON.md), [the Core v0 design](docs/superpowers/specs/2026-07-10-recurs-core-v0-design.md), and [the provider design](docs/superpowers/specs/2026-07-10-recurs-provider-auth-design.md).

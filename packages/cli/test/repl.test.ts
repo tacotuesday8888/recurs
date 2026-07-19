@@ -39,10 +39,12 @@ describe("startRepl", () => {
   it("opens the shared provider view as the first sessionless onboarding step", async () => {
     const output = new TextOutput();
     const submitted: string[] = [];
+    let closed = 0;
     const runtime = {
       state: { type: "workspace", cwd: "/tmp/workspace", permissionMode: "ask_always" },
       setConfirmHandler() {},
       cancel() { return false; },
+      async close() { closed += 1; },
       async submit(input: string) {
         submitted.push(input);
         return input === "/provider"
@@ -58,6 +60,7 @@ describe("startRepl", () => {
     });
 
     expect(submitted).toEqual(["/provider", "/quit"]);
+    expect(closed).toBe(1);
     expect(output.value).toContain("Let's connect the team to a model");
     expect(output.value).toContain("Detected locally");
   });

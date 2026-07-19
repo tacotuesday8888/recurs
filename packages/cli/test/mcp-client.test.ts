@@ -1,4 +1,4 @@
-import { access, chmod, link, mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { access, chmod, link, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,6 +69,10 @@ function processExists(pid: number): boolean {
   }
 }
 
+async function lines(file: string): Promise<readonly string[]> {
+  return (await readFile(file, "utf8")).trim().split("\n").filter(Boolean);
+}
+
 afterEach(async () => {
   delete process.env.MCP_TEST_SECRET;
   await Promise.all(roots.splice(0).map((directory) =>
@@ -128,7 +132,8 @@ describe("McpServerCatalog", () => {
     const data = await root();
     const workspace = await root();
     await writeConfiguration(data);
-    const tool = (await McpServerCatalog.load(data)).createTool();
+    const catalog = await McpServerCatalog.load(data);
+    const tool = catalog.createTool();
 
     const listed = await tool.execute(
       tool.parse({ server: "test-server", action: "list_tools" }),
@@ -161,6 +166,7 @@ describe("McpServerCatalog", () => {
       code: "execution_failed",
       message: "MCP server error: Unknown test tool",
     });
+    await catalog.close();
   });
 
   it("isolates host secrets and removes same-group descendants before returning", async () => {
@@ -168,7 +174,8 @@ describe("McpServerCatalog", () => {
     const workspace = await root();
     await writeConfiguration(data);
     process.env.MCP_TEST_SECRET = "must-not-cross-boundary";
-    const tool = (await McpServerCatalog.load(data)).createTool();
+    const catalog = await McpServerCatalog.load(data);
+    const tool = catalog.createTool();
 
     const inspected = await tool.execute(
       tool.parse({
@@ -194,7 +201,168 @@ describe("McpServerCatalog", () => {
     );
     const pid = Number.parseInt(JSON.parse(spawned.output).result.content[0].text, 10);
     expect(pid).toBeGreaterThan(0);
+    expect(processExists(pid)).toBe(true);
+    await catalog.close();
     expect(processExists(pid)).toBe(false);
+  });
+
+  it("reuses one healthy server and exposes negotiated connection state", async () => {
+    const data = await root();
+    const workspace = await root();
+    const journal = path.join(data, "mcp-lifecycle.log");
+    await writeConfiguration(data, { args: [fixture, "lifecycle", journal] });
+    const catalog = await McpServerCatalog.load(data);
+    const tool = catalog.createTool();
+
+    await tool.execute(
+      tool.parse({ server: "test-server", action: "list_tools" }),
+      context(workspace),
+    );
+    const called = await tool.execute(
+      tool.parse({
+        server: "test-server",
+        action: "call_tool",
+        tool: "process_id",
+      }),
+      context(workspace),
+    );
+    const pid = Number.parseInt(JSON.parse(called.output).result.content[0].text, 10);
+
+    expect(await lines(journal)).toEqual([`init:${pid}`]);
+    expect(catalog.snapshot().servers[0]).toMatchObject({
+      state: "connected",
+      protocolVersion: "2025-11-25",
+      serverName: "recurs-test-mcp",
+      serverVersion: "1.0.0",
+    });
+    await expect(createMcpCommand(catalog).execute("", {} as never)).resolves
+      .toMatchObject({
+        text: expect.stringMatching(/test-server[\s\S]*connected[\s\S]*recurs-test-mcp@1\.0\.0/u),
+      });
+    expect(processExists(pid)).toBe(true);
+    await catalog.close();
+    expect(processExists(pid)).toBe(false);
+    expect(await lines(journal)).toEqual([`init:${pid}`, `closed:${pid}`]);
+    expect(catalog.snapshot().servers[0]).toMatchObject({ state: "idle" });
+  });
+
+  it("restarts after a failed reuse ping before issuing the next operation", async () => {
+    const data = await root();
+    const workspace = await root();
+    const journal = path.join(data, "mcp-restart.log");
+    const failed = path.join(data, "ping-failed");
+    await writeConfiguration(data, {
+      args: [fixture, "restart-on-ping", journal, failed],
+    });
+    const catalog = await McpServerCatalog.load(data);
+    const tool = catalog.createTool();
+
+    const first = await tool.execute(
+      tool.parse({
+        server: "test-server",
+        action: "call_tool",
+        tool: "process_id",
+      }),
+      context(workspace),
+    );
+    const second = await tool.execute(
+      tool.parse({
+        server: "test-server",
+        action: "call_tool",
+        tool: "process_id",
+      }),
+      context(workspace),
+    );
+    const firstPid = Number.parseInt(JSON.parse(first.output).result.content[0].text, 10);
+    const secondPid = Number.parseInt(JSON.parse(second.output).result.content[0].text, 10);
+
+    expect(secondPid).not.toBe(firstPid);
+    expect(await lines(journal)).toEqual([`init:${firstPid}`, `init:${secondPid}`]);
+    expect(processExists(firstPid)).toBe(false);
+    await catalog.close();
+    expect(processExists(secondPid)).toBe(false);
+  });
+
+  it("cancellation during a reuse health check invalidates the live server", async () => {
+    const data = await root();
+    const workspace = await root();
+    const journal = path.join(data, "mcp-ping-cancel.log");
+    await writeConfiguration(data, { args: [fixture, "hang-ping", journal] });
+    const catalog = await McpServerCatalog.load(data);
+    const tool = catalog.createTool();
+    const first = await tool.execute(
+      tool.parse({
+        server: "test-server",
+        action: "call_tool",
+        tool: "process_id",
+      }),
+      context(workspace),
+    );
+    const pid = Number.parseInt(JSON.parse(first.output).result.content[0].text, 10);
+    const controller = new AbortController();
+    const reusing = tool.execute(
+      tool.parse({ server: "test-server", action: "list_tools" }),
+      context(workspace, controller.signal),
+    );
+    await expect.poll(async () => (await lines(journal)).some((line) =>
+      line === `ping-started:${pid}`
+    )).toBe(true);
+
+    controller.abort();
+    await expect(reusing).rejects.toMatchObject({ code: "cancelled" });
+    expect(processExists(pid)).toBe(false);
+    expect((await lines(journal)).some((line) => line.startsWith("cancelled:")))
+      .toBe(true);
+    expect(catalog.snapshot().servers[0]).toMatchObject({ state: "failed" });
+    await catalog.close();
+  });
+
+  it("never retries an ambiguous tool call after the server exits", async () => {
+    const data = await root();
+    const workspace = await root();
+    const journal = path.join(data, "mcp-ambiguous.log");
+    await writeConfiguration(data, { args: [fixture, "exit-on-tool", journal] });
+    const catalog = await McpServerCatalog.load(data);
+    const tool = catalog.createTool();
+
+    await expect(tool.execute(
+      tool.parse({
+        server: "test-server",
+        action: "call_tool",
+        tool: "echo",
+        arguments: { value: "once" },
+      }),
+      context(workspace),
+    )).rejects.toMatchObject({ code: "process_failed" });
+
+    expect((await lines(journal)).filter((line) => line === "call:echo")).toHaveLength(1);
+    expect(catalog.snapshot().servers[0]).toMatchObject({ state: "failed" });
+    await catalog.close();
+  });
+
+  it("cleans the whole process group when a server exits after a result", async () => {
+    const data = await root();
+    const workspace = await root();
+    const journal = path.join(data, "mcp-exit-after-result.log");
+    await writeConfiguration(data, { args: [fixture, "exit-after-result", journal] });
+    const catalog = await McpServerCatalog.load(data);
+    const tool = catalog.createTool();
+    const called = await tool.execute(
+      tool.parse({
+        server: "test-server",
+        action: "call_tool",
+        tool: "spawn_and_exit",
+      }),
+      context(workspace),
+    );
+    const descendant = Number.parseInt(
+      JSON.parse(called.output).result.content[0].text,
+      10,
+    );
+
+    await expect.poll(() => catalog.snapshot().servers[0]?.state).toBe("failed");
+    await expect.poll(() => processExists(descendant)).toBe(false);
+    await catalog.close();
   });
 
   it("uses the existing permission and Plan-mode boundaries", async () => {
@@ -255,6 +423,70 @@ describe("McpServerCatalog", () => {
     )).rejects.toMatchObject({ code: "output_limit" });
   });
 
+  it("cancels startup and closes its process when the catalog closes", async () => {
+    const data = await root();
+    const workspace = await root();
+    const marker = path.join(workspace, "initialized");
+    await writeConfiguration(data, { args: [fixture, "hang", marker] });
+    const catalog = await McpServerCatalog.load(data);
+    const tool = catalog.createTool();
+    const running = tool.execute(
+      tool.parse({ server: "test-server", action: "list_tools" }),
+      context(workspace),
+    );
+    await expect.poll(async () => access(marker).then(() => true, () => false))
+      .toBe(true);
+    const pid = Number((await readFile(marker, "utf8")).trim().split(":")[1]);
+
+    await expect(catalog.close()).resolves.toBeUndefined();
+    await expect(running).rejects.toMatchObject({ code: "cancelled" });
+    expect(processExists(pid)).toBe(false);
+    expect(catalog.snapshot().servers[0]).toMatchObject({ state: "idle" });
+    await expect(tool.execute(
+      tool.parse({ server: "test-server", action: "list_tools" }),
+      context(workspace),
+    )).rejects.toMatchObject({ code: "tool_unavailable" });
+  });
+
+  it("cancels an in-flight request, closes its server, and restarts cleanly", async () => {
+    const data = await root();
+    const workspace = await root();
+    const journal = path.join(data, "mcp-cancel.log");
+    await writeConfiguration(data, { args: [fixture, "hang-tool", journal] });
+    const catalog = await McpServerCatalog.load(data);
+    const tool = catalog.createTool();
+    const controller = new AbortController();
+    const running = tool.execute(
+      tool.parse({ server: "test-server", action: "call_tool", tool: "hang" }),
+      context(workspace, controller.signal),
+    );
+    await expect.poll(async () =>
+      access(journal).then(async () => (await lines(journal)).some((line) =>
+        line.startsWith("started:")
+      ), () => false)
+    ).toBe(true);
+    const firstPid = Number((await lines(journal)).find((line) =>
+      line.startsWith("started:")
+    )?.split(":")[1]);
+
+    controller.abort();
+    await expect(running).rejects.toMatchObject({ code: "cancelled" });
+    expect(processExists(firstPid)).toBe(false);
+    expect((await lines(journal)).some((line) => line.startsWith("cancelled:")))
+      .toBe(true);
+    expect(catalog.snapshot().servers[0]).toMatchObject({ state: "failed" });
+
+    const restarted = await tool.execute(
+      tool.parse({ server: "test-server", action: "list_tools" }),
+      context(workspace),
+    );
+    expect(JSON.parse(restarted.output).tools.map((item: { name: string }) => item.name))
+      .toContain("hang");
+    expect((await lines(journal)).filter((line) => line.startsWith("init:")))
+      .toHaveLength(2);
+    await catalog.close();
+  });
+
   it("runs through the real parent loop with normalized tool events", async () => {
     const data = await root();
     const workspace = await root();
@@ -307,5 +539,6 @@ describe("McpServerCatalog", () => {
       type: "tool_completed",
       callId: "mcp-list",
     }));
+    await runtime.close();
   });
 });

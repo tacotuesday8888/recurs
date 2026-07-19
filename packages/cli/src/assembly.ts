@@ -1114,6 +1114,7 @@ export async function createStandaloneRuntime(
       coordinator,
       sessions,
       confirm: async () => false,
+      dispose: () => mcp.close(),
       providerGuide: async (query, signal) =>
         providerOverviewText(
           await providerDiscoveryOverview(root, query, signal),

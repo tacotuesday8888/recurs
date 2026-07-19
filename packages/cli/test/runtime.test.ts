@@ -83,6 +83,29 @@ async function runtimeWith(provider: ScriptedProvider): Promise<RecursRuntime> {
 }
 
 describe("RecursRuntime", () => {
+  it("disposes owned resources exactly once and rejects later submissions", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-runtime-close-"));
+    directories.push(directory);
+    const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
+    let disposals = 0;
+    const runtime = new RecursRuntime(
+      {
+        commands: createCommandRegistry({ sessions }),
+        sessions,
+        async dispose() { disposals += 1; },
+      },
+      createWorkspaceShell(directory),
+    );
+
+    await Promise.all([runtime.close(), runtime.close()]);
+
+    expect(disposals).toBe(1);
+    await expect(runtime.submit("/help")).rejects.toMatchObject({
+      code: "busy",
+      message: "Runtime is closed",
+    });
+  });
+
   it("threads the exact trusted host invocation into slash-command context", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "recurs-command-invocation-"));
     directories.push(directory);
