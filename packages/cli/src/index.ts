@@ -19,3 +19,4 @@ export * from "./render.js";
 export * from "./repl.js";
 export * from "./runtime.js";
 export * from "./session-mutations.js";
+export * from "./agent-skills.js";

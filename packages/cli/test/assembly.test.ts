@@ -1183,6 +1183,7 @@ describe("standalone assembly without a provider", () => {
       {
         cwd: workspace,
         dataDirectory: path.join(root, "data"),
+        skillHomeDirectory: path.join(root, "home"),
         provider,
       },
     );

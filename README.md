@@ -28,6 +28,7 @@ The repository contains a usable agent base and a bounded, Recurs-owned child-ag
 - durable `/goal` state, append-only JSONL sessions, interrupted-tool recovery, compaction, checkpoints, and conflict-safe undo;
 - interactive and non-interactive CLI paths with text or normalized JSONL output;
 - a Recurs-owned ACP v1 stdio agent endpoint for editor and agent-client integration, with isolated sessions, streamed model/tool/child/team activity, one-shot permission forwarding, cancellation, and honest capability negotiation;
+- bounded Agent Skills discovery and progressive activation for user-installed `~/.agents/skills` and `$RECURS_HOME/skills`, plus explicitly trusted project `.agents/skills` and `.recurs/skills`;
 - immutable backend pins, strict version-2 session records, cross-process mutation leases, typed preflight failures, and durable delegated-runtime results and recovery;
 - one credential-path policy enforced across direct and aggregate built-in tools, permanent denial of classified credential intents, and checkpoint capture that excludes those paths;
 - clean per-child environments, bounded process-group cleanup, safe provider/tool/CLI failures, and explicit `workspace_sandboxed`, `local_guarded`, or fail-closed `tools_disabled` composition;
@@ -115,7 +116,8 @@ The private native path supports crash-safe OpenAI API, Anthropic API, and Kimi 
 1. Produce and verify a signed/notarized installed launcher bundle, including the isolated owner-run broker recovery smoke.
 2. Exercise the completed OpenAI, Anthropic, and Kimi Code verticals through installed-artifact security and credential-canary tests.
 3. Expand the fixed-origin environment-BYOK path to Responses, Anthropic Messages, and provider-specific model discovery without permitting arbitrary remote URLs.
-4. Give any delegated runtime included in the sealed engine its own fixed signed layout; expand delegated runtimes only through documented integrations and provider-specific policy review.
-5. Extend team execution only through enforceable OS containment, reviewed role/model candidates, and a separately designed durable worker host; do not mistake process-lifetime background work for a daemon or turn repair into unbounded token burn.
+4. Add a separately contained MCP client boundary; Agent Skills currently load bounded text guidance and resources but do not execute bundled scripts or grant tools.
+5. Give any delegated runtime included in the sealed engine its own fixed signed layout; expand delegated runtimes only through documented integrations and provider-specific policy review.
+6. Extend team execution only through enforceable OS containment, reviewed role/model candidates, and a separately designed durable worker host; do not mistake process-lifetime background work for a daemon or turn repair into unbounded token burn.
 
 Start with the [documentation index](docs/README.md), [CLI guide](docs/CLI.md), [architecture](ARCHITECTURE.md), [security policy](SECURITY.md), and [product direction](PRODUCT.md).

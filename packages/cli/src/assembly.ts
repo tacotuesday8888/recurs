@@ -77,6 +77,7 @@ import {
 } from "@recurs/tools";
 
 import { createCommandRegistry } from "./commands/create.js";
+import { AgentSkillCatalog } from "./agent-skills.js";
 import type { LocalConnectionConfiguration } from "./local-connection.js";
 import { createCodexAgentRuntime } from "./codex-connection.js";
 import { RecursRuntime } from "./runtime.js";
@@ -99,6 +100,7 @@ export interface StandaloneRuntimeOptions {
   environment?: Readonly<NodeJS.ProcessEnv>;
   environmentFetch?: typeof globalThis.fetch;
   reuseExistingSession?: boolean;
+  skillHomeDirectory?: string;
 }
 
 function injectedBackendPin(
@@ -485,6 +487,11 @@ export async function createStandaloneRuntime(
     process.env.RECURS_HOME ??
     path.join(homedir(), ".recurs");
   const projectData = path.join(root, "projects", projectId);
+  const skills = await AgentSkillCatalog.discover({
+    cwd,
+    dataDirectory: root,
+    homeDirectory: options.skillHomeDirectory ?? homedir(),
+  });
   const sessions = new JsonlSessionStore(path.join(projectData, "sessions"));
   const checkpoints = new FileCheckpointStore(
     path.join(projectData, "checkpoints"),
@@ -658,6 +665,7 @@ export async function createStandaloneRuntime(
   tools.register(createRunVerificationTool());
   tools.register(createGitStatusTool());
   tools.register(createGitDiffTool());
+  if (skills.hasSkills) tools.register(skills.createTool());
   const backendRouter = new AgentBackendRouter();
   const childAgents = new ChildAgentManager({
     sessions,
@@ -795,6 +803,10 @@ export async function createStandaloneRuntime(
     emit(event) {
       return events.emit(event);
     },
+    contextInstructions: (session) => isPinnedSessionState(session) &&
+        session.agent.profile === null
+      ? skills.contextInstructions()
+      : [],
     createToolContext(session, signal, runContext) {
       return {
         sessionId: session.id,
@@ -972,6 +984,7 @@ export async function createStandaloneRuntime(
     resolveProvider: resolveCommandProvider,
     checkpoints,
     teamRuns: teamSupervisor,
+    skills,
     signal: () =>
       runtimeReference.current?.currentSignal() ?? new AbortController().signal,
   });
