@@ -372,7 +372,11 @@ function linuxSandboxLaunch(
   const uniqueHiddenRoots = [...new Set(hiddenRoots)]
     .filter((root) => root !== path.parse(root).root);
   const bwrapArgs = [
-    "--new-session",
+    // Both process entry points spawn detached children below, so Node has
+    // already called setsid(2). Asking Bubblewrap to do that again fails for
+    // the resulting process-group leader. The detached launch still supplies
+    // Bubblewrap's required TIOCSTI/session boundary and lets Recurs terminate
+    // the complete tool process group.
     "--die-with-parent",
     "--ro-bind",
     "/",
