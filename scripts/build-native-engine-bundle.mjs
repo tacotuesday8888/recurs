@@ -39,6 +39,9 @@ try {
     plugins: [{
       name: "recurs-workspace-source",
       resolveId(specifier) {
+        if (specifier === "yaml") {
+          return path.join(root, "node_modules/yaml/browser/index.js");
+        }
         if (specifier === "@recurs/runtimes") {
           return sealedRuntimes;
         }

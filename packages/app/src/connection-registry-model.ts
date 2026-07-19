@@ -132,7 +132,8 @@ export type RegistryFaultPoint =
   | "after_remove_retirement"
   | "after_remove_durable_rename"
   | "after_remove"
-  | "after_lock_stat";
+  | "after_lock_stat"
+  | "after_lock_open";
 
 export interface FileConnectionRegistryOptions {
   lockTimeoutMs?: number;

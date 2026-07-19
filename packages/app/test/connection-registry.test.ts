@@ -728,6 +728,32 @@ describe("FileConnectionRegistry", () => {
     expect(removed).toBe(true);
   });
 
+  it("retries when a competing lock is unlinked after its handle opens", async () => {
+    const directory = await root();
+    const lock = path.join(directory, "config", ".connections.lock");
+    await writePrivate(lock, `${JSON.stringify({
+      version: 1,
+      pid: process.pid,
+      token: randomUUID(),
+      createdAt: Date.now(),
+    })}\n`);
+    let removed = false;
+    const registry = new FileConnectionRegistry(directory, {
+      lockTimeoutMs: 100,
+      async faultInjector(point) {
+        if (point === "after_lock_open" && !removed) {
+          removed = true;
+          await rm(lock, { force: true });
+        }
+      },
+    });
+
+    await expect(registry.commit(0, () => undefined)).resolves.toMatchObject({
+      revision: 1,
+    });
+    expect(removed).toBe(true);
+  });
+
   it("aborts a bounded lock wait without disturbing the owner", async () => {
     const directory = await root();
     const lock = path.join(directory, "config", ".connections.lock");

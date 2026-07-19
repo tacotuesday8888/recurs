@@ -25,6 +25,7 @@
     "@recurs/providers": "0.0.0",
     "@recurs/runtimes": "0.0.0",
     "@recurs/tools": "0.0.0",
+    "yaml": "2.9.0",
     "zod": "4.4.3"
   }
 }

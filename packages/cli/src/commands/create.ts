@@ -6,6 +6,7 @@ import { createPlanCommand } from "./plan.js";
 import { createRepositoryCommands } from "./repository.js";
 import { CommandRegistry } from "./registry.js";
 import { createSessionCommands } from "./session.js";
+import { createSkillsCommand } from "./skills.js";
 import type { CommandDependencies } from "./types.js";
 
 export function createCommandRegistry(
@@ -19,5 +20,8 @@ export function createCommandRegistry(
     createPlanCommand(),
     createPermissionsCommand(),
     createAgentsCommand(dependencies),
+    ...(dependencies.skills === undefined
+      ? []
+      : [createSkillsCommand(dependencies.skills)]),
   ]);
 }

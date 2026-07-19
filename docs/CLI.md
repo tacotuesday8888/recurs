@@ -176,6 +176,14 @@ The endpoint deliberately classifies prompts as local, unattended, scripted SDK 
 
 The v0 handshake advertises baseline text and resource-link prompts plus session cancellation and close. Image, audio, and embedded-resource prompts are rejected. Additional workspace roots and client-supplied MCP servers are rejected, and no MCP capability is advertised. Recurs uses its own bounded host tools rather than delegating filesystem or terminal authority to the ACP client. On connection loss, active Recurs runtimes are cancelled.
 
+### Agent Skills
+
+Recurs supports the open [Agent Skills `SKILL.md` specification](https://agentskills.io/specification) for bounded, progressive instruction loading. At startup it scans direct child directories in `~/.agents/skills` and `$RECURS_HOME/skills`, with the Recurs directory taking precedence. It also detects `.agents/skills` and `.recurs/skills` in the active workspace, with `.recurs` taking precedence, but repository-provided skills are disabled by default. `/skills enable-project` requires a local, user-present, manual CLI or desktop invocation plus explicit confirmation; trust lasts only for that Recurs process. `/skills disable-project` removes them immediately from subsequent model context.
+
+Discovery validates the skill name against its directory, requires bounded YAML frontmatter and UTF-8 Markdown instructions, skips symlinks, hard-linked files, and credential-classified resources, limits each scope to 64 skills, and reports malformed or colliding entries through `/skills`. Enabled name/description metadata is added to the parent direct-provider system context under a 16 KiB catalog budget; `/skills` still lists the complete discovered catalog. The read-only `activate_skill` tool loads one skill's instructions and lists at most 64 bundled resource files; an exact listed UTF-8 resource can then be loaded through the same tool. Paths are confined to the skill directory and tool invocation remains subject to the ordinary parent read policy.
+
+This is not a plugin installer or an executable extension system. Recurs does not download skills, automatically execute bundled scripts, interpret `allowed-tools` as authority, persist project trust, expose skills through historical bounded child profiles, or inject them into an opaque delegated runtime's private prompt. MCP loading remains intentionally absent and will use a separate executable-authority boundary.
+
 Example editor agent command configuration:
 
 ```json
@@ -327,6 +335,7 @@ A daemon that outlives the CLI, recursive depth, automatic task decomposition, t
 | `/plan [prompt\|exit]` | Enter enforced read-only planning or return to Act. |
 | `/permissions [ask\|approved\|full]` | Inspect or change the permission preset. |
 | `/agents [profiles\|activity [exact-id]\|teams\|team <id>\|wait <id>\|cancel <id>\|resume <id>\|apply <id>\|mode ...]` | Inspect profiles, child/team activity, control an owned durable team, or change the bounded policy. |
+| `/skills [enable-project\|disable-project]` | List Agent Skills or change process-lifetime trust for repository skills. |
 | `/status` | Show session, workspace, model identifier, modes, goal, usage, and pending tools. |
 | `/init` | Confirm and create a starter `AGENTS.md`; never overwrite an existing path. |
 | `/new` | Start a new durable session in the same workspace. |
@@ -338,7 +347,7 @@ A daemon that outlives the CLI, recursive depth, automatic task decomposition, t
 | `/cancel` | Abort the current provider/tool run. |
 | `/quit`, `/exit`, `/q` | Exit the interactive CLI. |
 
-Without an explicit primary, the workspace shell exposes only `/help`, `/connect`, `/model`, `/permissions`, `/agents`, `/status`, `/resume`, `/init`, `/diff`, and exit commands. `/agents` explains the default but cannot persist a policy until a model connection creates a session. Secondary records are never selected by file order. `/resume <exact-id>` may load a historical pinned session for inspection and, when its exact connection still exists and matches, continued work. A changed or disconnected record fails preflight before provider/runtime work. `/connect` gives both `recurs setup codex` and the credential-free local setup command; `/model` reports that no connection is active.
+Without an explicit primary, the workspace shell exposes only `/help`, `/connect`, `/model`, `/permissions`, `/agents`, `/skills`, `/status`, `/resume`, `/init`, `/diff`, and exit commands. `/agents` explains the default but cannot persist a policy until a model connection creates a session. `/skills` can inspect discovery and establish process-lifetime project trust before a model is connected. Secondary records are never selected by file order. `/resume <exact-id>` may load a historical pinned session for inspection and, when its exact connection still exists and matches, continued work. A changed or disconnected record fails preflight before provider/runtime work. `/connect` gives both `recurs setup codex` and the credential-free local setup command; `/model` reports that no connection is active.
 
 ## Sessions and recovery
 
@@ -421,4 +430,4 @@ Recurs does not perform this move automatically. The marker is an upgrade-safety
 - The sealed-engine builder is configured to preserve legal comments, but release packaging still needs complete third-party notices and license review.
 - Checkpoints enumerate Git tracked and non-ignored untracked files; ignored files are not restored by checkpoint undo.
 - Output, read, patch, command-time, and agent-step limits are bounded, but very large repositories can still make full snapshots expensive.
-- OpenAI API, Anthropic API, and Kimi Code setup and generation exist only through the private native authority and have not shipped as an installed artifact. There is still no arbitrary public-endpoint/cloud-identity onboarding, general model picker, plugin system, public MCP loading, persistent background daemon, recursive company coordinator, desktop app, cloud worker, scheduler, or endless `/loop` in v0. The ACP endpoint exposes the real current Recurs runtime; it does not add those absent capabilities. Team `background` means process-lifetime work with durable interruption and explicit resume/apply controls.
+- OpenAI API, Anthropic API, and Kimi Code setup and generation exist only through the private native authority and have not shipped as an installed artifact. There is still no arbitrary public-endpoint/cloud-identity onboarding, general model picker, plugin system, public MCP loading, persistent background daemon, recursive company coordinator, desktop app, cloud worker, scheduler, or endless `/loop` in v0. Agent Skills are bounded text/resource context, not executable plugins. The ACP endpoint exposes the real current Recurs runtime; it does not add those absent capabilities. Team `background` means process-lifetime work with durable interruption and explicit resume/apply controls.

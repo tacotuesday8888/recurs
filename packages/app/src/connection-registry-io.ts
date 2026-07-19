@@ -423,6 +423,7 @@ async function inspectLock(
   context: DirectoryContext,
   lockPath: string,
   afterStat?: () => void | Promise<void>,
+  afterOpen?: () => void | Promise<void>,
 ): Promise<{
   metadata: LockMetadata | null;
   identity: FileIdentity;
@@ -443,10 +444,20 @@ async function inspectLock(
     throw unsafeStorage(error);
   }
   try {
+    await afterOpen?.();
     const opened = await handle.stat();
+    // The owner may release or another contender may replace a valid lock
+    // between path inspection and opening. Neither inode is authoritative;
+    // retrying the hard-link claim preserves exclusion without treating a
+    // normal release as unsafe storage.
+    if (opened.nlink === 0) {
+      await validateDirectoryIdentity(context);
+      return null;
+    }
     validatePrivateFileStat(opened, 2);
     if (!sameIdentity(fileIdentity(before), fileIdentity(opened))) {
-      throw unsafeStorage();
+      await validateDirectoryIdentity(context);
+      return null;
     }
     const bytes = await readBounded(handle, MAX_LOCK_BYTES).catch(() => null);
     let metadata: LockMetadata | null = null;
@@ -795,8 +806,11 @@ export class RegistryFileStore {
           }
         }
 
-        const lock = await inspectLock(context, lockPath, () =>
-          this.#faultInjector?.("after_lock_stat"),
+        const lock = await inspectLock(
+          context,
+          lockPath,
+          () => this.#faultInjector?.("after_lock_stat"),
+          () => this.#faultInjector?.("after_lock_open"),
         );
         if (lock === null) continue;
         const now = Date.now();

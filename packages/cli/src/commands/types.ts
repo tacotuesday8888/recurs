@@ -10,6 +10,7 @@ import type {
 import type { HostInvocation } from "@recurs/contracts";
 import type { ModelProvider } from "@recurs/providers";
 import type { CheckpointStore, ExecutionMode, ToolContext } from "@recurs/tools";
+import type { AgentSkillCatalog } from "../agent-skills.js";
 
 export interface ParsedCommand {
   name: string;
@@ -64,6 +65,7 @@ export interface CommandDependencies {
       context: ToolContext,
     ): Promise<TeamRunResult>;
   };
+  skills?: AgentSkillCatalog;
 }
 
 export interface Command {
