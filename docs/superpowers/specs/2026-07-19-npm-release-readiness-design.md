@@ -52,14 +52,18 @@ provider activation.
 - the bundle retains its shebang and executable mode;
 - no private `@recurs/*` import or absolute build-machine path remains;
 - the bundle and package stay within explicit size ceilings; and
-- `npm pack --dry-run` reports only the four allowlisted files.
+- `npm pack --dry-run` reports only the five allowlisted files.
 
 `npm run package:smoke-install` creates a package archive, installs it with
 scripts disabled into a new temporary prefix and private home, then invokes
-the installed `recurs` binary for help and an empty JSON account list. CI runs
-this after the full TypeScript check. This proves package assembly, dependency
-installation, bin linking, module resolution, process startup, and fresh-state
-behavior without touching user configuration.
+the installed `recurs` binary for help and an empty JSON account list. It also
+configures a deterministic loopback model which requests `read_file`, proves
+the installed agent executes that guarded tool, returns its result to the
+model, and completes the turn through normalized JSONL events. CI runs this
+after the full TypeScript check. This proves package assembly, dependency
+installation, bin linking, module resolution, process startup, fresh-state
+behavior, local-provider transport, and the core tool loop without touching
+user configuration.
 
 ## Publication gate
 

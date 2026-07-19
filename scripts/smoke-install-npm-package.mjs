@@ -1,5 +1,7 @@
+import { Buffer } from "node:buffer";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -13,7 +15,11 @@ const packageDirectory = path.join(temporaryDirectory, "package");
 const installDirectory = path.join(temporaryDirectory, "install");
 const cacheDirectory = path.join(temporaryDirectory, "cache");
 const homeDirectory = path.join(temporaryDirectory, "home");
+const workspaceDirectory = path.join(temporaryDirectory, "workspace");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const modelId = "recurs-install-smoke";
+const taskMarker = "RECURS_INSTALLED_AGENT_READ_OK";
+const finalText = "Installed Recurs completed the guarded workspace task.";
 
 function assert(condition, message) {
   if (!condition) {
@@ -21,12 +27,115 @@ function assert(condition, message) {
   }
 }
 
+async function requestJson(request) {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of request) {
+    bytes += chunk.length;
+    assert(bytes <= 1024 * 1024, "The local smoke request exceeded 1 MB.");
+    chunks.push(chunk);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+function streamResponse(response, payload) {
+  response.writeHead(200, {
+    connection: "close",
+    "content-type": "text/event-stream",
+  });
+  response.end(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`);
+}
+
+async function startLocalModelServer() {
+  const chatRequests = [];
+  const server = createServer((request, response) => {
+    void (async () => {
+      if (request.method === "GET" && request.url === "/v1/models") {
+        response.writeHead(200, {
+          connection: "close",
+          "content-type": "application/json",
+        });
+        response.end(JSON.stringify({
+          object: "list",
+          data: [{ id: modelId, object: "model", owned_by: "recurs-smoke" }],
+        }));
+        return;
+      }
+      if (request.method === "POST" && request.url === "/v1/chat/completions") {
+        const body = await requestJson(request);
+        chatRequests.push(body);
+        if (chatRequests.length === 1) {
+          streamResponse(response, {
+            choices: [{
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  id: "call-installed-read",
+                  type: "function",
+                  function: {
+                    name: "read_file",
+                    arguments: JSON.stringify({ path: "TASK.md" }),
+                  },
+                }],
+              },
+              finish_reason: "tool_calls",
+            }],
+            usage: { prompt_tokens: 8, completion_tokens: 4 },
+          });
+          return;
+        }
+        streamResponse(response, {
+          choices: [{
+            delta: { content: finalText },
+            finish_reason: "stop",
+          }],
+          usage: { prompt_tokens: 12, completion_tokens: 6 },
+        });
+        return;
+      }
+      response.writeHead(404, { connection: "close" });
+      response.end();
+    })().catch(() => {
+      if (!response.headersSent) response.writeHead(500);
+      response.end();
+    });
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  assert(
+    typeof address === "object" && address !== null,
+    "The local smoke server did not bind a TCP port.",
+  );
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}/v1`,
+    chatRequests,
+    server,
+  };
+}
+
+async function closeServer(server) {
+  await new Promise((resolve, reject) => {
+    server.close((error) => error === undefined ? resolve() : reject(error));
+  });
+}
+
+let localModelServer;
+
 try {
   await Promise.all([
     mkdir(packageDirectory, { recursive: true }),
     mkdir(installDirectory, { recursive: true }),
     mkdir(homeDirectory, { recursive: true }),
+    mkdir(workspaceDirectory, { recursive: true }),
   ]);
+  await writeFile(
+    path.join(workspaceDirectory, "TASK.md"),
+    `${taskMarker}\n`,
+    "utf8",
+  );
   const { stdout: packOutput } = await execFileAsync(npm, [
     "pack",
     "--json",
@@ -89,8 +198,74 @@ try {
   );
   assert(JSON.parse(accounts).accounts?.length === 0, "A fresh install must start with no accounts.");
   assert(accountError === "", "The installed CLI wrote unexpected account diagnostics.");
+
+  localModelServer = await startLocalModelServer();
+  const { stdout: setup, stderr: setupError } = await execFileAsync(
+    executable,
+    [
+      "setup",
+      "local",
+      "--url",
+      localModelServer.baseUrl,
+      "--model",
+      modelId,
+    ],
+    {
+      cwd: workspaceDirectory,
+      encoding: "utf8",
+      env: environment,
+    },
+  );
+  assert(setup.includes(`Ready — Local model · ${modelId}`), "The installed CLI did not configure the local model.");
+  assert(setupError === "", "The installed CLI wrote unexpected setup diagnostics.");
+
+  const { stdout: run, stderr: runError } = await execFileAsync(
+    executable,
+    ["run", "Read TASK.md and report its marker.", "--format", "jsonl"],
+    {
+      cwd: workspaceDirectory,
+      encoding: "utf8",
+      env: environment,
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+  const events = run.trim().split("\n").map((line) => JSON.parse(line));
+  assert(
+    events.some((event) =>
+      event.type === "tool_started" && event.call?.name === "read_file"
+    ),
+    "The installed agent did not start its model-requested read tool.",
+  );
+  assert(
+    events.some((event) =>
+      event.type === "tool_completed" && event.callId === "call-installed-read"
+    ),
+    "The installed agent did not complete its guarded workspace read.",
+  );
+  assert(
+    events.some((event) =>
+      event.type === "model_text_delta" && event.text === finalText
+    ),
+    "The installed agent did not render the final model result.",
+  );
+  assert(
+    events.some((event) => event.type === "turn_completed"),
+    "The installed agent did not complete its turn.",
+  );
+  assert(runError === "", "The installed agent wrote unexpected run diagnostics.");
+  assert(
+    localModelServer.chatRequests.length === 2,
+    "The installed agent did not make exactly one tool turn and one final turn.",
+  );
+  assert(
+    JSON.stringify(localModelServer.chatRequests[1]).includes(taskMarker),
+    "The guarded tool result was not returned to the model.",
+  );
 } finally {
+  if (localModelServer !== undefined) {
+    await closeServer(localModelServer.server);
+  }
   await rm(temporaryDirectory, { recursive: true, force: true });
 }
 
-process.stdout.write("npm package install smoke passed\n");
+process.stdout.write("npm package installed-agent smoke passed\n");
