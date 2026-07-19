@@ -57,13 +57,14 @@ provider activation.
 `npm run package:smoke-install` creates a package archive, installs it with
 scripts disabled into a new temporary prefix and private home, then invokes
 the installed `recurs` binary for help and an empty JSON account list. It also
-configures a deterministic loopback model which requests `read_file`, proves
-the installed agent executes that guarded tool, returns its result to the
-model, and completes the turn through normalized JSONL events. CI runs this
-after the full TypeScript check. This proves package assembly, dependency
-installation, bin linking, module resolution, process startup, fresh-state
-behavior, local-provider transport, and the core tool loop without touching
-user configuration.
+configures a deterministic loopback model which requests `run_command` and
+`read_file`, proves the installed agent permits a workspace write while denying
+an attempted parent-directory write, returns the workspace result to the model,
+and completes the turn through normalized JSONL events. CI runs this after the
+full TypeScript check. This proves package assembly, dependency installation,
+bin linking, module resolution, process startup, fresh-state behavior,
+local-provider transport, explicit headless permission pinning, the macOS/Linux
+command sandbox, and the core tool loop without touching user configuration.
 
 ## Publication gate
 

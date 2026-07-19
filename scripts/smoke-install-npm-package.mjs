@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -13,17 +13,32 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "recurs-install-smoke-"));
 const packageDirectory = path.join(temporaryDirectory, "package");
 const installDirectory = path.join(temporaryDirectory, "install");
-const cacheDirectory = path.join(temporaryDirectory, "cache");
 const homeDirectory = path.join(temporaryDirectory, "home");
 const workspaceDirectory = path.join(temporaryDirectory, "workspace");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const modelId = "recurs-install-smoke";
 const taskMarker = "RECURS_INSTALLED_AGENT_READ_OK";
 const finalText = "Installed Recurs completed the guarded workspace task.";
+const sandboxedFile = path.join(workspaceDirectory, "SANDBOXED.md");
+const escapedFile = path.join(temporaryDirectory, "ESCAPED.txt");
+const sandboxCommand =
+  `printf '${taskMarker}\\n' > SANDBOXED.md; printf 'escape\\n' > ../ESCAPED.txt`;
 
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
+  }
+}
+
+async function pathExists(file) {
+  try {
+    await access(file);
+    return true;
+  } catch (error) {
+    if (error !== null && typeof error === "object" && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -70,17 +85,40 @@ async function startLocalModelServer() {
               delta: {
                 tool_calls: [{
                   index: 0,
-                  id: "call-installed-read",
+                  id: "call-installed-command",
                   type: "function",
                   function: {
-                    name: "read_file",
-                    arguments: JSON.stringify({ path: "TASK.md" }),
+                    name: "run_command",
+                    arguments: JSON.stringify({
+                      command: sandboxCommand,
+                      timeoutMs: 10_000,
+                    }),
                   },
                 }],
               },
               finish_reason: "tool_calls",
             }],
             usage: { prompt_tokens: 8, completion_tokens: 4 },
+          });
+          return;
+        }
+        if (chatRequests.length === 2) {
+          streamResponse(response, {
+            choices: [{
+              delta: {
+                tool_calls: [{
+                  index: 0,
+                  id: "call-installed-read",
+                  type: "function",
+                  function: {
+                    name: "read_file",
+                    arguments: JSON.stringify({ path: "SANDBOXED.md" }),
+                  },
+                }],
+              },
+              finish_reason: "tool_calls",
+            }],
+            usage: { prompt_tokens: 12, completion_tokens: 4 },
           });
           return;
         }
@@ -131,19 +169,16 @@ try {
     mkdir(homeDirectory, { recursive: true }),
     mkdir(workspaceDirectory, { recursive: true }),
   ]);
-  await writeFile(
-    path.join(workspaceDirectory, "TASK.md"),
-    `${taskMarker}\n`,
-    "utf8",
-  );
+  await execFileAsync("git", ["init", "--quiet"], {
+    cwd: workspaceDirectory,
+    encoding: "utf8",
+  });
   const { stdout: packOutput } = await execFileAsync(npm, [
     "pack",
     "--json",
     "--ignore-scripts",
     "--pack-destination",
     packageDirectory,
-    "--cache",
-    cacheDirectory,
   ], {
     cwd: root,
     encoding: "utf8",
@@ -160,8 +195,7 @@ try {
     "--ignore-scripts",
     "--no-audit",
     "--no-fund",
-    "--cache",
-    cacheDirectory,
+    "--prefer-offline",
     archive,
   ], {
     cwd: installDirectory,
@@ -221,7 +255,14 @@ try {
 
   const { stdout: run, stderr: runError } = await execFileAsync(
     executable,
-    ["run", "Read TASK.md and report its marker.", "--format", "jsonl"],
+    [
+      "run",
+      "Create a sandboxed workspace marker, read it, and report completion.",
+      "--permissions",
+      "full",
+      "--format",
+      "jsonl",
+    ],
     {
       cwd: workspaceDirectory,
       encoding: "utf8",
@@ -230,6 +271,29 @@ try {
     },
   );
   const events = run.trim().split("\n").map((line) => JSON.parse(line));
+  const eventSummary = events.map((event) => ({
+    type: event.type,
+    ...(event.call?.name === undefined ? {} : { tool: event.call.name }),
+    ...(event.callId === undefined ? {} : { callId: event.callId }),
+    ...(event.error?.code === undefined ? {} : { error: event.error.code }),
+    ...(event.error?.message === undefined
+      ? {}
+      : { message: event.error.message }),
+  }));
+  const commandFailure = events.find((event) =>
+    event.type === "tool_failed" &&
+    event.callId === "call-installed-command"
+  );
+  assert(
+    events.some((event) =>
+      event.type === "tool_started" && event.call?.name === "run_command"
+    ),
+    "The installed agent did not start its sandboxed command tool.",
+  );
+  assert(
+    commandFailure?.error?.message.includes("[process_failed]") === true,
+    `The installed agent did not report its denied sandbox escape: ${JSON.stringify(eventSummary)}`,
+  );
   assert(
     events.some((event) =>
       event.type === "tool_started" && event.call?.name === "read_file"
@@ -240,7 +304,7 @@ try {
     events.some((event) =>
       event.type === "tool_completed" && event.callId === "call-installed-read"
     ),
-    "The installed agent did not complete its guarded workspace read.",
+    `The installed agent did not complete its guarded workspace read: ${JSON.stringify(eventSummary)}`,
   );
   assert(
     events.some((event) =>
@@ -254,11 +318,19 @@ try {
   );
   assert(runError === "", "The installed agent wrote unexpected run diagnostics.");
   assert(
-    localModelServer.chatRequests.length === 2,
-    "The installed agent did not make exactly one tool turn and one final turn.",
+    await readFile(sandboxedFile, "utf8") === `${taskMarker}\n`,
+    "The sandboxed command did not write its workspace marker.",
   );
   assert(
-    JSON.stringify(localModelServer.chatRequests[1]).includes(taskMarker),
+    !(await pathExists(escapedFile)),
+    "The sandboxed command escaped the workspace write boundary.",
+  );
+  assert(
+    localModelServer.chatRequests.length === 3,
+    "The installed agent did not make exactly two tool turns and one final turn.",
+  );
+  assert(
+    JSON.stringify(localModelServer.chatRequests[2]).includes(taskMarker),
     "The guarded tool result was not returned to the model.",
   );
 } finally {

@@ -1591,6 +1591,65 @@ describe("runCli", () => {
     expect(stderr.value).toBe("");
   });
 
+  it.each([
+    ["ask", "ask_always"],
+    ["approved", "approved_for_me"],
+    ["full", "full_access"],
+  ] as const)(
+    "pins the explicit %s permission preset into a fresh one-shot session",
+    async (value, permissionMode) => {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      let runtimeOptions: unknown;
+
+      const exitCode = await runCli(
+        ["run", "inspect", "--permissions", value, "--format", "jsonl"],
+        {
+          stdout,
+          stderr,
+          async createRuntime(events, options) {
+            runtimeOptions = options;
+            return createRuntime(events);
+          },
+        },
+      );
+
+      expect(exitCode).toBe(0);
+      expect(runtimeOptions).toEqual({
+        permissionMode,
+        reuseExistingSession: false,
+      });
+      expect(stderr.value).toBe("");
+    },
+  );
+
+  it.each([
+    ["run", "inspect", "--permissions"],
+    ["run", "inspect", "--permissions", "unknown"],
+    [
+      "run", "inspect", "--permissions", "ask",
+      "--permissions", "full",
+    ],
+  ])("rejects invalid one-shot permission flags before runtime creation", async (...args) => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let created = false;
+
+    const exitCode = await runCli(args, {
+      stdout,
+      stderr,
+      async createRuntime(events) {
+        created = true;
+        return createRuntime(events);
+      },
+    });
+
+    expect(exitCode).toBe(2);
+    expect(created).toBe(false);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toContain("recurs run <prompt>");
+  });
+
   it("streams plain text without duplicating the final answer", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
@@ -1638,6 +1697,7 @@ describe("runCli", () => {
       }),
     ).toBe(0);
     expect(stdout.value).toContain("recurs run <prompt>");
+    expect(stdout.value).toContain("--permissions ask|approved|full");
   });
 
   it("prints exact redacted native authority diagnostics as text and JSON", async () => {

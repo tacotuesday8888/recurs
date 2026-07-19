@@ -32,7 +32,7 @@ npm run package:check
 npm run package:smoke-install
 ```
 
-The first command verifies one executable bundle, its exact external dependencies, size, mode, absence of private workspace imports and build-machine paths, and the five-file tarball allowlist including `THIRD_PARTY_NOTICES.md`. It also runs the release-policy tests and proves publication remains blocked for the exact deliberate license/version/package gates. After a build, the second packs the artifact, installs it into an empty temporary prefix, runs the fresh-state commands, configures a deterministic loopback model, and proves the installed agent can complete one guarded workspace-read tool turn. CI runs both boundaries.
+The first command verifies one executable bundle, its exact external dependencies, size, mode, absence of private workspace imports and build-machine paths, and the five-file tarball allowlist including `THIRD_PARTY_NOTICES.md`. It also runs the release-policy tests and proves publication remains blocked for the exact deliberate license/version/package gates. After a build, the second packs the artifact, installs it into an empty temporary prefix, runs the fresh-state commands, configures a deterministic loopback model, and proves the installed agent can execute a sandboxed command, deny an outside-workspace write, and read the resulting workspace file. CI runs both boundaries.
 
 No package or installer is published today. The package remains `private`, version `0.0.0`, and `UNLICENSED` until the owner selects a license and preview version and makes the source repository public. Direct-runtime dependency notices are complete for the current exact package set. `.github/workflows/publish-npm.yml` is a manual, protected-environment OIDC workflow: it requires a public source repository and exact `vVERSION` tag reachable from `main`, reruns the full Linux/package gates, rejects tokens and mismatched release metadata, and then uses npm trusted publishing with automatic provenance. The npm package/environment trust relationship still has to be configured by the owner before the first release. Bun may later install the npm package, but Node remains the supported runtime and Bun runtime compatibility has not been implemented. Homebrew and curl wait for versioned artifacts; Windows packaging remains later work.
 
@@ -206,9 +206,10 @@ One non-interactive run:
 ```bash
 node packages/cli/dist/main.js run "inspect the repository" --format text
 node packages/cli/dist/main.js run "inspect the repository" --format jsonl
+node packages/cli/dist/main.js run "run the checks" --permissions full --format jsonl
 ```
 
-The no-argument interactive CLI requires a user-present local terminal and rejects recognized automation even when it allocates a TTY. The one-shot prompt examples require a configured local provider or an injected provider. Codex deliberately rejects this unattended path; use the interactive CLI for user-present Codex Plan work. `--format jsonl` emits the same normalized events used by the interactive runtime; it is not a separate agent path.
+The no-argument interactive CLI requires a user-present local terminal and rejects recognized automation even when it allocates a TTY. The one-shot prompt examples require a configured local provider or an injected provider. `--permissions ask|approved|full` explicitly pins that preset into a fresh durable session so automation cannot inherit another session's permission boundary or conversation. Full still preserves credential denials, sensitive and external-path prompts, integrity controls, and the macOS/Linux workspace sandbox; Windows subprocess tools remain unsupported. Without this flag, existing compatible-session reuse remains unchanged. Codex deliberately rejects this unattended path; use the interactive CLI for user-present Codex Plan work. `--format jsonl` emits the same normalized events used by the interactive runtime; it is not a separate agent path.
 
 ### ACP stdio agent
 
@@ -280,6 +281,8 @@ Every tool reports normalized intent before execution. `/permissions` selects on
 | Full Access | Routine workspace, command, network, deployment, and destructive prompts are skipped after explicit confirmation. Sensitive and external paths still ask, and classified credential paths are denied. Integrity controls remain enabled. On macOS and Linux command subprocesses remain sandboxed; Windows subprocess tools are unsupported. |
 
 An explicit outside path can run only after its external-path intent is approved, including in Full Access. A hidden symlink escape remains blocked because the model did not request that outside path explicitly.
+
+For headless execution, `recurs run <prompt> --permissions ask|approved|full` selects the same policies without an interactive confirmation. Supplying the flag is the explicit authorization and always starts a fresh pinned session. In particular, `full` is an auto-approval policy inside the active execution boundary; it never disables the OS sandbox or credential/path guards.
 
 Credential classification is shared across direct and aggregate built-in operations. It covers `.env` and `.env.*`, common private-key and credential filenames, certificate/key suffixes, and auth directories such as `.ssh`, `.aws`, `.azure`, `.docker`, `.gnupg`, `.kube`, and `.config/gcloud`, case-insensitively. Slash and literal-backslash path variants use the same exclusions. Direct or canonical classified targets are denied. List, search, Git status/diff, and checkpoint enumeration exclude them. Patch accepts exact slash-separated declarations without surrounding whitespace or backslashes, rejects rename/copy operations, denies canonical credential aliases before checkpoint capture, and requires Git's complete parsed path set to equal the declared revision-checked files before mutation. Configured `sensitivePatterns` remain a separate approvable policy.
 
