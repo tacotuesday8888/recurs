@@ -163,7 +163,9 @@ export interface TeamRunSupervisorDependencies {
   readonly reviews: Pick<AgentReviewPanel, "run">;
   readonly router: AgentBackendRouter;
   readonly checkpoints: CheckpointStore;
-  backendCandidates(parent: PinnedSessionState): readonly AgentBackendCandidate[];
+  backendCandidates(
+    parent: PinnedSessionState,
+  ): readonly AgentBackendCandidate[] | Promise<readonly AgentBackendCandidate[]>;
   emit(event: RecursEvent): Promise<void>;
   readonly createId?: () => string;
   readonly now?: () => string;
@@ -174,6 +176,19 @@ interface PreparedRun {
   readonly base: GitPatchBase;
   readonly descriptor: TeamRunDescriptor;
   readonly decisions: ReadonlyMap<TeamRunRole, AgentBackendRouteDecision>;
+}
+
+function candidatesForMode(
+  mode: TeamRunPolicySnapshot,
+  candidates: readonly AgentBackendCandidate[],
+): readonly AgentBackendCandidate[] {
+  if (mode.model.selection === "inherit_parent") {
+    return candidates.filter((candidate) => candidate.parent);
+  }
+  const eligible = new Set(mode.model.eligibleBillingSources);
+  return candidates.filter((candidate) =>
+    candidate.parent || eligible.has(candidate.pin.primaryBillingSourceAtCreation)
+  );
 }
 
 interface ClaimedRunHooks {
@@ -653,10 +668,10 @@ export class TeamRunSupervisor {
     }
     const mode = getOperatingModePolicy(parent.agent.operatingMode.id);
     const team = mode.workflow.team;
-    if (mode.version !== 4 || team === null) {
+    if (mode.version < 4 || team === null) {
       throw new ToolError(
         "tool_unavailable",
-        "Durable team execution requires an exact version-4 operating policy",
+        "Durable team execution requires a version-4-or-newer operating policy",
       );
     }
     if (input.tasks.length < 1 || input.tasks.length > team.maxImplementers) {
@@ -708,7 +723,10 @@ export class TeamRunSupervisor {
     if (base.repositoryRoot !== parent.cwd) {
       throw new ToolError("permission_denied", "Team base does not match the parent workspace");
     }
-    const candidates = this.dependencies.backendCandidates(parent);
+    const candidates = candidatesForMode(
+      mode as TeamRunPolicySnapshot,
+      await this.dependencies.backendCandidates(parent),
+    );
     const decisions = new Map<TeamRunRole, AgentBackendRouteDecision>();
     for (const role of ["implement", "review", "repair"] as const) {
       decisions.set(role, this.dependencies.router.select({
@@ -1101,7 +1119,10 @@ export class TeamRunSupervisor {
         "Team run does not have enough frozen budget for a safe resume",
       );
     }
-    const candidates = this.dependencies.backendCandidates(parent);
+    const candidates = candidatesForMode(
+      state.descriptor.policy,
+      await this.dependencies.backendCandidates(parent),
+    );
     const decisions = new Map<TeamRunRole, AgentBackendRouteDecision>();
     for (const role of ["implement", "review", "repair"] as const) {
       const decision = this.dependencies.router.select({

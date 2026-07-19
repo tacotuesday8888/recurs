@@ -359,7 +359,7 @@ export class ChildAgentManager {
     }
     const parent = await this.#parent(context);
     const mode = getOperatingModePolicy(parent.agent.operatingMode.id);
-    if (parent.agent.role !== "parent" || mode.version !== 4 ||
+    if (parent.agent.role !== "parent" || mode.version < 4 ||
       input.operatingMode.id !== mode.id ||
       input.operatingMode.version !== mode.version ||
       input.parentPermissions.executionMode !== context.executionMode ||
@@ -624,10 +624,10 @@ export class ChildAgentManager {
         "Trusted team policy bindings do not match the child profile",
       );
     }
-    if (role !== null && mode.version !== 4) {
+    if (role !== null && mode.version < 4) {
       throw new ToolError(
         "tool_unavailable",
-        "Internal team profiles require an exact version-4 operating policy",
+        "Internal team profiles require a version-4-or-newer operating policy",
       );
     }
     if (options?.team !== undefined && "runId" in options.team &&

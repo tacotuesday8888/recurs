@@ -168,14 +168,34 @@ describe("FileConnectionRegistry", () => {
 
     const first = await registry.read();
     expect(first).toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       revision: 0,
       primaryConnectionId: null,
+      agentRoutes: { implement: null, review: null, repair: null },
       connections: [],
     });
     expect(Object.isFrozen(first)).toBe(true);
     expect(Object.isFrozen(first.connections)).toBe(true);
+    expect(Object.isFrozen(first.agentRoutes)).toBe(true);
     expect(await registry.read()).not.toBe(first);
+  });
+
+  it("normalizes a valid v1 registry with empty agent routes", async () => {
+    const directory = await root();
+    await writePrivate(connectionRegistryPath(directory), `${JSON.stringify({
+      schemaVersion: 1,
+      revision: 7,
+      primaryConnectionId: null,
+      connections: [],
+    })}\n`);
+
+    await expect(new FileConnectionRegistry(directory).read()).resolves.toEqual({
+      schemaVersion: 2,
+      revision: 7,
+      primaryConnectionId: null,
+      agentRoutes: { implement: null, review: null, repair: null },
+      connections: [],
+    });
   });
 
   it("cancels a pre-aborted registry read through the shared lock", async () => {
@@ -199,9 +219,10 @@ describe("FileConnectionRegistry", () => {
     });
 
     expect(saved).toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       revision: 1,
       primaryConnectionId: "local-generic",
+      agentRoutes: { implement: null, review: null, repair: null },
       connections: [local()],
     });
     expect((await lstat(connectionRegistryPath(directory))).mode & 0o777).toBe(
@@ -285,6 +306,40 @@ describe("FileConnectionRegistry", () => {
         schemaVersion: 1,
         revision: Number.MAX_SAFE_INTEGER,
         primaryConnectionId: null,
+        connections: [],
+      },
+      {
+        schemaVersion: 2,
+        revision: 1,
+        primaryConnectionId: null,
+        agentRoutes: {
+          implement: "missing",
+          review: null,
+          repair: null,
+        },
+        connections: [local()],
+      },
+      {
+        schemaVersion: 2,
+        revision: 1,
+        primaryConnectionId: null,
+        agentRoutes: {
+          implement: null,
+          review: "codex-chatgpt",
+          repair: null,
+        },
+        connections: [delegated()],
+      },
+      {
+        schemaVersion: 2,
+        revision: 1,
+        primaryConnectionId: null,
+        agentRoutes: {
+          implement: null,
+          review: null,
+          repair: null,
+          planner: null,
+        },
         connections: [],
       },
     ];

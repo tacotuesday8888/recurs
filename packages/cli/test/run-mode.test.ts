@@ -1209,6 +1209,7 @@ describe("runCli", () => {
         "included_subscription" as const,
         "prepaid_credits" as const,
       ],
+      agentRoles: [] as const,
     };
     for (const argv of [
       ["provider", "list"],
@@ -1414,6 +1415,7 @@ describe("runCli", () => {
           account: "verified (identifier redacted)",
           execution: "Plan-only",
           billingSources: ["included_subscription", "prepaid_credits"],
+          agentRoles: [],
         };
       },
     });
@@ -1423,6 +1425,38 @@ describe("runCli", () => {
     expect(stdout.value).toContain("Primary connection — codex-1");
     expect(stdout.value).toContain("Existing sessions keep their pinned backend");
     expect(stderr.value).toBe("");
+  });
+
+  it("confirms and assigns or clears one exact team-agent route", async () => {
+    for (const [target, expected] of [
+      ["worker-1", "worker-1"],
+      ["parent", null],
+    ] as const) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      let assigned: { role: string; id: string | null } | undefined;
+      const code = await runCli(["account", "route", "implement", target], {
+        stdout,
+        stderr,
+        interactive: true,
+        automation: false,
+        async confirm(message) {
+          expect(message).toContain("provider billing still applies");
+          return true;
+        },
+        async createRuntime() { throw new Error("runtime must not start"); },
+        async setAccountAgentRoute(role, id) {
+          assigned = { role, id };
+          return { role, connectionId: id };
+        },
+      });
+      expect(code).toBe(0);
+      expect(assigned).toEqual({ role: "implement", id: expected });
+      expect(stdout.value).toContain(
+        expected === null ? "inherit the parent backend" : "when the operating mode",
+      );
+      expect(stderr.value).toBe("");
+    }
   });
 
   it("verifies one exact account only from a local manual terminal", async () => {
@@ -1564,6 +1598,8 @@ describe("runCli", () => {
       ["account", "disconnect", "codex-1", "--yes"],
       ["account", "disconnect", "bad\u001b[31m-id"],
       ["account", "set-primary", "bad\u202e-id"],
+      ["account", "route", "explore", "codex-1"],
+      ["account", "route", "review", "bad id"],
       ["account", "unknown", "codex-1"],
     ]) {
       let called = false;

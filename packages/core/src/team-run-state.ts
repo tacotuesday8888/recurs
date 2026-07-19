@@ -503,7 +503,7 @@ function exactDescriptor(value: unknown, runId: string): value is TeamRunDescrip
   }
 
   const mode = getOperatingModePolicy(value.operatingModeId);
-  if (mode.version !== 4 || value.operatingModeVersion !== mode.version ||
+  if (mode.version < 4 || value.operatingModeVersion !== mode.version ||
     !isDeepStrictEqual(value.policy, mode) || mode.workflow.team === null ||
     mode.workflow.team.maxRepairRounds === undefined ||
     !isObject(value.allocation) || !hasExactKeys(value.allocation, [

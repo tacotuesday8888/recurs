@@ -15,6 +15,7 @@ import {
   type NativeAuthorityPort,
   type NativeAuthorityStatus,
   type NativeOpenAIResponsesPort,
+  type TeamRunRole,
 } from "@recurs/contracts";
 import {
   detectLocalRuntimes,
@@ -37,6 +38,7 @@ import {
   setupEnvironmentConnection,
   setupOpenAIConnection,
   type ConnectionDisconnection,
+  type AgentRouteAssignment,
   type ConnectionVerification,
   type CodexConnectionConfiguration,
   type EnvironmentConnectionConfiguration,
@@ -59,6 +61,7 @@ import {
   listAccountSummaries,
   listProviderSummaries,
   disconnectAccount,
+  setAccountAgentRoute,
   setPrimaryAccount,
   verifyAccount,
   type AccountSummary,
@@ -116,6 +119,7 @@ Usage:
   recurs provider models --provider <id> --key-env <ENV> [--json]
   recurs account list [--json]
   recurs account set-primary <id>
+  recurs account route <implement|review|repair> <id|parent>
   recurs account verify <id>
   recurs account disconnect <id>
   recurs doctor native [--json]  Inspect native authority status
@@ -194,6 +198,10 @@ export interface CliDependencies {
   ): Promise<readonly LocalRuntimeDetection[]>;
   listAccounts?(): Promise<readonly AccountSummary[]>;
   setPrimaryAccount?(id: string): Promise<AccountSummary>;
+  setAccountAgentRoute?(
+    role: TeamRunRole,
+    id: string | null,
+  ): Promise<AgentRouteAssignment>;
   verifyAccount?(id: string, cwd: string): Promise<ConnectionVerification>;
   disconnectAccount?(id: string): Promise<ConnectionDisconnection>;
 }
@@ -405,7 +413,7 @@ async function renderOpenAIOutcome(
   const connection = outcome.connection;
   await writeOutput(
     dependencies.stdout,
-    `Stored — ${connection.label} · ${connection.modelId}\nCredential: native authority (identifier redacted)\nBilling: metered provider API, separate from consumer subscriptions\nActivation: ready through the signed native authority\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}${outcome.cleanupPending ? "Activation cleanup remains pending; run recurs setup openai --recover.\n" : ""}`,
+    `Stored — ${connection.label} · ${connection.modelId}\nCredential: native authority (identifier redacted)\nBilling: metered provider API, separate from consumer subscriptions\nActivation: ready through the signed native authority\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it, or recurs account route implement ${connection.id} to assign team work\n`}${outcome.cleanupPending ? "Activation cleanup remains pending; run recurs setup openai --recover.\n" : ""}`,
   );
   return 0;
 }
@@ -579,6 +587,11 @@ function parseProviderCommand(args: readonly string[]): ProviderCommand | null {
 type AccountCommand =
   | { readonly kind: "list"; readonly json: boolean }
   | { readonly kind: "set_primary"; readonly id: string }
+  | {
+      readonly kind: "route";
+      readonly role: TeamRunRole;
+      readonly id: string | null;
+    }
   | { readonly kind: "verify"; readonly id: string }
   | { readonly kind: "disconnect"; readonly id: string };
 
@@ -587,6 +600,15 @@ const ACCOUNT_CONNECTION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 function parseAccountCommand(args: readonly string[]): AccountCommand | null {
   const listed = parseListArguments(args, false);
   if (listed !== null) return { kind: "list", json: listed.json };
+  if (args[0] === "route" && args.length === 3) {
+    const role = args[1];
+    const id = args[2];
+    if ((role === "implement" || role === "review" || role === "repair") &&
+      id !== undefined && (id === "parent" || ACCOUNT_CONNECTION_ID.test(id))) {
+      return { kind: "route", role, id: id === "parent" ? null : id };
+    }
+    return null;
+  }
   if (args.length !== 2) return null;
   const [action, id] = args;
   if (id === undefined || !ACCOUNT_CONNECTION_ID.test(id)) return null;
@@ -623,6 +645,7 @@ function accountText(accounts: readonly AccountSummary[]): string {
     `  Provider: ${account.providerId} · ${account.adapterId}`,
     `  Model: ${account.modelId} · ${account.execution}`,
     `  Account: ${account.account}`,
+    `  Team roles: ${account.agentRoles.length === 0 ? "none" : account.agentRoles.join(", ")}`,
     `  Billing: ${account.billingSources.join(" + ")}`,
   ].join("\n")).join("\n\n")}\n`;
 }
@@ -1030,6 +1053,35 @@ export async function runCli(
         );
         return 2;
       }
+      if (command.kind === "route") {
+        if (dependencies.setAccountAgentRoute === undefined ||
+          dependencies.confirm === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const target = command.id ?? "the parent backend";
+        const confirmed = await dependencies.confirm(
+          `Route future ${command.role} team agents to ${target}? Existing runs keep their frozen routes and provider billing still applies.`,
+        );
+        if (!confirmed) {
+          await writeOutput(
+            dependencies.stderr,
+            "Error: Agent route change was not confirmed\n",
+          );
+          return 2;
+        }
+        const route = await dependencies.setAccountAgentRoute(
+          command.role,
+          command.id,
+        );
+        await writeOutput(
+          dependencies.stdout,
+          route.connectionId === null
+            ? `${route.role} team agents will inherit the parent backend.\n`
+            : `${route.role} team agents will use ${route.connectionId} when the operating mode and live policy permit it; otherwise they inherit the parent backend.\n`,
+        );
+        return 0;
+      }
       if (command.kind === "verify") {
         if (dependencies.verifyAccount === undefined) {
           await writeOutput(dependencies.stderr, help);
@@ -1116,7 +1168,7 @@ export async function runCli(
         const connection = await dependencies.setupEnvironment(byokCommand);
         await writeOutput(
           dependencies.stdout,
-          `Ready — ${connection.label} · ${connection.modelId}\nProvider: ${connection.providerId}\nCredential: ${connection.credentialEnvironmentVariable} (value not stored; fingerprint bound)\nBilling: ${connection.billingSelection}\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}`,
+          `Ready — ${connection.label} · ${connection.modelId}\nProvider: ${connection.providerId}\nCredential: ${connection.credentialEnvironmentVariable} (value not stored; fingerprint bound)\nBilling: ${connection.billingSelection}\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it, or recurs account route implement ${connection.id} to assign team work\n`}`,
         );
         return 0;
       } catch (error) {
@@ -1217,7 +1269,7 @@ export async function runCli(
       const connection = await dependencies.setupLocal(input);
       await writeOutput(
         dependencies.stdout,
-        `Ready — ${connection.label} · ${connection.modelId}\nEndpoint: ${connection.baseUrl}\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}`,
+        `Ready — ${connection.label} · ${connection.modelId}\nEndpoint: ${connection.baseUrl}\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it, or recurs account route implement ${connection.id} to assign team work\n`}`,
       );
       return 0;
     } catch (error) {
@@ -1512,6 +1564,8 @@ export async function runCliProcess(
         detectLocalRuntimes(signal === undefined ? {} : { signal }),
       listAccounts: () => listAccountSummaries(dataDirectory),
       setPrimaryAccount: (id) => setPrimaryAccount(dataDirectory, id),
+      setAccountAgentRoute: (role, id) =>
+        setAccountAgentRoute(dataDirectory, role, id),
       verifyAccount: (id, cwd) => verifyAccount(
         dataDirectory,
         id,

@@ -1537,6 +1537,125 @@ describe("standalone assembly without a provider", () => {
     expect(toolFeedback).not.toContain("Legacy team execution");
   });
 
+  it("freezes an explicitly configured secondary model into the v5 Implement route", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-v5-model-route-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    await execFileAsync("git", ["init", "--quiet"], { cwd: workspace });
+    await writeFile(path.join(workspace, "README.md"), "base\n", "utf8");
+    await execFileAsync("git", ["add", "README.md"], { cwd: workspace });
+    await execFileAsync("git", [
+      "-c", "user.name=Recurs Tests",
+      "-c", "user.email=tests@recurs.invalid",
+      "commit", "--quiet", "-m", "initial",
+    ], { cwd: workspace });
+    const dataDirectory = path.join(root, "data");
+    const worker: BrokeredModelProviderConnectionRecord = {
+      ...structuredClone(brokeredConnection),
+      id: "72000000-0000-4000-8000-000000000002",
+      providerId: "anthropic-api",
+      adapterId: "anthropic-messages",
+      activationProfileId: "anthropic_api_v1",
+      label: "Anthropic worker",
+      modelId: "claude-opus-4-6",
+      policyRevision: "anthropic-api-2026-07-11",
+      credentialIdentityFingerprint: `sha256:${"c".repeat(64)}`,
+      billingPolicy: {
+        ...structuredClone(brokeredConnection.billingPolicy),
+        revision: "billing:anthropic-api:2026-07-11",
+        disclosureRevision: "billing-disclosure:anthropic-api:2026-07-11",
+      },
+      billingSelection: {
+        ...structuredClone(brokeredConnection.billingSelection),
+        policyRevision: "billing:anthropic-api:2026-07-11",
+        disclosureRevision: "billing-disclosure:anthropic-api:2026-07-11",
+      },
+    };
+    const registry = new FileConnectionRegistry(dataDirectory);
+    await registry.commit(0, (draft) => {
+      draft.connections.push(structuredClone(brokeredConnection), worker);
+      draft.primaryConnectionId = brokeredConnection.id;
+      draft.agentRoutes = { ...draft.agentRoutes, implement: worker.id };
+    });
+    let parentCalls = 0;
+    const nativeOpenAIResponses: NativeOpenAIResponsesPort = {
+      async *streamOpenAIResponses(request) {
+        const connectionId = request.directContext?.authorization.connectionId;
+        if (connectionId === worker.id) {
+          yield { type: "text_delta", text: "Worker inspected the task." };
+          yield { type: "done", stopReason: "complete" };
+          return;
+        }
+        parentCalls += 1;
+        if (parentCalls === 1) {
+          yield {
+            type: "tool_call",
+            call: {
+              id: "route-team-call",
+              name: "delegate_team",
+              arguments: {
+                description: "Prove model routing",
+                tasks: [{
+                  description: "Inspect the candidate",
+                  prompt: "Inspect the repository without changing it.",
+                }],
+                review: { instructions: "Review the candidate." },
+              },
+            },
+          };
+          yield { type: "done", stopReason: "tool_calls" };
+          return;
+        }
+        yield { type: "text_delta", text: "Routing attempt recorded." };
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory,
+        nativeOpenAIResponses,
+      },
+    );
+    runtime.setConfirmHandler(async () => true);
+
+    await expect(runtime.submit("Run the configured team.")).resolves.toMatchObject({
+      finalText: "Routing attempt recorded.",
+    });
+    const projectId = createHash("sha256")
+      .update(await realpath(workspace))
+      .digest("hex")
+      .slice(0, 24);
+    const store = new JsonlTeamRunStore(path.join(
+      dataDirectory,
+      "projects",
+      projectId,
+      "team-runs",
+    ));
+    const [entry] = await store.list(runtime.session.id);
+    if (entry === undefined) throw new Error("Expected a routed team run");
+    const state = await store.load(entry.id);
+    expect(state.descriptor.operatingModeId).toBe("balanced_v5");
+    expect(state.descriptor.routes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "implement",
+        strategy: "role_candidate",
+        candidateId: `configured-${createHash("sha256").update(worker.id).digest("hex").slice(0, 32)}`,
+        pin: expect.objectContaining({
+          connectionId: worker.id,
+          modelId: worker.modelId,
+        }),
+      }),
+      expect.objectContaining({
+        role: "review",
+        strategy: "inherit_parent",
+        candidateId: "parent-session-pin",
+      }),
+    ]));
+  });
+
   it("assembles one shared delegated continuation foundation per runtime", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-delegated-foundation-"));
     directories.push(root);

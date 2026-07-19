@@ -1,5 +1,6 @@
 import type { IntegrationFailure } from "./failures.js";
 import type { ProviderUsage } from "./model.js";
+import type { BillingSource } from "./connections.js";
 
 export type AgentPermissionMode =
   | "ask_always"
@@ -185,9 +186,14 @@ export type OperatingModeId =
   | "standard_v4"
   | "balanced_v4"
   | "performance_v4"
-  | "max_v4";
+  | "max_v4"
+  | "economy_v5"
+  | "standard_v5"
+  | "balanced_v5"
+  | "performance_v5"
+  | "max_v5";
 
-export type OperatingModeVersion = 1 | 2 | 3 | 4;
+export type OperatingModeVersion = 1 | 2 | 3 | 4 | 5;
 
 export type AgentTeamQualityStandard =
   | "essential"
@@ -217,15 +223,48 @@ export interface OperatingModePolicy {
   readonly id: OperatingModeId;
   readonly version: OperatingModeVersion;
   readonly displayName: string;
-  readonly model: {
-    readonly selection: "inherit_parent";
-  };
+  readonly model:
+    | { readonly selection: "inherit_parent" }
+    | {
+        readonly selection: "configured_role_candidate";
+        readonly fallback: "inherit_parent";
+        readonly eligibleBillingSources: readonly BillingSource[];
+      };
   readonly orchestration: AgentLimits;
   readonly workflow: {
     readonly maxChildrenPerRun: number;
     readonly maxRequestsPerRun: number;
     readonly team: AgentTeamPolicy | null;
   };
+}
+
+function routedPolicy(
+  id: OperatingModeId,
+  displayName: string,
+  maxConcurrentChildren: number,
+  maxRequests: number,
+  maxReportedCostUsd: number,
+  maxChildrenPerRun: number,
+  teamPolicy: AgentTeamPolicy,
+  eligibleBillingSources: readonly BillingSource[],
+): OperatingModePolicy {
+  return Object.freeze({
+    ...policy(
+      id,
+      5,
+      displayName,
+      maxConcurrentChildren,
+      maxRequests,
+      maxReportedCostUsd,
+      maxChildrenPerRun,
+      teamPolicy,
+    ),
+    model: Object.freeze({
+      selection: "configured_role_candidate" as const,
+      fallback: "inherit_parent" as const,
+      eligibleBillingSources: Object.freeze([...eligibleBillingSources]),
+    }),
+  });
 }
 
 function policy(
@@ -324,10 +363,23 @@ export const operatingModePolicies: readonly OperatingModePolicy[] =
       teamV4("thorough", 3, 2, 3, 1)),
     policy("max_v4", 4, "Max", 6, 216, 25, 18,
       teamV4("maximum", 4, 2, 4, 2)),
+    routedPolicy("economy_v5", "Economy", 1, 8, 0.25, 2,
+      teamV4("essential", 1, 1, 1, 0), ["local_compute"]),
+    routedPolicy("standard_v5", "Standard", 2, 36, 1, 6,
+      teamV4("standard", 1, 1, 2, 1), ["local_compute", "included_subscription"]),
+    routedPolicy("balanced_v5", "Balanced", 3, 56, 3, 7,
+      teamV4("balanced", 2, 1, 2, 1),
+      ["local_compute", "included_subscription", "metered_api"]),
+    routedPolicy("performance_v5", "Performance", 4, 100, 10, 10,
+      teamV4("thorough", 3, 2, 3, 1),
+      ["local_compute", "included_subscription", "metered_api"]),
+    routedPolicy("max_v5", "Max", 6, 216, 25, 18,
+      teamV4("maximum", 4, 2, 4, 2),
+      ["local_compute", "included_subscription", "metered_api"]),
   ]);
 
 export const LEGACY_OPERATING_MODE_ID: OperatingModeId = "balanced_v1";
-export const DEFAULT_OPERATING_MODE_ID: OperatingModeId = "balanced_v4";
+export const DEFAULT_OPERATING_MODE_ID: OperatingModeId = "balanced_v5";
 
 const policiesById = new Map(
   operatingModePolicies.map((item) => [item.id, item] as const),

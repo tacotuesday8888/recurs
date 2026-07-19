@@ -17,6 +17,7 @@ import {
 export {
   ConnectionRegistryError,
   type BrokeredModelProviderConnectionRecord,
+  type AgentRoleRoutes,
   type ConnectionRecord,
   type ConnectionRegistryDocument,
   type ConnectionRegistryErrorCode,

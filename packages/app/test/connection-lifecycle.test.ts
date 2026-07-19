@@ -177,6 +177,7 @@ describe("connection lifecycle service", () => {
       account: "verified (identifier redacted)",
       execution: "Act + Plan",
       billingSources: ["metered_api"],
+      agentRoles: [],
     }]);
     expect(JSON.stringify(summaries)).not.toContain(
       brokered().credentialIdentityFingerprint,
@@ -241,6 +242,7 @@ describe("connection lifecycle service", () => {
         account: "local endpoint (no credential)",
         execution: "Act + Plan",
         billingSources: ["local_compute"],
+        agentRoles: [],
       },
       {
         id: "codex-secondary",
@@ -253,6 +255,7 @@ describe("connection lifecycle service", () => {
         account: "verified (identifier redacted)",
         execution: "Plan-only",
         billingSources: ["included_subscription", "prepaid_credits"],
+        agentRoles: [],
       },
     ]);
     const serialized = JSON.stringify(summaries);
@@ -289,9 +292,39 @@ describe("connection lifecycle service", () => {
     });
   });
 
+  it("assigns explicit direct-provider team roles and rejects Plan-only routes", async () => {
+    const { registry } = await seededRegistry();
+    const service = new ConnectionLifecycleService(registry);
+
+    await expect(service.setAgentRoute("implement", "local-primary"))
+      .resolves.toEqual({ role: "implement", connectionId: "local-primary" });
+    const assigned = await registry.read();
+    expect(assigned.agentRoutes).toEqual({
+      implement: "local-primary",
+      review: null,
+      repair: null,
+    });
+    expect((await service.list()).find((entry) => entry.id === "local-primary")?.agentRoles)
+      .toEqual(["implement"]);
+    await service.setAgentRoute("implement", "local-primary");
+    expect((await registry.read()).revision).toBe(assigned.revision);
+
+    await expect(service.setAgentRoute("review", "codex-secondary"))
+      .rejects.toMatchObject({
+        code: "operation_unavailable",
+        message: "Plan-only delegated connections cannot run team roles",
+      });
+    await expect(service.setAgentRoute("implement", null)).resolves.toEqual({
+      role: "implement",
+      connectionId: null,
+    });
+    expect((await registry.read()).agentRoutes.implement).toBeNull();
+  });
+
   it("disconnects exact metadata without implicitly promoting another connection", async () => {
     const { registry } = await seededRegistry();
     const service = new ConnectionLifecycleService(registry);
+    await service.setAgentRoute("implement", "local-primary");
 
     await expect(service.disconnect("codex-secondary")).resolves.toEqual({
       connectionId: "codex-secondary",
@@ -307,6 +340,7 @@ describe("connection lifecycle service", () => {
     });
     expect(await registry.read()).toMatchObject({
       primaryConnectionId: null,
+      agentRoutes: { implement: null, review: null, repair: null },
       connections: [],
     });
     await expect(service.disconnect("local-primary")).rejects.toMatchObject({
