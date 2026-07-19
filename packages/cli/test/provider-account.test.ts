@@ -172,6 +172,7 @@ describe("provider and account projections", () => {
       account: "verified (identifier redacted)",
       execution: "Plan-only",
       billingSources: ["included_subscription", "prepaid_credits"],
+      agentRoles: [],
     }]);
     const serialized = JSON.stringify(summaries);
     expect(serialized).not.toContain(email);

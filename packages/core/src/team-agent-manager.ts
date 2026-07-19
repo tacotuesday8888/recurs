@@ -311,7 +311,7 @@ export class TeamAgentManager {
       parent.cwd !== context.cwd) {
       return null;
     }
-    return getOperatingModePolicy(parent.agent.operatingMode.id).version === 4
+    return getOperatingModePolicy(parent.agent.operatingMode.id).version >= 4
       ? supervisor
       : null;
   }

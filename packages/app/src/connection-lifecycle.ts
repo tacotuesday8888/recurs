@@ -1,4 +1,4 @@
-import type { BillingSource } from "@recurs/contracts";
+import type { BillingSource, TeamRunRole } from "@recurs/contracts";
 
 import {
   ConnectionRegistryError,
@@ -88,6 +88,12 @@ export interface ConnectionSummary {
     | "environment credential (value not stored)";
   readonly execution: "Plan-only" | "Act + Plan";
   readonly billingSources: readonly BillingSource[];
+  readonly agentRoles: readonly TeamRunRole[];
+}
+
+export interface AgentRouteAssignment {
+  readonly role: TeamRunRole;
+  readonly connectionId: string | null;
 }
 
 export type ConnectionVerificationDecision =
@@ -134,7 +140,11 @@ function deepFreeze<T>(value: T): T {
 function summary(
   connection: ConnectionRecord,
   primaryConnectionId: string | null,
+  agentRoutes: ConnectionRegistryDocument["agentRoutes"],
 ): ConnectionSummary {
+  const agentRoles = (["implement", "review", "repair"] as const).filter(
+    (role) => agentRoutes[role] === connection.id,
+  );
   if (connection.kind === "local_openai_compatible") {
     return deepFreeze({
       id: connection.id,
@@ -147,6 +157,7 @@ function summary(
       account: "local endpoint (no credential)" as const,
       execution: "Act + Plan" as const,
       billingSources: ["local_compute" as const],
+      agentRoles,
     });
   }
   if (connection.kind === "environment_model_provider") {
@@ -161,6 +172,7 @@ function summary(
       account: "environment credential (value not stored)" as const,
       execution: "Act + Plan" as const,
       billingSources: [...connection.billingSelection.allowedSources],
+      agentRoles,
     });
   }
   return deepFreeze({
@@ -176,6 +188,7 @@ function summary(
       ? "Plan-only" as const
       : "Act + Plan" as const,
     billingSources: [...connection.billingSelection.allowedSources],
+    agentRoles,
   });
 }
 
@@ -245,7 +258,7 @@ export class ConnectionLifecycleService {
       );
       throwIfAborted(signal);
       const summaries = document.connections.map((connection) =>
-        summary(connection, document.primaryConnectionId)
+        summary(connection, document.primaryConnectionId, document.agentRoutes)
       );
       summaries.sort((left, right) =>
         Number(right.primary) - Number(left.primary) ||
@@ -272,7 +285,7 @@ export class ConnectionLifecycleService {
       }
       const record = exactRecord(current, id);
       if (current.primaryConnectionId === record.id) {
-        return summary(record, current.primaryConnectionId);
+        return summary(record, current.primaryConnectionId, current.agentRoutes);
       }
       try {
         const committed = await this.#registry.commit(
@@ -284,7 +297,7 @@ export class ConnectionLifecycleService {
           signalOptions(signal),
         );
         const saved = exactRecord(committed, record.id);
-        return summary(saved, committed.primaryConnectionId);
+        return summary(saved, committed.primaryConnectionId, committed.agentRoutes);
       } catch (error) {
         if (revisionConflict(error) && attempt < MAX_MUTATION_ATTEMPTS - 1) {
           continue;
@@ -336,6 +349,17 @@ export class ConnectionLifecycleService {
             if (draft.primaryConnectionId === record.id) {
               draft.primaryConnectionId = null;
             }
+            draft.agentRoutes = {
+              implement: draft.agentRoutes.implement === record.id
+                ? null
+                : draft.agentRoutes.implement,
+              review: draft.agentRoutes.review === record.id
+                ? null
+                : draft.agentRoutes.review,
+              repair: draft.agentRoutes.repair === record.id
+                ? null
+                : draft.agentRoutes.repair,
+            };
           },
           signalOptions(signal),
         );
@@ -391,7 +415,11 @@ export class ConnectionLifecycleService {
       }
       return deepFreeze({
         verified: true,
-        connection: summary(stored, document.primaryConnectionId),
+        connection: summary(
+          stored,
+          document.primaryConnectionId,
+          document.agentRoutes,
+        ),
       });
     } catch (error) {
       if (error instanceof ConnectionLifecycleError) throw error;
@@ -401,5 +429,68 @@ export class ConnectionLifecycleService {
         "Connection verification failed",
       );
     }
+  }
+
+  async setAgentRoute(
+    role: TeamRunRole,
+    id: string | null,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<AgentRouteAssignment> {
+    if (role !== "implement" && role !== "review" && role !== "repair") {
+      throw new ConnectionLifecycleError(
+        "operation_unavailable",
+        "Agent role is unavailable",
+      );
+    }
+    const signal = options.signal ?? new AbortController().signal;
+    for (let attempt = 0; attempt < MAX_MUTATION_ATTEMPTS; attempt += 1) {
+      throwIfAborted(signal);
+      let current: ConnectionRegistryDocument;
+      try {
+        current = await this.#registry.migrateLegacyLocal(signalOptions(signal));
+      } catch (error) {
+        throw registryFailure(error, signal);
+      }
+      if (id !== null) {
+        const record = exactRecord(current, id);
+        if (record.kind === "delegated_agent") {
+          throw new ConnectionLifecycleError(
+            "operation_unavailable",
+            "Plan-only delegated connections cannot run team roles",
+          );
+        }
+      }
+      if (current.agentRoutes[role] === id) {
+        return deepFreeze({ role, connectionId: id });
+      }
+      try {
+        const committed = await this.#registry.commit(
+          current.revision,
+          (draft) => {
+            if (id !== null) {
+              const record = exactRecord(draft, id);
+              if (record.kind === "delegated_agent") {
+                throw new ConnectionLifecycleError(
+                  "operation_unavailable",
+                  "Plan-only delegated connections cannot run team roles",
+                );
+              }
+            }
+            draft.agentRoutes = { ...draft.agentRoutes, [role]: id };
+          },
+          signalOptions(signal),
+        );
+        return deepFreeze({ role, connectionId: committed.agentRoutes[role] });
+      } catch (error) {
+        if (revisionConflict(error) && attempt < MAX_MUTATION_ATTEMPTS - 1) {
+          continue;
+        }
+        throw registryFailure(error, signal);
+      }
+    }
+    throw new ConnectionLifecycleError(
+      "registry_changed",
+      "Connection registry changed; try again",
+    );
   }
 }

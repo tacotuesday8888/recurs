@@ -6,6 +6,7 @@ import {
   createHostInvocation,
   deriveTrustedRunContext,
   getOperatingModePolicy,
+  type OperatingModeId,
   type CoordinatedRunInput,
   type IntegrationFailure,
   type RunCoordinator,
@@ -19,7 +20,10 @@ import {
 } from "@recurs/tools";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AgentBackendRouter } from "../src/agent-backend-router.js";
+import {
+  AgentBackendRouter,
+  type AgentBackendCandidate,
+} from "../src/agent-backend-router.js";
 import {
   AgentReviewPanel,
   type AgentReviewVerdictV2,
@@ -171,6 +175,8 @@ interface HarnessOptions {
   readonly pauseCandidateReady?: boolean;
   readonly pauseStageRelease?: boolean;
   readonly pauseReadyEvent?: boolean;
+  readonly operatingModeId?: OperatingModeId;
+  readonly secondaryCandidate?: AgentBackendCandidate;
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -214,7 +220,7 @@ async function harness(options: HarnessOptions = {}) {
     backend: pin,
     at: testAt,
   });
-  const policy = getOperatingModePolicy("balanced_v4");
+  const policy = getOperatingModePolicy(options.operatingModeId ?? "balanced_v4");
   await sessions.withSessionMutation(parent.id, parent.lastSequence, async (lease) => {
     await lease.append({
       type: "mode_updated",
@@ -559,7 +565,7 @@ async function harness(options: HarnessOptions = {}) {
     router,
     checkpoints,
     backendCandidates(candidateParent) {
-      return [{
+      const parentCandidate: AgentBackendCandidate = {
         id: "parent",
         pin: candidateParent.backend.pin,
         parent: true,
@@ -569,7 +575,10 @@ async function harness(options: HarnessOptions = {}) {
         hostTools: true,
         background: options.backgroundCandidate ?? true,
         ready: true,
-      }];
+      };
+      return options.secondaryCandidate === undefined
+        ? [parentCandidate]
+        : [options.secondaryCandidate, parentCandidate];
     },
     async emit(event) {
       attemptedEvents.push(event);
@@ -736,6 +745,91 @@ function implementationFinishOrder(state: TeamRunState): number[] {
 }
 
 describe("TeamRunSupervisor durable foreground pipeline", () => {
+  it("freezes eligible v5 role candidates while preserving historical parent routing", async () => {
+    const candidate: AgentBackendCandidate = {
+      id: "configured-worker",
+      pin: testBackendPin("worker-model", "worker-connection"),
+      parent: false,
+      roles: ["implement"],
+      executionModes: ["act"],
+      permissionModes: ["approved_for_me"],
+      hostTools: true,
+      background: true,
+      ready: true,
+    };
+    const routed = await harness({
+      operatingModeId: "balanced_v5",
+      secondaryCandidate: candidate,
+    });
+    const routedResult = await routed.supervisor.startForeground(
+      routed.input,
+      routed.context,
+    );
+    const routedState = await routed.state(routedResult.metadata.teamId);
+    expect(routedState.descriptor.routes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "implement",
+        strategy: "role_candidate",
+        candidateId: candidate.id,
+        pin: candidate.pin,
+      }),
+      expect.objectContaining({
+        role: "review",
+        strategy: "inherit_parent",
+        candidateId: "parent",
+      }),
+    ]));
+
+    const historical = await harness({
+      operatingModeId: "balanced_v4",
+      secondaryCandidate: candidate,
+    });
+    const historicalResult = await historical.supervisor.startForeground(
+      historical.input,
+      historical.context,
+    );
+    const historicalState = await historical.state(historicalResult.metadata.teamId);
+    expect(historicalState.descriptor.routes.every((route) =>
+      route.strategy === "inherit_parent" && route.candidateId === "parent"
+    )).toBe(true);
+  });
+
+  it("falls back to the parent when a configured route exceeds the v5 mode billing policy", async () => {
+    const meteredPin = {
+      ...testBackendPin("metered-worker", "metered-connection"),
+      primaryBillingSourceAtCreation: "metered_api" as const,
+      billingSelectionAtCreation: {
+        ...testBackendPin().billingSelectionAtCreation,
+        allowedSources: ["metered_api" as const],
+      },
+    };
+    const test = await harness({
+      operatingModeId: "economy_v5",
+      secondaryCandidate: {
+        id: "metered-worker",
+        pin: meteredPin,
+        parent: false,
+        roles: ["implement"],
+        executionModes: ["act"],
+        permissionModes: ["approved_for_me"],
+        hostTools: true,
+        background: true,
+        ready: true,
+      },
+    });
+    const result = await test.supervisor.startForeground({
+      ...test.input,
+      tasks: test.input.tasks.slice(0, 1),
+    }, test.context);
+    const state = await test.state(result.metadata.teamId);
+    expect(state.descriptor.routes.find((route) => route.role === "implement"))
+      .toMatchObject({
+        strategy: "inherit_parent",
+        candidateId: "parent",
+        pin: testBackendPin("team-model"),
+      });
+  });
+
   it("admits one cross-instance team, records the lease owner, and releases it", async () => {
     const test = await harness();
     const other = test.createSupervisor();

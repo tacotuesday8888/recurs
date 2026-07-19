@@ -3,6 +3,7 @@ import type {
   BillingSelection,
   BillingSelectionMode,
   BillingSource,
+  TeamRunRole,
 } from "@recurs/contracts";
 import { normalizeLoopbackOpenAIBaseUrl } from "@recurs/providers";
 
@@ -128,10 +129,13 @@ export type ConnectionRecord =
   | BrokeredModelProviderConnectionRecord
   | EnvironmentModelProviderConnectionRecord;
 
+export type AgentRoleRoutes = Readonly<Record<TeamRunRole, string | null>>;
+
 export interface ConnectionRegistryDocument {
-  schemaVersion: 1;
+  schemaVersion: 2;
   revision: number;
   primaryConnectionId: string | null;
+  agentRoutes: AgentRoleRoutes;
   connections: ConnectionRecord[];
 }
 
@@ -890,14 +894,25 @@ export function parseRegistryDocument(
 ): ConnectionRegistryDocument {
   rejectSecretMaterial(value);
   if (!isRecord(value)) throw invalidRegistry();
-  exactKeys(value, [
-    "schemaVersion",
-    "revision",
-    "primaryConnectionId",
-    "connections",
-  ]);
+  if (value.schemaVersion === 1) {
+    exactKeys(value, [
+      "schemaVersion",
+      "revision",
+      "primaryConnectionId",
+      "connections",
+    ]);
+  } else if (value.schemaVersion === 2) {
+    exactKeys(value, [
+      "schemaVersion",
+      "revision",
+      "primaryConnectionId",
+      "agentRoutes",
+      "connections",
+    ]);
+  } else {
+    throw invalidRegistry();
+  }
   if (
-    value.schemaVersion !== 1 ||
     !Number.isSafeInteger(value.revision) ||
     (value.revision as number) < 0 ||
     (value.revision as number) > MAX_REVISION ||
@@ -922,10 +937,33 @@ export function parseRegistryDocument(
     });
     if (!ids.has(primaryConnectionId)) throw invalidRegistry();
   }
+  const agentRoutes: Record<TeamRunRole, string | null> = {
+    implement: null,
+    review: null,
+    repair: null,
+  };
+  if (value.schemaVersion === 2) {
+    if (!isRecord(value.agentRoutes)) throw invalidRegistry();
+    exactKeys(value.agentRoutes, ["implement", "review", "repair"]);
+    for (const role of ["implement", "review", "repair"] as const) {
+      const route = value.agentRoutes[role];
+      if (route === null) continue;
+      const connectionId = boundedString(route, 128, {
+        trim: true,
+        pattern: ID_PATTERN,
+      });
+      const connection = connections.find((candidate) => candidate.id === connectionId);
+      if (connection === undefined || connection.kind === "delegated_agent") {
+        throw invalidRegistry();
+      }
+      agentRoutes[role] = connectionId;
+    }
+  }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     revision: value.revision as number,
     primaryConnectionId,
+    agentRoutes,
     connections,
   };
 }
@@ -988,9 +1026,10 @@ export function mutableRegistryDocument(
   document: ConnectionRegistryDocument,
 ): ConnectionRegistryDocument {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     revision: document.revision,
     primaryConnectionId: document.primaryConnectionId,
+    agentRoutes: { ...document.agentRoutes },
     connections: document.connections.map(cloneConnection),
   };
 }
@@ -1011,9 +1050,10 @@ export function immutableRegistryDocument(
 
 export function emptyRegistryDocument(): ConnectionRegistryDocument {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     revision: 0,
     primaryConnectionId: null,
+    agentRoutes: { implement: null, review: null, repair: null },
     connections: [],
   };
 }
@@ -1024,9 +1064,10 @@ export function nextRegistryDocument(
 ): ConnectionRegistryDocument {
   if (!isRecord(proposed)) throw invalidRegistry();
   return parseRegistryDocument({
-    schemaVersion: 1,
+    schemaVersion: 2,
     revision: current.revision + 1,
     primaryConnectionId: proposed.primaryConnectionId,
+    agentRoutes: proposed.agentRoutes ?? current.agentRoutes,
     connections: proposed.connections,
   });
 }

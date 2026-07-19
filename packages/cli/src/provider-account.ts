@@ -5,6 +5,7 @@ import type {
   ProviderManifest,
   ProviderProtocol,
   SupportStatus,
+  TeamRunRole,
 } from "@recurs/contracts";
 import {
   ConnectionLifecycleService,
@@ -13,6 +14,7 @@ import {
   verifyEnvironmentConnection,
   verifyLocalConnection,
   type ConnectionDisconnection,
+  type AgentRouteAssignment,
   type ConnectionSummary,
   type ConnectionVerification,
   type ConnectionVerifier,
@@ -90,6 +92,17 @@ export async function setPrimaryAccount(
   return await new ConnectionLifecycleService(
     new FileConnectionRegistry(dataDirectory),
   ).setPrimary(id, signal === undefined ? {} : { signal });
+}
+
+export async function setAccountAgentRoute(
+  dataDirectory: string,
+  role: TeamRunRole,
+  id: string | null,
+  signal?: AbortSignal,
+): Promise<AgentRouteAssignment> {
+  return await new ConnectionLifecycleService(
+    new FileConnectionRegistry(dataDirectory),
+  ).setAgentRoute(role, id, signal === undefined ? {} : { signal });
 }
 
 export async function disconnectAccount(

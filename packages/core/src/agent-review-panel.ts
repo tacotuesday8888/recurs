@@ -507,10 +507,10 @@ export class AgentReviewPanel {
       );
     }
     const task = validateTask(rawTask, v2);
-    if (v2 && mode.version !== 4) {
+    if (v2 && mode.version < 4) {
       throw new ToolError(
         "tool_unavailable",
-        "Structured staged review requires an exact version-4 operating policy",
+        "Structured staged review requires a version-4-or-newer operating policy",
       );
     }
     const reviewPolicy = v2 ? options.policy : {
@@ -521,7 +521,7 @@ export class AgentReviewPanel {
       maxReviewers: team.maxReviewers,
     };
     if (v2 && (
-      mode.version !== 4 || reviewPolicy.operatingModeId !== mode.id ||
+      mode.version < 4 || reviewPolicy.operatingModeId !== mode.id ||
       reviewPolicy.operatingModeVersion !== mode.version ||
       reviewPolicy.qualityStandard !== team.qualityStandard ||
       reviewPolicy.initialReviewers !== team.initialReviewers ||

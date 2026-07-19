@@ -811,7 +811,7 @@ function isAgentDescriptor(
         : null;
   const team = value.team;
   const validTeam = team === undefined || (
-    expectedTeamRole !== null && policy.version === 4 && isObject(team) &&
+    expectedTeamRole !== null && policy.version >= 4 && isObject(team) &&
     hasExactKeys(team, ["runId", "role", "taskIndex", "round", "attemptId"]) &&
     boundedNonEmptyString(team.runId, MAX_RUNTIME_ID_LENGTH) &&
     team.role === expectedTeamRole &&
@@ -822,7 +822,7 @@ function isAgentDescriptor(
   return validWorkspace &&
     validTeam &&
     (expectedTeamRole === null || (
-      policy.version === 4 && workspace !== undefined && team !== undefined &&
+      policy.version >= 4 && workspace !== undefined && team !== undefined &&
       value.backend.strategy === "policy_route"
     )) &&
     boundedNonEmptyString(value.parentAgentId, MAX_RUNTIME_ID_LENGTH) &&
@@ -830,7 +830,7 @@ function isAgentDescriptor(
     (value.depth as number) > 0 &&
     (value.backend.strategy === "inherit_parent" || (
       value.backend.strategy === "policy_route" &&
-      policy.version === 4 && expectedTeamRole !== null
+      policy.version >= 4 && expectedTeamRole !== null
     )) &&
     isObject(value.task) && hasExactKeys(value.task, [
       "id", "description", "prompt",

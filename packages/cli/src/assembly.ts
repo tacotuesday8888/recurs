@@ -49,6 +49,7 @@ import {
   createTeamRunTools,
   isPinnedSessionState,
   recoverDurableTeamChild,
+  type AgentBackendCandidate,
   type EventSink,
   type PinnedSessionState,
   type SessionState,
@@ -815,8 +816,8 @@ export async function createStandaloneRuntime(
     reviews,
     router: backendRouter,
     checkpoints,
-    backendCandidates(parent) {
-      return [{
+    async backendCandidates(parent) {
+      const candidates: AgentBackendCandidate[] = [{
         id: "parent-session-pin",
         pin: parent.backend.pin,
         parent: true,
@@ -827,6 +828,63 @@ export async function createStandaloneRuntime(
         background: parent.backend.pin.kind === "model_provider",
         ready: true,
       }];
+      if (injected !== undefined || environmentConnection !== null) {
+        return candidates;
+      }
+      let current;
+      try {
+        current = await connectionRegistry.read();
+      } catch {
+        return candidates;
+      }
+      const rolesByConnection = new Map<string, ("implement" | "review" | "repair")[]>();
+      for (const role of ["implement", "review", "repair"] as const) {
+        const connectionId = current.agentRoutes[role];
+        if (connectionId === null || connectionId === parent.backend.pin.connectionId) {
+          continue;
+        }
+        const roles = rolesByConnection.get(connectionId) ?? [];
+        roles.push(role);
+        rolesByConnection.set(connectionId, roles);
+      }
+      for (const [connectionId, roles] of [...rolesByConnection].sort(
+        ([left], [right]) => left.localeCompare(right),
+      )) {
+        const connection = current.connections.find(
+          (candidate) => candidate.id === connectionId,
+        );
+        if (connection === undefined) continue;
+        let backend: RuntimeBackend | null;
+        try {
+          backend = await backendForConnection(
+            connection,
+            delegatedRuntimeFactory,
+            randomUUID(),
+            options.nativeOpenAIResponses,
+            runtimeEnvironment,
+            options.environmentFetch,
+          );
+        } catch {
+          continue;
+        }
+        if (backend === null || backend.kind !== "direct") continue;
+        const pin = backend.pin(
+          parent.backend.pin.billingSelectionAtCreation.acknowledgedAt,
+        );
+        if (pin.kind !== "model_provider") continue;
+        candidates.push({
+          id: `configured-${createHash("sha256").update(connectionId).digest("hex").slice(0, 32)}`,
+          pin,
+          parent: false,
+          roles,
+          executionModes: ["act"],
+          permissionModes: [parent.permissionMode],
+          hostTools: true,
+          background: true,
+          ready: true,
+        });
+      }
+      return candidates;
     },
     emit(event) {
       return events.emit(event);

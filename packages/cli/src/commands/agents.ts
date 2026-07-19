@@ -31,6 +31,9 @@ function summary(id: Parameters<typeof getOperatingModePolicy>[0]): string {
     policy.workflow.maxRequestsPerRun / policy.workflow.maxChildrenPerRun,
   );
   const concurrency = policy.orchestration.maxConcurrentChildren;
+  const modelSummary = policy.model.selection === "inherit_parent"
+    ? "Model policy: inherit the session's pinned backend"
+    : `Model policy: explicit saved role candidates (${policy.model.eligibleBillingSources.join(", ")}); inherit the parent when ineligible or unavailable`;
   const team = policy.workflow.team;
   const teamSummary = team === null
     ? [
@@ -47,7 +50,7 @@ function summary(id: Parameters<typeof getOperatingModePolicy>[0]): string {
   return [
     `Agent mode: ${policy.displayName} (${policy.id})`,
     `Policy version: ${policy.version}`,
-    "Model policy: inherit the session's pinned backend",
+    modelSummary,
     `Orchestration: depth ${policy.orchestration.maxDepth}, concurrency ${concurrency}${concurrency === 1 ? " (sequential fallback)" : ""}, retries ${policy.orchestration.maxRetries}`,
     `Workflow: ${policy.workflow.maxChildrenPerRun} children, ${policy.workflow.maxRequestsPerRun} total requests, ${childRequests} reserved per child`,
     "Batch profiles: Explore and Review in isolated clean Git worktrees",
@@ -83,7 +86,7 @@ function profilesSummary(): string {
       `  Intent ceiling: ${profile.tools.allowedCategories.join("/")} at ${profile.tools.maxRisk} risk`,
     ]),
     "Batch eligibility: Explore and Review through delegate_tasks.",
-    "Team workflow: legacy execution uses version-3 policies; version-4 profiles are reserved for the durable team supervisor.",
+    "Team workflow: legacy execution uses version-3 policies; version-4-or-newer policies use the durable team supervisor.",
   ].join("\n");
 }
 
