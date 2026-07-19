@@ -786,13 +786,21 @@ package actor BrokerConnection {
   }
 
   private func exchange(_ frame: Data) async throws -> Data {
-    try await withCheckedThrowingContinuation { continuation in
-      let reply = TimedBrokerXPCReply(timeout: xpcReplyTimeout)
-      guard reply.install(continuation) else { return }
-      reply.armTimeout()
-      connection.exchange(frame) { result in
-        reply.resolve(result)
+    let reply = TimedBrokerXPCReply(timeout: xpcReplyTimeout)
+    return try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { continuation in
+        guard reply.install(continuation) else { return }
+        reply.armTimeout()
+        guard !Task.isCancelled else {
+          reply.cancel()
+          return
+        }
+        connection.exchange(frame) { result in
+          reply.resolve(result)
+        }
       }
+    } onCancel: {
+      reply.cancel()
     }
   }
 

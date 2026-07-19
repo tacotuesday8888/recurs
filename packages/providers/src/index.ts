@@ -1,4 +1,5 @@
 export * from "./bundled-manifests.js";
+export * from "./anthropic-messages.js";
 export * from "./collect-provider-events.js";
 export * from "./environment-provider.js";
 export * from "./environment-provider-policy.js";

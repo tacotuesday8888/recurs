@@ -235,7 +235,7 @@ const bundled = [
       "https://platform.claude.com/docs/en/manage-claude/authentication",
     ],
     evidenceSummary:
-      "Anthropic documents direct Messages API authentication and metered API use; activation awaits the native credential broker.",
+      "Anthropic documents direct Messages API authentication and metered API use; source/npm builds can use explicit environment BYOK while the signed native path retains stronger persistent credential custody.",
   }),
   manifest({
     id: "anthropic-claude-subscription",

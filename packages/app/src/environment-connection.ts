@@ -204,7 +204,9 @@ export async function setupEnvironmentConnection(
         kind: "environment_model_provider",
         id: previous?.id ?? proposedId,
         providerId: input.providerId,
-        adapterId: "openai-chat-completions",
+        adapterId: bound.provider.adapterId === "anthropic-messages"
+          ? "anthropic-messages"
+          : "openai-chat-completions",
         label: `${entry.displayName} BYOK`,
         modelId: input.modelId,
         credentialEnvironmentVariable: input.credentialEnvironmentVariable,

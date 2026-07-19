@@ -2,11 +2,31 @@ import type { ProviderManifest } from "@recurs/contracts";
 
 import { BUNDLED_PROVIDER_MANIFESTS } from "./bundled-manifests.js";
 
+export type EnvironmentByokAdapterId =
+  | "anthropic-messages"
+  | "openai-chat-completions";
+
+export function environmentByokAdapterId(
+  manifest: ProviderManifest,
+): EnvironmentByokAdapterId | null {
+  if (manifest.protocol === "openai_chat") return "openai-chat-completions";
+  if (manifest.protocol === "anthropic_messages") return "anthropic-messages";
+  return null;
+}
+
 export function isEnvironmentByokManifest(
   manifest: ProviderManifest,
 ): boolean {
+  const adapterId = environmentByokAdapterId(manifest);
+  const hasReviewedEndpoint = manifest.endpoints.some(
+    (endpoint) => endpoint.kind === "origin" &&
+      (adapterId === "openai-chat-completions"
+        ? endpoint.value.startsWith("https://")
+        : manifest.id === "anthropic-api" &&
+          endpoint.value === "https://api.anthropic.com/v1"),
+  );
   return manifest.adapterKind === "model_provider" &&
-    manifest.protocol === "openai_chat" &&
+    adapterId !== null &&
     manifest.credentialOwner === "recurs_broker" &&
     manifest.supportStatus === "supported" &&
     manifest.usagePolicy.defaultDecision === "allowed" &&
@@ -15,10 +35,7 @@ export function isEnvironmentByokManifest(
     manifest.authKinds.some(
       (kind) => kind === "api_key" || kind === "coding_plan_key",
     ) &&
-    manifest.endpoints.some(
-      (endpoint) => endpoint.kind === "origin" &&
-        endpoint.value.startsWith("https://"),
-    );
+    hasReviewedEndpoint;
 }
 
 export function environmentByokManifest(

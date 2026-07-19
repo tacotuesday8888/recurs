@@ -1,6 +1,11 @@
 import type { ConnectionBoundModelProvider } from "@recurs/contracts";
 
+import { RemoteAnthropicMessagesProvider } from "./anthropic-messages.js";
 import { RemoteOpenAICompatibleProvider } from "./local-openai-compatible.js";
+import {
+  environmentByokAdapterId,
+  environmentByokManifest,
+} from "./environment-provider-policy.js";
 
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/u;
 const PROVIDER_ID = /^[a-z0-9][a-z0-9-]{0,127}$/u;
@@ -57,16 +62,27 @@ export async function createEnvironmentProviderConfiguration(
   }
   let provider: ConnectionBoundModelProvider;
   try {
-    provider = new RemoteOpenAICompatibleProvider({
+    const manifest = environmentByokManifest(input.providerId);
+    const adapterId = manifest === null
+      ? null
+      : environmentByokAdapterId(manifest);
+    const options = {
       providerId: input.providerId,
       connectionId: input.connectionId ?? `environment:${input.providerId}`,
       apiKey: input.apiKey,
       ...(input.fetch === undefined ? {} : { fetch: input.fetch }),
-    });
+    };
+    provider = adapterId === "anthropic-messages"
+      ? new RemoteAnthropicMessagesProvider(options)
+      : adapterId === "openai-chat-completions"
+      ? new RemoteOpenAICompatibleProvider(options)
+      : (() => {
+          throw new TypeError("Unsupported environment provider adapter");
+        })();
   } catch {
     throw new EnvironmentProviderError(
       "unsupported",
-      "Environment provider is not a supported reviewed Chat Completions path",
+      "Environment provider is not a supported reviewed public BYOK path",
     );
   }
   return {

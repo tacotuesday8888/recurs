@@ -109,7 +109,7 @@ export interface EnvironmentModelProviderConnectionRecord {
   kind: "environment_model_provider";
   id: string;
   providerId: string;
-  adapterId: "openai-chat-completions";
+  adapterId: "anthropic-messages" | "openai-chat-completions";
   label: string;
   modelId: string;
   credentialEnvironmentVariable: string;
@@ -702,7 +702,8 @@ export function parseEnvironmentModelProviderConnectionRecord(
   ]);
   if (
     value.kind !== "environment_model_provider" ||
-    value.adapterId !== "openai-chat-completions"
+    (value.adapterId !== "anthropic-messages" &&
+      value.adapterId !== "openai-chat-completions")
   ) {
     throw invalidRegistry();
   }
@@ -730,7 +731,7 @@ export function parseEnvironmentModelProviderConnectionRecord(
       trim: true,
       pattern: ID_PATTERN,
     }),
-    adapterId: "openai-chat-completions",
+    adapterId: value.adapterId,
     label: boundedString(value.label, 256, { trim: true }),
     modelId: boundedUtf8String(value.modelId, 256, { trim: true }),
     credentialEnvironmentVariable: credentialEnvironmentVariable(

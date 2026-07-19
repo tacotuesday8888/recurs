@@ -1,6 +1,6 @@
 # Saved Public BYOK
 
-Status: implemented for reviewed OpenAI Chat-compatible profiles.
+Status: implemented for reviewed OpenAI Chat-compatible and Anthropic Messages profiles.
 
 ## Outcome
 
@@ -17,11 +17,11 @@ TypeScript.
 
 ## Admission policy
 
-A manifest is admitted only when it is a supported model provider using
-OpenAI Chat Completions, has at least one reviewed fixed HTTPS origin, uses an
+A manifest is admitted only when it is a supported model provider using an
+implemented OpenAI Chat Completions or Anthropic Messages adapter, has at least one reviewed fixed HTTPS origin, uses an
 API or coding-plan key, has a current unconditional allowed usage policy, and
 has known billing fallback behavior. Conditional, expired, unknown-billing,
-blocked, Anthropic, Responses, cloud-identity, and arbitrary URL paths remain
+blocked, Responses, cloud-identity, and arbitrary URL paths remain
 unavailable.
 
 The transport resolves its origin from the bundled reviewed manifest. Neither
@@ -68,6 +68,6 @@ credit for the key. `account disconnect` removes Recurs metadata only.
   configuration.
 - No provider-specific model discovery; the user supplies a valid model ID and
   the provider validates it on request.
-- No Anthropic Messages or OpenAI Responses transport through this path.
+- No OpenAI Responses transport through this path.
 - A fingerprint is a change detector for high-entropy provider keys, not
   encryption or a password hashing scheme.

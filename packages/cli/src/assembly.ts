@@ -57,6 +57,7 @@ import {
 import {
   BUNDLED_PROVIDER_MANIFESTS,
   createEnvironmentProviderConfiguration,
+  environmentByokAdapterId,
   environmentCredentialFingerprint,
   LocalOpenAICompatibleProvider,
   NativeOpenAIResponsesProvider,
@@ -177,7 +178,7 @@ function environmentBackendPin(
   );
   if (
     manifest === undefined ||
-    manifest.protocol !== "openai_chat" ||
+    environmentByokAdapterId(manifest) !== connection.provider.adapterId ||
     manifest.supportStatus !== "supported" ||
     !manifest.billingPolicy.availableSelections.includes("strict_primary_only")
   ) {
@@ -186,7 +187,7 @@ function environmentBackendPin(
   return {
     kind: "model_provider",
     providerId: connection.providerId,
-    adapterId: "openai-chat-completions",
+    adapterId: connection.provider.adapterId,
     connectionId: connection.connectionId,
     modelId: connection.modelId,
     modelIdentityKind: "mutable_alias",
@@ -424,8 +425,7 @@ function assertBrokeredProviderPolicy(
   if (
     entry === undefined ||
     (entry.status !== "requires_native_broker" &&
-      !(connection.providerId === "kimi-code" &&
-        entry.status === "runnable_byok")) ||
+      entry.status !== "runnable_byok") ||
     !(
       (connection.providerId === "openai-api" &&
         connection.adapterId === "openai-responses" &&
@@ -473,11 +473,15 @@ function assertEnvironmentProviderPolicy(
   const entry = new OnboardingCatalog().list({ includeBlocked: true }).find(
     (candidate) => candidate.id === connection.providerId,
   );
+  const manifest = BUNDLED_PROVIDER_MANIFESTS.find(
+    (candidate) => candidate.id === connection.providerId,
+  );
   if (
     entry === undefined ||
+    manifest === undefined ||
     entry.status !== "runnable_byok" ||
     entry.connectionOwner !== "process_environment" ||
-    connection.adapterId !== "openai-chat-completions" ||
+    environmentByokAdapterId(manifest) !== connection.adapterId ||
     connection.policyRevision !== entry.policy.revision ||
     !isDeepStrictEqual(connection.billingPolicy, entry.billing) ||
     connection.billingSelection.policyRevision !== entry.billing.revision ||

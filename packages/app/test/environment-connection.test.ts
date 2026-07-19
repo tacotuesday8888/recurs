@@ -29,7 +29,7 @@ afterEach(async () => {
 });
 
 describe("saved environment BYOK connections", () => {
-  it("advertises reviewed Chat-compatible paths as BYOK without widening blocked providers", () => {
+  it("advertises reviewed Chat and Anthropic Messages paths as BYOK without widening blocked providers", () => {
     const entries = new OnboardingCatalog(undefined, {
       now: () => new Date(AT),
     }).list({ includeBlocked: true });
@@ -43,6 +43,12 @@ describe("saved environment BYOK connections", () => {
       .toMatchObject({ status: "runnable_byok" });
     expect(entries.find((entry) => entry.id === "zai-glm-coding-plan"))
       .toMatchObject({ status: "blocked" });
+    expect(entries.find((entry) => entry.id === "anthropic-api"))
+      .toMatchObject({
+        status: "runnable_byok",
+        protocol: "anthropic_messages",
+        connectionOwner: "process_environment",
+      });
     expect(entries.find((entry) => entry.id === "openai-api"))
       .toMatchObject({ status: "requires_native_broker" });
   });
@@ -106,6 +112,33 @@ describe("saved environment BYOK connections", () => {
       connectionId: configured.id,
       primaryCleared: true,
     });
+  });
+
+  it("persists an Anthropic Messages adapter without persisting its credential", async () => {
+    const directory = await root();
+    const key = "anthropic-private-value";
+    const configured = await setupEnvironmentConnection(directory, {
+      providerId: "anthropic-api",
+      modelId: "claude-test",
+      credentialEnvironmentVariable: "ANTHROPIC_API_KEY",
+      billingSelection: "strict_primary_only",
+      environment: { ANTHROPIC_API_KEY: key },
+      now: AT,
+    });
+
+    const storedText = await readFile(connectionRegistryPath(directory), "utf8");
+    expect(storedText).not.toContain(key);
+    expect(storedText).toContain("ANTHROPIC_API_KEY");
+    expect((await new FileConnectionRegistry(directory).read()).connections)
+      .toEqual([
+        expect.objectContaining({
+          id: configured.id,
+          kind: "environment_model_provider",
+          providerId: "anthropic-api",
+          adapterId: "anthropic-messages",
+          modelId: "claude-test",
+        }),
+      ]);
   });
 
   it("updates an explicit provider/env binding without redirecting its stable identity", async () => {
