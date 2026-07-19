@@ -182,8 +182,8 @@ Every tool reports normalized intent before execution. `/permissions` selects on
 | Mode | Behavior |
 | --- | --- |
 | Ask Always | Project reads run normally. Every write and shell command asks. Sensitive files, network, external paths, deployment, and destructive actions also ask. Classified credential paths are denied. This is the default. |
-| Approved for Me | Normal guarded project reads/writes run automatically. Every shell command asks while Recurs has no OS sandbox. Network, external, sensitive, deployment, and destructive actions also ask. Classified credential paths are denied. |
-| Full Access | Routine workspace, command, network, deployment, and destructive prompts are skipped after explicit confirmation. Sensitive and external paths still ask, and classified credential paths are denied. Integrity controls remain enabled. Arbitrary shell commands are not OS-isolated and may still access host files or the network indirectly, so this preset is not credential-safe. |
+| Approved for Me | Normal guarded project reads/writes run automatically. Shell commands still ask. On macOS an approved command also runs in the workspace sandbox; Linux and Windows retain the guarded host-authority path. Network, external, sensitive, deployment, and destructive actions also ask. Classified credential paths are denied. |
+| Full Access | Routine workspace, command, network, deployment, and destructive prompts are skipped after explicit confirmation. Sensitive and external paths still ask, and classified credential paths are denied. Integrity controls remain enabled. On macOS command subprocesses remain sandboxed; on Linux and Windows arbitrary commands are not OS-isolated. |
 
 An explicit outside path can run only after its external-path intent is approved, including in Full Access. A hidden symlink escape remains blocked because the model did not request that outside path explicitly.
 
@@ -193,18 +193,19 @@ This protects the built-in interfaces only. A permitted shell script can spell, 
 
 ## Tool security profiles
 
-The embedding assembly option `toolSecurityProfile` has two values:
+The embedding assembly option `toolSecurityProfile` has three values:
 
 | Profile | Behavior |
 | --- | --- |
-| `local_guarded` | Default. Advertises the registered tools and applies Plan mode, permission evaluation, path checks, process bounds, and checkpoints. Arbitrary commands still retain host authority. |
+| `workspace_sandboxed` | Standalone default on macOS. Applies the normal guards and runs shell/verification children under Apple Seatbelt with workspace-only writes, common credential-path read denial, and intent-gated network. Fails closed when unavailable. |
+| `local_guarded` | Standalone default on Linux and Windows. Advertises the registered tools and applies Plan mode, permission evaluation, path checks, process bounds, and checkpoints. Arbitrary commands still retain host authority. |
 | `tools_disabled` | Advertises no model tools and rejects every direct model-tool invocation before parsing, permissions, or checkpoint capture. This is fail-closed but is not a useful coding profile. |
 
 Every fixed or arbitrary child process receives a fresh private home, config, cache, and temporary directory plus only a filtered absolute `PATH` and selected locale/terminal variables. It does not inherit the real home, parent `SHELL`, cloud/provider variables, proxies, sockets, Git config variables, or workspace-contained `PATH` entries. `/bin/sh -c` is used for `run_command` on macOS and Linux; it is not a login shell. Recurs terminates the process group on completion, cancellation, timeout, or output overflow, bounds output-pipe draining, destroys its pipe handles, and then performs synthetic-tree cleanup. A descendant that deliberately enters another process group or session can survive this application-level cleanup; preventing that requires the later OS containment boundary. Subprocess tools fail with a typed unsupported-platform error on Windows.
 
 Fixed Git operations first require Git 2.45 or newer, then pin the requested worktree and disable optional index writes, lazy object fetching, repository hooks, fsmonitor commands, external diff/text conversion, configured clean/smudge/process filters, and expanded dirty-submodule diffs. Recurs enumerates filter key names only and replaces their commands with empty command-line overrides before status, diff, patch, or checkpoint Git work; configured command values are never returned to the harness. This preflight is not protection against a hostile same-user process racing repository configuration.
 
-Environment cleanup prevents direct inheritance, but it is not an OS sandbox. A child can still use the user's filesystem, network, IPC, and process-inspection authority. No Recurs-owned API, coding-plan, OAuth, or cloud credential may enter the TypeScript process under either profile. The Codex adapter remains vendor-authenticated and Recurs neither imports nor stores its credential.
+Environment cleanup prevents direct inheritance on every platform. The macOS workspace profile adds an OS boundary for shell and verification children; Linux and Windows do not yet have equivalent containment. No Recurs-owned API, coding-plan, OAuth, or cloud credential may enter the TypeScript process under any profile. The Codex adapter remains vendor-authenticated and Recurs neither imports nor stores its credential.
 
 ## Plan and Act modes
 
@@ -394,9 +395,9 @@ Recurs does not perform this move automatically. The marker is an upgrade-safety
 
 ## Current safety limits
 
-- The current guard is application-level path/permission enforcement and clean child state, not a strong OS sandbox or container.
-- `local_guarded` arbitrary commands have host filesystem, network, IPC, and process authority. Shell classification is conservative but cannot prove scripts safe. Every shell command requires approval outside Full Access until an enforceable sandbox exists.
-- Permanent credential-path denial covers built-in tools, not indirect shell access. Neither Full Access nor `tools_disabled` makes the TypeScript process safe to hold a Recurs-owned provider credential.
+- The macOS workspace sandbox covers shell and verification subprocesses, not the whole Recurs process. Linux and Windows still lack an equivalent OS sandbox or container.
+- `local_guarded` arbitrary commands have host filesystem, network, IPC, and process authority. Shell classification is conservative but cannot prove scripts safe.
+- Permanent credential-path denial covers every built-in tool. On macOS, the workspace sandbox additionally denies common host credential locations to shell children. No profile makes the TypeScript process an appropriate persistent credential authority.
 - The macOS component foundation supplies the fixed launcher-created engine bridge, production-gated recovered broker lifecycle, authenticated journal-v2 profile binding, bounded OpenAI/Anthropic/Kimi onboarding, exact model-catalog verification, broker-owned Responses/Messages/Chat Completions streaming, encrypted OpenAI continuation storage, and route authority. There is no signed/notarized installed artifact or successful production smoke.
 - The sealed-engine builder is configured to preserve legal comments, but release packaging still needs complete third-party notices and license review.
 - Checkpoints enumerate Git tracked and non-ignored untracked files; ignored files are not restored by checkpoint undo.

@@ -225,6 +225,9 @@ export function createRunVerificationTool(): Tool<RunVerificationInput> {
         signal: context.signal,
         timeoutMs: input.timeoutMs,
         maxOutputBytes: MAX_COMMAND_OUTPUT,
+        ...(context.processSandbox === undefined
+          ? {}
+          : { sandbox: context.processSandbox }),
       });
       return {
         output: result.stderr.length === 0

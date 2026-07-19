@@ -41,6 +41,8 @@ const FORBIDDEN_SECRET_ENVIRONMENT_SEGMENTS = new Set([
 
 export interface IsolatedProcessEnvironment {
   environment: NodeJS.ProcessEnv;
+  privateRoot: string;
+  workspaceRoot: string;
   cleanup(): Promise<void>;
 }
 
@@ -311,7 +313,7 @@ export async function createIsolatedProcessEnvironment(
       }
     }
     removeForbiddenChildEnvironmentVariables(environment);
-    return { environment, cleanup };
+    return { environment, privateRoot, workspaceRoot, cleanup };
   } catch (error) {
     await cleanup();
     throw error;

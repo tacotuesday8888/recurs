@@ -134,13 +134,15 @@ credential.
 ## Current security boundary
 
 The permanent built-in credential-path denial and clean subprocess environment
-are defense in depth. They are not a promise that model-selected code cannot
-reach host credentials indirectly. `Full Access` is not credential-safe, and
-the default `local_guarded` tool profile is not an OS sandbox. Tool children
-receive only standard descriptors `0`–`2` and do not inherit the launcher
-descriptor, native-authority markers, Keychain/token variables, provider/cloud
-variables, or proxy variables, but they retain the user's ordinary host
-authority.
+are defense in depth. On macOS, the standalone CLI additionally runs shell and
+verification children under a fail-closed Seatbelt profile: writes are limited
+to the canonical workspace and private process tree, common host credential
+paths are unreadable, and network is denied unless the approved command intent
+requires it. Tool children receive only standard descriptors `0`–`2` and do
+not inherit the launcher descriptor, native-authority markers, Keychain/token
+variables, provider/cloud variables, or proxy variables. Linux and Windows
+still default to `local_guarded`, where children retain the user's ordinary
+host authority. No profile authorizes provider credentials to enter TypeScript.
 
 Parallel Explore/Review batches and team Implement workers run in detached
 worktrees only after the parent is verified as the canonical root of a clean

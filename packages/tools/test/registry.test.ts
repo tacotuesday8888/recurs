@@ -133,6 +133,42 @@ describe("ToolRegistry", () => {
     expect(checkpoints.captureAfter).not.toHaveBeenCalled();
   });
 
+  it("binds workspace sandbox network policy to approved intents", async () => {
+    const observed: ToolContext["processSandbox"][] = [];
+    const tool = textTool();
+    tool.permissions = (input) => [{
+      category: input.text === "network" ? "network" : "shell",
+      resource: input.text,
+      risk: "normal",
+    }];
+    tool.execute = async (input, executionContext) => {
+      observed.push(executionContext.processSandbox);
+      return { output: input.text };
+    };
+    const registry = new ToolRegistry([tool], {
+      securityProfile: "workspace_sandboxed",
+    });
+    const permissions = new PermissionEngine("full_access");
+
+    await registry.invoke(
+      { id: "shell", name: "echo", arguments: { text: "shell" } },
+      context(),
+      permissions,
+      deny,
+    );
+    await registry.invoke(
+      { id: "network", name: "echo", arguments: { text: "network" } },
+      context(),
+      permissions,
+      deny,
+    );
+
+    expect(observed).toEqual([
+      { mode: "workspace", network: "deny" },
+      { mode: "workspace", network: "allow" },
+    ]);
+  });
+
   it("snapshots the disabled profile at construction", () => {
     const options: {
       securityProfile: "local_guarded" | "tools_disabled";

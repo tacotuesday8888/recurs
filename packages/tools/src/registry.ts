@@ -86,6 +86,23 @@ async function executeTool(
   }
 }
 
+function sandboxedContext(
+  profile: ToolSecurityProfile,
+  context: ToolContext,
+  intents: readonly { readonly category: string }[],
+): ToolContext {
+  if (profile !== "workspace_sandboxed") return context;
+  return {
+    ...context,
+    processSandbox: {
+      mode: "workspace",
+      network: intents.some((intent) => intent.category === "network")
+        ? "allow"
+        : "deny",
+    },
+  };
+}
+
 async function preflightTool(
   tool: RegisteredTool,
   name: string,
@@ -302,7 +319,12 @@ export class ToolRegistry {
       (context.approvedIntents ??= new Set()).add(permissionIntentKey(intent));
     }
 
-    await preflightTool(tool, call.name, input, context);
+    const executionContext = sandboxedContext(
+      this.#securityProfile,
+      context,
+      intents,
+    );
+    await preflightTool(tool, call.name, input, executionContext);
 
     if (
       !mutating ||
@@ -310,7 +332,7 @@ export class ToolRegistry {
       tool.checkpointOwnership === "self_managed"
     ) {
       return applyToolPolicyMetadata(
-        await executeTool(tool, call.name, input, context),
+        await executeTool(tool, call.name, input, executionContext),
         context.toolPolicy,
       );
     }
@@ -322,7 +344,7 @@ export class ToolRegistry {
     );
     let result: ToolResult;
     try {
-      result = await executeTool(tool, call.name, input, context);
+      result = await executeTool(tool, call.name, input, executionContext);
     } catch (error) {
       await this.#checkpoints.captureAfter(checkpoint, context.cwd);
       throw error;

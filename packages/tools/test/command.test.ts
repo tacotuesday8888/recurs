@@ -3,12 +3,14 @@ import { createHash } from "node:crypto";
 import {
   access,
   chmod,
+  mkdir,
   mkdtemp,
   open,
   readFile,
   rm,
   writeFile,
 } from "node:fs/promises";
+import { createServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -174,6 +176,103 @@ describe("run_command", () => {
     expect((thrown as Error & { cause?: unknown }).cause).toBeUndefined();
     expect(String((thrown as Error).message)).not.toContain(canary);
   });
+
+  it.runIf(process.platform === "darwin")(
+    "enforces workspace-only writes with the macOS process sandbox",
+    async () => {
+      const inside = path.join(cwd, "inside.txt");
+      const outside = path.join(
+        tmpdir(),
+        `recurs-sandbox-outside-${process.pid}-${Date.now()}`,
+      );
+      try {
+        await toolExports.runProcess(
+          "/bin/sh",
+          ["-c", `printf inside > ${shellQuote(inside)}`],
+          {
+            cwd,
+            sandbox: { mode: "workspace", network: "deny" },
+          },
+        );
+        expect(await readFile(inside, "utf8")).toBe("inside");
+
+        await expect(toolExports.runProcess(
+          "/bin/sh",
+          ["-c", `printf outside > ${shellQuote(outside)}`],
+          {
+            cwd,
+            sandbox: { mode: "workspace", network: "deny" },
+          },
+        )).rejects.toMatchObject({ code: "process_failed" });
+        await expect(access(outside)).rejects.toMatchObject({ code: "ENOENT" });
+      } finally {
+        await rm(outside, { force: true });
+      }
+    },
+  );
+
+  it.runIf(process.platform === "darwin")(
+    "denies host credential paths even when they are below the workspace",
+    async () => {
+      const originalHome = process.env.HOME;
+      const hostHome = path.join(cwd, "host-home");
+      const secret = path.join(hostHome, ".ssh", "id_test");
+      await mkdir(path.dirname(secret), { recursive: true });
+      await writeFile(secret, "credential-canary", "utf8");
+      process.env.HOME = hostHome;
+      try {
+        await expect(toolExports.runProcess(
+          "/bin/sh",
+          ["-c", `cat ${shellQuote(secret)}`],
+          {
+            cwd,
+            sandbox: { mode: "workspace", network: "deny" },
+          },
+        )).rejects.toMatchObject({ code: "process_failed" });
+      } finally {
+        if (originalHome === undefined) delete process.env.HOME;
+        else process.env.HOME = originalHome;
+      }
+    },
+  );
+
+  it.runIf(process.platform === "darwin")(
+    "denies network unless the approved command intent allows it",
+    async () => {
+      const server = createServer((_request, response) => response.end("ok"));
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+      try {
+        const address = server.address();
+        if (address === null || typeof address === "string") {
+          throw new Error("Expected a TCP fixture");
+        }
+        const script = `fetch('http://127.0.0.1:${address.port}').then(r=>r.text()).then(t=>process.stdout.write(t))`;
+        await expect(toolExports.runProcess(
+          process.execPath,
+          ["-e", script],
+          {
+            cwd,
+            sandbox: { mode: "workspace", network: "deny" },
+          },
+        )).rejects.toMatchObject({ code: "process_failed" });
+        await expect(toolExports.runProcess(
+          process.execPath,
+          ["-e", script],
+          {
+            cwd,
+            sandbox: { mode: "workspace", network: "allow" },
+          },
+        )).resolves.toMatchObject({ stdout: "ok", exitCode: 0 });
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => error === undefined ? resolve() : reject(error));
+        });
+      }
+    },
+  );
 
   it("does not pass parent secrets or the real home to descendants", async () => {
     const parentEnvironment = {

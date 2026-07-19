@@ -108,10 +108,11 @@ Every fixed or arbitrary child process receives exactly standard descriptors `0`
 
 The current security profiles are:
 
-- `local_guarded` (default): all registered tools are available subject to Plan mode and permissions. Arbitrary commands still have the user's host filesystem, network, IPC, and process authority.
+- `workspace_sandboxed` (standalone default on macOS): all registered tools remain subject to Plan mode and permissions. Shell and verification children run under Apple Seatbelt with canonical workspace-only writes, common host credential paths unreadable, and network denied unless an approved command intent requires it. Sandbox setup fails closed.
+- `local_guarded` (standalone default on Linux and Windows): all registered tools are available subject to Plan mode and permissions. Arbitrary commands still have the user's host filesystem, network, IPC, and process authority.
 - `tools_disabled`: no model tool definitions are advertised, and every direct invocation is rejected before parsing, permissions, or checkpoint capture. It is a fail-closed composition option, not a useful coding profile or sandbox.
 
-Neither profile makes this process safe for live credentials. Full Access does not change that boundary.
+The macOS sandbox is a subprocess boundary, not authorization to expose provider credentials to TypeScript. Linux and Windows containment remains unimplemented. Full Access does not change those boundaries.
 
 ## Sessions and recovery
 
@@ -146,7 +147,7 @@ The production-signed launcher resolves only fixed nonsymlinked Node and engine 
 
 OpenAI API, Anthropic API, and Kimi Code activation are complete private verticals. The authority captures a credential, performs the exact bound model catalog, and transactionally commits Keychain plus non-secret registry state with crash recovery. Broker-owned generation streams OpenAI Responses, Anthropic Messages, or Kimi's OpenAI Chat Completions profile through scoped, expiring, cancellation- and budget-bound one-use reservations. OpenAI continuation state is encrypted behind opaque handles; Anthropic and Kimi use the durable transcript. Strict codecs normalize events and usage, reject redirects/profile drift, and filter credential echoes before any reply crosses the native boundary.
 
-No signed/notarized installed artifact or production credential-canary smoke has shipped, so these completed verticals are not distributed and source/npm execution cannot activate them. Release work still needs the installed-artifact proof and complete third-party notices/license review. The TypeScript tool defenses remain application-level: `local_guarded` is not an OS sandbox, and an approved arbitrary command retains the user's host authority. The private provider design relies on credentials and reusable request authority remaining exclusively in the broker; rewriting the agent loop, session engine, or CLI wholesale in Rust is not required for that boundary.
+No signed/notarized installed artifact or production credential-canary smoke has shipped, so these completed verticals are not distributed and source/npm execution cannot activate them. Release work still needs the installed-artifact proof and complete third-party notices/license review. The standalone macOS CLI now applies a fail-closed Seatbelt boundary to shell and verification children; `local_guarded` remains available and is still the Linux/Windows default. The private provider design relies on credentials and reusable request authority remaining exclusively in the broker; rewriting the agent loop, session engine, or CLI wholesale in Rust is not required for that boundary.
 
 The public npm/source Codex path does not weaken that gate: Recurs launches the pinned official adapter, delegates any advertised `chat-gpt` login flow to it, and stores only non-secret linkage, verified account label/fingerprint, policy/billing acknowledgement, and model metadata. Recurs never reads `auth.json`, browser cookies, copied tokens, or credential values. The adapter/runtime remains vendor-authenticated, and the current path is deliberately Plan-only and foreground-only. The sealed private engine denies this delegated path until it can ship without ambient runtime resolution.
 

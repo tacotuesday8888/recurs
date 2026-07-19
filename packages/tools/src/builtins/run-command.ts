@@ -66,6 +66,9 @@ export function createRunCommandTool(): Tool<RunCommandInput> {
         signal: context.signal,
         timeoutMs: input.timeoutMs,
         maxOutputBytes: MAX_COMMAND_OUTPUT,
+        ...(context.processSandbox === undefined
+          ? {}
+          : { sandbox: context.processSandbox }),
       });
       const output = result.stderr.length === 0
         ? result.stdout

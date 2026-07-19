@@ -644,7 +644,8 @@ export async function createStandaloneRuntime(
   const coordinatorReference: { current?: BackendRunCoordinator } = {};
   const tools = new ToolRegistry([], {
     checkpoints,
-    securityProfile: options.toolSecurityProfile ?? "local_guarded",
+    securityProfile: options.toolSecurityProfile
+      ?? (process.platform === "darwin" ? "workspace_sandboxed" : "local_guarded"),
   });
   tools.register(createReadFileTool());
   tools.register(createListFilesTool());
