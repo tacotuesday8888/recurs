@@ -157,9 +157,9 @@ interface HarnessOptions {
     round: number,
   ) => "approved" | "changes_requested" | "invalid";
   readonly implementFailure?: ReadonlyMap<number, {
-    readonly delayMs: number;
     readonly message: string;
   }>;
+  readonly implementFinishOrder?: readonly number[];
   readonly applyFailure?: Error;
   readonly prepareFailures?: number;
   readonly eventSinkFailure?: boolean;
@@ -264,6 +264,17 @@ async function harness(options: HarnessOptions = {}) {
   const reviewPrompts: string[] = [];
   let stagedPaths: readonly string[] = [];
   let implementStarts = 0;
+  const implementFinishWaits = new Map<number, Promise<void>>();
+  const releaseNextImplement = new Map<number, () => void>();
+  let implementFinishTurn = Promise.resolve();
+  for (const taskIndex of options.implementFinishOrder ?? []) {
+    implementFinishWaits.set(taskIndex, implementFinishTurn);
+    let release!: () => void;
+    implementFinishTurn = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    releaseNextImplement.set(taskIndex, release);
+  }
   const coordinator: RunCoordinator = {
     async start(input: CoordinatedRunInput) {
       const child = await sessions.loadState(input.sessionId);
@@ -297,9 +308,10 @@ async function harness(options: HarnessOptions = {}) {
       const implementationFailure = correlation.role === "implement"
         ? options.implementFailure?.get(correlation.taskIndex)
         : undefined;
-      const delayMs = implementationFailure?.delayMs ??
-        (correlation.role === "implement" && correlation.taskIndex === 1 ? 75 : 0);
-      if (delayMs > 0) await wait(delayMs);
+      if (correlation.role === "implement") {
+        const finishTurn = implementFinishWaits.get(correlation.taskIndex);
+        if (finishTurn !== undefined) await finishTurn;
+      }
 
       if (implementationFailure !== undefined) {
         const failure: IntegrationFailure = {
@@ -319,6 +331,7 @@ async function harness(options: HarnessOptions = {}) {
           },
         );
         log.push(`child:${correlation.role}:${correlation.taskIndex}:finish`);
+        releaseNextImplement.get(correlation.taskIndex)?.();
         return {
           events: { async *[Symbol.asyncIterator]() {} },
           outcome: Promise.resolve({ ok: false as const, failure }),
@@ -353,6 +366,9 @@ async function harness(options: HarnessOptions = {}) {
         },
       );
       log.push(`child:${correlation.role}:${correlation.taskIndex}:finish`);
+      if (correlation.role === "implement") {
+        releaseNextImplement.get(correlation.taskIndex)?.();
+      }
       return {
         events: { async *[Symbol.asyncIterator]() {} },
         outcome: Promise.resolve({ ok: true as const, result }),
@@ -1295,7 +1311,7 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
   });
 
   it("claims and reserves before concurrent delegation, then stages and applies in authoritative order", async () => {
-    const test = await harness();
+    const test = await harness({ implementFinishOrder: [2, 1] });
     const result = await test.supervisor.startForeground(test.input, test.context);
     const state = await test.state(result.metadata.teamId);
 
@@ -1529,9 +1545,10 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
   it("persists every settled implement outcome but reports the lowest-index genuine failure", async () => {
     const test = await harness({
       implementFailure: new Map([
-        [1, { delayMs: 15, message: "task one genuine failure" }],
-        [2, { delayMs: 0, message: "task two genuine failure" }],
+        [1, { message: "task one genuine failure" }],
+        [2, { message: "task two genuine failure" }],
       ]),
+      implementFinishOrder: [2, 1],
     });
     const result = await test.supervisor.startForeground(test.input, test.context);
     const state = await test.state(result.metadata.teamId);
