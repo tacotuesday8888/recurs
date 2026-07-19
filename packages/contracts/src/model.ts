@@ -47,6 +47,17 @@ export interface ProviderRequest {
   directContext?: DirectProviderRunContext;
 }
 
+export type ModelHarnessProfileId =
+  | "native_tool_use_v1"
+  | "compatible_tool_use_v1";
+
+export interface ModelHarnessProfile {
+  readonly id: ModelHarnessProfileId;
+  readonly version: 1;
+  readonly toolCallStyle: "native" | "conservative";
+  readonly instructions: readonly string[];
+}
+
 export interface DirectProviderRunContext {
   readonly authorization: RunAuthorization;
   readonly expectedSessionRecordSequence: number;
@@ -62,6 +73,7 @@ export type ProviderEvent =
 
 export interface ModelProvider {
   readonly id: string;
+  readonly harnessProfile?: ModelHarnessProfile;
   stream(request: ProviderRequest): AsyncIterable<ProviderEvent>;
 }
 

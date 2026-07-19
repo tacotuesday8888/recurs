@@ -7,6 +7,7 @@ import type {
 import { NativeOpenAIResponsesError } from "@recurs/contracts";
 
 import { ProviderError } from "./types.js";
+import { harnessProfileForAdapter } from "./harness-profile.js";
 
 export interface NativeOpenAIResponsesProviderOptions {
   readonly connectionId: string;
@@ -52,6 +53,7 @@ export class NativeOpenAIResponsesProvider
   readonly id: "openai-api" | "anthropic-api" | "kimi-code";
   readonly adapterId: "openai-responses" | "anthropic-messages" | "openai-chat-completions";
   readonly connectionId: string;
+  readonly harnessProfile;
   readonly #modelId: string;
   readonly #port: NativeOpenAIResponsesPort;
 
@@ -69,6 +71,7 @@ export class NativeOpenAIResponsesProvider
     ) {
       throw new TypeError("Native provider profile is invalid");
     }
+    this.harnessProfile = harnessProfileForAdapter(this.adapterId);
     this.#modelId = options.modelId;
     this.#port = options.port;
   }

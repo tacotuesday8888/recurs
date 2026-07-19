@@ -273,7 +273,8 @@ export class RecursRuntime {
           "Choose one setup path, then restart Recurs:",
           "  recurs setup codex",
           "  recurs setup local --url http://127.0.0.1:11434/v1 --model <model-id>",
-          "Codex setup delegates ChatGPT sign-in to the official runtime. Local setup requests no API key.",
+          "  RECURS_PROVIDER=<id> RECURS_MODEL=<id> RECURS_API_KEY=<key> recurs",
+          "Codex delegates sign-in to its official runtime; local setup is credential-free; environment BYOK is ephemeral.",
         ].join("\n"),
       };
     }
@@ -281,7 +282,7 @@ export class RecursRuntime {
       return {
         type: "message",
         level: "warning",
-        text: "No model connection is configured. Use /connect for Codex subscription or credential-free local setup instructions.",
+        text: "No model connection is configured. Use /connect for Codex, local, or ephemeral environment BYOK instructions.",
       };
     }
     if (

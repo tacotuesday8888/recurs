@@ -334,6 +334,52 @@ describe("standalone assembly without a provider", () => {
     });
   });
 
+  it("runs through an explicit cross-platform environment BYOK provider", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-environment-assembly-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const key = "environment-key-canary";
+    let authorization = "";
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        environment: {
+          RECURS_PROVIDER: "openrouter-api",
+          RECURS_MODEL: "provider/model",
+          RECURS_API_KEY: key,
+        },
+        environmentFetch: async (_input, init) => {
+          authorization = new Headers(init?.headers).get("authorization") ?? "";
+          return new Response([
+            'data: {"choices":[{"delta":{"content":"ready"},"finish_reason":"stop"}]}',
+            'data: {"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":1}}',
+            "data: [DONE]",
+            "",
+          ].join("\n\n"), { status: 200 });
+        },
+      },
+    );
+
+    expect(runtime.session.backend.pin).toMatchObject({
+      providerId: "openrouter-api",
+      adapterId: "openai-chat-completions",
+      connectionId: "environment:openrouter-api",
+      modelId: "provider/model",
+      primaryBillingSourceAtCreation: "prepaid_credits",
+      accountSubjectFingerprint: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
+    });
+    expect(JSON.stringify(runtime.session)).not.toContain(key);
+
+    const result = await runtime.submit("Respond when ready");
+
+    expect(result).toMatchObject({ finalText: "ready" });
+    expect(authorization).toBe(`Bearer ${key}`);
+    expect(JSON.stringify(runtime.session)).not.toContain(key);
+  });
+
   it("reopens the canonical parent instead of newer non-root or other-cwd sessions", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-root-session-"));
     directories.push(root);

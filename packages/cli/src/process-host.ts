@@ -102,6 +102,8 @@ Usage:
   recurs --help                  Show this help
 
 Local setup supports credential-free OpenAI-compatible servers on literal loopback only.
+Cross-platform ephemeral BYOK: set RECURS_PROVIDER, RECURS_MODEL, and RECURS_API_KEY together.
+The key stays process-local, is not saved, and is removed from tool subprocess environments.
 Codex setup is interactive and Plan-only. It never imports or stores vendor credentials.
 OpenAI API setup captures credentials only in the native authority; API billing is separate from ChatGPT.
 Anthropic API setup captures credentials only in the native authority; API billing is separate from Claude subscriptions.

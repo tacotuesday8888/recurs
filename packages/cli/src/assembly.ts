@@ -53,8 +53,11 @@ import {
   type WorkspaceShellState,
 } from "@recurs/core";
 import {
+  BUNDLED_PROVIDER_MANIFESTS,
   LocalOpenAICompatibleProvider,
   NativeOpenAIResponsesProvider,
+  resolveEnvironmentProvider,
+  type EnvironmentProviderConfiguration,
   type ModelProvider,
 } from "@recurs/providers";
 import { CODEX_ACP_PROFILE_REVISION } from "@recurs/runtimes";
@@ -93,6 +96,8 @@ export interface StandaloneRuntimeOptions {
     store: RuntimeContinuationStore,
   ) => AgentRuntime;
   nativeOpenAIResponses?: NativeOpenAIResponsesPort;
+  environment?: Readonly<NodeJS.ProcessEnv>;
+  environmentFetch?: typeof globalThis.fetch;
 }
 
 function injectedBackendPin(
@@ -150,6 +155,44 @@ function localBackendPin(
       acknowledgedAt: at,
     },
     accountSubjectFingerprint: `sha256:${endpointFingerprint}`,
+  };
+}
+
+function environmentBackendPin(
+  connection: EnvironmentProviderConfiguration,
+  at: string,
+): SessionBackendPin {
+  const manifest = BUNDLED_PROVIDER_MANIFESTS.find(
+    (candidate) => candidate.id === connection.providerId,
+  );
+  if (
+    manifest === undefined ||
+    manifest.protocol !== "openai_chat" ||
+    manifest.supportStatus !== "supported" ||
+    !manifest.billingPolicy.availableSelections.includes("strict_primary_only")
+  ) {
+    throw new TypeError("Environment provider policy is unavailable");
+  }
+  return {
+    kind: "model_provider",
+    providerId: connection.providerId,
+    adapterId: "openai-chat-completions",
+    connectionId: connection.connectionId,
+    modelId: connection.modelId,
+    modelIdentityKind: "mutable_alias",
+    providerResolvedModelRevisionAtCreation: null,
+    catalogRevision: manifest.usagePolicy.revision,
+    policyRevisionAtCreation: manifest.usagePolicy.revision,
+    billingPolicyRevisionAtCreation: manifest.billingPolicy.revision,
+    primaryBillingSourceAtCreation: manifest.billingPolicy.primarySource,
+    billingSelectionAtCreation: {
+      mode: "strict_primary_only",
+      policyRevision: manifest.billingPolicy.revision,
+      disclosureRevision: manifest.billingPolicy.disclosureRevision,
+      allowedSources: [manifest.billingPolicy.primarySource],
+      acknowledgedAt: at,
+    },
+    accountSubjectFingerprint: connection.credentialFingerprint,
   };
 }
 
@@ -483,6 +526,12 @@ export async function createStandaloneRuntime(
     );
   }
   const injected = options.provider;
+  const environmentConnection = injected === undefined
+    ? await resolveEnvironmentProvider(
+        options.environment ?? process.env,
+        options.environmentFetch,
+      )
+    : null;
   const connectionRegistry = new FileConnectionRegistry(root);
   const registryDocument = injected === undefined
     ? await connectionRegistry.migrateLegacyLocal()
@@ -508,6 +557,13 @@ export async function createStandaloneRuntime(
           stream: (request) => injected.stream(request),
         }),
       }
+    : environmentConnection !== null
+      ? {
+          kind: "direct",
+          pin: (at) => environmentBackendPin(environmentConnection, at),
+          commandProvider: environmentConnection.provider,
+          createProvider: () => environmentConnection.provider,
+        }
     : configuredConnection === null
       ? undefined
       : backendForConnection(
@@ -751,7 +807,7 @@ export async function createStandaloneRuntime(
     async resolve(input) {
       let selected: RuntimeBackend;
       let connectionRevision: number;
-      if (injected !== undefined) {
+      if (injected !== undefined || environmentConnection !== null) {
         if (initialBackend === undefined) throw connectionInvalid(input.operationId);
         selected = initialBackend;
         connectionRevision = 1;
@@ -873,7 +929,7 @@ export async function createStandaloneRuntime(
       return null;
     }
     let selected: RuntimeBackend;
-    if (injected !== undefined) {
+    if (injected !== undefined || environmentConnection !== null) {
       if (initialBackend === undefined) return null;
       selected = initialBackend;
     } else {

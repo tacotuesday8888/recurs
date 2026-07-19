@@ -32,8 +32,10 @@ const FORBIDDEN_RECURS_AUTHORITY_SEGMENTS = new Set([
   "NATIVE",
 ]);
 const FORBIDDEN_SECRET_ENVIRONMENT_SEGMENTS = new Set([
+  "KEY",
   "KEYCHAIN",
   "PROXY",
+  "SECRET",
   "TOKEN",
 ]);
 

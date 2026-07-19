@@ -281,6 +281,8 @@ describe("run_command", () => {
       RECURS_LAUNCHER_DESCRIPTOR: "launcher-descriptor-canary",
       RECURS_PROVIDER_AUTHORITY_HANDLE: "authority-handle-canary",
       KEYCHAIN_ACCESS_GROUP: "keychain-canary",
+      OPENAI_API_KEY: "openai-key-canary",
+      PROVIDER_CLIENT_SECRET: "provider-secret-canary",
       GITHUB_TOKEN: "github-token-canary",
       HTTPS_PROXY: "https://proxy-canary.invalid",
       NO_PROXY: "proxy-bypass-canary",

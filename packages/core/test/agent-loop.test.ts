@@ -271,6 +271,42 @@ describe("AgentLoop", () => {
     expect(events.some((event) => "version" in event)).toBe(false);
   });
 
+  it("applies the provider's versioned harness profile to every model step", async () => {
+    const systemMessages: string[] = [];
+    const provider: ModelProvider = {
+      id: "compatible-provider",
+      harnessProfile: {
+        id: "compatible_tool_use_v1",
+        version: 1,
+        toolCallStyle: "conservative",
+        instructions: ["Wait for each tool result before choosing another tool."],
+      },
+      async *stream(request) {
+        systemMessages.push(
+          request.messages.find((message) => message.role === "system")
+            ?.content ?? "",
+        );
+        yield { type: "text_delta", text: "done" };
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const { loop } = await harness(provider);
+
+    await loop.run({ sessionId: "s1", prompt: "work" });
+
+    expect(systemMessages).toHaveLength(1);
+    expect(JSON.parse(systemMessages[0] ?? "{}")).toMatchObject({
+      harnessProfile: {
+        id: "compatible_tool_use_v1",
+        version: 1,
+        toolCallStyle: "conservative",
+      },
+      instructions: expect.arrayContaining([
+        "Wait for each tool result before choosing another tool.",
+      ]),
+    });
+  });
+
   it("runs pinned sessions entirely through sequenced version 2 records", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "recurs-loop-v2-"));
     temporaryDirectories.push(directory);

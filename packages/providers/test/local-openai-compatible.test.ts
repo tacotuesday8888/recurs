@@ -108,6 +108,11 @@ describe("LocalOpenAICompatibleProvider", () => {
     expect(provider).toMatchObject({
       adapterId: "openai-chat-completions",
       connectionId: "local-test",
+      harnessProfile: {
+        id: "compatible_tool_use_v1",
+        toolCallStyle: "conservative",
+        version: 1,
+      },
     });
   });
 

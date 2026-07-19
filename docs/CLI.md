@@ -30,9 +30,18 @@ The repository does not yet contain a license. Although it is intended to become
 
 ## Provider boundary
 
-Recurs exposes a validated catalog of 25 provider/authentication paths. Three source-install paths are runnable today: credential-free literal-loopback Ollama, credential-free literal-loopback LM Studio, and an existing ChatGPT account through the pinned official `@agentclientprotocol/codex-acp` 1.1.2 adapter and `@openai/codex` 0.144.0. The private production-signed macOS path also implements OpenAI API, Anthropic API, and Kimi Code onboarding plus broker-owned generation. It is not distributed yet because no signed/notarized installed artifact exists. The other entries describe truthful provider, access, protocol, billing, region, and restriction metadata; they are not live transports.
+Recurs exposes a validated catalog of 25 provider/authentication paths. Source installs can run credential-free literal-loopback Ollama/LM Studio, an existing ChatGPT account through the pinned official Codex ACP adapter, or an explicit ephemeral BYOK connection to a supported reviewed OpenAI Chat-compatible HTTPS provider. The private production-signed macOS path also implements persistent OpenAI API, Anthropic API, and Kimi Code onboarding plus broker-owned generation; it is not distributed yet. Catalog entries outside those implemented protocol paths remain discovery metadata rather than live transports.
 
-The TypeScript CLI never reads an API key, coding-plan key, OAuth token, copied vendor token, browser cookie, or vendor auth-file path. On the private signed path, `recurs setup openai`, `recurs setup anthropic --model <exact-id>`, and `recurs setup kimi --model <exact-id>` delegate foreground secret capture directly to the native authority; source/npm and ad-hoc execution cannot collect or activate the credential. Kimi setup explicitly records included-subscription billing rather than metered API billing. Other direct API, coding-plan, OAuth, and cloud-identity entries remain `requires_native_broker` or blocked until their complete native authority and provider adapter exist. A shared protocol label does not make a catalog entry runnable.
+The recommended persistent path keeps keys outside TypeScript: `recurs setup openai`, `recurs setup anthropic --model <exact-id>`, and `recurs setup kimi --model <exact-id>` delegate foreground capture to the signed native authority. Cross-platform source installs may instead opt into ephemeral BYOK:
+
+```bash
+RECURS_PROVIDER=openrouter-api \
+RECURS_MODEL=<provider/model> \
+RECURS_API_KEY=<key> \
+recurs
+```
+
+All three variables are required together. The provider must have a supported reviewed `openai_chat` manifest with a fixed HTTPS origin. The key remains in a private provider field for that process, is not written to the connection registry or session log, and is stripped from tool subprocesses. This does not turn Responses, Anthropic, Gemini, cloud-identity, blocked coding-plan, or arbitrary custom endpoints into runnable paths.
 
 Inspect the catalog and configured accounts without revealing account labels, account fingerprints, local endpoints, or credential material:
 
