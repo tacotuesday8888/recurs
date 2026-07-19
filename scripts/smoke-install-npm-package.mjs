@@ -1,10 +1,20 @@
 import { Buffer } from "node:buffer";
-import { execFile } from "node:child_process";
-import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { execFile, spawn } from "node:child_process";
+import {
+  access,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { createInterface } from "node:readline";
+import { clearTimeout, setTimeout } from "node:timers";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
@@ -17,8 +27,13 @@ const homeDirectory = path.join(temporaryDirectory, "home");
 const workspaceDirectory = path.join(temporaryDirectory, "workspace");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const modelId = "recurs-install-smoke";
+const skillName = "installed-release-check";
+const skillMarker = "RECURS_INSTALLED_SKILL_OK";
+const mcpMarker = "RECURS_INSTALLED_MCP_OK";
 const taskMarker = "RECURS_INSTALLED_AGENT_READ_OK";
 const finalText = "Installed Recurs completed the guarded workspace task.";
+const acpPrompt = "Report the installed ACP transport marker.";
+const acpFinalText = "RECURS_INSTALLED_ACP_OK";
 const sandboxedFile = path.join(workspaceDirectory, "SANDBOXED.md");
 const escapedFile = path.join(temporaryDirectory, "ESCAPED.txt");
 const sandboxCommand =
@@ -61,6 +76,23 @@ function streamResponse(response, payload) {
   response.end(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`);
 }
 
+function streamToolCall(response, id, name, arguments_) {
+  streamResponse(response, {
+    choices: [{
+      delta: {
+        tool_calls: [{
+          index: 0,
+          id,
+          type: "function",
+          function: { name, arguments: JSON.stringify(arguments_) },
+        }],
+      },
+      finish_reason: "tool_calls",
+    }],
+    usage: { prompt_tokens: 12, completion_tokens: 4 },
+  });
+}
+
 async function startLocalModelServer() {
   const chatRequests = [];
   const server = createServer((request, response) => {
@@ -79,46 +111,42 @@ async function startLocalModelServer() {
       if (request.method === "POST" && request.url === "/v1/chat/completions") {
         const body = await requestJson(request);
         chatRequests.push(body);
-        if (chatRequests.length === 1) {
+        if (JSON.stringify(body.messages).includes(acpPrompt)) {
           streamResponse(response, {
             choices: [{
-              delta: {
-                tool_calls: [{
-                  index: 0,
-                  id: "call-installed-command",
-                  type: "function",
-                  function: {
-                    name: "run_command",
-                    arguments: JSON.stringify({
-                      command: sandboxCommand,
-                      timeoutMs: 10_000,
-                    }),
-                  },
-                }],
-              },
-              finish_reason: "tool_calls",
+              delta: { content: acpFinalText },
+              finish_reason: "stop",
             }],
             usage: { prompt_tokens: 8, completion_tokens: 4 },
           });
           return;
         }
+        if (chatRequests.length === 1) {
+          streamToolCall(response, "call-installed-skill", "activate_skill", {
+            name: skillName,
+            resource: "guide.md",
+          });
+          return;
+        }
         if (chatRequests.length === 2) {
-          streamResponse(response, {
-            choices: [{
-              delta: {
-                tool_calls: [{
-                  index: 0,
-                  id: "call-installed-read",
-                  type: "function",
-                  function: {
-                    name: "read_file",
-                    arguments: JSON.stringify({ path: "SANDBOXED.md" }),
-                  },
-                }],
-              },
-              finish_reason: "tool_calls",
-            }],
-            usage: { prompt_tokens: 12, completion_tokens: 4 },
+          streamToolCall(response, "call-installed-mcp", "mcp", {
+            server: "installed-probe",
+            action: "call_tool",
+            tool: "package_probe",
+            arguments: {},
+          });
+          return;
+        }
+        if (chatRequests.length === 3) {
+          streamToolCall(response, "call-installed-command", "run_command", {
+            command: sandboxCommand,
+            timeoutMs: 10_000,
+          });
+          return;
+        }
+        if (chatRequests.length === 4) {
+          streamToolCall(response, "call-installed-read", "read_file", {
+            path: "SANDBOXED.md",
           });
           return;
         }
@@ -152,6 +180,173 @@ async function startLocalModelServer() {
     chatRequests,
     server,
   };
+}
+
+async function writeInteropFixtures(dataDirectory) {
+  const skillDirectory = path.join(dataDirectory, "skills", skillName);
+  const configDirectory = path.join(dataDirectory, "config");
+  const mcpServer = path.join(workspaceDirectory, "installed-mcp-server.mjs");
+  await Promise.all([
+    mkdir(skillDirectory, { recursive: true, mode: 0o700 }),
+    mkdir(configDirectory, { recursive: true, mode: 0o700 }),
+  ]);
+  await writeFile(
+    path.join(skillDirectory, "SKILL.md"),
+    [
+      "---",
+      `name: ${skillName}`,
+      "description: Verify the installed package interoperability path",
+      "---",
+      `Use the installed package release procedure. ${skillMarker}`,
+      "",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
+  await writeFile(
+    path.join(skillDirectory, "guide.md"),
+    `Installed package guide: ${skillMarker}\n`,
+    { mode: 0o600 },
+  );
+  await writeFile(
+    mcpServer,
+    [
+      'import { createInterface } from "node:readline";',
+      'const lines = createInterface({ input: process.stdin, terminal: false });',
+      'const send = (message) => process.stdout.write(`${JSON.stringify(message)}\\n`);',
+      'const result = (id, value) => send({ jsonrpc: "2.0", id, result: value });',
+      'lines.on("line", (line) => {',
+      '  const message = JSON.parse(line);',
+      '  if (message.method === "initialize") {',
+      '    result(message.id, { protocolVersion: "2025-11-25", capabilities: { tools: {} }, serverInfo: { name: "recurs-installed-smoke", version: "1.0.0" } });',
+      '  } else if (message.method === "ping") {',
+      '    result(message.id, {});',
+      '  } else if (message.method === "tools/list") {',
+      '    result(message.id, { tools: [{ name: "package_probe", description: "Prove installed MCP interoperability", inputSchema: { type: "object", additionalProperties: false } }] });',
+      '  } else if (message.method === "tools/call" && message.params?.name === "package_probe") {',
+      `    result(message.id, { content: [{ type: "text", text: "${mcpMarker}" }] });`,
+      '  } else if (message.id !== undefined && message.method !== "notifications/initialized") {',
+      '    send({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Unsupported smoke method" } });',
+      '  }',
+      '});',
+      "",
+    ].join("\n"),
+    { mode: 0o700 },
+  );
+  await chmod(configDirectory, 0o700);
+  const configuration = path.join(configDirectory, "mcp-servers.json");
+  await writeFile(configuration, `${JSON.stringify({
+    version: 1,
+    servers: [{
+      id: "installed-probe",
+      description: "Deterministic installed-package MCP probe",
+      command: process.execPath,
+      args: [mcpServer],
+      network: "deny",
+    }],
+  })}\n`, { mode: 0o600 });
+  await chmod(configuration, 0o600);
+}
+
+function withTimeout(promise, label, milliseconds = 15_000) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`${label} exceeded ${milliseconds}ms`)),
+        milliseconds,
+      );
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+async function runInstalledAcpSmoke(executable, environment) {
+  const child = spawn(executable, ["acp"], {
+    cwd: workspaceDirectory,
+    env: environment,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const responses = new Map();
+  const notifications = [];
+  let nextId = 1;
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+    assert(stderr.length <= 64 * 1024, "The installed ACP server exceeded its stderr limit.");
+  });
+  const output = createInterface({ input: child.stdout, terminal: false });
+  output.on("line", (line) => {
+    const message = JSON.parse(line);
+    if (message.id !== undefined && ("result" in message || "error" in message)) {
+      const pending = responses.get(message.id);
+      if (pending === undefined) return;
+      responses.delete(message.id);
+      if (message.error === undefined) pending.resolve(message.result);
+      else pending.reject(new Error(`ACP error: ${JSON.stringify(message.error)}`));
+      return;
+    }
+    notifications.push(message);
+  });
+  const exited = new Promise((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  const request = (method, params) => {
+    const id = nextId++;
+    const response = new Promise((resolve, reject) => {
+      responses.set(id, { resolve, reject });
+    });
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+    return withTimeout(response, `ACP ${method}`);
+  };
+
+  try {
+    const initialized = await request("initialize", {
+      protocolVersion: 1,
+      clientCapabilities: {},
+      clientInfo: { name: "recurs-install-smoke", version: "1" },
+    });
+    assert(
+      initialized?.protocolVersion === 1 && initialized?.agentInfo?.name === "recurs",
+      "The installed ACP server did not negotiate the supported protocol.",
+    );
+    const created = await request("session/new", {
+      cwd: workspaceDirectory,
+      mcpServers: [],
+    });
+    assert(
+      typeof created?.sessionId === "string" && created.sessionId.length > 0,
+      "The installed ACP server did not create a session.",
+    );
+    const prompt = await request("session/prompt", {
+      sessionId: created.sessionId,
+      prompt: [{ type: "text", text: acpPrompt }],
+    });
+    assert(
+      prompt?.stopReason === "end_turn",
+      "The installed ACP session did not complete its prompt.",
+    );
+    assert(
+      notifications.some((message) =>
+        message.method === "session/update" &&
+        message.params?.sessionId === created.sessionId &&
+        message.params?.update?.sessionUpdate === "agent_message_chunk" &&
+        message.params?.update?.content?.text === acpFinalText
+      ),
+      "The installed ACP server did not stream its model result.",
+    );
+    await request("session/close", { sessionId: created.sessionId });
+    child.stdin.end();
+    const status = await withTimeout(exited, "ACP process shutdown");
+    assert(
+      status.code === 0 && status.signal === null,
+      `The installed ACP process exited unexpectedly: ${JSON.stringify(status)}`,
+    );
+    assert(stderr === "", `The installed ACP server wrote diagnostics: ${stderr}`);
+  } finally {
+    output.close();
+    if (child.exitCode === null && child.signalCode === null) child.kill();
+  }
 }
 
 async function closeServer(server) {
@@ -213,6 +408,7 @@ try {
     RECURS_HOME: path.join(homeDirectory, ".recurs"),
     USERPROFILE: homeDirectory,
   };
+  await writeInteropFixtures(environment.RECURS_HOME);
   const { stdout: help, stderr: helpError } = await execFileAsync(executable, ["--help"], {
     cwd: installDirectory,
     encoding: "utf8",
@@ -257,7 +453,7 @@ try {
     executable,
     [
       "run",
-      "Create a sandboxed workspace marker, read it, and report completion.",
+      "Use the installed skill and MCP server, then create and read a sandboxed workspace marker.",
       "--permissions",
       "full",
       "--format",
@@ -283,6 +479,18 @@ try {
   const commandFailure = events.find((event) =>
     event.type === "tool_failed" &&
     event.callId === "call-installed-command"
+  );
+  assert(
+    events.some((event) =>
+      event.type === "tool_completed" && event.callId === "call-installed-skill"
+    ),
+    `The installed agent did not activate its packaged skill path: ${JSON.stringify(eventSummary)}`,
+  );
+  assert(
+    events.some((event) =>
+      event.type === "tool_completed" && event.callId === "call-installed-mcp"
+    ),
+    `The installed agent did not complete its stdio MCP call: ${JSON.stringify(eventSummary)}`,
   );
   assert(
     events.some((event) =>
@@ -326,12 +534,35 @@ try {
     "The sandboxed command escaped the workspace write boundary.",
   );
   assert(
-    localModelServer.chatRequests.length === 3,
-    "The installed agent did not make exactly two tool turns and one final turn.",
+    localModelServer.chatRequests.length === 5,
+    "The installed agent did not make exactly four tool turns and one final turn.",
   );
   assert(
-    JSON.stringify(localModelServer.chatRequests[2]).includes(taskMarker),
+    JSON.stringify(localModelServer.chatRequests[1]).includes(skillMarker),
+    "The activated skill and its resource were not returned to the model.",
+  );
+  assert(
+    JSON.stringify(localModelServer.chatRequests[2]).includes(mcpMarker),
+    "The stdio MCP result was not returned to the model.",
+  );
+  assert(
+    JSON.stringify(localModelServer.chatRequests[4]).includes(taskMarker),
     "The guarded tool result was not returned to the model.",
+  );
+  assert(
+    localModelServer.chatRequests[0]?.tools?.some((tool) =>
+      tool.function?.name === "activate_skill"
+    ) === true &&
+      localModelServer.chatRequests[0]?.tools?.some((tool) =>
+        tool.function?.name === "mcp"
+      ) === true,
+    "The installed model request did not expose Agent Skills and MCP tools.",
+  );
+
+  await runInstalledAcpSmoke(executable, environment);
+  assert(
+    localModelServer.chatRequests.length === 6,
+    "The installed ACP prompt did not reach the configured model backend exactly once.",
   );
 } finally {
   if (localModelServer !== undefined) {
