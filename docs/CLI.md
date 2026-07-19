@@ -2,7 +2,7 @@
 
 Recurs Core v0 is a provider-neutral coding-agent harness. The CLI, direct agent loop, delegated-runtime executor, owned single-child and bounded parallel analysis/review paths, durable implementation/review/repair teams, tools, permissions, Plan mode, sessions, goals, checkpoints, structured output, credential-free local transport, bounded stdio MCP client, and first official Codex ACP path are implemented.
 
-The executable starts in a sessionless workspace shell when no provider is available. Coding prompts require a configured literal-loopback local server, a saved or ephemeral reviewed BYOK connection, an eligible interactive Codex connection, or an injected test/embedding `ModelProvider`; no fake `unconfigured` session is written.
+When no provider is available, an interactive launch offers one guided setup and otherwise remains in a sessionless workspace shell. Coding prompts require a configured literal-loopback local server, a saved or ephemeral reviewed BYOK connection, an eligible interactive Codex connection, or an injected test/embedding `ModelProvider`; no fake `unconfigured` session is written.
 
 ## Install from source
 
@@ -36,6 +36,22 @@ No package or installer is published today. The package remains `private`, versi
 Source/npm execution supports credential-free local, environment-BYOK, and vendor-owned Codex paths. It cannot persist a Recurs-owned credential: the native authority requires a correctly bundled, production-signed macOS 14.4+ launcher and broker, and source, unsigned, or ad-hoc builds fail closed without a plaintext fallback.
 
 The repository does not yet contain a license. Although it is intended to become open source, it remains source-available rather than legally open source until the owner selects and adds a license.
+
+## Guided first run
+
+Run `recurs setup`, or launch `recurs` with no configured connection. The same local, user-present guide:
+
+1. shows saved connections, safely detected Ollama/LM Studio runtimes, the official Codex path, reviewed environment-BYOK providers, and installed-native paths that the current build can attempt;
+2. selects an exact model from bounded `models.dev` metadata when that provider has a reviewed catalog mapping, or asks for an exact model ID when authoritative discovery is unavailable;
+3. executes the existing provider-specific credential and billing disclosure—generic onboarding never asks for a key value;
+4. selects Ask Always, Approved for Me, or Full Access; and
+5. creates a fresh durable session with that permission preset and enters the ordinary REPL.
+
+Approved for Me is the recommended interactive preset. Full Access still requires a separate warning and confirmation. Cancelling that confirmation safely falls back to Ask Always. The selected permission is stored in the new session rather than a mutable global preference; existing sessions keep their recorded boundary. Skipping connection setup leaves the sessionless `/provider` workspace available.
+
+For a catalog with many models, the guide asks for a search first and then shows at most 30 exact matches. Public catalog metadata helps selection but does not activate an unreviewed provider, supply credentials, or override Recurs's manifest and billing policy.
+
+The interaction follows current official patterns reviewed on 2026-07-19: [Kimi Code](https://www.kimi.com/code/docs/en/kimi-code-cli/configuration/providers) uses a known-provider → credential → default-model path backed by `models.dev`; [OpenCode](https://opencode.ai/docs/providers) separates `/connect` authentication from exact model selection; [Goose](https://github.com/aaif-goose/goose/blob/main/documentation/docs/getting-started/providers.md) combines searchable provider configuration with keychain-backed secrets; and [Codex](https://openai.com/codex/get-started/) moves directly from sign-in and project choice into the first task. Recurs keeps that short flow while retaining its stricter reviewed-provider, credential-owner, billing, and immutable-session boundaries.
 
 ## Provider boundary
 
@@ -93,7 +109,7 @@ These commands intentionally separate three sources that other harnesses can mak
 - `provider catalog` fetches public provider/model discovery metadata from `https://models.dev/api.json` and does not activate or authenticate anything;
 - `provider detect` probes only the fixed literal-loopback Ollama and LM Studio ports. It does not search the filesystem, inspect another tool's credential store, scan the LAN, or import tokens.
 
-Inside the interactive CLI, `/provider [search]` combines connected accounts, safe local detection, the public catalog, and Recurs's truthful setup status in one view. `/connect` remains an alias. When Recurs starts without a configured model, this provider view is the first onboarding step; the same discovery service will support the broader project-and-team onboarding flow rather than becoming a separate settings system. A public catalog match is never presented as runnable until Recurs has the complete reviewed authentication, billing, transport, and execution path.
+Inside the interactive CLI, `/provider [search]` combines connected accounts, safe local detection, the public catalog, and Recurs's truthful setup status in one view. `/connect` remains an alias. The first-run guide composes this same discovery and setup system; if the guide is skipped, `/provider` remains the first sessionless workspace view. A public catalog match is never presented as runnable until Recurs has the complete reviewed authentication, billing, transport, and execution path.
 
 Account mutations require one full exact ID; prefixes, labels, indexes, extra flags, and control characters are rejected. `verify` is read-only and runs only from a local, user-present, non-automation terminal because Codex is one supported path. It rechecks the exact local model or official Codex account/model/read-only profile. For saved BYOK it proves only that the named environment variable is present and matches the setup fingerprint; the provider authenticates the key on the first model request. Verification does not sign in, repair billing acknowledgement, make a network request for BYOK, or mutate the registry.
 

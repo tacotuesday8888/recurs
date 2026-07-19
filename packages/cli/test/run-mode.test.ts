@@ -363,6 +363,213 @@ describe("runCli", () => {
     expect(stderr.value).toContain("recurs setup local --url");
   });
 
+  it("guides explicit local setup and falls back safely when Full Access is declined", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const selections = ["local:ollama", "full_access"];
+    let localInput: unknown;
+    let runtimeOptions: unknown;
+    const runtime = {
+      state: { type: "session" },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+
+    const exitCode = await runCli(["setup"], {
+      stdin: Readable.from(["/quit\n"]),
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      async createRuntime(_events, options) {
+        runtimeOptions = options;
+        return runtime;
+      },
+      async listAccounts() { return []; },
+      async listProviders() { return []; },
+      async detectProviders() {
+        return [{
+          id: "ollama",
+          name: "Ollama",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          detected: true,
+        }];
+      },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText(message) {
+        expect(message).toContain("exact model ID");
+        return "qwen-coder";
+      },
+      async confirm(message) {
+        expect(message).toContain("Windows does not yet have");
+        return false;
+      },
+      async setupLocal(input) {
+        localInput = input;
+        return {
+          id: "local-1",
+          label: "Ollama",
+          modelId: input.modelId,
+          baseUrl: input.baseUrl,
+          primary: true,
+        };
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(localInput).toEqual({
+      baseUrl: "http://127.0.0.1:11434/v1",
+      modelId: "qwen-coder",
+    });
+    expect(runtimeOptions).toEqual({
+      permissionMode: "ask_always",
+      reuseExistingSession: false,
+    });
+    expect(stdout.value).toContain("Welcome to Recurs");
+    expect(stdout.value).toContain("Onboarding complete");
+    expect(stdout.value).toContain("Starting a fresh durable session");
+    expect(stdout.value).toContain("Full Access was not enabled");
+    expect(stdout.value).toContain("Recurs — local harness mode");
+    expect(stderr.value).toBe("");
+  });
+
+  it("offers guided BYOK onboarding from a sessionless launch and selects a catalog model", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const selections = [
+      "byok:openrouter-api",
+      "anthropic/claude-test",
+      "approved_for_me",
+    ];
+    let configured = false;
+    let setupInput: unknown;
+    const runtimeOptions: unknown[] = [];
+    const workspaceRuntime = {
+      state: {
+        type: "workspace",
+        cwd: "/tmp/workspace",
+        permissionMode: "ask_always",
+      },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+    const sessionRuntime = {
+      state: { type: "session" },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+
+    const exitCode = await runCli([], {
+      stdin: Readable.from(["/quit\n"]),
+      stdout,
+      stderr,
+      cwd: "/tmp/workspace",
+      interactive: true,
+      automation: false,
+      async createRuntime(_events, options) {
+        runtimeOptions.push(options);
+        return options === undefined ? workspaceRuntime : sessionRuntime;
+      },
+      async listAccounts() {
+        return configured
+          ? [{
+              id: "byok-1",
+              label: "OpenRouter API BYOK",
+              providerId: "openrouter-api",
+              adapterId: "openai-chat-completions" as const,
+              kind: "environment_model_provider" as const,
+              modelId: "anthropic/claude-test",
+              primary: true,
+              account: "environment credential (value not stored)",
+              execution: "Act + Plan",
+              billingSources: ["prepaid_credits" as const],
+            }]
+          : [];
+      },
+      async listProviders() {
+        return [{
+          id: "openrouter-api",
+          displayName: "OpenRouter API",
+          status: "runnable_byok" as const,
+          supportStatus: "supported" as const,
+          adapterKind: "model_provider" as const,
+          accessKind: "api" as const,
+          protocol: "openai_chat" as const,
+          connectionOwner: "process_environment" as const,
+          billing: {
+            primarySource: "prepaid_credits" as const,
+            possibleAdditionalSources: [],
+            providerFallback: "none" as const,
+          },
+          restrictions: [],
+        }];
+      },
+      async detectProviders() { return []; },
+      async discoverProviders() {
+        return {
+          source: "https://models.dev/api.json" as const,
+          providers: [{
+            id: "openrouter",
+            name: "OpenRouter",
+            wire: "openai-compatible" as const,
+            modelCount: 2,
+            modelIds: ["anthropic/claude-test", "openai/gpt-test"],
+          }],
+        };
+      },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText(message, suggestion) {
+        expect(message).toContain("Environment variable");
+        expect(suggestion).toBe("OPENROUTER_API_KEY");
+        return suggestion ?? null;
+      },
+      async confirm(message) {
+        expect(message).toContain("reviewed fixed HTTPS origin");
+        return true;
+      },
+      async setupEnvironment(input) {
+        configured = true;
+        setupInput = input;
+        return {
+          id: "byok-1",
+          label: "OpenRouter API BYOK",
+          providerId: input.providerId,
+          modelId: input.modelId,
+          credentialEnvironmentVariable: input.credentialEnvironmentVariable,
+          primary: true,
+          billingSelection: input.billingSelection,
+        };
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(setupInput).toEqual({
+      providerId: "openrouter-api",
+      modelId: "anthropic/claude-test",
+      credentialEnvironmentVariable: "OPENROUTER_API_KEY",
+      billingSelection: "strict_primary_only",
+    });
+    expect(runtimeOptions).toEqual([
+      undefined,
+      { permissionMode: "approved_for_me", reuseExistingSession: false },
+    ]);
+    expect(stdout.value).toContain(
+      "Connection: OpenRouter API BYOK · anthropic/claude-test",
+    );
+    expect(stderr.value).toBe("");
+  });
+
   it("configures saved BYOK metadata after an explicit credential and billing disclosure", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
@@ -947,6 +1154,7 @@ describe("runCli", () => {
             name: "Kimi For Coding",
             wire: "openai-compatible",
             modelCount: 2,
+            modelIds: ["k2p7", "k3"],
           }],
         };
       },

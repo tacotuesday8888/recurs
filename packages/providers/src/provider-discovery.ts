@@ -3,6 +3,7 @@ export const MODELS_DEV_CATALOG_URL = "https://models.dev/api.json";
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_BYTES = 16 * 1024 * 1024;
 const MAX_PROVIDERS = 2_000;
+const MAX_MODELS_PER_PROVIDER = 4_096;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:@/+-]{0,255}$/u;
 
 export type CatalogWire =
@@ -18,6 +19,7 @@ export interface DiscoveredCatalogProvider {
   readonly api?: string;
   readonly wire: CatalogWire;
   readonly modelCount: number;
+  readonly modelIds: readonly string[];
 }
 
 export interface ProviderCatalogSnapshot {
@@ -96,12 +98,24 @@ function normalizeCatalog(value: unknown): readonly DiscoveredCatalogProvider[] 
   const providers = entries.flatMap(([id, raw]) => {
     if (!SAFE_ID.test(id) || !isRecord(raw)) return [];
     const models = isRecord(raw.models) ? raw.models : {};
+    const modelKeys = Object.keys(models);
+    if (modelKeys.length > MAX_MODELS_PER_PROVIDER) {
+      throw new ProviderDiscoveryError(
+        "A provider catalog entry contains too many models",
+      );
+    }
+    const modelIds = Object.freeze(
+      modelKeys
+        .filter((modelId) => SAFE_ID.test(modelId))
+        .sort((left, right) => left.localeCompare(right)),
+    );
     const api = normalizedApi(raw.api);
     const provider: DiscoveredCatalogProvider = {
       id,
       name: normalizedText(raw.name, id),
       wire: wireFor(raw.npm, id),
-      modelCount: Object.keys(models).length,
+      modelCount: modelIds.length,
+      modelIds,
       ...(api === undefined ? {} : { api }),
     };
     return [Object.freeze(provider)];

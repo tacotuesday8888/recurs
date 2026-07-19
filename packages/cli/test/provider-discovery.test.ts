@@ -63,6 +63,7 @@ describe("provider discovery presentation", () => {
               name: "Example Coding Plan",
               wire: "openai-compatible",
               modelCount: 4,
+              modelIds: ["coder-a", "coder-b", "coder-c", "coder-d"],
             }],
           };
         },

@@ -21,6 +21,7 @@ import {
   type LocalRuntimeDetection,
   type ProviderCatalogSnapshot,
 } from "@recurs/providers";
+import type { PermissionMode } from "@recurs/tools";
 import {
   CodexOnboardingError,
   ConnectionLifecycleError,
@@ -63,6 +64,13 @@ import {
   providerCatalogText,
 } from "./provider-discovery.js";
 import {
+  isSafeCredentialEnvironmentVariable,
+  isSafeModelId,
+  runGuidedOnboarding as runGuidedOnboardingFlow,
+  type GuidedChoice,
+  type GuidedOnboardingOutcome,
+} from "./guided-onboarding.js";
+import {
   LocalConnectionError,
   setupLocalConnection,
   type LocalConnectionConfiguration,
@@ -86,6 +94,7 @@ const help = `Recurs coding-agent harness
 
 Usage:
   recurs                         Open the interactive CLI
+  recurs setup                   Guide provider, model, and permission setup
   recurs run <prompt>            Run one prompt
   recurs run <prompt> --format text|jsonl
   recurs acp                     Serve Recurs over ACP on stdio
@@ -132,12 +141,23 @@ export interface CliDependencies {
   automation?: boolean;
   signal?: AbortSignal;
   confirm?(message: string): Promise<boolean>;
+  selectChoice?(
+    message: string,
+    choices: readonly GuidedChoice[],
+  ): Promise<string | null>;
+  promptText?(message: string, suggestion?: string): Promise<string | null>;
   selectOpenAIModel?(modelIds: readonly string[]): Promise<string | null>;
   nativeAuthority?: NativeAuthorityPort;
   openAIOnboarding?: OpenAICliOnboardingPort;
   anthropicOnboarding?: OpenAICliOnboardingPort;
   kimiOnboarding?: OpenAICliOnboardingPort;
-  createRuntime(events: EventSink): Promise<RecursRuntime>;
+  createRuntime(
+    events: EventSink,
+    options?: {
+      readonly permissionMode?: PermissionMode;
+      readonly reuseExistingSession?: boolean;
+    },
+  ): Promise<RecursRuntime>;
   runAcp?(): Promise<void>;
   setupLocal?(input: { baseUrl: string; modelId: string }): Promise<Pick<LocalConnectionConfiguration, "id" | "label" | "baseUrl" | "modelId" | "primary">>;
   setupCodex?(input: {
@@ -250,16 +270,6 @@ interface ByokSetupArguments {
 }
 
 const SAFE_BYOK_PROVIDER_ID = /^[a-z0-9][a-z0-9-]{0,127}$/u;
-const SAFE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/u;
-const SAFE_CREDENTIAL_ENVIRONMENT_VARIABLE = /^[A-Z][A-Z0-9_]{0,127}$/u;
-
-function safeCredentialEnvironmentVariable(value: string): boolean {
-  if (!SAFE_CREDENTIAL_ENVIRONMENT_VARIABLE.test(value)) return false;
-  const segments = new Set(value.split("_"));
-  return segments.has("KEY") || segments.has("TOKEN") ||
-    segments.has("SECRET");
-}
-
 function parseByokSetupArguments(
   args: readonly string[],
 ): ByokSetupArguments | null {
@@ -292,8 +302,8 @@ function parseByokSetupArguments(
   return providerId === undefined || modelId === undefined ||
       credentialEnvironmentVariable === undefined ||
       !SAFE_BYOK_PROVIDER_ID.test(providerId) ||
-      !SAFE_MODEL_ID.test(modelId) ||
-      !safeCredentialEnvironmentVariable(credentialEnvironmentVariable)
+      !isSafeModelId(modelId) ||
+      !isSafeCredentialEnvironmentVariable(credentialEnvironmentVariable)
     ? null
     : {
         providerId,
@@ -326,7 +336,7 @@ function parseOpenAISetupCommand(
     args.length === 3 &&
     args[1] === "--model" &&
     args[2] !== undefined &&
-    SAFE_MODEL_ID.test(args[2])
+    isSafeModelId(args[2])
   ) {
     return { kind: "setup", provider, modelId: args[2] };
   }
@@ -559,7 +569,7 @@ function isCommandResult(value: unknown): value is CommandResult {
 }
 
 function exitCodeFor(error: unknown): number {
-  if (isCancellation(error)) {
+  if (isCancellation(error) || isAbortError(error)) {
     return 130;
   }
   if (
@@ -598,6 +608,66 @@ function configurationFailure(error: unknown): IntegrationFailure | null {
     };
   }
   return null;
+}
+
+async function runGuidedOnboarding(
+  dependencies: CliDependencies,
+): Promise<GuidedOnboardingOutcome> {
+  if (
+    dependencies.selectChoice === undefined ||
+    dependencies.promptText === undefined
+  ) {
+    await writeOutput(
+      dependencies.stderr,
+      "Error: Guided setup requires a user-present local terminal\n",
+    );
+    return { state: "failed", exitCode: 2 };
+  }
+  const nativeProviders = new Set<"openai" | "anthropic" | "kimi">();
+  if (dependencies.openAIOnboarding !== undefined) nativeProviders.add("openai");
+  if (dependencies.anthropicOnboarding !== undefined) nativeProviders.add("anthropic");
+  if (dependencies.kimiOnboarding !== undefined) nativeProviders.add("kimi");
+  return await runGuidedOnboardingFlow({
+    stdout: dependencies.stdout,
+    stderr: dependencies.stderr,
+    interactive: dependencies.interactive === true,
+    automation: dependencies.automation === true,
+    nativeProviders,
+    selectChoice: dependencies.selectChoice,
+    promptText: dependencies.promptText,
+    executeCommand: (argv) => runCli(argv, dependencies),
+    ...(dependencies.signal === undefined ? {} : { signal: dependencies.signal }),
+    ...(dependencies.confirm === undefined ? {} : { confirm: dependencies.confirm }),
+    ...(dependencies.listAccounts === undefined
+      ? {}
+      : { listAccounts: dependencies.listAccounts }),
+    ...(dependencies.listProviders === undefined
+      ? {}
+      : { listProviders: dependencies.listProviders }),
+    ...(dependencies.detectProviders === undefined
+      ? {}
+      : { detectProviders: dependencies.detectProviders }),
+    ...(dependencies.discoverProviders === undefined
+      ? {}
+      : { discoverProviders: dependencies.discoverProviders }),
+  });
+}
+
+async function startInteractiveRepl(
+  runtime: RecursRuntime,
+  dependencies: CliDependencies,
+): Promise<void> {
+  await startRepl(runtime, {
+    ...(dependencies.stdin === undefined ? {} : { input: dependencies.stdin }),
+    output: dependencies.stdout,
+    invocation: createHostInvocation({
+      invocation: "repl",
+      userPresent: true,
+      remote: false,
+      scripted: false,
+      embedding: "cli",
+    }),
+  });
 }
 
 export async function runCli(
@@ -669,20 +739,53 @@ export async function runCli(
     }
     const renderer = new TextEventRenderer(dependencies.stdout);
     try {
-      const runtime = await dependencies.createRuntime(renderer);
-      await startRepl(runtime, {
-        ...(dependencies.stdin === undefined ? {} : { input: dependencies.stdin }),
-        output: dependencies.stdout,
-        invocation: createHostInvocation({
-          invocation: "repl",
-          userPresent: true,
-          remote: false,
-          scripted: false,
-          embedding: "cli",
-        }),
-      });
+      let runtime = await dependencies.createRuntime(renderer);
+      if (
+        runtime.state?.type === "workspace" &&
+        dependencies.selectChoice !== undefined &&
+        dependencies.promptText !== undefined
+      ) {
+        const onboarding = await runGuidedOnboarding(dependencies);
+        if (onboarding.state === "failed") return onboarding.exitCode;
+        if (onboarding.state === "configured") {
+          runtime = await dependencies.createRuntime(renderer, {
+            permissionMode: onboarding.permissionMode,
+            reuseExistingSession: false,
+          });
+        }
+      }
+      await startInteractiveRepl(runtime, dependencies);
       return 0;
     } catch (error) {
+      if (dependencies.signal?.aborted === true || isAbortError(error)) {
+        await writeOutput(dependencies.stderr, "Error: Guided setup was cancelled\n");
+        return 130;
+      }
+      await writeOutput(
+        dependencies.stderr,
+        `Error: ${safeCliErrorMessage(error)}\n`,
+      );
+      return exitCodeFor(error);
+    }
+  }
+
+  if (argv.length === 1 && argv[0] === "setup") {
+    try {
+      const onboarding = await runGuidedOnboarding(dependencies);
+      if (onboarding.state === "failed") return onboarding.exitCode;
+      if (onboarding.state === "skipped") return 0;
+      const renderer = new TextEventRenderer(dependencies.stdout);
+      const runtime = await dependencies.createRuntime(renderer, {
+        permissionMode: onboarding.permissionMode,
+        reuseExistingSession: false,
+      });
+      await startInteractiveRepl(runtime, dependencies);
+      return 0;
+    } catch (error) {
+      if (dependencies.signal?.aborted === true || isAbortError(error)) {
+        await writeOutput(dependencies.stderr, "Error: Guided setup was cancelled\n");
+        return 130;
+      }
       await writeOutput(
         dependencies.stderr,
         `Error: ${safeCliErrorMessage(error)}\n`,
@@ -1089,8 +1192,10 @@ export async function runCliProcess(
     argv[1] === "native" &&
     (argv.length === 2 || (argv.length === 3 && argv[2] === "--json"));
   const nativeOperationRequested = nativeDoctorRequested ||
+    argv.length === 0 ||
     (argv[0] === "setup" &&
-      (argv[1] === "openai" || argv[1] === "anthropic"));
+      (argv.length === 1 || argv[1] === "openai" ||
+        argv[1] === "anthropic" || argv[1] === "kimi"));
   const nativeOperationController = nativeOperationRequested
     ? new AbortController()
     : undefined;
@@ -1106,37 +1211,65 @@ export async function runCliProcess(
       output: processStdout,
     });
     try {
-      const answer = await terminal.question(`${message}\nContinue? [y/N] `);
+      const answer = await terminal.question(
+        `${message}\nContinue? [y/N] `,
+        nativeOperationController === undefined
+          ? {}
+          : { signal: nativeOperationController.signal },
+      );
       return answer.trim().toLowerCase() === "y" ||
         answer.trim().toLowerCase() === "yes";
     } finally {
       terminal.close();
     }
   };
-  const selectOpenAIModel = async (
-    modelIds: readonly string[],
+  const promptText = async (
+    message: string,
+    suggestion?: string,
   ): Promise<string | null> => {
     const terminal = createInterface({
       input: processStdin,
       output: processStdout,
     });
     try {
-      const choices = modelIds.map((modelId, index) =>
-        `  ${index + 1}. ${modelId}`
-      ).join("\n");
-      const answer = await terminal.question(
-        `Select one exact reviewed OpenAI model:\n${choices}\nModel number or ID: `,
-      );
-      const trimmed = answer.trim();
-      if (/^[1-9][0-9]*$/u.test(trimmed)) {
-        const index = Number(trimmed) - 1;
-        return modelIds[index] ?? null;
-      }
-      return modelIds.includes(trimmed) ? trimmed : null;
+      const suffix = suggestion === undefined ? "" : ` [${suggestion}]`;
+      const answer = (await terminal.question(
+        `${message}${suffix}: `,
+        nativeOperationController === undefined
+          ? {}
+          : { signal: nativeOperationController.signal },
+      )).trim();
+      return answer.length > 0 ? answer : suggestion ?? null;
     } finally {
       terminal.close();
     }
   };
+  const selectChoice = async (
+    message: string,
+    choices: readonly GuidedChoice[],
+  ): Promise<string | null> => {
+    const rendered = choices.map((choice, index) =>
+      `  ${index + 1}. ${choice.label}\n     ${choice.detail}`
+    ).join("\n");
+    const answer = await promptText(
+      `${message}:\n${rendered}\nEnter a number or exact ID`,
+    );
+    if (answer === null) return null;
+    if (/^[1-9][0-9]*$/u.test(answer)) {
+      return choices[Number(answer) - 1]?.id ?? null;
+    }
+    return choices.some((choice) => choice.id === answer) ? answer : null;
+  };
+  const selectOpenAIModel = async (
+    modelIds: readonly string[],
+  ): Promise<string | null> => await selectChoice(
+    "Select one exact reviewed OpenAI model",
+    modelIds.map((modelId) => ({
+      id: modelId,
+      label: modelId,
+      detail: "reviewed OpenAI Responses capability profile",
+    })),
+  );
   const dataDirectory = process.env.RECURS_HOME ?? path.join(homedir(), ".recurs");
   const disclosure = openAIOnboardingDisclosure();
   const anthropicDisclosure = anthropicOnboardingDisclosure();
@@ -1153,6 +1286,8 @@ export async function runCliProcess(
         ? {}
         : { signal: nativeOperationController.signal }),
       confirm,
+      promptText,
+      selectChoice,
       selectOpenAIModel,
       nativeAuthority,
       openAIOnboarding: {
@@ -1192,9 +1327,17 @@ export async function runCliProcess(
         ),
         recover: async () => ({ state: "none" }),
       },
-      createRuntime: (events) => createStandaloneRuntime(
+      createRuntime: (events, options) => createStandaloneRuntime(
         events,
-        nativeOpenAIResponses === undefined ? {} : { nativeOpenAIResponses },
+        {
+          ...(nativeOpenAIResponses === undefined ? {} : { nativeOpenAIResponses }),
+          ...(options?.permissionMode === undefined
+            ? {}
+            : { permissionMode: options.permissionMode }),
+          ...(options?.reuseExistingSession === undefined
+            ? {}
+            : { reuseExistingSession: options.reuseExistingSession }),
+        },
       ),
       runAcp: () => serveRecursAcpStdio(
         {

@@ -32,13 +32,20 @@ describe("provider discovery", () => {
       redirect: "error",
     }));
     expect(snapshot.providers).toEqual([
-      { id: "anthropic", name: "Anthropic", wire: "anthropic", modelCount: 1 },
+      {
+        id: "anthropic",
+        name: "Anthropic",
+        wire: "anthropic",
+        modelCount: 1,
+        modelIds: ["claude-test"],
+      },
       {
         id: "zed",
         name: "Zed Gateway",
         api: "https://api.zed.example/v1",
         wire: "openai-compatible",
         modelCount: 2,
+        modelIds: ["zed-coder", "zed-fast"],
       },
     ]);
     expect(searchProviderCatalog(snapshot.providers, "zed compatible"))
@@ -59,6 +66,19 @@ describe("provider discovery", () => {
       fetch: async () => new Response("not-json"),
     })).rejects.toEqual(
       new ProviderDiscoveryError("The provider catalog response is not valid JSON"),
+    );
+    await expect(fetchProviderCatalog({
+      fetch: async () => new Response(JSON.stringify({
+        oversized: {
+          models: Object.fromEntries(
+            Array.from({ length: 4_097 }, (_, index) => [`model-${index}`, {}]),
+          ),
+        },
+      })),
+    })).rejects.toEqual(
+      new ProviderDiscoveryError(
+        "A provider catalog entry contains too many models",
+      ),
     );
   });
 

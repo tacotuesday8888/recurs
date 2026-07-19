@@ -938,6 +938,37 @@ describe("standalone assembly without a provider", () => {
     expect(files.filter((file) => file.endsWith(".jsonl"))).toEqual([]);
   });
 
+  it("pins a guided permission preset into a fresh model session", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-guided-permission-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        provider: new ScriptedProvider([], "guided-provider"),
+        permissionMode: "approved_for_me",
+        reuseExistingSession: false,
+      },
+    );
+
+    expect(runtime.state).toMatchObject({
+      type: "session",
+      session: {
+        permissionMode: "approved_for_me",
+        agent: {
+          permissions: {
+            parentPermissionMode: "approved_for_me",
+            permissionMode: "approved_for_me",
+          },
+        },
+      },
+    });
+  });
+
   it("keeps a brokered provider unavailable until run activation is wired", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-brokered-disabled-"));
     directories.push(root);
