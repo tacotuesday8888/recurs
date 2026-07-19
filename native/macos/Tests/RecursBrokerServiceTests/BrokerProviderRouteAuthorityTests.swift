@@ -745,16 +745,29 @@ struct BrokerProviderRouteAuthorityTests {
       await credentialAuthority.waitUntilReservationPaused()
 
       var interruptionTask: Task<Void, Never>?
+      var revocationCommitted: RouteInvocationProbe?
       switch interruption {
       case .capabilityCancellation:
-        interruptionTask = Task { await authority.cancel(handle) }
+        let committed = RouteInvocationProbe()
+        revocationCommitted = committed
+        interruptionTask = Task {
+          await authority.cancel(
+            handle,
+            onRevocationCommitted: committed.signal
+          )
+        }
       case .taskCancellation:
         task.cancel()
       case .expiry:
         clock.set(now.addingTimeInterval(61))
       case .close:
-        interruptionTask = Task { await authority.close() }
+        let committed = RouteInvocationProbe()
+        revocationCommitted = committed
+        interruptionTask = Task {
+          await authority.close(onRevocationCommitted: committed.signal)
+        }
       }
+      await revocationCommitted?.wait()
       await credentialAuthority.releasePausedReservation()
       await interruptionTask?.value
 
@@ -1057,12 +1070,14 @@ struct BrokerProviderRouteAuthorityTests {
       let invocation = RouteInvocationProbe()
       let completion = RouteCompletionProbe()
       let interruption = Task {
-        invocation.signal()
-        await action.run(authority, handle: handle)
+        await action.run(
+          authority,
+          handle: handle,
+          onRevocationCommitted: invocation.signal
+        )
         completion.finish()
       }
       await invocation.wait()
-      await Task.yield()
       #expect(!completion.isFinished)
       #expect(await credentialAuthority.cancelCount == 0)
       #expect(await credentialAuthority.releaseCount == 0)
@@ -1520,13 +1535,19 @@ private enum CleanupAction: CaseIterable {
 
   func run(
     _ authority: BrokerProviderRouteAuthority,
-    handle: BrokerProviderRouteCapability
+    handle: BrokerProviderRouteCapability,
+    onRevocationCommitted: @Sendable () -> Void = {}
   ) async {
     switch self {
     case .cancel:
-      await authority.cancel(handle)
+      await authority.cancel(
+        handle,
+        onRevocationCommitted: onRevocationCommitted
+      )
     case .close:
-      await authority.close()
+      await authority.close(
+        onRevocationCommitted: onRevocationCommitted
+      )
     }
   }
 }

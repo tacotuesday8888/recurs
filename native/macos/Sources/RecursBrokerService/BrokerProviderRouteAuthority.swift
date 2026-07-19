@@ -591,9 +591,17 @@ actor BrokerProviderRouteAuthority {
   }
 
   func cancel(_ handle: BrokerProviderRouteCapability) async {
+    await cancel(handle, onRevocationCommitted: {})
+  }
+
+  func cancel(
+    _ handle: BrokerProviderRouteCapability,
+    onRevocationCommitted: @Sendable () -> Void
+  ) async {
     let identifier = ObjectIdentifier(handle)
     let pending = pendingReserveLatches(for: identifier)
     guard var entry = entries[identifier], entry.handle === handle else {
+      onRevocationCommitted()
       await waitForPendingReserves(pending)
       if let cleanupTail { await cleanupTail.value }
       return
@@ -606,13 +614,21 @@ actor BrokerProviderRouteAuthority {
     if !credentials.isEmpty {
       _ = enqueueCleanup(credentials)
     }
+    onRevocationCommitted()
     await waitForPendingReserves(pending)
     if let cleanupTail { await cleanupTail.value }
   }
 
   func close() async {
+    await close(onRevocationCommitted: {})
+  }
+
+  func close(
+    onRevocationCommitted: @Sendable () -> Void
+  ) async {
     let pending = pendingReserveLatches()
     guard !isClosed else {
+      onRevocationCommitted()
       await waitForPendingReserves(pending)
       if let cleanupTail { await cleanupTail.value }
       return
@@ -624,6 +640,7 @@ actor BrokerProviderRouteAuthority {
     if !credentials.isEmpty {
       _ = enqueueCleanup(credentials)
     }
+    onRevocationCommitted()
     await waitForPendingReserves(pending)
     if let cleanupTail { await cleanupTail.value }
   }
