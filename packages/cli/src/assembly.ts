@@ -594,7 +594,11 @@ export async function createStandaloneRuntime(
     dataDirectory: root,
     homeDirectory: options.skillHomeDirectory ?? homedir(),
   });
-  const mcp = await McpServerCatalog.load(root);
+  const mcp = await McpServerCatalog.load({
+    dataDirectory: root,
+    workspace: cwd,
+    projectDataDirectory: projectData,
+  });
   const sessions = new JsonlSessionStore(path.join(projectData, "sessions"));
   const checkpoints = new FileCheckpointStore(
     path.join(projectData, "checkpoints"),
@@ -920,7 +924,7 @@ export async function createStandaloneRuntime(
     },
     contextInstructions: (session) => isPinnedSessionState(session) &&
         session.agent.profile === null
-      ? skills.contextInstructions()
+      ? [...skills.contextInstructions(), ...mcp.contextInstructions()]
       : [],
     createToolContext(session, signal, runContext) {
       return {

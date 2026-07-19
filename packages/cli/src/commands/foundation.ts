@@ -14,7 +14,7 @@ const helpText = [
   "/permissions [mode]           Set Ask Always, Approved for Me, or Full Access",
   "/agents [profiles|mode name]  Inspect profiles or set bounded child-agent policy",
   "/skills [action]              Inspect Agent Skills or trust project skills",
-  "/mcp                          Inspect user-configured MCP servers",
+  "/mcp                          Inspect MCP servers and project trust",
   "/status                       Show session, goal, mode, and usage",
   "/init                         Create AGENTS.md without overwriting it",
   "/new                          Start a new durable session",

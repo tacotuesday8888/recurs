@@ -250,7 +250,7 @@ export class RecursRuntime {
           "/permissions [mode]           Set the next-session permission default",
           "/agents [profiles]            Explain modes or inspect agent profiles",
           "/skills [action]              Inspect Agent Skills or trust project skills",
-          "/mcp                          Inspect user-configured MCP servers",
+          "/mcp                          Inspect MCP servers and project trust",
           "/status                       Show workspace configuration",
           "/resume                       List historical sessions",
           "/init                         Create AGENTS.md without overwriting it",
