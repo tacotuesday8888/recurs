@@ -1,6 +1,13 @@
 import type { Writable } from "node:stream";
 
 import {
+  DEFAULT_OPERATING_MODE_ID,
+  getOperatingModePolicy,
+  operatingModePolicies,
+  type OperatingModeId,
+  type TeamRunRole,
+} from "@recurs/contracts";
+import {
   hasEnvironmentProviderModelDiscovery,
   type DiscoveredCatalogProvider,
   type EnvironmentModelDescriptor,
@@ -157,6 +164,31 @@ export const GUIDED_PERMISSION_CHOICES: readonly GuidedChoice[] = Object.freeze(
   }),
 ]);
 
+const currentOperatingModeVersion = getOperatingModePolicy(
+  DEFAULT_OPERATING_MODE_ID,
+).version;
+
+export const GUIDED_OPERATING_MODE_CHOICES: readonly GuidedChoice[] =
+  Object.freeze(operatingModePolicies
+    .filter((policy) => policy.version === currentOperatingModeVersion)
+    .map((policy) => {
+      const team = policy.workflow.team;
+      const billing = policy.model.selection === "configured_role_candidate"
+        ? policy.model.eligibleBillingSources.join(", ")
+        : "parent model only";
+      return Object.freeze({
+        id: policy.id,
+        label: `${policy.displayName}${policy.id === DEFAULT_OPERATING_MODE_ID ? " (recommended)" : ""}`,
+        detail: `${team?.maxImplementers ?? 1} implementer${team?.maxImplementers === 1 ? "" : "s"} · ${policy.orchestration.maxConcurrentChildren} concurrent · ${billing}`,
+      });
+    }));
+
+export function guidedOperatingModeId(value: string): OperatingModeId | null {
+  return GUIDED_OPERATING_MODE_CHOICES.some((choice) => choice.id === value)
+    ? value as OperatingModeId
+    : null;
+}
+
 export function guidedPermissionMode(value: string): PermissionMode | null {
   return value === "ask_always" || value === "approved_for_me" ||
       value === "full_access"
@@ -204,7 +236,11 @@ export function isSafeCredentialEnvironmentVariable(value: string): boolean {
 }
 
 export type GuidedOnboardingOutcome =
-  | { readonly state: "configured"; readonly permissionMode: PermissionMode }
+  | {
+    readonly state: "configured";
+    readonly permissionMode: PermissionMode;
+    readonly operatingModeId: OperatingModeId;
+  }
   | { readonly state: "skipped" }
   | { readonly state: "failed"; readonly exitCode: number };
 
@@ -465,6 +501,116 @@ async function selectPermission(
   return "ask_always";
 }
 
+async function selectOperatingMode(
+  ports: GuidedOnboardingPorts,
+): Promise<OperatingModeId> {
+  const selected = await ports.selectChoice(
+    "Choose how much agent teamwork Recurs should use",
+    GUIDED_OPERATING_MODE_CHOICES,
+  );
+  return selected === null
+    ? DEFAULT_OPERATING_MODE_ID
+    : guidedOperatingModeId(selected) ?? DEFAULT_OPERATING_MODE_ID;
+}
+
+const TEAM_ROLES: readonly TeamRunRole[] = Object.freeze([
+  "implement",
+  "review",
+  "repair",
+]);
+
+function routeCandidates(
+  accounts: readonly AccountSummary[],
+  operatingModeId: OperatingModeId,
+): readonly AccountSummary[] {
+  const policy = getOperatingModePolicy(operatingModeId);
+  if (policy.model.selection !== "configured_role_candidate") return [];
+  const eligible = new Set(policy.model.eligibleBillingSources);
+  return accounts.filter((account) =>
+    !account.primary &&
+    account.execution === "Act + Plan" &&
+    account.billingSources[0] !== undefined &&
+    eligible.has(account.billingSources[0])
+  );
+}
+
+function currentRoute(
+  accounts: readonly AccountSummary[],
+  role: TeamRunRole,
+): string | null {
+  return accounts.find((account) => account.agentRoles.includes(role))?.id ?? null;
+}
+
+function routeSummary(accounts: readonly AccountSummary[]): string {
+  return TEAM_ROLES.map((role) => {
+    const account = accounts.find((candidate) =>
+      candidate.agentRoles.includes(role)
+    );
+    return `${role}: ${account?.label ?? "parent"}`;
+  }).join(" · ");
+}
+
+async function configureTeamRoutes(
+  accounts: readonly AccountSummary[],
+  operatingModeId: OperatingModeId,
+  ports: GuidedOnboardingPorts,
+): Promise<boolean> {
+  const candidates = routeCandidates(accounts, operatingModeId);
+  if (candidates.length === 0) {
+    await writeOutput(
+      ports.stdout,
+      "Team routing: every role inherits the parent model. Add a second eligible Act + Plan connection later to specialize roles.\n",
+    );
+    return true;
+  }
+  const setup = await ports.selectChoice(
+    "Choose whether to specialize Implement, Review, and Repair",
+    Object.freeze([
+      Object.freeze({
+        id: "keep",
+        label: "Keep current routing (recommended)",
+        detail: routeSummary(accounts),
+      }),
+      Object.freeze({
+        id: "customize",
+        label: "Customize specialist models",
+        detail: "assign eligible saved connections role by role",
+      }),
+    ]),
+  );
+  if (setup !== "customize") return true;
+
+  for (const role of TEAM_ROLES) {
+    const existing = currentRoute(accounts, role);
+    const selected = await ports.selectChoice(
+      `Choose the ${role} model`,
+      Object.freeze([
+        Object.freeze({
+          id: "parent",
+          label: "Inherit the parent model",
+          detail: "no separate connection or billing source",
+        }),
+        ...candidates.map((account) => Object.freeze({
+          id: account.id,
+          label: account.label,
+          detail: `${account.modelId} · ${account.billingSources.join(" + ")}`,
+        })),
+      ]),
+    );
+    if (selected === null) continue;
+    const connectionId = selected === "parent" ? null : selected;
+    if (connectionId === existing) continue;
+    const exitCode = await ports.executeCommand([
+      "account",
+      "route",
+      role,
+      connectionId ?? "parent",
+    ]);
+    if (exitCode !== 0) return false;
+  }
+  return true;
+}
+
 export async function runGuidedOnboarding(
   ports: GuidedOnboardingPorts,
 ): Promise<GuidedOnboardingOutcome> {
@@ -477,7 +623,7 @@ export async function runGuidedOnboarding(
   }
   await writeOutput(ports.stdout, [
     "\nWelcome to Recurs",
-    "Connect one model, choose its exact model ID, then set the permission boundary for a fresh durable session.",
+    "Build a working agent team: connect its parent model, set its safety boundary, choose its operating mode, and optionally route specialist roles.",
     "Credentials stay with the vendor runtime, native authority, or named process environment—never this generic prompt.",
     "",
   ].join("\n"));
@@ -499,6 +645,7 @@ export async function runGuidedOnboarding(
     );
     return { state: "skipped" };
   }
+  await writeOutput(ports.stdout, "1 / 4 · Parent model\n");
   const selectedId = await ports.selectChoice(
     "Choose how Recurs should access a model",
     choices,
@@ -523,14 +670,29 @@ export async function runGuidedOnboarding(
   if (connectionExit !== 0) {
     return { state: "failed", exitCode: connectionExit };
   }
+  await writeOutput(ports.stdout, "\n2 / 4 · Safety boundary\n");
   const permissionMode = await selectPermission(ports);
-  const primary = (await ports.listAccounts?.())?.find((account) => account.primary);
+  await writeOutput(ports.stdout, "\n3 / 4 · Team operating mode\n");
+  const operatingModeId = await selectOperatingMode(ports);
+  await writeOutput(ports.stdout, "\n4 / 4 · Specialist routing\n");
+  const accountsAfterConnection = await ports.listAccounts?.() ?? [];
+  const routed = await configureTeamRoutes(
+    accountsAfterConnection,
+    operatingModeId,
+    ports,
+  );
+  if (!routed) return { state: "failed", exitCode: 2 };
+  const accountsAfterRouting = await ports.listAccounts?.() ?? accountsAfterConnection;
+  const primary = accountsAfterRouting.find((account) => account.primary);
+  const operatingMode = getOperatingModePolicy(operatingModeId);
   await writeOutput(ports.stdout, [
     "Onboarding complete",
     `Connection: ${primary === undefined ? "ready" : `${primary.label} · ${primary.modelId}`}`,
     `Permissions: ${permissionMode.replaceAll("_", " ")}`,
-    "Starting a fresh durable session. Change these later with /provider, /model, or /permissions.",
+    `Mode: ${operatingMode.displayName} · ${operatingMode.id}`,
+    `Team: ${routeSummary(accountsAfterRouting)}`,
+    "Starting a fresh durable session. Change these later with /provider, /model, /permissions, or /agents mode.",
     "",
   ].join("\n"));
-  return { state: "configured", permissionMode };
+  return { state: "configured", permissionMode, operatingModeId };
 }
