@@ -1,8 +1,10 @@
 # Security Policy
 
-Recurs is pre-release software at version `0.0.0`. The Recurs TypeScript process
-does not accept, import, expose, or store provider credential bytes, and it must
-not be used as a credential-safe sandbox. The current safeguards reduce
+Recurs is pre-release software at version `0.0.0`. The signed native provider
+path keeps reusable credential bytes outside TypeScript. The public
+environment-BYOK path deliberately receives one selected key in the Recurs
+process but never persists, renders, or forwards it to tools. Recurs must not
+be used as a credential-safe sandbox. The current safeguards reduce
 accidental disclosure through built-in tools, checkpoints, child environments,
 and error messages; arbitrary commands still run with the user's host
 filesystem, network, IPC, and process authority.
@@ -106,6 +108,17 @@ authentication. Public account output omits local endpoints, vendor account
 labels, and one-way account fingerprints. Primary selection affects new
 sessions only; every existing session must still match its complete pinned
 connection before provider or runtime work begins.
+
+Saved environment-BYOK records contain a reviewed provider/model/policy/billing
+binding, an environment-variable name, and a provider-bound SHA-256 credential
+fingerprint. They never contain the credential value. The fingerprint detects a
+missing or changed high-entropy provider key; it is not encryption, a password
+store, or proof that the provider currently accepts the key. Provider
+authentication occurs on the first request. Environment keys remain visible to
+the Recurs process and any same-user host authority able to inspect that
+process. Managed tool and MCP subprocess environments remove credential,
+provider, cloud, proxy, Keychain, and socket variables, but Linux and Windows
+arbitrary commands still retain broad host authority under `local_guarded`.
 
 ## Supported versions
 

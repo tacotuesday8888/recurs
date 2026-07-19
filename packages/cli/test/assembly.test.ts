@@ -21,6 +21,7 @@ import { createHostInvocation, getOperatingModePolicy } from "@recurs/contracts"
 import {
   ConnectionLifecycleService,
   FileConnectionRegistry,
+  setupEnvironmentConnection,
   type BrokeredModelProviderConnectionRecord,
   type DelegatedConnectionRecord,
 } from "@recurs/app";
@@ -378,6 +379,68 @@ describe("standalone assembly without a provider", () => {
     expect(result).toMatchObject({ finalText: "ready" });
     expect(authorization).toBe(`Bearer ${key}`);
     expect(JSON.stringify(runtime.session)).not.toContain(key);
+  });
+
+  it("runs a saved BYOK account only with the exact configured environment credential", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-saved-byok-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    const key = "saved-environment-key-canary";
+    const connection = await setupEnvironmentConnection(dataDirectory, {
+      providerId: "deepseek-api",
+      modelId: "deepseek-chat",
+      credentialEnvironmentVariable: "DEEPSEEK_API_KEY",
+      billingSelection: "strict_primary_only",
+      environment: { DEEPSEEK_API_KEY: key },
+      now: "2026-07-19T00:00:00.000Z",
+    });
+    let authorization = "";
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory,
+        environment: { DEEPSEEK_API_KEY: key },
+        environmentFetch: async (_input, init) => {
+          authorization = new Headers(init?.headers).get("authorization") ?? "";
+          return new Response([
+            'data: {"choices":[{"delta":{"content":"saved ready"},"finish_reason":"stop"}]}',
+            'data: {"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":2}}',
+            "data: [DONE]",
+            "",
+          ].join("\n\n"), { status: 200 });
+        },
+      },
+    );
+
+    expect(runtime.session.backend.pin).toMatchObject({
+      connectionId: connection.id,
+      providerId: "deepseek-api",
+      modelId: "deepseek-chat",
+      primaryBillingSourceAtCreation: "metered_api",
+    });
+    await expect(runtime.submit("Respond when ready")).resolves.toMatchObject({
+      finalText: "saved ready",
+    });
+    expect(authorization).toBe(`Bearer ${key}`);
+    expect(JSON.stringify(runtime.session)).not.toContain(key);
+
+    for (const environment of [
+      {},
+      { DEEPSEEK_API_KEY: "changed-environment-key" },
+    ]) {
+      const unavailable = await createStandaloneRuntime(
+        { async emit() {} },
+        { cwd: workspace, dataDirectory, environment },
+      );
+      expect(unavailable.state.type).toBe("workspace");
+      await expect(unavailable.submit("must not run")).rejects.toMatchObject({
+        code: "provider_not_configured",
+        message: expect.stringContaining("DEEPSEEK_API_KEY"),
+      });
+    }
   });
 
   it("reopens the canonical parent instead of newer non-root or other-cwd sessions", async () => {

@@ -337,7 +337,10 @@ export async function setupOpenAIConnection(
     if (isAborted(input.signal)) return cancelled();
     return failure("preflight", "persistence_failed", "retry");
   }
-  if (entry.status !== "requires_native_broker") {
+  if (
+    entry.status !== "requires_native_broker" &&
+    !(provider === "kimi" && entry.status === "runnable_byok")
+  ) {
     return failure("preflight", "policy_unavailable", "none");
   }
   if (!acknowledges(input.acknowledgement, entry)) {

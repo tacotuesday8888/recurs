@@ -1,4 +1,5 @@
 export * from "./connection-lifecycle.js";
+export * from "./environment-connection.js";
 export * from "./connection-activations.js";
 export * from "./connection-registry.js";
 export * from "./codex-onboarding.js";

@@ -27,6 +27,7 @@ const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u;
 const BROKER_CONNECTION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const SHA256_FINGERPRINT_PATTERN = /^sha256:[a-f0-9]{64}$/u;
+const ENVIRONMENT_VARIABLE_PATTERN = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const BILLING_SOURCES = new Set<BillingSource>([
   "metered_api",
   "included_subscription",
@@ -104,10 +105,28 @@ export interface BrokeredModelProviderConnectionRecord {
   updatedAt: string;
 }
 
+export interface EnvironmentModelProviderConnectionRecord {
+  kind: "environment_model_provider";
+  id: string;
+  providerId: string;
+  adapterId: "openai-chat-completions";
+  label: string;
+  modelId: string;
+  credentialEnvironmentVariable: string;
+  credentialIdentityFingerprint: string;
+  policyRevision: string;
+  billingPolicy: BillingPolicy;
+  billingSelection: BillingSelection;
+  configuredAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type ConnectionRecord =
   | LocalConnectionRecord
   | DelegatedConnectionRecord
-  | BrokeredModelProviderConnectionRecord;
+  | BrokeredModelProviderConnectionRecord
+  | EnvironmentModelProviderConnectionRecord;
 
 export interface ConnectionRegistryDocument {
   schemaVersion: 1;
@@ -644,6 +663,93 @@ function parseDelegated(
   };
 }
 
+function credentialEnvironmentVariable(value: unknown): string {
+  const name = boundedString(value, 128, {
+    trim: true,
+    pattern: ENVIRONMENT_VARIABLE_PATTERN,
+  });
+  const segments = new Set(name.split("_"));
+  if (
+    !segments.has("KEY") &&
+    !segments.has("TOKEN") &&
+    !segments.has("SECRET")
+  ) {
+    throw invalidRegistry();
+  }
+  return name;
+}
+
+export function parseEnvironmentModelProviderConnectionRecord(
+  value: unknown,
+): EnvironmentModelProviderConnectionRecord {
+  rejectSecretMaterial(value);
+  if (!isRecord(value)) throw invalidRegistry();
+  exactKeys(value, [
+    "kind",
+    "id",
+    "providerId",
+    "adapterId",
+    "label",
+    "modelId",
+    "credentialEnvironmentVariable",
+    "credentialIdentityFingerprint",
+    "policyRevision",
+    "billingPolicy",
+    "billingSelection",
+    "configuredAt",
+    "createdAt",
+    "updatedAt",
+  ]);
+  if (
+    value.kind !== "environment_model_provider" ||
+    value.adapterId !== "openai-chat-completions"
+  ) {
+    throw invalidRegistry();
+  }
+  const createdAt = timestamp(value.createdAt);
+  const updatedAt = timestamp(value.updatedAt);
+  const configuredAt = timestamp(value.configuredAt);
+  const billingPolicy = parseBillingPolicy(value.billingPolicy);
+  const billingSelection = parseBillingSelection(
+    value.billingSelection,
+    billingPolicy,
+  );
+  if (
+    createdAt > updatedAt ||
+    configuredAt < createdAt ||
+    configuredAt > updatedAt ||
+    billingSelection.acknowledgedAt < createdAt ||
+    billingSelection.acknowledgedAt > updatedAt
+  ) {
+    throw invalidRegistry();
+  }
+  return {
+    kind: "environment_model_provider",
+    id: boundedString(value.id, 128, { trim: true, pattern: ID_PATTERN }),
+    providerId: boundedString(value.providerId, 128, {
+      trim: true,
+      pattern: ID_PATTERN,
+    }),
+    adapterId: "openai-chat-completions",
+    label: boundedString(value.label, 256, { trim: true }),
+    modelId: boundedUtf8String(value.modelId, 256, { trim: true }),
+    credentialEnvironmentVariable: credentialEnvironmentVariable(
+      value.credentialEnvironmentVariable,
+    ),
+    credentialIdentityFingerprint: boundedString(
+      value.credentialIdentityFingerprint,
+      71,
+      { trim: true, pattern: SHA256_FINGERPRINT_PATTERN },
+    ),
+    policyRevision: boundedString(value.policyRevision, 256, { trim: true }),
+    billingPolicy,
+    billingSelection,
+    configuredAt,
+    createdAt,
+    updatedAt,
+  };
+}
+
 export function parseBrokeredModelProviderConnectionRecord(
   value: unknown,
 ): BrokeredModelProviderConnectionRecord {
@@ -770,6 +876,9 @@ function parseConnection(value: unknown): ConnectionRecord {
   if (value.kind === "delegated_agent") return parseDelegated(value);
   if (value.kind === "brokered_model_provider") {
     return parseBrokeredModelProviderConnectionRecord(value);
+  }
+  if (value.kind === "environment_model_provider") {
+    return parseEnvironmentModelProviderConnectionRecord(value);
   }
   throw invalidRegistry();
 }

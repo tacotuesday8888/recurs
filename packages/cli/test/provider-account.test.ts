@@ -136,6 +136,11 @@ describe("provider and account projections", () => {
         status: "requires_native_broker",
         connectionOwner: "recurs_broker",
       });
+    expect(normal.find((entry) => entry.id === "openrouter-api"))
+      .toMatchObject({
+        status: "runnable_byok",
+        connectionOwner: "process_environment",
+      });
     expect(all.some((entry) => entry.status === "blocked")).toBe(true);
   });
 
