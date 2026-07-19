@@ -11,6 +11,7 @@ import type { HostInvocation } from "@recurs/contracts";
 import type { ModelProvider } from "@recurs/providers";
 import type { CheckpointStore, ExecutionMode, ToolContext } from "@recurs/tools";
 import type { AgentSkillCatalog } from "../agent-skills.js";
+import type { McpServerCatalog } from "../mcp-client.js";
 
 export interface ParsedCommand {
   name: string;
@@ -66,6 +67,7 @@ export interface CommandDependencies {
     ): Promise<TeamRunResult>;
   };
   skills?: AgentSkillCatalog;
+  mcp?: McpServerCatalog;
 }
 
 export interface Command {

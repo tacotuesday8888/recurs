@@ -7,6 +7,7 @@ import { createRepositoryCommands } from "./repository.js";
 import { CommandRegistry } from "./registry.js";
 import { createSessionCommands } from "./session.js";
 import { createSkillsCommand } from "./skills.js";
+import { createMcpCommand } from "./mcp.js";
 import type { CommandDependencies } from "./types.js";
 
 export function createCommandRegistry(
@@ -23,5 +24,8 @@ export function createCommandRegistry(
     ...(dependencies.skills === undefined
       ? []
       : [createSkillsCommand(dependencies.skills)]),
+    ...(dependencies.mcp === undefined
+      ? []
+      : [createMcpCommand(dependencies.mcp)]),
   ]);
 }

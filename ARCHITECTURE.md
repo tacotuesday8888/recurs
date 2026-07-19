@@ -26,9 +26,9 @@ public/source CLI ──fixed unavailable port──► shared process host
 - `@recurs/auth` owns the credential-free, bounded client and strict redacted onboarding/generation codecs for one injected native duplex. Descriptor parsing and ownership stay in the private engine, and auth has no credential or secret-retrieval operation.
 - `@recurs/app` owns the non-secret connection registry, redacted lifecycle and native-authority services, local onboarding, onboarding projection, and Codex onboarding policy. It depends on contracts, providers, and auth, never on the CLI.
 - `@recurs/runtimes` owns bounded ACP process/protocol handling and the pinned official Codex ACP profile. It receives opaque continuation-store capabilities and does not import vendor credentials.
-- `@recurs/tools` owns tool definitions and execution, permission intents, the unified credential/workspace path policy, command classification, clean child-process setup and bounds, Git inspection, and checkpoint format gates.
+- `@recurs/tools` owns tool definitions and execution, permission intents, the unified credential/workspace path policy, command classification, clean one-shot and managed child-process setup and bounds, Git inspection, and checkpoint format gates.
 - `@recurs/core` owns the direct agent loop, delegated executor, backend-neutral coordinator, owned child manager, bounded batch and team coordinators, durable team-run journal/supervisor/recovery, provider-neutral role routing, cross-process run ownership, durable patch artifacts, activity projection, Git worktree leases, adaptive Review panels, shared delegation budgets, normalized runtime/agent events, trusted preflight handoff, process-scoped continuation authority, durable goals, session reduction, JSONL persistence, compaction, and recovery.
-- `@recurs/cli` composes app (which assembles auth), providers, runtimes, core, and tools; it owns slash commands, operating-mode selection, agent activity rendering, redacted native diagnostics, interactive input, non-interactive execution, the Recurs-owned ACP stdio server, and process exit behavior.
+- `@recurs/cli` composes app (which assembles auth), providers, runtimes, core, and tools; it owns slash commands, operating-mode selection, agent activity rendering, redacted native diagnostics, interactive input, non-interactive execution, the Recurs-owned ACP stdio server, the bounded user-configured MCP stdio client, and process exit behavior.
 - `packages/native-engine` is the launcher-only entrypoint that claims descriptor 3 before loading the shared process host. Its sealed build substitutes a fixed denial for delegated Codex rather than resolving an ambient runtime.
 - `native/macos` contains the headless Swift launcher, exact-peer XPC broker, fixed bundle/child lifecycle, foreground secret capture, Data Protection Keychain adapter, credential journal/state machine, endpoint policy, model catalogs, and broker-owned OpenAI/Anthropic/Kimi generation. This is native CLI infrastructure, not a desktop interface.
 
@@ -93,6 +93,8 @@ Broker-owned saved connections require current native attestation, an exact regi
 The registry parses tool input, evaluates every permission intent, asks when required, records exact session grants, runs an optional side-effect-free validation preflight, creates checkpoints around mutating tools, and executes the tool. A failed preflight cannot start checkpoint capture. Unknown implementation errors are converted to safe typed tool failures before they can enter events or session storage.
 
 Plan mode removes mutating tools from the provider-visible registry and rejects them if called directly. It is an enforced capability boundary, not a prompt convention.
+
+The parent direct-provider loop may register one generic `mcp` tool from private user-owned configuration. MCP server startup is always mutating/elevated shell authority, optional network authority is explicit, and each operation runs through the same isolated managed-process and sandbox composition before the full process group is closed. Protocol metadata and results are untrusted data. Historical child/team profiles do not include the tool. Project configuration, remote authentication/transports, persistent servers, and ACP-client declarations remain outside this boundary.
 
 Permission engines and reusable grants are isolated by session. The three presets are:
 
@@ -167,6 +169,6 @@ The remaining extension order is deliberate:
 4. add official delegated runtimes to the sealed host only with fixed signed layouts plus provider-specific capability and policy proof;
 5. add enforceable process/filesystem/network containment before unattended arbitrary-command workers, then design any persistent worker host as a separately authenticated owner rather than extending the CLI promise;
 6. admit multiple live role/model candidates only through reviewed capability, billing, and connection policy, preserving frozen routing and accounting truth;
-7. add the company coordinator, desktop, plugins/MCP, and distribution over the same durable contracts and the now-live ACP client boundary.
+7. extend MCP only through separately reviewed persistent-session, authenticated remote, project-trust, and child-profile slices; add the company coordinator, desktop, plugin packaging, and distribution over the same durable contracts and the live ACP client boundary.
 
 See [the engine comparison](docs/BASE_ENGINE_COMPARISON.md), [the Core v0 design](docs/superpowers/specs/2026-07-10-recurs-core-v0-design.md), and [the provider design](docs/superpowers/specs/2026-07-10-recurs-provider-auth-design.md).
