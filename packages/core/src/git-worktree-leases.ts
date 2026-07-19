@@ -257,11 +257,18 @@ export class GitWorktreeLeaseManager implements GitWorktreeLeaseAuthority {
   readonly #pending = new Set<string>();
   readonly #active = new Map<string, ActiveLease>();
   readonly #released = new Map<string, GitWorktreeLease>();
+  #mutationTail: Promise<void> = Promise.resolve();
 
   constructor(options: GitWorktreeLeaseManagerOptions) {
     this.#configuredRoot = path.resolve(options.rootDirectory);
     this.#createId = options.createId ?? randomUUID;
     this.#processRunner = options.processRunner ?? runProcess;
+  }
+
+  #mutate<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#mutationTail.then(operation, operation);
+    this.#mutationTail = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   async #git(
@@ -529,40 +536,42 @@ export class GitWorktreeLeaseManager implements GitWorktreeLeaseAuthority {
       );
     }
 
-    try {
-      await this.#git(repository, [
-        "worktree", "add", "--detach", target, revision,
-      ], signal);
-      const created = await realpath(target);
-      if (created !== target) {
-        throw new ToolError("permission_denied", "The Git worktree target is invalid");
-      }
-      const lease = Object.freeze({
-        id,
-        repositoryRoot: repository,
-        worktreeRoot: created,
-        revision,
-      });
-      this.#active.set(id, { lease, owner, worktreeRemoved: false });
-      return lease;
-    } catch (error) {
+    return await this.#mutate(async () => {
       try {
-        await this.#recoverCreation(repository, target);
-        await owner.release();
-      } catch (cleanupError) {
+        await this.#git(repository, [
+          "worktree", "add", "--detach", target, revision,
+        ], signal);
+        const created = await realpath(target);
+        if (created !== target) {
+          throw new ToolError("permission_denied", "The Git worktree target is invalid");
+        }
+        const lease = Object.freeze({
+          id,
+          repositoryRoot: repository,
+          worktreeRoot: created,
+          revision,
+        });
+        this.#active.set(id, { lease, owner, worktreeRemoved: false });
+        return lease;
+      } catch (error) {
+        try {
+          await this.#recoverCreation(repository, target);
+          await owner.release();
+        } catch (cleanupError) {
+          throw new ToolError(
+            "process_failed",
+            "Git worktree cleanup failed after creation",
+            { cause: cleanupError },
+          );
+        }
+        if (error instanceof ToolError) throw error;
         throw new ToolError(
           "process_failed",
-          "Git worktree cleanup failed after creation",
-          { cause: cleanupError },
+          "Git worktree creation failed",
+          { cause: error },
         );
       }
-      if (error instanceof ToolError) throw error;
-      throw new ToolError(
-        "process_failed",
-        "Git worktree creation failed",
-        { cause: error },
-      );
-    }
+    });
   }
 
   async recoverStale(
@@ -714,32 +723,34 @@ export class GitWorktreeLeaseManager implements GitWorktreeLeaseAuthority {
     if (!sameLease(active.lease, lease)) {
       throw new ToolError("permission_denied", "The Git worktree lease is not owned");
     }
-    if (!active.worktreeRemoved) {
-      await this.#assertOwnedTarget(active, false);
-      try {
-        await this.#git(active.lease.repositoryRoot, [
-          "worktree", "remove", "--force", active.lease.worktreeRoot,
-        ]);
-      } catch (error) {
+    await this.#mutate(async () => {
+      if (!active.worktreeRemoved) {
+        await this.#assertOwnedTarget(active, false);
+        try {
+          await this.#git(active.lease.repositoryRoot, [
+            "worktree", "remove", "--force", active.lease.worktreeRoot,
+          ]);
+        } catch (error) {
+          if (!await this.#isWorktreeRemoved(
+            active.lease.repositoryRoot,
+            active.lease.worktreeRoot,
+          )) {
+            throw new ToolError(
+              "process_failed",
+              "Git worktree cleanup failed",
+              { cause: error },
+            );
+          }
+        }
         if (!await this.#isWorktreeRemoved(
           active.lease.repositoryRoot,
           active.lease.worktreeRoot,
         )) {
-          throw new ToolError(
-            "process_failed",
-            "Git worktree cleanup failed",
-            { cause: error },
-          );
+          throw new ToolError("process_failed", "Git worktree cleanup was ambiguous");
         }
+        active.worktreeRemoved = true;
       }
-      if (!await this.#isWorktreeRemoved(
-        active.lease.repositoryRoot,
-        active.lease.worktreeRoot,
-      )) {
-        throw new ToolError("process_failed", "Git worktree cleanup was ambiguous");
-      }
-      active.worktreeRemoved = true;
-    }
+    });
     try {
       await active.owner.release();
     } catch (error) {

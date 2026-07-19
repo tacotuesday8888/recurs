@@ -125,6 +125,10 @@ describe("FileGitPatchArtifactStore", () => {
       ...artifact(setup.repository, value.handle.id, "different patch\n"),
     })).rejects.toMatchObject({ code: "permission_denied" });
     expect(await setup.store.load(value.handle)).toEqual(value);
+
+    const later = artifact(setup.repository, "artifact-after-conflict");
+    await expect(setup.store.put(later)).resolves.toBeUndefined();
+    await expect(setup.store.load(later.handle)).resolves.toEqual(later);
   });
 
   it("snapshots caller-owned input before asynchronous publication", async () => {

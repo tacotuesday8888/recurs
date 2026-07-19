@@ -474,15 +474,14 @@ export class TeamAgentManager {
     parentAgentId: string,
     modeId: OperatingModeId,
     base: GitPatchBase,
+    lease: GitWorktreeLease,
     context: ToolContext,
     captured: Map<number, GitPatchArtifactHandle>,
   ): Promise<CompletedImplementation> {
-    let lease: GitWorktreeLease | undefined;
     let result: ChildDelegationResult | undefined;
     let artifact: GitPatchArtifactHandle | undefined;
     let failure: unknown;
     try {
-      lease = await this.dependencies.worktrees.create(base.repositoryRoot, context.signal);
       if (lease.repositoryRoot !== base.repositoryRoot ||
         lease.revision !== base.revision) {
         throw new ToolError(
@@ -532,18 +531,16 @@ export class TeamAgentManager {
     } catch (error) {
       failure = error;
     }
-    if (lease !== undefined) {
-      try {
-        await this.dependencies.worktrees.release(lease);
-      } catch (error) {
-        failure = new ToolError(
-          "execution_failed",
-          failure === undefined
-            ? "The isolated Implement worktree could not be cleaned up"
-            : "Implementation failed and its isolated worktree could not be cleaned up",
-          { cause: error },
-        );
-      }
+    try {
+      await this.dependencies.worktrees.release(lease);
+    } catch (error) {
+      failure = new ToolError(
+        "execution_failed",
+        failure === undefined
+          ? "The isolated Implement worktree could not be cleaned up"
+          : "Implementation failed and its isolated worktree could not be cleaned up",
+        { cause: error },
+      );
     }
     if (failure !== undefined) throw failure;
     if (result === undefined || artifact === undefined) {
@@ -687,6 +684,36 @@ export class TeamAgentManager {
       });
 
       const captured = new Map<number, GitPatchArtifactHandle>();
+      const leases: GitWorktreeLease[] = [];
+      try {
+        while (leases.length < input.tasks.length) {
+          const lease = await this.dependencies.worktrees.create(
+            base.repositoryRoot,
+            teamContext.signal,
+          );
+          leases.push(lease);
+          if (lease.repositoryRoot !== base.repositoryRoot ||
+            lease.revision !== base.revision) {
+            throw new ToolError(
+              "permission_denied",
+              "The isolated worker lease does not match the team base revision",
+            );
+          }
+        }
+      } catch (error) {
+        try {
+          await Promise.all(leases.map((lease) =>
+            this.dependencies.worktrees.release(lease)
+          ));
+        } catch (cleanupError) {
+          throw new ToolError(
+            "execution_failed",
+            "Team workspace reservation failed and could not be cleaned up",
+            { cause: cleanupError },
+          );
+        }
+        throw error;
+      }
       let failureObserved = false;
       const implementations: ImplementationResult[] = await Promise.all(
         input.tasks.map(async (task, offset) => {
@@ -699,6 +726,7 @@ export class TeamAgentManager {
               parent.agent.id,
               mode.id,
               base,
+              leases[offset]!,
               teamContext,
               captured,
             );

@@ -361,6 +361,7 @@ async function requireCanonicalAncestor(target: string): Promise<void> {
 
 export class FileGitPatchArtifactStore implements GitPatchArtifactStore {
   readonly directory: string;
+  #publicationTail: Promise<void> = Promise.resolve();
 
   constructor(directory: string) {
     this.directory = path.resolve(directory);
@@ -407,34 +408,38 @@ export class FileGitPatchArtifactStore implements GitPatchArtifactStore {
     if (Buffer.byteLength(refContent, "utf8") > MAX_REF_BYTES) {
       denied("Patch artifact ref is too large");
     }
-    const repositoryRoot = await canonicalRepository(artifact.repositoryRoot);
-    if (within(repositoryRoot, this.directory)) {
-      denied("Patch artifact storage must be outside the repository");
-    }
-    await this.#prepare();
-
-    const object = this.#object(artifact.handle);
-    if (!await publishExclusive(path.dirname(object), object, artifact.patch)) {
-      const existing = await readPrivateFile(object, {
-        allowMissing: false,
-        maxBytes: MAX_PATCH_BYTES,
-        exactBytes: artifact.handle.byteLength,
-        label: "object",
-      });
-      if (existing === null) missing("Patch artifact object was not found");
-      verifyPatch(artifact.handle, decode(existing));
-    }
-    const refFile = this.#ref(artifact.handle);
-    if (!await publishExclusive(
-      path.dirname(refFile),
-      refFile,
-      refContent,
-    )) {
-      const existing = await this.load(artifact.handle);
-      if (!isDeepStrictEqual(existing, artifact)) {
-        denied("Patch artifact ID is already bound to different content");
+    const publication = this.#publicationTail.then(async () => {
+      const repositoryRoot = await canonicalRepository(artifact.repositoryRoot);
+      if (within(repositoryRoot, this.directory)) {
+        denied("Patch artifact storage must be outside the repository");
       }
-    }
+      await this.#prepare();
+
+      const object = this.#object(artifact.handle);
+      if (!await publishExclusive(path.dirname(object), object, artifact.patch)) {
+        const existing = await readPrivateFile(object, {
+          allowMissing: false,
+          maxBytes: MAX_PATCH_BYTES,
+          exactBytes: artifact.handle.byteLength,
+          label: "object",
+        });
+        if (existing === null) missing("Patch artifact object was not found");
+        verifyPatch(artifact.handle, decode(existing));
+      }
+      const refFile = this.#ref(artifact.handle);
+      if (!await publishExclusive(
+        path.dirname(refFile),
+        refFile,
+        refContent,
+      )) {
+        const existing = await this.load(artifact.handle);
+        if (!isDeepStrictEqual(existing, artifact)) {
+          denied("Patch artifact ID is already bound to different content");
+        }
+      }
+    });
+    this.#publicationTail = publication.catch(() => undefined);
+    await publication;
   }
 
   async load(input: GitPatchArtifactHandle): Promise<StoredGitPatchArtifact> {
