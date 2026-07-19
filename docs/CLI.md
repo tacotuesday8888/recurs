@@ -257,11 +257,13 @@ The parent direct-provider loop can use user-configured stdio MCP servers. Recur
 }
 ```
 
-Configuration supports at most 32 stable server IDs, absolute commands, at most 32 bounded literal arguments, and `network: "allow"` or `"deny"`. It cannot define environment variables or a shell string. Each `list_tools` or `call_tool` operation starts a fresh process, negotiates a supported MCP protocol version, checks the advertised tools capability, bounds pagination/output/time, and closes the whole process group. The process gets Recurs's private home/config/cache/temp environment and never inherits API keys, tokens, proxy settings, or provider authority.
+Configuration supports at most 32 stable server IDs, absolute commands, at most 32 bounded literal arguments, and `network: "allow"` or `"deny"`. It cannot define environment variables or a shell string. The first approved `list_tools` or `call_tool` operation starts a process, negotiates a supported MCP protocol version, and creates one session for the exact server/workspace/sandbox identity. Calls for that identity are serialized. Before reusing the process, Recurs requires a successful MCP `ping`; a failed ping closes the process and permits one fresh initialization before the requested operation. A tool call that fails after it is sent is never retried because its external effect may be ambiguous. Pagination, per-operation time, protocol lines, lifetime output, and result size are bounded. The process gets Recurs's private home/config/cache/temp environment and never inherits API keys, tokens, proxy settings, or provider authority.
+
+`/mcp` reports `idle`, `connected`, or `failed` plus negotiated server identity for a connected session. It does not start a server. Cancellation sends the MCP cancellation notification, then invalidates and closes the complete process group; timeout and protocol failure do the same. Interactive exit, one-shot completion/failure, ACP session close/disconnect, and explicit runtime close all dispose their owned sessions. Persistence is limited to one live Recurs runtime and is not a daemon or cross-process cache.
 
 The model-facing `mcp` tool is classified as mutating because server initialization and tool annotations cannot prove read-only behavior. It is unavailable in Plan mode, always declares an elevated shell intent, adds an elevated network intent only for `network: "allow"`, and uses normal Ask Always/Approved for Me/Full Access decisions. On macOS and Linux it receives the same workspace sandbox as other arbitrary processes. Existing child/team profiles do not receive MCP.
 
-Server metadata, JSON Schemas, annotations, instructions, and results are untrusted data. They cannot widen Recurs permissions or change policy. Project MCP configuration, automatic installation, persistent server sessions, Streamable HTTP/OAuth, prompts, resources, sampling, elicitation, and ACP-client-supplied MCP servers remain intentionally absent.
+Server metadata, JSON Schemas, annotations, instructions, and results are untrusted data. They cannot widen Recurs permissions or change policy. Project MCP configuration, automatic installation, cross-runtime daemons, Streamable HTTP/OAuth, prompts, resources, sampling, elicitation, and ACP-client-supplied MCP servers remain intentionally absent.
 
 Example editor agent command configuration:
 
@@ -417,7 +419,7 @@ A daemon that outlives the CLI, recursive depth, automatic task decomposition, t
 | `/permissions [ask\|approved\|full]` | Inspect or change the permission preset. |
 | `/agents [profiles\|activity [exact-id]\|teams\|team <id>\|wait <id>\|cancel <id>\|resume <id>\|apply <id>\|mode ...]` | Inspect profiles, child/team activity, control an owned durable team, or change the bounded policy. |
 | `/skills [enable-project\|disable-project]` | List Agent Skills or change process-lifetime trust for repository skills. |
-| `/mcp` | List private user-configured stdio MCP servers and current limits. |
+| `/mcp` | List private user-configured stdio MCP servers, live connection state, and current limits. |
 | `/status` | Show session, workspace, model identifier, modes, goal, usage, and pending tools. |
 | `/init` | Confirm and create a starter `AGENTS.md`; never overwrite an existing path. |
 | `/new` | Start a new durable session in the same workspace. |

@@ -104,5 +104,6 @@ export async function startRepl(
     }
   } finally {
     readline.close();
+    await runtime.close?.();
   }
 }

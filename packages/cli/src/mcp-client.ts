@@ -19,6 +19,7 @@ const MAX_ARGS = 32;
 const MAX_ARGUMENT_BYTES = 4 * 1024;
 const MAX_DESCRIPTION_LENGTH = 256;
 const MAX_PROTOCOL_OUTPUT_BYTES = 512 * 1024;
+const MAX_SESSION_OUTPUT_BYTES = 8 * 1024 * 1024;
 const MAX_RESULT_BYTES = 256 * 1024;
 const MAX_TOOLS = 128;
 const MAX_LIST_PAGES = 8;
@@ -45,7 +46,16 @@ export interface McpServerConfiguration {
 
 export interface McpCatalogSnapshot {
   readonly configPath: string;
-  readonly servers: readonly McpServerConfiguration[];
+  readonly servers: readonly McpServerSnapshot[];
+}
+
+export type McpServerState = "idle" | "connected" | "failed";
+
+export interface McpServerSnapshot extends McpServerConfiguration {
+  readonly state: McpServerState;
+  readonly protocolVersion?: string;
+  readonly serverName?: string;
+  readonly serverVersion?: string;
 }
 
 interface McpToolInput {
@@ -250,6 +260,8 @@ class McpStdioClient {
   #buffer = Buffer.alloc(0);
   #nextId = 1;
   #protocolVersion: string | undefined;
+  #serverName: string | undefined;
+  #serverVersion: string | undefined;
   #failure: ToolError | undefined;
 
   constructor(private readonly process: ProcessSession) {
@@ -282,10 +294,43 @@ class McpStdioClient {
       throw new ToolError("process_failed", "MCP server returned an invalid initialize result");
     }
     this.#protocolVersion = result.protocolVersion;
+    this.#serverName = result.serverInfo.name;
+    this.#serverVersion = result.serverInfo.version;
     await this.notify("notifications/initialized");
   }
 
-  async listTools(): Promise<readonly Record<string, unknown>[]> {
+  get identity(): Pick<
+    McpServerSnapshot,
+    "protocolVersion" | "serverName" | "serverVersion"
+  > {
+    if (
+      this.#protocolVersion === undefined ||
+      this.#serverName === undefined ||
+      this.#serverVersion === undefined
+    ) {
+      throw new ToolError("process_failed", "MCP client is not initialized");
+    }
+    return {
+      protocolVersion: this.#protocolVersion,
+      serverName: this.#serverName,
+      serverVersion: this.#serverVersion,
+    };
+  }
+
+  async ping(signal: AbortSignal): Promise<void> {
+    this.#assertInitialized();
+    const result = await this.request("ping", {}, signal);
+    if (
+      !plainObject(result) ||
+      Object.keys(result).some((key) => key !== "_meta") ||
+      (result._meta !== undefined && !plainObject(result._meta)) ||
+      jsonBytes(result) > 4_096
+    ) {
+      throw new ToolError("process_failed", "MCP server returned an invalid ping result");
+    }
+  }
+
+  async listTools(signal: AbortSignal): Promise<readonly Record<string, unknown>[]> {
     this.#assertInitialized();
     const tools: Record<string, unknown>[] = [];
     const names = new Set<string>();
@@ -294,6 +339,7 @@ class McpStdioClient {
       const result = await this.request(
         "tools/list",
         cursor === undefined ? {} : { cursor },
+        signal,
       );
       if (!plainObject(result) || !Array.isArray(result.tools)) {
         throw new ToolError("process_failed", "MCP server returned an invalid tools list");
@@ -329,9 +375,14 @@ class McpStdioClient {
   async callTool(
     name: string,
     args: Record<string, unknown>,
+    signal: AbortSignal,
   ): Promise<Record<string, unknown>> {
     this.#assertInitialized();
-    const result = await this.request("tools/call", { name, arguments: args });
+    const result = await this.request(
+      "tools/call",
+      { name, arguments: args },
+      signal,
+    );
     if (!plainObject(result) || !Array.isArray(result.content) ||
         result.content.length > 64 ||
         result.content.some((item) =>
@@ -343,16 +394,53 @@ class McpStdioClient {
     return result;
   }
 
-  async request(method: string, params: Record<string, unknown>): Promise<unknown> {
+  async request(
+    method: string,
+    params: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     if (this.#failure !== undefined) throw this.#failure;
     const id = this.#nextId++;
+    let removeAbort = (): void => {};
     const response = new Promise<unknown>((resolve, reject) => {
-      this.#pending.set(id, { resolve, reject });
+      const settle = (callback: () => void): void => {
+        removeAbort();
+        callback();
+      };
+      this.#pending.set(id, {
+        resolve: (value) => settle(() => resolve(value)),
+        reject: (error) => settle(() => reject(error)),
+      });
     });
+    void response.catch(() => {});
+    const abort = (): void => {
+      const pending = this.#pending.get(id);
+      if (pending === undefined) return;
+      this.#pending.delete(id);
+      pending.reject(new ToolError("cancelled", "MCP operation was cancelled"));
+      void this.#write({
+        jsonrpc: "2.0",
+        method: "notifications/cancelled",
+        params: { requestId: id, reason: "Recurs operation cancelled" },
+      }).catch(() => {});
+    };
+    if (signal !== undefined) {
+      signal.addEventListener("abort", abort, { once: true });
+      removeAbort = () => signal.removeEventListener("abort", abort);
+      if (signal.aborted) abort();
+    }
     try {
+      if (signal?.aborted === true) return await response;
       await this.#write({ jsonrpc: "2.0", id, method, params });
     } catch (error) {
+      const pending = this.#pending.get(id);
       this.#pending.delete(id);
+      removeAbort();
+      pending?.reject(
+        error instanceof Error
+          ? error
+          : new ToolError("process_failed", "MCP request could not be written"),
+      );
       throw error;
     }
     const result = await response;
@@ -455,28 +543,137 @@ class McpStdioClient {
   }
 }
 
-async function executeOperation(
-  server: McpServerConfiguration,
-  input: McpToolInput,
+interface McpOperationBoundary {
+  readonly signal: AbortSignal;
+  abort(): void;
+  timedOut(): boolean;
+  dispose(): void;
+}
+
+function operationBoundary(parent: AbortSignal): McpOperationBoundary {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abort = (): void => controller.abort();
+  if (parent.aborted) controller.abort();
+  else parent.addEventListener("abort", abort, { once: true });
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, OPERATION_TIMEOUT_MS);
+  timeout.unref();
+  return {
+    signal: controller.signal,
+    abort: () => controller.abort(),
+    timedOut: () => timedOut,
+    dispose() {
+      clearTimeout(timeout);
+      parent.removeEventListener("abort", abort);
+    },
+  };
+}
+
+function operationError(
+  error: unknown,
   context: ToolContext,
-): Promise<ToolResult> {
-  let session: ProcessSession | undefined;
-  let operationFailed = false;
-  try {
-    session = await startProcessSession(server.command, server.args, {
+  boundary: McpOperationBoundary,
+): unknown {
+  if (boundary.timedOut()) {
+    return new ToolError(
+      "command_timeout",
+      `MCP operation exceeded the ${OPERATION_TIMEOUT_MS}ms timeout`,
+    );
+  }
+  if (context.signal.aborted) {
+    return new ToolError("cancelled", "MCP operation was cancelled");
+  }
+  return error;
+}
+
+class McpLiveSession {
+  readonly #client: McpStdioClient;
+  #closePromise: Promise<void> | undefined;
+
+  private constructor(
+    readonly process: ProcessSession,
+    client: McpStdioClient,
+  ) {
+    this.#client = client;
+  }
+
+  static async start(
+    server: McpServerConfiguration,
+    context: ToolContext,
+    signal: AbortSignal,
+  ): Promise<McpLiveSession> {
+    const process = await startProcessSession(server.command, server.args, {
       cwd: context.cwd,
-      signal: context.signal,
-      maxOutputBytes: MAX_PROTOCOL_OUTPUT_BYTES,
-      timeoutMs: OPERATION_TIMEOUT_MS,
+      maxOutputBytes: MAX_SESSION_OUTPUT_BYTES,
       ...(context.processSandbox === undefined
         ? {}
         : { sandbox: context.processSandbox }),
     });
-    const client = new McpStdioClient(session);
-    await client.initialize();
+    const client = new McpStdioClient(process);
+    const session = new McpLiveSession(process, client);
+    try {
+      if (signal.aborted) throw new ToolError("cancelled", "MCP operation was cancelled");
+      let removeAbort = (): void => {};
+      const abort = new Promise<never>((_, reject) => {
+        const listener = (): void => reject(
+          new ToolError("cancelled", "MCP operation was cancelled"),
+        );
+        signal.addEventListener("abort", listener, { once: true });
+        removeAbort = () => signal.removeEventListener("abort", listener);
+      });
+      try {
+        await Promise.race([client.initialize(), abort]);
+      } finally {
+        removeAbort();
+      }
+      return session;
+    } catch (error) {
+      await session.close().catch(() => {});
+      throw error;
+    }
+  }
+
+  get identity(): Pick<
+    McpServerSnapshot,
+    "protocolVersion" | "serverName" | "serverVersion"
+  > {
+    return this.#client.identity;
+  }
+
+  ping(signal: AbortSignal): Promise<void> {
+    return this.#client.ping(signal);
+  }
+
+  watchExit(onExit: (cleanupFailed: boolean) => void): void {
+    const settle = async (): Promise<void> => {
+      let cleanupFailed = false;
+      try {
+        await this.close();
+      } catch {
+        cleanupFailed = true;
+      }
+      onExit(cleanupFailed);
+    };
+    void this.process.completion.then(settle, settle);
+  }
+
+  async execute(
+    server: McpServerConfiguration,
+    input: McpToolInput,
+    signal: AbortSignal,
+  ): Promise<ToolResult> {
     const result = input.action === "list_tools"
-      ? { tools: await client.listTools() }
-      : { result: await client.callTool(input.tool!, input.arguments ?? {}) };
+      ? { tools: await this.#client.listTools(signal) }
+      : {
+          result: await this.#client.callTool(
+            input.tool!,
+            input.arguments ?? {},
+            signal,
+          ),
+        };
     if (jsonBytes(result) > MAX_RESULT_BYTES) {
       throw new ToolError("output_limit", "MCP result is too large");
     }
@@ -488,21 +685,23 @@ async function executeOperation(
         ...(input.tool === undefined ? {} : { mcpTool: input.tool }),
       },
     };
-  } catch (error) {
-    operationFailed = true;
-    throw error;
-  } finally {
-    if (operationFailed) {
-      await session?.close().catch(() => {});
-    } else {
-      await session?.close();
-    }
+  }
+
+  close(): Promise<void> {
+    this.#closePromise ??= this.process.close();
+    return this.#closePromise;
   }
 }
 
 export class McpServerCatalog {
   readonly #servers: ReadonlyMap<string, McpServerConfiguration>;
   readonly #configPath: string;
+  readonly #sessions = new Map<string, McpLiveSession>();
+  readonly #tails = new Map<string, Promise<void>>();
+  readonly #operations = new Set<McpOperationBoundary>();
+  readonly #states = new Map<string, Omit<McpServerSnapshot, keyof McpServerConfiguration>>();
+  #disposed = false;
+  #closePromise: Promise<void> | undefined;
 
   private constructor(
     configPath: string,
@@ -532,8 +731,45 @@ export class McpServerCatalog {
   snapshot(): McpCatalogSnapshot {
     return Object.freeze({
       configPath: this.#configPath,
-      servers: Object.freeze([...this.#servers.values()]),
+      servers: Object.freeze([...this.#servers.values()].map((server) =>
+        Object.freeze({
+          ...server,
+          state: "idle" as const,
+          ...this.#states.get(server.id),
+        })
+      )),
     });
+  }
+
+  close(): Promise<void> {
+    if (this.#closePromise !== undefined) return this.#closePromise;
+    this.#disposed = true;
+    this.#closePromise = (async () => {
+      for (const operation of this.#operations) operation.abort();
+      const initialSessions = [...this.#sessions.values()];
+      this.#sessions.clear();
+      const initiallyClosed = await Promise.allSettled(
+        initialSessions.map((session) => session.close()),
+      );
+      await Promise.allSettled([...this.#tails.values()]);
+      const racedSessions = [...this.#sessions.values()];
+      this.#sessions.clear();
+      const racedClosed = await Promise.allSettled(
+        racedSessions.map((session) => session.close()),
+      );
+      for (const server of this.#servers.values()) {
+        this.#states.set(server.id, { state: "idle" });
+      }
+      if ([...initiallyClosed, ...racedClosed].some(
+        (result) => result.status === "rejected"
+      )) {
+        throw new ToolError(
+          "process_failed",
+          "One or more MCP server process groups could not be cleaned up",
+        );
+      }
+    })();
+    return this.#closePromise;
   }
 
   createTool(): Tool<McpToolInput> {
@@ -579,9 +815,127 @@ export class McpServerCatalog {
           });
         }
       },
-      execute: (input, context) =>
-        executeOperation(this.#server(input.server), input, context),
+      execute: (input, context) => this.#execute(
+        this.#server(input.server),
+        input,
+        context,
+      ),
     };
+  }
+
+  async #execute(
+    server: McpServerConfiguration,
+    input: McpToolInput,
+    context: ToolContext,
+  ): Promise<ToolResult> {
+    if (this.#disposed) {
+      throw new ToolError("tool_unavailable", "MCP catalog is closed");
+    }
+    const key = JSON.stringify([
+      server.id,
+      path.resolve(context.cwd),
+      context.processSandbox?.mode ?? "guarded",
+      context.processSandbox?.network ?? "host",
+    ]);
+    return await this.#serialize(key, context.signal, async () => {
+      if (this.#disposed) {
+        throw new ToolError("tool_unavailable", "MCP catalog is closed");
+      }
+      const boundary = operationBoundary(context.signal);
+      this.#operations.add(boundary);
+      let session = this.#sessions.get(key);
+      try {
+        if (session !== undefined) {
+          try {
+            await session.ping(boundary.signal);
+          } catch (error) {
+            if (boundary.signal.aborted) throw error;
+            await this.#invalidate(key, server.id, session);
+            session = undefined;
+          }
+        }
+        if (session === undefined) {
+          session = await McpLiveSession.start(server, context, boundary.signal);
+          this.#sessions.set(key, session);
+          const connected = session;
+          session.watchExit(() => {
+            if (!this.#disposed && this.#sessions.get(key) === connected) {
+              this.#sessions.delete(key);
+              this.#states.set(server.id, { state: "failed" });
+            }
+          });
+          this.#states.set(server.id, {
+            state: "connected",
+            ...session.identity,
+          });
+        }
+        try {
+          return await session.execute(server, input, boundary.signal);
+        } catch (error) {
+          await this.#invalidate(key, server.id, session);
+          throw error;
+        }
+      } catch (error) {
+        if (
+          boundary.signal.aborted &&
+          session !== undefined &&
+          this.#sessions.get(key) === session
+        ) {
+          await this.#invalidate(key, server.id, session);
+        } else if (session === undefined) {
+          this.#states.set(server.id, { state: "failed" });
+        }
+        throw operationError(error, context, boundary);
+      } finally {
+        this.#operations.delete(boundary);
+        boundary.dispose();
+      }
+    });
+  }
+
+  async #invalidate(
+    key: string,
+    serverId: string,
+    session: McpLiveSession,
+  ): Promise<void> {
+    if (this.#sessions.get(key) === session) this.#sessions.delete(key);
+    this.#states.set(serverId, { state: "failed" });
+    await session.close();
+  }
+
+  async #serialize<T>(
+    key: string,
+    signal: AbortSignal,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.#tails.get(key) ?? Promise.resolve();
+    let release = (): void => {};
+    const turn = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.catch(() => {}).then(() => turn);
+    this.#tails.set(key, tail);
+    let removeAbort = (): void => {};
+    const abort = new Promise<never>((_, reject) => {
+      if (signal.aborted) {
+        reject(new ToolError("cancelled", "MCP operation was cancelled"));
+        return;
+      }
+      const listener = (): void => reject(
+        new ToolError("cancelled", "MCP operation was cancelled"),
+      );
+      signal.addEventListener("abort", listener, { once: true });
+      removeAbort = () => signal.removeEventListener("abort", listener);
+    });
+    try {
+      await Promise.race([previous.catch(() => {}), abort]);
+      removeAbort();
+      return await operation();
+    } finally {
+      removeAbort();
+      release();
+      if (this.#tails.get(key) === tail) this.#tails.delete(key);
+    }
   }
 
   #server(id: string): McpServerConfiguration {
