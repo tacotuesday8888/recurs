@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import path from "node:path";
+import { PassThrough, type Readable, type Writable } from "node:stream";
 
 import { createIsolatedProcessEnvironment } from "./process-environment.js";
 import { ToolError } from "./types.js";
@@ -51,6 +52,25 @@ export interface ProcessResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+}
+
+export interface ProcessSessionOptions {
+  cwd: string;
+  signal?: AbortSignal;
+  maxOutputBytes?: number;
+  timeoutMs?: number;
+  sandbox?: {
+    readonly mode: "workspace";
+    readonly network: "allow" | "deny";
+  };
+}
+
+export interface ProcessSession {
+  readonly stdin: Writable;
+  readonly stdout: Readable;
+  readonly stderr: Readable;
+  readonly completion: Promise<number>;
+  close(): Promise<void>;
 }
 
 interface ProcessLaunch {
@@ -273,6 +293,198 @@ async function terminateProcessGroup(processGroupId: number): Promise<void> {
       "The child process group did not exit after forced termination",
     );
   }
+}
+
+export async function startProcessSession(
+  command: string,
+  args: readonly string[],
+  options: ProcessSessionOptions,
+): Promise<ProcessSession> {
+  assertSupportedProcessPlatform(process.platform);
+  if (isAborted(options.signal)) {
+    throw new ToolError("cancelled", `${command} was cancelled`);
+  }
+  const maxOutputBytes = options.maxOutputBytes ?? 512 * 1024;
+  const isolatedEnvironment = await createIsolatedProcessEnvironment(
+    options.cwd,
+    process.env,
+  );
+  let child: ReturnType<typeof spawn>;
+  try {
+    const launch = options.sandbox === undefined
+      ? { command, args }
+      : sandboxLaunch(command, args, options.sandbox, isolatedEnvironment);
+    child = spawn(launch.command, [...launch.args], {
+      cwd: options.cwd,
+      env: isolatedEnvironment.environment,
+      shell: false,
+      stdio: createToolChildStdio(),
+      windowsHide: true,
+      detached: true,
+    });
+  } catch (error) {
+    await isolatedEnvironment.cleanup();
+    throw new ToolError("process_failed", `Failed to start ${command}`, {
+      cause: error,
+    });
+  }
+  const childStdin = child.stdin;
+  const childStdout = child.stdout;
+  const childStderr = child.stderr;
+  if (childStdin === null || childStdout === null || childStderr === null) {
+    if (child.pid !== undefined) await terminateProcessGroup(child.pid).catch(() => {});
+    await isolatedEnvironment.cleanup();
+    throw new ToolError("process_failed", "The tool child stdio boundary is invalid");
+  }
+
+  let outputBytes = 0;
+  const sessionStdout = new PassThrough();
+  const sessionStderr = new PassThrough();
+  let failure: ToolError | undefined;
+  let cleanupFailed = false;
+  let terminationPromise: Promise<void> | undefined;
+  let settlementPromise: Promise<void> | undefined;
+  let resolveExit: (exitCode: number) => void = () => {};
+  let rejectExit: (error: ToolError) => void = () => {};
+  const completion = new Promise<number>((resolve, reject) => {
+    resolveExit = resolve;
+    rejectExit = reject;
+  });
+  void completion.catch(() => {});
+
+  const setFailure = (error: ToolError): void => {
+    failure ??= error;
+  };
+  const startTermination = (): Promise<void> => {
+    terminationPromise ??= child.pid === undefined
+      ? Promise.resolve()
+      : terminateProcessGroup(child.pid);
+    void terminationPromise.catch(() => {});
+    return terminationPromise;
+  };
+  const settle = (exitCode: number): Promise<void> => {
+    settlementPromise ??= (async () => {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", onAbort);
+      try {
+        await isolatedEnvironment.cleanup();
+      } catch {
+        cleanupFailed = true;
+        setFailure(new ToolError(
+          "process_failed",
+          "The isolated process environment could not be cleaned up",
+        ));
+      }
+      if (failure === undefined) {
+        resolveExit(exitCode);
+      } else {
+        rejectExit(failure);
+      }
+    })();
+    return settlementPromise;
+  };
+  const terminateFor = (error: ToolError): void => {
+    setFailure(error);
+    void startTermination().then(
+      () => {},
+      () => {
+        cleanupFailed = true;
+        setFailure(new ToolError(
+          "process_failed",
+          "The child process group could not be cleaned up",
+        ));
+      },
+    );
+  };
+  function onAbort(): void {
+    terminateFor(new ToolError("cancelled", `${command} was cancelled`));
+  }
+
+  const timeout = options.timeoutMs === undefined
+    ? undefined
+    : setTimeout(() => {
+        terminateFor(new ToolError(
+          "command_timeout",
+          `${command} exceeded the ${options.timeoutMs}ms timeout`,
+        ));
+      }, options.timeoutMs);
+  timeout?.unref();
+  options.signal?.addEventListener("abort", onAbort, { once: true });
+  if (isAborted(options.signal)) onAbort();
+
+  const forwardOutput = (target: PassThrough, chunk: Buffer): void => {
+    outputBytes += chunk.byteLength;
+    if (outputBytes > maxOutputBytes) {
+      terminateFor(new ToolError(
+        "output_limit",
+        `${command} exceeded the ${maxOutputBytes}-byte output limit`,
+      ));
+      return;
+    }
+    target.write(chunk);
+  };
+  childStdout.on("data", (chunk: Buffer) => forwardOutput(sessionStdout, chunk));
+  childStderr.on("data", (chunk: Buffer) => forwardOutput(sessionStderr, chunk));
+  childStdout.once("close", () => sessionStdout.end());
+  childStderr.once("close", () => sessionStderr.end());
+  childStdout.once("error", () => terminateFor(new ToolError(
+    "process_failed",
+    `${command} output could not be read`,
+  )));
+  childStderr.once("error", () => terminateFor(new ToolError(
+    "process_failed",
+    `${command} output could not be read`,
+  )));
+  childStdin.on("error", () => {
+    // Exit and protocol handling provide the useful failure.
+  });
+  child.once("error", () => {
+    setFailure(new ToolError("process_failed", `Failed to start ${command}`));
+  });
+  child.once("close", (code) => {
+    void settle(code ?? -1);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    if (child.pid !== undefined) {
+      resolve();
+      return;
+    }
+    child.once("spawn", resolve);
+    child.once("error", () => reject(
+      new ToolError("process_failed", `Failed to start ${command}`),
+    ));
+  }).catch(async (error: unknown) => {
+    await startTermination().catch(() => {});
+    await isolatedEnvironment.cleanup();
+    throw error;
+  });
+
+  return {
+    stdin: childStdin,
+    stdout: sessionStdout,
+    stderr: sessionStderr,
+    completion,
+    async close() {
+      childStdin.end();
+      try {
+        await startTermination();
+      } catch {
+        cleanupFailed = true;
+        setFailure(new ToolError(
+          "process_failed",
+          "The child process group could not be cleaned up",
+        ));
+      }
+      await completion.then(() => {}, () => {});
+      if (cleanupFailed) {
+        throw new ToolError(
+          "process_failed",
+          "The child process session could not be cleaned up",
+        );
+      }
+    },
+  };
 }
 
 export async function runProcess(

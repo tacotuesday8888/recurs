@@ -78,6 +78,7 @@ import {
 
 import { createCommandRegistry } from "./commands/create.js";
 import { AgentSkillCatalog } from "./agent-skills.js";
+import { McpServerCatalog } from "./mcp-client.js";
 import type { LocalConnectionConfiguration } from "./local-connection.js";
 import { createCodexAgentRuntime } from "./codex-connection.js";
 import { RecursRuntime } from "./runtime.js";
@@ -492,6 +493,7 @@ export async function createStandaloneRuntime(
     dataDirectory: root,
     homeDirectory: options.skillHomeDirectory ?? homedir(),
   });
+  const mcp = await McpServerCatalog.load(root);
   const sessions = new JsonlSessionStore(path.join(projectData, "sessions"));
   const checkpoints = new FileCheckpointStore(
     path.join(projectData, "checkpoints"),
@@ -666,6 +668,7 @@ export async function createStandaloneRuntime(
   tools.register(createGitStatusTool());
   tools.register(createGitDiffTool());
   if (skills.hasSkills) tools.register(skills.createTool());
+  if (mcp.hasServers) tools.register(mcp.createTool());
   const backendRouter = new AgentBackendRouter();
   const childAgents = new ChildAgentManager({
     sessions,
@@ -985,6 +988,7 @@ export async function createStandaloneRuntime(
     checkpoints,
     teamRuns: teamSupervisor,
     skills,
+    mcp,
     signal: () =>
       runtimeReference.current?.currentSignal() ?? new AbortController().signal,
   });

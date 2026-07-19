@@ -86,8 +86,19 @@ Consequently, the manual user-present Codex subscription path remains denied.
 The endpoint forwards only allow-once and reject-once permission choices to the
 client, cancels active work on protocol cancellation or disconnect, and uses
 Recurs-owned tools rather than client filesystem or terminal methods. It does
-not advertise MCP support and rejects client-supplied MCP servers and additional
-workspace roots. Standard output is reserved exclusively for ACP frames.
+not advertise ACP client-supplied MCP support and rejects those server
+declarations and additional workspace roots. Standard output is reserved
+exclusively for ACP frames.
+
+The separate direct-provider MCP client reads only a bounded private,
+current-user-owned, single-link configuration below the Recurs data root. It
+accepts absolute commands and literal arguments but no shell or configured
+environment variables. Every operation requires elevated shell approval (and
+explicit network approval when declared), uses the clean managed-process
+environment and selected sandbox profile, and closes the complete process
+group. Server metadata and results are untrusted and cannot grant authority.
+Project MCP files, remote transports/OAuth, persistent server processes, and
+historical child/team access are not admitted by this slice.
 
 Connection management stores and removes Recurs metadata only.
 `recurs account disconnect` does not revoke, sign out, or delete vendor
