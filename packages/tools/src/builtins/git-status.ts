@@ -12,6 +12,7 @@ export function createGitStatusTool(): Tool<Record<string, never>> {
     },
     executionClass: "fixed_process",
     mutating: false,
+    parallelSafe: true,
     parse(value) {
       if (
         typeof value !== "object" ||

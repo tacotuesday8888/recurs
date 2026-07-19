@@ -79,6 +79,7 @@ export function createReadFileTool(
     },
     executionClass: "in_process",
     mutating: false,
+    parallelSafe: true,
     parse: parseReadFileInput,
     permissions(input) {
       return pathPermissionIntents(

@@ -192,7 +192,7 @@ describe("remote Anthropic Messages provider", () => {
       id: "anthropic-api",
       adapterId: "anthropic-messages",
       connectionId: "anthropic-env",
-      harnessProfile: { id: "native_tool_use_v1", version: 1 },
+      harnessProfile: { id: "native_tool_use_v2", version: 2 },
     });
     expect(JSON.stringify(provider)).not.toContain(key);
   });

@@ -87,6 +87,11 @@ export interface Tool<Input = unknown> {
   readonly definition: ToolDefinition;
   readonly executionClass: ToolExecutionClass;
   readonly mutating: boolean;
+  /**
+   * Opt in only when parsing, mutation/permission classification, and preflight
+   * are side-effect-free and execution is independent of sibling calls.
+   */
+  readonly parallelSafe?: boolean;
   readonly checkpointOwnership?: ToolCheckpointOwnership;
   isMutating?(input: Input, context: ToolContext): boolean;
   parse(input: unknown): Input;
