@@ -5,7 +5,8 @@ import { ProviderError } from "./types.js";
 const ANTHROPIC_VERSION = "2023-06-01";
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/u;
 const CONTROL_CHARACTER = /\p{Cc}/u;
-const MAX_PAGE_BYTES = 2 * 1_024 * 1_024;
+const MAX_ANTHROPIC_PAGE_BYTES = 2 * 1_024 * 1_024;
+const MAX_OPENAI_CATALOG_BYTES = 4 * 1_024 * 1_024;
 const MAX_MODELS = 1_000;
 const PAGE_LIMIT = 100;
 const MAX_PAGES = Math.ceil(MAX_MODELS / PAGE_LIMIT);
@@ -16,10 +17,21 @@ type Fetch = typeof globalThis.fetch;
 export interface EnvironmentModelDescriptor {
   readonly id: string;
   readonly displayName: string;
-  readonly createdAt: string;
+  readonly createdAt: string | null;
   readonly maxInputTokens: number | null;
   readonly maxOutputTokens: number | null;
 }
+
+type ModelDiscoveryProfile =
+  | { readonly kind: "anthropic"; readonly origin: string }
+  | { readonly kind: "openai"; readonly origin: string };
+
+const OPENAI_MODEL_DISCOVERY_ORIGINS: Readonly<Record<string, string>> =
+  Object.freeze({
+    "openrouter-api": "https://openrouter.ai/api/v1",
+    "deepseek-api": "https://api.deepseek.com",
+    "minimax-api": "https://api.minimax.io/v1",
+  });
 
 export interface EnvironmentModelDiscoveryOptions {
   readonly providerId: string;
@@ -41,16 +53,26 @@ function validCredential(value: string): boolean {
     });
 }
 
-function anthropicOrigin(providerId: string): string {
+function discoveryProfile(providerId: string): ModelDiscoveryProfile | null {
   const manifest = environmentByokManifest(providerId);
   const origin = manifest?.endpoints.find((endpoint) => endpoint.kind === "origin");
   if (
     manifest?.protocol !== "anthropic_messages" ||
     origin?.value !== "https://api.anthropic.com/v1"
   ) {
-    throw new TypeError("Provider does not have reviewed model discovery");
+    const reviewedOrigin = OPENAI_MODEL_DISCOVERY_ORIGINS[providerId];
+    return manifest?.protocol === "openai_chat" &&
+        reviewedOrigin !== undefined && origin?.value === reviewedOrigin
+      ? { kind: "openai", origin: reviewedOrigin }
+      : null;
   }
-  return origin.value;
+  return { kind: "anthropic", origin: origin.value };
+}
+
+export function hasEnvironmentProviderModelDiscovery(
+  providerId: string,
+): boolean {
+  return discoveryProfile(providerId) !== null;
 }
 
 function responseError(response: Response): ProviderError {
@@ -73,9 +95,10 @@ function responseError(response: Response): ProviderError {
 async function readJson(
   response: Response,
   credential: string,
+  maxBytes: number,
 ): Promise<unknown> {
   const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_PAGE_BYTES) {
+  if (Number.isFinite(declared) && declared > maxBytes) {
     throw new ProviderError("invalid_response", "Provider model page was too large", false);
   }
   const reader = response.body?.getReader();
@@ -91,7 +114,7 @@ async function readJson(
       const chunk = await reader.read();
       if (chunk.done) break;
       bytes += chunk.value.byteLength;
-      if (bytes > MAX_PAGE_BYTES) {
+      if (bytes > maxBytes) {
         try {
           await reader.cancel();
         } catch {
@@ -122,7 +145,7 @@ function optionalTokenLimit(value: unknown): number | null {
   return Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : NaN;
 }
 
-function model(value: unknown): EnvironmentModelDescriptor {
+function anthropicModel(value: unknown): EnvironmentModelDescriptor {
   if (
     !isRecord(value) ||
     value.type !== "model" ||
@@ -154,7 +177,7 @@ function model(value: unknown): EnvironmentModelDescriptor {
   });
 }
 
-function page(value: unknown): {
+function anthropicPage(value: unknown): {
   models: readonly EnvironmentModelDescriptor[];
   hasMore: boolean;
   firstId: string | null;
@@ -163,7 +186,7 @@ function page(value: unknown): {
   if (!isRecord(value) || !Array.isArray(value.data) || typeof value.has_more !== "boolean") {
     throw new ProviderError("invalid_response", "Provider model page was invalid", false);
   }
-  const models = Object.freeze(value.data.map(model));
+  const models = Object.freeze(value.data.map(anthropicModel));
   const firstId = value.first_id === null ? null : value.first_id;
   const lastId = value.last_id === null ? null : value.last_id;
   if (
@@ -176,6 +199,67 @@ function page(value: unknown): {
     throw new ProviderError("invalid_response", "Provider model page was invalid", false);
   }
   return { models, hasMore: value.has_more, firstId, lastId };
+}
+
+function optionalOpenAITokenLimit(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  return Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : NaN;
+}
+
+function openAICreatedAt(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (!Number.isSafeInteger(value) || Number(value) < 0 || Number(value) > 253_402_300_799) {
+    throw new ProviderError("invalid_response", "Provider model entry was invalid", false);
+  }
+  return new Date(Number(value) * 1_000).toISOString();
+}
+
+function openAIModel(value: unknown): EnvironmentModelDescriptor {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    !MODEL_ID.test(value.id) ||
+    (value.object !== undefined && value.object !== "model") ||
+    (value.name !== undefined &&
+      (typeof value.name !== "string" || value.name.trim().length === 0 ||
+        value.name.length > 256 || CONTROL_CHARACTER.test(value.name)))
+  ) {
+    throw new ProviderError("invalid_response", "Provider model entry was invalid", false);
+  }
+  const topProvider = value.top_provider;
+  if (topProvider !== undefined && topProvider !== null && !isRecord(topProvider)) {
+    throw new ProviderError("invalid_response", "Provider model entry was invalid", false);
+  }
+  const maxInputTokens = optionalOpenAITokenLimit(value.context_length);
+  const maxOutputTokens = optionalOpenAITokenLimit(
+    isRecord(topProvider) ? topProvider.max_completion_tokens : undefined,
+  );
+  if (Number.isNaN(maxInputTokens) || Number.isNaN(maxOutputTokens)) {
+    throw new ProviderError("invalid_response", "Provider model entry was invalid", false);
+  }
+  return Object.freeze({
+    id: value.id,
+    displayName: typeof value.name === "string" ? value.name : value.id,
+    createdAt: openAICreatedAt(value.created),
+    maxInputTokens,
+    maxOutputTokens,
+  });
+}
+
+function openAICollection(value: unknown): readonly EnvironmentModelDescriptor[] {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.data) ||
+    value.data.length > MAX_MODELS ||
+    (value.object !== undefined && value.object !== "list")
+  ) {
+    throw new ProviderError("invalid_response", "Provider model catalog was invalid", false);
+  }
+  const models = value.data.map(openAIModel);
+  if (new Set(models.map((model) => model.id)).size !== models.length) {
+    throw new ProviderError("invalid_response", "Provider model catalog was invalid", false);
+  }
+  return Object.freeze(models);
 }
 
 function boundedSignal(
@@ -212,6 +296,54 @@ function assertActive(
   throw new ProviderError("transport", "Provider model discovery timed out", true);
 }
 
+async function requestJson(
+  url: string,
+  headers: Readonly<Record<string, string>>,
+  credential: string,
+  maxBytes: number,
+  options: EnvironmentModelDiscoveryOptions,
+  bounded: ReturnType<typeof boundedSignal>,
+): Promise<unknown> {
+  assertActive(options.signal, bounded);
+  let response: Response;
+  try {
+    response = await (options.fetch ?? globalThis.fetch)(url, {
+      method: "GET",
+      redirect: "manual",
+      signal: bounded.signal,
+      headers,
+    });
+  } catch {
+    if (options.signal?.aborted === true) {
+      throw new ProviderError("cancelled", "Provider request cancelled", false);
+    }
+    throw new ProviderError(
+      "transport",
+      bounded.timedOut() ? "Provider model discovery timed out" : "Provider could not be reached",
+      true,
+    );
+  }
+  assertActive(options.signal, bounded);
+  if (!response.ok) throw responseError(response);
+  try {
+    const decoded = await readJson(response, credential, maxBytes);
+    assertActive(options.signal, bounded);
+    return decoded;
+  } catch (error) {
+    if (error instanceof ProviderError) throw error;
+    if (options.signal?.aborted === true) {
+      throw new ProviderError("cancelled", "Provider request cancelled", false);
+    }
+    throw new ProviderError(
+      "transport",
+      bounded.timedOut()
+        ? "Provider model discovery timed out"
+        : "Provider response could not be read",
+      true,
+    );
+  }
+}
+
 export async function listEnvironmentProviderModels(
   options: EnvironmentModelDiscoveryOptions,
 ): Promise<readonly EnvironmentModelDescriptor[]> {
@@ -222,59 +354,49 @@ export async function listEnvironmentProviderModels(
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
     throw new TypeError("Provider model discovery timeout is invalid");
   }
-  const origin = anthropicOrigin(options.providerId);
-  const fetcher = options.fetch ?? globalThis.fetch;
+  const profile = discoveryProfile(options.providerId);
+  if (profile === null) {
+    throw new TypeError("Provider does not have reviewed model discovery");
+  }
   const bounded = boundedSignal(options.signal, timeoutMs);
+  if (profile.kind === "openai") {
+    try {
+      const decoded = await requestJson(
+        `${profile.origin}/models`,
+        {
+          accept: "application/json",
+          authorization: `Bearer ${options.apiKey}`,
+        },
+        options.apiKey,
+        MAX_OPENAI_CATALOG_BYTES,
+        options,
+        bounded,
+      );
+      return openAICollection(decoded);
+    } finally {
+      bounded.dispose();
+    }
+  }
   const models: EnvironmentModelDescriptor[] = [];
   const seen = new Set<string>();
   let cursor: string | null = null;
   try {
     for (let pageIndex = 0; pageIndex < MAX_PAGES; pageIndex += 1) {
-      assertActive(options.signal, bounded);
       const query = new URLSearchParams({ limit: String(PAGE_LIMIT) });
       if (cursor !== null) query.set("after_id", cursor);
-      let response: Response;
-      try {
-        response = await fetcher(`${origin}/models?${query}`, {
-          method: "GET",
-          redirect: "manual",
-          signal: bounded.signal,
-          headers: {
-            accept: "application/json",
-            "anthropic-version": ANTHROPIC_VERSION,
-            "x-api-key": options.apiKey,
-          },
-        });
-      } catch {
-        if (options.signal?.aborted === true) {
-          throw new ProviderError("cancelled", "Provider request cancelled", false);
-        }
-        throw new ProviderError(
-          "transport",
-          bounded.timedOut() ? "Provider model discovery timed out" : "Provider could not be reached",
-          true,
-        );
-      }
-      assertActive(options.signal, bounded);
-      if (!response.ok) throw responseError(response);
-      let decoded: unknown;
-      try {
-        decoded = await readJson(response, options.apiKey);
-      } catch (error) {
-        if (error instanceof ProviderError) throw error;
-        if (options.signal?.aborted === true) {
-          throw new ProviderError("cancelled", "Provider request cancelled", false);
-        }
-        throw new ProviderError(
-          "transport",
-          bounded.timedOut()
-            ? "Provider model discovery timed out"
-            : "Provider response could not be read",
-          true,
-        );
-      }
-      assertActive(options.signal, bounded);
-      const current = page(decoded);
+      const decoded = await requestJson(
+        `${profile.origin}/models?${query}`,
+        {
+          accept: "application/json",
+          "anthropic-version": ANTHROPIC_VERSION,
+          "x-api-key": options.apiKey,
+        },
+        options.apiKey,
+        MAX_ANTHROPIC_PAGE_BYTES,
+        options,
+        bounded,
+      );
+      const current = anthropicPage(decoded);
       for (const entry of current.models) {
         if (seen.has(entry.id) || models.length >= MAX_MODELS) {
           throw new ProviderError("invalid_response", "Provider model catalog was invalid", false);

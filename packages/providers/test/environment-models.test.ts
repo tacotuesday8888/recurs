@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  hasEnvironmentProviderModelDiscovery,
   listEnvironmentProviderModels,
   ProviderError,
 } from "../src/index.js";
@@ -22,6 +23,23 @@ function page(
     has_more: hasMore,
     first_id: ids[0] ?? null,
     last_id: ids.at(-1) ?? null,
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function openAIModels(...ids: string[]): Response {
+  return new Response(JSON.stringify({
+    object: "list",
+    data: ids.map((id, index) => ({
+      id,
+      object: "model",
+      name: `Model ${index + 1}`,
+      created: 1_767_225_600 + index,
+      context_length: 128_000,
+      top_provider: { max_completion_tokens: 32_000 },
+    })),
   }), {
     status: 200,
     headers: { "content-type": "application/json" },
@@ -70,12 +88,82 @@ describe("environment provider model discovery", () => {
     });
   });
 
+  it.each([
+    ["openrouter-api", "https://openrouter.ai/api/v1/models"],
+    ["deepseek-api", "https://api.deepseek.com/models"],
+    ["minimax-api", "https://api.minimax.io/v1/models"],
+  ] as const)(
+    "discovers credential-visible models from the reviewed %s endpoint",
+    async (providerId, expectedUrl) => {
+      const key = `${providerId}-private-key`;
+      let request: { url: string; headers: Headers; redirect: RequestRedirect } | undefined;
+      const models = await listEnvironmentProviderModels({
+        providerId,
+        apiKey: key,
+        fetch: async (input, init) => {
+          request = {
+            url: String(input),
+            headers: new Headers(init?.headers),
+            redirect: init?.redirect ?? "follow",
+          };
+          return openAIModels("provider/model-a", "provider/model-b");
+        },
+      });
+
+      expect(request).toEqual({
+        url: expectedUrl,
+        headers: expect.any(Headers),
+        redirect: "manual",
+      });
+      expect(request?.headers.get("authorization")).toBe(`Bearer ${key}`);
+      expect(request?.headers.get("accept")).toBe("application/json");
+      expect(request?.url).not.toContain(key);
+      expect(models).toEqual([
+        {
+          id: "provider/model-a",
+          displayName: "Model 1",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          maxInputTokens: 128_000,
+          maxOutputTokens: 32_000,
+        },
+        {
+          id: "provider/model-b",
+          displayName: "Model 2",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          maxInputTokens: 128_000,
+          maxOutputTokens: 32_000,
+        },
+      ]);
+      expect(hasEnvironmentProviderModelDiscovery(providerId)).toBe(true);
+    },
+  );
+
+  it("accepts minimal OpenAI-style entries and normalizes absent metadata", async () => {
+    const models = await listEnvironmentProviderModels({
+      providerId: "deepseek-api",
+      apiKey: "private-key",
+      fetch: async () => new Response(JSON.stringify({
+        object: "list",
+        data: [{ id: "deepseek-chat", object: "model", owned_by: "deepseek" }],
+      })),
+    });
+
+    expect(models).toEqual([{
+      id: "deepseek-chat",
+      displayName: "deepseek-chat",
+      createdAt: null,
+      maxInputTokens: null,
+      maxOutputTokens: null,
+    }]);
+  });
+
   it("rejects unreviewed profiles, repeated cursors, and duplicate model IDs", async () => {
     await expect(listEnvironmentProviderModels({
-      providerId: "openrouter-api",
+      providerId: "kilo-gateway",
       apiKey: "private-key",
       fetch: async () => page([], false),
     })).rejects.toThrow("reviewed model discovery");
+    expect(hasEnvironmentProviderModelDiscovery("kilo-gateway")).toBe(false);
 
     await expect(listEnvironmentProviderModels({
       providerId: "anthropic-api",
@@ -93,6 +181,43 @@ describe("environment provider model discovery", () => {
           ? page(["claude-a"], true)
           : page(["claude-a"], false);
       },
+    })).rejects.toMatchObject({ code: "invalid_response", retryable: false });
+  });
+
+  it("rejects malformed or duplicate OpenAI-style model catalogs", async () => {
+    for (const data of [
+      [{ id: "unsafe id", object: "model" }],
+      [{ id: "safe", object: "unexpected" }],
+      [{ id: "safe", name: "Model\u001b[31m" }],
+      [{ id: "safe", context_length: -1 }],
+      [{ id: "safe" }, { id: "safe" }],
+    ]) {
+      await expect(listEnvironmentProviderModels({
+        providerId: "openrouter-api",
+        apiKey: "private-key",
+        fetch: async () => new Response(JSON.stringify({ object: "list", data })),
+      })).rejects.toMatchObject({ code: "invalid_response", retryable: false });
+    }
+  });
+
+  it("bounds OpenAI-style catalog count and bytes before returning metadata", async () => {
+    await expect(listEnvironmentProviderModels({
+      providerId: "openrouter-api",
+      apiKey: "private-key",
+      fetch: async () => new Response(JSON.stringify({
+        object: "list",
+        data: Array.from({ length: 1_001 }, (_, index) => ({
+          id: `model-${index}`,
+        })),
+      })),
+    })).rejects.toMatchObject({ code: "invalid_response", retryable: false });
+
+    await expect(listEnvironmentProviderModels({
+      providerId: "openrouter-api",
+      apiKey: "private-key",
+      fetch: async () => new Response("{}", {
+        headers: { "content-length": String(4 * 1_024 * 1_024 + 1) },
+      }),
     })).rejects.toMatchObject({ code: "invalid_response", retryable: false });
   });
 

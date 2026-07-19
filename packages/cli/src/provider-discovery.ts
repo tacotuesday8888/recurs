@@ -121,7 +121,7 @@ export function environmentModelsText(
     "",
     ...models.flatMap((model, index) => [
       `${model.displayName} — ${model.id}`,
-      `  Input: ${model.maxInputTokens ?? "unknown"} tokens · Output: ${model.maxOutputTokens ?? "unknown"} tokens · Created: ${model.createdAt}`,
+      `  Input: ${model.maxInputTokens ?? "unknown"} tokens · Output: ${model.maxOutputTokens ?? "unknown"} tokens · Created: ${model.createdAt ?? "unknown"}`,
       ...(index === models.length - 1 ? [] : [""]),
     ]),
     "",

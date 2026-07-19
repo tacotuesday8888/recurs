@@ -472,6 +472,11 @@ describe("standalone assembly without a provider", () => {
       billingSelection: "strict_primary_only",
       environment: { DEEPSEEK_API_KEY: key },
       now: "2026-07-19T00:00:00.000Z",
+    }, {
+      fetch: async () => new Response(JSON.stringify({
+        object: "list",
+        data: [{ id: "deepseek-chat", object: "model" }],
+      })),
     });
     let authorization = "";
     const runtime = await createStandaloneRuntime(

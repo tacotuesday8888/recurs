@@ -141,19 +141,21 @@ Saved environment-BYOK records contain a reviewed provider/model/policy/billing
 binding, an environment-variable name, and a provider-bound SHA-256 credential
 fingerprint. They never contain the credential value. The fingerprint detects a
 missing or changed high-entropy provider key; it is not encryption, a password
-store, or durable proof that the provider currently accepts the key. Anthropic
-setup authenticates once while listing credential-visible models; other public
-BYOK paths authenticate on the first generation request. Environment keys
+store, or durable proof that the provider currently accepts the key. Anthropic,
+OpenRouter, DeepSeek, and MiniMax setup authenticates once while listing
+credential-visible models; other public BYOK paths authenticate on the first
+generation request. Environment keys
 remain visible to the Recurs process and any same-user host authority able to
 inspect that process. Managed tool and MCP subprocess environments remove
 credential, provider, cloud, proxy, Keychain, and socket variables. The standalone Linux
 default additionally contains arbitrary commands with Bubblewrap; Windows and
 an explicitly selected `local_guarded` profile retain broad host authority.
-The public Anthropic model-list and Messages adapters accept only the bundled
-Anthropic origin, use `x-api-key` plus the fixed reviewed API version, deny
-redirects, bound response/request/event sizes and counts, validate exact model
-metadata, strictly reconstruct native tool calls, and detect the complete
-credential even when it spans response chunks. This is
+Public model discovery accepts only bundled, exact provider origins, uses the
+provider's reviewed authentication header, denies redirects, bounds response
+sizes and model counts, validates exact model metadata, and detects the complete
+credential even when it spans response chunks. The Anthropic Messages adapter
+also pins the reviewed API version, bounds requests/events, and strictly
+reconstructs native tool calls. This is
 still process-environment BYOK, not native credential custody; same-user host
 authority can inspect the Recurs process.
 

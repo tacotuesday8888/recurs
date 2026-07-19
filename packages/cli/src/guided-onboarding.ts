@@ -1,10 +1,11 @@
 import type { Writable } from "node:stream";
 
-import type {
-  DiscoveredCatalogProvider,
-  EnvironmentModelDescriptor,
-  LocalRuntimeDetection,
-  ProviderCatalogSnapshot,
+import {
+  hasEnvironmentProviderModelDiscovery,
+  type DiscoveredCatalogProvider,
+  type EnvironmentModelDescriptor,
+  type LocalRuntimeDetection,
+  type ProviderCatalogSnapshot,
 } from "@recurs/providers";
 import type { PermissionMode } from "@recurs/tools";
 
@@ -401,7 +402,7 @@ async function executeConnectionAction(
       );
       return 2;
     }
-    const modelId = action.providerId === "anthropic-api"
+    const modelId = hasEnvironmentProviderModelDiscovery(action.providerId)
       ? await selectEnvironmentModel(
           action.providerId,
           label,

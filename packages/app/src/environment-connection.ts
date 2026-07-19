@@ -7,6 +7,7 @@ import type {
 import {
   createEnvironmentProviderConfiguration,
   environmentCredentialFingerprint,
+  hasEnvironmentProviderModelDiscovery,
   listEnvironmentProviderModels,
   type EnvironmentModelDescriptor,
   ProviderError,
@@ -245,7 +246,7 @@ export async function setupEnvironmentConnection(
       { cause: error },
     );
   }
-  if (bound.provider.adapterId === "anthropic-messages") {
+  if (hasEnvironmentProviderModelDiscovery(input.providerId)) {
     const models = await discoverEnvironmentConnectionModels({
       providerId: input.providerId,
       credentialEnvironmentVariable: input.credentialEnvironmentVariable,

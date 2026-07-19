@@ -32,6 +32,13 @@ function anthropicModels(...ids: string[]): Response {
   }));
 }
 
+function openAIModels(...ids: string[]): Response {
+  return new Response(JSON.stringify({
+    object: "list",
+    data: ids.map((id) => ({ id, object: "model" })),
+  }));
+}
+
 async function root(): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "recurs-byok-"));
   roots.push(directory);
@@ -79,6 +86,8 @@ describe("saved environment BYOK connections", () => {
       billingSelection: "strict_primary_only",
       environment: { OPENROUTER_API_KEY: key },
       now: AT,
+    }, {
+      fetch: async () => openAIModels("anthropic/claude-sonnet"),
     });
 
     expect(configured).toMatchObject({
@@ -180,6 +189,27 @@ describe("saved environment BYOK connections", () => {
       .toMatchObject({ connections: [], primaryConnectionId: null });
   });
 
+  it("verifies reviewed OpenAI-style credential visibility before saving a model", async () => {
+    const directory = await root();
+    const input = {
+      providerId: "openrouter-api",
+      modelId: "anthropic/claude-selected",
+      credentialEnvironmentVariable: "OPENROUTER_API_KEY",
+      billingSelection: "strict_primary_only" as const,
+      environment: { OPENROUTER_API_KEY: "openrouter-private-value" },
+      now: AT,
+    };
+
+    await expect(setupEnvironmentConnection(directory, input, {
+      fetch: async () => openAIModels("anthropic/claude-other"),
+    })).rejects.toMatchObject({ code: "model_unavailable" });
+    await expect(setupEnvironmentConnection(directory, input, {
+      fetch: async () => new Response("rejected", { status: 401 }),
+    })).rejects.toMatchObject({ code: "credential_rejected" });
+    await expect(new FileConnectionRegistry(directory).read()).resolves
+      .toMatchObject({ connections: [], primaryConnectionId: null });
+  });
+
   it("updates an explicit provider/env binding without redirecting its stable identity", async () => {
     const directory = await root();
     const first = await setupEnvironmentConnection(directory, {
@@ -189,6 +219,8 @@ describe("saved environment BYOK connections", () => {
       billingSelection: "strict_primary_only",
       environment: { DEEPSEEK_API_KEY: "first-private-value" },
       now: AT,
+    }, {
+      fetch: async () => openAIModels("deepseek-chat"),
     });
     const second = await setupEnvironmentConnection(directory, {
       providerId: "deepseek-api",
@@ -197,6 +229,8 @@ describe("saved environment BYOK connections", () => {
       billingSelection: "strict_primary_only",
       environment: { DEEPSEEK_API_KEY: "second-private-value" },
       now: "2026-07-19T00:01:00.000Z",
+    }, {
+      fetch: async () => openAIModels("deepseek-reasoner"),
     });
 
     expect(second.id).toBe(first.id);
@@ -232,6 +266,8 @@ describe("saved environment BYOK connections", () => {
       ...base,
       providerId: "openrouter-api",
       billingSelection: "allow_declared_additional",
+    }, {
+      fetch: async () => openAIModels("model"),
     })).rejects.toMatchObject({ code: "billing_policy_blocked" });
   });
 });
