@@ -63,7 +63,7 @@
       ],
       "desiredInvariants": [
         "A workspace-sandboxed Linux child cannot modify the host outside the canonical workspace and its private process root.",
-        "A child cannot ambiently observe host home data, runtime sockets, or host processes.",
+        "A child cannot observe known host credential paths, runtime sockets, or host processes; other host files remain read-only.",
         "Network access exists only when an approved intent includes the network category.",
         "Sandbox unavailability is a terminal typed error and never triggers a downgrade."
       ],
@@ -183,7 +183,7 @@
               "confidence": "high",
               "basis": "source-derived",
               "assessment": "Filesystem writes, host process visibility, runtime sockets, and unapproved network are removed from child authority; syscall exposure remains.",
-              "validationPlan": "Run live Linux boundary tests for writes, home/runtime visibility, process visibility, and network deny/allow."
+              "validationPlan": "Run live Linux boundary tests for writes, credential/runtime visibility, process visibility, and network deny/allow."
             },
             {
               "dimension": "performance",
@@ -247,7 +247,7 @@
             ],
             "acceptanceCriteria": [
               "Host writes outside the workspace do not persist.",
-              "Host home and runtime state are hidden.",
+              "Host credential and runtime state are hidden while non-credential host files remain read-only.",
               "Network deny and allow match approved intent.",
               "Unavailability fails closed with a typed error."
             ],

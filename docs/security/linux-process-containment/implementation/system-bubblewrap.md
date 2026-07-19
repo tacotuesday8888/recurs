@@ -14,7 +14,7 @@ keeping Recurs TypeScript-first and maintainable.
    `startProcessSession`; preserve all current lifecycle bounds.
 3. Make Linux standalone runtimes default to `workspace_sandboxed` while
    leaving Windows on `local_guarded`.
-4. Add Linux-only live tests for writes, home/runtime hiding, network policy,
+4. Add Linux-only live tests for writes, credential/runtime hiding, network policy,
    and fail-closed helper behavior where practical.
 5. Install Bubblewrap in Linux CI and update CLI/security/install docs with the
    exact dependency and limitations.
@@ -24,8 +24,8 @@ keeping Recurs TypeScript-first and maintainable.
 - A sandboxed command can read/write its canonical workspace and private child
   directories.
 - A write outside those roots does not modify the host.
-- The real host home, `/tmp`, `/var/tmp`, and `/run` state are not ambiently
-  visible, except where the selected workspace itself intentionally overlaps.
+- The real host home is read-only, known credential paths are masked, and host
+  `/tmp`, `/var/tmp`, and `/run` state is not ambiently visible.
 - Denied network cannot reach loopback; approved network can.
 - Missing, writable, non-root-owned, symlinked, or setuid Bubblewrap launchers
   are rejected before child execution.

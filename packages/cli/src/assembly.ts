@@ -754,7 +754,7 @@ export async function createStandaloneRuntime(
   const tools = new ToolRegistry([], {
     checkpoints,
     securityProfile: options.toolSecurityProfile
-      ?? (process.platform === "darwin" ? "workspace_sandboxed" : "local_guarded"),
+      ?? (process.platform === "win32" ? "local_guarded" : "workspace_sandboxed"),
   });
   tools.register(createReadFileTool());
   tools.register(createListFilesTool());

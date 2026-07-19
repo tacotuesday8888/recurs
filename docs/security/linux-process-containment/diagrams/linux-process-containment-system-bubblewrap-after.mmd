@@ -5,7 +5,7 @@ flowchart LR
   B --> S["User + PID + mount namespaces"]
   S --> RO["Read-only system view"]
   S --> RW["Writable workspace + private temp"]
-  S --> H["Hidden host home + runtime state"]
+  S --> H["Masked host credentials + runtime state"]
   P --> NET{"Approved network intent?"}
   NET -->|"No"| ISO["Fresh network namespace"]
   NET -->|"Yes"| HOST["Host network namespace"]

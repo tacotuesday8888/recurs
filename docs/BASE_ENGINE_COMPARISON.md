@@ -42,11 +42,11 @@ The base is ready for that next layer after four narrow changes:
 These are valuable, but they do not belong in this hardening slice:
 
 - live provider authentication and subscription routing;
-- Linux and Windows OS-level filesystem/network sandboxing (macOS shell and verification subprocesses now use fail-closed Seatbelt workspace containment);
+- Windows OS-level filesystem/network sandboxing and a Linux seccomp layer (macOS uses fail-closed Seatbelt; Linux uses fail-closed system Bubblewrap namespaces and mount policy);
 - multi-process session locking and session version 2;
 - parallel tool execution;
 - plugins, MCP, skills, desktop UI, and sub-agents;
 - Kilo/OpenCode's large mode and provider inventories;
 - Codex's transport fallback, hooks, connectors, and mature multi-agent protocol.
 
-Cross-platform sandboxing remains the most important follow-up before Recurs allows unattended local sub-agents to execute arbitrary shell commands on Linux or Windows. On macOS, the standalone default now adds a fail-closed Seatbelt boundary while retaining permission prompts as a separate decision layer.
+Windows containment and a reviewed Linux syscall policy remain important follow-ups before Recurs allows unattended arbitrary-command workers. The standalone macOS and Linux defaults now add fail-closed OS boundaries while retaining permission prompts as a separate decision layer.

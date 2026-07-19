@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { realpathSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { PassThrough, type Readable, type Writable } from "node:stream";
 
@@ -10,6 +10,28 @@ const PROCESS_GROUP_TERM_GRACE_MS = 250;
 const PROCESS_GROUP_KILL_WAIT_MS = 1_000;
 const PROCESS_GROUP_POLL_MS = 10;
 const PROCESS_PIPE_DRAIN_GRACE_MS = 250;
+const LINUX_BUBBLEWRAP_PATH = "/usr/bin/bwrap";
+const LINUX_HIDDEN_DIRECTORY_MODE = "111";
+
+const HOST_CREDENTIAL_DIRECTORIES = [
+  ".ssh",
+  ".aws",
+  ".azure",
+  ".docker",
+  ".gnupg",
+  ".kube",
+  ".password-store",
+  path.join(".config", "gcloud"),
+  path.join(".config", "gh"),
+  path.join(".local", "share", "keyrings"),
+] as const;
+
+const HOST_CREDENTIAL_FILES = [
+  ".git-credentials",
+  ".netrc",
+  ".npmrc",
+  ".pypirc",
+] as const;
 
 export const TOOL_CHILD_STDIO = Object.freeze([
   "pipe",
@@ -78,6 +100,12 @@ interface ProcessLaunch {
   readonly args: readonly string[];
 }
 
+interface SandboxRoots {
+  readonly hostHome: string;
+  readonly workspaceRoot: string;
+  readonly privateRoot: string;
+}
+
 const DARWIN_SANDBOX_PROFILE = [
   "(version 1)",
   "(deny default)",
@@ -117,18 +145,9 @@ const DARWIN_SANDBOX_PROFILE = [
   '(allow file-write-data (literal "/dev/null"))',
 ].join("\n");
 
-function sandboxLaunch(
-  command: string,
-  args: readonly string[],
-  options: NonNullable<RunProcessOptions["sandbox"]>,
+function canonicalSandboxRoots(
   environment: Awaited<ReturnType<typeof createIsolatedProcessEnvironment>>,
-): ProcessLaunch {
-  if (process.platform !== "darwin") {
-    throw new ToolError(
-      "sandbox_unavailable",
-      `Workspace sandboxing is unavailable on ${process.platform}`,
-    );
-  }
+): SandboxRoots {
   const configuredHostHome = process.env.HOME;
   if (configuredHostHome === undefined || !path.isAbsolute(configuredHostHome)) {
     throw new ToolError(
@@ -150,21 +169,30 @@ function sandboxLaunch(
       { cause: error },
     );
   }
+  return { hostHome, workspaceRoot, privateRoot };
+}
+
+function darwinSandboxLaunch(
+  command: string,
+  args: readonly string[],
+  options: NonNullable<RunProcessOptions["sandbox"]>,
+  roots: SandboxRoots,
+): ProcessLaunch {
   const profile = options.network === "deny"
     ? DARWIN_SANDBOX_PROFILE
     : `${DARWIN_SANDBOX_PROFILE}\n(allow network*)`;
   const definitions = [
-    ["WORKSPACE", workspaceRoot],
-    ["PRIVATE_ROOT", privateRoot],
-    ["HOME_SSH", path.join(hostHome, ".ssh")],
-    ["HOME_AWS", path.join(hostHome, ".aws")],
-    ["HOME_GCLOUD", path.join(hostHome, ".config", "gcloud")],
-    ["HOME_KUBE", path.join(hostHome, ".kube")],
-    ["HOME_DOCKER", path.join(hostHome, ".docker")],
-    ["HOME_KEYCHAINS", path.join(hostHome, "Library", "Keychains")],
-    ["HOME_NETRC", path.join(hostHome, ".netrc")],
-    ["HOME_NPMRC", path.join(hostHome, ".npmrc")],
-    ["HOME_GIT_CREDENTIALS", path.join(hostHome, ".git-credentials")],
+    ["WORKSPACE", roots.workspaceRoot],
+    ["PRIVATE_ROOT", roots.privateRoot],
+    ["HOME_SSH", path.join(roots.hostHome, ".ssh")],
+    ["HOME_AWS", path.join(roots.hostHome, ".aws")],
+    ["HOME_GCLOUD", path.join(roots.hostHome, ".config", "gcloud")],
+    ["HOME_KUBE", path.join(roots.hostHome, ".kube")],
+    ["HOME_DOCKER", path.join(roots.hostHome, ".docker")],
+    ["HOME_KEYCHAINS", path.join(roots.hostHome, "Library", "Keychains")],
+    ["HOME_NETRC", path.join(roots.hostHome, ".netrc")],
+    ["HOME_NPMRC", path.join(roots.hostHome, ".npmrc")],
+    ["HOME_GIT_CREDENTIALS", path.join(roots.hostHome, ".git-credentials")],
   ] as const;
   return {
     command: "/usr/bin/sandbox-exec",
@@ -176,6 +204,245 @@ function sandboxLaunch(
       ...args,
     ],
   };
+}
+
+function isWithin(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (
+    relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === code
+  );
+}
+
+function trustedLinuxBubblewrap(): string {
+  try {
+    const canonical = realpathSync(LINUX_BUBBLEWRAP_PATH);
+    const details = statSync(canonical);
+    if (
+      canonical !== LINUX_BUBBLEWRAP_PATH ||
+      !details.isFile() ||
+      details.uid !== 0 ||
+      (details.mode & 0o6022) !== 0
+    ) {
+      throw new ToolError(
+        "sandbox_unavailable",
+        "The Linux workspace sandbox launcher is not trusted",
+      );
+    }
+    for (const directory of ["/", "/usr", "/usr/bin"]) {
+      const parent = statSync(directory);
+      if (
+        !parent.isDirectory() ||
+        parent.uid !== 0 ||
+        (parent.mode & 0o022) !== 0
+      ) {
+        throw new ToolError(
+          "sandbox_unavailable",
+          "The Linux workspace sandbox launcher path is not trusted",
+        );
+      }
+    }
+    return canonical;
+  } catch (error) {
+    if (error instanceof ToolError) throw error;
+    throw new ToolError(
+      "sandbox_unavailable",
+      "The Linux workspace sandbox requires /usr/bin/bwrap",
+      { cause: error },
+    );
+  }
+}
+
+function canonicalExistingDirectory(candidate: string): string | undefined {
+  try {
+    const canonical = realpathSync(candidate);
+    if (!statSync(canonical).isDirectory()) {
+      throw new ToolError(
+        "sandbox_unavailable",
+        "A required Linux sandbox mount is not a directory",
+      );
+    }
+    return canonical;
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) return undefined;
+    if (error instanceof ToolError) throw error;
+    throw new ToolError(
+      "sandbox_unavailable",
+      "A required Linux sandbox mount could not be validated",
+      { cause: error },
+    );
+  }
+}
+
+function appendLinuxCredentialMasks(
+  bwrapArgs: string[],
+  hostHome: string,
+): void {
+  const candidates = [
+    ...HOST_CREDENTIAL_DIRECTORIES,
+    ...HOST_CREDENTIAL_FILES,
+  ].map((relative) => path.join(hostHome, relative));
+  for (const candidate of candidates) {
+    let canonical: string;
+    try {
+      canonical = realpathSync(candidate);
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) continue;
+      throw new ToolError(
+        "sandbox_unavailable",
+        "A host credential path could not be validated",
+        { cause: error },
+      );
+    }
+    if (canonical !== candidate) {
+      throw new ToolError(
+        "sandbox_unavailable",
+        "A host credential path crosses a symbolic link",
+      );
+    }
+    let details: ReturnType<typeof statSync>;
+    try {
+      details = statSync(canonical);
+    } catch (error) {
+      throw new ToolError(
+        "sandbox_unavailable",
+        "A host credential path could not be validated",
+        { cause: error },
+      );
+    }
+    if (details.isDirectory()) {
+      bwrapArgs.push(
+        "--perms",
+        "000",
+        "--tmpfs",
+        candidate,
+        "--remount-ro",
+        candidate,
+      );
+    } else {
+      bwrapArgs.push("--ro-bind", "/dev/null", candidate);
+    }
+  }
+}
+
+function linuxSandboxLaunch(
+  command: string,
+  args: readonly string[],
+  options: NonNullable<RunProcessOptions["sandbox"]>,
+  roots: SandboxRoots,
+): ProcessLaunch {
+  const launcher = trustedLinuxBubblewrap();
+  if (roots.hostHome === path.parse(roots.hostHome).root) {
+    throw new ToolError(
+      "sandbox_unavailable",
+      "The Linux workspace sandbox requires a non-root host home",
+    );
+  }
+  if (isWithin(roots.workspaceRoot, roots.hostHome)) {
+    throw new ToolError(
+      "sandbox_unavailable",
+      "The Linux workspace cannot contain the host home",
+    );
+  }
+  if (
+    HOST_CREDENTIAL_DIRECTORIES.some((relative) =>
+      isWithin(path.join(roots.hostHome, relative), roots.workspaceRoot)
+    )
+  ) {
+    throw new ToolError(
+      "sandbox_unavailable",
+      "The Linux workspace cannot be inside a host credential directory",
+    );
+  }
+  const hiddenRoots = [
+    canonicalExistingDirectory("/tmp"),
+    canonicalExistingDirectory("/var/tmp"),
+    canonicalExistingDirectory("/run"),
+  ].filter((value): value is string => value !== undefined);
+  const uniqueHiddenRoots = [...new Set(hiddenRoots)]
+    .filter((root) => root !== path.parse(root).root);
+  const bwrapArgs = [
+    "--new-session",
+    "--die-with-parent",
+    "--ro-bind",
+    "/",
+    "/",
+    "--dev",
+    "/dev",
+  ];
+  for (const root of uniqueHiddenRoots) {
+    bwrapArgs.push(
+      "--perms",
+      LINUX_HIDDEN_DIRECTORY_MODE,
+      "--tmpfs",
+      root,
+    );
+  }
+  for (const writableRoot of [roots.workspaceRoot, roots.privateRoot]) {
+    if (uniqueHiddenRoots.some((root) => isWithin(root, writableRoot))) {
+      bwrapArgs.push("--dir", writableRoot);
+    }
+  }
+  for (const root of uniqueHiddenRoots.toSorted(
+    (left, right) => right.length - left.length,
+  )) {
+    bwrapArgs.push("--remount-ro", root);
+  }
+  bwrapArgs.push(
+    "--bind",
+    roots.workspaceRoot,
+    roots.workspaceRoot,
+    "--bind",
+    roots.privateRoot,
+    roots.privateRoot,
+  );
+  appendLinuxCredentialMasks(bwrapArgs, roots.hostHome);
+  bwrapArgs.push(
+    "--unshare-user",
+    "--unshare-pid",
+    "--unshare-ipc",
+    "--unshare-uts",
+  );
+  if (options.network === "deny") bwrapArgs.push("--unshare-net");
+  bwrapArgs.push(
+    "--proc",
+    "/proc",
+    "--chdir",
+    roots.workspaceRoot,
+    "--",
+    command,
+    ...args,
+  );
+  return { command: launcher, args: bwrapArgs };
+}
+
+function sandboxLaunch(
+  command: string,
+  args: readonly string[],
+  options: NonNullable<RunProcessOptions["sandbox"]>,
+  environment: Awaited<ReturnType<typeof createIsolatedProcessEnvironment>>,
+): ProcessLaunch {
+  const roots = canonicalSandboxRoots(environment);
+  if (process.platform === "darwin") {
+    return darwinSandboxLaunch(command, args, options, roots);
+  }
+  if (process.platform === "linux") {
+    return linuxSandboxLaunch(command, args, options, roots);
+  }
+  throw new ToolError(
+    "sandbox_unavailable",
+    `Workspace sandboxing is unavailable on ${process.platform}`,
+  );
 }
 
 export function assertSupportedProcessPlatform(
@@ -194,21 +461,11 @@ function isAborted(signal: AbortSignal | undefined): boolean {
 }
 
 function isNoSuchProcess(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "ESRCH"
-  );
+  return hasErrorCode(error, "ESRCH");
 }
 
 function isPermissionDenied(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "EPERM"
-  );
+  return hasErrorCode(error, "EPERM");
 }
 
 function signalProcessGroup(
@@ -324,6 +581,7 @@ export async function startProcessSession(
     });
   } catch (error) {
     await isolatedEnvironment.cleanup();
+    if (error instanceof ToolError) throw error;
     throw new ToolError("process_failed", `Failed to start ${command}`, {
       cause: error,
     });

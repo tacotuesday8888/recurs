@@ -28,7 +28,7 @@ this slice.
 
 I recommend the external Bubblewrap option under the current constraints. It
 fits the existing `processSandbox` seam, removes host write authority outside
-the workspace, hides host home/runtime state, and lets the permission engine
+the workspace, masks host credentials/runtime state, and lets the permission engine
 continue to own network decisions. The important residual risk is syscall
 surface: this is a namespace and mount-policy boundary, not the full Codex
 seccomp composition. A bundled native helper becomes preferable when Recurs is

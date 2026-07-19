@@ -48,8 +48,8 @@ boundary after `exec`.
 
 - A `workspace_sandboxed` Linux child cannot modify the host outside the
   canonical workspace and its one private temporary root.
-- The child cannot observe host processes, runtime sockets, or the real home
-  tree except for an explicitly selected workspace nested within it.
+- The child cannot observe host processes, runtime sockets, or known host
+  credential paths; non-credential host files remain read-only so toolchains work.
 - Network access is absent unless the already-approved intents include the
   network category.
 - Recurs never falls back to ambient execution when the selected sandbox is
@@ -94,7 +94,7 @@ but the documented parity gap remains.
 
 Recurs validates one fixed, root-owned, non-writable, non-setuid
 `/usr/bin/bwrap`, then supplies a fixed policy: a read-only host root, minimal
-`/dev`, hidden host temporary/runtime state, a hidden real home, explicit
+`/dev`, hidden host temporary/runtime state, masked credential paths, explicit
 writable binds for the workspace and private child root, a fresh user and PID
 namespace, a fresh `/proc`, `--new-session`, and a network namespace unless
 the permission engine approved network access.
@@ -107,8 +107,8 @@ new configuration path.
 
 Residual risk is explicit. Recurs does not yet install a seccomp filter, so the
 child retains the host kernel syscall surface available inside its namespaces.
-An approved network command uses the host network namespace. Files mounted
-read-only remain readable unless covered by the hidden home/runtime mounts.
+An approved network command uses the host network namespace. Non-credential
+files mounted read-only remain readable unless covered by temporary/runtime masks.
 Kernel or Bubblewrap defects remain external dependencies. These limits are
 material, but they are still a large reduction from ambient host execution.
 
@@ -174,8 +174,8 @@ before any unattended execution.
 ## Rollout And Validation
 
 Land the launcher and unit/live tests together. Linux CI must install
-Bubblewrap, prove workspace writes, prove host writes do not persist, prove the
-real home and runtime sockets are hidden, and prove deny/allow network behavior.
+Bubblewrap, prove workspace writes, prove host writes do not persist, prove host
+credential and runtime paths are hidden, and prove deny/allow network behavior.
 The CLI should then default Linux to `workspace_sandboxed`. Documentation and
 install errors must name the prerequisite and residual syscall risk.
 
