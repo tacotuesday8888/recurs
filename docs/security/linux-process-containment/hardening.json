@@ -1,0 +1,352 @@
+{
+  "documentType": "codex-security.hardening-analysis",
+  "schemaVersion": "1.0",
+  "analysisId": "hardening_20260719_linux_process_containment",
+  "sourceEvidence": {
+    "kind": "source_collection",
+    "label": "Recurs Linux process boundary and pinned Codex/Bubblewrap references",
+    "collectionSha256": "071a5a99329df7b25e5e47ad9e9b6fe2db2e1a2d93df9364ccdb01afa7fe3dd5",
+    "artifactCount": 10,
+    "sourceDrift": "none",
+    "targetRevision": "8a3ba6cb4268c905a1b52d0e016ab422e18e0d14",
+    "referenceRevision": "openai/codex@0fb559f0f6e231a88ac02ea002d3ecd248e2b515"
+  },
+  "assessment": {
+    "outcome": "opportunities_identified",
+    "summary": "Linux tool children need one enforceable boundary between approved intent and host authority."
+  },
+  "constraints": {
+    "profile": "balanced",
+    "changeHorizons": ["incremental", "medium_term"],
+    "nonNegotiables": [
+      "Preserve the TypeScript process and permission contracts.",
+      "Never silently downgrade a selected sandbox to ambient host execution.",
+      "Keep published security claims narrower than the implemented boundary."
+    ],
+    "assumptions": [
+      "No measured process-start latency or memory budget was supplied.",
+      "A distribution Bubblewrap package is an acceptable Linux prerequisite."
+    ]
+  },
+  "opportunities": [
+    {
+      "opportunityId": "linux-process-containment",
+      "title": "Remove ambient Linux authority from tool children",
+      "summary": "Enforce the existing workspace and network policy at an OS process boundary.",
+      "diagnosis": "The shared launcher cleans and bounds Linux children but currently executes them in host namespaces with ambient filesystem, process, IPC, and network authority.",
+      "evidence": [
+        {
+          "claimType": "observed",
+          "sourceKind": "source",
+          "path": "packages/tools/src/process.ts",
+          "claim": "Workspace sandboxing is implemented only with macOS Seatbelt and rejects Linux."
+        },
+        {
+          "claimType": "observed",
+          "sourceKind": "source",
+          "path": "packages/cli/src/assembly.ts",
+          "claim": "The standalone Linux runtime defaults to local_guarded."
+        },
+        {
+          "claimType": "observed",
+          "sourceKind": "document",
+          "evidenceId": "E005",
+          "path": "docs/CLI.md",
+          "claim": "The CLI documentation discloses that Linux arbitrary commands retain host authority."
+        },
+        {
+          "claimType": "inferred",
+          "sourceKind": "document",
+          "evidenceId": "E008",
+          "claim": "The current Codex Bubblewrap composition is a relevant implementation analogue, while its separate seccomp layer must not be implied by a namespace-only Recurs slice."
+        }
+      ],
+      "desiredInvariants": [
+        "A workspace-sandboxed Linux child cannot modify the host outside the canonical workspace and its private process root.",
+        "A child cannot observe known host credential paths, runtime sockets, or host processes; other host files remain read-only.",
+        "Network access exists only when an approved intent includes the network category.",
+        "Sandbox unavailability is a terminal typed error and never triggers a downgrade."
+      ],
+      "proposalPath": "proposals/linux-process-containment.md",
+      "options": [
+        {
+          "optionId": "guarded-host",
+          "title": "Keep guarded host execution",
+          "kind": "baseline",
+          "summary": "Retain environment filtering, approvals, and process bounds without an OS namespace boundary.",
+          "diagramPaths": {
+            "before": "diagrams/linux-process-containment-before.mmd",
+            "after": "diagrams/linux-process-containment-guarded-host-after.mmd"
+          },
+          "evidenceCoverage": [
+            {
+              "evidenceId": "E001-E007",
+              "effect": "unaffected",
+              "tacticalFixRequired": true,
+              "rationale": "Application guards do not remove ambient post-exec authority."
+            },
+            {
+              "evidenceId": "E008-E010",
+              "effect": "unaffected",
+              "tacticalFixRequired": true,
+              "rationale": "The namespace policy guidance is not applied."
+            }
+          ],
+          "tradeoffs": [
+            {
+              "dimension": "security",
+              "direction": "neutral",
+              "confidence": "high",
+              "basis": "source-derived",
+              "assessment": "The current ambient Linux authority remains.",
+              "validationPlan": "Run a command that writes outside the workspace and observes host sockets."
+            },
+            {
+              "dimension": "performance",
+              "direction": "neutral",
+              "confidence": "high",
+              "basis": "source-derived",
+              "assessment": "No new launch work is introduced.",
+              "validationPlan": "Retain existing process startup tests."
+            },
+            {
+              "dimension": "memory",
+              "direction": "neutral",
+              "confidence": "high",
+              "basis": "source-derived",
+              "assessment": "No new process or namespace metadata is introduced.",
+              "validationPlan": "No additional validation beyond existing process tests is required."
+            },
+            {
+              "dimension": "reliability",
+              "direction": "neutral",
+              "confidence": "high",
+              "basis": "source-derived",
+              "assessment": "Current Linux compatibility is preserved.",
+              "validationPlan": "Run the full current Linux suite."
+            },
+            {
+              "dimension": "operability",
+              "direction": "neutral",
+              "confidence": "high",
+              "basis": "source-derived",
+              "assessment": "No system package is required, but operators retain a major security limitation.",
+              "validationPlan": "Keep the limitation visible in doctor and CLI documentation."
+            },
+            {
+              "dimension": "migration",
+              "direction": "neutral",
+              "confidence": "high",
+              "basis": "source-derived",
+              "assessment": "No migration occurs.",
+              "validationPlan": "Not applicable."
+            }
+          ],
+          "residualRisks": [
+            "An approved arbitrary process retains the invoking user's host authority."
+          ],
+          "implementationReadiness": {
+            "affectedComponents": [],
+            "workPackages": ["Keep documentation accurate."],
+            "acceptanceCriteria": ["No capability is overstated."],
+            "migrationNotes": [],
+            "rollback": "Not applicable."
+          }
+        },
+        {
+          "optionId": "system-bubblewrap",
+          "title": "Use a trusted system Bubblewrap boundary",
+          "kind": "isolation",
+          "summary": "Wrap the existing shared launch path in a fixed mount/user/PID/network namespace policy.",
+          "diagramPaths": {
+            "before": "diagrams/linux-process-containment-before.mmd",
+            "after": "diagrams/linux-process-containment-system-bubblewrap-after.mmd"
+          },
+          "evidenceCoverage": [
+            {
+              "evidenceId": "E001-E007",
+              "effect": "addresses",
+              "tacticalFixRequired": true,
+              "rationale": "The shared launcher, default, CI, and docs must all change together."
+            },
+            {
+              "evidenceId": "E008-E010",
+              "effect": "mitigates",
+              "tacticalFixRequired": true,
+              "rationale": "The namespace policy is applied, but Recurs does not yet add Codex's separate seccomp layer."
+            }
+          ],
+          "tradeoffs": [
+            {
+              "dimension": "security",
+              "direction": "improves",
+              "confidence": "high",
+              "basis": "source-derived",
+              "assessment": "Filesystem writes, host process visibility, runtime sockets, and unapproved network are removed from child authority; syscall exposure remains.",
+              "validationPlan": "Run live Linux boundary tests for writes, credential/runtime visibility, process visibility, and network deny/allow."
+            },
+            {
+              "dimension": "performance",
+              "direction": "regresses",
+              "confidence": "medium",
+              "basis": "analogous",
+              "assessment": "Each tool process adds one helper launch and namespace setup.",
+              "validationPlan": "Record repeated no-op command startup time on Linux CI."
+            },
+            {
+              "dimension": "memory",
+              "direction": "regresses",
+              "confidence": "medium",
+              "basis": "analogous",
+              "assessment": "Bubblewrap and namespace metadata add small transient memory use.",
+              "validationPlan": "Sample peak RSS for repeated short commands if startup overhead becomes material."
+            },
+            {
+              "dimension": "reliability",
+              "direction": "regresses",
+              "confidence": "high",
+              "basis": "source-derived",
+              "assessment": "Commands fail closed when Bubblewrap or unprivileged user namespaces are unavailable.",
+              "validationPlan": "Test missing/untrusted helper errors and run on supported CI distributions."
+            },
+            {
+              "dimension": "operability",
+              "direction": "regresses",
+              "confidence": "high",
+              "basis": "source-derived",
+              "assessment": "Linux installs gain one explicit distribution package prerequisite.",
+              "validationPlan": "Add CI installation and exact troubleshooting text."
+            },
+            {
+              "dimension": "migration",
+              "direction": "improves",
+              "confidence": "high",
+              "basis": "source-derived",
+              "assessment": "The stable profile and process APIs remain unchanged; no stored state migrates.",
+              "validationPlan": "Run existing one-shot and streaming process tests unchanged."
+            }
+          ],
+          "residualRisks": [
+            "No Recurs-owned seccomp syscall policy is installed.",
+            "Approved network commands retain access to the host network namespace.",
+            "Read-only system paths remain readable unless explicitly hidden."
+          ],
+          "implementationReadiness": {
+            "affectedComponents": [
+              "packages/tools/src/process.ts",
+              "packages/tools/test/command.test.ts",
+              "packages/cli/src/assembly.ts",
+              ".github/workflows/ci.yml",
+              "docs/CLI.md",
+              "SECURITY.md"
+            ],
+            "workPackages": [
+              "Add and validate the fixed Bubblewrap launch policy.",
+              "Switch the Linux default and add live tests.",
+              "Update CI, requirements, and exact security disclosures."
+            ],
+            "acceptanceCriteria": [
+              "Host writes outside the workspace do not persist.",
+              "Host credential and runtime state are hidden while non-credential host files remain read-only.",
+              "Network deny and allow match approved intent.",
+              "Unavailability fails closed with a typed error."
+            ],
+            "migrationNotes": ["Install the Bubblewrap package before running Recurs on Linux."],
+            "rollback": "Revert the launcher/default/test/doc changes; no data migration is required."
+          }
+        },
+        {
+          "optionId": "native-sandbox-helper",
+          "title": "Bundle a Recurs native sandbox helper",
+          "kind": "foundational",
+          "summary": "Own Bubblewrap composition, no_new_privs, and a reviewed seccomp policy in a shipped helper.",
+          "diagramPaths": {
+            "before": "diagrams/linux-process-containment-before.mmd",
+            "after": "diagrams/linux-process-containment-native-helper-after.mmd"
+          },
+          "evidenceCoverage": [
+            {
+              "evidenceId": "E001-E007",
+              "effect": "addresses",
+              "tacticalFixRequired": true,
+              "rationale": "The shared launcher and published defaults still require integration work."
+            },
+            {
+              "evidenceId": "E008-E010",
+              "effect": "addresses",
+              "tacticalFixRequired": true,
+              "rationale": "A native helper can compose namespaces and syscall controls, subject to a separate policy review."
+            }
+          ],
+          "tradeoffs": [
+            {
+              "dimension": "security",
+              "direction": "improves",
+              "confidence": "medium",
+              "basis": "analogous",
+              "assessment": "A reviewed syscall policy can reduce the residual kernel interface beyond namespace containment.",
+              "validationPlan": "Threat-model and adversarially test the exact helper and syscall allowlist."
+            },
+            {
+              "dimension": "performance",
+              "direction": "regresses",
+              "confidence": "medium",
+              "basis": "analogous",
+              "assessment": "Namespace and filter installation add launch work similar to or above system Bubblewrap.",
+              "validationPlan": "Benchmark the built helper against system Bubblewrap."
+            },
+            {
+              "dimension": "memory",
+              "direction": "regresses",
+              "confidence": "low",
+              "basis": "hypothetical",
+              "assessment": "The shipped helper and transient runtime add bounded but unmeasured cost.",
+              "validationPlan": "Measure binary size and peak process-tree RSS."
+            },
+            {
+              "dimension": "reliability",
+              "direction": "unknown",
+              "confidence": "medium",
+              "basis": "analogous",
+              "assessment": "Owned diagnostics can improve failure clarity, while syscall compatibility can break legitimate tools.",
+              "validationPlan": "Build a compiler, package-manager, MCP, and language-server compatibility matrix."
+            },
+            {
+              "dimension": "operability",
+              "direction": "regresses",
+              "confidence": "high",
+              "basis": "source-derived",
+              "assessment": "Recurs must own multi-architecture builds, provenance, distribution, and updates.",
+              "validationPlan": "Complete a binary release and supply-chain review before adoption."
+            },
+            {
+              "dimension": "migration",
+              "direction": "regresses",
+              "confidence": "high",
+              "basis": "source-derived",
+              "assessment": "The process API can stay stable, but release packaging gains a native artifact on every supported target.",
+              "validationPlan": "Exercise clean installs and upgrades on each supported distribution and architecture."
+            }
+          ],
+          "residualRisks": [
+            "A permissive or incomplete syscall policy can overstate protection.",
+            "The helper supply chain becomes security-critical."
+          ],
+          "implementationReadiness": {
+            "affectedComponents": ["New native Linux helper", "Release packaging", "packages/tools/src/process.ts"],
+            "workPackages": ["Threat model", "Syscall policy", "Multi-architecture release pipeline", "Compatibility matrix"],
+            "acceptanceCriteria": ["A separately reviewed threat model and binary provenance path exist."],
+            "migrationNotes": ["Adopt only after the system-Bubblewrap seam is stable."],
+            "rollback": "Select the system-Bubblewrap backend without changing stored state."
+          }
+        }
+      ],
+      "recommendedOptionId": "system-bubblewrap",
+      "recommendation": "Use a trusted system Bubblewrap boundary now; select a native helper later only when syscall-policy and binary-distribution ownership are justified."
+    }
+  ],
+  "openQuestions": [
+    "Which Linux distributions and architectures define the first supported release matrix?",
+    "What compatibility evidence should trigger investment in a Recurs-owned seccomp helper?"
+  ]
+}

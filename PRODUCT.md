@@ -33,7 +33,7 @@ The CLI now has a validated 25-path catalog, a non-secret saved-connection lifec
 
 The private macOS authority implements complete OpenAI API, Anthropic API, and Kimi Code activation and generation verticals. It remains the stronger persistent-credential design: the sealed TypeScript engine sees only redacted lifecycle and normalized generation frames. Source/npm BYOK is a separate, explicitly weaker process-environment option and never impersonates a native connection. No signed/notarized installed artifact or production credential-canary smoke has shipped, so the native verticals are implemented and tested but not distributed.
 
-On macOS, `workspace_sandboxed` gives command and verification children canonical workspace-only writes, denies common host credential paths, and binds network access to approved command intent. Linux and Windows still default to `local_guarded`, whose arbitrary commands retain the user's filesystem, network, IPC, and process authority. `tools_disabled` avoids model tools but is not a usable coding profile and does not replace the private credential boundary.
+On macOS and Linux, `workspace_sandboxed` gives command and verification children canonical workspace-only host writes, hides host credential/runtime state, and binds network access to approved command intent. Linux uses system Bubblewrap namespaces and deliberately does not claim a Recurs seccomp policy. Windows still selects `local_guarded` but rejects subprocess execution as unsupported; an explicit guarded profile on macOS/Linux retains host authority. `tools_disabled` avoids model tools but is not a usable coding profile and does not replace the private credential boundary.
 
 The repository is intended to become open source, but it has no license yet and cannot legally be described as open source until the owner adds one. It is source-installable only; no npm, Bun, Homebrew, curl, or binary release has been published.
 
@@ -45,7 +45,7 @@ Credential-free onboarding for literal-loopback OpenAI-compatible local provider
 
 The private macOS OpenAI, Anthropic, and Kimi paths are assembled without rewriting the TypeScript harness: exact profile binding, model discovery, crash-safe setup, generation codecs, CLI onboarding, cancellation, usage, and redacted diagnostics are implemented. The next step is a signed/notarized installed artifact plus recovery and credential-canary proof. A manifest flag or shared wire protocol alone still cannot activate a provider.
 
-Additional providers and delegated runtimes remain provider-specific integrations. Future native HTTPS treats macOS system proxy/root configuration as trusted host policy, and the current tool profile remains explicitly non-sandboxed. A provider stays unavailable whenever any required attestation, codec/profile, policy, platform, onboarding, or release evidence is absent.
+Additional providers and delegated runtimes remain provider-specific integrations. Future native HTTPS treats macOS system proxy/root configuration as trusted host policy. The current macOS/Linux tool profile is a subprocess boundary, not a persistent-credential authority. A provider stays unavailable whenever any required attestation, codec/profile, policy, platform, onboarding, or release evidence is absent.
 
 ### 2. Sub-agent company runtime
 

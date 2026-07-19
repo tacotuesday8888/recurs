@@ -177,8 +177,8 @@ describe("run_command", () => {
     expect(String((thrown as Error).message)).not.toContain(canary);
   });
 
-  it.runIf(process.platform === "darwin")(
-    "enforces workspace-only writes with the macOS process sandbox",
+  it.runIf(process.platform === "darwin" || process.platform === "linux")(
+    "enforces workspace-only host writes with the OS process sandbox",
     async () => {
       const inside = path.join(cwd, "inside.txt");
       const outside = path.join(
@@ -186,14 +186,19 @@ describe("run_command", () => {
         `recurs-sandbox-outside-${process.pid}-${Date.now()}`,
       );
       try {
-        await toolExports.runProcess(
+        const insideResult = await toolExports.runProcess(
           "/bin/sh",
           ["-c", `printf inside > ${shellQuote(inside)}`],
           {
             cwd,
             sandbox: { mode: "workspace", network: "deny" },
+            // This fixed command has no stderr. Accepting the launcher's
+            // conventional failure code lets CI surface Bubblewrap/Seatbelt
+            // setup diagnostics without exposing arbitrary tool output.
+            acceptableExitCodes: [0, 1],
           },
         );
+        expect(insideResult, insideResult.stderr).toMatchObject({ exitCode: 0 });
         expect(await readFile(inside, "utf8")).toBe("inside");
 
         await expect(toolExports.runProcess(
@@ -211,13 +216,20 @@ describe("run_command", () => {
     },
   );
 
-  it.runIf(process.platform === "darwin")(
+  it.runIf(process.platform === "darwin" || process.platform === "linux")(
     "denies host credential paths even when they are below the workspace",
     async () => {
       const originalHome = process.env.HOME;
-      const hostHome = path.join(cwd, "host-home");
+      const hostHome = await mkdtemp(path.join(
+        process.platform === "linux" ? homedir() : tmpdir(),
+        "recurs-host-home-",
+      ));
+      const workspace = path.join(hostHome, "project");
       const secret = path.join(hostHome, ".ssh", "id_test");
-      await mkdir(path.dirname(secret), { recursive: true });
+      await Promise.all([
+        mkdir(workspace, { recursive: true }),
+        mkdir(path.dirname(secret), { recursive: true }),
+      ]);
       await writeFile(secret, "credential-canary", "utf8");
       process.env.HOME = hostHome;
       try {
@@ -225,18 +237,90 @@ describe("run_command", () => {
           "/bin/sh",
           ["-c", `cat ${shellQuote(secret)}`],
           {
-            cwd,
+            cwd: workspace,
             sandbox: { mode: "workspace", network: "deny" },
           },
         )).rejects.toMatchObject({ code: "process_failed" });
       } finally {
         if (originalHome === undefined) delete process.env.HOME;
         else process.env.HOME = originalHome;
+        await rm(hostHome, { recursive: true, force: true });
       }
     },
   );
 
-  it.runIf(process.platform === "darwin")(
+  it.runIf(process.platform === "linux")(
+    "rejects Linux workspaces that overlap protected home boundaries",
+    async () => {
+      const originalHome = process.env.HOME;
+      const hostHome = path.join(cwd, "host-home");
+      const credentialHome = await mkdtemp(
+        path.join(tmpdir(), "recurs-credential-home-"),
+      );
+      const credentialWorkspace = path.join(
+        credentialHome,
+        ".ssh",
+        "project",
+      );
+      await mkdir(hostHome);
+      await mkdir(credentialWorkspace, { recursive: true });
+      try {
+        process.env.HOME = hostHome;
+        await expect(toolExports.runProcess(
+          "/bin/true",
+          [],
+          {
+            cwd,
+            sandbox: { mode: "workspace", network: "deny" },
+          },
+        )).rejects.toMatchObject({ code: "sandbox_unavailable" });
+
+        process.env.HOME = credentialHome;
+        await expect(toolExports.runProcess(
+          "/bin/true",
+          [],
+          {
+            cwd: credentialWorkspace,
+            sandbox: { mode: "workspace", network: "deny" },
+          },
+        )).rejects.toMatchObject({ code: "sandbox_unavailable" });
+      } finally {
+        if (originalHome === undefined) delete process.env.HOME;
+        else process.env.HOME = originalHome;
+        await rm(credentialHome, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.runIf(process.platform === "linux")(
+    "masks host credential files without exposing their bytes",
+    async () => {
+      const originalHome = process.env.HOME;
+      const hostHome = await mkdtemp(path.join(homedir(), "recurs-host-home-"));
+      const workspace = path.join(hostHome, "project");
+      const secret = path.join(hostHome, ".netrc");
+      await mkdir(workspace);
+      await writeFile(secret, "credential-file-canary", "utf8");
+      process.env.HOME = hostHome;
+      try {
+        await expect(toolExports.runProcess(
+          "/bin/sh",
+          ["-c", `cat ${shellQuote(secret)}`],
+          {
+            cwd: workspace,
+            sandbox: { mode: "workspace", network: "deny" },
+          },
+        )).rejects.toMatchObject({ code: "process_failed" });
+        expect(await readFile(secret, "utf8")).toBe("credential-file-canary");
+      } finally {
+        if (originalHome === undefined) delete process.env.HOME;
+        else process.env.HOME = originalHome;
+        await rm(hostHome, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.runIf(process.platform === "darwin" || process.platform === "linux")(
     "denies network unless the approved command intent allows it",
     async () => {
       const server = createServer((_request, response) => response.end("ok"));
@@ -271,6 +355,73 @@ describe("run_command", () => {
           server.close((error) => error === undefined ? resolve() : reject(error));
         });
       }
+    },
+  );
+
+  it.runIf(process.platform === "linux")(
+    "keeps host home read-only while hiding host temporary state",
+    async () => {
+      const originalHome = process.env.HOME;
+      const hostHome = await mkdtemp(path.join(homedir(), "recurs-host-home-"));
+      const hostHomeCanary = path.join(hostHome, "ordinary.txt");
+      const temporaryCanary = path.join(
+        tmpdir(),
+        `recurs-host-tmp-${process.pid}-${Date.now()}`,
+      );
+      await writeFile(hostHomeCanary, "home-canary", "utf8");
+      await writeFile(temporaryCanary, "tmp-canary", "utf8");
+      process.env.HOME = hostHome;
+      try {
+        await expect(toolExports.runProcess(
+          "/bin/sh",
+          ["-c", `cat ${shellQuote(hostHomeCanary)}`],
+          {
+            cwd,
+            sandbox: { mode: "workspace", network: "deny" },
+          },
+        )).resolves.toMatchObject({ stdout: "home-canary", exitCode: 0 });
+        await expect(toolExports.runProcess(
+          "/bin/sh",
+          ["-c", `printf changed > ${shellQuote(hostHomeCanary)}`],
+          {
+            cwd,
+            sandbox: { mode: "workspace", network: "deny" },
+          },
+        )).rejects.toMatchObject({ code: "process_failed" });
+        expect(await readFile(hostHomeCanary, "utf8")).toBe("home-canary");
+        await expect(toolExports.runProcess(
+          "/bin/sh",
+          ["-c", `cat ${shellQuote(temporaryCanary)}`],
+          {
+            cwd,
+            sandbox: { mode: "workspace", network: "deny" },
+          },
+        )).rejects.toMatchObject({ code: "process_failed" });
+      } finally {
+        if (originalHome === undefined) delete process.env.HOME;
+        else process.env.HOME = originalHome;
+        await rm(hostHome, { recursive: true, force: true });
+        await rm(temporaryCanary, { force: true });
+      }
+    },
+  );
+
+  it.runIf(process.platform === "linux")(
+    "applies the same Linux sandbox to streaming process sessions",
+    async () => {
+      const session = await toolExports.startProcessSession(
+        "/bin/sh",
+        ["-c", "printf session-ok"],
+        {
+          cwd,
+          sandbox: { mode: "workspace", network: "deny" },
+        },
+      );
+      let stdout = "";
+      for await (const chunk of session.stdout) stdout += chunk.toString();
+
+      await expect(session.completion).resolves.toBe(0);
+      expect(stdout).toBe("session-ok");
     },
   );
 

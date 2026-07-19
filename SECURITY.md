@@ -127,8 +127,9 @@ store, or proof that the provider currently accepts the key. Provider
 authentication occurs on the first request. Environment keys remain visible to
 the Recurs process and any same-user host authority able to inspect that
 process. Managed tool and MCP subprocess environments remove credential,
-provider, cloud, proxy, Keychain, and socket variables, but Linux and Windows
-arbitrary commands still retain broad host authority under `local_guarded`.
+provider, cloud, proxy, Keychain, and socket variables. The standalone Linux
+default additionally contains arbitrary commands with Bubblewrap; Windows and
+an explicitly selected `local_guarded` profile retain broad host authority.
 
 ## Supported versions
 
@@ -180,14 +181,23 @@ credential.
 
 The permanent built-in credential-path denial and clean subprocess environment
 are defense in depth. On macOS, the standalone CLI additionally runs shell and
-verification children under a fail-closed Seatbelt profile: writes are limited
-to the canonical workspace and private process tree, common host credential
-paths are unreadable, and network is denied unless the approved command intent
-requires it. Tool children receive only standard descriptors `0`–`2` and do
-not inherit the launcher descriptor, native-authority markers, Keychain/token
-variables, provider/cloud variables, or proxy variables. Linux and Windows
-still default to `local_guarded`, where children retain the user's ordinary
-host authority. No profile authorizes provider credentials to enter TypeScript.
+verification children under a fail-closed Seatbelt profile. On Linux it uses a
+fixed, trusted `/usr/bin/bwrap` policy with read-only host mounts, masked host
+credential paths, hidden host temporary/runtime state, writable workspace and private process roots,
+fresh user/PID/IPC/UTS namespaces, and a fresh network namespace unless the
+approved command intent requires network. Tool children receive only standard
+descriptors `0`–`2` and do not inherit the launcher descriptor,
+native-authority markers, Keychain/token variables, provider/cloud variables,
+or proxy variables. Bubblewrap setup fails closed and does not yet include a
+Recurs-owned seccomp filter. Windows still selects `local_guarded` but rejects
+subprocess tools as unsupported; an embedding may explicitly select guarded
+host-authority execution on macOS/Linux. No sandbox profile makes TypeScript a
+persistent-credential authority; environment BYOK remains the explicit weaker
+process-local path described above.
+
+The Linux policy refuses a selected workspace that contains the host home or
+is itself within a known host credential directory. This prevents the writable
+workspace bind from reopening the home tree that Bubblewrap hid.
 
 Parallel Explore/Review batches and team Implement workers run in detached
 worktrees only after the parent is verified as the canonical root of a clean
@@ -247,6 +257,7 @@ credential-safe or authorize other subscription adapters.
 
 Recurs bounds process-group cleanup and closes its own output pipes so inherited
 pipes alone cannot hold run settlement open before synthetic-directory cleanup.
-An arbitrary child can still create a different process group or session and
-survive or race that application-level cleanup. Preventing or accounting for
-detached descendants is part of the required OS containment boundary.
+Under `local_guarded`, an arbitrary child can still create a different process
+group or session and survive or race application-level cleanup. The default
+macOS/Linux OS profiles add their platform containment boundary; Windows and
+explicit guarded embeddings retain this limitation.

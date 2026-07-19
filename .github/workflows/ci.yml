@@ -24,7 +24,21 @@ jobs:
           node-version: 24
           cache: npm
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install --yes ripgrep
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes apparmor-profiles apparmor-utils bubblewrap ripgrep
+          # Ubuntu 24.04's current AppArmor 5.0 ABI mediation can deny the
+          # CAP_NET_ADMIN operation Bubblewrap needs to initialize an isolated
+          # loopback device. Reload the distribution profile with Ubuntu's
+          # documented ABI 4.0 workaround on affected hosted runners. This
+          # preserves --unshare-net instead of weakening Recurs network policy.
+          if [[ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)" == "1" ]]; then
+            sudo install -m 0644 \
+              /usr/share/apparmor/extra-profiles/bwrap-userns-restrict \
+              /etc/apparmor.d/bwrap-userns-restrict
+            sudo sed -i 's/abi <abi\/5\.0>,/abi <abi\/4.0>,/' /etc/apparmor.d/bwrap-userns-restrict
+            sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
+          fi
       - run: npm ci
       - run: npm run check
       - run: npm run package:smoke-install

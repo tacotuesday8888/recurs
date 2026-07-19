@@ -110,11 +110,11 @@ Every fixed or arbitrary child process receives exactly standard descriptors `0`
 
 The current security profiles are:
 
-- `workspace_sandboxed` (standalone default on macOS): all registered tools remain subject to Plan mode and permissions. Shell and verification children run under Apple Seatbelt with canonical workspace-only writes, common host credential paths unreadable, and network denied unless an approved command intent requires it. Sandbox setup fails closed.
-- `local_guarded` (standalone default on Linux and Windows): all registered tools are available subject to Plan mode and permissions. Arbitrary commands still have the user's host filesystem, network, IPC, and process authority.
+- `workspace_sandboxed` (standalone default on macOS and Linux): all registered tools remain subject to Plan mode and permissions. Shell and verification children run under Apple Seatbelt or a fixed system-Bubblewrap policy with canonical workspace-only host writes, hidden host credential/runtime state, and network denied unless an approved command intent requires it. Linux adds mount/user/PID/IPC/UTS namespaces but no Recurs seccomp filter. Sandbox setup fails closed.
+- `local_guarded` (standalone default on Windows and explicit embedding option elsewhere): all registered tools are available subject to Plan mode and permissions. On supported process platforms, arbitrary commands still have the user's host filesystem, network, IPC, and process authority. Windows subprocess execution is rejected as unsupported.
 - `tools_disabled`: no model tool definitions are advertised, and every direct invocation is rejected before parsing, permissions, or checkpoint capture. It is a fail-closed composition option, not a useful coding profile or sandbox.
 
-The macOS sandbox is a subprocess boundary, not authorization to expose provider credentials to TypeScript. Linux and Windows containment remains unimplemented. Full Access does not change those boundaries.
+The macOS/Linux sandbox is a subprocess boundary, not authorization to expose provider credentials to TypeScript. Windows containment remains unimplemented. Full Access does not change those boundaries.
 
 ## Sessions and recovery
 
