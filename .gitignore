@@ -3,6 +3,7 @@
 node_modules/
 .pnpm-store/
 dist/
+release/
 coverage/
 .build/
 .recurs/

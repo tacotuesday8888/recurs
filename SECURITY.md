@@ -19,6 +19,16 @@ running it. This is packaging evidence, not a public release: the package is
 still private, version `0.0.0`, and `UNLICENSED`, and it contains no signed
 native credential authority.
 
+The protected tagged-release workflow is designed around that one exact
+tarball. It renders a curl installer with an embedded SHA-256 and a Homebrew
+formula with the same checksum, creates only a draft release initially,
+attests the assets, and publishes or verifies the tarball's npm SHA-512 SRI
+before making the GitHub release public. The installer refuses an unverified
+archive, disables npm lifecycle scripts, uses a user-owned prefix by default,
+and health-checks the resulting CLI. This workflow is still inoperative by
+design until the license, non-placeholder version, public repository, exact
+tag, and protected npm/GitHub authority gates are satisfied.
+
 The repository includes a macOS 14.4+ native process boundary and complete
 private OpenAI API, Anthropic API, and Kimi Code activation/generation
 verticals. It has tested Data Protection Keychain, credential-state/journal
@@ -107,10 +117,14 @@ current-user-owned, single-link configuration below the Recurs data root. It
 accepts absolute commands and literal arguments but no shell or configured
 environment variables. Every operation requires elevated shell approval (and
 explicit network approval when declared), uses the clean managed-process
-environment and selected sandbox profile, and closes the complete process
-group. Server metadata and results are untrusted and cannot grant authority.
-Project MCP files, remote transports/OAuth, persistent server processes, and
-historical child/team access are not admitted by this slice.
+environment and selected sandbox profile. One runtime may retain a serialized
+session for an exact server/workspace/sandbox identity; reuse requires MCP
+ping, a failed health check may restart only before an operation, and an
+ambiguous call is never retried. Cancellation, timeout, failure, and runtime
+close terminate the complete process group. Server metadata and results are
+untrusted and cannot grant authority. Project MCP files, remote transports/
+OAuth, cross-runtime daemons, and historical child/team access are not admitted
+by this slice.
 
 Connection management stores and removes Recurs metadata only.
 `recurs account disconnect` does not revoke, sign out, or delete vendor

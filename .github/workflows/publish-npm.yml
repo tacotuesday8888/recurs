@@ -1,4 +1,4 @@
-name: Publish npm package
+name: Publish Recurs release
 
 on:
   workflow_dispatch:
@@ -14,7 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read
+      attestations: write
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v7
@@ -46,4 +47,66 @@ jobs:
       - run: npm run package:smoke-install
       - name: Verify release authority and metadata
         run: node scripts/check-npm-release.mjs --tag "$GITHUB_REF_NAME"
-      - run: npm publish --access public
+      - name: Build the exact release package and install assets
+        id: package
+        run: |
+          mkdir -p release
+          npm pack --json --ignore-scripts --pack-destination release > "$RUNNER_TEMP/recurs-pack.json"
+          filename=$(node -e 'const report = require(process.argv[1]); const filename = report[0]?.filename; if (typeof filename !== "string") process.exit(1); process.stdout.write(filename)' "$RUNNER_TEMP/recurs-pack.json")
+          echo "filename=$filename" >> "$GITHUB_OUTPUT"
+          node scripts/render-install-assets.mjs \
+            --tag "$GITHUB_REF_NAME" \
+            --archive "release/$filename" \
+            --output release
+      - name: Create or refresh the draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          state=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null || true)
+          if [[ -z "$state" ]]; then
+            gh release create "$GITHUB_REF_NAME" \
+              "release/${{ steps.package.outputs.filename }}" \
+              release/install.sh \
+              release/recurs.rb \
+              release/SHA256SUMS \
+              release/npm-integrity.txt \
+              --draft \
+              --generate-notes \
+              --title "Recurs $GITHUB_REF_NAME" \
+              --verify-tag
+          elif [[ "$state" == "true" ]]; then
+            gh release upload "$GITHUB_REF_NAME" \
+              "release/${{ steps.package.outputs.filename }}" \
+              release/install.sh \
+              release/recurs.rb \
+              release/SHA256SUMS \
+              release/npm-integrity.txt \
+              --clobber
+          else
+            echo "A public release already exists for $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+      - name: Attest the exact release assets
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            release/${{ steps.package.outputs.filename }}
+            release/install.sh
+            release/recurs.rb
+            release/SHA256SUMS
+            release/npm-integrity.txt
+      - name: Publish or verify the exact npm package
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          if published_json=$(npm view "recurs@$version" dist.integrity --json 2>/dev/null); then
+            published_integrity=$(node -e 'const value = JSON.parse(process.argv[1]); if (typeof value !== "string") process.exit(1); process.stdout.write(value)' "$published_json")
+            node scripts/render-install-assets.mjs \
+              --verify-published-integrity "release/${{ steps.package.outputs.filename }}" \
+              --integrity "$published_integrity"
+          else
+            npm publish "release/${{ steps.package.outputs.filename }}" --access public
+          fi
+      - name: Publish the verified GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest

@@ -91,9 +91,26 @@ node packages/cli/dist/main.js
 After building, `npm link` exposes the local `recurs` command. It can be removed
 with `npm unlink --global recurs`.
 
-This is currently the only installation path. The root build also produces a self-contained Recurs-code bundle at `dist/cli/main.js`; `npm run package:check` proves the tarball contains only that executable, `package.json`, `README.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md`. After a build, `npm run package:smoke-install` packs and installs the artifact into an empty temporary prefix, configures a deterministic loopback model, and proves the installed agent can run a sandboxed command, deny an outside-workspace write, read the workspace result, and return it to the model. Runtime packages remain exact dependencies rather than copied third-party source.
+This is currently the only live installation path. The root build also produces a self-contained Recurs-code bundle at `dist/cli/main.js`; `npm run package:check` proves the tarball contains only that executable, `package.json`, `README.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md`. After a build, `npm run package:smoke-install` packs and installs the artifact into an empty temporary prefix, configures a deterministic loopback model, and proves the installed agent can run a sandboxed command, deny an outside-workspace write, read the workspace result, and return it to the model. Runtime packages remain exact dependencies rather than copied third-party source.
 
-The package is deliberately `private` and declares `UNLICENSED`, so npm publication remains blocked until the owner selects a license, chooses a real preview version, and makes the source repository public. Reviewed direct-runtime dependency notices now ship in `THIRD_PARTY_NOTICES.md`. A manual, protected-environment GitHub workflow is prepared for npm trusted publishing with OIDC and provenance, but its preflight refuses the placeholder version, missing project license, private source repository, non-public package metadata, wrong repository/workflow/tag, or a long-lived npm token. Nothing is published today. Bun may later install the npm artifact while Node remains the supported runtime; Bun runtime support is not implemented. Homebrew and curl installers wait for versioned release artifacts.
+The package is deliberately `private` and declares `UNLICENSED`, so npm publication remains blocked until the owner selects a license, chooses a real preview version, and makes the source repository public. Reviewed direct-runtime dependency notices now ship in `THIRD_PARTY_NOTICES.md`. A manual protected-environment workflow is prepared to build one exact npm tarball, render checksum-bound curl and Homebrew assets, create a draft GitHub release, attest the artifacts, publish or verify that exact tarball through npm trusted publishing, and only then publish the GitHub release. The preflight refuses the placeholder version, missing project license, private source repository, non-public package metadata, wrong repository/workflow/tag, or a long-lived npm token. Nothing is published today.
+
+After the first authorized release, the same versioned tarball supports three installation surfaces:
+
+```bash
+# npm
+npm install --global recurs@<version>
+
+# checksum-verifying, user-local installer (defaults to ~/.local)
+curl -fsSLO https://github.com/tacotuesday8888/recurs/releases/download/v<version>/install.sh
+sh install.sh
+
+# Homebrew formula generated from the same npm tarball and SHA-256
+curl -fsSLO https://github.com/tacotuesday8888/recurs/releases/download/v<version>/recurs.rb
+brew install --formula ./recurs.rb
+```
+
+The installer requires Node.js 22.22 or newer, downloads only the exact tagged GitHub asset over HTTPS, verifies its embedded SHA-256 before npm runs, installs with lifecycle scripts disabled into `RECURS_INSTALL_PREFIX` or `~/.local`, and performs a CLI health check. The generated formula follows Homebrew's Node guidance: a stable checksummed npm URL, `depends_on "node"`, `std_npm_args`, and `libexec` isolation. A dedicated Homebrew tap does not exist yet, so `brew install tacotuesday8888/tap/recurs` is not claimed. Bun may later install the npm artifact while Node remains the supported runtime; Bun runtime support is not implemented.
 
 ## Packages
 
@@ -139,11 +156,12 @@ The private native path supports crash-safe OpenAI API, Anthropic API, and Kimi 
 
 ## Next
 
-1. Produce and verify a signed/notarized installed launcher bundle, including the isolated owner-run broker recovery smoke.
-2. Exercise the completed OpenAI, Anthropic, and Kimi Code verticals through installed-artifact security and credential-canary tests.
-3. Expand the fixed-origin environment-BYOK path to OpenAI Responses and additional reviewed providers' authenticated model discovery without permitting arbitrary remote URLs.
-4. Extend MCP only through separately reviewed authenticated Streamable HTTP, project trust, prompt/resource, and versioned child-profile slices; persistent stdio does not imply those authorities.
-5. Give any delegated runtime included in the sealed engine its own fixed signed layout; expand delegated runtimes only through documented integrations and provider-specific policy review.
-6. Extend team execution only through enforceable OS containment, reviewed role/model candidates, and a separately designed durable worker host; do not mistake process-lifetime background work for a daemon or turn repair into unbounded token burn.
+1. Select the project license and preview version, make the repository public, configure protected npm trusted publishing, and create the Homebrew tap before running the gated release workflow.
+2. Produce and verify a signed/notarized installed launcher bundle, including the isolated owner-run broker recovery smoke.
+3. Exercise the completed OpenAI, Anthropic, and Kimi Code verticals through installed-artifact security and credential-canary tests.
+4. Expand the fixed-origin environment-BYOK path to OpenAI Responses and additional reviewed providers' authenticated model discovery without permitting arbitrary remote URLs.
+5. Extend MCP only through separately reviewed authenticated Streamable HTTP, project trust, prompt/resource, and versioned child-profile slices; persistent stdio does not imply those authorities.
+6. Give any delegated runtime included in the sealed engine its own fixed signed layout; expand delegated runtimes only through documented integrations and provider-specific policy review.
+7. Extend team execution only through enforceable OS containment, reviewed role/model candidates, and a separately designed durable worker host; do not mistake process-lifetime background work for a daemon or turn repair into unbounded token burn.
 
 Start with the [documentation index](docs/README.md), [CLI guide](docs/CLI.md), [architecture](ARCHITECTURE.md), [security policy](SECURITY.md), and [product direction](PRODUCT.md).

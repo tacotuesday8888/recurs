@@ -149,7 +149,9 @@ The production-signed launcher resolves only fixed nonsymlinked Node and engine 
 
 OpenAI API, Anthropic API, and Kimi Code activation are complete private verticals. The authority captures a credential, performs the exact bound model catalog, and transactionally commits Keychain plus non-secret registry state with crash recovery. Broker-owned generation streams OpenAI Responses, Anthropic Messages, or Kimi's OpenAI Chat Completions profile through scoped, expiring, cancellation- and budget-bound one-use reservations. OpenAI continuation state is encrypted behind opaque handles; Anthropic and Kimi use the durable transcript. Strict codecs normalize events and usage, reject redirects/profile drift, and filter credential echoes before any reply crosses the native boundary.
 
-No signed/notarized installed artifact or production credential-canary smoke has shipped, so these completed verticals are not distributed and source/npm execution cannot activate them. Release work still needs the installed-artifact proof and complete third-party notices/license review. The standalone macOS CLI now applies a fail-closed Seatbelt boundary to shell and verification children; `local_guarded` remains available and is still the Linux/Windows default. The private provider design relies on credentials and reusable request authority remaining exclusively in the broker; rewriting the agent loop, session engine, or CLI wholesale in Rust is not required for that boundary.
+No signed/notarized installed artifact or production credential-canary smoke has shipped, so these completed verticals are not distributed and source/npm execution cannot activate them. Release work still needs the installed-artifact proof and owner-selected project license. The standalone CLI applies fail-closed Seatbelt on macOS and system Bubblewrap on Linux to shell and verification children; `local_guarded` remains an explicit macOS/Linux embedding option and the Windows default. The private provider design relies on credentials and reusable request authority remaining exclusively in the broker; rewriting the agent loop, session engine, or CLI wholesale in Rust is not required for that boundary.
+
+Public release assembly retains one npm tarball as the authoritative portable artifact. A protected exact-tag workflow reruns verification, renders a SHA-256-bound user-local installer and Homebrew formula from that archive, creates a draft GitHub release, attests the assets, and publishes or verifies the same tarball's npm SHA-512 integrity before making the release public. The current `UNLICENSED`/`0.0.0`/private-repository state fails before artifact publication. This prepares npm, curl, and Homebrew surfaces without claiming a live package, tap, or signed native bundle.
 
 The public npm/source Codex path does not weaken that gate: Recurs launches the pinned official adapter, delegates any advertised `chat-gpt` login flow to it, and stores only non-secret linkage, verified account label/fingerprint, policy/billing acknowledgement, and model metadata. Recurs never reads `auth.json`, browser cookies, copied tokens, or credential values. The adapter/runtime remains vendor-authenticated, and the current path is deliberately Plan-only and foreground-only. The sealed private engine denies this delegated path until it can ship without ambient runtime resolution.
 
@@ -163,12 +165,13 @@ The Recurs ACP server is another process host over this same boundary, not a sec
 
 The remaining extension order is deliberate:
 
-1. produce and verify the signed/notarized installed bundle, including isolated broker recovery and credential-canary smokes for the completed OpenAI, Anthropic, and Kimi verticals;
-2. add the explicit public-HTTPS OpenAI-compatible profile only with DNS-rebinding-safe endpoint verification;
-3. add further direct API and coding-plan verticals only with exact provider profiles, billing disclosure, and installed-artifact evidence;
-4. add official delegated runtimes to the sealed host only with fixed signed layouts plus provider-specific capability and policy proof;
-5. add enforceable process/filesystem/network containment before unattended arbitrary-command workers, then design any persistent worker host as a separately authenticated owner rather than extending the CLI promise;
-6. admit multiple live role/model candidates only through reviewed capability, billing, and connection policy, preserving frozen routing and accounting truth;
-7. extend MCP only through separately reviewed authenticated remote, project-trust, prompt/resource, and child-profile slices; add the company coordinator, desktop, plugin packaging, and distribution over the same durable contracts and the live ACP client boundary.
+1. select the project license/version, make the repository public, configure the protected npm identity and Homebrew tap, then exercise the prepared portable release path;
+2. produce and verify the signed/notarized installed bundle, including isolated broker recovery and credential-canary smokes for the completed OpenAI, Anthropic, and Kimi verticals;
+3. add the explicit public-HTTPS OpenAI-compatible profile only with DNS-rebinding-safe endpoint verification;
+4. add further direct API and coding-plan verticals only with exact provider profiles, billing disclosure, and installed-artifact evidence;
+5. add official delegated runtimes to the sealed host only with fixed signed layouts plus provider-specific capability and policy proof;
+6. add enforceable process/filesystem/network containment before unattended arbitrary-command workers, then design any persistent worker host as a separately authenticated owner rather than extending the CLI promise;
+7. admit multiple live role/model candidates only through reviewed capability, billing, and connection policy, preserving frozen routing and accounting truth;
+8. extend MCP only through separately reviewed authenticated remote, project-trust, prompt/resource, and child-profile slices; add the company coordinator, desktop, plugin packaging, and distribution over the same durable contracts and the live ACP client boundary.
 
 See [the engine comparison](docs/BASE_ENGINE_COMPARISON.md), [the Core v0 design](docs/superpowers/specs/2026-07-10-recurs-core-v0-design.md), and [the provider design](docs/superpowers/specs/2026-07-10-recurs-provider-auth-design.md).
