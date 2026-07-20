@@ -281,6 +281,12 @@ describe("provider protocol", () => {
   it("observes validated events while preserving the collected result", async () => {
     const observed: string[] = [];
     async function* events(): AsyncIterable<ProviderEvent> {
+      yield {
+        type: "transport_fallback",
+        from: "websocket",
+        to: "sse",
+        reason: "connect_failed",
+      };
       yield { type: "text_delta", text: "ok" };
       yield { type: "done", stopReason: "complete" };
     }
@@ -291,8 +297,24 @@ describe("provider protocol", () => {
       },
     });
 
-    expect(observed).toEqual(["text_delta", "done"]);
+    expect(observed).toEqual(["transport_fallback", "text_delta", "done"]);
     expect(result.text).toBe("ok");
+  });
+
+  it("rejects malformed transport fallback metadata", async () => {
+    async function* events(): AsyncIterable<ProviderEvent> {
+      yield {
+        type: "transport_fallback",
+        from: "websocket",
+        to: "chat_completions",
+        reason: "connect_failed",
+      } as unknown as ProviderEvent;
+    }
+
+    await expect(collectProviderEvents(events())).rejects.toMatchObject({
+      code: "invalid_response",
+      retryable: false,
+    });
   });
 
   it("marks normalized provider failures as retryable or terminal", () => {

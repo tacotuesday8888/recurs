@@ -59,6 +59,11 @@ export class TextEventRenderer implements EventSink {
           `Retry ${event.attempt} scheduled in ${event.delayMs}ms`,
         );
         break;
+      case "provider_transport_fallback":
+        await this.#status(
+          `Provider transport changed: ${event.from} → ${event.to}`,
+        );
+        break;
       case "turn_steered":
         await this.#status("↪ Steering applied");
         break;

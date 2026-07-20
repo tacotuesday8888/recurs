@@ -191,6 +191,16 @@ export async function collectProviderEvents(
         toolCalls.push(event.call);
         break;
       }
+      case "transport_fallback": {
+        if (
+          event.from !== "websocket" || event.to !== "sse" ||
+          (event.reason !== "connect_failed" &&
+            event.reason !== "connection_busy")
+        ) {
+          throw invalid("Provider emitted an invalid transport fallback");
+        }
+        break;
+      }
       case "provider_state": {
         if (
           providerStateHandle !== undefined ||

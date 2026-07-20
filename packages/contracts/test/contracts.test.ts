@@ -144,7 +144,10 @@ describe("provider-neutral contracts", () => {
     const tools = await packageManifest("../../tools/package.json");
 
     expect(contracts.dependencies).toBeUndefined();
-    expect(providers.dependencies).toEqual({ "@recurs/contracts": "0.0.0" });
+    expect(providers.dependencies).toEqual({
+      "@recurs/contracts": "0.0.0",
+      "ws": "8.21.1",
+    });
     expect(tools.dependencies).toEqual({ "@recurs/contracts": "0.0.0" });
   });
 });

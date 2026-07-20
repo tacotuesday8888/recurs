@@ -35,6 +35,8 @@ const sealedRuntimeUnavailable =
   "Delegated Codex runtime is unavailable in the sealed native engine";
 const sealedCliUnavailable =
   "The official Codex onboarding runtime could not be prepared";
+const sealedWebSocketUnavailable =
+  "Public WebSocket transport is unavailable in the sealed native engine";
 const temporaryRoot = await mkdtemp(
   path.join(tmpdir(), "recurs-native-engine-bundle-"),
 );
@@ -133,6 +135,9 @@ function assertBundleShape(source) {
   }
   if (!source.includes(sealedRuntimeUnavailable)) {
     throw new Error("Native engine bundle omitted the sealed runtime boundary.");
+  }
+  if (!source.includes(sealedWebSocketUnavailable)) {
+    throw new Error("Native engine bundle omitted the sealed WebSocket boundary.");
   }
 
   const specifiers = [

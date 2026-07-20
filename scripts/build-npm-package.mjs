@@ -22,6 +22,7 @@ const externalPackages = new Set([
   "yaml",
   "zod",
   "typescript",
+  "ws",
 ]);
 
 function isExternalPackage(specifier) {
