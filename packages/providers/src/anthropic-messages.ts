@@ -9,6 +9,7 @@ import type {
 import { NATIVE_TOOL_USE_PROFILE } from "./harness-profile.js";
 import { environmentByokManifest } from "./environment-provider-policy.js";
 import { CredentialEchoGuard } from "./credential-echo-guard.js";
+import { retryAfterOptions } from "./retry-after.js";
 import { ProviderError } from "./types.js";
 
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -230,7 +231,12 @@ function responseError(response: Response): ProviderError {
     return new ProviderError("authentication", "Provider authentication failed", false);
   }
   if (response.status === 429) {
-    return new ProviderError("rate_limit", "Provider rate limit reached", true);
+    return new ProviderError(
+      "rate_limit",
+      "Provider rate limit reached",
+      true,
+      retryAfterOptions(response.headers),
+    );
   }
   if (response.status === 413) {
     return new ProviderError("context_overflow", "Provider request was too large", false);
@@ -242,6 +248,7 @@ function responseError(response: Response): ProviderError {
     "transport",
     `The provider returned HTTP ${response.status}`,
     response.status >= 500,
+    retryAfterOptions(response.headers),
   );
 }
 

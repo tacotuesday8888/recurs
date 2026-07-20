@@ -9,6 +9,7 @@ import type {
 import { CredentialEchoGuard } from "./credential-echo-guard.js";
 import { NATIVE_TOOL_USE_PROFILE } from "./harness-profile.js";
 import { environmentByokManifest } from "./environment-provider-policy.js";
+import { retryAfterOptions } from "./retry-after.js";
 import { ProviderError } from "./types.js";
 
 const MAX_STREAM_BYTES = 32 * 1024 * 1024;
@@ -103,7 +104,12 @@ function responseFailure(response: Response): ProviderError {
     return new ProviderError("authentication", "OpenAI authentication failed", false);
   }
   if (response.status === 429) {
-    return new ProviderError("rate_limit", "OpenAI rate limit reached", true);
+    return new ProviderError(
+      "rate_limit",
+      "OpenAI rate limit reached",
+      true,
+      retryAfterOptions(response.headers),
+    );
   }
   if (response.status === 413) {
     return new ProviderError("context_overflow", "OpenAI request was too large", false);
@@ -115,6 +121,7 @@ function responseFailure(response: Response): ProviderError {
     "transport",
     `OpenAI returned HTTP ${response.status}`,
     response.status >= 500,
+    retryAfterOptions(response.headers),
   );
 }
 

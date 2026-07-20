@@ -85,7 +85,10 @@ describe("remote OpenAI-compatible provider", () => {
         providerId: "deepseek-api",
         connectionId: `connection-${status}`,
         apiKey: key,
-        fetch: async () => new Response(`provider body ${key}`, { status }),
+        fetch: async () => new Response(`provider body ${key}`, {
+          status,
+          headers: status === 429 ? { "retry-after": "2" } : {},
+        }),
       });
       let thrown: unknown;
       try {
@@ -99,7 +102,11 @@ describe("remote OpenAI-compatible provider", () => {
         thrown = error;
       }
       expect(thrown).toBeInstanceOf(ProviderError);
-      expect(thrown).toMatchObject({ code, retryable });
+      expect(thrown).toMatchObject({
+        code,
+        retryable,
+        ...(status === 429 ? { retryAfterMs: 2_000 } : {}),
+      });
       expect(String(thrown)).not.toContain(key);
     }
   });

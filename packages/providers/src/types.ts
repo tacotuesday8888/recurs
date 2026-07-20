@@ -31,15 +31,32 @@ export type ProviderErrorCode =
   | "cancelled"
   | "invalid_response";
 
+export interface ProviderErrorOptions extends ErrorOptions {
+  readonly retryAfterMs?: number;
+}
+
+export const MAX_PROVIDER_RETRY_AFTER_MS = 30_000;
+
 export class ProviderError extends Error {
+  readonly retryAfterMs?: number;
+
   constructor(
     public readonly code: ProviderErrorCode,
     message: string,
     public readonly retryable: boolean,
-    options?: ErrorOptions,
+    options?: ProviderErrorOptions,
   ) {
     super(message, options);
     this.name = "ProviderError";
+    if (
+      Number.isSafeInteger(options?.retryAfterMs) &&
+      Number(options?.retryAfterMs) >= 0
+    ) {
+      this.retryAfterMs = Math.min(
+        MAX_PROVIDER_RETRY_AFTER_MS,
+        Number(options?.retryAfterMs),
+      );
+    }
   }
 }
 
