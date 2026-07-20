@@ -261,6 +261,8 @@ export type SessionRecordV2 =
       type: "compaction_started";
       operationId: string;
       inputBaseSequence: number;
+      trigger?: "manual" | "proactive" | "context_overflow";
+      turnId?: string;
     })
   | (SessionRecordBaseV2 & {
       type: "session_compacted";
@@ -637,10 +639,19 @@ export function reduceSessionRecordV2(
     throw new Error("Agent policy can change only on an idle parent");
   }
   if (record.type === "compaction_started") {
+    const trigger = record.trigger ?? "manual";
+    const recoversOpenTurn = trigger === "context_overflow";
     if (
-      state.openTurnId !== null || state.pendingCompaction !== null
+      state.pendingCompaction !== null ||
+      (recoversOpenTurn
+        ? state.openTurnId === null || record.turnId !== state.openTurnId
+        : state.openTurnId !== null || record.turnId !== undefined)
     ) {
-      throw new Error("Compaction requires an idle session");
+      throw new Error(
+        recoversOpenTurn
+          ? "Context-overflow compaction must match the open turn"
+          : "Compaction requires an idle session",
+      );
     }
     if (record.inputBaseSequence !== state.lastSequence) {
       throw new Error("Compaction input sequence is stale");
@@ -1107,6 +1118,8 @@ export function reduceSessionRecordV2(
         pendingCompaction: {
           operationId: record.operationId,
           inputBaseSequence: record.inputBaseSequence,
+          trigger: record.trigger ?? "manual",
+          ...(record.turnId === undefined ? {} : { turnId: record.turnId }),
         },
       };
       break;

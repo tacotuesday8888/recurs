@@ -47,6 +47,8 @@ export interface SessionState {
   pendingCompaction: {
     operationId: string;
     inputBaseSequence: number;
+    trigger: "manual" | "proactive" | "context_overflow";
+    turnId?: string;
   } | null;
 }
 

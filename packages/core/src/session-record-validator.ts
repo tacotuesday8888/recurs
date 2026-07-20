@@ -1152,10 +1152,21 @@ export function parseSessionRecordV2(
         ).version;
       break;
     case "compaction_started":
-      valid = recordKeys(value, ["operationId", "inputBaseSequence"]) &&
+      valid = recordKeys(
+        value,
+        ["operationId", "inputBaseSequence"],
+        ["trigger", "turnId"],
+      ) &&
         typeof value.operationId === "string" &&
         Number.isSafeInteger(value.inputBaseSequence) &&
-        (value.inputBaseSequence as number) >= 0;
+        (value.inputBaseSequence as number) >= 0 &&
+        (value.trigger === undefined ||
+          value.trigger === "manual" || value.trigger === "proactive" ||
+          value.trigger === "context_overflow") &&
+        (value.turnId === undefined || typeof value.turnId === "string") &&
+        (value.trigger === "context_overflow"
+          ? typeof value.turnId === "string" && value.turnId.length > 0
+          : value.turnId === undefined);
       break;
     case "session_compacted":
       valid = recordKeys(value, [

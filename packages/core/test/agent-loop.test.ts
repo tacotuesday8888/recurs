@@ -233,6 +233,50 @@ async function seedInterruptedTool(
   });
 }
 
+async function seedCompletedConversation(
+  store: JsonlSessionStore,
+  turns = 4,
+): Promise<void> {
+  await store.withSessionMutation("s1", 0, async (lease) => {
+    for (let index = 0; index < turns; index += 1) {
+      const turnId = `seed-${index}`;
+      await lease.append({
+        type: "turn_started",
+        turnId,
+        prompt: `seed prompt ${index}`,
+        at: testAt,
+      });
+      await lease.append({
+        type: "model_completed",
+        turnId,
+        message: {
+          id: `seed-assistant-${index}`,
+          role: "assistant",
+          content: `seed answer ${index}`,
+        },
+        usage: null,
+        stopReason: "complete",
+        at: testAt,
+      });
+      await lease.append({
+        type: "turn_completed",
+        turnId,
+        result: {
+          finalText: `seed answer ${index}`,
+          usage: null,
+          usageSource: "unavailable",
+          steps: 1,
+          changedFiles: [],
+          changedFilesSource: "host_tools",
+          evidence: [],
+          evidenceSource: "none",
+        },
+        at: testAt,
+      });
+    }
+  });
+}
+
 describe("AgentLoop", () => {
   it("allowlists only code-compatible canonical AgentLoop messages", () => {
     expect(safeAgentLoopErrorMessage(
@@ -1176,9 +1220,11 @@ describe("AgentLoop", () => {
   );
 
   it("does not classify context overflow as safely replayable after semantic output", async () => {
+    let requests = 0;
     const provider: ModelProvider = {
       id: "partial-context-overflow",
       async *stream(): AsyncIterable<ProviderEvent> {
+        requests += 1;
         yield { type: "text_delta", text: "partial" };
         throw new ProviderError("context_overflow", "unsafe detail", false);
       },
@@ -1194,6 +1240,121 @@ describe("AgentLoop", () => {
       type: "turn_failed",
       error: { code: "runtime_failed" },
     });
+    expect((await store.load("s1")).records).not.toContainEqual(
+      expect.objectContaining({ type: "compaction_started" }),
+    );
+    expect(requests).toBe(1);
+  });
+
+  it("compacts once and retries the same step after a clean context overflow", async () => {
+    const provider = new ScriptedProvider([
+      new ProviderError("context_overflow", "too much context", false),
+      [
+        { type: "text_delta", text: "durable recovery summary" },
+        { type: "usage", inputTokens: 400, outputTokens: 20 },
+        { type: "done", stopReason: "complete" },
+      ],
+      [
+        { type: "text_delta", text: "continued after recovery" },
+        { type: "usage", inputTokens: 700, outputTokens: 30 },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const { loop, store, events } = await harness(provider);
+    await seedCompletedConversation(store);
+
+    await expect(loop.run({
+      sessionId: "s1",
+      turnId: "recover-turn",
+      prompt: "continue",
+      maxSteps: 1,
+    })).resolves.toMatchObject({
+      finalText: "continued after recovery",
+      usage: { inputTokens: 1_100, outputTokens: 50 },
+      usageSource: "provider",
+      steps: 1,
+    });
+
+    expect(provider.requests).toHaveLength(3);
+    expect(provider.requests[1]?.tools).toEqual([]);
+    expect(provider.requests[2]?.messages[0]?.content)
+      .toContain("durable recovery summary");
+    const records = (await store.load("s1")).records;
+    expect(records.filter((record) => record.type === "turn_started")).toHaveLength(5);
+    expect(records.slice(13).map((record) => record.type)).toEqual([
+      "turn_started",
+      "compaction_started",
+      "session_compacted",
+      "model_completed",
+      "turn_completed",
+    ]);
+    expect(records[14]).toMatchObject({
+      type: "compaction_started",
+      trigger: "context_overflow",
+      turnId: "recover-turn",
+      inputBaseSequence: 13,
+    });
+    expect(events.filter((event) => event.type === "retry_scheduled")).toEqual([]);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "warning",
+      code: "context_compacted",
+    }));
+  });
+
+  it("does not compact or retry a context overflow without reducible history", async () => {
+    const provider = new ScriptedProvider([
+      new ProviderError("context_overflow", "too much context", false),
+      [{ type: "done", stopReason: "complete" }],
+    ]);
+    const { loop, store } = await harness(provider);
+
+    await expect(loop.run({ sessionId: "s1", prompt: "work" })).rejects
+      .toMatchObject({ code: "context_overflow" });
+    expect(provider.requests).toHaveLength(1);
+    expect((await store.load("s1")).records).not.toContainEqual(
+      expect.objectContaining({ type: "compaction_started" }),
+    );
+  });
+
+  it("attempts context-overflow recovery only once per turn", async () => {
+    const provider = new ScriptedProvider([
+      new ProviderError("context_overflow", "first overflow", false),
+      [
+        { type: "text_delta", text: "recovery summary" },
+        { type: "done", stopReason: "complete" },
+      ],
+      new ProviderError("context_overflow", "second overflow", false),
+      [{ type: "text_delta", text: "must not run" }],
+    ]);
+    const { loop, store } = await harness(provider);
+    await seedCompletedConversation(store);
+
+    await expect(loop.run({ sessionId: "s1", prompt: "continue" })).rejects
+      .toMatchObject({ code: "context_overflow" });
+    expect(provider.requests).toHaveLength(3);
+    expect((await store.load("s1")).records.filter((record) =>
+      record.type === "compaction_started"
+    )).toHaveLength(1);
+  });
+
+  it("records compaction and turn failure when overflow recovery fails", async () => {
+    const provider = new ScriptedProvider([
+      new ProviderError("context_overflow", "too much context", false),
+      new ProviderError("transport", "summary failed", false),
+    ]);
+    const { loop, store } = await harness(provider);
+    await seedCompletedConversation(store);
+
+    await expect(loop.run({ sessionId: "s1", prompt: "continue" })).rejects
+      .toMatchObject({ code: "provider_failed" });
+    expect(provider.requests).toHaveLength(2);
+    expect((await store.load("s1")).records.slice(-3).map((record) =>
+      record.type
+    )).toEqual([
+      "compaction_started",
+      "compaction_failed",
+      "turn_failed",
+    ]);
   });
 
   it("proactively compacts from verified limits and provider-reported usage", async () => {
