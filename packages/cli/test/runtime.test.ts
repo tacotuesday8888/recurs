@@ -2,7 +2,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { ScriptedProvider } from "@recurs/providers";
+import {
+  ScriptedProvider,
+  type ModelProvider,
+  type ProviderRequest,
+} from "@recurs/providers";
 import {
   createHostInvocation,
   type CoordinatedRunInput,
@@ -38,7 +42,7 @@ afterEach(async () => {
   );
 });
 
-async function runtimeWith(provider: ScriptedProvider): Promise<RecursRuntime> {
+async function runtimeWith(provider: ModelProvider): Promise<RecursRuntime> {
   const directory = await mkdtemp(path.join(tmpdir(), "recurs-runtime-"));
   directories.push(directory);
   const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
@@ -250,6 +254,51 @@ describe("RecursRuntime", () => {
     expect(runtime.session.messages.map((message) => message.role)).toEqual([
       "user",
       "assistant",
+    ]);
+  });
+
+  it("queues plain input into the exact active direct-provider turn", async () => {
+    let releaseFirst!: () => void;
+    let markStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => { markStarted = resolve; });
+    const firstRelease = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const requests: ProviderRequest[] = [];
+    const provider: ModelProvider = {
+      id: "runtime-steering-provider",
+      async *stream(request) {
+        requests.push(request);
+        if (requests.length === 1) {
+          markStarted();
+          await firstRelease;
+          yield { type: "text_delta", text: "initial" };
+        } else {
+          yield { type: "text_delta", text: "focused" };
+        }
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const runtime = await runtimeWith(provider);
+
+    const run = runtime.submit("inspect everything");
+    await firstStarted;
+    const turnId = runtime.activeTurnId;
+    expect(turnId).toMatch(/^[0-9a-f-]{36}$/u);
+    expect(runtime.canAcceptSteering).toBe(true);
+    await expect(runtime.submit("focus on tests")).resolves.toMatchObject({
+      type: "message",
+      level: "info",
+      text: expect.stringContaining(`turn ${turnId}`),
+    });
+    releaseFirst();
+
+    await expect(run).resolves.toMatchObject({ finalText: "focused", steps: 2 });
+    expect(runtime.canAcceptSteering).toBe(false);
+    expect(requests).toHaveLength(2);
+    expect(runtime.session.messages.map((message) => message.content)).toEqual([
+      "inspect everything",
+      "initial",
+      "focus on tests",
+      "focused",
     ]);
   });
 

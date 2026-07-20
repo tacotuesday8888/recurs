@@ -57,6 +57,7 @@ export class CompatibilityRunCoordinator implements RunCoordinator {
       sessionId: input.sessionId,
       prompt: input.prompt,
       signal: input.signal,
+      ...(input.steering === undefined ? {} : { steering: input.steering }),
       ...(input.executionMode === undefined
         ? {}
         : { executionMode: input.executionMode }),

@@ -4,6 +4,7 @@ import type {
   IntegrationFailure,
   RunResult as CoordinatedRunResult,
   TrustedRunContext,
+  TurnSteeringSource,
 } from "@recurs/contracts";
 
 import {
@@ -65,6 +66,7 @@ export interface RunInput {
   signal?: AbortSignal;
   executionMode?: ExecutionMode;
   context?: TrustedRunContext;
+  steering?: TurnSteeringSource;
 }
 
 export interface RunResult {
@@ -181,6 +183,16 @@ async function emitPersistedEvent(
           sessionId: record.sessionId,
           at: record.at,
           turnId: record.turnId,
+          prompt: record.prompt,
+        });
+        return;
+      case "turn_steered":
+        await deps.emit({
+          type: "turn_steered",
+          sessionId: record.sessionId,
+          at: record.at,
+          turnId: record.turnId,
+          steeringId: record.steeringId,
           prompt: record.prompt,
         });
         return;
@@ -668,7 +680,17 @@ async function runAgentLoopUnlocked(
     },
     state.agent,
   );
-  const turnId = input.turnId ?? `${input.sessionId}:${randomUUID()}`;
+  if (
+    input.turnId !== undefined && input.steering !== undefined &&
+    input.turnId !== input.steering.turnId
+  ) {
+    throw new AgentLoopError(
+      "invalid_run_input",
+      "The steering mailbox does not match the requested turn",
+    );
+  }
+  const turnId = input.turnId ?? input.steering?.turnId ??
+    `${input.sessionId}:${randomUUID()}`;
   if (turnId.trim().length === 0) {
     throw new AgentLoopError("invalid_run_input", "A turn id is required");
   }
@@ -684,6 +706,21 @@ async function runAgentLoopUnlocked(
     const persisted = await mutation.append(record);
     state = reduceSessionRecordV2(state, persisted);
     return persisted;
+  }
+
+  async function applySteering(
+    inputs: ReturnType<TurnSteeringSource["drain"]>,
+  ): Promise<void> {
+    for (const steering of inputs) {
+      const persisted = await appendPinned({
+        type: "turn_steered",
+        turnId,
+        steeringId: steering.id,
+        prompt: steering.prompt,
+        at: steering.at,
+      });
+      await emitPersistedEvent(deps, persisted);
+    }
   }
 
   function approvalHandler(): ApprovalHandler {
@@ -868,6 +905,7 @@ async function runAgentLoopUnlocked(
     ) ?? [];
     for (;;) {
       throwIfAborted(signal);
+      await applySteering(input.steering?.drain() ?? []);
       if (steps >= maxSteps) {
         throw new AgentLoopError(
           "step_budget_exceeded",
@@ -954,6 +992,12 @@ async function runAgentLoopUnlocked(
             "invalid_provider_response",
             `Provider stopped with ${modelTurn.stopReason} and no tool calls`,
           );
+        }
+
+        const steering = input.steering?.drainOrClose();
+        if (steering !== undefined && steering.inputs.length > 0) {
+          await applySteering(steering.inputs);
+          continue;
         }
 
         if (state.goal?.status === "active") {
@@ -1052,6 +1096,8 @@ async function runAgentLoopUnlocked(
         });
     await emitPersistedEvent(deps, terminal);
     throw safeError;
+  } finally {
+    input.steering?.close();
   }
 }
 

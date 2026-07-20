@@ -21,6 +21,7 @@ import {
   AgentLoop,
   AgentLoopError,
   JsonlSessionStore,
+  TurnSteeringQueue,
   activeGoal,
   createBackendFingerprint,
   runAgentLoop,
@@ -280,6 +281,74 @@ describe("AgentLoop", () => {
       expect.arrayContaining(["turn_started", "model_text_delta", "model_completed", "turn_completed"]),
     );
     expect(events.some((event) => "version" in event)).toBe(false);
+  });
+
+  it("durably applies steering accepted while the provider is completing", async () => {
+    let releaseFirst!: () => void;
+    let markStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => { markStarted = resolve; });
+    const firstRelease = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const requests: ProviderRequest[] = [];
+    let step = 0;
+    const provider: ModelProvider = {
+      id: "steering-provider",
+      async *stream(request) {
+        requests.push(request);
+        step += 1;
+        if (step === 1) {
+          markStarted();
+          await firstRelease;
+          yield { type: "text_delta", text: "initial answer" };
+        } else {
+          yield { type: "text_delta", text: "focused answer" };
+        }
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const { loop, store, events } = await harness(provider);
+    const steering = new TurnSteeringQueue("turn-steering");
+
+    const run = loop.run({
+      sessionId: "s1",
+      turnId: steering.turnId,
+      prompt: "inspect everything",
+      steering,
+    });
+    await firstStarted;
+    expect(steering.enqueue({
+      id: "steer-1",
+      prompt: "Focus on the failing tests first.",
+      at: "2026-07-10T00:00:01.000Z",
+    })).toEqual({ accepted: true, pending: 1 });
+    releaseFirst();
+
+    await expect(run).resolves.toMatchObject({
+      finalText: "focused answer",
+      steps: 2,
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "user",
+        content: "Focus on the failing tests first.",
+      }),
+    ]));
+    expect((await store.loadState("s1")).messages.map((message) => [
+      message.role,
+      message.content,
+    ])).toEqual([
+      ["user", "inspect everything"],
+      ["assistant", "initial answer"],
+      ["user", "Focus on the failing tests first."],
+      ["assistant", "focused answer"],
+    ]);
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "turn_steered",
+        turnId: "turn-steering",
+        steeringId: "steer-1",
+      }),
+    ]));
   });
 
   it("applies the provider's versioned harness profile to every model step", async () => {

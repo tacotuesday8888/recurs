@@ -1,4 +1,4 @@
-import { Readable, Writable } from "node:stream";
+import { PassThrough, Readable, Writable } from "node:stream";
 
 import { AgentLoopError } from "@recurs/core";
 import { describe, expect, it } from "vitest";
@@ -104,5 +104,67 @@ describe("startRepl", () => {
 
     expect(output.value).toContain("Cancelled\n");
     expect(output.value).not.toContain("hostile cancellation detail");
+  });
+
+  it("accepts a follow-up line while the original run is still active", async () => {
+    const output = new TextOutput();
+    const input = new PassThrough();
+    const submitted: string[] = [];
+    let active = false;
+    let finishRun!: () => void;
+    let markInspect!: () => void;
+    let markSteer!: () => void;
+    const inspected = new Promise<void>((resolve) => { markInspect = resolve; });
+    const steered = new Promise<void>((resolve) => { markSteer = resolve; });
+    const runtime = {
+      get canAcceptSteering() { return active; },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async close() {},
+      submit(input: string) {
+        submitted.push(input);
+        if (input === "inspect") {
+          active = true;
+          markInspect();
+          return new Promise((resolve) => {
+            finishRun = () => resolve({
+              finalText: "done",
+              usage: null,
+              usageSource: "unavailable",
+              steps: null,
+              changedFiles: [],
+              changedFilesSource: "none",
+              evidence: [],
+              evidenceSource: "none",
+            });
+          });
+        }
+        if (input === "focus on tests") {
+          active = false;
+          finishRun();
+          markSteer();
+          return Promise.resolve({ type: "message", level: "info", text: "Steering queued" });
+        }
+        return Promise.resolve({ type: "quit" });
+      },
+    } as unknown as RecursRuntime;
+
+    const repl = startRepl(runtime, {
+      input,
+      output,
+      terminal: false,
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    input.write("inspect\n");
+    await inspected;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    input.write("focus on tests\n");
+    await steered;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    input.write("/quit\n");
+    await repl;
+
+    expect(submitted).toEqual(["inspect", "focus on tests", "/quit"]);
+    expect(output.value).toContain("Steering queued");
   });
 });

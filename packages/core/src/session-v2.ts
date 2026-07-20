@@ -151,6 +151,12 @@ export type SessionRecordV2 =
       turnId: string;
       prompt: string;
     })
+  | (SessionRecordBaseV2 & {
+      type: "turn_steered";
+      turnId: string;
+      steeringId: string;
+      prompt: string;
+    })
   | RuntimeContinuationUpdatedRecordV2
   | RuntimeApprovalResolvedRecordV2
   | RuntimeCompletedRecordV2
@@ -540,6 +546,14 @@ export function reduceSessionRecordV2(
     throw new Error(`Tool call ${record.call.id} is already pending`);
   }
   if (
+    record.type === "turn_steered" &&
+    state.messages.some((message) =>
+      message.id === `${record.turnId}:steer:${record.steeringId}`
+    )
+  ) {
+    throw new Error(`Steering input ${record.steeringId} is already recorded`);
+  }
+  if (
     (record.type === "tool_completed" || record.type === "tool_failed") &&
     !state.pendingToolCalls.some((call) => call.id === record.callId)
   ) {
@@ -604,6 +618,17 @@ export function reduceSessionRecordV2(
         },
         {
           id: `${record.turnId}:user`,
+          role: "user",
+          content: record.prompt,
+        },
+        record.turnId,
+      );
+      break;
+    case "turn_steered":
+      next = addMessage(
+        state,
+        {
+          id: `${record.turnId}:steer:${record.steeringId}`,
           role: "user",
           content: record.prompt,
         },

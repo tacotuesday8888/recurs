@@ -83,6 +83,12 @@ export type AgentTeamFailurePhase = "implementation" | "integration";
 export type RecursEvent =
   | (EventBase & { type: "session_created"; cwd: string; model: string })
   | (EventBase & { type: "turn_started"; turnId: string; prompt: string })
+  | (EventBase & {
+      type: "turn_steered";
+      turnId: string;
+      steeringId: string;
+      prompt: string;
+    })
   | (EventBase & { type: "model_text_delta"; turnId: string; text: string })
   | (EventBase & { type: "model_reasoning_delta"; turnId: string; text: string })
   | (EventBase & {

@@ -243,6 +243,21 @@ Interactive mode:
 node packages/cli/dist/main.js
 ```
 
+During a live direct-provider turn, the interactive prompt remains available.
+Plain text entered there is queued as same-turn steering rather than starting a
+second turn. Recurs applies it at the next safe model boundary, persists a
+`turn_steered` record and normalized event, and includes it in the following
+provider request. The terminal completion boundary closes the queue atomically,
+so input is either accepted for that exact turn or rejected as already
+finishing. The queue permits at most four pending inputs, 16 KiB each and 32 KiB
+in total. `/cancel`, `/status`, and `/help` remain available while the turn runs.
+
+Steering does not abort a provider request already in flight; it takes effect
+after that response and any requested tool calls settle. Opaque delegated
+runtimes do not expose this direct-loop boundary, so Recurs rejects live input
+for them instead of claiming it was applied. Starting a separate queued turn
+is not implemented yet.
+
 One non-interactive run:
 
 ```bash
