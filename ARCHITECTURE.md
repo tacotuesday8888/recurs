@@ -152,7 +152,7 @@ OpenAI API, Anthropic API, and Kimi Code activation are complete private vertica
 
 No signed/notarized installed artifact or production credential-canary smoke has shipped, so these completed verticals are not distributed and source/npm execution cannot activate them. Release work still needs the installed-artifact proof and owner-selected project license. The standalone CLI applies fail-closed Seatbelt on macOS and system Bubblewrap on Linux to shell and verification children; `local_guarded` remains an explicit macOS/Linux embedding option and the Windows default. The private provider design relies on credentials and reusable request authority remaining exclusively in the broker; rewriting the agent loop, session engine, or CLI wholesale in Rust is not required for that boundary.
 
-Public release assembly retains one npm tarball as the authoritative portable artifact. A protected exact-tag workflow reruns verification, renders a SHA-256-bound user-local installer and Homebrew formula from that archive, creates a draft GitHub release, attests the assets, and publishes or verifies the same tarball's npm SHA-512 integrity before making the release public. The current `UNLICENSED`/`0.0.0`/private-repository state fails before artifact publication. This prepares npm, curl, and Homebrew surfaces without claiming a live package, tap, or signed native bundle.
+Public release assembly retains one npm tarball as the authoritative portable artifact. A protected exact-tag workflow reruns verification, renders a SHA-256-bound user-local installer and Homebrew formula from that archive, creates a draft GitHub release, attests the assets, and publishes or verifies the same tarball's npm SHA-512 integrity before making the release public. The current `UNLICENSED`/`0.0.0`/private-package state fails before artifact publication even though the source repository is now public. This prepares npm, curl, and Homebrew surfaces without claiming a live package, tap, or signed native bundle.
 
 The public npm/source Codex path does not weaken that gate: Recurs launches the pinned official adapter, delegates any advertised `chat-gpt` login flow to it, and stores only non-secret linkage, verified account label/fingerprint, policy/billing acknowledgement, and model metadata. Recurs never reads `auth.json`, browser cookies, copied tokens, or credential values. The adapter/runtime remains vendor-authenticated, and the current path is deliberately Plan-only and foreground-only. The sealed private engine denies this delegated path until it can ship without ambient runtime resolution.
 
@@ -166,7 +166,7 @@ The Recurs ACP server is another process host over this same boundary, not a sec
 
 The remaining extension order is deliberate:
 
-1. select the project license/version, make the repository public, configure the protected npm identity and Homebrew tap, then exercise the prepared portable release path;
+1. select the project license/version, configure the protected npm identity and Homebrew tap, then exercise the prepared portable release path from the now-public repository;
 2. produce and verify the signed/notarized installed bundle, including isolated broker recovery and credential-canary smokes for the completed OpenAI, Anthropic, and Kimi verticals;
 3. add the explicit public-HTTPS OpenAI-compatible profile only with DNS-rebinding-safe endpoint verification;
 4. add further direct API and coding-plan verticals only with exact provider profiles, billing disclosure, and installed-artifact evidence;
