@@ -318,19 +318,19 @@ private final class ControllingPTYChild: @unchecked Sendable {
     let state = lock.withLock { (reaped, workerPID) }
     let alreadyReaped = state.0
     guard !alreadyReaped else { return }
-    closeTerminal()
-    if waitForExactChildExit(pid, timeoutNanoseconds: 250_000_000) {
-      lock.withLock { reaped = true }
-      return
-    }
     if let workerPID = state.1, getsid(workerPID) == pid {
       _ = Darwin.kill(workerPID, SIGCONT)
       _ = Darwin.kill(workerPID, SIGKILL)
     }
-    if !waitForExactChildExit(pid, timeoutNanoseconds: 250_000_000) {
-      terminateAndReapExactChild(pid)
+    closeTerminal()
+    var supervisorReaped = waitForExactChildExit(
+      pid,
+      timeoutNanoseconds: 250_000_000
+    )
+    if !supervisorReaped {
+      supervisorReaped = terminateAndReapExactChild(pid)
     }
-    lock.withLock { reaped = true }
+    lock.withLock { reaped = supervisorReaped }
   }
 
   private func readAvailable() throws -> [UInt8] {
@@ -660,10 +660,11 @@ private func waitForExactChild(
   }
 }
 
-private func terminateAndReapExactChild(_ pid: pid_t) {
+@discardableResult
+private func terminateAndReapExactChild(_ pid: pid_t) -> Bool {
   _ = Darwin.kill(pid, SIGCONT)
   _ = Darwin.kill(pid, SIGKILL)
-  _ = waitForExactChildExit(pid, timeoutNanoseconds: 1_000_000_000)
+  return waitForExactChildExit(pid, timeoutNanoseconds: 1_000_000_000)
 }
 
 private func waitForExactChildExit(

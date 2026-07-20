@@ -14,7 +14,12 @@ import type {
   ModelReasoningEffort,
 } from "@recurs/contracts";
 import type { ModelProvider } from "@recurs/providers";
-import type { CheckpointStore, ExecutionMode, ToolContext } from "@recurs/tools";
+import type {
+  CheckpointStore,
+  ExecutionMode,
+  OwnedProcessManager,
+  ToolContext,
+} from "@recurs/tools";
 import type { AgentSkillCatalog } from "../agent-skills.js";
 import type { McpServerCatalog } from "../mcp-client.js";
 
@@ -47,6 +52,7 @@ export interface CommandDependencies {
     signal: AbortSignal,
   ): Promise<ModelProvider | null>;
   checkpoints?: CheckpointStore;
+  processes?: Pick<OwnedProcessManager, "interact" | "list">;
   signal?(): AbortSignal;
   teamRuns?: {
     list(parentSessionId: string): Promise<readonly TeamRunSnapshot[]>;

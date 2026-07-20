@@ -3,6 +3,7 @@ import { createFoundationCommands } from "./foundation.js";
 import { createGoalCommand } from "./goal.js";
 import { createPermissionsCommand } from "./permissions.js";
 import { createPlanCommand } from "./plan.js";
+import { createProcessCommand } from "./process.js";
 import { createRepositoryCommands } from "./repository.js";
 import { CommandRegistry } from "./registry.js";
 import { createSessionCommands } from "./session.js";
@@ -22,6 +23,7 @@ export function createCommandRegistry(
     createGoalCommand(),
     createPlanCommand(),
     createPermissionsCommand(),
+    createProcessCommand(dependencies),
     createAgentsCommand(dependencies),
     ...(dependencies.skills === undefined
       ? []

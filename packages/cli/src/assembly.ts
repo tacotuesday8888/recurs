@@ -1348,6 +1348,7 @@ export async function createStandaloneRuntime(
       : {}),
     resolveProvider: resolveCommandProvider,
     checkpoints,
+    processes,
     teamRuns: teamSupervisor,
     skills,
     mcp,
