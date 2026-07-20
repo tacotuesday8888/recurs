@@ -23,10 +23,14 @@ const MAX_FILE_BYTES = 256 * 1024;
 const MAX_SCAN_BYTES = 8 * 1024 * 1024;
 const MAX_DISCOVERY_BYTES = 512 * 1024;
 const MAX_OUTPUT_BYTES = 256 * 1024;
+const MAX_INDEX_SYMBOLS = 20_000;
+
+export type CodeOutlineRanking = "source" | "references";
 
 export interface CodeOutlineInput {
   path: string;
   query?: string;
+  ranking: CodeOutlineRanking;
   maxFiles: number;
   maxSymbols: number;
 }
@@ -45,7 +49,16 @@ interface LanguageSpec {
 interface OutlinedFile {
   readonly path: string;
   readonly language: string;
-  readonly declarations: readonly Declaration[];
+  readonly declarations: readonly RankedDeclaration[];
+  readonly referenceFiles?: number;
+}
+
+interface RankedDeclaration extends Declaration {
+  readonly referenceFiles?: number;
+}
+
+interface IndexedFile extends OutlinedFile {
+  readonly content: string;
 }
 
 const TYPESCRIPT: LanguageSpec = {
@@ -167,9 +180,17 @@ function parseCodeOutlineInput(value: unknown): CodeOutlineInput {
   if (query !== undefined && query.length > 256) {
     throw new ToolError("invalid_input", "query must not exceed 256 characters");
   }
+  const rawRanking = "ranking" in value ? value.ranking : undefined;
+  if (
+    rawRanking !== undefined && rawRanking !== "source" &&
+    rawRanking !== "references"
+  ) {
+    throw new ToolError("invalid_input", "ranking must be source or references");
+  }
   return {
     path: inputPath,
     ...(query === undefined ? {} : { query }),
+    ranking: rawRanking ?? "source",
     maxFiles: boundedInteger(
       "maxFiles" in value ? value.maxFiles : undefined,
       "maxFiles",
@@ -324,7 +345,11 @@ async function discoverFiles(
   ];
 }
 
-function renderOutline(files: readonly OutlinedFile[], maxBytes: number): {
+function renderOutline(
+  files: readonly OutlinedFile[],
+  maxBytes: number,
+  ranking: CodeOutlineRanking,
+): {
   readonly output: string;
   readonly renderedFiles: number;
   readonly renderedSymbols: number;
@@ -334,9 +359,15 @@ function renderOutline(files: readonly OutlinedFile[], maxBytes: number): {
   let renderedFiles = 0;
   let renderedSymbols = 0;
   for (const file of files) {
-    const header = `${file.path} [${file.language}]\n`;
+    const referenceSuffix = ranking === "references"
+      ? ` (referenced by ${file.referenceFiles ?? 0} ${(file.referenceFiles ?? 0) === 1 ? "file" : "files"})`
+      : "";
+    const header = `${file.path} [${file.language}]${referenceSuffix}\n`;
     for (const [index, declaration] of file.declarations.entries()) {
-      const line = `  ${declaration.line}  ${declaration.kind} ${declaration.name}\n`;
+      const declarationSuffix = ranking === "references"
+        ? ` (referenced by ${declaration.referenceFiles ?? 0} ${(declaration.referenceFiles ?? 0) === 1 ? "file" : "files"})`
+        : "";
+      const line = `  ${declaration.line}  ${declaration.kind} ${declaration.name}${declarationSuffix}\n`;
       const addition = index === 0 ? `${header}${line}` : line;
       if (Buffer.byteLength(output + addition, "utf8") > maxBytes) {
         return { output, renderedFiles, renderedSymbols, outputTruncated: true };
@@ -349,18 +380,124 @@ function renderOutline(files: readonly OutlinedFile[], maxBytes: number): {
   return { output, renderedFiles, renderedSymbols, outputTruncated: false };
 }
 
+interface RankedIndex {
+  readonly files: readonly OutlinedFile[];
+  readonly referenceEdges: number;
+}
+
+function rankReferenceIndex(
+  files: readonly IndexedFile[],
+  query: string | undefined,
+  maxSymbols: number,
+  signal: AbortSignal,
+): RankedIndex {
+  const definitions = new Map<string, {
+    readonly file: IndexedFile;
+    readonly declaration: Declaration;
+    readonly referrers: Set<string>;
+  }[]>();
+  for (const file of files) {
+    for (const declaration of file.declarations) {
+      const existing = definitions.get(declaration.name) ?? [];
+      existing.push({ file, declaration, referrers: new Set() });
+      definitions.set(declaration.name, existing);
+    }
+  }
+
+  const fileReferrers = new Map<string, Set<string>>();
+  const edges = new Set<string>();
+  for (const source of files) {
+    if (signal.aborted) throw new ToolError("cancelled", "code_outline was cancelled");
+    const seenNames = new Set<string>();
+    for (const match of source.content.matchAll(/[A-Za-z_$][\w$]*/gu)) {
+      const name = match[0];
+      if (seenNames.has(name)) continue;
+      seenNames.add(name);
+      const matches = definitions.get(name);
+      if (matches === undefined) continue;
+      for (const target of matches) {
+        if (target.file.path === source.path) continue;
+        target.referrers.add(source.path);
+        const fileSources = fileReferrers.get(target.file.path) ?? new Set<string>();
+        fileSources.add(source.path);
+        fileReferrers.set(target.file.path, fileSources);
+        edges.add(`${source.path}\0${target.file.path}`);
+      }
+    }
+  }
+
+  const normalizedQuery = query?.toLowerCase();
+  const queryFileRanks = new Map<string, number>();
+  if (normalizedQuery !== undefined) {
+    for (const file of files) {
+      if (file.path.toLowerCase().includes(normalizedQuery)) {
+        queryFileRanks.set(file.path, 2);
+      } else if (file.content.toLowerCase().includes(normalizedQuery)) {
+        queryFileRanks.set(file.path, 1);
+      }
+    }
+  }
+  const ranked = [...definitions.values()].flat().sort((left, right) => {
+    if (normalizedQuery !== undefined) {
+      const leftRank = `${left.declaration.kind} ${left.declaration.name}`
+        .toLowerCase().includes(normalizedQuery)
+        ? 3
+        : (queryFileRanks.get(left.file.path) ?? 0);
+      const rightRank = `${right.declaration.kind} ${right.declaration.name}`
+        .toLowerCase().includes(normalizedQuery)
+        ? 3
+        : (queryFileRanks.get(right.file.path) ?? 0);
+      if (leftRank !== rightRank) return rightRank - leftRank;
+    }
+    return right.referrers.size - left.referrers.size ||
+      (fileReferrers.get(right.file.path)?.size ?? 0) -
+        (fileReferrers.get(left.file.path)?.size ?? 0) ||
+      sourceRank(left.file.path) - sourceRank(right.file.path) ||
+      lexicalCompare(left.file.path, right.file.path) ||
+      left.declaration.line - right.declaration.line ||
+      lexicalCompare(left.declaration.name, right.declaration.name);
+  }).slice(0, maxSymbols);
+
+  const selected = new Map<string, {
+    readonly source: IndexedFile;
+    readonly declarations: RankedDeclaration[];
+  }>();
+  for (const item of ranked) {
+    const existing = selected.get(item.file.path) ?? {
+      source: item.file,
+      declarations: [],
+    };
+    existing.declarations.push({
+      ...item.declaration,
+      referenceFiles: item.referrers.size,
+    });
+    selected.set(item.file.path, existing);
+  }
+
+  return {
+    files: [...selected.values()].map(({ source, declarations }) => ({
+      path: source.path,
+      language: source.language,
+      declarations: declarations.sort((left, right) => left.line - right.line),
+      referenceFiles: fileReferrers.get(source.path)?.size ?? 0,
+    })),
+    referenceEdges: edges.size,
+  };
+}
+
 export function createCodeOutlineTool(
   options: PathPolicyOptions = {},
 ): Tool<CodeOutlineInput> {
   return {
     definition: {
       name: "code_outline",
-      description: "List bounded lexical declarations in supported workspace source files",
+      description: "List bounded lexical declarations, optionally ranked by cross-file references",
       inputSchema: {
         type: "object",
         properties: {
           path: { type: "string" },
           query: { type: "string", minLength: 1, maxLength: 256 },
+          ranking: { type: "string", enum: ["source", "references"] },
           maxFiles: { type: "integer", minimum: 1, maximum: MAX_FILES },
           maxSymbols: { type: "integer", minimum: 1, maximum: MAX_SYMBOLS },
         },
@@ -380,8 +517,14 @@ export function createCodeOutlineTool(
       const resolved = await policy.resolveReadable(input.path, allowExternal);
       assertNonCredentialPath(resolved.relative);
       const target = await stat(resolved.absolute);
+      const referenceRanking = input.ranking === "references";
       const discovered = target.isDirectory()
-        ? await discoverFiles(resolved.relative, input.query, context.cwd, context.signal)
+        ? await discoverFiles(
+          resolved.relative,
+          referenceRanking ? undefined : input.query,
+          context.cwd,
+          context.signal,
+        )
         : [resolved.relative];
       const uniqueDiscovered = [...new Set(discovered)];
       const supported = uniqueDiscovered.filter((file) => languageFor(file) !== undefined);
@@ -392,7 +535,8 @@ export function createCodeOutlineTool(
         throw new ToolError("invalid_input", `Unsupported source file: ${input.path}`);
       }
 
-      const outlined: OutlinedFile[] = [];
+      let outlined: OutlinedFile[] = [];
+      const indexed: IndexedFile[] = [];
       const languages = new Set<string>();
       let scannedFiles = 0;
       let scannedBytes = 0;
@@ -407,7 +551,10 @@ export function createCodeOutlineTool(
       const normalizedQuery = input.query?.toLowerCase();
 
       for (const candidate of eligible) {
-        if (scannedFiles >= input.maxFiles || scannedBytes >= MAX_SCAN_BYTES || totalSymbols >= input.maxSymbols) {
+        if (
+          scannedFiles >= input.maxFiles || scannedBytes >= MAX_SCAN_BYTES ||
+          totalSymbols >= (referenceRanking ? MAX_INDEX_SYMBOLS : input.maxSymbols)
+        ) {
           limitReached = true;
           break;
         }
@@ -461,29 +608,44 @@ export function createCodeOutlineTool(
         }
         scannedBytes += read.bytes;
         let declarations = declarationsFrom(read.content, language);
-        if (normalizedQuery !== undefined && !file.relative.toLowerCase().includes(normalizedQuery)) {
+        if (!referenceRanking && normalizedQuery !== undefined && !file.relative.toLowerCase().includes(normalizedQuery)) {
           declarations = declarations.filter((declaration) =>
             `${declaration.kind} ${declaration.name}`.toLowerCase().includes(normalizedQuery)
           );
         }
-        const remaining = input.maxSymbols - totalSymbols;
+        const remaining = (referenceRanking ? MAX_INDEX_SYMBOLS : input.maxSymbols) - totalSymbols;
         if (declarations.length > remaining) {
           declarations = declarations.slice(0, remaining);
           limitReached = true;
         }
-        if (declarations.length === 0) continue;
-        outlined.push({ path: file.relative, language: language.name, declarations });
-        languages.add(language.name);
+        if (referenceRanking) {
+          indexed.push({
+            path: file.relative,
+            language: language.name,
+            declarations,
+            content: read.content,
+          });
+        } else {
+          if (declarations.length === 0) continue;
+          outlined.push({ path: file.relative, language: language.name, declarations });
+        }
+        if (declarations.length > 0) languages.add(language.name);
         totalSymbols += declarations.length;
       }
 
-      const rendered = renderOutline(outlined, MAX_OUTPUT_BYTES);
-      const truncated = limitReached || rendered.outputTruncated;
+      const rankedIndex = referenceRanking
+        ? rankReferenceIndex(indexed, input.query, input.maxSymbols, context.signal)
+        : undefined;
+      if (rankedIndex !== undefined) outlined = [...rankedIndex.files];
+      const rendered = renderOutline(outlined, MAX_OUTPUT_BYTES, input.ranking);
+      const truncated = limitReached || rendered.outputTruncated ||
+        (referenceRanking && totalSymbols > input.maxSymbols);
       return {
         output: rendered.output,
         metadata: {
           path: resolved.relative,
           ...(input.query === undefined ? {} : { query: input.query }),
+          ranking: input.ranking,
           scannedFiles,
           matchedFiles: rendered.renderedFiles,
           symbols: rendered.renderedSymbols,
@@ -495,10 +657,14 @@ export function createCodeOutlineTool(
           skippedGeneratedFiles,
           skippedUnsupportedFiles,
           languages: [...languages].sort(lexicalCompare),
+          ...(rankedIndex === undefined ? {} : {
+            indexedSymbols: totalSymbols,
+            referenceEdges: rankedIndex.referenceEdges,
+          }),
           truncated,
           lexical: true,
           sources: [
-            `outlined ${rendered.renderedFiles} ${rendered.renderedFiles === 1 ? "file" : "files"} under ${resolved.relative} (${rendered.renderedSymbols} lexical ${rendered.renderedSymbols === 1 ? "declaration" : "declarations"})`,
+            `${referenceRanking ? "ranked" : "outlined"} ${rendered.renderedFiles} ${rendered.renderedFiles === 1 ? "file" : "files"} under ${resolved.relative} (${rendered.renderedSymbols} lexical ${rendered.renderedSymbols === 1 ? "declaration" : "declarations"})`,
           ],
         },
       };
