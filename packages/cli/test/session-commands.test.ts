@@ -21,6 +21,7 @@ import {
   JsonlSessionStore,
   TEAM_APPLY_PERMISSION,
   createSessionState,
+  isPinnedSessionState,
   reduceSessionRecord,
   type SessionRecord,
   type SessionState,
@@ -620,6 +621,125 @@ describe("session commands", () => {
         executionMode: "plan",
         permissionMode: "approved_for_me",
       });
+  });
+
+  it("forks completed direct context with policy while resetting branch-local state", async () => {
+    const messages = Array.from({ length: 8 }, (_, index) => ({
+      id: `fork-message-${index}`,
+      role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+      content: `fork message ${index}`,
+    }));
+    const original = await storeSession("fork-source", at, messages);
+    const provider = new ScriptedProvider([[
+      { type: "text_delta", text: "Forked history summary" },
+      { type: "done", stopReason: "complete" },
+    ]]);
+    const registry = createCommandRegistry({ sessions, provider });
+    const commandContext = context(original);
+    await registry.execute("/compact", commandContext);
+    await registry.execute("/agents mode performance", commandContext);
+    await registry.execute("/permissions approved", commandContext);
+    await registry.execute("/plan", commandContext);
+    await registry.execute("/goal continue the source objective", commandContext);
+    const source = commandContext.session;
+    if (!isPinnedSessionState(source)) throw new Error("expected pinned source");
+
+    const result = await registry.execute("/fork", commandContext);
+
+    expect(result).toMatchObject({
+      type: "message",
+      text: expect.stringContaining("Forked session fork-source as"),
+    });
+    const fork = commandContext.session;
+    if (!isPinnedSessionState(fork)) throw new Error("expected pinned fork");
+    expect(fork.id).not.toBe(source.id);
+    expect(fork).toMatchObject({
+      forkedFrom: { sessionId: source.id, sequence: source.lastSequence },
+      backend: source.backend,
+      summary: source.summary,
+      messages: source.messages,
+      messageTurnIds: source.messageTurnIds,
+      permissionMode: "approved_for_me",
+      executionMode: "plan",
+      prePlanPermissionMode: "approved_for_me",
+      goal: null,
+      usage: { inputTokens: 0, outputTokens: 0 },
+      evidence: [],
+      changedFiles: [],
+      pendingToolCalls: [],
+      openTurnId: null,
+      agent: {
+        role: "parent",
+        operatingMode: { id: "performance_v5", version: 5 },
+      },
+    });
+    expect(fork.agent.id).toBe(`${fork.id}:agent`);
+    expect(await registry.execute("/status", commandContext)).toMatchObject({
+      text: expect.stringContaining(
+        `Forked from: ${source.id} at sequence ${source.lastSequence}`,
+      ),
+    });
+    await expect(sessions.loadState(fork.id)).resolves.toEqual(fork);
+    await expect(sessions.loadState(source.id)).resolves.toMatchObject({
+      goal: { objective: "continue the source objective", status: "active" },
+    });
+    expect(await registry.execute("/fork extra", commandContext)).toMatchObject({
+      level: "error",
+    });
+  });
+
+  it("fails closed for legacy, delegated-runtime, active, and stale forks", async () => {
+    const registry = createCommandRegistry({ sessions });
+    const legacy = context(createSessionState({ id: "legacy", cwd, model: "legacy" }));
+    expect(await registry.execute("/fork", legacy)).toMatchObject({
+      level: "error",
+      text: expect.stringContaining("Legacy"),
+    });
+
+    const delegatedBackend: SessionBackendPin = {
+      ...testBackendPin(),
+      kind: "agent_runtime",
+      runtimeCapabilityProfileRevisionAtCreation: "runtime-capabilities-v1",
+    };
+    const delegated = context(await storeSession("delegated-fork", at, [], delegatedBackend));
+    expect(await registry.execute("/fork", delegated)).toMatchObject({
+      level: "error",
+      text: expect.stringContaining("Delegated runtime"),
+    });
+
+    const active = await storeSession("active-fork");
+    if (!isPinnedSessionState(active)) throw new Error("expected pinned active session");
+    await sessions.withSessionMutation(active.id, active.lastSequence, async (lease) => {
+      await lease.append({
+        type: "turn_started",
+        turnId: "active-turn",
+        prompt: "still running",
+        at,
+      });
+    });
+    await expect(sessions.forkPinnedSession({
+      sourceId: active.id,
+      expectedSourceSequence: active.lastSequence + 1,
+      id: "active-target",
+      at,
+    })).rejects.toMatchObject({ code: "session_conflict" });
+
+    const stable = await storeSession("stale-fork");
+    if (!isPinnedSessionState(stable)) throw new Error("expected pinned stable session");
+    await sessions.withSessionMutation(stable.id, stable.lastSequence, async (lease) => {
+      await lease.append({
+        type: "goal_updated",
+        source: "command",
+        goal: null,
+        at,
+      });
+    });
+    await expect(sessions.forkPinnedSession({
+      sourceId: stable.id,
+      expectedSourceSequence: stable.lastSequence,
+      id: "stale-target",
+      at,
+    })).rejects.toMatchObject({ code: "session_conflict" });
   });
 
   it("lists resumable sessions newest first", async () => {

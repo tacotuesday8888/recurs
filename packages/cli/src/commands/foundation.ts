@@ -18,6 +18,7 @@ const helpText = [
   "/status                       Show session, goal, mode, and usage",
   "/init                         Create AGENTS.md without overwriting it",
   "/new                          Start a new durable session",
+  "/fork                         Fork completed context into a new session",
   "/resume [session-id]          List sessions or resume an exact id",
   "/compact                      Summarize earlier context safely",
   "/diff [--staged] [path]       Show the current Git diff",
@@ -57,6 +58,9 @@ function createStatusCommand(): Command {
       return message(
         [
           `Session: ${context.session.id}`,
+          ...(context.session.forkedFrom === null ? [] : [
+            `Forked from: ${context.session.forkedFrom.sessionId} at sequence ${context.session.forkedFrom.sequence}`,
+          ]),
           `Workspace: ${context.session.cwd}`,
           `Model: ${context.session.model}`,
           `Execution: ${context.session.executionMode === "plan" ? "Plan" : "Act"}`,

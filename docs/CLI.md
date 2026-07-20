@@ -466,6 +466,7 @@ A daemon that outlives the CLI, recursive depth, automatic task decomposition, t
 | `/status` | Show session, workspace, model identifier, modes, goal, usage, and pending tools. |
 | `/init` | Confirm and create a starter `AGENTS.md`; never overwrite existing `AGENTS.md` or `AGENTS.override.md`. The next turn loads it. |
 | `/new` | Start a new durable session in the same workspace. |
+| `/fork` | Copy the current completed direct-provider conversation into a new durable session. The backend, operating mode, permissions, Plan state, summary, and visible messages are preserved; usage, goals, evidence, checkpoints, workspace history, session approvals, live tools, and opaque runtime continuations are not. |
 | `/resume [id]` | List sessions newest-first or resume one exact ID. Prefix matching is not used. |
 | `/compact` | Ask a direct provider for a continuation summary and retain roughly the latest six messages without splitting tool-call/result groups. Delegated Codex sessions reject this because the vendor runtime owns its transcript. |
 | `/diff [--staged] [path]` | Show a bounded Git diff without repository hooks, filters, external diff/text conversion, or expanded dirty-submodule content. |

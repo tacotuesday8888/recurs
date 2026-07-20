@@ -17,6 +17,7 @@ import { parseSessionRecordV2 } from "./session-record-validator.js";
 import { acquireSessionLock } from "./session-mutation-lease.js";
 import type {
   PinnedSessionState,
+  SessionForkSnapshotV2,
   SessionRecordInputV2,
   SessionRecordV2,
 } from "./session-v2.js";
@@ -49,6 +50,17 @@ export interface CreatePinnedSessionOptions {
   cwd: string;
   backend: SessionBackendPin;
   agent?: AgentSessionDescriptor;
+  at: string;
+}
+
+interface CreatePinnedSessionInput extends CreatePinnedSessionOptions {
+  fork?: SessionForkSnapshotV2;
+}
+
+export interface ForkPinnedSessionOptions {
+  sourceId: string;
+  expectedSourceSequence: number;
+  id: string;
   at: string;
 }
 
@@ -189,6 +201,12 @@ export class JsonlSessionStore {
   async createPinnedSession(
     options: CreatePinnedSessionOptions,
   ): Promise<PinnedSessionState> {
+    return this.#createPinnedSession(options);
+  }
+
+  async #createPinnedSession(
+    options: CreatePinnedSessionInput,
+  ): Promise<PinnedSessionState> {
     const file = this.#file(options.id);
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     const lock = await acquireSessionLock(this.directory, options.id);
@@ -209,6 +227,7 @@ export class JsonlSessionStore {
         cwd: options.cwd,
         backend: options.backend,
         agent: options.agent ?? createRootAgentDescriptor(options.id, options.backend),
+        ...(options.fork === undefined ? {} : { fork: options.fork }),
       };
       parseSessionRecordV2(created, options.id);
       await appendAndSync(file, `${JSON.stringify(created)}\n`);
@@ -223,6 +242,88 @@ export class JsonlSessionStore {
     } finally {
       await lock.release();
     }
+  }
+
+  async forkPinnedSession(
+    options: ForkPinnedSessionOptions,
+  ): Promise<PinnedSessionState> {
+    this.#file(options.id);
+    if (options.id === options.sourceId) {
+      throw new SessionStoreError("session_conflict", "A session cannot fork onto itself");
+    }
+    let creation: CreatePinnedSessionInput | undefined;
+    const sourceLock = await acquireSessionLock(this.directory, options.sourceId);
+    try {
+      const source = await this.loadState(options.sourceId);
+      if (!isPinnedSessionState(source)) {
+        throw new SessionStoreError(
+          "legacy_read_only",
+          `Legacy session ${options.sourceId} cannot be forked`,
+        );
+      }
+      if (source.lastSequence !== options.expectedSourceSequence) {
+        throw new SessionStoreError(
+          "session_conflict",
+          `Expected session sequence ${options.expectedSourceSequence}, received ${source.lastSequence}`,
+        );
+      }
+      if (source.agent.role !== "parent") {
+        throw new SessionStoreError("session_conflict", "Child-agent sessions cannot be forked");
+      }
+      if (source.backend.pin.kind !== "model_provider") {
+        throw new SessionStoreError(
+          "session_conflict",
+          "Delegated runtime continuations cannot be forked safely",
+        );
+      }
+      if (
+        source.openTurnId !== null || source.pendingCompaction !== null ||
+        source.pendingToolCalls.length > 0
+      ) {
+        throw new SessionStoreError(
+          "session_conflict",
+          "Only an idle session can be forked",
+        );
+      }
+      const baseAgent = createRootAgentDescriptor(
+        options.id,
+        source.backend.pin,
+        source.agent.operatingMode.id,
+        source.permissionMode,
+      );
+      const agent: AgentSessionDescriptor = {
+        ...baseAgent,
+        permissions: {
+          parentExecutionMode: source.executionMode,
+          executionMode: source.executionMode,
+          parentPermissionMode: source.permissionMode,
+          permissionMode: source.permissionMode,
+        },
+      };
+      creation = {
+        id: options.id,
+        cwd: source.cwd,
+        backend: source.backend.pin,
+        agent,
+        fork: {
+          sourceSessionId: source.id,
+          sourceSequence: source.lastSequence,
+          messages: structuredClone(source.messages),
+          messageTurnIds: structuredClone(source.messageTurnIds),
+          summary: source.summary,
+          ...(source.prePlanPermissionMode === undefined
+            ? {}
+            : { prePlanPermissionMode: source.prePlanPermissionMode }),
+        },
+        at: options.at,
+      };
+    } finally {
+      await sourceLock.release();
+    }
+    if (creation === undefined) {
+      throw new SessionStoreError("session_conflict", "The fork snapshot was not created");
+    }
+    return this.#createPinnedSession(creation);
   }
 
   async withSessionMutation<T>(

@@ -142,6 +142,39 @@ function createResumeCommand(dependencies: CommandDependencies): Command {
   };
 }
 
+function createForkCommand(dependencies: CommandDependencies): Command {
+  return {
+    name: "fork",
+    description: "Fork the completed conversation into a new durable session",
+    usage: "/fork",
+    async execute(args, context) {
+      const invalid = requireNoArguments("/fork", args);
+      if (invalid !== null) return invalid;
+      if (dependencies.sessions === undefined) {
+        return message("Session storage is unavailable", "error");
+      }
+      if (!isPinnedSessionState(context.session)) {
+        return message("Legacy sessions cannot be forked", "error");
+      }
+      if (context.session.backend.pin.kind === "agent_runtime") {
+        return message(
+          "Delegated runtime continuations cannot be forked safely",
+          "error",
+        );
+      }
+      const sourceId = context.session.id;
+      const next = await dependencies.sessions.forkPinnedSession({
+        sourceId,
+        expectedSourceSequence: context.session.lastSequence,
+        id: randomUUID(),
+        at: context.now(),
+      });
+      context.session = next;
+      return message(`Forked session ${sourceId} as ${next.id}`);
+    },
+  };
+}
+
 function createCompactCommand(dependencies: CommandDependencies): Command {
   return {
     name: "compact",
@@ -191,6 +224,7 @@ export function createSessionCommands(
   return [
     createInitCommand(),
     createNewCommand(dependencies),
+    createForkCommand(dependencies),
     createResumeCommand(dependencies),
     createCompactCommand(dependencies),
   ];

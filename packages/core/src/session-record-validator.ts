@@ -10,6 +10,7 @@ import {
 } from "@recurs/contracts";
 import type {
   AgentSessionDescriptor,
+  ModelMessage,
   RuntimeApprovalDecision,
   RuntimeApprovalRequest,
   RuntimeContinuationHandle,
@@ -858,6 +859,41 @@ function recordKeys(
   return hasExactKeys(value, [...base, ...required], optional);
 }
 
+function isSessionForkSnapshot(
+  value: unknown,
+  sessionId: string,
+  agent: unknown,
+): boolean {
+  if (!isObject(value) || !isObject(agent) || !hasExactKeys(
+    value,
+    ["sourceSessionId", "sourceSequence", "messages", "messageTurnIds", "summary"],
+    ["prePlanPermissionMode"],
+  ) || !boundedNonEmptyString(value.sourceSessionId, MAX_RUNTIME_ID_LENGTH) ||
+    value.sourceSessionId === sessionId ||
+    !Number.isSafeInteger(value.sourceSequence) || (value.sourceSequence as number) < 0 ||
+    !Array.isArray(value.messages) || !value.messages.every(isModelMessage) ||
+    !isObject(value.messageTurnIds) ||
+    (value.summary !== null && !boundedString(value.summary, MAX_RUNTIME_TEXT_LENGTH))) {
+    return false;
+  }
+  const messages = value.messages as ModelMessage[];
+  const messageTurnIds = value.messageTurnIds as Record<string, unknown>;
+  const permissions = isObject(agent.permissions) ? agent.permissions : {};
+  const messageIds = new Set(messages.map((message) => message.id));
+  const mappedIds = Object.keys(messageTurnIds);
+  if (messageIds.size !== value.messages.length || mappedIds.length !== messageIds.size ||
+    mappedIds.some((id) =>
+      !messageIds.has(id) ||
+      !boundedNonEmptyString(messageTurnIds[id], MAX_RUNTIME_ID_LENGTH)
+    )) {
+    return false;
+  }
+  const prePlan = value.prePlanPermissionMode;
+  return prePlan === undefined
+    ? permissions.executionMode !== "plan"
+    : permissions.executionMode === "plan" && isAgentPermissionMode(prePlan);
+}
+
 export function parseSessionRecordV2(
   value: unknown,
   sessionId: string,
@@ -868,10 +904,14 @@ export function parseSessionRecordV2(
   let valid = false;
   switch (value.type) {
     case "session_created":
-      valid = recordKeys(value, ["cwd", "backend"], ["agent"]) &&
+      valid = recordKeys(value, ["cwd", "backend"], ["agent", "fork"]) &&
         typeof value.cwd === "string" &&
         isBackendPin(value.backend) &&
-        (value.agent === undefined || isAgentDescriptor(value.agent, value.backend, value.cwd));
+        (value.agent === undefined || isAgentDescriptor(value.agent, value.backend, value.cwd)) &&
+        (value.fork === undefined || (
+          value.agent !== undefined &&
+          isSessionForkSnapshot(value.fork, sessionId, value.agent)
+        ));
       break;
     case "turn_started":
       valid = recordKeys(value, ["turnId", "prompt"]) &&

@@ -43,6 +43,15 @@ export interface SessionRecordBaseV2 {
   at: string;
 }
 
+export interface SessionForkSnapshotV2 {
+  readonly sourceSessionId: string;
+  readonly sourceSequence: number;
+  readonly messages: readonly ModelMessage[];
+  readonly messageTurnIds: Readonly<Record<string, string>>;
+  readonly summary: string | null;
+  readonly prePlanPermissionMode?: PermissionMode;
+}
+
 type GoalRecordV2 =
   | (SessionRecordBaseV2 & {
       type: "goal_updated";
@@ -135,6 +144,7 @@ export type SessionRecordV2 =
       cwd: string;
       backend: SessionBackendPin;
       agent?: AgentSessionDescriptor;
+      fork?: SessionForkSnapshotV2;
     })
   | (SessionRecordBaseV2 & {
       type: "turn_started";
@@ -1028,11 +1038,20 @@ export function reduceSessionRecordsV2(
     model: first.backend.modelId,
     backend: { type: "pinned", pin: first.backend },
     lastSequence: 0,
-    messages: [],
-    messageTurnIds: {},
-    summary: null,
+    forkedFrom: first.fork === undefined ? null : {
+      sessionId: first.fork.sourceSessionId,
+      sequence: first.fork.sourceSequence,
+    },
+    messages: first.fork === undefined ? [] : [...structuredClone(first.fork.messages)],
+    messageTurnIds: first.fork === undefined
+      ? {}
+      : structuredClone(first.fork.messageTurnIds),
+    summary: first.fork?.summary ?? null,
     permissionMode: agent.permissions.permissionMode,
     executionMode: agent.permissions.executionMode,
+    ...(first.fork?.prePlanPermissionMode === undefined
+      ? {}
+      : { prePlanPermissionMode: first.fork.prePlanPermissionMode }),
     goal: null,
     usage: { inputTokens: 0, outputTokens: 0 },
     evidence: [],
