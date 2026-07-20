@@ -432,6 +432,18 @@ export class JsonlSessionStore {
             usage: null,
             usageSource: "unknown",
           });
+          if (
+            pending.trigger === "context_overflow" &&
+            pending.turnId !== undefined &&
+            state.openTurnId === pending.turnId
+          ) {
+            await lease.append({
+              type: "turn_interrupted",
+              turnId: pending.turnId,
+              at,
+              reason: "The process ended during context-overflow recovery",
+            });
+          }
         },
       );
       return true;

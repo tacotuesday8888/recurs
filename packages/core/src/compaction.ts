@@ -13,7 +13,10 @@ import {
   type ProviderUsage,
 } from "@recurs/providers";
 
-import type { JsonlSessionStore } from "./jsonl-session-store.js";
+import type {
+  JsonlSessionStore,
+  SessionMutationLease,
+} from "./jsonl-session-store.js";
 import type { SessionState } from "./session.js";
 import {
   reduceSessionRecordV2,
@@ -44,6 +47,24 @@ export interface DurableCompactionInput {
   provider: ModelProvider;
   signal: AbortSignal;
   at: string;
+  trigger?: "manual" | "proactive";
+}
+
+export interface ActiveTurnCompactionInput {
+  mutation: SessionMutationLease;
+  state: PinnedSessionState;
+  provider: ModelProvider;
+  signal: AbortSignal;
+  at: string;
+  trigger: "context_overflow";
+  turnId: string;
+  onStateChange?(state: PinnedSessionState): void;
+}
+
+export interface ActiveTurnCompactionResult {
+  state: PinnedSessionState;
+  usage: ProviderUsage | null;
+  usageSource: "provider" | "unavailable";
 }
 
 export interface ProactiveCompactionDecision {
@@ -383,80 +404,118 @@ function compactionFailure(
   };
 }
 
-export async function compactPinnedSession(
-  input: DurableCompactionInput,
-): Promise<PinnedSessionState> {
+async function compactWithMutation(
+  input: {
+    mutation: SessionMutationLease;
+    state: PinnedSessionState;
+    provider: ModelProvider;
+    signal: AbortSignal;
+    at: string;
+    trigger: "manual" | "proactive" | "context_overflow";
+    turnId?: string;
+    onStateChange?(state: PinnedSessionState): void;
+  },
+): Promise<ActiveTurnCompactionResult> {
   const operationId = randomUUID();
   const inputBaseSequence = input.state.lastSequence;
   let state = input.state;
-  await input.sessions.withSessionMutation(
-    state.id,
+  const started = await input.mutation.append({
+    type: "compaction_started",
+    operationId,
     inputBaseSequence,
-    async (lease) => {
-      const started = await lease.append({
-        type: "compaction_started",
-        operationId,
-        inputBaseSequence,
-        at: input.at,
-      });
-      state = reduceSessionRecordV2(state, started);
+    trigger: input.trigger,
+    ...(input.turnId === undefined ? {} : { turnId: input.turnId }),
+    at: input.at,
+  });
+  state = reduceSessionRecordV2(state, started);
+  input.onStateChange?.(state);
 
-      let compacted: CompactionResult;
-      try {
-        const verifiedLimits = input.state.backend.pin.modelLimitsAtCreation;
-        compacted = await compactSession(
-          input.state,
-          input.provider,
-          input.signal,
-          verifiedLimits === undefined
-            ? {}
-            : {
-                maxContextBytes: Math.max(
-                  1,
-                  Math.min(
-                    Math.floor(verifiedLimits.maxInputTokens * 0.8),
-                    verifiedLimits.maxInputTokens -
-                      compactionOutputReserve(verifiedLimits) -
-                      AUTO_COMPACTION_GROWTH_HEADROOM_TOKENS,
-                  ),
-                ),
-              },
-        );
-      } catch (error) {
-        const safeError = error instanceof ProviderError
-          ? error
-          : new ProviderError("transport", safeProviderErrorMessage("transport"), false);
-        const failed = await lease.append({
-          type: "compaction_failed",
-          operationId,
-          at: input.at,
-          error: compactionFailure(safeError, randomUUID()),
-          usage: null,
-          usageSource: "unknown",
-        });
-        state = reduceSessionRecordV2(state, failed);
-        throw safeError;
-      }
+  let compacted: CompactionResult;
+  try {
+    const verifiedLimits = input.state.backend.pin.modelLimitsAtCreation;
+    compacted = await compactSession(
+      input.state,
+      input.provider,
+      input.signal,
+      verifiedLimits === undefined
+        ? {}
+        : {
+            maxContextBytes: Math.max(
+              1,
+              Math.min(
+                Math.floor(verifiedLimits.maxInputTokens * 0.8),
+                verifiedLimits.maxInputTokens -
+                  compactionOutputReserve(verifiedLimits) -
+                  AUTO_COMPACTION_GROWTH_HEADROOM_TOKENS,
+              ),
+            ),
+          },
+    );
+  } catch (error) {
+    const safeError = error instanceof ProviderError
+      ? error
+      : new ProviderError("transport", safeProviderErrorMessage("transport"), false);
+    const failed = await input.mutation.append({
+      type: "compaction_failed",
+      operationId,
+      at: input.at,
+      error: compactionFailure(safeError, randomUUID()),
+      usage: null,
+      usageSource: "unknown",
+    });
+    state = reduceSessionRecordV2(state, failed);
+    input.onStateChange?.(state);
+    throw safeError;
+  }
 
-      const retainedTurnIds = [
-        ...new Set(compacted.retainedMessages.flatMap((message) => {
-          const turnId = input.state.messageTurnIds[message.id];
-          return turnId === undefined ? [] : [turnId];
-        })),
-      ];
-      const completed = await lease.append({
-        type: "session_compacted",
-        operationId,
-        inputBaseSequence,
-        baseSequence: inputBaseSequence,
+  const retainedTurnIds = [
+    ...new Set(compacted.retainedMessages.flatMap((message) => {
+      const turnId = input.state.messageTurnIds[message.id];
+      return turnId === undefined ? [] : [turnId];
+    })),
+  ];
+  const completed = await input.mutation.append({
+    type: "session_compacted",
+    operationId,
+    inputBaseSequence,
+    baseSequence: inputBaseSequence,
+    at: input.at,
+    summary: compacted.summary,
+    retainedTurnIds,
+    usage: compacted.usage,
+    usageSource: compacted.usageSource,
+  });
+  state = reduceSessionRecordV2(state, completed);
+  input.onStateChange?.(state);
+  return {
+    state,
+    usage: compacted.usage,
+    usageSource: compacted.usageSource,
+  };
+}
+
+export async function compactActiveTurn(
+  input: ActiveTurnCompactionInput,
+): Promise<ActiveTurnCompactionResult> {
+  return await compactWithMutation(input);
+}
+
+export async function compactPinnedSession(
+  input: DurableCompactionInput,
+): Promise<PinnedSessionState> {
+  return await input.sessions.withSessionMutation(
+    input.state.id,
+    input.state.lastSequence,
+    async (mutation) => {
+      const result = await compactWithMutation({
+        mutation,
+        state: input.state,
+        provider: input.provider,
+        signal: input.signal,
         at: input.at,
-        summary: compacted.summary,
-        retainedTurnIds,
-        usage: compacted.usage,
-        usageSource: compacted.usageSource,
+        trigger: input.trigger ?? "manual",
       });
-      state = reduceSessionRecordV2(state, completed);
+      return result.state;
     },
   );
-  return state;
 }

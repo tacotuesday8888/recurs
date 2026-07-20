@@ -86,6 +86,7 @@ function addUsage(
 }
 import { createBackendFingerprint } from "./backend-authorization.js";
 import {
+  compactActiveTurn,
   compactPinnedSession,
   proactiveCompactionDecision,
 } from "./compaction.js";
@@ -823,6 +824,7 @@ async function runAgentLoopUnlocked(
   const changedFiles: string[] = [];
   const evidence: string[] = [];
   let steps = 0;
+  let contextOverflowRecoveryAttempted = false;
 
   async function appendPinned(
     record: SessionRecordInputV2,
@@ -1066,41 +1068,82 @@ async function runAgentLoopUnlocked(
       }
       steps += 1;
 
-      const request: ProviderRequest = {
-        model: state.model,
-        ...(state.backend.pin.reasoningEffortAtCreation === undefined
-          ? {}
-          : {
-              reasoningEffort:
-                state.backend.pin.reasoningEffortAtCreation,
-            }),
-        messages: [
-          systemContextMessage(
-            executionState(),
-            turnId,
-            steps,
-            deps.provider.harnessProfile,
-            contextInstructions,
-          ),
-          ...state.messages,
-        ],
-        tools: deps.tools.definitions(executionMode, toolContext.toolPolicy),
-        signal,
-        ...(deps.authorization === undefined
-          ? {}
-          : {
-              directContext: {
-                authorization: deps.authorization,
-                expectedSessionRecordSequence: mutation.currentSequence,
+      const modelTurn = await (async () => {
+        for (;;) {
+          const request: ProviderRequest = {
+            model: state.model,
+            ...(state.backend.pin.reasoningEffortAtCreation === undefined
+              ? {}
+              : {
+                  reasoningEffort:
+                    state.backend.pin.reasoningEffortAtCreation,
+                }),
+            messages: [
+              systemContextMessage(
+                executionState(),
+                turnId,
+                steps,
+                deps.provider.harnessProfile,
+                contextInstructions,
+              ),
+              ...state.messages,
+            ],
+            tools: deps.tools.definitions(executionMode, toolContext.toolPolicy),
+            signal,
+            ...(deps.authorization === undefined
+              ? {}
+              : {
+                  directContext: {
+                    authorization: deps.authorization,
+                    expectedSessionRecordSequence: mutation.currentSequence,
+                  },
+                }),
+          };
+          try {
+            return await streamModelTurnWithRetries(
+              deps,
+              request,
+              input.sessionId,
+              turnId,
+            );
+          } catch (error) {
+            const canRecover =
+              error instanceof ProviderError &&
+              error.code === "context_overflow" &&
+              !contextOverflowRecoveryAttempted &&
+              state.agent.role === "parent" &&
+              state.backend.pin.kind === "model_provider" &&
+              state.messages.length > 6;
+            if (!canRecover) throw error;
+
+            contextOverflowRecoveryAttempted = true;
+            const compacted = await compactActiveTurn({
+              mutation,
+              state,
+              provider: deps.provider,
+              signal,
+              at: now(),
+              trigger: "context_overflow",
+              turnId,
+              onStateChange(nextState) {
+                state = nextState;
               },
-            }),
-      };
-      const modelTurn = await streamModelTurnWithRetries(
-        deps,
-        request,
-        input.sessionId,
-        turnId,
-      );
+            });
+            state = compacted.state;
+            if (compacted.usage !== null) {
+              usage = addUsage(usage, compacted.usage);
+            }
+            usageComplete &&= compacted.usageSource === "provider";
+            await deps.emit({
+              type: "warning",
+              sessionId: state.id,
+              at: now(),
+              code: "context_compacted",
+              message: "Session context compacted after a provider context overflow",
+            });
+          }
+        }
+      })();
       usage = addUsage(usage, modelTurn.usage);
       usageComplete &&= modelTurn.usageReported;
 
@@ -1288,6 +1331,7 @@ export async function runAgentLoop(
           provider: deps.provider,
           signal: validated.signal,
           at: now(),
+          trigger: "proactive",
         });
         await deps.emit({
           type: "warning",

@@ -993,6 +993,63 @@ describe("version 2 sessions", () => {
     });
   });
 
+  it("closes both compaction and turn after interrupted overflow recovery", async () => {
+    const store = await temporaryStore();
+    await store.createPinnedSession({ id: "s2", cwd: "/workspace", backend, at });
+    await store.withSessionMutation("s2", 0, async (lease) => {
+      await lease.append({
+        type: "turn_started",
+        turnId: "recovering-turn",
+        prompt: "continue",
+        at,
+      });
+      await lease.append({
+        type: "compaction_started",
+        operationId: "compact-overflow",
+        inputBaseSequence: 1,
+        trigger: "context_overflow",
+        turnId: "recovering-turn",
+        at,
+      });
+    });
+
+    await expect(store.recoverInterruptedOperations("s2", at)).resolves.toBe(true);
+    const state = await store.loadState("s2");
+    expect(state.pendingCompaction).toBeNull();
+    expect(state.openTurnId).toBeNull();
+    expect((await store.load("s2")).records.slice(-2).map((record) =>
+      record.type
+    )).toEqual(["compaction_interrupted", "turn_interrupted"]);
+  });
+
+  it("requires overflow compaction to name the exact open turn", async () => {
+    const store = await temporaryStore();
+    await store.createPinnedSession({ id: "s2", cwd: "/workspace", backend, at });
+    await store.withSessionMutation("s2", 0, async (lease) => {
+      await lease.append({
+        type: "turn_started",
+        turnId: "open-turn",
+        prompt: "continue",
+        at,
+      });
+      await expect(lease.append({
+        type: "compaction_started",
+        operationId: "wrong-turn",
+        inputBaseSequence: 1,
+        trigger: "context_overflow",
+        turnId: "different-turn",
+        at,
+      })).rejects.toThrow("does not match the open turn");
+      await expect(lease.append({
+        type: "compaction_started",
+        operationId: "idle-only",
+        inputBaseSequence: 1,
+        trigger: "manual",
+        at,
+      })).rejects.toThrow("Compaction requires an idle session");
+    });
+  });
+
   it("accounts for provider-reported compaction usage on every terminal", async () => {
     const store = await temporaryStore();
     await store.createPinnedSession({ id: "usage", cwd: "/workspace", backend, at });
