@@ -10,6 +10,7 @@ installed as separate packages; it is not copied into `dist/cli/main.js`.
 | `@agentclientprotocol/sdk` | 1.2.1 | Apache-2.0 | <https://github.com/agentclientprotocol/typescript-sdk> |
 | `@lydell/node-pty` | 1.1.0 | MIT | <https://github.com/lydell/node-pty> |
 | `@openai/codex` | 0.144.0 | Apache-2.0 | <https://github.com/openai/codex> |
+| `typescript` | 6.0.3 | Apache-2.0 | <https://github.com/microsoft/TypeScript> |
 | `yaml` | 2.9.0 | ISC | <https://github.com/eemeli/yaml> |
 | `zod` | 4.4.3 | MIT | <https://github.com/colinhacks/zod> |
 

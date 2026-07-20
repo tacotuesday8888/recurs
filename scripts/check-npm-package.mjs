@@ -21,6 +21,7 @@ const expectedDependencies = Object.freeze({
   "@agentclientprotocol/codex-acp": "1.1.2",
   "@agentclientprotocol/sdk": "1.2.1",
   "@openai/codex": "0.144.0",
+  typescript: "6.0.3",
   yaml: "2.9.0",
   zod: "4.4.3",
 });
@@ -32,6 +33,7 @@ const expectedNoticeRows = Object.freeze([
   "| `@agentclientprotocol/sdk` | 1.2.1 | Apache-2.0 |",
   "| `@lydell/node-pty` | 1.1.0 | MIT |",
   "| `@openai/codex` | 0.144.0 | Apache-2.0 |",
+  "| `typescript` | 6.0.3 | Apache-2.0 |",
   "| `yaml` | 2.9.0 | ISC |",
   "| `zod` | 4.4.3 | MIT |",
 ]);
