@@ -263,7 +263,14 @@ describe("AgentLoop", () => {
       [
         { type: "text_delta", text: "all " },
         { type: "text_delta", text: "done" },
-        { type: "usage", inputTokens: 7, outputTokens: 2 },
+        {
+          type: "usage",
+          inputTokens: 7,
+          outputTokens: 2,
+          cachedInputTokens: 4,
+          cacheWriteInputTokens: 1,
+          reasoningTokens: 1,
+        },
         { type: "done", stopReason: "complete" },
       ],
     ]);
@@ -273,13 +280,26 @@ describe("AgentLoop", () => {
 
     expect(result).toMatchObject({
       finalText: "all done",
-      usage: { inputTokens: 7, outputTokens: 2 },
+      usage: {
+        inputTokens: 7,
+        outputTokens: 2,
+        cachedInputTokens: 4,
+        cacheWriteInputTokens: 1,
+        reasoningTokens: 1,
+      },
       steps: 1,
     });
     expect((await store.loadState("s1")).messages.map((message) => message.role)).toEqual([
       "user",
       "assistant",
     ]);
+    expect((await store.loadState("s1")).usage).toEqual({
+      inputTokens: 7,
+      outputTokens: 2,
+      cachedInputTokens: 4,
+      cacheWriteInputTokens: 1,
+      reasoningTokens: 1,
+    });
     expect(events.map((event) => event.type)).toEqual(
       expect.arrayContaining(["turn_started", "model_text_delta", "model_completed", "turn_completed"]),
     );

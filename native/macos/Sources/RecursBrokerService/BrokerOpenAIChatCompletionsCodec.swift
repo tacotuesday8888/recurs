@@ -268,15 +268,24 @@ struct BrokerOpenAIChatCompletionsStreamDecoder {
       guard usage == nil, let value = rawUsage as? [String: Any],
         let input = integer(value["prompt_tokens"]), input >= 0,
         let output = integer(value["completion_tokens"]), output >= 0,
-        let total = integer(value["total_tokens"]), total == input + output
+        let total = integer(value["total_tokens"])
       else { throw BrokerOpenAIChatCompletionsError.invalidStream }
+      let (expectedTotal, totalOverflowed) = input.addingReportingOverflow(output)
+      guard !totalOverflowed, total == expectedTotal else {
+        throw BrokerOpenAIChatCompletionsError.invalidStream
+      }
+      let promptDetails = value["prompt_tokens_details"] as? [String: Any]
+      let completionDetails = value["completion_tokens_details"] as? [String: Any]
+      let cached = try optionalUsageToken(promptDetails, "cached_tokens", maximum: input)
+      let reasoning = try optionalUsageToken(
+        completionDetails, "reasoning_tokens", maximum: output)
       let normalized = BrokerOpenAIResponsesUsage(
         inputTokens: input,
         outputTokens: output,
         totalTokens: total,
-        cachedInputTokens: 0,
+        cachedInputTokens: cached,
         cacheWriteTokens: nil,
-        reasoningTokens: 0
+        reasoningTokens: reasoning
       )
       usage = normalized
       events.append(.usage(normalized))
@@ -330,6 +339,18 @@ private func integer(_ value: Any?) -> Int? {
     value >= Double(Int.min), value <= Double(Int.max)
   else { return nil }
   return Int(value)
+}
+
+private func optionalUsageToken(
+  _ details: [String: Any]?,
+  _ key: String,
+  maximum: Int
+) throws -> Int? {
+  guard let details, let value = details[key] else { return nil }
+  guard let parsed = integer(value), parsed >= 0, parsed <= maximum else {
+    throw BrokerOpenAIChatCompletionsError.invalidStream
+  }
+  return parsed
 }
 
 private func canonicalObject(_ data: Data) throws -> Data {

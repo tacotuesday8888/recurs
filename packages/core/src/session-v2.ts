@@ -411,6 +411,15 @@ function addUsage(
       next[field] = (currentValue ?? 0) + (additionValue ?? 0);
     }
   }
+  const tokenFields = [
+    "inputTokens", "outputTokens", "cachedInputTokens",
+    "cacheWriteInputTokens", "reasoningTokens",
+  ] as const;
+  if (tokenFields.some((field) =>
+    next[field] !== undefined && !Number.isSafeInteger(next[field])
+  ) || (next.costUsd !== undefined && !Number.isFinite(next.costUsd))) {
+    throw new Error("Runtime usage exceeds the safe numeric range");
+  }
   return next;
 }
 
@@ -418,23 +427,7 @@ function addRuntimeUsage(
   current: ProviderUsage,
   addition: ProviderUsage | null,
 ): ProviderUsage {
-  const next = addUsage(current, addition);
-  const tokenFields = [
-    "inputTokens",
-    "outputTokens",
-    "cachedInputTokens",
-    "cacheWriteInputTokens",
-    "reasoningTokens",
-  ] as const;
-  if (
-    tokenFields.some((field) =>
-      next[field] !== undefined && !Number.isSafeInteger(next[field])
-    ) ||
-    (next.costUsd !== undefined && !Number.isFinite(next.costUsd))
-  ) {
-    throw new Error("Runtime usage exceeds the safe numeric range");
-  }
-  return next;
+  return addUsage(current, addition);
 }
 
 function runtimePin(

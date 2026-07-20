@@ -44,7 +44,7 @@ struct BrokerAnthropicMessagesTests {
     let blocks = [
       event(
         "message_start",
-        #"{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-opus-4-6","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":12,"output_tokens":1}}}"#
+        #"{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-opus-4-6","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":12,"output_tokens":1,"cache_read_input_tokens":4,"cache_creation_input_tokens":2}}}"#
       ),
       event(
         "content_block_start",
@@ -83,12 +83,12 @@ struct BrokerAnthropicMessagesTests {
           )),
         .usage(
           BrokerOpenAIResponsesUsage(
-            inputTokens: 12,
+            inputTokens: 18,
             outputTokens: 9,
-            totalTokens: 21,
-            cachedInputTokens: 0,
-            cacheWriteTokens: nil,
-            reasoningTokens: 0
+            totalTokens: 27,
+            cachedInputTokens: 4,
+            cacheWriteTokens: 2,
+            reasoningTokens: nil
           )),
         .done(.toolCalls),
       ])

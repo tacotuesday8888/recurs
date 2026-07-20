@@ -185,7 +185,13 @@ describe("remote Anthropic Messages provider", () => {
           arguments: { path: "README.md" },
         },
       },
-      { type: "usage", inputTokens: 12, outputTokens: 9 },
+      {
+        type: "usage",
+        inputTokens: 12,
+        outputTokens: 9,
+        cachedInputTokens: 2,
+        cacheWriteInputTokens: 3,
+      },
       { type: "done", stopReason: "tool_calls" },
     ]);
     expect(provider).toMatchObject({

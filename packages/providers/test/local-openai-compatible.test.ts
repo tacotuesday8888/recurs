@@ -87,7 +87,7 @@ describe("LocalOpenAICompatibleProvider", () => {
       fetch: async () => sse([
         { choices: [{ delta: { content: "I will inspect. " }, finish_reason: null }] },
         { choices: [{ delta: { tool_calls: [{ index: 0, id: "call-1", type: "function", function: { name: "read_file", arguments: "{\"pa" } }] }, finish_reason: null }] },
-        { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: "th\":\"README.md\"}" } }] }, finish_reason: "tool_calls" }], usage: { prompt_tokens: 12, completion_tokens: 7 } },
+        { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: "th\":\"README.md\"}" } }] }, finish_reason: "tool_calls" }], usage: { prompt_tokens: 12, completion_tokens: 7, prompt_tokens_details: { cached_tokens: 5 }, completion_tokens_details: { reasoning_tokens: 2 } } },
       ]),
     });
 
@@ -102,7 +102,13 @@ describe("LocalOpenAICompatibleProvider", () => {
     expect(events).toEqual([
       { type: "text_delta", text: "I will inspect. " },
       { type: "tool_call", call: { id: "call-1", name: "read_file", arguments: { path: "README.md" } } },
-      { type: "usage", inputTokens: 12, outputTokens: 7 },
+      {
+        type: "usage",
+        inputTokens: 12,
+        outputTokens: 7,
+        cachedInputTokens: 5,
+        reasoningTokens: 2,
+      },
       { type: "done", stopReason: "tool_calls" },
     ]);
     expect(provider).toMatchObject({

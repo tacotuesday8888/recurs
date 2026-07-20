@@ -16,7 +16,7 @@ struct BrokerAnthropicMessagesStreamDecoder {
   private var eventCount = 0
   private var responseID: String?
   private var inputTokens: Int?
-  private var cachedInputTokens = 0
+  private var cachedInputTokens: Int?
   private var cacheWriteTokens: Int?
   private var blocks: [Block] = []
   private var activeIndex: Int?
@@ -118,8 +118,7 @@ struct BrokerAnthropicMessagesStreamDecoder {
     responseID = id
     inputTokens = input
     cachedInputTokens = try optionalNonnegative(usage, "cache_read_input_tokens")
-    let write = try optionalNonnegative(usage, "cache_creation_input_tokens")
-    cacheWriteTokens = write == 0 ? nil : write
+    cacheWriteTokens = try optionalNonnegative(usage, "cache_creation_input_tokens")
     return []
   }
 
@@ -220,15 +219,21 @@ struct BrokerAnthropicMessagesStreamDecoder {
     case "refusal": throw BrokerAnthropicMessagesError.contentFiltered
     default: throw BrokerAnthropicMessagesError.providerFailure
     }
-    let (total, overflowed) = inputTokens.addingReportingOverflow(outputTokens)
-    guard !overflowed else { throw BrokerAnthropicMessagesError.invalidStream }
+    let (inputWithRead, readOverflowed) = inputTokens.addingReportingOverflow(
+      cachedInputTokens ?? 0)
+    let (normalizedInput, writeOverflowed) = inputWithRead.addingReportingOverflow(
+      cacheWriteTokens ?? 0)
+    let (total, totalOverflowed) = normalizedInput.addingReportingOverflow(outputTokens)
+    guard !readOverflowed, !writeOverflowed, !totalOverflowed else {
+      throw BrokerAnthropicMessagesError.invalidStream
+    }
     let normalized = BrokerOpenAIResponsesUsage(
-      inputTokens: inputTokens,
+      inputTokens: normalizedInput,
       outputTokens: outputTokens,
       totalTokens: total,
       cachedInputTokens: cachedInputTokens,
       cacheWriteTokens: cacheWriteTokens,
-      reasoningTokens: 0
+      reasoningTokens: nil
     )
     stopReason = reason
     finalUsage = normalized
@@ -288,8 +293,8 @@ private func usageKeys(_ usage: [String: Any]) throws {
   else { throw BrokerAnthropicMessagesError.invalidStream }
 }
 
-private func optionalNonnegative(_ object: [String: Any], _ key: String) throws -> Int {
-  guard let value = object[key] else { return 0 }
+private func optionalNonnegative(_ object: [String: Any], _ key: String) throws -> Int? {
+  guard let value = object[key] else { return nil }
   guard let integer = integer(value), integer >= 0 else {
     throw BrokerAnthropicMessagesError.invalidStream
   }

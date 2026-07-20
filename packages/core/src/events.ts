@@ -26,10 +26,7 @@ import type {
   TeamRunState,
 } from "./team-run-state.js";
 
-export interface Usage {
-  inputTokens: number;
-  outputTokens: number;
-}
+export type Usage = ProviderUsage;
 
 export interface SerializableError {
   code: string;

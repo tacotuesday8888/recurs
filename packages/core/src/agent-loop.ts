@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type {
   IntegrationFailure,
+  ProviderUsage,
   QueuedTurnSource,
   RunResult as CoordinatedRunResult,
   TrustedRunContext,
@@ -43,6 +44,46 @@ import {
   type JsonlSessionStore,
   type SessionMutationLease,
 } from "./jsonl-session-store.js";
+
+const optionalUsageFields = [
+  "cachedInputTokens",
+  "cacheWriteInputTokens",
+  "reasoningTokens",
+  "costUsd",
+] as const;
+
+function addUsage(
+  current: ProviderUsage,
+  addition: ProviderUsage,
+): ProviderUsage {
+  const next: ProviderUsage = {
+    inputTokens: current.inputTokens + addition.inputTokens,
+    outputTokens: current.outputTokens + addition.outputTokens,
+  };
+  for (const field of optionalUsageFields) {
+    if (current[field] !== undefined || addition[field] !== undefined) {
+      next[field] = (current[field] ?? 0) + (addition[field] ?? 0);
+    }
+  }
+  const validTokens = [
+    next.inputTokens,
+    next.outputTokens,
+    next.cachedInputTokens,
+    next.cacheWriteInputTokens,
+    next.reasoningTokens,
+  ].every((value) =>
+    value === undefined || Number.isSafeInteger(value) && value >= 0
+  );
+  if (!validTokens ||
+    (next.costUsd !== undefined &&
+      (!Number.isFinite(next.costUsd) || next.costUsd < 0))) {
+    throw new AgentLoopError(
+      "invalid_provider_response",
+      "Provider usage exceeded the supported numeric range",
+    );
+  }
+  return next;
+}
 import { createBackendFingerprint } from "./backend-authorization.js";
 import {
   compactPinnedSession,
@@ -777,7 +818,7 @@ async function runAgentLoopUnlocked(
     throw new AgentLoopError("invalid_run_input", "A turn id is required");
   }
   const loopDetector = new LoopDetector();
-  const usage: Usage = { inputTokens: 0, outputTokens: 0 };
+  let usage: Usage = { inputTokens: 0, outputTokens: 0 };
   let usageComplete = true;
   const changedFiles: string[] = [];
   const evidence: string[] = [];
@@ -1060,8 +1101,7 @@ async function runAgentLoopUnlocked(
         input.sessionId,
         turnId,
       );
-      usage.inputTokens += modelTurn.usage.inputTokens;
-      usage.outputTokens += modelTurn.usage.outputTokens;
+      usage = addUsage(usage, modelTurn.usage);
       usageComplete &&= modelTurn.usageReported;
 
       if (modelTurn.providerStateHandle !== undefined) {

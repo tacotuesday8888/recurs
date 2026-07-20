@@ -67,6 +67,36 @@ describe("provider protocol", () => {
     });
   });
 
+  it("aggregates provider-reported usage details without inventing missing fields", async () => {
+    async function* events(): AsyncIterable<ProviderEvent> {
+      yield {
+        type: "usage",
+        inputTokens: 10,
+        outputTokens: 4,
+        cachedInputTokens: 6,
+        reasoningTokens: 2,
+      };
+      yield {
+        type: "usage",
+        inputTokens: 5,
+        outputTokens: 3,
+        cacheWriteInputTokens: 2,
+        reasoningTokens: 1,
+      };
+      yield { type: "done", stopReason: "complete" };
+    }
+
+    await expect(collectProviderEvents(events())).resolves.toMatchObject({
+      usage: {
+        inputTokens: 15,
+        outputTokens: 7,
+        cachedInputTokens: 6,
+        cacheWriteInputTokens: 2,
+        reasoningTokens: 3,
+      },
+    });
+  });
+
   it("accepts at most one committed direct provider-state handle", async () => {
     const handle = {
       kind: "direct" as const,
@@ -137,6 +167,15 @@ describe("provider protocol", () => {
       yield { type: "usage", inputTokens: -1, outputTokens: 0 };
       yield { type: "done", stopReason: "complete" };
     }
+    async function* overflowingUsage(): AsyncIterable<ProviderEvent> {
+      yield {
+        type: "usage",
+        inputTokens: 1,
+        outputTokens: 0,
+        cachedInputTokens: Number.MAX_SAFE_INTEGER,
+      };
+      yield { type: "done", stopReason: "complete" };
+    }
 
     await expect(collectProviderEvents(duplicateTools())).rejects.toMatchObject({
       code: "invalid_response",
@@ -145,6 +184,9 @@ describe("provider protocol", () => {
       code: "invalid_response",
     });
     await expect(collectProviderEvents(invalidUsage())).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    await expect(collectProviderEvents(overflowingUsage())).rejects.toMatchObject({
       code: "invalid_response",
     });
   });

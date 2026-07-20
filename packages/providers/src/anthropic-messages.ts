@@ -267,6 +267,8 @@ class AnthropicStreamDecoder {
   #activeIndex: number | null = null;
   #blocks: StreamBlock[] = [];
   #inputTokens: number | null = null;
+  #cachedInputTokens: number | undefined;
+  #cacheWriteInputTokens: number | undefined;
   #stopReason: "complete" | "tool_calls" | "length" | null = null;
   #usageEmitted = false;
 
@@ -340,10 +342,12 @@ class AnthropicStreamDecoder {
         throw new ProviderError("invalid_response", "Provider usage was invalid", false);
       }
       const input = nonnegativeInteger(usage.input_tokens);
-      const cacheRead = usage.cache_read_input_tokens === undefined
+      const cacheReadReported = usage.cache_read_input_tokens !== undefined;
+      const cacheWriteReported = usage.cache_creation_input_tokens !== undefined;
+      const cacheRead = !cacheReadReported
         ? 0
         : nonnegativeInteger(usage.cache_read_input_tokens);
-      const cacheWrite = usage.cache_creation_input_tokens === undefined
+      const cacheWrite = !cacheWriteReported
         ? 0
         : nonnegativeInteger(usage.cache_creation_input_tokens);
       if (input === null || cacheRead === null || cacheWrite === null) {
@@ -353,6 +357,8 @@ class AnthropicStreamDecoder {
       if (!Number.isSafeInteger(this.#inputTokens)) {
         throw new ProviderError("invalid_response", "Provider usage was invalid", false);
       }
+      this.#cachedInputTokens = cacheReadReported ? cacheRead : undefined;
+      this.#cacheWriteInputTokens = cacheWriteReported ? cacheWrite : undefined;
       this.#started = true;
       return;
     }
@@ -471,7 +477,17 @@ class AnthropicStreamDecoder {
           throw new ProviderError("invalid_response", "Provider stop reason was invalid", false);
       }
       this.#usageEmitted = true;
-      yield { type: "usage", inputTokens: this.#inputTokens, outputTokens: output };
+      yield {
+        type: "usage",
+        inputTokens: this.#inputTokens,
+        outputTokens: output,
+        ...(this.#cachedInputTokens === undefined
+          ? {}
+          : { cachedInputTokens: this.#cachedInputTokens }),
+        ...(this.#cacheWriteInputTokens === undefined
+          ? {}
+          : { cacheWriteInputTokens: this.#cacheWriteInputTokens }),
+      };
       return;
     }
     if (name === "message_stop") {

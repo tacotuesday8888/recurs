@@ -216,7 +216,7 @@ interface ModelProvider {
 }
 ```
 
-The normalized request contains the model name, immutable message snapshot, visible tool definitions, and an abort signal. The stream returns text/reasoning deltas, normalized tool calls, usage, and one terminal event. `ScriptedProvider` supplies deterministic responses for tests and embedded development.
+The normalized request contains the model name, immutable message snapshot, visible tool definitions, and an abort signal. The stream returns text/reasoning deltas, normalized tool calls, usage, and one terminal event. Usage preserves provider-reported cached-input, cache-write, and reasoning-token breakdowns across JavaScript and native-broker transports. `inputTokens` remains the provider-normalized total input count; the optional fields are breakdowns, not extra tokens to add again. Missing fields remain absent, and Recurs does not infer dollar cost from a static price table. `ScriptedProvider` supplies deterministic responses for tests and embedded development.
 
 Retryable direct-provider failures may run at most twice, and only before text, reasoning, a tool call, reported usage, or committed provider state has been observed. Recurs uses 200 ms then 400 ms by default. Reviewed HTTP adapters honor numeric seconds, HTTP dates, and `retry-after-ms` hints, but cap every wait at 30 seconds and expose the selected delay through a normalized retry event. Cancellation interrupts the wait immediately. A failure after any replay-unsafe boundary is terminal because replay could duplicate visible work, provider state, or spend.
 
@@ -498,7 +498,7 @@ A daemon that outlives the CLI, recursive depth, automatic task decomposition, t
 | `/agents [profiles\|activity [exact-id]\|teams\|team <id>\|wait <id>\|cancel <id>\|resume <id>\|apply <id>\|mode ...]` | Inspect profiles, child/team activity, control an owned durable team, or change the bounded policy. |
 | `/skills [enable-project\|disable-project]` | List Agent Skills or change process-lifetime trust for repository skills. |
 | `/mcp [list\|trust-project\|untrust-project]` | List stdio MCP servers and live state, or manage exact digest-bound project trust. |
-| `/status` | Show session, workspace, model identifier, modes, goal, usage, verified setup-time context limits (or `unknown`), and pending tools. |
+| `/status` | Show session, workspace, model identifier, modes, goal, total usage, any provider-reported cache/reasoning breakdowns, verified setup-time context limits (or `unknown`), and pending tools. |
 | `/model [connection-id]` | List exact saved model connections or confirm starting a fresh pinned session with one. The current session and registry primary remain unchanged. |
 | `/init` | Confirm and create a starter `AGENTS.md`; never overwrite existing `AGENTS.md` or `AGENTS.override.md`. The next turn loads it. |
 | `/new` | Start a new durable session in the same workspace. |

@@ -1,5 +1,6 @@
 import type {
   ProviderEvent,
+  ProviderUsage,
   DirectContinuationHandle,
   StopReason,
   ToolCall,
@@ -63,10 +64,7 @@ export class ProviderError extends Error {
 export interface CollectedProviderEvents {
   text: string;
   toolCalls: ToolCall[];
-  usage: {
-    inputTokens: number;
-    outputTokens: number;
-  };
+  usage: ProviderUsage;
   usageReported: boolean;
   stopReason: StopReason;
   providerStateHandle?: DirectContinuationHandle;

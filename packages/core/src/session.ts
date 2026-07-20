@@ -57,6 +57,38 @@ export interface CreateSessionStateOptions {
   permissionMode?: PermissionMode;
 }
 
+const optionalUsageFields = [
+  "cachedInputTokens",
+  "cacheWriteInputTokens",
+  "reasoningTokens",
+  "costUsd",
+] as const;
+
+function addUsage(
+  current: ProviderUsage,
+  addition: ProviderUsage,
+): ProviderUsage {
+  const next: ProviderUsage = {
+    inputTokens: current.inputTokens + addition.inputTokens,
+    outputTokens: current.outputTokens + addition.outputTokens,
+  };
+  for (const field of optionalUsageFields) {
+    if (current[field] !== undefined || addition[field] !== undefined) {
+      next[field] = (current[field] ?? 0) + (addition[field] ?? 0);
+    }
+  }
+  const tokenFields = [
+    "inputTokens", "outputTokens", "cachedInputTokens",
+    "cacheWriteInputTokens", "reasoningTokens",
+  ] as const;
+  if (tokenFields.some((field) =>
+    next[field] !== undefined && !Number.isSafeInteger(next[field])
+  ) || (next.costUsd !== undefined && !Number.isFinite(next.costUsd))) {
+    throw new Error("Session usage exceeds the safe numeric range");
+  }
+  return next;
+}
+
 export function createSessionState(
   options: CreateSessionStateOptions,
 ): SessionState {
@@ -219,10 +251,7 @@ export function reduceSessionRecord(
     case "turn_completed":
       return {
         ...state,
-        usage: {
-          inputTokens: state.usage.inputTokens + record.usage.inputTokens,
-          outputTokens: state.usage.outputTokens + record.usage.outputTokens,
-        },
+        usage: addUsage(state.usage, record.usage),
         evidence: [...new Set([...state.evidence, ...record.evidence])],
       };
     case "files_changed":

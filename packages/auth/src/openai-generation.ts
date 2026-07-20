@@ -144,12 +144,31 @@ export function decodeOpenAIGenerationEvent(frame: NativeFrame): ProviderEvent {
         }
         return { type: "tool_call", call: { id: call.id, name: call.name, arguments: call.arguments } };
       }
-      case "usage":
-        requireExactKeys(value, ["type", "inputTokens", "outputTokens"]);
+      case "usage": {
+        requireKeys(value, ["type", "inputTokens", "outputTokens"], [
+          "cachedInputTokens", "cacheWriteInputTokens", "reasoningTokens",
+        ]);
         if (!isNonNegativeSafeInteger(value.inputTokens) || !isNonNegativeSafeInteger(value.outputTokens)) {
           failNativeCodec("invalid_message");
         }
-        return { type: "usage", inputTokens: value.inputTokens, outputTokens: value.outputTokens };
+        const cachedInputTokens = optionalToken(value.cachedInputTokens, value.inputTokens);
+        const cacheWriteInputTokens = optionalToken(
+          value.cacheWriteInputTokens,
+          value.inputTokens,
+        );
+        const reasoningTokens = optionalToken(value.reasoningTokens, value.outputTokens);
+        if ((cachedInputTokens ?? 0) + (cacheWriteInputTokens ?? 0) > value.inputTokens) {
+          failNativeCodec("invalid_message");
+        }
+        return {
+          type: "usage",
+          inputTokens: value.inputTokens,
+          outputTokens: value.outputTokens,
+          ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
+          ...(cacheWriteInputTokens === undefined ? {} : { cacheWriteInputTokens }),
+          ...(reasoningTokens === undefined ? {} : { reasoningTokens }),
+        };
+      }
       case "provider_state": {
         requireExactKeys(value, ["type", "handle"]);
         return { type: "provider_state", handle: decodeContinuationHandle(value.handle) };
@@ -223,6 +242,26 @@ function requireExactKeys(value: Record<string, JsonValue>, expected: readonly s
   if (actual.length !== sorted.length || actual.some((key, index) => key !== sorted[index])) {
     failNativeCodec("invalid_message");
   }
+}
+
+function requireKeys(
+  value: Record<string, JsonValue>,
+  required: readonly string[],
+  optional: readonly string[],
+): void {
+  const keys = new Set(Object.keys(value));
+  if (required.some((key) => !keys.delete(key)) ||
+    [...keys].some((key) => !optional.includes(key))) {
+    failNativeCodec("invalid_message");
+  }
+}
+
+function optionalToken(value: unknown, maximum: number): number | undefined {
+  if (value === undefined) return undefined;
+  if (!isNonNegativeSafeInteger(value) || value > maximum) {
+    failNativeCodec("invalid_message");
+  }
+  return value;
 }
 
 function isNonNegativeSafeInteger(value: unknown): value is number {

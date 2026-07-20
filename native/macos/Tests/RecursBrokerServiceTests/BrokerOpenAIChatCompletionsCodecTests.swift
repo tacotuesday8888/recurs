@@ -39,7 +39,7 @@ struct BrokerOpenAIChatCompletionsCodecTests {
         #"{"id":"chat_1","object":"chat.completion.chunk","created":1,"model":"kimi-k2.5","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"b.ts\"}"}}]},"finish_reason":"tool_calls"}],"usage":null}"#
       ),
       event(
-        #"{"id":"chat_1","object":"chat.completion.chunk","created":1,"model":"kimi-k2.5","choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}"#
+        #"{"id":"chat_1","object":"chat.completion.chunk","created":1,"model":"kimi-k2.5","choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6,"prompt_tokens_details":{"cached_tokens":3},"completion_tokens_details":{"reasoning_tokens":1}}}"#
       ),
       event("[DONE]"),
     ]
@@ -61,9 +61,9 @@ struct BrokerOpenAIChatCompletionsCodecTests {
             inputTokens: 4,
             outputTokens: 2,
             totalTokens: 6,
-            cachedInputTokens: 0,
+            cachedInputTokens: 3,
             cacheWriteTokens: nil,
-            reasoningTokens: 0
+            reasoningTokens: 1
           )),
         .done(.toolCalls),
       ])

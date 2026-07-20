@@ -4,6 +4,7 @@ import {
   type CollectedProviderEvents,
   type DirectContinuationHandle,
   type ProviderEvent,
+  type ProviderUsage,
   type StopReason,
   type ToolCall,
 } from "./types.js";
@@ -25,6 +26,73 @@ function invalid(message: string): ProviderError {
 
 function validTokenCount(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0;
+}
+
+const optionalTokenFields = [
+  "cachedInputTokens",
+  "cacheWriteInputTokens",
+  "reasoningTokens",
+] as const;
+
+function addUsage(
+  current: ProviderUsage,
+  addition: ProviderUsage,
+): ProviderUsage {
+  if (!validTokenCount(addition.inputTokens) ||
+    !validTokenCount(addition.outputTokens)) {
+    throw invalid("Provider emitted invalid token usage");
+  }
+  for (const field of optionalTokenFields) {
+    const value = addition[field];
+    if (value !== undefined && !validTokenCount(value)) {
+      throw invalid("Provider emitted invalid token usage");
+    }
+  }
+  const reportedInputBreakdown = (addition.cachedInputTokens ?? 0) +
+    (addition.cacheWriteInputTokens ?? 0);
+  if (!validTokenCount(reportedInputBreakdown) ||
+    reportedInputBreakdown > addition.inputTokens ||
+    (addition.reasoningTokens ?? 0) > addition.outputTokens) {
+    throw invalid("Provider emitted invalid token usage");
+  }
+  const next: ProviderUsage = {
+    inputTokens: current.inputTokens + addition.inputTokens,
+    outputTokens: current.outputTokens + addition.outputTokens,
+  };
+  if (!validTokenCount(next.inputTokens) || !validTokenCount(next.outputTokens)) {
+    throw invalid("Provider emitted invalid token usage");
+  }
+  for (const field of optionalTokenFields) {
+    const value = addition[field];
+    if (current[field] !== undefined || value !== undefined) {
+      const total = (current[field] ?? 0) + (value ?? 0);
+      if (!validTokenCount(total)) {
+        throw invalid("Provider emitted invalid token usage");
+      }
+      next[field] = total;
+    }
+  }
+  const totalInputBreakdown = (next.cachedInputTokens ?? 0) +
+    (next.cacheWriteInputTokens ?? 0);
+  if (!validTokenCount(totalInputBreakdown) ||
+    totalInputBreakdown > next.inputTokens ||
+    (next.reasoningTokens ?? 0) > next.outputTokens) {
+    throw invalid("Provider emitted invalid token usage");
+  }
+  if (
+    addition.costUsd !== undefined &&
+    (!Number.isFinite(addition.costUsd) || addition.costUsd < 0)
+  ) {
+    throw invalid("Provider emitted invalid cost usage");
+  }
+  if (current.costUsd !== undefined || addition.costUsd !== undefined) {
+    const total = (current.costUsd ?? 0) + (addition.costUsd ?? 0);
+    if (!Number.isFinite(total) || total < 0) {
+      throw invalid("Provider emitted invalid cost usage");
+    }
+    next.costUsd = total;
+  }
+  return next;
 }
 
 function isToolCall(value: unknown): value is ToolCall {
@@ -68,7 +136,7 @@ export async function collectProviderEvents(
   let text = "";
   const toolCalls: ToolCall[] = [];
   const toolCallIds = new Set<string>();
-  const usage = { inputTokens: 0, outputTokens: 0 };
+  let usage: ProviderUsage = { inputTokens: 0, outputTokens: 0 };
   let usageReported = false;
   let stopReason: StopReason | undefined;
   let providerStateHandle: DirectContinuationHandle | undefined;
@@ -134,22 +202,7 @@ export async function collectProviderEvents(
         break;
       }
       case "usage": {
-        if (
-          !validTokenCount(event.inputTokens) ||
-          !validTokenCount(event.outputTokens)
-        ) {
-          throw invalid("Provider emitted invalid token usage");
-        }
-        const inputTokens = usage.inputTokens + event.inputTokens;
-        const outputTokens = usage.outputTokens + event.outputTokens;
-        if (
-          !validTokenCount(inputTokens) ||
-          !validTokenCount(outputTokens)
-        ) {
-          throw invalid("Provider emitted invalid token usage");
-        }
-        usage.inputTokens = inputTokens;
-        usage.outputTokens = outputTokens;
+        usage = addUsage(usage, event);
         usageReported = true;
         break;
       }

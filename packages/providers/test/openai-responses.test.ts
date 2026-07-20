@@ -71,7 +71,16 @@ function response(events: readonly string[]): Response {
   });
 }
 
-function textCompletion(text = "done"): Response {
+function textCompletion(
+  text = "done",
+  usage: Record<string, unknown> = {
+    input_tokens: 7,
+    output_tokens: 2,
+    total_tokens: 9,
+    input_tokens_details: { cached_tokens: 3, cache_write_tokens: 1 },
+    output_tokens_details: { reasoning_tokens: 1 },
+  },
+): Response {
   const added = {
     id: "msg_1",
     type: "message",
@@ -122,7 +131,7 @@ function textCompletion(text = "done"): Response {
         id: "resp_1",
         status: "completed",
         output: [completed],
-        usage: { input_tokens: 7, output_tokens: 2, total_tokens: 9 },
+        usage,
       },
     }),
   ]);
@@ -266,7 +275,14 @@ describe("RemoteOpenAIResponsesProvider", () => {
     }]);
     expect(events).toEqual([
       { type: "text_delta", text: "done" },
-      { type: "usage", inputTokens: 7, outputTokens: 2 },
+      {
+        type: "usage",
+        inputTokens: 7,
+        outputTokens: 2,
+        cachedInputTokens: 3,
+        cacheWriteInputTokens: 1,
+        reasoningTokens: 1,
+      },
       { type: "done", stopReason: "complete" },
     ]);
     expect(provider).toMatchObject({
@@ -290,6 +306,24 @@ describe("RemoteOpenAIResponsesProvider", () => {
       code: "invalid_response",
       message: "OpenAI reasoning effort is invalid",
     });
+  });
+
+  it("fails closed on inconsistent usage breakdowns", async () => {
+    const provider = new RemoteOpenAIResponsesProvider({
+      connectionId: "openai-env",
+      apiKey: "private-key",
+      fetch: async () => textCompletion("done", {
+        input_tokens: 2,
+        output_tokens: 1,
+        total_tokens: 3,
+        input_tokens_details: { cached_tokens: 2, cache_write_tokens: 1 },
+        output_tokens_details: { reasoning_tokens: 0 },
+      }),
+    });
+
+    await expect(collect(provider, request("turn-invalid-usage", [
+      { id: "user", role: "user", content: "Work" },
+    ]))).rejects.toMatchObject({ code: "invalid_response" });
   });
 
   it("replays private response items for a tool continuation in the same process", async () => {

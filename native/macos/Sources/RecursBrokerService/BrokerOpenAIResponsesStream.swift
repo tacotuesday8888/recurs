@@ -30,9 +30,9 @@ struct BrokerOpenAIResponsesUsage: Sendable, Equatable {
   let inputTokens: Int
   let outputTokens: Int
   let totalTokens: Int
-  let cachedInputTokens: Int
+  let cachedInputTokens: Int?
   let cacheWriteTokens: Int?
-  let reasoningTokens: Int
+  let reasoningTokens: Int?
 }
 
 struct BrokerOpenAIResponsesToolCall: Sendable, Equatable {
