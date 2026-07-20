@@ -202,6 +202,59 @@ describe("code_outline", () => {
     expect(result.output).toContain("class Run (referenced by 0 files)");
   });
 
+  it("downranks noisy short identifiers below specific graph symbols", async () => {
+    await writeFile(path.join(cwd, "src", "specific.ts"),
+      "export class ImportantCoordinator {}\n");
+    await writeFile(path.join(cwd, "src", "generic.ts"),
+      "export const id = () => 1;\n");
+    for (let index = 0; index < 5; index += 1) {
+      await writeFile(path.join(cwd, "src", `consumer-${index}.ts`), [
+        `export function consumer${index}() {`,
+        index < 2
+          ? "  return [id(), ImportantCoordinator];"
+          : "  return id();",
+        "}",
+        "",
+      ].join("\n"));
+    }
+
+    const result = await invoke({
+      path: "src",
+      ranking: "references",
+      maxSymbols: 1,
+    });
+
+    expect(result.output).toContain("class ImportantCoordinator");
+    expect(result.output).not.toContain("function id");
+    expect(result.metadata).toMatchObject({
+      rankingAlgorithm: "weighted_file_graph_v1",
+    });
+  });
+
+  it("caps an adversarial duplicate-symbol graph deterministically", async () => {
+    await Promise.all(Array.from({ length: 450 }, async (_, index) => {
+      await writeFile(path.join(cwd, "src", `duplicate-${index}.ts`), [
+        "export class SharedSymbol {}",
+        "const reference = SharedSymbol;",
+        "",
+      ].join("\n"));
+    }));
+
+    const result = await invoke({
+      path: "src",
+      ranking: "references",
+      maxFiles: 500,
+      maxSymbols: 1,
+    });
+
+    expect(result.metadata).toMatchObject({
+      weightedReferenceEdges: 200_000,
+      graphTruncated: true,
+      truncated: true,
+      rankingAlgorithm: "weighted_file_graph_v1",
+    });
+  });
+
   it("lets a query focus a ranked map without excluding surrounding symbols", async () => {
     await writeFile(path.join(cwd, "src", "central.ts"), "export class Central {}\n");
     await writeFile(path.join(cwd, "src", "consumer.ts"), [
