@@ -1700,6 +1700,13 @@ describe("standalone assembly without a provider", () => {
       expect(provider.requests[1]?.messages.findLast(
         (message) => message.role === "tool",
       )?.content).toContain("ready");
+      await expect(runtime.submit("/process")).resolves.toMatchObject({
+        type: "message",
+        level: "info",
+        text: expect.stringMatching(
+          /^[0-9a-f-]{36} · running · piped(?: · \d+ buffered bytes)?$/u,
+        ),
+      });
       await runtime.close();
     } finally {
       await runtime.close().catch(() => {});

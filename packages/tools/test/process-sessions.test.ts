@@ -236,6 +236,66 @@ describe("owned process sessions", () => {
     }
   });
 
+  it("lists owner-scoped sessions without consuming buffered output", async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    let resolveCompletion: (exitCode: number) => void = () => {};
+    const completion = new Promise<number>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const processes = new OwnedProcessManager({
+      createId: () => "process-1",
+      startSession: async () => ({
+        stdin,
+        stdout,
+        stderr: new PassThrough(),
+        completion,
+        async close() {
+          resolveCompletion(0);
+        },
+      }),
+    });
+
+    try {
+      await processes.start({
+        ownerId: "owner-1",
+        command: "command",
+        args: [],
+        options: { cwd },
+        yieldTimeMs: 0,
+      });
+      stdout.write("later");
+
+      expect(processes.list("owner-2")).toEqual([]);
+      expect(processes.list("owner-1")).toEqual([{
+        sessionId: "process-1",
+        status: "running",
+        terminal: false,
+        bufferedOutputBytes: 5,
+      }]);
+      expect(processes.list("owner-1")[0]?.bufferedOutputBytes).toBe(5);
+
+      const polled = await processes.interact({
+        ownerId: "owner-1",
+        sessionId: "process-1",
+        yieldTimeMs: 0,
+      });
+      expect(polled.output).toBe("later");
+      expect(processes.list("owner-1")[0]?.bufferedOutputBytes).toBe(0);
+
+      resolveCompletion(0);
+      const finished = await processes.interact({
+        ownerId: "owner-1",
+        sessionId: "process-1",
+        yieldTimeMs: 5_000,
+      });
+      expect(finished).toMatchObject({ status: "exited", exitCode: 0 });
+      expect(processes.list("owner-1")).toEqual([]);
+    } finally {
+      await processes.close();
+    }
+  });
+
   it("enforces the active-session limit and releases capacity after stop", async () => {
     const processes = new OwnedProcessManager({ maxActiveSessions: 1 });
     const registry = new ToolRegistry([

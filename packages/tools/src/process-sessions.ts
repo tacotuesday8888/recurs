@@ -30,6 +30,15 @@ export interface OwnedProcessSnapshot {
   };
 }
 
+export interface OwnedProcessSummary {
+  readonly sessionId: string;
+  readonly status: OwnedProcessStatus;
+  readonly terminal: boolean;
+  readonly bufferedOutputBytes: number;
+  readonly exitCode?: number;
+  readonly failureCode?: ToolErrorCode;
+}
+
 interface OwnedProcessRecord {
   readonly id: string;
   readonly ownerId: string;
@@ -131,6 +140,22 @@ export class OwnedProcessManager {
 
   get ownsCheckpoints(): boolean {
     return this.#checkpoints !== undefined;
+  }
+
+  list(ownerId: string): readonly OwnedProcessSummary[] {
+    return [...this.#records.values()]
+      .filter((record) => record.ownerId === ownerId)
+      .map((record) => ({
+        sessionId: record.id,
+        status: record.status,
+        terminal: record.terminal,
+        bufferedOutputBytes: Buffer.byteLength(record.output, "utf8"),
+        ...(record.exitCode === undefined ? {} : { exitCode: record.exitCode }),
+        ...(record.failure === undefined
+          ? {}
+          : { failureCode: record.failure.code }),
+      }))
+      .sort((left, right) => left.sessionId.localeCompare(right.sessionId));
   }
 
   #notify(record: OwnedProcessRecord): void {

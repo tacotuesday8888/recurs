@@ -258,4 +258,59 @@ describe("foundation slash commands", () => {
       level: "error",
     });
   });
+
+  it("lists, polls, and stops only the current conversation's processes", async () => {
+    const list = vi.fn(() => [{
+      sessionId: "process-1",
+      status: "running" as const,
+      terminal: false,
+      bufferedOutputBytes: 7,
+    }]);
+    const interact = vi.fn(async (input: { stop?: boolean }) => ({
+      sessionId: "process-1",
+      status: input.stop === true ? "exited" as const : "running" as const,
+      terminal: false,
+      output: input.stop === true ? "stopped\n" : "working\n",
+      ...(input.stop === true ? { exitCode: 0 } : {}),
+    }));
+    const registry = createCommandRegistry({ processes: { list, interact } });
+    const context = commandContext();
+
+    expect(await registry.execute("/process", context)).toMatchObject({
+      text: "process-1 · running · piped · 7 buffered bytes",
+    });
+    expect(list).toHaveBeenCalledWith("s1");
+    expect(await registry.execute("/process process-1", context)).toMatchObject({
+      text: "working\nProcess session process-1 is running.",
+    });
+    expect(await registry.execute("/process process-1 stop", context)).toMatchObject({
+      text: "stopped\nProcess exited with code 0.",
+    });
+    expect(interact).toHaveBeenNthCalledWith(1, {
+      ownerId: "s1",
+      sessionId: "process-1",
+      stop: false,
+      yieldTimeMs: 0,
+    });
+    expect(interact).toHaveBeenNthCalledWith(2, {
+      ownerId: "s1",
+      sessionId: "process-1",
+      stop: true,
+      yieldTimeMs: 0,
+    });
+    expect(await registry.execute("/process process-1 write", context)).toMatchObject({
+      level: "error",
+      text: expect.stringContaining("Usage"),
+    });
+
+    interact.mockResolvedValueOnce({
+      sessionId: "process-1",
+      status: "running",
+      terminal: true,
+      output: "safe\u001b]52;c;clipboard\u0007\rhidden\n",
+    });
+    expect(await registry.execute("/process process-1 poll", context)).toMatchObject({
+      text: "safe\\u001b]52;c;clipboard\\u0007\\u000dhidden\nProcess session process-1 is running.",
+    });
+  });
 });
