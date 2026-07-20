@@ -1,4 +1,4 @@
-import { rm, mkdtemp } from "node:fs/promises";
+import { readFile, rm, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -43,6 +43,23 @@ function context(
     executionMode: "act",
     readRevisions: new Map(),
   };
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ESRCH"
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function invoke(
@@ -265,22 +282,39 @@ describe("owned process sessions", () => {
   it("terminates every owned process when the manager closes", async () => {
     const processes = new OwnedProcessManager();
     const registry = new ToolRegistry([createRunCommandTool(processes)]);
-    const started = await invoke(registry, "run_command", {
-      command: `${process.execPath} -e 'process.stdin.resume()'`,
-      timeoutMs: 5_000,
-      yieldTimeMs: 250,
-    });
-    expect(started.metadata).toMatchObject({ status: "running" });
+    const pidPath = path.join(cwd, "owned.pid");
+    const script = [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));`,
+      "process.stdout.write('ready');",
+      "process.stdin.resume();",
+    ].join("");
+    let pid: number | undefined;
+    try {
+      const started = await invoke(registry, "run_command", {
+        command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`,
+        timeoutMs: 5_000,
+        yieldTimeMs: 250,
+      });
+      expect(started.metadata).toMatchObject({ status: "running" });
+      expect(started.output).toContain("ready");
+      pid = Number.parseInt(await readFile(pidPath, "utf8"), 10);
+      expect(processExists(pid)).toBe(true);
 
-    await processes.close();
+      await processes.close();
+      expect(processExists(pid)).toBe(false);
 
-    await expect(invoke(registry, "run_command", {
-      command: "printf never",
-      yieldTimeMs: 250,
-    })).rejects.toMatchObject({
-      code: "tool_unavailable",
-      message: "Process sessions are closed",
-    });
+      await expect(invoke(registry, "run_command", {
+        command: "printf never",
+        yieldTimeMs: 250,
+      })).rejects.toMatchObject({
+        code: "tool_unavailable",
+        message: "Process sessions are closed",
+      });
+    } finally {
+      await processes.close().catch(() => {});
+      if (pid !== undefined && processExists(pid)) process.kill(pid, "SIGKILL");
+    }
   });
 
   it("keeps a workspace checkpoint open for the full process lifetime", async () => {
