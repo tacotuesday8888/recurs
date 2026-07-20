@@ -1541,7 +1541,9 @@ describe("standalone assembly without a provider", () => {
     const pidPath = path.join(workspace, "owned.pid");
     const script = [
       "const fs = require('node:fs');",
-      `fs.writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));`,
+      "const status = process.platform === 'linux' ? fs.readFileSync('/proc/self/status', 'utf8') : '';",
+      "const outerPid = /^NSpid:\\s+([1-9][0-9]*)/m.exec(status)?.[1];",
+      `fs.writeFileSync(${JSON.stringify(pidPath)}, outerPid ?? String(process.pid));`,
       "process.stdout.write('ready\\n');",
       "process.stdin.resume();",
     ].join("");
