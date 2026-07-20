@@ -1081,41 +1081,62 @@ describe("Recurs end-to-end coding harness", () => {
       `+export const value = ${value};`,
       "",
     ].join("\n");
-    const provider = new ScriptedProvider([
-      toolTurn("delegate-conflicting-team", "delegate_team", {
-        description: "Exercise deterministic conflict recovery",
-        tasks: [
-          { description: "Implement candidate two", prompt: "Set value to 2." },
-          { description: "Implement candidate three", prompt: "Set value to 3." },
-        ],
-        review: { instructions: "Review only if integration succeeds." },
-      }),
-      toolTurn("candidate-two-read", "read_file", { path: "src/value.ts" }),
-      toolTurn("candidate-three-read", "read_file", { path: "src/value.ts" }),
-      toolTurn("candidate-two-patch", "apply_patch", {
-        patch: patchTo(2),
-        files: [{ path: "src/value.ts", expected_hash: fixture.initialHash }],
-      }),
-      toolTurn("candidate-three-patch", "apply_patch", {
-        patch: patchTo(3),
-        files: [{ path: "src/value.ts", expected_hash: fixture.initialHash }],
-      }),
-      [
-        { type: "text_delta", text: "Candidate implementation complete." },
-        { type: "done", stopReason: "complete" },
-      ],
-      [
-        { type: "text_delta", text: "Candidate implementation complete." },
-        { type: "done", stopReason: "complete" },
-      ],
-      [
-        {
+    const provider: ConnectionBoundModelProvider = {
+      id: "scripted",
+      adapterId: "scripted-v1",
+      connectionId: "test-connection",
+      async *stream(request) {
+        const assignedPrompt = request.messages.findLast((message) =>
+          message.role === "user" && message.content.includes("Set value to ")
+        )?.content;
+        const value = assignedPrompt?.includes("Set value to 2.") === true
+          ? 2
+          : assignedPrompt?.includes("Set value to 3.") === true
+            ? 3
+            : null;
+        if (value !== null) {
+          const key = value === 2 ? "two" : "three";
+          const readId = `candidate-${key}-read`;
+          const patchId = `candidate-${key}-patch`;
+          if (!request.messages.some((message) =>
+            message.role === "tool" && message.toolCallId === readId
+          )) {
+            yield* toolTurn(readId, "read_file", { path: "src/value.ts" });
+            return;
+          }
+          if (!request.messages.some((message) =>
+            message.role === "tool" && message.toolCallId === patchId
+          )) {
+            yield* toolTurn(patchId, "apply_patch", {
+              patch: patchTo(value),
+              files: [{ path: "src/value.ts", expected_hash: fixture.initialHash }],
+            });
+            return;
+          }
+          yield { type: "text_delta", text: "Candidate implementation complete." };
+          yield { type: "done", stopReason: "complete" };
+          return;
+        }
+        if (!request.messages.some((message) =>
+          message.role === "tool" && message.toolCallId === "delegate-conflicting-team"
+        )) {
+          yield* toolTurn("delegate-conflicting-team", "delegate_team", {
+            description: "Exercise deterministic conflict recovery",
+            tasks: [
+              { description: "Implement candidate two", prompt: "Set value to 2." },
+              { description: "Implement candidate three", prompt: "Set value to 3." },
+            ],
+            review: { instructions: "Review only if integration succeeds." },
+          });
+          return;
+        }
+        yield {
           type: "text_delta",
           text: "Parent synthesis: the conflict was reported and the parent stayed clean.",
-        },
-        { type: "done", stopReason: "complete" },
-      ],
-    ]);
+        };
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
     const harness = await createTestRuntime(fixture.root, fixture.project, provider);
     await harness.runtime.submit("/permissions approved_for_me");
     await harness.runtime.submit("/agents mode balanced_v3");
