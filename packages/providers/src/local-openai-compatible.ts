@@ -2,6 +2,7 @@ import type {
   ConnectionBoundModelProvider,
   ProviderEvent,
   ProviderRequest,
+  ProviderUsage,
   ToolCall,
 } from "@recurs/contracts";
 
@@ -272,9 +273,7 @@ async function* streamChatCompletions(
   let buffer = "";
   let bytes = 0;
   let finish: unknown = null;
-  const usage: {
-    value: { inputTokens: number; outputTokens: number } | null;
-  } = { value: null };
+  const usage: { value: ProviderUsage | null } = { value: null };
 
   const consume = function* (block: string): Generator<ProviderEvent> {
     for (const line of block.split(/\r?\n/)) {
@@ -293,9 +292,43 @@ async function* streamChatCompletions(
       if (isRecord(value.usage)) {
         const input = value.usage.prompt_tokens;
         const output = value.usage.completion_tokens;
-        if (Number.isSafeInteger(input) && Number.isSafeInteger(output) && Number(input) >= 0 && Number(output) >= 0) {
-          usage.value = { inputTokens: Number(input), outputTokens: Number(output) };
+        if (!Number.isSafeInteger(input) || !Number.isSafeInteger(output) ||
+          Number(input) < 0 || Number(output) < 0) {
+          throw new ProviderError("invalid_response", "Provider usage was invalid", false);
         }
+        const decoded: ProviderUsage = {
+          inputTokens: Number(input),
+          outputTokens: Number(output),
+        };
+        if (value.usage.prompt_tokens_details !== undefined) {
+          const details = value.usage.prompt_tokens_details;
+          if (!isRecord(details)) {
+            throw new ProviderError("invalid_response", "Provider usage was invalid", false);
+          }
+          if (details.cached_tokens !== undefined) {
+            if (!Number.isSafeInteger(details.cached_tokens) ||
+              Number(details.cached_tokens) < 0 ||
+              Number(details.cached_tokens) > decoded.inputTokens) {
+              throw new ProviderError("invalid_response", "Provider usage was invalid", false);
+            }
+            decoded.cachedInputTokens = Number(details.cached_tokens);
+          }
+        }
+        if (value.usage.completion_tokens_details !== undefined) {
+          const details = value.usage.completion_tokens_details;
+          if (!isRecord(details)) {
+            throw new ProviderError("invalid_response", "Provider usage was invalid", false);
+          }
+          if (details.reasoning_tokens !== undefined) {
+            if (!Number.isSafeInteger(details.reasoning_tokens) ||
+              Number(details.reasoning_tokens) < 0 ||
+              Number(details.reasoning_tokens) > decoded.outputTokens) {
+              throw new ProviderError("invalid_response", "Provider usage was invalid", false);
+            }
+            decoded.reasoningTokens = Number(details.reasoning_tokens);
+          }
+        }
+        usage.value = decoded;
       }
       const choice = Array.isArray(value.choices) ? value.choices[0] : undefined;
       if (!isRecord(choice)) continue;
@@ -359,11 +392,7 @@ async function* streamChatCompletions(
     yield { type: "tool_call", call };
   }
   if (usage.value !== null) {
-    yield {
-      type: "usage",
-      inputTokens: usage.value.inputTokens,
-      outputTokens: usage.value.outputTokens,
-    };
+    yield { type: "usage", ...usage.value };
   }
   yield { type: "done", stopReason: stopReason(finish, tools.size > 0) };
 }

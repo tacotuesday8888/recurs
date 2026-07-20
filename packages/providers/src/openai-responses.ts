@@ -4,6 +4,7 @@ import type {
   ProviderBackedMessage,
   ProviderEvent,
   ProviderRequest,
+  ProviderUsage,
 } from "@recurs/contracts";
 
 import { CredentialEchoGuard } from "./credential-echo-guard.js";
@@ -59,7 +60,7 @@ interface PartialOutputItem {
 
 interface DecodedCompletion {
   readonly outputItems: readonly JsonObject[];
-  readonly usage: { inputTokens: number; outputTokens: number } | null;
+  readonly usage: ProviderUsage | null;
   readonly stopReason: "complete" | "tool_calls" | "length";
 }
 
@@ -75,6 +76,68 @@ function isRecord(value: unknown): value is JsonObject {
 
 function safeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function optionalSafeInteger(
+  object: JsonObject,
+  key: string,
+): number | undefined {
+  const value = object[key];
+  if (value === undefined) return undefined;
+  if (!safeInteger(value)) throw invalid("OpenAI returned invalid usage telemetry");
+  return value;
+}
+
+function decodeUsage(value: unknown): ProviderUsage {
+  if (!isRecord(value) || !safeInteger(value.input_tokens) ||
+    !safeInteger(value.output_tokens)) {
+    throw invalid("OpenAI returned invalid usage telemetry");
+  }
+  const usage: ProviderUsage = {
+    inputTokens: value.input_tokens,
+    outputTokens: value.output_tokens,
+  };
+  if (value.total_tokens !== undefined) {
+    const total = usage.inputTokens + usage.outputTokens;
+    if (!safeInteger(value.total_tokens) || !safeInteger(total) || value.total_tokens !== total) {
+      throw invalid("OpenAI returned invalid usage telemetry");
+    }
+  }
+  if (value.input_tokens_details !== undefined) {
+    if (!isRecord(value.input_tokens_details)) {
+      throw invalid("OpenAI returned invalid usage telemetry");
+    }
+    const cachedInputTokens = optionalSafeInteger(
+      value.input_tokens_details,
+      "cached_tokens",
+    );
+    const cacheWriteInputTokens = optionalSafeInteger(
+      value.input_tokens_details,
+      "cache_write_tokens",
+    );
+    if (cachedInputTokens !== undefined) usage.cachedInputTokens = cachedInputTokens;
+    if (cacheWriteInputTokens !== undefined) {
+      usage.cacheWriteInputTokens = cacheWriteInputTokens;
+    }
+    const accounted = (cachedInputTokens ?? 0) + (cacheWriteInputTokens ?? 0);
+    if (!safeInteger(accounted) || accounted > usage.inputTokens) {
+      throw invalid("OpenAI returned invalid usage telemetry");
+    }
+  }
+  if (value.output_tokens_details !== undefined) {
+    if (!isRecord(value.output_tokens_details)) {
+      throw invalid("OpenAI returned invalid usage telemetry");
+    }
+    const reasoningTokens = optionalSafeInteger(
+      value.output_tokens_details,
+      "reasoning_tokens",
+    );
+    if ((reasoningTokens ?? 0) > usage.outputTokens) {
+      throw invalid("OpenAI returned invalid usage telemetry");
+    }
+    if (reasoningTokens !== undefined) usage.reasoningTokens = reasoningTokens;
+  }
+  return usage;
 }
 
 function validIdentifier(value: unknown, maximum = 256): value is string {
@@ -476,12 +539,7 @@ class ResponsesDecoder {
     }
     let usage: DecodedCompletion["usage"] = null;
     if (response.usage !== undefined && response.usage !== null) {
-      if (!isRecord(response.usage) || !safeInteger(response.usage.input_tokens) ||
-        !safeInteger(response.usage.output_tokens)) throw invalid();
-      usage = {
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-      };
+      usage = decodeUsage(response.usage);
     }
     let stopReason: DecodedCompletion["stopReason"] = this.#items.some(
       (item) => item.type === "function_call",

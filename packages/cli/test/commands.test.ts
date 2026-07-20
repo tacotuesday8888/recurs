@@ -232,11 +232,19 @@ describe("foundation slash commands", () => {
   it("reports status, cancellation, help, aliases, and unknown commands", async () => {
     const registry = createCommandRegistry();
     const cancel = vi.fn(async () => true);
-    const context = commandContext({}, vi.fn(async () => true), cancel);
+    const context = commandContext({
+      usage: {
+        inputTokens: 20,
+        outputTokens: 8,
+        cachedInputTokens: 12,
+        cacheWriteInputTokens: 2,
+        reasoningTokens: 4,
+      },
+    }, vi.fn(async () => true), cancel);
 
     expect(await registry.execute("/status", context)).toMatchObject({
       text: expect.stringMatching(
-        /Reasoning effort: provider default[\s\S]*Ask Always[\s\S]*Context limits: unknown/u,
+        /Reasoning effort: provider default[\s\S]*Ask Always[\s\S]*Usage detail: 12 cached input \/ 2 cache-write input \/ 4 reasoning tokens \(provider-reported\)[\s\S]*Context limits: unknown/u,
       ),
     });
     expect(await registry.execute("/help", context)).toMatchObject({

@@ -99,11 +99,21 @@ struct BrokerOpenAIGenerationWireCodec: Sendable {
           ],
         ]
       case .usage(let usage):
-        object = [
+        var usageObject: [String: Any] = [
           "type": "usage",
           "inputTokens": usage.inputTokens,
           "outputTokens": usage.outputTokens,
         ]
+        if let cached = usage.cachedInputTokens {
+          usageObject["cachedInputTokens"] = cached
+        }
+        if let write = usage.cacheWriteTokens {
+          usageObject["cacheWriteInputTokens"] = write
+        }
+        if let reasoning = usage.reasoningTokens {
+          usageObject["reasoningTokens"] = reasoning
+        }
+        object = usageObject
       case .done(let reason):
         return try encodeDone(reason)
       }

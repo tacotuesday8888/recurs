@@ -83,7 +83,7 @@ export type ProviderEvent =
   | { type: "reasoning_delta"; text: string }
   | { type: "tool_call"; call: ToolCall }
   | { type: "provider_state"; handle: DirectContinuationHandle }
-  | { type: "usage"; inputTokens: number; outputTokens: number }
+  | ({ type: "usage" } & ProviderUsage)
   | { type: "done"; stopReason: StopReason };
 
 export interface ModelProvider {

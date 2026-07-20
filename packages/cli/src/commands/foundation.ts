@@ -60,6 +60,17 @@ function createStatusCommand(): Command {
       const modelLimits = context.session.backend.type === "pinned"
         ? context.session.backend.pin.modelLimitsAtCreation
         : undefined;
+      const usageDetail = [
+        context.session.usage.cachedInputTokens === undefined
+          ? null
+          : `${context.session.usage.cachedInputTokens} cached input`,
+        context.session.usage.cacheWriteInputTokens === undefined
+          ? null
+          : `${context.session.usage.cacheWriteInputTokens} cache-write input`,
+        context.session.usage.reasoningTokens === undefined
+          ? null
+          : `${context.session.usage.reasoningTokens} reasoning`,
+      ].filter((value): value is string => value !== null);
       return message(
         [
           `Session: ${context.session.id}`,
@@ -77,6 +88,9 @@ function createStatusCommand(): Command {
           `Agent mode: ${agentMode}`,
           `Goal: ${goal}`,
           `Usage: ${context.session.usage.inputTokens} input / ${context.session.usage.outputTokens} output tokens`,
+          ...(usageDetail.length === 0
+            ? []
+            : [`Usage detail: ${usageDetail.join(" / ")} tokens (provider-reported)`]),
           `Context limits: ${modelLimits === undefined
             ? "unknown"
             : `${modelLimits.maxInputTokens} input / ${modelLimits.maxOutputTokens ?? "unknown"} output tokens (provider verified)`}`,

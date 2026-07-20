@@ -354,9 +354,19 @@ export function isUsage(value: unknown): boolean {
   )) {
     return false;
   }
-  return Object.values(value).every((item) =>
-    typeof item === "number" && Number.isFinite(item) && item >= 0
-  );
+  const tokenFields = [
+    "inputTokens", "outputTokens", "cachedInputTokens",
+    "cacheWriteInputTokens", "reasoningTokens",
+  ] as const;
+  if (tokenFields.some((field) =>
+    value[field] !== undefined &&
+    (!Number.isSafeInteger(value[field]) || Number(value[field]) < 0)
+  )) {
+    return false;
+  }
+  return value.costUsd === undefined ||
+    typeof value.costUsd === "number" &&
+      Number.isFinite(value.costUsd) && value.costUsd >= 0;
 }
 
 const failureDomains = new Set([

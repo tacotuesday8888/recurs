@@ -94,7 +94,14 @@ describe("native authority OpenAI generation stream", () => {
       if (frame.type === NativeMessageType.health) peer.respond(health(frame));
       if (frame.type === NativeMessageType.openAIGenerationRequest) {
         peer.respond(generation(frame, { type: "text_delta", text: "hello" }));
-        peer.respond(generation(frame, { type: "usage", inputTokens: 2, outputTokens: 1 }));
+        peer.respond(generation(frame, {
+          type: "usage",
+          inputTokens: 5,
+          outputTokens: 3,
+          cachedInputTokens: 2,
+          cacheWriteInputTokens: 1,
+          reasoningTokens: 2,
+        }));
         peer.respond(generation(frame, { type: "done", stopReason: "complete" }));
       }
     });
@@ -106,10 +113,42 @@ describe("native authority OpenAI generation stream", () => {
     for await (const event of client.streamOpenAIResponses(request())) events.push(event);
     expect(events).toEqual([
       { type: "text_delta", text: "hello" },
-      { type: "usage", inputTokens: 2, outputTokens: 1 },
+      {
+        type: "usage",
+        inputTokens: 5,
+        outputTokens: 3,
+        cachedInputTokens: 2,
+        cacheWriteInputTokens: 1,
+        reasoningTokens: 2,
+      },
       { type: "done", stopReason: "complete" },
     ]);
     client.close();
+  });
+
+  it("rejects inconsistent native usage breakdowns", async () => {
+    const socket = new ScriptedDuplex((frame, peer) => {
+      if (frame.type === NativeMessageType.hello) peer.respond(hello(frame));
+      if (frame.type === NativeMessageType.health) peer.respond(health(frame));
+      if (frame.type === NativeMessageType.openAIGenerationRequest) {
+        peer.respond(generation(frame, {
+          type: "usage",
+          inputTokens: 2,
+          outputTokens: 1,
+          cachedInputTokens: 2,
+          cacheWriteInputTokens: 1,
+        }));
+      }
+    });
+    const client = await connectNativeAuthorityClient(socket, {
+      engineVersion: "0.1.0",
+      createNonce: () => nonce,
+    });
+    const consume = async () => {
+      for await (const event of client.streamOpenAIResponses(request())) void event;
+    };
+
+    await expect(consume()).rejects.toThrow("Native authority is unavailable.");
   });
 
   it("rejects malformed event bodies without exposing transport details", async () => {

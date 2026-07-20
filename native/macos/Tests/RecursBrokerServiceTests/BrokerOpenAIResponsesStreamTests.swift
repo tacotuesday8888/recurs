@@ -878,8 +878,10 @@ struct BrokerOpenAIResponsesStreamTests {
   ) -> String {
     let usageJSON: String
     if let usage {
+      let cached = usage.cachedInputTokens ?? 0
+      let reasoning = usage.reasoningTokens ?? 0
       usageJSON =
-        #", "usage":{"input_tokens":\#(usage.inputTokens),"output_tokens":\#(usage.outputTokens),"total_tokens":\#(usage.totalTokens),"input_tokens_details":{"cached_tokens":\#(usage.cachedInputTokens)\#(usage.cacheWriteTokens.map { ",\"cache_write_tokens\":\($0)" } ?? "")},"output_tokens_details":{"reasoning_tokens":\#(usage.reasoningTokens)}}"#
+        #", "usage":{"input_tokens":\#(usage.inputTokens),"output_tokens":\#(usage.outputTokens),"total_tokens":\#(usage.totalTokens),"input_tokens_details":{"cached_tokens":\#(cached)\#(usage.cacheWriteTokens.map { ",\"cache_write_tokens\":\($0)" } ?? "")},"output_tokens_details":{"reasoning_tokens":\#(reasoning)}}"#
     } else {
       usageJSON = ""
     }

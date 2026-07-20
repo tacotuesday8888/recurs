@@ -29,9 +29,9 @@ struct BrokerAnthropicMessagesTransportTests {
             inputTokens: 2,
             outputTokens: 1,
             totalTokens: 3,
-            cachedInputTokens: 0,
+            cachedInputTokens: nil,
             cacheWriteTokens: nil,
-            reasoningTokens: 0
+            reasoningTokens: nil
           )),
         .done(.complete),
       ])

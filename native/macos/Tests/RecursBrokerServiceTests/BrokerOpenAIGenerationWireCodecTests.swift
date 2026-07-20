@@ -26,11 +26,20 @@ struct BrokerOpenAIGenerationWireCodecTests {
     let handle = wireHandle()
     let text = try decodedJSON(codec.encode(.textDelta("done")))
     let refusal = try decodedJSON(codec.encode(.refusalDelta("cannot")))
+    let usage = try decodedJSON(
+      codec.encode(
+        .usage(
+          .init(
+            inputTokens: 12, outputTokens: 4, totalTokens: 16,
+            cachedInputTokens: 7, cacheWriteTokens: 2, reasoningTokens: 3))))
     let state = try decodedJSON(codec.encodeProviderState(handle))
     let done = try decodedJSON(codec.encodeDone(.toolCalls))
 
     #expect(text["type"] as? String == "text_delta")
     #expect(refusal["type"] as? String == "text_delta")
+    #expect(usage["cachedInputTokens"] as? Int == 7)
+    #expect(usage["cacheWriteInputTokens"] as? Int == 2)
+    #expect(usage["reasoningTokens"] as? Int == 3)
     #expect(state["type"] as? String == "provider_state")
     #expect(done["stopReason"] as? String == "tool_calls")
     #expect(
