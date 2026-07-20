@@ -21,7 +21,7 @@ It is not an IDE. Users may keep their editor of choice. Recurs manages the peop
 
 ## What exists now
 
-Core v0, the provider/authentication catalog foundation, and the TypeScript tool-safety precursor are implemented: a provider-neutral loop, bounded built-in and user-configured stdio MCP tools, three owned delegation primitives, three permission presets, Plan and review modes, goals, pinned version-2 sessions, cross-process mutation leases, trusted run context, direct and delegated coordinator lanes, interrupted-work recovery, compaction, checkpoints/undo, sessionless workspace shell, interactive and JSONL CLI paths, and full end-to-end coding workflows.
+Core v0, the provider/authentication catalog foundation, and the TypeScript tool-safety precursor are implemented: a provider-neutral loop, bounded built-in and user-configured stdio MCP tools, agent-owned long-running command sessions, three owned delegation primitives, three permission presets, Plan and review modes, goals, pinned version-2 sessions, cross-process mutation leases, trusted run context, direct and delegated coordinator lanes, interrupted-work recovery, compaction, checkpoints/undo, sessionless workspace shell, interactive and JSONL CLI paths, and full end-to-end coding workflows.
 
 The Recurs-owned team vertical is now durable. A parent can create one Explore, Implement, or Review child, run a bounded foreground Explore/Review batch, or ask `delegate_team` to run up to four isolated Implement workers followed by strict Review and bounded finding-driven Repair. Version-5 Economy through Max policies combine quality, team width, reviewers, repair rounds, child/request limits, concurrency, depth, retries, reported-cost ceilings, and eligible billing classes. Users can explicitly assign Implement, Review, and Repair to saved direct-model connections; Recurs revalidates those connections, freezes the selected backend evidence per run, and falls back to the parent when policy or availability makes an assignment ineligible. All candidate work stays in private staging until approval. Foreground applies an approved candidate through a two-phase checkpoint transaction; process-lifetime background stops at `ready_to_apply` for explicit control. A sequenced journal, cross-process owner leases, truthful interruption/resume, startup recovery, normalized events, `/agents` controls, and model control tools make lifecycle and evidence inspectable. Recursion, automatic task decomposition, automatic model ranking, a persistent daemon, dirty-parent snapshots, and auto-commit/push/deploy remain intentionally absent.
 
@@ -52,11 +52,11 @@ Additional providers and delegated runtimes remain provider-specific integration
 The durable parent/child and team-run contracts, exact worker profiles, shared budgets, foreground and process-lifetime background delegation, normalized activity, isolated staging, strict Review, bounded Repair, explicit apply, ownership fencing, and restart recovery are implemented. Continue the primary product differentiator with:
 
 - capability- and price-aware routing beyond the explicit saved role assignments, without brand ranking or silent secondary spend;
-- an enforceable process/filesystem/network boundary before persistent or unattended arbitrary-command workers;
+- Windows containment and a reviewed Linux syscall policy before claiming cross-platform unattended arbitrary-command workers;
 - a separately designed durable worker host if work must continue after the CLI exits;
 - a company-level operating view over the existing goals, modes, budgets, cancellation, handoffs, review, repair, and normalized activity stream.
 
-Before unattended local workers run arbitrary commands, add an enforceable process/filesystem/network isolation layer.
+Current process-lifetime workers remain bounded to the CLI lifetime. Any worker that must survive it needs a separately authenticated durable host rather than a detached CLI child.
 
 ### 3. Product surfaces and ecosystem
 

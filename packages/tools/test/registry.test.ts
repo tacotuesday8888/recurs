@@ -4,6 +4,7 @@ import type { ToolCall } from "@recurs/providers";
 
 import {
   type CheckpointStore,
+  OwnedProcessManager,
   PermissionEngine,
   ToolError,
   ToolRegistry,
@@ -11,6 +12,7 @@ import {
   createGitDiffTool,
   createGitStatusTool,
   createListFilesTool,
+  createProcessSessionTool,
   createReadFileTool,
   createRunCommandTool,
   createSearchTextTool,
@@ -77,6 +79,7 @@ const deny: ApprovalHandler = {
 
 describe("ToolRegistry", () => {
   it("records the actual execution class of every built-in tool", () => {
+    const processes = new OwnedProcessManager();
     expect([
       createReadFileTool(),
       createListFilesTool(),
@@ -85,6 +88,7 @@ describe("ToolRegistry", () => {
       createGitStatusTool(),
       createGitDiffTool(),
       createRunCommandTool(),
+      createProcessSessionTool(processes),
     ].map((tool) => [
       tool.definition.name,
       tool.executionClass,
@@ -97,6 +101,7 @@ describe("ToolRegistry", () => {
       ["git_status", "fixed_process", true],
       ["git_diff", "fixed_process", true],
       ["run_command", "arbitrary_process", false],
+      ["process_session", "arbitrary_process", false],
     ]);
   });
 

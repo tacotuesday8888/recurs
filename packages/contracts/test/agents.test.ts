@@ -55,6 +55,7 @@ describe("agent profile contracts", () => {
       "search_text",
       "apply_patch",
       "run_command",
+      "process_session",
       "run_verification",
       "git_status",
       "git_diff",

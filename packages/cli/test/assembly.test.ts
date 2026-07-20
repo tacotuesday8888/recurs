@@ -1,6 +1,13 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdtemp, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -185,6 +192,23 @@ function localContext(): TrustedRunContext {
     automation: "manual",
     embedding: "cli",
   };
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ESRCH"
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 afterEach(async () => {
@@ -1483,6 +1507,7 @@ describe("standalone assembly without a provider", () => {
       "search_text",
       "apply_patch",
       "run_command",
+      "process_session",
       "run_verification",
       "git_status",
       "git_diff",
@@ -1505,6 +1530,69 @@ describe("standalone assembly without a provider", () => {
       .toContain("second project policy");
     expect(JSON.stringify(provider.requests[1]?.messages))
       .not.toContain("first project policy");
+  });
+
+  it("owns yielded commands until runtime close and then terminates them", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-process-owner-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    await execFileAsync("git", ["init"], { cwd: workspace });
+    const pidPath = path.join(workspace, "owned.pid");
+    const script = [
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));`,
+      "process.stdout.write('ready\\n');",
+      "process.stdin.resume();",
+    ].join("");
+    const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "owned-process-call",
+            name: "run_command",
+            arguments: {
+              command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`,
+              timeoutMs: 30_000,
+              yieldTimeMs: 250,
+            },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "Background command started." },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        skillHomeDirectory: path.join(root, "home"),
+        provider,
+        permissionMode: "full_access",
+      },
+    );
+    let pid: number | undefined;
+    try {
+      await expect(runtime.submit("start the watcher")).resolves.toMatchObject({
+        finalText: "Background command started.",
+      });
+      expect(provider.requests[1]?.messages.findLast(
+        (message) => message.role === "tool",
+      )?.content).toContain("ready");
+      pid = Number.parseInt(await readFile(pidPath, "utf8"), 10);
+      expect(processExists(pid)).toBe(true);
+
+      await runtime.close();
+      expect(processExists(pid)).toBe(false);
+    } finally {
+      await runtime.close().catch(() => {});
+      if (pid !== undefined && processExists(pid)) process.kill(pid, "SIGKILL");
+    }
   });
 
   it("routes exact v4 team calls through the assembled durable supervisor", async () => {

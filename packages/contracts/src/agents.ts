@@ -89,7 +89,8 @@ export const agentProfilePolicies: readonly AgentProfilePolicy[] = Object.freeze
     false,
     [
       "read_file", "list_files", "search_text", "apply_patch",
-      "run_command", "run_verification", "git_status", "git_diff",
+      "run_command", "process_session", "run_verification",
+      "git_status", "git_diff",
     ],
     ["read", "write", "shell"],
     "elevated",
