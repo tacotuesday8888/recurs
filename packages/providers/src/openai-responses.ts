@@ -24,6 +24,7 @@ const MAX_TOOL_SCHEMA_BYTES = 64 * 1024;
 const MAX_STORED_BYTES = 64 * 1024 * 1024;
 const MAX_STORED_HANDLES = 512;
 const MAX_OUTPUT_TOKENS = 8_192;
+const MAX_ERROR_BODY_BYTES = 64 * 1024;
 const REASONING_EFFORTS = new Set([
   "none",
   "low",
@@ -170,7 +171,87 @@ function requestFailure(signal: AbortSignal): ProviderError {
     : new ProviderError("transport", "Could not reach OpenAI", true);
 }
 
-function responseFailure(response: Response): ProviderError {
+function responseCodeFailure(code: string): ProviderError {
+  switch (code) {
+    case "context_length_exceeded":
+      return new ProviderError(
+        "context_overflow",
+        "OpenAI context limit exceeded",
+        false,
+      );
+    case "rate_limit_exceeded":
+      return new ProviderError("rate_limit", "OpenAI rate limit reached", true);
+    case "server_error":
+      return new ProviderError("transport", "OpenAI failed to complete the response", true);
+    default:
+      return new ProviderError(
+        "transport",
+        "OpenAI failed to complete the response",
+        false,
+      );
+  }
+}
+
+function machineErrorCode(value: unknown): string | null {
+  const error = isRecord(value) && isRecord(value.error) ? value.error : value;
+  return isRecord(error) &&
+      typeof error.code === "string" &&
+      /^[a-z0-9_.-]{1,128}$/iu.test(error.code)
+    ? error.code
+    : null;
+}
+
+async function httpErrorCode(
+  response: Response,
+  credential: string,
+  signal: AbortSignal,
+): Promise<string | null> {
+  if (!response.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
+    return null;
+  }
+  const declaredBytes = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredBytes) && declaredBytes > MAX_ERROR_BODY_BYTES) {
+    await response.body?.cancel();
+    return null;
+  }
+  const reader = response.body?.getReader();
+  if (reader === undefined) return null;
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const echoGuard = new CredentialEchoGuard(credential);
+  let bytes = 0;
+  let text = "";
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      echoGuard.inspect(chunk.value);
+      bytes += chunk.value.byteLength;
+      if (bytes > MAX_ERROR_BODY_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    text += decoder.decode();
+  } catch (error) {
+    if (error instanceof ProviderError) throw error;
+    if (signal.aborted) throw requestFailure(signal);
+    return null;
+  } finally {
+    reader.releaseLock();
+  }
+  try {
+    return machineErrorCode(JSON.parse(text));
+  } catch {
+    return null;
+  }
+}
+
+async function responseFailure(
+  response: Response,
+  credential: string,
+  signal: AbortSignal,
+): Promise<ProviderError> {
   if (response.status === 401 || response.status === 403) {
     return new ProviderError("authentication", "OpenAI authentication failed", false);
   }
@@ -187,6 +268,10 @@ function responseFailure(response: Response): ProviderError {
   }
   if (response.status >= 300 && response.status < 400) {
     return new ProviderError("transport", "OpenAI attempted an unsupported redirect", false);
+  }
+  if (response.status === 400 || response.status === 422) {
+    const code = await httpErrorCode(response, credential, signal);
+    if (code !== null) return responseCodeFailure(code);
   }
   return new ProviderError(
     "transport",
@@ -425,8 +510,12 @@ class ResponsesDecoder {
       case "response.incomplete":
         return this.#complete(event, true);
       case "response.failed":
-      case "error":
-        throw new ProviderError("transport", "OpenAI failed to complete the response", false);
+        throw this.#responseFailure(event);
+      case "error": {
+        const code = machineErrorCode(event);
+        if (code === null || typeof event.message !== "string") throw invalid();
+        throw responseCodeFailure(code);
+      }
       default:
         throw invalid();
     }
@@ -554,6 +643,14 @@ class ResponsesDecoder {
     this.#completion = { outputItems: [...this.#outputItems], usage, stopReason };
     this.#terminal = true;
     return [];
+  }
+
+  #responseFailure(event: JsonObject): ProviderError {
+    const response = this.#assertResponse(event.response, "failed");
+    const code = machineErrorCode(response.error);
+    if (code === null || !isRecord(response.error) ||
+      typeof response.error.message !== "string") throw invalid();
+    return responseCodeFailure(code);
   }
 }
 
@@ -687,7 +784,9 @@ export class RemoteOpenAIResponsesProvider implements ConnectionBoundModelProvid
       if (error instanceof ProviderError) throw error;
       throw requestFailure(request.signal);
     }
-    if (!response.ok) throw responseFailure(response);
+    if (!response.ok) {
+      throw await responseFailure(response, this.#apiKey, request.signal);
+    }
     if (!response.headers.get("content-type")?.toLowerCase().startsWith("text/event-stream")) {
       throw invalid("OpenAI response had an invalid content type");
     }

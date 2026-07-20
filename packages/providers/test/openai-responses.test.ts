@@ -613,4 +613,114 @@ describe("RemoteOpenAIResponsesProvider", () => {
       signal: controller.signal,
     })).rejects.toMatchObject({ code: "cancelled", retryable: false });
   });
+
+  it("maps a bounded HTTP context code without exposing the provider body", async () => {
+    const canary = "hostile-http-error-canary";
+    const provider = new RemoteOpenAIResponsesProvider({
+      connectionId: "openai-env",
+      apiKey: "private-openai-key",
+      fetch: async () => new Response(JSON.stringify({
+        error: {
+          code: "context_length_exceeded",
+          type: "invalid_request_error",
+          message: canary,
+        },
+      }), {
+        status: 400,
+        headers: { "content-type": "application/json; charset=utf-8" },
+      }),
+    });
+
+    let thrown: unknown;
+    try {
+      await collect(provider, request("turn-http-overflow", [
+        { id: "user", role: "user", content: "work" },
+      ]));
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      code: "context_overflow",
+      retryable: false,
+      message: "OpenAI context limit exceeded",
+    });
+    expect(String(thrown)).not.toContain(canary);
+  });
+
+  it("maps strict streamed failure codes and rejects malformed failures", async () => {
+    for (const [code, expectedCode, retryable] of [
+      ["context_length_exceeded", "context_overflow", false],
+      ["rate_limit_exceeded", "rate_limit", true],
+      ["server_error", "transport", true],
+      ["unknown_failure", "transport", false],
+    ] as const) {
+      const provider = new RemoteOpenAIResponsesProvider({
+        connectionId: "openai-env",
+        apiKey: "private-openai-key",
+        fetch: async () => response([
+          event(0, "response.created", {
+            response: { id: "resp_failed", status: "in_progress", output: [] },
+          }),
+          event(1, "response.failed", {
+            response: {
+              id: "resp_failed",
+              status: "failed",
+              output: [],
+              error: { code, message: "untrusted provider detail" },
+            },
+          }),
+        ]),
+      });
+      await expect(collect(provider, request(`turn-${code}`, [
+        { id: "user", role: "user", content: "work" },
+      ]))).rejects.toMatchObject({ code: expectedCode, retryable });
+    }
+
+    const malformed = new RemoteOpenAIResponsesProvider({
+      connectionId: "openai-env",
+      apiKey: "private-openai-key",
+      fetch: async () => response([
+        event(0, "response.created", {
+          response: { id: "resp_failed", status: "in_progress", output: [] },
+        }),
+        event(1, "response.failed", {
+          response: {
+            id: "different",
+            status: "failed",
+            error: { code: "context_length_exceeded", message: "detail" },
+          },
+        }),
+      ]),
+    });
+    await expect(collect(malformed, request("turn-malformed", [
+      { id: "user", role: "user", content: "work" },
+    ]))).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("rejects credential echo while reading a structured HTTP error", async () => {
+    const key = "split-http-private-key";
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(
+          '{"error":{"code":"context_length_exceeded","message":"split-http-',
+        ));
+        controller.enqueue(new TextEncoder().encode('private-key"}}'));
+        controller.close();
+      },
+    });
+    const provider = new RemoteOpenAIResponsesProvider({
+      connectionId: "openai-env",
+      apiKey: key,
+      fetch: async () => new Response(body, {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      }),
+    });
+    await expect(collect(provider, request("turn-echo", [
+      { id: "user", role: "user", content: "work" },
+    ]))).rejects.toMatchObject({
+      code: "invalid_response",
+      message: "Provider response contained credential material",
+    });
+  });
 });
