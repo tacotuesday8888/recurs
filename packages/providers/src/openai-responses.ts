@@ -23,6 +23,14 @@ const MAX_TOOL_SCHEMA_BYTES = 64 * 1024;
 const MAX_STORED_BYTES = 64 * 1024 * 1024;
 const MAX_STORED_HANDLES = 512;
 const MAX_OUTPUT_TOKENS = 8_192;
+const REASONING_EFFORTS = new Set([
+  "none",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
 
 type Fetch = typeof globalThis.fetch;
 type JsonObject = Record<string, unknown>;
@@ -541,8 +549,17 @@ function requestBody(
       throw invalid("OpenAI tool definition is invalid");
     }
   }
+  if (
+    request.reasoningEffort !== undefined &&
+    !REASONING_EFFORTS.has(request.reasoningEffort)
+  ) {
+    throw invalid("OpenAI reasoning effort is invalid");
+  }
   return {
     model: request.model,
+    ...(request.reasoningEffort === undefined
+      ? {}
+      : { reasoning: { effort: request.reasoningEffort } }),
     input,
     tools: request.tools.map((tool) => ({
       type: "function",

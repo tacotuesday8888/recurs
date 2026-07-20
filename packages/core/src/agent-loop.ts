@@ -1027,6 +1027,12 @@ async function runAgentLoopUnlocked(
 
       const request: ProviderRequest = {
         model: state.model,
+        ...(state.backend.pin.reasoningEffortAtCreation === undefined
+          ? {}
+          : {
+              reasoningEffort:
+                state.backend.pin.reasoningEffortAtCreation,
+            }),
         messages: [
           systemContextMessage(
             executionState(),

@@ -297,6 +297,10 @@ function modelSelectionOption(
     label: connection.label,
     providerId: connection.providerId,
     modelId: connection.modelId,
+    ...(connection.kind === "environment_model_provider" &&
+        connection.reasoningEffort !== undefined
+      ? { reasoningEffort: connection.reasoningEffort }
+      : {}),
     primary: connection.id === primaryConnectionId,
     execution: connection.kind === "delegated_agent" &&
         connection.adapterId === "codex-acp"
@@ -371,6 +375,9 @@ function savedEnvironmentBackendPin(
     adapterId: connection.adapterId,
     connectionId: connection.id,
     modelId: connection.modelId,
+    ...(connection.reasoningEffort === undefined
+      ? {}
+      : { reasoningEffortAtCreation: connection.reasoningEffort }),
     ...(connection.modelLimits === undefined
       ? {}
       : { modelLimitsAtCreation: structuredClone(connection.modelLimits) }),

@@ -286,6 +286,27 @@ describe("AgentLoop", () => {
     expect(events.some((event) => "version" in event)).toBe(false);
   });
 
+  it("sends the immutable session reasoning effort on every model step", async () => {
+    const provider = new ScriptedProvider([
+      toolTurn("effort-tool", "continue"),
+      [{ type: "text_delta", text: "done" }, { type: "done", stopReason: "complete" }],
+    ]);
+    const { loop } = await harness(provider, [echoTool()], {
+      async request() { return "allow_once"; },
+    }, {
+      ...testBackendPin(),
+      reasoningEffortAtCreation: "max",
+    });
+
+    await loop.run({ sessionId: "s1", prompt: "work" });
+
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests.map((item) => item.reasoningEffort)).toEqual([
+      "max",
+      "max",
+    ]);
+  });
+
   it("does not present missing provider usage telemetry as a measured zero", async () => {
     const provider = new ScriptedProvider([[
       { type: "text_delta", text: "done without usage" },

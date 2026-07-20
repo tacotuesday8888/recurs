@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -100,6 +100,7 @@ describe("saved environment BYOK connections", () => {
       modelId: "gpt-5.6-terra",
       credentialEnvironmentVariable: "OPENAI_API_KEY",
       billingSelection: "strict_primary_only",
+      reasoningEffort: "max",
       environment: { OPENAI_API_KEY: key },
       now: AT,
     }, {
@@ -108,6 +109,7 @@ describe("saved environment BYOK connections", () => {
 
     const storedText = await readFile(connectionRegistryPath(directory), "utf8");
     expect(storedText).not.toContain(key);
+    expect(configured.reasoningEffort).toBe("max");
     expect((await new FileConnectionRegistry(directory).read()).connections)
       .toEqual([
         expect.objectContaining({
@@ -116,8 +118,36 @@ describe("saved environment BYOK connections", () => {
           providerId: "openai-api",
           adapterId: "openai-responses",
           modelId: "gpt-5.6-terra",
+          reasoningEffort: "max",
         }),
       ]);
+  });
+
+  it("rejects a tampered saved reasoning effort outside the reviewed model profile", async () => {
+    const directory = await root();
+    const filename = connectionRegistryPath(directory);
+    await setupEnvironmentConnection(directory, {
+      providerId: "openai-api",
+      modelId: "gpt-5.6-terra",
+      credentialEnvironmentVariable: "OPENAI_API_KEY",
+      billingSelection: "strict_primary_only",
+      reasoningEffort: "max",
+      environment: { OPENAI_API_KEY: "openai-private-value" },
+      now: AT,
+    }, {
+      fetch: async () => openAIModels("gpt-5.6-terra"),
+    });
+    const stored = JSON.parse(await readFile(filename, "utf8")) as {
+      connections: Array<Record<string, unknown>>;
+    };
+    stored.connections[0]!.reasoningEffort = "minimal";
+    await writeFile(filename, `${JSON.stringify(stored)}\n`, "utf8");
+
+    await expect(new FileConnectionRegistry(directory).read()).rejects
+      .toMatchObject({
+        code: "registry_invalid",
+        message: "Connection registry is invalid",
+      });
   });
 
   it("does not invent model limits when the authenticated catalog omits them", async () => {
@@ -337,6 +367,17 @@ describe("saved environment BYOK connections", () => {
       ...base,
       providerId: "zai-glm-coding-plan",
     })).rejects.toMatchObject({ code: "provider_unsupported" });
+    await expect(setupEnvironmentConnection(directory, {
+      ...base,
+      providerId: "openrouter-api",
+      reasoningEffort: "high",
+    })).rejects.toMatchObject({ code: "configuration_invalid" });
+    await expect(setupEnvironmentConnection(directory, {
+      ...base,
+      providerId: "openai-api",
+      modelId: "gpt-5.6-terra",
+      reasoningEffort: "minimal",
+    })).rejects.toMatchObject({ code: "configuration_invalid" });
     await expect(setupEnvironmentConnection(directory, {
       ...base,
       providerId: "openrouter-api",

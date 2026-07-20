@@ -32,6 +32,15 @@ export interface ProviderUsage {
   costUsd?: number;
 }
 
+export type ModelReasoningEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
 export type StopReason =
   | "complete"
   | "tool_calls"
@@ -44,6 +53,7 @@ export interface ProviderRequest {
   messages: readonly ModelMessage[];
   tools: readonly ToolDefinition[];
   signal: AbortSignal;
+  reasoningEffort?: ModelReasoningEffort;
   directContext?: DirectProviderRunContext;
 }
 

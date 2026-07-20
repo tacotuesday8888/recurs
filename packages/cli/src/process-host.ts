@@ -16,6 +16,7 @@ import {
   type NativeAuthorityPort,
   type NativeAuthorityStatus,
   type NativeOpenAIResponsesPort,
+  type ModelReasoningEffort,
   type TeamRunRole,
 } from "@recurs/contracts";
 import {
@@ -112,7 +113,7 @@ Usage:
   recurs run <prompt> [--format text|jsonl] [--permissions ask|approved|full]
   recurs acp                     Serve Recurs over ACP on stdio
   recurs setup local --url <loopback-url> --model <model-id>
-  recurs setup byok --provider <id> --model <id> --key-env <ENV> [--billing strict|allow-additional]
+  recurs setup byok --provider <id> --model <id> --key-env <ENV> [--billing strict|allow-additional] [--reasoning-effort none|low|medium|high|xhigh|max]
   recurs setup codex             Connect an existing ChatGPT Codex subscription
   recurs setup openai [--model <exact-id>]
   recurs setup openai --recover  Reconcile interrupted OpenAI API setup
@@ -186,6 +187,7 @@ export interface CliDependencies {
     modelId: string;
     credentialEnvironmentVariable: string;
     billingSelection: "strict_primary_only" | "allow_declared_additional";
+    reasoningEffort?: ModelReasoningEffort;
   }): Promise<EnvironmentConnectionConfiguration>;
   listProviders?(input: {
     includeBlocked: boolean;
@@ -309,9 +311,18 @@ interface ByokSetupArguments {
   readonly billingSelection:
     | "strict_primary_only"
     | "allow_declared_additional";
+  readonly reasoningEffort?: ModelReasoningEffort;
 }
 
 const SAFE_BYOK_PROVIDER_ID = /^[a-z0-9][a-z0-9-]{0,127}$/u;
+const BYOK_REASONING_EFFORTS = new Set<ModelReasoningEffort>([
+  "none",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
 function parseByokSetupArguments(
   args: readonly string[],
 ): ByokSetupArguments | null {
@@ -321,6 +332,7 @@ function parseByokSetupArguments(
   let credentialEnvironmentVariable: string | undefined;
   let billingSelection: ByokSetupArguments["billingSelection"] =
     "strict_primary_only";
+  let reasoningEffort: ModelReasoningEffort | undefined;
   let billingProvided = false;
   for (let index = 1; index < args.length; index += 2) {
     const flag = args[index];
@@ -339,6 +351,12 @@ function parseByokSetupArguments(
       else if (value === "allow-additional") {
         billingSelection = "allow_declared_additional";
       } else return null;
+    } else if (
+      flag === "--reasoning-effort" &&
+      reasoningEffort === undefined &&
+      BYOK_REASONING_EFFORTS.has(value as ModelReasoningEffort)
+    ) {
+      reasoningEffort = value as ModelReasoningEffort;
     } else return null;
   }
   return providerId === undefined || modelId === undefined ||
@@ -352,6 +370,7 @@ function parseByokSetupArguments(
         modelId,
         credentialEnvironmentVariable,
         billingSelection,
+        ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
       };
 }
 
@@ -1170,6 +1189,9 @@ export async function runCli(
         byokCommand.billingSelection === "strict_primary_only"
           ? "Only the provider policy's primary billing source is acknowledged."
           : "All billing sources declared by the reviewed provider policy are acknowledged.",
+        ...(byokCommand.reasoningEffort === undefined
+          ? ["Reasoning effort remains at the provider default."]
+          : [`Reasoning effort ${byokCommand.reasoningEffort} will be pinned into new sessions.`]),
         "The provider validates and bills the credential when a model request runs.",
       ].join("\n"));
       if (!accepted) {
@@ -1183,7 +1205,7 @@ export async function runCli(
         const connection = await dependencies.setupEnvironment(byokCommand);
         await writeOutput(
           dependencies.stdout,
-          `Ready — ${connection.label} · ${connection.modelId}\nProvider: ${connection.providerId}\nCredential: ${connection.credentialEnvironmentVariable} (value not stored; fingerprint bound)\nBilling: ${connection.billingSelection}\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it, or recurs account route implement ${connection.id} to assign team work\n`}`,
+          `Ready — ${connection.label} · ${connection.modelId}\nProvider: ${connection.providerId}\nReasoning effort: ${connection.reasoningEffort ?? "provider default"}\nCredential: ${connection.credentialEnvironmentVariable} (value not stored; fingerprint bound)\nBilling: ${connection.billingSelection}\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it, or recurs account route implement ${connection.id} to assign team work\n`}`,
         );
         return 0;
       } catch (error) {

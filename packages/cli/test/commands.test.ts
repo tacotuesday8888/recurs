@@ -235,7 +235,9 @@ describe("foundation slash commands", () => {
     const context = commandContext({}, vi.fn(async () => true), cancel);
 
     expect(await registry.execute("/status", context)).toMatchObject({
-      text: expect.stringMatching(/Ask Always[\s\S]*Context limits: unknown/u),
+      text: expect.stringMatching(
+        /Reasoning effort: provider default[\s\S]*Ask Always[\s\S]*Context limits: unknown/u,
+      ),
     });
     expect(await registry.execute("/help", context)).toMatchObject({
       text: expect.stringMatching(/\/goal[\s\S]*\/agents \[profiles\|mode name\]/u),

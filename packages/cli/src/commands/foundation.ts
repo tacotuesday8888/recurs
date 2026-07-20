@@ -68,6 +68,10 @@ function createStatusCommand(): Command {
           ]),
           `Workspace: ${context.session.cwd}`,
           `Model: ${context.session.model}`,
+          `Reasoning effort: ${context.session.backend.type === "pinned"
+            ? context.session.backend.pin.reasoningEffortAtCreation ??
+              "provider default"
+            : "provider default"}`,
           `Execution: ${context.session.executionMode === "plan" ? "Plan" : "Act"}`,
           `Permissions: ${permissionLabel(context.session.permissionMode)}`,
           `Agent mode: ${agentMode}`,

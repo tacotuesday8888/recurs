@@ -711,6 +711,50 @@ describe("standalone assembly without a provider", () => {
     }
   });
 
+  it("pins and reports a saved OpenAI reasoning effort without changing the credential boundary", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-saved-effort-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    const key = "saved-openai-effort-key-canary";
+    const connection = await setupEnvironmentConnection(dataDirectory, {
+      providerId: "openai-api",
+      modelId: "gpt-5.6-sol",
+      reasoningEffort: "max",
+      credentialEnvironmentVariable: "OPENAI_API_KEY",
+      billingSelection: "strict_primary_only",
+      environment: { OPENAI_API_KEY: key },
+      now: "2026-07-20T00:00:00.000Z",
+    }, {
+      fetch: async () => new Response(JSON.stringify({
+        object: "list",
+        data: [{ id: "gpt-5.6-sol", object: "model" }],
+      })),
+    });
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory,
+        environment: { OPENAI_API_KEY: key },
+      },
+    );
+
+    expect(runtime.session.backend.pin).toMatchObject({
+      connectionId: connection.id,
+      modelId: "gpt-5.6-sol",
+      reasoningEffortAtCreation: "max",
+    });
+    expect(await runtime.submit("/status")).toMatchObject({
+      text: expect.stringContaining("Reasoning effort: max"),
+    });
+    expect(await runtime.submit("/model")).toMatchObject({
+      text: expect.stringContaining("effort: max"),
+    });
+    expect(JSON.stringify(runtime.session)).not.toContain(key);
+  });
+
   it("reopens the canonical parent instead of newer non-root or other-cwd sessions", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-root-session-"));
     directories.push(root);

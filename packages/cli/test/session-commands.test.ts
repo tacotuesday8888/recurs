@@ -635,6 +635,7 @@ describe("session commands", () => {
       label: "Second model",
       providerId: "second-provider",
       modelId: "second-model",
+      reasoningEffort: "high" as const,
       primary: false,
       execution: "Act + Plan" as const,
       billingSources: ["metered_api" as const],
@@ -660,7 +661,7 @@ describe("session commands", () => {
     });
     expect(commandContext.session.id).toBe("model-switched");
     expect(confirm).toHaveBeenCalledWith(expect.stringMatching(
-      /second-provider\/second-model[\s\S]*Billing: metered_api[\s\S]*primary connection will remain unchanged/u,
+      /second-provider\/second-model[\s\S]*Billing: metered_api[\s\S]*Reasoning effort: high[\s\S]*primary connection will remain unchanged/u,
     ));
     expect(models.create).toHaveBeenCalledWith(expect.objectContaining({
       expected: options[1],
