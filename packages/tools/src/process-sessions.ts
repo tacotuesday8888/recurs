@@ -13,6 +13,12 @@ import { ToolError, type ToolErrorCode } from "./types.js";
 
 const DEFAULT_MAX_ACTIVE_SESSIONS = 4;
 const MAX_ACTIVE_SESSIONS = 16;
+export const MAX_PROCESS_SESSION_INPUT_BYTES = 65_536;
+export const MAX_PROCESS_SESSION_YIELD_TIME_MS = 30_000;
+export const MIN_PROCESS_SESSION_COLUMNS = 20;
+export const MAX_PROCESS_SESSION_COLUMNS = 512;
+export const MIN_PROCESS_SESSION_ROWS = 5;
+export const MAX_PROCESS_SESSION_ROWS = 200;
 
 export type OwnedProcessStatus = "running" | "exited" | "failed";
 
@@ -93,6 +99,51 @@ function safeProcessFailure(error: unknown): ToolError {
   return error instanceof ToolError
     ? error
     : new ToolError("process_failed", "The process session failed");
+}
+
+function validateInteractionInput(
+  input: InteractWithOwnedProcessInput,
+): void {
+  if (
+    typeof input.sessionId !== "string" ||
+    input.sessionId.length === 0 ||
+    input.sessionId.length > 128 ||
+    !Number.isSafeInteger(input.yieldTimeMs) ||
+    input.yieldTimeMs < 0 ||
+    input.yieldTimeMs > MAX_PROCESS_SESSION_YIELD_TIME_MS ||
+    (input.input !== undefined &&
+      (typeof input.input !== "string" ||
+        Buffer.byteLength(input.input, "utf8") > MAX_PROCESS_SESSION_INPUT_BYTES)) ||
+    (input.closeStdin !== undefined && typeof input.closeStdin !== "boolean") ||
+    (input.stop !== undefined && typeof input.stop !== "boolean")
+  ) {
+    throw new ToolError("invalid_input", "Process session interaction is invalid");
+  }
+  if (
+    input.resize !== undefined &&
+    (!Number.isSafeInteger(input.resize.columns) ||
+      input.resize.columns < MIN_PROCESS_SESSION_COLUMNS ||
+      input.resize.columns > MAX_PROCESS_SESSION_COLUMNS ||
+      !Number.isSafeInteger(input.resize.rows) ||
+      input.resize.rows < MIN_PROCESS_SESSION_ROWS ||
+      input.resize.rows > MAX_PROCESS_SESSION_ROWS)
+  ) {
+    throw new ToolError(
+      "invalid_input",
+      `columns must be ${MIN_PROCESS_SESSION_COLUMNS}-${MAX_PROCESS_SESSION_COLUMNS} and rows must be ${MIN_PROCESS_SESSION_ROWS}-${MAX_PROCESS_SESSION_ROWS}`,
+    );
+  }
+  if (
+    input.stop === true &&
+    (input.input !== undefined ||
+      input.closeStdin !== undefined ||
+      input.resize !== undefined)
+  ) {
+    throw new ToolError(
+      "invalid_input",
+      "Stopping a process session cannot be combined with another action",
+    );
+  }
 }
 
 export class OwnedProcessManager {
@@ -414,6 +465,7 @@ export class OwnedProcessManager {
   async interact(
     input: InteractWithOwnedProcessInput,
   ): Promise<OwnedProcessSnapshot> {
+    validateInteractionInput(input);
     if (this.#closed) {
       throw new ToolError("tool_unavailable", "Process sessions are closed");
     }

@@ -77,6 +77,47 @@ async function invoke(
 }
 
 describe("owned process sessions", () => {
+  it("enforces interaction bounds at the owner manager boundary", async () => {
+    const processes = new OwnedProcessManager();
+    try {
+      for (const invalid of [
+        { ownerId: "owner-1", sessionId: "", yieldTimeMs: 0 },
+        {
+          ownerId: "owner-1",
+          sessionId: "x".repeat(129),
+          yieldTimeMs: 0,
+        },
+        { ownerId: "owner-1", sessionId: "process-1", yieldTimeMs: -1 },
+        { ownerId: "owner-1", sessionId: "process-1", yieldTimeMs: 30_001 },
+        {
+          ownerId: "owner-1",
+          sessionId: "process-1",
+          input: "🧪".repeat(16_385),
+          yieldTimeMs: 0,
+        },
+        {
+          ownerId: "owner-1",
+          sessionId: "process-1",
+          resize: { columns: 19, rows: 30 },
+          yieldTimeMs: 0,
+        },
+        {
+          ownerId: "owner-1",
+          sessionId: "process-1",
+          stop: true,
+          closeStdin: true,
+          yieldTimeMs: 0,
+        },
+      ]) {
+        await expect(processes.interact(invalid)).rejects.toMatchObject({
+          code: "invalid_input",
+        });
+      }
+    } finally {
+      await processes.close();
+    }
+  });
+
   it("runs, resizes, and owns an injected interactive terminal session", async () => {
     const stdin = new PassThrough();
     const stdout = new PassThrough();

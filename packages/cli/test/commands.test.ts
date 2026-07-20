@@ -259,7 +259,7 @@ describe("foundation slash commands", () => {
     });
   });
 
-  it("lists, polls, and stops only the current conversation's processes", async () => {
+  it("lists and controls only the current conversation's processes", async () => {
     const list = vi.fn(() => [{
       sessionId: "process-1",
       status: "running" as const,
@@ -283,25 +283,74 @@ describe("foundation slash commands", () => {
     expect(await registry.execute("/process process-1", context)).toMatchObject({
       text: "working\nProcess session process-1 is running.",
     });
+    await registry.execute("/process process-1 wait 1250", context);
+    await registry.execute("/process process-1 write hello   world", context);
+    await registry.execute("/process process-1 enter yes", context);
+    await registry.execute("/process process-1 enter", context);
+    await registry.execute("/process process-1 close", context);
+    await registry.execute("/process process-1 resize 132x42", context);
     expect(await registry.execute("/process process-1 stop", context)).toMatchObject({
       text: "stopped\nProcess exited with code 0.",
     });
     expect(interact).toHaveBeenNthCalledWith(1, {
       ownerId: "s1",
       sessionId: "process-1",
-      stop: false,
       yieldTimeMs: 0,
     });
     expect(interact).toHaveBeenNthCalledWith(2, {
       ownerId: "s1",
       sessionId: "process-1",
+      yieldTimeMs: 1_250,
+    });
+    expect(interact).toHaveBeenNthCalledWith(3, {
+      ownerId: "s1",
+      sessionId: "process-1",
+      input: "hello   world",
+      yieldTimeMs: 250,
+    });
+    expect(interact).toHaveBeenNthCalledWith(4, {
+      ownerId: "s1",
+      sessionId: "process-1",
+      input: "yes\n",
+      yieldTimeMs: 250,
+    });
+    expect(interact).toHaveBeenNthCalledWith(5, {
+      ownerId: "s1",
+      sessionId: "process-1",
+      input: "\n",
+      yieldTimeMs: 250,
+    });
+    expect(interact).toHaveBeenNthCalledWith(6, {
+      ownerId: "s1",
+      sessionId: "process-1",
+      closeStdin: true,
+      yieldTimeMs: 1_000,
+    });
+    expect(interact).toHaveBeenNthCalledWith(7, {
+      ownerId: "s1",
+      sessionId: "process-1",
+      resize: { columns: 132, rows: 42 },
+      yieldTimeMs: 0,
+    });
+    expect(interact).toHaveBeenNthCalledWith(8, {
+      ownerId: "s1",
+      sessionId: "process-1",
       stop: true,
       yieldTimeMs: 0,
     });
-    expect(await registry.execute("/process process-1 write", context)).toMatchObject({
-      level: "error",
-      text: expect.stringContaining("Usage"),
-    });
+    for (const invalid of [
+      "/process process-1 write",
+      "/process process-1 wait 30001",
+      "/process process-1 resize 10x42",
+      "/process process-1 resize 132x201",
+      "/process process-1 poll extra",
+      "/process list extra",
+    ]) {
+      expect(await registry.execute(invalid, context)).toMatchObject({
+        level: "error",
+        text: expect.stringContaining("Usage"),
+      });
+    }
 
     interact.mockResolvedValueOnce({
       sessionId: "process-1",

@@ -1,4 +1,10 @@
 import {
+  MAX_PROCESS_SESSION_COLUMNS,
+  MAX_PROCESS_SESSION_INPUT_BYTES,
+  MAX_PROCESS_SESSION_ROWS,
+  MAX_PROCESS_SESSION_YIELD_TIME_MS,
+  MIN_PROCESS_SESSION_COLUMNS,
+  MIN_PROCESS_SESSION_ROWS,
   ToolError,
   type OwnedProcessSnapshot,
   type OwnedProcessSummary,
@@ -6,6 +12,18 @@ import {
 
 import type { Command, CommandDependencies, CommandResult } from "./types.js";
 import { message } from "./types.js";
+
+const usage =
+  "/process [session-id [poll|wait [ms]|write <text>|enter [text]|close|resize <columns>x<rows>|stop]]";
+
+function splitFirst(value: string): readonly [string, string] {
+  const match = /^(\S+)(?:\s+(.*))?$/u.exec(value);
+  return [match?.[1] ?? "", match?.[2] ?? ""];
+}
+
+function usageError(): CommandResult {
+  return message(`Usage: ${usage}`, "error");
+}
 
 function safeProcessOutput(output: string): string {
   let safe = "";
@@ -59,30 +77,102 @@ export function createProcessCommand(
   return {
     name: "process",
     aliases: ["processes"],
-    description: "List, poll, or stop owned command sessions",
-    usage: "/process [session-id [poll|stop]]",
+    description: "Inspect or control owned command sessions",
+    usage,
     async execute(args, context) {
       const processes = dependencies.processes;
       if (processes === undefined) {
         return message("Process session controls are unavailable", "error");
       }
-      const parts = args.trim().length === 0 ? [] : args.trim().split(/\s+/u);
-      if (parts.length === 0 || (parts.length === 1 && parts[0] === "list")) {
+      const trimmed = args.trim();
+      if (trimmed.length === 0 || trimmed === "list") {
         const summaries = processes.list(context.session.id);
         return summaries.length === 0
           ? message("No process sessions are owned by this conversation")
           : message(summaries.map(renderSummary).join("\n"));
       }
-      if (parts.length > 2 || parts[0] === undefined ||
-        (parts[1] !== undefined && parts[1] !== "poll" && parts[1] !== "stop")) {
-        return message("Usage: /process [session-id [poll|stop]]", "error");
+      const [sessionId, actionInput] = splitFirst(trimmed);
+      if (sessionId.length === 0 || sessionId.length > 128 || sessionId === "list") {
+        return usageError();
       }
-      return renderSnapshot(await processes.interact({
-        ownerId: context.session.id,
-        sessionId: parts[0],
-        stop: parts[1] === "stop",
-        yieldTimeMs: 0,
-      }));
+      const [action, value] = splitFirst(actionInput);
+      const base = { ownerId: context.session.id, sessionId };
+      if (action.length === 0 || action === "poll") {
+        return value.length === 0
+          ? renderSnapshot(await processes.interact({ ...base, yieldTimeMs: 0 }))
+          : usageError();
+      }
+      if (action === "wait") {
+        const yieldTimeMs = value.length === 0 ? 1_000 : Number(value);
+        if (
+          !/^\d+$/u.test(value.length === 0 ? "1000" : value) ||
+          !Number.isSafeInteger(yieldTimeMs) ||
+          yieldTimeMs < 0 ||
+          yieldTimeMs > MAX_PROCESS_SESSION_YIELD_TIME_MS
+        ) {
+          return usageError();
+        }
+        return renderSnapshot(await processes.interact({
+          ...base,
+          yieldTimeMs,
+        }));
+      }
+      if (action === "write" || action === "enter") {
+        if (
+          (action === "write" && value.length === 0) ||
+          Buffer.byteLength(
+              action === "enter" ? `${value}\n` : value,
+              "utf8",
+            ) > MAX_PROCESS_SESSION_INPUT_BYTES
+        ) {
+          return usageError();
+        }
+        return renderSnapshot(await processes.interact({
+          ...base,
+          input: action === "enter" ? `${value}\n` : value,
+          yieldTimeMs: 250,
+        }));
+      }
+      if (action === "close") {
+        return value.length === 0
+          ? renderSnapshot(await processes.interact({
+              ...base,
+              closeStdin: true,
+              yieldTimeMs: 1_000,
+            }))
+          : usageError();
+      }
+      if (action === "resize") {
+        const size = /^(\d+)x(\d+)$/u.exec(value);
+        const columns = Number(size?.[1]);
+        const rows = Number(size?.[2]);
+        if (
+          size === null ||
+          !Number.isSafeInteger(columns) ||
+          columns < MIN_PROCESS_SESSION_COLUMNS ||
+          columns > MAX_PROCESS_SESSION_COLUMNS ||
+          !Number.isSafeInteger(rows) ||
+          rows < MIN_PROCESS_SESSION_ROWS ||
+          rows > MAX_PROCESS_SESSION_ROWS
+        ) {
+          return usageError();
+        }
+        return renderSnapshot(await processes.interact({
+          ...base,
+          resize: { columns, rows },
+          yieldTimeMs: 0,
+        }));
+      }
+      if (action === "stop") {
+        return value.length === 0
+          ? renderSnapshot(await processes.interact({
+              ...base,
+              stop: true,
+              yieldTimeMs: 0,
+            }))
+          : usageError();
+      }
+      return usageError();
     },
   };
 }

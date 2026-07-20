@@ -292,7 +292,7 @@ The no-argument interactive CLI requires a user-present local terminal and rejec
 
 The direct-model runtime owns up to four active command sessions across the parent and its children. `run_command` waits up to 10 seconds by default, or an explicit 250–30,000 ms yield interval. A command that is still running returns a random session identifier. The model can then use `process_session` to poll recent output, write at most 64 KiB to stdin, close stdin, or stop the process. Output is incremental and remains subject to the existing 1 MiB command limit and 10-minute maximum runtime.
 
-The interactive user can run `/process` (or `/processes`) to list only the command sessions owned by the current conversation without draining their output. `/process <id>` collects currently buffered output, and `/process <id> stop` performs the same bounded cleanup as the agent tool. Directly rendered control bytes are escaped so process output cannot issue terminal control sequences. These commands do not expose another conversation's processes and do not claim direct terminal handoff or secret-input support.
+The interactive user can run `/process` (or `/processes`) to list only the command sessions owned by the current conversation without draining their output. `/process <id>` collects currently buffered output; `wait [ms]` waits up to 30 seconds for new activity; `write <text>` sends visible literal text; `enter [text]` appends a newline; `close` closes piped stdin; `resize <columns>x<rows>` changes an owned PTY; and `stop` performs bounded cleanup. The same limits are enforced again by the owner manager, not only by the slash-command parser. Directly rendered control bytes are escaped so process output cannot issue terminal control sequences. These commands do not expose another conversation's processes and do not claim direct terminal handoff or safe hidden-secret input.
 
 `run_command` can explicitly set `tty: true` when a command needs terminal semantics. Supported macOS and Linux npm/source installations allocate a real `xterm-256color` pseudo-terminal at 120 columns by 30 rows; `process_session` can resize it within bounded dimensions before sending more input. PTY output is returned as the terminal emitted it, including control sequences and CRLF. A PTY has one combined output stream and cannot honestly half-close stdin, so `closeStdin` is rejected for terminal sessions; send the program's normal terminal input or stop the session instead. If the optional platform PTY package did not install, Recurs fails that request with `tool_unavailable` while ordinary piped commands continue to work.
 
@@ -511,6 +511,7 @@ A daemon that outlives the CLI, recursive depth, automatic task decomposition, t
 | `/review` | Submit staged/unstaged changes for a temporary read-only review. |
 | `/undo` | Restore the latest checkpoint that actually changed files. |
 | `/queue [prompt\|list\|resume\|clear]` | Admit a bounded durable FIFO follow-up turn, inspect pending IDs, explicitly recover after restart, or confirm clearing the queue. |
+| `/process [id [action]]` | List, poll, wait for, write visible input to, close, resize, or stop a command session owned by the current conversation. |
 | `/cancel` | Abort the current provider/tool run. |
 | `/quit`, `/exit`, `/q` | Exit the interactive CLI. |
 
