@@ -602,11 +602,113 @@ describe("session commands", () => {
     });
   });
 
+  it("lists saved model connections and activates only one exact confirmed choice", async () => {
+    const original = await storeSession("model-original");
+    const nextBackend = {
+      ...testBackendPin(),
+      providerId: "second-provider",
+      connectionId: "second-connection",
+      modelId: "second-model",
+      providerResolvedModelRevisionAtCreation: "second-model",
+      accountSubjectFingerprint: "sha256:second-account",
+    };
+    const switched = await storeSession(
+      "model-switched",
+      at,
+      [],
+      nextBackend,
+    );
+    const options = [{
+      connectionId: original.backend.type === "pinned"
+        ? original.backend.pin.connectionId
+        : "missing",
+      label: "Current model",
+      providerId: original.backend.type === "pinned"
+        ? original.backend.pin.providerId
+        : "missing",
+      modelId: original.model,
+      primary: true,
+      execution: "Act + Plan" as const,
+      billingSources: ["metered_api" as const],
+    }, {
+      connectionId: "second-connection",
+      label: "Second model",
+      providerId: "second-provider",
+      modelId: "second-model",
+      primary: false,
+      execution: "Act + Plan" as const,
+      billingSources: ["metered_api" as const],
+    }];
+    const models: NonNullable<CommandDependencies["models"]> = {
+      list: vi.fn(async () => options),
+      create: vi.fn(async () => ({ status: "created", session: switched })),
+    };
+    const commands = createCommandRegistry({ sessions, models });
+    const confirm = vi.fn(async () => true);
+    const commandContext = context(original, confirm);
+
+    expect(await commands.execute("/model", commandContext)).toMatchObject({
+      text: expect.stringMatching(
+        /Current: scripted\/scripted[\s\S]*\[active, primary\][\s\S]*second-connection[\s\S]*Use \/model <exact-connection-id>/u,
+      ),
+    });
+    expect(await commands.execute(
+      "/model second-connection",
+      commandContext,
+    )).toMatchObject({
+      text: expect.stringContaining("Started session model-switched"),
+    });
+    expect(commandContext.session.id).toBe("model-switched");
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(
+      /second-provider\/second-model[\s\S]*Billing: metered_api[\s\S]*primary connection will remain unchanged/u,
+    ));
+    expect(models.create).toHaveBeenCalledWith(expect.objectContaining({
+      expected: options[1],
+      current: original,
+      at,
+    }));
+  });
+
+  it("rejects model selection outside a local manual terminal", async () => {
+    const original = await storeSession("model-unattended");
+    const models: NonNullable<CommandDependencies["models"]> = {
+      list: vi.fn(async () => [{
+        connectionId: "second-connection",
+        label: "Second model",
+        providerId: "second-provider",
+        modelId: "second-model",
+        primary: false,
+        execution: "Act + Plan" as const,
+        billingSources: ["metered_api" as const],
+      }]),
+      create: vi.fn(),
+    };
+    const commands = createCommandRegistry({ sessions, models });
+    const commandContext = context(original);
+    commandContext.invocation = createHostInvocation({
+      invocation: "one_shot",
+      userPresent: false,
+      remote: false,
+      scripted: true,
+      embedding: "cli",
+    });
+
+    expect(await commands.execute(
+      "/model second-connection",
+      commandContext,
+    )).toMatchObject({
+      level: "error",
+      text: expect.stringContaining("local, user-present, manual terminal"),
+    });
+    expect(models.create).not.toHaveBeenCalled();
+  });
+
   it("preserves Plan and permission safety when creating another session", async () => {
     const original = await storeSession("s1");
     const registry = createCommandRegistry({ sessions });
     const commandContext = context(original);
     await registry.execute("/permissions approved", commandContext);
+    await registry.execute("/agents mode performance", commandContext);
     await registry.execute("/plan", commandContext);
 
     await registry.execute("/new", commandContext);
@@ -615,11 +717,13 @@ describe("session commands", () => {
       executionMode: "plan",
       permissionMode: "approved_for_me",
       prePlanPermissionMode: "approved_for_me",
+      agent: { operatingMode: { id: "performance_v5", version: 5 } },
     });
     await expect(sessions.loadState(commandContext.session.id)).resolves
       .toMatchObject({
         executionMode: "plan",
         permissionMode: "approved_for_me",
+        agent: { operatingMode: { id: "performance_v5", version: 5 } },
       });
   });
 

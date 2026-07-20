@@ -1,6 +1,7 @@
 export * from "./commands/create.js";
 export * from "./commands/foundation.js";
 export * from "./commands/goal.js";
+export * from "./commands/model.js";
 export * from "./commands/parser.js";
 export * from "./commands/permissions.js";
 export * from "./commands/plan.js";

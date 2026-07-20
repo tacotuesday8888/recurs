@@ -194,6 +194,16 @@ function localContext(): TrustedRunContext {
   };
 }
 
+function localManualInvocation() {
+  return createHostInvocation({
+    invocation: "repl",
+    userPresent: true,
+    remote: false,
+    scripted: false,
+    embedding: "cli",
+  });
+}
+
 afterEach(async () => {
   await Promise.all(
     directories.splice(0).map((directory) =>
@@ -339,6 +349,74 @@ describe("standalone assembly without a provider", () => {
           },
         },
       },
+    });
+  });
+
+  it("switches saved models by creating a fresh pinned session without changing primary", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-model-switch-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    const first = await writeLocalConnection(dataDirectory, {
+      baseUrl: "http://127.0.0.1:11434/v1",
+      modelId: "model-a",
+      now: "2026-07-20T00:00:00.000Z",
+    });
+    const second = await writeLocalConnection(dataDirectory, {
+      baseUrl: "http://127.0.0.1:1234/v1",
+      modelId: "model-b",
+      now: "2026-07-20T00:01:00.000Z",
+    });
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory,
+        operatingModeId: "performance_v5",
+        permissionMode: "approved_for_me",
+        reuseExistingSession: false,
+      },
+    );
+    const originalSessionId = runtime.session.id;
+    runtime.setConfirmHandler(async () => true);
+    await runtime.submit("/plan");
+
+    expect(await runtime.submit("/model")).toMatchObject({
+      text: expect.stringMatching(
+        new RegExp(`${first.id}.*model-a.*active.*primary[\\s\\S]*${second.id}.*model-b`, "u"),
+      ),
+    });
+    expect(await runtime.submit(
+      `/model ${second.id}`,
+      localManualInvocation(),
+    )).toMatchObject({
+      text: expect.stringContaining("The previous session remains available"),
+    });
+    expect(runtime.session).toMatchObject({
+      id: expect.not.stringMatching(new RegExp(`^${originalSessionId}$`, "u")),
+      model: "model-b",
+      executionMode: "plan",
+      permissionMode: "approved_for_me",
+      agent: { operatingMode: { id: "performance_v5", version: 5 } },
+      backend: { pin: { connectionId: second.id } },
+    });
+    expect(await new FileConnectionRegistry(dataDirectory).read()).toMatchObject({
+      primaryConnectionId: first.id,
+    });
+
+    await runtime.submit(`/resume ${originalSessionId}`);
+    expect(runtime.session).toMatchObject({
+      id: originalSessionId,
+      model: "model-a",
+      backend: { pin: { connectionId: first.id } },
+    });
+    expect(await runtime.submit(
+      `/model ${first.id}`,
+      localManualInvocation(),
+    )).toMatchObject({
+      text: "That exact model connection is already active",
+      level: "warning",
     });
   });
 
@@ -1305,6 +1383,19 @@ describe("standalone assembly without a provider", () => {
       primaryConnectionId: null,
       connections: [{ id: "saved-secondary" }],
     });
+    runtime.setConfirmHandler(async () => true);
+    expect(await runtime.submit(
+      "/model saved-secondary",
+      localManualInvocation(),
+    )).toMatchObject({ text: expect.stringContaining("Started session") });
+    expect(runtime.state).toMatchObject({
+      type: "session",
+      session: {
+        model: "qwen",
+        backend: { pin: { connectionId: "saved-secondary" } },
+      },
+    });
+    expect(await registry.read()).toMatchObject({ primaryConnectionId: null });
   });
 
   it("resolves an old session by its immutable connection pin after primary changes", async () => {
