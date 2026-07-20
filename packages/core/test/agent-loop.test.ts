@@ -6,6 +6,7 @@ import type { ModelProvider, ProviderRequest } from "@recurs/providers";
 import {
   DEFAULT_PROVIDER_STREAM_IDLE_TIMEOUT_MS,
   ProviderError,
+  RemoteOpenAIResponsesProvider,
   ScriptedProvider,
   type ProviderErrorCode,
   type ProviderEvent,
@@ -173,6 +174,113 @@ function toolTurn(id: string, text: string): ProviderEvent[] {
     },
     { type: "done", stopReason: "tool_calls" },
   ];
+}
+
+function openAITextCompletion(responseId: string, text: string): Response {
+  const added = {
+    id: `message-${responseId}`,
+    type: "message",
+    status: "in_progress",
+    role: "assistant",
+    content: [],
+  };
+  const completed = {
+    ...added,
+    status: "completed",
+    content: [{ type: "output_text", text, annotations: [] }],
+  };
+  const events = [
+    { type: "response.created", response: { id: responseId, status: "in_progress" } },
+    { type: "response.output_item.added", output_index: 0, item: added },
+    {
+      type: "response.content_part.added",
+      item_id: added.id,
+      output_index: 0,
+      content_index: 0,
+      part: { type: "output_text", text: "", annotations: [] },
+    },
+    {
+      type: "response.output_text.delta",
+      item_id: added.id,
+      output_index: 0,
+      content_index: 0,
+      delta: text,
+    },
+    {
+      type: "response.output_text.done",
+      item_id: added.id,
+      output_index: 0,
+      content_index: 0,
+      text,
+    },
+    {
+      type: "response.content_part.done",
+      item_id: added.id,
+      output_index: 0,
+      content_index: 0,
+      part: completed.content[0],
+    },
+    { type: "response.output_item.done", output_index: 0, item: completed },
+    {
+      type: "response.completed",
+      response: {
+        id: responseId,
+        status: "completed",
+        output: [completed],
+        usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 },
+      },
+    },
+  ];
+  return new Response(events.map((body, sequence) =>
+    `event: ${body.type}\ndata: ${JSON.stringify({ ...body, sequence_number: sequence })}`
+  ).join("\n\n") + "\n\n", {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+function openAIPartialContextFailure(): Response {
+  const events = [
+    {
+      type: "response.created",
+      response: { id: "partial-response", status: "in_progress" },
+    },
+    {
+      type: "response.output_item.added",
+      output_index: 0,
+      item: {
+        id: "partial-message",
+        type: "message",
+        status: "in_progress",
+        role: "assistant",
+        content: [],
+      },
+    },
+    {
+      type: "response.output_text.delta",
+      item_id: "partial-message",
+      output_index: 0,
+      content_index: 0,
+      delta: "partial",
+    },
+    {
+      type: "response.failed",
+      response: {
+        id: "partial-response",
+        status: "failed",
+        error: {
+          code: "context_length_exceeded",
+          message: "untrusted detail",
+        },
+      },
+    },
+  ];
+  return new Response(events.map((body, sequence) =>
+    `event: ${body.type}\ndata: ${JSON.stringify({ ...body, sequence_number: sequence })}`
+  ).join("\n\n") + "\n\n", {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
 }
 
 async function seedInterruptedTool(
@@ -1299,6 +1407,67 @@ describe("AgentLoop", () => {
       type: "warning",
       code: "context_compacted",
     }));
+  });
+
+  it("recovers a machine-readable overflow from the real OpenAI Responses adapter", async () => {
+    const responses = [
+      new Response(JSON.stringify({
+        error: {
+          code: "context_length_exceeded",
+          type: "invalid_request_error",
+          message: "untrusted detail",
+        },
+      }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      }),
+      openAITextCompletion("compaction-response", "real adapter summary"),
+      openAITextCompletion("recovered-response", "recovered through adapter"),
+    ];
+    const provider = new RemoteOpenAIResponsesProvider({
+      connectionId: "openai-env",
+      apiKey: "private-openai-key",
+      fetch: async () => {
+        const response = responses.shift();
+        if (response === undefined) throw new Error("unexpected OpenAI request");
+        return response;
+      },
+    });
+    const { loop, store } = await harness(provider);
+    await seedCompletedConversation(store);
+
+    await expect(loop.run({ sessionId: "s1", prompt: "continue" }))
+      .resolves.toMatchObject({ finalText: "recovered through adapter" });
+    expect(responses).toHaveLength(0);
+    expect((await store.load("s1")).records.slice(-4).map((record) =>
+      record.type
+    )).toEqual([
+      "compaction_started",
+      "session_compacted",
+      "model_completed",
+      "turn_completed",
+    ]);
+  });
+
+  it("does not replay a real Responses overflow after streamed text", async () => {
+    let requests = 0;
+    const provider = new RemoteOpenAIResponsesProvider({
+      connectionId: "openai-env",
+      apiKey: "private-openai-key",
+      fetch: async () => {
+        requests += 1;
+        return openAIPartialContextFailure();
+      },
+    });
+    const { loop, store } = await harness(provider);
+    await seedCompletedConversation(store);
+
+    await expect(loop.run({ sessionId: "s1", prompt: "continue" })).rejects
+      .toMatchObject({ code: "provider_failed" });
+    expect(requests).toBe(1);
+    expect((await store.load("s1")).records).not.toContainEqual(
+      expect.objectContaining({ type: "compaction_started" }),
+    );
   });
 
   it("does not compact or retry a context overflow without reducible history", async () => {
