@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  startPtyProcessSession,
   startProcessSession,
+  type PtyDriver,
+  type PtySize,
   type ProcessSession,
   type ProcessSessionOptions,
 } from "./process.js";
@@ -17,6 +20,7 @@ export interface OwnedProcessSnapshot {
   readonly sessionId: string;
   readonly status: OwnedProcessStatus;
   readonly output: string;
+  readonly terminal: boolean;
   readonly exitCode?: number;
   readonly checkpointId?: string;
   readonly evidence?: readonly string[];
@@ -35,6 +39,7 @@ interface OwnedProcessRecord {
   exitCode?: number;
   checkpointId?: string;
   readonly terminalEvidence: readonly string[];
+  readonly terminal: boolean;
   failure?: ToolError;
   revision: number;
   finalization: Promise<void>;
@@ -45,6 +50,13 @@ export interface OwnedProcessManagerOptions {
   readonly maxActiveSessions?: number;
   readonly createId?: () => string;
   readonly startSession?: typeof startProcessSession;
+  readonly ptyDriver?: PtyDriver;
+  readonly startTerminalSession?: (
+    command: string,
+    args: readonly string[],
+    options: ProcessSessionOptions,
+    size: PtySize,
+  ) => Promise<ProcessSession>;
   readonly checkpoints?: CheckpointStore;
 }
 
@@ -54,6 +66,7 @@ export interface StartOwnedProcessInput {
   readonly args: readonly string[];
   readonly options: ProcessSessionOptions;
   readonly yieldTimeMs: number;
+  readonly terminal?: PtySize;
   readonly terminalEvidence?: readonly string[];
 }
 
@@ -63,6 +76,7 @@ export interface InteractWithOwnedProcessInput {
   readonly input?: string;
   readonly closeStdin?: boolean;
   readonly stop?: boolean;
+  readonly resize?: PtySize;
   readonly yieldTimeMs: number;
 }
 
@@ -77,6 +91,7 @@ export class OwnedProcessManager {
   readonly #maxActiveSessions: number;
   readonly #createId: () => string;
   readonly #startSession: typeof startProcessSession;
+  readonly #startTerminalSession: OwnedProcessManagerOptions["startTerminalSession"];
   readonly #checkpoints: CheckpointStore | undefined;
   readonly #reservedIds = new Set<string>();
   readonly #pendingStartWaiters = new Set<() => void>();
@@ -99,6 +114,18 @@ export class OwnedProcessManager {
     this.#maxActiveSessions = maxActiveSessions;
     this.#createId = options.createId ?? randomUUID;
     this.#startSession = options.startSession ?? startProcessSession;
+    const ptyDriver = options.ptyDriver;
+    this.#startTerminalSession = options.startTerminalSession ??
+      (ptyDriver === undefined
+        ? undefined
+        : (command, args, sessionOptions, size) =>
+          startPtyProcessSession(
+            ptyDriver,
+            command,
+            args,
+            sessionOptions,
+            size,
+          ));
     this.#checkpoints = options.checkpoints;
   }
 
@@ -218,6 +245,7 @@ export class OwnedProcessManager {
       sessionId: record.id,
       status: record.status,
       output,
+      terminal: record.terminal,
       ...(record.exitCode === undefined ? {} : { exitCode: record.exitCode }),
       ...(record.checkpointId === undefined
         ? {}
@@ -252,6 +280,12 @@ export class OwnedProcessManager {
         "The active process session limit has been reached",
       );
     }
+    if (input.terminal !== undefined && this.#startTerminalSession === undefined) {
+      throw new ToolError(
+        "tool_unavailable",
+        "Interactive terminal sessions are unavailable in this Recurs build",
+      );
+    }
     const id = this.#reserveId();
     this.#pendingStarts += 1;
     let checkpoint: Checkpoint | undefined;
@@ -262,11 +296,14 @@ export class OwnedProcessManager {
         id,
         input.options.cwd,
       );
-      process = await this.#startSession(
-        input.command,
-        input.args,
-        input.options,
-      );
+      process = input.terminal === undefined
+        ? await this.#startSession(input.command, input.args, input.options)
+        : await this.#startTerminalSession!(
+            input.command,
+            input.args,
+            input.options,
+            input.terminal,
+          );
       if (this.#closed) {
         await process.close().catch(() => {});
         const checkpointCompletion = await this.#completeCheckpoint(
@@ -286,6 +323,7 @@ export class OwnedProcessManager {
         status: "running",
         revision: 0,
         terminalEvidence: [...(input.terminalEvidence ?? [])],
+        terminal: input.terminal !== undefined,
         finalization: Promise.resolve(),
         waiters: new Set(),
       };
@@ -365,6 +403,21 @@ export class OwnedProcessManager {
       }
       await record.finalization;
     } else if (record.status === "running") {
+      if (record.terminal && input.closeStdin === true) {
+        throw new ToolError(
+          "invalid_input",
+          "Interactive terminal sessions do not support closing stdin; send terminal input or stop the session",
+        );
+      }
+      if (input.resize !== undefined) {
+        if (!record.terminal || record.process.resize === undefined) {
+          throw new ToolError(
+            "invalid_input",
+            "Only interactive terminal sessions can be resized",
+          );
+        }
+        record.process.resize(input.resize.columns, input.resize.rows);
+      }
       if (input.input !== undefined && input.input.length > 0) {
         await new Promise<void>((resolve, reject) => {
           record.process.stdin.write(input.input, (error) => {

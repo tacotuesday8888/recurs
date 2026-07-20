@@ -24,9 +24,13 @@ const expectedDependencies = Object.freeze({
   yaml: "2.9.0",
   zod: "4.4.3",
 });
+const expectedOptionalDependencies = Object.freeze({
+  "@lydell/node-pty": "1.1.0",
+});
 const expectedNoticeRows = Object.freeze([
   "| `@agentclientprotocol/codex-acp` | 1.1.2 | Apache-2.0 |",
   "| `@agentclientprotocol/sdk` | 1.2.1 | Apache-2.0 |",
+  "| `@lydell/node-pty` | 1.1.0 | MIT |",
   "| `@openai/codex` | 0.144.0 | Apache-2.0 |",
   "| `yaml` | 2.9.0 | ISC |",
   "| `zod` | 4.4.3 | MIT |",
@@ -78,6 +82,11 @@ assert(packageJson.bin?.recurs === "dist/cli/main.js", "The package binary must 
 assert(
   JSON.stringify(packageJson.dependencies) === JSON.stringify(expectedDependencies),
   "Runtime dependencies must remain exact and reviewed.",
+);
+assert(
+  JSON.stringify(packageJson.optionalDependencies) ===
+    JSON.stringify(expectedOptionalDependencies),
+  "Optional runtime dependencies must remain exact and reviewed.",
 );
 for (const row of expectedNoticeRows) {
   assert(

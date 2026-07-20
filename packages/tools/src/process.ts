@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import { PassThrough, type Readable, type Writable } from "node:stream";
+import { PassThrough, Writable, type Readable } from "node:stream";
 
 import { createIsolatedProcessEnvironment } from "./process-environment.js";
 import { ToolError } from "./types.js";
@@ -93,7 +93,38 @@ export interface ProcessSession {
   readonly stdout: Readable;
   readonly stderr: Readable;
   readonly completion: Promise<number>;
+  resize?(columns: number, rows: number): void;
   close(): Promise<void>;
+}
+
+export interface PtySize {
+  readonly columns: number;
+  readonly rows: number;
+}
+
+export interface PtyProcess {
+  readonly pid: number;
+  onData(listener: (data: string) => void): { dispose(): void };
+  onExit(listener: (event: { exitCode: number; signal?: number }) => void): {
+    dispose(): void;
+  };
+  write(data: string): void;
+  resize(columns: number, rows: number): void;
+  kill(signal?: string): void;
+}
+
+export interface PtyDriver {
+  spawn(
+    file: string,
+    args: readonly string[],
+    options: {
+      readonly name: string;
+      readonly columns: number;
+      readonly rows: number;
+      readonly cwd: string;
+      readonly env: Readonly<NodeJS.ProcessEnv>;
+    },
+  ): PtyProcess;
 }
 
 interface ProcessLaunch {
@@ -551,6 +582,216 @@ async function terminateProcessGroup(processGroupId: number): Promise<void> {
       "The child process group did not exit after forced termination",
     );
   }
+}
+
+export async function startPtyProcessSession(
+  driver: PtyDriver,
+  command: string,
+  args: readonly string[],
+  options: ProcessSessionOptions,
+  size: PtySize,
+): Promise<ProcessSession> {
+  assertSupportedProcessPlatform(process.platform);
+  if (isAborted(options.signal)) {
+    throw new ToolError("cancelled", `${command} was cancelled`);
+  }
+  const maxOutputBytes = options.maxOutputBytes ?? 512 * 1024;
+  const isolatedEnvironment = await createIsolatedProcessEnvironment(
+    options.cwd,
+    process.env,
+  );
+  let pty: PtyProcess;
+  try {
+    if (isAborted(options.signal)) {
+      throw new ToolError("cancelled", `${command} was cancelled`);
+    }
+    const launch = options.sandbox === undefined
+      ? { command, args }
+      : sandboxLaunch(command, args, options.sandbox, isolatedEnvironment);
+    pty = driver.spawn(launch.command, launch.args, {
+      name: "xterm-256color",
+      columns: size.columns,
+      rows: size.rows,
+      cwd: options.cwd,
+      env: {
+        ...isolatedEnvironment.environment,
+        TERM: "xterm-256color",
+        COLORTERM: "truecolor",
+      },
+    });
+  } catch (error) {
+    await isolatedEnvironment.cleanup();
+    if (error instanceof ToolError) throw error;
+    throw new ToolError("process_failed", `Failed to start ${command}`, {
+      cause: error,
+    });
+  }
+
+  let inputOpen = true;
+  const sessionStdin = new Writable({
+    write(chunk: Buffer | string, _encoding, callback) {
+      if (!inputOpen) {
+        callback(new Error("PTY input is closed"));
+        return;
+      }
+      try {
+        pty.write(typeof chunk === "string" ? chunk : chunk.toString("utf8"));
+        callback();
+      } catch (error) {
+        callback(error instanceof Error ? error : new Error("PTY input failed"));
+      }
+    },
+  });
+  const sessionStdout = new PassThrough();
+  const sessionStderr = new PassThrough();
+  let outputBytes = 0;
+  let failure: ToolError | undefined;
+  let cleanupFailed = false;
+  let terminationPromise: Promise<void> | undefined;
+  let settlementPromise: Promise<void> | undefined;
+  let resolveExit: (exitCode: number) => void = () => {};
+  let rejectExit: (error: ToolError) => void = () => {};
+  const completion = new Promise<number>((resolve, reject) => {
+    resolveExit = resolve;
+    rejectExit = reject;
+  });
+  void completion.catch(() => {});
+
+  const setFailure = (error: ToolError): void => {
+    failure ??= error;
+  };
+  const startTermination = (): Promise<void> => {
+    terminationPromise ??= (async () => {
+      try {
+        pty.kill("SIGTERM");
+      } catch {
+        // The child may already have exited; group cleanup remains authoritative.
+      }
+      await terminateProcessGroup(pty.pid);
+    })();
+    void terminationPromise.catch(() => {});
+    return terminationPromise;
+  };
+  const settle = (exitCode: number): Promise<void> => {
+    settlementPromise ??= (async () => {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", onAbort);
+      dataSubscription?.dispose();
+      exitSubscription?.dispose();
+      inputOpen = false;
+      sessionStdin.destroy();
+      sessionStdout.end();
+      sessionStderr.end();
+      try {
+        await isolatedEnvironment.cleanup();
+      } catch {
+        cleanupFailed = true;
+        setFailure(new ToolError(
+          "process_failed",
+          "The isolated process environment could not be cleaned up",
+        ));
+      }
+      if (failure === undefined) resolveExit(exitCode);
+      else rejectExit(failure);
+    })();
+    return settlementPromise;
+  };
+  const terminateFor = (error: ToolError): void => {
+    setFailure(error);
+    void startTermination().then(
+      () => settle(-1),
+      () => {
+        cleanupFailed = true;
+        setFailure(new ToolError(
+          "process_failed",
+          "The child process group could not be cleaned up",
+        ));
+        return settle(-1);
+      },
+    );
+  };
+  function onAbort(): void {
+    terminateFor(new ToolError("cancelled", `${command} was cancelled`));
+  }
+
+  const dataSubscription = pty.onData((data) => {
+    if (failure !== undefined) return;
+    outputBytes += Buffer.byteLength(data, "utf8");
+    if (outputBytes > maxOutputBytes) {
+      terminateFor(new ToolError(
+        "output_limit",
+        `${command} exceeded the ${maxOutputBytes}-byte output limit`,
+      ));
+      return;
+    }
+    sessionStdout.write(data);
+  });
+  const exitSubscription = pty.onExit(({ exitCode }) => {
+    void startTermination().then(
+      () => settle(exitCode),
+      () => {
+        cleanupFailed = true;
+        setFailure(new ToolError(
+          "process_failed",
+          "The child process group could not be cleaned up",
+        ));
+        return settle(exitCode);
+      },
+    );
+  });
+  sessionStdin.on("error", () => {
+    // Process exit handling reports the useful failure.
+  });
+  const timeout = options.timeoutMs === undefined
+    ? undefined
+    : setTimeout(() => {
+        terminateFor(new ToolError(
+          "command_timeout",
+          `${command} exceeded the ${options.timeoutMs}ms timeout`,
+        ));
+      }, options.timeoutMs);
+  timeout?.unref();
+  options.signal?.addEventListener("abort", onAbort, { once: true });
+  if (isAborted(options.signal)) onAbort();
+
+  return {
+    stdin: sessionStdin,
+    stdout: sessionStdout,
+    stderr: sessionStderr,
+    completion,
+    resize(columns, rows) {
+      try {
+        pty.resize(columns, rows);
+      } catch (error) {
+        throw new ToolError(
+          "process_failed",
+          "The terminal session could not be resized",
+          error instanceof Error ? { cause: error } : undefined,
+        );
+      }
+    },
+    async close() {
+      inputOpen = false;
+      sessionStdin.end();
+      try {
+        await startTermination();
+      } catch {
+        cleanupFailed = true;
+        setFailure(new ToolError(
+          "process_failed",
+          "The child process group could not be cleaned up",
+        ));
+      }
+      await settle(-1);
+      await completion.then(() => {}, () => {});
+      if (cleanupFailed) {
+        throw new ToolError(
+          "process_failed",
+          "The child process session could not be cleaned up",
+        );
+      }
+    },
+  };
 }
 
 export async function startProcessSession(

@@ -77,6 +77,91 @@ async function invoke(
 }
 
 describe("owned process sessions", () => {
+  it("runs, resizes, and owns an injected interactive terminal session", async () => {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const resize = vi.fn();
+    let resolveCompletion: (exitCode: number) => void = () => {};
+    const completion = new Promise<number>((resolve) => {
+      resolveCompletion = resolve;
+    });
+    const startTerminalSession = vi.fn(async () => ({
+      stdin,
+      stdout,
+      stderr: new PassThrough(),
+      completion,
+      resize,
+      async close() {
+        resolveCompletion(0);
+      },
+    }));
+    const processes = new OwnedProcessManager({ startTerminalSession });
+    const registry = new ToolRegistry([
+      createRunCommandTool(processes),
+      createProcessSessionTool(processes),
+    ]);
+
+    try {
+      stdout.write("ready\n");
+      const started = await invoke(registry, "run_command", {
+        command: "interactive-command",
+        tty: true,
+        timeoutMs: 5_000,
+        yieldTimeMs: 250,
+      });
+      expect(startTerminalSession).toHaveBeenCalledWith(
+        "/bin/sh",
+        ["-c", "interactive-command"],
+        expect.objectContaining({ cwd }),
+        { columns: 120, rows: 30 },
+      );
+      expect(started.metadata).toMatchObject({
+        status: "running",
+        terminal: true,
+      });
+      expect(started.output).toContain("ready");
+
+      const resized = await invoke(registry, "process_session", {
+        action: "resize",
+        sessionId: started.metadata?.sessionId,
+        columns: 132,
+        rows: 42,
+      });
+      expect(resize).toHaveBeenCalledWith(132, 42);
+      expect(resized.metadata).toMatchObject({ terminal: true });
+
+      await expect(invoke(registry, "process_session", {
+        action: "write",
+        sessionId: started.metadata?.sessionId,
+        closeStdin: true,
+      })).rejects.toMatchObject({
+        code: "invalid_input",
+        message: expect.stringContaining("do not support closing stdin"),
+      });
+    } finally {
+      await processes.close();
+    }
+  });
+
+  it("fails closed when an interactive terminal driver is unavailable", async () => {
+    const startSession = vi.fn();
+    const processes = new OwnedProcessManager({ startSession });
+    const registry = new ToolRegistry([createRunCommandTool(processes)]);
+    try {
+      await expect(invoke(registry, "run_command", {
+        command: "interactive-command",
+        tty: true,
+        yieldTimeMs: 250,
+      })).rejects.toMatchObject({
+        code: "tool_unavailable",
+        message: expect.stringContaining("terminal sessions are unavailable"),
+      });
+      expect(startSession).not.toHaveBeenCalled();
+    } finally {
+      await processes.close();
+    }
+  });
+
   it("yields a running command and returns only new output until exit", async () => {
     const processes = new OwnedProcessManager();
     const registry = new ToolRegistry([
@@ -436,6 +521,18 @@ describe("owned process sessions", () => {
         action: "poll",
         sessionId: "session-1",
         input: "unexpected",
+      })).rejects.toMatchObject({ code: "invalid_input" });
+      await expect(invoke(registry, "process_session", {
+        action: "resize",
+        sessionId: "session-1",
+        columns: 10,
+        rows: 40,
+      })).rejects.toMatchObject({ code: "invalid_input" });
+      await expect(invoke(registry, "process_session", {
+        action: "poll",
+        sessionId: "session-1",
+        columns: 80,
+        rows: 24,
       })).rejects.toMatchObject({ code: "invalid_input" });
       expect(registry.definitions("plan").map((tool) => tool.name)).toEqual([
         "process_session",

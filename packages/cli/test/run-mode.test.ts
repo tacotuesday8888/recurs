@@ -245,7 +245,9 @@ describe("public CLI process boundary", () => {
     expect(binSource).not.toMatch(/from\s+["'](?:@recurs|node:net)/u);
     expect(binSource).not.toContain("inherited-socket");
     expect(binSource.indexOf("delete process.env.RECURS_NATIVE_FD"))
-      .toBeLessThan(binSource.indexOf('await import("./process-host.js")'));
+      .toBeLessThan(binSource.indexOf('import("./process-host.js")'));
+    expect(binSource.indexOf("delete process.env.RECURS_NATIVE_FD"))
+      .toBeLessThan(binSource.indexOf('import("./pty-driver.js")'));
   });
 
   it.each([

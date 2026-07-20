@@ -24,7 +24,7 @@ import {
   type LocalRuntimeDetection,
   type ProviderCatalogSnapshot,
 } from "@recurs/providers";
-import type { PermissionMode } from "@recurs/tools";
+import type { PermissionMode, PtyDriver } from "@recurs/tools";
 import {
   CodexOnboardingError,
   ConnectionLifecycleError,
@@ -1381,6 +1381,7 @@ export function isAutomationEnvironment(
 export async function runCliProcess(
   nativeAuthority: NativeAuthorityPort,
   nativeOpenAIResponses?: NativeOpenAIResponsesPort,
+  processOptions: { readonly ptyDriver?: PtyDriver } = {},
 ): Promise<void> {
   const argv = process.argv.slice(2);
   const nativeDoctorRequested =
@@ -1528,6 +1529,9 @@ export async function runCliProcess(
         events,
         {
           ...(nativeOpenAIResponses === undefined ? {} : { nativeOpenAIResponses }),
+          ...(processOptions.ptyDriver === undefined
+            ? {}
+            : { ptyDriver: processOptions.ptyDriver }),
           ...(options?.permissionMode === undefined
             ? {}
             : { permissionMode: options.permissionMode }),
@@ -1548,6 +1552,9 @@ export async function runCliProcess(
             ...(nativeOpenAIResponses === undefined
               ? {}
               : { nativeOpenAIResponses }),
+            ...(processOptions.ptyDriver === undefined
+              ? {}
+              : { ptyDriver: processOptions.ptyDriver }),
           }),
         },
         processStdin,

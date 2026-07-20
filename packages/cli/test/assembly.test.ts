@@ -42,7 +42,8 @@ import {
   verifyRunAuthorization,
 } from "@recurs/core";
 import { ScriptedProvider } from "@recurs/providers";
-import { afterEach, describe, expect, it } from "vitest";
+import type { PtyDriver } from "@recurs/tools";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   RuntimeError,
@@ -1566,6 +1567,88 @@ describe("standalone assembly without a provider", () => {
       await runtime.close();
     } finally {
       await runtime.close().catch(() => {});
+    }
+  });
+
+  it("routes an explicit terminal command through the injected PTY boundary", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-pty-assembly-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    await execFileAsync("git", ["init", "--quiet"], { cwd: workspace });
+    let dataListener: ((data: string) => void) | undefined;
+    let exitListener: ((event: { exitCode: number }) => void) | undefined;
+    const spawnPty = vi.fn(() => {
+      queueMicrotask(() => {
+        dataListener?.("terminal-output\r\n");
+        exitListener?.({ exitCode: 0 });
+      });
+      return {
+        pid: 2_000_000_000,
+        onData(listener: (data: string) => void) {
+          dataListener = listener;
+          return { dispose() { dataListener = undefined; } };
+        },
+        onExit(listener: (event: { exitCode: number }) => void) {
+          exitListener = listener;
+          return { dispose() { exitListener = undefined; } };
+        },
+        write() {},
+        resize() {},
+        kill() {},
+      };
+    });
+    const ptyDriver: PtyDriver = { spawn: spawnPty };
+    const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "terminal-command-call",
+            name: "run_command",
+            arguments: {
+              command: "terminal-command",
+              tty: true,
+              timeoutMs: 5_000,
+              yieldTimeMs: 1_000,
+            },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "Terminal command completed." },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        skillHomeDirectory: path.join(root, "home"),
+        provider,
+        permissionMode: "full_access",
+        ptyDriver,
+      },
+    );
+    try {
+      await expect(runtime.submit("run the terminal command")).resolves
+        .toMatchObject({ finalText: "Terminal command completed." });
+      expect(spawnPty).toHaveBeenCalledOnce();
+      const launch = spawnPty.mock.calls[0];
+      expect([launch?.[0], ...(launch?.[1] ?? [])].join(" "))
+        .toContain("terminal-command");
+      expect(launch?.[2]).toEqual(expect.objectContaining({
+        columns: 120,
+        rows: 30,
+        cwd: await realpath(workspace),
+      }));
+      expect(provider.requests[1]?.messages.findLast(
+        (message) => message.role === "tool",
+      )?.content).toContain("terminal-output");
+    } finally {
+      await runtime.close();
     }
   });
 
