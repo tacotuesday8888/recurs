@@ -83,6 +83,7 @@ import {
   createRunCommandTool,
   createRunVerificationTool,
   createSearchTextTool,
+  createWebFetchTool,
   type PermissionMode,
   type PtyDriver,
   type ToolSecurityProfile,
@@ -792,6 +793,7 @@ export async function createStandaloneRuntime(
   tools.register(createListFilesTool());
   tools.register(createSearchTextTool());
   tools.register(createCodeOutlineTool());
+  tools.register(createWebFetchTool());
   tools.register(createApplyPatchTool());
   tools.register(createRunCommandTool(processes));
   tools.register(createProcessSessionTool(processes));

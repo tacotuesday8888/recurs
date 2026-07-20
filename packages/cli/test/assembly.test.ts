@@ -1489,6 +1489,7 @@ describe("standalone assembly without a provider", () => {
       "list_files",
       "search_text",
       "code_outline",
+      "web_fetch",
       "apply_patch",
       "run_command",
       "process_session",

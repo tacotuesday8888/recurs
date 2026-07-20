@@ -55,6 +55,7 @@ function toolKind(name: string): acp.ToolKind {
     return "read";
   }
   if (name === "search_text") return "search";
+  if (name === "web_fetch") return "fetch";
   if (name === "apply_patch") return "edit";
   if (name.startsWith("run_")) return "execute";
   if (name.includes("agent") || name.includes("team")) return "think";
