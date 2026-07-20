@@ -235,6 +235,14 @@ node packages/cli/dist/main.js run "run the checks" --permissions full --format 
 
 The no-argument interactive CLI requires a user-present local terminal and rejects recognized automation even when it allocates a TTY. The one-shot prompt examples require a configured local provider or an injected provider. `--permissions ask|approved|full` explicitly pins that preset into a fresh durable session so automation cannot inherit another session's permission boundary or conversation. Full still preserves credential denials, sensitive and external-path prompts, integrity controls, and the macOS/Linux workspace sandbox; Windows subprocess tools remain unsupported. Without this flag, existing compatible-session reuse remains unchanged. Codex deliberately rejects this unattended path; use the interactive CLI for user-present Codex Plan work. `--format jsonl` emits the same normalized events used by the interactive runtime; it is not a separate agent path.
 
+### Long-running command sessions
+
+The direct-model runtime owns up to four active command sessions across the parent and its children. `run_command` waits up to 10 seconds by default, or an explicit 250–30,000 ms yield interval. A command that is still running returns a random session identifier. The model can then use `process_session` to poll recent output, write at most 64 KiB to stdin, close stdin, or stop the process. Output is incremental and remains subject to the existing 1 MiB command limit and 10-minute maximum runtime.
+
+Only the agent session that started a process can control it. Its original permission decision, network policy, workspace sandbox, isolated environment, output bound, timeout, and process group remain fixed. One workspace checkpoint spans the complete process lifetime and is finalized on exit, timeout, cancellation, explicit stop, startup failure, or runtime shutdown. Closing Recurs terminates all remaining owned processes and fails visibly if cleanup or checkpoint completion cannot be confirmed.
+
+This is a piped-stdin process session, not a PTY. It supports dev servers, watchers, long verification, and simple line-oriented input. Recurs does not yet claim full-screen terminal rendering, direct keyboard handoff, terminal signals, or safe hidden input for authentication and passphrase prompts.
+
 ### ACP stdio agent
 
 `recurs acp` serves Recurs as an Agent Client Protocol v1 agent over standard input and output. It is a thin host over the same standalone runtime: every ACP `session/new` creates a distinct pinned Recurs session, and `session/prompt` uses the ordinary coordinator, provider, permissions, tools, sessions, and child/team engine. Model text and reasoning, tool lifecycles, and Recurs child, batch, and team activity are projected into typed ACP session updates. A client permission prompt can grant or reject one operation; Recurs does not advertise an always-allow choice through this boundary.

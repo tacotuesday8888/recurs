@@ -70,12 +70,14 @@ import {
 import { CODEX_ACP_PROFILE_REVISION } from "@recurs/runtimes";
 import {
   FileCheckpointStore,
+  OwnedProcessManager,
   ToolError,
   ToolRegistry,
   createApplyPatchTool,
   createGitDiffTool,
   createGitStatusTool,
   createListFilesTool,
+  createProcessSessionTool,
   createReadFileTool,
   createRunCommandTool,
   createRunVerificationTool,
@@ -774,6 +776,7 @@ export async function createStandaloneRuntime(
   }
 
   const coordinatorReference: { current?: BackendRunCoordinator } = {};
+  const processes = new OwnedProcessManager({ checkpoints });
   const tools = new ToolRegistry([], {
     checkpoints,
     securityProfile: options.toolSecurityProfile
@@ -783,7 +786,8 @@ export async function createStandaloneRuntime(
   tools.register(createListFilesTool());
   tools.register(createSearchTextTool());
   tools.register(createApplyPatchTool());
-  tools.register(createRunCommandTool());
+  tools.register(createRunCommandTool(processes));
+  tools.register(createProcessSessionTool(processes));
   tools.register(createRunVerificationTool());
   tools.register(createGitStatusTool());
   tools.register(createGitDiffTool());
@@ -1181,7 +1185,18 @@ export async function createStandaloneRuntime(
       coordinator,
       sessions,
       confirm: async () => false,
-      dispose: () => mcp.close(),
+      dispose: async () => {
+        const settled = await Promise.allSettled([
+          processes.close(),
+          mcp.close(),
+        ]);
+        if (settled.some((result) => result.status === "rejected")) {
+          throw new ToolError(
+            "execution_failed",
+            "Runtime resource cleanup failed",
+          );
+        }
+      },
       providerGuide: async (query, signal) =>
         providerOverviewText(
           await providerDiscoveryOverview(root, query, signal),

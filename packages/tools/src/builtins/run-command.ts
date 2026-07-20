@@ -1,13 +1,19 @@
 import { classifyCommand } from "../command-policy.js";
 import { runProcess } from "../process.js";
+import type { OwnedProcessManager } from "../process-sessions.js";
+import { processSnapshotResult } from "./process-session.js";
 import { ToolError, type Tool } from "../types.js";
 
 const MAX_COMMAND_OUTPUT = 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_YIELD_TIME_MS = 10_000;
+const MIN_YIELD_TIME_MS = 250;
+const MAX_YIELD_TIME_MS = 30_000;
 
 export interface RunCommandInput {
   command: string;
   timeoutMs: number;
+  yieldTimeMs?: number;
 }
 
 function parseRunCommandInput(value: unknown): RunCommandInput {
@@ -30,7 +36,23 @@ function parseRunCommandInput(value: unknown): RunCommandInput {
   ) {
     throw new ToolError("invalid_input", "timeoutMs must be between 1 and 600000");
   }
-  return { command: value.command, timeoutMs: timeoutMs as number };
+  const yieldTimeMs = "yieldTimeMs" in value ? value.yieldTimeMs : undefined;
+  if (
+    yieldTimeMs !== undefined &&
+    (!Number.isSafeInteger(yieldTimeMs) ||
+      (yieldTimeMs as number) < MIN_YIELD_TIME_MS ||
+      (yieldTimeMs as number) > MAX_YIELD_TIME_MS)
+  ) {
+    throw new ToolError(
+      "invalid_input",
+      `yieldTimeMs must be between ${MIN_YIELD_TIME_MS} and ${MAX_YIELD_TIME_MS}`,
+    );
+  }
+  return {
+    command: value.command,
+    timeoutMs: timeoutMs as number,
+    ...(yieldTimeMs === undefined ? {} : { yieldTimeMs: yieldTimeMs as number }),
+  };
 }
 
 function verificationEvidence(command: string): string[] {
@@ -39,7 +61,9 @@ function verificationEvidence(command: string): string[] {
     : [];
 }
 
-export function createRunCommandTool(): Tool<RunCommandInput> {
+export function createRunCommandTool(
+  processes?: OwnedProcessManager,
+): Tool<RunCommandInput> {
   return {
     definition: {
       name: "run_command",
@@ -49,6 +73,11 @@ export function createRunCommandTool(): Tool<RunCommandInput> {
         properties: {
           command: { type: "string", minLength: 1 },
           timeoutMs: { type: "integer", minimum: 1, maximum: 600_000 },
+          yieldTimeMs: {
+            type: "integer",
+            minimum: MIN_YIELD_TIME_MS,
+            maximum: MAX_YIELD_TIME_MS,
+          },
         },
         required: ["command"],
         additionalProperties: false,
@@ -56,11 +85,38 @@ export function createRunCommandTool(): Tool<RunCommandInput> {
     },
     executionClass: "arbitrary_process",
     mutating: true,
+    checkpointOwnership: processes?.ownsCheckpoints === true
+      ? "self_managed"
+      : "registry",
     parse: parseRunCommandInput,
     permissions(input) {
       return classifyCommand(input.command);
     },
     async execute(input, context) {
+      if (processes !== undefined) {
+        return processSnapshotResult(await processes.start({
+          ownerId: context.sessionId,
+          command: "/bin/sh",
+          args: ["-c", input.command],
+          options: {
+            cwd: context.cwd,
+            signal: context.signal,
+            timeoutMs: input.timeoutMs,
+            maxOutputBytes: MAX_COMMAND_OUTPUT,
+            ...(context.processSandbox === undefined
+              ? {}
+              : { sandbox: context.processSandbox }),
+          },
+          yieldTimeMs: input.yieldTimeMs ?? DEFAULT_YIELD_TIME_MS,
+          terminalEvidence: verificationEvidence(input.command),
+        }));
+      }
+      if (input.yieldTimeMs !== undefined) {
+        throw new ToolError(
+          "tool_unavailable",
+          "Long-running command sessions are unavailable",
+        );
+      }
       const result = await runProcess("/bin/sh", ["-c", input.command], {
         cwd: context.cwd,
         signal: context.signal,
