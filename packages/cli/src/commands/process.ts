@@ -1,3 +1,4 @@
+import { deriveTrustedRunContext } from "@recurs/contracts";
 import {
   MAX_PROCESS_SESSION_COLUMNS,
   MAX_PROCESS_SESSION_INPUT_BYTES,
@@ -14,7 +15,7 @@ import type { Command, CommandDependencies, CommandResult } from "./types.js";
 import { message } from "./types.js";
 
 const usage =
-  "/process [session-id [poll|wait [ms]|write <text>|enter [text]|close|resize <columns>x<rows>|stop]]";
+  "/process [session-id [poll|wait [ms]|write <text>|enter [text]|close|resize <columns>x<rows>|attach|stop]]";
 
 function splitFirst(value: string): readonly [string, string] {
   const match = /^(\S+)(?:\s+(.*))?$/u.exec(value);
@@ -23,6 +24,19 @@ function splitFirst(value: string): readonly [string, string] {
 
 function usageError(): CommandResult {
   return message(`Usage: ${usage}`, "error");
+}
+
+function localManualTerminal(
+  invocation: Parameters<Command["execute"]>[1]["invocation"],
+): boolean {
+  try {
+    const trusted = deriveTrustedRunContext(invocation);
+    return trusted.invocation === "repl" && trusted.presence === "present" &&
+      trusted.location === "local" && trusted.automation === "manual" &&
+      trusted.embedding === "cli";
+  } catch {
+    return false;
+  }
 }
 
 function safeProcessOutput(output: string): string {
@@ -162,6 +176,34 @@ export function createProcessCommand(
           resize: { columns, rows },
           yieldTimeMs: 0,
         }));
+      }
+      if (action === "attach") {
+        if (value.length !== 0) return usageError();
+        if (!localManualTerminal(context.invocation)) {
+          return message(
+            "Process attachment requires the local user-present interactive CLI",
+            "error",
+          );
+        }
+        const summary = processes.list(context.session.id).find(
+          (candidate) => candidate.sessionId === sessionId,
+        );
+        if (summary === undefined) {
+          return message("Process session not found", "error");
+        }
+        if (!summary.terminal) {
+          return message(
+            "Only an interactive terminal process can be attached; use write or enter for a piped session",
+            "error",
+          );
+        }
+        if (summary.status !== "running") {
+          return message(
+            "Only a running terminal process can be attached; poll it to collect the terminal result",
+            "error",
+          );
+        }
+        return { type: "attach_process", sessionId };
       }
       if (action === "stop") {
         return value.length === 0

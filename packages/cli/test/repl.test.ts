@@ -167,4 +167,45 @@ describe("startRepl", () => {
     expect(submitted).toEqual(["inspect", "focus on tests", "/quit"]);
     expect(output.value).toContain("Steering queued");
   });
+
+  it("hands an attach result to the terminal host before reading the next command", async () => {
+    const output = new TextOutput();
+    const input = new PassThrough();
+    const attached: string[] = [];
+    const submitted: string[] = [];
+    let markAttached!: () => void;
+    const attachmentHandled = new Promise<void>((resolve) => {
+      markAttached = resolve;
+    });
+    const runtime = {
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async close() {},
+      async submit(input: string) {
+        submitted.push(input);
+        return input === "/process terminal-1 attach"
+          ? { type: "attach_process", sessionId: "terminal-1" }
+          : { type: "quit" };
+      },
+    } as unknown as RecursRuntime;
+
+    const repl = startRepl(runtime, {
+      input,
+      output,
+      terminal: false,
+      attachProcess: async (_runtime, sessionId) => {
+        attached.push(sessionId);
+        markAttached();
+      },
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    input.write("/process terminal-1 attach\n");
+    await attachmentHandled;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    input.write("/quit\n");
+    await repl;
+
+    expect(submitted).toEqual(["/process terminal-1 attach", "/quit"]);
+    expect(attached).toEqual(["terminal-1"]);
+  });
 });

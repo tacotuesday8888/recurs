@@ -362,4 +362,42 @@ describe("foundation slash commands", () => {
       text: "safe\\u001b]52;c;clipboard\\u0007\\u000dhidden\nProcess session process-1 is running.",
     });
   });
+
+  it("allows only the local user-present CLI to attach an owned running PTY", async () => {
+    const interact = vi.fn();
+    const list = vi.fn(() => [{
+      sessionId: "terminal-1",
+      status: "running" as const,
+      terminal: true,
+      bufferedOutputBytes: 0,
+    }]);
+    const registry = createCommandRegistry({ processes: { list, interact } });
+    const local = commandContext();
+
+    await expect(registry.execute("/process terminal-1 attach", local)).resolves
+      .toEqual({ type: "attach_process", sessionId: "terminal-1" });
+    expect(interact).not.toHaveBeenCalled();
+
+    list.mockReturnValueOnce([{
+      sessionId: "terminal-1",
+      status: "running",
+      terminal: false,
+      bufferedOutputBytes: 0,
+    }]);
+    await expect(registry.execute("/process terminal-1 attach", local)).resolves
+      .toMatchObject({ level: "error", text: expect.stringContaining("terminal") });
+
+    local.invocation = createHostInvocation({
+      invocation: "one_shot",
+      userPresent: false,
+      remote: false,
+      scripted: true,
+      embedding: "sdk",
+    });
+    await expect(registry.execute("/process terminal-1 attach", local)).resolves
+      .toMatchObject({
+        level: "error",
+        text: expect.stringContaining("local user-present interactive CLI"),
+      });
+  });
 });

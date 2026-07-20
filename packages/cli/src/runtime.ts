@@ -26,6 +26,11 @@ import {
   type RunCoordinator,
   type RunResult,
 } from "@recurs/contracts";
+import type {
+  InteractWithOwnedProcessInput,
+  OwnedProcessManager,
+  OwnedProcessSnapshot,
+} from "@recurs/tools";
 
 import { parseCommand } from "./commands/parser.js";
 import type { CommandRegistry } from "./commands/registry.js";
@@ -59,6 +64,7 @@ export interface RuntimeDependencies {
   now?: () => string;
   promptUnavailableMessage?: string;
   providerGuide?(query: string, signal: AbortSignal): Promise<string>;
+  processes?: Pick<OwnedProcessManager, "interact">;
   dispose?(): Promise<void>;
 }
 
@@ -200,6 +206,21 @@ export class RecursRuntime {
     this.#activeQueuedTurns?.close("The active turn was cancelled");
     this.#activeController.abort();
     return true;
+  }
+
+  interactWithOwnedProcess(
+    input: Omit<InteractWithOwnedProcessInput, "ownerId">,
+  ): Promise<OwnedProcessSnapshot> {
+    if (this.#closed || this.dependencies.processes === undefined) {
+      throw new RuntimeError(
+        "invalid_input",
+        "Process session controls are unavailable",
+      );
+    }
+    return this.dependencies.processes.interact({
+      ...input,
+      ownerId: this.session.id,
+    });
   }
 
   close(): Promise<void> {

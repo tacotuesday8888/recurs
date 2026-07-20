@@ -681,6 +681,7 @@ function isCommandResult(value: unknown): value is CommandResult {
     value !== null &&
     "type" in value &&
     (value.type === "message" ||
+      value.type === "attach_process" ||
       value.type === "submit_prompt" ||
       value.type === "quit")
   );
