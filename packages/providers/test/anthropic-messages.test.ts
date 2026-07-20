@@ -266,7 +266,10 @@ describe("remote Anthropic Messages provider", () => {
         providerId: "anthropic-api",
         connectionId: `connection-${status}`,
         apiKey: key,
-        fetch: async () => new Response(`provider body ${key}`, { status }),
+        fetch: async () => new Response(`provider body ${key}`, {
+          status,
+          headers: status === 429 ? { "retry-after-ms": "875" } : {},
+        }),
       });
       let thrown: unknown;
       try {
@@ -280,7 +283,11 @@ describe("remote Anthropic Messages provider", () => {
         thrown = error;
       }
       expect(thrown).toBeInstanceOf(ProviderError);
-      expect(thrown).toMatchObject({ code, retryable });
+      expect(thrown).toMatchObject({
+        code,
+        retryable,
+        ...(status === 429 ? { retryAfterMs: 875 } : {}),
+      });
       expect(String(thrown)).not.toContain(key);
     }
   });

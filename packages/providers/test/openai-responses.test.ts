@@ -534,11 +534,18 @@ describe("RemoteOpenAIResponsesProvider", () => {
       const provider = new RemoteOpenAIResponsesProvider({
         connectionId: "openai-env",
         apiKey: "private-openai-key",
-        fetch: async () => new Response("secret provider body", { status }),
+        fetch: async () => new Response("secret provider body", {
+          status,
+          headers: status === 429 ? { "retry-after": "1.5" } : {},
+        }),
       });
       await expect(collect(provider, request("turn-1", [
         { id: "user", role: "user", content: "work" },
-      ]))).rejects.toMatchObject({ code, retryable });
+      ]))).rejects.toMatchObject({
+        code,
+        retryable,
+        ...(status === 429 ? { retryAfterMs: 1_500 } : {}),
+      });
     }
 
     const controller = new AbortController();

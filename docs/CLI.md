@@ -213,6 +213,8 @@ interface ModelProvider {
 
 The normalized request contains the model name, immutable message snapshot, visible tool definitions, and an abort signal. The stream returns text/reasoning deltas, normalized tool calls, usage, and one terminal event. `ScriptedProvider` supplies deterministic responses for tests and embedded development.
 
+Retryable direct-provider failures may run at most twice, and only before text, reasoning, or a tool call has been observed. Recurs uses 200 ms then 400 ms by default. Reviewed HTTP adapters honor numeric seconds, HTTP dates, and `retry-after-ms` hints, but cap every wait at 30 seconds and expose the selected delay through a normalized retry event. Cancellation interrupts the wait immediately. A failure after semantic output is terminal because replay could duplicate visible text or tool work.
+
 Native-tool providers use the provider-neutral `native_tool_use_v2` profile. They may emit up to four independent built-in read calls together; Recurs starts and settles that bounded group concurrently but persists tool events and returns results in provider call order. Only `read_file`, `list_files`, `search_text`, `code_outline`, `git_status`, and `git_diff` opt in. A call that is mutating, dynamically mutating, approval-requiring, malformed, policy-disallowed, unknown, or not explicitly marked safe becomes a serial barrier. The `compatible_tool_use_v1` profile remains one call at a time for conservative OpenAI Chat-compatible models.
 
 ### Repository structure

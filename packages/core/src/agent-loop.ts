@@ -10,6 +10,7 @@ import type {
 
 import {
   collectProviderEvents,
+  MAX_PROVIDER_RETRY_AFTER_MS,
   ProviderError,
   safeProviderErrorMessage,
   type ModelMessage,
@@ -444,6 +445,20 @@ function isRetryableProviderError(error: unknown): error is ProviderError {
   return error instanceof ProviderError && error.retryable;
 }
 
+const PROVIDER_RETRY_INITIAL_DELAY_MS = 200;
+
+function providerRetryDelayMs(
+  error: ProviderError,
+  retryAttempt: number,
+): number {
+  const fallback = PROVIDER_RETRY_INITIAL_DELAY_MS *
+    2 ** Math.max(0, retryAttempt - 1);
+  return Math.min(
+    MAX_PROVIDER_RETRY_AFTER_MS,
+    error.retryAfterMs ?? fallback,
+  );
+}
+
 async function streamModelTurnWithRetries(
   deps: AgentLoopDependencies,
   request: ProviderRequest,
@@ -505,7 +520,7 @@ async function streamModelTurnWithRetries(
         throw error;
       }
       const retryAttempt = attempt + 1;
-      const delayMs = 10 * 2 ** attempt;
+      const delayMs = providerRetryDelayMs(error, retryAttempt);
       await deps.emit({
         type: "warning",
         sessionId,

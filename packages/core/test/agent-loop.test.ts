@@ -865,7 +865,35 @@ describe("AgentLoop", () => {
       "recovered",
     );
     expect(provider.requests).toHaveLength(2);
-    expect(events).toContainEqual(expect.objectContaining({ type: "retry_scheduled", attempt: 1 }));
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "retry_scheduled",
+      attempt: 1,
+      delayMs: 200,
+    }));
+  });
+
+  it("honors a bounded provider retry delay and cancels the wait promptly", async () => {
+    const provider = new ScriptedProvider([
+      new ProviderError("rate_limit", "temporary", true, {
+        retryAfterMs: 12_345,
+      }),
+    ]);
+    const { loop, events } = await harness(provider);
+    const controller = new AbortController();
+    const run = loop.run({
+      sessionId: "s1",
+      prompt: "work",
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(events).toContainEqual(expect.objectContaining({
+      type: "retry_scheduled",
+      attempt: 1,
+      delayMs: 12_345,
+    })));
+
+    controller.abort();
+    await expect(run).rejects.toMatchObject({ code: "cancelled" });
+    expect(provider.requests).toHaveLength(1);
   });
 
   it.each([
