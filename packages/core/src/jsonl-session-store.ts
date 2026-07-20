@@ -278,7 +278,7 @@ export class JsonlSessionStore {
       }
       if (
         source.openTurnId !== null || source.pendingCompaction !== null ||
-        source.pendingToolCalls.length > 0
+        source.pendingToolCalls.length > 0 || source.queuedTurns.length > 0
       ) {
         throw new SessionStoreError(
           "session_conflict",

@@ -1,9 +1,12 @@
+import { Buffer } from "node:buffer";
 import { isDeepStrictEqual } from "node:util";
 import path from "node:path";
 
 import {
   getOperatingModePolicy,
   getAgentProfilePolicy,
+  MAX_PENDING_QUEUED_TURNS,
+  MAX_QUEUED_TURN_BYTES,
   narrowAgentPermissionMode,
   parseAgentProfileId,
   parseOperatingModeId,
@@ -68,6 +71,14 @@ function boundedStrings(
 ): value is string[] {
   return Array.isArray(value) && value.length <= maximumItems &&
     value.every((item) => boundedNonEmptyString(item, MAX_RUNTIME_ITEM_LENGTH));
+}
+
+function boundedNonEmptyUtf8(
+  value: unknown,
+  maximumBytes: number,
+): value is string {
+  return typeof value === "string" && value.length > 0 &&
+    value === value.trim() && Buffer.byteLength(value, "utf8") <= maximumBytes;
 }
 
 interface JsonBudget {
@@ -914,9 +925,30 @@ export function parseSessionRecordV2(
         ));
       break;
     case "turn_started":
-      valid = recordKeys(value, ["turnId", "prompt"]) &&
+      valid = recordKeys(value, ["turnId", "prompt"], ["queuedInputId"]) &&
         typeof value.turnId === "string" &&
-        typeof value.prompt === "string";
+        typeof value.prompt === "string" &&
+        (value.queuedInputId === undefined ||
+          boundedNonEmptyString(value.queuedInputId, MAX_RUNTIME_ID_LENGTH));
+      break;
+    case "prompt_queued":
+      valid = recordKeys(
+        value,
+        ["queuedInputId", "prompt"],
+        ["sourceTurnId"],
+      ) &&
+        boundedNonEmptyString(value.queuedInputId, MAX_RUNTIME_ID_LENGTH) &&
+        boundedNonEmptyUtf8(value.prompt, MAX_QUEUED_TURN_BYTES) &&
+        (value.sourceTurnId === undefined ||
+          boundedNonEmptyString(value.sourceTurnId, MAX_RUNTIME_ID_LENGTH));
+      break;
+    case "prompt_queue_cleared":
+      valid = recordKeys(value, ["queuedInputIds"]) &&
+        Array.isArray(value.queuedInputIds) &&
+        value.queuedInputIds.length <= MAX_PENDING_QUEUED_TURNS &&
+        value.queuedInputIds.every((id) =>
+          boundedNonEmptyString(id, MAX_RUNTIME_ID_LENGTH)
+        );
       break;
     case "turn_steered":
       valid = recordKeys(value, ["turnId", "steeringId", "prompt"]) &&

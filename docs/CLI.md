@@ -250,13 +250,24 @@ second turn. Recurs applies it at the next safe model boundary, persists a
 provider request. The terminal completion boundary closes the queue atomically,
 so input is either accepted for that exact turn or rejected as already
 finishing. The queue permits at most four pending inputs, 16 KiB each and 32 KiB
-in total. `/cancel`, `/status`, and `/help` remain available while the turn runs.
+in total. `/cancel`, `/status`, `/help`, and `/queue <prompt>` remain available
+while the turn runs.
 
 Steering does not abort a provider request already in flight; it takes effect
 after that response and any requested tool calls settle. Opaque delegated
 runtimes do not expose this direct-loop boundary, so Recurs rejects live input
-for them instead of claiming it was applied. Starting a separate queued turn
-is not implemented yet.
+for them instead of claiming it was applied.
+
+Use `/queue <prompt>` when the input should be a distinct turn rather than
+same-turn steering. Recurs admits at most four pending turns, waits until each
+accepted prompt is durably appended, then runs locally admitted turns in FIFO
+order after the current turn succeeds. A failure or cancellation never silently
+replays pending work. Queued turns survive restart, but recovery is explicit:
+`/queue` or `/queue list` inspects IDs without rendering prompt contents,
+`/queue resume` continues from the exact FIFO head, and `/queue clear` requires
+confirmation. While durable work is pending, unrelated new prompts are rejected
+instead of bypassing it. This first queue is available only for direct-provider
+parent sessions; it is not a background daemon or recursive scheduler.
 
 One non-interactive run:
 
@@ -487,6 +498,7 @@ A daemon that outlives the CLI, recursive depth, automatic task decomposition, t
 | `/diff [--staged] [path]` | Show a bounded Git diff without repository hooks, filters, external diff/text conversion, or expanded dirty-submodule content. |
 | `/review` | Submit staged/unstaged changes for a temporary read-only review. |
 | `/undo` | Restore the latest checkpoint that actually changed files. |
+| `/queue [prompt\|list\|resume\|clear]` | Admit a bounded durable FIFO follow-up turn, inspect pending IDs, explicitly recover after restart, or confirm clearing the queue. |
 | `/cancel` | Abort the current provider/tool run. |
 | `/quit`, `/exit`, `/q` | Exit the interactive CLI. |
 

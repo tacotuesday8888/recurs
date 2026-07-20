@@ -16,6 +16,7 @@ import {
   type RunResult,
   type RuntimeContinuationAuthority,
   type RuntimeContinuationHandle,
+  type QueuedTurnSource,
   type SessionBackendPin,
   type TrustedRunContext,
   type TurnSteeringSource,
@@ -47,6 +48,8 @@ export interface DirectRunExecutorInput {
   authorization: RunAuthorization;
   context: TrustedRunContext;
   steering?: TurnSteeringSource;
+  queuedTurns?: QueuedTurnSource;
+  queuedInputId?: string;
   mutation: SessionMutationLease;
   signal: AbortSignal;
 }
@@ -547,7 +550,19 @@ export class BackendRunCoordinator implements RunCoordinator {
       } as const;
     }
     const operationId = this.#createId();
-    const turnId = input.steering?.turnId ?? this.#createId();
+    const liveTurnIds = [input.steering?.turnId, input.queuedTurns?.turnId]
+      .filter((id): id is string => id !== undefined);
+    if (new Set(liveTurnIds).size > 1) {
+      return {
+        ok: false,
+        failure: failure(
+          "connection_invalid",
+          "Live-input mailboxes do not identify the same active turn",
+          operationId,
+        ),
+      } as const;
+    }
+    const turnId = liveTurnIds[0] ?? this.#createId();
     let executionStarted = false;
     try {
       return await this.dependencies.sessions.withSessionMutation(
@@ -567,6 +582,35 @@ export class BackendRunCoordinator implements RunCoordinator {
                 operationId,
               ),
             } as const;
+          }
+          if (
+            (input.queuedTurns !== undefined || input.queuedInputId !== undefined) &&
+            (loadedSession.backend.pin.kind !== "model_provider" ||
+              loadedSession.agent.role !== "parent")
+          ) {
+            return {
+              ok: false,
+              failure: failure(
+                "connection_invalid",
+                "Queued turns require a direct-provider parent session",
+                operationId,
+              ),
+            } as const;
+          }
+          if (input.queuedInputId !== undefined) {
+            const queued = loadedSession.queuedTurns[0];
+            if (
+              queued?.id !== input.queuedInputId || queued.prompt !== prompt
+            ) {
+              return {
+                ok: false,
+                failure: failure(
+                  "session_conflict",
+                  "The queued turn does not match the durable FIFO head",
+                  operationId,
+                ),
+              } as const;
+            }
           }
           const context = deriveTrustedRunContext(input.invocation);
           this.#throwIfPreflightAborted(input.signal, operationId);
@@ -635,6 +679,12 @@ export class BackendRunCoordinator implements RunCoordinator {
               authorization: resolved.authorization,
               context,
               ...(input.steering === undefined ? {} : { steering: input.steering }),
+              ...(input.queuedTurns === undefined
+                ? {}
+                : { queuedTurns: input.queuedTurns }),
+              ...(input.queuedInputId === undefined
+                ? {}
+                : { queuedInputId: input.queuedInputId }),
               mutation,
               signal: input.signal,
             });

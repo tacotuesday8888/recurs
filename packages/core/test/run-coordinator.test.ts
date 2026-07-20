@@ -256,6 +256,39 @@ describe("BackendRunCoordinator", () => {
     expect((await sessions.load("s2")).records).toHaveLength(1);
   });
 
+  it("rejects a queued turn that is not the durable FIFO head", async () => {
+    const { sessions } = await setup();
+    const resolver: BackendResolver = {
+      resolve: vi.fn(async () => {
+        throw new Error("resolver must not run");
+      }),
+    };
+    const direct: DirectRunExecutor = {
+      run: vi.fn(async () => result),
+    };
+    const coordinator = new BackendRunCoordinator({ sessions, resolver, direct });
+
+    const outcome = (await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 0,
+      prompt: "not queued",
+      queuedInputId: "missing-queue-id",
+      invocation,
+      signal: new AbortController().signal,
+    })).outcome;
+
+    await expect(outcome).resolves.toMatchObject({
+      ok: false,
+      failure: {
+        code: "session_conflict",
+        safeMessage: "The queued turn does not match the durable FIFO head",
+      },
+    });
+    expect(resolver.resolve).not.toHaveBeenCalled();
+    expect(direct.run).not.toHaveBeenCalled();
+    expect((await sessions.load("s2")).records).toHaveLength(1);
+  });
+
   it("lets cancellation after resolution prevent a backend factory", async () => {
     const { sessions } = await setup();
     const controller = new AbortController();

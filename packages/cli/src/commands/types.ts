@@ -21,6 +21,7 @@ export interface ParsedCommand {
 export type CommandResult =
   | { type: "message"; level: "info" | "warning" | "error"; text: string }
   | { type: "submit_prompt"; prompt: string; executionMode?: ExecutionMode }
+  | { type: "submit_queued_prompt"; queuedInputId: string; prompt: string }
   | { type: "quit" };
 
 export interface CommandContext {
@@ -29,6 +30,7 @@ export interface CommandContext {
   now(): string;
   confirm(message: string): Promise<boolean>;
   cancelActiveRun(): Promise<boolean>;
+  manageQueuedTurns(args: string): Promise<CommandResult>;
   applyRecord(record: SessionRecord): Promise<void>;
 }
 

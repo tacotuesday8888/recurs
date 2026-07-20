@@ -117,7 +117,7 @@ describe("startRepl", () => {
     const inspected = new Promise<void>((resolve) => { markInspect = resolve; });
     const steered = new Promise<void>((resolve) => { markSteer = resolve; });
     const runtime = {
-      get canAcceptSteering() { return active; },
+      get canAcceptLiveInput() { return active; },
       setConfirmHandler() {},
       cancel() { return false; },
       async close() {},

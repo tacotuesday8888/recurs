@@ -85,6 +85,88 @@ describe("version 2 sessions", () => {
     expect(state.agentResult).toBeNull();
   });
 
+  it("persists queued turns and consumes only the exact FIFO head", async () => {
+    const store = await temporaryStore();
+    const initial = await store.createPinnedSession({
+      id: "queued-session",
+      cwd: "/workspace",
+      backend,
+      at,
+    });
+    await store.withSessionMutation(initial.id, initial.lastSequence, async (lease) => {
+      await lease.append({
+        type: "prompt_queued",
+        queuedInputId: "queued-1",
+        prompt: "first queued task",
+        at,
+      });
+      await lease.append({
+        type: "prompt_queued",
+        queuedInputId: "queued-2",
+        prompt: "second queued task",
+        at,
+      });
+    });
+    const queued = await store.loadState(initial.id);
+    expect(queued.queuedTurns.map((turn) => turn.id)).toEqual([
+      "queued-1",
+      "queued-2",
+    ]);
+
+    await expect(store.withSessionMutation(
+      initial.id,
+      queued.lastSequence,
+      async (lease) => {
+        await lease.append({
+          type: "turn_started",
+          turnId: "wrong-turn",
+          prompt: "unrelated",
+          at,
+        });
+      },
+    )).rejects.toThrow("must be resumed or cleared");
+    await expect(store.withSessionMutation(
+      initial.id,
+      queued.lastSequence,
+      async (lease) => {
+        await lease.append({
+          type: "turn_started",
+          turnId: "wrong-head",
+          queuedInputId: "queued-2",
+          prompt: "second queued task",
+          at,
+        });
+      },
+    )).rejects.toThrow("FIFO queue head");
+
+    await store.withSessionMutation(initial.id, queued.lastSequence, async (lease) => {
+      await lease.append({
+        type: "turn_started",
+        turnId: "queued-turn",
+        queuedInputId: "queued-1",
+        prompt: "first queued task",
+        at,
+      });
+      await lease.append({
+        type: "turn_completed",
+        turnId: "queued-turn",
+        result: {
+          finalText: "first complete",
+          usage: null,
+          usageSource: "unavailable",
+          steps: 1,
+          changedFiles: [],
+          changedFilesSource: "none",
+          evidence: [],
+          evidenceSource: "none",
+        },
+        at,
+      });
+    });
+    const consumed = await store.loadState(initial.id);
+    expect(consumed.queuedTurns.map((turn) => turn.id)).toEqual(["queued-2"]);
+  });
+
   it("persists a v3 policy and rejects a stable-id/version mismatch", async () => {
     const store = await temporaryStore();
     const initial = await store.createPinnedSession({

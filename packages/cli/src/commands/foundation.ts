@@ -25,6 +25,7 @@ const helpText = [
   "/review                       Review changes with read-only tools",
   "/undo                         Restore the latest safe checkpoint",
   "/cancel                       Cancel the active agent run",
+  "/queue [prompt|resume|clear]  Queue or recover separate follow-up turns",
   "/quit, /exit, /q              Exit Recurs",
 ].join("\n");
 
@@ -69,6 +70,9 @@ function createStatusCommand(): Command {
           `Goal: ${goal}`,
           `Usage: ${context.session.usage.inputTokens} input / ${context.session.usage.outputTokens} output tokens`,
           `Pending tools: ${context.session.pendingToolCalls.length}`,
+          ...(isPinnedSessionState(context.session)
+            ? [`Queued turns: ${context.session.queuedTurns.length}`]
+            : []),
           ...(backend === null ? [] : [backend]),
         ].join("\n"),
       );
@@ -102,11 +106,23 @@ function createQuitCommand(): Command {
   };
 }
 
+function createQueueCommand(): Command {
+  return {
+    name: "queue",
+    description: "Manage durable separate follow-up turns",
+    usage: "/queue [prompt|resume|clear]",
+    async execute(args, context) {
+      return context.manageQueuedTurns(args);
+    },
+  };
+}
+
 export function createFoundationCommands(): Command[] {
   return [
     createHelpCommand(),
     createStatusCommand(),
     createCancelCommand(),
+    createQueueCommand(),
     createQuitCommand(),
   ];
 }

@@ -84,6 +84,15 @@ export type RecursEvent =
   | (EventBase & { type: "session_created"; cwd: string; model: string })
   | (EventBase & { type: "turn_started"; turnId: string; prompt: string })
   | (EventBase & {
+      type: "prompt_queued";
+      queuedInputId: string;
+      sourceTurnId: string | null;
+    })
+  | (EventBase & {
+      type: "prompt_queue_cleared";
+      queuedInputIds: string[];
+    })
+  | (EventBase & {
       type: "turn_steered";
       turnId: string;
       steeringId: string;

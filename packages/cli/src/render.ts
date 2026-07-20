@@ -62,6 +62,12 @@ export class TextEventRenderer implements EventSink {
       case "turn_steered":
         await this.#status("↪ Steering applied");
         break;
+      case "prompt_queued":
+        await this.#status("⇥ Next turn queued");
+        break;
+      case "prompt_queue_cleared":
+        await this.#status("Queued turns cleared");
+        break;
       case "turn_completed":
       case "turn_cancelled":
       case "turn_failed":
