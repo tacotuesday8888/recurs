@@ -213,7 +213,13 @@ interface ModelProvider {
 
 The normalized request contains the model name, immutable message snapshot, visible tool definitions, and an abort signal. The stream returns text/reasoning deltas, normalized tool calls, usage, and one terminal event. `ScriptedProvider` supplies deterministic responses for tests and embedded development.
 
-Native-tool providers use the provider-neutral `native_tool_use_v2` profile. They may emit up to four independent built-in read calls together; Recurs starts and settles that bounded group concurrently but persists tool events and returns results in provider call order. Only `read_file`, `list_files`, `search_text`, `git_status`, and `git_diff` opt in. A call that is mutating, dynamically mutating, approval-requiring, malformed, policy-disallowed, unknown, or not explicitly marked safe becomes a serial barrier. The `compatible_tool_use_v1` profile remains one call at a time for conservative OpenAI Chat-compatible models.
+Native-tool providers use the provider-neutral `native_tool_use_v2` profile. They may emit up to four independent built-in read calls together; Recurs starts and settles that bounded group concurrently but persists tool events and returns results in provider call order. Only `read_file`, `list_files`, `search_text`, `code_outline`, `git_status`, and `git_diff` opt in. A call that is mutating, dynamically mutating, approval-requiring, malformed, policy-disallowed, unknown, or not explicitly marked safe becomes a serial barrier. The `compatible_tool_use_v1` profile remains one call at a time for conservative OpenAI Chat-compatible models.
+
+### Repository structure
+
+`code_outline` gives parent and child agents an on-demand structural view without automatically placing an entire repository map into every prompt. It accepts a file or directory plus optional fixed-text query, file limit, and symbol limit. Directory discovery respects ripgrep ignore rules and Recurs's credential exclusions. Query mode finds source files containing the text or matching it in their path, then returns matching declarations; a path match returns that file's complete bounded outline.
+
+The result is deliberately labeled lexical. Recurs recognizes conservative declaration forms in TypeScript/JavaScript, Python, Rust, Go, Swift, Java, Kotlin, C#, Ruby, PHP, C/C++, and shell files. It does not claim parser accuracy, references, definitions, types, or language-server diagnostics. Each file, aggregate scan, symbol count, discovery output, and final output is bounded; binary, oversized, generated, credential, sensitive, and mid-read-changing files are omitted and reported. An outline is never recorded as a complete-file read revision, so it cannot authorize a later patch.
 
 `createStandaloneRuntime(eventSink, { provider, model })` remains the test/embedding assembly point for an injected provider. Normal standalone assembly also resolves saved local, environment-BYOK, brokered-native, and Codex records into immutable version-2 backend pins. A saved BYOK record runs only when the exact named credential matches its stored fingerprint; missing or changed credentials fail before provider work with the required variable named safely. Launching the compiled CLI without a connection keeps workspace commands available, but `recurs run <prompt>` exits with configuration code `2` before persisting the prompt. JSONL mode emits one `configuration_error` object without prose on standard output.
 
@@ -376,8 +382,8 @@ The version-1 profiles used by single-child and analysis-batch delegation are ho
 
 | Profile | Execution and workspace effect | Exact host-controlled tools |
 | --- | --- | --- |
-| Explore (`explore_v1`) | Plan; read-only | `read_file`, `list_files`, `search_text`, `git_status`, `git_diff` |
-| Implement (`implement_v1`) | Act parent required; scoped edits and verification | Explore tools plus `apply_patch`, `run_command`, `run_verification` |
+| Explore (`explore_v1`) | Plan; read-only | `read_file`, `list_files`, `search_text`, `code_outline`, `git_status`, `git_diff` |
+| Implement (`implement_v1`) | Act parent required; scoped edits and verification | Explore tools plus `apply_patch`, `run_command`, `process_session`, `run_verification` |
 | Review (`review_v1`) | Act parent required; read-only inspection | Explore tools |
 
 Where Recurs owns tool execution, the registry enforces both the exact tool names and each profile's permission-category/risk ceiling before approval. `run_verification`, available to `implement_v1`, parses one allowlisted npm, pnpm, yarn, Bun, Cargo, Go, Pytest, or Swift test/check command and executes it directly without a shell; pipes, redirection, substitution, arbitrary programs, install/deploy commands, and mutating test flags are rejected. It is still workspace-effectful because builds and tests can write artifacts, so Implement delegation receives parent-level checkpoints. The invoked project task and its arguments retain ordinary host-process authority; an allowlisted task name is not containment or proof that the task is side-effect free. Implement's separate `run_command` tool remains an approval-gated arbitrary shell with host authority: command classification and checkpoints are application defenses, not containment, and embedded scripts can evade semantic classification.
@@ -386,8 +392,8 @@ Version-4-or-newer durable teams use stricter profiles with no arbitrary-command
 
 | Profile | Purpose | Exact host-controlled tools |
 | --- | --- | --- |
-| Implement (`implement_v2`) | Isolated staged edits | `read_file`, `list_files`, `search_text`, `apply_patch`, `git_status`, `git_diff` |
-| Review (`review_v2`) | Read-only staged review with strict JSON findings | `read_file`, `list_files`, `search_text`, `git_status`, `git_diff` |
+| Implement (`implement_v2`) | Isolated staged edits | `read_file`, `list_files`, `search_text`, `code_outline`, `apply_patch`, `git_status`, `git_diff` |
+| Review (`review_v2`) | Read-only staged review with strict JSON findings | `read_file`, `list_files`, `search_text`, `code_outline`, `git_status`, `git_diff` |
 | Repair (`repair_v1`) | Finding-scoped edits to the staged candidate | Implement v2 tools |
 
 Every child receives a backend route and a permission preset that cannot exceed the parent. Ordinary `delegate_task` and `delegate_tasks` children inherit the immutable parent pin. Version-5 durable teams can use an explicitly assigned saved direct-model connection for Implement, Review, or Repair when the connection is still runnable and its billing class is eligible; otherwise they inherit the parent. Explore narrows execution to Plan. Implement, Review, and Repair require Act. Child profiles exclude every delegation tool, so depth remains one. Retries are zero, and parent/run cancellation is linked to active children. A started failed or cancelled attempt consumes its child slot and request reservation; validation, preflight, or worktree setup that fails before child allocation does not. Child failures, cancellation, profile-correlated lifecycle, results, usage, and evidence remain visible as normalized events and durable session state.

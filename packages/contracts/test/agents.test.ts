@@ -37,6 +37,7 @@ describe("agent profile contracts", () => {
       "read_file",
       "list_files",
       "search_text",
+      "code_outline",
       "git_status",
       "git_diff",
     ]);
@@ -53,6 +54,7 @@ describe("agent profile contracts", () => {
       "read_file",
       "list_files",
       "search_text",
+      "code_outline",
       "apply_patch",
       "run_command",
       "process_session",
@@ -73,6 +75,7 @@ describe("agent profile contracts", () => {
       "read_file",
       "list_files",
       "search_text",
+      "code_outline",
       "git_status",
       "git_diff",
     ]);
@@ -119,6 +122,7 @@ describe("agent profile contracts", () => {
         "read_file",
         "list_files",
         "search_text",
+        "code_outline",
         "apply_patch",
         "git_status",
         "git_diff",

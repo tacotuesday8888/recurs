@@ -1,4 +1,5 @@
 export * from "./builtins/apply-patch.js";
+export * from "./builtins/code-outline.js";
 export * from "./builtins/git-diff.js";
 export * from "./builtins/git-status.js";
 export * from "./builtins/list-files.js";

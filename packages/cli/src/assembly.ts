@@ -74,6 +74,7 @@ import {
   ToolError,
   ToolRegistry,
   createApplyPatchTool,
+  createCodeOutlineTool,
   createGitDiffTool,
   createGitStatusTool,
   createListFilesTool,
@@ -785,6 +786,7 @@ export async function createStandaloneRuntime(
   tools.register(createReadFileTool());
   tools.register(createListFilesTool());
   tools.register(createSearchTextTool());
+  tools.register(createCodeOutlineTool());
   tools.register(createApplyPatchTool());
   tools.register(createRunCommandTool(processes));
   tools.register(createProcessSessionTool(processes));
