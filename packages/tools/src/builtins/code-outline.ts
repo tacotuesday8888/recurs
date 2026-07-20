@@ -24,6 +24,7 @@ const MAX_SCAN_BYTES = 8 * 1024 * 1024;
 const MAX_DISCOVERY_BYTES = 512 * 1024;
 const MAX_OUTPUT_BYTES = 256 * 1024;
 const MAX_INDEX_SYMBOLS = 20_000;
+const MAX_REFERENCE_EDGES = 200_000;
 
 export type CodeOutlineRanking = "source" | "references";
 
@@ -383,6 +384,80 @@ function renderOutline(
 interface RankedIndex {
   readonly files: readonly OutlinedFile[];
   readonly referenceEdges: number;
+  readonly weightedReferenceEdges: number;
+  readonly graphTruncated: boolean;
+}
+
+interface IndexedDefinition {
+  readonly file: IndexedFile;
+  readonly declaration: Declaration;
+}
+
+interface WeightedReference {
+  readonly source: string;
+  readonly target: string;
+  readonly name: string;
+  readonly weight: number;
+}
+
+function identifierWeight(
+  name: string,
+  definitionFiles: number,
+): number {
+  let weight = 1;
+  const compound = (name.includes("_") && /[A-Za-z]/u.test(name)) ||
+    (/[A-Z]/u.test(name) && /[a-z]/u.test(name));
+  if (compound && name.length >= 8) weight *= 10;
+  else if (name.length < 8) weight *= 0.1;
+  if (name.length < 4) weight *= 0.1;
+  if (name.startsWith("_")) weight *= 0.1;
+  if (definitionFiles > 5) weight *= 0.1;
+  return weight;
+}
+
+function pageRank(
+  filePaths: readonly string[],
+  edges: readonly WeightedReference[],
+): {
+  readonly ranks: ReadonlyMap<string, number>;
+  readonly outgoingWeights: ReadonlyMap<string, number>;
+} {
+  if (filePaths.length === 0) {
+    return { ranks: new Map(), outgoingWeights: new Map() };
+  }
+  const outgoingWeights = new Map<string, number>();
+  for (const edge of edges) {
+    outgoingWeights.set(
+      edge.source,
+      (outgoingWeights.get(edge.source) ?? 0) + edge.weight,
+    );
+  }
+
+  const damping = 0.85;
+  const initial = 1 / filePaths.length;
+  let ranks = new Map(filePaths.map((file) => [file, initial] as const));
+  for (let iteration = 0; iteration < 50; iteration += 1) {
+    let dangling = 0;
+    for (const file of filePaths) {
+      if ((outgoingWeights.get(file) ?? 0) === 0) dangling += ranks.get(file) ?? 0;
+    }
+    const base = (1 - damping) / filePaths.length +
+      damping * dangling / filePaths.length;
+    const next = new Map(filePaths.map((file) => [file, base] as const));
+    for (const edge of edges) {
+      const total = outgoingWeights.get(edge.source) ?? 0;
+      if (total === 0) continue;
+      const contribution = damping * (ranks.get(edge.source) ?? 0) * edge.weight / total;
+      next.set(edge.target, (next.get(edge.target) ?? 0) + contribution);
+    }
+    let change = 0;
+    for (const file of filePaths) {
+      change += Math.abs((next.get(file) ?? 0) - (ranks.get(file) ?? 0));
+    }
+    ranks = next;
+    if (change < 1e-9) break;
+  }
+  return { ranks, outgoingWeights };
 }
 
 function rankReferenceIndex(
@@ -391,42 +466,88 @@ function rankReferenceIndex(
   maxSymbols: number,
   signal: AbortSignal,
 ): RankedIndex {
-  const definitions = new Map<string, {
-    readonly file: IndexedFile;
-    readonly declaration: Declaration;
-    readonly referrers: Set<string>;
-  }[]>();
+  const definitions = new Map<string, IndexedDefinition[]>();
   for (const file of files) {
     for (const declaration of file.declarations) {
       const existing = definitions.get(declaration.name) ?? [];
-      existing.push({ file, declaration, referrers: new Set() });
+      existing.push({ file, declaration });
       definitions.set(declaration.name, existing);
     }
   }
 
-  const fileReferrers = new Map<string, Set<string>>();
-  const edges = new Set<string>();
+  const references = new Map<string, Map<string, number>>();
+  let graphTruncated = false;
   for (const source of files) {
     if (signal.aborted) throw new ToolError("cancelled", "code_outline was cancelled");
-    const seenNames = new Set<string>();
+    const sourceCounts = new Map<string, number>();
     for (const match of source.content.matchAll(/[A-Za-z_$][\w$]*/gu)) {
       const name = match[0];
-      if (seenNames.has(name)) continue;
-      seenNames.add(name);
-      const matches = definitions.get(name);
-      if (matches === undefined) continue;
-      for (const target of matches) {
-        if (target.file.path === source.path) continue;
-        target.referrers.add(source.path);
-        const fileSources = fileReferrers.get(target.file.path) ?? new Set<string>();
-        fileSources.add(source.path);
-        fileReferrers.set(target.file.path, fileSources);
-        edges.add(`${source.path}\0${target.file.path}`);
+      if (definitions.has(name)) {
+        sourceCounts.set(name, (sourceCounts.get(name) ?? 0) + 1);
       }
+    }
+    for (const [name, count] of sourceCounts) {
+      const bySource = references.get(name) ?? new Map<string, number>();
+      bySource.set(source.path, count);
+      references.set(name, bySource);
     }
   }
 
   const normalizedQuery = query?.toLowerCase();
+  const weightedReferences: WeightedReference[] = [];
+  const identifierWeights = new Map<string, number>();
+  const definitionReferenceCounts = new Map<string, number>();
+  const targetFilesByName = new Map<string, Set<string>>();
+  for (const [name, targets] of definitions) {
+    const targetFiles = new Set(targets.map((target) => target.file.path));
+    targetFilesByName.set(name, targetFiles);
+    const weight = identifierWeight(name, targetFiles.size);
+    identifierWeights.set(name, weight);
+    const sources = references.get(name) ?? new Map<string, number>();
+    for (const target of targetFiles) {
+      definitionReferenceCounts.set(
+        `${target}\0${name}`,
+        sources.size - (sources.has(target) ? 1 : 0),
+      );
+    }
+  }
+  buildGraph: for (const [name, targetFiles] of targetFilesByName) {
+    const weight = identifierWeights.get(name) ?? 1;
+    const sources = references.get(name) ?? new Map<string, number>();
+    for (const [source, occurrences] of sources) {
+      for (const target of targetFiles) {
+        if (source === target) continue;
+        if (weightedReferences.length >= MAX_REFERENCE_EDGES) {
+          graphTruncated = true;
+          break buildGraph;
+        }
+        weightedReferences.push({
+          source,
+          target,
+          name,
+          weight: weight * Math.sqrt(occurrences),
+        });
+      }
+    }
+  }
+  const fileReferrers = new Map<string, Set<string>>();
+  const edges = new Set<string>();
+  for (const edge of weightedReferences) {
+    const sources = fileReferrers.get(edge.target) ?? new Set<string>();
+    sources.add(edge.source);
+    fileReferrers.set(edge.target, sources);
+    edges.add(`${edge.source}\0${edge.target}`);
+  }
+  const graph = pageRank(files.map((file) => file.path), weightedReferences);
+  const definitionScores = new Map<string, number>();
+  for (const edge of weightedReferences) {
+    const total = graph.outgoingWeights.get(edge.source) ?? 0;
+    if (total === 0) continue;
+    const key = `${edge.target}\0${edge.name}`;
+    const score = (graph.ranks.get(edge.source) ?? 0) * edge.weight / total *
+      (identifierWeights.get(edge.name) ?? 1);
+    definitionScores.set(key, (definitionScores.get(key) ?? 0) + score);
+  }
   const queryFileRanks = new Map<string, number>();
   if (normalizedQuery !== undefined) {
     for (const file of files) {
@@ -449,7 +570,18 @@ function rankReferenceIndex(
         : (queryFileRanks.get(right.file.path) ?? 0);
       if (leftRank !== rightRank) return rightRank - leftRank;
     }
-    return right.referrers.size - left.referrers.size ||
+    const leftScore = definitionScores.get(
+      `${left.file.path}\0${left.declaration.name}`,
+    ) ?? 0;
+    const rightScore = definitionScores.get(
+      `${right.file.path}\0${right.declaration.name}`,
+    ) ?? 0;
+    return rightScore - leftScore ||
+      (definitionReferenceCounts.get(
+        `${right.file.path}\0${right.declaration.name}`,
+      ) ?? 0) - (definitionReferenceCounts.get(
+        `${left.file.path}\0${left.declaration.name}`,
+      ) ?? 0) ||
       (fileReferrers.get(right.file.path)?.size ?? 0) -
         (fileReferrers.get(left.file.path)?.size ?? 0) ||
       sourceRank(left.file.path) - sourceRank(right.file.path) ||
@@ -469,7 +601,9 @@ function rankReferenceIndex(
     };
     existing.declarations.push({
       ...item.declaration,
-      referenceFiles: item.referrers.size,
+      referenceFiles: definitionReferenceCounts.get(
+        `${item.file.path}\0${item.declaration.name}`,
+      ) ?? 0,
     });
     selected.set(item.file.path, existing);
   }
@@ -482,6 +616,8 @@ function rankReferenceIndex(
       referenceFiles: fileReferrers.get(source.path)?.size ?? 0,
     })),
     referenceEdges: edges.size,
+    weightedReferenceEdges: weightedReferences.length,
+    graphTruncated,
   };
 }
 
@@ -639,6 +775,7 @@ export function createCodeOutlineTool(
       if (rankedIndex !== undefined) outlined = [...rankedIndex.files];
       const rendered = renderOutline(outlined, MAX_OUTPUT_BYTES, input.ranking);
       const truncated = limitReached || rendered.outputTruncated ||
+        rankedIndex?.graphTruncated === true ||
         (referenceRanking && totalSymbols > input.maxSymbols);
       return {
         output: rendered.output,
@@ -660,6 +797,9 @@ export function createCodeOutlineTool(
           ...(rankedIndex === undefined ? {} : {
             indexedSymbols: totalSymbols,
             referenceEdges: rankedIndex.referenceEdges,
+            weightedReferenceEdges: rankedIndex.weightedReferenceEdges,
+            graphTruncated: rankedIndex.graphTruncated,
+            rankingAlgorithm: "weighted_file_graph_v1",
           }),
           truncated,
           lexical: true,
