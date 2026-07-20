@@ -90,6 +90,7 @@ import {
 } from "@recurs/tools";
 
 import { createCommandRegistry } from "./commands/create.js";
+import { createRequestUserInputTool } from "./user-input-tool.js";
 import type {
   ModelSelectionOption,
   ModelSessionService,
@@ -969,6 +970,13 @@ export async function createStandaloneRuntime(
   for (const tool of createTeamRunTools(teamSupervisor)) tools.register(tool);
 
   const runtimeReference: { current?: RecursRuntime } = {};
+  tools.register(createRequestUserInputTool(async (request, signal) => {
+    const runtime = runtimeReference.current;
+    if (runtime === undefined) {
+      throw new ToolError("tool_unavailable", "User input is unavailable");
+    }
+    return await runtime.requestUserInput(request, signal);
+  }));
   const approvals = {
     async request(intent: {
       readonly category: string;

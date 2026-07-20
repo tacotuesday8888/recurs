@@ -208,4 +208,74 @@ describe("startRepl", () => {
     expect(submitted).toEqual(["/process terminal-1 attach", "/quit"]);
     expect(attached).toEqual(["terminal-1"]);
   });
+
+  it("preempts live steering so a model question receives the next line", async () => {
+    const output = new TextOutput();
+    const input = new PassThrough();
+    const submitted: string[] = [];
+    const answers: Array<string | null> = [];
+    let active = false;
+    let userInputHandler: Parameters<RecursRuntime["setUserInputHandler"]>[0]
+      | undefined;
+    let markQuestion!: () => void;
+    let markAnswered!: () => void;
+    const questionPresented = new Promise<void>((resolve) => {
+      markQuestion = resolve;
+    });
+    const answerHandled = new Promise<void>((resolve) => {
+      markAnswered = resolve;
+    });
+    const runtime = {
+      get canAcceptLiveInput() { return active; },
+      setConfirmHandler() {},
+      setUserInputHandler(handler: NonNullable<typeof userInputHandler>) {
+        userInputHandler = handler;
+      },
+      currentSignal() { return new AbortController().signal; },
+      cancel() { return false; },
+      async close() {},
+      async submit(line: string) {
+        submitted.push(line);
+        if (line === "inspect") {
+          active = true;
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          const pending = userInputHandler!({
+            question: "Which target should I change?",
+            options: ["Core", "CLI"],
+          }, new AbortController().signal);
+          markQuestion();
+          answers.push(await pending);
+          active = false;
+          markAnswered();
+          return {
+            finalText: "done",
+            usage: null,
+            usageSource: "unavailable",
+            steps: null,
+            changedFiles: [],
+            changedFilesSource: "none",
+            evidence: [],
+            evidenceSource: "none",
+          };
+        }
+        return { type: "quit" };
+      },
+    } as unknown as RecursRuntime;
+
+    const repl = startRepl(runtime, { input, output, terminal: false });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    input.write("inspect\n");
+    await questionPresented;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    input.write("2\n");
+    await answerHandled;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    input.write("/quit\n");
+    await repl;
+
+    expect(submitted).toEqual(["inspect", "/quit"]);
+    expect(answers).toEqual(["CLI"]);
+    expect(output.value).toContain("Which target should I change?");
+    expect(output.value).toContain("2. CLI");
+  });
 });

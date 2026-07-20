@@ -1652,6 +1652,56 @@ describe("standalone assembly without a provider", () => {
       .not.toContain("first project policy");
   });
 
+  it("routes a model clarification through the local runtime host", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-user-input-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "question-1",
+            name: "request_user_input",
+            arguments: {
+              question: "Which package should I change?",
+              options: ["Core", "CLI"],
+            },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "I will change the CLI." },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        skillHomeDirectory: path.join(root, "home"),
+        provider,
+      },
+    );
+    const ask = vi.fn(async () => "CLI");
+    runtime.setUserInputHandler(ask);
+
+    await expect(runtime.submit("implement it", localManualInvocation())).resolves
+      .toMatchObject({ finalText: "I will change the CLI." });
+    expect(provider.requests[0]?.tools.map((tool) => tool.name))
+      .toContain("request_user_input");
+    expect(ask).toHaveBeenCalledWith({
+      question: "Which package should I change?",
+      options: ["Core", "CLI"],
+    }, expect.any(AbortSignal));
+    expect(provider.requests[1]?.messages.findLast(
+      (message) => message.role === "tool",
+    )?.content).toContain('"answer":"CLI"');
+  });
+
   it("lets the owner write to and close a yielded command", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-process-owner-"));
     directories.push(root);

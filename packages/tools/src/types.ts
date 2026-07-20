@@ -87,6 +87,8 @@ export interface Tool<Input = unknown> {
   readonly definition: ToolDefinition;
   readonly executionClass: ToolExecutionClass;
   readonly mutating: boolean;
+  /** Side-effect-free host/context availability, rechecked again at invocation. */
+  available?(context: ToolContext): boolean;
   /**
    * Opt in only when parsing, mutation/permission classification, and preflight
    * are side-effect-free and execution is independent of sibling calls.

@@ -12,6 +12,7 @@ import {
   attachOwnedTerminalProcess,
   type ProcessAttachmentHost,
 } from "./terminal-attach.js";
+import type { UserInputRequest } from "./user-input-tool.js";
 
 export interface ReplOptions {
   input?: Readable;
@@ -32,6 +33,33 @@ function isCommandResult(value: unknown): value is CommandResult {
       value.type === "submit_queued_prompt" ||
       value.type === "quit")
   );
+}
+
+function userInputPrompt(request: UserInputRequest): string {
+  const choices = request.options.map((option, index) =>
+    `  ${index + 1}. ${option}`
+  );
+  return [
+    "",
+    request.question,
+    ...choices,
+    choices.length === 0
+      ? "Answer (leave blank to decline): "
+      : "Answer with a number or text (leave blank to decline): ",
+  ].join("\n");
+}
+
+function selectedAnswer(
+  answer: string,
+  options: readonly string[],
+): string | null {
+  const normalized = answer.trim();
+  if (normalized.length === 0) return null;
+  if (/^[1-9][0-9]*$/u.test(normalized)) {
+    const selected = options[Number.parseInt(normalized, 10) - 1];
+    if (selected !== undefined) return selected;
+  }
+  return normalized;
 }
 
 export async function startRepl(
@@ -57,14 +85,41 @@ export async function startRepl(
   });
   let readline = createReadline();
   let questionTail = Promise.resolve();
-  const question = (prompt: string): Promise<string> => {
-    const answer = questionTail.then(() => readline.question(prompt));
+  const question = (prompt: string, signal?: AbortSignal): Promise<string> => {
+    const answer = questionTail.then(() =>
+      signal === undefined
+        ? readline.question(prompt)
+        : readline.question(prompt, { signal })
+    );
     questionTail = answer.then(() => undefined, () => undefined);
     return answer;
   };
+  let pendingMainQuestion:
+    | { readonly controller: AbortController; preempted: boolean }
+    | undefined;
+  const prioritizedQuestion = (
+    prompt: string,
+    signal?: AbortSignal,
+  ): Promise<string> => {
+    if (
+      pendingMainQuestion !== undefined &&
+      !pendingMainQuestion.controller.signal.aborted
+    ) {
+      pendingMainQuestion.preempted = true;
+      pendingMainQuestion.controller.abort();
+    }
+    return question(prompt, signal);
+  };
   runtime.setConfirmHandler(async (message) => {
-    const answer = await question(`${message} [y/N] `);
+    const answer = await prioritizedQuestion(
+      `${message} [y/N] `,
+      runtime.currentSignal(),
+    );
     return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
+  });
+  runtime.setUserInputHandler?.(async (request, signal) => {
+    const answer = await prioritizedQuestion(userInputPrompt(request), signal);
+    return selectedAnswer(answer, request.options);
   });
   const installSignalHandler = (): void => {
     readline.on("SIGINT", () => {
@@ -128,10 +183,20 @@ export async function startRepl(
   try {
     for (;;) {
       let inputLine: string;
+      const mainQuestion = {
+        controller: new AbortController(),
+        preempted: false,
+      };
+      pendingMainQuestion = mainQuestion;
       try {
-        inputLine = await question("recurs> ");
+        inputLine = await question("recurs> ", mainQuestion.controller.signal);
       } catch {
+        if (mainQuestion.preempted) continue;
         break;
+      } finally {
+        if (pendingMainQuestion === mainQuestion) {
+          pendingMainQuestion = undefined;
+        }
       }
       if (inputLine.trim().length === 0) {
         continue;
