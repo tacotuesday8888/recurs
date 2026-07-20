@@ -39,6 +39,10 @@ import type {
   CommandResult,
 } from "./commands/types.js";
 import { applyCommandSessionRecord } from "./session-mutations.js";
+import type {
+  UserInputHandler,
+  UserInputRequest,
+} from "./user-input-tool.js";
 
 export type RuntimeErrorCode =
   | "busy"
@@ -107,6 +111,7 @@ export class RecursRuntime {
   #activeQueuedTurns: QueuedTurnAdmissionQueue | null = null;
   readonly #queuedInvocations = new Map<string, HostInvocation>();
   #confirm: (message: string) => Promise<boolean>;
+  #userInput: UserInputHandler | null = null;
   #session: SessionState | null;
   #workspace: WorkspaceShellState | null;
   #runner: CoordinatedRuntime | null;
@@ -179,6 +184,23 @@ export class RecursRuntime {
 
   confirm(message: string): Promise<boolean> {
     return this.#confirm(terminalSafeConfirmationText(message));
+  }
+
+  setUserInputHandler(handler: UserInputHandler): void {
+    this.#userInput = handler;
+  }
+
+  requestUserInput(
+    request: UserInputRequest,
+    signal: AbortSignal,
+  ): Promise<string | null> {
+    if (this.#closed || this.#userInput === null) {
+      throw new RuntimeError("invalid_input", "User input is unavailable");
+    }
+    return this.#userInput({
+      question: terminalSafeConfirmationText(request.question),
+      options: request.options.map(terminalSafeConfirmationText),
+    }, signal);
   }
 
   currentSignal(): AbortSignal {

@@ -1088,7 +1088,11 @@ async function runAgentLoopUnlocked(
               ),
               ...state.messages,
             ],
-            tools: deps.tools.definitions(executionMode, toolContext.toolPolicy),
+            tools: deps.tools.definitions(
+              executionMode,
+              toolContext.toolPolicy,
+              toolContext,
+            ),
             signal,
             ...(deps.authorization === undefined
               ? {}

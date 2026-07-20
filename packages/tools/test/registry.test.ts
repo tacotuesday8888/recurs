@@ -238,6 +238,34 @@ describe("ToolRegistry", () => {
     expect(registry.definitions("act")).toEqual([]);
   });
 
+  it("advertises and invokes context-bound tools only when currently available", async () => {
+    const execute = vi.fn(async () => ({ output: "ok" }));
+    const conditional: Tool<{ text: string }> = {
+      ...textTool(),
+      available: (toolContext) => toolContext.sessionId === "session-1",
+      execute,
+    };
+    const registry = new ToolRegistry([conditional]);
+    const allowed = context();
+    const blocked = { ...context(), sessionId: "session-2" };
+
+    expect(registry.definitions("act")).toEqual([]);
+    expect(registry.definitions("act", undefined, allowed).map(
+      (definition) => definition.name,
+    )).toEqual(["echo"]);
+    expect(registry.definitions("act", undefined, blocked)).toEqual([]);
+    await expect(registry.invoke(
+      { id: "blocked", name: "echo", arguments: { text: "no" } },
+      blocked,
+      new PermissionEngine("full_access"),
+      deny,
+    )).rejects.toMatchObject({
+      code: "tool_unavailable",
+      message: "Tool echo is unavailable in this host context",
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("rejects unknown tools before execution", async () => {
     const registry = new ToolRegistry([textTool()]);
     const call: ToolCall = { id: "1", name: "missing", arguments: {} };

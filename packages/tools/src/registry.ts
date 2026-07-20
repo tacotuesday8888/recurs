@@ -22,12 +22,16 @@ type RegisteredTool = Tool<unknown>;
 function eraseTool<Input>(tool: Tool<Input>): RegisteredTool {
   const preflight = tool.preflight?.bind(tool);
   const isMutating = tool.isMutating?.bind(tool);
+  const available = tool.available?.bind(tool);
   return {
     definition: tool.definition,
     executionClass: tool.executionClass,
     mutating: tool.mutating,
     parallelSafe: tool.parallelSafe ?? false,
     checkpointOwnership: tool.checkpointOwnership ?? "registry",
+    ...(available === undefined
+      ? {}
+      : { available(context: ToolContext) { return available(context); } }),
     ...(isMutating === undefined
       ? {}
       : {
@@ -69,6 +73,19 @@ function profileAllowsIntent(
 ): boolean {
   return policy.allowedCategories.includes(intent.category) &&
     PERMISSION_RISK_RANK[intent.risk] <= PERMISSION_RISK_RANK[policy.maxRisk];
+}
+
+function toolAvailable(
+  tool: RegisteredTool,
+  context: ToolContext | undefined,
+): boolean {
+  if (tool.available === undefined) return true;
+  if (context === undefined) return false;
+  try {
+    return tool.available(context);
+  } catch {
+    return false;
+  }
 }
 
 async function executeTool(
@@ -182,6 +199,7 @@ export class ToolRegistry {
   definitions(
     executionMode: ExecutionMode,
     policy?: ToolPolicy,
+    context?: ToolContext,
   ): ToolDefinition[] {
     if (this.#securityProfile === "tools_disabled") {
       return [];
@@ -189,6 +207,7 @@ export class ToolRegistry {
     return [...this.#tools.values()]
       .filter((tool) =>
         (executionMode === "act" || !tool.mutating) &&
+        toolAvailable(tool, context) &&
         (policy === undefined ||
           (policy.allowedNames.includes(tool.definition.name) &&
             (!policy.readOnly || !tool.mutating)))
@@ -206,6 +225,9 @@ export class ToolRegistry {
     }
     const tool = this.#tools.get(call.name);
     if (tool?.parallelSafe !== true) {
+      return false;
+    }
+    if (!toolAvailable(tool, context)) {
       return false;
     }
     if (
@@ -249,6 +271,13 @@ export class ToolRegistry {
     const tool = this.#tools.get(call.name);
     if (tool === undefined) {
       throw new ToolError("unknown_tool", `Unknown tool: ${call.name}`);
+    }
+
+    if (!toolAvailable(tool, context)) {
+      throw new ToolError(
+        "tool_unavailable",
+        `Tool ${call.name} is unavailable in this host context`,
+      );
     }
 
     if (
