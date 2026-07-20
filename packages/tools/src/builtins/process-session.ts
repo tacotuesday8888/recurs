@@ -2,14 +2,15 @@ import type {
   OwnedProcessManager,
   OwnedProcessSnapshot,
 } from "../process-sessions.js";
+import {
+  MAX_PROCESS_SESSION_COLUMNS,
+  MAX_PROCESS_SESSION_INPUT_BYTES,
+  MAX_PROCESS_SESSION_ROWS,
+  MAX_PROCESS_SESSION_YIELD_TIME_MS,
+  MIN_PROCESS_SESSION_COLUMNS,
+  MIN_PROCESS_SESSION_ROWS,
+} from "../process-sessions.js";
 import { ToolError, type Tool, type ToolResult } from "../types.js";
-
-const MAX_INPUT_LENGTH = 65_536;
-const MAX_YIELD_TIME_MS = 30_000;
-const MIN_TERMINAL_COLUMNS = 20;
-const MAX_TERMINAL_COLUMNS = 512;
-const MIN_TERMINAL_ROWS = 5;
-const MAX_TERMINAL_ROWS = 200;
 
 export interface ProcessSessionInput {
   readonly action: "poll" | "write" | "resize" | "stop";
@@ -49,11 +50,12 @@ function parseInput(value: unknown): ProcessSessionInput {
   }
   if (
     input.input !== undefined &&
-    (typeof input.input !== "string" || input.input.length > MAX_INPUT_LENGTH)
+    (typeof input.input !== "string" ||
+      Buffer.byteLength(input.input, "utf8") > MAX_PROCESS_SESSION_INPUT_BYTES)
   ) {
     throw new ToolError(
       "invalid_input",
-      `input must be at most ${MAX_INPUT_LENGTH} characters`,
+      `input must be at most ${MAX_PROCESS_SESSION_INPUT_BYTES} UTF-8 bytes`,
     );
   }
   if (input.closeStdin !== undefined && typeof input.closeStdin !== "boolean") {
@@ -71,15 +73,15 @@ function parseInput(value: unknown): ProcessSessionInput {
   if (
     input.action === "resize" &&
     (!Number.isSafeInteger(input.columns) ||
-      (input.columns as number) < MIN_TERMINAL_COLUMNS ||
-      (input.columns as number) > MAX_TERMINAL_COLUMNS ||
+      (input.columns as number) < MIN_PROCESS_SESSION_COLUMNS ||
+      (input.columns as number) > MAX_PROCESS_SESSION_COLUMNS ||
       !Number.isSafeInteger(input.rows) ||
-      (input.rows as number) < MIN_TERMINAL_ROWS ||
-      (input.rows as number) > MAX_TERMINAL_ROWS)
+      (input.rows as number) < MIN_PROCESS_SESSION_ROWS ||
+      (input.rows as number) > MAX_PROCESS_SESSION_ROWS)
   ) {
     throw new ToolError(
       "invalid_input",
-      `columns must be ${MIN_TERMINAL_COLUMNS}-${MAX_TERMINAL_COLUMNS} and rows must be ${MIN_TERMINAL_ROWS}-${MAX_TERMINAL_ROWS}`,
+      `columns must be ${MIN_PROCESS_SESSION_COLUMNS}-${MAX_PROCESS_SESSION_COLUMNS} and rows must be ${MIN_PROCESS_SESSION_ROWS}-${MAX_PROCESS_SESSION_ROWS}`,
     );
   }
   if (
@@ -100,11 +102,11 @@ function parseInput(value: unknown): ProcessSessionInput {
   if (
     !Number.isSafeInteger(yieldTimeMs) ||
     (yieldTimeMs as number) < 0 ||
-    (yieldTimeMs as number) > MAX_YIELD_TIME_MS
+    (yieldTimeMs as number) > MAX_PROCESS_SESSION_YIELD_TIME_MS
   ) {
     throw new ToolError(
       "invalid_input",
-      `yieldTimeMs must be between 0 and ${MAX_YIELD_TIME_MS}`,
+      `yieldTimeMs must be between 0 and ${MAX_PROCESS_SESSION_YIELD_TIME_MS}`,
     );
   }
   return {
@@ -172,22 +174,25 @@ export function createProcessSessionTool(
         properties: {
           action: { type: "string", enum: ["poll", "write", "resize", "stop"] },
           sessionId: { type: "string", minLength: 1, maxLength: 128 },
-          input: { type: "string", maxLength: MAX_INPUT_LENGTH },
+          input: {
+            type: "string",
+            maxLength: MAX_PROCESS_SESSION_INPUT_BYTES,
+          },
           closeStdin: { type: "boolean" },
           columns: {
             type: "integer",
-            minimum: MIN_TERMINAL_COLUMNS,
-            maximum: MAX_TERMINAL_COLUMNS,
+            minimum: MIN_PROCESS_SESSION_COLUMNS,
+            maximum: MAX_PROCESS_SESSION_COLUMNS,
           },
           rows: {
             type: "integer",
-            minimum: MIN_TERMINAL_ROWS,
-            maximum: MAX_TERMINAL_ROWS,
+            minimum: MIN_PROCESS_SESSION_ROWS,
+            maximum: MAX_PROCESS_SESSION_ROWS,
           },
           yieldTimeMs: {
             type: "integer",
             minimum: 0,
-            maximum: MAX_YIELD_TIME_MS,
+            maximum: MAX_PROCESS_SESSION_YIELD_TIME_MS,
           },
         },
         required: ["action", "sessionId"],

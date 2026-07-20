@@ -27,7 +27,7 @@ const helpText = [
   "/undo                         Restore the latest safe checkpoint",
   "/cancel                       Cancel the active agent run",
   "/queue [prompt|resume|clear]  Queue or recover separate follow-up turns",
-  "/process [id [poll|stop]]     Inspect or stop an owned command session",
+  "/process [id [action]]        Inspect or control an owned command session",
   "/quit, /exit, /q              Exit Recurs",
 ].join("\n");
 

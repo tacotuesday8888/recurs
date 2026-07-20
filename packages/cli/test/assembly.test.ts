@@ -1652,7 +1652,7 @@ describe("standalone assembly without a provider", () => {
       .not.toContain("first project policy");
   });
 
-  it("closes a runtime with an active yielded command", async () => {
+  it("lets the owner write to and close a yielded command", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-process-owner-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -1660,7 +1660,8 @@ describe("standalone assembly without a provider", () => {
     await execFileAsync("git", ["init"], { cwd: workspace });
     const script = [
       "process.stdout.write('ready\\n');",
-      "process.stdin.resume();",
+      "process.stdin.setEncoding('utf8');",
+      "process.stdin.on('data', value => process.stdout.write('input:' + value));",
     ].join("");
     const provider = new ScriptedProvider([
       [
@@ -1700,14 +1701,26 @@ describe("standalone assembly without a provider", () => {
       expect(provider.requests[1]?.messages.findLast(
         (message) => message.role === "tool",
       )?.content).toContain("ready");
-      await expect(runtime.submit("/process")).resolves.toMatchObject({
+      const listed = await runtime.submit("/process");
+      expect(listed).toMatchObject({
         type: "message",
         level: "info",
         text: expect.stringMatching(
           /^[0-9a-f-]{36} · running · piped(?: · \d+ buffered bytes)?$/u,
         ),
       });
-      await runtime.close();
+      if (listed.type !== "message") throw new Error("Expected process list");
+      const sessionId = listed.text.split(" · ")[0]!;
+      await expect(runtime.submit(`/process ${sessionId} enter hello`)).resolves
+        .toMatchObject({
+          type: "message",
+          text: expect.stringContaining("input:hello"),
+        });
+      await expect(runtime.submit(`/process ${sessionId} close`)).resolves
+        .toMatchObject({
+          type: "message",
+          text: expect.stringContaining("Process exited with code 0."),
+        });
     } finally {
       await runtime.close().catch(() => {});
     }
