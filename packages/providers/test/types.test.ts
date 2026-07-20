@@ -67,8 +67,36 @@ describe("provider protocol", () => {
     });
   });
 
+  it("rejects empty completions and inconsistent tool-call terminals", async () => {
+    async function* empty(): AsyncIterable<ProviderEvent> {
+      yield { type: "done", stopReason: "complete" };
+    }
+    async function* whitespace(): AsyncIterable<ProviderEvent> {
+      yield { type: "text_delta", text: " \n\t" };
+      yield { type: "done", stopReason: "complete" };
+    }
+    async function* missingTool(): AsyncIterable<ProviderEvent> {
+      yield { type: "done", stopReason: "tool_calls" };
+    }
+    async function* inconsistentTool(): AsyncIterable<ProviderEvent> {
+      yield {
+        type: "tool_call",
+        call: { id: "call-1", name: "read_file", arguments: {} },
+      };
+      yield { type: "done", stopReason: "complete" };
+    }
+
+    for (const events of [empty(), whitespace(), missingTool(), inconsistentTool()]) {
+      await expect(collectProviderEvents(events)).rejects.toMatchObject({
+        code: "invalid_response",
+        retryable: false,
+      });
+    }
+  });
+
   it("aggregates provider-reported usage details without inventing missing fields", async () => {
     async function* events(): AsyncIterable<ProviderEvent> {
+      yield { type: "text_delta", text: "done" };
       yield {
         type: "usage",
         inputTokens: 10,
