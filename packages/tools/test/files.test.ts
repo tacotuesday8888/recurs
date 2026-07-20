@@ -226,6 +226,48 @@ describe("workspace file tools", () => {
     ).rejects.toBeDefined();
   });
 
+  it("lists a bounded glob without invoking a shell", async () => {
+    await writeFile(path.join(cwd, "src", "a.js"), "javascript\n", "utf8");
+    const globbed = await invoke(createListFilesTool(), {
+      path: ".",
+      glob: "**/*.ts",
+      limit: 10,
+    });
+    const hostile = await invoke(createListFilesTool(), {
+      path: ".",
+      glob: "$(touch glob-pwned)",
+    });
+
+    expect(globbed.output).toBe("./src/a.ts\n");
+    expect(globbed.metadata).toMatchObject({ count: 1, total: 1, truncated: false });
+    expect(globbed.metadata?.sources).toEqual([
+      'listed . matching "**/*.ts" (1 of 1 files)',
+    ]);
+    expect(hostile.output).toBe("");
+    await expect(
+      import("node:fs/promises").then(({ access }) => access(path.join(cwd, "glob-pwned"))),
+    ).rejects.toBeDefined();
+  });
+
+  it("bounds list globs and keeps credential exclusions deny-last", async () => {
+    await writeFile(path.join(cwd, ".env"), "SECRET\n", "utf8");
+    await writeFile(path.join(cwd, "safe.env"), "SAFE\n", "utf8");
+
+    const listed = await invoke(createListFilesTool(), {
+      path: ".",
+      glob: "*.env",
+    });
+    expect(listed.output).toBe("./safe.env\n");
+    expect(listed.output).not.toContain("./.env\n");
+
+    for (const glob of ["", 42, "x".repeat(1_025)]) {
+      await expect(invoke(createListFilesTool(), {
+        path: ".",
+        glob,
+      })).rejects.toMatchObject({ code: "invalid_input" });
+    }
+  });
+
   it("excludes credential descendants from listing and search", async () => {
     await writeFile(path.join(cwd, "src", "credentials"), "AGGREGATE_CANARY\n");
     await writeFile(path.join(cwd, "src", "safe.txt"), "AGGREGATE_CANARY\n");
