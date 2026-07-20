@@ -1095,6 +1095,7 @@ export function reduceSessionRecordV2(
       next = {
         ...state,
         summary: record.summary,
+        usage: addUsage(state.usage, record.usage),
         pendingCompaction: null,
         messages,
         messageTurnIds: Object.fromEntries(
@@ -1116,6 +1117,12 @@ export function reduceSessionRecordV2(
       };
       break;
     case "compaction_failed":
+      next = {
+        ...state,
+        usage: addUsage(state.usage, record.usage),
+        pendingCompaction: null,
+      };
+      break;
     case "compaction_interrupted":
       next = { ...state, pendingCompaction: null };
       break;

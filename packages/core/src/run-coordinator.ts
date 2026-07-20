@@ -170,6 +170,8 @@ function startedFailure(
   const cancelled = signal.aborted ||
     (isObject(error) && error.code === "cancelled");
   const agentLoopError = error instanceof AgentLoopError ? error : null;
+  const contextOverflow = !cancelled &&
+    agentLoopError?.code === "context_overflow";
   const safeMessage = cancelled
     ? agentLoopError === null
       ? "The run was cancelled"
@@ -178,9 +180,13 @@ function startedFailure(
       ? unexpectedFailureMessage(diagnosticId)
       : safeAgentLoopErrorMessage(agentLoopError);
   return {
-    domain: cancelled ? "provider" : "runtime",
+    domain: cancelled || contextOverflow ? "provider" : "runtime",
     phase: "started",
-    code: cancelled ? "cancelled" : "runtime_failed",
+    code: cancelled
+      ? "cancelled"
+      : contextOverflow
+        ? "context_overflow"
+        : "runtime_failed",
     safeMessage,
     diagnosticId,
     retryable: isObject(error) && error.retryable === true,

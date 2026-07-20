@@ -99,6 +99,7 @@ export interface AgentLoopDependencies {
 
 export type AgentLoopErrorCode =
   | "cancelled"
+  | "context_overflow"
   | "invalid_run_input"
   | "invalid_provider_response"
   | "provider_failed"
@@ -133,6 +134,8 @@ export function safeAgentLoopErrorMessage(error: AgentLoopError): string {
         ? providerCancelled
         : "Agent run cancelled";
     }
+    case "context_overflow":
+      return safeProviderErrorMessage("context_overflow");
     case "invalid_run_input":
       return "Agent run input is invalid";
     case "invalid_provider_response":
@@ -479,6 +482,16 @@ async function streamModelTurnWithRetries(
     } catch (error) {
       throwIfAborted(request.signal);
       if (
+        semanticOutputSeen && error instanceof ProviderError &&
+        error.code === "context_overflow"
+      ) {
+        throw new ProviderError(
+          "transport",
+          safeProviderErrorMessage("transport"),
+          false,
+        );
+      }
+      if (
         !isRetryableProviderError(error) ||
         semanticOutputSeen ||
         attempt === 2
@@ -524,6 +537,13 @@ function normalizeRunError(error: unknown, signal: AbortSignal): AgentLoopError 
         safeProviderErrorMessage(error),
       );
     }
+    if (error.code === "context_overflow") {
+      return new AgentLoopError(
+        "context_overflow",
+        safeProviderErrorMessage(error),
+        false,
+      );
+    }
     return new AgentLoopError(
       "provider_failed",
       safeProviderErrorMessage(error),
@@ -548,7 +568,11 @@ function integrationFailure(
   return {
     domain,
     phase: "started",
-    code: domain === "tool" ? "tool_failed" : "runtime_failed",
+    code: domain === "tool"
+      ? "tool_failed"
+      : error.code === "context_overflow"
+        ? "context_overflow"
+        : "runtime_failed",
     safeMessage: domain === "tool"
       ? `Tool error [${error.code}]: ${error.message}`
       : error.message,

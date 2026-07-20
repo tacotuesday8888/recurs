@@ -948,4 +948,56 @@ describe("version 2 sessions", () => {
       usageSource: "unknown",
     });
   });
+
+  it("accounts for provider-reported compaction usage on every terminal", async () => {
+    const store = await temporaryStore();
+    await store.createPinnedSession({ id: "usage", cwd: "/workspace", backend, at });
+    await store.withSessionMutation("usage", 0, async (lease) => {
+      await lease.append({
+        type: "compaction_started",
+        operationId: "compact-success",
+        inputBaseSequence: 0,
+        at,
+      });
+      await lease.append({
+        type: "session_compacted",
+        operationId: "compact-success",
+        inputBaseSequence: 0,
+        baseSequence: 0,
+        summary: "summary",
+        retainedTurnIds: [],
+        usage: { inputTokens: 5, outputTokens: 2 },
+        usageSource: "provider",
+        at,
+      });
+    });
+    await store.withSessionMutation("usage", 2, async (lease) => {
+      await lease.append({
+        type: "compaction_started",
+        operationId: "compact-failure",
+        inputBaseSequence: 2,
+        at,
+      });
+      await lease.append({
+        type: "compaction_failed",
+        operationId: "compact-failure",
+        error: {
+          domain: "provider",
+          phase: "started",
+          code: "transport",
+          safeMessage: "Provider request failed",
+          diagnosticId: "compact-diagnostic",
+          retryable: false,
+        },
+        usage: { inputTokens: 3, outputTokens: 1 },
+        usageSource: "provider",
+        at,
+      });
+    });
+
+    expect((await store.loadState("usage")).usage).toEqual({
+      inputTokens: 8,
+      outputTokens: 3,
+    });
+  });
 });
