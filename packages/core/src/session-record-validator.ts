@@ -663,6 +663,15 @@ export function isBackendPin(value: unknown): value is SessionBackendPin {
     required.push("runtimeCapabilityProfileRevisionAtCreation");
   }
   const modelLimits = value.modelLimitsAtCreation;
+  const reasoningEffort = value.reasoningEffortAtCreation;
+  const validReasoningEffort = reasoningEffort === undefined ||
+    reasoningEffort === "none" ||
+    reasoningEffort === "minimal" ||
+    reasoningEffort === "low" ||
+    reasoningEffort === "medium" ||
+    reasoningEffort === "high" ||
+    reasoningEffort === "xhigh" ||
+    reasoningEffort === "max";
   const validModelLimits = modelLimits === undefined || (
     isObject(modelLimits) &&
     hasExactKeys(modelLimits, [
@@ -679,7 +688,10 @@ export function isBackendPin(value: unknown): value is SessionBackendPin {
         Number(modelLimits.maxOutputTokens) > 0)) &&
     canonicalIso(modelLimits.verifiedAt)
   );
-  return hasExactKeys(value, required, ["modelLimitsAtCreation"]) &&
+  return hasExactKeys(value, required, [
+    "modelLimitsAtCreation",
+    "reasoningEffortAtCreation",
+  ]) &&
     (value.kind === "model_provider" || value.kind === "agent_runtime") &&
     typeof value.providerId === "string" &&
     typeof value.adapterId === "string" &&
@@ -697,12 +709,14 @@ export function isBackendPin(value: unknown): value is SessionBackendPin {
     billingSources.has(value.primaryBillingSourceAtCreation) &&
     isBillingSelection(value.billingSelectionAtCreation) &&
     typeof value.accountSubjectFingerprint === "string" &&
+    validReasoningEffort &&
     validModelLimits &&
     (value.kind === "agent_runtime"
       ? boundedNonEmptyString(
           value.runtimeCapabilityProfileRevisionAtCreation,
           MAX_RUNTIME_ID_LENGTH,
-        ) && value.modelLimitsAtCreation === undefined
+        ) && value.modelLimitsAtCreation === undefined &&
+        value.reasoningEffortAtCreation === undefined
       : value.runtimeCapabilityProfileRevisionAtCreation === undefined);
 }
 

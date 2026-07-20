@@ -756,6 +756,53 @@ describe("runCli", () => {
     expect(stderr.value).toBe("");
   });
 
+  it("pins an explicit reviewed OpenAI reasoning effort during BYOK setup", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let disclosure = "";
+    let received: unknown;
+    expect(await runCli([
+      "setup", "byok",
+      "--provider", "openai-api",
+      "--model", "gpt-5.6-sol",
+      "--key-env", "OPENAI_API_KEY",
+      "--reasoning-effort", "max",
+    ], {
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async confirm(message) {
+        disclosure = message;
+        return true;
+      },
+      async setupEnvironment(input) {
+        received = input;
+        return {
+          id: "byok:openai-api:stable",
+          label: "OpenAI API BYOK",
+          providerId: input.providerId,
+          modelId: input.modelId,
+          reasoningEffort: input.reasoningEffort,
+          credentialEnvironmentVariable:
+            input.credentialEnvironmentVariable,
+          primary: true,
+          billingSelection: input.billingSelection,
+        };
+      },
+    })).toBe(0);
+
+    expect(received).toMatchObject({
+      providerId: "openai-api",
+      modelId: "gpt-5.6-sol",
+      reasoningEffort: "max",
+    });
+    expect(disclosure).toContain("Reasoning effort max will be pinned");
+    expect(stdout.value).toContain("Reasoning effort: max");
+    expect(stderr.value).toBe("");
+  });
+
   it("supports explicit declared billing fallback and rejects unattended BYOK setup", async () => {
     const args = [
       "setup", "byok",
@@ -823,6 +870,11 @@ describe("runCli", () => {
       [
         "setup", "byok", "--provider", "openrouter-api", "--model", "model",
         "--key-env", "OPENROUTER_CREDENTIAL",
+      ],
+      [
+        "setup", "byok", "--provider", "openai-api", "--model",
+        "gpt-5.6-sol", "--key-env", "OPENAI_API_KEY",
+        "--reasoning-effort", "ultra",
       ],
     ]) {
       let confirmed = false;

@@ -1,4 +1,5 @@
 import type { JsonValue } from "./json.js";
+import type { ModelReasoningEffort } from "./model.js";
 
 export type AdapterKind = "model_provider" | "agent_runtime";
 export type AccessKind =
@@ -102,6 +103,7 @@ export interface SessionBackendPin {
   primaryBillingSourceAtCreation: BillingSource;
   billingSelectionAtCreation: BillingSelection;
   accountSubjectFingerprint: string;
+  reasoningEffortAtCreation?: ModelReasoningEffort;
   modelLimitsAtCreation?: VerifiedModelLimits;
   runtimeCapabilityProfileRevisionAtCreation?: string;
 }

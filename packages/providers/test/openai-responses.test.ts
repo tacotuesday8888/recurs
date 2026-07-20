@@ -238,10 +238,13 @@ describe("RemoteOpenAIResponsesProvider", () => {
       },
     });
 
-    const events = await collect(provider, request("turn-1", [
-      { id: "system", role: "system", content: "Be exact" },
-      { id: "user", role: "user", content: "Work" },
-    ]));
+    const events = await collect(provider, {
+      ...request("turn-1", [
+        { id: "system", role: "system", content: "Be exact" },
+        { id: "user", role: "user", content: "Work" },
+      ]),
+      reasoningEffort: "max",
+    });
 
     expect(url).toBe("https://api.openai.com/v1/responses");
     expect(headers.get("authorization")).toBe(`Bearer ${key}`);
@@ -253,6 +256,7 @@ describe("RemoteOpenAIResponsesProvider", () => {
       include: ["reasoning.encrypted_content"],
       tool_choice: "auto",
       parallel_tool_calls: true,
+      reasoning: { effort: "max" },
     });
     expect(body.tools).toEqual([{
       type: "function",
@@ -271,6 +275,21 @@ describe("RemoteOpenAIResponsesProvider", () => {
       harnessProfile: { id: "native_tool_use_v2", version: 2 },
     });
     expect(JSON.stringify(provider)).not.toContain(key);
+  });
+
+  it("rejects a reasoning effort outside the reviewed Responses profile", async () => {
+    const provider = new RemoteOpenAIResponsesProvider({
+      connectionId: "openai-env",
+      apiKey: "private-openai-key",
+      fetch: async () => { throw new Error("fetch must not run"); },
+    });
+    await expect(collect(provider, {
+      ...request("turn-1", [{ id: "user", role: "user", content: "work" }]),
+      reasoningEffort: "minimal",
+    })).rejects.toMatchObject({
+      code: "invalid_response",
+      message: "OpenAI reasoning effort is invalid",
+    });
   });
 
   it("replays private response items for a tool continuation in the same process", async () => {

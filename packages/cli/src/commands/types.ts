@@ -8,7 +8,11 @@ import type {
   TeamRunResumeResult,
   TeamRunSnapshot,
 } from "@recurs/core";
-import type { BillingSource, HostInvocation } from "@recurs/contracts";
+import type {
+  BillingSource,
+  HostInvocation,
+  ModelReasoningEffort,
+} from "@recurs/contracts";
 import type { ModelProvider } from "@recurs/providers";
 import type { CheckpointStore, ExecutionMode, ToolContext } from "@recurs/tools";
 import type { AgentSkillCatalog } from "../agent-skills.js";
@@ -79,6 +83,7 @@ export interface ModelSelectionOption {
   readonly label: string;
   readonly providerId: string;
   readonly modelId: string;
+  readonly reasoningEffort?: ModelReasoningEffort;
   readonly primary: boolean;
   readonly execution: "Plan-only" | "Act + Plan";
   readonly billingSources: readonly BillingSource[];

@@ -4,9 +4,11 @@ import {
   DEFAULT_OPERATING_MODE_ID,
   getOperatingModePolicy,
   operatingModePolicies,
+  type ModelReasoningEffort,
   type OperatingModeId,
   type TeamRunRole,
 } from "@recurs/contracts";
+import { openAIResponsesReasoningEfforts } from "@recurs/app";
 import {
   hasEnvironmentProviderModelDiscovery,
   type DiscoveredCatalogProvider,
@@ -401,6 +403,32 @@ async function selectEnvironmentModel(
     : null;
 }
 
+async function selectReasoningEffort(
+  modelId: string,
+  ports: GuidedOnboardingPorts,
+): Promise<ModelReasoningEffort | undefined> {
+  const supported = openAIResponsesReasoningEfforts(modelId);
+  if (supported.length === 0) return undefined;
+  const selected = await ports.selectChoice(
+    "Choose the model reasoning effort",
+    Object.freeze([
+      Object.freeze({
+        id: "provider-default",
+        label: "Provider default (recommended)",
+        detail: "leave the Responses API effort unset",
+      }),
+      ...supported.map((effort) => Object.freeze({
+        id: effort,
+        label: effort,
+        detail: "pin this effort into every request in the new session",
+      })),
+    ]),
+  );
+  return supported.includes(selected as ModelReasoningEffort)
+    ? selected as ModelReasoningEffort
+    : undefined;
+}
+
 async function executeConnectionAction(
   action: GuidedConnectionAction,
   providers: readonly ProviderSummary[],
@@ -456,6 +484,9 @@ async function executeConnectionAction(
         )
       : await selectCatalogModel(action.providerId, label, ports);
     if (modelId === null) return 2;
+    const reasoningEffort = action.providerId === "openai-api"
+      ? await selectReasoningEffort(modelId, ports)
+      : undefined;
     return await ports.executeCommand([
       "setup",
       "byok",
@@ -465,6 +496,9 @@ async function executeConnectionAction(
       modelId,
       "--key-env",
       environmentVariable,
+      ...(reasoningEffort === undefined
+        ? []
+        : ["--reasoning-effort", reasoningEffort]),
     ]);
   }
   if (action.provider === "openai") {

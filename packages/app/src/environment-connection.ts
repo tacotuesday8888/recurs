@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import type {
   BillingSelection,
   BillingSelectionMode,
+  ModelReasoningEffort,
 } from "@recurs/contracts";
 import {
   createEnvironmentProviderConfiguration,
@@ -22,7 +23,10 @@ import type {
   EnvironmentModelProviderConnectionRecord,
 } from "./connection-registry-model.js";
 import { OnboardingCatalog } from "./onboarding-catalog.js";
-import { compatibleOpenAIResponsesModelIds } from "./openai-model-capabilities.js";
+import {
+  compatibleOpenAIResponsesModelIds,
+  openAIResponsesReasoningEfforts,
+} from "./openai-model-capabilities.js";
 
 const ENVIRONMENT_VARIABLE = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/u;
@@ -58,6 +62,7 @@ export interface SetupEnvironmentConnectionInput {
   readonly modelId: string;
   readonly credentialEnvironmentVariable: string;
   readonly billingSelection: BillingSelectionMode;
+  readonly reasoningEffort?: ModelReasoningEffort;
   readonly environment: Readonly<Record<string, string | undefined>>;
   readonly now?: string;
 }
@@ -67,6 +72,7 @@ export interface EnvironmentConnectionConfiguration {
   readonly label: string;
   readonly providerId: string;
   readonly modelId: string;
+  readonly reasoningEffort?: ModelReasoningEffort;
   readonly modelLimits?: EnvironmentModelProviderConnectionRecord["modelLimits"];
   readonly credentialEnvironmentVariable: string;
   readonly primary: boolean;
@@ -141,6 +147,9 @@ function configuration(
     label: record.label,
     providerId: record.providerId,
     modelId: record.modelId,
+    ...(record.reasoningEffort === undefined
+      ? {}
+      : { reasoningEffort: record.reasoningEffort }),
     ...(record.modelLimits === undefined
       ? {}
       : { modelLimits: structuredClone(record.modelLimits) }),
@@ -229,6 +238,18 @@ export async function setupEnvironmentConnection(
       "BYOK model or credential environment-variable name is invalid",
     );
   }
+  if (
+    input.reasoningEffort !== undefined &&
+    (input.providerId !== "openai-api" ||
+      !openAIResponsesReasoningEfforts(input.modelId).includes(
+        input.reasoningEffort,
+      ))
+  ) {
+    throw new EnvironmentConnectionError(
+      "configuration_invalid",
+      "The selected reasoning effort is not supported by this reviewed provider/model",
+    );
+  }
   const entry = new OnboardingCatalog().list({ includeBlocked: true }).find(
     (candidate) => candidate.id === input.providerId,
   );
@@ -267,6 +288,15 @@ export async function setupEnvironmentConnection(
     throw new EnvironmentConnectionError(
       "configuration_invalid",
       "BYOK provider adapter is invalid",
+    );
+  }
+  if (
+    input.reasoningEffort !== undefined &&
+    bound.provider.adapterId !== "openai-responses"
+  ) {
+    throw new EnvironmentConnectionError(
+      "configuration_invalid",
+      "Reasoning effort requires the reviewed OpenAI Responses adapter",
     );
   }
   const now = input.now ?? new Date().toISOString();
@@ -328,6 +358,9 @@ export async function setupEnvironmentConnection(
         adapterId: bound.provider.adapterId,
         label: `${entry.displayName} BYOK`,
         modelId: input.modelId,
+        ...(input.reasoningEffort === undefined
+          ? {}
+          : { reasoningEffort: input.reasoningEffort }),
         ...(modelLimits === undefined ? {} : { modelLimits }),
         credentialEnvironmentVariable: input.credentialEnvironmentVariable,
         credentialIdentityFingerprint: bound.credentialFingerprint,

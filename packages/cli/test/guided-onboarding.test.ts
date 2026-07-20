@@ -215,6 +215,82 @@ describe("guided onboarding policy", () => {
     ]]);
   });
 
+  it("offers only reviewed OpenAI reasoning efforts during guided BYOK setup", async () => {
+    const selections = [
+      "byok:openai-api",
+      "gpt-5.6-sol",
+      "max",
+      "ask_always",
+      "balanced_v5",
+    ];
+    const commands: string[][] = [];
+    const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
+    const outcome = await runGuidedOnboarding({
+      stdout: sink,
+      stderr: sink,
+      interactive: true,
+      automation: false,
+      nativeProviders: new Set(),
+      async listAccounts() { return []; },
+      async detectProviders() { return []; },
+      async listProviders() {
+        return [{
+          ...providers[1]!,
+          id: "openai-api",
+          displayName: "OpenAI API",
+        }];
+      },
+      async discoverEnvironmentModels(providerId, environmentVariable) {
+        expect(providerId).toBe("openai-api");
+        expect(environmentVariable).toBe("OPENAI_API_KEY");
+        return [{
+          id: "gpt-5.6-sol",
+          displayName: "GPT-5.6 Sol",
+          createdAt: null,
+          maxInputTokens: null,
+          maxOutputTokens: null,
+        }];
+      },
+      async selectChoice(message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        if (message.includes("reasoning effort")) {
+          expect(choices.map((choice) => choice.id)).toEqual([
+            "provider-default",
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+          ]);
+        }
+        return selected;
+      },
+      async promptText(_message, suggestion) {
+        expect(suggestion).toBe("OPENAI_API_KEY");
+        return suggestion ?? null;
+      },
+      async executeCommand(argv) {
+        commands.push([...argv]);
+        return 0;
+      },
+    });
+
+    expect(outcome).toEqual({
+      state: "configured",
+      permissionMode: "ask_always",
+      operatingModeId: "balanced_v5",
+    });
+    expect(commands).toEqual([[
+      "setup", "byok",
+      "--provider", "openai-api",
+      "--model", "gpt-5.6-sol",
+      "--key-env", "OPENAI_API_KEY",
+      "--reasoning-effort", "max",
+    ]]);
+  });
+
   it("configures eligible specialist routes without changing the parent", async () => {
     let roles: readonly string[] = [];
     const primary: AccountSummary = {

@@ -3,6 +3,7 @@ import type {
   BillingSelection,
   BillingSelectionMode,
   BillingSource,
+  ModelReasoningEffort,
   TeamRunRole,
   VerifiedModelLimits,
 } from "@recurs/contracts";
@@ -12,6 +13,7 @@ import {
   isForbiddenNonSecretKey,
   looksLikeSecretValue,
 } from "./non-secret-policy.js";
+import { openAIResponsesReasoningEfforts } from "./openai-model-capabilities.js";
 
 export const REGISTRY_INVALID = "Connection registry is invalid";
 export const STORAGE_UNSAFE = "Connection registry storage is unsafe";
@@ -114,6 +116,7 @@ export interface EnvironmentModelProviderConnectionRecord {
   adapterId: "openai-responses" | "anthropic-messages" | "openai-chat-completions";
   label: string;
   modelId: string;
+  reasoningEffort?: ModelReasoningEffort;
   modelLimits?: VerifiedModelLimits;
   credentialEnvironmentVariable: string;
   credentialIdentityFingerprint: string;
@@ -697,6 +700,7 @@ export function parseEnvironmentModelProviderConnectionRecord(
     "adapterId",
     "label",
     "modelId",
+    ...(value.reasoningEffort === undefined ? [] : ["reasoningEffort"]),
     ...(value.modelLimits === undefined ? [] : ["modelLimits"]),
     "credentialEnvironmentVariable",
     "credentialIdentityFingerprint",
@@ -712,6 +716,31 @@ export function parseEnvironmentModelProviderConnectionRecord(
     (value.adapterId !== "openai-responses" &&
       value.adapterId !== "anthropic-messages" &&
       value.adapterId !== "openai-chat-completions")
+  ) {
+    throw invalidRegistry();
+  }
+  const reasoningEffort = value.reasoningEffort;
+  if (
+    reasoningEffort !== undefined &&
+    reasoningEffort !== "none" &&
+    reasoningEffort !== "minimal" &&
+    reasoningEffort !== "low" &&
+    reasoningEffort !== "medium" &&
+    reasoningEffort !== "high" &&
+    reasoningEffort !== "xhigh" &&
+    reasoningEffort !== "max"
+  ) {
+    throw invalidRegistry();
+  }
+  const providerId = boundedString(value.providerId, 128, {
+    trim: true,
+    pattern: ID_PATTERN,
+  });
+  const modelId = boundedUtf8String(value.modelId, 256, { trim: true });
+  if (
+    reasoningEffort !== undefined &&
+    (providerId !== "openai-api" || value.adapterId !== "openai-responses" ||
+      !openAIResponsesReasoningEfforts(modelId).includes(reasoningEffort))
   ) {
     throw invalidRegistry();
   }
@@ -765,13 +794,11 @@ export function parseEnvironmentModelProviderConnectionRecord(
   return {
     kind: "environment_model_provider",
     id: boundedString(value.id, 128, { trim: true, pattern: ID_PATTERN }),
-    providerId: boundedString(value.providerId, 128, {
-      trim: true,
-      pattern: ID_PATTERN,
-    }),
+    providerId,
     adapterId: value.adapterId,
     label: boundedString(value.label, 256, { trim: true }),
     modelId: boundedUtf8String(value.modelId, 256, { trim: true }),
+    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     ...(modelLimits === undefined ? {} : { modelLimits }),
     credentialEnvironmentVariable: credentialEnvironmentVariable(
       value.credentialEnvironmentVariable,

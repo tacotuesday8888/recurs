@@ -42,7 +42,11 @@ function renderOption(
   return [
     option.connectionId,
     `${option.label} · ${option.providerId}/${option.modelId}`,
-    `${option.execution} · billing: ${option.billingSources.join(", ")}`,
+    `${option.execution} · billing: ${option.billingSources.join(", ")}${
+      option.reasoningEffort === undefined
+        ? ""
+        : ` · effort: ${option.reasoningEffort}`
+    }`,
     ...(flags.length === 0 ? [] : [`[${flags.join(", ")}]`]),
   ].join("  ");
 }
@@ -110,6 +114,9 @@ export function createModelCommand(dependencies: CommandDependencies): Command {
         `Start a fresh session with ${selected.providerId}/${selected.modelId}?`,
         `Connection: ${selected.connectionId}`,
         `Billing: ${selected.billingSources.join(", ")}`,
+        ...(selected.reasoningEffort === undefined
+          ? []
+          : [`Reasoning effort: ${selected.reasoningEffort}`]),
         "The current session and primary connection will remain unchanged.",
       ].join("\n"))) {
         return message("Model unchanged", "warning");
