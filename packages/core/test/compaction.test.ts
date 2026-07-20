@@ -10,6 +10,7 @@ import {
   activeGoal,
   compactSession,
   createSessionState,
+  MAX_COMPACTION_CONTEXT_BYTES,
 } from "../src/index.js";
 
 function longSession() {
@@ -44,6 +45,7 @@ describe("compactSession", () => {
           type: "text_delta",
           text: "Goal: Ship auth\nChanged: src/auth.ts\nBlocked by missing migration",
         },
+        { type: "usage", inputTokens: 120, outputTokens: 18 },
         { type: "done", stopReason: "complete" },
       ],
     ]);
@@ -58,6 +60,8 @@ describe("compactSession", () => {
     expect(compacted.summary).toContain("src/auth.ts");
     expect(compacted.summary).toContain("Blocked by missing migration");
     expect(compacted.retainedMessages).toEqual(state.messages.slice(-6));
+    expect(compacted.usage).toEqual({ inputTokens: 120, outputTokens: 18 });
+    expect(compacted.usageSource).toBe("provider");
     const request = provider.requests[0]?.messages.at(-1)?.content ?? "";
     expect(request).toContain("Ship auth");
     expect(request).toContain("src/auth.ts");
@@ -180,5 +184,44 @@ describe("compactSession", () => {
       "answer-2",
       "user-3",
     ]);
+  });
+
+  it("bounds the provider request while preferring the newest earlier context", async () => {
+    const state = {
+      ...longSession(),
+      messages: Array.from({ length: 180 }, (_, index) => ({
+        id: index === 0 ? "OLDEST_ID_CANARY" : `large-${index}`,
+        role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+        content: index === 0
+          ? `OLDEST_CONTENT_CANARY${"x".repeat(40_000)}`
+          : `message-${index}-${"x".repeat(40_000)}`,
+      })),
+    };
+    const provider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: "bounded summary" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+
+    const compacted = await compactSession(
+      state,
+      provider,
+      new AbortController().signal,
+    );
+
+    const content = provider.requests[0]?.messages.at(-1)?.content ?? "";
+    expect(new TextEncoder().encode(content).byteLength).toBeLessThanOrEqual(
+      MAX_COMPACTION_CONTEXT_BYTES,
+    );
+    expect(content).not.toContain("OLDEST_ID_CANARY");
+    expect(content).not.toContain("OLDEST_CONTENT_CANARY");
+    expect(content).toContain("message-173-");
+    expect(JSON.parse(content)).toMatchObject({
+      omittedEarlierMessages: expect.any(Number),
+      truncatedEarlierMessages: expect.any(Number),
+    });
+    expect(compacted.usage).toBeNull();
+    expect(compacted.usageSource).toBe("unavailable");
   });
 });

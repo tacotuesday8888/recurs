@@ -1,19 +1,46 @@
 import { randomUUID } from "node:crypto";
 
+import type { IntegrationFailure } from "@recurs/contracts";
 import {
   ProviderError,
   collectProviderEvents,
   safeProviderErrorMessage,
   type ModelMessage,
   type ModelProvider,
+  type ProviderErrorCode,
   type ProviderRequest,
+  type ProviderUsage,
 } from "@recurs/providers";
 
+import type { JsonlSessionStore } from "./jsonl-session-store.js";
 import type { SessionState } from "./session.js";
+import {
+  reduceSessionRecordV2,
+  type PinnedSessionState,
+} from "./session-v2.js";
+
+export const MAX_COMPACTION_CONTEXT_BYTES = 256 * 1024;
+const MAX_COMPACTION_MESSAGE_BYTES = 32 * 1024;
+const MAX_COMPACTION_MESSAGES = 128;
+const MAX_METADATA_ITEMS = 32;
+const MAX_METADATA_ITEM_BYTES = 1024;
+const MAX_METADATA_TEXT_BYTES = 16 * 1024;
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
 
 export interface CompactionResult {
   summary: string;
   retainedMessages: ModelMessage[];
+  usage: ProviderUsage | null;
+  usageSource: "provider" | "unavailable";
+}
+
+export interface DurableCompactionInput {
+  sessions: JsonlSessionStore;
+  state: PinnedSessionState;
+  provider: ModelProvider;
+  signal: AbortSignal;
+  at: string;
 }
 
 function retainedContinuation(
@@ -37,12 +64,63 @@ function retainedContinuation(
   return messages.slice(start);
 }
 
+function byteLength(value: string): number {
+  return encoder.encode(value).byteLength;
+}
+
+function boundedText(value: string, maxBytes: number): string {
+  if (byteLength(value) <= maxBytes) return value;
+  const suffix = "\n...[truncated]";
+  const suffixBytes = byteLength(suffix);
+  const prefix = decoder.decode(
+    encoder.encode(value).slice(0, Math.max(0, maxBytes - suffixBytes)),
+  );
+  return `${prefix}${suffix}`;
+}
+
+function boundedItems(values: readonly string[]): string[] {
+  return values.slice(-MAX_METADATA_ITEMS).map((value) =>
+    boundedText(value, MAX_METADATA_ITEM_BYTES)
+  );
+}
+
+function projectedMessage(message: ModelMessage): Record<string, unknown> {
+  return {
+    id: message.id,
+    role: message.role,
+    content: boundedText(message.content, MAX_COMPACTION_MESSAGE_BYTES),
+    ...(message.toolCallId === undefined
+      ? {}
+      : { toolCallId: message.toolCallId }),
+    ...(message.toolCalls === undefined
+      ? {}
+      : {
+          toolCalls: message.toolCalls.map((call) => ({
+            id: call.id,
+            name: call.name,
+          })),
+        }),
+  };
+}
+
 function compactionContext(
   state: SessionState,
   retainedMessages: readonly ModelMessage[],
 ): string {
   const retainedIds = new Set(retainedMessages.map((message) => message.id));
-  return JSON.stringify({
+  const earlierMessages = state.messages.filter((message) =>
+    !retainedIds.has(message.id)
+  );
+  const goal = state.goal === null
+    ? null
+    : {
+        ...state.goal,
+        objective: boundedText(state.goal.objective, MAX_METADATA_TEXT_BYTES),
+        progress: boundedText(state.goal.progress, MAX_METADATA_TEXT_BYTES),
+        blockers: boundedItems(state.goal.blockers),
+        evidence: boundedItems(state.goal.evidence),
+      };
+  const base = {
     task: "Summarize the earlier conversation for a coding agent that will continue later.",
     requiredSections: [
       "goal and progress",
@@ -51,13 +129,49 @@ function compactionContext(
       "verification evidence",
       "open blockers and next steps",
     ],
-    goal: state.goal,
-    changedFiles: state.changedFiles,
-    evidence: state.evidence,
-    blockers: state.goal?.blockers ?? [],
-    previousSummary: state.summary,
-    earlierMessages: state.messages.filter((message) => !retainedIds.has(message.id)),
+    goal,
+    changedFiles: boundedItems(state.changedFiles),
+    evidence: boundedItems(state.evidence),
+    blockers: boundedItems(state.goal?.blockers ?? []),
+    previousSummary: state.summary === null
+      ? null
+      : boundedText(state.summary, MAX_METADATA_TEXT_BYTES),
+  };
+  let selected: Record<string, unknown>[] = [];
+  let truncatedMessages = 0;
+  for (
+    let index = earlierMessages.length - 1;
+    index >= 0 && selected.length < MAX_COMPACTION_MESSAGES;
+    index -= 1
+  ) {
+    const projected = projectedMessage(earlierMessages[index]!);
+    const candidateTruncatedMessages = truncatedMessages +
+      (projected.content === earlierMessages[index]!.content ? 0 : 1);
+    const candidate = [projected, ...selected];
+    const serialized = JSON.stringify({
+      ...base,
+      omittedEarlierMessages: earlierMessages.length - candidate.length,
+      truncatedEarlierMessages: candidateTruncatedMessages,
+      earlierMessages: candidate,
+    });
+    if (byteLength(serialized) > MAX_COMPACTION_CONTEXT_BYTES) break;
+    selected = candidate;
+    truncatedMessages = candidateTruncatedMessages;
+  }
+  const serialized = JSON.stringify({
+    ...base,
+    omittedEarlierMessages: earlierMessages.length - selected.length,
+    truncatedEarlierMessages: truncatedMessages,
+    earlierMessages: selected,
   });
+  if (byteLength(serialized) > MAX_COMPACTION_CONTEXT_BYTES) {
+    throw new ProviderError(
+      "invalid_response",
+      "Compaction context metadata exceeds its safety limit",
+      false,
+    );
+  }
+  return serialized;
 }
 
 export async function compactSession(
@@ -88,7 +202,12 @@ export async function compactSession(
       tools: [],
       signal,
     };
-    const collected = await collectProviderEvents(provider.stream(request));
+    let usageReported = false;
+    const collected = await collectProviderEvents(provider.stream(request), {
+      onEvent(event) {
+        if (event.type === "usage") usageReported = true;
+      },
+    });
     if (
       collected.stopReason !== "complete" ||
       collected.toolCalls.length > 0 ||
@@ -100,7 +219,12 @@ export async function compactSession(
         false,
       );
     }
-    return { summary: collected.text.trim(), retainedMessages };
+    return {
+      summary: collected.text.trim(),
+      retainedMessages,
+      usage: usageReported ? collected.usage : null,
+      usageSource: usageReported ? "provider" : "unavailable",
+    };
   } catch (error) {
     if (error instanceof ProviderError) {
       throw new ProviderError(
@@ -112,4 +236,95 @@ export async function compactSession(
     const code = signal.aborted ? "cancelled" : "transport";
     throw new ProviderError(code, safeProviderErrorMessage(code), false);
   }
+}
+
+function compactionFailureCode(code: ProviderErrorCode): IntegrationFailure["code"] {
+  switch (code) {
+    case "authentication":
+      return "authentication_failed";
+    case "rate_limit":
+      return "rate_limited";
+    case "context_overflow":
+      return "context_overflow";
+    case "transport":
+      return "transport";
+    case "cancelled":
+      return "cancelled";
+    case "invalid_response":
+      return "invalid_response";
+  }
+}
+
+function compactionFailure(
+  error: ProviderError,
+  diagnosticId: string,
+): IntegrationFailure {
+  return {
+    domain: "provider",
+    phase: "started",
+    code: compactionFailureCode(error.code),
+    safeMessage: safeProviderErrorMessage(error),
+    diagnosticId,
+    retryable: error.retryable,
+  };
+}
+
+export async function compactPinnedSession(
+  input: DurableCompactionInput,
+): Promise<PinnedSessionState> {
+  const operationId = randomUUID();
+  const inputBaseSequence = input.state.lastSequence;
+  let state = input.state;
+  await input.sessions.withSessionMutation(
+    state.id,
+    inputBaseSequence,
+    async (lease) => {
+      const started = await lease.append({
+        type: "compaction_started",
+        operationId,
+        inputBaseSequence,
+        at: input.at,
+      });
+      state = reduceSessionRecordV2(state, started);
+
+      let compacted: CompactionResult;
+      try {
+        compacted = await compactSession(input.state, input.provider, input.signal);
+      } catch (error) {
+        const safeError = error instanceof ProviderError
+          ? error
+          : new ProviderError("transport", safeProviderErrorMessage("transport"), false);
+        const failed = await lease.append({
+          type: "compaction_failed",
+          operationId,
+          at: input.at,
+          error: compactionFailure(safeError, randomUUID()),
+          usage: null,
+          usageSource: "unknown",
+        });
+        state = reduceSessionRecordV2(state, failed);
+        throw safeError;
+      }
+
+      const retainedTurnIds = [
+        ...new Set(compacted.retainedMessages.flatMap((message) => {
+          const turnId = input.state.messageTurnIds[message.id];
+          return turnId === undefined ? [] : [turnId];
+        })),
+      ];
+      const completed = await lease.append({
+        type: "session_compacted",
+        operationId,
+        inputBaseSequence,
+        baseSequence: inputBaseSequence,
+        at: input.at,
+        summary: compacted.summary,
+        retainedTurnIds,
+        usage: compacted.usage,
+        usageSource: compacted.usageSource,
+      });
+      state = reduceSessionRecordV2(state, completed);
+    },
+  );
+  return state;
 }

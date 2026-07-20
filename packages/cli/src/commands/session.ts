@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { compactSession, type SessionRecord } from "@recurs/core";
-import { isPinnedSessionState } from "@recurs/core";
+import { compactPinnedSession, isPinnedSessionState } from "@recurs/core";
 
 import {
   createProjectInstructions,
@@ -192,6 +191,12 @@ function createCompactCommand(dependencies: CommandDependencies): Command {
           "error",
         );
       }
+      if (!isPinnedSessionState(context.session)) {
+        return message("Legacy sessions are read-only and cannot be compacted", "error");
+      }
+      if (dependencies.sessions === undefined) {
+        return message("Session storage is unavailable for compaction", "error");
+      }
       const signal = dependencies.signal?.() ?? new AbortController().signal;
       const provider = dependencies.resolveProvider === undefined
         ? dependencies.provider
@@ -199,20 +204,13 @@ function createCompactCommand(dependencies: CommandDependencies): Command {
       if (provider === undefined || provider === null) {
         return message("No provider is available for compaction", "error");
       }
-      const compacted = await compactSession(
-        context.session,
+      context.session = await compactPinnedSession({
+        sessions: dependencies.sessions,
+        state: context.session,
         provider,
         signal,
-      );
-      const record: SessionRecord = {
-        version: 1,
-        type: "session_compacted",
-        sessionId: context.session.id,
         at: context.now(),
-        summary: compacted.summary,
-        retainedMessages: compacted.retainedMessages,
-      };
-      await context.applyRecord(record);
+      });
       return message("Session context compacted");
     },
   };

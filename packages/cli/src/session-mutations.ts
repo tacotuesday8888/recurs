@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-
 import {
   SessionStoreError,
   isPinnedSessionState,
@@ -53,36 +51,6 @@ export async function applyCommandSessionRecord(
           operatingModeVersion: record.operatingModeVersion,
         });
         state = reduceSessionRecordV2(state, persisted);
-      } else if (record.type === "session_compacted") {
-        const operationId = randomUUID();
-        const inputBaseSequence = state.lastSequence;
-        const started = await lease.append({
-          type: "compaction_started",
-          operationId,
-          inputBaseSequence,
-          at: record.at,
-        });
-        state = reduceSessionRecordV2(state, started);
-        const retainedTurnIds = [
-          ...new Set(
-            record.retainedMessages.flatMap((message) => {
-              const turnId = state.messageTurnIds[message.id];
-              return turnId === undefined ? [] : [turnId];
-            }),
-          ),
-        ];
-        const completed = await lease.append({
-          type: "session_compacted",
-          operationId,
-          inputBaseSequence,
-          baseSequence: inputBaseSequence,
-          at: record.at,
-          summary: record.summary,
-          retainedTurnIds,
-          usage: null,
-          usageSource: "unavailable",
-        });
-        state = reduceSessionRecordV2(state, completed);
       } else {
         throw new TypeError(
           `${record.type} is not a command-owned session mutation`,

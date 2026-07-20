@@ -885,7 +885,7 @@ describe("AgentLoop", () => {
   it.each([
     ["authentication", "Provider authentication failed", "provider_failed"],
     ["rate_limit", "Provider rate limit reached", "provider_failed"],
-    ["context_overflow", "Provider context limit exceeded", "provider_failed"],
+    ["context_overflow", "Provider context limit exceeded", "context_overflow"],
     ["transport", "Provider request failed", "provider_failed"],
     ["cancelled", "Provider request cancelled", "cancelled"],
     ["invalid_response", "Provider returned an invalid response", "invalid_provider_response"],
@@ -915,6 +915,12 @@ describe("AgentLoop", () => {
         expect(JSON.stringify(events)).toContain(expected);
       }
       expect(JSON.stringify(await store.load("s1"))).toContain(expected);
+      if (code === "context_overflow") {
+        expect((await store.load("s1")).records.at(-1)).toMatchObject({
+          type: "turn_failed",
+          error: { code: "context_overflow" },
+        });
+      }
     },
   );
 
@@ -979,6 +985,27 @@ describe("AgentLoop", () => {
     });
     expect(requests).toBe(1);
     expect(events.filter((event) => event.type === "retry_scheduled")).toEqual([]);
+  });
+
+  it("does not classify context overflow as safely replayable after semantic output", async () => {
+    const provider: ModelProvider = {
+      id: "partial-context-overflow",
+      async *stream(): AsyncIterable<ProviderEvent> {
+        yield { type: "text_delta", text: "partial" };
+        throw new ProviderError("context_overflow", "unsafe detail", false);
+      },
+    };
+    const { loop, store } = await harness(provider);
+
+    await expect(loop.run({ sessionId: "s1", prompt: "work" })).rejects
+      .toMatchObject({
+        code: "provider_failed",
+        message: "Provider request failed",
+      });
+    expect((await store.load("s1")).records.at(-1)).toMatchObject({
+      type: "turn_failed",
+      error: { code: "runtime_failed" },
+    });
   });
 
   it("cancels an in-flight provider request", async () => {

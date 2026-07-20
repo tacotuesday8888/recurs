@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { ScriptedProvider } from "@recurs/providers";
+import { ProviderError, ScriptedProvider } from "@recurs/providers";
 import {
   getOperatingModePolicy,
   createHostInvocation,
@@ -766,6 +766,7 @@ describe("session commands", () => {
     const provider = new ScriptedProvider([
       [
         { type: "text_delta", text: "Earlier work summarized" },
+        { type: "usage", inputTokens: 80, outputTokens: 12 },
         { type: "done", stopReason: "complete" },
       ],
     ]);
@@ -776,7 +777,75 @@ describe("session commands", () => {
 
     expect(commandContext.session.summary).toBe("Earlier work summarized");
     expect(commandContext.session.messages).toEqual(durableMessages.slice(-6));
+    expect(commandContext.session.usage).toEqual({
+      inputTokens: 80,
+      outputTokens: 12,
+    });
     expect((await sessions.loadState("s1")).summary).toBe("Earlier work summarized");
+    expect((await sessions.load("s1")).records.slice(-2).map((record) =>
+      record.type
+    )).toEqual(["compaction_started", "session_compacted"]);
+  });
+
+  it("persists compaction start before provider work and a safe typed failure", async () => {
+    const state = await storeSession(
+      "failed-compaction",
+      at,
+      Array.from({ length: 8 }, (_, index) => ({
+        id: `failure-${index}`,
+        role: index % 2 === 0 ? ("user" as const) : ("assistant" as const),
+        content: `failure message ${index}`,
+      })),
+    );
+    const canary = "RECURS_COMPACTION_FAILURE_CANARY";
+    let observedStarted = false;
+    const provider: ModelProvider = {
+      id: "failing-provider",
+      stream() {
+        return {
+          [Symbol.asyncIterator]() {
+            return {
+              async next() {
+                const records = (await sessions.load("failed-compaction")).records;
+                observedStarted = records.at(-1)?.type === "compaction_started";
+                throw new ProviderError("context_overflow", canary, false);
+              },
+            };
+          },
+        };
+      },
+    };
+    const registry = createCommandRegistry({ sessions, provider });
+    const commandContext = context(state);
+
+    await expect(
+      registry.execute("/compact", commandContext),
+    ).resolves.toMatchObject({
+      type: "message",
+      level: "error",
+      text: "Provider context limit exceeded",
+    });
+
+    expect(observedStarted).toBe(true);
+    const loaded = await sessions.load("failed-compaction");
+    expect(loaded.records.slice(-2).map((record) => record.type)).toEqual([
+      "compaction_started",
+      "compaction_failed",
+    ]);
+    expect(loaded.records.at(-1)).toMatchObject({
+      type: "compaction_failed",
+      error: {
+        domain: "provider",
+        code: "context_overflow",
+        safeMessage: "Provider context limit exceeded",
+        retryable: false,
+      },
+      usage: null,
+      usageSource: "unknown",
+    });
+    expect(JSON.stringify(loaded)).not.toContain(canary);
+    expect((await sessions.loadState("failed-compaction")).pendingCompaction)
+      .toBeNull();
   });
 
   it("resolves the compaction provider from the active session pin", async () => {
