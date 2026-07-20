@@ -13,6 +13,7 @@ import {
   type ResolvedWorkspacePath,
 } from "../path-policy.js";
 import { runProcess } from "../process.js";
+import { parseTypeScriptOutline } from "../typescript-outline.js";
 import { ToolError, type Tool } from "../types.js";
 
 const DEFAULT_MAX_FILES = 200;
@@ -44,6 +45,7 @@ interface Declaration {
 
 interface LanguageSpec {
   readonly name: string;
+  readonly parser?: "typescript";
   readonly patterns: readonly (readonly [kind: string, pattern: RegExp])[];
 }
 
@@ -64,6 +66,7 @@ interface IndexedFile extends OutlinedFile {
 
 const TYPESCRIPT: LanguageSpec = {
   name: "TypeScript/JavaScript",
+  parser: "typescript",
   patterns: [
     ["class", /^(?:export\s+(?:default\s+)?)?(?:declare\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)\b/u],
     ["interface", /^(?:export\s+)?(?:declare\s+)?interface\s+([A-Za-z_$][\w$]*)\b/u],
@@ -76,7 +79,7 @@ const TYPESCRIPT: LanguageSpec = {
 };
 
 const LANGUAGE_BY_EXTENSION = new Map<string, LanguageSpec>([
-  ...[".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].map(
+  ...[".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"].map(
     (extension) => [extension, TYPESCRIPT] as const,
   ),
   [".py", {
@@ -265,13 +268,35 @@ function declarationFor(line: string, language: LanguageSpec): Omit<Declaration,
   return undefined;
 }
 
-function declarationsFrom(content: string, language: LanguageSpec): Declaration[] {
+function lexicalDeclarationsFrom(content: string, language: LanguageSpec): Declaration[] {
   const declarations: Declaration[] = [];
   for (const [index, line] of content.split("\n").entries()) {
     const declaration = declarationFor(line, language);
     if (declaration !== undefined) declarations.push({ line: index + 1, ...declaration });
   }
   return declarations;
+}
+
+type SymbolAnalysis = "typescript_compiler_v1" | "lexical_v1";
+
+function declarationsFrom(
+  file: string,
+  content: string,
+  language: LanguageSpec,
+): {
+  readonly declarations: Declaration[];
+  readonly analysis: SymbolAnalysis;
+} {
+  if (language.parser === "typescript") {
+    const parsed = parseTypeScriptOutline(file, content);
+    if (parsed !== undefined) {
+      return { declarations: [...parsed], analysis: "typescript_compiler_v1" };
+    }
+  }
+  return {
+    declarations: lexicalDeclarationsFrom(content, language),
+    analysis: "lexical_v1",
+  };
 }
 
 type BoundedRead =
@@ -627,7 +652,7 @@ export function createCodeOutlineTool(
   return {
     definition: {
       name: "code_outline",
-      description: "List bounded lexical declarations, optionally ranked by cross-file references",
+      description: "List bounded parser-backed or lexical declarations, optionally reference-ranked",
       inputSchema: {
         type: "object",
         properties: {
@@ -683,6 +708,8 @@ export function createCodeOutlineTool(
       const skippedGeneratedFiles = supported.length - eligible.length;
       const skippedUnsupportedFiles = uniqueDiscovered.length - supported.length;
       let totalSymbols = 0;
+      let parserBackedFiles = 0;
+      let lexicalFiles = 0;
       let limitReached = false;
       const normalizedQuery = input.query?.toLowerCase();
 
@@ -743,7 +770,10 @@ export function createCodeOutlineTool(
           break;
         }
         scannedBytes += read.bytes;
-        let declarations = declarationsFrom(read.content, language);
+        const extracted = declarationsFrom(file.relative, read.content, language);
+        if (extracted.analysis === "typescript_compiler_v1") parserBackedFiles += 1;
+        else lexicalFiles += 1;
+        let declarations = extracted.declarations;
         if (!referenceRanking && normalizedQuery !== undefined && !file.relative.toLowerCase().includes(normalizedQuery)) {
           declarations = declarations.filter((declaration) =>
             `${declaration.kind} ${declaration.name}`.toLowerCase().includes(normalizedQuery)
@@ -777,6 +807,14 @@ export function createCodeOutlineTool(
       const truncated = limitReached || rendered.outputTruncated ||
         rankedIndex?.graphTruncated === true ||
         (referenceRanking && totalSymbols > input.maxSymbols);
+      const symbolAnalysis = parserBackedFiles > 0 && lexicalFiles > 0
+        ? "typescript_compiler_and_lexical_v1"
+        : parserBackedFiles > 0 ? "typescript_compiler_v1" : "lexical_v1";
+      const declarationLabel = symbolAnalysis === "typescript_compiler_v1"
+        ? "parser-backed declarations"
+        : symbolAnalysis === "lexical_v1"
+          ? "lexical declarations"
+          : "parser-backed and lexical declarations";
       return {
         output: rendered.output,
         metadata: {
@@ -794,6 +832,9 @@ export function createCodeOutlineTool(
           skippedGeneratedFiles,
           skippedUnsupportedFiles,
           languages: [...languages].sort(lexicalCompare),
+          parserBackedFiles,
+          lexicalFiles,
+          symbolAnalysis,
           ...(rankedIndex === undefined ? {} : {
             indexedSymbols: totalSymbols,
             referenceEdges: rankedIndex.referenceEdges,
@@ -802,9 +843,8 @@ export function createCodeOutlineTool(
             rankingAlgorithm: "weighted_file_graph_v1",
           }),
           truncated,
-          lexical: true,
           sources: [
-            `${referenceRanking ? "ranked" : "outlined"} ${rendered.renderedFiles} ${rendered.renderedFiles === 1 ? "file" : "files"} under ${resolved.relative} (${rendered.renderedSymbols} lexical ${rendered.renderedSymbols === 1 ? "declaration" : "declarations"})`,
+            `${referenceRanking ? "ranked" : "outlined"} ${rendered.renderedFiles} ${rendered.renderedFiles === 1 ? "file" : "files"} under ${resolved.relative} (${rendered.renderedSymbols} ${declarationLabel})`,
           ],
         },
       };

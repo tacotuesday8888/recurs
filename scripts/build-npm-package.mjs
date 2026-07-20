@@ -21,6 +21,7 @@ const externalPackages = new Set([
   "@openai/codex",
   "yaml",
   "zod",
+  "typescript",
 ]);
 
 function isExternalPackage(specifier) {

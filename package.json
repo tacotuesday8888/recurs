@@ -64,6 +64,7 @@
     "@agentclientprotocol/codex-acp": "1.1.2",
     "@agentclientprotocol/sdk": "1.2.1",
     "@openai/codex": "0.144.0",
+    "typescript": "6.0.3",
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },
@@ -72,7 +73,6 @@
     "@types/node": "22.20.1",
     "eslint": "10.6.0",
     "rolldown": "1.1.5",
-    "typescript": "6.0.3",
     "typescript-eslint": "8.63.0",
     "vitest": "4.1.10"
   },

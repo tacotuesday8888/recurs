@@ -59,7 +59,7 @@ async function invoke(
 }
 
 describe("code_outline", () => {
-  it("returns deterministic lexical declarations across supported languages", async () => {
+  it("combines parser-backed TypeScript with lexical declarations deterministically", async () => {
     await writeFile(path.join(cwd, "src", "index.ts"), [
       "export interface Config { enabled: boolean }",
       "export class Runner {}",
@@ -101,11 +101,75 @@ describe("code_outline", () => {
       scannedFiles: 3,
       matchedFiles: 3,
       symbols: 8,
-      lexical: true,
+      parserBackedFiles: 1,
+      lexicalFiles: 2,
+      symbolAnalysis: "typescript_compiler_and_lexical_v1",
       truncated: false,
       languages: ["Python", "Rust", "TypeScript/JavaScript"],
-      sources: ["outlined 3 files under src (8 lexical declarations)"],
+      sources: ["outlined 3 files under src (8 parser-backed and lexical declarations)"],
     });
+  });
+
+  it("uses syntax trees for multiline declarations, members, namespaces, and callable variables", async () => {
+    await writeFile(path.join(cwd, "src", "parser.mts"), [
+      "const dec = (_target: unknown) => undefined;",
+      "@dec",
+      "export abstract",
+      "class Service {",
+      "  async",
+      "  run(): Promise<void> {}",
+      "  get status(): string { return 'ready'; }",
+      "}",
+      "export interface Contract {",
+      "  execute(value: string): void;",
+      "}",
+      "export namespace Outer.Inner {",
+      "  export function nested() {}",
+      "}",
+      "export const Assigned = class {};",
+      "const text = `class NotADeclaration {}`;",
+      "// function alsoNotADeclaration() {}",
+      "",
+    ].join("\n"));
+
+    const result = await invoke({ path: "src/parser.mts" });
+
+    expect(result.output).toBe([
+      "src/parser.mts [TypeScript/JavaScript]",
+      "  1  function dec",
+      "  4  class Service",
+      "  6  method Service.run",
+      "  7  method Service.status",
+      "  9  interface Contract",
+      "  10  method Contract.execute",
+      "  12  namespace Outer",
+      "  12  namespace Outer.Inner",
+      "  13  function Outer.Inner.nested",
+      "  15  class Assigned",
+      "",
+    ].join("\n"));
+    expect(result.metadata).toMatchObject({
+      parserBackedFiles: 1,
+      lexicalFiles: 0,
+      symbolAnalysis: "typescript_compiler_v1",
+      symbols: 10,
+    });
+    expect(result.output).not.toContain("NotADeclaration");
+    expect(result.output).not.toContain("alsoNotADeclaration");
+  });
+
+  it("parses incomplete TypeScript on a best-effort basis", async () => {
+    await writeFile(path.join(cwd, "src", "incomplete.cts"), [
+      "export class Ready {}",
+      "export function unfinished(",
+      "",
+    ].join("\n"));
+
+    const result = await invoke({ path: "src/incomplete.cts" });
+
+    expect(result.output).toContain("class Ready");
+    expect(result.output).toContain("function unfinished");
+    expect(result.metadata).toMatchObject({ symbolAnalysis: "typescript_compiler_v1" });
   });
 
   it("uses a query to locate and filter declarations without returning references", async () => {
@@ -178,7 +242,9 @@ describe("code_outline", () => {
       symbols: 1,
       indexedSymbols: 4,
       referenceEdges: 2,
-      lexical: true,
+      parserBackedFiles: 4,
+      lexicalFiles: 0,
+      symbolAnalysis: "typescript_compiler_v1",
       truncated: true,
     });
   });

@@ -22,6 +22,10 @@ const sealedRuntimes = path.join(
   root,
   "packages/native-engine/src/sealed-runtimes.ts",
 );
+const sealedTypescriptOutline = path.join(
+  root,
+  "packages/native-engine/src/sealed-typescript-outline.ts",
+);
 const outputDirectory = path.dirname(outputFile);
 const temporaryFile = path.join(
   outputDirectory,
@@ -38,9 +42,17 @@ try {
     external: (specifier) => specifier.startsWith("node:"),
     plugins: [{
       name: "recurs-workspace-source",
-      resolveId(specifier) {
+      resolveId(specifier, importer) {
         if (specifier === "yaml") {
           return path.join(root, "node_modules/yaml/browser/index.js");
+        }
+        if (
+          specifier === "../typescript-outline.js" &&
+          importer?.replaceAll("\\", "/").endsWith(
+            "/packages/tools/src/builtins/code-outline.ts",
+          ) === true
+        ) {
+          return sealedTypescriptOutline;
         }
         if (specifier === "@recurs/runtimes") {
           return sealedRuntimes;
