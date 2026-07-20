@@ -285,4 +285,55 @@ describe("guided onboarding policy", () => {
       ["account", "route", "review", "specialist"],
     ]);
   });
+
+  it("creates a confirmed project brief without handling credential values", async () => {
+    const selections = [
+      "account:saved-1",
+      "approved_for_me",
+      "balanced_v5",
+      "create",
+    ];
+    const prompts = [
+      "Build a dependable multi-agent coding harness.",
+      "Run npm test and keep permissions monotonic.",
+    ];
+    let brief: unknown;
+    const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
+    const outcome = await runGuidedOnboarding({
+      stdout: sink,
+      stderr: sink,
+      interactive: true,
+      automation: false,
+      nativeProviders: new Set(),
+      async listAccounts() { return [account]; },
+      async detectProviders() { return []; },
+      async listProviders() { return []; },
+      async inspectProjectInstructions() { return []; },
+      async createProjectInstructions(input) {
+        brief = input;
+        return "created";
+      },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText() { return prompts.shift() ?? null; },
+      async confirm(message) {
+        expect(message).toContain("never overwrite");
+        return true;
+      },
+      async executeCommand() { return 0; },
+    });
+
+    expect(outcome).toEqual({
+      state: "configured",
+      permissionMode: "approved_for_me",
+      operatingModeId: "balanced_v5",
+    });
+    expect(brief).toEqual({
+      purpose: "Build a dependable multi-agent coding harness.",
+      notes: "Run npm test and keep permissions monotonic.",
+    });
+  });
 });

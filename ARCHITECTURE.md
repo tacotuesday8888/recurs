@@ -42,12 +42,13 @@ For one prompt in the coordinated direct-model lane:
 2. it resolves trusted invocation context, the immutable pinned backend, and run-bound authorization before persisting the prompt;
 3. closes pending tool records and inserts missing interrupted tool results;
 4. records the user message and turn start;
-5. sends an immutable message/tool snapshot to the selected provider;
-6. validates and streams provider events through one reducer;
-7. executes normalized tool calls sequentially through permissions and checkpoints;
-8. records a terminal tool record plus a model-visible result for every started call;
-9. repeats until a final response, cancellation, repeated interaction, failure, or step limit;
-10. persists the terminal turn record and updates active-goal progress.
+5. loads a bounded root-to-cwd project-instruction snapshot once for the turn;
+6. sends that immutable context/message/tool snapshot to the selected provider;
+7. validates and streams provider events through one reducer;
+8. executes normalized tool calls sequentially through permissions and checkpoints;
+9. records a terminal tool record plus a model-visible result for every started call;
+10. repeats until a final response, cancellation, repeated interaction, failure, or step limit;
+11. persists the terminal turn record and updates active-goal progress.
 
 Provider retries are bounded to two attempts and are allowed only before text, reasoning, or a tool call has appeared. Retrying after semantic output could duplicate visible text or work.
 

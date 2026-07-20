@@ -82,6 +82,10 @@ import {
   type GuidedOnboardingOutcome,
 } from "./guided-onboarding.js";
 import {
+  createProjectInstructions,
+  discoverProjectInstructions,
+} from "./project-instructions.js";
+import {
   LocalConnectionError,
   setupLocalConnection,
   type LocalConnectionConfiguration,
@@ -768,6 +772,13 @@ async function runGuidedOnboarding(
     ...(dependencies.discoverEnvironmentModels === undefined
       ? {}
       : { discoverEnvironmentModels: dependencies.discoverEnvironmentModels }),
+    inspectProjectInstructions: () => discoverProjectInstructions(
+      dependencies.cwd ?? process.cwd(),
+    ),
+    createProjectInstructions: (input) => createProjectInstructions(
+      dependencies.cwd ?? process.cwd(),
+      input,
+    ),
   });
 }
 

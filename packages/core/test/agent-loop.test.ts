@@ -318,6 +318,44 @@ describe("AgentLoop", () => {
     });
   });
 
+  it("takes one async context-instruction snapshot for every model step in a turn", async () => {
+    const provider = new ScriptedProvider([
+      toolTurn("context-tool", "observed"),
+      [
+        { type: "text_delta", text: "done" },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-loop-context-"));
+    temporaryDirectories.push(directory);
+    const store = new JsonlSessionStore(directory);
+    await store.createPinnedSession({
+      id: "s1",
+      at: testAt,
+      cwd: "/workspace",
+      backend: testBackendPin(),
+    });
+    const events: RecursEvent[] = [];
+    let snapshots = 0;
+    const loop = new AgentLoop({
+      ...dependencies(provider, store, [echoTool()], deny, events),
+      async contextInstructions() {
+        snapshots += 1;
+        return [`project-snapshot-${snapshots}`];
+      },
+    });
+
+    await loop.run({ sessionId: "s1", prompt: "work" });
+
+    expect(snapshots).toBe(1);
+    expect(provider.requests).toHaveLength(2);
+    for (const request of provider.requests) {
+      const system = request.messages.find((message) => message.role === "system");
+      expect(system?.content).toContain("project-snapshot-1");
+      expect(system?.content).not.toContain("project-snapshot-2");
+    }
+  });
+
   it("runs pinned sessions entirely through sequenced version 2 records", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "recurs-loop-v2-"));
     temporaryDirectories.push(directory);

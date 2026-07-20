@@ -1,21 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { lstat, open } from "node:fs/promises";
-import path from "node:path";
 
 import { compactSession, type SessionRecord } from "@recurs/core";
 import { isPinnedSessionState } from "@recurs/core";
 
 import {
+  createProjectInstructions,
+  hasWorkspaceProjectInstructions,
+} from "../project-instructions.js";
+import {
   message,
   type Command,
   type CommandDependencies,
 } from "./types.js";
-
-const agentsTemplate = `# Recurs project instructions
-
-Add project-specific build, test, architecture, and safety instructions here.
-Keep this file concise and safe to share with every coding-agent session.
-`;
 
 function requireNoArguments(command: string, args: string): ReturnType<typeof message> | null {
   return args.trim().length === 0
@@ -36,31 +32,21 @@ function createInitCommand(): Command {
       if (context.session.executionMode === "plan") {
         return message("Exit Plan mode before creating AGENTS.md", "error");
       }
-      const file = path.join(context.session.cwd, "AGENTS.md");
-      try {
-        await lstat(file);
-        return message("AGENTS.md already exists; Recurs did not overwrite it", "warning");
-      } catch (error) {
-        if (
-          typeof error !== "object" ||
-          error === null ||
-          !("code" in error) ||
-          error.code !== "ENOENT"
-        ) {
-          throw error;
-        }
+      if (await hasWorkspaceProjectInstructions(context.session.cwd)) {
+        return message(
+          "Project instructions already exist; Recurs did not overwrite them",
+          "warning",
+        );
       }
       if (!(await context.confirm("Create AGENTS.md in this workspace?"))) {
         return message("AGENTS.md was not created", "warning");
       }
-      const handle = await open(file, "wx", 0o644);
-      try {
-        await handle.writeFile(agentsTemplate, "utf8");
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-      return message("Created AGENTS.md");
+      return await createProjectInstructions(context.session.cwd) === "created"
+        ? message("Created AGENTS.md")
+        : message(
+            "Project instructions appeared concurrently; Recurs did not overwrite them",
+            "warning",
+          );
     },
   };
 }

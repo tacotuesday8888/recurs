@@ -367,7 +367,12 @@ describe("runCli", () => {
   it("guides explicit local setup and falls back safely when Full Access is declined", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
-    const selections = ["local:ollama", "full_access", "balanced_v5"];
+    const selections = [
+      "local:ollama",
+      "full_access",
+      "balanced_v5",
+      "skip",
+    ];
     let localInput: unknown;
     let runtimeOptions: unknown;
     const runtime = {
@@ -441,6 +446,8 @@ describe("runCli", () => {
   });
 
   it("offers guided BYOK onboarding and selects a credential-visible model", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "recurs-guided-byok-"));
+    directories.push(cwd);
     const stdout = new TextOutput();
     const stderr = new TextOutput();
     const selections = [
@@ -448,6 +455,7 @@ describe("runCli", () => {
       "anthropic/claude-test",
       "approved_for_me",
       "balanced_v5",
+      "skip",
     ];
     let configured = false;
     let setupInput: unknown;
@@ -473,7 +481,7 @@ describe("runCli", () => {
       stdin: Readable.from(["/quit\n"]),
       stdout,
       stderr,
-      cwd: "/tmp/workspace",
+      cwd,
       interactive: true,
       automation: false,
       async createRuntime(_events, options) {
@@ -578,6 +586,8 @@ describe("runCli", () => {
   });
 
   it("selects an Anthropic model reported by the entered environment credential", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "recurs-guided-anthropic-"));
+    directories.push(cwd);
     const stdout = new TextOutput();
     const stderr = new TextOutput();
     const selections = [
@@ -585,6 +595,7 @@ describe("runCli", () => {
       "claude-sonnet-visible",
       "approved_for_me",
       "balanced_v5",
+      "skip",
     ];
     let configured = false;
     let discovered: readonly string[] | undefined;
@@ -606,7 +617,7 @@ describe("runCli", () => {
       stdin: Readable.from(["/quit\n"]),
       stdout,
       stderr,
-      cwd: "/tmp/workspace",
+      cwd,
       interactive: true,
       automation: false,
       async createRuntime(_events, options) {

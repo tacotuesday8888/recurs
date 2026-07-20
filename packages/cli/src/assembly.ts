@@ -87,6 +87,7 @@ import {
 import { createCommandRegistry } from "./commands/create.js";
 import { AgentSkillCatalog } from "./agent-skills.js";
 import { McpServerCatalog } from "./mcp-client.js";
+import { projectContextInstructions } from "./project-instructions.js";
 import type { LocalConnectionConfiguration } from "./local-connection.js";
 import { createCodexAgentRuntime } from "./codex-connection.js";
 import { RecursRuntime } from "./runtime.js";
@@ -982,10 +983,12 @@ export async function createStandaloneRuntime(
     emit(event) {
       return events.emit(event);
     },
-    contextInstructions: (session) => isPinnedSessionState(session) &&
-        session.agent.profile === null
-      ? [...skills.contextInstructions(), ...mcp.contextInstructions()]
-      : [],
+    contextInstructions: async (session) => [
+      ...await projectContextInstructions(session.cwd),
+      ...(isPinnedSessionState(session) && session.agent.profile === null
+        ? [...skills.contextInstructions(), ...mcp.contextInstructions()]
+        : []),
+    ],
     createToolContext(session, signal, runContext) {
       return {
         sessionId: session.id,
