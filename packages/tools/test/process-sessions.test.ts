@@ -279,6 +279,66 @@ describe("owned process sessions", () => {
     }
   });
 
+  it("reports immediate and yielded nonzero exits as typed terminal failures", async () => {
+    const processes = new OwnedProcessManager();
+    const registry = new ToolRegistry([
+      createRunCommandTool(processes),
+      createProcessSessionTool(processes),
+    ]);
+    const canary = "RECURS_PROCESS_SESSION_STDERR_CANARY";
+
+    try {
+      let immediateFailure: unknown;
+      try {
+        await invoke(registry, "run_command", {
+          command: `printf '%s' '${canary}' >&2; exit 23`,
+          timeoutMs: 1_000,
+          yieldTimeMs: 1_000,
+        });
+      } catch (error) {
+        immediateFailure = error;
+      }
+      expect(immediateFailure).toMatchObject({
+        code: "process_failed",
+        message: "Process exited with 23",
+      });
+      expect(String((immediateFailure as Error).message)).not.toContain(canary);
+
+      const started = await invoke(registry, "run_command", {
+        command: `${process.execPath} -e 'process.stdout.write("ready"); process.stdin.once("data", () => { process.stderr.write("${canary}"); process.exit(29); })'`,
+        timeoutMs: 5_000,
+        yieldTimeMs: 250,
+      });
+      expect(started.metadata).toMatchObject({ status: "running" });
+      let thrown: unknown;
+      try {
+        const written = await invoke(registry, "process_session", {
+          action: "write",
+          sessionId: started.metadata?.sessionId,
+          input: "finish\\n",
+          closeStdin: true,
+          yieldTimeMs: 5_000,
+        });
+        if (written.metadata?.status === "running") {
+          await invoke(registry, "process_session", {
+            action: "poll",
+            sessionId: started.metadata?.sessionId,
+            yieldTimeMs: 5_000,
+          });
+        }
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toMatchObject({
+        code: "process_failed",
+        message: "Process exited with 29",
+      });
+      expect(String((thrown as Error).message)).not.toContain(canary);
+    } finally {
+      await processes.close();
+    }
+  });
+
   it("terminates every owned process when the manager closes", async () => {
     const processes = new OwnedProcessManager();
     const registry = new ToolRegistry([createRunCommandTool(processes)]);

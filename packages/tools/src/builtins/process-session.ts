@@ -95,6 +95,12 @@ export function processSnapshotResult(
       snapshot.failure?.message ?? "The process session failed",
     );
   }
+  if (snapshot.status === "exited" && snapshot.exitCode !== 0) {
+    throw new ToolError(
+      "process_failed",
+      `Process exited with ${snapshot.exitCode ?? -1}`,
+    );
+  }
   const terminal = snapshot.status === "running"
     ? `Process session ${snapshot.sessionId} is running.`
     : `Process exited with code ${snapshot.exitCode ?? -1}.`;
