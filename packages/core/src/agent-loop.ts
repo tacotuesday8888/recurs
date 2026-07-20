@@ -13,6 +13,7 @@ import {
   MAX_PROVIDER_RETRY_AFTER_MS,
   ProviderError,
   safeProviderErrorMessage,
+  streamProviderEvents,
   type ModelMessage,
   type ModelProvider,
   type DirectContinuationHandle,
@@ -466,13 +467,13 @@ async function streamModelTurnWithRetries(
   turnId: string,
 ): Promise<ModelTurn> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    let semanticOutputSeen = false;
+    let replayUnsafeEventSeen = false;
     try {
-      return await collectProviderEvents(deps.provider.stream(request), {
+      return await collectProviderEvents(streamProviderEvents(deps.provider, request), {
         onEvent: async (event) => {
           throwIfAborted(request.signal);
           if (event.type === "text_delta") {
-            semanticOutputSeen = true;
+            replayUnsafeEventSeen = true;
             await deps.emit({
               type: "model_text_delta",
               sessionId,
@@ -481,7 +482,7 @@ async function streamModelTurnWithRetries(
               text: event.text,
             });
           } else if (event.type === "reasoning_delta") {
-            semanticOutputSeen = true;
+            replayUnsafeEventSeen = true;
             await deps.emit({
               type: "model_reasoning_delta",
               sessionId,
@@ -490,20 +491,24 @@ async function streamModelTurnWithRetries(
               text: event.text,
             });
           } else if (event.type === "tool_call") {
-            semanticOutputSeen = true;
+            replayUnsafeEventSeen = true;
             await deps.emit({
               type: "tool_requested",
               sessionId,
               at: now(),
               call: event.call,
             });
+          } else if (
+            event.type === "usage" || event.type === "provider_state"
+          ) {
+            replayUnsafeEventSeen = true;
           }
         },
       });
     } catch (error) {
       throwIfAborted(request.signal);
       if (
-        semanticOutputSeen && error instanceof ProviderError &&
+        replayUnsafeEventSeen && error instanceof ProviderError &&
         error.code === "context_overflow"
       ) {
         throw new ProviderError(
@@ -514,7 +519,7 @@ async function streamModelTurnWithRetries(
       }
       if (
         !isRetryableProviderError(error) ||
-        semanticOutputSeen ||
+        replayUnsafeEventSeen ||
         attempt === 2
       ) {
         throw error;

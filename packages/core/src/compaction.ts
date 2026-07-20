@@ -5,6 +5,7 @@ import {
   ProviderError,
   collectProviderEvents,
   safeProviderErrorMessage,
+  streamProviderEvents,
   type ModelMessage,
   type ModelProvider,
   type ProviderErrorCode,
@@ -318,7 +319,9 @@ export async function compactSession(
       tools: [],
       signal,
     };
-    const collected = await collectProviderEvents(provider.stream(request));
+    const collected = await collectProviderEvents(
+      streamProviderEvents(provider, request),
+    );
     if (
       collected.stopReason !== "complete" ||
       collected.toolCalls.length > 0 ||

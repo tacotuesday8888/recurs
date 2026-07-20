@@ -13,4 +13,5 @@ export * from "./openai-responses.js";
 export * from "./provider-discovery.js";
 export * from "./safe-error.js";
 export * from "./scripted-provider.js";
+export * from "./stream-idle.js";
 export * from "./types.js";
