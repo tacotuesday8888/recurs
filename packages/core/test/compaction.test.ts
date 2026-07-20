@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DEFAULT_PROVIDER_STREAM_IDLE_TIMEOUT_MS,
   ProviderError,
   ScriptedProvider,
+  type ModelProvider,
+  type ProviderEvent,
   type ProviderErrorCode,
 } from "@recurs/providers";
 
@@ -34,6 +37,10 @@ function longSession() {
     })),
   };
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("compactSession", () => {
   it("requests a structured summary and retains the latest six messages", async () => {
@@ -78,6 +85,41 @@ describe("compactSession", () => {
     await expect(
       compactSession(longSession(), provider, new AbortController().signal),
     ).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("aborts and reports a retryable transport failure for idle compaction", async () => {
+    vi.useFakeTimers();
+    let providerSignal: AbortSignal | undefined;
+    const provider: ModelProvider = {
+      id: "silent-compaction",
+      async *stream(request) {
+        yield* [] as ProviderEvent[];
+        providerSignal = request.signal;
+        await new Promise<void>((_resolve, reject) => {
+          request.signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      },
+    };
+    const pending = compactSession(
+      longSession(),
+      provider,
+      new AbortController().signal,
+    );
+    const assertion = expect(pending).rejects.toMatchObject({
+      code: "transport",
+      message: "Provider request failed",
+      retryable: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(DEFAULT_PROVIDER_STREAM_IDLE_TIMEOUT_MS);
+
+    await assertion;
+    expect(providerSignal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it.each([

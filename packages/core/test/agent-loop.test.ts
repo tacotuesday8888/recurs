@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type { ModelProvider, ProviderRequest } from "@recurs/providers";
 import {
+  DEFAULT_PROVIDER_STREAM_IDLE_TIMEOUT_MS,
   ProviderError,
   ScriptedProvider,
   type ProviderErrorCode,
@@ -33,6 +34,7 @@ import { testAt, testBackendPin } from "../../../tests/support/backend.js";
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
+  vi.useRealTimers();
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
       rm(directory, { recursive: true, force: true }),
@@ -872,6 +874,42 @@ describe("AgentLoop", () => {
     }));
   });
 
+  it("retries a silent provider after the bounded stream idle deadline", async () => {
+    vi.useFakeTimers();
+    let requests = 0;
+    const provider: ModelProvider = {
+      id: "initially-silent",
+      async *stream(request): AsyncIterable<ProviderEvent> {
+        requests += 1;
+        if (requests === 1) {
+          await new Promise<void>((_resolve, reject) => {
+            request.signal.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          });
+        }
+        yield { type: "text_delta", text: "recovered" };
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const { loop, events } = await harness(provider);
+    const running = loop.run({ sessionId: "s1", prompt: "work" });
+    await vi.waitFor(() => expect(requests).toBe(1));
+
+    await vi.advanceTimersByTimeAsync(DEFAULT_PROVIDER_STREAM_IDLE_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(200);
+
+    await expect(running).resolves.toMatchObject({ finalText: "recovered" });
+    expect(requests).toBe(2);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "retry_scheduled",
+      attempt: 1,
+      delayMs: 200,
+    }));
+  });
+
   it("honors a bounded provider retry delay and cancels the wait promptly", async () => {
     const provider = new ScriptedProvider([
       new ProviderError("rate_limit", "temporary", true, {
@@ -1033,6 +1071,47 @@ describe("AgentLoop", () => {
     expect(requests).toBe(1);
     expect(events.filter((event) => event.type === "retry_scheduled")).toEqual([]);
   });
+
+  it.each(["usage", "provider_state"] as const)(
+    "does not retry after a committed provider %s boundary",
+    async (boundary) => {
+      const pin = testBackendPin();
+      const handle = {
+        kind: "direct" as const,
+        id: "committed-before-failure",
+        storageClass: "persistent_broker" as const,
+        recursSessionId: "s1",
+        connectionId: pin.connectionId,
+        adapterId: pin.adapterId,
+        modelId: pin.modelId,
+        backendFingerprint: createBackendFingerprint(pin),
+        stateVersion: 1,
+        originTurnId: "turn-1",
+        continuationSequence: 1,
+        status: "committed" as const,
+      };
+      let requests = 0;
+      const provider: ModelProvider = {
+        id: `partial-${boundary}`,
+        async *stream(): AsyncIterable<ProviderEvent> {
+          requests += 1;
+          yield boundary === "usage"
+            ? { type: "usage", inputTokens: 10, outputTokens: 2 }
+            : { type: "provider_state", handle };
+          throw new ProviderError("transport", "connection lost", true);
+        },
+      };
+      const { loop, events } = await harness(provider, [], deny, pin);
+
+      await expect(loop.run({
+        sessionId: "s1",
+        turnId: "turn-1",
+        prompt: "work",
+      })).rejects.toMatchObject({ code: "provider_failed" });
+      expect(requests).toBe(1);
+      expect(events.filter((event) => event.type === "retry_scheduled")).toEqual([]);
+    },
+  );
 
   it("does not classify context overflow as safely replayable after semantic output", async () => {
     const provider: ModelProvider = {

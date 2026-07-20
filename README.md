@@ -8,7 +8,7 @@ The code is intended to become an open-source project, but this repository does 
 
 The repository contains a usable agent base and a bounded, Recurs-owned child-agent vertical:
 
-- one streaming tool-calling loop with two bounded pre-output retries, provider-aware delay hints, cancellation-safe exponential backoff, step limits, and repeated-loop detection;
+- one streaming tool-calling loop with a five-minute provider-event idle deadline, two bounded pre-output retries, provider-aware delay hints, cancellation-safe exponential backoff, step limits, and repeated-loop detection;
 - one foreground `delegate_task` path that selects an exact Explore, Implement, or Review profile, creates a durable child session, runs it through the same coordinator/provider/runtime/approval seams, and returns its evidence-bearing handoff to the parent for synthesis;
 - one foreground `delegate_tasks` path for two to eight independent Explore/Review tasks, with mode-bounded parallelism, clean detached Git worktrees, deterministic input-order results, partial-failure evidence, linked cancellation, and parent synthesis;
 - one durable `delegate_team` path that stages isolated Implement work outside the parent, performs strict independent Review, runs bounded finding-driven Repair, and either applies an approved foreground candidate or leaves an approved background candidate for explicit apply;
