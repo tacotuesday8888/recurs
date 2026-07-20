@@ -30,6 +30,7 @@ export interface ParsedCommand {
 
 export type CommandResult =
   | { type: "message"; level: "info" | "warning" | "error"; text: string }
+  | { type: "attach_process"; sessionId: string }
   | { type: "submit_prompt"; prompt: string; executionMode?: ExecutionMode }
   | { type: "submit_queued_prompt"; queuedInputId: string; prompt: string }
   | { type: "quit" };

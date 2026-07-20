@@ -8,12 +8,17 @@ import type { CommandResult } from "./commands/types.js";
 import { safeCliErrorMessage } from "./error-rendering.js";
 import { renderCommandResult, writeOutput } from "./render.js";
 import { isCancellation, type RecursRuntime } from "./runtime.js";
+import {
+  attachOwnedTerminalProcess,
+  type ProcessAttachmentHost,
+} from "./terminal-attach.js";
 
 export interface ReplOptions {
   input?: Readable;
   output?: Writable;
   terminal?: boolean;
   invocation?: HostInvocation;
+  attachProcess?: ProcessAttachmentHost;
 }
 
 function isCommandResult(value: unknown): value is CommandResult {
@@ -22,6 +27,7 @@ function isCommandResult(value: unknown): value is CommandResult {
     value !== null &&
     "type" in value &&
     (value.type === "message" ||
+      value.type === "attach_process" ||
       value.type === "submit_prompt" ||
       value.type === "submit_queued_prompt" ||
       value.type === "quit")
@@ -41,13 +47,15 @@ export async function startRepl(
     scripted: true,
     embedding: "cli",
   });
-  const readline = createInterface({
+  const attachProcess = options.attachProcess ?? attachOwnedTerminalProcess;
+  const createReadline = () => createInterface({
     input,
     output,
     terminal:
       options.terminal ??
       (output as Writable & { isTTY?: boolean }).isTTY === true,
   });
+  let readline = createReadline();
   let questionTail = Promise.resolve();
   const question = (prompt: string): Promise<string> => {
     const answer = questionTail.then(() => readline.question(prompt));
@@ -58,11 +66,14 @@ export async function startRepl(
     const answer = await question(`${message} [y/N] `);
     return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
   });
-  readline.on("SIGINT", () => {
-    if (!runtime.cancel()) {
-      readline.close();
-    }
-  });
+  const installSignalHandler = (): void => {
+    readline.on("SIGINT", () => {
+      if (!runtime.cancel()) {
+        readline.close();
+      }
+    });
+  };
+  installSignalHandler();
 
   await writeOutput(output, "Recurs — local harness mode\nType /help for commands.\n");
   if (runtime.state?.type === "workspace") {
@@ -85,6 +96,21 @@ export async function startRepl(
       const result = await runtime.submit(inputLine, invocation);
       if (isCommandResult(result)) {
         if (result.type === "quit") return true;
+        if (result.type === "attach_process") {
+          readline.close();
+          try {
+            await attachProcess(
+              runtime,
+              result.sessionId,
+              input,
+              output,
+            );
+          } finally {
+            readline = createReadline();
+            installSignalHandler();
+          }
+          return false;
+        }
         await renderCommandResult(result, output, output);
       }
     } catch (error) {

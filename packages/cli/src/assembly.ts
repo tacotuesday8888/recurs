@@ -1361,6 +1361,7 @@ export async function createStandaloneRuntime(
       commands,
       coordinator,
       sessions,
+      processes,
       confirm: async () => false,
       dispose: async () => {
         const settled = await Promise.allSettled([

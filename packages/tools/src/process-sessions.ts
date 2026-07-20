@@ -88,7 +88,7 @@ export interface StartOwnedProcessInput {
 export interface InteractWithOwnedProcessInput {
   readonly ownerId: string;
   readonly sessionId: string;
-  readonly input?: string;
+  readonly input?: string | Uint8Array;
   readonly closeStdin?: boolean;
   readonly stop?: boolean;
   readonly resize?: PtySize;
@@ -112,8 +112,10 @@ function validateInteractionInput(
     input.yieldTimeMs < 0 ||
     input.yieldTimeMs > MAX_PROCESS_SESSION_YIELD_TIME_MS ||
     (input.input !== undefined &&
-      (typeof input.input !== "string" ||
-        Buffer.byteLength(input.input, "utf8") > MAX_PROCESS_SESSION_INPUT_BYTES)) ||
+      (typeof input.input !== "string" && !(input.input instanceof Uint8Array) ||
+        (typeof input.input === "string"
+          ? Buffer.byteLength(input.input, "utf8")
+          : input.input.byteLength) > MAX_PROCESS_SESSION_INPUT_BYTES)) ||
     (input.closeStdin !== undefined && typeof input.closeStdin !== "boolean") ||
     (input.stop !== undefined && typeof input.stop !== "boolean")
   ) {

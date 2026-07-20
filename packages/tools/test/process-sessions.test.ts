@@ -122,6 +122,8 @@ describe("owned process sessions", () => {
     const stdin = new PassThrough();
     const stdout = new PassThrough();
     const resize = vi.fn();
+    const written: Buffer[] = [];
+    stdin.on("data", (chunk: Buffer) => written.push(Buffer.from(chunk)));
     let resolveCompletion: (exitCode: number) => void = () => {};
     const completion = new Promise<number>((resolve) => {
       resolveCompletion = resolve;
@@ -170,6 +172,14 @@ describe("owned process sessions", () => {
       });
       expect(resize).toHaveBeenCalledWith(132, 42);
       expect(resized.metadata).toMatchObject({ terminal: true });
+
+      await processes.interact({
+        ownerId: "owner-1",
+        sessionId: started.metadata?.sessionId as string,
+        input: Uint8Array.from([0x61, 0xff, 0x1b]),
+        yieldTimeMs: 0,
+      });
+      expect(Buffer.concat(written)).toEqual(Buffer.from([0x61, 0xff, 0x1b]));
 
       await expect(invoke(registry, "process_session", {
         action: "write",

@@ -20,6 +20,7 @@ export * from "./render.js";
 export * from "./repl.js";
 export * from "./runtime.js";
 export * from "./session-mutations.js";
+export * from "./terminal-attach.js";
 export * from "./agent-skills.js";
 export * from "./mcp-client.js";
 export * from "./project-instructions.js";
