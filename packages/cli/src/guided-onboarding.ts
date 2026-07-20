@@ -27,6 +27,7 @@ import {
   type ProjectBriefInput,
   type ProjectInstructionDocument,
 } from "./project-instructions.js";
+import { safeCliErrorMessage } from "./error-rendering.js";
 import { writeOutput } from "./render.js";
 
 export interface GuidedChoice {
@@ -263,6 +264,7 @@ export interface GuidedOnboardingPorts {
     choices: readonly GuidedChoice[],
   ): Promise<string | null>;
   promptText(message: string, suggestion?: string): Promise<string | null>;
+  credentialEnvironmentAvailable?(name: string): boolean;
   confirm?(message: string): Promise<boolean>;
   listAccounts?(): Promise<readonly AccountSummary[]>;
   listProviders?(input: {
@@ -472,6 +474,13 @@ async function executeConnectionAction(
       await writeOutput(
         ports.stderr,
         "Error: A KEY, TOKEN, or SECRET environment-variable name is required\n",
+      );
+      return 2;
+    }
+    if (ports.credentialEnvironmentAvailable?.(environmentVariable) === false) {
+      await writeOutput(
+        ports.stderr,
+        `Error: Credential environment variable ${environmentVariable} is not set in this Recurs process\n`,
       );
       return 2;
     }
@@ -776,28 +785,71 @@ export async function runGuidedOnboarding(
     return { state: "skipped" };
   }
   await writeOutput(ports.stdout, "1 / 5 · Parent model\n");
-  const selectedId = await ports.selectChoice(
-    "Choose how Recurs should access a model",
-    choices,
-  );
-  if (selectedId === null) {
-    await writeOutput(
-      ports.stdout,
-      "Setup skipped. Run recurs setup or /provider whenever you are ready.\n",
+  let selected: GuidedConnectionChoice | null = null;
+  while (true) {
+    if (selected === null) {
+      const selectedId = await ports.selectChoice(
+        "Choose how Recurs should access a model",
+        choices,
+      );
+      if (selectedId === null) {
+        await writeOutput(
+          ports.stdout,
+          "Setup skipped. Run recurs setup or /provider whenever you are ready.\n",
+        );
+        return { state: "skipped" };
+      }
+      selected = choices.find((choice) => choice.id === selectedId) ?? null;
+      if (selected === null) {
+        await writeOutput(ports.stderr, "Error: Invalid setup selection\n");
+        return { state: "failed", exitCode: 2 };
+      }
+    }
+
+    let connectionExit: number;
+    try {
+      connectionExit = await executeConnectionAction(
+        selected.action,
+        providers,
+        ports,
+      );
+    } catch (error) {
+      await writeOutput(
+        ports.stderr,
+        `Error: ${safeCliErrorMessage(error)}\n`,
+      );
+      connectionExit = 1;
+    }
+    if (connectionExit === 0) break;
+    if (connectionExit === 130 || ports.signal?.aborted === true) {
+      return { state: "failed", exitCode: 130 };
+    }
+
+    const recovery = await ports.selectChoice(
+      "The parent-model connection was not completed",
+      Object.freeze([
+        Object.freeze({
+          id: "retry_connection",
+          label: "Try this connection again",
+          detail: selected.label,
+        }),
+        Object.freeze({
+          id: "change_connection",
+          label: "Choose another connection",
+          detail: "return to the available provider and runtime list",
+        }),
+        Object.freeze({
+          id: "stop_setup",
+          label: "Stop setup",
+          detail: "leave without creating a configured session",
+        }),
+      ]),
     );
-    return { state: "skipped" };
-  }
-  const selected = choices.find((choice) => choice.id === selectedId);
-  if (selected === undefined) {
-    await writeOutput(ports.stderr, "Error: Invalid setup selection\n");
-    return { state: "failed", exitCode: 2 };
-  }
-  const connectionExit = await executeConnectionAction(
-    selected.action,
-    providers,
-    ports,
-  );
-  if (connectionExit !== 0) {
+    if (recovery === "retry_connection") continue;
+    if (recovery === "change_connection") {
+      selected = null;
+      continue;
+    }
     return { state: "failed", exitCode: connectionExit };
   }
   await writeOutput(ports.stdout, "\n2 / 5 · Safety boundary\n");

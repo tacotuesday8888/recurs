@@ -291,6 +291,161 @@ describe("guided onboarding policy", () => {
     ]]);
   });
 
+  it("retries BYOK setup after a missing environment credential", async () => {
+    const selections = [
+      "byok:openrouter-api",
+      "retry_connection",
+      "anthropic/claude-test",
+      "ask_always",
+      "balanced_v5",
+    ];
+    const environmentVariables = ["MISSING_API_KEY", "OPENROUTER_API_KEY"];
+    const commands: string[][] = [];
+    let errors = "";
+    const stdout = new Writable({ write(_chunk, _encoding, done) { done(); } });
+    const stderr = new Writable({
+      write(chunk, _encoding, done) {
+        errors += String(chunk);
+        done();
+      },
+    });
+    const outcome = await runGuidedOnboarding({
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      nativeProviders: new Set(),
+      async listAccounts() { return []; },
+      async detectProviders() { return []; },
+      async listProviders() { return [providers[1]!]; },
+      credentialEnvironmentAvailable(name) {
+        return name === "OPENROUTER_API_KEY";
+      },
+      async discoverEnvironmentModels(providerId, environmentVariable) {
+        expect(providerId).toBe("openrouter-api");
+        expect(environmentVariable).toBe("OPENROUTER_API_KEY");
+        return [{
+          id: "anthropic/claude-test",
+          displayName: "Claude Test",
+          createdAt: null,
+          maxInputTokens: 200_000,
+          maxOutputTokens: null,
+        }];
+      },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText(_message, suggestion) {
+        expect(suggestion).toBe("OPENROUTER_API_KEY");
+        return environmentVariables.shift() ?? null;
+      },
+      async executeCommand(argv) {
+        commands.push([...argv]);
+        return 0;
+      },
+    });
+
+    expect(outcome).toEqual({
+      state: "configured",
+      permissionMode: "ask_always",
+      operatingModeId: "balanced_v5",
+    });
+    expect(errors).toBe(
+      "Error: Credential environment variable MISSING_API_KEY is not set in this Recurs process\n",
+    );
+    expect(commands).toEqual([[
+      "setup", "byok",
+      "--provider", "openrouter-api",
+      "--model", "anthropic/claude-test",
+      "--key-env", "OPENROUTER_API_KEY",
+    ]]);
+  });
+
+  it("redacts a failed connection and can choose another provider path", async () => {
+    const selections = [
+      "byok:openrouter-api",
+      "change_connection",
+      "account:saved-1",
+      "approved_for_me",
+      "balanced_v5",
+    ];
+    const commands: string[][] = [];
+    let errors = "";
+    const stdout = new Writable({ write(_chunk, _encoding, done) { done(); } });
+    const stderr = new Writable({
+      write(chunk, _encoding, done) {
+        errors += String(chunk);
+        done();
+      },
+    });
+    const outcome = await runGuidedOnboarding({
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      nativeProviders: new Set(),
+      async listAccounts() { return [account]; },
+      async detectProviders() { return []; },
+      async listProviders() { return [providers[1]!]; },
+      credentialEnvironmentAvailable() { return true; },
+      async discoverEnvironmentModels() {
+        throw new Error("private provider failure");
+      },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText(_message, suggestion) { return suggestion ?? null; },
+      async executeCommand(argv) {
+        commands.push([...argv]);
+        return 0;
+      },
+    });
+
+    expect(outcome).toEqual({
+      state: "configured",
+      permissionMode: "approved_for_me",
+      operatingModeId: "balanced_v5",
+    });
+    expect(errors).toMatch(
+      /^Error: Unexpected failure \(diagnostic [0-9a-f-]{36}\)\n$/u,
+    );
+    expect(errors).not.toContain("private provider failure");
+    expect(commands).toEqual([
+      ["account", "verify", "saved-1"],
+      ["account", "set-primary", "saved-1"],
+    ]);
+  });
+
+  it("does not offer connection recovery after cancellation", async () => {
+    const messages: string[] = [];
+    const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
+    const outcome = await runGuidedOnboarding({
+      stdout: sink,
+      stderr: sink,
+      interactive: true,
+      automation: false,
+      nativeProviders: new Set(),
+      async listAccounts() { return [account]; },
+      async detectProviders() { return []; },
+      async listProviders() { return []; },
+      async selectChoice(message, choices) {
+        messages.push(message);
+        return choices.some((choice) => choice.id === "account:saved-1")
+          ? "account:saved-1"
+          : null;
+      },
+      async promptText() { return null; },
+      async executeCommand() { return 130; },
+    });
+
+    expect(outcome).toEqual({ state: "failed", exitCode: 130 });
+    expect(messages).toEqual(["Choose how Recurs should access a model"]);
+  });
+
   it("configures eligible specialist routes without changing the parent", async () => {
     let roles: readonly string[] = [];
     const primary: AccountSummary = {

@@ -460,6 +460,7 @@ describe("runCli", () => {
       "skip",
     ];
     let configured = false;
+    let credentialReadinessCheck: string | undefined;
     let setupInput: unknown;
     const runtimeOptions: unknown[] = [];
     const workspaceRuntime = {
@@ -526,6 +527,10 @@ describe("runCli", () => {
         }];
       },
       async detectProviders() { return []; },
+      credentialEnvironmentAvailable(name) {
+        credentialReadinessCheck = name;
+        return true;
+      },
       async discoverEnvironmentModels(providerId, environmentVariable) {
         expect(providerId).toBe("openrouter-api");
         expect(environmentVariable).toBe("OPENROUTER_API_KEY");
@@ -567,6 +572,7 @@ describe("runCli", () => {
     });
 
     expect(exitCode).toBe(0);
+    expect(credentialReadinessCheck).toBe("OPENROUTER_API_KEY");
     expect(setupInput).toEqual({
       providerId: "openrouter-api",
       modelId: "anthropic/claude-test",
