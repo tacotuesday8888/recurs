@@ -140,6 +140,7 @@ async function harness(
   provider: ModelProvider,
   tools: Tool[] = [echoTool()],
   approvals: ApprovalHandler = deny,
+  backend = testBackendPin(),
 ): Promise<{
   loop: AgentLoop;
   store: JsonlSessionStore;
@@ -152,7 +153,7 @@ async function harness(
     id: "s1",
     at: testAt,
     cwd: "/workspace",
-    backend: testBackendPin(),
+    backend,
   });
   const events: RecursEvent[] = [];
   return {
@@ -281,6 +282,24 @@ describe("AgentLoop", () => {
       expect.arrayContaining(["turn_started", "model_text_delta", "model_completed", "turn_completed"]),
     );
     expect(events.some((event) => "version" in event)).toBe(false);
+  });
+
+  it("does not present missing provider usage telemetry as a measured zero", async () => {
+    const provider = new ScriptedProvider([[
+      { type: "text_delta", text: "done without usage" },
+      { type: "done", stopReason: "complete" },
+    ]]);
+    const { loop, store } = await harness(provider);
+
+    await expect(loop.run({ sessionId: "s1", prompt: "work" }))
+      .resolves.toMatchObject({
+        usage: { inputTokens: 0, outputTokens: 0 },
+        usageSource: "unavailable",
+      });
+    expect((await store.loadState("s1")).agentResult).toMatchObject({
+      usage: null,
+      usageSource: "unavailable",
+    });
   });
 
   it("durably applies steering accepted while the provider is completing", async () => {
@@ -1005,6 +1024,122 @@ describe("AgentLoop", () => {
     expect((await store.load("s1")).records.at(-1)).toMatchObject({
       type: "turn_failed",
       error: { code: "runtime_failed" },
+    });
+  });
+
+  it("proactively compacts from verified limits and provider-reported usage", async () => {
+    const provider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: "earlier work summarized" },
+        { type: "usage", inputTokens: 500, outputTokens: 10 },
+        { type: "done", stopReason: "complete" },
+      ],
+      [
+        { type: "text_delta", text: "continued safely" },
+        { type: "usage", inputTokens: 1_000, outputTokens: 20 },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const backend = {
+      ...testBackendPin(),
+      modelLimitsAtCreation: {
+        source: "authenticated_provider_catalog" as const,
+        maxInputTokens: 100_000,
+        maxOutputTokens: 10_000,
+        verifiedAt: testAt,
+      },
+    };
+    const { loop, store, events } = await harness(
+      provider,
+      [echoTool()],
+      deny,
+      backend,
+    );
+    await store.withSessionMutation("s1", 0, async (lease) => {
+      for (let index = 0; index < 4; index += 1) {
+        const turnId = `seed-${index}`;
+        await lease.append({
+          type: "turn_started",
+          turnId,
+          prompt: `seed prompt ${index}`,
+          at: testAt,
+        });
+        const reportedUsage = index === 3
+          ? { inputTokens: 85_000, outputTokens: 1_000 }
+          : { inputTokens: 100, outputTokens: 10 };
+        await lease.append({
+          type: "model_completed",
+          turnId,
+          message: {
+            id: `seed-assistant-${index}`,
+            role: "assistant",
+            content: `seed answer ${index}`,
+            ...(index !== 3 ? {} : {
+              providerStateHandle: {
+                kind: "direct" as const,
+                id: "seed-continuation",
+                storageClass: "process_scoped" as const,
+                ownerInstanceId: "seed-owner",
+                recursSessionId: "s1",
+                connectionId: backend.connectionId,
+                adapterId: backend.adapterId,
+                modelId: backend.modelId,
+                backendFingerprint: createBackendFingerprint(backend),
+                stateVersion: 1,
+                originTurnId: turnId,
+                continuationSequence: 1,
+                status: "committed" as const,
+              },
+            }),
+          },
+          usage: reportedUsage,
+          stopReason: "complete",
+          at: testAt,
+        });
+        await lease.append({
+          type: "turn_completed",
+          turnId,
+          result: {
+            finalText: `seed answer ${index}`,
+            usage: reportedUsage,
+            usageSource: "provider",
+            steps: 1,
+            changedFiles: [],
+            changedFilesSource: "host_tools",
+            evidence: [],
+            evidenceSource: "none",
+          },
+          at: testAt,
+        });
+      }
+    });
+
+    await expect(loop.run({ sessionId: "s1", prompt: "continue" }))
+      .resolves.toMatchObject({ finalText: "continued safely" });
+
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[0]?.tools).toEqual([]);
+    expect(provider.requests[1]?.messages[0]?.content)
+      .toContain("earlier work summarized");
+    expect(provider.requests[1]?.messages.some((message) =>
+      "providerStateHandle" in message
+    )).toBe(false);
+    const recordTypes = (await store.load("s1")).records.map((record) =>
+      record.type
+    );
+    expect(recordTypes.slice(13, 17)).toEqual([
+      "compaction_started",
+      "session_compacted",
+      "turn_started",
+      "model_completed",
+    ]);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "warning",
+      code: "context_compacted",
+    }));
+    expect((await store.loadState("s1")).lastProviderUsage).toEqual({
+      inputTokens: 1_000,
+      outputTokens: 20,
     });
   });
 

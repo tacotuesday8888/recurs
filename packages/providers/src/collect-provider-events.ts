@@ -69,6 +69,7 @@ export async function collectProviderEvents(
   const toolCalls: ToolCall[] = [];
   const toolCallIds = new Set<string>();
   const usage = { inputTokens: 0, outputTokens: 0 };
+  let usageReported = false;
   let stopReason: StopReason | undefined;
   let providerStateHandle: DirectContinuationHandle | undefined;
   let outputBytes = 0;
@@ -149,6 +150,7 @@ export async function collectProviderEvents(
         }
         usage.inputTokens = inputTokens;
         usage.outputTokens = outputTokens;
+        usageReported = true;
         break;
       }
       case "done":
@@ -171,6 +173,7 @@ export async function collectProviderEvents(
     text,
     toolCalls,
     usage,
+    usageReported,
     stopReason,
     ...(providerStateHandle === undefined ? {} : { providerStateHandle }),
   };

@@ -38,6 +38,7 @@ export interface SessionState {
   prePlanPermissionMode?: PermissionMode;
   goal: Goal | null;
   usage: ProviderUsage;
+  lastProviderUsage?: ProviderUsage | null;
   evidence: string[];
   changedFiles: string[];
   pendingToolCalls: ToolCall[];
@@ -74,6 +75,7 @@ export function createSessionState(
     executionMode: "act",
     goal: null,
     usage: { inputTokens: 0, outputTokens: 0 },
+    lastProviderUsage: null,
     evidence: [],
     changedFiles: [],
     pendingToolCalls: [],

@@ -47,8 +47,8 @@ export class AgentLoopDirectExecutor implements DirectRunExecutor {
     );
     return {
       finalText: result.finalText,
-      usage: result.usage,
-      usageSource: "provider",
+      usage: result.usageSource === "provider" ? result.usage : null,
+      usageSource: result.usageSource,
       steps: result.steps,
       changedFiles: result.changedFiles,
       changedFilesSource: "host_tools",

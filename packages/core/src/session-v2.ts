@@ -645,8 +645,7 @@ export function reduceSessionRecordV2(
   }
   if (record.type === "compaction_started") {
     if (
-      state.openTurnId !== null || state.pendingCompaction !== null ||
-      state.queuedTurns.length > 0
+      state.openTurnId !== null || state.pendingCompaction !== null
     ) {
       throw new Error("Compaction requires an idle session");
     }
@@ -833,12 +832,10 @@ export function reduceSessionRecordV2(
       next = addMessage(
         {
           ...state,
-          usage: {
-            inputTokens:
-              state.usage.inputTokens + (record.usage?.inputTokens ?? 0),
-            outputTokens:
-              state.usage.outputTokens + (record.usage?.outputTokens ?? 0),
-          },
+          usage: addUsage(state.usage, record.usage),
+          lastProviderUsage: record.usage === null
+            ? null
+            : structuredClone(record.usage),
         },
         record.message,
         record.turnId,
@@ -1087,15 +1084,19 @@ export function reduceSessionRecordV2(
     }
     case "session_compacted": {
       const retained = new Set(record.retainedTurnIds);
-      const messages = state.messages.filter((message) => {
+      const messages = state.messages.flatMap((message) => {
         const turnId = state.messageTurnIds[message.id];
-        return turnId !== undefined && retained.has(turnId);
+        if (turnId === undefined || !retained.has(turnId)) return [];
+        const retainedMessage = { ...message } as ProviderBackedMessage;
+        delete retainedMessage.providerStateHandle;
+        return [retainedMessage];
       });
       const ids = new Set(messages.map((message) => message.id));
       next = {
         ...state,
         summary: record.summary,
         usage: addUsage(state.usage, record.usage),
+        lastProviderUsage: null,
         pendingCompaction: null,
         messages,
         messageTurnIds: Object.fromEntries(
@@ -1167,6 +1168,7 @@ export function reduceSessionRecordsV2(
       : { prePlanPermissionMode: first.fork.prePlanPermissionMode }),
     goal: null,
     usage: { inputTokens: 0, outputTokens: 0 },
+    lastProviderUsage: null,
     evidence: [],
     changedFiles: [],
     pendingToolCalls: [],

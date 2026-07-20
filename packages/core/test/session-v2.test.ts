@@ -167,6 +167,50 @@ describe("version 2 sessions", () => {
     expect(consumed.queuedTurns.map((turn) => turn.id)).toEqual(["queued-2"]);
   });
 
+  it("preserves the durable prompt queue across context compaction", async () => {
+    const store = await temporaryStore();
+    const initial = await store.createPinnedSession({
+      id: "queued-compaction-session",
+      cwd: "/workspace",
+      backend,
+      at,
+    });
+    await store.withSessionMutation(initial.id, initial.lastSequence, async (lease) => {
+      await lease.append({
+        type: "prompt_queued",
+        queuedInputId: "queued-after-compaction",
+        prompt: "continue after compaction",
+        at,
+      });
+    });
+    const queued = await store.loadState(initial.id);
+
+    await store.withSessionMutation(queued.id, queued.lastSequence, async (lease) => {
+      const inputBaseSequence = queued.lastSequence;
+      await lease.append({
+        type: "compaction_started",
+        operationId: "compact-with-queue",
+        inputBaseSequence,
+        at,
+      });
+      await lease.append({
+        type: "session_compacted",
+        operationId: "compact-with-queue",
+        inputBaseSequence,
+        baseSequence: inputBaseSequence,
+        summary: "Earlier work summarized",
+        retainedTurnIds: [],
+        usage: null,
+        usageSource: "unavailable",
+        at,
+      });
+    });
+
+    const compacted = await store.loadState(initial.id);
+    expect(compacted.summary).toBe("Earlier work summarized");
+    expect(compacted.queuedTurns).toEqual(queued.queuedTurns);
+  });
+
   it("persists a v3 policy and rejects a stable-id/version mismatch", async () => {
     const store = await temporaryStore();
     const initial = await store.createPinnedSession({

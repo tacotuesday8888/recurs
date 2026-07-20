@@ -49,8 +49,21 @@ describe("provider protocol", () => {
         },
       ],
       usage: { inputTokens: 10, outputTokens: 4 },
+      usageReported: true,
       stopReason: "tool_calls",
       providerStateHandle,
+    });
+  });
+
+  it("distinguishes missing usage telemetry from a reported zero", async () => {
+    async function* events(): AsyncIterable<ProviderEvent> {
+      yield { type: "text_delta", text: "complete without usage" };
+      yield { type: "done", stopReason: "complete" };
+    }
+
+    await expect(collectProviderEvents(events())).resolves.toMatchObject({
+      usage: { inputTokens: 0, outputTokens: 0 },
+      usageReported: false,
     });
   });
 

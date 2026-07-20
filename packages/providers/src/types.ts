@@ -50,6 +50,7 @@ export interface CollectedProviderEvents {
     inputTokens: number;
     outputTokens: number;
   };
+  usageReported: boolean;
   stopReason: StopReason;
   providerStateHandle?: DirectContinuationHandle;
 }

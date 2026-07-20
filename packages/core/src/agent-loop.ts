@@ -42,6 +42,10 @@ import {
   type SessionMutationLease,
 } from "./jsonl-session-store.js";
 import { createBackendFingerprint } from "./backend-authorization.js";
+import {
+  compactPinnedSession,
+  proactiveCompactionDecision,
+} from "./compaction.js";
 import { recordGoalProgress } from "./goal.js";
 import { LoopDetector } from "./loop-detector.js";
 import {
@@ -75,6 +79,7 @@ export interface RunInput {
 export interface RunResult {
   finalText: string;
   usage: Usage;
+  usageSource: "provider" | "unavailable";
   steps: number;
   changedFiles: string[];
   evidence: string[];
@@ -161,6 +166,7 @@ interface ModelTurn {
   text: string;
   toolCalls: ToolCall[];
   usage: Usage;
+  usageReported: boolean;
   stopReason: StopReason;
   providerStateHandle?: DirectContinuationHandle;
 }
@@ -584,14 +590,15 @@ function integrationFailure(
 function coordinatedResult(
   finalText: string,
   usage: Usage,
+  usageComplete: boolean,
   steps: number,
   changedFiles: readonly string[],
   evidence: readonly string[],
 ): CoordinatedRunResult {
   return {
     finalText,
-    usage,
-    usageSource: "provider",
+    usage: usageComplete ? usage : null,
+    usageSource: usageComplete ? "provider" : "unavailable",
     steps,
     changedFiles,
     changedFilesSource: "host_tools",
@@ -680,11 +687,11 @@ function permissionEngineFor(
   return engine;
 }
 
-async function runAgentLoopUnlocked(
-  deps: AgentLoopDependencies,
-  input: RunInput,
-  mutation: SessionMutationLease,
-): Promise<RunResult> {
+function validateRunInput(input: RunInput): {
+  maxSteps: number;
+  prompt: string;
+  signal: AbortSignal;
+} {
   const maxSteps = input.maxSteps ?? 40;
   if (!Number.isSafeInteger(maxSteps) || maxSteps <= 0) {
     throw new AgentLoopError(
@@ -696,9 +703,17 @@ async function runAgentLoopUnlocked(
   if (prompt.length === 0) {
     throw new AgentLoopError("invalid_run_input", "A prompt is required");
   }
-
   const signal = input.signal ?? new AbortController().signal;
   throwIfAborted(signal);
+  return { maxSteps, prompt, signal };
+}
+
+async function runAgentLoopUnlocked(
+  deps: AgentLoopDependencies,
+  input: RunInput,
+  mutation: SessionMutationLease,
+): Promise<RunResult> {
+  const { maxSteps, prompt, signal } = validateRunInput(input);
   const loadedState = await deps.sessions.loadState(input.sessionId);
   if (!isPinnedSessionState(loadedState)) {
     throw new AgentLoopError(
@@ -743,6 +758,7 @@ async function runAgentLoopUnlocked(
   }
   const loopDetector = new LoopDetector();
   const usage: Usage = { inputTokens: 0, outputTokens: 0 };
+  let usageComplete = true;
   const changedFiles: string[] = [];
   const evidence: string[] = [];
   let steps = 0;
@@ -1020,6 +1036,7 @@ async function runAgentLoopUnlocked(
       );
       usage.inputTokens += modelTurn.usage.inputTokens;
       usage.outputTokens += modelTurn.usage.outputTokens;
+      usageComplete &&= modelTurn.usageReported;
 
       if (modelTurn.providerStateHandle !== undefined) {
         assertDirectProviderStateHandle(
@@ -1053,7 +1070,7 @@ async function runAgentLoopUnlocked(
         at: now(),
         turnId,
         message: assistantMessage,
-        usage: modelTurn.usage,
+        usage: modelTurn.usageReported ? modelTurn.usage : null,
         stopReason: modelTurn.stopReason,
       });
       await emitPersistedEvent(deps, modelCompleted);
@@ -1106,6 +1123,7 @@ async function runAgentLoopUnlocked(
           result: coordinatedResult(
             modelTurn.text,
             usage,
+            usageComplete,
             steps,
             changedFiles,
             evidence,
@@ -1115,6 +1133,7 @@ async function runAgentLoopUnlocked(
         return {
           finalText: modelTurn.text,
           usage,
+          usageSource: usageComplete ? "provider" : "unavailable",
           steps,
           changedFiles,
           evidence,
@@ -1188,8 +1207,30 @@ export async function runAgentLoop(
   input: RunInput,
 ): Promise<RunResult> {
   try {
-    const state = await deps.sessions.loadState(input.sessionId);
-    if (isPinnedSessionState(state)) {
+    const validated = validateRunInput(input);
+    const loaded = await deps.sessions.loadState(input.sessionId);
+    if (isPinnedSessionState(loaded)) {
+      let state: PinnedSessionState = loaded;
+      const decision = state.agent.role === "parent" &&
+          state.backend.pin.kind === "model_provider"
+        ? proactiveCompactionDecision(state, validated.prompt)
+        : null;
+      if (decision?.compact === true) {
+        state = await compactPinnedSession({
+          sessions: deps.sessions,
+          state,
+          provider: deps.provider,
+          signal: validated.signal,
+          at: now(),
+        });
+        await deps.emit({
+          type: "warning",
+          sessionId: state.id,
+          at: now(),
+          code: "context_compacted",
+          message: "Session context compacted before the next turn",
+        });
+      }
       return await deps.sessions.withSessionMutation(
         input.sessionId,
         state.lastSequence,
@@ -1208,6 +1249,9 @@ export async function runAgentLoop(
       throw new AgentLoopError("session_busy", error.message, false, {
         cause: error,
       });
+    }
+    if (error instanceof ProviderError) {
+      throw normalizeRunError(error, input.signal ?? new AbortController().signal);
     }
     throw error;
   }

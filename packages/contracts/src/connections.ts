@@ -81,6 +81,13 @@ export interface ConnectionMetadata {
   updatedAt: string;
 }
 
+export interface VerifiedModelLimits {
+  source: "authenticated_provider_catalog";
+  maxInputTokens: number;
+  maxOutputTokens: number | null;
+  verifiedAt: string;
+}
+
 export interface SessionBackendPin {
   kind: AdapterKind;
   providerId: string;
@@ -95,5 +102,6 @@ export interface SessionBackendPin {
   primaryBillingSourceAtCreation: BillingSource;
   billingSelectionAtCreation: BillingSelection;
   accountSubjectFingerprint: string;
+  modelLimitsAtCreation?: VerifiedModelLimits;
   runtimeCapabilityProfileRevisionAtCreation?: string;
 }
