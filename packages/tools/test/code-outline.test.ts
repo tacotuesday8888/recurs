@@ -144,6 +144,86 @@ describe("code_outline", () => {
     expect(result.output).toContain("function second");
   });
 
+  it("ranks central declarations by distinct cross-file references", async () => {
+    await writeFile(path.join(cwd, "src", "core.ts"), "export class Coordinator {}\n");
+    await writeFile(path.join(cwd, "src", "first.ts"), [
+      "export function first() {",
+      "  return new Coordinator();",
+      "}",
+      "",
+    ].join("\n"));
+    await writeFile(path.join(cwd, "src", "second.ts"), [
+      "export function second() {",
+      "  return Coordinator;",
+      "}",
+      "",
+    ].join("\n"));
+    await writeFile(path.join(cwd, "src", "orphan.ts"), "export class Orphan {}\n");
+
+    const result = await invoke({
+      path: "src",
+      ranking: "references",
+      maxSymbols: 1,
+    });
+
+    expect(result.output).toBe([
+      "src/core.ts [TypeScript/JavaScript] (referenced by 2 files)",
+      "  1  class Coordinator (referenced by 2 files)",
+      "",
+    ].join("\n"));
+    expect(result.metadata).toMatchObject({
+      ranking: "references",
+      scannedFiles: 4,
+      matchedFiles: 1,
+      symbols: 1,
+      indexedSymbols: 4,
+      referenceEdges: 2,
+      lexical: true,
+      truncated: true,
+    });
+  });
+
+  it("uses exact lexical identifiers and counts each referring file once", async () => {
+    await writeFile(path.join(cwd, "src", "types.ts"), [
+      "export class Run {}",
+      "export class Runner {}",
+      "",
+    ].join("\n"));
+    await writeFile(path.join(cwd, "src", "consumer.ts"), [
+      "export function consume() {",
+      "  return [Runner, Runner];",
+      "}",
+      "",
+    ].join("\n"));
+
+    const result = await invoke({ path: "src", ranking: "references", maxSymbols: 2 });
+
+    expect(result.output).toContain("class Runner (referenced by 1 file)");
+    expect(result.output).toContain("class Run (referenced by 0 files)");
+  });
+
+  it("lets a query focus a ranked map without excluding surrounding symbols", async () => {
+    await writeFile(path.join(cwd, "src", "central.ts"), "export class Central {}\n");
+    await writeFile(path.join(cwd, "src", "consumer.ts"), [
+      "export function use() {",
+      "  return [Central, Needle];",
+      "}",
+      "",
+    ].join("\n"));
+    await writeFile(path.join(cwd, "src", "target.ts"), "export class Needle {}\n");
+
+    const result = await invoke({
+      path: "src",
+      query: "needle",
+      ranking: "references",
+      maxSymbols: 1,
+    });
+
+    expect(result.output).toContain("class Needle");
+    expect(result.output).not.toContain("class Central");
+    expect(result.metadata).toMatchObject({ query: "needle", ranking: "references" });
+  });
+
   it("enforces file and symbol bounds and reports truncation", async () => {
     await writeFile(path.join(cwd, "src", "a.ts"), [
       "export class Alpha {}",
@@ -254,6 +334,8 @@ describe("code_outline", () => {
     await expect(invoke({ path: "README.md" }))
       .rejects.toMatchObject({ code: "invalid_input" });
     await expect(invoke({ maxFiles: 0 }))
+      .rejects.toMatchObject({ code: "invalid_input" });
+    await expect(invoke({ ranking: "semantic" }))
       .rejects.toMatchObject({ code: "invalid_input" });
     await expect(invoke({ query: " ".repeat(2) }))
       .rejects.toMatchObject({ code: "invalid_input" });
