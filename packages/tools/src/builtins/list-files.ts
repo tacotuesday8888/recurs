@@ -12,10 +12,12 @@ import { runProcess } from "../process.js";
 import { ToolError, type Tool } from "../types.js";
 
 const MAX_SEARCH_BYTES = 512 * 1024;
+const MAX_GLOB_BYTES = 1_024;
 
 export interface ListFilesInput {
   path: string;
   limit: number;
+  glob?: string;
 }
 
 function parseListFilesInput(value: unknown): ListFilesInput {
@@ -24,13 +26,28 @@ function parseListFilesInput(value: unknown): ListFilesInput {
   }
   const inputPath = "path" in value && value.path !== undefined ? value.path : ".";
   const limit = "limit" in value && value.limit !== undefined ? value.limit : 2_000;
+  const glob = "glob" in value ? value.glob : undefined;
   if (typeof inputPath !== "string") {
     throw new ToolError("invalid_input", "path must be a string");
   }
   if (!Number.isSafeInteger(limit) || (limit as number) < 1 || (limit as number) > 10_000) {
     throw new ToolError("invalid_input", "limit must be between 1 and 10000");
   }
-  return { path: inputPath, limit: limit as number };
+  if (
+    glob !== undefined &&
+    (typeof glob !== "string" || glob.length === 0 ||
+      Buffer.byteLength(glob, "utf8") > MAX_GLOB_BYTES)
+  ) {
+    throw new ToolError(
+      "invalid_input",
+      `glob must be a non-empty string of at most ${MAX_GLOB_BYTES} bytes`,
+    );
+  }
+  return {
+    path: inputPath,
+    limit: limit as number,
+    ...(glob === undefined ? {} : { glob }),
+  };
 }
 
 export function createListFilesTool(
@@ -39,12 +56,13 @@ export function createListFilesTool(
   return {
     definition: {
       name: "list_files",
-      description: "List files under a workspace directory using ripgrep",
+      description: "List files under a workspace directory, optionally matching a glob",
       inputSchema: {
         type: "object",
         properties: {
           path: { type: "string" },
           limit: { type: "integer", minimum: 1, maximum: 10_000 },
+          glob: { type: "string", minLength: 1, maxLength: MAX_GLOB_BYTES },
         },
         additionalProperties: false,
       },
@@ -66,6 +84,9 @@ export function createListFilesTool(
         throw new ToolError("not_a_directory", `Not a directory: ${input.path}`);
       }
       const args = ["--files"];
+      if (input.glob !== undefined) {
+        args.push("--glob", input.glob);
+      }
       for (const glob of credentialRipgrepGlobs()) {
         args.push("--iglob", glob);
       }
@@ -92,7 +113,9 @@ export function createListFilesTool(
           total: files.length,
           truncated: files.length > selected.length,
           sources: [
-            `listed ${resolved.relative} (${selected.length} of ${files.length} files)`,
+            input.glob === undefined
+              ? `listed ${resolved.relative} (${selected.length} of ${files.length} files)`
+              : `listed ${resolved.relative} matching ${JSON.stringify(input.glob)} (${selected.length} of ${files.length} files)`,
           ],
         },
       };
