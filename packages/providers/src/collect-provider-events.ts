@@ -221,6 +221,15 @@ export async function collectProviderEvents(
   if (stopReason === undefined) {
     throw invalid("Provider stream ended without a completion event");
   }
+  if (stopReason === "complete" && text.trim().length === 0 && toolCalls.length === 0) {
+    throw invalid("Provider completed without text or a tool call");
+  }
+  if (stopReason === "tool_calls" && toolCalls.length === 0) {
+    throw invalid("Provider stopped for tool calls without emitting one");
+  }
+  if (toolCalls.length > 0 && stopReason !== "tool_calls") {
+    throw invalid("Provider emitted tool calls with an inconsistent stop reason");
+  }
 
   return {
     text,

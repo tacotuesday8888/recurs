@@ -345,6 +345,27 @@ describe("AgentLoop", () => {
     });
   });
 
+  it("fails a blank provider completion without persisting a successful assistant turn", async () => {
+    const provider = new ScriptedProvider([[
+      { type: "usage", inputTokens: 3, outputTokens: 0 },
+      { type: "done", stopReason: "complete" },
+    ]]);
+    const { loop, store, events } = await harness(provider);
+
+    await expect(loop.run({ sessionId: "s1", prompt: "work" })).rejects.toMatchObject({
+      code: "invalid_provider_response",
+      retryable: false,
+    });
+    expect((await store.loadState("s1")).messages.map((message) => message.role)).toEqual([
+      "user",
+    ]);
+    expect(events.map((event) => event.type)).toEqual(
+      expect.arrayContaining(["turn_started", "turn_failed"]),
+    );
+    expect(events.map((event) => event.type)).not.toContain("turn_completed");
+    expect(provider.requests).toHaveLength(1);
+  });
+
   it("durably applies steering accepted while the provider is completing", async () => {
     let releaseFirst!: () => void;
     let markStarted!: () => void;
