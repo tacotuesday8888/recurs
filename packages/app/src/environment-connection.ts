@@ -67,6 +67,7 @@ export interface EnvironmentConnectionConfiguration {
   readonly label: string;
   readonly providerId: string;
   readonly modelId: string;
+  readonly modelLimits?: EnvironmentModelProviderConnectionRecord["modelLimits"];
   readonly credentialEnvironmentVariable: string;
   readonly primary: boolean;
   readonly billingSelection: BillingSelectionMode;
@@ -140,6 +141,9 @@ function configuration(
     label: record.label,
     providerId: record.providerId,
     modelId: record.modelId,
+    ...(record.modelLimits === undefined
+      ? {}
+      : { modelLimits: structuredClone(record.modelLimits) }),
     credentialEnvironmentVariable: record.credentialEnvironmentVariable,
     primary: record.id === primaryConnectionId,
     billingSelection: record.billingSelection.mode,
@@ -265,20 +269,34 @@ export async function setupEnvironmentConnection(
       "BYOK provider adapter is invalid",
     );
   }
+  const now = input.now ?? new Date().toISOString();
+  let modelLimits: EnvironmentModelProviderConnectionRecord["modelLimits"];
   if (hasEnvironmentProviderModelDiscovery(input.providerId)) {
     const models = await discoverEnvironmentConnectionModels({
       providerId: input.providerId,
       credentialEnvironmentVariable: input.credentialEnvironmentVariable,
       environment: input.environment,
     }, dependencies);
-    if (!models.some((model) => model.id === input.modelId)) {
+    const selectedModel = models.find((model) => model.id === input.modelId);
+    if (selectedModel === undefined) {
       throw new EnvironmentConnectionError(
         "model_unavailable",
         "The selected model was not reported for this provider credential",
       );
     }
+    if (selectedModel.maxInputTokens !== null &&
+      selectedModel.maxInputTokens > 0) {
+      modelLimits = {
+        source: "authenticated_provider_catalog",
+        maxInputTokens: selectedModel.maxInputTokens,
+        maxOutputTokens: selectedModel.maxOutputTokens !== null &&
+            selectedModel.maxOutputTokens > 0
+          ? selectedModel.maxOutputTokens
+          : null,
+        verifiedAt: now,
+      };
+    }
   }
-  const now = input.now ?? new Date().toISOString();
   const billingSelection = selection(input.billingSelection, entry, now);
   const stableSuffix = createHash("sha256")
     .update(
@@ -310,6 +328,7 @@ export async function setupEnvironmentConnection(
         adapterId: bound.provider.adapterId,
         label: `${entry.displayName} BYOK`,
         modelId: input.modelId,
+        ...(modelLimits === undefined ? {} : { modelLimits }),
         credentialEnvironmentVariable: input.credentialEnvironmentVariable,
         credentialIdentityFingerprint: bound.credentialFingerprint,
         policyRevision: entry.policy.revision,

@@ -114,7 +114,12 @@ async function temporaryRoot(prefix: string): Promise<string> {
 function openAIModels(...ids: string[]): Response {
   return new Response(JSON.stringify({
     object: "list",
-    data: ids.map((id) => ({ id, object: "model" })),
+    data: ids.map((id) => ({
+      id,
+      object: "model",
+      context_length: 200_000,
+      top_provider: { max_completion_tokens: 64_000 },
+    })),
   }));
 }
 
@@ -238,6 +243,15 @@ describe("provider onboarding end to end", () => {
       session: {
         permissionMode: "approved_for_me",
         agent: { operatingMode: { id: "balanced_v5", version: 5 } },
+        backend: {
+          pin: {
+            modelLimitsAtCreation: {
+              source: "authenticated_provider_catalog",
+              maxInputTokens: 200_000,
+              maxOutputTokens: 64_000,
+            },
+          },
+        },
       },
     });
     expect(await readFile(

@@ -56,6 +56,9 @@ function createStatusCommand(): Command {
       const agentMode = isPinnedSessionState(context.session)
         ? getOperatingModePolicy(context.session.agent.operatingMode.id).displayName
         : "Unavailable";
+      const modelLimits = context.session.backend.type === "pinned"
+        ? context.session.backend.pin.modelLimitsAtCreation
+        : undefined;
       return message(
         [
           `Session: ${context.session.id}`,
@@ -69,6 +72,9 @@ function createStatusCommand(): Command {
           `Agent mode: ${agentMode}`,
           `Goal: ${goal}`,
           `Usage: ${context.session.usage.inputTokens} input / ${context.session.usage.outputTokens} output tokens`,
+          `Context limits: ${modelLimits === undefined
+            ? "unknown"
+            : `${modelLimits.maxInputTokens} input / ${modelLimits.maxOutputTokens ?? "unknown"} output tokens (provider verified)`}`,
           `Pending tools: ${context.session.pendingToolCalls.length}`,
           ...(isPinnedSessionState(context.session)
             ? [`Queued turns: ${context.session.queuedTurns.length}`]

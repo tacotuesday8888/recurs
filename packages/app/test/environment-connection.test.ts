@@ -35,6 +35,18 @@ function anthropicModels(...ids: string[]): Response {
 function openAIModels(...ids: string[]): Response {
   return new Response(JSON.stringify({
     object: "list",
+    data: ids.map((id) => ({
+      id,
+      object: "model",
+      context_length: 128_000,
+      top_provider: { max_completion_tokens: 32_000 },
+    })),
+  }));
+}
+
+function openAIModelsWithoutLimits(...ids: string[]): Response {
+  return new Response(JSON.stringify({
+    object: "list",
     data: ids.map((id) => ({ id, object: "model" })),
   }));
 }
@@ -108,6 +120,25 @@ describe("saved environment BYOK connections", () => {
       ]);
   });
 
+  it("does not invent model limits when the authenticated catalog omits them", async () => {
+    const directory = await root();
+    const configured = await setupEnvironmentConnection(directory, {
+      providerId: "openai-api",
+      modelId: "gpt-5.6-terra",
+      credentialEnvironmentVariable: "OPENAI_API_KEY",
+      billingSelection: "strict_primary_only",
+      environment: { OPENAI_API_KEY: "openai-private-value" },
+      now: AT,
+    }, {
+      fetch: async () => openAIModelsWithoutLimits("gpt-5.6-terra"),
+    });
+
+    expect(configured.modelLimits).toBeUndefined();
+    const stored = (await new FileConnectionRegistry(directory).read())
+      .connections[0];
+    expect(stored).not.toHaveProperty("modelLimits");
+  });
+
   it("stores only an environment reference and fingerprint, then runs through account lifecycle", async () => {
     const directory = await root();
     const key = "byok-private-value";
@@ -127,6 +158,12 @@ describe("saved environment BYOK connections", () => {
       modelId: "anthropic/claude-sonnet",
       credentialEnvironmentVariable: "OPENROUTER_API_KEY",
       primary: true,
+      modelLimits: {
+        source: "authenticated_provider_catalog",
+        maxInputTokens: 128_000,
+        maxOutputTokens: 32_000,
+        verifiedAt: AT,
+      },
     });
     const storedText = await readFile(connectionRegistryPath(directory), "utf8");
     expect(storedText).not.toContain(key);
@@ -196,6 +233,12 @@ describe("saved environment BYOK connections", () => {
           providerId: "anthropic-api",
           adapterId: "anthropic-messages",
           modelId: "claude-test",
+          modelLimits: {
+            source: "authenticated_provider_catalog",
+            maxInputTokens: 200_000,
+            maxOutputTokens: 64_000,
+            verifiedAt: AT,
+          },
         }),
       ]);
   });

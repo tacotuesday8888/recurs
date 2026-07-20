@@ -4,6 +4,7 @@ import type {
   BillingSelectionMode,
   BillingSource,
   TeamRunRole,
+  VerifiedModelLimits,
 } from "@recurs/contracts";
 import { normalizeLoopbackOpenAIBaseUrl } from "@recurs/providers";
 
@@ -113,6 +114,7 @@ export interface EnvironmentModelProviderConnectionRecord {
   adapterId: "openai-responses" | "anthropic-messages" | "openai-chat-completions";
   label: string;
   modelId: string;
+  modelLimits?: VerifiedModelLimits;
   credentialEnvironmentVariable: string;
   credentialIdentityFingerprint: string;
   policyRevision: string;
@@ -695,6 +697,7 @@ export function parseEnvironmentModelProviderConnectionRecord(
     "adapterId",
     "label",
     "modelId",
+    ...(value.modelLimits === undefined ? [] : ["modelLimits"]),
     "credentialEnvironmentVariable",
     "credentialIdentityFingerprint",
     "policyRevision",
@@ -720,12 +723,42 @@ export function parseEnvironmentModelProviderConnectionRecord(
     value.billingSelection,
     billingPolicy,
   );
+  let modelLimits: VerifiedModelLimits | undefined;
+  if (value.modelLimits !== undefined) {
+    if (!isRecord(value.modelLimits)) throw invalidRegistry();
+    exactKeys(value.modelLimits, [
+      "source",
+      "maxInputTokens",
+      "maxOutputTokens",
+      "verifiedAt",
+    ]);
+    if (
+      value.modelLimits.source !== "authenticated_provider_catalog" ||
+      !Number.isSafeInteger(value.modelLimits.maxInputTokens) ||
+      Number(value.modelLimits.maxInputTokens) <= 0 ||
+      (value.modelLimits.maxOutputTokens !== null &&
+        (!Number.isSafeInteger(value.modelLimits.maxOutputTokens) ||
+          Number(value.modelLimits.maxOutputTokens) <= 0))
+    ) {
+      throw invalidRegistry();
+    }
+    modelLimits = {
+      source: "authenticated_provider_catalog",
+      maxInputTokens: Number(value.modelLimits.maxInputTokens),
+      maxOutputTokens: value.modelLimits.maxOutputTokens === null
+        ? null
+        : Number(value.modelLimits.maxOutputTokens),
+      verifiedAt: timestamp(value.modelLimits.verifiedAt),
+    };
+  }
   if (
     createdAt > updatedAt ||
     configuredAt < createdAt ||
     configuredAt > updatedAt ||
     billingSelection.acknowledgedAt < createdAt ||
-    billingSelection.acknowledgedAt > updatedAt
+    billingSelection.acknowledgedAt > updatedAt ||
+    (modelLimits !== undefined &&
+      (modelLimits.verifiedAt < createdAt || modelLimits.verifiedAt > updatedAt))
   ) {
     throw invalidRegistry();
   }
@@ -739,6 +772,7 @@ export function parseEnvironmentModelProviderConnectionRecord(
     adapterId: value.adapterId,
     label: boundedString(value.label, 256, { trim: true }),
     modelId: boundedUtf8String(value.modelId, 256, { trim: true }),
+    ...(modelLimits === undefined ? {} : { modelLimits }),
     credentialEnvironmentVariable: credentialEnvironmentVariable(
       value.credentialEnvironmentVariable,
     ),
@@ -1008,6 +1042,10 @@ function cloneConnection(connection: ConnectionRecord): ConnectionRecord {
   if (connection.kind === "local_openai_compatible") return { ...connection };
   return {
     ...connection,
+    ...(connection.kind === "environment_model_provider" &&
+        connection.modelLimits !== undefined
+      ? { modelLimits: { ...connection.modelLimits } }
+      : {}),
     billingPolicy: {
       ...connection.billingPolicy,
       possibleAdditionalSources: [

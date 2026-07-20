@@ -334,6 +334,9 @@ function savedEnvironmentBackendPin(
     adapterId: connection.adapterId,
     connectionId: connection.id,
     modelId: connection.modelId,
+    ...(connection.modelLimits === undefined
+      ? {}
+      : { modelLimitsAtCreation: structuredClone(connection.modelLimits) }),
     modelIdentityKind: "mutable_alias",
     providerResolvedModelRevisionAtCreation: null,
     catalogRevision: connection.policyRevision,

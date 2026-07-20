@@ -10,7 +10,6 @@ import {
   activeGoal,
   compactSession,
   createSessionState,
-  MAX_COMPACTION_CONTEXT_BYTES,
 } from "../src/index.js";
 
 function longSession() {
@@ -186,7 +185,7 @@ describe("compactSession", () => {
     ]);
   });
 
-  it("bounds the provider request while preferring the newest earlier context", async () => {
+  it("honors a verified smaller request limit while preferring new context", async () => {
     const state = {
       ...longSession(),
       messages: Array.from({ length: 180 }, (_, index) => ({
@@ -208,11 +207,12 @@ describe("compactSession", () => {
       state,
       provider,
       new AbortController().signal,
+      { maxContextBytes: 64 * 1024 },
     );
 
     const content = provider.requests[0]?.messages.at(-1)?.content ?? "";
     expect(new TextEncoder().encode(content).byteLength).toBeLessThanOrEqual(
-      MAX_COMPACTION_CONTEXT_BYTES,
+      64 * 1024,
     );
     expect(content).not.toContain("OLDEST_ID_CANARY");
     expect(content).not.toContain("OLDEST_CONTENT_CANARY");

@@ -662,7 +662,24 @@ export function isBackendPin(value: unknown): value is SessionBackendPin {
   if (value.kind === "agent_runtime") {
     required.push("runtimeCapabilityProfileRevisionAtCreation");
   }
-  return hasExactKeys(value, required) &&
+  const modelLimits = value.modelLimitsAtCreation;
+  const validModelLimits = modelLimits === undefined || (
+    isObject(modelLimits) &&
+    hasExactKeys(modelLimits, [
+      "source",
+      "maxInputTokens",
+      "maxOutputTokens",
+      "verifiedAt",
+    ]) &&
+    modelLimits.source === "authenticated_provider_catalog" &&
+    Number.isSafeInteger(modelLimits.maxInputTokens) &&
+    Number(modelLimits.maxInputTokens) > 0 &&
+    (modelLimits.maxOutputTokens === null ||
+      (Number.isSafeInteger(modelLimits.maxOutputTokens) &&
+        Number(modelLimits.maxOutputTokens) > 0)) &&
+    canonicalIso(modelLimits.verifiedAt)
+  );
+  return hasExactKeys(value, required, ["modelLimitsAtCreation"]) &&
     (value.kind === "model_provider" || value.kind === "agent_runtime") &&
     typeof value.providerId === "string" &&
     typeof value.adapterId === "string" &&
@@ -680,11 +697,12 @@ export function isBackendPin(value: unknown): value is SessionBackendPin {
     billingSources.has(value.primaryBillingSourceAtCreation) &&
     isBillingSelection(value.billingSelectionAtCreation) &&
     typeof value.accountSubjectFingerprint === "string" &&
+    validModelLimits &&
     (value.kind === "agent_runtime"
       ? boundedNonEmptyString(
           value.runtimeCapabilityProfileRevisionAtCreation,
           MAX_RUNTIME_ID_LENGTH,
-        )
+        ) && value.modelLimitsAtCreation === undefined
       : value.runtimeCapabilityProfileRevisionAtCreation === undefined);
 }
 
