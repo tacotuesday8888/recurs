@@ -1,3 +1,5 @@
+import type { ClientRequest, IncomingMessage } from "node:http";
+
 import type {
   ConnectionBoundModelProvider,
   DirectContinuationHandle,
@@ -6,6 +8,7 @@ import type {
   ProviderRequest,
   ProviderUsage,
 } from "@recurs/contracts";
+import WebSocket from "ws";
 
 import { CredentialEchoGuard } from "./credential-echo-guard.js";
 import { NATIVE_TOOL_USE_PROFILE } from "./harness-profile.js";
@@ -25,6 +28,7 @@ const MAX_STORED_BYTES = 64 * 1024 * 1024;
 const MAX_STORED_HANDLES = 512;
 const MAX_OUTPUT_TOKENS = 8_192;
 const MAX_ERROR_BODY_BYTES = 64 * 1024;
+const WEBSOCKET_CONNECT_TIMEOUT_MS = 10_000;
 const REASONING_EFFORTS = new Set([
   "none",
   "low",
@@ -69,7 +73,13 @@ export interface RemoteOpenAIResponsesProviderOptions {
   readonly connectionId: string;
   readonly apiKey: string;
   readonly fetch?: Fetch;
+  readonly webSocketFactory?: ResponsesWebSocketFactory | null;
 }
+
+export type ResponsesWebSocketFactory = (
+  url: string,
+  options: WebSocket.ClientOptions,
+) => WebSocket;
 
 function isRecord(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -293,6 +303,10 @@ function reviewedEndpoint(): string {
   return `${endpoint.value}/responses`;
 }
 
+function reviewedWebSocketEndpoint(): string {
+  return reviewedEndpoint().replace(/^https:/u, "wss:");
+}
+
 function parseArguments(value: string): unknown {
   let parsed: unknown;
   try {
@@ -409,8 +423,7 @@ class ResponsesDecoder {
   #eventCount = 0;
 
   consume(block: string): ProviderEvent[] {
-    if (new TextEncoder().encode(block).byteLength > MAX_EVENT_BYTES ||
-      ++this.#eventCount > MAX_EVENTS || this.#terminal) throw invalid();
+    if (new TextEncoder().encode(block).byteLength > MAX_EVENT_BYTES) throw invalid();
     const lines = block.replaceAll("\r\n", "\n").split("\n");
     if (lines.length !== 2 || !lines[0]?.startsWith("event: ") ||
       !lines[1]?.startsWith("data: ")) throw invalid();
@@ -421,7 +434,34 @@ class ResponsesDecoder {
     } catch {
       throw invalid();
     }
-    if (!isRecord(event) || event.type !== eventName || !safeInteger(event.sequence_number)) {
+    return this.#consumeEvent(event, eventName);
+  }
+
+  consumeMessage(message: string): ProviderEvent[] {
+    if (new TextEncoder().encode(message).byteLength > MAX_EVENT_BYTES) throw invalid();
+    let event: unknown;
+    try {
+      event = JSON.parse(message);
+    } catch {
+      throw invalid();
+    }
+    if (isRecord(event) && event.type === "error" && event.sequence_number === undefined) {
+      const code = machineErrorCode(event);
+      if (code === null) throw invalid();
+      throw responseCodeFailure(code);
+    }
+    return this.#consumeEvent(event);
+  }
+
+  get terminal(): boolean {
+    return this.#terminal;
+  }
+
+  #consumeEvent(event: unknown, expectedType?: string): ProviderEvent[] {
+    if (++this.#eventCount > MAX_EVENTS || this.#terminal || !isRecord(event) ||
+      typeof event.type !== "string" ||
+      (expectedType !== undefined && event.type !== expectedType) ||
+      !safeInteger(event.sequence_number)) {
       throw invalid();
     }
     if (this.#lastSequence !== null && event.sequence_number !== this.#lastSequence + 1) {
@@ -429,7 +469,7 @@ class ResponsesDecoder {
     }
     this.#lastSequence = event.sequence_number;
 
-    switch (eventName) {
+    switch (event.type) {
       case "response.created": {
         if (this.#responseId !== null || !isRecord(event.response) ||
           !validIdentifier(event.response.id) ||
@@ -441,7 +481,7 @@ class ResponsesDecoder {
       }
       case "response.queued":
       case "response.in_progress":
-        this.#assertResponse(event.response, eventName.slice(9));
+        this.#assertResponse(event.response, event.type.slice(9));
         return [];
       case "response.output_item.added":
         this.#addItem(event);
@@ -731,6 +771,64 @@ function requestBody(
   };
 }
 
+type SocketInboxItem =
+  | { readonly type: "message"; readonly data: WebSocket.RawData; readonly binary: boolean }
+  | { readonly type: "closed" }
+  | { readonly type: "error" };
+
+class SocketInbox {
+  readonly #items: SocketInboxItem[] = [];
+  #waiter: ((item: SocketInboxItem) => void) | null = null;
+
+  push(item: SocketInboxItem): void {
+    if (this.#waiter !== null) {
+      const resolve = this.#waiter;
+      this.#waiter = null;
+      resolve(item);
+      return;
+    }
+    this.#items.push(item);
+  }
+
+  async next(signal: AbortSignal): Promise<SocketInboxItem> {
+    const item = this.#items.shift();
+    if (item !== undefined) return item;
+    if (signal.aborted) throw requestFailure(signal);
+    return await new Promise<SocketInboxItem>((resolve, reject) => {
+      const onAbort = (): void => {
+        this.#waiter = null;
+        reject(requestFailure(signal));
+      };
+      this.#waiter = (next) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(next);
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+}
+
+class WebSocketConnectError extends Error {
+  constructor() {
+    super("OpenAI WebSocket connection failed");
+    this.name = "WebSocketConnectError";
+  }
+}
+
+function terminateSocket(socket: WebSocket): void {
+  try {
+    socket.terminate();
+  } catch {
+    // A socket can race from CONNECTING to CLOSED during cancellation.
+  }
+}
+
+function rawDataBytes(data: WebSocket.RawData): Uint8Array {
+  if (Array.isArray(data)) return new Uint8Array(Buffer.concat(data));
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+}
+
 export class RemoteOpenAIResponsesProvider implements ConnectionBoundModelProvider {
   readonly id = "openai-api";
   readonly adapterId = "openai-responses";
@@ -739,8 +837,13 @@ export class RemoteOpenAIResponsesProvider implements ConnectionBoundModelProvid
   readonly #apiKey: string;
   readonly #fetch: Fetch;
   readonly #endpoint: string;
+  readonly #webSocketEndpoint: string;
+  readonly #webSocketFactory: ResponsesWebSocketFactory | null;
   readonly #ownerInstanceId = globalThis.crypto.randomUUID();
   readonly #continuations = new Map<string, StoredContinuation>();
+  #socket: WebSocket | null = null;
+  #socketBusy = false;
+  #webSocketDisabled = false;
   #storedBytes = 0;
 
   constructor(options: RemoteOpenAIResponsesProviderOptions) {
@@ -751,15 +854,23 @@ export class RemoteOpenAIResponsesProvider implements ConnectionBoundModelProvid
     this.#apiKey = options.apiKey;
     this.#fetch = options.fetch ?? globalThis.fetch;
     this.#endpoint = reviewedEndpoint();
+    this.#webSocketEndpoint = reviewedWebSocketEndpoint();
+    this.#webSocketFactory = options.webSocketFactory === undefined
+      ? options.fetch === undefined
+        ? (url, clientOptions) => new WebSocket(url, clientOptions)
+        : null
+      : options.webSocketFactory;
   }
 
   async *stream(request: ProviderRequest): AsyncIterable<ProviderEvent> {
     const load = (handle: DirectContinuationHandle): readonly JsonObject[] =>
       this.#loadContinuation(handle, request);
     const messages = this.#recoverCompletedHistory(request);
+    let bodyObject: JsonObject;
     let body: string;
     try {
-      body = JSON.stringify(requestBody({ ...request, messages }, load));
+      bodyObject = requestBody({ ...request, messages }, load);
+      body = JSON.stringify(bodyObject);
     } catch (error) {
       if (error instanceof ProviderError) throw error;
       throw invalid("OpenAI request was invalid");
@@ -767,6 +878,209 @@ export class RemoteOpenAIResponsesProvider implements ConnectionBoundModelProvid
     if (new TextEncoder().encode(body).byteLength > MAX_REQUEST_BYTES) {
       throw new ProviderError("context_overflow", "OpenAI request was too large", false);
     }
+
+    if (
+      this.#webSocketFactory !== null && !this.#webSocketDisabled &&
+      !this.#socketBusy
+    ) {
+      this.#socketBusy = true;
+      try {
+        let socket: WebSocket;
+        try {
+          socket = await this.#openSocket(request.signal);
+        } catch (error) {
+          if (!(error instanceof WebSocketConnectError)) throw error;
+          this.#webSocketDisabled = true;
+          yield {
+            type: "transport_fallback",
+            from: "websocket",
+            to: "sse",
+            reason: "connect_failed",
+          };
+          yield* this.#streamSse(body, request);
+          return;
+        }
+        yield* this.#streamSocket(socket, bodyObject, request);
+        return;
+      } finally {
+        this.#socketBusy = false;
+      }
+    }
+    if (
+      this.#webSocketFactory !== null && !this.#webSocketDisabled &&
+      this.#socketBusy
+    ) {
+      yield {
+        type: "transport_fallback",
+        from: "websocket",
+        to: "sse",
+        reason: "connection_busy",
+      };
+    }
+    yield* this.#streamSse(body, request);
+  }
+
+  close(): void {
+    const socket = this.#socket;
+    this.#socket = null;
+    this.#webSocketDisabled = false;
+    if (socket !== null) terminateSocket(socket);
+  }
+
+  async #openSocket(signal: AbortSignal): Promise<WebSocket> {
+    if (signal.aborted) throw requestFailure(signal);
+    if (this.#socket?.readyState === WebSocket.OPEN) return this.#socket;
+    if (this.#socket !== null) {
+      terminateSocket(this.#socket);
+      this.#socket = null;
+    }
+    const factory = this.#webSocketFactory;
+    if (factory === null) throw new WebSocketConnectError();
+    let socket: WebSocket;
+    try {
+      socket = factory(this.#webSocketEndpoint, {
+        headers: { authorization: `Bearer ${this.#apiKey}` },
+        followRedirects: false,
+        handshakeTimeout: WEBSOCKET_CONNECT_TIMEOUT_MS,
+        maxPayload: MAX_EVENT_BYTES,
+        perMessageDeflate: false,
+        skipUTF8Validation: false,
+      });
+    } catch {
+      throw new WebSocketConnectError();
+    }
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: unknown): void => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        socket.off("open", onOpen);
+        socket.off("error", onError);
+        socket.off("close", onClose);
+        socket.off("unexpected-response", onUnexpectedResponse);
+        if (error === undefined) resolve();
+        else reject(error);
+      };
+      const onAbort = (): void => {
+        terminateSocket(socket);
+        finish(requestFailure(signal));
+      };
+      const onOpen = (): void => finish();
+      const onError = (): void => {
+        terminateSocket(socket);
+        finish(new WebSocketConnectError());
+      };
+      const onClose = (): void => finish(new WebSocketConnectError());
+      const onUnexpectedResponse = (
+        _request: ClientRequest,
+        response: IncomingMessage,
+      ): void => {
+        const status = response.statusCode ?? 0;
+        response.resume();
+        terminateSocket(socket);
+        if (status === 401 || status === 403) {
+          finish(new ProviderError("authentication", "OpenAI authentication failed", false));
+        } else if (status === 429) {
+          finish(new ProviderError("rate_limit", "OpenAI rate limit reached", true));
+        } else {
+          finish(new WebSocketConnectError());
+        }
+      };
+      socket.once("open", onOpen);
+      socket.once("error", onError);
+      socket.once("close", onClose);
+      socket.once("unexpected-response", onUnexpectedResponse);
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
+    this.#socket = socket;
+    socket.on("close", () => {
+      if (this.#socket === socket) this.#socket = null;
+    });
+    socket.on("error", () => {
+      if (this.#socket === socket) this.#socket = null;
+    });
+    return socket;
+  }
+
+  async *#streamSocket(
+    socket: WebSocket,
+    bodyObject: JsonObject,
+    request: ProviderRequest,
+  ): AsyncIterable<ProviderEvent> {
+    if (socket.readyState !== WebSocket.OPEN) {
+      this.#disableSocket(socket);
+      throw new ProviderError("transport", "OpenAI transport became unavailable", false);
+    }
+    const payload: JsonObject = { ...bodyObject };
+    delete payload.stream;
+    const encoded = JSON.stringify({ type: "response.create", ...payload });
+    if (new TextEncoder().encode(encoded).byteLength > MAX_REQUEST_BYTES) {
+      throw new ProviderError("context_overflow", "OpenAI request was too large", false);
+    }
+    const inbox = new SocketInbox();
+    const onMessage = (data: WebSocket.RawData, binary: boolean): void => {
+      inbox.push({ type: "message", data, binary });
+    };
+    const onClose = (): void => inbox.push({ type: "closed" });
+    const onError = (): void => inbox.push({ type: "error" });
+    socket.on("message", onMessage);
+    socket.once("close", onClose);
+    socket.once("error", onError);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.send(encoded, (error) => {
+          if (error === undefined) resolve();
+          else reject(error);
+        });
+      }).catch(() => {
+        this.#disableSocket(socket);
+        throw new ProviderError("transport", "OpenAI request delivery was uncertain", false);
+      });
+      const decoder = new ResponsesDecoder();
+      const echoGuard = new CredentialEchoGuard(this.#apiKey);
+      const textDecoder = new TextDecoder("utf-8", { fatal: true });
+      let bytes = 0;
+      while (!decoder.terminal) {
+        const item = await inbox.next(request.signal);
+        if (item.type !== "message") {
+          this.#disableSocket(socket);
+          throw new ProviderError("transport", "OpenAI request delivery was interrupted", false);
+        }
+        if (item.binary) throw invalid("OpenAI WebSocket returned binary data");
+        const chunk = rawDataBytes(item.data);
+        echoGuard.inspect(chunk);
+        bytes += chunk.byteLength;
+        if (bytes > MAX_STREAM_BYTES) throw invalid("OpenAI response was too large");
+        let message: string;
+        try {
+          message = textDecoder.decode(chunk);
+        } catch {
+          throw invalid("OpenAI response was not valid UTF-8");
+        }
+        yield* decoder.consumeMessage(message);
+      }
+      yield* this.#completionEvents(decoder, request);
+    } catch (error) {
+      if (request.signal.aborted) {
+        this.#dropSocket(socket);
+        throw requestFailure(request.signal);
+      }
+      if (!(error instanceof ProviderError) || error.code === "invalid_response") {
+        this.#dropSocket(socket);
+      }
+      throw error;
+    } finally {
+      socket.off("message", onMessage);
+      socket.off("close", onClose);
+      socket.off("error", onError);
+    }
+  }
+
+  async *#streamSse(
+    body: string,
+    request: ProviderRequest,
+  ): AsyncIterable<ProviderEvent> {
     let response: Response;
     try {
       response = await this.#fetch(this.#endpoint, {
@@ -831,11 +1145,28 @@ export class RemoteOpenAIResponsesProvider implements ConnectionBoundModelProvid
     } finally {
       reader.releaseLock();
     }
+    yield* this.#completionEvents(stream, request);
+  }
+
+  *#completionEvents(
+    stream: ResponsesDecoder,
+    request: ProviderRequest,
+  ): Iterable<ProviderEvent> {
     const completion = stream.result();
     if (completion.usage !== null) yield { type: "usage", ...completion.usage };
     const handle = this.#storeContinuation(completion.outputItems, request);
     if (handle !== null) yield { type: "provider_state", handle };
     yield { type: "done", stopReason: completion.stopReason };
+  }
+
+  #disableSocket(socket: WebSocket): void {
+    this.#webSocketDisabled = true;
+    this.#dropSocket(socket);
+  }
+
+  #dropSocket(socket: WebSocket): void {
+    if (this.#socket === socket) this.#socket = null;
+    terminateSocket(socket);
   }
 
   #loadContinuation(

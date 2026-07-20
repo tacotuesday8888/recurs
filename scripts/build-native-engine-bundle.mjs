@@ -26,6 +26,10 @@ const sealedTypescriptOutline = path.join(
   root,
   "packages/native-engine/src/sealed-typescript-outline.ts",
 );
+const sealedWebSocket = path.join(
+  root,
+  "packages/native-engine/src/sealed-websocket.ts",
+);
 const outputDirectory = path.dirname(outputFile);
 const temporaryFile = path.join(
   outputDirectory,
@@ -45,6 +49,9 @@ try {
       resolveId(specifier, importer) {
         if (specifier === "yaml") {
           return path.join(root, "node_modules/yaml/browser/index.js");
+        }
+        if (specifier === "ws") {
+          return sealedWebSocket;
         }
         if (
           specifier === "../typescript-outline.js" &&

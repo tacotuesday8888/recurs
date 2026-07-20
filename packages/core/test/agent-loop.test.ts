@@ -1088,6 +1088,36 @@ describe("AgentLoop", () => {
     }));
   });
 
+  it("reports a provider transport fallback and closes the provider", async () => {
+    const close = vi.fn();
+    const provider: ModelProvider = {
+      id: "fallback-provider",
+      async *stream(): AsyncIterable<ProviderEvent> {
+        yield {
+          type: "transport_fallback",
+          from: "websocket",
+          to: "sse",
+          reason: "connect_failed",
+        };
+        yield { type: "text_delta", text: "recovered" };
+        yield { type: "done", stopReason: "complete" };
+      },
+      close,
+    };
+    const { loop, events } = await harness(provider);
+
+    await expect(loop.run({ sessionId: "s1", prompt: "work" })).resolves
+      .toMatchObject({ finalText: "recovered" });
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "provider_transport_fallback",
+      from: "websocket",
+      to: "sse",
+      reason: "connect_failed",
+    }));
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it("retries a silent provider after the bounded stream idle deadline", async () => {
     vi.useFakeTimers();
     let requests = 0;
@@ -1644,6 +1674,7 @@ describe("AgentLoop", () => {
 
   it("cancels an in-flight provider request", async () => {
     const started = vi.fn();
+    const close = vi.fn();
     const provider: ModelProvider = {
       id: "waiting",
       async *stream(request: ProviderRequest) {
@@ -1657,6 +1688,7 @@ describe("AgentLoop", () => {
         });
         yield { type: "done", stopReason: "cancelled" };
       },
+      close,
     };
     const { loop } = await harness(provider);
     const controller = new AbortController();
@@ -1666,6 +1698,7 @@ describe("AgentLoop", () => {
     controller.abort();
 
     await expect(running).rejects.toMatchObject({ code: "cancelled" });
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it("closes a started tool call when cancellation interrupts execution", async () => {

@@ -82,6 +82,12 @@ export type ProviderEvent =
   | { type: "text_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
   | { type: "tool_call"; call: ToolCall }
+  | {
+      type: "transport_fallback";
+      from: "websocket";
+      to: "sse";
+      reason: "connect_failed" | "connection_busy";
+    }
   | { type: "provider_state"; handle: DirectContinuationHandle }
   | ({ type: "usage" } & ProviderUsage)
   | { type: "done"; stopReason: StopReason };
@@ -90,6 +96,7 @@ export interface ModelProvider {
   readonly id: string;
   readonly harnessProfile?: ModelHarnessProfile;
   stream(request: ProviderRequest): AsyncIterable<ProviderEvent>;
+  close?(): void | Promise<void>;
 }
 
 export interface ConnectionBoundModelProvider extends ModelProvider {

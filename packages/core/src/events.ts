@@ -123,6 +123,12 @@ export type RecursEvent =
       prePlanPermissionMode?: PermissionMode;
     })
   | (EventBase & { type: "warning"; code: string; message: string })
+  | (EventBase & {
+      type: "provider_transport_fallback";
+      from: "websocket";
+      to: "sse";
+      reason: "connect_failed" | "connection_busy";
+    })
   | (EventBase & { type: "retry_scheduled"; attempt: number; delayMs: number })
   | (EventBase & { type: "turn_cancelled"; turnId: string })
   | (EventBase & { type: "files_changed"; paths: string[] })

@@ -544,6 +544,15 @@ async function streamModelTurnWithRetries(
             event.type === "usage" || event.type === "provider_state"
           ) {
             replayUnsafeEventSeen = true;
+          } else if (event.type === "transport_fallback") {
+            await deps.emit({
+              type: "provider_transport_fallback",
+              sessionId,
+              at: now(),
+              from: event.from,
+              to: event.to,
+              reason: event.reason,
+            });
           }
         },
       });
@@ -1312,6 +1321,11 @@ async function runAgentLoopUnlocked(
   } finally {
     input.steering?.close();
     input.queuedTurns?.close();
+    try {
+      await deps.provider.close?.();
+    } catch {
+      // Provider cleanup must not replace the durable terminal result.
+    }
   }
 }
 
