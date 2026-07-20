@@ -42,7 +42,10 @@ afterEach(async () => {
   );
 });
 
-async function runtimeWith(provider: ModelProvider): Promise<RecursRuntime> {
+async function runtimeWith(
+  provider: ModelProvider,
+  eventSink: EventSink = sink,
+): Promise<RecursRuntime> {
   const directory = await mkdtemp(path.join(tmpdir(), "recurs-runtime-"));
   directories.push(directory);
   const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
@@ -63,7 +66,7 @@ async function runtimeWith(provider: ModelProvider): Promise<RecursRuntime> {
     tools: new ToolRegistry(),
     approvals,
     sessions,
-    emit: sink.emit,
+    emit: eventSink.emit,
     createToolContext(session, signal) {
       return {
         sessionId: session.id,
@@ -300,6 +303,148 @@ describe("RecursRuntime", () => {
       "focus on tests",
       "focused",
     ]);
+  });
+
+  it("durably queues a separate turn and runs it after the active turn", async () => {
+    let releaseFirst!: () => void;
+    let markStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => { markStarted = resolve; });
+    const firstRelease = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const requests: ProviderRequest[] = [];
+    const provider: ModelProvider = {
+      id: "runtime-turn-queue-provider",
+      async *stream(request) {
+        requests.push(request);
+        if (requests.length === 1) {
+          markStarted();
+          await firstRelease;
+          yield { type: "text_delta", text: "first complete" };
+        } else {
+          yield { type: "text_delta", text: "second complete" };
+        }
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const runtime = await runtimeWith(provider);
+
+    const run = runtime.submit("first task");
+    await firstStarted;
+    expect(runtime.canAcceptLiveInput).toBe(true);
+    const admission = runtime.submit("/queue second task");
+    await Promise.resolve();
+    releaseFirst();
+
+    await expect(admission).resolves.toMatchObject({
+      type: "message",
+      level: "info",
+      text: expect.stringContaining("Queued separate turn"),
+    });
+    await expect(run).resolves.toMatchObject({ finalText: "second complete" });
+    expect(requests).toHaveLength(2);
+    expect(runtime.session.queuedTurns).toEqual([]);
+    expect(runtime.session.messages.map((message) => message.content)).toEqual([
+      "first task",
+      "first complete",
+      "second task",
+      "second complete",
+    ]);
+  });
+
+  it("requires explicit recovery for a queue persisted while idle", async () => {
+    const provider = new ScriptedProvider([[
+      { type: "text_delta", text: "recovered" },
+      { type: "done", stopReason: "complete" },
+    ]]);
+    const runtime = await runtimeWith(provider);
+
+    await expect(runtime.submit("/queue saved task")).resolves.toMatchObject({
+      type: "message",
+      text: expect.stringContaining("explicit resume"),
+    });
+    expect(runtime.session.queuedTurns).toHaveLength(1);
+    await expect(runtime.submit("unrelated task")).rejects.toMatchObject({
+      code: "busy",
+      message: expect.stringContaining("/queue resume"),
+    });
+    await expect(runtime.submit("/queue list")).resolves.toMatchObject({
+      type: "message",
+      text: expect.stringContaining("Queued turns: 1"),
+    });
+
+    await expect(runtime.submit("/queue resume")).resolves.toMatchObject({
+      finalText: "recovered",
+    });
+    expect(runtime.session.queuedTurns).toEqual([]);
+    expect(provider.requests).toHaveLength(1);
+    expect(runtime.session.messages[0]?.content).toBe("saved task");
+  });
+
+  it("preserves a durably admitted turn when cancellation wins completion", async () => {
+    let releaseFirst!: () => void;
+    let markStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => { markStarted = resolve; });
+    const firstRelease = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const runtimeRef: { current?: RecursRuntime } = {};
+    const provider: ModelProvider = {
+      id: "runtime-queued-cancel-provider",
+      async *stream() {
+        markStarted();
+        await firstRelease;
+        yield { type: "text_delta", text: "almost complete" };
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const runtime = await runtimeWith(provider, {
+      async emit(event) {
+        if (event.type === "prompt_queued") await runtimeRef.current?.cancel();
+      },
+    });
+    runtimeRef.current = runtime;
+
+    const run = runtime.submit("first task");
+    await firstStarted;
+    const admission = runtime.submit("/queue recover me");
+    releaseFirst();
+
+    await expect(admission).resolves.toMatchObject({
+      type: "message",
+      level: "info",
+    });
+    await expect(run).rejects.toMatchObject({
+      failure: { code: "cancelled" },
+    });
+    expect(runtime.session.queuedTurns).toHaveLength(1);
+    expect(runtime.session.queuedTurns[0]?.prompt).toBe("recover me");
+  });
+
+  it("keeps read-only slash commands safe during an active turn", async () => {
+    let release!: () => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const provider: ModelProvider = {
+      id: "runtime-live-command-provider",
+      async *stream() {
+        markStarted();
+        await blocked;
+        yield { type: "text_delta", text: "done" };
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const runtime = await runtimeWith(provider);
+
+    const run = runtime.submit("work");
+    await started;
+    await expect(runtime.submit("/status")).resolves.toMatchObject({
+      type: "message",
+      text: expect.stringContaining("Session: s1"),
+    });
+    await expect(runtime.submit("/help")).resolves.toMatchObject({
+      type: "message",
+      text: expect.stringContaining("/queue"),
+    });
+    release();
+    await expect(run).resolves.toMatchObject({ finalText: "done" });
   });
 
   it("does not send malformed or unknown slash commands to the provider", async () => {

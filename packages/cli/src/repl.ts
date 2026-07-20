@@ -23,6 +23,7 @@ function isCommandResult(value: unknown): value is CommandResult {
     "type" in value &&
     (value.type === "message" ||
       value.type === "submit_prompt" ||
+      value.type === "submit_queued_prompt" ||
       value.type === "quit")
   );
 }
@@ -110,7 +111,7 @@ export async function startRepl(
         continue;
       }
       const submission = submitLine(inputLine);
-      if (runtime.canAcceptSteering) {
+      if (runtime.canAcceptLiveInput) {
         const tracked = submission.then((quit) => {
           if (quit) readline.close();
         });

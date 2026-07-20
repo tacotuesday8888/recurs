@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type {
   IntegrationFailure,
+  QueuedTurnSource,
   RunResult as CoordinatedRunResult,
   TrustedRunContext,
   TurnSteeringSource,
@@ -67,6 +68,8 @@ export interface RunInput {
   executionMode?: ExecutionMode;
   context?: TrustedRunContext;
   steering?: TurnSteeringSource;
+  queuedTurns?: QueuedTurnSource;
+  queuedInputId?: string;
 }
 
 export interface RunResult {
@@ -194,6 +197,23 @@ async function emitPersistedEvent(
           turnId: record.turnId,
           steeringId: record.steeringId,
           prompt: record.prompt,
+        });
+        return;
+      case "prompt_queued":
+        await deps.emit({
+          type: "prompt_queued",
+          sessionId: record.sessionId,
+          at: record.at,
+          queuedInputId: record.queuedInputId,
+          sourceTurnId: record.sourceTurnId ?? null,
+        });
+        return;
+      case "prompt_queue_cleared":
+        await deps.emit({
+          type: "prompt_queue_cleared",
+          sessionId: record.sessionId,
+          at: record.at,
+          queuedInputIds: [...record.queuedInputIds],
         });
         return;
       case "model_completed":
@@ -680,16 +700,19 @@ async function runAgentLoopUnlocked(
     },
     state.agent,
   );
-  if (
-    input.turnId !== undefined && input.steering !== undefined &&
-    input.turnId !== input.steering.turnId
-  ) {
+  const requestedTurnIds = [
+    input.turnId,
+    input.steering?.turnId,
+    input.queuedTurns?.turnId,
+  ].filter((id): id is string => id !== undefined);
+  if (new Set(requestedTurnIds).size > 1) {
     throw new AgentLoopError(
       "invalid_run_input",
-      "The steering mailbox does not match the requested turn",
+      "The live-input mailboxes do not match the requested turn",
     );
   }
   const turnId = input.turnId ?? input.steering?.turnId ??
+    input.queuedTurns?.turnId ??
     `${input.sessionId}:${randomUUID()}`;
   if (turnId.trim().length === 0) {
     throw new AgentLoopError("invalid_run_input", "A turn id is required");
@@ -720,6 +743,30 @@ async function runAgentLoopUnlocked(
         at: steering.at,
       });
       await emitPersistedEvent(deps, persisted);
+    }
+  }
+
+  async function persistQueuedTurns(
+    inputs: ReturnType<QueuedTurnSource["drain"]>,
+  ): Promise<void> {
+    for (const queued of inputs) {
+      try {
+        const persisted = await appendPinned({
+          type: "prompt_queued",
+          sourceTurnId: turnId,
+          queuedInputId: queued.id,
+          prompt: queued.prompt,
+          at: queued.at,
+        });
+        await emitPersistedEvent(deps, persisted);
+        input.queuedTurns?.persisted(queued.id);
+      } catch (error) {
+        input.queuedTurns?.rejected(
+          queued.id,
+          error instanceof Error ? error.message : "Queued prompt persistence failed",
+        );
+        throw error;
+      }
     }
   }
 
@@ -896,6 +943,9 @@ async function runAgentLoopUnlocked(
     at: now(),
     turnId,
     prompt,
+    ...(input.queuedInputId === undefined
+      ? {}
+      : { queuedInputId: input.queuedInputId }),
   });
   await emitPersistedEvent(deps, turnStarted);
 
@@ -905,6 +955,7 @@ async function runAgentLoopUnlocked(
     ) ?? [];
     for (;;) {
       throwIfAborted(signal);
+      await persistQueuedTurns(input.queuedTurns?.drain() ?? []);
       await applySteering(input.steering?.drain() ?? []);
       if (steps >= maxSteps) {
         throw new AgentLoopError(
@@ -999,6 +1050,12 @@ async function runAgentLoopUnlocked(
           await applySteering(steering.inputs);
           continue;
         }
+        for (;;) {
+          const queued = input.queuedTurns?.drainOrClose();
+          if (queued === undefined || queued.closed) break;
+          await persistQueuedTurns(queued.inputs);
+        }
+        throwIfAborted(signal);
 
         if (state.goal?.status === "active") {
           const goalUpdatedAt = now();
@@ -1098,6 +1155,7 @@ async function runAgentLoopUnlocked(
     throw safeError;
   } finally {
     input.steering?.close();
+    input.queuedTurns?.close();
   }
 }
 

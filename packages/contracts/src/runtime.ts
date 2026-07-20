@@ -341,6 +341,30 @@ export interface TurnSteeringSource {
   close(): readonly TurnSteeringInput[];
 }
 
+export interface QueuedTurnInput {
+  id: string;
+  prompt: string;
+  at: string;
+}
+
+export const MAX_PENDING_QUEUED_TURNS = 4;
+export const MAX_QUEUED_TURN_BYTES = 16 * 1024;
+export const MAX_PENDING_QUEUED_TURN_BYTES = 32 * 1024;
+
+export interface QueuedTurnDrain {
+  inputs: readonly QueuedTurnInput[];
+  closed: boolean;
+}
+
+export interface QueuedTurnSource {
+  readonly turnId: string;
+  drain(): readonly QueuedTurnInput[];
+  drainOrClose(): QueuedTurnDrain;
+  persisted(id: string): void;
+  rejected(id: string, reason: string): void;
+  close(reason?: string): readonly QueuedTurnInput[];
+}
+
 export interface CoordinatedRunInput {
   sessionId: string;
   expectedSessionRecordSequence: number;
@@ -348,6 +372,8 @@ export interface CoordinatedRunInput {
   invocation: HostInvocation;
   executionMode?: "act" | "plan";
   steering?: TurnSteeringSource;
+  queuedTurns?: QueuedTurnSource;
+  queuedInputId?: string;
   signal: AbortSignal;
 }
 

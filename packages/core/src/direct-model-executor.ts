@@ -31,6 +31,10 @@ export class AgentLoopDirectExecutor implements DirectRunExecutor {
         executionMode: input.executionMode,
         context: input.context,
         ...(input.steering === undefined ? {} : { steering: input.steering }),
+        ...(input.queuedTurns === undefined ? {} : { queuedTurns: input.queuedTurns }),
+        ...(input.queuedInputId === undefined
+          ? {}
+          : { queuedInputId: input.queuedInputId }),
         maxSteps: input.session.agent.role === "child"
           ? Math.min(
               input.authorization.maxRequests,

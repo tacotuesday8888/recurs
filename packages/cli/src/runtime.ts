@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -5,8 +6,11 @@ import {
   CompatibilityRunCoordinator,
   CoordinatedRunError,
   CoordinatedRuntime,
+  MAX_PENDING_QUEUED_TURNS,
   MAX_PENDING_STEERING_INPUTS,
+  MAX_QUEUED_TURN_BYTES,
   MAX_STEERING_INPUT_BYTES,
+  QueuedTurnAdmissionQueue,
   TurnSteeringQueue,
   createSessionState,
   isPinnedSessionState,
@@ -94,6 +98,8 @@ function untrustedProgrammaticInvocation(): HostInvocation {
 export class RecursRuntime {
   #activeController: AbortController | null = null;
   #activeSteering: TurnSteeringQueue | null = null;
+  #activeQueuedTurns: QueuedTurnAdmissionQueue | null = null;
+  readonly #queuedInvocations = new Map<string, HostInvocation>();
   #confirm: (message: string) => Promise<boolean>;
   #session: SessionState | null;
   #workspace: WorkspaceShellState | null;
@@ -177,6 +183,11 @@ export class RecursRuntime {
     return this.#activeSteering?.isOpen === true;
   }
 
+  get canAcceptLiveInput(): boolean {
+    return this.#activeSteering?.isOpen === true ||
+      this.#activeQueuedTurns?.isOpen === true;
+  }
+
   get activeTurnId(): string | null {
     return this.#activeSteering?.turnId ?? null;
   }
@@ -186,6 +197,7 @@ export class RecursRuntime {
       return false;
     }
     this.#activeSteering?.close();
+    this.#activeQueuedTurns?.close("The active turn was cancelled");
     this.#activeController.abort();
     return true;
   }
@@ -205,6 +217,11 @@ export class RecursRuntime {
       now: () => this.dependencies.now?.() ?? new Date().toISOString(),
       confirm: (message) => this.confirm(message),
       cancelActiveRun: async () => this.cancel(),
+      manageQueuedTurns: async (args) => {
+        const result = await this.#manageQueuedTurns(args, invocation);
+        context.session = this.session;
+        return result;
+      },
       applyRecord: async (record) => {
         context.session = await applyCommandSessionRecord(
           this.dependencies.sessions,
@@ -234,6 +251,11 @@ export class RecursRuntime {
       now: () => this.dependencies.now?.() ?? new Date().toISOString(),
       confirm: (message) => this.confirm(message),
       cancelActiveRun: async () => this.cancel(),
+      manageQueuedTurns: async () => ({
+        type: "message",
+        level: "warning",
+        text: "Connect a model before managing queued turns",
+      }),
       applyRecord: async (record) => {
         context.session = reduceSessionRecord(context.session, record);
         this.#workspace = {
@@ -359,10 +381,171 @@ export class RecursRuntime {
     return result;
   }
 
+  async #manageQueuedTurns(
+    rawArgs: string,
+    invocation: HostInvocation,
+  ): Promise<CommandResult> {
+    const session = this.#session;
+    if (
+      session === null || !isPinnedSessionState(session) ||
+      session.backend.pin.kind !== "model_provider" ||
+      session.agent.role !== "parent"
+    ) {
+      throw new RuntimeError(
+        "invalid_input",
+        "Queued turns require a pinned direct-provider parent session",
+      );
+    }
+    const args = rawArgs.trim();
+    if (this.#activeController !== null) {
+      if (args.length === 0 || args === "list" || args === "resume" || args === "clear") {
+        throw new RuntimeError(
+          "busy",
+          "Use /queue <prompt> during a run; inspect or recover the queue when idle",
+        );
+      }
+      const queue = this.#activeQueuedTurns;
+      if (queue === null) {
+        throw new RuntimeError(
+          "busy",
+          "This active backend cannot durably queue another turn; wait or use /cancel",
+        );
+      }
+      const id = randomUUID();
+      const enqueued = queue.enqueue({
+        id,
+        prompt: args,
+        at: this.dependencies.now?.() ?? new Date().toISOString(),
+      });
+      if (!enqueued.accepted) {
+        if (enqueued.reason === "too_large") {
+          throw new RuntimeError(
+            "invalid_input",
+            `Queued prompt exceeds ${MAX_QUEUED_TURN_BYTES} bytes`,
+          );
+        }
+        if (enqueued.reason === "full") {
+          throw new RuntimeError(
+            "busy",
+            `Turn queue is full (${MAX_PENDING_QUEUED_TURNS} pending prompts maximum)`,
+          );
+        }
+        throw new RuntimeError("busy", "The active turn is already finishing");
+      }
+      this.#queuedInvocations.set(id, invocation);
+      try {
+        await enqueued.persisted;
+      } catch (error) {
+        this.#queuedInvocations.delete(id);
+        throw new RuntimeError(
+          "busy",
+          error instanceof Error ? error.message : "Queued prompt was not persisted",
+        );
+      }
+      const durable = await this.dependencies.sessions.loadState(session.id);
+      const pending = isPinnedSessionState(durable)
+        ? durable.queuedTurns.length
+        : 0;
+      return {
+        type: "message",
+        level: "info",
+        text: `Queued separate turn ${id} (${pending}/${MAX_PENDING_QUEUED_TURNS})`,
+      };
+    }
+
+    const reloaded = await this.dependencies.sessions.loadState(session.id);
+    if (!isPinnedSessionState(reloaded)) {
+      throw new RuntimeError("invalid_input", "Legacy sessions cannot queue turns");
+    }
+    this.#activateSession(reloaded);
+    if (args.length === 0 || args === "list") {
+      return reloaded.queuedTurns.length === 0
+        ? { type: "message", level: "info", text: "No queued turns" }
+        : {
+            type: "message",
+            level: "info",
+            text: [
+              `Queued turns: ${reloaded.queuedTurns.length}`,
+              ...reloaded.queuedTurns.map((queued, index) =>
+                `${index + 1}. ${queued.id} (${Buffer.byteLength(queued.prompt, "utf8")} bytes)`
+              ),
+            ].join("\n"),
+          };
+    }
+    if (args === "resume") {
+      const queued = reloaded.queuedTurns[0];
+      return queued === undefined
+        ? { type: "message", level: "warning", text: "No queued turns to resume" }
+        : {
+            type: "submit_queued_prompt",
+            queuedInputId: queued.id,
+            prompt: queued.prompt,
+          };
+    }
+    if (args === "clear") {
+      if (reloaded.queuedTurns.length === 0) {
+        return { type: "message", level: "warning", text: "No queued turns to clear" };
+      }
+      if (!await this.confirm(
+        `Clear ${reloaded.queuedTurns.length} durable queued turn${reloaded.queuedTurns.length === 1 ? "" : "s"}?`,
+      )) {
+        return { type: "message", level: "warning", text: "Queue unchanged" };
+      }
+      await this.dependencies.sessions.withSessionMutation(
+        reloaded.id,
+        reloaded.lastSequence,
+        async (mutation) => {
+          await mutation.append({
+            type: "prompt_queue_cleared",
+            queuedInputIds: reloaded.queuedTurns.map((queued) => queued.id),
+            at: this.dependencies.now?.() ?? new Date().toISOString(),
+          });
+        },
+      );
+      this.#queuedInvocations.clear();
+      this.#activateSession(await this.dependencies.sessions.loadState(reloaded.id));
+      return { type: "message", level: "info", text: "Cleared queued turns" };
+    }
+    if (Buffer.byteLength(args, "utf8") > MAX_QUEUED_TURN_BYTES) {
+      throw new RuntimeError(
+        "invalid_input",
+        `Queued prompt exceeds ${MAX_QUEUED_TURN_BYTES} bytes`,
+      );
+    }
+    if (reloaded.queuedTurns.length >= MAX_PENDING_QUEUED_TURNS) {
+      throw new RuntimeError(
+        "busy",
+        `Turn queue is full (${MAX_PENDING_QUEUED_TURNS} pending prompts maximum)`,
+      );
+    }
+    await this.dependencies.sessions.withSessionMutation(
+      reloaded.id,
+      reloaded.lastSequence,
+      async (mutation) => {
+        await mutation.append({
+          type: "prompt_queued",
+          queuedInputId: randomUUID(),
+          prompt: args,
+          at: this.dependencies.now?.() ?? new Date().toISOString(),
+        });
+      },
+    );
+    const updated = await this.dependencies.sessions.loadState(reloaded.id);
+    this.#activateSession(updated);
+    const pending = isPinnedSessionState(updated) ? updated.queuedTurns.length : 0;
+    return {
+      type: "message",
+      level: "info",
+      text: `Queued turn for explicit resume (${pending}/${MAX_PENDING_QUEUED_TURNS})`,
+    };
+  }
+
   async #runPrompt(
     prompt: string,
     executionMode?: "act" | "plan",
     invocation: HostInvocation = untrustedProgrammaticInvocation(),
+    queuedInputId?: string,
+    resumePersistedQueue = false,
   ): Promise<RunResult> {
     if (this.#activeController !== null) {
       throw new RuntimeError("busy", "An agent run is already active");
@@ -374,23 +557,77 @@ export class RecursRuntime {
           "No model connection is configured",
       );
     }
-    const steering = isPinnedSessionState(this.#session) &&
-        this.#session.backend.pin.kind === "model_provider"
-      ? new TurnSteeringQueue(randomUUID())
-      : null;
-    this.#activeController = new AbortController();
-    this.#activeSteering = steering;
-    try {
-      const result = await this.#runner.run(
-        prompt,
-        invocation,
-        this.#activeController.signal,
-        executionMode,
-        steering ?? undefined,
+    if (
+      isPinnedSessionState(this.#session) &&
+      this.#session.queuedTurns.length > 0 &&
+      queuedInputId === undefined
+    ) {
+      throw new RuntimeError(
+        "busy",
+        "Pending queued turns must be resumed with /queue resume or cleared before starting new work",
       );
-      this.#session = this.#runner.session;
+    }
+    this.#activeController = new AbortController();
+    let nextPrompt = prompt;
+    let nextInvocation = invocation;
+    let nextQueuedInputId = queuedInputId;
+    let nextExecutionMode = executionMode;
+    let result: RunResult | undefined;
+    const resumeAllPersisted = resumePersistedQueue || queuedInputId !== undefined;
+    try {
+      for (;;) {
+        const direct = isPinnedSessionState(this.#session) &&
+          this.#session.backend.pin.kind === "model_provider";
+        const directParent = isPinnedSessionState(this.#session) &&
+          this.#session.backend.pin.kind === "model_provider" &&
+          this.#session.agent.role === "parent";
+        const turnId = randomUUID();
+        const steering = direct ? new TurnSteeringQueue(turnId) : null;
+        const queuedTurns = directParent
+          ? new QueuedTurnAdmissionQueue(turnId)
+          : null;
+        this.#activeSteering = steering;
+        this.#activeQueuedTurns = queuedTurns;
+        try {
+          result = await this.#runner.run(
+            nextPrompt,
+            nextInvocation,
+            this.#activeController.signal,
+            nextExecutionMode,
+            steering ?? undefined,
+            queuedTurns ?? undefined,
+            nextQueuedInputId,
+          );
+          this.#session = this.#runner.session;
+        } finally {
+          steering?.close();
+          queuedTurns?.close();
+          if (this.#activeSteering === steering) this.#activeSteering = null;
+          if (this.#activeQueuedTurns === queuedTurns) {
+            this.#activeQueuedTurns = null;
+          }
+        }
+
+        const queued = isPinnedSessionState(this.#session)
+          ? this.#session.queuedTurns[0]
+          : undefined;
+        if (queued === undefined) break;
+        const queuedInvocation = resumeAllPersisted
+          ? invocation
+          : this.#queuedInvocations.get(queued.id);
+        if (queuedInvocation === undefined) break;
+        this.#queuedInvocations.delete(queued.id);
+        nextPrompt = queued.prompt;
+        nextInvocation = queuedInvocation;
+        nextQueuedInputId = queued.id;
+        nextExecutionMode = undefined;
+      }
+      if (result === undefined) {
+        throw new RuntimeError("busy", "The agent run did not produce a result");
+      }
       return result;
     } catch (error) {
+      this.#queuedInvocations.clear();
       try {
         this.#activateSession(
           await this.dependencies.sessions.loadState(this.#session.id),
@@ -400,10 +637,10 @@ export class RecursRuntime {
       }
       throw error;
     } finally {
-      steering?.close();
-      if (this.#activeSteering === steering) {
-        this.#activeSteering = null;
-      }
+      this.#activeSteering?.close();
+      this.#activeQueuedTurns?.close();
+      this.#activeSteering = null;
+      this.#activeQueuedTurns = null;
       this.#activeController = null;
     }
   }
@@ -428,11 +665,12 @@ export class RecursRuntime {
         this.#activeController !== null &&
         parsed.name !== "cancel" &&
         parsed.name !== "status" &&
-        parsed.name !== "help"
+        parsed.name !== "help" &&
+        parsed.name !== "queue"
       ) {
         throw new RuntimeError(
           "busy",
-          "Only /cancel, /status, and /help are available during an active run",
+          "Only /cancel, /status, /help, and /queue are available during an active run",
         );
       }
       if (
@@ -449,7 +687,8 @@ export class RecursRuntime {
         };
       }
       const ownsController =
-        this.#activeController === null && parsed.name !== "cancel";
+        this.#activeController === null &&
+        parsed.name !== "cancel" && parsed.name !== "queue";
       if (ownsController) {
         this.#activeController = new AbortController();
       }
@@ -457,7 +696,9 @@ export class RecursRuntime {
       let result: CommandResult;
       try {
         result = await this.dependencies.commands.execute(parsed, context);
-        this.#activateSession(context.session);
+        if (this.#activeController === null || ownsController) {
+          this.#activateSession(context.session);
+        }
       } finally {
         if (ownsController) {
           this.#activeController = null;
@@ -468,6 +709,15 @@ export class RecursRuntime {
           result.prompt,
           result.executionMode,
           invocation,
+        );
+      }
+      if (result.type === "submit_queued_prompt") {
+        return this.#runPrompt(
+          result.prompt,
+          undefined,
+          invocation,
+          result.queuedInputId,
+          true,
         );
       }
       return result;

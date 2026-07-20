@@ -5,6 +5,7 @@ import type {
 import type {
   HostInvocation,
   IntegrationFailure,
+  QueuedTurnSource,
   RunCoordinator,
   RunResult,
   TurnSteeringSource,
@@ -47,6 +48,8 @@ export class CoordinatedRuntime {
     signal: AbortSignal,
     executionMode?: ExecutionMode,
     steering?: TurnSteeringSource,
+    queuedTurns?: QueuedTurnSource,
+    queuedInputId?: string,
   ): Promise<RunResult> {
     if (this.#active) {
       throw new Error("An agent run is already active");
@@ -64,6 +67,8 @@ export class CoordinatedRuntime {
         invocation,
         ...(executionMode === undefined ? {} : { executionMode }),
         ...(steering === undefined ? {} : { steering }),
+        ...(queuedTurns === undefined ? {} : { queuedTurns }),
+        ...(queuedInputId === undefined ? {} : { queuedInputId }),
         signal,
       });
       const drain = (async () => {

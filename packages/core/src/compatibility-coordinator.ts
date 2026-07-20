@@ -58,6 +58,10 @@ export class CompatibilityRunCoordinator implements RunCoordinator {
       prompt: input.prompt,
       signal: input.signal,
       ...(input.steering === undefined ? {} : { steering: input.steering }),
+      ...(input.queuedTurns === undefined ? {} : { queuedTurns: input.queuedTurns }),
+      ...(input.queuedInputId === undefined
+        ? {}
+        : { queuedInputId: input.queuedInputId }),
       ...(input.executionMode === undefined
         ? {}
         : { executionMode: input.executionMode }),

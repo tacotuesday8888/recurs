@@ -32,4 +32,5 @@ export * from "./team-run-state.js";
 export * from "./team-run-supervisor.js";
 export * from "./team-run-tools.js";
 export * from "./turn-steering.js";
+export * from "./turn-queue.js";
 export * from "./workspace-shell.js";

@@ -19,6 +19,7 @@ import type {
 import {
   DEFAULT_OPERATING_MODE_ID,
   LEGACY_OPERATING_MODE_ID,
+  MAX_PENDING_QUEUED_TURNS,
   getAgentProfilePolicy,
   getOperatingModePolicy,
   narrowAgentPermissionMode,
@@ -41,6 +42,13 @@ export interface SessionRecordBaseV2 {
   sessionId: string;
   sequence: number;
   at: string;
+}
+
+export interface QueuedTurn {
+  readonly id: string;
+  readonly prompt: string;
+  readonly queuedAt: string;
+  readonly sourceTurnId: string | null;
 }
 
 export interface SessionForkSnapshotV2 {
@@ -150,6 +158,17 @@ export type SessionRecordV2 =
       type: "turn_started";
       turnId: string;
       prompt: string;
+      queuedInputId?: string;
+    })
+  | (SessionRecordBaseV2 & {
+      type: "prompt_queued";
+      queuedInputId: string;
+      prompt: string;
+      sourceTurnId?: string;
+    })
+  | (SessionRecordBaseV2 & {
+      type: "prompt_queue_cleared";
+      queuedInputIds: string[];
     })
   | (SessionRecordBaseV2 & {
       type: "turn_steered";
@@ -284,6 +303,7 @@ export interface PinnedSessionState extends SessionState {
   agent: AgentSessionDescriptor;
   agentLifecycle: AgentLifecycle;
   agentResult: AgentResult | null;
+  queuedTurns: QueuedTurn[];
 }
 
 export function isPinnedSessionState(
@@ -536,6 +556,18 @@ export function reduceSessionRecordV2(
     if (state.agent.role === "child" && state.agentLifecycle.status !== "ready") {
       throw new Error("A terminal child agent cannot start another turn");
     }
+    if (record.queuedInputId === undefined) {
+      if (state.queuedTurns.length > 0) {
+        throw new Error("Pending queued prompts must be resumed or cleared first");
+      }
+    } else {
+      const queued = state.queuedTurns[0];
+      if (
+        queued?.id !== record.queuedInputId || queued.prompt !== record.prompt
+      ) {
+        throw new Error("Queued turn start does not match the FIFO queue head");
+      }
+    }
   } else if ("turnId" in record && state.openTurnId !== record.turnId) {
     throw new Error(`Record ${record.type} does not match the open turn`);
   }
@@ -552,6 +584,35 @@ export function reduceSessionRecordV2(
     )
   ) {
     throw new Error(`Steering input ${record.steeringId} is already recorded`);
+  }
+  if (record.type === "prompt_queued") {
+    if (state.agent.role !== "parent") {
+      throw new Error("Only a parent session can queue another turn");
+    }
+    if (
+      record.sourceTurnId === undefined
+        ? state.openTurnId !== null
+        : state.openTurnId !== record.sourceTurnId
+    ) {
+      throw new Error("Queued prompt source does not match the session turn state");
+    }
+    if (
+      state.queuedTurns.length >= MAX_PENDING_QUEUED_TURNS ||
+      state.queuedTurns.some((queued) => queued.id === record.queuedInputId)
+    ) {
+      throw new Error("Queued prompt capacity or identity is invalid");
+    }
+  }
+  if (record.type === "prompt_queue_cleared") {
+    if (
+      state.openTurnId !== null ||
+      !isDeepStrictEqual(
+        record.queuedInputIds,
+        state.queuedTurns.map((queued) => queued.id),
+      )
+    ) {
+      throw new Error("Queue clearing requires the exact idle prompt queue");
+    }
   }
   if (
     (record.type === "tool_completed" || record.type === "tool_failed") &&
@@ -583,7 +644,10 @@ export function reduceSessionRecordV2(
     throw new Error("Agent policy can change only on an idle parent");
   }
   if (record.type === "compaction_started") {
-    if (state.openTurnId !== null || state.pendingCompaction !== null) {
+    if (
+      state.openTurnId !== null || state.pendingCompaction !== null ||
+      state.queuedTurns.length > 0
+    ) {
       throw new Error("Compaction requires an idle session");
     }
     if (record.inputBaseSequence !== state.lastSequence) {
@@ -613,6 +677,9 @@ export function reduceSessionRecordV2(
       next = addMessage(
         {
           ...state,
+          queuedTurns: record.queuedInputId === undefined
+            ? state.queuedTurns
+            : state.queuedTurns.slice(1),
           openTurnId: record.turnId,
           agentLifecycle: { status: "running", turnId: record.turnId },
         },
@@ -623,6 +690,20 @@ export function reduceSessionRecordV2(
         },
         record.turnId,
       );
+      break;
+    case "prompt_queued":
+      next = {
+        ...state,
+        queuedTurns: [...state.queuedTurns, {
+          id: record.queuedInputId,
+          prompt: record.prompt,
+          queuedAt: record.at,
+          sourceTurnId: record.sourceTurnId ?? null,
+        }],
+      };
+      break;
+    case "prompt_queue_cleared":
+      next = { ...state, queuedTurns: [] };
       break;
     case "turn_steered":
       next = addMessage(
@@ -1091,6 +1172,7 @@ export function reduceSessionRecordsV2(
     agent,
     agentLifecycle: { status: "ready" },
     agentResult: null,
+    queuedTurns: [],
   };
   for (const record of records.slice(1)) {
     state = reduceSessionRecordV2(state, record);
