@@ -90,6 +90,10 @@ import {
 } from "@recurs/tools";
 
 import { createCommandRegistry } from "./commands/create.js";
+import type {
+  ModelSelectionOption,
+  ModelSessionService,
+} from "./commands/types.js";
 import { AgentSkillCatalog } from "./agent-skills.js";
 import { McpServerCatalog } from "./mcp-client.js";
 import { projectContextInstructions } from "./project-instructions.js";
@@ -282,6 +286,39 @@ function selectedConnection(
     ) ?? null;
   }
   return null;
+}
+
+function modelSelectionOption(
+  connection: ConnectionRecord,
+  primaryConnectionId: string | null,
+): ModelSelectionOption {
+  return Object.freeze({
+    connectionId: connection.id,
+    label: connection.label,
+    providerId: connection.providerId,
+    modelId: connection.modelId,
+    primary: connection.id === primaryConnectionId,
+    execution: connection.kind === "delegated_agent" &&
+        connection.adapterId === "codex-acp"
+      ? "Plan-only" as const
+      : "Act + Plan" as const,
+    billingSources: connection.kind === "local_openai_compatible"
+      ? ["local_compute" as const]
+      : Object.freeze([...connection.billingSelection.allowedSources]),
+  });
+}
+
+function modelSelectionOptions(
+  document: Awaited<ReturnType<FileConnectionRegistry["read"]>>,
+): readonly ModelSelectionOption[] {
+  return Object.freeze(document.connections
+    .map((connection) =>
+      modelSelectionOption(connection, document.primaryConnectionId)
+    )
+    .sort((left, right) =>
+      Number(right.primary) - Number(left.primary) ||
+      left.connectionId.localeCompare(right.connectionId)
+    ));
 }
 
 function delegatedBackendPin(
@@ -1178,6 +1215,125 @@ export async function createStandaloneRuntime(
       ? selected.createProvider()
       : null;
   };
+  const modelSessions: ModelSessionService | undefined =
+    injected !== undefined || environmentConnection !== null
+      ? undefined
+      : {
+          async list(signal) {
+            if (signal.aborted) {
+              throw new DOMException("Aborted", "AbortError");
+            }
+            const document = await connectionRegistry.migrateLegacyLocal({
+              signal,
+            });
+            if (signal.aborted) {
+              throw new DOMException("Aborted", "AbortError");
+            }
+            return modelSelectionOptions(document);
+          },
+          async create(input) {
+            if (input.signal.aborted) return { status: "cancelled" };
+            let document;
+            try {
+              document = await connectionRegistry.migrateLegacyLocal({
+                signal: input.signal,
+              });
+            } catch {
+              return input.signal.aborted
+                ? { status: "cancelled" }
+                : { status: "failed" };
+            }
+            const connection = document.connections.find((candidate) =>
+              candidate.id === input.expected.connectionId
+            );
+            if (connection === undefined) return { status: "not_found" };
+            const actual = modelSelectionOption(
+              connection,
+              document.primaryConnectionId,
+            );
+            if (!isDeepStrictEqual(actual, input.expected)) {
+              return { status: "changed" };
+            }
+            let backend: RuntimeBackend | null;
+            try {
+              backend = await backendForConnection(
+                connection,
+                delegatedRuntimeFactory,
+                randomUUID(),
+                options.nativeOpenAIResponses,
+                runtimeEnvironment,
+                options.environmentFetch,
+              );
+            } catch {
+              return input.signal.aborted
+                ? { status: "cancelled" }
+                : { status: "unavailable" };
+            }
+            if (backend === null) return { status: "unavailable" };
+            const comparisonAt = isPinnedSessionState(input.current)
+              ? input.current.backend.pin.billingSelectionAtCreation.acknowledgedAt
+              : input.at;
+            if (
+              isPinnedSessionState(input.current) &&
+              isDeepStrictEqual(input.current.backend.pin, backend.pin(comparisonAt))
+            ) {
+              return { status: "unchanged" };
+            }
+            if (input.signal.aborted) return { status: "cancelled" };
+            let confirmed;
+            try {
+              confirmed = await connectionRegistry.migrateLegacyLocal({
+                signal: input.signal,
+              });
+            } catch {
+              return input.signal.aborted
+                ? { status: "cancelled" }
+                : { status: "failed" };
+            }
+            if (confirmed.revision !== document.revision) {
+              return { status: "changed" };
+            }
+            const id = randomUUID();
+            const pin = backend.pin(input.at);
+            const operatingModeId = isPinnedSessionState(input.current)
+              ? input.current.agent.operatingMode.id
+              : options.operatingModeId;
+            const permissionMode = input.current.permissionMode;
+            const executionMode = backend.kind === "delegated"
+              ? "plan" as const
+              : input.current.executionMode;
+            const baseAgent = createRootAgentDescriptor(
+              id,
+              pin,
+              operatingModeId,
+              permissionMode,
+            );
+            const agent = executionMode === "act"
+              ? baseAgent
+              : {
+                  ...baseAgent,
+                  permissions: {
+                    ...baseAgent.permissions,
+                    parentExecutionMode: executionMode,
+                    executionMode,
+                  },
+                };
+            try {
+              const session = await sessions.createPinnedSession({
+                id,
+                cwd: input.current.cwd,
+                backend: pin,
+                agent,
+                at: input.at,
+              });
+              return { status: "created", session };
+            } catch {
+              return input.signal.aborted
+                ? { status: "cancelled" }
+                : { status: "failed" };
+            }
+          },
+        };
   const commands = createCommandRegistry({
     sessions,
     ...(initialBackend?.kind === "direct"
@@ -1188,6 +1344,7 @@ export async function createStandaloneRuntime(
     teamRuns: teamSupervisor,
     skills,
     mcp,
+    ...(modelSessions === undefined ? {} : { models: modelSessions }),
     signal: () =>
       runtimeReference.current?.currentSignal() ?? new AbortController().signal,
   });

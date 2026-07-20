@@ -8,6 +8,7 @@ import { CommandRegistry } from "./registry.js";
 import { createSessionCommands } from "./session.js";
 import { createSkillsCommand } from "./skills.js";
 import { createMcpCommand } from "./mcp.js";
+import { createModelCommand } from "./model.js";
 import type { CommandDependencies } from "./types.js";
 
 export function createCommandRegistry(
@@ -16,6 +17,7 @@ export function createCommandRegistry(
   return new CommandRegistry([
     ...createFoundationCommands(),
     ...createSessionCommands(dependencies),
+    createModelCommand(dependencies),
     ...createRepositoryCommands(dependencies),
     createGoalCommand(),
     createPlanCommand(),

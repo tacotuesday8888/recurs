@@ -284,7 +284,7 @@ export class RecursRuntime {
           "/help                         Show workspace commands",
           "/provider [search]            Discover, detect, and connect providers",
           "/connect                      Alias for /provider",
-          "/model                        Inspect model configuration",
+          "/model [connection-id]        List saved models or start a fresh session",
           "/permissions [mode]           Set the next-session permission default",
           "/agents [profiles]            Explain modes or inspect agent profiles",
           "/skills [action]              Inspect Agent Skills or trust project skills",
@@ -329,13 +329,6 @@ export class RecursRuntime {
         ].join("\n"),
       };
     }
-    if (name === "model") {
-      return {
-        type: "message",
-        level: "warning",
-        text: "No model connection is configured. Use /connect for Codex, local, or ephemeral environment BYOK instructions.",
-      };
-    }
     if (
       (name === "agents" || name === "agent") &&
       args.trim().toLowerCase() !== "profiles"
@@ -352,6 +345,7 @@ export class RecursRuntime {
       "help",
       "permissions",
       "permission",
+      "model",
       "agents",
       "agent",
       "skills",

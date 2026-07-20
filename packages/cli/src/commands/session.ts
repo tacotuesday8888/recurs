@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import { compactPinnedSession, isPinnedSessionState } from "@recurs/core";
+import {
+  compactPinnedSession,
+  createRootAgentDescriptor,
+  isPinnedSessionState,
+} from "@recurs/core";
 
 import {
   createProjectInstructions,
@@ -74,6 +78,12 @@ function createNewCommand(dependencies: CommandDependencies): Command {
         id,
         cwd: context.session.cwd,
         backend: context.session.backend.pin,
+        agent: createRootAgentDescriptor(
+          id,
+          context.session.backend.pin,
+          context.session.agent.operatingMode.id,
+          context.session.permissionMode,
+        ),
         at: context.now(),
       });
       if (

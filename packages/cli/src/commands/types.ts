@@ -1,5 +1,6 @@
 import type {
   JsonlSessionStore,
+  PinnedSessionState,
   SessionRecord,
   SessionState,
   TeamRunCancelResult,
@@ -7,7 +8,7 @@ import type {
   TeamRunResumeResult,
   TeamRunSnapshot,
 } from "@recurs/core";
-import type { HostInvocation } from "@recurs/contracts";
+import type { BillingSource, HostInvocation } from "@recurs/contracts";
 import type { ModelProvider } from "@recurs/providers";
 import type { CheckpointStore, ExecutionMode, ToolContext } from "@recurs/tools";
 import type { AgentSkillCatalog } from "../agent-skills.js";
@@ -70,6 +71,39 @@ export interface CommandDependencies {
   };
   skills?: AgentSkillCatalog;
   mcp?: McpServerCatalog;
+  models?: ModelSessionService;
+}
+
+export interface ModelSelectionOption {
+  readonly connectionId: string;
+  readonly label: string;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly primary: boolean;
+  readonly execution: "Plan-only" | "Act + Plan";
+  readonly billingSources: readonly BillingSource[];
+}
+
+export type ModelSessionCreation =
+  | { readonly status: "created"; readonly session: PinnedSessionState }
+  | {
+      readonly status:
+        | "cancelled"
+        | "changed"
+        | "failed"
+        | "not_found"
+        | "unavailable"
+        | "unchanged";
+    };
+
+export interface ModelSessionService {
+  list(signal: AbortSignal): Promise<readonly ModelSelectionOption[]>;
+  create(input: {
+    readonly expected: ModelSelectionOption;
+    readonly current: SessionState;
+    readonly at: string;
+    readonly signal: AbortSignal;
+  }): Promise<ModelSessionCreation>;
 }
 
 export interface Command {
