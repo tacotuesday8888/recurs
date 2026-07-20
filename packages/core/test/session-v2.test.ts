@@ -9,7 +9,7 @@ import {
 } from "@recurs/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { JsonlSessionStore } from "../src/index.js";
+import { JsonlSessionStore, createRootAgentDescriptor } from "../src/index.js";
 
 const directories: string[] = [];
 const at = "2026-07-10T00:00:00.000Z";
@@ -609,6 +609,34 @@ describe("version 2 sessions", () => {
     await expect(store.load("s2")).rejects.toMatchObject({
       code: "invalid_record",
     });
+  });
+
+  it("rejects a fork snapshot whose message provenance is incomplete", async () => {
+    const store = await temporaryStore();
+    const id = "invalid-fork";
+    await writeFile(
+      path.join(store.directory, `${id}.jsonl`),
+      `${JSON.stringify({
+        version: 2,
+        type: "session_created",
+        sessionId: id,
+        sequence: 0,
+        at,
+        cwd: "/workspace",
+        backend,
+        agent: createRootAgentDescriptor(id, backend),
+        fork: {
+          sourceSessionId: "source",
+          sourceSequence: 4,
+          messages: [{ id: "message", role: "user", content: "hello" }],
+          messageTurnIds: {},
+          summary: null,
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    await expect(store.load(id)).rejects.toMatchObject({ code: "invalid_record" });
   });
 
   it("rejects nested backend fields that are not part of the pin schema", async () => {

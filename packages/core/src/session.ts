@@ -29,6 +29,7 @@ export interface SessionState {
     | { type: "legacy"; model: string }
     | { type: "pinned"; pin: SessionBackendPin };
   lastSequence: number | null;
+  forkedFrom: { sessionId: string; sequence: number } | null;
   messages: ModelMessage[];
   messageTurnIds: Record<string, string>;
   summary: string | null;
@@ -65,6 +66,7 @@ export function createSessionState(
     model: options.model,
     backend: { type: "legacy", model: options.model },
     lastSequence: null,
+    forkedFrom: null,
     messages: [],
     messageTurnIds: {},
     summary: null,
