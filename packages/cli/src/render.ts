@@ -59,6 +59,9 @@ export class TextEventRenderer implements EventSink {
           `Retry ${event.attempt} scheduled in ${event.delayMs}ms`,
         );
         break;
+      case "turn_steered":
+        await this.#status("↪ Steering applied");
+        break;
       case "turn_completed":
       case "turn_cancelled":
       case "turn_failed":

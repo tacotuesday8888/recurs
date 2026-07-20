@@ -918,6 +918,12 @@ export function parseSessionRecordV2(
         typeof value.turnId === "string" &&
         typeof value.prompt === "string";
       break;
+    case "turn_steered":
+      valid = recordKeys(value, ["turnId", "steeringId", "prompt"]) &&
+        boundedNonEmptyString(value.turnId, MAX_RUNTIME_ID_LENGTH) &&
+        boundedNonEmptyString(value.steeringId, MAX_RUNTIME_ID_LENGTH) &&
+        boundedNonEmptyString(value.prompt, MAX_RUNTIME_ITEM_LENGTH);
+      break;
     case "runtime_continuation_updated":
       valid = recordKeys(value, ["turnId", "continuation"]) && canonicalIso(value.at) &&
         boundedNonEmptyString(value.turnId, MAX_RUNTIME_ID_LENGTH) &&

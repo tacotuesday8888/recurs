@@ -47,8 +47,14 @@ export async function startRepl(
       options.terminal ??
       (output as Writable & { isTTY?: boolean }).isTTY === true,
   });
+  let questionTail = Promise.resolve();
+  const question = (prompt: string): Promise<string> => {
+    const answer = questionTail.then(() => readline.question(prompt));
+    questionTail = answer.then(() => undefined, () => undefined);
+    return answer;
+  };
   runtime.setConfirmHandler(async (message) => {
-    const answer = await readline.question(`${message} [y/N] `);
+    const answer = await question(`${message} [y/N] `);
     return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
   });
   readline.on("SIGINT", () => {
@@ -72,38 +78,51 @@ export async function startRepl(
       await writeOutput(output, `Provider discovery: ${safeCliErrorMessage(error)}\n`);
     }
   }
+  const activeSubmissions = new Set<Promise<void>>();
+  const submitLine = async (inputLine: string): Promise<boolean> => {
+    try {
+      const result = await runtime.submit(inputLine, invocation);
+      if (isCommandResult(result)) {
+        if (result.type === "quit") return true;
+        await renderCommandResult(result, output, output);
+      }
+    } catch (error) {
+      if (isCancellation(error)) {
+        await writeOutput(output, "Cancelled\n");
+        return false;
+      }
+      await writeOutput(
+        output,
+        `Error: ${safeCliErrorMessage(error)}\n`,
+      );
+    }
+    return false;
+  };
   try {
     for (;;) {
       let inputLine: string;
       try {
-        inputLine = await readline.question("recurs> ");
+        inputLine = await question("recurs> ");
       } catch {
         break;
       }
       if (inputLine.trim().length === 0) {
         continue;
       }
-      try {
-        const result = await runtime.submit(inputLine, invocation);
-        if (isCommandResult(result)) {
-          if (result.type === "quit") {
-            break;
-          }
-          await renderCommandResult(result, output, output);
-        }
-      } catch (error) {
-        if (isCancellation(error)) {
-          await writeOutput(output, "Cancelled\n");
-          continue;
-        }
-        await writeOutput(
-          output,
-          `Error: ${safeCliErrorMessage(error)}\n`,
-        );
+      const submission = submitLine(inputLine);
+      if (runtime.canAcceptSteering) {
+        const tracked = submission.then((quit) => {
+          if (quit) readline.close();
+        });
+        activeSubmissions.add(tracked);
+        void tracked.finally(() => activeSubmissions.delete(tracked));
+        continue;
       }
+      if (await submission) break;
     }
   } finally {
     readline.close();
     await runtime.close?.();
+    await Promise.allSettled([...activeSubmissions]);
   }
 }

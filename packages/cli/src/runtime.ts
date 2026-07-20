@@ -1,9 +1,15 @@
+import { randomUUID } from "node:crypto";
+
 import {
   AgentLoopError,
   CompatibilityRunCoordinator,
   CoordinatedRunError,
   CoordinatedRuntime,
+  MAX_PENDING_STEERING_INPUTS,
+  MAX_STEERING_INPUT_BYTES,
+  TurnSteeringQueue,
   createSessionState,
+  isPinnedSessionState,
   reduceSessionRecord,
   type AgentLoop,
   type JsonlSessionStore,
@@ -87,6 +93,7 @@ function untrustedProgrammaticInvocation(): HostInvocation {
 
 export class RecursRuntime {
   #activeController: AbortController | null = null;
+  #activeSteering: TurnSteeringQueue | null = null;
   #confirm: (message: string) => Promise<boolean>;
   #session: SessionState | null;
   #workspace: WorkspaceShellState | null;
@@ -166,10 +173,19 @@ export class RecursRuntime {
     return this.#activeController?.signal ?? new AbortController().signal;
   }
 
+  get canAcceptSteering(): boolean {
+    return this.#activeSteering?.isOpen === true;
+  }
+
+  get activeTurnId(): string | null {
+    return this.#activeSteering?.turnId ?? null;
+  }
+
   cancel(): boolean {
     if (this.#activeController === null) {
       return false;
     }
+    this.#activeSteering?.close();
     this.#activeController.abort();
     return true;
   }
@@ -358,13 +374,19 @@ export class RecursRuntime {
           "No model connection is configured",
       );
     }
+    const steering = isPinnedSessionState(this.#session) &&
+        this.#session.backend.pin.kind === "model_provider"
+      ? new TurnSteeringQueue(randomUUID())
+      : null;
     this.#activeController = new AbortController();
+    this.#activeSteering = steering;
     try {
       const result = await this.#runner.run(
         prompt,
         invocation,
         this.#activeController.signal,
         executionMode,
+        steering ?? undefined,
       );
       this.#session = this.#runner.session;
       return result;
@@ -378,6 +400,10 @@ export class RecursRuntime {
       }
       throw error;
     } finally {
+      steering?.close();
+      if (this.#activeSteering === steering) {
+        this.#activeSteering = null;
+      }
       this.#activeController = null;
     }
   }
@@ -459,6 +485,40 @@ export class RecursRuntime {
         this.dependencies.promptUnavailableMessage ??
           "No model connection is configured",
       );
+    }
+    if (this.#activeController !== null) {
+      const steering = this.#activeSteering;
+      if (steering === null) {
+        throw new RuntimeError(
+          "busy",
+          "This active backend cannot accept same-turn steering; wait or use /cancel",
+        );
+      }
+      const enqueued = steering.enqueue({
+        id: randomUUID(),
+        prompt: trimmed,
+        at: this.dependencies.now?.() ?? new Date().toISOString(),
+      });
+      if (!enqueued.accepted) {
+        if (enqueued.reason === "too_large") {
+          throw new RuntimeError(
+            "invalid_input",
+            `Steering input exceeds ${MAX_STEERING_INPUT_BYTES} bytes`,
+          );
+        }
+        if (enqueued.reason === "full") {
+          throw new RuntimeError(
+            "busy",
+            `Steering queue is full (${MAX_PENDING_STEERING_INPUTS} pending inputs maximum)`,
+          );
+        }
+        throw new RuntimeError("busy", "The active turn is already finishing");
+      }
+      return {
+        type: "message",
+        level: "info",
+        text: `Steering queued for turn ${steering.turnId} (${enqueued.pending}/${MAX_PENDING_STEERING_INPUTS})`,
+      };
     }
     return this.#runPrompt(trimmed, undefined, invocation);
   }

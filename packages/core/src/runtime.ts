@@ -7,6 +7,7 @@ import type {
   IntegrationFailure,
   RunCoordinator,
   RunResult,
+  TurnSteeringSource,
 } from "@recurs/contracts";
 
 import type { JsonlSessionStore } from "./jsonl-session-store.js";
@@ -45,6 +46,7 @@ export class CoordinatedRuntime {
     invocation: HostInvocation,
     signal: AbortSignal,
     executionMode?: ExecutionMode,
+    steering?: TurnSteeringSource,
   ): Promise<RunResult> {
     if (this.#active) {
       throw new Error("An agent run is already active");
@@ -61,6 +63,7 @@ export class CoordinatedRuntime {
         prompt: normalized,
         invocation,
         ...(executionMode === undefined ? {} : { executionMode }),
+        ...(steering === undefined ? {} : { steering }),
         signal,
       });
       const drain = (async () => {

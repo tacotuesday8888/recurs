@@ -318,12 +318,36 @@ export type RunOutcome =
   | { ok: true; result: RunResult }
   | { ok: false; failure: IntegrationFailure };
 
+export interface TurnSteeringInput {
+  id: string;
+  prompt: string;
+  at: string;
+}
+
+export interface TurnSteeringDrain {
+  inputs: readonly TurnSteeringInput[];
+  closed: boolean;
+}
+
+/**
+ * A synchronous mailbox owned by one active direct-provider turn. The terminal
+ * drain closes the mailbox only when it is empty, preventing a completion race
+ * from accepting input that the turn can no longer consume.
+ */
+export interface TurnSteeringSource {
+  readonly turnId: string;
+  drain(): readonly TurnSteeringInput[];
+  drainOrClose(): TurnSteeringDrain;
+  close(): readonly TurnSteeringInput[];
+}
+
 export interface CoordinatedRunInput {
   sessionId: string;
   expectedSessionRecordSequence: number;
   prompt: string;
   invocation: HostInvocation;
   executionMode?: "act" | "plan";
+  steering?: TurnSteeringSource;
   signal: AbortSignal;
 }
 

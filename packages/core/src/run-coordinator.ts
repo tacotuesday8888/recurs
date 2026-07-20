@@ -18,6 +18,7 @@ import {
   type RuntimeContinuationHandle,
   type SessionBackendPin,
   type TrustedRunContext,
+  type TurnSteeringSource,
 } from "@recurs/contracts";
 
 import type {
@@ -45,6 +46,7 @@ export interface DirectRunExecutorInput {
   provider: ModelProvider;
   authorization: RunAuthorization;
   context: TrustedRunContext;
+  steering?: TurnSteeringSource;
   mutation: SessionMutationLease;
   signal: AbortSignal;
 }
@@ -545,7 +547,7 @@ export class BackendRunCoordinator implements RunCoordinator {
       } as const;
     }
     const operationId = this.#createId();
-    const turnId = this.#createId();
+    const turnId = input.steering?.turnId ?? this.#createId();
     let executionStarted = false;
     try {
       return await this.dependencies.sessions.withSessionMutation(
@@ -632,6 +634,7 @@ export class BackendRunCoordinator implements RunCoordinator {
               provider,
               authorization: resolved.authorization,
               context,
+              ...(input.steering === undefined ? {} : { steering: input.steering }),
               mutation,
               signal: input.signal,
             });
