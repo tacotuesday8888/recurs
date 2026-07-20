@@ -75,5 +75,8 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.63.0",
     "vitest": "4.1.10"
+  },
+  "optionalDependencies": {
+    "@lydell/node-pty": "1.1.0"
   }
 }

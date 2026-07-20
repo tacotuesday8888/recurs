@@ -47,6 +47,14 @@ if (!markerDiscarded) {
     },
   });
 
-  const { runCliProcess } = await import("./process-host.js");
-  await runCliProcess(nativeAuthority);
+  const [{ runCliProcess }, { loadPtyDriver }] = await Promise.all([
+    import("./process-host.js"),
+    import("./pty-driver.js"),
+  ]);
+  const ptyDriver = await loadPtyDriver();
+  await runCliProcess(
+    nativeAuthority,
+    undefined,
+    ptyDriver === undefined ? {} : { ptyDriver },
+  );
 }

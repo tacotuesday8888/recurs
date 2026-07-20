@@ -6,12 +6,18 @@ import { ToolError, type Tool, type ToolResult } from "../types.js";
 
 const MAX_INPUT_LENGTH = 65_536;
 const MAX_YIELD_TIME_MS = 30_000;
+const MIN_TERMINAL_COLUMNS = 20;
+const MAX_TERMINAL_COLUMNS = 512;
+const MIN_TERMINAL_ROWS = 5;
+const MAX_TERMINAL_ROWS = 200;
 
 export interface ProcessSessionInput {
-  readonly action: "poll" | "write" | "stop";
+  readonly action: "poll" | "write" | "resize" | "stop";
   readonly sessionId: string;
   readonly input?: string;
   readonly closeStdin?: boolean;
+  readonly columns?: number;
+  readonly rows?: number;
   readonly yieldTimeMs: number;
 }
 
@@ -25,12 +31,15 @@ function parseInput(value: unknown): ProcessSessionInput {
     "sessionId",
     "input",
     "closeStdin",
+    "columns",
+    "rows",
     "yieldTimeMs",
   ]);
   if (
     Object.keys(input).some((key) => !allowed.has(key)) ||
     (input.action !== "poll" &&
       input.action !== "write" &&
+      input.action !== "resize" &&
       input.action !== "stop") ||
     typeof input.sessionId !== "string" ||
     input.sessionId.length === 0 ||
@@ -59,7 +68,30 @@ function parseInput(value: unknown): ProcessSessionInput {
       "Only the write action accepts input or closeStdin",
     );
   }
-  const defaultYield = input.action === "stop"
+  if (
+    input.action === "resize" &&
+    (!Number.isSafeInteger(input.columns) ||
+      (input.columns as number) < MIN_TERMINAL_COLUMNS ||
+      (input.columns as number) > MAX_TERMINAL_COLUMNS ||
+      !Number.isSafeInteger(input.rows) ||
+      (input.rows as number) < MIN_TERMINAL_ROWS ||
+      (input.rows as number) > MAX_TERMINAL_ROWS)
+  ) {
+    throw new ToolError(
+      "invalid_input",
+      `columns must be ${MIN_TERMINAL_COLUMNS}-${MAX_TERMINAL_COLUMNS} and rows must be ${MIN_TERMINAL_ROWS}-${MAX_TERMINAL_ROWS}`,
+    );
+  }
+  if (
+    input.action !== "resize" &&
+    (input.columns !== undefined || input.rows !== undefined)
+  ) {
+    throw new ToolError(
+      "invalid_input",
+      "Only the resize action accepts columns or rows",
+    );
+  }
+  const defaultYield = input.action === "stop" || input.action === "resize"
     ? 0
     : input.action === "write" && (input.input?.length ?? 0) > 0
       ? 250
@@ -82,6 +114,8 @@ function parseInput(value: unknown): ProcessSessionInput {
     ...(input.closeStdin === undefined
       ? {}
       : { closeStdin: input.closeStdin }),
+    ...(input.columns === undefined ? {} : { columns: input.columns as number }),
+    ...(input.rows === undefined ? {} : { rows: input.rows as number }),
     yieldTimeMs: yieldTimeMs as number,
   };
 }
@@ -112,6 +146,7 @@ export function processSnapshotResult(
       sessionId: snapshot.sessionId,
       status: snapshot.status,
       ...(snapshot.exitCode === undefined ? {} : { exitCode: snapshot.exitCode }),
+      terminal: snapshot.terminal,
       ...(snapshot.checkpointId === undefined
         ? {}
         : { checkpointId: snapshot.checkpointId }),
@@ -131,14 +166,24 @@ export function createProcessSessionTool(
   return {
     definition: {
       name: "process_session",
-      description: "Poll, write to, close stdin for, or stop an owned running command",
+      description: "Poll, write to, resize, or stop an owned running command",
       inputSchema: {
         type: "object",
         properties: {
-          action: { type: "string", enum: ["poll", "write", "stop"] },
+          action: { type: "string", enum: ["poll", "write", "resize", "stop"] },
           sessionId: { type: "string", minLength: 1, maxLength: 128 },
           input: { type: "string", maxLength: MAX_INPUT_LENGTH },
           closeStdin: { type: "boolean" },
+          columns: {
+            type: "integer",
+            minimum: MIN_TERMINAL_COLUMNS,
+            maximum: MAX_TERMINAL_COLUMNS,
+          },
+          rows: {
+            type: "integer",
+            minimum: MIN_TERMINAL_ROWS,
+            maximum: MAX_TERMINAL_ROWS,
+          },
           yieldTimeMs: {
             type: "integer",
             minimum: 0,
@@ -178,6 +223,9 @@ export function createProcessSessionTool(
                 : { closeStdin: input.closeStdin }),
             }),
         stop: input.action === "stop",
+        ...(input.action === "resize"
+          ? { resize: { columns: input.columns!, rows: input.rows! } }
+          : {}),
         yieldTimeMs: input.yieldTimeMs,
       }));
     },

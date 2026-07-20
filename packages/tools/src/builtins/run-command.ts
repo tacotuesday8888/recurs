@@ -9,11 +9,14 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_YIELD_TIME_MS = 10_000;
 const MIN_YIELD_TIME_MS = 250;
 const MAX_YIELD_TIME_MS = 30_000;
+const DEFAULT_TERMINAL_COLUMNS = 120;
+const DEFAULT_TERMINAL_ROWS = 30;
 
 export interface RunCommandInput {
   command: string;
   timeoutMs: number;
   yieldTimeMs?: number;
+  tty?: boolean;
 }
 
 function parseRunCommandInput(value: unknown): RunCommandInput {
@@ -48,10 +51,15 @@ function parseRunCommandInput(value: unknown): RunCommandInput {
       `yieldTimeMs must be between ${MIN_YIELD_TIME_MS} and ${MAX_YIELD_TIME_MS}`,
     );
   }
+  const tty = "tty" in value ? value.tty : undefined;
+  if (tty !== undefined && typeof tty !== "boolean") {
+    throw new ToolError("invalid_input", "tty must be a boolean");
+  }
   return {
     command: value.command,
     timeoutMs: timeoutMs as number,
     ...(yieldTimeMs === undefined ? {} : { yieldTimeMs: yieldTimeMs as number }),
+    ...(tty === undefined ? {} : { tty }),
   };
 }
 
@@ -77,6 +85,10 @@ export function createRunCommandTool(
             type: "integer",
             minimum: MIN_YIELD_TIME_MS,
             maximum: MAX_YIELD_TIME_MS,
+          },
+          tty: {
+            type: "boolean",
+            description: "Run the command in an interactive pseudo-terminal",
           },
         },
         required: ["command"],
@@ -109,12 +121,22 @@ export function createRunCommandTool(
           },
           yieldTimeMs: input.yieldTimeMs ?? DEFAULT_YIELD_TIME_MS,
           terminalEvidence: verificationEvidence(input.command),
+          ...(input.tty === true
+            ? {
+                terminal: {
+                  columns: DEFAULT_TERMINAL_COLUMNS,
+                  rows: DEFAULT_TERMINAL_ROWS,
+                },
+              }
+            : {}),
         }));
       }
-      if (input.yieldTimeMs !== undefined) {
+      if (input.yieldTimeMs !== undefined || input.tty === true) {
         throw new ToolError(
           "tool_unavailable",
-          "Long-running command sessions are unavailable",
+          input.tty === true
+            ? "Interactive terminal sessions are unavailable"
+            : "Long-running command sessions are unavailable",
         );
       }
       const result = await runProcess("/bin/sh", ["-c", input.command], {

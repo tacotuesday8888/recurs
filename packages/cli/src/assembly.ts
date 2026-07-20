@@ -84,6 +84,7 @@ import {
   createRunVerificationTool,
   createSearchTextTool,
   type PermissionMode,
+  type PtyDriver,
   type ToolSecurityProfile,
 } from "@recurs/tools";
 
@@ -116,6 +117,7 @@ export interface StandaloneRuntimeOptions {
   operatingModeId?: OperatingModeId;
   permissionMode?: PermissionMode;
   skillHomeDirectory?: string;
+  ptyDriver?: PtyDriver;
 }
 
 function injectedBackendPin(
@@ -777,7 +779,10 @@ export async function createStandaloneRuntime(
   }
 
   const coordinatorReference: { current?: BackendRunCoordinator } = {};
-  const processes = new OwnedProcessManager({ checkpoints });
+  const processes = new OwnedProcessManager({
+    checkpoints,
+    ...(options.ptyDriver === undefined ? {} : { ptyDriver: options.ptyDriver }),
+  });
   const tools = new ToolRegistry([], {
     checkpoints,
     securityProfile: options.toolSecurityProfile
