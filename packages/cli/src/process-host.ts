@@ -162,6 +162,7 @@ export interface CliDependencies {
     choices: readonly GuidedChoice[],
   ): Promise<string | null>;
   promptText?(message: string, suggestion?: string): Promise<string | null>;
+  credentialEnvironmentAvailable?(name: string): boolean;
   selectOpenAIModel?(modelIds: readonly string[]): Promise<string | null>;
   nativeAuthority?: NativeAuthorityPort;
   openAIOnboarding?: OpenAICliOnboardingPort;
@@ -774,6 +775,12 @@ async function runGuidedOnboarding(
     nativeProviders,
     selectChoice: dependencies.selectChoice,
     promptText: dependencies.promptText,
+    ...(dependencies.credentialEnvironmentAvailable === undefined
+      ? {}
+      : {
+          credentialEnvironmentAvailable:
+            dependencies.credentialEnvironmentAvailable,
+        }),
     executeCommand: (argv) => runCli(argv, dependencies),
     ...(dependencies.signal === undefined ? {} : { signal: dependencies.signal }),
     ...(dependencies.confirm === undefined ? {} : { confirm: dependencies.confirm }),
@@ -1595,6 +1602,10 @@ export async function runCliProcess(
           : { signal: interactiveOperationController.signal },
       ),
       setupCodex: (input) => setupCodexSubscription(dataDirectory, input),
+      credentialEnvironmentAvailable: (name) => {
+        const value = process.env[name];
+        return value !== undefined && value.length > 0;
+      },
       listProviders: async ({ includeBlocked }) =>
         listProviderSummaries(includeBlocked),
       discoverProviders: (query, signal) =>
