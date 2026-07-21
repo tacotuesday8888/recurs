@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-
 import type { Tool } from "../types.js";
 import { ToolError } from "../types.js";
+import { readStableTextFile } from "../stable-text-file.js";
 import {
   assertNonCredentialPath,
   isExternalPathApproved,
@@ -12,6 +11,7 @@ import {
 } from "../path-policy.js";
 
 const MAX_READ_BYTES = 256 * 1024;
+const MAX_SOURCE_BYTES = 8 * 1024 * 1024;
 
 export interface ReadFileInput {
   path: string;
@@ -94,11 +94,11 @@ export function createReadFileTool(
         options,
       ).resolveReadable(input.path, isExternalPathApproved(context, input.path));
       assertNonCredentialPath(resolved.relative);
-      const bytes = await readFile(resolved.absolute);
-      if (bytes.includes(0)) {
-        throw new ToolError("invalid_input", `Cannot read binary file: ${input.path}`);
-      }
-      const content = bytes.toString("utf8");
+      const { bytes, content } = await readStableTextFile(
+        resolved.absolute,
+        input.path,
+        MAX_SOURCE_BYTES,
+      );
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       const lines = content.split("\n");
       if (lines.at(-1) === "") {
