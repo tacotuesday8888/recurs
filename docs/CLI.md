@@ -286,6 +286,7 @@ One non-interactive run:
 
 ```bash
 node packages/cli/dist/main.js run "inspect the repository" --format text
+node packages/cli/dist/main.js run "inspect the repository" -C /path/to/project --format jsonl
 node packages/cli/dist/main.js run "inspect the repository" --format jsonl
 node packages/cli/dist/main.js run "run the checks" --permissions full --format jsonl
 node packages/cli/dist/main.js run "inspect efficiently" --mode economy --format jsonl
@@ -296,6 +297,8 @@ cat logs.txt | node packages/cli/dist/main.js run "Summarize these logs" --stdin
 ```
 
 The no-argument interactive CLI requires a user-present local terminal and rejects recognized automation even when it allocates a TTY. The one-shot prompt examples require a configured local provider or an injected provider. A plain `recurs run` always creates a fresh durable session, so automation never inherits whichever compatible conversation happens to be newest. `--permissions ask|approved|full` pins that preset into the fresh session; Full still preserves credential denials, sensitive and external-path prompts, integrity controls, and the macOS/Linux workspace sandbox. Windows subprocess tools remain unsupported.
+
+`-C <directory>` and `--cd <directory>` select one existing directory as the canonical working root for ordinary interactive, setup, provider, account, and headless CLI work. Relative paths are resolved from the caller's directory, then canonicalized before runtime creation. Recurs does not call `process.chdir`: sessions, project instructions, tools, MCP trust, and the OS sandbox all receive the same exact root. An unavailable path fails before a session is created. Resuming from a different root still fails the existing workspace check. ACP rejects this flag because the ACP client supplies and validates its session root.
 
 `--mode economy|standard|balanced|performance|max` pins the current version of one existing operating policy into a fresh headless session. An exact historical policy ID such as `balanced_v4` is also accepted for deterministic replay. The mode changes real model eligibility, child/request limits, concurrency, review depth, and reported-cost ceilings; it is not a display-only quality label. Like permissions, mode cannot be overridden while using `--resume`, because a resumed session retains its immutable stored policy.
 
