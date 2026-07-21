@@ -87,6 +87,12 @@ function searchRecords(result: ToolResult): Array<{
   );
 }
 
+function listRecords(result: ToolResult): Array<{ path: string }> {
+  return result.output.trimEnd().split("\n").filter(Boolean).map((line) =>
+    JSON.parse(line) as { path: string }
+  );
+}
+
 describe("workspace file tools", () => {
   it.each([
     ".env",
@@ -400,7 +406,7 @@ alpha7
       glob: "$(touch glob-pwned)",
     });
 
-    expect(globbed.output).toBe("./src/a.ts\n");
+    expect(listRecords(globbed)).toEqual([{ path: "src/a.ts" }]);
     expect(globbed.metadata).toMatchObject({ count: 1, total: 1, truncated: false });
     expect(globbed.metadata?.sources).toEqual([
       'listed . matching "**/*.ts" (1 of 1 files)',
@@ -419,10 +425,9 @@ alpha7
       path: ".",
       glob: "*.env",
     });
-    expect(listed.output).toBe("./safe.env\n");
-    expect(listed.output).not.toContain("./.env\n");
+    expect(listRecords(listed)).toEqual([{ path: "safe.env" }]);
 
-    for (const glob of ["", 42, "x".repeat(1_025)]) {
+    for (const glob of ["", 42, "x\0y", "x".repeat(1_025)]) {
       await expect(invoke(createListFilesTool(), {
         path: ".",
         glob,
@@ -433,6 +438,63 @@ alpha7
         code: "invalid_input",
       });
     }
+  });
+
+  it("lists adversarial paths as deterministic escaped records", async () => {
+    if (path.sep !== "/") return;
+    const writes = [
+      writeFile(path.join(cwd, "src", "B.ts"), "B\n"),
+      writeFile(path.join(cwd, "src", "line\nbreak.ts"), "newline\n"),
+      writeFile(path.join(cwd, "src", "ä.ts"), "unicode\n"),
+      writeFile(path.join(cwd, "src", "\uFEFFbom.ts"), "bom\n"),
+    ];
+    if (process.platform === "linux") {
+      writes.push(writeFile(
+        Buffer.concat([
+          Buffer.from(path.join(cwd, "src", "invalid-")),
+          Buffer.from([0xff]),
+          Buffer.from(".ts"),
+        ]),
+        "invalid utf8 path\n",
+      ));
+    }
+    await Promise.all(writes);
+
+    const listed = await invoke(createListFilesTool(), {
+      path: "src",
+      glob: "*.ts",
+      limit: 10,
+    });
+    expect(listed.output).not.toContain("line\nbreak.ts");
+    expect(listRecords(listed)).toEqual([
+      { path: "src/B.ts" },
+      { path: "src/a.ts" },
+      { path: "src/line\nbreak.ts" },
+      { path: "src/ä.ts" },
+      { path: "src/\uFEFFbom.ts" },
+    ]);
+    expect(listed.metadata).toMatchObject({
+      count: 5,
+      total: 5,
+      omitted: process.platform === "linux" ? 1 : 0,
+      truncated: process.platform === "linux",
+    });
+
+    const limited = await invoke(createListFilesTool(), {
+      path: "src",
+      glob: "*.ts",
+      limit: 2,
+    });
+    expect(listRecords(limited)).toEqual([
+      { path: "src/B.ts" },
+      { path: "src/a.ts" },
+    ]);
+    expect(limited.metadata).toMatchObject({
+      count: 2,
+      total: 5,
+      omitted: process.platform === "linux" ? 1 : 0,
+      truncated: true,
+    });
   });
 
   it("excludes credential descendants from listing and search", async () => {

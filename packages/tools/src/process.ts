@@ -63,6 +63,7 @@ export interface RunProcessOptions {
   stdin?: string;
   signal?: AbortSignal;
   maxOutputBytes?: number;
+  captureStdoutBytes?: boolean;
   acceptableExitCodes?: readonly number[];
   timeoutMs?: number;
   sandbox?: {
@@ -76,6 +77,7 @@ export interface ProcessResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  stdoutBytes?: Buffer;
 }
 
 export interface ProcessSessionOptions {
@@ -1184,10 +1186,12 @@ export async function runProcess(
         }
 
         const completedExitCode = exitCode ?? -1;
+        const stdoutBuffer = Buffer.concat(stdout);
         const result = {
-          stdout: Buffer.concat(stdout).toString("utf8"),
+          stdout: stdoutBuffer.toString("utf8"),
           stderr: Buffer.concat(stderr).toString("utf8"),
           exitCode: completedExitCode,
+          ...(options.captureStdoutBytes ? { stdoutBytes: stdoutBuffer } : {}),
         };
         if (!acceptableExitCodes.includes(completedExitCode)) {
           throw new ToolError(

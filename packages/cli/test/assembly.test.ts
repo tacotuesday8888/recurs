@@ -1966,7 +1966,7 @@ describe("standalone assembly without a provider", () => {
     expect(result?.content).toContain("Type 'string' is not assignable to type 'number'");
   });
 
-  it("returns structured bounded regex search evidence in Plan mode", async () => {
+  it("returns structured repository discovery evidence in Plan mode", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-search-assembly-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -1975,7 +1975,22 @@ describe("standalone assembly without a provider", () => {
       path.join(workspace, "feature.ts"),
       "export const feature42 = true;\nexport const other = false;\n",
     );
+    await writeFile(path.join(workspace, "line\nbreak.ts"), "export {};\n");
     const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "list-1",
+            name: "list_files",
+            arguments: {
+              glob: "*.ts",
+              limit: 5,
+            },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
       [
         {
           type: "tool_call",
@@ -2009,13 +2024,20 @@ describe("standalone assembly without a provider", () => {
       },
     );
 
-    await expect(runtime.submit("find numbered feature declarations")).resolves
+    await expect(runtime.submit("list and find numbered feature declarations")).resolves
       .toMatchObject({ finalText: "I found the feature declaration." });
+    expect(provider.requests[0]?.tools.map((tool) => tool.name))
+      .toContain("list_files");
     expect(provider.requests[0]?.tools.map((tool) => tool.name))
       .toContain("search_text");
     expect(provider.requests[0]?.tools.map((tool) => tool.name))
       .not.toContain("apply_patch");
-    const result = provider.requests[1]?.messages.findLast(
+    const listing = provider.requests[1]?.messages.findLast(
+      (message) => message.role === "tool",
+    );
+    expect(listing?.content).toContain('"path":"feature.ts"');
+    expect(listing?.content).toContain('"path":"line\\nbreak.ts"');
+    const result = provider.requests[2]?.messages.findLast(
       (message) => message.role === "tool",
     );
     expect(result?.content).toContain('"path":"feature.ts"');

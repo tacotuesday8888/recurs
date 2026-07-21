@@ -610,6 +610,20 @@ describe("run_command", () => {
     }
   });
 
+  it("optionally preserves exact stdout bytes without changing text results", async () => {
+    const bytes = Buffer.from([0x61, 0x00, 0xff]);
+    const result = await toolExports.runProcess(
+      process.execPath,
+      ["-e", "process.stdout.write(Buffer.from([0x61, 0x00, 0xff]))"],
+      { cwd, captureStdoutBytes: true },
+    );
+
+    expect(result.stdoutBytes).toEqual(bytes);
+    expect(result.stdout).toBe(bytes.toString("utf8"));
+    expect(result.stderr).toBe("");
+    expect(result.exitCode).toBe(0);
+  });
+
   it("pins tool child stdio to descriptors zero through two", () => {
     expect(toolExports.TOOL_CHILD_STDIO).toEqual(["pipe", "pipe", "pipe"]);
     expect(Object.isFrozen(toolExports.TOOL_CHILD_STDIO)).toBe(true);
