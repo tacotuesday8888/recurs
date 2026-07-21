@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -112,6 +113,8 @@ Usage:
   recurs run <prompt>            Run one prompt
   recurs run <prompt> [--format text|jsonl] [--permissions ask|approved|full]
   recurs run <prompt> --resume <session-id> [--format text|jsonl]
+  recurs run -                   Read one bounded prompt from piped stdin
+  recurs run <prompt> --stdin    Append bounded piped stdin to the prompt
   recurs acp                     Serve Recurs over ACP on stdio
   recurs setup local --url <loopback-url> --model <model-id>
   recurs setup byok --provider <id> --model <id> --key-env <ENV> [--billing strict|allow-additional] [--reasoning-effort none|low|medium|high|xhigh|max]
@@ -219,12 +222,14 @@ export interface CliDependencies {
 
 interface RunArguments {
   prompt: string;
+  stdinMode: "none" | "replace" | "append";
   format: "text" | "jsonl";
   permissionMode?: PermissionMode;
   resumeSessionId?: string;
 }
 
 const SAFE_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
+const MAX_STDIN_PROMPT_BYTES = 1024 * 1024;
 
 function nativeAuthorityText(status: NativeAuthorityStatus): string {
   if (status.state === "unavailable") {
@@ -256,6 +261,7 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
   let format: RunArguments["format"] = "text";
   let permissionMode: PermissionMode | undefined;
   let resumeSessionId: string | undefined;
+  let appendStdin = false;
   const prompt: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index] ?? "";
@@ -290,6 +296,11 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
       index += 1;
       continue;
     }
+    if (argument === "--stdin") {
+      if (appendStdin) return null;
+      appendStdin = true;
+      continue;
+    }
     if (argument.startsWith("--")) {
       return null;
     }
@@ -299,14 +310,121 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
   if (resumeSessionId !== undefined && permissionMode !== undefined) {
     return null;
   }
+  const replaceWithStdin = prompt.length === 1 && prompt[0] === "-";
+  if (appendStdin && (joined.length === 0 || replaceWithStdin)) return null;
   return joined.length === 0
     ? null
     : {
-        prompt: joined,
+        prompt: replaceWithStdin ? "" : joined,
+        stdinMode: replaceWithStdin
+          ? "replace"
+          : appendStdin
+          ? "append"
+          : "none",
         format,
         ...(permissionMode === undefined ? {} : { permissionMode }),
         ...(resumeSessionId === undefined ? {} : { resumeSessionId }),
       };
+}
+
+function stdinPrompt(
+  input: Readable | undefined,
+  interactive: boolean | undefined,
+  signal: AbortSignal,
+): Promise<string> {
+  if (input === undefined || interactive === true) {
+    throw new RuntimeError(
+      "invalid_input",
+      "Stdin prompt input requires a non-interactive pipe",
+    );
+  }
+  if (signal.aborted) {
+    throw new RuntimeError("cancelled", "Reading the stdin prompt was cancelled");
+  }
+  return new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    let settled = false;
+    const cleanup = () => {
+      input.off("data", onData);
+      input.off("end", onEnd);
+      input.off("error", onError);
+      input.off("close", onClose);
+      signal.removeEventListener("abort", onAbort);
+    };
+    const fail = (error: RuntimeError) => {
+      if (settled) return;
+      settled = true;
+      input.pause();
+      cleanup();
+      reject(error);
+    };
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      let value: string;
+      try {
+        value = new TextDecoder("utf-8", { fatal: true }).decode(
+          Buffer.concat(chunks, bytes),
+        );
+      } catch {
+        reject(new RuntimeError(
+          "invalid_input",
+          "The stdin prompt must be valid UTF-8",
+        ));
+        return;
+      }
+      if (value.trim().length === 0) {
+        reject(new RuntimeError("invalid_input", "The stdin prompt is empty"));
+        return;
+      }
+      resolve(value);
+    };
+    const onData = (chunk: unknown) => {
+      const next = typeof chunk === "string"
+        ? Buffer.from(chunk)
+        : chunk instanceof Uint8Array
+        ? Buffer.from(chunk)
+        : null;
+      if (next === null) {
+        fail(new RuntimeError("invalid_input", "The stdin prompt could not be read"));
+        return;
+      }
+      bytes += next.byteLength;
+      if (bytes > MAX_STDIN_PROMPT_BYTES) {
+        fail(new RuntimeError(
+          "invalid_input",
+          `The stdin prompt exceeds ${MAX_STDIN_PROMPT_BYTES} bytes`,
+        ));
+        return;
+      }
+      chunks.push(next);
+    };
+    const onEnd = () => finish();
+    const onError = () => fail(new RuntimeError(
+      "invalid_input",
+      "The stdin prompt could not be read",
+    ));
+    const onClose = () => {
+      if (!input.readableEnded) onError();
+    };
+    const onAbort = () => fail(new RuntimeError(
+      "cancelled",
+      "Reading the stdin prompt was cancelled",
+    ));
+    input.on("data", onData);
+    input.once("end", onEnd);
+    input.once("error", onError);
+    input.once("close", onClose);
+    signal.addEventListener("abort", onAbort, { once: true });
+    input.resume();
+  });
+}
+
+function promptWithStdin(prompt: string, input: string): string {
+  const trailingNewline = input.endsWith("\n") ? "" : "\n";
+  return `${prompt}\n\n<stdin>\n${input}${trailingNewline}</stdin>`;
 }
 
 function parseLocalSetupArguments(
@@ -713,6 +831,9 @@ function isCommandResult(value: unknown): value is CommandResult {
 
 function exitCodeFor(error: unknown): number {
   if (isCancellation(error) || isAbortError(error)) {
+    return 130;
+  }
+  if (error instanceof RuntimeError && error.code === "cancelled") {
     return 130;
   }
   if (
@@ -1361,6 +1482,17 @@ export async function runCli(
   let runtime: RecursRuntime | undefined;
   let exitCode = 0;
   try {
+    let prompt = parsed.prompt;
+    if (parsed.stdinMode !== "none") {
+      const piped = await stdinPrompt(
+        dependencies.stdin,
+        dependencies.interactive,
+        dependencies.signal ?? new AbortController().signal,
+      );
+      prompt = parsed.stdinMode === "replace"
+        ? piped
+        : promptWithStdin(prompt, piped);
+    }
     runtime = await dependencies.createRuntime(
       renderer,
       {
@@ -1374,7 +1506,7 @@ export async function runCli(
       },
     );
     const result = await runtime.submit(
-      parsed.prompt,
+      prompt,
       createHostInvocation({
         invocation: "one_shot",
         userPresent: false,
