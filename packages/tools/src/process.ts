@@ -68,6 +68,7 @@ export interface RunProcessOptions {
   sandbox?: {
     readonly mode: "workspace";
     readonly network: "allow" | "deny";
+    readonly readOnlyPaths?: readonly string[];
   };
 }
 
@@ -403,6 +404,45 @@ function linuxSandboxLaunch(
   ].filter((value): value is string => value !== undefined);
   const uniqueHiddenRoots = [...new Set(hiddenRoots)]
     .filter((root) => root !== path.parse(root).root);
+  const readOnlyPaths = [...new Set(options.readOnlyPaths ?? [])].map(
+    (candidate) => {
+      let canonical: string;
+      try {
+        canonical = realpathSync(candidate);
+        if (!statSync(canonical).isDirectory()) {
+          throw new ToolError(
+            "sandbox_unavailable",
+            "A Linux sandbox support path is not a directory",
+          );
+        }
+      } catch (error) {
+        if (error instanceof ToolError) throw error;
+        throw new ToolError(
+          "sandbox_unavailable",
+          "A Linux sandbox support path could not be validated",
+          { cause: error },
+        );
+      }
+      if (
+        canonical === path.parse(canonical).root ||
+        [...HOST_CREDENTIAL_DIRECTORIES, ...HOST_CREDENTIAL_FILES].some(
+          (relative) => isWithin(path.join(roots.hostHome, relative), canonical),
+        )
+      ) {
+        throw new ToolError(
+          "sandbox_unavailable",
+          "A Linux sandbox support path is not eligible for exposure",
+        );
+      }
+      return canonical;
+    },
+  );
+  if (readOnlyPaths.length > 8) {
+    throw new ToolError(
+      "sandbox_unavailable",
+      "The Linux sandbox has too many support paths",
+    );
+  }
   const bwrapArgs = [
     "--new-session",
     "--die-with-parent",
@@ -420,9 +460,13 @@ function linuxSandboxLaunch(
       root,
     );
   }
-  for (const writableRoot of [roots.workspaceRoot, roots.privateRoot]) {
-    if (uniqueHiddenRoots.some((root) => isWithin(root, writableRoot))) {
-      bwrapArgs.push("--dir", writableRoot);
+  for (const requiredRoot of [
+    roots.workspaceRoot,
+    roots.privateRoot,
+    ...readOnlyPaths,
+  ]) {
+    if (uniqueHiddenRoots.some((root) => isWithin(root, requiredRoot))) {
+      bwrapArgs.push("--dir", requiredRoot);
     }
   }
   for (const root of uniqueHiddenRoots.toSorted(
@@ -438,6 +482,9 @@ function linuxSandboxLaunch(
     roots.privateRoot,
     roots.privateRoot,
   );
+  for (const readOnlyPath of readOnlyPaths) {
+    bwrapArgs.push("--ro-bind", readOnlyPath, readOnlyPath);
+  }
   appendLinuxCredentialMasks(bwrapArgs, roots.hostHome);
   bwrapArgs.push(
     "--unshare-user",

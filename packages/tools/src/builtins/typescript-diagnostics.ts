@@ -1,4 +1,5 @@
 import { stat } from "node:fs/promises";
+import path from "node:path";
 
 import {
   assertNonCredentialPath,
@@ -111,10 +112,11 @@ export function createTypeScriptDiagnosticsTool(
         );
       }
 
+      const compiler = compilerPath();
       const result = await runProcess(
         process.execPath,
         [
-          compilerPath(),
+          compiler,
           "--project",
           resolved.absolute,
           "--pretty",
@@ -131,7 +133,12 @@ export function createTypeScriptDiagnosticsTool(
           acceptableExitCodes: TYPESCRIPT_EXIT_CODES,
           ...(context.processSandbox === undefined
             ? {}
-            : { sandbox: context.processSandbox }),
+            : {
+                sandbox: {
+                  ...context.processSandbox,
+                  readOnlyPaths: [path.dirname(compiler)],
+                },
+              }),
         },
       );
       const output = `${result.stdout}${result.stderr}`;
