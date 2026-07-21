@@ -4,6 +4,7 @@ import * as acp from "@agentclientprotocol/sdk";
 import {
   RECURS_VERSION,
   type HostInvocation,
+  type ModelImageInput,
   type RunResult,
 } from "@recurs/contracts";
 import type { EventSink } from "@recurs/core";
@@ -37,6 +38,10 @@ interface FakeRuntimeOptions {
 class FakeRuntime implements AcpRuntime {
   #confirm: (message: string) => Promise<boolean> = async () => false;
   readonly invocations: HostInvocation[] = [];
+  readonly submissions: {
+    readonly input: string;
+    readonly images?: readonly ModelImageInput[];
+  }[] = [];
   cancelled = false;
   closed = 0;
 
@@ -58,8 +63,13 @@ class FakeRuntime implements AcpRuntime {
     this.closed += 1;
   }
 
-  async submit(_input: string, invocation: HostInvocation): Promise<RunResult> {
+  async submit(
+    input: string,
+    invocation: HostInvocation,
+    options?: { readonly images?: readonly ModelImageInput[] },
+  ): Promise<RunResult> {
     this.invocations.push(invocation);
+    this.submissions.push({ input, ...options });
     return this.options.run?.(this.events, this.#confirm) ?? runResult;
   }
 }
@@ -176,7 +186,7 @@ describe("Recurs ACP agent", () => {
         agentInfo: { name: "recurs", version: RECURS_VERSION },
         agentCapabilities: {
           loadSession: false,
-          promptCapabilities: {},
+          promptCapabilities: { image: true },
           sessionCapabilities: { close: {} },
         },
         authMethods: [],
@@ -277,6 +287,36 @@ describe("Recurs ACP agent", () => {
 
     expect(runtime?.cancelled).toBe(true);
     expect(runtime?.closed).toBe(1);
+  });
+
+  it("accepts bounded ACP image content and forwards normalized prompt data", async () => {
+    let runtime: FakeRuntime | undefined;
+    const app = createRecursAcpApp({
+      async createRuntime(_cwd, events) {
+        runtime = new FakeRuntime(events);
+        return runtime;
+      },
+    });
+
+    await testClient([], []).connectWith(app, async (client) => {
+      const created = await client.request(acp.methods.agent.session.new, {
+        cwd,
+        mcpServers: [],
+      });
+      await expect(client.request(acp.methods.agent.session.prompt, {
+        sessionId: created.sessionId,
+        prompt: [{
+          type: "image",
+          data: "iVBORw0KGgo=",
+          mimeType: "image/png",
+        }],
+      })).resolves.toEqual({ stopReason: "end_turn" });
+    });
+
+    expect(runtime?.submissions).toEqual([{
+      input: "Analyze the attached image input.",
+      images: [{ mediaType: "image/png", data: "iVBORw0KGgo=" }],
+    }]);
   });
 
   it("rejects unsupported roots, MCP servers, content, and closed sessions", async () => {

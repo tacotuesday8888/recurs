@@ -12,12 +12,13 @@ enum BrokerOpenAIChatCompletionsError: Error, Sendable, Equatable {
 
 enum BrokerOpenAIChatCompletionsInput: Sendable, Equatable {
   case message(role: BrokerOpenAIResponsesMessageRole, text: String)
+  case image(mediaType: String, data: Data)
   case toolUse(callID: String, name: String, argumentsJSON: Data)
   case toolResult(callID: String, output: String)
 }
 
 struct BrokerOpenAIChatCompletionsRequest: Sendable, Equatable {
-  static let maximumBodyByteCount = 4 * 1_024 * 1_024
+  static let maximumBodyByteCount = 8 * 1_024 * 1_024
   let model: String
   let input: [BrokerOpenAIChatCompletionsInput]
   let tools: [BrokerOpenAIResponsesFunctionTool]
@@ -55,6 +56,30 @@ struct BrokerOpenAIChatCompletionsRequest: Sendable, Equatable {
               ? BrokerOpenAIResponsesMessageRole.system.rawValue : role.rawValue,
             "content": text,
           ])
+        case .image(let mediaType, let data):
+          guard BrokerImageInput.valid(mediaType: mediaType, data: data),
+            !messages.isEmpty,
+            messages[messages.count - 1]["role"] as? String == "user"
+          else { throw BrokerOpenAIChatCompletionsError.invalidRequest }
+          var message = messages.removeLast()
+          let image: [String: Any] = [
+            "type": "image_url",
+            "image_url": [
+              "url": "data:\(mediaType);base64,\(data.base64EncodedString())",
+            ],
+          ]
+          if let text = message["content"] as? String {
+            message["content"] = [
+              ["type": "text", "text": text],
+              image,
+            ]
+          } else if var content = message["content"] as? [[String: Any]] {
+            content.append(image)
+            message["content"] = content
+          } else {
+            throw BrokerOpenAIChatCompletionsError.invalidRequest
+          }
+          messages.append(message)
         case .toolUse(let callID, let name, let argumentsJSON):
           guard validID(callID), BrokerOpenAIResponsesFunctionTool.validName(name) else {
             throw BrokerOpenAIChatCompletionsError.invalidRequest

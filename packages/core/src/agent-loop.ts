@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 
 import type {
   IntegrationFailure,
+  ModelImageInput,
   ProviderUsage,
   QueuedTurnSource,
   RunResult as CoordinatedRunResult,
   TrustedRunContext,
   TurnSteeringSource,
 } from "@recurs/contracts";
+import { modelImagesByteLength } from "@recurs/contracts";
 
 import {
   collectProviderEvents,
@@ -111,6 +113,7 @@ export interface RunInput {
   sessionId: string;
   turnId?: string;
   prompt: string;
+  images?: readonly ModelImageInput[];
   maxSteps?: number;
   signal?: AbortSignal;
   executionMode?: ExecutionMode;
@@ -761,6 +764,7 @@ function permissionEngineFor(
 function validateRunInput(input: RunInput): {
   maxSteps: number;
   prompt: string;
+  images?: readonly ModelImageInput[];
   signal: AbortSignal;
 } {
   const maxSteps = input.maxSteps ?? 40;
@@ -774,9 +778,23 @@ function validateRunInput(input: RunInput): {
   if (prompt.length === 0) {
     throw new AgentLoopError("invalid_run_input", "A prompt is required");
   }
+  if (
+    input.images !== undefined &&
+    modelImagesByteLength(input.images) === null
+  ) {
+    throw new AgentLoopError(
+      "invalid_run_input",
+      "Image input is invalid or exceeds the Recurs limit",
+    );
+  }
   const signal = input.signal ?? new AbortController().signal;
   throwIfAborted(signal);
-  return { maxSteps, prompt, signal };
+  return {
+    maxSteps,
+    prompt,
+    signal,
+    ...(input.images === undefined ? {} : { images: input.images }),
+  };
 }
 
 async function runAgentLoopUnlocked(
@@ -784,7 +802,13 @@ async function runAgentLoopUnlocked(
   input: RunInput,
   mutation: SessionMutationLease,
 ): Promise<RunResult> {
-  const { maxSteps, prompt, signal } = validateRunInput(input);
+  const { maxSteps, prompt, images, signal } = validateRunInput(input);
+  if (images !== undefined && !deps.provider.inputModalities?.includes("image")) {
+    throw new AgentLoopError(
+      "invalid_run_input",
+      "The selected provider adapter does not support image input",
+    );
+  }
   const loadedState = await deps.sessions.loadState(input.sessionId);
   if (!isPinnedSessionState(loadedState)) {
     throw new AgentLoopError(
@@ -1055,6 +1079,7 @@ async function runAgentLoopUnlocked(
     at: now(),
     turnId,
     prompt,
+    ...(images === undefined ? {} : { images }),
     ...(input.queuedInputId === undefined
       ? {}
       : { queuedInputId: input.queuedInputId }),

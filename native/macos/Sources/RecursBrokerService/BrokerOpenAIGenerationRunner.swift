@@ -22,9 +22,33 @@ enum BrokerOpenAIGenerationError: Error, Sendable, Equatable {
 
 enum BrokerOpenAIGenerationInput: Sendable, Equatable {
   case message(role: BrokerOpenAIResponsesMessageRole, text: String)
+  case image(mediaType: String, data: Data)
   case functionCall(callID: String, name: String, argumentsJSON: Data)
   case functionCallOutput(callID: String, output: String)
   case continuation(BrokerDirectContinuationHandle)
+}
+
+enum BrokerImageInput {
+  static let maximumTotalByteCount = 5 * 1_024 * 1_024
+
+  static func valid(mediaType: String, data: Data) -> Bool {
+    guard !data.isEmpty, data.count <= maximumTotalByteCount else { return false }
+    let bytes = [UInt8](data.prefix(12))
+    switch mediaType {
+    case "image/png":
+      return bytes.count >= 8 && bytes.prefix(8).elementsEqual(
+        [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
+      )
+    case "image/jpeg":
+      return bytes.count >= 3 && bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff
+    case "image/webp":
+      return bytes.count >= 12 &&
+        bytes[0..<4].elementsEqual([0x52, 0x49, 0x46, 0x46]) &&
+        bytes[8..<12].elementsEqual([0x57, 0x45, 0x42, 0x50])
+    default:
+      return false
+    }
+  }
 }
 
 struct BrokerOpenAIGenerationRequest: Sendable, Equatable {
@@ -260,6 +284,8 @@ struct BrokerOpenAIGenerationRunner<
       switch item {
       case .message(let role, let text):
         decoded.append(.message(role: role, text: text))
+      case .image(let mediaType, let data):
+        decoded.append(.image(mediaType: mediaType, data: data))
       case .functionCall(let callID, let name, let argumentsJSON):
         decoded.append(.functionCall(callID: callID, name: name, argumentsJSON: argumentsJSON))
       case .functionCallOutput(let callID, let output):

@@ -3,6 +3,21 @@ import type { RunAuthorization } from "./runtime.js";
 
 export type MessageRole = "system" | "user" | "assistant" | "tool";
 
+export const MODEL_IMAGE_MEDIA_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+] as const;
+export type ModelImageMediaType = typeof MODEL_IMAGE_MEDIA_TYPES[number];
+export const MAX_MODEL_IMAGES = 4;
+export const MAX_MODEL_IMAGE_TOTAL_BYTES = 5 * 1024 * 1024;
+
+export interface ModelImageInput {
+  readonly mediaType: ModelImageMediaType;
+  /** Canonical base64 without a data-URL prefix. */
+  readonly data: string;
+}
+
 export interface ToolCall {
   id: string;
   name: string;
@@ -13,6 +28,7 @@ export interface ModelMessage {
   id: string;
   role: MessageRole;
   content: string;
+  images?: readonly ModelImageInput[];
   toolCallId?: string;
   toolCalls?: ToolCall[];
 }
@@ -94,6 +110,8 @@ export type ProviderEvent =
 
 export interface ModelProvider {
   readonly id: string;
+  /** Wire-level input support. A selected model can still reject an image. */
+  readonly inputModalities?: readonly ("text" | "image")[];
   readonly harnessProfile?: ModelHarnessProfile;
   stream(request: ProviderRequest): AsyncIterable<ProviderEvent>;
   close?(): void | Promise<void>;

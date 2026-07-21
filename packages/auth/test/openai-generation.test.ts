@@ -73,6 +73,25 @@ function request(): ProviderRequest {
 }
 
 describe("native OpenAI generation wire request", () => {
+  it("encodes bounded user images as canonical native inputs", () => {
+    const decoder = new NativeFrameDecoder();
+    const [frame] = decoder.push(encodeOpenAIGenerationRequest(43, {
+      ...request(),
+      messages: [{
+        id: "user-image",
+        role: "user",
+        content: "Inspect this screenshot",
+        images: [{ mediaType: "image/png", data: "iVBORw0KGgo=" }],
+      }],
+    }));
+    decoder.finish();
+
+    expect(decodeOpenAIGenerationRequestBody(frame!).input).toEqual([
+      { kind: "message", role: "user", text: "Inspect this screenshot" },
+      { kind: "image", mediaType: "image/png", data: "iVBORw0KGgo=" },
+    ]);
+  });
+
   it("encodes the reviewed Anthropic adapter on the shared wire", () => {
     const decoder = new NativeFrameDecoder();
     const [frame] = decoder.push(

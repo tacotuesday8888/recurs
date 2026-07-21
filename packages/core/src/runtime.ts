@@ -5,6 +5,7 @@ import type {
 import type {
   HostInvocation,
   IntegrationFailure,
+  ModelImageInput,
   QueuedTurnSource,
   RunCoordinator,
   RunResult,
@@ -50,6 +51,7 @@ export class CoordinatedRuntime {
     steering?: TurnSteeringSource,
     queuedTurns?: QueuedTurnSource,
     queuedInputId?: string,
+    images?: readonly ModelImageInput[],
   ): Promise<RunResult> {
     if (this.#active) {
       throw new Error("An agent run is already active");
@@ -64,6 +66,7 @@ export class CoordinatedRuntime {
         sessionId: this.session.id,
         expectedSessionRecordSequence: this.session.lastSequence ?? 0,
         prompt: normalized,
+        ...(images === undefined ? {} : { images }),
         invocation,
         ...(executionMode === undefined ? {} : { executionMode }),
         ...(steering === undefined ? {} : { steering }),

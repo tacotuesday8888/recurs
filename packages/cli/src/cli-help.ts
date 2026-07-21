@@ -8,6 +8,7 @@ Usage:
   recurs run <prompt> --resume <session-id> [--format text|json|jsonl]
   recurs run -                   Read one bounded prompt from piped stdin
   recurs run <prompt> --stdin    Append bounded piped stdin to the prompt
+  recurs run <prompt> --image <path> [--image <path>]
   recurs acp                     Serve Recurs over ACP on stdio
   recurs setup local --url <loopback-url> --model <model-id>
   recurs setup byok --provider <id> --model <id> --key-env <ENV> [--billing strict|allow-additional] [--reasoning-effort none|low|medium|high|xhigh|max]
@@ -47,6 +48,7 @@ Usage:
   recurs run <prompt> [--format text|json|jsonl] [--permissions ask|approved|full]
                     [--mode economy|standard|balanced|performance|max]
                     [--connection <id>]
+                    [--image <path>] (repeat up to four times)
   recurs run <prompt> --resume <session-id> [--format text|json|jsonl]
   recurs run -
   recurs run <prompt> --stdin
@@ -54,6 +56,8 @@ Usage:
 Fresh runs create a new durable session. Resume retains the stored provider,
 working root, permissions, and operating mode. JSON writes one terminal object;
 JSONL streams normalized events. Stdin is bounded to 1 MiB of valid UTF-8.
+Explicit PNG, JPEG, and WebP inputs are bounded to five MiB total and require
+a direct provider adapter with image support.
 `,
   setup: `Configure a provider, model, permissions, and operating mode
 

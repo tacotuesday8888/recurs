@@ -5,8 +5,10 @@ import path from "node:path";
 import {
   getOperatingModePolicy,
   getAgentProfilePolicy,
+  isModelImageInput,
   MAX_PENDING_QUEUED_TURNS,
   MAX_QUEUED_TURN_BYTES,
+  modelImagesByteLength,
   narrowAgentPermissionMode,
   parseAgentProfileId,
   parseOperatingModeId,
@@ -320,11 +322,15 @@ function isModelMessage(value: unknown): boolean {
     hasExactKeys(
       value,
       ["id", "role", "content"],
-      ["toolCallId", "toolCalls", "providerStateHandle"],
+      ["images", "toolCallId", "toolCalls", "providerStateHandle"],
     ) && typeof value.id === "string" && value.id.length > 0 &&
     (value.role === "system" || value.role === "user" ||
       value.role === "assistant" || value.role === "tool") &&
     typeof value.content === "string" &&
+    (value.images === undefined ||
+      (Array.isArray(value.images) &&
+        value.images.every(isModelImageInput) &&
+        modelImagesByteLength(value.images) !== null)) &&
     (value.toolCallId === undefined || typeof value.toolCallId === "string") &&
     (value.toolCalls === undefined ||
       (Array.isArray(value.toolCalls) && value.toolCalls.every(isToolCall))) &&
@@ -334,12 +340,14 @@ function isModelMessage(value: unknown): boolean {
   }
   if (value.role === "tool") {
     return typeof value.toolCallId === "string" &&
-      value.toolCalls === undefined && value.providerStateHandle === undefined;
+      value.images === undefined && value.toolCalls === undefined &&
+      value.providerStateHandle === undefined;
   }
   if (value.role === "assistant") {
-    return value.toolCallId === undefined;
+    return value.images === undefined && value.toolCallId === undefined;
   }
-  return value.toolCallId === undefined && value.toolCalls === undefined &&
+  return (value.role === "user" || value.images === undefined) &&
+    value.toolCallId === undefined && value.toolCalls === undefined &&
     value.providerStateHandle === undefined;
 }
 
@@ -967,9 +975,17 @@ export function parseSessionRecordV2(
         ));
       break;
     case "turn_started":
-      valid = recordKeys(value, ["turnId", "prompt"], ["queuedInputId"]) &&
+      valid = recordKeys(
+        value,
+        ["turnId", "prompt"],
+        ["images", "queuedInputId"],
+      ) &&
         typeof value.turnId === "string" &&
         typeof value.prompt === "string" &&
+        (value.images === undefined ||
+          (Array.isArray(value.images) &&
+            value.images.every(isModelImageInput) &&
+            modelImagesByteLength(value.images) !== null)) &&
         (value.queuedInputId === undefined ||
           boundedNonEmptyString(value.queuedInputId, MAX_RUNTIME_ID_LENGTH));
       break;

@@ -2281,6 +2281,49 @@ describe("runCli", () => {
     ]);
   });
 
+  it("loads explicit image files and submits only normalized image data", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-run-image-"));
+    directories.push(root);
+    await writeFile(
+      path.join(root, "screen.bin"),
+      Buffer.from("iVBORw0KGgo=", "base64"),
+    );
+    let submission: unknown;
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+
+    const code = await runCli(
+      ["run", "Inspect this screenshot", "--image", "screen.bin"],
+      {
+        cwd: root,
+        stdout,
+        stderr,
+        async createRuntime() {
+          return {
+            async submit(_input: string, _invocation: HostInvocation, options: unknown) {
+              submission = options;
+              return {
+                finalText: "done",
+                stopReason: "complete",
+                usage: null,
+                changedFiles: [],
+                evidence: [],
+              };
+            },
+            async close() {},
+          } as unknown as RecursRuntime;
+        },
+      },
+    );
+
+    expect(code).toBe(0);
+    expect(submission).toEqual({
+      images: [{ mediaType: "image/png", data: "iVBORw0KGgo=" }],
+    });
+    expect(JSON.stringify(submission)).not.toContain(root);
+    expect(stderr.value).toBe("");
+  });
+
   it.each([
     ["empty", Readable.from([]), false, "empty"],
     ["invalid UTF-8", Readable.from([Buffer.from([0xff])]), false, "valid UTF-8"],

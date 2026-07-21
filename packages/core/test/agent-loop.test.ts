@@ -518,6 +518,64 @@ describe("AgentLoop", () => {
     expect(provider.requests).toHaveLength(1);
   });
 
+  it("persists bounded image inputs and reuses them across model steps", async () => {
+    const provider = new ScriptedProvider([[
+      {
+        type: "tool_call",
+        call: { id: "tool-1", name: "echo", arguments: { text: "inspect" } },
+      },
+      { type: "done", stopReason: "tool_calls" },
+    ], [
+      { type: "text_delta", text: "image inspected" },
+      { type: "done", stopReason: "complete" },
+    ]]);
+    const { loop, store } = await harness(provider, [echoTool()]);
+    const images = [{
+      mediaType: "image/png" as const,
+      data: "iVBORw0KGgo=",
+    }];
+
+    await expect(loop.run({
+      sessionId: "s1",
+      prompt: "Inspect this screenshot",
+      images,
+    })).resolves.toMatchObject({ finalText: "image inspected", steps: 2 });
+
+    for (const request of provider.requests) {
+      expect(request.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          role: "user",
+          content: "Inspect this screenshot",
+          images,
+        }),
+      ]));
+    }
+    expect((await store.loadState("s1")).messages[0]).toMatchObject({
+      role: "user",
+      images,
+    });
+  });
+
+  it("rejects image input before persistence for a text-only adapter", async () => {
+    const requests: ProviderRequest[] = [];
+    const provider: ModelProvider = {
+      id: "text-only",
+      async *stream(request) {
+        requests.push(request);
+        yield { type: "done", stopReason: "complete" };
+      },
+    };
+    const { loop, store } = await harness(provider);
+
+    await expect(loop.run({
+      sessionId: "s1",
+      prompt: "Inspect this screenshot",
+      images: [{ mediaType: "image/png", data: "iVBORw0KGgo=" }],
+    })).rejects.toMatchObject({ code: "invalid_run_input" });
+    expect(requests).toEqual([]);
+    expect((await store.loadState("s1")).messages).toEqual([]);
+  });
+
   it("durably applies steering accepted while the provider is completing", async () => {
     let releaseFirst!: () => void;
     let markStarted!: () => void;

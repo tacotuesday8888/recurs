@@ -5,6 +5,30 @@ import Testing
 
 struct BrokerAnthropicMessagesTests {
   @Test
+  func requestEncodesValidatedImagesAsBase64SourceBlocks() throws {
+    let png = Data([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    let request = try BrokerAnthropicMessagesRequest(
+      model: "claude-test",
+      input: [
+        .message(role: .user, text: "Inspect this screenshot"),
+        .image(mediaType: "image/png", data: png),
+      ],
+      tools: [],
+      maxOutputTokens: 16
+    )
+    let body = try #require(
+      JSONSerialization.jsonObject(with: request.encodedBody()) as? [String: Any]
+    )
+    let messages = try #require(body["messages"] as? [[String: Any]])
+    let content = try #require(messages[0]["content"] as? [[String: Any]])
+    #expect(content[0]["type"] as? String == "text")
+    #expect(content[1]["type"] as? String == "image")
+    let source = try #require(content[1]["source"] as? [String: Any])
+    #expect(source["media_type"] as? String == "image/png")
+    #expect(source["data"] as? String == png.base64EncodedString())
+  }
+
+  @Test
   func requestEncodesSystemMessagesToolsAndToolResultsExactly() throws {
     let request = try BrokerAnthropicMessagesRequest(
       model: "claude-opus-4-6",

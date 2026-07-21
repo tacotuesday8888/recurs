@@ -3,12 +3,14 @@ import { isDeepStrictEqual } from "node:util";
 
 import {
   deriveTrustedRunContext,
+  modelImagesByteLength,
   type AgentRuntime,
   type BackendResolver,
   type ConnectionBoundModelProvider,
   type CoordinatedRun,
   type CoordinatedRunInput,
   type IntegrationFailure,
+  type ModelImageInput,
   type ModelProvider,
   type ResolvedBackend,
   type RunAuthorization,
@@ -44,6 +46,7 @@ export interface DirectRunExecutorInput {
   session: PinnedSessionState;
   turnId: string;
   prompt: string;
+  images?: readonly ModelImageInput[];
   executionMode: "act" | "plan";
   provider: ModelProvider;
   authorization: RunAuthorization;
@@ -571,6 +574,19 @@ export class BackendRunCoordinator implements RunCoordinator {
       } as const;
     }
     const operationId = this.#createId();
+    if (
+      input.images !== undefined &&
+      modelImagesByteLength(input.images) === null
+    ) {
+      return {
+        ok: false,
+        failure: failure(
+          "connection_invalid",
+          "Image input is invalid or exceeds the Recurs limit",
+          operationId,
+        ),
+      } as const;
+    }
     const liveTurnIds = [input.steering?.turnId, input.queuedTurns?.turnId]
       .filter((id): id is string => id !== undefined);
     if (new Set(liveTurnIds).size > 1) {
@@ -690,11 +706,25 @@ export class BackendRunCoordinator implements RunCoordinator {
             if (identityFailure !== null) {
               return { ok: false, failure: identityFailure } as const;
             }
+            if (
+              input.images !== undefined &&
+              !provider.inputModalities?.includes("image")
+            ) {
+              return {
+                ok: false,
+                failure: failure(
+                  "model_incompatible",
+                  "The selected provider adapter does not support image input",
+                  operationId,
+                ),
+              } as const;
+            }
             executionStarted = true;
             const result = await this.dependencies.direct.run({
               session,
               turnId,
               prompt,
+              ...(input.images === undefined ? {} : { images: input.images }),
               executionMode: input.executionMode ?? session.executionMode,
               provider,
               authorization: resolved.authorization,
@@ -710,6 +740,16 @@ export class BackendRunCoordinator implements RunCoordinator {
               signal: input.signal,
             });
             return { ok: true, result } as const;
+          }
+          if (input.images !== undefined) {
+            return {
+              ok: false,
+              failure: runtimeFailure(
+                "runtime_capability_missing",
+                "The selected delegated runtime does not support Recurs image input",
+                operationId,
+              ),
+            } as const;
           }
           if (this.dependencies.delegated === undefined) {
             return {

@@ -23,6 +23,7 @@ import {
 import {
   createHostInvocation,
   type HostInvocation,
+  type ModelImageInput,
   type RunCoordinator,
   type RunResult,
 } from "@recurs/contracts";
@@ -71,6 +72,10 @@ export interface RuntimeDependencies {
   providerGuide?(query: string, signal: AbortSignal): Promise<string>;
   processes?: Pick<OwnedProcessManager, "interact">;
   dispose?(): Promise<void>;
+}
+
+export interface RuntimeSubmissionOptions {
+  readonly images?: readonly ModelImageInput[];
 }
 
 const MAX_CONFIRMATION_TEXT_LENGTH = 8_192;
@@ -584,6 +589,7 @@ export class RecursRuntime {
     invocation: HostInvocation = untrustedProgrammaticInvocation(),
     queuedInputId?: string,
     resumePersistedQueue = false,
+    images?: readonly ModelImageInput[],
   ): Promise<RunResult> {
     if (this.#activeController !== null) {
       throw new RuntimeError("busy", "An agent run is already active");
@@ -610,6 +616,7 @@ export class RecursRuntime {
     let nextInvocation = invocation;
     let nextQueuedInputId = queuedInputId;
     let nextExecutionMode = executionMode;
+    let nextImages = images;
     let result: RunResult | undefined;
     const resumeAllPersisted = resumePersistedQueue || queuedInputId !== undefined;
     try {
@@ -635,6 +642,7 @@ export class RecursRuntime {
             steering ?? undefined,
             queuedTurns ?? undefined,
             nextQueuedInputId,
+            nextImages,
           );
           this.#session = this.#runner.session;
         } finally {
@@ -645,6 +653,7 @@ export class RecursRuntime {
             this.#activeQueuedTurns = null;
           }
         }
+        nextImages = undefined;
 
         const queued = isPinnedSessionState(this.#session)
           ? this.#session.queuedTurns[0]
@@ -686,6 +695,7 @@ export class RecursRuntime {
   async submit(
     input: string,
     invocation: HostInvocation = untrustedProgrammaticInvocation(),
+    options: RuntimeSubmissionOptions = {},
   ): Promise<CommandResult | RunResult> {
     if (this.#closed) {
       throw new RuntimeError("busy", "Runtime is closed");
@@ -696,6 +706,12 @@ export class RecursRuntime {
     }
     const parsed = parseCommand(trimmed);
     if (parsed !== null) {
+      if (options.images !== undefined) {
+        throw new RuntimeError(
+          "invalid_input",
+          "Image input can accompany an agent prompt, not a slash command",
+        );
+      }
       if (this.#workspace !== null) {
         return this.#submitWorkspaceCommand(parsed.name, parsed.args, invocation);
       }
@@ -775,6 +791,12 @@ export class RecursRuntime {
       );
     }
     if (this.#activeController !== null) {
+      if (options.images !== undefined) {
+        throw new RuntimeError(
+          "invalid_input",
+          "Image input cannot be queued as same-turn steering",
+        );
+      }
       const steering = this.#activeSteering;
       if (steering === null) {
         throw new RuntimeError(
@@ -808,7 +830,14 @@ export class RecursRuntime {
         text: `Steering queued for turn ${steering.turnId} (${enqueued.pending}/${MAX_PENDING_STEERING_INPUTS})`,
       };
     }
-    return this.#runPrompt(trimmed, undefined, invocation);
+    return this.#runPrompt(
+      trimmed,
+      undefined,
+      invocation,
+      undefined,
+      false,
+      options.images,
+    );
   }
 }
 

@@ -150,6 +150,8 @@ struct BrokerAnthropicGenerationRunner<
       switch item {
       case .message(let role, let text):
         decoded.append(.message(role: role, text: text))
+      case .image(let mediaType, let data):
+        decoded.append(.image(mediaType: mediaType, data: data))
       case .functionCall(let callID, let name, let argumentsJSON):
         decoded.append(.toolUse(callID: callID, name: name, argumentsJSON: argumentsJSON))
       case .functionCallOutput(let callID, let output):

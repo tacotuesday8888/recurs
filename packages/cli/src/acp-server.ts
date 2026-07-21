@@ -6,13 +6,16 @@ import * as acp from "@agentclientprotocol/sdk";
 import {
   RECURS_VERSION,
   createHostInvocation,
+  modelImagesByteLength,
   type HostInvocation,
+  type ModelImageInput,
   type RunResult,
 } from "@recurs/contracts";
 import type { EventSink, RecursEvent } from "@recurs/core";
 
 import type { CommandResult } from "./commands/types.js";
 import { isCancellation } from "./runtime.js";
+import { normalizeInlineImage } from "./image-input.js";
 
 const MAX_PROMPT_BYTES = 256 * 1024;
 const MAX_EVENT_TEXT_BYTES = 64 * 1024;
@@ -29,6 +32,7 @@ export interface AcpRuntime {
   submit(
     input: string,
     invocation: HostInvocation,
+    options?: { readonly images?: readonly ModelImageInput[] },
   ): Promise<CommandResult | RunResult>;
   cancel(): boolean;
   setConfirmHandler(confirm: (message: string) => Promise<boolean>): void;
@@ -359,18 +363,47 @@ class AcpEventBridge implements EventSink {
   }
 }
 
-function promptText(prompt: readonly acp.ContentBlock[]): string {
-  const parts = prompt.map((block) => {
-    if (block.type === "text") return block.text;
+function promptContent(prompt: readonly acp.ContentBlock[]): {
+  readonly text: string;
+  readonly images?: readonly ModelImageInput[];
+} {
+  const parts: string[] = [];
+  const images: ModelImageInput[] = [];
+  for (const block of prompt) {
+    if (block.type === "text") {
+      parts.push(block.text);
+      continue;
+    }
     if (block.type === "resource_link") {
-      return `[Referenced resource: ${block.name} (${block.uri})]`;
+      parts.push(`[Referenced resource: ${block.name} (${block.uri})]`);
+      continue;
+    }
+    if (block.type === "image") {
+      try {
+        images.push(normalizeInlineImage(block.data, block.mimeType));
+      } catch {
+        throw acp.RequestError.invalidParams(
+          { contentType: block.type },
+          "Recurs requires bounded PNG, JPEG, or WebP image data",
+        );
+      }
+      continue;
     }
     throw acp.RequestError.invalidParams(
       { contentType: block.type },
       `Recurs does not support ${block.type} prompt content`,
     );
-  });
-  const text = parts.join("\n\n").trim();
+  }
+  if (images.length > 0 && modelImagesByteLength(images) === null) {
+    throw acp.RequestError.invalidParams(
+      { contentType: "image" },
+      "Image input exceeds the Recurs count or size limit",
+    );
+  }
+  const joined = parts.join("\n\n").trim();
+  const text = joined.length === 0 && images.length > 0
+    ? "Analyze the attached image input."
+    : joined;
   if (text.length === 0) {
     throw acp.RequestError.invalidParams(undefined, "Prompt cannot be empty");
   }
@@ -380,7 +413,10 @@ function promptText(prompt: readonly acp.ContentBlock[]): string {
       "Prompt is too large",
     );
   }
-  return text;
+  return {
+    text,
+    ...(images.length === 0 ? {} : { images: Object.freeze(images) }),
+  };
 }
 
 function isRunResult(result: CommandResult | RunResult): result is RunResult {
@@ -420,7 +456,7 @@ export function createRecursAcpApp(
       agentInfo: { name: "recurs", version: RECURS_VERSION },
       agentCapabilities: {
         loadSession: false,
-        promptCapabilities: {},
+        promptCapabilities: { image: true },
         sessionCapabilities: { close: {} },
       },
       authMethods: [],
@@ -473,7 +509,7 @@ export function createRecursAcpApp(
           "A prompt is already active for this session",
         );
       }
-      const text = promptText(context.params.prompt);
+      const prompt = promptContent(context.params.prompt);
       current.active = true;
       current.cancellationRequested = false;
       current.bridge.beginPrompt();
@@ -485,7 +521,11 @@ export function createRecursAcpApp(
       if (context.signal.aborted) abort();
       try {
         if (current.cancellationRequested) return { stopReason: "cancelled" };
-        const result = await current.runtime.submit(text, ACP_INVOCATION);
+        const result = await current.runtime.submit(
+          prompt.text,
+          ACP_INVOCATION,
+          prompt.images === undefined ? {} : { images: prompt.images },
+        );
         if (current.cancellationRequested) return { stopReason: "cancelled" };
         if (isRunResult(result)) {
           if (!current.bridge.sawAgentText && result.finalText.length > 0) {

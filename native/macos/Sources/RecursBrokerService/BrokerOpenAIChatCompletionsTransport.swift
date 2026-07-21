@@ -202,6 +202,7 @@ struct BrokerOpenAIChatGenerationBridge<Transport: BrokerOpenAIChatGenerationTra
     let input = request.input.map { item -> BrokerOpenAIChatCompletionsInput in
       switch item {
       case .message(let role, let text): .message(role: role, text: text)
+      case .image(let mediaType, let data): .image(mediaType: mediaType, data: data)
       case .toolUse(let callID, let name, let argumentsJSON):
         .toolUse(callID: callID, name: name, argumentsJSON: argumentsJSON)
       case .toolResult(let callID, let output): .toolResult(callID: callID, output: output)

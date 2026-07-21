@@ -28,6 +28,7 @@ export class AgentLoopDirectExecutor implements DirectRunExecutor {
         sessionId: input.session.id,
         turnId: input.turnId,
         prompt: input.prompt,
+        ...(input.images === undefined ? {} : { images: input.images }),
         executionMode: input.executionMode,
         context: input.context,
         ...(input.steering === undefined ? {} : { steering: input.steering }),

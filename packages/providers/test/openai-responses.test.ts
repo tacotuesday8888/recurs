@@ -297,6 +297,38 @@ async function collect(provider: RemoteOpenAIResponsesProvider, input: ProviderR
 }
 
 describe("RemoteOpenAIResponsesProvider", () => {
+  it("encodes bounded images as Responses content parts", async () => {
+    let body: Record<string, unknown> = {};
+    const provider = new RemoteOpenAIResponsesProvider({
+      connectionId: "openai-env",
+      apiKey: "private-key",
+      fetch: async (_input, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return textCompletion();
+      },
+    });
+
+    await collect(provider, request("turn-image", [{
+      id: "user",
+      role: "user",
+      content: "Inspect this screenshot",
+      images: [{ mediaType: "image/png", data: "iVBORw0KGgo=" }],
+    }]));
+
+    expect(body.input).toEqual([{
+      type: "message",
+      role: "user",
+      content: [
+        { type: "input_text", text: "Inspect this screenshot" },
+        {
+          type: "input_image",
+          image_url: "data:image/png;base64,iVBORw0KGgo=",
+        },
+      ],
+    }]);
+    expect(provider.inputModalities).toEqual(["text", "image"]);
+  });
+
   it("uses the fixed OpenAI origin and a stateless Responses request", async () => {
     const key = "private-openai-key-canary";
     let url = "";

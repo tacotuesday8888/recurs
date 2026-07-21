@@ -9,6 +9,7 @@ import {
   type AgentRuntime,
   type BackendResolver,
   type IntegrationFailure,
+  type ModelImageInput,
   type ModelProvider,
   type RunResult as CoordinatedRunResult,
   type RuntimeContinuationAuthority,
@@ -70,6 +71,11 @@ const result: CoordinatedRunResult = {
   changedFilesSource: "host_tools",
   evidence: [],
   evidenceSource: "none",
+};
+
+const image: ModelImageInput = {
+  mediaType: "image/png",
+  data: "iVBORw0KGgo=",
 };
 
 const invocation = createHostInvocation({
@@ -254,6 +260,50 @@ describe("BackendRunCoordinator", () => {
 
     await expect(run.outcome).resolves.toEqual({ ok: false, failure });
     expect(executor.run).not.toHaveBeenCalled();
+    expect((await sessions.load("s2")).records).toHaveLength(1);
+  });
+
+  it("rejects images before persistence when the direct adapter is text-only", async () => {
+    const { sessions } = await setup();
+    const createProvider = vi.fn(async () => ({
+      id: pin.providerId,
+      adapterId: pin.adapterId,
+      connectionId: pin.connectionId,
+      inputModalities: ["text"] as const,
+      async *stream() {
+        yield { type: "done", stopReason: "complete" } as const;
+      },
+    } satisfies ModelProvider));
+    const resolver: BackendResolver = {
+      async resolve(input) {
+        return {
+          kind: "direct",
+          pin,
+          authorization: authorizationFor(input, pin),
+          createProvider,
+        };
+      },
+    };
+    const direct: DirectRunExecutor = {
+      run: vi.fn(async () => result),
+    };
+    const coordinator = new BackendRunCoordinator({ sessions, resolver, direct });
+
+    const outcome = (await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 0,
+      prompt: "inspect",
+      images: [image],
+      invocation,
+      signal: new AbortController().signal,
+    })).outcome;
+
+    await expect(outcome).resolves.toMatchObject({
+      ok: false,
+      failure: { phase: "preflight", code: "model_incompatible" },
+    });
+    expect(createProvider).toHaveBeenCalledOnce();
+    expect(direct.run).not.toHaveBeenCalled();
     expect((await sessions.load("s2")).records).toHaveLength(1);
   });
 
@@ -743,6 +793,47 @@ describe("BackendRunCoordinator", () => {
     expect(createRuntime).toHaveBeenCalledOnce();
     expect(direct.run).not.toHaveBeenCalled();
     expect(delegated.run).toHaveBeenCalledOnce();
+  });
+
+  it("rejects images before constructing an opaque delegated runtime", async () => {
+    const { sessions } = await setup(delegatedPin);
+    const createRuntime = vi.fn(async () => runtimeFor());
+    const resolver: BackendResolver = {
+      async resolve(input) {
+        return {
+          kind: "delegated",
+          pin: delegatedPin,
+          authorization: authorizationFor(input, delegatedPin),
+          createRuntime,
+        };
+      },
+    };
+    const delegated: DelegatedRunExecutor = {
+      run: vi.fn(async () => result),
+    };
+    const coordinator = new BackendRunCoordinator({
+      sessions,
+      resolver,
+      direct: { async run() { return result; } },
+      delegated,
+    });
+
+    const outcome = (await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 0,
+      prompt: "inspect",
+      images: [image],
+      invocation,
+      signal: new AbortController().signal,
+    })).outcome;
+
+    await expect(outcome).resolves.toMatchObject({
+      ok: false,
+      failure: { phase: "preflight", code: "runtime_capability_missing" },
+    });
+    expect(createRuntime).not.toHaveBeenCalled();
+    expect(delegated.run).not.toHaveBeenCalled();
+    expect((await sessions.load("s2")).records).toHaveLength(1);
   });
 
   it("rejects a delegated resolution for a direct pin before its factory", async () => {

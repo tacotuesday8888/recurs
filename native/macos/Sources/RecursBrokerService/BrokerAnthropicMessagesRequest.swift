@@ -16,6 +16,7 @@ enum BrokerAnthropicMessagesError: Error, Sendable, Equatable {
 
 enum BrokerAnthropicMessagesInput: Sendable, Equatable {
   case message(role: BrokerOpenAIResponsesMessageRole, text: String)
+  case image(mediaType: String, data: Data)
   case toolUse(callID: String, name: String, argumentsJSON: Data)
   case toolResult(callID: String, output: String)
 }
@@ -48,7 +49,7 @@ struct BrokerAnthropicMessagesTool: Sendable, Equatable {
 }
 
 struct BrokerAnthropicMessagesRequest: Sendable, Equatable {
-  static let maximumBodyByteCount = 4 * 1_024 * 1_024
+  static let maximumBodyByteCount = 8 * 1_024 * 1_024
   static let maximumInputCount = 1_024
   static let maximumToolCount = 128
 
@@ -94,6 +95,23 @@ struct BrokerAnthropicMessagesRequest: Sendable, Equatable {
           try Self.append(
             role: role == .user ? "user" : "assistant",
             block: ["type": "text", "text": text],
+            to: &messages
+          )
+        case .image(let mediaType, let data):
+          guard BrokerImageInput.valid(mediaType: mediaType, data: data),
+            messages.last?["role"] as? String == "user"
+          else { throw BrokerAnthropicMessagesError.invalidRequest }
+          sawConversation = true
+          try Self.append(
+            role: "user",
+            block: [
+              "type": "image",
+              "source": [
+                "type": "base64",
+                "media_type": mediaType,
+                "data": data.base64EncodedString(),
+              ],
+            ],
             to: &messages
           )
         case .toolUse(let callID, let name, let argumentsJSON):

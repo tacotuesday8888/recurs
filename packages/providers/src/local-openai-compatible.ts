@@ -10,10 +10,16 @@ import { ProviderError } from "./types.js";
 import { COMPATIBLE_TOOL_USE_PROFILE } from "./harness-profile.js";
 import { environmentByokManifest } from "./environment-provider-policy.js";
 import { retryAfterOptions } from "./retry-after.js";
+import {
+  imageDataUrl,
+  validatedMessageImages,
+  validateRequestImageBudget,
+} from "./model-images.js";
 
 const URL_ERROR =
   "Local model URL must be plain HTTP on literal 127.0.0.1 or [::1]";
 const MAX_CATALOG_BYTES = 2 * 1024 * 1024;
+const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 const MAX_STREAM_BYTES = 16 * 1024 * 1024;
 
 type Fetch = typeof globalThis.fetch;
@@ -158,24 +164,41 @@ function stopReason(value: unknown, hasTools: boolean): "complete" | "tool_calls
 }
 
 function requestBody(request: ProviderRequest): Record<string, unknown> {
+  validateRequestImageBudget(request.messages);
   return {
     model: request.model,
     stream: true,
     stream_options: { include_usage: true },
-    messages: request.messages.map((message) => ({
-      role: message.role,
-      content: message.content,
-      ...(message.toolCallId === undefined ? {} : { tool_call_id: message.toolCallId }),
-      ...(message.toolCalls === undefined
-        ? {}
-        : {
-            tool_calls: message.toolCalls.map((call) => ({
-              id: call.id,
-              type: "function",
-              function: { name: call.name, arguments: JSON.stringify(call.arguments) },
-            })),
-          }),
-    })),
+    messages: request.messages.map((message) => {
+      const images = validatedMessageImages(message);
+      return {
+        role: message.role,
+        content: images.length === 0
+          ? message.content
+          : [
+              { type: "text", text: message.content },
+              ...images.map((image) => ({
+                type: "image_url",
+                image_url: { url: imageDataUrl(image) },
+              })),
+            ],
+        ...(message.toolCallId === undefined
+          ? {}
+          : { tool_call_id: message.toolCallId }),
+        ...(message.toolCalls === undefined
+          ? {}
+          : {
+              tool_calls: message.toolCalls.map((call) => ({
+                id: call.id,
+                type: "function",
+                function: {
+                  name: call.name,
+                  arguments: JSON.stringify(call.arguments),
+                },
+              })),
+            }),
+      };
+    }),
     tools: request.tools.map((tool) => ({
       type: "function",
       function: {
@@ -247,6 +270,10 @@ async function* streamChatCompletions(
   options: ChatCompletionStreamOptions,
 ): AsyncIterable<ProviderEvent> {
   const { request } = options;
+  const body = JSON.stringify(requestBody(request));
+  if (new TextEncoder().encode(body).byteLength > MAX_REQUEST_BYTES) {
+    throw new ProviderError("context_overflow", "Provider request was too large", false);
+  }
   let response: Response;
   try {
     response = await options.fetch(`${options.baseUrl}/chat/completions`, {
@@ -258,7 +285,7 @@ async function* streamChatCompletions(
         accept: "text/event-stream",
         ...options.headers,
       },
-      body: JSON.stringify(requestBody(request)),
+      body,
     });
   } catch {
     throw requestFailure(request.signal, options.local);
@@ -400,6 +427,7 @@ async function* streamChatCompletions(
 export class LocalOpenAICompatibleProvider implements ConnectionBoundModelProvider {
   readonly id = "local-openai-compatible";
   readonly adapterId = "openai-chat-completions";
+  readonly inputModalities = ["text", "image"] as const;
   readonly harnessProfile = COMPATIBLE_TOOL_USE_PROFILE;
   readonly connectionId: string;
   readonly #baseUrl: string;
@@ -464,6 +492,7 @@ export class RemoteOpenAICompatibleProvider
   implements ConnectionBoundModelProvider {
   readonly id: string;
   readonly adapterId = "openai-chat-completions";
+  readonly inputModalities = ["text", "image"] as const;
   readonly harnessProfile = COMPATIBLE_TOOL_USE_PROFILE;
   readonly connectionId: string;
   readonly #baseUrl: string;
