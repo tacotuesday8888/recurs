@@ -465,24 +465,44 @@ describe("standalone assembly without a provider", () => {
     });
   });
 
-  it("runs through an explicit cross-platform environment BYOK provider", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "recurs-environment-assembly-"));
+  it.each([
+    {
+      providerId: "openrouter-api",
+      modelId: "provider/model",
+      primaryBillingSource: "prepaid_credits",
+      endpoint: "https://openrouter.ai/api/v1/chat/completions",
+    },
+    {
+      providerId: "xai-api",
+      modelId: "grok-code-fast",
+      primaryBillingSource: "metered_api",
+      endpoint: "https://api.x.ai/v1/chat/completions",
+    },
+  ] as const)("runs through the explicit $providerId environment BYOK provider", async ({
+    providerId,
+    modelId,
+    primaryBillingSource,
+    endpoint,
+  }) => {
+    const root = await mkdtemp(path.join(tmpdir(), `recurs-${providerId}-assembly-`));
     directories.push(root);
     const workspace = path.join(root, "workspace");
     await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
     const key = "environment-key-canary";
     let authorization = "";
+    let requestUrl = "";
     const runtime = await createStandaloneRuntime(
       { async emit() {} },
       {
         cwd: workspace,
         dataDirectory: path.join(root, "data"),
         environment: {
-          RECURS_PROVIDER: "openrouter-api",
-          RECURS_MODEL: "provider/model",
+          RECURS_PROVIDER: providerId,
+          RECURS_MODEL: modelId,
           RECURS_API_KEY: key,
         },
-        environmentFetch: async (_input, init) => {
+        environmentFetch: async (input, init) => {
+          requestUrl = String(input);
           authorization = new Headers(init?.headers).get("authorization") ?? "";
           return new Response([
             'data: {"choices":[{"delta":{"content":"ready"},"finish_reason":"stop"}]}',
@@ -495,11 +515,11 @@ describe("standalone assembly without a provider", () => {
     );
 
     expect(runtime.session.backend.pin).toMatchObject({
-      providerId: "openrouter-api",
+      providerId,
       adapterId: "openai-chat-completions",
-      connectionId: "environment:openrouter-api",
-      modelId: "provider/model",
-      primaryBillingSourceAtCreation: "prepaid_credits",
+      connectionId: `environment:${providerId}`,
+      modelId,
+      primaryBillingSourceAtCreation: primaryBillingSource,
       accountSubjectFingerprint: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
     });
     expect(JSON.stringify(runtime.session)).not.toContain(key);
@@ -507,6 +527,7 @@ describe("standalone assembly without a provider", () => {
     const result = await runtime.submit("Respond when ready");
 
     expect(result).toMatchObject({ finalText: "ready" });
+    expect(requestUrl).toBe(endpoint);
     expect(authorization).toBe(`Bearer ${key}`);
     expect(JSON.stringify(runtime.session)).not.toContain(key);
   });

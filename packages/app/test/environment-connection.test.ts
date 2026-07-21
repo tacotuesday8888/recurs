@@ -14,7 +14,7 @@ import {
 } from "../src/index.js";
 
 const roots: string[] = [];
-const AT = "2026-07-19T00:00:00.000Z";
+const AT = "2026-07-21T12:00:00.000Z";
 
 function anthropicModels(...ids: string[]): Response {
   return new Response(JSON.stringify({
@@ -51,6 +51,12 @@ function openAIModelsWithoutLimits(...ids: string[]): Response {
   }));
 }
 
+function xaiModels(...ids: string[]): Response {
+  return new Response(JSON.stringify({
+    models: ids.map((id) => ({ id, object: "model", owned_by: "xai" })),
+  }));
+}
+
 function geminiModels(...ids: string[]): Response {
   return new Response(JSON.stringify({
     models: ids.map((id) => ({
@@ -84,6 +90,12 @@ describe("saved environment BYOK connections", () => {
     expect(entries.find((entry) => entry.id === "openrouter-api"))
       .toMatchObject({
         status: "runnable_byok",
+        connectionOwner: "process_environment",
+      });
+    expect(entries.find((entry) => entry.id === "xai-api"))
+      .toMatchObject({
+        status: "runnable_byok",
+        protocol: "openai_chat",
         connectionOwner: "process_environment",
       });
     expect(entries.find((entry) => entry.id === "kimi-code"))
@@ -256,6 +268,41 @@ describe("saved environment BYOK connections", () => {
     });
   });
 
+  it("persists a verified xAI model binding without persisting its credential", async () => {
+    const directory = await root();
+    const key = "xai-private-value";
+    const configured = await setupEnvironmentConnection(directory, {
+      providerId: "xai-api",
+      modelId: "grok-code-fast",
+      credentialEnvironmentVariable: "XAI_API_KEY",
+      billingSelection: "strict_primary_only",
+      environment: { XAI_API_KEY: key },
+      now: AT,
+    }, {
+      fetch: async () => xaiModels("grok-code-fast"),
+    });
+
+    expect(configured).toMatchObject({
+      providerId: "xai-api",
+      modelId: "grok-code-fast",
+      credentialEnvironmentVariable: "XAI_API_KEY",
+      primary: true,
+    });
+    expect(configured.modelLimits).toBeUndefined();
+    const storedText = await readFile(connectionRegistryPath(directory), "utf8");
+    expect(storedText).not.toContain(key);
+    expect(storedText).toContain("XAI_API_KEY");
+    expect((await new FileConnectionRegistry(directory).read()).connections)
+      .toEqual([
+        expect.objectContaining({
+          kind: "environment_model_provider",
+          providerId: "xai-api",
+          adapterId: "openai-chat-completions",
+          modelId: "grok-code-fast",
+        }),
+      ]);
+  });
+
   it("persists an Anthropic Messages adapter without persisting its credential", async () => {
     const directory = await root();
     const key = "anthropic-private-value";
@@ -386,7 +433,7 @@ describe("saved environment BYOK connections", () => {
       credentialEnvironmentVariable: "DEEPSEEK_API_KEY",
       billingSelection: "strict_primary_only",
       environment: { DEEPSEEK_API_KEY: "second-private-value" },
-      now: "2026-07-19T00:01:00.000Z",
+      now: "2026-07-21T12:01:00.000Z",
     }, {
       fetch: async () => openAIModels("deepseek-reasoner"),
     });

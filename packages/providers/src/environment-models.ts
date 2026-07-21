@@ -29,7 +29,8 @@ export interface EnvironmentModelDescriptor {
 type ModelDiscoveryProfile =
   | { readonly kind: "anthropic"; readonly origin: string }
   | { readonly kind: "gemini"; readonly origin: string }
-  | { readonly kind: "openai"; readonly origin: string };
+  | { readonly kind: "openai"; readonly origin: string }
+  | { readonly kind: "xai"; readonly origin: string };
 
 const OPENAI_MODEL_DISCOVERY_ORIGINS: Readonly<Record<string, string>> =
   Object.freeze({
@@ -70,17 +71,24 @@ function discoveryProfile(providerId: string): ModelDiscoveryProfile | null {
     return { kind: "gemini", origin: origin.value };
   }
   if (
-    manifest?.protocol !== "anthropic_messages" ||
-    origin?.value !== "https://api.anthropic.com/v1"
+    manifest?.id === "xai-api" &&
+    manifest.protocol === "openai_chat" &&
+    origin?.value === "https://api.x.ai/v1"
   ) {
-    const reviewedOrigin = OPENAI_MODEL_DISCOVERY_ORIGINS[providerId];
-    return (manifest?.protocol === "openai_chat" ||
-        manifest?.protocol === "openai_responses") &&
-        reviewedOrigin !== undefined && origin?.value === reviewedOrigin
-      ? { kind: "openai", origin: reviewedOrigin }
-      : null;
+    return { kind: "xai", origin: origin.value };
   }
-  return { kind: "anthropic", origin: origin.value };
+  if (
+    manifest?.protocol === "anthropic_messages" &&
+    origin?.value === "https://api.anthropic.com/v1"
+  ) {
+    return { kind: "anthropic", origin: origin.value };
+  }
+  const reviewedOrigin = OPENAI_MODEL_DISCOVERY_ORIGINS[providerId];
+  return (manifest?.protocol === "openai_chat" ||
+      manifest?.protocol === "openai_responses") &&
+      reviewedOrigin !== undefined && origin?.value === reviewedOrigin
+    ? { kind: "openai", origin: reviewedOrigin }
+    : null;
 }
 
 export function hasEnvironmentProviderModelDiscovery(
@@ -270,6 +278,21 @@ function openAICollection(value: unknown): readonly EnvironmentModelDescriptor[]
     throw new ProviderError("invalid_response", "Provider model catalog was invalid", false);
   }
   const models = value.data.map(openAIModel);
+  if (new Set(models.map((model) => model.id)).size !== models.length) {
+    throw new ProviderError("invalid_response", "Provider model catalog was invalid", false);
+  }
+  return Object.freeze(models);
+}
+
+function xaiCollection(value: unknown): readonly EnvironmentModelDescriptor[] {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.models) ||
+    value.models.length > MAX_MODELS
+  ) {
+    throw new ProviderError("invalid_response", "Provider model catalog was invalid", false);
+  }
+  const models = value.models.map(openAIModel);
   if (new Set(models.map((model) => model.id)).size !== models.length) {
     throw new ProviderError("invalid_response", "Provider model catalog was invalid", false);
   }
@@ -494,6 +517,24 @@ export async function listEnvironmentProviderModels(
         bounded,
       );
       return openAICollection(decoded);
+    } finally {
+      bounded.dispose();
+    }
+  }
+  if (profile.kind === "xai") {
+    try {
+      const decoded = await requestJson(
+        `${profile.origin}/language-models`,
+        {
+          accept: "application/json",
+          authorization: `Bearer ${options.apiKey}`,
+        },
+        options.apiKey,
+        MAX_OPENAI_CATALOG_BYTES,
+        options,
+        bounded,
+      );
+      return xaiCollection(decoded);
     } finally {
       bounded.dispose();
     }

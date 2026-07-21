@@ -141,6 +141,12 @@ describe("provider and account projections", () => {
         status: "runnable_byok",
         connectionOwner: "process_environment",
       });
+    expect(normal.find((entry) => entry.id === "xai-api"))
+      .toMatchObject({
+        status: "runnable_byok",
+        protocol: "openai_chat",
+        connectionOwner: "process_environment",
+      });
     expect(all.some((entry) => entry.status === "blocked")).toBe(true);
   });
 

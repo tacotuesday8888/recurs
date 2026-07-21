@@ -52,6 +52,22 @@ const providers: readonly ProviderSummary[] = [
     restrictions: [],
   },
   {
+    id: "xai-api",
+    displayName: "xAI API",
+    status: "runnable_byok",
+    supportStatus: "supported",
+    adapterKind: "model_provider",
+    accessKind: "api",
+    protocol: "openai_chat",
+    connectionOwner: "process_environment",
+    billing: {
+      primarySource: "metered_api",
+      possibleAdditionalSources: [],
+      providerFallback: "none",
+    },
+    restrictions: [],
+  },
+  {
     id: "openai-api",
     displayName: "OpenAI API",
     status: "requires_native_broker",
@@ -102,6 +118,7 @@ describe("guided onboarding policy", () => {
       "local:ollama",
       "codex",
       "byok:openrouter-api",
+      "byok:xai-api",
       "native:openai",
     ]);
     expect(choices.find((choice) => choice.id === "codex")?.detail)
@@ -112,6 +129,7 @@ describe("guided onboarding policy", () => {
 
   it("keeps model lookup deterministic and bounded", () => {
     expect(catalogProviderId("openrouter-api")).toBe("openrouter");
+    expect(catalogProviderId("xai-api")).toBe("xai");
     expect(catalogProviderId("unknown-provider")).toBeNull();
     expect(filterCatalogModels([
       "anthropic/claude-fast",
@@ -131,6 +149,8 @@ describe("guided onboarding policy", () => {
     expect(guidedPermissionMode("yolo")).toBeNull();
     expect(credentialEnvironmentSuggestion("openrouter-api"))
       .toBe("OPENROUTER_API_KEY");
+    expect(credentialEnvironmentSuggestion("xai-api"))
+      .toBe("XAI_API_KEY");
     expect(credentialEnvironmentSuggestion("kilo-gateway"))
       .toBe("KILO_API_KEY");
     expect(credentialEnvironmentSuggestion("google-gemini-api"))

@@ -82,6 +82,7 @@ describe("environment provider resolution", () => {
       "openai-api",
       "anthropic-api",
       "openrouter-api",
+      "xai-api",
       "opencode-go",
       "kilo-gateway",
       "alibaba-model-studio-api",
@@ -105,6 +106,18 @@ describe("environment provider resolution", () => {
       providerId: "openai-api",
       connectionId: "saved-openai",
       provider: { adapterId: "openai-responses" },
+    });
+
+    const xai = await createEnvironmentProviderConfiguration({
+      providerId: "xai-api",
+      modelId: "grok-test",
+      connectionId: "saved-xai",
+      apiKey: "xai-private-value",
+    });
+    expect(xai).toMatchObject({
+      providerId: "xai-api",
+      connectionId: "saved-xai",
+      provider: { adapterId: "openai-chat-completions" },
     });
 
     const configured = await createEnvironmentProviderConfiguration({

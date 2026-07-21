@@ -34,6 +34,8 @@ interface ManifestDefinition {
   runnable: boolean;
   sourceUrls: readonly string[];
   evidenceSummary: string;
+  reviewedAt?: string;
+  expiresAt?: string;
   rules?: readonly UsagePolicyRule[];
   accountSharingForbidden?: boolean;
 }
@@ -46,10 +48,11 @@ function billingPolicy(
     providerFallback?: BillingPolicy["providerFallback"];
     availableSelections?: readonly BillingSelectionMode[];
   } = {},
+  revisionDate = "2026-07-11",
 ): BillingPolicy {
   return {
-    revision: `billing:${id}:2026-07-11`,
-    disclosureRevision: `billing-disclosure:${id}:2026-07-11`,
+    revision: `billing:${id}:${revisionDate}`,
+    disclosureRevision: `billing-disclosure:${id}:${revisionDate}`,
     primarySource,
     possibleAdditionalSources: options.possibleAdditionalSources ?? [],
     providerFallback: options.providerFallback ?? "none",
@@ -101,9 +104,9 @@ function manifest(definition: ManifestDefinition): ProviderManifest {
     supportStatus: definition.supportStatus,
     runnable: definition.runnable,
     usagePolicy: {
-      revision: `${definition.id}-2026-07-11`,
-      reviewedAt: REVIEWED_AT,
-      expiresAt: EXPIRES_AT,
+      revision: `${definition.id}-${definition.reviewedAt ?? REVIEWED_AT}`,
+      reviewedAt: definition.reviewedAt ?? REVIEWED_AT,
+      expiresAt: definition.expiresAt ?? EXPIRES_AT,
       defaultDecision: definition.supportStatus === "supported" ? "allowed" : "denied",
       rules: definition.rules ?? [],
       officialRuntimeRequired: definition.adapterKind === "agent_runtime",
@@ -316,6 +319,34 @@ const bundled = [
     ],
     evidenceSummary:
       "OpenRouter documents API-key and OAuth-capable OpenAI-compatible access, account credit billing, and authenticated model listing.",
+  }),
+  manifest({
+    id: "xai-api",
+    displayName: "xAI API",
+    adapterKind: "model_provider",
+    accessKind: "api",
+    authKinds: ["api_key"],
+    credentialOwner: "recurs_broker",
+    protocol: "openai_chat",
+    endpoints: [{ kind: "origin", value: "https://api.x.ai/v1" }],
+    regionAvailability: { kind: "global" },
+    billingPolicy: billingPolicy(
+      "xai-api",
+      "metered_api",
+      {},
+      "2026-07-21",
+    ),
+    supportStatus: "supported",
+    runnable: false,
+    sourceUrls: [
+      "https://docs.x.ai/developers/rest-api-reference/inference",
+      "https://docs.x.ai/developers/rest-api-reference/inference/models",
+      "https://docs.x.ai/developers/model-capabilities/legacy/chat-completions",
+    ],
+    evidenceSummary:
+      "xAI documents Bearer-key authentication, authenticated language-model listing, and streamed OpenAI-compatible Chat Completions with function calls at one fixed origin. Recurs uses that conservative compatibility path and does not claim xAI Responses continuation features.",
+    reviewedAt: "2026-07-21",
+    expiresAt: "2026-10-21T00:00:00.000Z",
   }),
   manifest({
     id: "opencode-zen",
