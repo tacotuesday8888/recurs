@@ -7,6 +7,7 @@ import {
   getOperatingModePolicy,
   narrowAgentPermissionMode,
   parseAgentProfileId,
+  parseCompanyBlueprintBinding,
   parseOperatingModeId,
   type AgentBackendSelection,
   type AgentGitWorktreeWorkspace,
@@ -14,6 +15,7 @@ import {
   type AgentPermissionMode,
   type AgentProfileId,
   type AgentTeamCorrelation,
+  type CompanyBlueprintBinding,
   type HostInvocation,
   type IntegrationFailure,
   type OperatingModeId,
@@ -102,6 +104,7 @@ interface TrustedChildOptions {
   readonly teamOperatingMode?: TeamOperatingModeBinding;
   readonly teamParentPermissions?: TeamParentPermissionBinding;
   readonly teamAuthority?: TeamChildAuthority;
+  readonly company?: CompanyBlueprintBinding;
 }
 
 export interface ChildIdentityReservationOptions extends ChildDelegationCorrelation {
@@ -112,6 +115,7 @@ export interface ChildIdentityReservationOptions extends ChildDelegationCorrelat
   readonly teamAuthority?: TeamChildAuthority;
   readonly cwd?: string;
   readonly workspace?: AgentGitWorktreeWorkspace;
+  readonly company?: CompanyBlueprintBinding;
 }
 
 export type ChildDelegationOptions = ChildDelegationCorrelation & TrustedChildOptions & (
@@ -147,6 +151,7 @@ export interface ChildDelegationMetadata extends Record<string, unknown> {
   readonly costLimitUsd: number;
   readonly costLimitExceeded: boolean;
   readonly workflow: AgentWorkflowUsage;
+  readonly company?: CompanyBlueprintBinding;
   readonly workspace?: AgentGitWorktreeWorkspace;
   readonly batchId?: string;
   readonly batchIndex?: number;
@@ -296,6 +301,7 @@ export class ChildAgentManager {
     readonly cwd: string | undefined;
     readonly workspace: AgentGitWorktreeWorkspace | undefined;
     readonly decision: AgentBackendRouteDecision | undefined;
+    readonly company: CompanyBlueprintBinding | undefined;
   }>();
 
   constructor(private readonly dependencies: ChildAgentManagerDependencies) {
@@ -446,6 +452,9 @@ export class ChildAgentManager {
         ? undefined
         : structuredClone(options.workspace),
       decision: options?.backend?.decision,
+      company: options?.company === undefined
+        ? undefined
+        : parseCompanyBlueprintBinding(options.company),
     });
     return identity;
   }
@@ -487,7 +496,8 @@ export class ChildAgentManager {
       reservation.teamAuthority !== options.teamAuthority ||
       reservation.cwd !== options.cwd ||
       !isDeepStrictEqual(reservation.workspace, options.workspace) ||
-      reservation.decision !== options.backend?.decision
+      reservation.decision !== options.backend?.decision ||
+      !isDeepStrictEqual(reservation.company, options.company)
     ) {
       throw new ToolError(
         "permission_denied",
@@ -570,6 +580,9 @@ export class ChildAgentManager {
     if (context.signal.aborted) {
       throw new ToolError("cancelled", "Child delegation was cancelled");
     }
+    const company = options?.company === undefined
+      ? undefined
+      : parseCompanyBlueprintBinding(options.company);
     const parent = await this.#parent(context);
     const childCwd = options?.workspace === undefined
       ? parent.cwd
@@ -584,6 +597,17 @@ export class ChildAgentManager {
       );
     }
     const profile = getAgentProfilePolicy(input.profile);
+    if (company !== undefined && (
+      parent.agent.company === undefined ||
+      parent.agent.company.roleId !== "orchestrator_v1" ||
+      company.blueprintId !== parent.agent.company.blueprintId ||
+      company.blueprintVersion !== parent.agent.company.blueprintVersion
+    )) {
+      throw new ToolError(
+        "permission_denied",
+        "Company child binding does not match the live parent company",
+      );
+    }
     const role = teamRole(profile.id);
     if (options !== undefined && !this.#validTeamAuthority(
       input,
@@ -714,6 +738,7 @@ export class ChildAgentManager {
       parentExecutionMode,
       parentPermissionMode,
       runContext: context.runContext,
+      company,
     };
   }
 
@@ -741,6 +766,7 @@ export class ChildAgentManager {
       parentExecutionMode,
       parentPermissionMode,
       runContext,
+      company,
     } = await this.#prepare(input, context, options);
 
     const { childSessionId, childAgentId, taskId } = this.#identity(
@@ -821,6 +847,7 @@ export class ChildAgentManager {
             permissionMode,
           },
           limits: { ...mode.orchestration, maxRequests: childRequestLimit },
+          ...(company === undefined ? {} : { company }),
           ...(options?.workspace === undefined
             ? {}
             : { workspace: options.workspace }),
@@ -845,6 +872,7 @@ export class ChildAgentManager {
         description: input.description,
         operatingModeId: mode.id,
         profileId: profile.id,
+        ...(company === undefined ? {} : { company }),
         ...(options?.batch === undefined
           ? {}
           : { batchId: options.batch.id, batchIndex: options.batch.index }),
@@ -879,6 +907,7 @@ export class ChildAgentManager {
             childSessionId,
             profileId: profile.id,
             reason: outcome.failure.safeMessage,
+            ...(company === undefined ? {} : { company }),
             ...(options?.batch === undefined
               ? {}
               : { batchId: options.batch.id, batchIndex: options.batch.index }),
@@ -897,6 +926,7 @@ export class ChildAgentManager {
           childSessionId,
           profileId: profile.id,
           failure: outcome.failure,
+          ...(company === undefined ? {} : { company }),
           ...(options?.batch === undefined
             ? {}
             : { batchId: options.batch.id, batchIndex: options.batch.index }),
@@ -936,6 +966,7 @@ export class ChildAgentManager {
         evidence: [...outcome.result.evidence],
         costLimitExceeded,
         workflow,
+        ...(company === undefined ? {} : { company }),
         ...(options?.batch === undefined
           ? {}
           : { batchId: options.batch.id, batchIndex: options.batch.index }),
@@ -962,6 +993,7 @@ export class ChildAgentManager {
           costLimitUsd: budget.maxReportedCostUsd,
           costLimitExceeded,
           workflow,
+          ...(company === undefined ? {} : { company }),
           ...(options?.workspace === undefined
             ? {}
             : { workspace: options.workspace }),

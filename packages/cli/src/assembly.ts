@@ -33,8 +33,10 @@ import {
   BackendRunCoordinator,
   ChildAgentBatchManager,
   ChildAgentManager,
+  CompanyAgentManager,
   DelegatedAgentExecutor,
   FileGitPatchArtifactStore,
+  FileCompanyBlueprintStore,
   JsonlSessionStore,
   JsonlTeamRunStore,
   SessionStoreError,
@@ -666,6 +668,9 @@ export async function createStandaloneRuntime(
     projectDataDirectory: projectData,
   });
   const sessions = new JsonlSessionStore(path.join(projectData, "sessions"));
+  const companyBlueprints = new FileCompanyBlueprintStore(
+    path.join(projectData, "company-blueprints"),
+  );
   const checkpoints = new FileCheckpointStore(
     path.join(projectData, "checkpoints"),
   );
@@ -997,6 +1002,11 @@ export async function createStandaloneRuntime(
     },
   });
   tools.register(childAgents.createTool());
+  tools.register(new CompanyAgentManager({
+    sessions,
+    blueprints: companyBlueprints,
+    children: childAgents,
+  }).createTool());
   const childBatches = new ChildAgentBatchManager({
     sessions,
     children: childAgents,

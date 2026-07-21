@@ -1862,6 +1862,7 @@ describe("standalone assembly without a provider", () => {
       "git_history",
       "git_show",
       "delegate_task",
+      "delegate_company_task",
       "delegate_tasks",
       "delegate_team",
       "team_status",
