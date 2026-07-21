@@ -1,3 +1,5 @@
+import { RECURS_VERSION } from "@recurs/contracts";
+
 import { CredentialEchoGuard } from "./credential-echo-guard.js";
 import { environmentByokManifest } from "./environment-provider-policy.js";
 import { ProviderError } from "./types.js";
@@ -6,11 +8,13 @@ const ANTHROPIC_VERSION = "2023-06-01";
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/u;
 const CONTROL_CHARACTER = /\p{Cc}/u;
 const MAX_ANTHROPIC_PAGE_BYTES = 2 * 1_024 * 1_024;
+const MAX_GEMINI_PAGE_BYTES = 4 * 1_024 * 1_024;
 const MAX_OPENAI_CATALOG_BYTES = 4 * 1_024 * 1_024;
 const MAX_MODELS = 1_000;
 const PAGE_LIMIT = 100;
 const MAX_PAGES = Math.ceil(MAX_MODELS / PAGE_LIMIT);
 const DEFAULT_TIMEOUT_MS = 10_000;
+const GEMINI_PAGE_TOKEN = /^[A-Za-z0-9._~+/=-]{1,4096}$/u;
 
 type Fetch = typeof globalThis.fetch;
 
@@ -24,6 +28,7 @@ export interface EnvironmentModelDescriptor {
 
 type ModelDiscoveryProfile =
   | { readonly kind: "anthropic"; readonly origin: string }
+  | { readonly kind: "gemini"; readonly origin: string }
   | { readonly kind: "openai"; readonly origin: string };
 
 const OPENAI_MODEL_DISCOVERY_ORIGINS: Readonly<Record<string, string>> =
@@ -57,6 +62,13 @@ function validCredential(value: string): boolean {
 function discoveryProfile(providerId: string): ModelDiscoveryProfile | null {
   const manifest = environmentByokManifest(providerId);
   const origin = manifest?.endpoints.find((endpoint) => endpoint.kind === "origin");
+  if (
+    manifest?.protocol === "gemini_generate_content" &&
+    manifest.id === "google-gemini-api" &&
+    origin?.value === "https://generativelanguage.googleapis.com/v1beta"
+  ) {
+    return { kind: "gemini", origin: origin.value };
+  }
   if (
     manifest?.protocol !== "anthropic_messages" ||
     origin?.value !== "https://api.anthropic.com/v1"
@@ -264,6 +276,60 @@ function openAICollection(value: unknown): readonly EnvironmentModelDescriptor[]
   return Object.freeze(models);
 }
 
+function geminiModel(value: unknown): EnvironmentModelDescriptor | null {
+  if (
+    !isRecord(value) || typeof value.name !== "string" ||
+    !value.name.startsWith("models/") || !MODEL_ID.test(value.name.slice(7)) ||
+    typeof value.displayName !== "string" || value.displayName.trim().length === 0 ||
+    value.displayName.length > 128 || CONTROL_CHARACTER.test(value.displayName) ||
+    !Array.isArray(value.supportedGenerationMethods) ||
+    value.supportedGenerationMethods.length > 64 ||
+    value.supportedGenerationMethods.some((method) =>
+      typeof method !== "string" || method.length === 0 || method.length > 128 ||
+      CONTROL_CHARACTER.test(method)
+    )
+  ) {
+    throw new ProviderError("invalid_response", "Provider model entry was invalid", false);
+  }
+  const maxInputTokens = optionalTokenLimit(value.inputTokenLimit);
+  const maxOutputTokens = optionalTokenLimit(value.outputTokenLimit);
+  if (Number.isNaN(maxInputTokens) || Number.isNaN(maxOutputTokens)) {
+    throw new ProviderError("invalid_response", "Provider model entry was invalid", false);
+  }
+  if (!value.supportedGenerationMethods.includes("generateContent")) return null;
+  return Object.freeze({
+    id: value.name.slice(7),
+    displayName: value.displayName,
+    createdAt: null,
+    maxInputTokens,
+    maxOutputTokens,
+  });
+}
+
+function geminiPage(value: unknown): {
+  models: readonly EnvironmentModelDescriptor[];
+  nextPageToken: string | null;
+} {
+  if (!isRecord(value) || !Array.isArray(value.models) || value.models.length > MAX_MODELS) {
+    throw new ProviderError("invalid_response", "Provider model page was invalid", false);
+  }
+  const nextPageToken = value.nextPageToken === undefined
+    ? null
+    : value.nextPageToken;
+  if (
+    nextPageToken !== null &&
+    (typeof nextPageToken !== "string" || !GEMINI_PAGE_TOKEN.test(nextPageToken))
+  ) {
+    throw new ProviderError("invalid_response", "Provider model cursor was invalid", false);
+  }
+  return {
+    models: Object.freeze(value.models.map(geminiModel).filter(
+      (model): model is EnvironmentModelDescriptor => model !== null,
+    )),
+    nextPageToken,
+  };
+}
+
 function boundedSignal(
   parent: AbortSignal | undefined,
   timeoutMs: number,
@@ -361,6 +427,59 @@ export async function listEnvironmentProviderModels(
     throw new TypeError("Provider does not have reviewed model discovery");
   }
   const bounded = boundedSignal(options.signal, timeoutMs);
+  if (profile.kind === "gemini") {
+    const models: EnvironmentModelDescriptor[] = [];
+    const seenModels = new Set<string>();
+    const seenTokens = new Set<string>();
+    let pageToken: string | null = null;
+    try {
+      for (let pageIndex = 0; pageIndex < MAX_PAGES; pageIndex += 1) {
+        const query = new URLSearchParams({ pageSize: String(PAGE_LIMIT) });
+        if (pageToken !== null) query.set("pageToken", pageToken);
+        const decoded = await requestJson(
+          `${profile.origin}/models?${query}`,
+          {
+            accept: "application/json",
+            "x-goog-api-client": `recurs/${RECURS_VERSION}`,
+            "x-goog-api-key": options.apiKey,
+          },
+          options.apiKey,
+          MAX_GEMINI_PAGE_BYTES,
+          options,
+          bounded,
+        );
+        const current = geminiPage(decoded);
+        for (const model of current.models) {
+          if (seenModels.has(model.id) || models.length >= MAX_MODELS) {
+            throw new ProviderError(
+              "invalid_response",
+              "Provider model catalog was invalid",
+              false,
+            );
+          }
+          seenModels.add(model.id);
+          models.push(model);
+        }
+        if (current.nextPageToken === null) return Object.freeze(models);
+        if (seenTokens.has(current.nextPageToken)) {
+          throw new ProviderError(
+            "invalid_response",
+            "Provider model cursor was invalid",
+            false,
+          );
+        }
+        seenTokens.add(current.nextPageToken);
+        pageToken = current.nextPageToken;
+      }
+      throw new ProviderError(
+        "invalid_response",
+        "Provider model catalog was too large",
+        false,
+      );
+    } finally {
+      bounded.dispose();
+    }
+  }
   if (profile.kind === "openai") {
     try {
       const decoded = await requestJson(

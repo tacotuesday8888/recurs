@@ -222,6 +222,7 @@ export function filterCatalogModels(
 }
 
 export function credentialEnvironmentSuggestion(providerId: string): string {
+  if (providerId === "google-gemini-api") return "GEMINI_API_KEY";
   const stem = providerId
     .replace(/-(api|gateway)$/u, "")
     .replaceAll("-", "_")

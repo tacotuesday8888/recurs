@@ -113,7 +113,11 @@ export interface EnvironmentModelProviderConnectionRecord {
   kind: "environment_model_provider";
   id: string;
   providerId: string;
-  adapterId: "openai-responses" | "anthropic-messages" | "openai-chat-completions";
+  adapterId:
+    | "anthropic-messages"
+    | "gemini-generate-content"
+    | "openai-chat-completions"
+    | "openai-responses";
   label: string;
   modelId: string;
   reasoningEffort?: ModelReasoningEffort;
@@ -715,6 +719,7 @@ export function parseEnvironmentModelProviderConnectionRecord(
     value.kind !== "environment_model_provider" ||
     (value.adapterId !== "openai-responses" &&
       value.adapterId !== "anthropic-messages" &&
+      value.adapterId !== "gemini-generate-content" &&
       value.adapterId !== "openai-chat-completions")
   ) {
     throw invalidRegistry();

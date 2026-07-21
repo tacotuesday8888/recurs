@@ -689,6 +689,62 @@ describe("standalone assembly without a provider", () => {
     expect(JSON.stringify(runtime.session)).not.toContain(key);
   });
 
+  it("runs the agent loop through explicit Gemini environment BYOK", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-gemini-assembly-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const key = "gemini-environment-key-canary";
+    let requestUrl = "";
+    let apiKey = "";
+    let body = "";
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        environment: {
+          RECURS_PROVIDER: "google-gemini-api",
+          RECURS_MODEL: "gemini-test",
+          RECURS_API_KEY: key,
+        },
+        environmentFetch: async (input, init) => {
+          requestUrl = String(input);
+          apiKey = new Headers(init?.headers).get("x-goog-api-key") ?? "";
+          body = String(init?.body ?? "");
+          return new Response(`data: ${JSON.stringify({
+            candidates: [{
+              index: 0,
+              content: { role: "model", parts: [{ text: "gemini ready" }] },
+              finishReason: "STOP",
+            }],
+            usageMetadata: { promptTokenCount: 2, candidatesTokenCount: 2 },
+          })}\n\n`, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      },
+    );
+
+    expect(runtime.session.backend.pin).toMatchObject({
+      providerId: "google-gemini-api",
+      adapterId: "gemini-generate-content",
+      connectionId: "environment:google-gemini-api",
+      modelId: "gemini-test",
+      primaryBillingSourceAtCreation: "metered_api",
+    });
+    await expect(runtime.submit("Respond when ready")).resolves.toMatchObject({
+      finalText: "gemini ready",
+    });
+    expect(requestUrl).toBe(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-test:streamGenerateContent?alt=sse",
+    );
+    expect(apiKey).toBe(key);
+    expect(body).not.toContain(key);
+    expect(JSON.stringify(runtime.session)).not.toContain(key);
+  });
+
   it("runs a saved BYOK account only with the exact configured environment credential", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-saved-byok-"));
     directories.push(root);

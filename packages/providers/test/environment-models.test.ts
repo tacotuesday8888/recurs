@@ -46,7 +46,106 @@ function openAIModels(...ids: string[]): Response {
   });
 }
 
+function geminiModels(
+  ids: readonly string[],
+  nextPageToken?: string,
+): Response {
+  return new Response(JSON.stringify({
+    models: ids.map((id, index) => ({
+      name: `models/${id}`,
+      baseModelId: id,
+      version: "001",
+      displayName: `Gemini ${index + 1}`,
+      inputTokenLimit: 1_000_000,
+      outputTokenLimit: 65_536,
+      supportedGenerationMethods: ["generateContent", "countTokens"],
+    })),
+    ...(nextPageToken === undefined ? {} : { nextPageToken }),
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 describe("environment provider model discovery", () => {
+  it("paginates credential-visible Gemini generation models without placing the key in the URL", async () => {
+    const key = "gemini-model-key-canary";
+    const requests: Array<{ url: string; headers: Headers; redirect: RequestRedirect }> = [];
+    const models = await listEnvironmentProviderModels({
+      providerId: "google-gemini-api",
+      apiKey: key,
+      fetch: async (input, init) => {
+        requests.push({
+          url: String(input),
+          headers: new Headers(init?.headers),
+          redirect: init?.redirect ?? "follow",
+        });
+        return requests.length === 1
+          ? geminiModels(["gemini-pro", "gemini-flash"], "next-token")
+          : geminiModels(["gemini-lite"]);
+      },
+    });
+
+    expect(requests.map((request) => request.url)).toEqual([
+      "https://generativelanguage.googleapis.com/v1beta/models?pageSize=100",
+      "https://generativelanguage.googleapis.com/v1beta/models?pageSize=100&pageToken=next-token",
+    ]);
+    expect(requests.every((request) => request.redirect === "manual")).toBe(true);
+    expect(requests.every((request) =>
+      request.headers.get("x-goog-api-key") === key &&
+      request.headers.get("x-goog-api-client")?.startsWith("recurs/") === true &&
+      request.headers.get("accept") === "application/json" &&
+      !request.url.includes(key)
+    )).toBe(true);
+    expect(models).toEqual([
+      {
+        id: "gemini-pro",
+        displayName: "Gemini 1",
+        createdAt: null,
+        maxInputTokens: 1_000_000,
+        maxOutputTokens: 65_536,
+      },
+      {
+        id: "gemini-flash",
+        displayName: "Gemini 2",
+        createdAt: null,
+        maxInputTokens: 1_000_000,
+        maxOutputTokens: 65_536,
+      },
+      {
+        id: "gemini-lite",
+        displayName: "Gemini 1",
+        createdAt: null,
+        maxInputTokens: 1_000_000,
+        maxOutputTokens: 65_536,
+      },
+    ]);
+    expect(hasEnvironmentProviderModelDiscovery("google-gemini-api")).toBe(true);
+  });
+
+  it("filters non-generation Gemini models and rejects duplicate IDs or cursors", async () => {
+    const key = "private-key";
+    const embedding = JSON.parse(await geminiModels(["embedding"]).text());
+    embedding.models[0].supportedGenerationMethods = ["embedContent"];
+    await expect(listEnvironmentProviderModels({
+      providerId: "google-gemini-api",
+      apiKey: key,
+      fetch: async () => new Response(JSON.stringify(embedding)),
+    })).resolves.toEqual([]);
+
+    await expect(listEnvironmentProviderModels({
+      providerId: "google-gemini-api",
+      apiKey: key,
+      fetch: async () => geminiModels(["duplicate", "duplicate"]),
+    })).rejects.toMatchObject({ code: "invalid_response", retryable: false });
+
+    await expect(listEnvironmentProviderModels({
+      providerId: "google-gemini-api",
+      apiKey: key,
+      fetch: async () => geminiModels(["repeat"], "same-token"),
+    })).rejects.toMatchObject({ code: "invalid_response", retryable: false });
+  });
+
   it("paginates the fixed Anthropic origin with required headers and preserves recency order", async () => {
     const key = "anthropic-model-key-canary";
     const requests: Array<{ url: string; headers: Headers; redirect: RequestRedirect }> = [];

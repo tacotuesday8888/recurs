@@ -1,6 +1,7 @@
 import type { ConnectionBoundModelProvider } from "@recurs/contracts";
 
 import { RemoteAnthropicMessagesProvider } from "./anthropic-messages.js";
+import { RemoteGeminiGenerateContentProvider } from "./gemini-generate-content.js";
 import { RemoteOpenAICompatibleProvider } from "./local-openai-compatible.js";
 import { RemoteOpenAIResponsesProvider } from "./openai-responses.js";
 import {
@@ -77,6 +78,8 @@ export async function createEnvironmentProviderConfiguration(
       ? new RemoteOpenAIResponsesProvider(options)
       : adapterId === "anthropic-messages"
       ? new RemoteAnthropicMessagesProvider(options)
+      : adapterId === "gemini-generate-content"
+      ? new RemoteGeminiGenerateContentProvider(options)
       : adapterId === "openai-chat-completions"
       ? new RemoteOpenAICompatibleProvider(options)
       : (() => {
