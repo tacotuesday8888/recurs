@@ -562,6 +562,29 @@ try {
   );
   assert(runHelpError === "", "The installed CLI wrote scoped-help diagnostics.");
 
+  const { stdout: providerList, stderr: providerListError } = await execFileAsync(
+    executable,
+    ["provider", "list", "--json"],
+    {
+      cwd: installDirectory,
+      encoding: "utf8",
+      env: environment,
+    },
+  );
+  const installedGemini = JSON.parse(providerList).providers?.find(
+    (provider) => provider.id === "google-gemini-api",
+  );
+  assert(
+    installedGemini?.status === "runnable_byok" &&
+      installedGemini?.protocol === "gemini_generate_content" &&
+      installedGemini?.connectionOwner === "process_environment",
+    "The installed CLI did not expose the reviewed Gemini BYOK path.",
+  );
+  assert(
+    providerListError === "",
+    "The installed CLI wrote unexpected provider-list diagnostics.",
+  );
+
   const { stdout: accounts, stderr: accountError } = await execFileAsync(
     executable,
     ["account", "list", "--json"],

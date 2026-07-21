@@ -51,6 +51,18 @@ function openAIModelsWithoutLimits(...ids: string[]): Response {
   }));
 }
 
+function geminiModels(...ids: string[]): Response {
+  return new Response(JSON.stringify({
+    models: ids.map((id) => ({
+      name: `models/${id}`,
+      displayName: id,
+      inputTokenLimit: 1_000_000,
+      outputTokenLimit: 65_536,
+      supportedGenerationMethods: ["generateContent"],
+    })),
+  }));
+}
+
 async function root(): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "recurs-byok-"));
   roots.push(directory);
@@ -64,7 +76,7 @@ afterEach(async () => {
 });
 
 describe("saved environment BYOK connections", () => {
-  it("advertises reviewed Responses, Chat, and Messages paths as BYOK without widening blocked providers", () => {
+  it("advertises reviewed Responses, Chat, Messages, and Gemini paths as BYOK without widening blocked providers", () => {
     const entries = new OnboardingCatalog(undefined, {
       now: () => new Date(AT),
     }).list({ includeBlocked: true });
@@ -88,6 +100,12 @@ describe("saved environment BYOK connections", () => {
       .toMatchObject({
         status: "runnable_byok",
         protocol: "openai_responses",
+        connectionOwner: "process_environment",
+      });
+    expect(entries.find((entry) => entry.id === "google-gemini-api"))
+      .toMatchObject({
+        status: "runnable_byok",
+        protocol: "gemini_generate_content",
         connectionOwner: "process_environment",
       });
   });
@@ -267,6 +285,41 @@ describe("saved environment BYOK connections", () => {
             source: "authenticated_provider_catalog",
             maxInputTokens: 200_000,
             maxOutputTokens: 64_000,
+            verifiedAt: AT,
+          },
+        }),
+      ]);
+  });
+
+  it("persists a verified Gemini adapter and model limits without persisting its credential", async () => {
+    const directory = await root();
+    const key = "gemini-private-value";
+    const configured = await setupEnvironmentConnection(directory, {
+      providerId: "google-gemini-api",
+      modelId: "gemini-test",
+      credentialEnvironmentVariable: "GEMINI_API_KEY",
+      billingSelection: "strict_primary_only",
+      environment: { GEMINI_API_KEY: key },
+      now: AT,
+    }, {
+      fetch: async () => geminiModels("gemini-test"),
+    });
+
+    const storedText = await readFile(connectionRegistryPath(directory), "utf8");
+    expect(storedText).not.toContain(key);
+    expect(storedText).toContain("GEMINI_API_KEY");
+    expect((await new FileConnectionRegistry(directory).read()).connections)
+      .toEqual([
+        expect.objectContaining({
+          id: configured.id,
+          kind: "environment_model_provider",
+          providerId: "google-gemini-api",
+          adapterId: "gemini-generate-content",
+          modelId: "gemini-test",
+          modelLimits: {
+            source: "authenticated_provider_catalog",
+            maxInputTokens: 1_000_000,
+            maxOutputTokens: 65_536,
             verifiedAt: AT,
           },
         }),

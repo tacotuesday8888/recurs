@@ -35,6 +35,7 @@ function isEnvironmentAdapterId(
   value: string,
 ): value is EnvironmentModelProviderConnectionRecord["adapterId"] {
   return value === "openai-responses" || value === "anthropic-messages" ||
+    value === "gemini-generate-content" ||
     value === "openai-chat-completions";
 }
 

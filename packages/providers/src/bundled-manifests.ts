@@ -694,9 +694,12 @@ const bundled = [
     sourceUrls: [
       "https://ai.google.dev/gemini-api/docs/api-key",
       "https://ai.google.dev/gemini-api/docs/billing/",
+      "https://ai.google.dev/api/generate-content",
+      "https://ai.google.dev/api/models",
+      "https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures",
     ],
     evidenceSummary:
-      "Google documents API-authorized Gemini Developer API access with project billing.",
+      "Google documents API-key-authorized Gemini Developer API model discovery and streamed GenerateContent with function calls, exact thought-signature replay, and project billing.",
   }),
   manifest({
     id: "google-vertex-ai",

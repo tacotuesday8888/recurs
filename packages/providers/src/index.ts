@@ -4,6 +4,7 @@ export * from "./collect-provider-events.js";
 export * from "./environment-provider.js";
 export * from "./environment-provider-policy.js";
 export * from "./environment-models.js";
+export * from "./gemini-generate-content.js";
 export * from "./harness-profile.js";
 export * from "./local-openai-compatible.js";
 export * from "./manifest-registry.js";

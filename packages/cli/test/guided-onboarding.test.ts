@@ -133,6 +133,8 @@ describe("guided onboarding policy", () => {
       .toBe("OPENROUTER_API_KEY");
     expect(credentialEnvironmentSuggestion("kilo-gateway"))
       .toBe("KILO_API_KEY");
+    expect(credentialEnvironmentSuggestion("google-gemini-api"))
+      .toBe("GEMINI_API_KEY");
   });
 
   it("offers only current stable operating-mode policies", () => {
@@ -288,6 +290,74 @@ describe("guided onboarding policy", () => {
       "--model", "gpt-5.6-sol",
       "--key-env", "OPENAI_API_KEY",
       "--reasoning-effort", "max",
+    ]]);
+  });
+
+  it("uses authenticated Gemini discovery in the guided BYOK path", async () => {
+    const selections = [
+      "byok:google-gemini-api",
+      "gemini-test",
+      "ask_always",
+      "balanced_v5",
+    ];
+    const commands: string[][] = [];
+    const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
+    const gemini: ProviderSummary = {
+      ...providers[1]!,
+      id: "google-gemini-api",
+      displayName: "Google Gemini API",
+      protocol: "gemini_generate_content",
+      billing: {
+        primarySource: "metered_api",
+        possibleAdditionalSources: [],
+        providerFallback: "none",
+      },
+    };
+    const outcome = await runGuidedOnboarding({
+      stdout: sink,
+      stderr: sink,
+      interactive: true,
+      automation: false,
+      nativeProviders: new Set(),
+      async listAccounts() { return []; },
+      async detectProviders() { return []; },
+      async listProviders() { return [gemini]; },
+      async discoverEnvironmentModels(providerId, environmentVariable) {
+        expect(providerId).toBe("google-gemini-api");
+        expect(environmentVariable).toBe("GEMINI_API_KEY");
+        return [{
+          id: "gemini-test",
+          displayName: "Gemini Test",
+          createdAt: null,
+          maxInputTokens: 1_000_000,
+          maxOutputTokens: 65_536,
+        }];
+      },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText(_message, suggestion) {
+        expect(suggestion).toBe("GEMINI_API_KEY");
+        return suggestion ?? null;
+      },
+      async executeCommand(argv) {
+        commands.push([...argv]);
+        return 0;
+      },
+    });
+
+    expect(outcome).toEqual({
+      state: "configured",
+      permissionMode: "ask_always",
+      operatingModeId: "balanced_v5",
+    });
+    expect(commands).toEqual([[
+      "setup", "byok",
+      "--provider", "google-gemini-api",
+      "--model", "gemini-test",
+      "--key-env", "GEMINI_API_KEY",
     ]]);
   });
 

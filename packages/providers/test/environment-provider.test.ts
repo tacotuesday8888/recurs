@@ -66,7 +66,7 @@ describe("environment provider resolution", () => {
         RECURS_API_KEY: "key",
       },
       {
-        RECURS_PROVIDER: "google-gemini-api",
+        RECURS_PROVIDER: "aws-bedrock",
         RECURS_MODEL: "model",
         RECURS_API_KEY: "key",
       },
@@ -90,6 +90,7 @@ describe("environment provider resolution", () => {
       "minimax-api",
       "zai-api",
       "deepseek-api",
+      "google-gemini-api",
     ]));
     expect(environmentByokProviderIds()).not.toContain("zai-glm-coding-plan");
     expect(environmentByokProviderIds()).not.toContain("alibaba-coding-plan");
@@ -121,6 +122,18 @@ describe("environment provider resolution", () => {
       "kimi-code",
       "coding-plan-private-value",
     )).toBe(configured.credentialFingerprint);
+
+    const gemini = await createEnvironmentProviderConfiguration({
+      providerId: "google-gemini-api",
+      modelId: "gemini-test",
+      connectionId: "saved-gemini",
+      apiKey: "gemini-private-value",
+    });
+    expect(gemini).toMatchObject({
+      providerId: "google-gemini-api",
+      connectionId: "saved-gemini",
+      provider: { adapterId: "gemini-generate-content" },
+    });
   });
 
   it("does not admit an Anthropic-shaped manifest at an unimplemented origin", () => {

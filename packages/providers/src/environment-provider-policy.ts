@@ -4,6 +4,7 @@ import { BUNDLED_PROVIDER_MANIFESTS } from "./bundled-manifests.js";
 
 export type EnvironmentByokAdapterId =
   | "anthropic-messages"
+  | "gemini-generate-content"
   | "openai-chat-completions"
   | "openai-responses";
 
@@ -13,6 +14,9 @@ export function environmentByokAdapterId(
   if (manifest.protocol === "openai_chat") return "openai-chat-completions";
   if (manifest.protocol === "openai_responses") return "openai-responses";
   if (manifest.protocol === "anthropic_messages") return "anthropic-messages";
+  if (manifest.protocol === "gemini_generate_content") {
+    return "gemini-generate-content";
+  }
   return null;
 }
 
@@ -27,6 +31,9 @@ export function isEnvironmentByokManifest(
         : adapterId === "openai-responses"
         ? manifest.id === "openai-api" &&
           endpoint.value === "https://api.openai.com/v1"
+        : adapterId === "gemini-generate-content"
+        ? manifest.id === "google-gemini-api" &&
+          endpoint.value === "https://generativelanguage.googleapis.com/v1beta"
         : manifest.id === "anthropic-api" &&
           endpoint.value === "https://api.anthropic.com/v1"),
   );
