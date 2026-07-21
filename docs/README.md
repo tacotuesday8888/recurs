@@ -7,6 +7,7 @@ Current documents:
 - [Release runbook](RELEASING.md) — verified artifact boundary, one-time npm bootstrap, trusted publishing, and later preview releases.
 - [Base engine comparison](BASE_ENGINE_COMPARISON.md) — evidence from Kilo Code, OpenCode, and Codex and the resulting hardening decisions.
 - [Sub-agent harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md) — commit-pinned primary-source execution patterns from Codex, OpenCode, Kimi Code, Kilo Code, Roo Code, Pi, Goose, and Grok Build, plus the exact Recurs boundary derived from them.
+- [Agent company onboarding](AGENT_COMPANY_ONBOARDING.md) — canonical product target for turning project intent into a tailored, durable agent company, including the implemented foundation and remaining gaps.
 - [Architecture](../ARCHITECTURE.md) — implemented package boundaries and direct/delegated engine lifecycle.
 - [Product direction](../PRODUCT.md) — CLI-first agent manager and sub-agent roadmap.
 

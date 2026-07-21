@@ -67,3 +67,9 @@ Add the company-style desktop client, plugin packaging and later MCP remote/prof
 Recurs is not currently building its own foundation model, replacing code editors, hosting model credits, promising unofficial access to consumer subscriptions, or copying the full feature inventory of Kilo Code, OpenCode, Codex, Claude Code, or Cursor.
 
 Historical exploration is preserved under [docs/research](docs/research/README.md). Current technical decisions live in [ARCHITECTURE.md](ARCHITECTURE.md) and the reviewed specs indexed in [docs/README.md](docs/README.md).
+
+The canonical product target for connecting onboarding to the sub-agent system
+is [Agent Company Onboarding](docs/AGENT_COMPANY_ONBOARDING.md). It records the
+settled original company concept, what the current harness implements, and the
+next blueprint-to-runtime slices without treating unresolved UI ideas as engine
+requirements.
