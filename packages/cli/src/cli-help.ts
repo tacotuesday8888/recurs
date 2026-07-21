@@ -31,6 +31,8 @@ Usage:
   recurs --version               Show the installed Recurs version
   recurs --help                  Show this help
 
+Interactive sessions stage a local image with /image <path>; /image clear
+discards staged attachments before the next ordinary prompt.
 Local setup supports credential-free OpenAI-compatible servers on literal loopback only.
 Cross-platform BYOK saves provider/model metadata and an environment-variable name, never the key.
 Ephemeral override remains available with RECURS_PROVIDER, RECURS_MODEL, and RECURS_API_KEY together.

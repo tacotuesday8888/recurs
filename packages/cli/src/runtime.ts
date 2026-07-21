@@ -222,6 +222,10 @@ export class RecursRuntime {
       this.#activeQueuedTurns?.isOpen === true;
   }
 
+  get hasActiveRun(): boolean {
+    return this.#activeController !== null;
+  }
+
   get activeTurnId(): string | null {
     return this.#activeSteering?.turnId ?? null;
   }

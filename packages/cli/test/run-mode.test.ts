@@ -2324,6 +2324,71 @@ describe("runCli", () => {
     expect(stderr.value).toBe("");
   });
 
+  it("reports invalid image files as safe preflight input failures", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-run-image-"));
+    directories.push(root);
+    await writeFile(path.join(root, "notes.bin"), "not an image");
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let runtimeCreated = false;
+
+    const code = await runCli(
+      ["run", "Inspect this", "--image", "notes.bin"],
+      {
+        cwd: root,
+        stdout,
+        stderr,
+        async createRuntime() {
+          runtimeCreated = true;
+          throw new Error("runtime should not be created");
+        },
+      },
+    );
+
+    expect(code).toBe(2);
+    expect(runtimeCreated).toBe(false);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toBe(
+      "Error: Image input must be PNG, JPEG, or WebP\n",
+    );
+
+    const jsonStdout = new TextOutput();
+    const jsonStderr = new TextOutput();
+    const jsonCode = await runCli(
+      [
+        "run",
+        "Inspect this",
+        "--image",
+        "notes.bin",
+        "--format",
+        "json",
+      ],
+      {
+        cwd: root,
+        stdout: jsonStdout,
+        stderr: jsonStderr,
+        async createRuntime() {
+          runtimeCreated = true;
+          throw new Error("runtime should not be created");
+        },
+      },
+    );
+    expect(jsonCode).toBe(2);
+    expect(JSON.parse(jsonStdout.value)).toMatchObject({
+      version: 1,
+      type: "configuration_error",
+      error: {
+        domain: "runtime",
+        phase: "preflight",
+        code: "runtime_failed",
+        safeMessage: "Image input must be PNG, JPEG, or WebP",
+        retryable: false,
+      },
+    });
+    expect(jsonStderr.value).toBe("");
+    expect(runtimeCreated).toBe(false);
+  });
+
   it.each([
     ["empty", Readable.from([]), false, "empty"],
     ["invalid UTF-8", Readable.from([Buffer.from([0xff])]), false, "valid UTF-8"],

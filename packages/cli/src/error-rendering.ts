@@ -18,6 +18,7 @@ import {
 } from "@recurs/app";
 
 import { RuntimeError } from "./runtime.js";
+import { ImageInputError } from "./image-input.js";
 import { LocalConnectionError } from "./local-connection.js";
 
 export function unexpectedFailureMessage(
@@ -41,6 +42,7 @@ export function safeCliErrorMessage(
   }
   if (
     error instanceof RuntimeError ||
+    error instanceof ImageInputError ||
     error instanceof LocalConnectionError ||
     error instanceof CodexOnboardingError ||
     error instanceof EnvironmentConnectionError ||
