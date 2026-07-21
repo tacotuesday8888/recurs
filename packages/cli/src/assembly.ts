@@ -37,6 +37,7 @@ import {
   FileGitPatchArtifactStore,
   JsonlSessionStore,
   JsonlTeamRunStore,
+  SessionStoreError,
   GitWorktreeLeaseManager,
   GitPatchArtifactManager,
   ProcessScopedRuntimeContinuationStore,
@@ -100,7 +101,7 @@ import { McpServerCatalog } from "./mcp-client.js";
 import { projectContextInstructions } from "./project-instructions.js";
 import type { LocalConnectionConfiguration } from "./local-connection.js";
 import { createCodexAgentRuntime } from "./codex-connection.js";
-import { RecursRuntime } from "./runtime.js";
+import { RecursRuntime, RuntimeError } from "./runtime.js";
 import {
   providerDiscoveryOverview,
   providerOverviewText,
@@ -120,6 +121,7 @@ export interface StandaloneRuntimeOptions {
   environment?: Readonly<NodeJS.ProcessEnv>;
   environmentFetch?: typeof globalThis.fetch;
   reuseExistingSession?: boolean;
+  resumeSessionId?: string;
   operatingModeId?: OperatingModeId;
   permissionMode?: PermissionMode;
   skillHomeDirectory?: string;
@@ -715,7 +717,7 @@ export async function createStandaloneRuntime(
     : selectedConnection(registryDocument);
   const delegatedRuntimeFactory = options.delegatedRuntimeFactory ??
     createCodexAgentRuntime;
-  const initialBackend: RuntimeBackend | undefined = injected !== undefined
+  let initialBackend: RuntimeBackend | undefined = injected !== undefined
     ? {
         kind: "direct",
         pin: (at) => injectedBackendPin(
@@ -748,13 +750,109 @@ export async function createStandaloneRuntime(
           runtimeEnvironment,
           options.environmentFetch,
         ) ?? undefined;
-  const existing = await sessions.list();
+  const existing = options.resumeSessionId === undefined
+    ? await sessions.list()
+    : [];
+  let requestedSession: PinnedSessionState | null = null;
+  if (options.resumeSessionId !== undefined) {
+    if (
+      options.permissionMode !== undefined ||
+      options.operatingModeId !== undefined
+    ) {
+      throw new RuntimeError(
+        "invalid_input",
+        "An exact resumed session keeps its existing permission and operating-mode policy",
+      );
+    }
+    let candidate: SessionState;
+    try {
+      candidate = await sessions.loadState(options.resumeSessionId);
+    } catch (error) {
+      if (
+        error instanceof SessionStoreError &&
+        (error.code === "session_not_found" ||
+          error.code === "invalid_session_id")
+      ) {
+        throw new RuntimeError(
+          "invalid_input",
+          error.code === "session_not_found"
+            ? `Session not found: ${options.resumeSessionId}`
+            : "The requested session id is invalid",
+        );
+      }
+      throw error;
+    }
+    if (!isPinnedSessionState(candidate) || candidate.agent.role !== "parent") {
+      throw new RuntimeError(
+        "invalid_input",
+        "Only a durable parent session can be resumed from one-shot mode",
+      );
+    }
+    if (candidate.cwd !== cwd) {
+      throw new RuntimeError(
+        "invalid_input",
+        "The requested session belongs to a different workspace",
+      );
+    }
+
+    let requestedBackend: RuntimeBackend | null = null;
+    if (injected !== undefined || environmentConnection !== null) {
+      if (
+        initialBackend !== undefined &&
+        isDeepStrictEqual(
+          candidate.backend.pin,
+          initialBackend.pin(
+            candidate.backend.pin.billingSelectionAtCreation.acknowledgedAt,
+          ),
+        )
+      ) {
+        requestedBackend = initialBackend;
+      }
+    } else {
+      const connection = registryDocument?.connections.find(
+        (entry) => entry.id === candidate.backend.pin.connectionId,
+      );
+      if (connection !== undefined) {
+        try {
+          const resolved = await backendForConnection(
+            connection,
+            delegatedRuntimeFactory,
+            randomUUID(),
+            options.nativeOpenAIResponses,
+            runtimeEnvironment,
+            options.environmentFetch,
+          );
+          if (
+            resolved !== null &&
+            isDeepStrictEqual(
+              candidate.backend.pin,
+              resolved.pin(
+                candidate.backend.pin.billingSelectionAtCreation.acknowledgedAt,
+              ),
+            )
+          ) {
+            requestedBackend = resolved;
+          }
+        } catch {
+          // Resume uses the same fail-closed connection checks as a new run.
+        }
+      }
+    }
+    if (requestedBackend === null) {
+      throw new RuntimeError(
+        "provider_not_configured",
+        "The requested session's pinned provider connection is unavailable or has changed",
+      );
+    }
+    initialBackend = requestedBackend;
+    requestedSession = candidate;
+  }
   let state: PinnedSessionState | WorkspaceShellState;
   if (initialBackend === undefined) {
     state = createWorkspaceShell(cwd, options.permissionMode);
   } else {
-    let matching: PinnedSessionState | null = null;
-    if (options.reuseExistingSession !== false) {
+    let matching: PinnedSessionState | null = requestedSession;
+    if (matching === null && options.reuseExistingSession !== false) {
       for (const entry of existing) {
         const candidate = await sessions.loadState(entry.id);
         if (

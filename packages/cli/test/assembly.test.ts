@@ -709,6 +709,19 @@ describe("standalone assembly without a provider", () => {
         message: expect.stringContaining("DEEPSEEK_API_KEY"),
       });
     }
+
+    await expect(createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory,
+        environment: {},
+        resumeSessionId: runtime.session.id,
+      },
+    )).rejects.toMatchObject({
+      code: "provider_not_configured",
+      message: expect.stringContaining("pinned provider connection"),
+    });
   });
 
   it("pins and reports a saved OpenAI reasoning effort without changing the credential boundary", async () => {
@@ -829,6 +842,49 @@ describe("standalone assembly without a provider", () => {
     expect(restarted.session.id).toBe(parent.session.id);
     expect(restarted.session.agent.role).toBe("parent");
     expect(restarted.session.cwd).toBe(repositoryRoot);
+
+    const fresh = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: repositoryRoot, dataDirectory, reuseExistingSession: false },
+    );
+    expect(fresh.session.id).not.toBe(parent.session.id);
+
+    const beforeExactResume = await sessions.list();
+    const exact = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: repositoryRoot,
+        dataDirectory,
+        resumeSessionId: parent.session.id,
+        reuseExistingSession: false,
+      },
+    );
+    expect(exact.session.id).toBe(parent.session.id);
+    expect(await sessions.list()).toHaveLength(beforeExactResume.length);
+
+    await expect(createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: repositoryRoot,
+        dataDirectory,
+        resumeSessionId: "newer-child-session",
+      },
+    )).rejects.toMatchObject({
+      code: "invalid_input",
+      message: "Only a durable parent session can be resumed from one-shot mode",
+    });
+    await expect(createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: repositoryRoot,
+        dataDirectory,
+        resumeSessionId: parent.session.id,
+        permissionMode: "full_access",
+      },
+    )).rejects.toMatchObject({
+      code: "invalid_input",
+      message: expect.stringContaining("keeps its existing permission"),
+    });
   });
 
   it("reconciles a prepared apply before stale provider policy blocks startup", async () => {
