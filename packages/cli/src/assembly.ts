@@ -86,6 +86,7 @@ import {
   createSearchTextTool,
   createWebFetchTool,
   type PermissionMode,
+  type ExecutionMode,
   type PtyDriver,
   type ToolSecurityProfile,
 } from "@recurs/tools";
@@ -124,6 +125,7 @@ export interface StandaloneRuntimeOptions {
   resumeSessionId?: string;
   operatingModeId?: OperatingModeId;
   permissionMode?: PermissionMode;
+  executionMode?: ExecutionMode;
   connectionId?: string;
   skillHomeDirectory?: string;
   ptyDriver?: PtyDriver;
@@ -915,6 +917,7 @@ export async function createStandaloneRuntime(
           backend,
           options.operatingModeId,
           options.permissionMode,
+          options.executionMode,
         ),
         at: createdAt,
       });

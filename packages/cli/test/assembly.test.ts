@@ -352,6 +352,51 @@ describe("standalone assembly without a provider", () => {
     });
   });
 
+  it("creates a fresh direct session with Plan authority from sequence zero", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-plan-assembly-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    await writeLocalConnection(dataDirectory, {
+      baseUrl: "http://127.0.0.1:11434/v1",
+      modelId: "qwen-coder",
+      now: "2026-07-21T00:00:00.000Z",
+    });
+
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory,
+        executionMode: "plan",
+        permissionMode: "approved_for_me",
+        reuseExistingSession: false,
+      },
+    );
+
+    expect(runtime.session).toMatchObject({
+      lastSequence: 0,
+      executionMode: "plan",
+      permissionMode: "approved_for_me",
+      agent: {
+        role: "parent",
+        permissions: {
+          parentExecutionMode: "plan",
+          executionMode: "plan",
+          parentPermissionMode: "approved_for_me",
+          permissionMode: "approved_for_me",
+        },
+      },
+    });
+    await runtime.submit("/plan exit");
+    expect(runtime.session).toMatchObject({
+      lastSequence: 1,
+      executionMode: "act",
+      permissionMode: "approved_for_me",
+    });
+  });
+
   it("switches saved models by creating a fresh pinned session without changing primary", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-model-switch-"));
     directories.push(root);

@@ -42,6 +42,8 @@ const stdinPrompt = "Inspect this exact piped installed prompt.";
 const stdinFinalText = "RECURS_INSTALLED_STDIN_OK";
 const imagePrompt = "Inspect this exact installed image prompt.";
 const imageFinalText = "RECURS_INSTALLED_IMAGE_OK";
+const reviewPrompt = "Review the following Git changes.";
+const reviewFinalText = "RECURS_INSTALLED_REVIEW_OK";
 const aggregateErrorPrompt = "Trigger the installed aggregate error boundary.";
 const aggregateErrorCanary = "RECURS_INSTALLED_PROVIDER_SECRET_CANARY";
 const acpPrompt = "Report the installed ACP transport marker.";
@@ -172,6 +174,16 @@ async function startLocalModelServer() {
               finish_reason: "stop",
             }],
             usage: { prompt_tokens: 7, completion_tokens: 4 },
+          });
+          return;
+        }
+        if (messages.includes(reviewPrompt)) {
+          streamResponse(response, {
+            choices: [{
+              delta: { content: reviewFinalText },
+              finish_reason: "stop",
+            }],
+            usage: { prompt_tokens: 9, completion_tokens: 4 },
           });
           return;
         }
@@ -929,6 +941,60 @@ try {
   assert(
     localModelServer.chatRequests.length === 11,
     "The installed image prompt did not reach the backend exactly once.",
+  );
+
+  const { stdout: reviewOutput, stderr: reviewError } = await execFileAsync(
+    executable,
+    [
+      "review",
+      "--connection",
+      savedConnectionId,
+      "--mode",
+      "economy",
+      "--format",
+      "json",
+    ],
+    {
+      cwd: workspaceDirectory,
+      encoding: "utf8",
+      env: environment,
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+  const reviewResult = JSON.parse(reviewOutput);
+  assert(
+    reviewResult.type === "run_result" &&
+      reviewResult.result?.finalText === reviewFinalText &&
+      reviewError === "",
+    "The installed headless review did not complete its model turn.",
+  );
+  const reviewSession = JSON.parse((await readFile(path.join(
+    environment.RECURS_HOME,
+    "projects",
+    projectId,
+    "sessions",
+    `${reviewResult.sessionId}.jsonl`,
+  ), "utf8")).split("\n", 1)[0]);
+  assert(
+    reviewSession.agent?.permissions?.parentExecutionMode === "plan" &&
+      reviewSession.agent?.permissions?.executionMode === "plan" &&
+      reviewSession.agent?.operatingMode?.id === "economy_v5",
+    "The installed review did not pin its fresh session to the requested Plan policy.",
+  );
+  const reviewRequest = localModelServer.chatRequests.find((request) =>
+    JSON.stringify(request.messages).includes(reviewPrompt)
+  );
+  const reviewContext = JSON.parse(
+    reviewRequest?.messages?.find((message) => message.role === "system")?.content ??
+      "null",
+  );
+  assert(
+    reviewContext?.executionMode === "plan",
+    "The installed review did not present Plan mode to the model.",
+  );
+  assert(
+    localModelServer.chatRequests.length === 12,
+    "The installed review prompt did not reach the backend exactly once.",
   );
 } finally {
   if (localModelServer !== undefined) {

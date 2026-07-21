@@ -293,7 +293,9 @@ node packages/cli/dist/main.js run "inspect the repository" -C /path/to/project 
 node packages/cli/dist/main.js run "inspect the repository" --format jsonl
 node packages/cli/dist/main.js run "run the checks" --permissions full --format jsonl
 node packages/cli/dist/main.js run "inspect efficiently" --mode economy --format jsonl
+node packages/cli/dist/main.js run "inspect without editing" --plan --format json
 node packages/cli/dist/main.js run "review with the saved work account" --connection <connection-id> --format jsonl
+node packages/cli/dist/main.js review -C /path/to/project --format json
 node packages/cli/dist/main.js run "continue the review" --resume <session-id> --format jsonl
 node packages/cli/dist/main.js run "explain this interface" --image ./screenshot.png --format jsonl
 cat prompt.md | node packages/cli/dist/main.js run - --format jsonl
@@ -309,6 +311,10 @@ The no-argument interactive CLI requires a user-present local terminal and rejec
 `--mode economy|standard|balanced|performance|max` pins the current version of one existing operating policy into a fresh headless session. An exact historical policy ID such as `balanced_v4` is also accepted for deterministic replay. The mode changes real model eligibility, child/request limits, concurrency, review depth, and reported-cost ceilings; it is not a display-only quality label. Like permissions, mode cannot be overridden while using `--resume`, because a resumed session retains its immutable stored policy.
 
 `--connection <connection-id>` selects one exact saved provider/model binding for a fresh headless session without changing the registry's primary connection or role routes. Use `recurs account list --json` to obtain the stable ID. Missing connections and simultaneous process-scoped provider overrides fail closed. A resumed session rejects the flag because its original connection is already immutable.
+
+`recurs run <prompt> --plan` creates the fresh durable session with Plan authority in its sequence-zero root-agent descriptor. Mutating tools are therefore unavailable for the entire one-shot run; this is not a prompt hint or a mutable process default. It composes with `--connection`, `--mode`, `--permissions`, `-C`, structured output, stdin, and images. It cannot accompany `--resume`, because resume retains the exact stored Act/Plan state.
+
+`recurs review` is the non-interactive form of the existing `/review` workflow. It creates one fresh Plan session, reads bounded staged and unstaged diffs through the hardened Git tool, and submits the standard correctness, regression, security, and missing-test review prompt. It supports the shared working-root, connection, operating-mode, permission, and output-format flags. Positional prompts, stdin, images, resume, and a redundant `--plan` are rejected instead of producing ambiguous review scope.
 
 `--resume <session-id>` instead continues one exact durable parent session in the current canonical workspace without creating a throwaway session. It revalidates the session's immutable backend pin against the current saved connection or process-scoped provider before any prompt is persisted. A missing/changed credential, disconnected provider, mismatched backend, child session, or simultaneous connection, permission, or mode override fails closed. The resumed session retains its stored permission, operating mode, Plan/Act state, usage, and visible conversation. Codex still rejects this unattended path because its subscription policy requires a local user-present manual CLI. In JSONL mode every normalized event includes the exact `sessionId`; wrappers should read it from `turn_started` and supply it explicitly on the next invocation. JSONL uses the same runtime and events as the interactive CLI.
 
@@ -436,7 +442,7 @@ Act mode is normal coding. Plan mode is enforced read-only at the tool registry:
 - Available: file reads/listing/search and Git status/diff.
 - Hidden and denied: patching and shell commands.
 
-`/plan [prompt]` enters Plan mode and can immediately submit a planning prompt. `/plan exit` restores the permission preset that was active before planning. `/review` uses a temporary read-only override without changing the stored Act/Plan mode.
+`/plan [prompt]` enters Plan mode and can immediately submit a planning prompt. `/plan exit` restores the permission preset that was active before planning. `/review` uses a temporary read-only override without changing the stored Act/Plan mode. For automation, `recurs run --plan` pins a fresh Plan session and `recurs review` runs the same bounded review workflow in a fresh Plan session.
 
 Codex sessions are permanently constrained by their runtime profile to Plan mode and Codex `read-only` mode. Exiting Plan may update the local session mode, but the next delegated run is rejected before provider work; it cannot turn Codex into an Act-capable connection.
 

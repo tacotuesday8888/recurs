@@ -4,11 +4,12 @@ Usage:
   recurs [-C <dir>]              Open the interactive CLI in one working root
   recurs setup                   Guide provider, model, and permission setup
   recurs run <prompt> [-C <dir>] Run one prompt in one working root
-  recurs run <prompt> [--format text|json|jsonl] [--permissions ask|approved|full] [--mode economy|standard|balanced|performance|max] [--connection <id>]
+  recurs run <prompt> [--plan] [--format text|json|jsonl] [--permissions ask|approved|full] [--mode economy|standard|balanced|performance|max] [--connection <id>]
   recurs run <prompt> --resume <session-id> [--format text|json|jsonl]
   recurs run -                   Read one bounded prompt from piped stdin
   recurs run <prompt> --stdin    Append bounded piped stdin to the prompt
   recurs run <prompt> --image <path> [--image <path>]
+  recurs review [-C <dir>]      Review the current Git diff in a fresh Plan session
   recurs acp                     Serve Recurs over ACP on stdio
   recurs setup local --url <loopback-url> --model <model-id>
   recurs setup byok --provider <id> --model <id> --key-env <ENV> [--billing strict|allow-additional] [--reasoning-effort none|low|medium|high|xhigh|max]
@@ -49,7 +50,7 @@ Usage:
   recurs run <prompt> [-C <dir>]
   recurs run <prompt> [--format text|json|jsonl] [--permissions ask|approved|full]
                     [--mode economy|standard|balanced|performance|max]
-                    [--connection <id>]
+                    [--connection <id>] [--plan]
                     [--image <path>] (repeat up to four times)
   recurs run <prompt> --resume <session-id> [--format text|json|jsonl]
   recurs run -
@@ -59,7 +60,22 @@ Fresh runs create a new durable session. Resume retains the stored provider,
 working root, permissions, and operating mode. JSON writes one terminal object;
 JSONL streams normalized events. Stdin is bounded to 1 MiB of valid UTF-8.
 Explicit PNG, JPEG, and WebP inputs are bounded to five MiB total and require
-a direct provider adapter with image support.
+a direct provider adapter with image support. --plan pins the fresh session to
+enforced read-only execution and cannot override a resumed session.
+`,
+  review: `Review the current staged and unstaged Git changes
+
+Usage:
+  recurs review [-C <dir>]
+                [--format text|json|jsonl]
+                [--permissions ask|approved|full]
+                [--mode economy|standard|balanced|performance|max]
+                [--connection <id>]
+
+Review creates one fresh durable Plan session, reads bounded staged and
+unstaged diffs through Recurs's hardened Git tool, and submits the existing
+read-only review prompt. It does not accept positional prompts, stdin, images,
+or session resume.
 `,
   setup: `Configure a provider, model, permissions, and operating mode
 
