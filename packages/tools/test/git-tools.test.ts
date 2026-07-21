@@ -253,8 +253,14 @@ describe("credential-safe Git inspection", () => {
       "primary",
       "2026-01-03T00:00:00Z",
     );
-    await expect(execFileAsync("git", ["merge", "other"], { cwd })).rejects
-      .toBeDefined();
+    await expect(execFileAsync("git", [
+      "-c",
+      "user.name=Recurs Test",
+      "-c",
+      "user.email=recurs@example.invalid",
+      "merge",
+      "other",
+    ], { cwd })).rejects.toBeDefined();
 
     const status = await invoke(createGitStatusTool(), {}, context("plan"));
     expect(statusRecords(status)).toContainEqual(expect.objectContaining({
