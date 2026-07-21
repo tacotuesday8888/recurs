@@ -67,7 +67,7 @@ import { CLI_HELP, parseCliHelpRequest } from "./cli-help.js";
 import { parsePermissionMode } from "./commands/permissions.js";
 import type { CommandResult } from "./commands/types.js";
 import { safeCliErrorMessage } from "./error-rendering.js";
-import { loadImageInputs } from "./image-input.js";
+import { ImageInputError, loadImageInputs } from "./image-input.js";
 import {
   listAccountSummaries,
   listProviderSummaries,
@@ -919,6 +919,7 @@ function exitCodeFor(error: unknown): number {
     return 2;
   }
   if (error instanceof LocalConnectionError) return 2;
+  if (error instanceof ImageInputError) return 2;
   if (error instanceof EnvironmentConnectionError) {
     return error.code === "cancelled" ? 130 : 2;
   }
@@ -954,6 +955,16 @@ async function closeRuntime(
 function configurationFailure(error: unknown): IntegrationFailure | null {
   if (error instanceof CoordinatedRunError && error.failure.phase === "preflight") {
     return error.failure;
+  }
+  if (error instanceof ImageInputError) {
+    return {
+      domain: "runtime",
+      phase: "preflight",
+      code: "runtime_failed",
+      safeMessage: error.message,
+      diagnosticId: randomUUID(),
+      retryable: false,
+    };
   }
   if (
     error instanceof RuntimeError &&
@@ -1084,6 +1095,7 @@ async function startInteractiveRepl(
   await startRepl(runtime, {
     ...(dependencies.stdin === undefined ? {} : { input: dependencies.stdin }),
     output: dependencies.stdout,
+    cwd: dependencies.cwd ?? process.cwd(),
     invocation: createHostInvocation({
       invocation: "repl",
       userPresent: true,

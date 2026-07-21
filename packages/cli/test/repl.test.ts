@@ -1,9 +1,11 @@
 import { PassThrough, Readable, Writable } from "node:stream";
 
 import { AgentLoopError } from "@recurs/core";
+import type { HostInvocation, ModelImageInput } from "@recurs/contracts";
 import { describe, expect, it } from "vitest";
 
 import { startRepl, type RecursRuntime } from "../src/index.js";
+import { ImageInputError } from "../src/image-input.js";
 
 class TextOutput extends Writable {
   value = "";
@@ -36,6 +38,213 @@ function failingRuntime(error: Error): RecursRuntime {
 }
 
 describe("startRepl", () => {
+  it("stages path-free images for exactly the next ordinary prompt", async () => {
+    const root = "/canonical/project";
+    const input = new PassThrough();
+    const output = new TextOutput();
+    const submissions: Array<{
+      readonly input: string;
+      readonly images?: readonly ModelImageInput[];
+    }> = [];
+    const runtime = {
+      get hasActiveRun() { return false; },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async close() {},
+      async submit(
+        input: string,
+        _invocation: HostInvocation,
+        options: { readonly images?: readonly ModelImageInput[] } = {},
+      ) {
+        submissions.push({ input, ...options });
+        return input === "/quit"
+          ? { type: "quit" as const }
+          : input.startsWith("/")
+            ? { type: "message" as const, level: "info" as const, text: "command" }
+            : {
+                finalText: "done",
+                usage: null,
+                usageSource: "unavailable" as const,
+                steps: null,
+                changedFiles: [],
+                changedFilesSource: "none" as const,
+                evidence: [],
+                evidenceSource: "none" as const,
+              };
+      },
+    } as unknown as RecursRuntime;
+
+    const repl = startRepl(runtime, {
+      input,
+      output,
+      terminal: false,
+      cwd: root,
+      async loadImages(paths, cwd) {
+        expect(paths).toEqual(["My Screen.bin"]);
+        expect(cwd).toBe(root);
+        return [{ mediaType: "image/png", data: "iVBORw0KGgo=" }];
+      },
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    for (const line of [
+      "/image My\\ Screen.bin\n",
+      "/help\n",
+      "Inspect the screenshot\n",
+      "Continue without it\n",
+      "/quit\n",
+    ]) {
+      input.write(line);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    await repl;
+
+    expect(submissions).toEqual([
+      { input: "/help" },
+      {
+        input: "Inspect the screenshot",
+        images: [{ mediaType: "image/png", data: "iVBORw0KGgo=" }],
+      },
+      { input: "Continue without it" },
+      { input: "/quit" },
+    ]);
+    expect(output.value).toContain("Images staged for the next prompt: 1/4");
+    expect(output.value).toContain("/image [path|clear]");
+    expect(JSON.stringify(submissions)).not.toContain(root);
+  });
+
+  it("reports safe image errors and does not submit invalid attachments", async () => {
+    const input = new PassThrough();
+    const output = new TextOutput();
+    const submissions: string[] = [];
+    const runtime = {
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async close() {},
+      async submit(input: string) {
+        submissions.push(input);
+        return { type: "quit" as const };
+      },
+    } as unknown as RecursRuntime;
+
+    const repl = startRepl(runtime, {
+      input,
+      output,
+      terminal: false,
+      async loadImages() {
+        throw new ImageInputError("Image input must be PNG, JPEG, or WebP");
+      },
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    input.write("/image notes.bin\n");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    input.write("/quit\n");
+    await repl;
+
+    expect(submissions).toEqual(["/quit"]);
+    expect(output.value).toContain("Error: Image input must be PNG, JPEG, or WebP");
+    expect(output.value).not.toContain("diagnostic");
+  });
+
+  it("reports and clears staged images without consuming a model turn", async () => {
+    const input = new PassThrough();
+    const output = new TextOutput();
+    const submissions: Array<{
+      readonly input: string;
+      readonly images?: readonly ModelImageInput[];
+    }> = [];
+    const runtime = {
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async close() {},
+      async submit(
+        line: string,
+        _invocation: HostInvocation,
+        options: { readonly images?: readonly ModelImageInput[] } = {},
+      ) {
+        submissions.push({ input: line, ...options });
+        return line === "/quit"
+          ? { type: "quit" as const }
+          : {
+              finalText: "done",
+              usage: null,
+              usageSource: "unavailable" as const,
+              steps: null,
+              changedFiles: [],
+              changedFilesSource: "none" as const,
+              evidence: [],
+              evidenceSource: "none" as const,
+            };
+      },
+    } as unknown as RecursRuntime;
+
+    const repl = startRepl(runtime, {
+      input,
+      output,
+      terminal: false,
+      async loadImages() {
+        return [{ mediaType: "image/png", data: "iVBORw0KGgo=" }];
+      },
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    for (const line of [
+      "/image screen.png\n",
+      "/image\n",
+      "/image clear\n",
+      "/image\n",
+      "Inspect without an attachment\n",
+      "/quit\n",
+    ]) {
+      input.write(line);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    await repl;
+
+    expect(submissions).toEqual([
+      { input: "Inspect without an attachment" },
+      { input: "/quit" },
+    ]);
+    expect(output.value).toContain("Staged images cleared.");
+    expect(output.value).toContain("No images staged.");
+  });
+
+  it("does not turn image staging into ambiguous live steering", async () => {
+    const input = new PassThrough();
+    const output = new TextOutput();
+    let loaded = false;
+    const submissions: string[] = [];
+    const runtime = {
+      get hasActiveRun() { return true; },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async close() {},
+      async submit(line: string) {
+        submissions.push(line);
+        return { type: "quit" as const };
+      },
+    } as unknown as RecursRuntime;
+
+    const repl = startRepl(runtime, {
+      input,
+      output,
+      terminal: false,
+      async loadImages() {
+        loaded = true;
+        return [{ mediaType: "image/png", data: "iVBORw0KGgo=" }];
+      },
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    input.write("/image screen.png\n");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    input.write("/quit\n");
+    await repl;
+
+    expect(loaded).toBe(false);
+    expect(submissions).toEqual(["/quit"]);
+    expect(output.value).toContain(
+      "Error: Images can be staged only while the current agent turn is idle",
+    );
+  });
+
   it("opens the shared provider view as the first sessionless onboarding step", async () => {
     const output = new TextOutput();
     const submitted: string[] = [];

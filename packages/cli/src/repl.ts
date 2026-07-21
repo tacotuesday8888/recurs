@@ -2,10 +2,19 @@ import { stdin as processStdin, stdout as processStdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import type { Readable, Writable } from "node:stream";
 
-import { createHostInvocation, type HostInvocation } from "@recurs/contracts";
+import {
+  createHostInvocation,
+  MAX_MODEL_IMAGES,
+  MAX_MODEL_IMAGE_TOTAL_BYTES,
+  modelImagesByteLength,
+  type HostInvocation,
+  type ModelImageInput,
+} from "@recurs/contracts";
 
+import { parseCommand } from "./commands/parser.js";
 import type { CommandResult } from "./commands/types.js";
 import { safeCliErrorMessage } from "./error-rendering.js";
+import { ImageInputError, loadImageInputs } from "./image-input.js";
 import { renderCommandResult, writeOutput } from "./render.js";
 import { isCancellation, type RecursRuntime } from "./runtime.js";
 import {
@@ -18,8 +27,52 @@ export interface ReplOptions {
   input?: Readable;
   output?: Writable;
   terminal?: boolean;
+  cwd?: string;
   invocation?: HostInvocation;
   attachProcess?: ProcessAttachmentHost;
+  loadImages?: (
+    paths: readonly string[],
+    cwd: string,
+  ) => Promise<readonly ModelImageInput[]>;
+}
+
+function stagedImagesText(images: readonly ModelImageInput[]): string {
+  if (images.length === 0) {
+    return "No images staged. Use /image <path> before the next prompt.\n";
+  }
+  const bytes = modelImagesByteLength(images);
+  return `Images staged for the next prompt: ${images.length}/${MAX_MODEL_IMAGES}, ${bytes ?? 0}/${MAX_MODEL_IMAGE_TOTAL_BYTES} bytes.\n`;
+}
+
+function interactiveImagePath(args: string): string {
+  const quote = args[0];
+  if (quote === "'" || quote === '"') {
+    if (args.length < 2 || args.at(-1) !== quote) {
+      throw new ImageInputError("Image path quoting is invalid");
+    }
+    const inner = args.slice(1, -1);
+    if (quote === "'") return inner;
+    let decoded = "";
+    for (let index = 0; index < inner.length; index += 1) {
+      const character = inner[index] ?? "";
+      if (character !== "\\") {
+        decoded += character;
+        continue;
+      }
+      const escaped = inner[index + 1];
+      if (escaped === undefined) {
+        throw new ImageInputError("Image path quoting is invalid");
+      }
+      if (escaped === "\\" || escaped === '"' || escaped === " ") {
+        decoded += escaped;
+        index += 1;
+      } else {
+        decoded += "\\";
+      }
+    }
+    return decoded;
+  }
+  return args.replaceAll("\\ ", " ");
 }
 
 function isCommandResult(value: unknown): value is CommandResult {
@@ -75,6 +128,8 @@ export async function startRepl(
     scripted: true,
     embedding: "cli",
   });
+  const cwd = options.cwd ?? process.cwd();
+  const loadImages = options.loadImages ?? loadImageInputs;
   const attachProcess = options.attachProcess ?? attachOwnedTerminalProcess;
   const createReadline = () => createInterface({
     input,
@@ -146,9 +201,50 @@ export async function startRepl(
     }
   }
   const activeSubmissions = new Set<Promise<void>>();
+  let stagedImages: readonly ModelImageInput[] = Object.freeze([]);
+  const handleImageCommand = async (args: string): Promise<void> => {
+    if (args.length === 0) {
+      await writeOutput(output, stagedImagesText(stagedImages));
+      return;
+    }
+    if (args.toLowerCase() === "clear") {
+      stagedImages = Object.freeze([]);
+      await writeOutput(output, "Staged images cleared.\n");
+      return;
+    }
+    if (runtime.hasActiveRun) {
+      throw new ImageInputError(
+        "Images can be staged only while the current agent turn is idle",
+      );
+    }
+    const loaded = await loadImages([interactiveImagePath(args)], cwd);
+    const combined = Object.freeze([...stagedImages, ...loaded]);
+    if (modelImagesByteLength(combined) === null) {
+      throw new ImageInputError(
+        "Staged images exceed the four-image or five MiB total limit",
+      );
+    }
+    stagedImages = combined;
+    await writeOutput(output, stagedImagesText(stagedImages));
+  };
   const submitLine = async (inputLine: string): Promise<boolean> => {
     try {
-      const result = await runtime.submit(inputLine, invocation);
+      const parsed = parseCommand(inputLine);
+      if (parsed?.name === "image") {
+        await handleImageCommand(parsed.args);
+        return false;
+      }
+      const images = parsed === null && !inputLine.trimStart().startsWith("/") &&
+          !runtime.hasActiveRun &&
+          stagedImages.length > 0
+        ? stagedImages
+        : undefined;
+      if (images !== undefined) stagedImages = Object.freeze([]);
+      const result = await runtime.submit(
+        inputLine,
+        invocation,
+        images === undefined ? {} : { images },
+      );
       if (isCommandResult(result)) {
         if (result.type === "quit") return true;
         if (result.type === "attach_process") {
@@ -167,6 +263,12 @@ export async function startRepl(
           return false;
         }
         await renderCommandResult(result, output, output);
+        if (parsed?.name === "help") {
+          await writeOutput(
+            output,
+            "/image [path|clear]            Stage, inspect, or clear images for the next prompt\n",
+          );
+        }
       }
     } catch (error) {
       if (isCancellation(error)) {

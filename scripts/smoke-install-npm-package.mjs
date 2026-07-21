@@ -40,12 +40,15 @@ const freshPrompt = "Start a separate installed session.";
 const freshFinalText = "RECURS_INSTALLED_FRESH_OK";
 const stdinPrompt = "Inspect this exact piped installed prompt.";
 const stdinFinalText = "RECURS_INSTALLED_STDIN_OK";
+const imagePrompt = "Inspect this exact installed image prompt.";
+const imageFinalText = "RECURS_INSTALLED_IMAGE_OK";
 const aggregateErrorPrompt = "Trigger the installed aggregate error boundary.";
 const aggregateErrorCanary = "RECURS_INSTALLED_PROVIDER_SECRET_CANARY";
 const acpPrompt = "Report the installed ACP transport marker.";
 const acpFinalText = "RECURS_INSTALLED_ACP_OK";
 const sandboxedFile = path.join(workspaceDirectory, "SANDBOXED.md");
 const escapedFile = path.join(temporaryDirectory, "ESCAPED.txt");
+const imageFile = path.join(workspaceDirectory, "installed-image.bin");
 const sandboxCommand =
   `printf '${taskMarker}\\n' > SANDBOXED.md; printf 'escape\\n' > ../ESCAPED.txt`;
 
@@ -156,6 +159,16 @@ async function startLocalModelServer() {
           streamResponse(response, {
             choices: [{
               delta: { content: stdinFinalText },
+              finish_reason: "stop",
+            }],
+            usage: { prompt_tokens: 7, completion_tokens: 4 },
+          });
+          return;
+        }
+        if (messages.includes(imagePrompt)) {
+          streamResponse(response, {
+            choices: [{
+              delta: { content: imageFinalText },
               finish_reason: "stop",
             }],
             usage: { prompt_tokens: 7, completion_tokens: 4 },
@@ -883,6 +896,39 @@ try {
   assert(
     localModelServer.chatRequests.length === 10,
     "The installed ACP and aggregate-error prompts did not reach the backend exactly once.",
+  );
+
+  await writeFile(imageFile, Buffer.from("iVBORw0KGgo=", "base64"));
+  const { stdout: imageOutput, stderr: imageError } = await execFileAsync(
+    executable,
+    ["run", imagePrompt, "--image", imageFile, "--format", "json"],
+    {
+      cwd: workspaceDirectory,
+      encoding: "utf8",
+      env: environment,
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+  const imageResult = JSON.parse(imageOutput);
+  assert(
+    imageResult.type === "run_result" &&
+      imageResult.result?.finalText === imageFinalText &&
+      imageError === "",
+    "The installed image prompt did not complete its model turn.",
+  );
+  const imageRequest = localModelServer.chatRequests.find((request) =>
+    JSON.stringify(request.messages).includes(imagePrompt)
+  );
+  const serializedImageRequest = JSON.stringify(imageRequest);
+  assert(
+    serializedImageRequest.includes(
+      "data:image/png;base64,iVBORw0KGgo=",
+    ) && !serializedImageRequest.includes(imageFile),
+    "The installed image prompt did not send path-free normalized image data.",
+  );
+  assert(
+    localModelServer.chatRequests.length === 11,
+    "The installed image prompt did not reach the backend exactly once.",
   );
 } finally {
   if (localModelServer !== undefined) {

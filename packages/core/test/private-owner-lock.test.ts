@@ -32,6 +32,9 @@ const publicationControl = vi.hoisted(() => ({
     | undefined,
   failDirectorySyncFor: undefined as string | undefined,
   failCandidateRemoval: false,
+  pauseNextOwnerRead: undefined as
+    | { readonly arrived: Deferred; readonly proceed: Deferred }
+    | undefined,
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -40,6 +43,24 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     ...actual,
     async open(...args: Parameters<typeof actual.open>) {
       const handle = await actual.open(...args);
+      const pause = publicationControl.pauseNextOwnerRead;
+      if (pause !== undefined && String(args[0]).endsWith("owner.json") &&
+        typeof args[1] === "number") {
+        publicationControl.pauseNextOwnerRead = undefined;
+        const read = handle.read.bind(handle);
+        let paused = false;
+        Object.defineProperty(handle, "read", {
+          configurable: true,
+          async value(...readArgs: Parameters<typeof handle.read>) {
+            if (!paused) {
+              paused = true;
+              pause.arrived.resolve();
+              await pause.proceed.promise;
+            }
+            return read(...readArgs);
+          },
+        });
+      }
       if (String(args[0]) === publicationControl.failDirectorySyncFor) {
         const sync = handle.sync.bind(handle);
         Object.defineProperty(handle, "sync", {
@@ -171,6 +192,8 @@ afterEach(async () => {
   publicationControl.afterPublication = undefined;
   publicationControl.failDirectorySyncFor = undefined;
   publicationControl.failCandidateRemoval = false;
+  publicationControl.pauseNextOwnerRead?.proceed.resolve();
+  publicationControl.pauseNextOwnerRead = undefined;
   await Promise.all(directories.splice(0).map((directory) =>
     rm(directory, { recursive: true, force: true })
   ));
@@ -234,6 +257,38 @@ it("fences contenders that observed the same dead owner before publication", asy
     if (first?.status === "acquired") await first.lock.release().catch(() => undefined);
     if (second?.status === "acquired") await second.lock.release().catch(() => undefined);
   }
+});
+
+it("treats a valid owner replacement during a read as contention", async () => {
+  const { root, binding } = await ownerFixture("owner-replaced-during-read");
+  const arrived = deferred();
+  const proceed = deferred();
+  publicationControl.pauseNextOwnerRead = { arrived, proceed };
+
+  const contended = reclaimPrivateOwnerLock(root, binding);
+  await arrived.promise;
+  const winner = await reclaimPrivateOwnerLock(root, binding);
+  expect(winner.status).toBe("acquired");
+
+  proceed.resolve();
+  await expect(contended).resolves.toEqual({ status: "busy" });
+  if (winner.status === "acquired") await winner.lock.release();
+});
+
+it("fails closed when an owner becomes invalid during a read", async () => {
+  const { root, binding, ownerPath } = await ownerFixture(
+    "invalid-owner-during-read",
+  );
+  const arrived = deferred();
+  const proceed = deferred();
+  publicationControl.pauseNextOwnerRead = { arrived, proceed };
+
+  const contended = reclaimPrivateOwnerLock(root, binding);
+  await arrived.promise;
+  await writeFile(ownerPath, "{}\n", { mode: 0o600 });
+  proceed.resolve();
+
+  await expect(contended).rejects.toMatchObject({ code: "permission_denied" });
 });
 
 it("reclaims a dead contender claim without reusing its publication slot", async () => {
