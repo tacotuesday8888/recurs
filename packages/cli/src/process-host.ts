@@ -111,6 +111,7 @@ Usage:
   recurs setup                   Guide provider, model, and permission setup
   recurs run <prompt>            Run one prompt
   recurs run <prompt> [--format text|jsonl] [--permissions ask|approved|full]
+  recurs run <prompt> --resume <session-id> [--format text|jsonl]
   recurs acp                     Serve Recurs over ACP on stdio
   recurs setup local --url <loopback-url> --model <model-id>
   recurs setup byok --provider <id> --model <id> --key-env <ENV> [--billing strict|allow-additional] [--reasoning-effort none|low|medium|high|xhigh|max]
@@ -174,6 +175,7 @@ export interface CliDependencies {
       readonly operatingModeId?: OperatingModeId;
       readonly permissionMode?: PermissionMode;
       readonly reuseExistingSession?: boolean;
+      readonly resumeSessionId?: string;
     },
   ): Promise<RecursRuntime>;
   runAcp?(): Promise<void>;
@@ -219,7 +221,10 @@ interface RunArguments {
   prompt: string;
   format: "text" | "jsonl";
   permissionMode?: PermissionMode;
+  resumeSessionId?: string;
 }
+
+const SAFE_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 
 function nativeAuthorityText(status: NativeAuthorityStatus): string {
   if (status.state === "unavailable") {
@@ -250,6 +255,7 @@ function isAbortError(error: unknown): boolean {
 function parseRunArguments(args: readonly string[]): RunArguments | null {
   let format: RunArguments["format"] = "text";
   let permissionMode: PermissionMode | undefined;
+  let resumeSessionId: string | undefined;
   const prompt: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index] ?? "";
@@ -271,18 +277,35 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
       index += 1;
       continue;
     }
+    if (argument === "--resume") {
+      const value = args[index + 1];
+      if (
+        value === undefined ||
+        resumeSessionId !== undefined ||
+        !SAFE_SESSION_ID.test(value)
+      ) {
+        return null;
+      }
+      resumeSessionId = value;
+      index += 1;
+      continue;
+    }
     if (argument.startsWith("--")) {
       return null;
     }
     prompt.push(argument);
   }
   const joined = prompt.join(" ").trim();
+  if (resumeSessionId !== undefined && permissionMode !== undefined) {
+    return null;
+  }
   return joined.length === 0
     ? null
     : {
         prompt: joined,
         format,
         ...(permissionMode === undefined ? {} : { permissionMode }),
+        ...(resumeSessionId === undefined ? {} : { resumeSessionId }),
       };
 }
 
@@ -1340,12 +1363,15 @@ export async function runCli(
   try {
     runtime = await dependencies.createRuntime(
       renderer,
-      parsed.permissionMode === undefined
-        ? undefined
-        : {
-            permissionMode: parsed.permissionMode,
-            reuseExistingSession: false,
-          },
+      {
+        reuseExistingSession: false,
+        ...(parsed.permissionMode === undefined
+          ? {}
+          : { permissionMode: parsed.permissionMode }),
+        ...(parsed.resumeSessionId === undefined
+          ? {}
+          : { resumeSessionId: parsed.resumeSessionId }),
+      },
     );
     const result = await runtime.submit(
       parsed.prompt,
@@ -1571,6 +1597,9 @@ export async function runCliProcess(
           ...(options?.reuseExistingSession === undefined
             ? {}
             : { reuseExistingSession: options.reuseExistingSession }),
+          ...(options?.resumeSessionId === undefined
+            ? {}
+            : { resumeSessionId: options.resumeSessionId }),
         },
       ),
       runAcp: () => serveRecursAcpStdio(

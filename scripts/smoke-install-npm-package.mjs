@@ -32,6 +32,10 @@ const skillMarker = "RECURS_INSTALLED_SKILL_OK";
 const mcpMarker = "RECURS_INSTALLED_MCP_OK";
 const taskMarker = "RECURS_INSTALLED_AGENT_READ_OK";
 const finalText = "Installed Recurs completed the guarded workspace task.";
+const resumePrompt = "Continue the exact installed session.";
+const resumeFinalText = "RECURS_INSTALLED_RESUME_OK";
+const freshPrompt = "Start a separate installed session.";
+const freshFinalText = "RECURS_INSTALLED_FRESH_OK";
 const acpPrompt = "Report the installed ACP transport marker.";
 const acpFinalText = "RECURS_INSTALLED_ACP_OK";
 const sandboxedFile = path.join(workspaceDirectory, "SANDBOXED.md");
@@ -111,13 +115,34 @@ async function startLocalModelServer() {
       if (request.method === "POST" && request.url === "/v1/chat/completions") {
         const body = await requestJson(request);
         chatRequests.push(body);
-        if (JSON.stringify(body.messages).includes(acpPrompt)) {
+        const messages = JSON.stringify(body.messages);
+        if (messages.includes(acpPrompt)) {
           streamResponse(response, {
             choices: [{
               delta: { content: acpFinalText },
               finish_reason: "stop",
             }],
             usage: { prompt_tokens: 8, completion_tokens: 4 },
+          });
+          return;
+        }
+        if (messages.includes(resumePrompt)) {
+          streamResponse(response, {
+            choices: [{
+              delta: { content: resumeFinalText },
+              finish_reason: "stop",
+            }],
+            usage: { prompt_tokens: 16, completion_tokens: 4 },
+          });
+          return;
+        }
+        if (messages.includes(freshPrompt)) {
+          streamResponse(response, {
+            choices: [{
+              delta: { content: freshFinalText },
+              finish_reason: "stop",
+            }],
+            usage: { prompt_tokens: 6, completion_tokens: 4 },
           });
           return;
         }
@@ -467,6 +492,17 @@ try {
     },
   );
   const events = run.trim().split("\n").map((line) => JSON.parse(line));
+  const initialSessionId = events.find((event) =>
+    event.type === "turn_started"
+  )?.sessionId;
+  assert(
+    typeof initialSessionId === "string" && initialSessionId.length > 0,
+    "The installed JSONL run did not expose its durable session id.",
+  );
+  assert(
+    events.every((event) => event.sessionId === initialSessionId),
+    "The installed JSONL run emitted inconsistent session identities.",
+  );
   const eventSummary = events.map((event) => ({
     type: event.type,
     ...(event.call?.name === undefined ? {} : { tool: event.call.name }),
@@ -559,9 +595,74 @@ try {
     "The installed model request did not expose Agent Skills and MCP tools.",
   );
 
+  const { stdout: resumed, stderr: resumedError } = await execFileAsync(
+    executable,
+    [
+      "run",
+      resumePrompt,
+      "--resume",
+      initialSessionId,
+      "--format",
+      "jsonl",
+    ],
+    {
+      cwd: workspaceDirectory,
+      encoding: "utf8",
+      env: environment,
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+  const resumedEvents = resumed.trim().split("\n").map((line) => JSON.parse(line));
+  assert(
+    resumedEvents.length > 0 &&
+      resumedEvents.every((event) => event.sessionId === initialSessionId),
+    "The installed one-shot resume did not keep the exact session identity.",
+  );
+  assert(
+    resumedEvents.some((event) =>
+      event.type === "model_text_delta" && event.text === resumeFinalText
+    ),
+    "The installed resumed session did not complete its follow-up turn.",
+  );
+  assert(resumedError === "", "The installed resumed run wrote unexpected diagnostics.");
+  assert(
+    JSON.stringify(localModelServer.chatRequests[5]?.messages).includes(finalText),
+    "The installed resumed request did not retain its prior visible context.",
+  );
+
+  const { stdout: fresh, stderr: freshError } = await execFileAsync(
+    executable,
+    ["run", freshPrompt, "--format", "jsonl"],
+    {
+      cwd: workspaceDirectory,
+      encoding: "utf8",
+      env: environment,
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+  const freshEvents = fresh.trim().split("\n").map((line) => JSON.parse(line));
+  const freshSessionId = freshEvents.find((event) =>
+    event.type === "turn_started"
+  )?.sessionId;
+  assert(
+    typeof freshSessionId === "string" && freshSessionId !== initialSessionId,
+    "An installed one-shot run without --resume reused prior session state.",
+  );
+  assert(
+    freshEvents.some((event) =>
+      event.type === "model_text_delta" && event.text === freshFinalText
+    ),
+    "The installed fresh session did not complete its turn.",
+  );
+  assert(freshError === "", "The installed fresh run wrote unexpected diagnostics.");
+  assert(
+    !JSON.stringify(localModelServer.chatRequests[6]?.messages).includes(finalText),
+    "An installed fresh one-shot request inherited prior visible context.",
+  );
+
   await runInstalledAcpSmoke(executable, environment);
   assert(
-    localModelServer.chatRequests.length === 6,
+    localModelServer.chatRequests.length === 8,
     "The installed ACP prompt did not reach the configured model backend exactly once.",
   );
 } finally {

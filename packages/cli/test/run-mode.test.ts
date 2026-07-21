@@ -1882,13 +1882,47 @@ describe("runCli", () => {
     const events = stdout.value
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line) as { type: string; version?: number });
+      .map((line) => JSON.parse(line) as {
+        type: string;
+        version?: number;
+        sessionId?: string;
+      });
 
     expect(exitCode).toBe(0);
     expect(events.map((event) => event.type)).toEqual(
       expect.arrayContaining(["turn_started", "model_completed", "turn_completed"]),
     );
     expect(events.every((event) => event.version === undefined)).toBe(true);
+    expect(events.every((event) => event.sessionId === "s1")).toBe(true);
+    expect(stderr.value).toBe("");
+  });
+
+  it("starts one-shot runs in a fresh session unless an exact resume id is given", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const runtimeOptions: unknown[] = [];
+    const dependenciesWithOptions: CliDependencies = {
+      stdout,
+      stderr,
+      async createRuntime(events, options) {
+        runtimeOptions.push(options);
+        return createRuntime(events);
+      },
+    };
+
+    expect(await runCli(
+      ["run", "first", "--format", "jsonl"],
+      dependenciesWithOptions,
+    )).toBe(0);
+    expect(await runCli(
+      ["run", "continue", "--resume", "session_1", "--format", "jsonl"],
+      dependenciesWithOptions,
+    )).toBe(0);
+
+    expect(runtimeOptions).toEqual([
+      { reuseExistingSession: false },
+      { reuseExistingSession: false, resumeSessionId: "session_1" },
+    ]);
     expect(stderr.value).toBe("");
   });
 
@@ -1931,7 +1965,17 @@ describe("runCli", () => {
       "run", "inspect", "--permissions", "ask",
       "--permissions", "full",
     ],
-  ])("rejects invalid one-shot permission flags before runtime creation", async (...args) => {
+    ["run", "inspect", "--resume"],
+    ["run", "inspect", "--resume", "../outside"],
+    [
+      "run", "inspect", "--resume", "session-1",
+      "--resume", "session-2",
+    ],
+    [
+      "run", "inspect", "--resume", "session-1",
+      "--permissions", "approved",
+    ],
+  ])("rejects invalid one-shot policy or resume flags before runtime creation", async (...args) => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
     let created = false;
