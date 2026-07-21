@@ -520,6 +520,23 @@ try {
   );
   assert(setup.includes(`Ready — Local model · ${modelId}`), "The installed CLI did not configure the local model.");
   assert(setupError === "", "The installed CLI wrote unexpected setup diagnostics.");
+  const { stdout: configuredAccounts, stderr: configuredAccountError } =
+    await execFileAsync(executable, ["account", "list", "--json"], {
+      cwd: workspaceDirectory,
+      encoding: "utf8",
+      env: environment,
+    });
+  const savedConnectionId = JSON.parse(configuredAccounts).accounts?.find(
+    (account) => account.primary === true,
+  )?.id;
+  assert(
+    typeof savedConnectionId === "string" && savedConnectionId.length > 0,
+    "The installed local setup did not expose its stable connection id.",
+  );
+  assert(
+    configuredAccountError === "",
+    "The installed configured-account listing wrote diagnostics.",
+  );
 
   const { stdout: run, stderr: runError } = await execFileAsync(
     executable,
@@ -709,7 +726,16 @@ try {
 
   const stdinRun = await runInstalledWithInput(
     executable,
-    ["run", "-", "--mode", "economy", "--format", "jsonl"],
+    [
+      "run",
+      "-",
+      "--connection",
+      savedConnectionId,
+      "--mode",
+      "economy",
+      "--format",
+      "jsonl",
+    ],
     environment,
     `${stdinPrompt}\n`,
   );
@@ -739,6 +765,10 @@ try {
   assert(
     stdinSession.agent?.operatingMode?.id === "economy_v5",
     "The installed headless mode flag did not pin the requested policy.",
+  );
+  assert(
+    stdinSession.backend?.connectionId === savedConnectionId,
+    "The installed headless connection flag did not pin the requested provider.",
   );
   assert(
     stdinEvents.some((event) =>

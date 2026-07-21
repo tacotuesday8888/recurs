@@ -883,7 +883,19 @@ describe("standalone assembly without a provider", () => {
       },
     )).rejects.toMatchObject({
       code: "invalid_input",
-      message: expect.stringContaining("keeps its existing permission"),
+      message: expect.stringContaining("keeps its existing connection"),
+    });
+    await expect(createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: repositoryRoot,
+        dataDirectory,
+        resumeSessionId: parent.session.id,
+        connectionId: parent.session.backend.pin.connectionId,
+      },
+    )).rejects.toMatchObject({
+      code: "invalid_input",
+      message: expect.stringContaining("keeps its existing connection"),
     });
   });
 
@@ -1496,6 +1508,43 @@ describe("standalone assembly without a provider", () => {
       },
     });
     expect(await registry.read()).toMatchObject({ primaryConnectionId: null });
+
+    const headless = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory,
+        connectionId: "saved-secondary",
+        reuseExistingSession: false,
+      },
+    );
+    expect(headless.state).toMatchObject({
+      type: "session",
+      session: {
+        model: "qwen",
+        backend: { pin: { connectionId: "saved-secondary" } },
+      },
+    });
+    expect(await registry.read()).toMatchObject({ primaryConnectionId: null });
+    await expect(createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: workspace, dataDirectory, connectionId: "missing" },
+    )).rejects.toMatchObject({
+      code: "invalid_input",
+      message: "The requested saved connection was not found",
+    });
+    await expect(createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory,
+        connectionId: "saved-secondary",
+        provider: new ScriptedProvider([]),
+      },
+    )).rejects.toMatchObject({
+      code: "invalid_input",
+      message: expect.stringContaining("process-scoped provider"),
+    });
   });
 
   it("resolves an old session by its immutable connection pin after primary changes", async () => {

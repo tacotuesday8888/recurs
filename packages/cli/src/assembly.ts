@@ -124,6 +124,7 @@ export interface StandaloneRuntimeOptions {
   resumeSessionId?: string;
   operatingModeId?: OperatingModeId;
   permissionMode?: PermissionMode;
+  connectionId?: string;
   skillHomeDirectory?: string;
   ptyDriver?: PtyDriver;
 }
@@ -708,13 +709,41 @@ export async function createStandaloneRuntime(
         options.environmentFetch,
       )
     : null;
+  if (
+    options.resumeSessionId !== undefined &&
+    options.connectionId !== undefined
+  ) {
+    throw new RuntimeError(
+      "invalid_input",
+      "An exact resumed session keeps its existing connection, permission, and operating-mode policy",
+    );
+  }
   const connectionRegistry = new FileConnectionRegistry(root);
   const registryDocument = injected === undefined
     ? await connectionRegistry.migrateLegacyLocal()
     : null;
+  if (
+    options.connectionId !== undefined &&
+    (injected !== undefined || environmentConnection !== null)
+  ) {
+    throw new RuntimeError(
+      "invalid_input",
+      "A saved connection cannot be selected while a process-scoped provider is active",
+    );
+  }
   const configuredConnection = registryDocument === null
     ? null
-    : selectedConnection(registryDocument);
+    : options.connectionId === undefined
+    ? selectedConnection(registryDocument)
+    : registryDocument.connections.find(
+      (connection) => connection.id === options.connectionId,
+    ) ?? null;
+  if (options.connectionId !== undefined && configuredConnection === null) {
+    throw new RuntimeError(
+      "invalid_input",
+      "The requested saved connection was not found",
+    );
+  }
   const delegatedRuntimeFactory = options.delegatedRuntimeFactory ??
     createCodexAgentRuntime;
   let initialBackend: RuntimeBackend | undefined = injected !== undefined
@@ -757,11 +786,12 @@ export async function createStandaloneRuntime(
   if (options.resumeSessionId !== undefined) {
     if (
       options.permissionMode !== undefined ||
-      options.operatingModeId !== undefined
+      options.operatingModeId !== undefined ||
+      options.connectionId !== undefined
     ) {
       throw new RuntimeError(
         "invalid_input",
-        "An exact resumed session keeps its existing permission and operating-mode policy",
+        "An exact resumed session keeps its existing connection, permission, and operating-mode policy",
       );
     }
     let candidate: SessionState;
