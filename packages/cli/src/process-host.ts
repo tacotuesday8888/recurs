@@ -112,7 +112,7 @@ Usage:
   recurs                         Open the interactive CLI
   recurs setup                   Guide provider, model, and permission setup
   recurs run <prompt>            Run one prompt
-  recurs run <prompt> [--format text|jsonl] [--permissions ask|approved|full] [--mode economy|standard|balanced|performance|max]
+  recurs run <prompt> [--format text|jsonl] [--permissions ask|approved|full] [--mode economy|standard|balanced|performance|max] [--connection <id>]
   recurs run <prompt> --resume <session-id> [--format text|jsonl]
   recurs run -                   Read one bounded prompt from piped stdin
   recurs run <prompt> --stdin    Append bounded piped stdin to the prompt
@@ -178,6 +178,7 @@ export interface CliDependencies {
     options?: {
       readonly operatingModeId?: OperatingModeId;
       readonly permissionMode?: PermissionMode;
+      readonly connectionId?: string;
       readonly reuseExistingSession?: boolean;
       readonly resumeSessionId?: string;
     },
@@ -227,10 +228,12 @@ interface RunArguments {
   format: "text" | "jsonl";
   permissionMode?: PermissionMode;
   operatingModeId?: OperatingModeId;
+  connectionId?: string;
   resumeSessionId?: string;
 }
 
 const SAFE_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
+const SAFE_CONNECTION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const MAX_STDIN_PROMPT_BYTES = 1024 * 1024;
 
 function nativeAuthorityText(status: NativeAuthorityStatus): string {
@@ -263,6 +266,7 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
   let format: RunArguments["format"] = "text";
   let permissionMode: PermissionMode | undefined;
   let operatingModeId: OperatingModeId | undefined;
+  let connectionId: string | undefined;
   let resumeSessionId: string | undefined;
   let appendStdin = false;
   const prompt: string[] = [];
@@ -295,6 +299,19 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
       index += 1;
       continue;
     }
+    if (argument === "--connection") {
+      const value = args[index + 1];
+      if (
+        value === undefined ||
+        connectionId !== undefined ||
+        !SAFE_CONNECTION_ID.test(value)
+      ) {
+        return null;
+      }
+      connectionId = value;
+      index += 1;
+      continue;
+    }
     if (argument === "--resume") {
       const value = args[index + 1];
       if (
@@ -321,7 +338,11 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
   const joined = prompt.join(" ").trim();
   if (
     resumeSessionId !== undefined &&
-    (permissionMode !== undefined || operatingModeId !== undefined)
+    (
+      permissionMode !== undefined ||
+      operatingModeId !== undefined ||
+      connectionId !== undefined
+    )
   ) {
     return null;
   }
@@ -339,6 +360,7 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
         format,
         ...(permissionMode === undefined ? {} : { permissionMode }),
         ...(operatingModeId === undefined ? {} : { operatingModeId }),
+        ...(connectionId === undefined ? {} : { connectionId }),
         ...(resumeSessionId === undefined ? {} : { resumeSessionId }),
       };
 }
@@ -1516,6 +1538,9 @@ export async function runCli(
         ...(parsed.operatingModeId === undefined
           ? {}
           : { operatingModeId: parsed.operatingModeId }),
+        ...(parsed.connectionId === undefined
+          ? {}
+          : { connectionId: parsed.connectionId }),
         ...(parsed.permissionMode === undefined
           ? {}
           : { permissionMode: parsed.permissionMode }),
@@ -1745,6 +1770,9 @@ export async function runCliProcess(
           ...(options?.operatingModeId === undefined
             ? {}
             : { operatingModeId: options.operatingModeId }),
+          ...(options?.connectionId === undefined
+            ? {}
+            : { connectionId: options.connectionId }),
           ...(options?.reuseExistingSession === undefined
             ? {}
             : { reuseExistingSession: options.reuseExistingSession }),

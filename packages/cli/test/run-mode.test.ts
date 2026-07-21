@@ -2112,6 +2112,38 @@ describe("runCli", () => {
     },
   );
 
+  it("pins one exact saved connection into a fresh one-shot session", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let runtimeOptions: unknown;
+
+    const exitCode = await runCli(
+      [
+        "run",
+        "inspect",
+        "--connection",
+        "saved.openai:work-1",
+        "--format",
+        "jsonl",
+      ],
+      {
+        stdout,
+        stderr,
+        async createRuntime(events, options) {
+          runtimeOptions = options;
+          return createRuntime(events);
+        },
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(runtimeOptions).toEqual({
+      connectionId: "saved.openai:work-1",
+      reuseExistingSession: false,
+    });
+    expect(stderr.value).toBe("");
+  });
+
   it.each([
     ["run", "inspect", "--permissions"],
     ["run", "inspect", "--permissions", "unknown"],
@@ -2133,6 +2165,16 @@ describe("runCli", () => {
     ["run", "inspect", "--mode", "unknown"],
     ["run", "inspect", "--mode", "balanced", "--mode", "max"],
     ["run", "inspect", "--resume", "session-1", "--mode", "economy"],
+    ["run", "inspect", "--connection"],
+    ["run", "inspect", "--connection", "../outside"],
+    [
+      "run", "inspect", "--connection", "saved-1",
+      "--connection", "saved-2",
+    ],
+    [
+      "run", "inspect", "--resume", "session-1",
+      "--connection", "saved-1",
+    ],
     ["run", "--stdin"],
     ["run", "-", "--stdin"],
     ["run", "inspect", "--stdin", "--stdin"],
