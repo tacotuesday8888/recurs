@@ -8,6 +8,7 @@ export * from "./child-agent-manager.js";
 export * from "./child-agent-batch.js";
 export * from "./compaction.js";
 export * from "./compatibility-coordinator.js";
+export * from "./company-blueprint.js";
 export * from "./direct-model-executor.js";
 export * from "./delegated-agent-executor.js";
 export * from "./events.js";
