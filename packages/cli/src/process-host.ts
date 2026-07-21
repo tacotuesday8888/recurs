@@ -20,6 +20,7 @@ import {
   type NativeAuthorityStatus,
   type NativeOpenAIResponsesPort,
   type ModelReasoningEffort,
+  type RunResult,
   type TeamRunRole,
 } from "@recurs/contracts";
 import {
@@ -113,8 +114,8 @@ Usage:
   recurs [-C <dir>]              Open the interactive CLI in one working root
   recurs setup                   Guide provider, model, and permission setup
   recurs run <prompt> [-C <dir>] Run one prompt in one working root
-  recurs run <prompt> [--format text|jsonl] [--permissions ask|approved|full] [--mode economy|standard|balanced|performance|max] [--connection <id>]
-  recurs run <prompt> --resume <session-id> [--format text|jsonl]
+  recurs run <prompt> [--format text|json|jsonl] [--permissions ask|approved|full] [--mode economy|standard|balanced|performance|max] [--connection <id>]
+  recurs run <prompt> --resume <session-id> [--format text|json|jsonl]
   recurs run -                   Read one bounded prompt from piped stdin
   recurs run <prompt> --stdin    Append bounded piped stdin to the prompt
   recurs acp                     Serve Recurs over ACP on stdio
@@ -227,7 +228,7 @@ export interface CliDependencies {
 interface RunArguments {
   prompt: string;
   stdinMode: "none" | "replace" | "append";
-  format: "text" | "jsonl";
+  format: "text" | "json" | "jsonl";
   permissionMode?: PermissionMode;
   operatingModeId?: OperatingModeId;
   connectionId?: string;
@@ -328,7 +329,7 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
     const argument = args[index] ?? "";
     if (argument === "--format") {
       const value = args[index + 1];
-      if (value !== "text" && value !== "jsonl") {
+      if (value !== "text" && value !== "json" && value !== "jsonl") {
         return null;
       }
       format = value;
@@ -1085,11 +1086,12 @@ export async function runCli(
       );
     } catch (error) {
       const safeMessage = safeCliErrorMessage(error);
-      const jsonl = argv[0] === "run" && argv.some(
+      const structured = argv[0] === "run" && argv.some(
         (argument, index) =>
-          argument === "--format" && argv[index + 1] === "jsonl",
+          argument === "--format" &&
+          (argv[index + 1] === "json" || argv[index + 1] === "jsonl"),
       );
-      if (jsonl) {
+      if (structured) {
         await writeOutput(
           dependencies.stdout,
           `${JSON.stringify({
@@ -1624,8 +1626,15 @@ export async function runCli(
   }
   const renderer = parsed.format === "jsonl"
     ? new JsonlEventRenderer(dependencies.stdout)
+    : parsed.format === "json"
+    ? { async emit() {} }
     : new TextEventRenderer(dependencies.stdout);
   let runtime: RecursRuntime | undefined;
+  let aggregateResult:
+    | { readonly kind: "agent"; readonly value: RunResult }
+    | { readonly kind: "command"; readonly value: CommandResult }
+    | undefined;
+  let aggregateSessionId: string | null = null;
   let exitCode = 0;
   try {
     let prompt = parsed.prompt;
@@ -1667,12 +1676,18 @@ export async function runCli(
         embedding: "cli",
       }),
     );
-    if (isCommandResult(result)) {
+    if (parsed.format === "json") {
+      aggregateResult = isCommandResult(result)
+        ? { kind: "command", value: result }
+        : { kind: "agent", value: result };
+      const state = runtime.state;
+      aggregateSessionId = state.type === "session" ? state.session.id : null;
+    } else if (isCommandResult(result)) {
       await renderCommandResult(result, dependencies.stdout, dependencies.stderr);
     }
   } catch (error) {
     const failure = configurationFailure(error);
-    if (parsed.format === "jsonl" && failure !== null) {
+    if (parsed.format !== "text" && failure !== null) {
       await writeOutput(
         dependencies.stdout,
         `${JSON.stringify({
@@ -1691,6 +1706,25 @@ export async function runCli(
     }
   }
   const closed = await closeRuntime(runtime, dependencies.stderr);
+  if (
+    parsed.format === "json" &&
+    exitCode === 0 &&
+    closed &&
+    aggregateResult !== undefined
+  ) {
+    await writeOutput(
+      dependencies.stdout,
+      `${JSON.stringify({
+        version: 1,
+        type: "run_result",
+        sessionId: aggregateSessionId,
+        result: {
+          kind: aggregateResult.kind,
+          ...aggregateResult.value,
+        },
+      })}\n`,
+    );
+  }
   return closed ? exitCode : exitCode === 0 ? 1 : exitCode;
 }
 

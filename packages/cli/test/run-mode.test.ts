@@ -1897,6 +1897,129 @@ describe("runCli", () => {
     expect(stderr.value).toBe("");
   });
 
+  it("emits one aggregate JSON result without buffering live events", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+
+    expect(await runCli(
+      ["run", "inspect", "--format", "json"],
+      dependencies(stdout, stderr),
+    )).toBe(0);
+
+    expect(JSON.parse(stdout.value)).toEqual({
+      version: 1,
+      type: "run_result",
+      sessionId: "s1",
+      result: {
+        kind: "agent",
+        finalText: "inspection complete",
+        usage: { inputTokens: 3, outputTokens: 2 },
+        usageSource: "provider",
+        steps: 1,
+        changedFiles: [],
+        changedFilesSource: "host_tools",
+        evidence: [],
+        evidenceSource: "none",
+      },
+    });
+    expect(stdout.value.trim().split("\n")).toHaveLength(1);
+    expect(stderr.value).toBe("");
+  });
+
+  it("wraps a one-shot command result without claiming a session", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+
+    expect(await runCli(["run", "/status", "--format", "json"], {
+      stdout,
+      stderr,
+      async createRuntime() {
+        return {
+          state: { type: "workspace", cwd: "/workspace" },
+          async submit() {
+            return { type: "message", level: "info", text: "ready" };
+          },
+          async close() {},
+        } as unknown as RecursRuntime;
+      },
+    })).toBe(0);
+
+    expect(JSON.parse(stdout.value)).toEqual({
+      version: 1,
+      type: "run_result",
+      sessionId: null,
+      result: {
+        kind: "command",
+        type: "message",
+        level: "info",
+        text: "ready",
+      },
+    });
+    expect(stderr.value).toBe("");
+  });
+
+  it("emits aggregate JSON configuration failures before session creation", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+
+    expect(await runCli(["run", "inspect", "--format", "json"], {
+      stdout,
+      stderr,
+      async createRuntime() {
+        throw new RuntimeError(
+          "provider_not_configured",
+          "No runnable provider is configured",
+        );
+      },
+    })).toBe(2);
+
+    expect(JSON.parse(stdout.value)).toMatchObject({
+      version: 1,
+      type: "configuration_error",
+      error: {
+        domain: "connection",
+        phase: "preflight",
+        code: "connection_invalid",
+        safeMessage: "No runnable provider is configured",
+        retryable: false,
+      },
+    });
+    expect(stderr.value).toBe("");
+  });
+
+  it("does not publish an aggregate success when runtime cleanup fails", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+
+    expect(await runCli(["run", "inspect", "--format", "json"], {
+      stdout,
+      stderr,
+      async createRuntime() {
+        return {
+          state: { type: "session", session: { id: "s1" } },
+          async submit() {
+            return {
+              finalText: "must not publish",
+              usage: null,
+              usageSource: "unavailable",
+              steps: null,
+              changedFiles: [],
+              changedFilesSource: "none",
+              evidence: [],
+              evidenceSource: "none",
+            };
+          },
+          async close() { throw new Error("cleanup canary"); },
+        } as unknown as RecursRuntime;
+      },
+    })).toBe(1);
+
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toBe(
+      "Error: Runtime resources could not be closed safely\n",
+    );
+  });
+
   it("starts one-shot runs in a fresh session unless an exact resume id is given", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
