@@ -24,10 +24,11 @@ function expectedBillingPolicy(
     providerFallback?: BillingPolicy["providerFallback"];
     availableSelections?: readonly BillingSelectionMode[];
   } = {},
+  revisionDate = "2026-07-11",
 ): BillingPolicy {
   return {
-    revision: `billing:${id}:2026-07-11`,
-    disclosureRevision: `billing-disclosure:${id}:2026-07-11`,
+    revision: `billing:${id}:${revisionDate}`,
+    disclosureRevision: `billing-disclosure:${id}:${revisionDate}`,
     primarySource,
     possibleAdditionalSources: options.possibleAdditionalSources ?? [],
     providerFallback: options.providerFallback ?? "none",
@@ -79,6 +80,16 @@ const REGION_AND_BILLING_MATRIX = [
     id: "openrouter-api",
     regionAvailability: { kind: "global" },
     billingPolicy: expectedBillingPolicy("openrouter-api", "prepaid_credits"),
+  },
+  {
+    id: "xai-api",
+    regionAvailability: { kind: "global" },
+    billingPolicy: expectedBillingPolicy(
+      "xai-api",
+      "metered_api",
+      {},
+      "2026-07-21",
+    ),
   },
   {
     id: "opencode-zen",
@@ -261,6 +272,14 @@ const CANONICAL_MATRIX = [
     accessKind: "api",
     protocol: "openai_chat",
     endpoints: [{ kind: "origin", value: "https://openrouter.ai/api/v1" }],
+    supportStatus: "supported",
+  },
+  {
+    id: "xai-api",
+    adapterKind: "model_provider",
+    accessKind: "api",
+    protocol: "openai_chat",
+    endpoints: [{ kind: "origin", value: "https://api.x.ai/v1" }],
     supportStatus: "supported",
   },
   {
@@ -522,7 +541,7 @@ describe("bundled provider manifests", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("declares the exact region availability and billing policy for all 25 paths", () => {
+  it("declares the exact region availability and billing policy for all 26 paths", () => {
     expect(BUNDLED_PROVIDER_MANIFESTS.map((manifest) => ({
       id: manifest.id,
       regionAvailability: manifest.regionAvailability,
@@ -655,8 +674,14 @@ describe("bundled provider manifests", () => {
 
   it("ships current, sourced policy evidence and typed conditional gates", () => {
     for (const manifest of BUNDLED_PROVIDER_MANIFESTS) {
-      expect(manifest.usagePolicy.reviewedAt).toBe(REVIEWED_AT);
-      expect(manifest.usagePolicy.expiresAt).toBe(EXPIRES_AT);
+      expect(manifest.usagePolicy.reviewedAt).toBe(
+        manifest.id === "xai-api" ? "2026-07-21" : REVIEWED_AT,
+      );
+      expect(manifest.usagePolicy.expiresAt).toBe(
+        manifest.id === "xai-api"
+          ? "2026-10-21T00:00:00.000Z"
+          : EXPIRES_AT,
+      );
       expect(manifest.usagePolicy.revision.trim()).not.toBe("");
       expect(manifest.usagePolicy.evidenceSummary.trim()).not.toBe("");
       expect(manifest.usagePolicy.sourceUrls.length).toBeGreaterThan(0);

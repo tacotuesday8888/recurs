@@ -71,6 +71,7 @@ const CATALOG_PROVIDER_IDS: Readonly<Record<string, string>> = Object.freeze({
   "openai-api": "openai",
   "anthropic-api": "anthropic",
   "openrouter-api": "openrouter",
+  "xai-api": "xai",
   "opencode-go": "opencode-go",
   "kilo-gateway": "kilo",
   "alibaba-model-studio-api": "alibaba",

@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import { OnboardingCatalog } from "../src/index.js";
 
-const FRESH = new Date("2026-07-11T12:00:00.000Z");
+const FRESH = new Date("2026-07-21T12:00:00.000Z");
 
 function catalogAt(now: Date): OnboardingCatalog {
   return new OnboardingCatalog(new ProviderManifestRegistry(), {
@@ -17,9 +17,9 @@ function catalogAt(now: Date): OnboardingCatalog {
 }
 
 describe("OnboardingCatalog", () => {
-  it("derives truthful statuses for all 25 validated manifests", () => {
+  it("derives truthful statuses for all 26 validated manifests", () => {
     const entries = catalogAt(FRESH).list({ includeBlocked: true });
-    expect(entries).toHaveLength(25);
+    expect(entries).toHaveLength(26);
     expect(entries.map((entry) => entry.id)).toEqual([
       "openai-codex-chatgpt",
       "ollama-local",
@@ -27,6 +27,7 @@ describe("OnboardingCatalog", () => {
       "openai-api",
       "anthropic-api",
       "openrouter-api",
+      "xai-api",
       "opencode-go",
       "kilo-gateway",
       "alibaba-model-studio-api",
@@ -58,6 +59,7 @@ describe("OnboardingCatalog", () => {
       "anthropic-claude-subscription": "blocked",
       "github-copilot-subscription": "blocked",
       "openrouter-api": "runnable_byok",
+      "xai-api": "runnable_byok",
       "opencode-zen": "requires_native_broker",
       "opencode-go": "runnable_byok",
       "kilo-gateway": "runnable_byok",
@@ -107,7 +109,11 @@ describe("OnboardingCatalog", () => {
 
     expect(before.find((entry) => entry.id === "openai-codex-chatgpt")?.status)
       .toBe("runnable");
-    expect(boundary.every((entry) => entry.status === "blocked")).toBe(true);
+    expect(boundary.filter((entry) => entry.id !== "xai-api").every(
+      (entry) => entry.status === "blocked",
+    )).toBe(true);
+    expect(boundary.find((entry) => entry.id === "xai-api")?.status)
+      .toBe("runnable_byok");
     expect(
       boundary.find((entry) => entry.id === "openai-codex-chatgpt")?.restrictions,
     ).toContain("The reviewed usage policy is expired or not yet current.");
@@ -155,8 +161,14 @@ describe("OnboardingCatalog", () => {
       expect(entry.billing.availableSelections.length).toBeGreaterThan(0);
       expect(entry.restrictions.length).toBeGreaterThan(0);
       expect(entry.policy.revision).not.toBe("");
-      expect(entry.policy.reviewedAt).toBe("2026-07-11");
-      expect(entry.policy.expiresAt).toBe("2026-10-11T00:00:00.000Z");
+      expect(entry.policy.reviewedAt).toBe(
+        entry.id === "xai-api" ? "2026-07-21" : "2026-07-11",
+      );
+      expect(entry.policy.expiresAt).toBe(
+        entry.id === "xai-api"
+          ? "2026-10-21T00:00:00.000Z"
+          : "2026-10-11T00:00:00.000Z",
+      );
       expect(entry.policy.sourceUrls.length).toBeGreaterThan(0);
       expect(entry.policy.evidenceSummary).not.toBe("");
     }

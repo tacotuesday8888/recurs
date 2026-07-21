@@ -46,6 +46,22 @@ function openAIModels(...ids: string[]): Response {
   });
 }
 
+function xaiModels(...ids: string[]): Response {
+  return new Response(JSON.stringify({
+    models: ids.map((id, index) => ({
+      id,
+      object: "model",
+      owned_by: "xai",
+      created: 1_767_225_600 + index,
+      input_modalities: ["text", "image"],
+      output_modalities: ["text"],
+    })),
+  }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 function geminiModels(
   ids: readonly string[],
   nextPageToken?: string,
@@ -237,6 +253,49 @@ describe("environment provider model discovery", () => {
       expect(hasEnvironmentProviderModelDiscovery(providerId)).toBe(true);
     },
   );
+
+  it("discovers only credential-visible xAI language models at the reviewed origin", async () => {
+    const key = "xai-model-key-canary";
+    let request: { url: string; headers: Headers; redirect: RequestRedirect } | undefined;
+    const models = await listEnvironmentProviderModels({
+      providerId: "xai-api",
+      apiKey: key,
+      fetch: async (input, init) => {
+        request = {
+          url: String(input),
+          headers: new Headers(init?.headers),
+          redirect: init?.redirect ?? "follow",
+        };
+        return xaiModels("grok-code-fast", "grok-code-pro");
+      },
+    });
+
+    expect(request).toEqual({
+      url: "https://api.x.ai/v1/language-models",
+      headers: expect.any(Headers),
+      redirect: "manual",
+    });
+    expect(request?.headers.get("authorization")).toBe(`Bearer ${key}`);
+    expect(request?.headers.get("accept")).toBe("application/json");
+    expect(request?.url).not.toContain(key);
+    expect(models).toEqual([
+      {
+        id: "grok-code-fast",
+        displayName: "grok-code-fast",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        maxInputTokens: null,
+        maxOutputTokens: null,
+      },
+      {
+        id: "grok-code-pro",
+        displayName: "grok-code-pro",
+        createdAt: "2026-01-01T00:00:01.000Z",
+        maxInputTokens: null,
+        maxOutputTokens: null,
+      },
+    ]);
+    expect(hasEnvironmentProviderModelDiscovery("xai-api")).toBe(true);
+  });
 
   it("accepts minimal OpenAI-style entries and normalizes absent metadata", async () => {
     const models = await listEnvironmentProviderModels({

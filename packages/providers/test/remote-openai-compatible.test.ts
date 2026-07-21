@@ -78,6 +78,46 @@ describe("remote OpenAI-compatible provider", () => {
     expect(JSON.stringify(provider)).not.toContain(key);
   });
 
+  it("routes xAI through its exact reviewed Chat Completions origin", async () => {
+    const key = "xai-key-canary";
+    let url = "";
+    let authorization = "";
+    const provider = new RemoteOpenAICompatibleProvider({
+      providerId: "xai-api",
+      connectionId: "xai-env",
+      apiKey: key,
+      fetch: async (input, init) => {
+        url = String(input);
+        authorization = new Headers(init?.headers).get("authorization") ?? "";
+        expect(String(init?.body)).not.toContain(key);
+        return completion();
+      },
+    });
+
+    const events = [];
+    for await (const event of provider.stream({
+      model: "grok-code-fast",
+      messages: [{ id: "user", role: "user", content: "work" }],
+      tools: [{ name: "read_file", description: "Read a file", inputSchema: {
+        type: "object",
+        properties: { path: { type: "string" } },
+        required: ["path"],
+        additionalProperties: false,
+      } }],
+      signal: new AbortController().signal,
+    })) events.push(event);
+
+    expect(url).toBe("https://api.x.ai/v1/chat/completions");
+    expect(authorization).toBe(`Bearer ${key}`);
+    expect(events.at(-1)).toEqual({ type: "done", stopReason: "complete" });
+    expect(provider).toMatchObject({
+      id: "xai-api",
+      adapterId: "openai-chat-completions",
+      connectionId: "xai-env",
+    });
+    expect(JSON.stringify(provider)).not.toContain(key);
+  });
+
   it("rejects arbitrary endpoints and unsupported provider profiles", () => {
     for (const providerId of [
       "https://attacker.invalid/v1",

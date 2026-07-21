@@ -70,7 +70,7 @@ The interaction follows current official patterns reviewed on 2026-07-19: [Kimi 
 
 ## Provider boundary
 
-Recurs exposes a validated catalog of 25 provider/authentication paths. Source installs can run credential-free literal-loopback Ollama/LM Studio, an existing ChatGPT account through the pinned official Codex ACP adapter, or saved/ephemeral BYOK for fixed-origin OpenAI Responses and supported reviewed OpenAI Chat-compatible or Anthropic Messages providers. The private production-signed macOS path also implements persistent OpenAI API, Anthropic API, and Kimi Code onboarding plus broker-owned generation; it is not distributed yet. Catalog entries outside those implemented protocol paths remain discovery metadata rather than live transports.
+Recurs exposes a validated catalog of 26 provider/authentication paths. Source installs can run credential-free literal-loopback Ollama/LM Studio, an existing ChatGPT account through the pinned official Codex ACP adapter, or saved/ephemeral BYOK for fixed-origin OpenAI Responses and supported reviewed OpenAI Chat-compatible or Anthropic Messages providers. The private production-signed macOS path also implements persistent OpenAI API, Anthropic API, and Kimi Code onboarding plus broker-owned generation; it is not distributed yet. Catalog entries outside those implemented protocol paths remain discovery metadata rather than live transports.
 
 The strongest persistent path keeps keys outside TypeScript: `recurs setup openai`, `recurs setup anthropic --model <exact-id>`, and `recurs setup kimi --model <exact-id>` delegate foreground capture to the signed native authority. Cross-platform source installs may save a provider/model binding while keeping the key in a named environment variable. Setup authenticates model discovery again before saving; when that exact model reports input/output limits, Recurs stores the limits as non-secret setup-time metadata and pins them into future sessions. Missing limits stay unknown:
 
@@ -80,6 +80,12 @@ recurs setup byok \
   --provider openrouter-api \
   --model <provider/model> \
   --key-env OPENROUTER_API_KEY
+
+export XAI_API_KEY=<key>
+recurs setup byok \
+  --provider xai-api \
+  --model <grok-model> \
+  --key-env XAI_API_KEY
 
 export OPENAI_API_KEY=<key>
 recurs setup byok \
@@ -101,11 +107,11 @@ recurs setup byok \
   --key-env GEMINI_API_KEY
 ```
 
-Setup is local, interactive, and manual. It validates the current reviewed manifest and billing selection, shows the fixed-origin and billing disclosure, and saves only non-secret metadata: provider, model, adapter/policy/billing revisions, the environment-variable name, and a provider-bound SHA-256 credential fingerprint. OpenAI, Anthropic, Gemini, OpenRouter, DeepSeek, and MiniMax setup first authenticate to their fixed model-list endpoint and refuse a model not visible to that credential. The key value is neither written to the registry nor copied into a session. The first account becomes primary; later accounts require `account set-primary`. `--billing strict` is the default. Use `--billing allow-additional` only when the provider policy declares another source and the user accepts it; OpenCode Go is the current such profile.
+Setup is local, interactive, and manual. It validates the current reviewed manifest and billing selection, shows the fixed-origin and billing disclosure, and saves only non-secret metadata: provider, model, adapter/policy/billing revisions, the environment-variable name, and a provider-bound SHA-256 credential fingerprint. OpenAI, Anthropic, Gemini, OpenRouter, xAI, DeepSeek, and MiniMax setup first authenticate to their fixed model-list endpoint and refuse a model not visible to that credential. xAI uses `https://api.x.ai/v1/language-models` for selection and the fixed Chat Completions compatibility endpoint for runs; Recurs does not claim xAI Responses continuation support. The key value is neither written to the registry nor copied into a session. The first account becomes primary; later accounts require `account set-primary`. `--billing strict` is the default. Use `--billing allow-additional` only when the provider policy declares another source and the user accepts it; OpenCode Go is the current such profile.
 
 For the exact reviewed GPT-5.6 models on the OpenAI Responses path, guided setup offers provider default plus `none|low|medium|high|xhigh|max`; the same choice is available as `--reasoning-effort` for explicit setup. A selected value is stored as non-secret policy and frozen into future sessions. `/status` reports it, and every request in that session carries it. Provider default leaves the field absent so OpenAI applies its default. Re-running setup changes only future sessions; use `/model <connection-id>` to start one. The option is rejected for other providers, adapters, unreviewed models, and unsupported values. Codex presents Ultra as an effort level in its own model catalog; Recurs does not send the literal value `ultra` to the Responses API because `max` is the documented highest API effort for this reviewed model family.
 
-The current reviewed saved-BYOK set is OpenAI API, Anthropic API, Google Gemini API, OpenRouter API, OpenCode Go, Kilo Gateway, Alibaba Model Studio API, Kimi Platform API, Kimi Code, MiniMax API, Z.ai API, and DeepSeek API. `provider list` is authoritative because support and policy review can change. Blocked or conditional coding-plan paths do not become runnable merely because they use a compatible protocol.
+The current reviewed saved-BYOK set is OpenAI API, Anthropic API, Google Gemini API, OpenRouter API, xAI API, OpenCode Go, Kilo Gateway, Alibaba Model Studio API, Kimi Platform API, Kimi Code, MiniMax API, Z.ai API, and DeepSeek API. `provider list` is authoritative because support and policy review can change. Blocked or conditional coding-plan paths do not become runnable merely because they use a compatible protocol.
 
 For a one-process override without a saved record:
 
