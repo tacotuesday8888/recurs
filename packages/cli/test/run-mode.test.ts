@@ -1926,6 +1926,125 @@ describe("runCli", () => {
     expect(stderr.value).toBe("");
   });
 
+  it("reads an exact bounded stdin prompt and can append stdin to positional instructions", async () => {
+    const submitted: string[] = [];
+    const options: unknown[] = [];
+    const createRuntimeForInput: CliDependencies["createRuntime"] = async (
+      _events,
+      runtimeOptions,
+    ) => {
+      options.push(runtimeOptions);
+      return {
+        async submit(input: string) {
+          submitted.push(input);
+          return {
+            finalText: "done",
+            stopReason: "complete",
+            usage: null,
+            changedFiles: [],
+            evidence: [],
+          };
+        },
+        async close() {},
+      } as unknown as RecursRuntime;
+    };
+
+    expect(await runCli(
+      ["run", "-", "--resume", "session-1"],
+      {
+        stdin: Readable.from(["inspect\nthis repository\n"]),
+        stdout: new TextOutput(),
+        stderr: new TextOutput(),
+        interactive: false,
+        createRuntime: createRuntimeForInput,
+      },
+    )).toBe(0);
+    expect(await runCli(
+      ["run", "Summarize this input", "--stdin"],
+      {
+        stdin: Readable.from(["line one", "\nline two"]),
+        stdout: new TextOutput(),
+        stderr: new TextOutput(),
+        interactive: false,
+        createRuntime: createRuntimeForInput,
+      },
+    )).toBe(0);
+
+    expect(submitted).toEqual([
+      "inspect\nthis repository\n",
+      "Summarize this input\n\n<stdin>\nline one\nline two\n</stdin>",
+    ]);
+    expect(options).toEqual([
+      { reuseExistingSession: false, resumeSessionId: "session-1" },
+      { reuseExistingSession: false },
+    ]);
+  });
+
+  it.each([
+    ["empty", Readable.from([]), false, "empty"],
+    ["invalid UTF-8", Readable.from([Buffer.from([0xff])]), false, "valid UTF-8"],
+    [
+      "oversized",
+      Readable.from([Buffer.alloc(1024 * 1024 + 1, 0x61)]),
+      false,
+      "exceeds 1048576 bytes",
+    ],
+    ["interactive", Readable.from(["prompt"]), true, "non-interactive pipe"],
+  ] as const)(
+    "rejects %s stdin before runtime creation",
+    async (_label, stdin, interactive, safeMessage) => {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      let created = false;
+
+      expect(await runCli(
+        ["run", "-", "--format", "jsonl"],
+        {
+          stdin,
+          stdout,
+          stderr,
+          interactive,
+          async createRuntime(events) {
+            created = true;
+            return createRuntime(events);
+          },
+        },
+      )).toBe(2);
+      expect(created).toBe(false);
+      expect(JSON.parse(stdout.value)).toMatchObject({
+        version: 1,
+        type: "configuration_error",
+        error: { safeMessage: expect.stringContaining(safeMessage) },
+      });
+      expect(stderr.value).toBe("");
+    },
+  );
+
+  it("cancels a pending stdin read without creating a runtime", async () => {
+    const controller = new AbortController();
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let created = false;
+
+    const running = runCli(["run", "-"], {
+      stdin: new Readable({ read() {} }),
+      stdout,
+      stderr,
+      interactive: false,
+      signal: controller.signal,
+      async createRuntime(events) {
+        created = true;
+        return createRuntime(events);
+      },
+    });
+    queueMicrotask(() => controller.abort());
+
+    expect(await running).toBe(130);
+    expect(created).toBe(false);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toBe("Error: Reading the stdin prompt was cancelled\n");
+  });
+
   it.each([
     ["ask", "ask_always"],
     ["approved", "approved_for_me"],
@@ -1975,6 +2094,9 @@ describe("runCli", () => {
       "run", "inspect", "--resume", "session-1",
       "--permissions", "approved",
     ],
+    ["run", "--stdin"],
+    ["run", "-", "--stdin"],
+    ["run", "inspect", "--stdin", "--stdin"],
   ])("rejects invalid one-shot policy or resume flags before runtime creation", async (...args) => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();

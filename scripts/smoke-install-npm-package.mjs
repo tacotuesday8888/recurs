@@ -36,6 +36,8 @@ const resumePrompt = "Continue the exact installed session.";
 const resumeFinalText = "RECURS_INSTALLED_RESUME_OK";
 const freshPrompt = "Start a separate installed session.";
 const freshFinalText = "RECURS_INSTALLED_FRESH_OK";
+const stdinPrompt = "Inspect this exact piped installed prompt.";
+const stdinFinalText = "RECURS_INSTALLED_STDIN_OK";
 const acpPrompt = "Report the installed ACP transport marker.";
 const acpFinalText = "RECURS_INSTALLED_ACP_OK";
 const sandboxedFile = path.join(workspaceDirectory, "SANDBOXED.md");
@@ -143,6 +145,16 @@ async function startLocalModelServer() {
               finish_reason: "stop",
             }],
             usage: { prompt_tokens: 6, completion_tokens: 4 },
+          });
+          return;
+        }
+        if (messages.includes(stdinPrompt)) {
+          streamResponse(response, {
+            choices: [{
+              delta: { content: stdinFinalText },
+              finish_reason: "stop",
+            }],
+            usage: { prompt_tokens: 7, completion_tokens: 4 },
           });
           return;
         }
@@ -283,6 +295,39 @@ function withTimeout(promise, label, milliseconds = 15_000) {
       );
     }),
   ]).finally(() => clearTimeout(timer));
+}
+
+async function runInstalledWithInput(executable, args, environment, input) {
+  const child = spawn(executable, args, {
+    cwd: workspaceDirectory,
+    env: environment,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const collect = async (stream, label) => {
+    const chunks = [];
+    let bytes = 0;
+    for await (const chunk of stream) {
+      bytes += chunk.length;
+      assert(bytes <= 10 * 1024 * 1024, `${label} exceeded its output limit.`);
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  };
+  const exited = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  child.stdin.end(input);
+  const [status, stdout, stderr] = await withTimeout(Promise.all([
+    exited,
+    collect(child.stdout, "Installed stdin stdout"),
+    collect(child.stderr, "Installed stdin stderr"),
+  ]), "installed stdin run");
+  assert(
+    status.code === 0 && status.signal === null,
+    `The installed stdin run exited unexpectedly: ${JSON.stringify(status)}`,
+  );
+  return { stdout, stderr };
 }
 
 async function runInstalledAcpSmoke(executable, environment) {
@@ -660,9 +705,39 @@ try {
     "An installed fresh one-shot request inherited prior visible context.",
   );
 
+  const stdinRun = await runInstalledWithInput(
+    executable,
+    ["run", "-", "--format", "jsonl"],
+    environment,
+    `${stdinPrompt}\n`,
+  );
+  const stdinEvents = stdinRun.stdout.trim().split("\n").map((line) =>
+    JSON.parse(line)
+  );
+  const stdinSessionId = stdinEvents.find((event) =>
+    event.type === "turn_started"
+  )?.sessionId;
+  assert(
+    typeof stdinSessionId === "string" &&
+      stdinSessionId !== initialSessionId &&
+      stdinSessionId !== freshSessionId,
+    "The installed stdin prompt did not start one fresh durable session.",
+  );
+  assert(
+    stdinEvents.some((event) =>
+      event.type === "model_text_delta" && event.text === stdinFinalText
+    ),
+    "The installed stdin prompt did not complete its model turn.",
+  );
+  assert(stdinRun.stderr === "", "The installed stdin run wrote diagnostics.");
+  assert(
+    JSON.stringify(localModelServer.chatRequests[7]?.messages).includes(stdinPrompt),
+    "The installed stdin prompt did not reach the configured model.",
+  );
+
   await runInstalledAcpSmoke(executable, environment);
   assert(
-    localModelServer.chatRequests.length === 8,
+    localModelServer.chatRequests.length === 9,
     "The installed ACP prompt did not reach the configured model backend exactly once.",
   );
 } finally {

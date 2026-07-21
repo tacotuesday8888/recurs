@@ -46,6 +46,7 @@ import type {
 
 export type RuntimeErrorCode =
   | "busy"
+  | "cancelled"
   | "invalid_input"
   | "provider_not_configured";
 
