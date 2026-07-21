@@ -1,13 +1,27 @@
+import { randomUUID } from "node:crypto";
+import { lstat, realpath } from "node:fs/promises";
+import path from "node:path";
 import type { Writable } from "node:stream";
 
 import {
+  COMPANY_REPOSITORY_MARKERS,
   DEFAULT_OPERATING_MODE_ID,
   getOperatingModePolicy,
   operatingModePolicies,
+  type CompanyBlueprintV1,
+  type CompanyDevelopmentStyle,
+  type CompanyProjectStage,
+  type CompanyProjectType,
+  type CompanyRepositoryFactsV1,
+  type CompanyRepositoryMarker,
   type ModelReasoningEffort,
   type OperatingModeId,
   type TeamRunRole,
 } from "@recurs/contracts";
+import {
+  approveCompanyBlueprint,
+  compileCompanyBlueprint,
+} from "@recurs/core";
 import { openAIResponsesReasoningEfforts } from "@recurs/app";
 import {
   hasEnvironmentProviderModelDiscovery,
@@ -250,6 +264,7 @@ export type GuidedOnboardingOutcome =
     readonly state: "configured";
     readonly permissionMode: PermissionMode;
     readonly operatingModeId: OperatingModeId;
+    readonly companyBlueprint?: CompanyBlueprintV1;
   }
   | { readonly state: "skipped" }
   | { readonly state: "failed"; readonly exitCode: number };
@@ -285,10 +300,32 @@ export interface GuidedOnboardingPorts {
     signal?: AbortSignal,
   ): Promise<readonly EnvironmentModelDescriptor[]>;
   inspectProjectInstructions?(): Promise<readonly ProjectInstructionDocument[]>;
+  inspectCompanyRepositoryFacts?(): Promise<CompanyRepositoryFactsV1>;
   createProjectInstructions?(
     input: ProjectBriefInput,
   ): Promise<"created" | "exists">;
   executeCommand(argv: readonly string[]): Promise<number>;
+}
+
+export async function inspectCompanyRepositoryFacts(
+  cwd: string,
+): Promise<CompanyRepositoryFactsV1> {
+  const root = await realpath(cwd);
+  const discovered: CompanyRepositoryMarker[] = [];
+  await Promise.all(COMPANY_REPOSITORY_MARKERS.map(async (marker) => {
+    try {
+      const stat = await lstat(path.join(root, marker));
+      if (!stat.isSymbolicLink()) discovered.push(marker);
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw error;
+      }
+    }
+  }));
+  return Object.freeze({
+    inspected: true,
+    markers: Object.freeze(discovered.sort()),
+  });
 }
 
 async function catalogProvider(
@@ -665,8 +702,195 @@ async function configureTeamRoutes(
   return true;
 }
 
+interface CapturedProjectBrief {
+  readonly purpose: string;
+  readonly notes?: string;
+}
+
+interface CompanyOnboardingResult {
+  readonly blueprint?: CompanyBlueprintV1;
+  readonly brief?: CapturedProjectBrief;
+}
+
+const COMPANY_PROJECT_TYPE_CHOICES: readonly GuidedChoice[] = Object.freeze([
+  Object.freeze({ id: "existing_project", label: "Existing project", detail: "improve or extend a repository that already exists" }),
+  Object.freeze({ id: "web_app", label: "Web app", detail: "browser-based product or service" }),
+  Object.freeze({ id: "backend", label: "Backend", detail: "service, API, or data system" }),
+  Object.freeze({ id: "ios_app", label: "iOS app", detail: "native iPhone or iPad product" }),
+  Object.freeze({ id: "macos_app", label: "macOS app", detail: "native Mac product" }),
+  Object.freeze({ id: "ai_ml", label: "AI / ML", detail: "model, agent, evaluation, or data workflow" }),
+  Object.freeze({ id: "infrastructure", label: "Infrastructure", detail: "developer tooling, platform, or operations" }),
+  Object.freeze({ id: "plugin", label: "Plugin", detail: "extension or integration" }),
+  Object.freeze({ id: "game", label: "Game", detail: "interactive game or simulation" }),
+  Object.freeze({ id: "other", label: "Something else", detail: "use the project description as the source of truth" }),
+]);
+
+const COMPANY_PROJECT_STAGE_CHOICES: readonly GuidedChoice[] = Object.freeze([
+  Object.freeze({ id: "idea", label: "Idea", detail: "shape and prove the first useful slice" }),
+  Object.freeze({ id: "prototype", label: "Prototype", detail: "turn an early implementation into a dependable product" }),
+  Object.freeze({ id: "active", label: "Active", detail: "continue development in a live codebase" }),
+  Object.freeze({ id: "maintenance", label: "Maintenance", detail: "stabilize, repair, or evolve an established system" }),
+]);
+
+const COMPANY_STYLE_CHOICES: readonly GuidedChoice[] = Object.freeze([
+  Object.freeze({
+    id: "layered_company",
+    label: "Layered company (recommended)",
+    detail: "planning, architecture, implementation, QA, and release roles; work is still spawned only when assigned",
+  }),
+  Object.freeze({
+    id: "orchestrator",
+    label: "Lean team",
+    detail: "one orchestrator, one scoped builder role, and one independent reviewer role",
+  }),
+  Object.freeze({
+    id: "single_agent",
+    label: "Single agent",
+    detail: "keep the approved company context but do not enable child-role handoffs",
+  }),
+]);
+
+function companyChoice<T extends string>(
+  value: string | null,
+  choices: readonly GuidedChoice[],
+): T | null {
+  return value !== null && choices.some((choice) => choice.id === value)
+    ? value as T
+    : null;
+}
+
+async function setupCompanyBlueprint(
+  ports: GuidedOnboardingPorts,
+  permissionMode: PermissionMode,
+  operatingModeId: OperatingModeId,
+): Promise<CompanyOnboardingResult> {
+  if (
+    ports.inspectCompanyRepositoryFacts === undefined ||
+    ports.confirm === undefined
+  ) {
+    return {};
+  }
+  const action = await ports.selectChoice(
+    "Tailor the first Recurs agent company to this project",
+    Object.freeze([
+      Object.freeze({
+        id: "create",
+        label: "Design my company (recommended)",
+        detail: "review a durable roster, tool plan, quality bar, and initial goal before it is activated",
+      }),
+      Object.freeze({
+        id: "skip",
+        label: "Skip for now",
+        detail: "start a normal parent-agent session and configure a company later",
+      }),
+    ]),
+  );
+  if (action !== "create") return {};
+
+  const purpose = (await ports.promptText(
+    "What should this project become? Describe the outcome in one or two sentences",
+  ))?.trim() ?? "";
+  if (!isValidProjectBriefText(purpose)) {
+    await writeOutput(
+      ports.stdout,
+      "Company setup skipped because no valid project description was entered.\n",
+    );
+    return {};
+  }
+  const type = companyChoice<CompanyProjectType>(
+    await ports.selectChoice("What kind of project is this?", COMPANY_PROJECT_TYPE_CHOICES),
+    COMPANY_PROJECT_TYPE_CHOICES,
+  );
+  const stage = companyChoice<CompanyProjectStage>(
+    await ports.selectChoice("What stage is the project in?", COMPANY_PROJECT_STAGE_CHOICES),
+    COMPANY_PROJECT_STAGE_CHOICES,
+  );
+  const developmentStyle = companyChoice<CompanyDevelopmentStyle>(
+    await ports.selectChoice("How should the agent company be structured?", COMPANY_STYLE_CHOICES),
+    COMPANY_STYLE_CHOICES,
+  );
+  if (type === null || stage === null || developmentStyle === null) {
+    await writeOutput(ports.stdout, "Company setup was not completed.\n");
+    return { brief: { purpose } };
+  }
+  const rawConstraint = (await ports.promptText(
+    "Add one important architecture, testing, or safety constraint (optional)",
+  ))?.trim() ?? "";
+  if (
+    rawConstraint.length > 0 &&
+    (!isValidProjectBriefText(rawConstraint) ||
+      new TextEncoder().encode(rawConstraint).byteLength > 512)
+  ) {
+    await writeOutput(
+      ports.stdout,
+      "Company setup skipped because the constraint was not valid text of at most 512 bytes.\n",
+    );
+    return { brief: { purpose } };
+  }
+
+  let repository: CompanyRepositoryFactsV1 = { inspected: false, markers: [] };
+  const inspect = await ports.confirm(
+    "Allow Recurs to check only the approved root filenames (.git, package manifests, AGENTS.md, and similar markers)? It will not read file contents during this step.",
+  );
+  if (inspect) {
+    try {
+      repository = await ports.inspectCompanyRepositoryFacts();
+    } catch {
+      await writeOutput(
+        ports.stderr,
+        "Repository marker inspection failed safely; no repository facts were added.\n",
+      );
+    }
+  }
+  const createdAt = new Date().toISOString();
+  const proposed = compileCompanyBlueprint({
+    id: randomUUID(),
+    createdAt,
+    project: {
+      type,
+      stage,
+      purpose,
+      constraints: rawConstraint.length === 0 ? [] : [rawConstraint],
+      repository,
+    },
+    developmentStyle,
+    permissionMode,
+    operatingModeId,
+  });
+  const requiredTools = proposed.toolPlan
+    .filter((tool) => tool.status === "required")
+    .map((tool) => tool.id);
+  const approved = await ports.confirm([
+    "Approve and activate this company blueprint?",
+    `Project: ${proposed.project.purpose}`,
+    `Structure: ${proposed.developmentStyle.replaceAll("_", " ")}`,
+    `Roles: ${proposed.roles.map((role) => role.displayName).join(", ")}`,
+    `Authority: ${proposed.authority.permissionMode.replaceAll("_", " ")} · ${proposed.authority.operatingModeId}`,
+    `Repository facts: ${proposed.project.repository.markers.join(", ") || "none approved"}`,
+    `Additional tool bundles: ${requiredTools.join(", ") || "none"}`,
+    `Quality: ${proposed.quality.standard} · ${proposed.quality.initialReviewers} initial reviewer(s)`,
+    `Initial goal: ${proposed.initialGoal}`,
+    "Approval creates the roster and policy; agents run only after concrete assignments.",
+  ].join("\n"));
+  const brief = {
+    purpose,
+    ...(rawConstraint.length === 0 ? {} : { notes: rawConstraint }),
+  };
+  if (!approved) {
+    await writeOutput(ports.stdout, "Company blueprint was not activated.\n");
+    return { brief };
+  }
+  const blueprint = approveCompanyBlueprint(proposed, new Date().toISOString());
+  await writeOutput(
+    ports.stdout,
+    `Company blueprint approved: ${blueprint.roles.length} role(s), ${blueprint.developmentStyle.replaceAll("_", " ")}.\n`,
+  );
+  return { blueprint, brief };
+}
+
 async function setupProjectContext(
   ports: GuidedOnboardingPorts,
+  captured?: CapturedProjectBrief,
 ): Promise<void> {
   if (ports.inspectProjectInstructions === undefined) {
     await writeOutput(
@@ -706,7 +930,7 @@ async function setupProjectContext(
     ]),
   );
   if (action !== "create") return;
-  const purpose = (await ports.promptText(
+  const purpose = captured?.purpose ?? (await ports.promptText(
     "Describe what this project is building in one or two sentences",
   ))?.trim() ?? "";
   if (!isValidProjectBriefText(purpose)) {
@@ -716,7 +940,7 @@ async function setupProjectContext(
     );
     return;
   }
-  const rawNotes = (await ports.promptText(
+  const rawNotes = captured?.notes ?? (await ports.promptText(
     "Add important build, test, architecture, or safety notes (optional)",
   ))?.trim() ?? "";
   const notes = rawNotes.length === 0
@@ -764,7 +988,7 @@ export async function runGuidedOnboarding(
   }
   await writeOutput(ports.stdout, [
     "\nWelcome to Recurs",
-    "Build a working agent team: connect its parent model, set its safety boundary, choose its operating mode, and optionally route specialist roles.",
+    "Build a working agent company: connect its parent model, set its safety boundary, choose its operating mode, route specialists, and review a project-tailored roster.",
     "Credentials stay with the vendor runtime, native authority, or named process environment—never this generic prompt.",
     "",
   ].join("\n"));
@@ -786,7 +1010,11 @@ export async function runGuidedOnboarding(
     );
     return { state: "skipped" };
   }
-  await writeOutput(ports.stdout, "1 / 5 · Parent model\n");
+  const companyOnboarding =
+    ports.inspectCompanyRepositoryFacts !== undefined &&
+    ports.confirm !== undefined;
+  const stepCount = companyOnboarding ? 6 : 5;
+  await writeOutput(ports.stdout, `1 / ${stepCount} · Parent model\n`);
   let selected: GuidedConnectionChoice | null = null;
   while (true) {
     if (selected === null) {
@@ -854,11 +1082,11 @@ export async function runGuidedOnboarding(
     }
     return { state: "failed", exitCode: connectionExit };
   }
-  await writeOutput(ports.stdout, "\n2 / 5 · Safety boundary\n");
+  await writeOutput(ports.stdout, `\n2 / ${stepCount} · Safety boundary\n`);
   const permissionMode = await selectPermission(ports);
-  await writeOutput(ports.stdout, "\n3 / 5 · Team operating mode\n");
+  await writeOutput(ports.stdout, `\n3 / ${stepCount} · Team operating mode\n`);
   const operatingModeId = await selectOperatingMode(ports);
-  await writeOutput(ports.stdout, "\n4 / 5 · Specialist routing\n");
+  await writeOutput(ports.stdout, `\n4 / ${stepCount} · Specialist routing\n`);
   const accountsAfterConnection = await ports.listAccounts?.() ?? [];
   const routed = await configureTeamRoutes(
     accountsAfterConnection,
@@ -866,8 +1094,20 @@ export async function runGuidedOnboarding(
     ports,
   );
   if (!routed) return { state: "failed", exitCode: 2 };
-  await writeOutput(ports.stdout, "\n5 / 5 · Project context\n");
-  await setupProjectContext(ports);
+  let company: CompanyOnboardingResult = {};
+  if (companyOnboarding) {
+    await writeOutput(ports.stdout, "\n5 / 6 · Agent company\n");
+    company = await setupCompanyBlueprint(
+      ports,
+      permissionMode,
+      operatingModeId,
+    );
+  }
+  await writeOutput(
+    ports.stdout,
+    `\n${companyOnboarding ? 6 : 5} / ${stepCount} · Project context\n`,
+  );
+  await setupProjectContext(ports, company.brief);
   const accountsAfterRouting = await ports.listAccounts?.() ?? accountsAfterConnection;
   const primary = accountsAfterRouting.find((account) => account.primary);
   const operatingMode = getOperatingModePolicy(operatingModeId);
@@ -877,8 +1117,16 @@ export async function runGuidedOnboarding(
     `Permissions: ${permissionMode.replaceAll("_", " ")}`,
     `Mode: ${operatingMode.displayName} · ${operatingMode.id}`,
     `Team: ${routeSummary(accountsAfterRouting)}`,
+    `Company: ${company.blueprint === undefined ? "not activated" : `${company.blueprint.roles.length} approved role(s) · ${company.blueprint.developmentStyle.replaceAll("_", " ")}`}`,
     "Starting a fresh durable session. Change these later with /provider, /model, /permissions, or /agents mode.",
     "",
   ].join("\n"));
-  return { state: "configured", permissionMode, operatingModeId };
+  return {
+    state: "configured",
+    permissionMode,
+    operatingModeId,
+    ...(company.blueprint === undefined
+      ? {}
+      : { companyBlueprint: company.blueprint }),
+  };
 }

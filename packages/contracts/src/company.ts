@@ -180,8 +180,7 @@ export function parseCompanyBlueprintBinding(
 }
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
-const INVALID_TEXT =
-  /[\p{Cf}\p{Cs}\p{Zl}\p{Zp}]|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;
+const INVALID_TEXT = /[\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/u;
 const utf8Encoder = new TextEncoder();
 const roleIds = new Set<string>(COMPANY_ROLE_IDS);
 const departments = new Set<string>(COMPANY_DEPARTMENT_IDS);
@@ -243,10 +242,22 @@ function exact(
 
 function text(value: unknown, label: string, maximum: number): string {
   if (typeof value !== "string" || value.length === 0 ||
-    utf8Encoder.encode(value).byteLength > maximum || INVALID_TEXT.test(value)) {
+    utf8Encoder.encode(value).byteLength > maximum || invalidText(value)) {
     throw new TypeError(`${label} must be valid bounded text`);
   }
   return value;
+}
+
+function invalidText(value: string): boolean {
+  if (INVALID_TEXT.test(value)) return true;
+  for (const character of value) {
+    const code = character.codePointAt(0)!;
+    if (code <= 8 || code === 11 || code === 12 ||
+      (code >= 14 && code <= 31) || code === 127) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function timestamp(value: unknown, label: string): string {

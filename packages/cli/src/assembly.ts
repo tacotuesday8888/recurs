@@ -14,7 +14,9 @@ import type {
   RuntimeContinuationStore,
   SessionBackendPin,
   NativeOpenAIResponsesPort,
+  CompanyBlueprintV1,
 } from "@recurs/contracts";
+import { parseCompanyBlueprint } from "@recurs/contracts";
 import {
   FileConnectionRegistry,
   OnboardingCatalog,
@@ -48,6 +50,8 @@ import {
   TeamRunRecoveryCoordinator,
   TeamRunSupervisor,
   bindRunAuthorization,
+  activeGoal,
+  companyContextInstructions,
   createRootAgentDescriptor,
   createWorkspaceShell,
   createTeamRunTools,
@@ -132,6 +136,7 @@ export interface StandaloneRuntimeOptions {
   permissionMode?: PermissionMode;
   executionMode?: ExecutionMode;
   connectionId?: string;
+  companyBlueprint?: CompanyBlueprintV1;
   skillHomeDirectory?: string;
   ptyDriver?: PtyDriver;
 }
@@ -671,6 +676,21 @@ export async function createStandaloneRuntime(
   const companyBlueprints = new FileCompanyBlueprintStore(
     path.join(projectData, "company-blueprints"),
   );
+  const requestedCompany = options.companyBlueprint === undefined
+    ? null
+    : parseCompanyBlueprint(structuredClone(options.companyBlueprint));
+  if (requestedCompany !== null && requestedCompany.state !== "approved") {
+    throw new RuntimeError(
+      "invalid_input",
+      "Only an explicitly approved company blueprint can be activated",
+    );
+  }
+  if (requestedCompany !== null && options.resumeSessionId !== undefined) {
+    throw new RuntimeError(
+      "invalid_input",
+      "A company blueprint starts a fresh bound parent session and cannot be attached while resuming",
+    );
+  }
   const checkpoints = new FileCheckpointStore(
     path.join(projectData, "checkpoints"),
   );
@@ -797,7 +817,8 @@ export async function createStandaloneRuntime(
     if (
       options.permissionMode !== undefined ||
       options.operatingModeId !== undefined ||
-      options.connectionId !== undefined
+      options.connectionId !== undefined ||
+      options.companyBlueprint !== undefined
     ) {
       throw new RuntimeError(
         "invalid_input",
@@ -889,10 +910,20 @@ export async function createStandaloneRuntime(
   }
   let state: PinnedSessionState | WorkspaceShellState;
   if (initialBackend === undefined) {
+    if (requestedCompany !== null) {
+      throw new RuntimeError(
+        "provider_not_configured",
+        "An approved company blueprint requires a ready parent-model connection",
+      );
+    }
     state = createWorkspaceShell(cwd, options.permissionMode);
   } else {
     let matching: PinnedSessionState | null = requestedSession;
-    if (matching === null && options.reuseExistingSession !== false) {
+    if (
+      requestedCompany === null &&
+      matching === null &&
+      options.reuseExistingSession !== false
+    ) {
       for (const entry of existing) {
         const candidate = await sessions.loadState(entry.id);
         if (
@@ -916,17 +947,44 @@ export async function createStandaloneRuntime(
       const createdAt = new Date().toISOString();
       const sessionId = randomUUID();
       const backend = initialBackend.pin(createdAt);
+      const companyBinding = requestedCompany === null
+        ? undefined
+        : {
+            blueprintId: requestedCompany.id,
+            blueprintVersion: 1 as const,
+            roleId: "orchestrator_v1" as const,
+            roleVersion: 1 as const,
+          };
+      const rootAgent = createRootAgentDescriptor(
+        sessionId,
+        backend,
+        options.operatingModeId,
+        options.permissionMode,
+        options.executionMode,
+        companyBinding,
+      );
+      if (
+        requestedCompany !== null &&
+        (requestedCompany.authority.permissionMode !==
+            rootAgent.permissions.permissionMode ||
+          requestedCompany.authority.operatingModeId !==
+            rootAgent.operatingMode.id ||
+          requestedCompany.authority.operatingModeVersion !==
+            rootAgent.operatingMode.version)
+      ) {
+        throw new RuntimeError(
+          "invalid_input",
+          "The approved company authority must match the new session authority",
+        );
+      }
+      if (requestedCompany !== null) {
+        await companyBlueprints.create(requestedCompany);
+      }
       pinnedState = await sessions.createPinnedSession({
         id: sessionId,
         cwd,
         backend,
-        agent: createRootAgentDescriptor(
-          sessionId,
-          backend,
-          options.operatingModeId,
-          options.permissionMode,
-          options.executionMode,
-        ),
+        agent: rootAgent,
         at: createdAt,
       });
     } else {
@@ -962,6 +1020,26 @@ export async function createStandaloneRuntime(
         }
         pinnedState = loaded;
       }
+    }
+    if (requestedCompany !== null) {
+      const goalAt = new Date().toISOString();
+      await sessions.withSessionMutation(
+        pinnedState.id,
+        pinnedState.lastSequence,
+        async (mutation) => {
+          await mutation.append({
+            type: "goal_updated",
+            source: "command",
+            at: goalAt,
+            goal: activeGoal(requestedCompany.initialGoal, goalAt),
+          });
+        },
+      );
+      const loaded = await sessions.loadState(pinnedState.id);
+      if (!isPinnedSessionState(loaded)) {
+        throw new TypeError("Company activation requires pinned version 2 state");
+      }
+      pinnedState = loaded;
     }
     state = pinnedState;
   }
@@ -1200,6 +1278,12 @@ export async function createStandaloneRuntime(
     },
     contextInstructions: async (session) => [
       ...await projectContextInstructions(session.cwd),
+      ...(isPinnedSessionState(session) && session.agent.role === "parent" &&
+          session.agent.company !== undefined
+        ? companyContextInstructions(
+            await companyBlueprints.load(session.agent.company.blueprintId),
+          )
+        : []),
       ...(isPinnedSessionState(session) && session.agent.profile === null
         ? [...skills.contextInstructions(), ...mcp.contextInstructions()]
         : []),
@@ -1546,5 +1630,22 @@ export async function createStandaloneRuntime(
     state,
   );
   runtimeReference.current = runtime;
+  if (
+    requestedCompany !== null &&
+    !("type" in state) &&
+    isPinnedSessionState(state)
+  ) {
+    await events.emit({
+      type: "company_blueprint_activated",
+      sessionId: state.id,
+      at: new Date().toISOString(),
+      parentAgentId: state.agent.id,
+      blueprintId: requestedCompany.id,
+      blueprintVersion: 1,
+      developmentStyle: requestedCompany.developmentStyle,
+      operatingModeId: state.agent.operatingMode.id,
+      roleCount: requestedCompany.roles.length,
+    });
+  }
   return runtime;
 }
