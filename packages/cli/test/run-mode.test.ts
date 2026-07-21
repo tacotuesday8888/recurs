@@ -24,7 +24,7 @@ import {
   ToolRegistry,
 } from "@recurs/tools";
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -2144,6 +2144,78 @@ describe("runCli", () => {
     expect(stderr.value).toBe("");
   });
 
+  it.each(["-C", "--cd"] as const)(
+    "canonicalizes %s relative to the caller without changing the process directory",
+    async (flag) => {
+      const root = await mkdtemp(path.join(tmpdir(), "recurs-working-root-"));
+      directories.push(root);
+      const workspace = path.join(root, "workspace");
+      await mkdir(workspace);
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      let runtimeOptions: unknown;
+      const processCwd = process.cwd();
+
+      expect(await runCli(
+        ["run", "inspect", flag, "workspace", "--format", "jsonl"],
+        {
+          cwd: root,
+          stdout,
+          stderr,
+          async createRuntime(events, options) {
+            runtimeOptions = options;
+            return createRuntime(events);
+          },
+        },
+      )).toBe(0);
+
+      expect(runtimeOptions).toEqual({
+        cwd: await realpath(workspace),
+        reuseExistingSession: false,
+      });
+      expect(process.cwd()).toBe(processCwd);
+      expect(stderr.value).toBe("");
+    },
+  );
+
+  it.each(["missing", "file"] as const)(
+    "rejects an unavailable %s working root before runtime creation",
+    async (kind) => {
+      const root = await mkdtemp(path.join(tmpdir(), "recurs-invalid-root-"));
+      directories.push(root);
+      if (kind === "file") await writeFile(path.join(root, "file"), "not a directory");
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      let created = false;
+
+      expect(await runCli(
+        ["run", "inspect", "--cd", kind, "--format", "jsonl"],
+        {
+          cwd: root,
+          stdout,
+          stderr,
+          async createRuntime(events) {
+            created = true;
+            return createRuntime(events);
+          },
+        },
+      )).toBe(2);
+      expect(created).toBe(false);
+      expect(JSON.parse(stdout.value)).toMatchObject({
+        version: 1,
+        type: "configuration_error",
+        error: {
+          domain: "runtime",
+          phase: "preflight",
+          code: "runtime_failed",
+          safeMessage: "The requested working directory is unavailable",
+          retryable: false,
+        },
+      });
+      expect(stderr.value).toBe("");
+    },
+  );
+
   it.each([
     ["run", "inspect", "--permissions"],
     ["run", "inspect", "--permissions", "unknown"],
@@ -2175,6 +2247,9 @@ describe("runCli", () => {
       "run", "inspect", "--resume", "session-1",
       "--connection", "saved-1",
     ],
+    ["run", "inspect", "-C"],
+    ["run", "inspect", "-C", ".", "--cd", "."],
+    ["acp", "--cd", "."],
     ["run", "--stdin"],
     ["run", "-", "--stdin"],
     ["run", "inspect", "--stdin", "--stdin"],
@@ -2421,6 +2496,32 @@ describe("runCli", () => {
     });
 
     expect(exitCode).toBe(0);
+    expect(stdout.value).toContain("Recurs — local harness mode");
+    expect(stderr.value).toBe("");
+  });
+
+  it("opens the interactive CLI in one canonical selected working root", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-interactive-root-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await mkdir(workspace);
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let runtimeOptions: unknown;
+
+    expect(await runCli(["-C", "workspace"], {
+      cwd: root,
+      stdin: Readable.from(["/quit\n"]),
+      stdout,
+      stderr,
+      interactive: true,
+      async createRuntime(events, options) {
+        runtimeOptions = options;
+        return createRuntime(events);
+      },
+    })).toBe(0);
+
+    expect(runtimeOptions).toEqual({ cwd: await realpath(workspace) });
     expect(stdout.value).toContain("Recurs — local harness mode");
     expect(stderr.value).toBe("");
   });

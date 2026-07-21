@@ -545,11 +545,13 @@ try {
       "Use the installed skill and MCP server, then create and read a sandboxed workspace marker.",
       "--permissions",
       "full",
+      "--cd",
+      workspaceDirectory,
       "--format",
       "jsonl",
     ],
     {
-      cwd: workspaceDirectory,
+      cwd: installDirectory,
       encoding: "utf8",
       env: environment,
       maxBuffer: 10 * 1024 * 1024,
@@ -566,6 +568,22 @@ try {
   assert(
     events.every((event) => event.sessionId === initialSessionId),
     "The installed JSONL run emitted inconsistent session identities.",
+  );
+  const canonicalWorkspaceDirectory = await realpath(workspaceDirectory);
+  const projectId = createHash("sha256")
+    .update(canonicalWorkspaceDirectory)
+    .digest("hex")
+    .slice(0, 24);
+  const initialSession = JSON.parse((await readFile(path.join(
+    environment.RECURS_HOME,
+    "projects",
+    projectId,
+    "sessions",
+    `${initialSessionId}.jsonl`,
+  ), "utf8")).split("\n", 1)[0]);
+  assert(
+    initialSession.cwd === canonicalWorkspaceDirectory,
+    "The installed CLI did not pin --cd as its canonical working root.",
   );
   const eventSummary = events.map((event) => ({
     type: event.type,
@@ -751,10 +769,6 @@ try {
       stdinSessionId !== freshSessionId,
     "The installed stdin prompt did not start one fresh durable session.",
   );
-  const projectId = createHash("sha256")
-    .update(await realpath(workspaceDirectory))
-    .digest("hex")
-    .slice(0, 24);
   const stdinSession = JSON.parse((await readFile(path.join(
     environment.RECURS_HOME,
     "projects",

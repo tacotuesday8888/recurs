@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
+import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import {
@@ -109,9 +110,9 @@ import {
 const help = `Recurs coding-agent harness
 
 Usage:
-  recurs                         Open the interactive CLI
+  recurs [-C <dir>]              Open the interactive CLI in one working root
   recurs setup                   Guide provider, model, and permission setup
-  recurs run <prompt>            Run one prompt
+  recurs run <prompt> [-C <dir>] Run one prompt in one working root
   recurs run <prompt> [--format text|jsonl] [--permissions ask|approved|full] [--mode economy|standard|balanced|performance|max] [--connection <id>]
   recurs run <prompt> --resume <session-id> [--format text|jsonl]
   recurs run -                   Read one bounded prompt from piped stdin
@@ -179,6 +180,7 @@ export interface CliDependencies {
       readonly operatingModeId?: OperatingModeId;
       readonly permissionMode?: PermissionMode;
       readonly connectionId?: string;
+      readonly cwd?: string;
       readonly reuseExistingSession?: boolean;
       readonly resumeSessionId?: string;
     },
@@ -235,6 +237,58 @@ interface RunArguments {
 const SAFE_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 const SAFE_CONNECTION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const MAX_STDIN_PROMPT_BYTES = 1024 * 1024;
+const MAX_WORKING_ROOT_BYTES = 4_096;
+
+interface WorkingRootArguments {
+  readonly argv: readonly string[];
+  readonly requested?: string;
+}
+
+function extractWorkingRoot(
+  argv: readonly string[],
+): WorkingRootArguments | null {
+  let requested: string | undefined;
+  const remaining: string[] = [];
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index] ?? "";
+    if (argument !== "-C" && argument !== "--cd") {
+      remaining.push(argument);
+      continue;
+    }
+    const value = argv[index + 1];
+    if (
+      requested !== undefined ||
+      value === undefined ||
+      value.length === 0 ||
+      Buffer.byteLength(value, "utf8") > MAX_WORKING_ROOT_BYTES ||
+      value.includes("\0")
+    ) {
+      return null;
+    }
+    requested = value;
+    index += 1;
+  }
+  return {
+    argv: remaining,
+    ...(requested === undefined ? {} : { requested }),
+  };
+}
+
+async function canonicalWorkingRoot(
+  requested: string,
+  base: string,
+): Promise<string> {
+  try {
+    const canonical = await realpath(path.resolve(base, requested));
+    if (!(await stat(canonical)).isDirectory()) throw new TypeError();
+    return canonical;
+  } catch {
+    throw new RuntimeError(
+      "invalid_input",
+      "The requested working directory is unavailable",
+    );
+  }
+}
 
 function nativeAuthorityText(status: NativeAuthorityStatus): string {
   if (status.state === "unavailable") {
@@ -1012,6 +1066,60 @@ export async function runCli(
   argv: readonly string[],
   dependencies: CliDependencies,
 ): Promise<number> {
+  const workingRoot = extractWorkingRoot(argv);
+  if (workingRoot === null) {
+    await writeOutput(dependencies.stderr, help);
+    return 2;
+  }
+  argv = workingRoot.argv;
+  if (workingRoot.requested !== undefined) {
+    if (argv[0] === "acp") {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    let cwd: string;
+    try {
+      cwd = await canonicalWorkingRoot(
+        workingRoot.requested,
+        dependencies.cwd ?? process.cwd(),
+      );
+    } catch (error) {
+      const safeMessage = safeCliErrorMessage(error);
+      const jsonl = argv[0] === "run" && argv.some(
+        (argument, index) =>
+          argument === "--format" && argv[index + 1] === "jsonl",
+      );
+      if (jsonl) {
+        await writeOutput(
+          dependencies.stdout,
+          `${JSON.stringify({
+            version: 1,
+            type: "configuration_error",
+            error: {
+              domain: "runtime",
+              phase: "preflight",
+              code: "runtime_failed",
+              safeMessage,
+              diagnosticId: randomUUID(),
+              retryable: false,
+            },
+          })}\n`,
+        );
+      } else {
+        await writeOutput(dependencies.stderr, `Error: ${safeMessage}\n`);
+      }
+      return 2;
+    }
+    const createRuntime = dependencies.createRuntime;
+    dependencies = {
+      ...dependencies,
+      cwd,
+      createRuntime: (events, options) => createRuntime(events, {
+        ...options,
+        cwd: options?.cwd ?? cwd,
+      }),
+    };
+  }
   if (
     argv.length === 1 &&
     (argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help")
@@ -1773,6 +1881,7 @@ export async function runCliProcess(
           ...(options?.connectionId === undefined
             ? {}
             : { connectionId: options.connectionId }),
+          ...(options?.cwd === undefined ? {} : { cwd: options.cwd }),
           ...(options?.reuseExistingSession === undefined
             ? {}
             : { reuseExistingSession: options.reuseExistingSession }),
