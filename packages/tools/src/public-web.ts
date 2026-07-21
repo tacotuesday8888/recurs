@@ -9,6 +9,8 @@ import {
 import { request as httpsRequest } from "node:https";
 import { BlockList, isIP } from "node:net";
 
+import { RECURS_VERSION } from "@recurs/contracts";
+
 const DEFAULT_MAX_RESPONSE_BYTES = 1024 * 1024;
 const DEFAULT_MAX_REDIRECTS = 3;
 const MAX_URL_BYTES = 2_048;
@@ -315,7 +317,7 @@ const nodeRequest: PublicWebRequester = async (url, addresses, options) => {
       headers: {
         accept: "text/markdown, text/plain;q=0.9, application/json;q=0.8, text/html;q=0.7, application/xml;q=0.6",
         "accept-encoding": "identity",
-        "user-agent": "Recurs/0.0.0 (+https://github.com/tacotuesday8888/recurs)",
+        "user-agent": `Recurs/${RECURS_VERSION} (+https://github.com/tacotuesday8888/recurs)`,
       },
     }, (response) => {
       void readBoundedBody(response, options.maxResponseBytes).then(

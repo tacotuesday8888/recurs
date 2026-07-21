@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { URL } from "node:url";
 
 import {
   publicationStateForFailures,
   releaseContextFailures,
   releaseMetadataFailures,
 } from "./check-npm-release.mjs";
+
+const apacheLicenseText = await readFile(
+  new URL("../LICENSE", import.meta.url),
+  "utf8",
+);
 
 const basePackage = Object.freeze({
   name: "recurs",
@@ -19,13 +26,14 @@ const basePackage = Object.freeze({
   publishConfig: {
     access: "public",
     registry: "https://registry.npmjs.org/",
+    provenance: true,
   },
 });
 
 test("accepts one exact public release metadata shape", () => {
   assert.deepEqual(releaseMetadataFailures({
     packageJson: basePackage,
-    licenseText: "selected project license ".repeat(8),
+    licenseText: apacheLicenseText,
     noticesText: "reviewed third-party notices",
   }), []);
 });
@@ -38,6 +46,19 @@ test("rejects a placeholder project license", () => {
   });
   assert.deepEqual(failures, ["license_file_incomplete"]);
   assert.equal(publicationStateForFailures(failures), "invalid");
+});
+
+test("pins the selected SPDX identifier to the official Apache-2.0 text", () => {
+  assert.deepEqual(releaseMetadataFailures({
+    packageJson: { ...basePackage, license: "MIT" },
+    licenseText: apacheLicenseText,
+    noticesText: "reviewed third-party notices",
+  }), ["license_identifier_mismatch"]);
+  assert.deepEqual(releaseMetadataFailures({
+    packageJson: basePackage,
+    licenseText: apacheLicenseText.replace("January 2004", "February 2004"),
+    noticesText: "reviewed third-party notices",
+  }), ["license_file_mismatch"]);
 });
 
 test("reports the deliberate unpublished repository gates", () => {
@@ -79,14 +100,16 @@ test("fails closed for a wrong package, repository, version, or registry", () =>
       publishConfig: {
         access: "restricted",
         registry: "https://registry.example.invalid/",
+        provenance: false,
       },
     },
-    licenseText: "selected project license ".repeat(8),
+    licenseText: apacheLicenseText,
     noticesText: "reviewed third-party notices",
   }), [
     "invalid_version",
     "package_name_mismatch",
     "publish_access_not_public",
+    "publish_provenance_missing",
     "publish_registry_mismatch",
     "repository_mismatch",
   ]);

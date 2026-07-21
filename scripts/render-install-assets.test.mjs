@@ -86,7 +86,11 @@ test("release workflow drafts and attests assets before publishing", async () =>
   assert.ok(preflight >= 0 && preflight < build);
   assert.ok(build < draft && draft < attest && attest < publish && publish < release);
   assert.match(workflow, /attestations: write/u);
+  assert.match(workflow, /node-version: 24\.18\.0/u);
+  assert.match(workflow, /npm@12\.0\.1/u);
   assert.match(workflow, /--verify-published-integrity/u);
+  assert.match(workflow, /npm view recurs name --json/u);
+  assert.match(workflow, /docs\/RELEASING\.md/u);
   assert.match(workflow, /--draft=false --latest/u);
 });
 
