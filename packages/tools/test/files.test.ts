@@ -1,6 +1,8 @@
 import {
+  lstat,
   mkdir,
   mkdtemp,
+  open,
   realpath,
   rm,
   symlink,
@@ -24,6 +26,7 @@ import {
   type ToolContext,
   type ToolResult,
 } from "../src/index.js";
+import { readStableTextFile } from "../src/stable-text-file.js";
 
 let cwd: string;
 let outside: string;
@@ -201,6 +204,67 @@ describe("workspace file tools", () => {
     await expect(
       invoke(createReadFileTool(), { path: "large.txt" }),
     ).rejects.toMatchObject({ code: "output_limit" });
+  });
+
+  it("rejects invalid UTF-8, NUL bytes, and oversized source files", async () => {
+    const file = path.join(cwd, "invalid.txt");
+    const toolContext = context();
+    await writeFile(file, Buffer.from([0xc3, 0x28]));
+
+    await expect(invoke(
+      createReadFileTool(),
+      { path: "invalid.txt" },
+      toolContext,
+    )).rejects.toMatchObject({ code: "invalid_input" });
+    expect(toolContext.readRevisions.size).toBe(0);
+
+    await writeFile(file, Buffer.from([0x61, 0, 0x62]));
+    await expect(invoke(createReadFileTool(), { path: "invalid.txt" }))
+      .rejects.toMatchObject({ code: "invalid_input" });
+
+    const exactLimit = Buffer.alloc(8 * 1024 * 1024, 0x61);
+    exactLimit[1] = 0x0a;
+    await writeFile(file, exactLimit);
+    await expect(invoke(createReadFileTool(), {
+      path: "invalid.txt",
+      startLine: 1,
+      endLine: 1,
+    })).resolves.toMatchObject({ output: "a\n" });
+
+    await writeFile(file, Buffer.alloc(8 * 1024 * 1024 + 1, 0x61));
+    await expect(invoke(createReadFileTool(), { path: "invalid.txt" }))
+      .rejects.toMatchObject({ code: "output_limit" });
+  });
+
+  it("fails closed when a regular file changes during its read", async () => {
+    const file = path.join(cwd, "changing.txt");
+    await writeFile(file, "alpha\n");
+    let changed = false;
+
+    await expect(readStableTextFile(file, "changing.txt", 1024, {
+      lstat(candidate) {
+        return lstat(candidate, { bigint: true });
+      },
+      async open(candidate, flags) {
+        const handle = await open(candidate, flags);
+        return {
+          stat() {
+            return handle.stat({ bigint: true });
+          },
+          async read(buffer, offset, length, position) {
+            if (!changed) {
+              changed = true;
+              await writeFile(file, "omega\n");
+            }
+            return handle.read(buffer, offset, length, position);
+          },
+          close() {
+            return handle.close();
+          },
+        };
+      },
+    })).rejects.toMatchObject({ code: "stale_file" });
+    expect(changed).toBe(true);
   });
 
   it("lists files and searches fixed text without a shell", async () => {
