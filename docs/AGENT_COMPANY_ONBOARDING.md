@@ -1,8 +1,8 @@
 # Agent Company Onboarding
 
-**Status:** Product target. This document distinguishes the implemented CLI
-foundation from the personalized company system that Recurs is intended to
-become.
+**Status:** First vertical implemented. This document distinguishes the
+bounded onboarding-to-company path that exists now from the deeper company
+system Recurs is intended to become.
 
 ## Product thesis
 
@@ -139,8 +139,10 @@ become equally important. Both compile to the same blueprint.
 
 ## What exists today
 
-The current implementation is a strong foundation, not yet the complete
-company compiler.
+The current implementation includes the first complete company compiler and
+execution vertical. It remains deliberately bounded: the approved roster is a
+durable policy and assignment catalog, not a promise that every role runs
+automatically.
 
 | Capability | Current state |
 | --- | --- |
@@ -155,17 +157,26 @@ company compiler.
 | Bounded isolated Implement, Review, and Repair team workflow | Implemented |
 | Shared depth, concurrency, retry, request, permission, and cost limits | Implemented |
 | Cancellation, recovery, staging, evidence, and explicit apply | Implemented |
-| Conversational project interview and repository-derived brief | Not implemented |
-| Durable `CompanyBlueprint` and personalized agent profiles | Not implemented |
+| Short project classification, purpose, one constraint, and development-style intake | Implemented |
+| Consent-gated inspection of ten allowlisted root marker names, without file contents | Implemented |
+| Durable immutable version-1 `CompanyBlueprint` and eight tailored layered-company roles | Implemented |
+| Explicit preview and approval of roster, authority, repository facts, tool readiness, quality, and first goal | Implemented |
+| Fresh parent session bound to the approved orchestrator role | Implemented |
+| Onboarding-generated durable initial goal and tailored quality plan | Implemented |
+| Blueprint-aware parent-to-child handoff with durable result/evidence and parent synthesis | Implemented for one bounded depth-one role at a time |
 | Automatic role selection, dependency decomposition, and handoff graph | Not implemented |
-| Role-specific MCP/skill/tool bundle recommendation and readiness plan | Not implemented |
-| Onboarding-generated initial goal, roadmap, and tailored quality plan | Not implemented |
+| Role-specific tool-bundle readiness plan | Implemented as bounded available/required policy; no installation |
+| Natural model-authored interview, proposal editing, or generated roadmap | Not implemented |
+| Automatic MCP/skill discovery, trust, or installation from the blueprint | Not implemented |
 | Recursive lead-to-worker orchestration beyond depth one | Not implemented |
 | Long-lived project learning and evidence-driven team adaptation | Not implemented |
 | Company operating UI | Intentionally deferred |
 
-In plain language: onboarding currently configures a capable harness. It does
-not yet create the personalized agent company described by the product.
+In plain language: onboarding now creates and launches a real personalized
+company policy. The parent can delegate a concrete task to one approved child
+role through the existing engine and synthesize its result. It does not yet
+run the whole roster, invent a dependency graph, install tools, recurse through
+management layers, or continue working after the CLI exits.
 
 ## How the model and harness divide the work
 
@@ -184,28 +195,21 @@ company contracts.
 
 ## Next implementation slices
 
-1. **Company blueprint contracts.** Add versioned durable project, department,
-   agent-profile, tool-plan, quality-plan, and initial-goal contracts. Reuse the
-   current operating-mode, permission, provider, session, and team boundaries.
-2. **Onboarding compiler vertical.** Turn a bounded project interview and
-   optional approved repository summary into one reviewable blueprint. Start
-   with the stable baseline roles and deterministic safety validation; use a
-   model for semantic tailoring without letting model output grant authority.
-3. **Blueprint-to-runtime activation.** Instantiate a small real roster from
-   the approved blueprint and make the parent plan and delegate one goal through
-   the existing child/team coordinator. Every displayed role must map to a
-   durable execution record.
-4. **Tool and quality composition.** Add approved readiness checks, coherent
-   tool-bundle recommendations, project documentation, and goal/quality gates.
-   Installation and remote OAuth remain separate reviewed capabilities.
-5. **Measured adaptation and deeper hierarchy.** Learn from durable evidence,
+1. **Blueprint-directed team execution.** Map approved builder, reviewer, and
+   repair roles onto the existing isolated durable-team workflow while keeping
+   its worktree, review, apply, model-route, and accounting guarantees.
+2. **Editable semantic intake.** Let a model conduct a richer interview and
+   propose project-specific specialists or a roadmap, then validate all output
+   against the closed harness policy and require a human review before launch.
+3. **Tool readiness.** Resolve required tool bundles to installed skills and
+   MCP configuration without automatically installing, trusting, or granting
+   anything.
+4. **Measured adaptation and deeper hierarchy.** Learn from durable evidence,
    then add bounded lead-to-worker delegation only after the depth-one company
-   path is reliable and cost-visible.
+   path remains reliable and cost-visible in real use.
 
-The next milestone should stop after the first complete
-blueprint-to-real-delegation vertical. It should not attempt a desktop UI,
-hundreds of live agents, autonomous deployment, or an unbounded recursive
-company in the same change.
+Desktop UI, autonomous deployment, long-lived self-modifying agents, and
+unbounded recursion remain outside this milestone.
 
 ## Success criteria
 
