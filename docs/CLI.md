@@ -288,12 +288,15 @@ One non-interactive run:
 node packages/cli/dist/main.js run "inspect the repository" --format text
 node packages/cli/dist/main.js run "inspect the repository" --format jsonl
 node packages/cli/dist/main.js run "run the checks" --permissions full --format jsonl
+node packages/cli/dist/main.js run "inspect efficiently" --mode economy --format jsonl
 node packages/cli/dist/main.js run "continue the review" --resume <session-id> --format jsonl
 cat prompt.md | node packages/cli/dist/main.js run - --format jsonl
 cat logs.txt | node packages/cli/dist/main.js run "Summarize these logs" --stdin
 ```
 
 The no-argument interactive CLI requires a user-present local terminal and rejects recognized automation even when it allocates a TTY. The one-shot prompt examples require a configured local provider or an injected provider. A plain `recurs run` always creates a fresh durable session, so automation never inherits whichever compatible conversation happens to be newest. `--permissions ask|approved|full` pins that preset into the fresh session; Full still preserves credential denials, sensitive and external-path prompts, integrity controls, and the macOS/Linux workspace sandbox. Windows subprocess tools remain unsupported.
+
+`--mode economy|standard|balanced|performance|max` pins the current version of one existing operating policy into a fresh headless session. An exact historical policy ID such as `balanced_v4` is also accepted for deterministic replay. The mode changes real model eligibility, child/request limits, concurrency, review depth, and reported-cost ceilings; it is not a display-only quality label. Like permissions, mode cannot be overridden while using `--resume`, because a resumed session retains its immutable stored policy.
 
 `--resume <session-id>` instead continues one exact durable parent session in the current canonical workspace without creating a throwaway session. It revalidates the session's immutable backend pin against the current saved connection or process-scoped provider before any prompt is persisted. A missing/changed credential, disconnected provider, mismatched backend, child session, or simultaneous permission override fails closed. The resumed session retains its stored permission, operating mode, Plan/Act state, usage, and visible conversation. Codex still rejects this unattended path because its subscription policy requires a local user-present manual CLI. In JSONL mode every normalized event includes the exact `sessionId`; wrappers should read it from `turn_started` and supply it explicitly on the next invocation. JSONL uses the same runtime and events as the interactive CLI.
 

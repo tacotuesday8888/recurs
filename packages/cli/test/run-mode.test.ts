@@ -2078,6 +2078,41 @@ describe("runCli", () => {
   );
 
   it.each([
+    ["economy", "economy_v5"],
+    ["standard", "standard_v5"],
+    ["balanced", "balanced_v5"],
+    ["performance", "performance_v5"],
+    ["max", "max_v5"],
+    ["balanced_v4", "balanced_v4"],
+  ] as const)(
+    "pins the explicit %s operating mode into a fresh one-shot session",
+    async (value, operatingModeId) => {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      let runtimeOptions: unknown;
+
+      const exitCode = await runCli(
+        ["run", "inspect", "--mode", value, "--format", "jsonl"],
+        {
+          stdout,
+          stderr,
+          async createRuntime(events, options) {
+            runtimeOptions = options;
+            return createRuntime(events);
+          },
+        },
+      );
+
+      expect(exitCode).toBe(0);
+      expect(runtimeOptions).toEqual({
+        operatingModeId,
+        reuseExistingSession: false,
+      });
+      expect(stderr.value).toBe("");
+    },
+  );
+
+  it.each([
     ["run", "inspect", "--permissions"],
     ["run", "inspect", "--permissions", "unknown"],
     [
@@ -2094,6 +2129,10 @@ describe("runCli", () => {
       "run", "inspect", "--resume", "session-1",
       "--permissions", "approved",
     ],
+    ["run", "inspect", "--mode"],
+    ["run", "inspect", "--mode", "unknown"],
+    ["run", "inspect", "--mode", "balanced", "--mode", "max"],
+    ["run", "inspect", "--resume", "session-1", "--mode", "economy"],
     ["run", "--stdin"],
     ["run", "-", "--stdin"],
     ["run", "inspect", "--stdin", "--stdin"],
