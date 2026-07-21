@@ -48,6 +48,14 @@ export class FileConnectionRegistry {
     this.#store = new RegistryFileStore(dataDirectory, options);
   }
 
+  /**
+   * Inspect the registry without creating its directory or taking a mutation
+   * lease. Diagnostics use this path so a fresh installation stays untouched.
+   */
+  async inspect(): Promise<ConnectionRegistryDocument> {
+    return immutableRegistryDocument(await this.#store.read());
+  }
+
   async read(
     options: { signal?: AbortSignal } = {},
   ): Promise<ConnectionRegistryDocument> {

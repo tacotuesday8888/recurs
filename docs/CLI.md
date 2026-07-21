@@ -136,6 +136,8 @@ recurs account verify <connection-id>
 recurs account set-primary <connection-id>
 recurs account route <implement|review|repair> <connection-id|parent>
 recurs account disconnect <connection-id>
+recurs doctor
+recurs doctor --json
 recurs doctor native
 recurs doctor native --json
 ```
@@ -155,7 +157,18 @@ Account mutations require one full exact ID; prefixes, labels, indexes, extra fl
 
 `set-primary` changes only the default for a future new session. Every existing session continues through its immutable connection/model/account/policy/billing pin. `account route` explicitly assigns one saved direct-model connection as the candidate for a durable team's Implement, Review, or Repair role; `parent` clears the assignment. It is local, interactive, manual, and confirmation-gated because a selected secondary account may incur its own provider charges. Delegated runtimes such as Codex cannot be assigned. The active mode and live connection policy still decide eligibility, and the parent remains the fallback. `disconnect` requires interactive confirmation and removes only Recurs metadata; it also clears role assignments to that exact connection but does not sign out, revoke, or delete vendor-owned authentication. Removing the primary leaves no primary instead of selecting another billing source implicitly.
 
-### Native authority diagnostics
+### Readiness and native-authority diagnostics
+
+`recurs doctor [--json]` is a bounded, non-repairing installation check. It
+validates the supported Node.js and Git versions, ripgrep availability, the
+current protected Git-worktree boundary, non-secret saved-provider metadata,
+and a real network-denied command launch through Seatbelt on macOS or
+Bubblewrap on Linux. Missing provider setup or a non-Git directory is a warning;
+missing required tooling, unreadable provider state, or a failed OS sandbox is
+a failure and exits `1`. Cancellation exits `130`. The report never contacts a
+provider and omits workspace paths, account identity, model identity, endpoint
+details, credential-variable names, and raw failures. JSON uses the stable
+`doctor_report` schema version 1.
 
 `recurs doctor native [--json]` reports the bounded native-authority status available to the CLI; it never starts the agent runtime, prompts for a key, opens Keychain itself, or reveals native paths, descriptors, signing identities, account values, endpoints, headers, or secrets. Text output is intended for a person. JSON is a stable versioned envelope:
 

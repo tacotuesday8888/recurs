@@ -29,7 +29,7 @@ Reviewed specifications and implementation plans:
 
 ## Release status
 
-Recurs is currently source-installable with npm and runs on Node.js. The repository builds and verifies a minimal npm artifact, includes reviewed direct-runtime dependency notices, installs it into an empty temporary prefix in CI, and carries a manual fail-closed OIDC release workflow. That workflow derives a checksum-verifying user-local installer and Homebrew formula from the exact npm tarball, drafts and attests the GitHub assets, verifies npm SRI on recovery, and publishes the release only after package publication succeeds. No npm package, Bun runtime, Homebrew tap/formula, curl installer, or signed binary has been published yet.
+Recurs is currently source-installable with npm and runs on Node.js. The repository builds and verifies a minimal npm artifact, includes reviewed direct-runtime dependency notices, installs it into an empty temporary prefix in CI, and proves the installed binary's redacted readiness report can launch the real OS sandbox. It also carries a manual fail-closed OIDC release workflow. That workflow derives a checksum-verifying user-local installer and Homebrew formula from the exact npm tarball, drafts and attests the GitHub assets, verifies npm SRI on recovery, and publishes the release only after package publication succeeds. No npm package, Bun runtime, Homebrew tap/formula, curl installer, or signed binary has been published yet.
 
 The repository is public but has no license yet. The package therefore remains `private`, version `0.0.0`, and `UNLICENSED`; it must be described as source-available, not legally open source, until the owner selects and adds a license.
 

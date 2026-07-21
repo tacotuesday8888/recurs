@@ -2851,7 +2851,7 @@ describe("runCli", () => {
     ["setup", "Configure a provider", "setup byok"],
     ["provider", "Inspect available provider paths", "provider models"],
     ["account", "Manage saved non-secret", "account set-primary"],
-    ["doctor", "Inspect bounded native-authority", "doctor native"],
+    ["doctor", "Check Recurs installation", "recurs doctor [--json]"],
     ["acp", "Serve Recurs as an ACP agent", "standard output"],
   ] as const)(
     "prints scoped %s help through both supported forms",
@@ -2986,6 +2986,86 @@ describe("runCli", () => {
       );
     }
     expect(runtimeCreated).toBe(false);
+  });
+
+  it("prints readiness diagnostics without creating the agent runtime", async () => {
+    const report = {
+      schemaVersion: 1 as const,
+      type: "doctor_report" as const,
+      recursVersion: "0.1.0",
+      overallStatus: "warning" as const,
+      checks: [{
+        id: "provider.registry",
+        status: "warning" as const,
+        summary: "no saved provider connection",
+        remediation: "Run `recurs setup`.",
+      }],
+    };
+    let runtimeCreated = false;
+    let receivedCwd = "";
+
+    for (const [argv, json] of [
+      [["doctor"], false],
+      [["doctor", "--json"], true],
+    ] as const) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      expect(await runCli(argv, {
+        stdout,
+        stderr,
+        cwd: "/ready-workspace",
+        doctor: async (cwd) => {
+          receivedCwd = cwd;
+          return report;
+        },
+        async createRuntime() {
+          runtimeCreated = true;
+          throw new Error("runtime must not start");
+        },
+      })).toBe(0);
+      expect(stderr.value).toBe("");
+      expect(json ? JSON.parse(stdout.value) : stdout.value).toEqual(
+        json ? report : expect.stringContaining("provider.registry"),
+      );
+    }
+    expect(receivedCwd).toBe("/ready-workspace");
+    expect(runtimeCreated).toBe(false);
+  });
+
+  it("returns one for failed readiness and 130 for cancellation", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    expect(await runCli(["doctor", "--json"], {
+      stdout,
+      stderr,
+      doctor: async () => ({
+        schemaVersion: 1,
+        type: "doctor_report",
+        recursVersion: "0.1.0",
+        overallStatus: "fail",
+        checks: [{ id: "runtime.git", status: "fail", summary: "Git failed" }],
+      }),
+      async createRuntime() {
+        throw new Error("runtime must not start");
+      },
+    })).toBe(1);
+    expect(JSON.parse(stdout.value).overallStatus).toBe("fail");
+    expect(stderr.value).toBe("");
+
+    const cancelledOut = new TextOutput();
+    const cancelledError = new TextOutput();
+    expect(await runCli(["doctor"], {
+      stdout: cancelledOut,
+      stderr: cancelledError,
+      doctor: async () => {
+        throw new DOMException("SECRET_CANCEL_REASON", "AbortError");
+      },
+      async createRuntime() {
+        throw new Error("runtime must not start");
+      },
+    })).toBe(130);
+    expect(cancelledOut.value).toBe("");
+    expect(cancelledError.value).toBe("Error: Doctor was cancelled\n");
   });
 
   it("prints fixed unavailable native status and rejects invalid doctor flags", async () => {
