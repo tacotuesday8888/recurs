@@ -12,6 +12,7 @@ import { createInterface } from "node:readline/promises";
 
 import {
   createHostInvocation,
+  parseOperatingModeId,
   type OperatingModeId,
   type IntegrationFailure,
   type NativeAuthorityPort,
@@ -111,7 +112,7 @@ Usage:
   recurs                         Open the interactive CLI
   recurs setup                   Guide provider, model, and permission setup
   recurs run <prompt>            Run one prompt
-  recurs run <prompt> [--format text|jsonl] [--permissions ask|approved|full]
+  recurs run <prompt> [--format text|jsonl] [--permissions ask|approved|full] [--mode economy|standard|balanced|performance|max]
   recurs run <prompt> --resume <session-id> [--format text|jsonl]
   recurs run -                   Read one bounded prompt from piped stdin
   recurs run <prompt> --stdin    Append bounded piped stdin to the prompt
@@ -225,6 +226,7 @@ interface RunArguments {
   stdinMode: "none" | "replace" | "append";
   format: "text" | "jsonl";
   permissionMode?: PermissionMode;
+  operatingModeId?: OperatingModeId;
   resumeSessionId?: string;
 }
 
@@ -260,6 +262,7 @@ function isAbortError(error: unknown): boolean {
 function parseRunArguments(args: readonly string[]): RunArguments | null {
   let format: RunArguments["format"] = "text";
   let permissionMode: PermissionMode | undefined;
+  let operatingModeId: OperatingModeId | undefined;
   let resumeSessionId: string | undefined;
   let appendStdin = false;
   const prompt: string[] = [];
@@ -280,6 +283,15 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
       const parsed = parsePermissionMode(value);
       if (parsed === null) return null;
       permissionMode = parsed;
+      index += 1;
+      continue;
+    }
+    if (argument === "--mode") {
+      if (operatingModeId !== undefined) return null;
+      const value = args[index + 1];
+      const parsed = value === undefined ? null : parseOperatingModeId(value);
+      if (parsed === null) return null;
+      operatingModeId = parsed;
       index += 1;
       continue;
     }
@@ -307,7 +319,10 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
     prompt.push(argument);
   }
   const joined = prompt.join(" ").trim();
-  if (resumeSessionId !== undefined && permissionMode !== undefined) {
+  if (
+    resumeSessionId !== undefined &&
+    (permissionMode !== undefined || operatingModeId !== undefined)
+  ) {
     return null;
   }
   const replaceWithStdin = prompt.length === 1 && prompt[0] === "-";
@@ -323,6 +338,7 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
           : "none",
         format,
         ...(permissionMode === undefined ? {} : { permissionMode }),
+        ...(operatingModeId === undefined ? {} : { operatingModeId }),
         ...(resumeSessionId === undefined ? {} : { resumeSessionId }),
       };
 }
@@ -1497,6 +1513,9 @@ export async function runCli(
       renderer,
       {
         reuseExistingSession: false,
+        ...(parsed.operatingModeId === undefined
+          ? {}
+          : { operatingModeId: parsed.operatingModeId }),
         ...(parsed.permissionMode === undefined
           ? {}
           : { permissionMode: parsed.permissionMode }),

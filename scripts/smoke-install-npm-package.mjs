@@ -1,11 +1,13 @@
 import { Buffer } from "node:buffer";
 import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   access,
   chmod,
   mkdir,
   mkdtemp,
   readFile,
+  realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -707,7 +709,7 @@ try {
 
   const stdinRun = await runInstalledWithInput(
     executable,
-    ["run", "-", "--format", "jsonl"],
+    ["run", "-", "--mode", "economy", "--format", "jsonl"],
     environment,
     `${stdinPrompt}\n`,
   );
@@ -722,6 +724,21 @@ try {
       stdinSessionId !== initialSessionId &&
       stdinSessionId !== freshSessionId,
     "The installed stdin prompt did not start one fresh durable session.",
+  );
+  const projectId = createHash("sha256")
+    .update(await realpath(workspaceDirectory))
+    .digest("hex")
+    .slice(0, 24);
+  const stdinSession = JSON.parse((await readFile(path.join(
+    environment.RECURS_HOME,
+    "projects",
+    projectId,
+    "sessions",
+    `${stdinSessionId}.jsonl`,
+  ), "utf8")).split("\n", 1)[0]);
+  assert(
+    stdinSession.agent?.operatingMode?.id === "economy_v5",
+    "The installed headless mode flag did not pin the requested policy.",
   );
   assert(
     stdinEvents.some((event) =>
