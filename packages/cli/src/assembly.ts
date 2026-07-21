@@ -84,6 +84,7 @@ import {
   createRunCommandTool,
   createRunVerificationTool,
   createSearchTextTool,
+  createTypeScriptDiagnosticsTool,
   createWebFetchTool,
   type PermissionMode,
   type ExecutionMode,
@@ -972,6 +973,7 @@ export async function createStandaloneRuntime(
   tools.register(createListFilesTool());
   tools.register(createSearchTextTool());
   tools.register(createCodeOutlineTool());
+  tools.register(createTypeScriptDiagnosticsTool());
   tools.register(createWebFetchTool());
   tools.register(createApplyPatchTool());
   tools.register(createRunCommandTool(processes));

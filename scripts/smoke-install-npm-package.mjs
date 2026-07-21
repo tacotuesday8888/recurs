@@ -44,6 +44,8 @@ const imagePrompt = "Inspect this exact installed image prompt.";
 const imageFinalText = "RECURS_INSTALLED_IMAGE_OK";
 const reviewPrompt = "Review the following Git changes.";
 const reviewFinalText = "RECURS_INSTALLED_REVIEW_OK";
+const diagnosticsPrompt = "Type-check the installed TypeScript fixture in Plan mode.";
+const diagnosticsFinalText = "RECURS_INSTALLED_TYPESCRIPT_DIAGNOSTICS_OK";
 const aggregateErrorPrompt = "Trigger the installed aggregate error boundary.";
 const aggregateErrorCanary = "RECURS_INSTALLED_PROVIDER_SECRET_CANARY";
 const acpPrompt = "Report the installed ACP transport marker.";
@@ -181,6 +183,25 @@ async function startLocalModelServer() {
           streamResponse(response, {
             choices: [{
               delta: { content: reviewFinalText },
+              finish_reason: "stop",
+            }],
+            usage: { prompt_tokens: 9, completion_tokens: 4 },
+          });
+          return;
+        }
+        if (messages.includes(diagnosticsPrompt)) {
+          if (!messages.includes("error TS2322")) {
+            streamToolCall(
+              response,
+              "call-installed-typescript-diagnostics",
+              "typescript_diagnostics",
+              {},
+            );
+            return;
+          }
+          streamResponse(response, {
+            choices: [{
+              delta: { content: diagnosticsFinalText },
               finish_reason: "stop",
             }],
             usage: { prompt_tokens: 9, completion_tokens: 4 },
@@ -1018,6 +1039,60 @@ try {
   assert(
     localModelServer.chatRequests.length === 12,
     "The installed review prompt did not reach the backend exactly once.",
+  );
+
+  await writeFile(path.join(workspaceDirectory, "tsconfig.json"), JSON.stringify({
+    compilerOptions: {
+      incremental: true,
+      outDir: "dist",
+      strict: true,
+    },
+    files: ["diagnostic-fixture.ts"],
+  }));
+  await writeFile(
+    path.join(workspaceDirectory, "diagnostic-fixture.ts"),
+    "const installedCount: number = 'wrong';\n",
+  );
+  const { stdout: diagnosticsOutput, stderr: diagnosticsError } =
+    await execFileAsync(
+      executable,
+      ["run", diagnosticsPrompt, "--plan", "--format", "json"],
+      {
+        cwd: workspaceDirectory,
+        encoding: "utf8",
+        env: environment,
+        maxBuffer: 10 * 1024 * 1024,
+      },
+    );
+  const diagnosticsResult = JSON.parse(diagnosticsOutput);
+  assert(
+    diagnosticsResult.type === "run_result" &&
+      diagnosticsResult.result?.finalText === diagnosticsFinalText &&
+      diagnosticsError === "",
+    "The installed TypeScript diagnostics turn did not complete.",
+  );
+  const diagnosticsRequests = localModelServer.chatRequests.filter((request) =>
+    JSON.stringify(request.messages).includes(diagnosticsPrompt)
+  );
+  assert(
+    diagnosticsRequests.length === 2 &&
+      diagnosticsRequests[0]?.tools?.some((tool) =>
+        tool.function?.name === "typescript_diagnostics"
+      ) === true &&
+      diagnosticsRequests[0]?.tools?.every((tool) =>
+        tool.function?.name !== "apply_patch"
+      ) === true &&
+      JSON.stringify(diagnosticsRequests[1]?.messages).includes("error TS2322"),
+    "The installed Plan-mode agent did not receive real compiler diagnostics.",
+  );
+  assert(
+    !(await pathExists(path.join(workspaceDirectory, "dist"))) &&
+      !(await pathExists(path.join(workspaceDirectory, "tsconfig.tsbuildinfo"))),
+    "The installed diagnostics tool emitted files into the workspace.",
+  );
+  assert(
+    localModelServer.chatRequests.length === 14,
+    "The installed diagnostics prompt did not use exactly one tool round.",
   );
 } finally {
   if (localModelServer !== undefined) {
