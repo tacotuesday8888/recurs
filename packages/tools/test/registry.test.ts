@@ -10,6 +10,7 @@ import {
   ToolRegistry,
   createApplyPatchTool,
   createGitDiffTool,
+  createGitHistoryTool,
   createGitStatusTool,
   createListFilesTool,
   createProcessSessionTool,
@@ -87,6 +88,7 @@ describe("ToolRegistry", () => {
       createApplyPatchTool(),
       createGitStatusTool(),
       createGitDiffTool(),
+      createGitHistoryTool(),
       createRunCommandTool(),
       createProcessSessionTool(processes),
     ].map((tool) => [
@@ -100,6 +102,7 @@ describe("ToolRegistry", () => {
       ["apply_patch", "fixed_process", false],
       ["git_status", "fixed_process", true],
       ["git_diff", "fixed_process", true],
+      ["git_history", "fixed_process", true],
       ["run_command", "arbitrary_process", false],
       ["process_session", "arbitrary_process", false],
     ]);

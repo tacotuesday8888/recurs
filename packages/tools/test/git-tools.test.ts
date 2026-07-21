@@ -22,6 +22,7 @@ import {
   ToolRegistry,
   createApplyPatchTool,
   createGitDiffTool,
+  createGitHistoryTool,
   createGitStatusTool,
   createReadFileTool,
   type ApprovalHandler,
@@ -48,12 +49,12 @@ const deny: ApprovalHandler = {
   },
 };
 
-function context(): ToolContext {
+function context(executionMode: "act" | "plan" = "act"): ToolContext {
   return {
     sessionId: "s1",
     cwd,
     signal: new AbortController().signal,
-    executionMode: "act",
+    executionMode,
     readRevisions: new Map(),
   };
 }
@@ -61,12 +62,44 @@ function context(): ToolContext {
 async function invoke(
   tool: Tool,
   arguments_: unknown,
+  toolContext = context(),
 ): Promise<ToolResult> {
   return new ToolRegistry([tool]).invoke(
     { id: "call-1", name: tool.definition.name, arguments: arguments_ },
-    context(),
+    toolContext,
     new PermissionEngine("full_access"),
     deny,
+  );
+}
+
+async function commitFixture(
+  file: string,
+  content: string,
+  subject: string,
+  authoredAt: string,
+): Promise<void> {
+  await writeFile(path.join(cwd, file), content);
+  await execFileAsync("git", ["add", "--force", "--", file], { cwd });
+  await execFileAsync(
+    "git",
+    [
+      "-c",
+      "user.name=Recurs Historian",
+      "-c",
+      "user.email=history@example.invalid",
+      "commit",
+      "--quiet",
+      "-m",
+      subject,
+    ],
+    {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_DATE: authoredAt,
+        GIT_COMMITTER_DATE: authoredAt,
+      },
+    },
   );
 }
 
@@ -75,6 +108,141 @@ function shellQuote(value: string): string {
 }
 
 describe("credential-safe Git inspection", () => {
+  it("returns bounded newest-first JSON history in Plan mode", async () => {
+    await commitFixture(
+      "safe.txt",
+      "first\n",
+      "first change",
+      "2026-01-01T00:00:00Z",
+    );
+    await commitFixture(
+      "safe.txt",
+      "second\n",
+      "second change",
+      "2026-01-02T00:00:00Z",
+    );
+    await commitFixture(
+      "safe.txt",
+      "third\n",
+      "third change",
+      "2026-01-03T00:00:00Z",
+    );
+
+    const result = await invoke(
+      createGitHistoryTool(),
+      { limit: 2 },
+      context("plan"),
+    );
+    const entries = result.output.trim().split("\n").map((line) =>
+      JSON.parse(line) as Record<string, string>
+    );
+
+    expect(entries.map((entry) => entry.subject)).toEqual([
+      "third change",
+      "second change",
+    ]);
+    expect(entries[0]).toMatchObject({
+      commit: expect.stringMatching(/^[0-9a-f]{40}$/u),
+      authoredAt: "2026-01-03T00:00:00Z",
+      author: "Recurs Historian",
+    });
+    expect(result.metadata).toEqual({
+      path: ".",
+      returnedCommits: 2,
+      requestedLimit: 2,
+      truncated: true,
+      exitCode: 0,
+      sources: ["inspected 2 recent commits for \".\""],
+    });
+  });
+
+  it("filters history by path and excludes credential-only commits", async () => {
+    await commitFixture(
+      "safe.txt",
+      "first\n",
+      "safe first",
+      "2026-01-01T00:00:00Z",
+    );
+    await commitFixture(
+      ".env",
+      "SECRET_HISTORY_CANARY=1\n",
+      "SECRET_SUBJECT_CANARY",
+      "2026-01-02T00:00:00Z",
+    );
+    await commitFixture(
+      "safe.txt",
+      "second\n",
+      "safe second",
+      "2026-01-03T00:00:00Z",
+    );
+
+    const aggregate = await invoke(createGitHistoryTool(), { limit: 10 });
+    const filtered = await invoke(createGitHistoryTool(), {
+      path: "safe.txt",
+      limit: 10,
+    });
+    const pathspec = await invoke(createGitHistoryTool(), {
+      path: ":(glob)**",
+      limit: 10,
+    });
+
+    for (const result of [aggregate, filtered]) {
+      expect(result.output).toContain("safe first");
+      expect(result.output).toContain("safe second");
+      expect(result.output).not.toContain("SECRET_SUBJECT_CANARY");
+      expect(result.output).not.toContain("SECRET_HISTORY_CANARY");
+    }
+    expect(filtered.metadata).toMatchObject({
+      path: "safe.txt",
+      returnedCommits: 2,
+      truncated: false,
+    });
+    expect(pathspec.output).toBe("No commits found for path \":(glob)**\".\n");
+    await expect(invoke(createGitHistoryTool(), { path: ".env" }))
+      .rejects.toMatchObject({ code: "permission_denied" });
+  });
+
+  it("does not execute configured signature programs while reading history", async () => {
+    await commitFixture(
+      "safe.txt",
+      "safe\n",
+      "signed-looking history",
+      "2026-01-01T00:00:00Z",
+    );
+    const marker = path.join(cwd, ".git", "signature-program-invoked");
+    const program = path.join(cwd, ".git", "signature-program");
+    await writeFile(
+      program,
+      `#!/bin/sh\nprintf invoked > ${shellQuote(marker)}\nexit 1\n`,
+    );
+    await chmod(program, 0o700);
+    await execFileAsync("git", ["config", "log.showSignature", "true"], { cwd });
+    await execFileAsync("git", ["config", "gpg.program", program], { cwd });
+
+    const result = await invoke(createGitHistoryTool(), {});
+
+    expect(result.output).toContain("signed-looking history");
+    await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("handles empty history and rejects malformed inputs", async () => {
+    await expect(invoke(createGitHistoryTool(), {})).resolves.toMatchObject({
+      output: "No commits found for path \".\".\n",
+      metadata: {
+        path: ".",
+        returnedCommits: 0,
+        requestedLimit: 20,
+        truncated: false,
+      },
+    });
+    await expect(invoke(createGitHistoryTool(), { limit: 0 }))
+      .rejects.toMatchObject({ code: "invalid_input" });
+    await expect(invoke(createGitHistoryTool(), { limit: 101 }))
+      .rejects.toMatchObject({ code: "invalid_input" });
+    await expect(invoke(createGitHistoryTool(), { revision: "HEAD~1" }))
+      .rejects.toMatchObject({ code: "invalid_input" });
+  });
+
   it("excludes credential paths and contents from aggregate status and diff", async () => {
     await writeFile(path.join(cwd, ".ENV"), "GIT_CANARY=before\n");
     await writeFile(path.join(cwd, "safe.txt"), "safe before\n");

@@ -1838,6 +1838,7 @@ describe("standalone assembly without a provider", () => {
       "run_verification",
       "git_status",
       "git_diff",
+      "git_history",
       "delegate_task",
       "delegate_tasks",
       "delegate_team",
@@ -1962,6 +1963,64 @@ describe("standalone assembly without a provider", () => {
     );
     expect(result?.content).toContain("error TS2322");
     expect(result?.content).toContain("Type 'string' is not assignable to type 'number'");
+  });
+
+  it("returns bounded Git history to a model in Plan mode", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-git-history-assembly-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    await execFileAsync("git", ["init", "--quiet"], { cwd: workspace });
+    await writeFile(path.join(workspace, "feature.ts"), "export const ready = true;\n");
+    await execFileAsync("git", ["add", "feature.ts"], { cwd: workspace });
+    await execFileAsync("git", [
+      "-c",
+      "user.name=Recurs Test",
+      "-c",
+      "user.email=recurs@example.invalid",
+      "commit",
+      "--quiet",
+      "-m",
+      "add the feature boundary",
+    ], { cwd: workspace });
+    const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "history-1",
+            name: "git_history",
+            arguments: { limit: 1 },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "The feature boundary is committed." },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        skillHomeDirectory: path.join(root, "home"),
+        provider,
+        executionMode: "plan",
+        permissionMode: "full_access",
+      },
+    );
+
+    await expect(runtime.submit("inspect recent history")).resolves
+      .toMatchObject({ finalText: "The feature boundary is committed." });
+    expect(provider.requests[0]?.tools.map((tool) => tool.name))
+      .toContain("git_history");
+    expect(provider.requests[0]?.tools.map((tool) => tool.name))
+      .not.toContain("apply_patch");
+    expect(provider.requests[1]?.messages.findLast(
+      (message) => message.role === "tool",
+    )?.content).toContain("add the feature boundary");
   });
 
   it("lets the owner write to and close a yielded command", async () => {

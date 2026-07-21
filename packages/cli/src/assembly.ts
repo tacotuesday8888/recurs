@@ -77,6 +77,7 @@ import {
   createApplyPatchTool,
   createCodeOutlineTool,
   createGitDiffTool,
+  createGitHistoryTool,
   createGitStatusTool,
   createListFilesTool,
   createProcessSessionTool,
@@ -981,6 +982,7 @@ export async function createStandaloneRuntime(
   tools.register(createRunVerificationTool());
   tools.register(createGitStatusTool());
   tools.register(createGitDiffTool());
+  tools.register(createGitHistoryTool());
   if (skills.hasSkills) tools.register(skills.createTool());
   if (mcp.hasServers) tools.register(mcp.createTool());
   const backendRouter = new AgentBackendRouter();
