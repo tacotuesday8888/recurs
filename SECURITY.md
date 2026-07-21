@@ -1,22 +1,26 @@
 # Security Policy
 
-Recurs is pre-release software at version `0.0.0`. The signed native provider
+Recurs is pre-release software at version `0.1.0-alpha.1`. The signed native provider
 path keeps reusable credential bytes outside TypeScript. The public
 environment-BYOK path deliberately receives one selected key in the Recurs
 process but never persists, renders, or forwards it to tools. Recurs must not
 be used as a credential-safe sandbox. The current safeguards reduce
 accidental disclosure through built-in tools, checkpoints, child environments,
-and error messages; arbitrary commands still run with the user's host
-filesystem, network, IPC, and process authority.
+and error messages. The standalone macOS and Linux defaults additionally place
+tool subprocesses in fail-closed OS sandboxes. An explicitly selected
+`local_guarded` profile retains broad host authority, Windows subprocess tools
+remain unsupported, and environment BYOK still places one selected credential
+inside the Recurs process.
 
 The source tree now produces a minimal npm candidate containing only the
-bundled public CLI, package metadata, README, and this security policy. Recurs-
-owned workspace packages are bundled; pinned ACP, Codex, YAML, and schema
+bundled public CLI, package metadata, project license, README, this security
+policy, and third-party notices. Recurs-owned workspace packages are bundled;
+pinned ACP, Codex, YAML, and schema
 libraries remain normal exact npm dependencies. Package checks reject private
 workspace imports, build-machine paths, unexpected files, missing executable
 mode, and size drift, and CI installs the tarball into an empty prefix before
-running it. This is packaging evidence, not a public release: the package is
-still private, version `0.0.0`, and `UNLICENSED`, and it contains no signed
+running it. This is packaging evidence, not a public release: the Apache-2.0
+preview package is metadata-ready but unpublished, and it contains no signed
 native credential authority.
 
 The protected tagged-release workflow is designed around that one exact
@@ -25,9 +29,9 @@ formula with the same checksum, creates only a draft release initially,
 attests the assets, and publishes or verifies the tarball's npm SHA-512 SRI
 before making the GitHub release public. The installer refuses an unverified
 archive, disables npm lifecycle scripts, uses a user-owned prefix by default,
-and health-checks the resulting CLI. This workflow is still inoperative by
-design until the license, non-placeholder version, public repository, exact
-tag, and protected npm/GitHub authority gates are satisfied.
+and health-checks the resulting CLI. This workflow remains owner-controlled:
+the npm trusted-publisher relationship and protected environment must be
+configured, and the exact reviewed preview tag must be dispatched manually.
 
 The repository includes a macOS 14.4+ native process boundary and complete
 private OpenAI API, Anthropic API, and Kimi Code activation/generation
@@ -264,9 +268,10 @@ candidate, reset to `ready_to_apply` only when the base is unchanged, and
 otherwise marked for manual attention without overwriting the workspace.
 Recovery runs before provider/session activation, sanitizes per-run failures,
 and blocks startup with one safe error if any run cannot be reconciled.
-These controls constrain the import and lifecycle boundaries; they still do
-not restrict host filesystem, network, IPC, or process authority and do not
-make children credential-safe sandboxes.
+These controls constrain the import and lifecycle boundaries; they do not make
+children credential-safe sandboxes. The default macOS/Linux tool subprocess
+profiles add their separate OS containment boundary, while `local_guarded`
+retains host filesystem, network, IPC, and process authority.
 
 The private signed path implements OpenAI API, Anthropic API, and Kimi Code.
 Other direct API, coding-plan, OAuth, and cloud-identity credential flows remain

@@ -23,9 +23,11 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: 24.18.0
           package-manager-cache: false
           registry-url: https://registry.npmjs.org
+      - name: Pin the trusted-publishing client
+        run: npm install --global --ignore-scripts npm@12.0.1
       - name: Require a release tag on main
         run: |
           test "$GITHUB_REF_TYPE" = tag
@@ -103,6 +105,9 @@ jobs:
             node scripts/render-install-assets.mjs \
               --verify-published-integrity "release/${{ steps.package.outputs.filename }}" \
               --integrity "$published_integrity"
+          elif ! npm view recurs name --json >/dev/null 2>&1; then
+            echo "The first recurs package must follow docs/RELEASING.md before trusted publishing can be configured." >&2
+            exit 1
           else
             npm publish "release/${{ steps.package.outputs.filename }}" --access public
           fi

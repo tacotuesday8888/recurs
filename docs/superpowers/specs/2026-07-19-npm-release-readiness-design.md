@@ -2,9 +2,9 @@
 
 ## Status
 
-Implemented as a pre-publication boundary. No npm package is published and the
-repository remains source-available because the owner has not selected a
-license.
+Implemented as a release-ready pre-publication boundary. The repository and
+preview package are Apache-2.0 licensed, but no npm package or GitHub release
+has been published.
 
 ## Goal
 
@@ -33,6 +33,7 @@ one temporary file rather than exposing a partial build.
 The npm tarball allowlist is exactly:
 
 - `dist/cli/main.js`
+- `LICENSE`
 - `package.json`
 - `README.md`
 - `SECURITY.md`
@@ -52,7 +53,7 @@ provider activation.
 - the bundle retains its shebang and executable mode;
 - no private `@recurs/*` import or absolute build-machine path remains;
 - the bundle and package stay within explicit size ceilings; and
-- `npm pack --dry-run` reports only the five allowlisted files.
+- `npm pack --dry-run` reports only the six allowlisted files.
 
 `npm run package:smoke-install` creates a package archive, installs it with
 scripts disabled into a new temporary prefix and private home, then invokes
@@ -68,19 +69,18 @@ command sandbox, and the core tool loop without touching user configuration.
 
 ## Publication gate
 
-The package stays at version `0.0.0`, has `private: true`, and declares
-`UNLICENSED`. npm therefore cannot publish it accidentally. Reviewed notices
-for all exact direct runtime dependencies are now included in the artifact.
-Public preview release work must deliberately:
+The package is versioned `0.1.0-alpha.1`, declares Apache-2.0, packages the
+official hash-pinned license text, and carries exact public-registry metadata
+with provenance enabled. Reviewed notices for all exact direct runtime
+dependencies are included in the artifact. Public preview release work must
+still deliberately:
 
-1. add the owner-selected project license;
-2. make the source repository public so npm provenance can be generated;
-3. choose a real semantic preview version;
-4. change the package license field, package the license, remove the private
-   gate, and add exact public npm registry metadata;
-5. configure the `npm` protected GitHub environment and the package's trusted
+1. create the first package through the narrow interactive bootstrap documented
+   in `docs/RELEASING.md`, because npm requires a package to exist before a
+   trusted publisher can be configured;
+2. configure the `npm` protected GitHub environment and the package's trusted
    publisher relationship to `.github/workflows/publish-npm.yml`; and
-6. dispatch that workflow from the exact `vVERSION` tag.
+3. dispatch that workflow from the exact `vVERSION` tag reachable from `main`.
 
 The prepared workflow uses GitHub-hosted OIDC, rejects long-lived npm tokens,
 requires a public repository and a tag commit reachable from `main`, reruns the
@@ -88,6 +88,6 @@ Linux and package verification boundary, and relies on npm trusted publishing
 for automatic provenance. `scripts/check-npm-release.mjs` keeps it inert until
 all owner-controlled metadata is complete and mutually consistent.
 
-Homebrew and curl distribution remain separate because their intended macOS
-artifact must include a signed/notarized native bundle and installed-artifact
-security tests rather than this source/npm CLI alone.
+The generated curl installer and standalone Homebrew formula intentionally
+install this same portable source/npm artifact. A future native distribution
+is a separate signed/notarized artifact with its own installed security tests.

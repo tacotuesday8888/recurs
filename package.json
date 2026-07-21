@@ -1,15 +1,15 @@
 {
   "name": "recurs",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.1",
   "description": "A coding-agent harness with durable, bounded team orchestration",
-  "private": true,
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "type": "module",
   "bin": {
     "recurs": "dist/cli/main.js"
   },
   "files": [
     "dist/cli/main.js",
+    "LICENSE",
     "README.md",
     "SECURITY.md",
     "THIRD_PARTY_NOTICES.md"
@@ -22,6 +22,11 @@
     "url": "https://github.com/tacotuesday8888/recurs/issues"
   },
   "homepage": "https://github.com/tacotuesday8888/recurs#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "provenance": true
+  },
   "keywords": [
     "agent",
     "cli",

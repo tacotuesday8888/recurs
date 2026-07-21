@@ -1,8 +1,6 @@
 # Recurs
 
-Recurs is a provider-neutral coding-agent harness that will grow into an agent manager. It is not an IDE: the CLI and future desktop app are clients over the same engine.
-
-The code is intended to become an open-source project, but this repository does not yet contain a license. Until the owner selects and adds one, it is source-available rather than legally open source: no release or package should claim otherwise.
+Recurs is an Apache-2.0-licensed, provider-neutral coding-agent harness that will grow into an agent manager. It is not an IDE: the CLI and future desktop app are clients over the same engine.
 
 ## Current foundation
 
@@ -22,7 +20,7 @@ The repository contains a usable agent base and a bounded, Recurs-owned child-ag
 - cross-platform saved and ephemeral BYOK for fixed-origin OpenAI Responses, Anthropic Messages, Gemini GenerateContent, and reviewed OpenAI Chat-compatible providers; OpenAI Responses reuses an authenticated WebSocket across one tool loop and falls back to equivalent HTTPS/SSE only before request delivery, while any post-delivery interruption fails without replay; reviewed OpenAI Responses connections may pin an explicit supported reasoning effort into each new session; saved setup retains only provider/model policy metadata, authenticated catalog limits when the provider reports them, an environment-variable name, and a credential fingerprint, while key values are never persisted or forwarded to tools;
 - private signed-macOS activation paths for OpenAI API, Anthropic API, and Kimi Code credentials, with native model discovery and streamed tool calling;
 - a validated 26-path provider/authentication catalog, a revisioned non-secret connection registry, and exact-ID account listing, verification, primary selection, and metadata-only disconnection;
-- a bounded `models.dev` discovery catalog, fixed-origin credential-visible model discovery for OpenAI, Anthropic, Gemini, OpenRouter, DeepSeek, and MiniMax, fixed-port loopback detection for Ollama and LM Studio, and one `/provider` surface shared with first-run onboarding;
+- a bounded `models.dev` discovery catalog, fixed-origin credential-visible model discovery for OpenAI, Anthropic, Gemini, OpenRouter, xAI, DeepSeek, and MiniMax, fixed-port loopback detection for Ollama and LM Studio, and one `/provider` surface shared with first-run onboarding;
 - an official Codex ACP path for an existing ChatGPT login, constrained to local, interactive, user-present, Plan-only work;
 - fourteen tools for stable bounded UTF-8 file reading, deterministic structured glob-aware listing, structured fixed-text or explicit linear-time regex search, bounded parser-backed TypeScript/JavaScript and lexical multi-language code outlines, read-only no-emit TypeScript project diagnostics, explicitly approved public-web evidence, patching, bounded shell execution, owned process-session control, shell-free allowlisted verification, structured Git status, literal bounded Git diff, and root-only bounded Git history and commit inspection; public fetches pin verified public DNS answers to the socket, recheck every same-host redirect, and return only bounded text labeled as untrusted; a command that outlives its yield deadline can be polled, receive bounded stdin, or be stopped without losing its original sandbox, permission, timeout, output, ownership, or checkpoint boundary; supported macOS/Linux npm installations can explicitly request a real pseudo-terminal and later resize it through the same owned-session boundary; independent built-in reads can run in bounded parallel groups, while mutations, approvals, network access, MCP, delegation, and commands remain ordered barriers; each child profile receives an exact host-tool and intent ceiling;
 - Ask Always, Approved for Me, Full Access, enforced Plan mode, and a read-only Review profile;
@@ -52,7 +50,7 @@ namespace setup. Recurs fails closed if the host blocks that boundary; see
 Ubuntu 24.04 profile/kernel regression and distribution workaround.
 
 ```bash
-npm install
+npm ci
 npm run check
 npm run build
 npm link
@@ -118,9 +116,9 @@ node packages/cli/dist/main.js review -C /path/to/project --format json
 After building, `npm link` exposes the local `recurs` command. It can be removed
 with `npm unlink --global recurs`.
 
-This is currently the only live installation path. The root build also produces a self-contained Recurs-code bundle at `dist/cli/main.js`; `npm run package:check` proves the tarball contains only that executable, `package.json`, `README.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md`. After a build, `npm run package:smoke-install` packs and installs the artifact into an empty temporary prefix, configures a deterministic loopback model, and proves the installed agent can activate a user Agent Skill, call a private stdio MCP server, run a sandboxed command, deny an outside-workspace write, read the workspace result, and return each result to the model. It also negotiates ACP v1 over the installed binary's stdio, creates and closes a real session, and verifies streamed model output. Runtime packages remain exact dependencies rather than copied third-party source.
+This is currently the only live installation path. The root build also produces a self-contained Recurs-code bundle at `dist/cli/main.js`; `npm run package:check` proves the tarball contains only that executable, `package.json`, `LICENSE`, `README.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md`. After a build, `npm run package:smoke-install` packs and installs the artifact into an empty temporary prefix, configures a deterministic loopback model, and proves the installed agent can activate a user Agent Skill, call a private stdio MCP server, run a sandboxed command, deny an outside-workspace write, read the workspace result, and return each result to the model. It also negotiates ACP v1 over the installed binary's stdio, creates and closes a real session, and verifies streamed model output. Runtime packages remain exact dependencies rather than copied third-party source.
 
-The source repository is public, but the package deliberately remains `private` and declares `UNLICENSED`. npm publication stays blocked until the owner selects a license and real preview version. Reviewed direct-runtime dependency notices now ship in `THIRD_PARTY_NOTICES.md`. A manual protected-environment workflow is prepared to build one exact npm tarball, render checksum-bound curl and Homebrew assets, create a draft GitHub release, attest the artifacts, publish or verify that exact tarball through npm trusted publishing, and only then publish the GitHub release. The preflight still refuses the placeholder version, missing project license, non-public package metadata, wrong repository or workflow context, a non-public repository, or a long-lived npm token. Nothing is published today.
+The public source repository and preview package metadata are licensed under Apache-2.0 and versioned `0.1.0-alpha.1`. The official license text is hash-pinned in the release gate, and reviewed direct-runtime dependency notices ship in `THIRD_PARTY_NOTICES.md`. A manual protected-environment workflow is prepared to build one exact npm tarball, render checksum-bound curl and Homebrew assets, create a draft GitHub release, attest the artifacts, publish or verify that exact tarball through npm trusted publishing, and only then publish the GitHub release. The preflight still refuses changed license text, wrong package/repository/workflow context, a non-public repository, disabled provenance, or a long-lived npm token. Because npm requires a package to exist before trusted publishing can be configured, the first package needs the narrow interactive bootstrap documented in the [release runbook](docs/RELEASING.md); later releases are tokenless OIDC. Nothing is published today.
 
 After the first authorized release, the same versioned tarball supports three installation surfaces:
 
@@ -183,7 +181,7 @@ The private native path supports crash-safe OpenAI API, Anthropic API, and Kimi 
 
 ## Next
 
-1. Select the project license and preview version, configure protected npm trusted publishing, and create the Homebrew tap before running the gated release workflow. The source repository is already public.
+1. Complete the documented one-time npm bootstrap, configure the protected trusted-publisher relationship, and exercise the gated tagged workflow; create a Homebrew tap only after the generated formula has been proven from that exact published artifact.
 2. Produce and verify a signed/notarized installed launcher bundle, including the isolated owner-run broker recovery smoke.
 3. Exercise the completed OpenAI, Anthropic, and Kimi Code verticals through installed-artifact security and credential-canary tests.
 4. Add further provider-specific authenticated discovery or transport profiles only where official endpoints and continuation semantics are documented, without permitting arbitrary remote URLs.
@@ -192,3 +190,7 @@ The private native path supports crash-safe OpenAI API, Anthropic API, and Kimi 
 7. Extend team execution only through enforceable OS containment, stronger capability/price-aware routing policy, and a separately designed durable worker host; do not mistake process-lifetime background work for a daemon or turn repair into unbounded token burn.
 
 Start with the [documentation index](docs/README.md), [CLI guide](docs/CLI.md), [architecture](ARCHITECTURE.md), [security policy](SECURITY.md), and [product direction](PRODUCT.md).
+
+## License
+
+Recurs is licensed under the [Apache License 2.0](LICENSE). Third-party runtime packages retain their own licenses as listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

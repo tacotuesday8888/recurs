@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -10,6 +11,9 @@ const noticesPath = path.join(root, "THIRD_PARTY_NOTICES.md");
 
 const EXPECTED_REPOSITORY = "git+https://github.com/tacotuesday8888/recurs.git";
 const EXPECTED_GITHUB_REPOSITORY = "tacotuesday8888/recurs";
+const EXPECTED_LICENSE = "Apache-2.0";
+const EXPECTED_LICENSE_SHA256 =
+  "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30";
 const EXPECTED_WORKFLOW_REF_PREFIX =
   "tacotuesday8888/recurs/.github/workflows/publish-npm.yml@";
 const REQUIRED_PACKED_RELEASE_FILES = Object.freeze([
@@ -51,14 +55,23 @@ export function releaseMetadataFailures({
     failures.push("placeholder_version");
   }
   if (packageJson.private === true) failures.push("package_private");
-  if (!hasNonemptyText(packageJson.license) ||
-      packageJson.license === "UNLICENSED") {
+  const licenseSelected = hasNonemptyText(packageJson.license) &&
+    packageJson.license !== "UNLICENSED";
+  if (!licenseSelected) {
     failures.push("license_unselected");
+  } else if (packageJson.license !== EXPECTED_LICENSE) {
+    failures.push("license_identifier_mismatch");
   }
   if (licenseText === null || licenseText === undefined) {
     failures.push("license_file_missing");
   } else if (!hasSubstantialLicenseText(licenseText)) {
     failures.push("license_file_incomplete");
+  } else if (
+    packageJson.license === EXPECTED_LICENSE &&
+    createHash("sha256").update(licenseText).digest("hex") !==
+      EXPECTED_LICENSE_SHA256
+  ) {
+    failures.push("license_file_mismatch");
   }
   if (!hasNonemptyText(noticesText)) failures.push("notices_file_missing");
 
@@ -82,6 +95,9 @@ export function releaseMetadataFailures({
     }
     if (packageJson.publishConfig.registry !== "https://registry.npmjs.org/") {
       failures.push("publish_registry_mismatch");
+    }
+    if (packageJson.publishConfig.provenance !== true) {
+      failures.push("publish_provenance_missing");
     }
   }
   return Object.freeze([...new Set(failures)].sort());
