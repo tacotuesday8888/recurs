@@ -153,6 +153,32 @@ export interface CompanyBlueprintBinding {
   readonly roleVersion: 1;
 }
 
+export function parseCompanyBlueprintBinding(
+  value: unknown,
+): CompanyBlueprintBinding {
+  const binding = record(value, "Company blueprint binding");
+  exact(binding, [
+    "blueprintId", "blueprintVersion", "roleId", "roleVersion",
+  ], "Company blueprint binding");
+  const blueprintId = text(binding.blueprintId, "Company blueprint binding id", 128);
+  if (!SAFE_ID.test(blueprintId)) {
+    throw new TypeError("Company blueprint binding id is invalid");
+  }
+  if (binding.blueprintVersion !== 1 || binding.roleVersion !== 1) {
+    throw new TypeError("Company blueprint binding version is invalid");
+  }
+  return Object.freeze({
+    blueprintId,
+    blueprintVersion: 1,
+    roleId: enumValue<CompanyRoleId>(
+      binding.roleId,
+      roleIds,
+      "Company blueprint binding role",
+    ),
+    roleVersion: 1,
+  });
+}
+
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 const INVALID_TEXT =
   /[\p{Cf}\p{Cs}\p{Zl}\p{Zp}]|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u;

@@ -11,6 +11,7 @@ import {
   modelImagesByteLength,
   narrowAgentPermissionMode,
   parseAgentProfileId,
+  parseCompanyBlueprintBinding,
   parseOperatingModeId,
 } from "@recurs/contracts";
 import type {
@@ -759,7 +760,8 @@ function isAgentDescriptor(
   if (!isObject(value) || !hasExactKeys(value, [
     "id", "role", "profile", "parentAgentId", "parentSessionId", "depth", "task",
     "operatingMode", "backend", "permissions", "limits",
-  ], ["workspace", "team"]) || !boundedNonEmptyString(value.id, MAX_RUNTIME_ID_LENGTH) ||
+  ], ["company", "workspace", "team"]) ||
+    !boundedNonEmptyString(value.id, MAX_RUNTIME_ID_LENGTH) ||
     (value.role !== "parent" && value.role !== "child") ||
     !Number.isSafeInteger(value.depth) || (value.depth as number) < 0 ||
     !isObject(value.operatingMode) ||
@@ -805,6 +807,14 @@ function isAgentDescriptor(
   }
   const modeId = value.operatingMode.id;
   const policy = getOperatingModePolicy(modeId);
+  let company: ReturnType<typeof parseCompanyBlueprintBinding> | undefined;
+  try {
+    company = value.company === undefined
+      ? undefined
+      : parseCompanyBlueprintBinding(value.company);
+  } catch {
+    return false;
+  }
   const maxRequests = value.limits.maxRequests;
   if (value.operatingMode.version !== policy.version ||
     !Number.isSafeInteger(maxRequests) || (maxRequests as number) <= 0 ||
@@ -826,6 +836,7 @@ function isAgentDescriptor(
     return value.profile === null &&
       value.parentAgentId === null && value.parentSessionId === null &&
       value.depth === 0 && value.task === null &&
+      (company === undefined || company.roleId === "orchestrator_v1") &&
       value.workspace === undefined && value.team === undefined &&
       isDeepStrictEqual(value.limits, policy.orchestration) &&
       value.backend.strategy === "session_pin" &&
@@ -844,6 +855,20 @@ function isAgentDescriptor(
   const profile = getAgentProfilePolicy(profileId);
   if (value.profile.version !== profile.version ||
     profile.executionMode !== value.permissions.executionMode) {
+    return false;
+  }
+  const companyProfile = company === undefined
+    ? undefined
+    : company.roleId === "scoped_builder_v1"
+      ? "implement_v1"
+      : company.roleId === "qa_reviewer_v1" ||
+          company.roleId === "security_release_reviewer_v1"
+        ? "review_v1"
+        : company.roleId === "orchestrator_v1"
+          ? null
+          : "explore_v1";
+  if (companyProfile === null ||
+    (companyProfile !== undefined && companyProfile !== profile.id)) {
     return false;
   }
   const workspace = value.workspace;

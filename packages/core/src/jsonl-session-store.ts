@@ -290,6 +290,8 @@ export class JsonlSessionStore {
         source.backend.pin,
         source.agent.operatingMode.id,
         source.permissionMode,
+        source.executionMode,
+        source.agent.company,
       );
       const agent: AgentSessionDescriptor = {
         ...baseAgent,

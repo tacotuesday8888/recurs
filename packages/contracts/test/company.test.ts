@@ -4,6 +4,7 @@ import {
   COMPANY_DEPARTMENT_IDS,
   COMPANY_ROLE_IDS,
   parseCompanyBlueprint,
+  parseCompanyBlueprintBinding,
   type CompanyBlueprintBinding,
   type CompanyBlueprintV1,
   type CompanyDevelopmentStyle,
@@ -167,5 +168,26 @@ describe("company blueprint contracts", () => {
       ...validBlueprint,
       state: "proposed",
     })).toThrow(/approvedAt/iu);
+  });
+
+  it("parses an exact immutable session binding", () => {
+    const binding = parseCompanyBlueprintBinding({
+      blueprintId: "company-1",
+      blueprintVersion: 1,
+      roleId: "scoped_builder_v1",
+      roleVersion: 1,
+    });
+
+    expect(binding).toEqual({
+      blueprintId: "company-1",
+      blueprintVersion: 1,
+      roleId: "scoped_builder_v1",
+      roleVersion: 1,
+    });
+    expect(Object.isFrozen(binding)).toBe(true);
+    expect(() => parseCompanyBlueprintBinding({ ...binding, roleVersion: 2 }))
+      .toThrow(/version/iu);
+    expect(() => parseCompanyBlueprintBinding({ ...binding, extra: true }))
+      .toThrow(/exact/iu);
   });
 });
