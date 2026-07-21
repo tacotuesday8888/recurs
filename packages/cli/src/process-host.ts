@@ -13,6 +13,7 @@ import { createInterface } from "node:readline/promises";
 
 import {
   createHostInvocation,
+  MAX_MODEL_IMAGES,
   parseOperatingModeId,
   RECURS_VERSION,
   type OperatingModeId,
@@ -66,6 +67,7 @@ import { CLI_HELP, parseCliHelpRequest } from "./cli-help.js";
 import { parsePermissionMode } from "./commands/permissions.js";
 import type { CommandResult } from "./commands/types.js";
 import { safeCliErrorMessage } from "./error-rendering.js";
+import { loadImageInputs } from "./image-input.js";
 import {
   listAccountSummaries,
   listProviderSummaries,
@@ -199,6 +201,7 @@ interface RunArguments {
   operatingModeId?: OperatingModeId;
   connectionId?: string;
   resumeSessionId?: string;
+  imagePaths: readonly string[];
 }
 
 const SAFE_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
@@ -290,6 +293,7 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
   let connectionId: string | undefined;
   let resumeSessionId: string | undefined;
   let appendStdin = false;
+  const imagePaths: string[] = [];
   const prompt: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index] ?? "";
@@ -351,6 +355,18 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
       appendStdin = true;
       continue;
     }
+    if (argument === "--image") {
+      const value = args[index + 1];
+      if (
+        value === undefined || value.length === 0 ||
+        imagePaths.length >= MAX_MODEL_IMAGES
+      ) {
+        return null;
+      }
+      imagePaths.push(value);
+      index += 1;
+      continue;
+    }
     if (argument.startsWith("--")) {
       return null;
     }
@@ -379,6 +395,7 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
           ? "append"
           : "none",
         format,
+        imagePaths: Object.freeze(imagePaths),
         ...(permissionMode === undefined ? {} : { permissionMode }),
         ...(operatingModeId === undefined ? {} : { operatingModeId }),
         ...(connectionId === undefined ? {} : { connectionId }),
@@ -1681,6 +1698,12 @@ export async function runCli(
         ? piped
         : promptWithStdin(prompt, piped);
     }
+    const images = parsed.imagePaths.length === 0
+      ? undefined
+      : await loadImageInputs(
+          parsed.imagePaths,
+          dependencies.cwd ?? process.cwd(),
+        );
     runtime = await dependencies.createRuntime(
       renderer,
       {
@@ -1708,6 +1731,7 @@ export async function runCli(
         scripted: true,
         embedding: "cli",
       }),
+      images === undefined ? {} : { images },
     );
     if (parsed.format === "json") {
       aggregateResult = isCommandResult(result)

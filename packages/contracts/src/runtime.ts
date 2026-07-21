@@ -3,6 +3,7 @@ import type { IntegrationFailure } from "./failures.js";
 import type { JsonValue } from "./json.js";
 import type {
   ConnectionBoundModelProvider,
+  ModelImageInput,
   ProviderUsage,
   ToolCall,
 } from "./model.js";
@@ -369,6 +370,7 @@ export interface CoordinatedRunInput {
   sessionId: string;
   expectedSessionRecordSequence: number;
   prompt: string;
+  images?: readonly ModelImageInput[];
   invocation: HostInvocation;
   executionMode?: "act" | "plan";
   steering?: TurnSteeringSource;

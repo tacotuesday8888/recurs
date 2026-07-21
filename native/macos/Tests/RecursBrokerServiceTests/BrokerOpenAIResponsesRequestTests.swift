@@ -5,6 +5,42 @@ import Testing
 
 struct BrokerOpenAIResponsesRequestTests {
   @Test
+  func encodesValidatedImagesInsideThePrecedingUserMessage() throws {
+    let png = Data([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    let request = try BrokerOpenAIResponsesRequest(
+      model: "gpt-test",
+      input: [
+        .message(role: .user, text: "Inspect this screenshot"),
+        .image(mediaType: "image/png", data: png),
+      ],
+      tools: [],
+      maxOutputTokens: 16
+    )
+
+    let body = try #require(
+      JSONSerialization.jsonObject(with: request.encodedBody()) as? [String: Any]
+    )
+    let input = try #require(body["input"] as? [[String: Any]])
+    #expect(input.count == 1)
+    let content = try #require(input[0]["content"] as? [[String: Any]])
+    #expect(content[0]["type"] as? String == "input_text")
+    #expect(content[1]["type"] as? String == "input_image")
+    #expect(
+      content[1]["image_url"] as? String
+        == "data:image/png;base64,\(png.base64EncodedString())"
+    )
+
+    #expect(throws: BrokerOpenAIResponsesRequestError.invalidRequest) {
+      _ = try BrokerOpenAIResponsesRequest(
+        model: "gpt-test",
+        input: [.image(mediaType: "image/png", data: png)],
+        tools: [],
+        maxOutputTokens: 16
+      )
+    }
+  }
+
+  @Test
   func encodesTheBoundedFixedResponsesContract() throws {
     let request = try BrokerOpenAIResponsesRequest(
       model: "gpt-5.1-codex-mini",
@@ -178,7 +214,7 @@ struct BrokerOpenAIResponsesRequestTests {
 
   @Test
   func rejectsAggregateBodyGrowthAndUnvalidatedPrivateItemsDuringInitialization() throws {
-    let repeated = String(repeating: "x", count: 5_000)
+    let repeated = String(repeating: "x", count: 10_000)
     let manyItems = (0..<900).map { index in
       BrokerOpenAIResponsesInputItem.message(
         role: .user,

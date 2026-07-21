@@ -6,6 +6,7 @@ import type {
   ProviderEvent,
   ProviderRequest,
 } from "@recurs/contracts";
+import { modelImagesByteLength } from "@recurs/contracts";
 
 import {
   NATIVE_FRAME_MAX_PAYLOAD_BYTES,
@@ -18,6 +19,7 @@ import { decodeFieldTable, decodeU16, encodeFieldTable } from "./fields.js";
 
 export type NativeOpenAIGenerationInput =
   | { readonly kind: "message"; readonly role: "system" | "user" | "assistant"; readonly text: string }
+  | { readonly kind: "image"; readonly mediaType: string; readonly data: string }
   | { readonly kind: "function_call"; readonly callId: string; readonly name: string; readonly arguments: JsonValue }
   | { readonly kind: "function_call_output"; readonly callId: string; readonly output: string }
   | { readonly kind: "continuation"; readonly handle: DirectContinuationHandle };
@@ -273,10 +275,24 @@ function encodeInput(
 ): readonly NativeOpenAIGenerationInput[] {
   const input: NativeOpenAIGenerationInput[] = [];
   for (const message of messages) {
+    const images = message.images;
+    if (
+      images !== undefined &&
+      (message.role !== "user" || modelImagesByteLength(images) === null)
+    ) {
+      failNativeCodec("invalid_message");
+    }
     switch (message.role) {
       case "system":
       case "user":
         input.push({ kind: "message", role: message.role, text: message.content });
+        for (const image of images ?? []) {
+          input.push({
+            kind: "image",
+            mediaType: image.mediaType,
+            data: image.data,
+          });
+        }
         break;
       case "assistant":
         if (message.providerStateHandle !== undefined) {

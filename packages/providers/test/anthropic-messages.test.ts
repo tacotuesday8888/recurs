@@ -77,6 +77,47 @@ function toolStream(): string {
 }
 
 describe("remote Anthropic Messages provider", () => {
+  it("encodes bounded images as Anthropic base64 source blocks", async () => {
+    let body: Record<string, unknown> = {};
+    const provider = new RemoteAnthropicMessagesProvider({
+      providerId: "anthropic-api",
+      connectionId: "anthropic-env",
+      apiKey: "private-key",
+      fetch: async (_input, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return response([toolStream()]);
+      },
+    });
+
+    for await (const _event of provider.stream({
+      model: "claude-test",
+      messages: [{
+        id: "user",
+        role: "user",
+        content: "Inspect this screenshot",
+        images: [{ mediaType: "image/png", data: "iVBORw0KGgo=" }],
+      }],
+      tools: [],
+      signal: new AbortController().signal,
+    })) void _event;
+
+    expect(body.messages).toEqual([{
+      role: "user",
+      content: [
+        { type: "text", text: "Inspect this screenshot" },
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: "iVBORw0KGgo=",
+          },
+        },
+      ],
+    }]);
+    expect(provider.inputModalities).toEqual(["text", "image"]);
+  });
+
   it("uses the reviewed origin, native tool blocks, and required Anthropic headers", async () => {
     const key = "anthropic-key-canary";
     let url = "";

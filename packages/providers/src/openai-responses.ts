@@ -15,6 +15,11 @@ import { NATIVE_TOOL_USE_PROFILE } from "./harness-profile.js";
 import { environmentByokManifest } from "./environment-provider-policy.js";
 import { retryAfterOptions } from "./retry-after.js";
 import { ProviderError } from "./types.js";
+import {
+  imageDataUrl,
+  validatedMessageImages,
+  validateRequestImageBudget,
+} from "./model-images.js";
 
 const MAX_STREAM_BYTES = 32 * 1024 * 1024;
 const MAX_EVENT_BYTES = 1024 * 1024;
@@ -22,7 +27,7 @@ const MAX_EVENTS = 8_192;
 const MAX_OUTPUT_ITEMS = 128;
 const MAX_INPUT_ITEMS = 1_024;
 const MAX_TOOLS = 128;
-const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
+const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 const MAX_TOOL_SCHEMA_BYTES = 64 * 1024;
 const MAX_STORED_BYTES = 64 * 1024 * 1024;
 const MAX_STORED_HANDLES = 512;
@@ -698,6 +703,7 @@ function encodeMessage(
   message: ProviderBackedMessage,
   load: (handle: DirectContinuationHandle) => readonly JsonObject[],
 ): readonly JsonObject[] {
+  const images = validatedMessageImages(message);
   if (message.role === "assistant" && message.providerStateHandle !== undefined) {
     return load(message.providerStateHandle);
   }
@@ -708,7 +714,19 @@ function encodeMessage(
   const items: JsonObject[] = [];
   if (message.content.length > 0 || message.role !== "assistant" ||
     (message.toolCalls?.length ?? 0) === 0) {
-    items.push({ type: "message", role: message.role, content: message.content });
+    items.push({
+      type: "message",
+      role: message.role,
+      content: images.length === 0
+        ? message.content
+        : [
+            { type: "input_text", text: message.content },
+            ...images.map((image) => ({
+              type: "input_image",
+              image_url: imageDataUrl(image),
+            })),
+          ],
+    });
   }
   for (const call of message.toolCalls ?? []) {
     if (!validIdentifier(call.id) || !validToolName(call.name)) {
@@ -728,6 +746,7 @@ function requestBody(
   request: ProviderRequest,
   load: (handle: DirectContinuationHandle) => readonly JsonObject[],
 ): JsonObject {
+  validateRequestImageBudget(request.messages);
   const input = request.messages.flatMap((message) =>
     encodeMessage(message as ProviderBackedMessage, load)
   );
@@ -832,6 +851,7 @@ function rawDataBytes(data: WebSocket.RawData): Uint8Array {
 export class RemoteOpenAIResponsesProvider implements ConnectionBoundModelProvider {
   readonly id = "openai-api";
   readonly adapterId = "openai-responses";
+  readonly inputModalities = ["text", "image"] as const;
   readonly harnessProfile = NATIVE_TOOL_USE_PROFILE;
   readonly connectionId: string;
   readonly #apiKey: string;

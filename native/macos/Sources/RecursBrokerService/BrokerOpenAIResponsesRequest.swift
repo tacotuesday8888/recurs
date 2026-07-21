@@ -168,6 +168,7 @@ struct BrokerOpenAIResponsesPrivateOutput: Sendable, Equatable {
 
 enum BrokerOpenAIResponsesInputItem: Sendable, Equatable {
   case message(role: BrokerOpenAIResponsesMessageRole, text: String)
+  case image(mediaType: String, data: Data)
   case functionCall(callID: String, name: String, argumentsJSON: Data)
   case functionCallOutput(callID: String, output: String)
   case privateOutput(BrokerOpenAIResponsesPrivateOutput)
@@ -211,7 +212,7 @@ struct BrokerOpenAIResponsesFunctionTool: Sendable, Equatable {
 
 struct BrokerOpenAIResponsesRequest: Sendable, Equatable {
   static let maximumOutputTokenCount = 8_192
-  static let maximumBodyByteCount = 4_194_304
+  static let maximumBodyByteCount = 8 * 1_024 * 1_024
   static let maximumInputItemCount = 1_024
   static let maximumToolCount = 128
   static let maximumTextByteCount = 1_048_576
@@ -236,6 +237,7 @@ struct BrokerOpenAIResponsesRequest: Sendable, Equatable {
     }
     var functionCallIDs = Set<String>()
     var functionOutputIDs = Set<String>()
+    var acceptsImage = false
     var budget = BodyBudget(maximumByteCount: Self.maximumBodyByteCount)
     try budget.add(overhead: 1_024)
     try budget.add(jsonString: model)
@@ -243,23 +245,30 @@ struct BrokerOpenAIResponsesRequest: Sendable, Equatable {
       try Self.validate(item)
       try budget.add(item)
       switch item {
+      case .message(let role, _):
+        acceptsImage = role == .user
+      case .image:
+        guard acceptsImage else {
+          throw BrokerOpenAIResponsesRequestError.invalidRequest
+        }
       case .functionCall(let callID, _, _):
+        acceptsImage = false
         guard functionCallIDs.insert(callID).inserted else {
           throw BrokerOpenAIResponsesRequestError.invalidRequest
         }
       case .functionCallOutput(let callID, _):
+        acceptsImage = false
         guard functionOutputIDs.insert(callID).inserted else {
           throw BrokerOpenAIResponsesRequestError.invalidRequest
         }
       case .privateOutput(let output):
+        acceptsImage = false
         let object = try output.decodedObject()
         if object["type"] as? String == "function_call" {
           guard let callID = object["call_id"] as? String,
             functionCallIDs.insert(callID).inserted
           else { throw BrokerOpenAIResponsesRequestError.invalidRequest }
         }
-      case .message:
-        break
       }
     }
     guard functionCallIDs == functionOutputIDs else {
@@ -275,7 +284,7 @@ struct BrokerOpenAIResponsesRequest: Sendable, Equatable {
   }
 
   func encodedBody() throws -> Data {
-    let encodedInput = try input.map(Self.encode)
+    let encodedInput = try Self.encodeInput(input)
     let encodedTools = try tools.map { tool -> [String: Any] in
       [
         "type": "function",
@@ -342,6 +351,9 @@ struct BrokerOpenAIResponsesRequest: Sendable, Equatable {
       )
     case .privateOutput(let output):
       _ = try output.decodedObject()
+    case .image(let mediaType, let data):
+      guard BrokerImageInput.valid(mediaType: mediaType, data: data)
+      else { throw BrokerOpenAIResponsesRequestError.invalidRequest }
     }
   }
 
@@ -368,7 +380,43 @@ struct BrokerOpenAIResponsesRequest: Sendable, Equatable {
       ["type": "function_call_output", "call_id": callID, "output": output]
     case .privateOutput(let output):
       try output.decodedObject()
+    case .image:
+      throw BrokerOpenAIResponsesRequestError.invalidRequest
     }
+  }
+
+  private static func encodeInput(
+    _ input: [BrokerOpenAIResponsesInputItem]
+  ) throws -> [[String: Any]] {
+    var encoded: [[String: Any]] = []
+    for item in input {
+      guard case .image(let mediaType, let data) = item else {
+        encoded.append(try encode(item))
+        continue
+      }
+      guard !encoded.isEmpty,
+        encoded[encoded.count - 1]["type"] as? String == "message",
+        encoded[encoded.count - 1]["role"] as? String == "user"
+      else { throw BrokerOpenAIResponsesRequestError.invalidRequest }
+      var message = encoded.removeLast()
+      let image: [String: Any] = [
+        "type": "input_image",
+        "image_url": "data:\(mediaType);base64,\(data.base64EncodedString())",
+      ]
+      if let text = message["content"] as? String {
+        message["content"] = [
+          ["type": "input_text", "text": text],
+          image,
+        ]
+      } else if var content = message["content"] as? [[String: Any]] {
+        content.append(image)
+        message["content"] = content
+      } else {
+        throw BrokerOpenAIResponsesRequestError.invalidRequest
+      }
+      encoded.append(message)
+    }
+    return encoded
   }
 
   private struct BodyBudget {
@@ -383,6 +431,9 @@ struct BrokerOpenAIResponsesRequest: Sendable, Equatable {
       switch item {
       case .message(_, let text):
         try add(jsonString: text)
+      case .image(let mediaType, let data):
+        try add(jsonString: mediaType)
+        try add(jsonString: data.base64EncodedString())
       case .functionCall(let callID, let name, let argumentsJSON):
         try add(jsonString: callID)
         try add(jsonString: name)

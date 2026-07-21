@@ -38,7 +38,12 @@ describe("remote OpenAI-compatible provider", () => {
     const events = [];
     for await (const event of provider.stream({
       model: "model-id",
-      messages: [{ id: "user", role: "user", content: "work" }],
+      messages: [{
+        id: "user",
+        role: "user",
+        content: "work",
+        images: [{ mediaType: "image/png", data: "iVBORw0KGgo=" }],
+      }],
       tools: [],
       signal: new AbortController().signal,
     })) events.push(event);
@@ -46,6 +51,18 @@ describe("remote OpenAI-compatible provider", () => {
     expect(url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(authorization).toBe(`Bearer ${key}`);
     expect(body).not.toContain(key);
+    expect(JSON.parse(body)).toMatchObject({
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "work" },
+          {
+            type: "image_url",
+            image_url: { url: "data:image/png;base64,iVBORw0KGgo=" },
+          },
+        ],
+      }],
+    });
     expect(events).toEqual([
       { type: "text_delta", text: "done" },
       { type: "usage", inputTokens: 3, outputTokens: 1 },
@@ -56,6 +73,7 @@ describe("remote OpenAI-compatible provider", () => {
       adapterId: "openai-chat-completions",
       connectionId: "openrouter-env",
       harnessProfile: { id: "compatible_tool_use_v1", version: 1 },
+      inputModalities: ["text", "image"],
     });
     expect(JSON.stringify(provider)).not.toContain(key);
   });

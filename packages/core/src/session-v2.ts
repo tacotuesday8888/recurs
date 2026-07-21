@@ -5,6 +5,7 @@ import type {
   AgentResult,
   AgentSessionDescriptor,
   IntegrationFailure,
+  ModelImageInput,
   ModelMessage,
   ProviderBackedMessage,
   ProviderUsage,
@@ -158,6 +159,7 @@ export type SessionRecordV2 =
       type: "turn_started";
       turnId: string;
       prompt: string;
+      images?: readonly ModelImageInput[];
       queuedInputId?: string;
     })
   | (SessionRecordBaseV2 & {
@@ -690,6 +692,7 @@ export function reduceSessionRecordV2(
           id: `${record.turnId}:user`,
           role: "user",
           content: record.prompt,
+          ...(record.images === undefined ? {} : { images: record.images }),
         },
         record.turnId,
       );

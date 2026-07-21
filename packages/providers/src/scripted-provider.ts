@@ -10,6 +10,7 @@ export type ScriptedResponse = readonly ProviderEvent[] | Error;
 export class ScriptedProvider implements ConnectionBoundModelProvider {
   readonly id: string;
   readonly adapterId: string;
+  readonly inputModalities = ["text", "image"] as const;
   readonly connectionId: string;
   readonly requests: ProviderRequest[] = [];
 

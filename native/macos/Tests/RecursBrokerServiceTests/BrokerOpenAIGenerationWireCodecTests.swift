@@ -5,6 +5,22 @@ import Testing
 
 struct BrokerOpenAIGenerationWireCodecTests {
   @Test
+  func decodesCanonicalBoundedImageInputsAfterAUserMessage() throws {
+    let body = Data(
+      #"{"format":1,"connectionId":"71000000-0000-4000-8000-000000000001","authorizationId":"authorization-2","sessionId":"session-1","turnId":"turn-2","adapterId":"openai-responses","modelId":"model","backendFingerprint":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expectedSessionRecordSequence":4,"authorizationExpiresAt":"2026-07-15T00:00:00.000Z","input":[{"kind":"message","role":"user","text":"inspect"},{"kind":"image","mediaType":"image/png","data":"iVBORw0KGgo="}],"tools":[],"maxOutputTokens":128}"#.utf8
+    )
+
+    let request = try BrokerOpenAIGenerationWireCodec.decodeRequest(body)
+    #expect(request.input.count == 2)
+    guard case .image(let mediaType, let data) = request.input[1] else {
+      Issue.record("Expected normalized image input")
+      return
+    }
+    #expect(mediaType == "image/png")
+    #expect(data == Data([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  }
+
+  @Test
   func decodesTheExactEngineRequestIntoBrokerTypes() throws {
     let body = Data(
       #"{"format":1,"connectionId":"71000000-0000-4000-8000-000000000001","authorizationId":"authorization-2","sessionId":"session-1","turnId":"turn-2","adapterId":"openai-responses","modelId":"gpt-5.6-sol","backendFingerprint":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","expectedSessionRecordSequence":4,"authorizationExpiresAt":"2026-07-15T00:00:00.000Z","input":[{"kind":"message","role":"user","text":"continue"},{"kind":"continuation","handle":{"kind":"direct","id":"81000000-0000-4000-8000-000000000001","storageClass":"persistent_broker","recursSessionId":"session-1","connectionId":"71000000-0000-4000-8000-000000000001","adapterId":"openai-responses","modelId":"gpt-5.6-sol","backendFingerprint":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","stateVersion":1,"originTurnId":"turn-1","continuationSequence":1,"status":"committed"}}],"tools":[{"name":"read_file","description":"Read one file","inputSchema":{"type":"object"}}],"maxOutputTokens":8192}"#

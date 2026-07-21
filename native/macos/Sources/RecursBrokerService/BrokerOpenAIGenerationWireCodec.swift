@@ -47,6 +47,23 @@ struct BrokerOpenAIGenerationWireCodec: Sendable {
       else { throw BrokerOpenAIGenerationWireError.invalidMessage }
 
       let input = try rawInput.map(decodeInput)
+      var imageBytes = 0
+      var acceptsImage = false
+      for item in input {
+        switch item {
+        case .message(let role, _):
+          acceptsImage = role == .user
+        case .image(_, let data):
+          guard acceptsImage else { throw BrokerOpenAIGenerationWireError.invalidMessage }
+          let (next, overflowed) = imageBytes.addingReportingOverflow(data.count)
+          guard !overflowed, next <= BrokerImageInput.maximumTotalByteCount else {
+            throw BrokerOpenAIGenerationWireError.invalidMessage
+          }
+          imageBytes = next
+        default:
+          acceptsImage = false
+        }
+      }
       let tools = try rawTools.map(decodeTool)
       for item in input {
         guard case .continuation(let handle) = item else { continue }
@@ -170,6 +187,15 @@ struct BrokerOpenAIGenerationWireCodec: Sendable {
         let text = object["text"] as? String
       else { throw BrokerOpenAIGenerationWireError.invalidMessage }
       return .message(role: role, text: text)
+    case "image":
+      try exactKeys(object, ["kind", "mediaType", "data"])
+      guard let mediaType = object["mediaType"] as? String,
+        let encoded = object["data"] as? String,
+        let data = Data(base64Encoded: encoded),
+        BrokerImageInput.valid(mediaType: mediaType, data: data),
+        data.base64EncodedString() == encoded
+      else { throw BrokerOpenAIGenerationWireError.invalidMessage }
+      return .image(mediaType: mediaType, data: data)
     case "function_call":
       try exactKeys(object, ["kind", "callId", "name", "arguments"])
       guard let callID = object["callId"] as? String,

@@ -11,10 +11,14 @@ import { environmentByokManifest } from "./environment-provider-policy.js";
 import { CredentialEchoGuard } from "./credential-echo-guard.js";
 import { retryAfterOptions } from "./retry-after.js";
 import { ProviderError } from "./types.js";
+import {
+  validatedMessageImages,
+  validateRequestImageBudget,
+} from "./model-images.js";
 
 const ANTHROPIC_VERSION = "2023-06-01";
 const MAX_OUTPUT_TOKENS = 8_192;
-const MAX_REQUEST_BYTES = 4 * 1_024 * 1_024;
+const MAX_REQUEST_BYTES = 16 * 1_024 * 1_024;
 const MAX_RESPONSE_BYTES = 32 * 1_024 * 1_024;
 const MAX_EVENT_BYTES = 1 * 1_024 * 1_024;
 const MAX_EVENT_COUNT = 8_192;
@@ -33,13 +37,18 @@ export interface RemoteAnthropicMessagesProviderOptions {
 }
 
 interface AnthropicContentBlock {
-  readonly type: "text" | "tool_use" | "tool_result";
+  readonly type: "text" | "image" | "tool_use" | "tool_result";
   readonly text?: string;
   readonly id?: string;
   readonly name?: string;
   readonly input?: Record<string, unknown>;
   readonly tool_use_id?: string;
   readonly content?: string;
+  readonly source?: {
+    readonly type: "base64";
+    readonly media_type: string;
+    readonly data: string;
+  };
 }
 
 interface AnthropicMessage {
@@ -132,6 +141,7 @@ function appendMessage(
   system: string[],
   message: ModelMessage,
 ): void {
+  const images = validatedMessageImages(message);
   if (message.role === "system") {
     if (
       messages.length > 0 ||
@@ -172,6 +182,16 @@ function appendMessage(
       throw new ProviderError("invalid_response", "Anthropic user message is invalid", false);
     }
     appendBlock(messages, "user", { type: "text", text: message.content });
+    for (const image of images) {
+      appendBlock(messages, "user", {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: image.mediaType,
+          data: image.data,
+        },
+      });
+    }
     return;
   }
   if (message.content.length === 0 && (message.toolCalls?.length ?? 0) === 0) {
@@ -186,6 +206,7 @@ function appendMessage(
 }
 
 function requestBody(request: ProviderRequest): string {
+  validateRequestImageBudget(request.messages);
   if (!IDENTIFIER.test(request.model) || request.messages.length > MAX_INPUT_COUNT) {
     throw new ProviderError("invalid_response", "Anthropic request is invalid", false);
   }
@@ -515,6 +536,7 @@ export class RemoteAnthropicMessagesProvider
   implements ConnectionBoundModelProvider {
   readonly id: string;
   readonly adapterId = "anthropic-messages";
+  readonly inputModalities = ["text", "image"] as const;
   readonly harnessProfile = NATIVE_TOOL_USE_PROFILE;
   readonly connectionId: string;
   readonly #endpoint: string;

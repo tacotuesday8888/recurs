@@ -5,6 +5,7 @@ import type {
   ProviderRequest,
 } from "@recurs/contracts";
 import { NativeOpenAIResponsesError } from "@recurs/contracts";
+import { modelRequestImagesByteLength } from "@recurs/contracts";
 
 import { ProviderError } from "./types.js";
 import { harnessProfileForAdapter } from "./harness-profile.js";
@@ -52,6 +53,7 @@ export class NativeOpenAIResponsesProvider
   implements ConnectionBoundModelProvider {
   readonly id: "openai-api" | "anthropic-api" | "kimi-code";
   readonly adapterId: "openai-responses" | "anthropic-messages" | "openai-chat-completions";
+  readonly inputModalities = ["text", "image"] as const;
   readonly connectionId: string;
   readonly harnessProfile;
   readonly #modelId: string;
@@ -77,6 +79,9 @@ export class NativeOpenAIResponsesProvider
   }
 
   async *stream(request: ProviderRequest): AsyncIterable<ProviderEvent> {
+    if (modelRequestImagesByteLength(request.messages) === null) {
+      throw new ProviderError("context_overflow", "Provider image input is too large", false);
+    }
     const context = request.directContext;
     const authorization = context?.authorization;
     if (
