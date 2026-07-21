@@ -28,6 +28,20 @@ The portable npm artifact does not contain the private native launcher,
 Keychain broker, or persistent native credentials. Those need a separate
 signed and notarized distribution.
 
+## Deferred distribution limitation
+
+The prepared npm, curl, and Homebrew installation surfaces are not independent
+distribution paths yet. The curl installer invokes npm, and the generated
+Homebrew formula installs the same npm tarball with Node as a runtime
+dependency. This is acceptable while Recurs remains unreleased, but it must not
+be presented as three distinct delivery architectures.
+
+Before a public release, revisit the intended Mac installation experience and
+decide which surfaces should deliver a signed, notarized native artifact without
+requiring npm. Keep npm as a supported developer or portable installation path
+only if that distinction remains useful. This is intentionally deferred and is
+not a blocker for current agent-system development.
+
 ## One-time npm bootstrap
 
 npm requires a package to exist before a trusted publisher can be configured.
