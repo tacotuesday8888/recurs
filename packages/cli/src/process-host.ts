@@ -25,6 +25,7 @@ import {
 } from "@recurs/contracts";
 import {
   detectLocalRuntimes,
+  ProviderError,
   type EnvironmentModelDescriptor,
   type LocalRuntimeDetection,
   type ProviderCatalogSnapshot,
@@ -951,17 +952,19 @@ function exitCodeFor(error: unknown): number {
 
 async function closeRuntime(
   runtime: RecursRuntime | undefined,
-  stderr: Writable,
+  stderr?: Writable,
 ): Promise<boolean> {
   if (runtime?.close === undefined) return true;
   try {
     await runtime.close();
     return true;
   } catch {
-    await writeOutput(
-      stderr,
-      "Error: Runtime resources could not be closed safely\n",
-    );
+    if (stderr !== undefined) {
+      await writeOutput(
+        stderr,
+        "Error: Runtime resources could not be closed safely\n",
+      );
+    }
     return false;
   }
 }
@@ -985,6 +988,52 @@ function configurationFailure(error: unknown): IntegrationFailure | null {
     };
   }
   return null;
+}
+
+function terminalRunFailure(
+  error: unknown,
+  phase: IntegrationFailure["phase"],
+): IntegrationFailure {
+  if (error instanceof CoordinatedRunError) return error.failure;
+  const diagnosticId = randomUUID();
+  const cancelled = isCancellation(error) || isAbortError(error) ||
+    (error instanceof RuntimeError && error.code === "cancelled") ||
+    (error instanceof ProviderError && error.code === "cancelled");
+  const providerCode = error instanceof ProviderError
+    ? error.code === "authentication"
+      ? "authentication_failed"
+      : error.code === "rate_limit"
+      ? "rate_limited"
+      : error.code === "context_overflow"
+      ? "context_overflow"
+      : error.code === "invalid_response"
+      ? "invalid_response"
+      : error.code === "cancelled"
+      ? "cancelled"
+      : "transport"
+    : null;
+  return {
+    domain: error instanceof ProviderError || cancelled ? "provider" : "runtime",
+    phase,
+    code: cancelled ? "cancelled" : providerCode ?? "runtime_failed",
+    safeMessage: safeCliErrorMessage(error, diagnosticId),
+    diagnosticId,
+    retryable: cancelled ? false : error instanceof ProviderError && error.retryable,
+    ...(error instanceof ProviderError && error.retryAfterMs !== undefined
+      ? { retryAfterMs: error.retryAfterMs }
+      : {}),
+    ...(providerCode === "authentication_failed"
+      ? { action: "reauthenticate" as const }
+      : providerCode === "rate_limited"
+      ? { action: "wait" as const }
+      : {}),
+  };
+}
+
+function runtimeSessionId(runtime: RecursRuntime | undefined): string | null {
+  if (runtime === undefined) return null;
+  const state = runtime.state;
+  return state.type === "session" ? state.session.id : null;
 }
 
 async function runGuidedOnboarding(
@@ -1635,6 +1684,17 @@ export async function runCli(
     | { readonly kind: "command"; readonly value: CommandResult }
     | undefined;
   let aggregateSessionId: string | null = null;
+  let aggregateFailure:
+    | {
+        readonly type: "configuration_error";
+        readonly error: IntegrationFailure;
+      }
+    | {
+        readonly type: "run_error";
+        readonly sessionId: string | null;
+        readonly error: IntegrationFailure;
+      }
+    | undefined;
   let exitCode = 0;
   try {
     let prompt = parsed.prompt;
@@ -1680,14 +1740,30 @@ export async function runCli(
       aggregateResult = isCommandResult(result)
         ? { kind: "command", value: result }
         : { kind: "agent", value: result };
-      const state = runtime.state;
-      aggregateSessionId = state.type === "session" ? state.session.id : null;
+      aggregateSessionId = runtimeSessionId(runtime);
     } else if (isCommandResult(result)) {
       await renderCommandResult(result, dependencies.stdout, dependencies.stderr);
     }
   } catch (error) {
     const failure = configurationFailure(error);
-    if (parsed.format !== "text" && failure !== null) {
+    if (
+      parsed.format === "json" &&
+      failure !== null &&
+      failure.code !== "cancelled"
+    ) {
+      aggregateFailure = { type: "configuration_error", error: failure };
+      exitCode = exitCodeFor(error);
+    } else if (parsed.format === "json") {
+      aggregateFailure = {
+        type: "run_error",
+        sessionId: runtimeSessionId(runtime),
+        error: terminalRunFailure(
+          error,
+          runtime === undefined ? "preflight" : "started",
+        ),
+      };
+      exitCode = exitCodeFor(error);
+    } else if (parsed.format === "jsonl" && failure !== null) {
       await writeOutput(
         dependencies.stdout,
         `${JSON.stringify({
@@ -1696,7 +1772,7 @@ export async function runCli(
           error: failure,
         })}\n`,
       );
-      exitCode = 2;
+      exitCode = exitCodeFor(error);
     } else {
       await writeOutput(
         dependencies.stderr,
@@ -1705,11 +1781,38 @@ export async function runCli(
       exitCode = exitCodeFor(error);
     }
   }
-  const closed = await closeRuntime(runtime, dependencies.stderr);
+  const closed = await closeRuntime(
+    runtime,
+    parsed.format === "json" ? undefined : dependencies.stderr,
+  );
+  if (parsed.format === "json" && !closed) {
+    aggregateFailure = {
+      type: "run_error",
+      sessionId: runtimeSessionId(runtime),
+      error: terminalRunFailure(
+        new RuntimeError(
+          "busy",
+          "Runtime resources could not be closed safely",
+        ),
+        runtime === undefined ? "preflight" : "started",
+      ),
+    };
+    exitCode = 1;
+  }
+  if (parsed.format === "json" && aggregateFailure !== undefined) {
+    await writeOutput(
+      dependencies.stdout,
+      `${JSON.stringify({
+        version: 1,
+        ...aggregateFailure,
+      })}\n`,
+    );
+  }
   if (
     parsed.format === "json" &&
     exitCode === 0 &&
     closed &&
+    aggregateFailure === undefined &&
     aggregateResult !== undefined
   ) {
     await writeOutput(

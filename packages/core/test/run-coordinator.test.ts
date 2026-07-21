@@ -17,6 +17,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  AgentLoopError,
   BackendRunCoordinator,
   JsonlSessionStore,
   ProcessScopedRuntimeContinuationStore,
@@ -627,6 +628,70 @@ describe("BackendRunCoordinator", () => {
       }),
     );
   });
+
+  it.each([
+    ["provider_failed", "Provider authentication failed", false, "authentication_failed", "reauthenticate"],
+    ["provider_failed", "Provider rate limit reached", true, "rate_limited", "wait"],
+    ["provider_failed", "Provider request failed", true, "transport", undefined],
+    ["invalid_provider_response", "unsafe provider detail", false, "invalid_response", undefined],
+  ] as const)(
+    "normalizes started %s failures as provider code %s",
+    async (agentCode, message, retryable, code, action) => {
+      const { sessions } = await setup();
+      const resolver: BackendResolver = {
+        async resolve(input) {
+          return {
+            kind: "direct",
+            pin,
+            authorization: authorizationFor(input, pin),
+            async createProvider() {
+              return {
+                id: pin.providerId,
+                adapterId: pin.adapterId,
+                connectionId: pin.connectionId,
+                async *stream() {
+                  yield { type: "done", stopReason: "complete" } as const;
+                },
+              } satisfies ModelProvider;
+            },
+          };
+        },
+      };
+      const coordinator = new BackendRunCoordinator({
+        sessions,
+        resolver,
+        direct: {
+          async run() {
+            throw new AgentLoopError(agentCode, message, retryable);
+          },
+        },
+        createId: () => "provider-diagnostic",
+      });
+
+      const run = await coordinator.start({
+        sessionId: "s2",
+        expectedSessionRecordSequence: 0,
+        prompt: "inspect",
+        invocation,
+        signal: new AbortController().signal,
+      });
+
+      await expect(run.outcome).resolves.toMatchObject({
+        ok: false,
+        failure: {
+          domain: "provider",
+          phase: "started",
+          code,
+          safeMessage: agentCode === "invalid_provider_response"
+            ? "Provider returned an invalid response"
+            : message,
+          diagnosticId: "provider-diagnostic",
+          retryable,
+          ...(action === undefined ? {} : { action }),
+        },
+      });
+    },
+  );
 
   it("dispatches agent-runtime pins through the delegated lane", async () => {
     const runtimePin = delegatedPin;

@@ -20,11 +20,16 @@ import {
 import { RuntimeError } from "./runtime.js";
 import { LocalConnectionError } from "./local-connection.js";
 
-export function unexpectedFailureMessage(): string {
-  return coreUnexpectedFailureMessage(randomUUID());
+export function unexpectedFailureMessage(
+  diagnosticId: string = randomUUID(),
+): string {
+  return coreUnexpectedFailureMessage(diagnosticId);
 }
 
-export function safeCliErrorMessage(error: unknown): string {
+export function safeCliErrorMessage(
+  error: unknown,
+  diagnosticId?: string,
+): string {
   if (error instanceof ProviderDiscoveryError) {
     return error.message;
   }
@@ -44,5 +49,5 @@ export function safeCliErrorMessage(error: unknown): string {
   ) {
     return error.message;
   }
-  return unexpectedFailureMessage();
+  return unexpectedFailureMessage(diagnosticId);
 }
