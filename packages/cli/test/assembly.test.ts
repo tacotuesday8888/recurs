@@ -1839,6 +1839,7 @@ describe("standalone assembly without a provider", () => {
       "git_status",
       "git_diff",
       "git_history",
+      "git_show",
       "delegate_task",
       "delegate_tasks",
       "delegate_team",
@@ -1965,7 +1966,7 @@ describe("standalone assembly without a provider", () => {
     expect(result?.content).toContain("Type 'string' is not assignable to type 'number'");
   });
 
-  it("returns bounded Git history to a model in Plan mode", async () => {
+  it("returns bounded Git history and commit evidence in Plan mode", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-git-history-assembly-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -1983,6 +1984,9 @@ describe("standalone assembly without a provider", () => {
       "-m",
       "add the feature boundary",
     ], { cwd: workspace });
+    const commit = (await execFileAsync("git", ["rev-parse", "HEAD"], {
+      cwd: workspace,
+    })).stdout.trim();
     const provider = new ScriptedProvider([
       [
         {
@@ -1991,6 +1995,17 @@ describe("standalone assembly without a provider", () => {
             id: "history-1",
             name: "git_history",
             arguments: { limit: 1 },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "show-1",
+            name: "git_show",
+            arguments: { commit },
           },
         },
         { type: "done", stopReason: "tool_calls" },
@@ -2021,6 +2036,9 @@ describe("standalone assembly without a provider", () => {
     expect(provider.requests[1]?.messages.findLast(
       (message) => message.role === "tool",
     )?.content).toContain("add the feature boundary");
+    expect(provider.requests[2]?.messages.findLast(
+      (message) => message.role === "tool",
+    )?.content).toContain("+export const ready = true;");
   });
 
   it("lets the owner write to and close a yielded command", async () => {

@@ -793,8 +793,11 @@ try {
       ) === true &&
       localModelServer.chatRequests[0]?.tools?.some((tool) =>
         tool.function?.name === "git_history"
+      ) === true &&
+      localModelServer.chatRequests[0]?.tools?.some((tool) =>
+        tool.function?.name === "git_show"
       ) === true,
-    "The installed model request did not expose Agent Skills, MCP, and Git history tools.",
+    "The installed model request did not expose Agent Skills, MCP, and Git evidence tools.",
   );
 
   const { stdout: resumed, stderr: resumedError } = await execFileAsync(

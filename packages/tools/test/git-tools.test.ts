@@ -23,6 +23,7 @@ import {
   createApplyPatchTool,
   createGitDiffTool,
   createGitHistoryTool,
+  createGitShowTool,
   createGitStatusTool,
   createReadFileTool,
   type ApprovalHandler,
@@ -77,7 +78,7 @@ async function commitFixture(
   content: string,
   subject: string,
   authoredAt: string,
-): Promise<void> {
+): Promise<string> {
   await writeFile(path.join(cwd, file), content);
   await execFileAsync("git", ["add", "--force", "--", file], { cwd });
   await execFileAsync(
@@ -101,6 +102,8 @@ async function commitFixture(
       },
     },
   );
+  const result = await execFileAsync("git", ["rev-parse", "HEAD"], { cwd });
+  return result.stdout.trim();
 }
 
 function shellQuote(value: string): string {
@@ -241,6 +244,148 @@ describe("credential-safe Git inspection", () => {
       .rejects.toMatchObject({ code: "invalid_input" });
     await expect(invoke(createGitHistoryTool(), { revision: "HEAD~1" }))
       .rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  it("shows one exact reachable commit patch in Plan mode", async () => {
+    const commit = await commitFixture(
+      "safe.txt",
+      "first line\n",
+      "add safe file",
+      "2026-01-01T00:00:00Z",
+    );
+
+    const result = await invoke(
+      createGitShowTool(),
+      { commit },
+      context("plan"),
+    );
+    const [header = "", ...patch] = result.output.split("\n");
+
+    expect(JSON.parse(header)).toEqual({
+      commit,
+      authoredAt: "2026-01-01T00:00:00Z",
+      author: "Recurs Historian",
+      subject: "add safe file",
+    });
+    expect(patch.join("\n")).toContain("+first line");
+    expect(result.metadata).toMatchObject({
+      commit,
+      path: ".",
+      patchBytes: expect.any(Number),
+      exitCode: 0,
+    });
+  });
+
+  it("excludes credential patches and treats paths as literals", async () => {
+    const safeCommit = await commitFixture(
+      "safe.txt",
+      "safe\n",
+      "safe commit",
+      "2026-01-01T00:00:00Z",
+    );
+    const credentialCommit = await commitFixture(
+      ".env",
+      "GIT_SHOW_SECRET_CANARY=1\n",
+      "credential-only commit",
+      "2026-01-02T00:00:00Z",
+    );
+
+    const credential = await invoke(createGitShowTool(), {
+      commit: credentialCommit,
+    });
+    const pathspec = await invoke(createGitShowTool(), {
+      commit: safeCommit,
+      path: ":(glob)**",
+    });
+
+    expect(credential.output).toBe(
+      `No accessible changes found for commit ${credentialCommit}.\n`,
+    );
+    expect(credential.output).not.toContain("GIT_SHOW_SECRET_CANARY");
+    expect(pathspec.output).toBe(
+      `No accessible changes found for commit ${safeCommit}.\n`,
+    );
+    await expect(invoke(createGitShowTool(), {
+      commit: credentialCommit,
+      path: ".env",
+    })).rejects.toMatchObject({ code: "permission_denied" });
+  });
+
+  it("requires a full commit reachable from the current HEAD", async () => {
+    const commit = await commitFixture(
+      "safe.txt",
+      "safe\n",
+      "reachable commit",
+      "2026-01-01T00:00:00Z",
+    );
+    const tree = (await execFileAsync("git", ["rev-parse", "HEAD^{tree}"], {
+      cwd,
+    })).stdout.trim();
+    const orphan = (await execFileAsync(
+      "git",
+      [
+        "-c",
+        "user.name=Recurs Historian",
+        "-c",
+        "user.email=history@example.invalid",
+        "commit-tree",
+        tree,
+        "-m",
+        "unreachable commit",
+      ],
+      { cwd },
+    )).stdout.trim();
+
+    await expect(invoke(createGitShowTool(), { commit: commit.slice(0, 12) }))
+      .rejects.toMatchObject({ code: "invalid_input" });
+    await expect(invoke(createGitShowTool(), { commit: "HEAD~1" }))
+      .rejects.toMatchObject({ code: "invalid_input" });
+    await expect(invoke(createGitShowTool(), { commit: "0".repeat(40) }))
+      .rejects.toMatchObject({ code: "invalid_input" });
+    await expect(invoke(createGitShowTool(), { commit: orphan }))
+      .rejects.toMatchObject({ code: "permission_denied" });
+  });
+
+  it("ignores replacement objects and configured signature programs", async () => {
+    const commit = await commitFixture(
+      "safe.txt",
+      "original\n",
+      "original commit",
+      "2026-01-01T00:00:00Z",
+    );
+    const tree = (await execFileAsync("git", ["rev-parse", "HEAD^{tree}"], {
+      cwd,
+    })).stdout.trim();
+    const replacement = (await execFileAsync(
+      "git",
+      [
+        "-c",
+        "user.name=Recurs Historian",
+        "-c",
+        "user.email=history@example.invalid",
+        "commit-tree",
+        tree,
+        "-m",
+        "replacement commit",
+      ],
+      { cwd },
+    )).stdout.trim();
+    await execFileAsync("git", ["replace", commit, replacement], { cwd });
+    const marker = path.join(cwd, ".git", "show-signature-invoked");
+    const program = path.join(cwd, ".git", "show-signature-program");
+    await writeFile(
+      program,
+      `#!/bin/sh\nprintf invoked > ${shellQuote(marker)}\nexit 1\n`,
+    );
+    await chmod(program, 0o700);
+    await execFileAsync("git", ["config", "log.showSignature", "true"], { cwd });
+    await execFileAsync("git", ["config", "gpg.program", program], { cwd });
+
+    const result = await invoke(createGitShowTool(), { commit });
+
+    expect(result.output).toContain("original commit");
+    expect(result.output).not.toContain("replacement commit");
+    await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("excludes credential paths and contents from aggregate status and diff", async () => {
