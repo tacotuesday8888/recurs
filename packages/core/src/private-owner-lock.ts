@@ -69,6 +69,16 @@ function denied(message: string, cause?: unknown): never {
   throw new ToolError("permission_denied", message, { cause });
 }
 
+class PrivateRecordChangedError extends ToolError {
+  constructor(message: string) {
+    super("permission_denied", message);
+  }
+}
+
+function changed(message: string): never {
+  throw new PrivateRecordChangedError(message);
+}
+
 async function privateDirectory(
   directory: string,
   allowMissing: boolean,
@@ -212,7 +222,7 @@ async function readPrivateRecord(file: string): Promise<unknown> {
     if (!opened.isFile() || (opened.mode & 0o777) !== FILE_MODE ||
       opened.dev !== details.dev || opened.ino !== details.ino ||
       opened.size !== details.size) {
-      denied("Worktree owner record changed while it was opened");
+      changed("Worktree owner record changed while it was opened");
     }
     bytes = Buffer.allocUnsafe(opened.size);
     let offset = 0;
@@ -224,19 +234,19 @@ async function readPrivateRecord(file: string): Promise<unknown> {
         offset,
       );
       if (read.bytesRead === 0) {
-        denied("Worktree owner record changed while it was read");
+        changed("Worktree owner record changed while it was read");
       }
       offset += read.bytesRead;
     }
     const extra = Buffer.allocUnsafe(1);
     if ((await handle.read(extra, 0, 1, offset)).bytesRead !== 0) {
-      denied("Worktree owner record changed while it was read");
+      changed("Worktree owner record changed while it was read");
     }
     const after = await handle.stat();
     if (after.dev !== opened.dev || after.ino !== opened.ino ||
       after.size !== opened.size || after.mode !== opened.mode ||
       after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs) {
-      denied("Worktree owner record changed while it was read");
+      changed("Worktree owner record changed while it was read");
     }
   } finally {
     await handle?.close();
@@ -273,6 +283,18 @@ async function readOwner(lock: string, leaseId: string): Promise<OwnerRecord> {
     await privateDirectory(path.join(lock, CLAIMS_DIRECTORY), false);
   }
   return readOwnerFile(path.join(lock, "owner.json"), leaseId);
+}
+
+async function validateConcurrentOwnerTransition(
+  lock: string,
+  leaseId: string,
+): Promise<void> {
+  try {
+    await readOwner(lock, leaseId);
+  } catch (error) {
+    if (code(error) === "ENOENT") return;
+    throw error;
+  }
 }
 
 function processIsAlive(pid: number): boolean {
@@ -729,6 +751,10 @@ export async function reclaimPrivateOwnerLock(
     observed = await readOwner(lock, stable.leaseId);
   } catch (error) {
     if (code(error) === "ENOENT") return { status: "missing" };
+    if (error instanceof PrivateRecordChangedError) {
+      await validateConcurrentOwnerTransition(lock, stable.leaseId);
+      return { status: "busy" };
+    }
     throw error;
   }
   if (!sameBinding(observed, stable)) {
@@ -740,11 +766,20 @@ export async function reclaimPrivateOwnerLock(
     nonce: randomUUID(),
     pid: process.pid,
   };
-  if (!await claimOwner(lock, observed, replacement)) {
-    return { status: "busy" };
-  }
-  if (!await replaceClaimedOwner(owners, lock, observed, replacement, true)) {
-    await releaseOwnerClaim(lock, observed, replacement).catch(() => false);
+  let claimed = false;
+  try {
+    claimed = await claimOwner(lock, observed, replacement);
+    if (!claimed) return { status: "busy" };
+    if (!await replaceClaimedOwner(owners, lock, observed, replacement, true)) {
+      await releaseOwnerClaim(lock, observed, replacement).catch(() => false);
+      return { status: "busy" };
+    }
+  } catch (error) {
+    if (!(error instanceof PrivateRecordChangedError)) throw error;
+    await validateConcurrentOwnerTransition(lock, stable.leaseId);
+    if (claimed) {
+      await releaseOwnerClaim(lock, observed, replacement).catch(() => false);
+    }
     return { status: "busy" };
   }
   return {
