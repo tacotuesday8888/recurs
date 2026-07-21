@@ -26,6 +26,10 @@ const sealedTypescriptOutline = path.join(
   root,
   "packages/native-engine/src/sealed-typescript-outline.ts",
 );
+const sealedTypescriptCompilerPath = path.join(
+  root,
+  "packages/native-engine/src/sealed-typescript-compiler-path.ts",
+);
 const sealedWebSocket = path.join(
   root,
   "packages/native-engine/src/sealed-websocket.ts",
@@ -60,6 +64,14 @@ try {
           ) === true
         ) {
           return sealedTypescriptOutline;
+        }
+        if (
+          specifier === "../typescript-compiler-path.js" &&
+          importer?.replaceAll("\\", "/").endsWith(
+            "/packages/tools/src/builtins/typescript-diagnostics.ts",
+          ) === true
+        ) {
+          return sealedTypescriptCompilerPath;
         }
         if (specifier === "@recurs/runtimes") {
           return sealedRuntimes;

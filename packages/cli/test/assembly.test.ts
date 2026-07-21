@@ -1830,6 +1830,7 @@ describe("standalone assembly without a provider", () => {
       "list_files",
       "search_text",
       "code_outline",
+      "typescript_diagnostics",
       "web_fetch",
       "apply_patch",
       "run_command",
@@ -1906,6 +1907,61 @@ describe("standalone assembly without a provider", () => {
     expect(provider.requests[1]?.messages.findLast(
       (message) => message.role === "tool",
     )?.content).toContain('"answer":"CLI"');
+  });
+
+  it("returns bounded TypeScript diagnostics to a model in Plan mode", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-ts-diagnostics-assembly-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    await writeFile(path.join(workspace, "tsconfig.json"), JSON.stringify({
+      compilerOptions: { strict: true },
+      files: ["index.ts"],
+    }));
+    await writeFile(
+      path.join(workspace, "index.ts"),
+      "const answer: number = 'wrong';\n",
+    );
+    const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "diagnostics-1",
+            name: "typescript_diagnostics",
+            arguments: {},
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "The project has a type error." },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        skillHomeDirectory: path.join(root, "home"),
+        provider,
+        executionMode: "plan",
+        permissionMode: "full_access",
+      },
+    );
+
+    await expect(runtime.submit("type-check the project")).resolves
+      .toMatchObject({ finalText: "The project has a type error." });
+    expect(provider.requests[0]?.tools.map((tool) => tool.name))
+      .toContain("typescript_diagnostics");
+    expect(provider.requests[0]?.tools.map((tool) => tool.name))
+      .not.toContain("apply_patch");
+    const result = provider.requests[1]?.messages.findLast(
+      (message) => message.role === "tool",
+    );
+    expect(result?.content).toContain("error TS2322");
+    expect(result?.content).toContain("Type 'string' is not assignable to type 'number'");
   });
 
   it("lets the owner write to and close a yielded command", async () => {
