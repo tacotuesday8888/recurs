@@ -27,6 +27,7 @@ Usage:
   recurs account route <implement|review|repair> <id|parent>
   recurs account verify <id>
   recurs account disconnect <id>
+  recurs doctor [--json]         Check installation and execution readiness
   recurs doctor native [--json]  Inspect native authority status
   recurs help <command>          Show scoped command help
   recurs --version               Show the installed Recurs version
@@ -118,13 +119,16 @@ Usage:
 Existing sessions retain their immutable backend pins. Disconnect removes
 Recurs metadata and does not log out of the provider-owned account.
 `,
-  doctor: `Inspect bounded native-authority health
+  doctor: `Check Recurs installation and execution readiness
 
 Usage:
+  recurs doctor [--json]
   recurs doctor native [--json]
 
-This command reports redacted capability and health state. It never prompts for
-a credential or reveals native paths, account values, headers, or secrets.
+The default report checks Node.js, Git, ripgrep, the current Git worktree, saved
+provider metadata, and a real network-denied OS-sandbox launch. It is read-only,
+does not contact a provider, and never reveals paths, account values, or secrets.
+The native subcommand reports the separate private native-authority status.
 `,
   acp: `Serve Recurs as an ACP agent over standard input and output
 

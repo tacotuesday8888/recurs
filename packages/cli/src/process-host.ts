@@ -64,6 +64,11 @@ import { createStandaloneRuntime } from "./assembly.js";
 import { serveRecursAcpStdio } from "./acp-server.js";
 import { setupCodexSubscription } from "./codex-connection.js";
 import { CLI_HELP, parseCliHelpRequest } from "./cli-help.js";
+import {
+  createDoctorReport,
+  renderDoctorReport,
+  type DoctorReport,
+} from "./doctor.js";
 import { parsePermissionMode } from "./commands/permissions.js";
 import type { CommandResult } from "./commands/types.js";
 import { safeCliErrorMessage } from "./error-rendering.js";
@@ -140,6 +145,7 @@ export interface CliDependencies {
   credentialEnvironmentAvailable?(name: string): boolean;
   selectOpenAIModel?(modelIds: readonly string[]): Promise<string | null>;
   nativeAuthority?: NativeAuthorityPort;
+  doctor?(cwd: string, signal?: AbortSignal): Promise<DoctorReport>;
   openAIOnboarding?: OpenAICliOnboardingPort;
   anthropicOnboarding?: OpenAICliOnboardingPort;
   kimiOnboarding?: OpenAICliOnboardingPort;
@@ -1211,6 +1217,34 @@ export async function runCli(
     };
   }
   if (argv[0] === "doctor") {
+    const readinessJson = argv.length === 2 && argv[1] === "--json";
+    const doctor = dependencies.doctor;
+    if ((argv.length === 1 || readinessJson) && doctor !== undefined) {
+      try {
+        const report = await doctor(
+          dependencies.cwd ?? process.cwd(),
+          dependencies.signal,
+        );
+        await writeOutput(
+          dependencies.stdout,
+          readinessJson
+            ? `${JSON.stringify(report)}\n`
+            : renderDoctorReport(report),
+        );
+        return report.overallStatus === "fail" ? 1 : 0;
+      } catch (error) {
+        if (isAbortError(error)) {
+          await writeOutput(dependencies.stderr, "Error: Doctor was cancelled\n");
+          return 130;
+        }
+        await writeOutput(
+          dependencies.stderr,
+          `Error: ${safeCliErrorMessage(error)}\n`,
+        );
+        return 1;
+      }
+    }
+
     const json = argv.length === 3 && argv[2] === "--json";
     const nativeAuthority = dependencies.nativeAuthority;
     const valid =
@@ -1902,11 +1936,13 @@ export async function runCliProcess(
   processOptions: { readonly ptyDriver?: PtyDriver } = {},
 ): Promise<void> {
   const argv = process.argv.slice(2);
-  const nativeDoctorRequested =
-    argv[0] === "doctor" &&
-    argv[1] === "native" &&
-    (argv.length === 2 || (argv.length === 3 && argv[2] === "--json"));
-  const interactiveOperationRequested = nativeDoctorRequested ||
+  const doctorRequested = argv[0] === "doctor" && (
+    argv.length === 1 ||
+    (argv.length === 2 && argv[1] === "--json") ||
+    (argv[1] === "native" &&
+      (argv.length === 2 || (argv.length === 3 && argv[2] === "--json")))
+  );
+  const interactiveOperationRequested = doctorRequested ||
     argv.length === 0 ||
     (argv[0] === "provider" && argv[1] === "models") ||
     (argv[0] === "setup" &&
@@ -2006,6 +2042,11 @@ export async function runCliProcess(
       selectChoice,
       selectOpenAIModel,
       nativeAuthority,
+      doctor: (cwd, signal) => createDoctorReport({
+        cwd,
+        dataDirectory,
+        ...(signal === undefined ? {} : { signal }),
+      }),
       openAIOnboarding: {
         provider: "openai",
         disclosure,

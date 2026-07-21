@@ -655,6 +655,36 @@ try {
     "The installed configured-account listing wrote diagnostics.",
   );
 
+  const { stdout: doctorOutput, stderr: doctorError } = await execFileAsync(
+    executable,
+    ["doctor", "--json", "-C", workspaceDirectory],
+    {
+      cwd: installDirectory,
+      encoding: "utf8",
+      env: environment,
+    },
+  );
+  const doctor = JSON.parse(doctorOutput);
+  assert(
+    doctor.schemaVersion === 1 &&
+      doctor.type === "doctor_report" &&
+      doctor.overallStatus !== "fail",
+    "The installed CLI did not pass its readiness diagnostics.",
+  );
+  assert(
+    doctor.checks?.some(
+      (check) => check.id === "sandbox.command" && check.status === "ok",
+    ),
+    "The installed CLI did not prove its OS sandbox launch.",
+  );
+  assert(
+    doctor.checks?.some(
+      (check) => check.id === "provider.registry" && check.status === "ok",
+    ),
+    "The installed CLI did not recognize its configured provider.",
+  );
+  assert(doctorError === "", "The installed CLI wrote readiness diagnostics to stderr.");
+
   const { stdout: run, stderr: runError } = await execFileAsync(
     executable,
     [

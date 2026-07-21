@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  access,
   chmod,
   link,
   lstat,
@@ -163,6 +164,19 @@ async function seedLegacy(
 }
 
 describe("FileConnectionRegistry", () => {
+  it("inspects an absent registry without creating user state", async () => {
+    const directory = await root();
+    const dataDirectory = path.join(directory, "absent");
+
+    await expect(new FileConnectionRegistry(dataDirectory).inspect()).resolves
+      .toMatchObject({
+        revision: 0,
+        primaryConnectionId: null,
+        connections: [],
+      });
+    await expect(access(dataDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("reads an absent registry as an immutable revision-zero document", async () => {
     const registry = new FileConnectionRegistry(await root());
 
