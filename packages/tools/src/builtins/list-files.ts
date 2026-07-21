@@ -21,12 +21,20 @@ export interface ListFilesInput {
 }
 
 function parseListFilesInput(value: unknown): ListFilesInput {
-  if (typeof value !== "object" || value === null) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new ToolError("invalid_input", "list_files expects an object");
   }
-  const inputPath = "path" in value && value.path !== undefined ? value.path : ".";
-  const limit = "limit" in value && value.limit !== undefined ? value.limit : 2_000;
-  const glob = "glob" in value ? value.glob : undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    Object.keys(record).some((key) =>
+      key !== "path" && key !== "limit" && key !== "glob"
+    )
+  ) {
+    throw new ToolError("invalid_input", "list_files received an unknown option");
+  }
+  const inputPath = record.path ?? ".";
+  const limit = record.limit ?? 2_000;
+  const glob = record.glob;
   if (typeof inputPath !== "string") {
     throw new ToolError("invalid_input", "path must be a string");
   }
