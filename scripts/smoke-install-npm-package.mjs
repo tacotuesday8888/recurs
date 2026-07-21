@@ -40,6 +40,8 @@ const freshPrompt = "Start a separate installed session.";
 const freshFinalText = "RECURS_INSTALLED_FRESH_OK";
 const stdinPrompt = "Inspect this exact piped installed prompt.";
 const stdinFinalText = "RECURS_INSTALLED_STDIN_OK";
+const aggregateErrorPrompt = "Trigger the installed aggregate error boundary.";
+const aggregateErrorCanary = "RECURS_INSTALLED_PROVIDER_SECRET_CANARY";
 const acpPrompt = "Report the installed ACP transport marker.";
 const acpFinalText = "RECURS_INSTALLED_ACP_OK";
 const sandboxedFile = path.join(workspaceDirectory, "SANDBOXED.md");
@@ -158,6 +160,19 @@ async function startLocalModelServer() {
             }],
             usage: { prompt_tokens: 7, completion_tokens: 4 },
           });
+          return;
+        }
+        if (messages.includes(aggregateErrorPrompt)) {
+          response.writeHead(401, {
+            connection: "close",
+            "content-type": "application/json",
+          });
+          response.end(JSON.stringify({
+            error: {
+              type: "authentication_error",
+              message: aggregateErrorCanary,
+            },
+          }));
           return;
         }
         if (chatRequests.length === 1) {
@@ -795,9 +810,46 @@ try {
   );
 
   await runInstalledAcpSmoke(executable, environment);
+  let aggregateFailure;
+  try {
+    await execFileAsync(
+      executable,
+      ["run", aggregateErrorPrompt, "--format", "json"],
+      {
+        cwd: workspaceDirectory,
+        encoding: "utf8",
+        env: environment,
+        maxBuffer: 10 * 1024 * 1024,
+      },
+    );
+  } catch (error) {
+    aggregateFailure = error;
+  }
   assert(
-    localModelServer.chatRequests.length === 9,
-    "The installed ACP prompt did not reach the configured model backend exactly once.",
+    aggregateFailure?.code === 1,
+    "The installed aggregate provider failure did not retain exit code 1.",
+  );
+  const aggregateFailureOutput = JSON.parse(aggregateFailure.stdout);
+  assert(
+    aggregateFailureOutput.type === "run_error" &&
+      typeof aggregateFailureOutput.sessionId === "string" &&
+      aggregateFailureOutput.error?.domain === "provider" &&
+      aggregateFailureOutput.error?.phase === "started" &&
+      aggregateFailureOutput.error?.code === "authentication_failed" &&
+      aggregateFailureOutput.error?.safeMessage ===
+        "Provider authentication failed" &&
+      aggregateFailureOutput.error?.action === "reauthenticate" &&
+      aggregateFailureOutput.error?.retryable === false,
+    "The installed aggregate provider failure was not normalized safely.",
+  );
+  assert(
+    aggregateFailure.stderr === "" &&
+      !aggregateFailure.stdout.includes(aggregateErrorCanary),
+    "The installed aggregate provider failure leaked raw diagnostics.",
+  );
+  assert(
+    localModelServer.chatRequests.length === 10,
+    "The installed ACP and aggregate-error prompts did not reach the backend exactly once.",
   );
 } finally {
   if (localModelServer !== undefined) {

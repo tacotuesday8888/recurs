@@ -21,6 +21,7 @@ import {
   type TrustedRunContext,
   type TurnSteeringSource,
 } from "@recurs/contracts";
+import { safeProviderErrorMessage } from "@recurs/providers";
 
 import type {
   JsonlSessionStore,
@@ -172,6 +173,19 @@ function startedFailure(
   const agentLoopError = error instanceof AgentLoopError ? error : null;
   const contextOverflow = !cancelled &&
     agentLoopError?.code === "context_overflow";
+  const providerFailureCode: IntegrationFailure["code"] | null = cancelled
+    ? "cancelled"
+    : contextOverflow
+    ? "context_overflow"
+    : agentLoopError?.code === "invalid_provider_response"
+    ? "invalid_response"
+    : agentLoopError?.code === "provider_failed"
+    ? agentLoopError.message === safeProviderErrorMessage("authentication")
+      ? "authentication_failed"
+      : agentLoopError.message === safeProviderErrorMessage("rate_limit")
+      ? "rate_limited"
+      : "transport"
+    : null;
   const safeMessage = cancelled
     ? agentLoopError === null
       ? "The run was cancelled"
@@ -180,16 +194,17 @@ function startedFailure(
       ? unexpectedFailureMessage(diagnosticId)
       : safeAgentLoopErrorMessage(agentLoopError);
   return {
-    domain: cancelled || contextOverflow ? "provider" : "runtime",
+    domain: providerFailureCode === null ? "runtime" : "provider",
     phase: "started",
-    code: cancelled
-      ? "cancelled"
-      : contextOverflow
-        ? "context_overflow"
-        : "runtime_failed",
+    code: providerFailureCode ?? "runtime_failed",
     safeMessage,
     diagnosticId,
     retryable: isObject(error) && error.retryable === true,
+    ...(providerFailureCode === "authentication_failed"
+      ? { action: "reauthenticate" as const }
+      : providerFailureCode === "rate_limited"
+      ? { action: "wait" as const }
+      : {}),
   };
 }
 

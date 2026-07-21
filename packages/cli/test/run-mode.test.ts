@@ -16,6 +16,7 @@ import {
   AgentLoop,
   AgentLoopError,
   BackendRunCoordinator,
+  CoordinatedRunError,
   JsonlSessionStore,
   bindRunAuthorization,
 } from "@recurs/core";
@@ -1987,6 +1988,171 @@ describe("runCli", () => {
     expect(stderr.value).toBe("");
   });
 
+  it("preserves one normalized started failure in aggregate JSON", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const failure = {
+      domain: "provider",
+      phase: "started",
+      code: "rate_limited",
+      safeMessage: "Provider rate limit reached",
+      diagnosticId: "00000000-0000-4000-8000-000000000123",
+      retryable: true,
+      retryAfterMs: 250,
+      action: "wait",
+    } as const;
+
+    expect(await runCli(["run", "inspect", "--format", "json"], {
+      stdout,
+      stderr,
+      async createRuntime() {
+        return {
+          state: { type: "session", session: { id: "s1" } },
+          async submit() { throw new CoordinatedRunError(failure); },
+          async close() {},
+        } as unknown as RecursRuntime;
+      },
+    })).toBe(1);
+
+    expect(JSON.parse(stdout.value)).toEqual({
+      version: 1,
+      type: "run_error",
+      sessionId: "s1",
+      error: failure,
+    });
+    expect(stderr.value).toBe("");
+  });
+
+  it("redacts unknown aggregate JSON failures before coordination", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const canary = "RECURS_AGGREGATE_UNKNOWN_CANARY";
+
+    expect(await runCli(["run", "inspect", "--format", "json"], {
+      stdout,
+      stderr,
+      async createRuntime() {
+        throw new Error(canary, { cause: new Error(`${canary}_CAUSE`) });
+      },
+    })).toBe(1);
+
+    const output = JSON.parse(stdout.value);
+    expect(output).toMatchObject({
+      version: 1,
+      type: "run_error",
+      sessionId: null,
+      error: {
+        domain: "runtime",
+        phase: "preflight",
+        code: "runtime_failed",
+        retryable: false,
+      },
+    });
+    expect(output.error.safeMessage).toBe(
+      `Unexpected failure (diagnostic ${output.error.diagnosticId})`,
+    );
+    expect(`${stdout.value}${stderr.value}`).not.toContain(canary);
+    expect(stderr.value).toBe("");
+  });
+
+  it("returns aggregate JSON cancellation with exit 130", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+
+    expect(await runCli(["run", "inspect", "--format", "json"], {
+      stdout,
+      stderr,
+      async createRuntime() {
+        return {
+          state: { type: "session", session: { id: "s1" } },
+          async submit() {
+            throw new RuntimeError("cancelled", "Agent run cancelled");
+          },
+          async close() {},
+        } as unknown as RecursRuntime;
+      },
+    })).toBe(130);
+
+    expect(JSON.parse(stdout.value)).toMatchObject({
+      version: 1,
+      type: "run_error",
+      sessionId: "s1",
+      error: {
+        domain: "provider",
+        phase: "started",
+        code: "cancelled",
+        safeMessage: "Agent run cancelled",
+        retryable: false,
+      },
+    });
+    expect(stderr.value).toBe("");
+  });
+
+  it("does not misclassify preflight run cancellation as configuration", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const failure = {
+      domain: "provider",
+      phase: "preflight",
+      code: "cancelled",
+      safeMessage: "The run was cancelled before it started",
+      diagnosticId: "00000000-0000-4000-8000-000000000456",
+      retryable: false,
+    } as const;
+
+    expect(await runCli(["run", "inspect", "--format", "json"], {
+      stdout,
+      stderr,
+      async createRuntime() {
+        return {
+          state: { type: "session", session: { id: "s1" } },
+          async submit() { throw new CoordinatedRunError(failure); },
+          async close() {},
+        } as unknown as RecursRuntime;
+      },
+    })).toBe(130);
+
+    expect(JSON.parse(stdout.value)).toEqual({
+      version: 1,
+      type: "run_error",
+      sessionId: "s1",
+      error: failure,
+    });
+    expect(stderr.value).toBe("");
+  });
+
+  it("preserves structured preflight cancellation in streaming JSONL", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const failure = {
+      domain: "provider",
+      phase: "preflight",
+      code: "cancelled",
+      safeMessage: "The run was cancelled before it started",
+      diagnosticId: "00000000-0000-4000-8000-000000000789",
+      retryable: false,
+    } as const;
+
+    expect(await runCli(["run", "inspect", "--format", "jsonl"], {
+      stdout,
+      stderr,
+      async createRuntime() {
+        return {
+          state: { type: "session", session: { id: "s1" } },
+          async submit() { throw new CoordinatedRunError(failure); },
+          async close() {},
+        } as unknown as RecursRuntime;
+      },
+    })).toBe(130);
+
+    expect(JSON.parse(stdout.value)).toEqual({
+      version: 1,
+      type: "configuration_error",
+      error: failure,
+    });
+    expect(stderr.value).toBe("");
+  });
+
   it("does not publish an aggregate success when runtime cleanup fails", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
@@ -2014,10 +2180,21 @@ describe("runCli", () => {
       },
     })).toBe(1);
 
-    expect(stdout.value).toBe("");
-    expect(stderr.value).toBe(
-      "Error: Runtime resources could not be closed safely\n",
-    );
+    expect(JSON.parse(stdout.value)).toMatchObject({
+      version: 1,
+      type: "run_error",
+      sessionId: "s1",
+      error: {
+        domain: "runtime",
+        phase: "started",
+        code: "runtime_failed",
+        safeMessage: "Runtime resources could not be closed safely",
+        retryable: false,
+      },
+    });
+    expect(stdout.value).not.toContain("must not publish");
+    expect(stdout.value).not.toContain("cleanup canary");
+    expect(stderr.value).toBe("");
   });
 
   it("starts one-shot runs in a fresh session unless an exact resume id is given", async () => {
