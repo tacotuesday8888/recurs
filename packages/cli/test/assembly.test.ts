@@ -1966,6 +1966,63 @@ describe("standalone assembly without a provider", () => {
     expect(result?.content).toContain("Type 'string' is not assignable to type 'number'");
   });
 
+  it("returns structured bounded regex search evidence in Plan mode", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-search-assembly-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    await writeFile(
+      path.join(workspace, "feature.ts"),
+      "export const feature42 = true;\nexport const other = false;\n",
+    );
+    const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "search-1",
+            name: "search_text",
+            arguments: {
+              query: String.raw`feature\d+`,
+              mode: "regex",
+              glob: "*.ts",
+              limit: 5,
+            },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "I found the feature declaration." },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        skillHomeDirectory: path.join(root, "home"),
+        provider,
+        executionMode: "plan",
+        permissionMode: "full_access",
+      },
+    );
+
+    await expect(runtime.submit("find numbered feature declarations")).resolves
+      .toMatchObject({ finalText: "I found the feature declaration." });
+    expect(provider.requests[0]?.tools.map((tool) => tool.name))
+      .toContain("search_text");
+    expect(provider.requests[0]?.tools.map((tool) => tool.name))
+      .not.toContain("apply_patch");
+    const result = provider.requests[1]?.messages.findLast(
+      (message) => message.role === "tool",
+    );
+    expect(result?.content).toContain('"path":"feature.ts"');
+    expect(result?.content).toContain('"line":1');
+    expect(result?.content).toContain("feature42");
+  });
+
   it("returns bounded Git history and commit evidence in Plan mode", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-git-history-assembly-"));
     directories.push(root);

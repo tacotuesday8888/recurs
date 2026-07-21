@@ -77,6 +77,16 @@ async function invoke(
   );
 }
 
+function searchRecords(result: ToolResult): Array<{
+  path: string;
+  line: number;
+  text: string;
+}> {
+  return result.output.trimEnd().split("\n").filter(Boolean).map((line) =>
+    JSON.parse(line) as { path: string; line: number; text: string }
+  );
+}
+
 describe("workspace file tools", () => {
   it.each([
     ".env",
@@ -278,16 +288,104 @@ describe("workspace file tools", () => {
 
     expect(listed.output).toContain("src/a.ts");
     expect(listed.output).toContain("src/shell.ts");
-    expect(searched.output).toContain("src/shell.ts:1:");
+    expect(searchRecords(searched)).toEqual([{
+      path: "src/shell.ts",
+      line: 1,
+      text: "const value = '$(touch nope)';",
+    }]);
     expect(listed.metadata?.sources).toEqual([
       "listed src (2 of 2 files)",
     ]);
     expect(searched.metadata?.sources).toEqual([
-      "searched src (1 match)",
+      "searched src (1 of 1 matching lines)",
     ]);
     await expect(
       import("node:fs/promises").then(({ access }) => access(path.join(cwd, "nope"))),
     ).rejects.toBeDefined();
+  });
+
+  it("keeps fixed search as the default and makes regex search explicit", async () => {
+    await writeFile(
+      path.join(cwd, "src", "patterns.txt"),
+      String.raw`alpha42
+alpha\d+
+alpha7
+`,
+      "utf8",
+    );
+
+    const fixed = await invoke(createSearchTextTool(), {
+      query: String.raw`alpha\d+`,
+      path: "src/patterns.txt",
+    });
+    const regex = await invoke(createSearchTextTool(), {
+      query: String.raw`alpha\d+`,
+      path: "src/patterns.txt",
+      mode: "regex",
+    });
+
+    expect(searchRecords(fixed).map(({ line }) => line)).toEqual([2]);
+    expect(fixed.metadata).toMatchObject({ mode: "fixed", truncated: false });
+    expect(searchRecords(regex).map(({ line }) => line)).toEqual([1, 3]);
+    expect(regex.metadata).toMatchObject({
+      mode: "regex",
+      matches: 2,
+      matchedLines: 2,
+      occurrences: 2,
+      truncated: false,
+    });
+  });
+
+  it("returns escaped structured matches under an explicit result limit", async () => {
+    await writeFile(
+      path.join(cwd, "src", "many.txt"),
+      "MATCH one\u001b\nMATCH two\nMATCH three\nMATCH four\n",
+      "utf8",
+    );
+
+    const result = await invoke(createSearchTextTool(), {
+      query: "MATCH",
+      path: "src/many.txt",
+      limit: 2,
+    });
+
+    expect(result.output).not.toContain("\u001b");
+    expect(searchRecords(result)).toEqual([
+      { path: "src/many.txt", line: 1, text: "MATCH one\u001b" },
+      { path: "src/many.txt", line: 2, text: "MATCH two" },
+    ]);
+    expect(result.metadata).toMatchObject({
+      mode: "fixed",
+      matches: 2,
+      matchedLines: 3,
+      occurrences: 3,
+      omitted: 0,
+      truncated: true,
+    });
+  });
+
+  it("strictly validates bounded search inputs and invalid regexes", async () => {
+    const invalidInputs: unknown[] = [
+      [],
+      { query: "alpha", extra: true },
+      { query: "alpha", mode: "wildcard" },
+      { query: "alpha", limit: 0 },
+      { query: "alpha", limit: 1_001 },
+      { query: "" },
+      { query: "alpha\0beta" },
+      { query: "x".repeat(16 * 1024 + 1) },
+      { query: "alpha", glob: "" },
+      { query: "alpha", glob: "x".repeat(1_025) },
+    ];
+    for (const invalid of invalidInputs) {
+      await expect(invoke(createSearchTextTool(), invalid)).rejects.toMatchObject({
+        code: "invalid_input",
+      });
+    }
+    await expect(invoke(createSearchTextTool(), {
+      query: "(",
+      mode: "regex",
+    })).rejects.toMatchObject({ code: "invalid_input" });
   });
 
   it("lists a bounded glob without invoking a shell", async () => {
@@ -329,6 +427,11 @@ describe("workspace file tools", () => {
         path: ".",
         glob,
       })).rejects.toMatchObject({ code: "invalid_input" });
+    }
+    for (const invalid of [[], { path: ".", unknown: true }]) {
+      await expect(invoke(createListFilesTool(), invalid)).rejects.toMatchObject({
+        code: "invalid_input",
+      });
     }
   });
 
