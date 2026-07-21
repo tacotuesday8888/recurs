@@ -3,6 +3,7 @@ import { Readable, Writable } from "node:stream";
 
 import {
   NATIVE_COMPONENT_VERSION,
+  RECURS_VERSION,
   type BackendResolver,
   type HostInvocation,
   type NativeAuthorityStatusPort,
@@ -2622,6 +2623,88 @@ describe("runCli", () => {
     expect(stdout.value).toContain("recurs run <prompt>");
     expect(stdout.value).toContain("--permissions ask|approved|full");
   });
+
+  it.each(["--version", "-V", "-v", "version"])(
+    "prints the build version for %s without creating a runtime",
+    async (argument) => {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+
+      expect(await runCli([argument], {
+        stdout,
+        stderr,
+        async createRuntime() {
+          throw new Error("must not create runtime");
+        },
+      })).toBe(0);
+      expect(stdout.value).toBe(`recurs ${RECURS_VERSION}\n`);
+      expect(stderr.value).toBe("");
+    },
+  );
+
+  it.each([
+    ["run", "Run one coding-agent prompt", "--format text|json|jsonl"],
+    ["setup", "Configure a provider", "setup byok"],
+    ["provider", "Inspect available provider paths", "provider models"],
+    ["account", "Manage saved non-secret", "account set-primary"],
+    ["doctor", "Inspect bounded native-authority", "doctor native"],
+    ["acp", "Serve Recurs as an ACP agent", "standard output"],
+  ] as const)(
+    "prints scoped %s help through both supported forms",
+    async (topic, heading, detail) => {
+      for (const argv of [[topic, "--help"], ["help", topic]]) {
+        const stdout = new TextOutput();
+        const stderr = new TextOutput();
+
+        expect(await runCli(argv, {
+          stdout,
+          stderr,
+          async createRuntime() {
+            throw new Error("must not create runtime");
+          },
+        })).toBe(0);
+        expect(stdout.value).toContain(heading);
+        expect(stdout.value).toContain(detail);
+        expect(stderr.value).toBe("");
+      }
+    },
+  );
+
+  it("renders metadata help before resolving an optional working root", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+
+    expect(await runCli(
+      ["run", "--help", "--cd", "/definitely/not/a/recurs/workspace"],
+      {
+        stdout,
+        stderr,
+        async createRuntime() {
+          throw new Error("must not create runtime");
+        },
+      },
+    )).toBe(0);
+    expect(stdout.value).toContain("Run one coding-agent prompt");
+    expect(stderr.value).toBe("");
+  });
+
+  it.each(["unknown", "toString", "__proto__"])(
+    "rejects unknown help topic %s without starting the runtime",
+    async (topic) => {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+
+      expect(await runCli(["help", topic], {
+        stdout,
+        stderr,
+        async createRuntime() {
+          throw new Error("must not create runtime");
+        },
+      })).toBe(2);
+      expect(stdout.value).toBe("");
+      expect(stderr.value).toContain("recurs help <command>");
+    },
+  );
 
   it("prints exact redacted native authority diagnostics as text and JSON", async () => {
     const status = {

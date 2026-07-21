@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, open, rename, unlink } from "node:fs/promises";
+import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -24,6 +24,18 @@ const externalPackages = new Set([
   "typescript",
   "ws",
 ]);
+const packageMetadata = JSON.parse(
+  await readFile(path.join(root, "package.json"), "utf8"),
+);
+if (
+  packageMetadata.name !== "recurs" ||
+  typeof packageMetadata.version !== "string" ||
+  !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.test(
+    packageMetadata.version,
+  )
+) {
+  throw new Error("The root package must declare a valid Recurs version.");
+}
 
 function isExternalPackage(specifier) {
   if (specifier.startsWith("node:")) {
@@ -44,6 +56,11 @@ try {
   bundle = await rolldown({
     input: entry,
     platform: "node",
+    transform: {
+      define: {
+        __RECURS_VERSION__: JSON.stringify(packageMetadata.version),
+      },
+    },
     external: isExternalPackage,
     plugins: [{
       name: "recurs-workspace-source",

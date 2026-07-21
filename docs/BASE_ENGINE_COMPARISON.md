@@ -38,6 +38,8 @@ Headless prompt input was rechecked on 2026-07-21 against current [Codex exec](h
 
 Working-root selection was rechecked on 2026-07-21 against current [Codex CLI options](https://github.com/openai/codex), which expose `-C`/`--cd` for one working root, and [Gemini CLI's workspace model](https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/file-system.md), which roots filesystem tools in the workspace while allowing separately configured additional directories. Recurs adopts the single explicit root and deliberately omits extra writable roots so session identity, project policy, MCP trust, and sandbox containment share one canonical boundary.
 
+CLI discoverability was rechecked on 2026-07-21 against current [OpenCode CLI flags](https://opencode.ai/docs/cli/) and [Gemini CLI options](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/cli-reference.md), which both expose ordinary help and version contracts. Recurs now prints the exact build version without runtime initialization, provides scoped help for each public command group, and reuses that one build identity in ACP and MCP protocol metadata.
+
 Kilo's CLI is a fork of OpenCode, as Kilo states in its [README](https://github.com/Kilo-Org/kilocode/blob/8324cf7ddc6539993f7d1743175716ae2705d195/README.md). They are therefore one engine lineage for this comparison; Kilo-specific guards are considered separately.
 
 ## What the mature engines establish

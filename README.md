@@ -54,7 +54,9 @@ npm install
 npm run check
 npm run build
 npm link
+recurs --version
 recurs --help
+recurs run --help
 recurs setup
 node packages/cli/dist/main.js --help
 # Recommended first run: connect a reviewed path, select a model and permission

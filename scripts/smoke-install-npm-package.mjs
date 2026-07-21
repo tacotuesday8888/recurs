@@ -347,7 +347,7 @@ async function runInstalledWithInput(executable, args, environment, input) {
   return { stdout, stderr };
 }
 
-async function runInstalledAcpSmoke(executable, environment) {
+async function runInstalledAcpSmoke(executable, environment, expectedVersion) {
   const child = spawn(executable, ["acp"], {
     cwd: workspaceDirectory,
     env: environment,
@@ -394,7 +394,9 @@ async function runInstalledAcpSmoke(executable, environment) {
       clientInfo: { name: "recurs-install-smoke", version: "1" },
     });
     assert(
-      initialized?.protocolVersion === 1 && initialized?.agentInfo?.name === "recurs",
+      initialized?.protocolVersion === 1 &&
+        initialized?.agentInfo?.name === "recurs" &&
+        initialized?.agentInfo?.version === expectedVersion,
       "The installed ACP server did not negotiate the supported protocol.",
     );
     const created = await request("session/new", {
@@ -468,7 +470,9 @@ try {
   });
   const packReport = JSON.parse(packOutput);
   const filename = packReport[0]?.filename;
+  const packageVersion = packReport[0]?.version;
   assert(typeof filename === "string", "npm pack did not report an artifact filename.");
+  assert(typeof packageVersion === "string", "npm pack did not report the package version.");
   const archive = path.join(packageDirectory, filename);
   await readFile(archive);
 
@@ -503,6 +507,35 @@ try {
   });
   assert(help.includes("Recurs coding-agent harness"), "The installed CLI did not render its help.");
   assert(helpError === "", "The installed CLI wrote unexpected help diagnostics.");
+  const { stdout: version, stderr: versionError } = await execFileAsync(
+    executable,
+    ["--version"],
+    {
+      cwd: installDirectory,
+      encoding: "utf8",
+      env: environment,
+    },
+  );
+  assert(
+    version === `recurs ${packageVersion}\n`,
+    "The installed CLI version did not match the exact packed artifact.",
+  );
+  assert(versionError === "", "The installed CLI wrote version diagnostics.");
+  const { stdout: runHelp, stderr: runHelpError } = await execFileAsync(
+    executable,
+    ["run", "--help"],
+    {
+      cwd: installDirectory,
+      encoding: "utf8",
+      env: environment,
+    },
+  );
+  assert(
+    runHelp.includes("Run one coding-agent prompt") &&
+      !runHelp.includes("recurs account disconnect"),
+    "The installed CLI did not render scoped run help.",
+  );
+  assert(runHelpError === "", "The installed CLI wrote scoped-help diagnostics.");
 
   const { stdout: accounts, stderr: accountError } = await execFileAsync(
     executable,
@@ -809,7 +842,7 @@ try {
     "The installed stdin prompt did not reach the configured model.",
   );
 
-  await runInstalledAcpSmoke(executable, environment);
+  await runInstalledAcpSmoke(executable, environment, packageVersion);
   let aggregateFailure;
   try {
     await execFileAsync(

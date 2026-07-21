@@ -4,6 +4,7 @@ import { Readable, Writable } from "node:stream";
 
 import * as acp from "@agentclientprotocol/sdk";
 import {
+  RECURS_VERSION,
   createHostInvocation,
   type HostInvocation,
   type RunResult,
@@ -416,7 +417,7 @@ export function createRecursAcpApp(
     })
     .onRequest(acp.methods.agent.initialize, () => ({
       protocolVersion: acp.PROTOCOL_VERSION,
-      agentInfo: { name: "recurs", version: "0.0.0" },
+      agentInfo: { name: "recurs", version: RECURS_VERSION },
       agentCapabilities: {
         loadSession: false,
         promptCapabilities: {},

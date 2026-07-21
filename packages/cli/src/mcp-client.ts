@@ -11,6 +11,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
+import { RECURS_VERSION } from "@recurs/contracts";
 import {
   startProcessSession,
   ToolError,
@@ -542,7 +543,7 @@ class McpStdioClient {
     const result = await this.request("initialize", {
       protocolVersion: LATEST_PROTOCOL_VERSION,
       capabilities: {},
-      clientInfo: { name: "recurs", version: "0.0.0" },
+      clientInfo: { name: "recurs", version: RECURS_VERSION },
     });
     if (!plainObject(result) || typeof result.protocolVersion !== "string" ||
         !SUPPORTED_PROTOCOL_VERSIONS.has(result.protocolVersion) ||
