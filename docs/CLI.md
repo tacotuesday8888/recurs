@@ -20,19 +20,21 @@ npm install
 npm run check
 npm run build
 npm link
+recurs --version
 recurs --help
+recurs run --help
 recurs setup
 node packages/cli/dist/main.js --help
 ```
 
-You can expose the root package's bundled `recurs` binary locally with `npm link` after building. The release candidate can be checked without publishing:
+You can expose the root package's bundled `recurs` binary locally with `npm link` after building. `--version`, `-V`, `-v`, and `version` print the exact root-package version embedded into the bundled artifact; unbundled workspace modules identify themselves as `development` so they cannot accidentally impersonate a release. `help <command>` and `<command> --help` provide scoped help for `run`, `setup`, `provider`, `account`, `doctor`, and `acp`; help and version never initialize a provider, runtime, or requested working root. The same build version is advertised by Recurs's ACP server and outbound MCP/Codex ACP client identities rather than a separate hard-coded value. The release candidate can be checked without publishing:
 
 ```bash
 npm run package:check
 npm run package:smoke-install
 ```
 
-The first command verifies one executable bundle, its exact external dependencies, size, mode, absence of private workspace imports and build-machine paths, and the five-file tarball allowlist including `THIRD_PARTY_NOTICES.md`. It also runs the release-policy tests and proves publication remains blocked for the exact deliberate license/version/package gates. After a build, the second packs the artifact, installs it into an empty temporary prefix, runs the fresh-state commands, configures a deterministic loopback model, and drives the installed agent through user Agent Skill activation, a private stdio MCP call, sandboxed command execution, denied outside-workspace writing, and a guarded read. The same smoke negotiates ACP v1 over the installed binary, creates a session, verifies streamed model output, closes the session, and requires clean process shutdown. CI runs both boundaries.
+The first command verifies one executable bundle, its exact external dependencies, size, mode, absence of private workspace imports and build-machine paths, and the five-file tarball allowlist including `THIRD_PARTY_NOTICES.md`. It also runs the release-policy tests and proves publication remains blocked for the exact deliberate license/version/package gates. After a build, the second packs the artifact, installs it into an empty temporary prefix, verifies its exact version and scoped help, runs the fresh-state commands, configures a deterministic loopback model, and drives the installed agent through user Agent Skill activation, a private stdio MCP call, sandboxed command execution, denied outside-workspace writing, and a guarded read. The same smoke negotiates ACP v1 with the artifact version over the installed binary, creates a session, verifies streamed model output, closes the session, and requires clean process shutdown. CI runs both boundaries.
 
 No package or installer is published today. The source repository is public, while the package remains `private`, version `0.0.0`, and `UNLICENSED` until the owner selects a license and preview version. Direct-runtime dependency notices are complete for the current exact package set. `.github/workflows/publish-npm.yml` is a manual protected-environment OIDC workflow: it requires a public source repository and exact `vVERSION` tag reachable from `main`, reruns the full Linux/package gates, rejects tokens and mismatched release metadata, and builds one exact npm tarball. It then renders a checksum-bound user-local installer and Homebrew formula, creates a draft GitHub release, attests the assets, publishes or verifies the same tarball through npm trusted publishing, and publishes the GitHub release only after those steps succeed. A failed npm step leaves a draft rather than advertising a broken release. The npm package/environment trust relationship still has to be configured by the owner before the first release.
 

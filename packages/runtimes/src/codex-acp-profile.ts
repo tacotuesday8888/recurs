@@ -4,9 +4,10 @@ import { createRequire } from "node:module";
 import path from "node:path";
 
 import type { NewSessionResponse, SessionConfigOption } from "@agentclientprotocol/sdk";
-import type {
-  AgentRuntime,
-  RuntimeContinuationStore,
+import {
+  RECURS_VERSION,
+  type AgentRuntime,
+  type RuntimeContinuationStore,
 } from "@recurs/contracts";
 import { z } from "zod";
 
@@ -303,7 +304,7 @@ export function createCodexAcpProfile(
     protocolVersion: 1,
     command: process.execPath,
     args: [installation.adapterEntry],
-    clientInfo: { name: "recurs", version: "0.0.0", title: "Recurs" },
+    clientInfo: { name: "recurs", version: RECURS_VERSION, title: "Recurs" },
     allowedEnvironmentKeys,
     usageSemantics: "prompt_response",
     mappings: [

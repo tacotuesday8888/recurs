@@ -14,6 +14,7 @@ import { createInterface } from "node:readline/promises";
 import {
   createHostInvocation,
   parseOperatingModeId,
+  RECURS_VERSION,
   type OperatingModeId,
   type IntegrationFailure,
   type NativeAuthorityPort,
@@ -61,6 +62,7 @@ import { CoordinatedRunError, type EventSink } from "@recurs/core";
 import { createStandaloneRuntime } from "./assembly.js";
 import { serveRecursAcpStdio } from "./acp-server.js";
 import { setupCodexSubscription } from "./codex-connection.js";
+import { CLI_HELP, parseCliHelpRequest } from "./cli-help.js";
 import { parsePermissionMode } from "./commands/permissions.js";
 import type { CommandResult } from "./commands/types.js";
 import { safeCliErrorMessage } from "./error-rendering.js";
@@ -109,44 +111,7 @@ import {
   type RecursRuntime,
 } from "./runtime.js";
 
-const help = `Recurs coding-agent harness
-
-Usage:
-  recurs [-C <dir>]              Open the interactive CLI in one working root
-  recurs setup                   Guide provider, model, and permission setup
-  recurs run <prompt> [-C <dir>] Run one prompt in one working root
-  recurs run <prompt> [--format text|json|jsonl] [--permissions ask|approved|full] [--mode economy|standard|balanced|performance|max] [--connection <id>]
-  recurs run <prompt> --resume <session-id> [--format text|json|jsonl]
-  recurs run -                   Read one bounded prompt from piped stdin
-  recurs run <prompt> --stdin    Append bounded piped stdin to the prompt
-  recurs acp                     Serve Recurs over ACP on stdio
-  recurs setup local --url <loopback-url> --model <model-id>
-  recurs setup byok --provider <id> --model <id> --key-env <ENV> [--billing strict|allow-additional] [--reasoning-effort none|low|medium|high|xhigh|max]
-  recurs setup codex             Connect an existing ChatGPT Codex subscription
-  recurs setup openai [--model <exact-id>]
-  recurs setup openai --recover  Reconcile interrupted OpenAI API setup
-  recurs setup anthropic --model <exact-id>
-  recurs setup kimi --model <exact-id>
-  recurs provider list [--all] [--json]
-  recurs provider catalog [query] [--json]
-  recurs provider detect [--json]
-  recurs provider models --provider <id> --key-env <ENV> [--json]
-  recurs account list [--json]
-  recurs account set-primary <id>
-  recurs account route <implement|review|repair> <id|parent>
-  recurs account verify <id>
-  recurs account disconnect <id>
-  recurs doctor native [--json]  Inspect native authority status
-  recurs --help                  Show this help
-
-Local setup supports credential-free OpenAI-compatible servers on literal loopback only.
-Cross-platform BYOK saves provider/model metadata and an environment-variable name, never the key.
-Ephemeral override remains available with RECURS_PROVIDER, RECURS_MODEL, and RECURS_API_KEY together.
-Codex setup is interactive and Plan-only. It never imports or stores vendor credentials.
-OpenAI API setup captures credentials only in the native authority; API billing is separate from ChatGPT.
-Anthropic API setup captures credentials only in the native authority; API billing is separate from Claude subscriptions.
-Kimi Code setup captures its coding-plan key only in the native authority.
-`;
+const help = CLI_HELP;
 
 export interface OpenAICliOnboardingPort {
   readonly provider?: "openai" | "anthropic" | "kimi";
@@ -1122,6 +1087,22 @@ export async function runCli(
     return 2;
   }
   argv = workingRoot.argv;
+  const helpRequest = parseCliHelpRequest(argv);
+  if (helpRequest !== null) {
+    await writeOutput(
+      helpRequest.valid ? dependencies.stdout : dependencies.stderr,
+      helpRequest.valid ? helpRequest.text : help,
+    );
+    return helpRequest.valid ? 0 : 2;
+  }
+  if (
+    argv.length === 1 &&
+    (argv[0] === "--version" || argv[0] === "-V" || argv[0] === "-v" ||
+      argv[0] === "version")
+  ) {
+    await writeOutput(dependencies.stdout, `recurs ${RECURS_VERSION}\n`);
+    return 0;
+  }
   if (workingRoot.requested !== undefined) {
     if (argv[0] === "acp") {
       await writeOutput(dependencies.stderr, help);
@@ -1171,14 +1152,6 @@ export async function runCli(
       }),
     };
   }
-  if (
-    argv.length === 1 &&
-    (argv[0] === "--help" || argv[0] === "-h" || argv[0] === "help")
-  ) {
-    await writeOutput(dependencies.stdout, help);
-    return 0;
-  }
-
   if (argv[0] === "doctor") {
     const json = argv.length === 3 && argv[2] === "--json";
     const nativeAuthority = dependencies.nativeAuthority;

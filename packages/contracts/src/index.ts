@@ -1,4 +1,5 @@
 export * from "./agents.js";
+export * from "./build-metadata.js";
 export * from "./connections.js";
 export * from "./failures.js";
 export * from "./json.js";

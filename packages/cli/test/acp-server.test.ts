@@ -1,7 +1,11 @@
 import path from "node:path";
 
 import * as acp from "@agentclientprotocol/sdk";
-import type { HostInvocation, RunResult } from "@recurs/contracts";
+import {
+  RECURS_VERSION,
+  type HostInvocation,
+  type RunResult,
+} from "@recurs/contracts";
 import type { EventSink } from "@recurs/core";
 import { describe, expect, it } from "vitest";
 
@@ -169,7 +173,7 @@ describe("Recurs ACP agent", () => {
       });
       expect(initialized).toEqual({
         protocolVersion: acp.PROTOCOL_VERSION,
-        agentInfo: { name: "recurs", version: "0.0.0" },
+        agentInfo: { name: "recurs", version: RECURS_VERSION },
         agentCapabilities: {
           loadSession: false,
           promptCapabilities: {},
