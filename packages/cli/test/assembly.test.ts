@@ -2045,7 +2045,7 @@ describe("standalone assembly without a provider", () => {
     expect(result?.content).toContain("feature42");
   });
 
-  it("returns bounded Git history and commit evidence in Plan mode", async () => {
+  it("returns structured Git workspace and commit evidence in Plan mode", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-git-history-assembly-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -2066,7 +2066,30 @@ describe("standalone assembly without a provider", () => {
     const commit = (await execFileAsync("git", ["rev-parse", "HEAD"], {
       cwd: workspace,
     })).stdout.trim();
+    await writeFile(path.join(workspace, "feature.ts"), "export const ready = false;\n");
     const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "status-1",
+            name: "git_status",
+            arguments: {},
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "diff-1",
+            name: "git_diff",
+            arguments: { path: "feature.ts" },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
       [
         {
           type: "tool_call",
@@ -2106,16 +2129,32 @@ describe("standalone assembly without a provider", () => {
       },
     );
 
-    await expect(runtime.submit("inspect recent history")).resolves
+    await expect(runtime.submit("inspect the workspace and recent history")).resolves
       .toMatchObject({ finalText: "The feature boundary is committed." });
+    expect(provider.requests[0]?.tools.map((tool) => tool.name))
+      .toContain("git_status");
+    expect(provider.requests[0]?.tools.map((tool) => tool.name))
+      .toContain("git_diff");
     expect(provider.requests[0]?.tools.map((tool) => tool.name))
       .toContain("git_history");
     expect(provider.requests[0]?.tools.map((tool) => tool.name))
       .not.toContain("apply_patch");
     expect(provider.requests[1]?.messages.findLast(
       (message) => message.role === "tool",
-    )?.content).toContain("add the feature boundary");
+    )?.content).toContain('"type":"change"');
+    expect(provider.requests[1]?.messages.findLast(
+      (message) => message.role === "tool",
+    )?.content).toContain('"path":"feature.ts"');
     expect(provider.requests[2]?.messages.findLast(
+      (message) => message.role === "tool",
+    )?.content).toContain("-export const ready = true;");
+    expect(provider.requests[2]?.messages.findLast(
+      (message) => message.role === "tool",
+    )?.content).toContain("+export const ready = false;");
+    expect(provider.requests[3]?.messages.findLast(
+      (message) => message.role === "tool",
+    )?.content).toContain("add the feature boundary");
+    expect(provider.requests[4]?.messages.findLast(
       (message) => message.role === "tool",
     )?.content).toContain("+export const ready = true;");
   });

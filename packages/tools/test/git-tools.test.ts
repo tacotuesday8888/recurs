@@ -110,7 +110,207 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
+function statusRecords(result: ToolResult): Array<Record<string, unknown>> {
+  return result.output.trimEnd().split("\n").filter(Boolean).map((line) =>
+    JSON.parse(line) as Record<string, unknown>
+  );
+}
+
 describe("credential-safe Git inspection", () => {
+  it("returns structured branch and adversarial path status deterministically", async () => {
+    const base = await commitFixture(
+      "old.ts",
+      "old\n",
+      "base",
+      "2026-01-01T00:00:00Z",
+    );
+    const primary = (await execFileAsync(
+      "git",
+      ["symbolic-ref", "--short", "HEAD"],
+      { cwd },
+    )).stdout.trim();
+    await execFileAsync("git", ["branch", "upstream", base], { cwd });
+    const mainCommit = await commitFixture(
+      "main-only.ts",
+      "main\n",
+      "main change",
+      "2026-01-02T00:00:00Z",
+    );
+    await execFileAsync("git", ["switch", "--quiet", "upstream"], { cwd });
+    await commitFixture(
+      "upstream-only.ts",
+      "upstream\n",
+      "upstream change",
+      "2026-01-03T00:00:00Z",
+    );
+    await execFileAsync("git", ["switch", "--quiet", primary], { cwd });
+    await execFileAsync(
+      "git",
+      ["branch", `--set-upstream-to=upstream`, primary],
+      { cwd },
+    );
+    await execFileAsync("git", ["mv", "--", "old.ts", "renamed\nfile.ts"], {
+      cwd,
+    });
+    const writes = [
+      writeFile(path.join(cwd, "odd\nname.ts"), "odd\n"),
+      writeFile(path.join(cwd, "plain.ts"), "plain\n"),
+      writeFile(path.join(cwd, "\uFEFFbom.ts"), "bom\n"),
+      writeFile(path.join(cwd, ".env"), "STATUS_SECRET_CANARY\n"),
+    ];
+    if (process.platform === "linux") {
+      writes.push(writeFile(
+        Buffer.concat([Buffer.from(`${cwd}/invalid-`), Buffer.from([0xff])]),
+        "invalid utf8 path\n",
+      ));
+    }
+    await Promise.all(writes);
+
+    const status = await invoke(createGitStatusTool(), {}, context("plan"));
+    const records = statusRecords(status);
+
+    expect(records[0]).toEqual({
+      type: "branch",
+      oid: mainCommit,
+      head: primary,
+      detached: false,
+      upstream: "upstream",
+      ahead: 1,
+      behind: 1,
+    });
+    expect(records.slice(1)).toEqual([
+      {
+        type: "change",
+        kind: "untracked",
+        path: "odd\nname.ts",
+        index: "?",
+        worktree: "?",
+      },
+      {
+        type: "change",
+        kind: "untracked",
+        path: "plain.ts",
+        index: "?",
+        worktree: "?",
+      },
+      {
+        type: "change",
+        kind: "rename",
+        path: "renamed\nfile.ts",
+        index: "R",
+        worktree: ".",
+        originalPath: "old.ts",
+        similarity: 100,
+      },
+      {
+        type: "change",
+        kind: "untracked",
+        path: "\uFEFFbom.ts",
+        index: "?",
+        worktree: "?",
+      },
+    ]);
+    expect(status.output).not.toContain("odd\nname.ts");
+    expect(status.output).not.toContain("STATUS_SECRET_CANARY");
+    expect(status.output).not.toContain(".env");
+    expect(status.metadata).toMatchObject({
+      branch: primary,
+      oid: mainCommit,
+      upstream: "upstream",
+      ahead: 1,
+      behind: 1,
+      changes: 4,
+      totalChanges: 4,
+      omitted: process.platform === "linux" ? 1 : 0,
+      clean: false,
+      truncated: process.platform === "linux",
+    });
+  });
+
+  it("reports unmerged paths without confusing them with ordinary changes", async () => {
+    await commitFixture(
+      "conflict.txt",
+      "base\n",
+      "base",
+      "2026-01-01T00:00:00Z",
+    );
+    const primary = (await execFileAsync(
+      "git",
+      ["symbolic-ref", "--short", "HEAD"],
+      { cwd },
+    )).stdout.trim();
+    await execFileAsync("git", ["switch", "--quiet", "-c", "other"], { cwd });
+    await commitFixture(
+      "conflict.txt",
+      "other\n",
+      "other",
+      "2026-01-02T00:00:00Z",
+    );
+    await execFileAsync("git", ["switch", "--quiet", primary], { cwd });
+    await commitFixture(
+      "conflict.txt",
+      "primary\n",
+      "primary",
+      "2026-01-03T00:00:00Z",
+    );
+    await expect(execFileAsync("git", [
+      "-c",
+      "user.name=Recurs Test",
+      "-c",
+      "user.email=recurs@example.invalid",
+      "merge",
+      "other",
+    ], { cwd })).rejects.toBeDefined();
+
+    const status = await invoke(createGitStatusTool(), {}, context("plan"));
+    expect(statusRecords(status)).toContainEqual(expect.objectContaining({
+      type: "change",
+      kind: "unmerged",
+      path: "conflict.txt",
+    }));
+  });
+
+  it("strictly validates Git inputs and treats an explicit diff path literally", async () => {
+    const literal = ":(glob)**";
+    await writeFile(path.join(cwd, literal), "literal before\n");
+    await writeFile(path.join(cwd, "other.txt"), "other before\n");
+    await execFileAsync(
+      "git",
+      ["--literal-pathspecs", "add", "--", literal, "other.txt"],
+      { cwd },
+    );
+    await execFileAsync("git", [
+      "-c",
+      "user.name=Recurs Test",
+      "-c",
+      "user.email=recurs@example.invalid",
+      "commit",
+      "--quiet",
+      "-m",
+      "literal fixture",
+    ], { cwd });
+    await writeFile(path.join(cwd, literal), "literal after\n");
+    await writeFile(path.join(cwd, "other.txt"), "other after\n");
+
+    const diff = await invoke(createGitDiffTool(), { path: literal });
+    expect(diff.output).toContain("literal after");
+    expect(diff.output).not.toContain("other after");
+
+    for (const invalid of [[], { extra: true }]) {
+      await expect(invoke(createGitStatusTool(), invalid)).rejects
+        .toMatchObject({ code: "invalid_input" });
+    }
+    for (const invalid of [
+      [],
+      { extra: true },
+      { staged: "yes" },
+      { path: 42 },
+    ]) {
+      await expect(invoke(createGitDiffTool(), invalid)).rejects
+        .toMatchObject({ code: "invalid_input" });
+    }
+  });
+
   it("returns bounded newest-first JSON history in Plan mode", async () => {
     await commitFixture(
       "safe.txt",

@@ -14,13 +14,17 @@ export interface GitDiffInput {
 }
 
 function parseGitDiffInput(value: unknown): GitDiffInput {
-  if (typeof value !== "object" || value === null) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new ToolError("invalid_input", "git_diff expects an object");
   }
-  const staged = "staged" in value && value.staged !== undefined
-    ? value.staged
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).some((key) => key !== "staged" && key !== "path")) {
+    throw new ToolError("invalid_input", "git_diff received an unknown option");
+  }
+  const staged = record.staged !== undefined
+    ? record.staged
     : false;
-  const inputPath = "path" in value ? value.path : undefined;
+  const inputPath = record.path;
   if (typeof staged !== "boolean") {
     throw new ToolError("invalid_input", "staged must be a boolean");
   }
@@ -58,10 +62,15 @@ export function createGitDiffTool(): Tool<GitDiffInput> {
     },
     async execute(input, context) {
       const args = [
+        "-c",
+        "core.quotePath=true",
         "diff",
         "--no-ext-diff",
         "--no-textconv",
         "--no-color",
+        "--no-renames",
+        "--src-prefix=a/",
+        "--dst-prefix=b/",
         "--submodule=short",
         "--ignore-submodules=dirty",
       ];
@@ -76,7 +85,8 @@ export function createGitDiffTool(): Tool<GitDiffInput> {
         assertNonCredentialPath(resolved.relative);
         target = resolved.relative;
       }
-      args.push("--", target, ...credentialGitPathspecs());
+      const targetPathspec = target === "." ? target : `:(top,literal)${target}`;
+      args.push("--", targetPathspec, ...credentialGitPathspecs());
       const safeArgs = await safeGitArguments(context.cwd, args, context.signal);
       const result = await runProcess("git", safeArgs, {
         cwd: context.cwd,
