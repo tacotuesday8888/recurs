@@ -70,6 +70,23 @@ const updatePatch = [
 ].join("\n");
 
 describe("apply_patch", () => {
+  it("rejects undeclared input fields before changing the workspace", async () => {
+    const read = await invoke(createReadFileTool(), { path: "src/a.ts" });
+    const revision = {
+      path: "src/a.ts",
+      expected_hash: read.metadata?.sha256,
+    };
+    for (const invalid of [
+      { patch: updatePatch, files: [revision], extra: true },
+      { patch: updatePatch, files: [{ ...revision, extra: true }] },
+    ]) {
+      await expect(invoke(createApplyPatchTool(), invalid))
+        .rejects.toMatchObject({ code: "invalid_input" });
+    }
+    expect(await readFile(path.join(cwd, "src", "a.ts"), "utf8"))
+      .toBe("export const value = 1;\n");
+  });
+
   it("applies a declared patch after an exact current-turn read", async () => {
     const read = await invoke(createReadFileTool(), { path: "src/a.ts" });
 

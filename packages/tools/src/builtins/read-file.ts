@@ -36,24 +36,31 @@ function parseReadFileInput(value: unknown): ReadFileInput {
   if (
     typeof value !== "object" ||
     value === null ||
-    !("path" in value) ||
-    typeof value.path !== "string"
+    Array.isArray(value)
   ) {
-    throw new ToolError("invalid_input", "read_file requires a path");
+    throw new ToolError("invalid_input", "read_file expects an object");
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    Object.keys(record).some((key) =>
+      key !== "path" && key !== "startLine" && key !== "endLine"
+    ) || typeof record.path !== "string"
+  ) {
+    throw new ToolError("invalid_input", "read_file requires only a path and optional line bounds");
   }
   const startLine = optionalPositiveInteger(
-    "startLine" in value ? value.startLine : undefined,
+    record.startLine,
     "startLine",
   );
   const endLine = optionalPositiveInteger(
-    "endLine" in value ? value.endLine : undefined,
+    record.endLine,
     "endLine",
   );
   if (startLine !== undefined && endLine !== undefined && endLine < startLine) {
     throw new ToolError("invalid_input", "endLine must not precede startLine");
   }
   return {
-    path: value.path,
+    path: record.path,
     ...(startLine === undefined ? {} : { startLine }),
     ...(endLine === undefined ? {} : { endLine }),
   };

@@ -138,6 +138,16 @@ describe("command classification", () => {
 });
 
 describe("run_command", () => {
+  it("rejects input outside its published object schema before execution", async () => {
+    const marker = path.join(cwd, "should-not-exist");
+    const command = `printf created > ${shellQuote(marker)}`;
+    for (const invalid of [[], { command, extra: true }]) {
+      await expect(invoke(createRunCommandTool(), invalid))
+        .rejects.toMatchObject({ code: "invalid_input" });
+    }
+    await expect(access(marker)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("settles a clean Git child without waiting for process-group kill grace", async () => {
     // The first child discovers and validates the host-selected developer
     // directory once; subsequent isolated Git processes reuse that authority.

@@ -28,7 +28,7 @@ export interface WebFetchToolOptions {
 }
 
 function parseWebFetchInput(value: unknown): WebFetchInput {
-  if (typeof value !== "object" || value === null) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new ToolError("invalid_input", "web_fetch expects an object");
   }
   const keys = Object.keys(value);

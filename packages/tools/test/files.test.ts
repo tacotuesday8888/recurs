@@ -144,6 +144,18 @@ describe("workspace file tools", () => {
     expect(toolContext.readRevisions.get(absolute)).toBe(result.metadata?.sha256);
   });
 
+  it("rejects read input outside its published object schema", async () => {
+    const toolContext = context();
+    for (const invalid of [
+      [],
+      { path: "src/a.ts", extra: true },
+    ]) {
+      await expect(invoke(createReadFileTool(), invalid, toolContext))
+        .rejects.toMatchObject({ code: "invalid_input" });
+    }
+    expect(toolContext.readRevisions.size).toBe(0);
+  });
+
   it("requires explicit approval for an external path in every preset", async () => {
     const externalFile = path.join(outside, "secret.txt");
 

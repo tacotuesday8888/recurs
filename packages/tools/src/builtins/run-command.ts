@@ -23,14 +23,22 @@ function parseRunCommandInput(value: unknown): RunCommandInput {
   if (
     typeof value !== "object" ||
     value === null ||
-    !("command" in value) ||
-    typeof value.command !== "string" ||
-    value.command.trim().length === 0
+    Array.isArray(value)
+  ) {
+    throw new ToolError("invalid_input", "run_command expects an object");
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    Object.keys(record).some((key) =>
+      key !== "command" && key !== "timeoutMs" && key !== "yieldTimeMs" &&
+      key !== "tty"
+    ) || typeof record.command !== "string" ||
+    record.command.trim().length === 0
   ) {
     throw new ToolError("invalid_input", "run_command requires a command");
   }
-  const timeoutMs = "timeoutMs" in value && value.timeoutMs !== undefined
-    ? value.timeoutMs
+  const timeoutMs = record.timeoutMs !== undefined
+    ? record.timeoutMs
     : DEFAULT_TIMEOUT_MS;
   if (
     !Number.isSafeInteger(timeoutMs) ||
@@ -39,7 +47,7 @@ function parseRunCommandInput(value: unknown): RunCommandInput {
   ) {
     throw new ToolError("invalid_input", "timeoutMs must be between 1 and 600000");
   }
-  const yieldTimeMs = "yieldTimeMs" in value ? value.yieldTimeMs : undefined;
+  const yieldTimeMs = record.yieldTimeMs;
   if (
     yieldTimeMs !== undefined &&
     (!Number.isSafeInteger(yieldTimeMs) ||
@@ -51,12 +59,12 @@ function parseRunCommandInput(value: unknown): RunCommandInput {
       `yieldTimeMs must be between ${MIN_YIELD_TIME_MS} and ${MAX_YIELD_TIME_MS}`,
     );
   }
-  const tty = "tty" in value ? value.tty : undefined;
+  const tty = record.tty;
   if (tty !== undefined && typeof tty !== "boolean") {
     throw new ToolError("invalid_input", "tty must be a boolean");
   }
   return {
-    command: value.command,
+    command: record.command,
     timeoutMs: timeoutMs as number,
     ...(yieldTimeMs === undefined ? {} : { yieldTimeMs: yieldTimeMs as number }),
     ...(tty === undefined ? {} : { tty }),

@@ -147,6 +147,7 @@ describe("web_fetch", () => {
     )).rejects.toMatchObject({ code: "execution_failed" });
     const fetch = vi.fn<WebFetchOperation>();
     for (const invalid of [
+      [],
       {},
       { url: "file:///tmp/a" },
       { url: "https://user:secret@example.com" },
