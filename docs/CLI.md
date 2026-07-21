@@ -286,6 +286,7 @@ One non-interactive run:
 
 ```bash
 node packages/cli/dist/main.js run "inspect the repository" --format text
+node packages/cli/dist/main.js run "inspect the repository" --format json
 node packages/cli/dist/main.js run "inspect the repository" -C /path/to/project --format jsonl
 node packages/cli/dist/main.js run "inspect the repository" --format jsonl
 node packages/cli/dist/main.js run "run the checks" --permissions full --format jsonl
@@ -297,6 +298,8 @@ cat logs.txt | node packages/cli/dist/main.js run "Summarize these logs" --stdin
 ```
 
 The no-argument interactive CLI requires a user-present local terminal and rejects recognized automation even when it allocates a TTY. The one-shot prompt examples require a configured local provider or an injected provider. A plain `recurs run` always creates a fresh durable session, so automation never inherits whichever compatible conversation happens to be newest. `--permissions ask|approved|full` pins that preset into the fresh session; Full still preserves credential denials, sensitive and external-path prompts, integrity controls, and the macOS/Linux workspace sandbox. Windows subprocess tools remain unsupported.
+
+`--format json` suppresses live events and writes exactly one versioned `run_result` object after the run and all owned runtime resources close successfully. It includes the exact session ID and an `agent` or `command` result; the agent result retains final text, usage, step count, changed files, and evidence. Preflight failures produce one `configuration_error` object and exit `2`. Runtime failures retain the existing nonzero exit and safe standard-error diagnostic. Use `--format jsonl` when a caller needs normalized events as work progresses. Aggregate JSON is built from the already bounded run result rather than buffering the event stream.
 
 `-C <directory>` and `--cd <directory>` select one existing directory as the canonical working root for ordinary interactive, setup, provider, account, and headless CLI work. Relative paths are resolved from the caller's directory, then canonicalized before runtime creation. Recurs does not call `process.chdir`: sessions, project instructions, tools, MCP trust, and the OS sandbox all receive the same exact root. An unavailable path fails before a session is created. Resuming from a different root still fails the existing workspace check. ACP rejects this flag because the ACP client supplies and validates its session root.
 

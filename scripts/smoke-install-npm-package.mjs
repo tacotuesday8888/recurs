@@ -714,7 +714,7 @@ try {
 
   const { stdout: fresh, stderr: freshError } = await execFileAsync(
     executable,
-    ["run", freshPrompt, "--format", "jsonl"],
+    ["run", freshPrompt, "--format", "json"],
     {
       cwd: workspaceDirectory,
       encoding: "utf8",
@@ -722,18 +722,16 @@ try {
       maxBuffer: 10 * 1024 * 1024,
     },
   );
-  const freshEvents = fresh.trim().split("\n").map((line) => JSON.parse(line));
-  const freshSessionId = freshEvents.find((event) =>
-    event.type === "turn_started"
-  )?.sessionId;
+  const freshResult = JSON.parse(fresh);
+  const freshSessionId = freshResult.sessionId;
   assert(
     typeof freshSessionId === "string" && freshSessionId !== initialSessionId,
     "An installed one-shot run without --resume reused prior session state.",
   );
   assert(
-    freshEvents.some((event) =>
-      event.type === "model_text_delta" && event.text === freshFinalText
-    ),
+    freshResult.type === "run_result" &&
+      freshResult.result?.kind === "agent" &&
+      freshResult.result?.finalText === freshFinalText,
     "The installed fresh session did not complete its turn.",
   );
   assert(freshError === "", "The installed fresh run wrote unexpected diagnostics.");
