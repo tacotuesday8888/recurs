@@ -327,6 +327,7 @@ export function createRootAgentDescriptor(
   backend: SessionBackendPin,
   operatingModeId = DEFAULT_OPERATING_MODE_ID,
   permissionMode: PermissionMode = "ask_always",
+  executionMode: ExecutionMode = "act",
 ): AgentSessionDescriptor {
   const mode = getOperatingModePolicy(operatingModeId);
   return {
@@ -345,8 +346,8 @@ export function createRootAgentDescriptor(
       modelId: backend.modelId,
     },
     permissions: {
-      parentExecutionMode: "act",
-      executionMode: "act",
+      parentExecutionMode: executionMode,
+      executionMode,
       parentPermissionMode: permissionMode,
       permissionMode,
     },

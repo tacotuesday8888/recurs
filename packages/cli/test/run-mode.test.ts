@@ -2486,6 +2486,93 @@ describe("runCli", () => {
     },
   );
 
+  it("pins Plan mode into a fresh one-shot session", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let runtimeOptions: unknown;
+
+    expect(await runCli(
+      ["run", "inspect", "--plan", "--format", "jsonl"],
+      {
+        stdout,
+        stderr,
+        async createRuntime(events, options) {
+          runtimeOptions = options;
+          return createRuntime(events);
+        },
+      },
+    )).toBe(0);
+
+    expect(runtimeOptions).toEqual({
+      executionMode: "plan",
+      reuseExistingSession: false,
+    });
+    expect(stderr.value).toBe("");
+  });
+
+  it("runs headless review through the existing Plan-only review command", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let runtimeOptions: unknown;
+    let submitted = "";
+    let invocation: HostInvocation | undefined;
+
+    expect(await runCli(
+      [
+        "review",
+        "--connection",
+        "saved.review:1",
+        "--mode",
+        "standard",
+        "--format",
+        "json",
+      ],
+      {
+        stdout,
+        stderr,
+        async createRuntime(_events, options) {
+          runtimeOptions = options;
+          return {
+            state: { type: "session", session: { id: "review-session" } },
+            async submit(input: string, received?: HostInvocation) {
+              submitted = input;
+              invocation = received;
+              return {
+                finalText: "review complete",
+                stopReason: "complete",
+                usage: null,
+                changedFiles: [],
+                evidence: [],
+              };
+            },
+            async close() {},
+          } as unknown as RecursRuntime;
+        },
+      },
+    )).toBe(0);
+
+    expect(runtimeOptions).toEqual({
+      connectionId: "saved.review:1",
+      executionMode: "plan",
+      operatingModeId: "standard_v5",
+      reuseExistingSession: false,
+    });
+    expect(submitted).toBe("/review");
+    expect(invocation).toMatchObject({
+      invocation: "one_shot",
+      userPresent: false,
+      remote: false,
+      scripted: true,
+      embedding: "cli",
+    });
+    expect(JSON.parse(stdout.value)).toMatchObject({
+      version: 1,
+      type: "run_result",
+      result: { kind: "agent", finalText: "review complete" },
+    });
+    expect(stderr.value).toBe("");
+  });
+
   it.each([
     ["economy", "economy_v5"],
     ["standard", "standard_v5"],
@@ -2646,6 +2733,8 @@ describe("runCli", () => {
     ["run", "inspect", "--mode", "unknown"],
     ["run", "inspect", "--mode", "balanced", "--mode", "max"],
     ["run", "inspect", "--resume", "session-1", "--mode", "economy"],
+    ["run", "inspect", "--resume", "session-1", "--plan"],
+    ["run", "inspect", "--plan", "--plan"],
     ["run", "inspect", "--connection"],
     ["run", "inspect", "--connection", "../outside"],
     [
@@ -2662,6 +2751,11 @@ describe("runCli", () => {
     ["run", "--stdin"],
     ["run", "-", "--stdin"],
     ["run", "inspect", "--stdin", "--stdin"],
+    ["review", "custom prompt"],
+    ["review", "--resume", "session-1"],
+    ["review", "--stdin"],
+    ["review", "--image", "screen.png"],
+    ["review", "--plan"],
   ])("rejects invalid one-shot policy or resume flags before runtime creation", async (...args) => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
@@ -2730,6 +2824,7 @@ describe("runCli", () => {
     ).toBe(0);
     expect(stdout.value).toContain("recurs run <prompt>");
     expect(stdout.value).toContain("--permissions ask|approved|full");
+    expect(stdout.value).toContain("recurs review");
   });
 
   it.each(["--version", "-V", "-v", "version"])(
@@ -2752,6 +2847,7 @@ describe("runCli", () => {
 
   it.each([
     ["run", "Run one coding-agent prompt", "--format text|json|jsonl"],
+    ["review", "Review the current staged", "fresh durable Plan session"],
     ["setup", "Configure a provider", "setup byok"],
     ["provider", "Inspect available provider paths", "provider models"],
     ["account", "Manage saved non-secret", "account set-primary"],

@@ -85,6 +85,21 @@ describe("version 2 sessions", () => {
     expect(state.agentResult).toBeNull();
   });
 
+  it("can create a root agent with an explicit narrower execution mode", () => {
+    expect(createRootAgentDescriptor(
+      "plan-session",
+      backend,
+      "balanced_v5",
+      "approved_for_me",
+      "plan",
+    ).permissions).toEqual({
+      parentExecutionMode: "plan",
+      executionMode: "plan",
+      parentPermissionMode: "approved_for_me",
+      permissionMode: "approved_for_me",
+    });
+  });
+
   it("persists queued turns and consumes only the exact FIFO head", async () => {
     const store = await temporaryStore();
     const initial = await store.createPinnedSession({

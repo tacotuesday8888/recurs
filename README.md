@@ -27,7 +27,7 @@ The repository contains a usable agent base and a bounded, Recurs-owned child-ag
 - eleven tools for file reading, bounded glob-aware listing, fixed-text search, bounded parser-backed TypeScript/JavaScript and lexical multi-language code outlines, explicitly approved public-web evidence, patching, bounded shell execution, owned process-session control, shell-free allowlisted verification, Git status, and Git diff; public fetches pin verified public DNS answers to the socket, recheck every same-host redirect, and return only bounded text labeled as untrusted; a command that outlives its yield deadline can be polled, receive bounded stdin, or be stopped without losing its original sandbox, permission, timeout, output, ownership, or checkpoint boundary; supported macOS/Linux npm installations can explicitly request a real pseudo-terminal and later resize it through the same owned-session boundary; independent built-in reads can run in bounded parallel groups, while mutations, approvals, network access, MCP, delegation, and commands remain ordered barriers; each child profile receives an exact host-tool and intent ceiling;
 - Ask Always, Approved for Me, Full Access, enforced Plan mode, and a read-only Review profile;
 - durable `/goal` state, append-only JSONL sessions, same-turn steering, bounded FIFO follow-up turns with explicit restart recovery, safe completed-conversation forks, interrupted-tool recovery, fenced byte-bounded compaction with typed failure/usage records, conservative parent pre-turn compaction from verified limits and one safe reactive recovery from a clean provider context overflow, checkpoints, and conflict-safe undo;
-- interactive and non-interactive CLI paths with text, one aggregate JSON result, or normalized JSONL events, including one canonical `-C`/`--cd` working root, fresh-by-default headless runs, exact fail-closed `--resume <session-id>` continuation, explicit saved-connection and operating-mode selection, bounded piped prompts, repeatable headless `--image`, and path-free one-turn interactive `/image` staging;
+- interactive and non-interactive CLI paths with text, one aggregate JSON result, or normalized JSONL events, including one canonical `-C`/`--cd` working root, fresh-by-default headless runs, exact fail-closed `--resume <session-id>` continuation, explicit saved-connection and operating-mode selection, immutable headless `--plan` sessions, a real `recurs review` entry point over the bounded Git-diff reviewer, bounded piped prompts, repeatable headless `--image`, and path-free one-turn interactive `/image` staging;
 - provider-neutral durable image messages across tool rounds and resume, with native wire encoding for the reviewed OpenAI Responses, OpenAI Chat-compatible, Anthropic Messages, and private macOS broker paths; file paths are validated locally but never persisted or sent to a model;
 - a Recurs-owned ACP v1 stdio agent endpoint for editor and agent-client integration, with isolated sessions, text and bounded image prompts, streamed model/tool/child/team activity, one-shot permission forwarding, cancellation, and honest capability negotiation;
 - bounded Agent Skills discovery and progressive activation for user-installed `~/.agents/skills` and `$RECURS_HOME/skills`, plus explicitly trusted project `.agents/skills` and `.recurs/skills`;
@@ -58,6 +58,7 @@ npm link
 recurs --version
 recurs --help
 recurs run --help
+recurs review --help
 recurs setup
 node packages/cli/dist/main.js --help
 # Recommended first run: connect a reviewed path, select a model and permission
@@ -101,6 +102,10 @@ RECURS_PROVIDER=openrouter-api RECURS_MODEL=<provider/model> RECURS_API_KEY=<key
 node packages/cli/dist/main.js
 # Work in another project without changing the caller's shell directory.
 node packages/cli/dist/main.js -C /path/to/project
+# Run one arbitrary prompt with mutating tools unavailable from sequence zero.
+node packages/cli/dist/main.js run "inspect the architecture" --plan --format json
+# Or invoke the built-in staged/unstaged Git review in a fresh Plan session.
+node packages/cli/dist/main.js review -C /path/to/project --format json
 ```
 
 After building, `npm link` exposes the local `recurs` command. It can be removed

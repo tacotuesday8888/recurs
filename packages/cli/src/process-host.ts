@@ -32,7 +32,7 @@ import {
   type LocalRuntimeDetection,
   type ProviderCatalogSnapshot,
 } from "@recurs/providers";
-import type { PermissionMode, PtyDriver } from "@recurs/tools";
+import type { ExecutionMode, PermissionMode, PtyDriver } from "@recurs/tools";
 import {
   CodexOnboardingError,
   ConnectionLifecycleError,
@@ -148,6 +148,7 @@ export interface CliDependencies {
     options?: {
       readonly operatingModeId?: OperatingModeId;
       readonly permissionMode?: PermissionMode;
+      readonly executionMode?: ExecutionMode;
       readonly connectionId?: string;
       readonly cwd?: string;
       readonly reuseExistingSession?: boolean;
@@ -198,6 +199,7 @@ interface RunArguments {
   stdinMode: "none" | "replace" | "append";
   format: "text" | "json" | "jsonl";
   permissionMode?: PermissionMode;
+  executionMode?: ExecutionMode;
   operatingModeId?: OperatingModeId;
   connectionId?: string;
   resumeSessionId?: string;
@@ -286,9 +288,13 @@ function isAbortError(error: unknown): boolean {
   }
 }
 
-function parseRunArguments(args: readonly string[]): RunArguments | null {
+function parseAgentArguments(
+  command: "run" | "review",
+  args: readonly string[],
+): RunArguments | null {
   let format: RunArguments["format"] = "text";
   let permissionMode: PermissionMode | undefined;
+  let executionMode: ExecutionMode | undefined;
   let operatingModeId: OperatingModeId | undefined;
   let connectionId: string | undefined;
   let resumeSessionId: string | undefined;
@@ -315,6 +321,11 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
       index += 1;
       continue;
     }
+    if (argument === "--plan") {
+      if (executionMode !== undefined || command === "review") return null;
+      executionMode = "plan";
+      continue;
+    }
     if (argument === "--mode") {
       if (operatingModeId !== undefined) return null;
       const value = args[index + 1];
@@ -338,6 +349,7 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
       continue;
     }
     if (argument === "--resume") {
+      if (command === "review") return null;
       const value = args[index + 1];
       if (
         value === undefined ||
@@ -351,11 +363,13 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
       continue;
     }
     if (argument === "--stdin") {
+      if (command === "review") return null;
       if (appendStdin) return null;
       appendStdin = true;
       continue;
     }
     if (argument === "--image") {
+      if (command === "review") return null;
       const value = args[index + 1];
       if (
         value === undefined || value.length === 0 ||
@@ -370,7 +384,20 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
     if (argument.startsWith("--")) {
       return null;
     }
+    if (command === "review") return null;
     prompt.push(argument);
+  }
+  if (command === "review") {
+    return {
+      prompt: "/review",
+      stdinMode: "none",
+      format,
+      imagePaths: Object.freeze([]),
+      executionMode: "plan",
+      ...(permissionMode === undefined ? {} : { permissionMode }),
+      ...(operatingModeId === undefined ? {} : { operatingModeId }),
+      ...(connectionId === undefined ? {} : { connectionId }),
+    };
   }
   const joined = prompt.join(" ").trim();
   if (
@@ -378,7 +405,8 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
     (
       permissionMode !== undefined ||
       operatingModeId !== undefined ||
-      connectionId !== undefined
+      connectionId !== undefined ||
+      executionMode !== undefined
     )
   ) {
     return null;
@@ -397,6 +425,7 @@ function parseRunArguments(args: readonly string[]): RunArguments | null {
         format,
         imagePaths: Object.freeze(imagePaths),
         ...(permissionMode === undefined ? {} : { permissionMode }),
+        ...(executionMode === undefined ? {} : { executionMode }),
         ...(operatingModeId === undefined ? {} : { operatingModeId }),
         ...(connectionId === undefined ? {} : { connectionId }),
         ...(resumeSessionId === undefined ? {} : { resumeSessionId }),
@@ -1145,7 +1174,7 @@ export async function runCli(
       );
     } catch (error) {
       const safeMessage = safeCliErrorMessage(error);
-      const structured = argv[0] === "run" && argv.some(
+      const structured = (argv[0] === "run" || argv[0] === "review") && argv.some(
         (argument, index) =>
           argument === "--format" &&
           (argv[index + 1] === "json" || argv[index + 1] === "jsonl"),
@@ -1666,11 +1695,11 @@ export async function runCli(
     }
   }
 
-  if (argv[0] !== "run") {
+  if (argv[0] !== "run" && argv[0] !== "review") {
     await writeOutput(dependencies.stderr, help);
     return 2;
   }
-  const parsed = parseRunArguments(argv.slice(1));
+  const parsed = parseAgentArguments(argv[0], argv.slice(1));
   if (parsed === null) {
     await writeOutput(dependencies.stderr, help);
     return 2;
@@ -1729,6 +1758,9 @@ export async function runCli(
         ...(parsed.permissionMode === undefined
           ? {}
           : { permissionMode: parsed.permissionMode }),
+        ...(parsed.executionMode === undefined
+          ? {}
+          : { executionMode: parsed.executionMode }),
         ...(parsed.resumeSessionId === undefined
           ? {}
           : { resumeSessionId: parsed.resumeSessionId }),
@@ -2021,6 +2053,9 @@ export async function runCliProcess(
           ...(options?.permissionMode === undefined
             ? {}
             : { permissionMode: options.permissionMode }),
+          ...(options?.executionMode === undefined
+            ? {}
+            : { executionMode: options.executionMode }),
           ...(options?.operatingModeId === undefined
             ? {}
             : { operatingModeId: options.operatingModeId }),
