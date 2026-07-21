@@ -11,6 +11,7 @@ import {
   type PathPolicyOptions,
 } from "../path-policy.js";
 import { runProcess } from "../process.js";
+import { decodeUtf8Record, splitNulTerminatedRecords } from "../nul-records.js";
 import { ToolError, type Tool } from "../types.js";
 
 const MAX_GLOB_BYTES = 1_024;
@@ -18,7 +19,6 @@ const DEFAULT_LIMIT = 2_000;
 const MAX_LIMIT = 10_000;
 const MAX_RAW_LIST_BYTES = 2 * 1024 * 1024;
 const MAX_LIST_OUTPUT_BYTES = 512 * 1024;
-const FATAL_UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 export interface ListFilesInput {
   readonly path: string;
@@ -88,27 +88,14 @@ function parseFilePaths(
   directory: string,
   cwd: string,
 ): { readonly paths: readonly string[]; readonly omitted: number } {
-  if (bytes.length === 0) return { paths: [], omitted: 0 };
-  if (bytes.at(-1) !== 0) {
-    throw new ToolError("process_failed", "File listing was not NUL-terminated");
-  }
   const paths = new Set<string>();
   let omitted = 0;
-  let start = 0;
-  for (let index = 0; index < bytes.length; index += 1) {
-    if (bytes[index] !== 0) continue;
-    if (index === start) {
-      throw new ToolError("process_failed", "File listing contained an empty path");
-    }
-    let candidate: string;
-    try {
-      candidate = FATAL_UTF8.decode(bytes.subarray(start, index));
-    } catch {
+  for (const record of splitNulTerminatedRecords(bytes, "File listing")) {
+    const candidate = decodeUtf8Record(record);
+    if (candidate === null) {
       omitted += 1;
-      start = index + 1;
       continue;
     }
-    start = index + 1;
     const absolute = path.isAbsolute(candidate)
       ? path.normalize(candidate)
       : path.resolve(cwd, candidate);

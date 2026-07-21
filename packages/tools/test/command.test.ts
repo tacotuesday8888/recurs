@@ -852,7 +852,14 @@ describe("Git inspection tools", () => {
     const status = await invoke(createGitStatusTool(), {});
     const diff = await invoke(createGitDiffTool(), { path: "a.txt" });
 
-    expect(status.output).toContain("AM a.txt");
+    expect(status.output.trim().split("\n").map((line) => JSON.parse(line)))
+      .toContainEqual({
+        type: "change",
+        kind: "ordinary",
+        path: "a.txt",
+        index: "A",
+        worktree: "M",
+      });
     expect(diff.output).toContain("-before");
     expect(diff.output).toContain("+after");
     expect(await readFile(path.join(cwd, "a.txt"), "utf8")).toBe("after\n");
