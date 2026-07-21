@@ -2,6 +2,8 @@ import type { ModelMessage, StopReason, ToolCall } from "@recurs/providers";
 import type {
   IntegrationFailure,
   AgentProfileId,
+  CompanyBlueprintBinding,
+  CompanyDevelopmentStyle,
   OperatingModeId,
   OperatingModeVersion,
   ProviderUsage,
@@ -141,6 +143,15 @@ export type RecursEvent =
       operatingModeVersion: OperatingModeVersion;
     })
   | (EventBase & {
+      type: "company_blueprint_activated";
+      parentAgentId: string;
+      blueprintId: string;
+      blueprintVersion: 1;
+      developmentStyle: CompanyDevelopmentStyle;
+      operatingModeId: OperatingModeId;
+      roleCount: number;
+    })
+  | (EventBase & {
       type: "agent_team_activity";
       parentAgentId: string;
       teamId: string;
@@ -272,6 +283,7 @@ export type RecursEvent =
       description: string;
       operatingModeId: OperatingModeId;
       profileId: AgentProfileId;
+      company?: CompanyBlueprintBinding;
       batchId?: string;
       batchIndex?: number;
       teamId?: string;
@@ -288,6 +300,7 @@ export type RecursEvent =
       evidence: string[];
       costLimitExceeded: boolean;
       workflow: AgentWorkflowUsage;
+      company?: CompanyBlueprintBinding;
       batchId?: string;
       batchIndex?: number;
       teamId?: string;
@@ -300,6 +313,7 @@ export type RecursEvent =
       childSessionId: string;
       profileId: AgentProfileId;
       failure: IntegrationFailure;
+      company?: CompanyBlueprintBinding;
       batchId?: string;
       batchIndex?: number;
       teamId?: string;
@@ -312,6 +326,7 @@ export type RecursEvent =
       childSessionId: string;
       profileId: AgentProfileId;
       reason: string;
+      company?: CompanyBlueprintBinding;
       batchId?: string;
       batchIndex?: number;
       teamId?: string;

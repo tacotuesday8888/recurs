@@ -595,6 +595,103 @@ describe("runCli", () => {
     expect(stderr.value).toBe("");
   });
 
+  it("passes an explicitly approved company blueprint into fresh runtime activation", async () => {
+    const cwd = await realpath(
+      await mkdtemp(path.join(tmpdir(), "recurs-guided-company-")),
+    );
+    directories.push(cwd);
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const selections = [
+      "account:parent",
+      "approved_for_me",
+      "balanced_v5",
+      "create",
+      "existing_project",
+      "active",
+      "orchestrator",
+      "skip",
+    ];
+    const prompts = [
+      "Build a company-aware coding harness.",
+      "Never widen child permissions.",
+    ];
+    let inspectedCwd = "";
+    let runtimeOptions: Parameters<CliDependencies["createRuntime"]>[1];
+    const parentAccount = {
+      id: "parent",
+      label: "Parent model",
+      providerId: "openrouter-api",
+      adapterId: "openai-chat-completions" as const,
+      kind: "environment_model_provider" as const,
+      modelId: "provider/model",
+      primary: true,
+      account: "environment credential (value not stored)",
+      execution: "Act + Plan" as const,
+      billingSources: ["prepaid_credits" as const],
+      agentRoles: [],
+    };
+    const runtime = {
+      state: { type: "session" },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+
+    expect(await runCli(["setup"], {
+      cwd,
+      stdin: Readable.from(["/quit\n"]),
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      async createRuntime(_events, options) {
+        runtimeOptions = options;
+        return runtime;
+      },
+      async listAccounts() {
+        return [parentAccount];
+      },
+      async verifyAccount() {
+        return { verified: true, connection: parentAccount };
+      },
+      async setPrimaryAccount() { return parentAccount; },
+      async listProviders() { return []; },
+      async detectProviders() { return []; },
+      async inspectCompanyRepositoryFacts(root) {
+        inspectedCwd = root;
+        return { inspected: true, markers: [".git"] };
+      },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText() { return prompts.shift() ?? null; },
+      async confirm() { return true; },
+    })).toBe(0);
+
+    expect(inspectedCwd).toBe(cwd);
+    expect(runtimeOptions).toMatchObject({
+      operatingModeId: "balanced_v5",
+      permissionMode: "approved_for_me",
+      reuseExistingSession: false,
+      companyBlueprint: {
+        version: 1,
+        state: "approved",
+        developmentStyle: "orchestrator",
+        project: {
+          purpose: "Build a company-aware coding harness.",
+          repository: { inspected: true, markers: [".git"] },
+        },
+      },
+    });
+    expect(selections).toEqual([]);
+    expect(prompts).toEqual([]);
+    expect(stdout.value).toContain("Company blueprint approved: 3 role(s)");
+    expect(stderr.value).toBe("");
+  });
+
   it("selects an Anthropic model reported by the entered environment credential", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "recurs-guided-anthropic-"));
     directories.push(cwd);

@@ -33,6 +33,8 @@ import {
 } from "@recurs/app";
 import {
   bindRunAuthorization,
+  approveCompanyBlueprint,
+  compileCompanyBlueprint,
   CoordinatedRunError,
   DelegatedAgentExecutor,
   FileGitPatchArtifactStore,
@@ -394,6 +396,176 @@ describe("standalone assembly without a provider", () => {
       lastSequence: 1,
       executionMode: "act",
       permissionMode: "approved_for_me",
+    });
+  });
+
+  it("activates an approved company as a fresh bound parent with an initial goal", async () => {
+    const temporary = await mkdtemp(path.join(tmpdir(), "recurs-company-assembly-"));
+    directories.push(temporary);
+    const root = await realpath(temporary);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const blueprint = approveCompanyBlueprint(compileCompanyBlueprint({
+      id: "company-assembly-v1",
+      createdAt: "2026-07-21T00:00:00.000Z",
+      project: {
+        type: "existing_project",
+        stage: "active",
+        purpose: "Ship a verified company-bound agent handoff.",
+        constraints: ["Keep child authority within the parent boundary."],
+        repository: { inspected: true, markers: [".git"] },
+      },
+      developmentStyle: "orchestrator",
+      permissionMode: "approved_for_me",
+      operatingModeId: "balanced_v5",
+    }), "2026-07-21T00:01:00.000Z");
+    const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "company-handoff-1",
+            name: "delegate_company_task",
+            arguments: {
+              role: "qa_reviewer_v1",
+              description: "Review the activation boundary",
+              prompt: "Check the approved company activation and return concise evidence.",
+            },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "Child evidence: authority remained bounded." },
+        { type: "done", stopReason: "complete" },
+      ],
+      [
+        { type: "text_delta", text: "Parent synthesis: activation is bounded." },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const events: RecursEvent[] = [];
+    const runtime = await createStandaloneRuntime(
+      { async emit(event) { events.push(event); } },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        provider,
+        permissionMode: "approved_for_me",
+        operatingModeId: "balanced_v5",
+        reuseExistingSession: false,
+        companyBlueprint: blueprint,
+      },
+    );
+
+    expect(runtime.session).toMatchObject({
+      version: 2,
+      lastSequence: 1,
+      goal: { objective: blueprint.initialGoal, status: "active" },
+      agent: {
+        role: "parent",
+        company: {
+          blueprintId: blueprint.id,
+          blueprintVersion: 1,
+          roleId: "orchestrator_v1",
+          roleVersion: 1,
+        },
+      },
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "company_blueprint_activated",
+      sessionId: runtime.session.id,
+      parentAgentId: runtime.session.agent.id,
+      blueprintId: blueprint.id,
+      developmentStyle: "orchestrator",
+      operatingModeId: "balanced_v5",
+      roleCount: 3,
+    }));
+    const result = await runtime.submit("Delegate a bounded company review");
+    expect(provider.requests).toHaveLength(3);
+    expect(result).toMatchObject({
+      finalText: "Parent synthesis: activation is bounded.",
+    });
+    expect(JSON.stringify(provider.requests[0]?.messages)).toContain(
+      `Approved Recurs company ${blueprint.id} is active`,
+    );
+    expect(provider.requests[0]?.tools.map((tool) => tool.name))
+      .toContain("delegate_company_task");
+    expect(JSON.stringify(provider.requests[1]?.messages)).toContain(
+      "QA Reviewer",
+    );
+    expect(JSON.stringify(provider.requests[1]?.messages)).toContain(
+      "Check the approved company activation",
+    );
+    expect(provider.requests[1]?.tools.map((tool) => tool.name))
+      .not.toContain("delegate_company_task");
+    expect(provider.requests[2]?.messages.findLast(
+      (message) => message.role === "tool",
+    )?.content).toContain("Child evidence: authority remained bounded.");
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "agent_started",
+        company: expect.objectContaining({
+          blueprintId: blueprint.id,
+          roleId: "qa_reviewer_v1",
+        }),
+      }),
+      expect.objectContaining({
+        type: "agent_completed",
+        company: expect.objectContaining({
+          blueprintId: blueprint.id,
+          roleId: "qa_reviewer_v1",
+        }),
+      }),
+    ]));
+
+    const projectId = createHash("sha256")
+      .update(await realpath(workspace))
+      .digest("hex")
+      .slice(0, 24);
+    await expect(readdir(path.join(
+      root,
+      "data",
+      "projects",
+      projectId,
+      "company-blueprints",
+    ))).resolves.toEqual([`${blueprint.id}.json`]);
+  });
+
+  it("rejects company activation when approved authority differs from the session", async () => {
+    const temporary = await mkdtemp(path.join(tmpdir(), "recurs-company-authority-"));
+    directories.push(temporary);
+    const root = await realpath(temporary);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const blueprint = approveCompanyBlueprint(compileCompanyBlueprint({
+      id: "company-authority-v1",
+      createdAt: "2026-07-21T00:00:00.000Z",
+      project: {
+        type: "other",
+        stage: "idea",
+        purpose: "Keep company authority immutable.",
+        constraints: [],
+        repository: { inspected: false, markers: [] },
+      },
+      developmentStyle: "orchestrator",
+      permissionMode: "ask_always",
+      operatingModeId: "balanced_v5",
+    }), "2026-07-21T00:01:00.000Z");
+
+    await expect(createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        provider: new ScriptedProvider([]),
+        permissionMode: "full_access",
+        operatingModeId: "balanced_v5",
+        companyBlueprint: blueprint,
+      },
+    )).rejects.toMatchObject({
+      code: "invalid_input",
+      message: "The approved company authority must match the new session authority",
     });
   });
 
@@ -1862,6 +2034,7 @@ describe("standalone assembly without a provider", () => {
       "git_history",
       "git_show",
       "delegate_task",
+      "delegate_company_task",
       "delegate_tasks",
       "delegate_team",
       "team_status",

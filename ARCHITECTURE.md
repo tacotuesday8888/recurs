@@ -21,13 +21,13 @@ auth ◄──bounded native frames── sealed private engine
 public/source CLI ──fixed unavailable port──► shared process host
 ```
 
-- `@recurs/contracts` owns dependency-free model, connection, billing, backend-pin, trusted-invocation, failure, direct-provider, delegated-runtime, coordinator, agent-profile, operating-mode, and parent/child state contracts.
+- `@recurs/contracts` owns dependency-free model, connection, billing, backend-pin, trusted-invocation, failure, direct-provider, delegated-runtime, coordinator, agent-profile, operating-mode, immutable company-blueprint, and parent/child state contracts.
 - `@recurs/providers` owns strict provider manifests, the immutable 26-path catalog, normalized direct-provider streams, safe provider-error mapping, and deterministic fixtures. It has no credential implementation.
 - `@recurs/auth` owns the credential-free, bounded client and strict redacted onboarding/generation codecs for one injected native duplex. Descriptor parsing and ownership stay in the private engine, and auth has no credential or secret-retrieval operation.
 - `@recurs/app` owns the non-secret connection registry, redacted lifecycle and native-authority services, local onboarding, onboarding projection, and Codex onboarding policy. It depends on contracts, providers, and auth, never on the CLI.
 - `@recurs/runtimes` owns bounded ACP process/protocol handling and the pinned official Codex ACP profile. It receives opaque continuation-store capabilities and does not import vendor credentials.
 - `@recurs/tools` owns tool definitions and execution, permission intents, the unified credential/workspace path policy, command classification, clean one-shot and agent-owned resumable process setup and bounds, Git inspection, and checkpoint format gates.
-- `@recurs/core` owns the direct agent loop, delegated executor, backend-neutral coordinator, owned child manager, bounded batch and team coordinators, durable team-run journal/supervisor/recovery, provider-neutral role routing, cross-process run ownership, durable patch artifacts, activity projection, Git worktree leases, adaptive Review panels, shared delegation budgets, normalized runtime/agent events, trusted preflight handoff, process-scoped continuation authority, durable goals, session reduction, JSONL persistence, compaction, and recovery.
+- `@recurs/core` owns the direct agent loop, delegated executor, backend-neutral coordinator, owned child manager, immutable company-blueprint compiler/store/delegation adapter, bounded batch and team coordinators, durable team-run journal/supervisor/recovery, provider-neutral role routing, cross-process run ownership, durable patch artifacts, activity projection, Git worktree leases, adaptive Review panels, shared delegation budgets, normalized runtime/agent events, trusted preflight handoff, process-scoped continuation authority, durable goals, session reduction, JSONL persistence, compaction, and recovery.
 - `@recurs/cli` composes app (which assembles auth), providers, runtimes, core, and tools; it owns slash commands, operating-mode selection, agent activity rendering, redacted native diagnostics, interactive input, non-interactive execution, the Recurs-owned ACP stdio server, the bounded user-configured MCP stdio client, and process exit behavior.
 - `packages/native-engine` is the launcher-only entrypoint that claims descriptor 3 before loading the shared process host. Its sealed build substitutes a fixed denial for delegated Codex rather than resolving an ambient runtime.
 - `native/macos` contains the headless Swift launcher, exact-peer XPC broker, fixed bundle/child lifecycle, foreground secret capture, Data Protection Keychain adapter, credential journal/state machine, endpoint policy, model catalogs, and broker-owned OpenAI/Anthropic/Kimi generation. This is native CLI infrastructure, not a desktop interface.
@@ -53,6 +53,26 @@ For one prompt in the coordinated direct-model lane:
 Provider retries are bounded to two attempts and are allowed only before text, reasoning, or a tool call has appeared. Retrying after semantic output could duplicate visible text or work.
 
 ## Owned child orchestration
+
+An approved `CompanyBlueprintV1` is a private immutable project policy, not an
+independent execution engine. Guided onboarding deterministically compiles the
+bounded project intake, optional consented root-marker facts, selected
+permission preset, and exact operating-mode ID/version into stable role,
+model-route, tool-readiness, and quality contracts. Assembly persists it before
+creating a fresh root session, binds that session to `orchestrator_v1`, and
+records its proposed first objective through the existing `goal_updated`
+journal. Authority mismatch, a missing provider, a proposed rather than
+approved blueprint, or an attempt to attach one during resume fails before
+successful activation.
+
+`delegate_company_task` is a narrow adapter over `ChildAgentManager`. It
+reloads the exact bound blueprint, resolves one approved role to an existing
+profile, scopes the role instructions around one assignment, and returns the
+ordinary durable child result to the parent. Company correlation is included
+in normalized activation and child lifecycle events. The adapter does not add
+another model loop, permission engine, retry budget, recursion level, or
+background daemon. Approved roster entries remain idle until the parent makes
+a concrete tool call.
 
 `delegate_task` creates one durable Explore, Implement, or Review child session through `BackendRunCoordinator`. `delegate_tasks` schedules independent Explore/Review children through that same path. `delegate_team` composes isolated Implement, Review, and Repair children without creating another model loop. Child permissions can only narrow the parent, depth is one, retries are zero, and every operating mode caps total and concurrent work. Immutable version-1 through version-4 IDs retain their historical behavior; display-name selection uses the version-5 routed-team policy.
 

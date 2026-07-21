@@ -87,6 +87,11 @@ export class TextEventRenderer implements EventSink {
       case "verification_recorded":
         await this.#status(`Verified: ${event.evidence.join("; ")}`);
         break;
+      case "company_blueprint_activated":
+        await this.#status(
+          `Company ${event.blueprintId} activated: ${event.roleCount} approved role${event.roleCount === 1 ? "" : "s"}`,
+        );
+        break;
       case "agent_started":
         await this.#status(
           `↳ ${getAgentProfilePolicy(event.profileId).displayName} child: ${event.description}`,

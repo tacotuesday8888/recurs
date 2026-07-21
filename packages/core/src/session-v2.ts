@@ -4,6 +4,7 @@ import type {
   AgentLifecycle,
   AgentResult,
   AgentSessionDescriptor,
+  CompanyBlueprintBinding,
   IntegrationFailure,
   ModelImageInput,
   ModelMessage,
@@ -328,6 +329,7 @@ export function createRootAgentDescriptor(
   operatingModeId = DEFAULT_OPERATING_MODE_ID,
   permissionMode: PermissionMode = "ask_always",
   executionMode: ExecutionMode = "act",
+  company?: CompanyBlueprintBinding,
 ): AgentSessionDescriptor {
   const mode = getOperatingModePolicy(operatingModeId);
   return {
@@ -352,6 +354,7 @@ export function createRootAgentDescriptor(
       permissionMode,
     },
     limits: mode.orchestration,
+    ...(company === undefined ? {} : { company: structuredClone(company) }),
   };
 }
 

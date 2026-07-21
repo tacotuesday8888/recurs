@@ -17,6 +17,7 @@ import {
   parseOperatingModeId,
   RECURS_VERSION,
   type OperatingModeId,
+  type CompanyBlueprintV1,
   type IntegrationFailure,
   type NativeAuthorityPort,
   type NativeAuthorityStatus,
@@ -92,6 +93,7 @@ import {
 import {
   isSafeCredentialEnvironmentVariable,
   isSafeModelId,
+  inspectCompanyRepositoryFacts,
   runGuidedOnboarding as runGuidedOnboardingFlow,
   type GuidedChoice,
   type GuidedOnboardingOutcome,
@@ -142,6 +144,9 @@ export interface CliDependencies {
     choices: readonly GuidedChoice[],
   ): Promise<string | null>;
   promptText?(message: string, suggestion?: string): Promise<string | null>;
+  inspectCompanyRepositoryFacts?(
+    cwd: string,
+  ): ReturnType<typeof inspectCompanyRepositoryFacts>;
   credentialEnvironmentAvailable?(name: string): boolean;
   selectOpenAIModel?(modelIds: readonly string[]): Promise<string | null>;
   nativeAuthority?: NativeAuthorityPort;
@@ -159,6 +164,7 @@ export interface CliDependencies {
       readonly cwd?: string;
       readonly reuseExistingSession?: boolean;
       readonly resumeSessionId?: string;
+      readonly companyBlueprint?: CompanyBlueprintV1;
     },
   ): Promise<RecursRuntime>;
   runAcp?(): Promise<void>;
@@ -1116,6 +1122,14 @@ async function runGuidedOnboarding(
     inspectProjectInstructions: () => discoverProjectInstructions(
       dependencies.cwd ?? process.cwd(),
     ),
+    ...(dependencies.inspectCompanyRepositoryFacts === undefined
+      ? {}
+      : {
+          inspectCompanyRepositoryFacts: () =>
+            dependencies.inspectCompanyRepositoryFacts!(
+              dependencies.cwd ?? process.cwd(),
+            ),
+        }),
     createProjectInstructions: (input) => createProjectInstructions(
       dependencies.cwd ?? process.cwd(),
       input,
@@ -1316,6 +1330,9 @@ export async function runCli(
             operatingModeId: onboarding.operatingModeId,
             permissionMode: onboarding.permissionMode,
             reuseExistingSession: false,
+            ...(onboarding.companyBlueprint === undefined
+              ? {}
+              : { companyBlueprint: onboarding.companyBlueprint }),
           });
         }
       }
@@ -1346,6 +1363,9 @@ export async function runCli(
         operatingModeId: onboarding.operatingModeId,
         permissionMode: onboarding.permissionMode,
         reuseExistingSession: false,
+        ...(onboarding.companyBlueprint === undefined
+          ? {}
+          : { companyBlueprint: onboarding.companyBlueprint }),
       });
       await startInteractiveRepl(runtime, dependencies);
       return 0;
@@ -2084,6 +2104,7 @@ export async function runCliProcess(
         ),
         recover: async () => ({ state: "none" }),
       },
+      inspectCompanyRepositoryFacts,
       createRuntime: (events, options) => createStandaloneRuntime(
         events,
         {
@@ -2110,6 +2131,9 @@ export async function runCliProcess(
           ...(options?.resumeSessionId === undefined
             ? {}
             : { resumeSessionId: options.resumeSessionId }),
+          ...(options?.companyBlueprint === undefined
+            ? {}
+            : { companyBlueprint: options.companyBlueprint }),
         },
       ),
       runAcp: () => serveRecursAcpStdio(

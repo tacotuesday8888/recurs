@@ -16,6 +16,18 @@ describe("TextEventRenderer agent activity", () => {
     const renderer = new TextEventRenderer(stream);
 
     await renderer.emit({
+      type: "company_blueprint_activated",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      blueprintId: "company-1",
+      blueprintVersion: 1,
+      developmentStyle: "layered_company",
+      operatingModeId: "balanced_v5",
+      roleCount: 8,
+    });
+
+    await renderer.emit({
       type: "agent_started",
       sessionId: "parent-session",
       at: "2026-07-17T00:00:00.000Z",
@@ -248,6 +260,7 @@ describe("TextEventRenderer agent activity", () => {
       },
     });
 
+    expect(output).toContain("Company company-1 activated: 8 approved roles");
     expect(output).toContain("↳ Explore child: Inspect cache key");
     expect(output).toContain("✓ Explore child completed: child-agent (1/4 this run)");
     expect(output).toContain("✗ Implement child failed: Focused tests failed");

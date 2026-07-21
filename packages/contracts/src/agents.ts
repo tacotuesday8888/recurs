@@ -1,6 +1,7 @@
 import type { IntegrationFailure } from "./failures.js";
 import type { ProviderUsage } from "./model.js";
 import type { BillingSource } from "./connections.js";
+import type { CompanyBlueprintBinding } from "./company.js";
 
 export type AgentPermissionMode =
   | "ask_always"
@@ -492,6 +493,7 @@ export interface AgentSessionDescriptor {
     readonly permissionMode: AgentPermissionMode;
   };
   readonly limits: AgentLimits;
+  readonly company?: CompanyBlueprintBinding;
   readonly workspace?: AgentGitWorktreeWorkspace;
   readonly team?: AgentTeamCorrelation;
 }

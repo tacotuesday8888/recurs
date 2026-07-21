@@ -100,6 +100,88 @@ describe("version 2 sessions", () => {
     });
   });
 
+  it("durably binds approved company roles to parent and child sessions", async () => {
+    const store = await temporaryStore();
+    const parentBinding = {
+      blueprintId: "company-1",
+      blueprintVersion: 1 as const,
+      roleId: "orchestrator_v1" as const,
+      roleVersion: 1 as const,
+    };
+    const parentAgent = createRootAgentDescriptor(
+      "company-parent",
+      backend,
+      "balanced_v5",
+      "approved_for_me",
+      "act",
+      parentBinding,
+    );
+    const parent = await store.createPinnedSession({
+      id: "company-parent",
+      cwd: "/workspace",
+      backend,
+      agent: parentAgent,
+      at,
+    });
+    expect(parent.agent.company).toEqual(parentBinding);
+    const forked = await store.forkPinnedSession({
+      sourceId: parent.id,
+      expectedSourceSequence: parent.lastSequence,
+      id: "company-parent-fork",
+      at,
+    });
+    expect(forked.agent.company).toEqual(parentBinding);
+
+    const childAgent: AgentSessionDescriptor = {
+      ...parent.agent,
+      id: "company-child-agent",
+      role: "child",
+      profile: { id: "implement_v1", version: 1 },
+      parentAgentId: parent.agent.id,
+      parentSessionId: parent.id,
+      depth: 1,
+      task: {
+        id: "company-task",
+        description: "Implement the bounded slice",
+        prompt: "Implement and verify the bounded slice",
+      },
+      backend: { ...parent.agent.backend, strategy: "inherit_parent" },
+      company: {
+        ...parentBinding,
+        roleId: "scoped_builder_v1",
+      },
+    };
+    const child = await store.createPinnedSession({
+      id: "company-child",
+      cwd: "/workspace",
+      backend,
+      agent: childAgent,
+      at,
+    });
+    expect(child.agent.company).toEqual(childAgent.company);
+  });
+
+  it("rejects mismatched company roles in durable session descriptors", async () => {
+    const store = await temporaryStore();
+    const parent = createRootAgentDescriptor("bad-company-parent", backend);
+
+    await expect(store.createPinnedSession({
+      id: "bad-company-parent",
+      cwd: "/workspace",
+      backend,
+      agent: {
+        ...parent,
+        company: {
+          blueprintId: "company-1",
+          blueprintVersion: 1,
+          roleId: "scoped_builder_v1",
+          roleVersion: 1,
+        },
+      },
+      at,
+    })).rejects.toThrow("Invalid version 2 session_created record");
+  });
+
   it("persists queued turns and consumes only the exact FIFO head", async () => {
     const store = await temporaryStore();
     const initial = await store.createPinnedSession({

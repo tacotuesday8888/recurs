@@ -1,4 +1,7 @@
 import { Writable } from "node:stream";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -15,8 +18,10 @@ import {
   guidedConnectionChoices,
   guidedOperatingModeId,
   guidedPermissionMode,
+  inspectCompanyRepositoryFacts,
   runGuidedOnboarding,
 } from "../src/guided-onboarding.js";
+import type { ProjectBriefInput } from "../src/project-instructions.js";
 
 const providers: readonly ProviderSummary[] = [
   {
@@ -656,5 +661,108 @@ describe("guided onboarding policy", () => {
       purpose: "Build a dependable multi-agent coding harness.",
       notes: "Run npm test and keep permissions monotonic.",
     });
+  });
+
+  it("inspects only fixed root markers and ignores symbolic links", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-company-facts-"));
+    try {
+      await mkdir(path.join(root, ".git"));
+      await writeFile(path.join(root, "package.json"), "secret content");
+      await writeFile(path.join(root, ".env"), "must-not-be-discovered");
+      await symlink(path.join(root, "package.json"), path.join(root, "Cargo.toml"));
+
+      await expect(inspectCompanyRepositoryFacts(root)).resolves.toEqual({
+        inspected: true,
+        markers: [".git", "package.json"],
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reviews and approves a tailored company without repeating project intake", async () => {
+    const selections = [
+      "account:saved-1",
+      "approved_for_me",
+      "balanced_v5",
+      "create",
+      "existing_project",
+      "active",
+      "layered_company",
+      "create",
+    ];
+    const prompts = [
+      "Build a dependable multi-agent coding harness.",
+      "Keep permissions monotonic and run focused verification.",
+    ];
+    const confirmations: string[] = [];
+    let brief: ProjectBriefInput | undefined;
+    const output: string[] = [];
+    const sink = new Writable({
+      write(chunk, _encoding, done) {
+        output.push(String(chunk));
+        done();
+      },
+    });
+    const outcome = await runGuidedOnboarding({
+      stdout: sink,
+      stderr: sink,
+      interactive: true,
+      automation: false,
+      nativeProviders: new Set(),
+      async listAccounts() { return [account]; },
+      async detectProviders() { return []; },
+      async listProviders() { return []; },
+      async inspectProjectInstructions() { return []; },
+      async inspectCompanyRepositoryFacts() {
+        return { inspected: true, markers: [".git", "AGENTS.md"] };
+      },
+      async createProjectInstructions(input) {
+        brief = input;
+        return "created";
+      },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText() { return prompts.shift() ?? null; },
+      async confirm(message) {
+        confirmations.push(message);
+        return true;
+      },
+      async executeCommand() { return 0; },
+    });
+
+    expect(outcome).toMatchObject({
+      state: "configured",
+      permissionMode: "approved_for_me",
+      operatingModeId: "balanced_v5",
+      companyBlueprint: {
+        version: 1,
+        state: "approved",
+        developmentStyle: "layered_company",
+        project: {
+          purpose: "Build a dependable multi-agent coding harness.",
+          repository: { inspected: true, markers: [".git", "AGENTS.md"] },
+        },
+        authority: {
+          permissionMode: "approved_for_me",
+          operatingModeId: "balanced_v5",
+        },
+      },
+    });
+    expect(outcome.state === "configured" && outcome.companyBlueprint?.roles)
+      .toHaveLength(8);
+    expect(brief).toEqual({
+      purpose: "Build a dependable multi-agent coding harness.",
+      notes: "Keep permissions monotonic and run focused verification.",
+    });
+    expect(prompts).toEqual([]);
+    expect(confirmations).toHaveLength(3);
+    expect(confirmations[0]).toContain("will not read file contents");
+    expect(confirmations[1]).toContain("Approve and activate");
+    expect(confirmations[2]).toContain("never overwrite");
+    expect(output.join("")).toContain("6 / 6 · Project context");
   });
 });
