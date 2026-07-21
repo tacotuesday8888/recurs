@@ -458,6 +458,10 @@ describe("code_outline", () => {
       .rejects.toMatchObject({ code: "invalid_input" });
     await expect(invoke({ query: " ".repeat(2) }))
       .rejects.toMatchObject({ code: "invalid_input" });
+    await expect(invoke([]))
+      .rejects.toMatchObject({ code: "invalid_input" });
+    await expect(invoke({ path: "src", extra: true }))
+      .rejects.toMatchObject({ code: "invalid_input" });
 
     const controller = new AbortController();
     controller.abort();

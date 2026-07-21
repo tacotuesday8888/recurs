@@ -29,50 +29,66 @@ function parseApplyPatchInput(value: unknown): ApplyPatchInput {
   if (
     typeof value !== "object" ||
     value === null ||
-    !("patch" in value) ||
-    typeof value.patch !== "string" ||
-    value.patch.length === 0 ||
-    !("files" in value) ||
-    !Array.isArray(value.files)
+    Array.isArray(value)
+  ) {
+    throw new ToolError("invalid_input", "apply_patch expects an object");
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    Object.keys(record).some((key) => key !== "patch" && key !== "files") ||
+    typeof record.patch !== "string" ||
+    record.patch.length === 0 ||
+    !Array.isArray(record.files)
   ) {
     throw new ToolError(
       "invalid_input",
       "apply_patch requires patch text and a files array",
     );
   }
-  if (Buffer.byteLength(value.patch, "utf8") > MAX_PATCH_BYTES) {
+  if (Buffer.byteLength(record.patch, "utf8") > MAX_PATCH_BYTES) {
     throw new ToolError(
       "output_limit",
       `Patch exceeds the ${MAX_PATCH_BYTES}-byte limit`,
     );
   }
-  const files = value.files.map((file, index): PatchFileRevision => {
+  const files = record.files.map((file, index): PatchFileRevision => {
     if (
       typeof file !== "object" ||
       file === null ||
-      !("path" in file) ||
-      typeof file.path !== "string" ||
-      file.path.length === 0 ||
-      file.path !== file.path.trim() ||
-      file.path.includes("\\") ||
-      file.path.includes("\0") ||
-      !("expected_hash" in file) ||
-      (file.expected_hash !== null &&
-        (typeof file.expected_hash !== "string" ||
-          !/^[a-f0-9]{64}$/u.test(file.expected_hash)))
+      Array.isArray(file)
     ) {
       throw new ToolError(
         "invalid_input",
         `Invalid file revision at index ${index}`,
       );
     }
-    return { path: file.path, expected_hash: file.expected_hash };
+    const revision = file as Record<string, unknown>;
+    if (
+      Object.keys(revision).sort().join(",") !== "expected_hash,path" ||
+      typeof revision.path !== "string" ||
+      revision.path.length === 0 ||
+      revision.path !== revision.path.trim() ||
+      revision.path.includes("\\") ||
+      revision.path.includes("\0") ||
+      (revision.expected_hash !== null &&
+        (typeof revision.expected_hash !== "string" ||
+          !/^[a-f0-9]{64}$/u.test(revision.expected_hash)))
+    ) {
+      throw new ToolError(
+        "invalid_input",
+        `Invalid file revision at index ${index}`,
+      );
+    }
+    return {
+      path: revision.path,
+      expected_hash: revision.expected_hash as string | null,
+    };
   });
   const uniquePaths = new Set(files.map((file) => file.path));
   if (uniquePaths.size !== files.length) {
     throw new ToolError("invalid_input", "Patch file declarations must be unique");
   }
-  return { patch: value.patch, files };
+  return { patch: record.patch, files };
 }
 
 function decodePatchMarker(raw: string): string | null {

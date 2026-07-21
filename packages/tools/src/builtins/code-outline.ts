@@ -169,11 +169,20 @@ function boundedInteger(
 }
 
 function parseCodeOutlineInput(value: unknown): CodeOutlineInput {
-  if (typeof value !== "object" || value === null) {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new ToolError("invalid_input", "code_outline expects an object");
   }
-  const inputPath = "path" in value && value.path !== undefined ? value.path : ".";
-  const rawQuery = "query" in value ? value.query : undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    Object.keys(record).some((key) =>
+      key !== "path" && key !== "query" && key !== "ranking" &&
+      key !== "maxFiles" && key !== "maxSymbols"
+    )
+  ) {
+    throw new ToolError("invalid_input", "code_outline received an unknown option");
+  }
+  const inputPath = record.path ?? ".";
+  const rawQuery = record.query;
   if (typeof inputPath !== "string") {
     throw new ToolError("invalid_input", "path must be a string");
   }
@@ -184,7 +193,7 @@ function parseCodeOutlineInput(value: unknown): CodeOutlineInput {
   if (query !== undefined && query.length > 256) {
     throw new ToolError("invalid_input", "query must not exceed 256 characters");
   }
-  const rawRanking = "ranking" in value ? value.ranking : undefined;
+  const rawRanking = record.ranking;
   if (
     rawRanking !== undefined && rawRanking !== "source" &&
     rawRanking !== "references"
@@ -196,13 +205,13 @@ function parseCodeOutlineInput(value: unknown): CodeOutlineInput {
     ...(query === undefined ? {} : { query }),
     ranking: rawRanking ?? "source",
     maxFiles: boundedInteger(
-      "maxFiles" in value ? value.maxFiles : undefined,
+      record.maxFiles,
       "maxFiles",
       DEFAULT_MAX_FILES,
       MAX_FILES,
     ),
     maxSymbols: boundedInteger(
-      "maxSymbols" in value ? value.maxSymbols : undefined,
+      record.maxSymbols,
       "maxSymbols",
       DEFAULT_MAX_SYMBOLS,
       MAX_SYMBOLS,
