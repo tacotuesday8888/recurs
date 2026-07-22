@@ -2,7 +2,7 @@ import type { Writable } from "node:stream";
 
 import {
   RECURS_MARK_ANSI_256,
-  RECURS_MARK_ROWS,
+  RECURS_TERMINAL_MARK,
 } from "./generated/recurs-brand.js";
 
 type TerminalEnvironment = Readonly<Record<string, string | undefined>>;
@@ -72,24 +72,12 @@ export function createTerminalTheme(
 
 export function renderRecursWordmark(theme: TerminalTheme): string {
   if (!theme.colorEnabled) return "";
-  const gradientSpan = Math.max(...RECURS_MARK_ROWS.flatMap((row, rowIndex) =>
-    Array.from(row, (glyph, columnIndex) =>
-      glyph === " " ? 0 : rowIndex * 2 + columnIndex
+  return Array.from(RECURS_TERMINAL_MARK, (glyph, index) =>
+    theme.brand(
+      glyph,
+      index === 0 ? 0 : RECURS_MARK_ANSI_256.length - 1,
     )
-  ));
-  return RECURS_MARK_ROWS.map((row, rowIndex) =>
-    Array.from(row, (glyph, columnIndex) =>
-      glyph === " "
-        ? glyph
-        : theme.brand(
-          glyph,
-          Math.floor(
-            (rowIndex * 2 + columnIndex) / gradientSpan *
-              (RECURS_MARK_ANSI_256.length - 1),
-          ),
-        )
-    ).join("")
-  ).join("\n");
+  ).join("");
 }
 
 export function renderRecursHeader(
@@ -98,8 +86,5 @@ export function renderRecursHeader(
 ): string {
   const wordmark = renderRecursWordmark(theme);
   if (wordmark.length === 0) return fallback;
-  const rows = wordmark.split("\n");
-  const labelRow = 1;
-  rows[labelRow] = `${rows[labelRow] ?? ""}   ${theme.strong(fallback)}`;
-  return rows.join("\n");
+  return `${wordmark}  ${theme.strong(fallback)}`;
 }
