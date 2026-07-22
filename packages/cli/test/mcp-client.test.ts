@@ -135,6 +135,20 @@ describe("McpServerCatalog", () => {
       servers: [{ enabled: true }],
     });
     expect(catalog.contextInstructions().join("\n")).toContain("project-server");
+    expect(catalog.contextInstructions([])).toEqual([]);
+    expect(catalog.contextInstructions(["project-server"]).join("\n"))
+      .toContain("project-server");
+    expect(tool.available?.({
+      ...context(workspace),
+      companyCapabilities: { agentSkillNames: [], mcpServerIds: [] },
+    })).toBe(false);
+    expect(() => tool.permissions(
+      tool.parse({ server: "project-server", action: "list_tools" }),
+      {
+        ...context(workspace),
+        companyCapabilities: { agentSkillNames: [], mcpServerIds: [] },
+      },
+    )).toThrow("not approved");
     await catalog.close();
 
     const restarted = await McpServerCatalog.load({

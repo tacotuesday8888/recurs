@@ -337,4 +337,59 @@ describe("company slash command", () => {
     )).resolves.toMatchObject({ level: "error", text: expect.stringContaining("local") });
     expect(approved.decisions.reject).not.toHaveBeenCalled();
   });
+
+  it("requires local confirmation for exact capability bind and unbind commands", async () => {
+    const blueprint = approvedBlueprint();
+    const set = {
+      companyId: blueprint.companyId,
+      version: 1 as const,
+      revision: 1,
+      blueprintId: blueprint.id,
+      blueprintRevision: blueprint.revision,
+      updatedAt: at,
+      bindings: [],
+    };
+    const capabilities = {
+      bindings: vi.fn(() => null),
+      bind: vi.fn(async () => set),
+      unbind: vi.fn(async () => ({ ...set, revision: 2 })),
+    };
+    const registry = createCommandRegistry({
+      company: dependencies(blueprint, { capabilities }),
+    });
+    const active = context(blueprint);
+
+    await expect(registry.execute(
+      "/company bind quality_v1 skill release-check",
+      active,
+    )).resolves.toMatchObject({
+      text: "Company capability bindings updated to revision 1",
+    });
+    expect(capabilities.bind).toHaveBeenCalledWith(expect.objectContaining({
+      blueprint,
+      bundleId: "quality_v1",
+      type: "agent_skill",
+      sourceId: "release-check",
+    }));
+    await expect(registry.execute(
+      "/company unbind capability-release-check",
+      active,
+    )).resolves.toMatchObject({
+      text: "Company capability bindings updated to revision 2",
+    });
+
+    const unattended = context(blueprint);
+    unattended.invocation = createHostInvocation({
+      invocation: "one_shot",
+      userPresent: false,
+      remote: false,
+      scripted: true,
+      embedding: "cli",
+    });
+    await expect(registry.execute(
+      "/company bind quality_v1 mcp issue-tracker",
+      unattended,
+    )).resolves.toMatchObject({ level: "error", text: expect.stringContaining("local") });
+    expect(capabilities.bind).toHaveBeenCalledTimes(1);
+  });
 });

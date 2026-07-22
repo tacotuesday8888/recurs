@@ -1,4 +1,9 @@
-import type { CompanyBlueprintV2 } from "@recurs/contracts";
+import {
+  validateCompanyCapabilityBindingsAgainstBlueprint,
+  type CompanyBlueprintV2,
+  type CompanyCapabilityBindingSetV1,
+  type CompanyToolBundleId,
+} from "@recurs/contracts";
 
 import type { AgentSkillSnapshot } from "./agent-skills.js";
 import type { McpCatalogSnapshot } from "./mcp-client.js";
@@ -13,20 +18,76 @@ export interface CompanyToolReadinessCounts {
   readonly missing: number;
 }
 
+export interface CompanyCapabilityResolution {
+  readonly bundleId: CompanyToolBundleId;
+  readonly ready: boolean;
+  readonly bindings: readonly {
+    readonly id: string;
+    readonly source: "agent_skill" | "mcp_server";
+    readonly sourceId: string;
+    readonly available: boolean;
+  }[];
+}
+
+function bindingAvailable(
+  binding: CompanyCapabilityBindingSetV1["bindings"][number],
+  catalogs: CompanyCapabilityCatalogs,
+): boolean {
+  return binding.source.type === "agent_skill"
+    ? (catalogs.skills?.skills.some((skill) =>
+        skill.name === binding.source.id &&
+        skill.source === binding.source.scope && skill.enabled
+      ) ?? false)
+    : (catalogs.mcp?.servers.some((server) =>
+        server.id === binding.source.id &&
+        server.source === binding.source.scope && server.enabled
+      ) ?? false);
+}
+
+export function resolveCompanyCapabilities(
+  blueprint: CompanyBlueprintV2,
+  catalogs: CompanyCapabilityCatalogs = {},
+  set: CompanyCapabilityBindingSetV1 | null = null,
+): readonly CompanyCapabilityResolution[] {
+  if (set !== null) {
+    validateCompanyCapabilityBindingsAgainstBlueprint(set, blueprint);
+  }
+  return Object.freeze(blueprint.toolPlan.map((tool) => {
+    const bindings = (set?.bindings ?? []).filter((binding) =>
+      binding.bundleId === tool.id
+    ).map((binding) => Object.freeze({
+      id: binding.id,
+      source: binding.source.type,
+      sourceId: binding.source.id,
+      available: bindingAvailable(binding, catalogs),
+    }));
+    return Object.freeze({
+      bundleId: tool.id,
+      ready: tool.status === "available" || bindings.some((binding) =>
+        binding.available
+      ),
+      bindings: Object.freeze(bindings),
+    });
+  }));
+}
+
 export function companyToolReadinessCounts(
   blueprint: CompanyBlueprintV2,
+  catalogs: CompanyCapabilityCatalogs = {},
+  set: CompanyCapabilityBindingSetV1 | null = null,
 ): CompanyToolReadinessCounts {
-  const ready = blueprint.toolPlan.filter((tool) =>
-    tool.status === "available"
-  ).length;
-  return Object.freeze({ ready, missing: blueprint.toolPlan.length - ready });
+  const resolved = resolveCompanyCapabilities(blueprint, catalogs, set);
+  const ready = resolved.filter((tool) => tool.ready).length;
+  return Object.freeze({ ready, missing: resolved.length - ready });
 }
 
 export function renderCompanyToolReadiness(
   blueprint: CompanyBlueprintV2,
   catalogs: CompanyCapabilityCatalogs = {},
+  set: CompanyCapabilityBindingSetV1 | null = null,
 ): string {
-  const counts = companyToolReadinessCounts(blueprint);
+  const resolved = resolveCompanyCapabilities(blueprint, catalogs, set);
+  const counts = companyToolReadinessCounts(blueprint, catalogs, set);
   const skills = catalogs.skills?.skills ?? [];
   const enabledSkills = skills.filter((skill) => skill.enabled)
     .map((skill) => skill.name);
@@ -40,9 +101,15 @@ export function renderCompanyToolReadiness(
     "Company capability readiness",
     `Blueprint: ${blueprint.id} (revision ${blueprint.revision})`,
     `Tool bundles: ${counts.ready} ready, ${counts.missing} missing`,
-    ...blueprint.toolPlan.map((tool) =>
-      `  ${tool.status === "available" ? "ready" : "missing"} | ${tool.id}`
-    ),
+    ...resolved.flatMap((tool) => [
+      `  ${tool.ready ? "ready" : "missing"} | ${tool.bundleId}`,
+      ...tool.bindings.map((binding) =>
+        `    ${binding.available ? "ready" : "unavailable"} | ${binding.id} | ${binding.source}:${binding.sourceId}`
+      ),
+    ]),
+    set === null
+      ? "Approved capability bindings: none"
+      : `Approved capability bindings: ${set.bindings.length} (revision ${set.revision})`,
     catalogs.skills === undefined
       ? "Agent Skills: not inspected"
       : `Enabled Agent Skills: ${enabledSkills.join(", ") || "none"}`,
@@ -58,6 +125,6 @@ export function renderCompanyToolReadiness(
           `MCP servers configured but disabled: ${disabledServers}`,
           `Project MCP trust: ${catalogs.mcp.projectTrust}`,
         ]),
-    "Catalog binding: none inferred. Installed Skills and MCP servers are reported separately as supplemental capabilities; discovery never installs, trusts, satisfies a tool bundle, or grants role authority automatically.",
+    "Catalog binding: exact approved bindings only. Discovery never infers a mapping, installs or trusts a capability, or widens role authority.",
   ].join("\n");
 }

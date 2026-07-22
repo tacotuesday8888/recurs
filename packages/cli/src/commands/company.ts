@@ -9,6 +9,7 @@ import type {
   CompanyBlueprintBindingV2,
   CompanyBlueprintV2,
   CompanyGoalRunV1,
+  CompanyToolBundleId,
 } from "@recurs/contracts";
 
 import {
@@ -19,6 +20,7 @@ import {
   companyToolReadinessCounts,
   renderCompanyToolReadiness,
 } from "../company-tool-readiness.js";
+import { CompanyCapabilityAuthorityError } from "../company-capability-authority.js";
 import {
   message,
   type Command,
@@ -27,7 +29,7 @@ import {
 } from "./types.js";
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
-const USAGE = "/company [blueprint|readiness|activity|knowledge|amendments|amendment <id>|approve-amendment <id>|reject-amendment <id>]";
+const USAGE = "/company [blueprint|readiness|capabilities|bind <bundle> <skill|mcp> <id>|unbind <binding-id>|activity|knowledge|amendments|amendment <id>|approve-amendment <id>|reject-amendment <id>]";
 
 class CompanyCommandPolicyError extends Error {}
 
@@ -84,8 +86,8 @@ function companyRuns(
 function statusText(
   blueprint: CompanyBlueprintV2,
   runs: readonly CompanyGoalRunV1[],
+  readiness = companyToolReadinessCounts(blueprint),
 ): string {
-  const readiness = companyToolReadinessCounts(blueprint);
   const active = runs.filter((run) =>
     run.status === "created" || run.status === "running" ||
     run.status === "waiting_for_approval" || run.status === "interrupted"
@@ -146,6 +148,41 @@ function exactAmendment(args: string): string | null {
   return match !== null && SAFE_ID.test(match[1]!) ? match[1]! : null;
 }
 
+function exactCapabilityMutation(args: string):
+  | {
+      readonly action: "bind";
+      readonly bundleId: CompanyToolBundleId;
+      readonly type: "agent_skill" | "mcp_server";
+      readonly sourceId: string;
+    }
+  | { readonly action: "unbind"; readonly bindingId: string }
+  | null {
+  const unbind = /^unbind\s+(\S+)$/u.exec(args);
+  if (unbind !== null && SAFE_ID.test(unbind[1]!)) {
+    return { action: "unbind", bindingId: unbind[1]! };
+  }
+  const bind = /^bind\s+(\S+)\s+(skill|mcp)\s+(\S+)$/u.exec(args);
+  const bundles = new Set<string>([
+    "project_context_v1", "source_control_v1", "architecture_v1",
+    "implementation_v1", "quality_v1", "security_v1", "release_v1",
+  ]);
+  if (bind === null || !bundles.has(bind[1]!) || !SAFE_ID.test(bind[3]!)) {
+    return null;
+  }
+  return {
+    action: "bind",
+    bundleId: bind[1] as CompanyToolBundleId,
+    type: bind[2] === "skill" ? "agent_skill" : "mcp_server",
+    sourceId: bind[3]!,
+  };
+}
+
+function localManual(context: CommandContext): boolean {
+  const invocation = deriveTrustedRunContext(context.invocation);
+  return invocation.invocation === "repl" && invocation.presence === "present" &&
+    invocation.location === "local" && invocation.automation === "manual";
+}
+
 function amendmentText(
   amendment: CompanyAmendmentV1,
   base: CompanyBlueprintV2,
@@ -187,24 +224,42 @@ export function createCompanyCommand(dependencies: CommandDependencies): Command
         throw error;
       }
       const action = args.trim();
+      const capabilitySet = company.capabilities?.bindings(active.blueprint) ?? null;
+      const capabilityCatalogs = {
+        ...(dependencies.skills === undefined
+          ? {}
+          : { skills: dependencies.skills.snapshot() }),
+        ...(dependencies.mcp === undefined
+          ? {}
+          : { mcp: dependencies.mcp.snapshot() }),
+      };
       if (action === "" || action === "status") {
         return message(statusText(
           active.blueprint,
           companyRuns(await company.goals.list(currentSignal), active.session, active.blueprint),
+          companyToolReadinessCounts(
+            active.blueprint,
+            capabilityCatalogs,
+            capabilitySet,
+          ),
         ));
       }
       if (action === "blueprint") {
         return message(renderCompanyBlueprintYaml(active.blueprint));
       }
       if (action === "readiness") {
-        return message(renderCompanyToolReadiness(active.blueprint, {
-          ...(dependencies.skills === undefined
-            ? {}
-            : { skills: dependencies.skills.snapshot() }),
-          ...(dependencies.mcp === undefined
-            ? {}
-            : { mcp: dependencies.mcp.snapshot() }),
-        }));
+        return message(renderCompanyToolReadiness(
+          active.blueprint,
+          capabilityCatalogs,
+          capabilitySet,
+        ));
+      }
+      if (action === "capabilities") {
+        return message(renderCompanyToolReadiness(
+          active.blueprint,
+          capabilityCatalogs,
+          capabilitySet,
+        ));
       }
       if (action === "activity") {
         return message(activityText(
@@ -253,14 +308,57 @@ export function createCompanyCommand(dependencies: CommandDependencies): Command
         }
         return message(amendmentText(amendment, base));
       }
+      const capabilityMutation = exactCapabilityMutation(action);
+      if (capabilityMutation !== null) {
+        if (company.capabilities === undefined) {
+          return message("Company capability approval is unavailable", "error");
+        }
+        if (!localManual(context)) {
+          return message(
+            "Company capability changes require a local, manual, user-present CLI session",
+            "error",
+          );
+        }
+        const description = capabilityMutation.action === "bind"
+          ? `Bind ${capabilityMutation.type}:${capabilityMutation.sourceId} to ${capabilityMutation.bundleId}`
+          : `Remove company capability binding ${capabilityMutation.bindingId}`;
+        if (!await context.confirm(
+          `${description}? This does not install, trust, or widen the role's existing permissions.`,
+        )) {
+          return message("Company capabilities were left unchanged", "warning");
+        }
+        try {
+          const set = capabilityMutation.action === "bind"
+            ? await company.capabilities.bind({
+                blueprint: active.blueprint,
+                bundleId: capabilityMutation.bundleId,
+                type: capabilityMutation.type,
+                sourceId: capabilityMutation.sourceId,
+                at: context.now(),
+                signal: currentSignal,
+              })
+            : await company.capabilities.unbind({
+                blueprint: active.blueprint,
+                bindingId: capabilityMutation.bindingId,
+                at: context.now(),
+                signal: currentSignal,
+              });
+          return message(
+            `Company capability bindings updated to revision ${set.revision}`,
+          );
+        } catch (error) {
+          if (error instanceof CompanyCapabilityAuthorityError) {
+            return message(error.message, "error");
+          }
+          throw error;
+        }
+      }
       const decision = exactDecision(action);
       if (decision === null) return message(`Usage: ${USAGE}`, "error");
       if (company.decisions === undefined) {
         return message("Company amendment decisions are unavailable", "error");
       }
-      const invocation = deriveTrustedRunContext(context.invocation);
-      if (invocation.invocation !== "repl" || invocation.presence !== "present" ||
-        invocation.location !== "local" || invocation.automation !== "manual") {
+      if (!localManual(context)) {
         return message(
           "Company amendment decisions require a local, manual, user-present CLI session",
           "error",

@@ -89,11 +89,36 @@ describe("AgentSkillCatalog", () => {
     });
     expect(catalog.contextInstructions().join("\n"))
       .toContain("Verify a release candidate");
+    expect(catalog.contextInstructions([])).toEqual([]);
+    expect(catalog.contextInstructions(["release-check"]).join("\n"))
+      .toContain("Verify a release candidate");
     expect(catalog.contextInstructions().join("\n"))
       .not.toContain("repository's release");
 
     const tool = catalog.createTool();
     expect(JSON.stringify(tool.definition)).not.toContain("release-check");
+    expect(tool.available?.({
+      sessionId: "company-child",
+      cwd: workspace,
+      signal: new AbortController().signal,
+      executionMode: "plan",
+      readRevisions: new Map(),
+      companyCapabilities: { agentSkillNames: [], mcpServerIds: [] },
+    })).toBe(false);
+    expect(() => tool.permissions(
+      tool.parse({ name: "release-check" }),
+      {
+        sessionId: "company-child",
+        cwd: workspace,
+        signal: new AbortController().signal,
+        executionMode: "plan",
+        readRevisions: new Map(),
+        companyCapabilities: {
+          agentSkillNames: [],
+          mcpServerIds: [],
+        },
+      },
+    )).toThrow("not approved");
     const user = await tool.execute(
       tool.parse({ name: "release-check", resource: "references/checklist.md" }),
       {

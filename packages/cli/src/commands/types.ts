@@ -29,6 +29,7 @@ import type {
 } from "@recurs/tools";
 import type { AgentSkillCatalog } from "../agent-skills.js";
 import type { McpServerCatalog } from "../mcp-client.js";
+import type { CompanyCapabilityAuthority } from "../company-capability-authority.js";
 
 export interface ParsedCommand {
   name: string;
@@ -121,6 +122,10 @@ export interface CompanyCommandDependencies {
   readonly knowledge: Pick<FileCompanyKnowledgeStore, "latest">;
   readonly amendments: Pick<FileCompanyAmendmentStore, "list">;
   readonly decisions?: CompanyAmendmentDecisionService;
+  readonly capabilities?: Pick<
+    CompanyCapabilityAuthority,
+    "bindings" | "bind" | "unbind"
+  >;
 }
 
 export interface ModelSelectionOption {

@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { lstat, open, readdir, realpath } from "node:fs/promises";
 import path from "node:path";
 
-import type { Tool, ToolResult } from "@recurs/tools";
+import type { Tool, ToolContext, ToolResult } from "@recurs/tools";
 import { isCredentialPath, ToolError } from "@recurs/tools";
 import { parseDocument } from "yaml";
 
@@ -404,8 +404,10 @@ export class AgentSkillCatalog {
     });
   }
 
-  contextInstructions(): readonly string[] {
+  contextInstructions(allowedNames?: readonly string[]): readonly string[] {
+    const allowed = allowedNames === undefined ? null : new Set(allowedNames);
     const available = [...this.#active().values()]
+      .filter((skill) => allowed === null || allowed.has(skill.name))
       .sort((left, right) => left.name.localeCompare(right.name))
       .map(({ name, description }) => ({ name, description }));
     if (available.length === 0) return [];
@@ -429,6 +431,15 @@ export class AgentSkillCatalog {
   }
 
   createTool(): Tool<ActivationInput> {
+    const assertAllowed = (input: ActivationInput, context: ToolContext): void => {
+      const allowed = context.companyCapabilities?.agentSkillNames;
+      if (allowed !== undefined && !allowed.includes(input.name)) {
+        throw new ToolError(
+          "tool_unavailable",
+          "Agent Skill is not approved for this company role",
+        );
+      }
+    };
     return {
       definition: {
         name: "activate_skill",
@@ -448,11 +459,19 @@ export class AgentSkillCatalog {
       },
       executionClass: "in_process",
       mutating: false,
+      available: (context) =>
+        context.companyCapabilities === undefined ||
+        context.companyCapabilities.agentSkillNames.length > 0,
       parse: parseActivationInput,
-      permissions(input) {
+      permissions(input, context) {
+        assertAllowed(input, context);
         return [{ category: "read", resource: `skill:${input.name}`, risk: "normal" }];
       },
-      execute: (input, context) => this.#activate(input, context.signal),
+      preflight: async (input, context) => assertAllowed(input, context),
+      execute: (input, context) => {
+        assertAllowed(input, context);
+        return this.#activate(input, context.signal);
+      },
     };
   }
 

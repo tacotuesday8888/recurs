@@ -6,7 +6,7 @@ import {
 } from "@recurs/contracts";
 import { describe, expect, it } from "vitest";
 
-import { scopeAgentPrompt } from "../src/index.js";
+import { applyAgentToolPolicy, scopeAgentPrompt } from "../src/index.js";
 
 function child(profileId: AgentProfileId): AgentSessionDescriptor {
   const profile = getAgentProfilePolicy(profileId);
@@ -53,5 +53,40 @@ describe("v4 team profile prompts", () => {
     expect(prompt).toContain("Do not use network tools, credentials, deployments, external paths, or sensitive paths.");
     expect(prompt).toContain(heading);
     expect(prompt).toContain("Perform the bounded task");
+  });
+});
+
+describe("company capability profile intersection", () => {
+  it("adds only the generic capability tools named by an exact company policy", () => {
+    const context = applyAgentToolPolicy({
+      sessionId: "company-child",
+      cwd: "/workspace",
+      signal: new AbortController().signal,
+      executionMode: "plan",
+      readRevisions: new Map(),
+      companyCapabilities: {
+        agentSkillNames: ["release-check"],
+        mcpServerIds: ["issue-tracker"],
+      },
+    }, child("explore_v1"));
+
+    expect(context.toolPolicy?.allowedNames).toContain("activate_skill");
+    expect(context.toolPolicy?.allowedNames).toContain("mcp");
+    expect(context.toolPolicy?.allowedCategories).toEqual(["read"]);
+    expect(context.toolPolicy?.maxRisk).toBe("normal");
+  });
+
+  it("does not expose capability tools when a role has no approved bindings", () => {
+    const context = applyAgentToolPolicy({
+      sessionId: "company-child",
+      cwd: "/workspace",
+      signal: new AbortController().signal,
+      executionMode: "plan",
+      readRevisions: new Map(),
+      companyCapabilities: { agentSkillNames: [], mcpServerIds: [] },
+    }, child("explore_v1"));
+
+    expect(context.toolPolicy?.allowedNames).not.toContain("activate_skill");
+    expect(context.toolPolicy?.allowedNames).not.toContain("mcp");
   });
 });
