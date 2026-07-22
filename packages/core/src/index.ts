@@ -12,6 +12,7 @@ export * from "./company-blueprint.js";
 export * from "./company-blueprint-v2.js";
 export * from "./company-learning.js";
 export * from "./company-role-charter.js";
+export * from "./company-evaluation.js";
 export * from "./company-amendments.js";
 export * from "./company-onboarding-coordinator.js";
 export * from "./company-agent-manager.js";
