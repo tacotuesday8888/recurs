@@ -91,10 +91,10 @@
 - Produces `compileCompanyBlueprintV2(input)`, `approveCompanyBlueprintV2(proposal, at)`, `renderCompanyBlueprintYaml(blueprint)`, `parseCompanyBlueprintYaml(text)`, and a structural proposal diff.
 - Stable-core compilation creates the six known departments and baseline accountability roles before adding bounded specialists; dynamic compilation accepts generated departments and roles but injects or rejects missing guardrails.
 
-- [ ] Write deterministic compiler tests for both company modes and every mode ceiling.
-- [ ] Write YAML round-trip, alias/billion-laughs rejection, duplicate-key, unknown-field, authority-escalation, and readable-validation-error tests.
-- [ ] Implement stable opaque role IDs, editable display metadata, closed capabilities/tool bundles/model routes, and canonical JSON normalization.
-- [ ] Run focused tests and commit.
+- [x] Write deterministic compiler tests for both company modes and every mode ceiling.
+- [x] Write YAML round-trip, alias/billion-laughs rejection, duplicate-key, unknown-field, authority-escalation, and readable-validation-error tests.
+- [x] Implement stable opaque role IDs, editable display metadata, closed capabilities/tool bundles/model routes, and canonical JSON normalization.
+- [x] Run focused tests and commit.
 
 ### Task 5: Resumable progressive onboarding coordinator
 

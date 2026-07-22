@@ -159,6 +159,7 @@ export function parseCompanyAmendment(value: unknown): CompanyAmendmentV1 {
   );
   const proposedBlueprint = parseCompanyBlueprintV2(amendment.proposedBlueprint);
   if (proposedBlueprint.state !== "proposed" ||
+    proposedBlueprint.companyId !== amendment.companyId ||
     proposedBlueprint.revision !== baseBlueprintRevision + 1 ||
     proposedBlueprint.previousBlueprintId !== baseBlueprintId) {
     throw new TypeError("Amendment proposal lineage is invalid");

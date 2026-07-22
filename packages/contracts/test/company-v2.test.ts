@@ -10,6 +10,7 @@ import {
 
 const validBlueprint: CompanyBlueprintV2 = {
   id: "company-v2-1",
+  companyId: "company-v2-1",
   version: 2,
   revision: 1,
   previousBlueprintId: null,

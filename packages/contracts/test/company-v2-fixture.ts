@@ -10,6 +10,7 @@ export function companyBlueprintV2Fixture(options: {
   const state = options.state ?? "approved";
   return {
     id: options.id ?? "company-v2-fixture",
+    companyId: "company-v2-fixture",
     version: 2,
     revision: options.revision ?? 1,
     previousBlueprintId: options.previousBlueprintId ?? null,

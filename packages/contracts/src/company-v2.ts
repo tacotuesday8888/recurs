@@ -113,6 +113,7 @@ export interface CompanyQualityPlanV2 {
 
 export interface CompanyBlueprintV2 {
   readonly id: string;
+  readonly companyId: string;
   readonly version: 2;
   readonly revision: number;
   readonly previousBlueprintId: string | null;
@@ -527,7 +528,7 @@ function deepFreeze<T>(value: T): Readonly<T> {
 export function parseCompanyBlueprintV2(value: unknown): CompanyBlueprintV2 {
   const blueprint = record(value, "Company V2 blueprint");
   exact(blueprint, [
-    "id", "version", "revision", "previousBlueprintId", "state",
+    "id", "companyId", "version", "revision", "previousBlueprintId", "state",
     "createdAt", "approvedAt", "designMode", "project", "authority",
     "departments", "roles", "authorityAnchors", "activation", "toolPlan",
     "quality", "initialGoal", "roadmap", "provenance",
@@ -536,6 +537,7 @@ export function parseCompanyBlueprintV2(value: unknown): CompanyBlueprintV2 {
     throw new TypeError("Company V2 blueprint version is invalid");
   }
   const id = safeId(blueprint.id, "Company blueprint id");
+  const companyId = safeId(blueprint.companyId, "Company id");
   const revision = integer(blueprint.revision, "Company blueprint revision", 1);
   const previousBlueprintId = blueprint.previousBlueprintId === null
     ? null
@@ -693,6 +695,7 @@ export function parseCompanyBlueprintV2(value: unknown): CompanyBlueprintV2 {
     "Company provenance");
   const parsed: CompanyBlueprintV2 = {
     id,
+    companyId,
     version: 2,
     revision,
     previousBlueprintId,

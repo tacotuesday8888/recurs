@@ -12,6 +12,7 @@ export * from "./commands/types.js";
 export * from "./assembly.js";
 export * from "./acp-server.js";
 export * from "./codex-connection.js";
+export * from "./company-blueprint-yaml.js";
 export * from "./doctor.js";
 export * from "./local-connection.js";
 export * from "./provider-account.js";
