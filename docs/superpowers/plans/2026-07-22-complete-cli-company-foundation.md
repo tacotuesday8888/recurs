@@ -168,10 +168,10 @@
 - Adds optional immutable company-goal/assignment correlations to durable team runs without changing historical V1 descriptor interpretation.
 - Maps approved builder, reviewer, and repair capabilities to existing profile/model routes and intersects role tools with parent/profile policy.
 
-- [ ] Write an end-to-end scripted test for parallel company builders, independent review, bounded repair, staged candidate, permission-controlled apply, and parent synthesis.
-- [ ] Add failure/cancellation/recovery/accounting tests and assert inactive roster roles emit no activity.
-- [ ] Implement only correlation and policy adapters around the existing worktree and review engine; do not fork a second implementation runtime.
-- [ ] Run team, company, assembly, and recovery suites and commit.
+- [x] Write an end-to-end scripted test for parallel company builders, independent review, bounded repair, staged candidate, permission-controlled apply, and parent synthesis.
+- [x] Add failure/cancellation/recovery/accounting tests and assert inactive roster roles emit no activity.
+- [x] Implement only correlation and policy adapters around the existing worktree and review engine; do not fork a second implementation runtime.
+- [x] Run team, company, assembly, and recovery suites and commit.
 
 ### Task 9: CLI company operations and goal launch
 

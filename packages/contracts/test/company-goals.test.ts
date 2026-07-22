@@ -109,6 +109,45 @@ describe("company goal contracts", () => {
     })).toThrow(/precedes/iu);
   });
 
+  it("accepts an immutable team execution correlation without changing child records", () => {
+    const assignment = planFixture().assignments[0]!;
+    const team = parseCompanyGoalPlan({
+      ...planFixture(),
+      assignments: [{
+        ...assignment,
+        status: "running",
+        execution: {
+          attempt: 1,
+          teamRunId: "team-run-1",
+          teamRole: "review",
+          taskIndex: null,
+          startedAt: "2026-07-22T01:00:00.000Z",
+          completedAt: null,
+        },
+      }],
+    });
+    expect(team.assignments[0]?.execution).toMatchObject({
+      teamRunId: "team-run-1",
+      teamRole: "review",
+    });
+
+    expect(() => parseCompanyGoalPlan({
+      ...planFixture(),
+      assignments: [{
+        ...assignment,
+        status: "running",
+        execution: {
+          attempt: 1,
+          teamRunId: "team-run-1",
+          teamRole: "implement",
+          taskIndex: null,
+          startedAt: "2026-07-22T01:00:00.000Z",
+          completedAt: null,
+        },
+      }],
+    })).toThrow(/task index/iu);
+  });
+
   it("reserves one immutable shared-budget allocation and fails closed", () => {
     const budget = parseCompanyGoalBudget(runFixture().budget);
     const reserved = reserveCompanyGoalBudget(budget, 10);

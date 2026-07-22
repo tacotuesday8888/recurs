@@ -35,6 +35,7 @@ import {
   type DelegateTaskInput,
 } from "../src/child-agent-manager.js";
 import { createDelegationBudget } from "../src/agent-profile.js";
+import { createRootAgentDescriptor } from "../src/session-v2.js";
 import type {
   GitPatchArtifactHandle,
   GitPatchBase,
@@ -177,6 +178,7 @@ interface HarnessOptions {
   readonly pauseReadyEvent?: boolean;
   readonly operatingModeId?: OperatingModeId;
   readonly secondaryCandidate?: AgentBackendCandidate;
+  readonly companyV2?: boolean;
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -214,13 +216,30 @@ async function harness(options: HarnessOptions = {}) {
   let implementationLeaseIndex = 0;
   const implementationLeaseIndexById = new Map<string, number>();
   const pin = testBackendPin("team-model");
+  const policy = getOperatingModePolicy(options.operatingModeId ?? "balanced_v4");
+  const parentAgent = options.companyV2 === true
+    ? createRootAgentDescriptor(
+        "parent-session",
+        pin,
+        policy.id,
+        options.permissionMode ?? "approved_for_me",
+        "act",
+        {
+          blueprintId: "blueprint-v2",
+          blueprintVersion: 2,
+          blueprintRevision: 1,
+          roleId: "root-role",
+          roleVersion: 1,
+        },
+      )
+    : undefined;
   let parent = await sessions.createPinnedSession({
     id: "parent-session",
     cwd: root,
     backend: pin,
     at: testAt,
+    ...(parentAgent === undefined ? {} : { agent: parentAgent }),
   });
-  const policy = getOperatingModePolicy(options.operatingModeId ?? "balanced_v4");
   await sessions.withSessionMutation(parent.id, parent.lastSequence, async (lease) => {
     await lease.append({
       type: "mode_updated",
@@ -745,6 +764,143 @@ function implementationFinishOrder(state: TeamRunState): number[] {
 }
 
 describe("TeamRunSupervisor durable foreground pipeline", () => {
+  it("executes a frozen V2 company batch with scoped roles and a local budget", async () => {
+    const implementCandidate: AgentBackendCandidate = {
+      id: "company-implement-route",
+      pin: testBackendPin("company-worker-model", "company-worker-connection"),
+      parent: false,
+      roles: ["implement"],
+      executionModes: ["act"],
+      permissionModes: ["approved_for_me"],
+      hostTools: true,
+      background: true,
+      ready: true,
+    };
+    const test = await harness({
+      operatingModeId: "balanced_v6",
+      companyV2: true,
+      secondaryCandidate: implementCandidate,
+    });
+    const correlation = {
+      version: 1 as const,
+      runId: "company-goal-1",
+      goalId: "goal-1",
+      blueprintId: "blueprint-v2",
+      blueprintRevision: 1,
+      implementations: [{
+        assignmentId: "implementation-1",
+        parentAssignmentId: "lead-1",
+        roleId: "builder-alpha",
+        departmentId: "engineering",
+        permissionMode: "approved_for_me" as const,
+        modelRoute: "implement" as const,
+        toolBundles: ["implementation_v1" as const],
+      }, {
+        assignmentId: "implementation-2",
+        parentAssignmentId: "lead-1",
+        roleId: "builder-beta",
+        departmentId: "engineering",
+        permissionMode: "approved_for_me" as const,
+        modelRoute: "implement" as const,
+        toolBundles: ["implementation_v1" as const],
+      }],
+      reviews: [{
+        assignmentId: "review-1",
+        parentAssignmentId: null,
+        roleId: "independent-reviewer",
+        departmentId: "quality",
+        permissionMode: "ask_always" as const,
+        modelRoute: "review" as const,
+        toolBundles: ["quality_v1" as const],
+      }],
+      repair: {
+        assignmentId: "implementation-1",
+        parentAssignmentId: "lead-1",
+        roleId: "builder-alpha",
+        departmentId: "engineering",
+        permissionMode: "approved_for_me" as const,
+        modelRoute: "implement" as const,
+        toolBundles: ["implementation_v1" as const],
+      },
+    };
+
+    const reservation = await test.supervisor.reserveCompanyRun(
+      test.input,
+      test.context,
+      correlation,
+      { maxRequests: 80, maxReportedCostUsd: 3 },
+    );
+    expect(reservation.allocation).toEqual({
+      maxChildren: 7,
+      maxRequests: 56,
+      requestAllowance: 8,
+      maxReportedCostUsd: 3,
+    });
+    expect(test.context.delegationBudget).toMatchObject({
+      childrenStarted: 0,
+      requestsReserved: 0,
+      requestsUsed: 0,
+      reportedCostUsd: 0,
+    });
+
+    const result = await test.supervisor.startCompanyForeground(
+      test.input,
+      test.context,
+      reservation,
+    );
+    expect(result.metadata.failure).toBeUndefined();
+    expect(result.metadata).toMatchObject({
+      status: "approved",
+      companyGoal: {
+        goalRunId: "company-goal-1",
+        assignments: [
+          { assignmentId: "implementation-1", usageSource: "provider" },
+          { assignmentId: "implementation-2", usageSource: "provider" },
+          { assignmentId: "review-1", usageSource: "provider" },
+        ],
+      },
+    });
+    const state = await test.state(reservation.teamRunId);
+    expect(state.descriptor.companyGoal).toEqual(correlation);
+    expect(state.descriptor.routes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "implement",
+        candidateId: implementCandidate.id,
+      }),
+      expect.objectContaining({
+        role: "repair",
+        candidateId: implementCandidate.id,
+      }),
+      expect.objectContaining({
+        role: "review",
+        candidateId: "parent",
+      }),
+    ]));
+    for (const child of state.children) {
+      const session = await test.sessions.loadState(
+        child.reservation.childSessionId,
+      );
+      expect(session).toMatchObject({
+        agent: {
+          company: {
+            blueprintId: "blueprint-v2",
+            blueprintVersion: 2,
+            blueprintRevision: 1,
+          },
+          companyGoal: { runId: "company-goal-1" },
+        },
+      });
+    }
+    expect(test.attemptedEvents).toContainEqual(expect.objectContaining({
+      type: "agent_team_activity",
+      activity: "child_reserved",
+      goalRunId: "company-goal-1",
+      assignmentId: "implementation-1",
+      companyRoleId: "builder-alpha",
+      departmentId: "engineering",
+    }));
+  });
+
   it("freezes eligible v5 role candidates while preserving historical parent routing", async () => {
     const candidate: AgentBackendCandidate = {
       id: "configured-worker",

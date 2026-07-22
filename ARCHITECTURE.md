@@ -21,18 +21,18 @@ auth ◄──bounded native frames── sealed private engine
 public/source CLI ──fixed unavailable port──► shared process host
 ```
 
-- `@recurs/contracts` owns dependency-free model, connection, billing, backend-pin, trusted-invocation, failure, direct-provider, delegated-runtime, coordinator, agent-profile, operating-mode, immutable company-blueprint, and parent/child state contracts.
+- `@recurs/contracts` owns dependency-free model, connection, billing, backend-pin, trusted-invocation, failure, direct-provider, delegated-runtime, coordinator, agent-profile, operating-mode, immutable company-blueprint/onboarding/goal/knowledge/amendment, and parent/child state contracts.
 - `@recurs/providers` owns strict provider manifests, the immutable 26-path catalog, normalized direct-provider streams, safe provider-error mapping, and deterministic fixtures. It has no credential implementation.
 - `@recurs/auth` owns the credential-free, bounded client and strict redacted onboarding/generation codecs for one injected native duplex. Descriptor parsing and ownership stay in the private engine, and auth has no credential or secret-retrieval operation.
 - `@recurs/app` owns the non-secret connection registry, redacted lifecycle and native-authority services, local onboarding, onboarding projection, and Codex onboarding policy. It depends on contracts, providers, and auth, never on the CLI.
 - `@recurs/runtimes` owns bounded ACP process/protocol handling and the pinned official Codex ACP profile. It receives opaque continuation-store capabilities and does not import vendor credentials.
 - `@recurs/tools` owns tool definitions and execution, permission intents, the unified credential/workspace path policy, command classification, clean one-shot and agent-owned resumable process setup and bounds, Git inspection, and checkpoint format gates.
-- `@recurs/core` owns the direct agent loop, delegated executor, backend-neutral coordinator, owned child manager, immutable company-blueprint compiler/store/delegation adapter, bounded batch and team coordinators, durable team-run journal/supervisor/recovery, provider-neutral role routing, cross-process run ownership, durable patch artifacts, activity projection, Git worktree leases, adaptive Review panels, shared delegation budgets, normalized runtime/agent events, trusted preflight handoff, process-scoped continuation authority, durable goals, session reduction, JSONL persistence, compaction, and recovery.
+- `@recurs/core` owns the direct agent loop, delegated executor, backend-neutral coordinator, owned child manager, immutable company-blueprint compiler/stores, resumable company onboarding, bounded company-goal supervisor, bounded batch and team coordinators, durable goal/team journals and recovery, provider-neutral role routing, cross-process run ownership, durable patch artifacts, activity projection, Git worktree leases, adaptive Review panels, shared delegation budgets, normalized runtime/agent events, trusted preflight handoff, process-scoped continuation authority, durable goals, session reduction, JSONL persistence, compaction, and recovery.
 - `@recurs/cli` composes app (which assembles auth), providers, runtimes, core, and tools; it owns slash commands, operating-mode selection, agent activity rendering, redacted native diagnostics, interactive input, non-interactive execution, the Recurs-owned ACP stdio server, the bounded user-configured MCP stdio client, and process exit behavior.
 - `packages/native-engine` is the launcher-only entrypoint that claims descriptor 3 before loading the shared process host. Its sealed build substitutes a fixed denial for delegated Codex rather than resolving an ambient runtime.
 - `native/macos` contains the headless Swift launcher, exact-peer XPC broker, fixed bundle/child lifecycle, foreground secret capture, Data Protection Keychain adapter, credential journal/state machine, endpoint policy, model catalogs, and broker-owned OpenAI/Anthropic/Kimi generation. This is native CLI infrastructure, not a desktop interface.
 
-The implemented child and durable-team orchestrators consume these boundaries rather than reimplementing the loop. The future desktop app and company runtime must do the same.
+The implemented child, durable-team, and V2 company-goal orchestrators consume these boundaries rather than reimplementing the loop. The future desktop app must do the same.
 
 ## Turn lifecycle
 
@@ -74,7 +74,20 @@ another model loop, permission engine, retry budget, recursion level, or
 background daemon. Approved roster entries remain idle until the parent makes
 a concrete tool call.
 
-`delegate_task` creates one durable Explore, Implement, or Review child session through `BackendRunCoordinator`. `delegate_tasks` schedules independent Explore/Review children through that same path. `delegate_team` composes isolated Implement, Review, and Repair children without creating another model loop. Child permissions can only narrow the parent, depth is one, retries are zero, and every operating mode caps total and concurrent work. Immutable version-1 through version-4 IDs retain their historical behavior; display-name selection uses the version-5 routed-team policy.
+V2 preserves that historical path but activates a different adapter.
+`CompanyGoalSupervisor` validates a model-proposed assignment DAG against the
+exact approved blueprint revision and immutable V6 company policy. Bounded
+read/planning handoffs reuse `ChildAgentManager`; company implementation does
+not create a second work engine. It reserves a local slice from the goal-wide
+ledger and calls `TeamRunSupervisor` with immutable implementation, independent
+review, and repair role correlations. The team journal remains authoritative
+for worktrees, artifacts, review, repair, apply, and child accounting; the goal
+journal remains authoritative for assignment lifecycle, company synthesis, and
+the global ledger. Terminal team evidence and accounting reconcile once into
+the goal. Failure, cancellation, and interruption remain explicit rather than
+being rewritten as successful synthesis.
+
+`delegate_task` creates one durable Explore, Implement, or Review child session through `BackendRunCoordinator`. `delegate_tasks` schedules independent Explore/Review children through that same path. `delegate_team` composes isolated Implement, Review, and Repair children without creating another model loop. Child permissions can only narrow the parent, retries are zero, and every operating mode caps total and concurrent work. Immutable version-1 through version-5 IDs retain their historical behavior; display-name selection uses the V6 company-capable policy.
 
 Batch preflight requires the parent cwd to be the canonical root of a clean Git repository. `GitWorktreeLeaseManager` creates a detached worktree at exact `HEAD` under the private project-data root, outside the repository. Each child session stores its lease and revision, results settle in input order, linked cancellation stops active work, and every lease is cleaned before settlement. Explore/Review batches intentionally discard workspace effects while retaining successful sibling evidence after ordinary partial failure.
 

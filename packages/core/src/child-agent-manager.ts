@@ -23,6 +23,7 @@ import {
   type ProviderUsage,
   type RunCoordinator,
   type TeamRunExecution,
+  type TeamRunAllocation,
   type TeamRunRole,
   type TrustedRunContext,
 } from "@recurs/contracts";
@@ -95,6 +96,7 @@ export interface TeamRunAuthorityInput {
   readonly operatingMode: TeamOperatingModeBinding;
   readonly parentPermissions: TeamParentPermissionBinding;
   readonly repositoryRoot: string;
+  readonly allocation?: TeamRunAllocation;
 }
 
 export interface TeamChildAuthority {
@@ -288,6 +290,27 @@ function validTeamParentPermissionBinding(
       binding.permissionMode === "full_access");
 }
 
+function validTeamAllocation(value: unknown): value is TeamRunAllocation {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const allocation = value as Record<string, unknown>;
+  return Object.keys(allocation).sort().join(",") ===
+      "maxChildren,maxReportedCostUsd,maxRequests,requestAllowance" &&
+    Number.isSafeInteger(allocation.maxChildren) &&
+    (allocation.maxChildren as number) > 0 &&
+    Number.isSafeInteger(allocation.maxRequests) &&
+    (allocation.maxRequests as number) > 0 &&
+    Number.isSafeInteger(allocation.requestAllowance) &&
+    (allocation.requestAllowance as number) > 0 &&
+    (allocation.maxRequests as number) ===
+      (allocation.maxChildren as number) *
+        (allocation.requestAllowance as number) &&
+    typeof allocation.maxReportedCostUsd === "number" &&
+    Number.isFinite(allocation.maxReportedCostUsd) &&
+    allocation.maxReportedCostUsd > 0;
+}
+
 export class ChildAgentManager {
   readonly #createId: () => string;
   readonly #now: () => string;
@@ -364,24 +387,35 @@ export class ChildAgentManager {
   ): Promise<TeamChildAuthority> {
     if (typeof input !== "object" || input === null || Array.isArray(input) ||
       context.signal.aborted ||
-      Object.keys(input).sort().join(",") !==
-        "execution,operatingMode,parentPermissions,repositoryRoot,runId" ||
+      !["execution,operatingMode,parentPermissions,repositoryRoot,runId",
+        "allocation,execution,operatingMode,parentPermissions,repositoryRoot,runId"]
+        .includes(Object.keys(input).sort().join(",")) ||
       typeof input.runId !== "string" || input.runId.trim() !== input.runId ||
       input.runId.length === 0 || input.runId.length > 512 ||
       (input.execution !== "foreground" && input.execution !== "background") ||
       !validTeamOperatingModeBinding(input.operatingMode) ||
-      !validTeamParentPermissionBinding(input.parentPermissions)) {
+      !validTeamParentPermissionBinding(input.parentPermissions) ||
+      (input.allocation !== undefined && !validTeamAllocation(input.allocation))) {
       throw new ToolError("permission_denied", "Team run authority is invalid");
     }
     const parent = await this.#parent(context);
     const mode = getOperatingModePolicy(parent.agent.operatingMode.id);
+    const maximumCost = parent.agent.company?.blueprintVersion === 2
+      ? mode.company?.maxReportedCostUsd
+      : mode.orchestration.maxReportedCostUsd;
     if (parent.agent.role !== "parent" || mode.version < 4 ||
       input.operatingMode.id !== mode.id ||
       input.operatingMode.version !== mode.version ||
       input.parentPermissions.executionMode !== context.executionMode ||
       input.parentPermissions.executionMode !== parent.executionMode ||
       input.parentPermissions.permissionMode !== parent.permissionMode ||
-      input.repositoryRoot !== parent.cwd) {
+      input.repositoryRoot !== parent.cwd ||
+      (input.allocation !== undefined && (
+        input.allocation.maxChildren > mode.workflow.maxChildrenPerRun ||
+        input.allocation.maxRequests > mode.workflow.maxRequestsPerRun ||
+        maximumCost === undefined ||
+        input.allocation.maxReportedCostUsd > maximumCost
+      ))) {
       throw new ToolError(
         "permission_denied",
         "Team run authority does not match the live parent snapshot",
@@ -424,6 +458,14 @@ export class ChildAgentManager {
         options.teamParentPermissions,
       ) && trusted.input.repositoryRoot === options.workspace?.repositoryRoot &&
       role === team.role;
+  }
+
+  #teamAllocation(
+    authority: TeamChildAuthority | undefined,
+  ): TeamRunAllocation | undefined {
+    return authority === undefined
+      ? undefined
+      : this.#teamAuthorities.get(authority)?.input.allocation;
   }
 
   reserveIdentity(
@@ -735,8 +777,25 @@ export class ChildAgentManager {
           operatingMode: { id: mode.id, version: mode.version },
           limits: agentLimits,
         };
-    if (budget === undefined ||
-      !isDelegationBudgetForAgent(budget, budgetAgent)) {
+    const teamAllocation = role === null
+      ? undefined
+      : this.#teamAllocation(options?.teamAuthority);
+    if (budget === undefined) {
+      throw new ToolError("tool_unavailable", "Trusted delegation budget is unavailable");
+    }
+    const validBudget = teamAllocation === undefined
+      ? isDelegationBudgetForAgent(budget, budgetAgent)
+      : budget.maxChildren === teamAllocation.maxChildren &&
+        budget.maxRequests === teamAllocation.maxRequests &&
+        budget.maxReportedCostUsd === teamAllocation.maxReportedCostUsd &&
+        Number.isSafeInteger(budget.childrenStarted) &&
+        budget.childrenStarted >= 0 && budget.childrenStarted <= budget.maxChildren &&
+        Number.isSafeInteger(budget.requestsReserved) &&
+        budget.requestsReserved >= 0 && budget.requestsReserved <= budget.maxRequests &&
+        Number.isSafeInteger(budget.requestsUsed) && budget.requestsUsed >= 0 &&
+        budget.requestsUsed <= budget.requestsReserved &&
+        Number.isFinite(budget.reportedCostUsd) && budget.reportedCostUsd >= 0;
+    if (!validBudget) {
       throw new ToolError("tool_unavailable", "Trusted delegation budget is unavailable");
     }
     if (budget.childrenStarted >= budget.maxChildren) {
@@ -751,7 +810,8 @@ export class ChildAgentManager {
         `Agent reported-cost limit reached ($${budget.maxReportedCostUsd})`,
       );
     }
-    const childRequestLimit = childRequestAllowance(budgetAgent);
+    const childRequestLimit = teamAllocation?.requestAllowance ??
+      childRequestAllowance(budgetAgent);
     if (budget.requestsReserved + childRequestLimit > budget.maxRequests) {
       throw new ToolError(
         "permission_denied",

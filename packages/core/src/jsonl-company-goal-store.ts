@@ -40,6 +40,28 @@ const assignmentTransitions: Readonly<Record<
   blocked: new Set(["blocked"]),
 };
 
+function executionChanged(
+  previous: NonNullable<CompanyGoalRunV1["plan"]["assignments"][number]["execution"]>,
+  next: CompanyGoalRunV1["plan"]["assignments"][number]["execution"],
+): boolean {
+  if (next === undefined || previous.attempt !== next.attempt ||
+    previous.startedAt !== next.startedAt ||
+    (previous.completedAt !== null &&
+      previous.completedAt !== next.completedAt) ||
+    ("teamRunId" in previous) !== ("teamRunId" in next)) {
+    return true;
+  }
+  return "teamRunId" in previous && "teamRunId" in next
+    ? previous.teamRunId !== next.teamRunId ||
+        previous.teamRole !== next.teamRole ||
+        previous.taskIndex !== next.taskIndex
+    : "childAgentId" in previous && "childAgentId" in next && (
+        previous.childAgentId !== next.childAgentId ||
+        previous.childSessionId !== next.childSessionId ||
+        previous.taskId !== next.taskId
+      );
+}
+
 function validateTransition(previous: CompanyGoalRunV1, next: CompanyGoalRunV1): void {
   if (terminal.has(previous.status) || !allowed[previous.status].has(next.status)) {
     throw new CompanyStateStoreError(
@@ -75,16 +97,8 @@ function validateTransition(previous: CompanyGoalRunV1, next: CompanyGoalRunV1):
     const candidate = nextAssignments.get(assignment.id);
     const priorExecution = assignment.execution;
     const nextExecution = candidate?.execution;
-    const executionChanged = priorExecution !== undefined && (
-      nextExecution === undefined ||
-      priorExecution.attempt !== nextExecution.attempt ||
-      priorExecution.childAgentId !== nextExecution.childAgentId ||
-      priorExecution.childSessionId !== nextExecution.childSessionId ||
-      priorExecution.taskId !== nextExecution.taskId ||
-      priorExecution.startedAt !== nextExecution.startedAt ||
-      (priorExecution.completedAt !== null &&
-        priorExecution.completedAt !== nextExecution.completedAt)
-    );
+    const changedExecution = priorExecution !== undefined &&
+      executionChanged(priorExecution, nextExecution);
     if (candidate === undefined || candidate.roleId !== assignment.roleId ||
       candidate.parentAssignmentId !== assignment.parentAssignmentId ||
       !isDeepStrictEqual(candidate.dependsOn, assignment.dependsOn) ||
@@ -92,7 +106,7 @@ function validateTransition(previous: CompanyGoalRunV1, next: CompanyGoalRunV1):
       candidate.prompt !== assignment.prompt ||
       !isDeepStrictEqual(candidate.acceptance, assignment.acceptance) ||
       !isDeepStrictEqual(candidate.expectedEvidence, assignment.expectedEvidence) ||
-      executionChanged ||
+      changedExecution ||
       !assignmentTransitions[assignment.status].has(candidate.status) ||
       ((assignment.status === "completed" || assignment.status === "failed" ||
         assignment.status === "cancelled" || assignment.status === "blocked") &&

@@ -14,9 +14,12 @@ import type {
   RuntimeContinuationStore,
   SessionBackendPin,
   NativeOpenAIResponsesPort,
-  CompanyBlueprintV1,
+  CompanyBlueprint,
 } from "@recurs/contracts";
-import { parseCompanyBlueprint } from "@recurs/contracts";
+import {
+  parseCompanyBlueprint,
+  parseCompanyBlueprintV2,
+} from "@recurs/contracts";
 import {
   FileConnectionRegistry,
   OnboardingCatalog,
@@ -37,12 +40,14 @@ import {
   ChildAgentManager,
   CompanyOnboardingCoordinator,
   CompanyAgentManager,
+  CompanyGoalSupervisor,
   DelegatedAgentExecutor,
   FileGitPatchArtifactStore,
   FileCompanyBlueprintStore,
   FileCompanyBlueprintV2Store,
   FileCompanyOnboardingStore,
   JsonlSessionStore,
+  JsonlCompanyGoalStore,
   JsonlTeamRunStore,
   SessionStoreError,
   GitWorktreeLeaseManager,
@@ -55,6 +60,7 @@ import {
   bindRunAuthorization,
   activeGoal,
   companyContextInstructions,
+  companyContextInstructionsV2,
   createRootAgentDescriptor,
   createWorkspaceShell,
   createTeamRunTools,
@@ -144,7 +150,7 @@ export interface StandaloneRuntimeOptions {
   permissionMode?: PermissionMode;
   executionMode?: ExecutionMode;
   connectionId?: string;
-  companyBlueprint?: CompanyBlueprintV1;
+  companyBlueprint?: CompanyBlueprint;
   skillHomeDirectory?: string;
   ptyDriver?: PtyDriver;
 }
@@ -814,9 +820,17 @@ export async function createStandaloneRuntime(
   const companyBlueprints = new FileCompanyBlueprintStore(
     path.join(projectData, "company-blueprints"),
   );
+  const companyBlueprintsV2 = new FileCompanyBlueprintV2Store(
+    path.join(projectData, "company-blueprints-v2"),
+  );
+  const companyGoals = new JsonlCompanyGoalStore(
+    path.join(projectData, "company-goals"),
+  );
   const requestedCompany = options.companyBlueprint === undefined
     ? null
-    : parseCompanyBlueprint(structuredClone(options.companyBlueprint));
+    : options.companyBlueprint.version === 2
+      ? parseCompanyBlueprintV2(structuredClone(options.companyBlueprint))
+      : parseCompanyBlueprint(structuredClone(options.companyBlueprint));
   if (requestedCompany !== null && requestedCompany.state !== "approved") {
     throw new RuntimeError(
       "invalid_input",
@@ -1087,12 +1101,20 @@ export async function createStandaloneRuntime(
       const backend = initialBackend.pin(createdAt);
       const companyBinding = requestedCompany === null
         ? undefined
-        : {
-            blueprintId: requestedCompany.id,
-            blueprintVersion: 1 as const,
-            roleId: "orchestrator_v1" as const,
-            roleVersion: 1 as const,
-          };
+        : requestedCompany.version === 2
+          ? {
+              blueprintId: requestedCompany.id,
+              blueprintVersion: 2 as const,
+              blueprintRevision: requestedCompany.revision,
+              roleId: requestedCompany.authorityAnchors.rootRoleId,
+              roleVersion: 1 as const,
+            }
+          : {
+              blueprintId: requestedCompany.id,
+              blueprintVersion: 1 as const,
+              roleId: "orchestrator_v1" as const,
+              roleVersion: 1 as const,
+            };
       const rootAgent = createRootAgentDescriptor(
         sessionId,
         backend,
@@ -1116,7 +1138,11 @@ export async function createStandaloneRuntime(
         );
       }
       if (requestedCompany !== null) {
-        await companyBlueprints.create(requestedCompany);
+        if (requestedCompany.version === 2) {
+          await companyBlueprintsV2.create(requestedCompany);
+        } else {
+          await companyBlueprints.create(requestedCompany);
+        }
       }
       pinnedState = await sessions.createPinnedSession({
         id: sessionId,
@@ -1218,11 +1244,13 @@ export async function createStandaloneRuntime(
     },
   });
   tools.register(childAgents.createTool());
-  tools.register(new CompanyAgentManager({
-    sessions,
-    blueprints: companyBlueprints,
-    children: childAgents,
-  }).createTool());
+  if (!("type" in state) && state.agent.company?.blueprintVersion === 1) {
+    tools.register(new CompanyAgentManager({
+      sessions,
+      blueprints: companyBlueprints,
+      children: childAgents,
+    }).createTool());
+  }
   const childBatches = new ChildAgentBatchManager({
     sessions,
     children: childAgents,
@@ -1331,6 +1359,20 @@ export async function createStandaloneRuntime(
   });
   tools.register(teams.createTool());
   for (const tool of createTeamRunTools(teamSupervisor)) tools.register(tool);
+  if (!("type" in state) && state.agent.company?.blueprintVersion === 2) {
+    const companyGoalsSupervisor = new CompanyGoalSupervisor({
+      sessions,
+      blueprints: companyBlueprintsV2,
+      runs: companyGoals,
+      children: childAgents,
+      team: teamSupervisor,
+      emit(event) {
+        return events.emit(event);
+      },
+    });
+    tools.register(companyGoalsSupervisor.createTool());
+    tools.register(companyGoalsSupervisor.createHandoffTool());
+  }
 
   const runtimeReference: { current?: RecursRuntime } = {};
   tools.register(createRequestUserInputTool(async (request, signal) => {
@@ -1418,9 +1460,13 @@ export async function createStandaloneRuntime(
       ...await projectContextInstructions(session.cwd),
       ...(isPinnedSessionState(session) && session.agent.role === "parent" &&
           session.agent.company !== undefined
-        ? companyContextInstructions(
-            await companyBlueprints.load(session.agent.company.blueprintId),
-          )
+        ? session.agent.company.blueprintVersion === 2
+          ? companyContextInstructionsV2(
+              await companyBlueprintsV2.load(session.agent.company.blueprintId),
+            )
+          : companyContextInstructions(
+              await companyBlueprints.load(session.agent.company.blueprintId),
+            )
         : []),
       ...(isPinnedSessionState(session) && session.agent.profile === null
         ? [...skills.contextInstructions(), ...mcp.contextInstructions()]
@@ -1773,17 +1819,31 @@ export async function createStandaloneRuntime(
     !("type" in state) &&
     isPinnedSessionState(state)
   ) {
-    await events.emit({
-      type: "company_blueprint_activated",
-      sessionId: state.id,
-      at: new Date().toISOString(),
-      parentAgentId: state.agent.id,
-      blueprintId: requestedCompany.id,
-      blueprintVersion: 1,
-      developmentStyle: requestedCompany.developmentStyle,
-      operatingModeId: state.agent.operatingMode.id,
-      roleCount: requestedCompany.roles.length,
-    });
+    await events.emit(requestedCompany.version === 2
+      ? {
+          type: "company_blueprint_v2_activated",
+          sessionId: state.id,
+          at: new Date().toISOString(),
+          parentAgentId: state.agent.id,
+          blueprintId: requestedCompany.id,
+          blueprintVersion: 2,
+          blueprintRevision: requestedCompany.revision,
+          designMode: requestedCompany.designMode,
+          operatingModeId: state.agent.operatingMode.id,
+          departmentCount: requestedCompany.departments.length,
+          roleCount: requestedCompany.roles.length,
+        }
+      : {
+          type: "company_blueprint_activated",
+          sessionId: state.id,
+          at: new Date().toISOString(),
+          parentAgentId: state.agent.id,
+          blueprintId: requestedCompany.id,
+          blueprintVersion: 1,
+          developmentStyle: requestedCompany.developmentStyle,
+          operatingModeId: state.agent.operatingMode.id,
+          roleCount: requestedCompany.roles.length,
+        });
   }
   return runtime;
 }

@@ -4,6 +4,7 @@ import {
   getOperatingModePolicy,
   type AgentTeamQualityStandard,
   type OperatingModeId,
+  type OperatingModeVersion,
   type TeamReviewFinding,
 } from "@recurs/contracts";
 import {
@@ -120,7 +121,7 @@ export interface AgentReviewPanelRunOptionsV2 {
   readonly contract: "v2";
   readonly policy: {
     readonly operatingModeId: OperatingModeId;
-    readonly operatingModeVersion: 4;
+    readonly operatingModeVersion: OperatingModeVersion;
     readonly qualityStandard: AgentTeamQualityStandard;
     readonly initialReviewers: number;
     readonly maxReviewers: number;
@@ -524,7 +525,8 @@ export class AgentReviewPanel {
       mode.version < 4 || reviewPolicy.operatingModeId !== mode.id ||
       reviewPolicy.operatingModeVersion !== mode.version ||
       reviewPolicy.qualityStandard !== team.qualityStandard ||
-      reviewPolicy.initialReviewers !== team.initialReviewers ||
+      reviewPolicy.initialReviewers < team.initialReviewers ||
+      reviewPolicy.initialReviewers > team.maxReviewers ||
       reviewPolicy.maxReviewers !== team.maxReviewers
     )) {
       throw new ToolError(

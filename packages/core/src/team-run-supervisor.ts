@@ -5,10 +5,16 @@ import { isDeepStrictEqual } from "node:util";
 import {
   getAgentProfilePolicy,
   getOperatingModePolicy,
+  narrowAgentPermissionMode,
+  parseCompanyBlueprintBindingV2,
   type AgentGitWorktreeWorkspace,
   type AgentProfileId,
   type OperatingModeId,
+  type ProviderUsage,
+  type TeamRunAllocation,
   type TeamRunBackendRoute,
+  type TeamRunCompanyGoalCorrelation,
+  type TeamRunCompanyRoleBinding,
   type TeamRunDescriptor,
   type TeamRunExecution,
   type TeamRunPolicySnapshot,
@@ -33,6 +39,7 @@ import {
   childRequestAllowance,
   isDelegationBudgetForAgent,
 } from "./agent-profile.js";
+import { companyAgentLimits } from "./company-agent-binding.js";
 import type {
   AgentBackendCandidate,
   AgentBackendRouteDecision,
@@ -70,10 +77,11 @@ import {
   isPinnedSessionState,
   type PinnedSessionState,
 } from "./session-v2.js";
-import type {
-  TeamRunChildRecord,
-  TeamRunRecordInput,
-  TeamRunState,
+import {
+  parseTeamRunRecord,
+  type TeamRunChildRecord,
+  type TeamRunRecordInput,
+  type TeamRunState,
 } from "./team-run-state.js";
 import type {
   TeamRunOwnerLease,
@@ -94,7 +102,30 @@ export interface TeamRunResultMetadata extends Record<string, unknown> {
   readonly accounting: TeamRunState["accounting"];
   readonly changedFiles: readonly string[];
   readonly evidence: readonly string[];
+  readonly companyGoal?: {
+    readonly goalRunId: string;
+    readonly assignments: readonly CompanyTeamAssignmentResult[];
+  };
   readonly failure?: { readonly code: string; readonly message: string };
+}
+
+export interface CompanyTeamAssignmentResult {
+  readonly assignmentId: string;
+  readonly summary: string;
+  readonly evidence: readonly string[];
+  readonly usage: ProviderUsage | null;
+  readonly usageSource: "provider" | "runtime" | "unknown";
+}
+
+export interface CompanyTeamRunBudgetLimits {
+  readonly maxRequests: number;
+  readonly maxReportedCostUsd: number;
+}
+
+export interface CompanyTeamRunReservation {
+  readonly teamRunId: string;
+  readonly allocation: TeamRunAllocation;
+  readonly companyGoal: TeamRunCompanyGoalCorrelation;
 }
 
 export interface TeamRunResult extends ToolResult {
@@ -178,6 +209,12 @@ interface PreparedRun {
   readonly decisions: ReadonlyMap<TeamRunRole, AgentBackendRouteDecision>;
 }
 
+interface CompanyPreparation {
+  readonly runId: string;
+  readonly companyGoal: TeamRunCompanyGoalCorrelation;
+  readonly budgetLimits: CompanyTeamRunBudgetLimits;
+}
+
 function candidatesForMode(
   mode: TeamRunPolicySnapshot,
   candidates: readonly AgentBackendCandidate[],
@@ -194,6 +231,7 @@ function candidatesForMode(
 interface ClaimedRunHooks {
   readonly execution: TeamRunExecution;
   readonly applyWhenReady: boolean;
+  readonly prepared?: PreparedRun;
   readonly resumeState?: TeamRunState;
   readonly onClaimed?: (
     journal: RunJournal,
@@ -385,11 +423,142 @@ function serializedRoute(
   };
 }
 
+function companyRoleBinding(
+  descriptor: TeamRunDescriptor,
+  role: TeamRunRole,
+  index: number,
+): TeamRunCompanyRoleBinding | undefined {
+  const correlation = descriptor.companyGoal;
+  if (correlation === undefined) return undefined;
+  if (role === "implement") return correlation.implementations[index - 1];
+  if (role === "repair") return correlation.repair ?? undefined;
+  return correlation.reviews.length === 0
+    ? undefined
+    : correlation.reviews[(index - 1) % correlation.reviews.length];
+}
+
+function companyModelRoute(
+  correlation: TeamRunCompanyGoalCorrelation | undefined,
+  role: TeamRunRole,
+): "parent" | TeamRunRole | undefined {
+  if (correlation === undefined) return undefined;
+  const bindings = role === "implement"
+    ? correlation.implementations
+    : role === "review"
+      ? correlation.reviews
+      : correlation.repair === null ? [] : [correlation.repair];
+  if (bindings.length === 0) return undefined;
+  const routes = new Set(bindings.map((binding) => binding.modelRoute));
+  if (routes.size !== 1) {
+    throw new ToolError(
+      "permission_denied",
+      `Company ${role} roles must share one approved model route`,
+    );
+  }
+  const route = routes.values().next().value;
+  return route === "parent" || route === "implement" || route === "review" ||
+      route === "repair"
+    ? route
+    : undefined;
+}
+
+function aggregateUsage(
+  records: readonly TeamRunChildRecord[],
+): ProviderUsage | null {
+  const usages = records.map((record) => record.usage);
+  if (usages.length === 0 || usages.some((usage) => usage === null)) return null;
+  const known = usages as ProviderUsage[];
+  const sum = (key: keyof ProviderUsage): number => known.reduce(
+    (total, usage) => total + (usage[key] ?? 0),
+    0,
+  );
+  return {
+    inputTokens: sum("inputTokens"),
+    outputTokens: sum("outputTokens"),
+    ...(known.some((usage) => usage.cachedInputTokens !== undefined)
+      ? { cachedInputTokens: sum("cachedInputTokens") }
+      : {}),
+    ...(known.some((usage) => usage.cacheWriteInputTokens !== undefined)
+      ? { cacheWriteInputTokens: sum("cacheWriteInputTokens") }
+      : {}),
+    ...(known.some((usage) => usage.reasoningTokens !== undefined)
+      ? { reasoningTokens: sum("reasoningTokens") }
+      : {}),
+    ...(known.every((usage) => usage.costUsd !== undefined)
+      ? { costUsd: sum("costUsd") }
+      : {}),
+  };
+}
+
+function companyAssignmentResults(
+  state: TeamRunState,
+): readonly CompanyTeamAssignmentResult[] | undefined {
+  const correlation = state.descriptor.companyGoal;
+  if (correlation === undefined) return undefined;
+  const claimEpoch = state.claim?.claimEpoch;
+  const current = state.children.filter((child) =>
+    child.reservation.claimEpoch === claimEpoch && child.result !== null
+  );
+  const resultFor = (
+    binding: TeamRunCompanyRoleBinding,
+    teamRole: "implement" | "review",
+    bindingIndex: number,
+  ): CompanyTeamAssignmentResult => {
+    const children = current.filter((child) => {
+      if (teamRole === "implement") {
+        return child.reservation.role === "implement"
+          ? child.reservation.index === bindingIndex + 1
+          : child.reservation.role === "repair" &&
+              correlation.repair?.assignmentId === binding.assignmentId;
+      }
+      return child.reservation.role === "review" &&
+        (child.reservation.index - 1) % correlation.reviews.length ===
+          bindingIndex;
+    });
+    const records = children.flatMap((child) =>
+      child.result === null ? [] : [child.result]
+    );
+    const usage = aggregateUsage(records);
+    const usageSource = records.length === 0 ||
+        records.some((record) => record.usageSource === "unavailable")
+      ? "unknown" as const
+      : records.some((record) => record.usageSource === "runtime")
+        ? "runtime" as const
+        : "provider" as const;
+    const evidence = boundedTeamEvidence([
+      ...records.flatMap((record) => record.evidence),
+      ...(teamRole === "review"
+        ? state.reviews.flatMap((review) =>
+            review.claimEpoch === claimEpoch ? review.evidence : []
+          )
+        : []),
+    ]);
+    return Object.freeze({
+      assignmentId: binding.assignmentId,
+      summary: teamRole === "implement"
+        ? `Implementation assignment ${binding.assignmentId} completed in team ${state.descriptor.id}.`
+        : `Independent review assignment ${binding.assignmentId} completed with team status ${state.status}.`,
+      evidence: Object.freeze(evidence),
+      usage,
+      usageSource,
+    });
+  };
+  return Object.freeze([
+    ...correlation.implementations.map((binding, index) =>
+      resultFor(binding, "implement", index)
+    ),
+    ...correlation.reviews.map((binding, index) =>
+      resultFor(binding, "review", index)
+    ),
+  ]);
+}
+
 function resultFromState(
   state: TeamRunState,
   evidence: readonly string[],
 ): TeamRunResult {
   const failure = state.outcome?.failure ?? undefined;
+  const assignments = companyAssignmentResults(state);
   return {
     output: failure === undefined
       ? `Team ${state.descriptor.id}: ${state.status}`
@@ -407,6 +576,14 @@ function resultFromState(
         ? [...(state.candidate?.changedFiles ?? [])]
         : [],
       evidence: boundedTeamEvidence(evidence),
+      ...(assignments === undefined || state.descriptor.companyGoal === undefined
+        ? {}
+        : {
+            companyGoal: {
+              goalRunId: state.descriptor.companyGoal.runId,
+              assignments,
+            },
+          }),
       ...(failure === undefined ? {} : { failure }),
     },
   };
@@ -592,6 +769,10 @@ export class TeamRunSupervisor {
   readonly #now: () => string;
   readonly #activeParents = new Set<string>();
   readonly #active = new Map<string, ActiveTeamRun>();
+  readonly #companyReservations = new WeakMap<
+    CompanyTeamRunReservation,
+    PreparedRun
+  >();
 
   constructor(private readonly dependencies: TeamRunSupervisorDependencies) {
     this.#createId = dependencies.createId ?? randomUUID;
@@ -654,6 +835,7 @@ export class TeamRunSupervisor {
     input: DelegateTeamInput,
     context: ToolContext,
     execution: TeamRunExecution,
+    company?: CompanyPreparation,
   ): Promise<PreparedRun> {
     if (context.signal.aborted) {
       throw new ToolError("cancelled", "Team delegation was cancelled");
@@ -683,6 +865,19 @@ export class TeamRunSupervisor {
     if (context.runContext === undefined) {
       throw new ToolError("tool_unavailable", "Trusted run context is unavailable");
     }
+    const companyBinding = parent.agent.company;
+    if (company !== undefined && (
+      execution !== "foreground" || mode.version < 6 || mode.company === undefined ||
+      companyBinding?.blueprintVersion !== 2 ||
+      companyBinding.blueprintId !== company.companyGoal.blueprintId ||
+      companyBinding.blueprintRevision !== company.companyGoal.blueprintRevision ||
+      context.sessionId !== parent.id
+    )) {
+      throw new ToolError(
+        "permission_denied",
+        "Company team reservation does not match the live parent authority",
+      );
+    }
     if (execution === "background" && (
       parent.permissionMode !== "full_access" ||
       parent.backend.pin.kind !== "model_provider" ||
@@ -709,11 +904,27 @@ export class TeamRunSupervisor {
     if (budget === undefined || !isDelegationBudgetForAgent(budget, parent.agent)) {
       throw new ToolError("tool_unavailable", "Trusted delegation budget is unavailable");
     }
-    if (budget.childrenStarted !== 0 || budget.requestsReserved !== 0 ||
-      budget.requestsUsed !== 0 || budget.reportedCostUsd !== 0) {
+    if (company === undefined && (budget.childrenStarted !== 0 ||
+      budget.requestsReserved !== 0 || budget.requestsUsed !== 0 ||
+      budget.reportedCostUsd !== 0)) {
       throw new ToolError(
         "permission_denied",
         "Durable team execution requires the complete frozen run budget",
+      );
+    }
+    const remainingRequests = budget.maxRequests - budget.requestsReserved;
+    const remainingCost = budget.maxReportedCostUsd - budget.reportedCostUsd;
+    if (company !== undefined && (
+      !Number.isSafeInteger(company.budgetLimits.maxRequests) ||
+      company.budgetLimits.maxRequests < 1 ||
+      company.budgetLimits.maxRequests > remainingRequests ||
+      !Number.isFinite(company.budgetLimits.maxReportedCostUsd) ||
+      company.budgetLimits.maxReportedCostUsd <= 0 ||
+      company.budgetLimits.maxReportedCostUsd > remainingCost
+    )) {
+      throw new ToolError(
+        "permission_denied",
+        "Company team budget exceeds the remaining goal authority",
       );
     }
     const base = await this.dependencies.patches.preflightParent(
@@ -729,16 +940,53 @@ export class TeamRunSupervisor {
     );
     const decisions = new Map<TeamRunRole, AgentBackendRouteDecision>();
     for (const role of ["implement", "review", "repair"] as const) {
+      const modelRoute = companyModelRoute(company?.companyGoal, role);
       decisions.set(role, this.dependencies.router.select({
         role,
+        ...(modelRoute === undefined || modelRoute === "parent"
+          ? {}
+          : { candidateRole: modelRoute }),
         executionMode: "act",
         permissionMode: parent.permissionMode,
         background: execution === "background",
-        candidates,
+        candidates: modelRoute === "parent"
+          ? candidates.filter((candidate) => candidate.parent)
+          : candidates,
       }));
     }
-    const runId = this.#createId();
+    const runId = company?.runId ?? this.#createId();
     const policy = structuredClone(mode) as TeamRunPolicySnapshot;
+    const requiredChildren = input.tasks.length +
+      team.maxReviewers * (team.maxRepairRounds! + 1) + team.maxRepairRounds!;
+    const ordinaryAllowance = Math.max(
+      1,
+      Math.floor(mode.workflow.maxRequestsPerRun / mode.workflow.maxChildrenPerRun),
+    );
+    const requestAllowance = company === undefined
+      ? childRequestAllowance(parent.agent)
+      : Math.min(
+          ordinaryAllowance,
+          Math.floor(company.budgetLimits.maxRequests / requiredChildren),
+        );
+    if (requestAllowance < 1) {
+      throw new ToolError(
+        "permission_denied",
+        "Company goal does not have enough requests for the complete team workflow",
+      );
+    }
+    const allocation: TeamRunAllocation = company === undefined
+      ? {
+          maxChildren: mode.workflow.maxChildrenPerRun,
+          maxRequests: mode.workflow.maxRequestsPerRun,
+          requestAllowance,
+          maxReportedCostUsd: mode.orchestration.maxReportedCostUsd,
+        }
+      : {
+          maxChildren: requiredChildren,
+          maxRequests: requiredChildren * requestAllowance,
+          requestAllowance,
+          maxReportedCostUsd: company.budgetLimits.maxReportedCostUsd,
+        };
     const descriptor: TeamRunDescriptor = {
       id: runId,
       version: 1,
@@ -751,12 +999,7 @@ export class TeamRunSupervisor {
       operatingModeId: mode.id,
       operatingModeVersion: mode.version,
       policy,
-      allocation: {
-        maxChildren: mode.workflow.maxChildrenPerRun,
-        maxRequests: mode.workflow.maxRequestsPerRun,
-        requestAllowance: childRequestAllowance(parent.agent),
-        maxReportedCostUsd: mode.orchestration.maxReportedCostUsd,
-      },
+      allocation,
       routes: (["implement", "review", "repair"] as const).map((role) =>
         serializedRoute(role, decisions.get(role)!)
       ),
@@ -768,8 +1011,81 @@ export class TeamRunSupervisor {
         tasks: structuredClone(input.tasks),
         review: structuredClone(input.review),
       },
+      ...(company === undefined
+        ? {}
+        : { companyGoal: structuredClone(company.companyGoal) }),
     };
+    if (company !== undefined) {
+      try {
+        parseTeamRunRecord({
+          version: 1,
+          runId,
+          sequence: 0,
+          at: this.#now(),
+          type: "team_created",
+          descriptor,
+        }, runId);
+      } catch {
+        throw new ToolError(
+          "permission_denied",
+          "Company team descriptor violates the frozen runtime policy",
+        );
+      }
+    }
     return { parent, base, descriptor, decisions };
+  }
+
+  async reserveCompanyRun(
+    input: DelegateTeamInput,
+    context: ToolContext,
+    companyGoal: TeamRunCompanyGoalCorrelation,
+    budgetLimits: CompanyTeamRunBudgetLimits,
+  ): Promise<CompanyTeamRunReservation> {
+    const runId = this.#createId();
+    const prepared = await this.#prepare(input, context, "foreground", {
+      runId,
+      companyGoal,
+      budgetLimits,
+    });
+    const reservation = Object.freeze({
+      teamRunId: runId,
+      allocation: Object.freeze(structuredClone(prepared.descriptor.allocation)),
+      companyGoal: Object.freeze(structuredClone(companyGoal)),
+    });
+    this.#companyReservations.set(reservation, prepared);
+    return reservation;
+  }
+
+  startCompanyForeground(
+    input: DelegateTeamInput,
+    context: ToolContext,
+    reservation: CompanyTeamRunReservation,
+  ): Promise<TeamRunResult> {
+    const prepared = this.#companyReservations.get(reservation);
+    if (prepared === undefined ||
+      prepared.descriptor.id !== reservation.teamRunId ||
+      !isDeepStrictEqual(prepared.descriptor.allocation, reservation.allocation) ||
+      !isDeepStrictEqual(prepared.descriptor.companyGoal, reservation.companyGoal)) {
+      throw new ToolError(
+        "permission_denied",
+        "A live unused company team reservation is required",
+      );
+    }
+    this.#companyReservations.delete(reservation);
+    const localBudget = {
+      maxChildren: reservation.allocation.maxChildren,
+      childrenStarted: 0,
+      maxRequests: reservation.allocation.maxRequests,
+      requestsReserved: 0,
+      requestsUsed: 0,
+      maxReportedCostUsd: reservation.allocation.maxReportedCostUsd,
+      reportedCostUsd: 0,
+    };
+    return this.#run(input, { ...context, delegationBudget: localBudget }, {
+      execution: "foreground",
+      applyWhenReady: true,
+      prepared,
+    });
   }
 
   async preflight(input: DelegateTeamInput, context: ToolContext): Promise<void> {
@@ -790,6 +1106,8 @@ export class TeamRunSupervisor {
     const workspaceBinding = reserved.options.workspace;
     const mode = reserved.options.teamOperatingMode;
     const permissions = reserved.options.teamParentPermissions;
+    const company = reserved.options.company;
+    const companyGoal = reserved.options.companyGoal;
     if (decision === undefined || team === undefined || !("runId" in team) ||
       workspaceBinding === undefined || mode === undefined ||
       permissions === undefined || state.agent.role !== "child" ||
@@ -805,6 +1123,11 @@ export class TeamRunSupervisor {
       modelId: decision.pin.modelId,
     };
     const durable = state.agentResult;
+    const expectedPermission = narrowAgentPermissionMode(
+      permissions.permissionMode,
+      reserved.options.companyPermissionMode ?? permissions.permissionMode,
+    );
+    const expectedLimits = companyAgentLimits(mode.id, company);
     return state.id === reserved.identity.childSessionId &&
       state.cwd === reserved.options.cwd &&
       isDeepStrictEqual(state.backend.pin, decision.pin) &&
@@ -827,12 +1150,14 @@ export class TeamRunSupervisor {
         parentExecutionMode: permissions.executionMode,
         executionMode: profile.executionMode,
         parentPermissionMode: permissions.permissionMode,
-        permissionMode: permissions.permissionMode,
+        permissionMode: expectedPermission,
       }) &&
       isDeepStrictEqual(state.agent.limits, {
-        ...descriptor.policy.orchestration,
+        ...expectedLimits,
         maxRequests: descriptor.allocation.requestAllowance,
       }) &&
+      isDeepStrictEqual(state.agent.company, company) &&
+      isDeepStrictEqual(state.agent.companyGoal, companyGoal) &&
       isDeepStrictEqual(state.agent.workspace, workspaceBinding) &&
       isDeepStrictEqual(state.agent.team, team) &&
       result.output === durable.finalText &&
@@ -953,6 +1278,23 @@ export class TeamRunSupervisor {
     authority: TeamChildAuthority,
   ): Promise<ReservedChild> {
     const attemptId = this.#createId();
+    const binding = companyRoleBinding(journal.state.descriptor, role, index);
+    if (journal.state.descriptor.companyGoal !== undefined && binding === undefined) {
+      throw new ToolError(
+        "permission_denied",
+        "Company team child has no approved role assignment",
+      );
+    }
+    const company = binding === undefined
+      ? undefined
+      : parseCompanyBlueprintBindingV2({
+          blueprintId: journal.state.descriptor.companyGoal!.blueprintId,
+          blueprintVersion: 2,
+          blueprintRevision:
+            journal.state.descriptor.companyGoal!.blueprintRevision,
+          roleId: binding.roleId,
+          roleVersion: 1,
+        });
     const options = {
       cwd: lease.worktreeRoot,
       workspace: workspace(lease),
@@ -974,6 +1316,17 @@ export class TeamRunSupervisor {
         round,
         attemptId,
       },
+      ...(binding === undefined || company === undefined
+        ? {}
+        : {
+            company,
+            companyPermissionMode: binding.permissionMode,
+            companyGoal: {
+              runId: journal.state.descriptor.companyGoal!.runId,
+              assignmentId: binding.assignmentId,
+              parentAssignmentId: binding.parentAssignmentId,
+            },
+          }),
     } satisfies Omit<ChildDelegationOptions, "identity">;
     const identity = this.dependencies.children.reserveIdentity(
       input,
@@ -1155,9 +1508,9 @@ export class TeamRunSupervisor {
     context: ToolContext,
     hooks: ClaimedRunHooks,
   ): Promise<TeamRunResult> {
-    const prepared = hooks.resumeState === undefined
+    const prepared = hooks.prepared ?? (hooks.resumeState === undefined
       ? await this.#prepare(input, context, hooks.execution)
-      : await this.#prepareResume(hooks.resumeState, context);
+      : await this.#prepareResume(hooks.resumeState, context));
     const { parent, base, descriptor, decisions } = prepared;
     if (this.#activeParents.has(parent.agent.id)) {
       throw new ToolError("permission_denied", "A team is already active for this parent");
@@ -1254,6 +1607,7 @@ export class TeamRunSupervisor {
           permissionMode: descriptor.parentPermissionMode,
         },
         repositoryRoot: descriptor.repositoryRoot,
+        allocation: descriptor.allocation,
       }, context);
       authority = runAuthority;
       await owner.assertOwned();
@@ -1463,9 +1817,12 @@ export class TeamRunSupervisor {
           contract: "v2",
           policy: {
             operatingModeId: descriptor.operatingModeId,
-            operatingModeVersion: 4,
+            operatingModeVersion: descriptor.operatingModeVersion,
             qualityStandard: descriptor.policy.workflow.team.qualityStandard,
-            initialReviewers: descriptor.policy.workflow.team.initialReviewers,
+            initialReviewers: Math.max(
+              descriptor.policy.workflow.team.initialReviewers,
+              descriptor.companyGoal?.reviews.length ?? 0,
+            ),
             maxReviewers: descriptor.policy.workflow.team.maxReviewers,
           },
           delegateReviewer: (index, childInput) => this.#delegateJournaled(
@@ -1839,6 +2196,17 @@ export class TeamRunSupervisor {
     runId: string,
   ): Promise<TeamRunSnapshot> {
     return snapshotFromState(await this.#ownedState(parentSessionId, runId));
+  }
+
+  async inspectCompanyRun(
+    parentSessionId: string,
+    runId: string,
+  ): Promise<TeamRunResult> {
+    const state = await this.#ownedState(parentSessionId, runId);
+    if (state.descriptor.companyGoal === undefined) {
+      throw new ToolError("not_found", "Company team run not found");
+    }
+    return resultFromState(state, durableEvidence(state));
   }
 
   async wait(

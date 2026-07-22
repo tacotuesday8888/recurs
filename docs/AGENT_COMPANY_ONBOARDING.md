@@ -157,26 +157,31 @@ automatically.
 | Bounded isolated Implement, Review, and Repair team workflow | Implemented |
 | Shared depth, concurrency, retry, request, permission, and cost limits | Implemented |
 | Cancellation, recovery, staging, evidence, and explicit apply | Implemented |
-| Short project classification, purpose, one constraint, and development-style intake | Implemented |
-| Consent-gated inspection of ten allowlisted root marker names, without file contents | Implemented |
-| Durable immutable version-1 `CompanyBlueprint` and eight tailored layered-company roles | Implemented |
-| Explicit preview and approval of roster, authority, repository facts, tool readiness, quality, and first goal | Implemented |
+| Quick, Guided, and Deep adaptive onboarding with durable save/exit/resume | Implemented |
+| Consent-gated project understanding through a closed read-only Plan registry | Implemented |
+| Durable V2 stable-core or guardrailed-dynamic company blueprint | Implemented; V1 remains loadable and executable |
+| Conversational and YAML proposal revision with structural diff and explicit approval | Implemented |
+| Explicit preview and approval of roster, hierarchy, authority, repository facts, tool readiness, quality, and first goal | Implemented |
 | Fresh parent session bound to the approved orchestrator role | Implemented |
 | Onboarding-generated durable initial goal and tailored quality plan | Implemented |
-| Blueprint-aware parent-to-child handoff with durable result/evidence and parent synthesis | Implemented for one bounded depth-one role at a time |
-| Automatic role selection, dependency decomposition, and handoff graph | Not implemented |
+| Blueprint-aware bounded parent → lead → worker handoffs with durable result/evidence | Implemented for approved read/planning assignments |
+| Blueprint-directed parallel implementation → independent review → bounded repair → parent apply | Implemented through the existing durable team engine |
+| Model-proposed assignment DAG with harness validation and parent synthesis | Implemented through `delegate_company_goal`; no claim of deterministic optimal decomposition |
 | Role-specific tool-bundle readiness plan | Implemented as bounded available/required policy; no installation |
-| Natural model-authored interview, proposal editing, or generated roadmap | Not implemented |
+| Natural model-authored interview, proposal editing, and generated roadmap | Implemented behind strict contracts and user approval |
 | Automatic MCP/skill discovery, trust, or installation from the blueprint | Not implemented |
-| Recursive lead-to-worker orchestration beyond depth one | Not implemented |
+| Unbounded recursion or autonomous role invention after approval | Not implemented |
+| `/company` inspection, activity, knowledge, and amendment commands | Not implemented yet |
 | Long-lived project learning and evidence-driven team adaptation | Not implemented |
 | Company operating UI | Intentionally deferred |
 
 In plain language: onboarding now creates and launches a real personalized
-company policy. The parent can delegate a concrete task to one approved child
-role through the existing engine and synthesize its result. It does not yet
-run the whole roster, invent a dependency graph, install tools, recurse through
-management layers, or continue working after the CLI exits.
+company policy. The parent can run a validated company goal across bounded
+planning handoffs and one parallel implementation batch, with independent
+review, repair, evidence, shared accounting, and permission-controlled parent
+apply. Inactive roster members remain inactive. Recurs does not install tools,
+change the approved organization by itself, run unbounded recursion, or keep
+compute alive after the CLI exits.
 
 ## How the model and harness divide the work
 
@@ -195,18 +200,15 @@ company contracts.
 
 ## Next implementation slices
 
-1. **Blueprint-directed team execution.** Map approved builder, reviewer, and
-   repair roles onto the existing isolated durable-team workflow while keeping
-   its worktree, review, apply, model-route, and accounting guarantees.
-2. **Editable semantic intake.** Let a model conduct a richer interview and
-   propose project-specific specialists or a roadmap, then validate all output
-   against the closed harness policy and require a human review before launch.
-3. **Tool readiness.** Resolve required tool bundles to installed skills and
+1. **CLI company operations.** Add truthful status, blueprint, activity,
+   knowledge, amendment, and approved-goal launch commands over the durable V2
+   state that already exists.
+2. **Tool readiness.** Resolve required tool bundles to installed skills and
    MCP configuration without automatically installing, trusting, or granting
    anything.
-4. **Measured adaptation and deeper hierarchy.** Learn from durable evidence,
-   then add bounded lead-to-worker delegation only after the depth-one company
-   path remains reliable and cost-visible in real use.
+3. **Measured adaptation.** Learn attributable project facts and successful
+   patterns from durable evidence, then require explicit approval for every
+   organizational amendment.
 
 Desktop UI, autonomous deployment, long-lived self-modifying agents, and
 unbounded recursion remain outside this milestone.
@@ -214,7 +216,8 @@ unbounded recursion remain outside this milestone.
 ## Success criteria
 
 The onboarding/company milestone is real when a fresh user can explain a
-project, inspect and approve a tailored company, launch it, and observe at least
-one planned handoff complete through the existing permission/provider/runtime
-seams—with durable evidence showing which agent acted, what it was allowed to
-do, what it cost when reported, and how its result changed the parent plan.
+project, inspect and approve a tailored company, launch it, and observe a
+bounded planned goal complete through the existing permission/provider/runtime
+seams—with durable evidence showing which roles acted, what they were allowed
+to do, what the workflow cost when reported, and how independently reviewed
+work reached the parent.

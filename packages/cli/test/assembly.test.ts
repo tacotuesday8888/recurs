@@ -34,7 +34,9 @@ import {
 import {
   bindRunAuthorization,
   approveCompanyBlueprint,
+  approveCompanyBlueprintV2,
   compileCompanyBlueprint,
+  compileCompanyBlueprintV2,
   CoordinatedRunError,
   DelegatedAgentExecutor,
   FileGitPatchArtifactStore,
@@ -529,6 +531,99 @@ describe("standalone assembly without a provider", () => {
       "projects",
       projectId,
       "company-blueprints",
+    ))).resolves.toEqual([`${blueprint.id}.json`]);
+  });
+
+  it("activates an approved V2 company with only the real company-goal tool", async () => {
+    const temporary = await mkdtemp(path.join(tmpdir(), "recurs-company-v2-assembly-"));
+    directories.push(temporary);
+    const root = await realpath(temporary);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const blueprint = approveCompanyBlueprintV2(compileCompanyBlueprintV2({
+      id: "company-assembly-v2",
+      companyId: "company-v2",
+      revision: 1,
+      previousBlueprintId: null,
+      createdAt: "2026-07-21T00:00:00.000Z",
+      onboardingRunId: "onboarding-v2",
+      onboardingDepth: "guided",
+      generatedBy: "deterministic",
+      designMode: "stable_core_specialists",
+      project: {
+        type: "existing_project",
+        stage: "active",
+        purpose: "Run one bounded company-directed implementation.",
+        users: ["Maintainers"],
+        successCriteria: ["Independent review approves the staged result."],
+        constraints: ["Preserve the parent authority boundary."],
+        risks: [],
+        architecturePreferences: ["Use the durable team engine."],
+        deploymentTargets: ["CLI"],
+        repository: { inspected: false, markers: [], evidence: [] },
+      },
+      permissionMode: "approved_for_me",
+      operatingModeId: "balanced_v6",
+      availableToolBundles: [
+        "project_context_v1", "source_control_v1", "architecture_v1",
+        "implementation_v1", "quality_v1", "security_v1", "release_v1",
+      ],
+      initialGoal: "Deliver the first reviewed company slice.",
+      roadmap: ["Run the first approved goal."],
+    }), "2026-07-21T00:01:00.000Z");
+    const provider = new ScriptedProvider([[{
+      type: "text_delta",
+      text: "The approved V2 company is ready.",
+    }, { type: "done", stopReason: "complete" }]]);
+    const events: RecursEvent[] = [];
+    const runtime = await createStandaloneRuntime(
+      { async emit(event) { events.push(event); } },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        provider,
+        permissionMode: "approved_for_me",
+        operatingModeId: "balanced_v6",
+        reuseExistingSession: false,
+        companyBlueprint: blueprint,
+      },
+    );
+
+    expect(runtime.session).toMatchObject({
+      agent: {
+        company: {
+          blueprintId: blueprint.id,
+          blueprintVersion: 2,
+          blueprintRevision: 1,
+          roleId: blueprint.authorityAnchors.rootRoleId,
+        },
+      },
+      goal: { objective: blueprint.initialGoal, status: "active" },
+    });
+    await expect(runtime.submit("Describe the active company")).resolves
+      .toMatchObject({ finalText: "The approved V2 company is ready." });
+    const toolNames = provider.requests[0]?.tools.map((tool) => tool.name) ?? [];
+    expect(toolNames).toContain("delegate_company_goal");
+    expect(toolNames).not.toContain("delegate_company_task");
+    expect(JSON.stringify(provider.requests[0]?.messages)).toContain(
+      `Approved Recurs company ${blueprint.companyId} revision 1 is active`,
+    );
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "company_blueprint_v2_activated",
+      blueprintId: blueprint.id,
+      blueprintRevision: 1,
+      designMode: "stable_core_specialists",
+    }));
+    const projectId = createHash("sha256")
+      .update(await realpath(workspace))
+      .digest("hex")
+      .slice(0, 24);
+    await expect(readdir(path.join(
+      root,
+      "data",
+      "projects",
+      projectId,
+      "company-blueprints-v2",
     ))).resolves.toEqual([`${blueprint.id}.json`]);
   });
 
@@ -2034,7 +2129,6 @@ describe("standalone assembly without a provider", () => {
       "git_history",
       "git_show",
       "delegate_task",
-      "delegate_company_task",
       "delegate_tasks",
       "delegate_team",
       "team_status",

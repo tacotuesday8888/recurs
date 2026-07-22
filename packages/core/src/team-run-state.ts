@@ -3,10 +3,14 @@ import { isDeepStrictEqual } from "node:util";
 
 import {
   getOperatingModePolicy,
+  narrowAgentPermissionMode,
   parseOperatingModeId,
+  type CompanyToolBundleId,
   type ProviderUsage,
   type TeamReviewFinding,
   type TeamRunDescriptor,
+  type TeamRunCompanyGoalCorrelation,
+  type TeamRunCompanyRoleBinding,
   type TeamRunNonApprovedTerminalStatus,
   type TeamRunPhase,
   type TeamRunRole,
@@ -40,6 +44,13 @@ const GIT_REVISION = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const SAFE_RUNTIME_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
+const COMPANY_TOOL_BUNDLES = new Set<CompanyToolBundleId>([
+  "project_context_v1", "source_control_v1", "architecture_v1",
+  "implementation_v1", "quality_v1", "security_v1", "release_v1",
+]);
+const COMPANY_MODEL_ROUTES = new Set([
+  "parent", "implement", "review", "repair",
+]);
 
 export interface TeamRunChildReservation {
   readonly attemptId: string;
@@ -463,13 +474,109 @@ function backgroundEligiblePin(pin: TeamRunDescriptor["backend"]): boolean {
     selection.allowedSources.every((source) => safeSources.has(source));
 }
 
+function exactCompanyRoleBinding(
+  value: unknown,
+  parentPermissionMode: TeamRunDescriptor["parentPermissionMode"],
+): value is TeamRunCompanyRoleBinding {
+  if (!isObject(value) || !hasExactKeys(value, [
+    "assignmentId", "parentAssignmentId", "roleId", "departmentId",
+    "permissionMode", "modelRoute", "toolBundles",
+  ]) || typeof value.assignmentId !== "string" ||
+    !SAFE_RUNTIME_ID.test(value.assignmentId) ||
+    (value.parentAssignmentId !== null && (
+      typeof value.parentAssignmentId !== "string" ||
+      !SAFE_RUNTIME_ID.test(value.parentAssignmentId)
+    )) || typeof value.roleId !== "string" || !SAFE_RUNTIME_ID.test(value.roleId) ||
+    typeof value.departmentId !== "string" ||
+    !SAFE_RUNTIME_ID.test(value.departmentId) || !permission(value.permissionMode) ||
+    typeof value.modelRoute !== "string" ||
+    !COMPANY_MODEL_ROUTES.has(value.modelRoute) ||
+    narrowAgentPermissionMode(parentPermissionMode, value.permissionMode) !==
+      value.permissionMode || !Array.isArray(value.toolBundles) ||
+    value.toolBundles.length === 0 || value.toolBundles.length > 7 ||
+    value.toolBundles.some((bundle) =>
+      typeof bundle !== "string" ||
+      !COMPANY_TOOL_BUNDLES.has(bundle as CompanyToolBundleId)
+    )) {
+    return false;
+  }
+  const bundles = value.toolBundles as string[];
+  return new Set(bundles).size === bundles.length &&
+    bundles.every((bundle, index) =>
+      index === 0 || bundles[index - 1]!.localeCompare(bundle) < 0
+    );
+}
+
+function exactCompanyGoal(
+  value: unknown,
+  descriptor: TeamRunDescriptor,
+  mode: ReturnType<typeof getOperatingModePolicy>,
+): value is TeamRunCompanyGoalCorrelation {
+  const team = mode.workflow.team;
+  if (!isObject(value) || mode.version < 6 || mode.company === undefined ||
+    team === null || team.maxRepairRounds === undefined ||
+    !hasExactKeys(value, [
+      "version", "runId", "goalId", "blueprintId", "blueprintRevision",
+      "implementations", "reviews", "repair",
+    ]) || value.version !== 1 || typeof value.runId !== "string" ||
+    !SAFE_RUNTIME_ID.test(value.runId) || typeof value.goalId !== "string" ||
+    !SAFE_RUNTIME_ID.test(value.goalId) || typeof value.blueprintId !== "string" ||
+    !SAFE_RUNTIME_ID.test(value.blueprintId) ||
+    !integer(value.blueprintRevision, 1) || !Array.isArray(value.implementations) ||
+    value.implementations.length !== descriptor.request.tasks.length ||
+    value.implementations.length > team.maxImplementers ||
+    !value.implementations.every((binding) =>
+      exactCompanyRoleBinding(binding, descriptor.parentPermissionMode) &&
+      binding.modelRoute === "implement" &&
+      binding.toolBundles.includes("implementation_v1")
+    ) || !Array.isArray(value.reviews) || value.reviews.length === 0 ||
+    value.reviews.length > team.maxReviewers ||
+    !value.reviews.every((binding) =>
+      exactCompanyRoleBinding(binding, descriptor.parentPermissionMode) &&
+      binding.modelRoute === "review" &&
+      binding.toolBundles.includes("quality_v1")
+    ) || (team.maxRepairRounds === 0
+      ? value.repair !== null
+      : !exactCompanyRoleBinding(value.repair, descriptor.parentPermissionMode) ||
+        (value.repair.modelRoute !== "implement" &&
+          value.repair.modelRoute !== "repair" &&
+          value.repair.modelRoute !== "parent") ||
+        !value.repair.toolBundles.includes("implementation_v1"))) {
+    return false;
+  }
+  const correlation = value as unknown as TeamRunCompanyGoalCorrelation;
+  const assignments = [
+    ...correlation.implementations,
+    ...correlation.reviews,
+  ].map((binding) => binding.assignmentId);
+  if (new Set(assignments).size !== assignments.length ||
+    correlation.repair !== null &&
+      !correlation.implementations.some((binding) =>
+        binding.assignmentId === correlation.repair!.assignmentId
+      )) {
+    return false;
+  }
+  const requiredChildren = descriptor.request.tasks.length +
+    team.maxReviewers * (team.maxRepairRounds + 1) + team.maxRepairRounds;
+  const allocation = descriptor.allocation;
+  return allocation.maxChildren === requiredChildren &&
+    integer(allocation.requestAllowance, 1) &&
+    allocation.maxRequests === requiredChildren * allocation.requestAllowance &&
+    allocation.maxRequests <= mode.workflow.maxRequestsPerRun &&
+    allocation.maxRequests <= mode.company.maxGoalRequests &&
+    typeof allocation.maxReportedCostUsd === "number" &&
+    Number.isFinite(allocation.maxReportedCostUsd) &&
+    allocation.maxReportedCostUsd > 0 &&
+    allocation.maxReportedCostUsd <= mode.company.maxReportedCostUsd;
+}
+
 function exactDescriptor(value: unknown, runId: string): value is TeamRunDescriptor {
   if (!isObject(value) || !hasExactKeys(value, [
     "id", "version", "parentSessionId", "parentAgentId", "execution",
     "parentExecutionMode", "parentPermissionMode", "invocation",
     "operatingModeId", "operatingModeVersion", "policy", "allocation", "routes",
     "backend", "repositoryRoot", "baseRevision", "request",
-  ]) || value.id !== runId || typeof value.id !== "string" ||
+  ], ["companyGoal"]) || value.id !== runId || typeof value.id !== "string" ||
     !SAFE_RUNTIME_ID.test(value.id) || value.version !== 1 ||
     typeof value.parentSessionId !== "string" ||
     !SAFE_RUNTIME_ID.test(value.parentSessionId) ||
@@ -508,11 +615,7 @@ function exactDescriptor(value: unknown, runId: string): value is TeamRunDescrip
     mode.workflow.team.maxRepairRounds === undefined ||
     !isObject(value.allocation) || !hasExactKeys(value.allocation, [
       "maxChildren", "maxRequests", "requestAllowance", "maxReportedCostUsd",
-    ]) || value.allocation.maxChildren !== mode.workflow.maxChildrenPerRun ||
-    value.allocation.maxRequests !== mode.workflow.maxRequestsPerRun ||
-    value.allocation.requestAllowance !== Math.floor(
-      mode.workflow.maxRequestsPerRun / mode.workflow.maxChildrenPerRun,
-    ) || value.allocation.maxReportedCostUsd !== mode.orchestration.maxReportedCostUsd ||
+    ]) ||
     value.request.tasks.length > mode.workflow.team.maxImplementers ||
     !value.request.tasks.every((task) =>
       isObject(task) && hasExactKeys(task, ["description", "prompt"]) &&
@@ -522,6 +625,18 @@ function exactDescriptor(value: unknown, runId: string): value is TeamRunDescrip
     return false;
   }
   const descriptor = value as unknown as TeamRunDescriptor;
+  const ordinaryAllocation = value.allocation.maxChildren ===
+      mode.workflow.maxChildrenPerRun &&
+    value.allocation.maxRequests === mode.workflow.maxRequestsPerRun &&
+    value.allocation.requestAllowance === Math.floor(
+      mode.workflow.maxRequestsPerRun / mode.workflow.maxChildrenPerRun,
+    ) && value.allocation.maxReportedCostUsd ===
+      mode.orchestration.maxReportedCostUsd;
+  if (descriptor.companyGoal === undefined
+    ? !ordinaryAllocation
+    : !exactCompanyGoal(descriptor.companyGoal, descriptor, mode)) {
+    return false;
+  }
   const exactRoutes = (["implement", "review", "repair"] as const).every((role) => {
     const matches = (value.routes as unknown[]).filter((route) =>
       isObject(route) && route.role === role

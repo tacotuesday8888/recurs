@@ -17,7 +17,7 @@ import {
   parseOperatingModeId,
   RECURS_VERSION,
   type OperatingModeId,
-  type CompanyBlueprintV1,
+  type CompanyBlueprint,
   type IntegrationFailure,
   type NativeAuthorityPort,
   type NativeAuthorityStatus,
@@ -172,7 +172,7 @@ export interface CliDependencies {
       readonly cwd?: string;
       readonly reuseExistingSession?: boolean;
       readonly resumeSessionId?: string;
-      readonly companyBlueprint?: CompanyBlueprintV1;
+      readonly companyBlueprint?: CompanyBlueprint;
     },
   ): Promise<RecursRuntime>;
   runAcp?(): Promise<void>;
@@ -1347,9 +1347,13 @@ export async function runCli(
             operatingModeId: onboarding.operatingModeId,
             permissionMode: onboarding.permissionMode,
             reuseExistingSession: false,
-            ...(onboarding.companyBlueprint === undefined
+            ...(onboarding.companyBlueprintV2 === undefined &&
+                onboarding.companyBlueprint === undefined
               ? {}
-              : { companyBlueprint: onboarding.companyBlueprint }),
+              : {
+                  companyBlueprint:
+                    onboarding.companyBlueprintV2 ?? onboarding.companyBlueprint,
+                }),
           });
         }
       }
@@ -1380,9 +1384,13 @@ export async function runCli(
         operatingModeId: onboarding.operatingModeId,
         permissionMode: onboarding.permissionMode,
         reuseExistingSession: false,
-        ...(onboarding.companyBlueprint === undefined
+        ...(onboarding.companyBlueprintV2 === undefined &&
+            onboarding.companyBlueprint === undefined
           ? {}
-          : { companyBlueprint: onboarding.companyBlueprint }),
+          : {
+              companyBlueprint:
+                onboarding.companyBlueprintV2 ?? onboarding.companyBlueprint,
+            }),
       });
       await startInteractiveRepl(runtime, dependencies);
       return 0;
