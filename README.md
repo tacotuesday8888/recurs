@@ -88,10 +88,10 @@ sessions, permissions, and every supported command.
 - Stable Core + Specialists and Guardrailed Dynamic company designs;
 - consented, closed, read-only project discovery before approval;
 - conversational or YAML proposal revision with explicit activation;
-- approved role DAG execution, goal-wide accounting, attributable learning,
-  and approval-gated organization amendments;
-- `/company` status, blueprint, activity, knowledge, amendment, and capability
-  readiness inspection.
+- approved multi-stage role DAG execution, goal-wide accounting, attributable
+  learning, and approval-gated organization amendments;
+- `/company` status, blueprint, activity, knowledge, amendment, readiness, and
+  exact user-approved Skill/MCP capability bindings.
 
 ### Agent runtime
 
@@ -136,7 +136,7 @@ sessions, permissions, and every supported command.
 approved goal
     └─ orchestrator
        ├─ read / planning handoffs
-       └─ implementation team
+       └─ reviewed implementation stages
           ├─ isolated builders
           ├─ independent review
           └─ bounded repair

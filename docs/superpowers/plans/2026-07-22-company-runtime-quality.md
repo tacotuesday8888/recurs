@@ -139,8 +139,8 @@
 - Document what is executable, what is evaluation-only, how capability approval works, and the remaining intentional exclusions.
 - Preserve the separate presentation task's README/UI ownership and reconcile only after its PR lands.
 
-- [ ] Audit provider catalog activation, subscription/BYOK/local paths, npm packaging, generated Homebrew/curl assets, and native boundaries against existing tests/docs; open no speculative integration surface.
-- [ ] Run all new suites repeatedly, then `npm run check`, `npm run package:smoke-install`, and `npm run check:native`.
-- [ ] Inspect status, full diff, file modes, generated files, and secret patterns; stage only intended files.
+- [x] Audit provider catalog activation, subscription/BYOK/local paths, npm packaging, generated Homebrew/curl assets, and native boundaries against existing tests/docs; open no speculative integration surface.
+- [x] Run all new suites repeatedly, then `npm run check`, `npm run package:smoke-install`, and `npm run check:native`.
+- [x] Inspect status, full diff, file modes, generated files, and secret patterns; stage only intended files.
 - [ ] Push focused PRs, wait for both verify/native checks, address actionable failures, and merge only when green.
 - [ ] Fetch and synchronize canonical `main`; prove `main == origin/main`, canonical status is clean, and no completed feature commit is stranded.

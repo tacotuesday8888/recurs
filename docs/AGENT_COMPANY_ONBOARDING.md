@@ -171,24 +171,47 @@ automatically.
 | Fresh parent session bound to the approved orchestrator role | Implemented |
 | Onboarding-generated durable initial goal and tailored quality plan | Implemented |
 | Blueprint-aware bounded parent → lead → worker handoffs with durable result/evidence | Implemented for approved read/planning assignments |
-| Blueprint-directed parallel implementation → independent review → bounded repair → parent apply | Implemented through the existing durable team engine |
+| Blueprint-directed dependency-ordered implementation → independent review → bounded repair → parent apply | Implemented as finite reviewed frontiers through the existing durable team engine |
 | Model-proposed assignment DAG with harness validation and parent synthesis | Implemented through `delegate_company_goal`; no claim of deterministic optimal decomposition |
-| Role-specific tool-bundle readiness plan | Implemented as bounded available/required policy; no installation |
+| Role-specific tool-bundle readiness and exact Skill/MCP bindings | Implemented as immutable user-approved mappings; no automatic trust or installation |
 | Natural model-authored interview, proposal editing, and generated roadmap | Implemented behind strict contracts and user approval |
-| Consent-gated readiness view over installed Agent Skills and configured MCP servers | Implemented; reports enabled/disabled/trust state without semantic bundle binding |
-| Automatic MCP/skill binding, trust, installation, or role-authority expansion from the blueprint | Not implemented |
+| Consent-gated readiness view over installed Agent Skills and configured MCP servers | Implemented; catalogs grant nothing without an exact approved binding |
+| Automatic MCP/Skill binding, trust, installation, or role-authority expansion from the blueprint | Intentionally not implemented; exact bindings require a local user decision |
 | Unbounded recursion or autonomous role invention after approval | Not implemented |
 | `/company` status, blueprint, readiness, activity, knowledge, and amendment inspection | Implemented, including exact-ID local approval/rejection of existing proposals |
 | Durable attributable project learning supplied to future company goals | Implemented; secret-shaped evidence is rejected and historical sessions are unchanged |
 | Controlled organizational amendments | Implemented as immutable proposals and explicit decisions; no automatic organization rewrite |
 | Company operating UI | Intentionally deferred |
 
+### Provider and delivery audit (2026-07-22)
+
+The source CLI can run saved environment BYOK connections for 13 reviewed
+fixed-origin providers: OpenAI API, Anthropic API, OpenRouter, xAI, OpenCode Go,
+Kilo Gateway, Alibaba Model Studio, Kimi Platform, Kimi Code, MiniMax API, Z.ai
+API, DeepSeek API, and Gemini API. It also supports literal-loopback Ollama and
+LM Studio plus the official Codex ACP path under its local, user-present,
+Plan-only subscription policy. Catalog entries marked conditional, blocked, or
+native-required are not silently treated as runnable; this includes Claude
+subscription reuse, Copilot, Alibaba Coding Plan, MiniMax Token Plan, Z.ai GLM
+Coding Plan, and cloud-identity paths whose reviewed runtime is absent.
+
+The release pipeline builds one minimal npm tarball, installs it into an empty
+prefix, derives checksum-bound curl and Homebrew assets from that exact archive,
+and supports an owner-controlled attested release. These are verified release
+foundations, not published products: no npm package, Homebrew formula, curl
+release, signed binary, or desktop app has shipped. The private macOS
+OpenAI/Anthropic/Kimi authority is extensively tested but remains unavailable
+until a signed/notarized installed-artifact and credential-canary smoke pass.
+No speculative provider or installer surface was added by this audit.
+
 In plain language: onboarding now creates and launches a real personalized
 company policy. The parent can run a validated company goal across bounded
-planning handoffs and one parallel implementation batch, with independent
-review, repair, evidence, shared accounting, and permission-controlled parent
-apply. Successful goal evidence can become provenance-backed context for later
-goals. Approved amendments create a new blueprint revision for future sessions;
+planning handoffs and multiple dependency-ordered implementation/review stages,
+with repair, evidence, shared accounting, and permission-controlled parent
+apply. Each active role receives a tailored immutable charter and only relevant
+provenance-backed knowledge. Successful goal evidence can become context for
+later goals. Approved amendments create a new blueprint revision for future
+sessions;
 the current session remains pinned to its historical revision. Inactive roster
 members remain inactive. Recurs does not install tools, change the approved
 organization by itself, run unbounded recursion, or keep compute alive after
@@ -204,23 +227,22 @@ evidence, recovery, and truthful state. A model may analyze the project,
 conduct the interview, propose roles, tailor prompts, decompose goals, and
 synthesize results, but it cannot be trusted to enforce its own boundaries.
 
-Most of the next foundation can be built and tested with scripted providers.
-A real API key is useful later for qualitative end-to-end evaluation of the
-interview and company proposal, but it is not needed to design or enforce the
-company contracts.
+The enforcement foundation is tested with scripted providers. The versioned
+offline company evaluation runs the real restricted onboarding path without a
+key. A real direct/local provider is optional for qualitative interview and
+proposal comparisons and must be selected explicitly with network opt-in; see
+[Company evaluation](COMPANY_EVALUATION.md).
 
 ## Deliberate remaining boundaries
 
-- Skills and MCP servers do not yet declare an approved semantic mapping to a
-  company tool-bundle ID. `/company readiness` therefore reports both catalogs
-  and the immutable bundle plan without guessing that a name or description
-  grants capability.
+- Agent Skills and MCP servers are usable by a role only after a confirmed
+  exact-ID binding to one of that role's approved tool bundles. Bindings do not
+  install or trust capabilities and cannot widen parent/profile policy.
 - Amendment proposal creation is a durable service boundary, not an autonomous
   self-reorganization loop. Existing proposals are inspectable and require an
   exact-ID, local, user-present decision.
-- A real provider is still needed for qualitative evaluation of interview
-  tone, question quality, and company proposals; deterministic providers cover
-  the enforcement and recovery behavior.
+- Real-provider qualitative scores are not release gates yet; the checked-in
+  deterministic baseline remains the enforcement/regression gate.
 - Desktop UI, autonomous deployment, automatic plugin/MCP installation, a
   daemon that survives the CLI, and unbounded recursive agents remain outside
   this milestone.

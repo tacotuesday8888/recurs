@@ -80,8 +80,13 @@ The proposal remains editable through conversational revision or bounded YAML,
 but validated JSON is canonical. Structural diffs and final readiness are shown
 before explicit approval. With repository consent, readiness separately reports
 enabled/disabled Agent Skills, MCP servers, and project trust without exposing
-paths or commands. Catalog metadata is not a semantic tool-bundle binding and
-cannot install, trust, satisfy capability policy, or widen a role.
+paths or commands. Catalog metadata alone grants nothing. A local, manual,
+user-present `/company bind` decision may publish one immutable exact-ID mapping
+from an approved blueprint revision and tool bundle to an enabled Skill or
+trusted MCP server. Runtime preparation intersects that mapping with the role,
+profile, parent permission, process, network, and operating-mode policies. A
+binding cannot install, trust, or widen anything; stale and unavailable mappings
+fail closed.
 
 An approved `CompanyBlueprintV1` is a private immutable project policy, not an
 independent execution engine. Guided onboarding deterministically compiles the
@@ -108,13 +113,23 @@ V2 preserves that historical path but activates a different adapter.
 exact approved blueprint revision and immutable V6 company policy. Bounded
 read/planning handoffs reuse `ChildAgentManager`; company implementation does
 not create a second work engine. It reserves a local slice from the goal-wide
-ledger and calls `TeamRunSupervisor` with immutable implementation, independent
-review, and repair role correlations. The team journal remains authoritative
-for worktrees, artifacts, review, repair, apply, and child accounting; the goal
-journal remains authoritative for assignment lifecycle, company synthesis, and
-the global ledger. Terminal team evidence and accounting reconcile once into
-the goal. Failure, cancellation, and interruption remain explicit rather than
-being rewritten as successful synthesis.
+ledger and repeatedly calls `TeamRunSupervisor` for each dependency-ready
+implementation frontier together with its eligible independent reviewers.
+Every implementation is review-covered, and one final independent review must
+depend on all non-review work. A later frontier cannot start until its durable
+dependencies settle. The team journal remains authoritative for worktrees,
+artifacts, review, repair, apply, and child accounting; the goal journal remains
+authoritative for assignment lifecycle, company synthesis, and the global
+ledger. Terminal team evidence and accounting reconcile exactly once per
+stage. Failure, cancellation, and interruption remain explicit, and resume
+continues only the next valid frontier rather than replaying completed work.
+
+Each assignment receives a bounded charter compiled from the immutable role,
+department, project, hierarchy, model route, tool bundles, quality standard,
+and authority ceiling. Relevant attributable knowledge is selected at the
+run's historical cutoff and quoted as untrusted context. Prompt truncation may
+remove context but never the assignment's acceptance, evidence, or authority
+tail.
 
 After a company goal has durably completed, `CompanyLearningService` accepts
 only attributable user or execution evidence, rejects secret-shaped content,
@@ -232,6 +247,13 @@ The production-signed launcher resolves only fixed nonsymlinked Node and engine 
 OpenAI API, Anthropic API, and Kimi Code activation are complete private verticals. The authority captures a credential, performs the exact bound model catalog, and transactionally commits Keychain plus non-secret registry state with crash recovery. Broker-owned generation streams OpenAI Responses, Anthropic Messages, or Kimi's OpenAI Chat Completions profile through scoped, expiring, cancellation- and budget-bound one-use reservations. OpenAI continuation state is encrypted behind opaque handles; Anthropic and Kimi use the durable transcript. Strict codecs normalize events and usage, reject redirects/profile drift, and filter credential echoes before any reply crosses the native boundary.
 
 No signed/notarized installed artifact or production credential-canary smoke has shipped, so these completed verticals are not distributed and source/npm execution cannot activate them. Native release work still needs the installed-artifact proof. The standalone CLI applies fail-closed Seatbelt on macOS and system Bubblewrap on Linux to shell and verification children; `local_guarded` remains an explicit macOS/Linux embedding option and the Windows default. The private provider design relies on credentials and reusable request authority remaining exclusively in the broker; rewriting the agent loop, session engine, or CLI wholesale in Rust is not required for that boundary.
+
+The source tree also provides a versioned company-formation evaluation harness.
+Its default scripted baseline exercises the real restricted onboarding path
+without network access. A configured run is explicit, accepts only an existing
+direct BYOK or local connection through ordinary resolution, uses a temporary
+private Recurs home, and emits only sanitized rubric and usage metadata. It is
+an evaluation tool, not a second company runtime.
 
 Public release assembly retains one npm tarball as the authoritative portable artifact. A protected exact-tag workflow reruns verification, renders a SHA-256-bound user-local installer and Homebrew formula from that archive, creates a draft GitHub release, attests the assets, and publishes or verifies the same tarball's npm SHA-512 integrity before making the release public. The `0.1.0-alpha.1` metadata pins the official Apache-2.0 text, reviewed notices, public registry, and provenance. npm requires one interactive first-package bootstrap before its trusted-publisher relationship can exist; after that narrow documented exception, publication uses the exact manually dispatched tokenless OIDC workflow. No live package, tap, or signed native bundle is claimed.
 
