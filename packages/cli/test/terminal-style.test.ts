@@ -62,15 +62,15 @@ describe("terminal presentation", () => {
     expect(theme.failure("Error: unavailable")).toContain("Error: unavailable");
   });
 
-  it("keeps the readable title beside the compact mark", () => {
+  it("stacks the readable title beneath the compact mark", () => {
     const theme = createTerminalTheme(new TerminalOutput(), {
       environment: colorEnvironment,
     });
 
     const header = renderRecursHeader(theme, "Welcome to Recurs");
 
-    expect(header.split("\n")).toHaveLength(4);
-    expect(header.split("\n")[1]).toContain("Welcome to Recurs");
+    expect(header.split("\n")).toHaveLength(5);
+    expect(header.split("\n")[4]).toContain("Welcome to Recurs");
     expect(header).toContain("Welcome to Recurs");
   });
 });
