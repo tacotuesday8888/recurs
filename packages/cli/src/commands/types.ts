@@ -1,5 +1,9 @@
 import type {
+  FileCompanyAmendmentStore,
+  FileCompanyBlueprintV2Store,
+  FileCompanyKnowledgeStore,
   JsonlSessionStore,
+  JsonlCompanyGoalStore,
   PinnedSessionState,
   SessionRecord,
   SessionState,
@@ -10,6 +14,9 @@ import type {
 } from "@recurs/core";
 import type {
   BillingSource,
+  CompanyAmendmentV1,
+  CompanyBlueprintBindingV2,
+  CompanyBlueprintV2,
   HostInvocation,
   ModelReasoningEffort,
 } from "@recurs/contracts";
@@ -83,6 +90,33 @@ export interface CommandDependencies {
   skills?: AgentSkillCatalog;
   mcp?: McpServerCatalog;
   models?: ModelSessionService;
+  company?: CompanyCommandDependencies;
+}
+
+export interface CompanyAmendmentDecisionInput {
+  readonly amendmentId: string;
+  readonly company: CompanyBlueprintBindingV2;
+  readonly at: string;
+  readonly decisionReason: string;
+  readonly signal: AbortSignal;
+}
+
+export interface CompanyAmendmentDecisionService {
+  approve(input: CompanyAmendmentDecisionInput): Promise<{
+    readonly amendment: CompanyAmendmentV1;
+    readonly blueprint: CompanyBlueprintV2;
+  }>;
+  reject(input: CompanyAmendmentDecisionInput): Promise<{
+    readonly amendment: CompanyAmendmentV1;
+  }>;
+}
+
+export interface CompanyCommandDependencies {
+  readonly blueprints: Pick<FileCompanyBlueprintV2Store, "load">;
+  readonly goals: Pick<JsonlCompanyGoalStore, "list">;
+  readonly knowledge: Pick<FileCompanyKnowledgeStore, "latest">;
+  readonly amendments: Pick<FileCompanyAmendmentStore, "list">;
+  readonly decisions?: CompanyAmendmentDecisionService;
 }
 
 export interface ModelSelectionOption {

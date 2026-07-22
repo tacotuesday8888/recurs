@@ -505,6 +505,38 @@ Codex sessions are permanently constrained by their runtime profile to Plan mode
 
 Replacing or clearing an unfinished goal requires confirmation. Each successful agent turn records its final progress summary and its own verification evidence into the active goal. Completion is rejected until that goal—not an older conversation—contains both.
 
+For a parent session bound to an approved V2 company, creating a goal first
+persists the ordinary durable goal and then submits one bounded company-launch
+prompt. The model must call `delegate_company_goal` with an explicit assignment
+DAG. The harness reloads the exact approved blueprint and enforces its roles,
+review authority, permissions, model routes, tool bundles, hierarchy, and
+shared limits before any assignment starts. V1 and non-company sessions retain
+the ordinary `/goal` behavior.
+
+## Company commands
+
+An approved V2 company can be inspected without implying that its inactive
+roster is working:
+
+```text
+/company
+/company blueprint
+/company activity
+/company knowledge
+/company amendments
+/company approve-amendment <exact-id>
+/company reject-amendment <exact-id>
+```
+
+`/company` shows the exact blueprint revision and only the goal runs owned by
+the current parent session. `blueprint` renders the human-editable YAML view;
+JSON remains the canonical stored authority. Activity, knowledge, and amendment
+views are bounded and omit prompts, credentials, private paths, and provider
+configuration. An amendment decision requires its exact ID plus a confirmed
+local, manual, user-present CLI invocation. The decision service additionally
+revalidates the immutable base revision; an approved revision applies only to
+future goals and never rewrites an existing session.
+
 ## Owned child agents and operating modes
 
 `delegate_task` is Recurs's single-child orchestration primitive. A parent model supplies exactly `{ profile, description, prompt }`, where `profile` is `explore`, `implement`, `review`, or the corresponding stable ID. Recurs creates a separate pinned version-2 child session and records its parent, task, profile, policy, permission envelope, lifecycle, usage, evidence, files, and terminal result. The child runs through the same coordinator as an ordinary turn; its final handoff becomes a parent tool result, and the parent model performs synthesis.
@@ -602,6 +634,7 @@ A daemon that outlives the CLI, unbounded recursive depth, terminal-child retrie
 | --- | --- |
 | `/help` | Show concise command help. |
 | `/goal ...` | Create, inspect, pause, resume, complete, or clear the durable goal. |
+| `/company [blueprint\|activity\|knowledge\|amendments\|approve-amendment <id>\|reject-amendment <id>]` | Inspect the active V2 company and review controlled amendments. |
 | `/plan [prompt\|exit]` | Enter enforced read-only planning or return to Act. |
 | `/permissions [ask\|approved\|full]` | Inspect or change the permission preset. |
 | `/agents [profiles\|activity [exact-id]\|teams\|team <id>\|wait <id>\|cancel <id>\|resume <id>\|apply <id>\|mode ...]` | Inspect profiles, child/team activity, control an owned durable team, or change the bounded policy. |

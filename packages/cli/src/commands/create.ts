@@ -1,4 +1,5 @@
 import { createAgentsCommand } from "./agents.js";
+import { createCompanyCommand } from "./company.js";
 import { createFoundationCommands } from "./foundation.js";
 import { createGoalCommand } from "./goal.js";
 import { createPermissionsCommand } from "./permissions.js";
@@ -25,6 +26,9 @@ export function createCommandRegistry(
     createPermissionsCommand(),
     createProcessCommand(dependencies),
     createAgentsCommand(dependencies),
+    ...(dependencies.company === undefined
+      ? []
+      : [createCompanyCommand(dependencies)]),
     ...(dependencies.skills === undefined
       ? []
       : [createSkillsCommand(dependencies.skills)]),
