@@ -297,6 +297,99 @@ describe("CompanyOnboardingCoordinator", () => {
       .rejects.toBeInstanceOf(CompanyOnboardingCoordinatorError);
   });
 
+  it("persists validated chat and YAML proposal revisions without widening identity", async () => {
+    const setup = await coordinator(scriptedModel([proposal()]));
+    const started = await setup.coordinator.start(startInput);
+    const proposed = await setup.coordinator.advance(started.state.id);
+    if (proposed.kind !== "proposal") throw new Error("expected proposal");
+    const chatBlueprint = structuredClone(proposed.blueprint);
+    chatBlueprint.project.purpose = "Ship a concise, dependable agent company.";
+
+    const chat = await setup.coordinator.reviseProposal(
+      started.state.id,
+      proposed.run.sequence,
+      {
+        source: "chat",
+        blueprint: chatBlueprint,
+        requestsUsed: 2,
+        reportedCostUsd: 0.03,
+      },
+    );
+    expect(chat).toMatchObject({
+      changed: true,
+      run: {
+        state: {
+          status: "proposed",
+          usage: { modelRequests: 3, reportedCostUsd: 0.03 },
+          proposal: { revision: 2, source: "chat" },
+        },
+      },
+    });
+
+    const yaml = await setup.coordinator.reviseProposal(
+      started.state.id,
+      chat.run.sequence,
+      {
+        source: "yaml",
+        blueprint: chat.run.state.proposal!.blueprint,
+        requestsUsed: 0,
+        reportedCostUsd: 0,
+      },
+    );
+    expect(yaml.changed).toBe(false);
+    expect(yaml.run.sequence).toBe(chat.run.sequence);
+  });
+
+  it("accounts invalid chat output but rejects authority and stable-id changes", async () => {
+    const setup = await coordinator(scriptedModel([proposal()]));
+    const started = await setup.coordinator.start(startInput);
+    const proposed = await setup.coordinator.advance(started.state.id);
+    if (proposed.kind !== "proposal") throw new Error("expected proposal");
+
+    await expect(setup.coordinator.reviseProposal(
+      started.state.id,
+      proposed.run.sequence,
+      {
+        source: "chat",
+        blueprint: { invalid: true },
+        requestsUsed: 1,
+        reportedCostUsd: 0.01,
+      },
+    )).rejects.toMatchObject({ code: "invalid_model_output" });
+    const accounted = await setup.coordinator.save(started.state.id);
+    expect(accounted.state).toMatchObject({
+      status: "proposed",
+      usage: { modelRequests: 2, reportedCostUsd: 0.01 },
+      proposal: { revision: 1 },
+    });
+
+    const widened = structuredClone(accounted.state.proposal!.blueprint);
+    widened.authority.permissionMode = "full_access";
+    await expect(setup.coordinator.reviseProposal(
+      started.state.id,
+      accounted.sequence,
+      {
+        source: "yaml",
+        blueprint: widened,
+        requestsUsed: 0,
+        reportedCostUsd: 0,
+      },
+    )).rejects.toMatchObject({ code: "invalid_model_output" });
+
+    const replacedRole = structuredClone(accounted.state.proposal!.blueprint);
+    replacedRole.roles[0]!.id = "replacement_role";
+    await expect(setup.coordinator.reviseProposal(
+      started.state.id,
+      accounted.sequence,
+      {
+        source: "yaml",
+        blueprint: replacedRole,
+        requestsUsed: 0,
+        reportedCostUsd: 0,
+      },
+    )).rejects.toMatchObject({ code: "invalid_model_output" });
+  });
+
   it("persists SIGINT cancellation and fails closed on corrupt resume state", async () => {
     const setup = await coordinator(scriptedModel([proposal()]));
     const interrupted = await setup.coordinator.start(startInput);

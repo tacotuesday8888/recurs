@@ -118,6 +118,7 @@ import {
   CompanyOnboardingAgentRuntime,
   companyOnboardingBackendFingerprint,
 } from "./company-onboarding-runtime.js";
+import { CompanyProposalEditor } from "./company-proposal-editor.js";
 import { RecursRuntime, RuntimeError } from "./runtime.js";
 import {
   providerDiscoveryOverview,
@@ -773,8 +774,14 @@ export async function createStandaloneCompanyOnboarding(
     model: agentRuntime,
     research: agentRuntime,
   });
+  const proposalEditor = new CompanyProposalEditor({
+    coordinator,
+    model: agentRuntime,
+    environment: options.environment ?? process.env,
+  });
   return Object.freeze({
     coordinator,
+    proposalEditor,
     projectRoot: cwd,
     backendFingerprint: companyOnboardingBackendFingerprint(pin),
     permissionMode: input.permissionMode,
