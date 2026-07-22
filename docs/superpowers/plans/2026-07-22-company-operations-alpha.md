@@ -130,7 +130,7 @@
 - Modify: `packages/cli/src/cli-help.ts`
 - Modify: `packages/cli/src/index.ts`
 - Modify: `scripts/evaluate-company.mjs`
-- Test: `packages/cli/test/process-host.test.ts`
+- Test: `packages/cli/test/run-mode.test.ts`
 - Test: `scripts/evaluate-company.test.mjs`
 - Modify: `scripts/smoke-install-npm-package.mjs`
 
@@ -140,29 +140,29 @@
 - Move orchestration from the source-only script into a reusable CLI service; leave the npm script as a thin compatibility wrapper.
 - The packed-archive smoke must execute offline evaluation through the installed `recurs` binary and assert safe structured output.
 
-- [ ] **Step 1: Write failing process/help/script tests**
+- [x] **Step 1: Write failing process/help/script tests**
 
   Cover scoped help, offline JSON, malformed arguments, configured-without-network rejection, abort handling, no provider/credential requirement offline, and no raw interview/prompt content in output.
 
-- [ ] **Step 2: Confirm the installed command is absent**
+- [x] **Step 2: Confirm the installed command is absent**
 
   Run the focused process-host and script tests.
 
   Expected: FAIL because `recurs eval company` is not routed.
 
-- [ ] **Step 3: Extract the shared evaluation command service**
+- [x] **Step 3: Extract the shared evaluation command service**
 
   Preserve the existing temporary private home, deterministic `ScriptedProvider`, direct/local configured-connection restriction, cleanup, report rendering, and exit semantics. Accept dependencies explicitly so process-host tests do not contact the network or real home directory.
 
-- [ ] **Step 4: Route help and process execution**
+- [x] **Step 4: Route help and process execution**
 
   Add exact argument parsing before interactive startup. Offline evaluation must run unattended; configured evaluation must require both flags. Return exit `0` for passed/partial and `1` for failed/cancelled reports, with CLI misuse returning `2`.
 
-- [ ] **Step 5: Prove the packed artifact**
+- [x] **Step 5: Prove the packed artifact**
 
   Extend `scripts/smoke-install-npm-package.mjs` to invoke the installed binary's offline JSON scenario from the fixture workspace and assert scenario ID, six rubric rows, safe output, and empty stderr.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
   Run focused tests twice, `npm run package:check`, and `npm run package:smoke-install`.
 

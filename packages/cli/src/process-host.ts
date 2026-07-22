@@ -18,6 +18,7 @@ import {
   RECURS_VERSION,
   type OperatingModeId,
   type CompanyBlueprint,
+  type CompanyEvaluationReportV1,
   type IntegrationFailure,
   type NativeAuthorityPort,
   type NativeAuthorityStatus,
@@ -68,6 +69,13 @@ import {
 import { serveRecursAcpStdio } from "./acp-server.js";
 import { setupCodexSubscription } from "./codex-connection.js";
 import { CLI_HELP, parseCliHelpRequest } from "./cli-help.js";
+import {
+  CompanyEvaluationArgumentError,
+  parseCompanyEvaluationCommand,
+  runCompanyEvaluationCommand,
+  type CompanyEvaluationCommandOptions,
+} from "./company-evaluation-command.js";
+import { renderCompanyEvaluationReport } from "./company-evaluation.js";
 import {
   createDoctorReport,
   renderDoctorReport,
@@ -156,6 +164,10 @@ export interface CliDependencies {
     readonly repositoryConsent: boolean;
     readonly cwd: string;
   }): ReturnType<typeof createStandaloneCompanyOnboarding>;
+  evaluateCompany?(input: CompanyEvaluationCommandOptions & {
+    readonly cwd: string;
+    readonly signal?: AbortSignal;
+  }): Promise<CompanyEvaluationReportV1>;
   credentialEnvironmentAvailable?(name: string): boolean;
   selectOpenAIModel?(modelIds: readonly string[]): Promise<string | null>;
   nativeAuthority?: NativeAuthorityPort;
@@ -1248,6 +1260,51 @@ export async function runCli(
       }),
     };
   }
+  if (argv[0] === "eval") {
+    let command: CompanyEvaluationCommandOptions;
+    try {
+      command = parseCompanyEvaluationCommand(argv.slice(1));
+    } catch (error) {
+      if (error instanceof CompanyEvaluationArgumentError) {
+        await writeOutput(dependencies.stderr, `Error: ${error.message}\n`);
+        return 2;
+      }
+      throw error;
+    }
+    if (dependencies.evaluateCompany === undefined) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    try {
+      const report = await dependencies.evaluateCompany({
+        ...command,
+        cwd: dependencies.cwd ?? process.cwd(),
+        ...(dependencies.signal === undefined
+          ? {}
+          : { signal: dependencies.signal }),
+      });
+      await writeOutput(
+        dependencies.stdout,
+        command.json
+          ? `${JSON.stringify(report)}\n`
+          : `${renderCompanyEvaluationReport(report)}\n`,
+      );
+      return report.status === "failed" || report.status === "cancelled" ? 1 : 0;
+    } catch (error) {
+      if (dependencies.signal?.aborted === true || isAbortError(error)) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: Company evaluation was cancelled\n",
+        );
+        return 130;
+      }
+      await writeOutput(
+        dependencies.stderr,
+        `Error: ${safeCliErrorMessage(error)}\n`,
+      );
+      return 1;
+    }
+  }
   if (argv[0] === "doctor") {
     const readinessJson = argv.length === 2 && argv[1] === "--json";
     const doctor = dependencies.doctor;
@@ -2142,6 +2199,13 @@ export async function runCliProcess(
           environment: process.env,
         },
       ),
+      evaluateCompany: ({ cwd, signal, ...options }) =>
+        runCompanyEvaluationCommand(options, {
+          projectRoot: cwd,
+          dataDirectory,
+          environment: process.env,
+          ...(signal === undefined ? {} : { signal }),
+        }),
       createRuntime: (events, options) => createStandaloneRuntime(
         events,
         {

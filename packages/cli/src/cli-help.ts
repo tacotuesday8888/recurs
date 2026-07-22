@@ -29,6 +29,7 @@ Usage:
   recurs account disconnect <id>
   recurs doctor [--json]         Check installation and execution readiness
   recurs doctor native [--json]  Inspect native authority status
+  recurs eval company [--json]   Run the offline company-formation evaluation
   recurs help <command>          Show scoped command help
   recurs --version               Show the installed Recurs version
   recurs --help                  Show this help
@@ -129,6 +130,18 @@ The default report checks Node.js, Git, ripgrep, the current Git worktree, saved
 provider metadata, and a real network-denied OS-sandbox launch. It is read-only,
 does not contact a provider, and never reveals paths, account values, or secrets.
 The native subcommand reports the separate private native-authority status.
+`,
+  eval: `Evaluate the bounded company foundation
+
+Usage:
+  recurs eval company [--scenario company_formation_v1] [--json] [-C <dir>]
+  recurs eval company --configured --allow-network [--json] [-C <dir>]
+
+Offline evaluation is deterministic, uses a temporary private Recurs home,
+exposes only the restricted onboarding read tools, and makes no network request.
+Configured evaluation uses the saved primary direct/local connection and
+requires explicit network opt-in. Reports are sanitized and contain no prompts,
+credentials, private paths, or environment values.
 `,
   acp: `Serve Recurs as an ACP agent over standard input and output
 

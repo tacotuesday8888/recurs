@@ -16,6 +16,7 @@ export * from "./codex-connection.js";
 export * from "./company-blueprint-yaml.js";
 export * from "./company-capability-authority.js";
 export * from "./company-evaluation.js";
+export * from "./company-evaluation-command.js";
 export * from "./company-operating-view.js";
 export * from "./company-onboarding-runtime.js";
 export * from "./company-proposal-editor.js";

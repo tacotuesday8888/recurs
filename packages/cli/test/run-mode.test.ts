@@ -20,12 +20,13 @@ import {
   CoordinatedRunError,
   JsonlSessionStore,
   bindRunAuthorization,
+  createCompanyEvaluationReport,
 } from "@recurs/core";
 import { ProviderError, ScriptedProvider } from "@recurs/providers";
 import {
   ToolRegistry,
 } from "@recurs/tools";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -3501,5 +3502,146 @@ describe("runCli", () => {
       );
       expect(stderr.value).not.toContain("private cleanup detail");
     }
+  });
+});
+
+describe("installed company evaluation command", () => {
+  function report(status: "passed" | "failed" = "passed") {
+    const rubric = Object.fromEntries([
+      "interview_quality",
+      "blueprint_tailoring",
+      "decomposition",
+      "evidence",
+      "synthesis",
+      "efficiency",
+    ].map((dimension) => [dimension, {
+      status: status === "passed" ? "passed" : "failed",
+      evidence: [`${dimension} evidence`],
+    }])) as Parameters<typeof createCompanyEvaluationReport>[0]["rubric"];
+    return createCompanyEvaluationReport({
+      scenarioId: "company_formation_v1",
+      mode: "offline",
+      startedAt: "2026-07-22T00:00:00.000Z",
+      completedAt: "2026-07-22T00:00:01.000Z",
+      backend: {
+        providerId: "scripted",
+        modelId: "offline-baseline",
+        fingerprint: "backend_fixture",
+      },
+      usage: { requestsUsed: 5, reportedCostUsd: 0 },
+      rubric,
+    });
+  }
+
+  it("routes deterministic offline JSON evaluation without creating a runtime", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const evaluateCompany = vi.fn(async () => report());
+
+    const code = await runCli(["eval", "company", "--json"], {
+      stdout,
+      stderr,
+      evaluateCompany,
+      async createRuntime() {
+        throw new Error("ordinary runtime must not start");
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout.value)).toMatchObject({
+      scenarioId: "company_formation_v1",
+      mode: "offline",
+      status: "passed",
+    });
+    expect(stderr.value).toBe("");
+    expect(evaluateCompany).toHaveBeenCalledWith(expect.objectContaining({
+      scenario: "company_formation_v1",
+      mode: "offline",
+      allowNetwork: false,
+    }));
+  });
+
+  it("requires explicit configured-network consent and maps failed reports", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const evaluateCompany = vi.fn(async () => report("failed"));
+    const dependencies = {
+      stdout,
+      stderr,
+      evaluateCompany,
+      async createRuntime() {
+        throw new Error("ordinary runtime must not start");
+      },
+    } satisfies CliDependencies;
+
+    expect(await runCli(["eval", "company", "--configured"], dependencies))
+      .toBe(2);
+    expect(stderr.value).toContain("requires --allow-network");
+    expect(evaluateCompany).not.toHaveBeenCalled();
+
+    stdout.value = "";
+    stderr.value = "";
+    expect(await runCli([
+      "eval",
+      "company",
+      "--configured",
+      "--allow-network",
+    ], dependencies)).toBe(1);
+    expect(stdout.value).toContain("Status: failed");
+    expect(stderr.value).toBe("");
+  });
+
+  it("rejects malformed scenarios and reports cancellation safely", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const evaluateCompany = vi.fn(async () => {
+      throw new DOMException("private cancellation detail", "AbortError");
+    });
+    const controller = new AbortController();
+
+    expect(await runCli([
+      "eval",
+      "company",
+      "--scenario",
+      "unknown",
+    ], {
+      stdout,
+      stderr,
+      evaluateCompany,
+      async createRuntime() {
+        throw new Error("ordinary runtime must not start");
+      },
+    })).toBe(2);
+    expect(stderr.value).toContain("Unknown company evaluation scenario");
+    expect(evaluateCompany).not.toHaveBeenCalled();
+
+    stdout.value = "";
+    stderr.value = "";
+    expect(await runCli(["eval", "company"], {
+      stdout,
+      stderr,
+      signal: controller.signal,
+      evaluateCompany,
+      async createRuntime() {
+        throw new Error("ordinary runtime must not start");
+      },
+    })).toBe(130);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toBe("Error: Company evaluation was cancelled\n");
+    expect(stderr.value).not.toContain("private cancellation detail");
+  });
+
+  it("provides scoped evaluation help", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    expect(await runCli(["eval", "--help"], {
+      stdout,
+      stderr,
+      async createRuntime() {
+        throw new Error("ordinary runtime must not start");
+      },
+    })).toBe(0);
+    expect(stdout.value).toContain("recurs eval company");
+    expect(stderr.value).toBe("");
   });
 });
