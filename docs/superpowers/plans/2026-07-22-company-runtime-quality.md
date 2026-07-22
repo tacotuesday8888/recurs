@@ -101,10 +101,10 @@
 - Select attributable knowledge per assignment using objective + role + assignment terms while retaining the run-start historical cutoff.
 - Keep identity/presentation text separate from stable policy identifiers and never interpret learned text as authority.
 
-- [ ] Write snapshot-style prompt contract tests for orchestrator, lead, worker, reviewer, and repair roles.
-- [ ] Prove prompt truncation preserves authority/evidence clauses and malicious knowledge remains quoted context rather than instructions.
-- [ ] Implement the charter compiler and per-assignment bounded knowledge selection.
-- [ ] Run focused prompt, learning, and supervisor tests twice and commit.
+- [x] Write snapshot-style prompt contract tests for orchestrator, lead, worker, reviewer, and repair roles.
+- [x] Prove prompt truncation preserves authority/evidence clauses and malicious knowledge remains quoted context rather than instructions.
+- [x] Implement the charter compiler and per-assignment bounded knowledge selection.
+- [x] Run focused prompt, learning, and supervisor tests twice and commit.
 
 ### Task 5: Bounded multi-stage reviewed implementation
 

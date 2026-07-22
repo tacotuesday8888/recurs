@@ -26,6 +26,7 @@ import {
 } from "@recurs/tools";
 
 import { childRequestAllowance, delegationWorkflowUsage } from "./agent-profile.js";
+import { renderCompanyAssignmentPrompt } from "./company-role-charter.js";
 import type {
   ChildAgentManager,
   ChildDelegationOptions,
@@ -409,33 +410,22 @@ function rolePrompt(
   blueprint: CompanyBlueprintV2,
   assignment: CompanyGoalAssignmentV1,
   knowledgeContext: string,
+  maximumBytes = MAX_PROMPT_BYTES,
 ): string {
-  const role = blueprint.roles.find((candidate) => candidate.id === assignment.roleId)!;
   const dependencies = run.plan.assignments
     .filter((candidate) => assignment.dependsOn.includes(candidate.id))
     .map((candidate) => [
       `Handoff ${candidate.id}: ${candidate.result?.summary ?? "No result"}`,
       ...(candidate.result?.evidence ?? []).map((item) => `Evidence: ${item}`),
     ].join("\n"));
-  const text = [
-    `You are the approved Recurs company role: ${role.displayName}.`,
-    `Responsibility: ${role.responsibility}`,
-    role.instructions,
-    ...(knowledgeContext.length === 0 ? [] : [knowledgeContext]),
-    `Company goal: ${run.objective}`,
-    `Assignment: ${assignment.prompt}`,
-    "Acceptance:",
-    ...assignment.acceptance.map((item) => `- ${item}`),
-    "Required evidence:",
-    ...assignment.expectedEvidence.map((item) => `- ${item}`),
-    ...(dependencies.length === 0 ? [] : ["Prior handoffs:", ...dependencies]),
-    "Return a concise result with concrete evidence. Do not exceed this assignment.",
-  ].join("\n\n");
-  return truncateUtf8(
-    text,
-    MAX_PROMPT_BYTES,
-    "\n[company prompt truncated by Recurs]",
-  );
+  return renderCompanyAssignmentPrompt({
+    blueprint,
+    assignment,
+    objective: run.objective,
+    knowledgeContext,
+    dependencyHandoffs: dependencies,
+    maximumBytes,
+  });
 }
 
 class GoalJournal {
@@ -469,7 +459,7 @@ interface ActiveCompanyGoal {
   readonly journal: GoalJournal;
   readonly rootContext: ToolContext;
   readonly root: PinnedSessionState;
-  readonly knowledgeContext: string;
+  readonly knowledgeByAssignment: ReadonlyMap<string, string>;
   readonly knowledgeRevision: number | null;
   readonly budget: DelegationBudget;
   readonly activeAssignments: Set<string>;
@@ -582,30 +572,64 @@ export class CompanyGoalSupervisor {
     }
   }
 
-  async #knowledge(
+  async #knowledgeForPlan(
     blueprint: CompanyBlueprintV2,
     objective: string,
+    plan: CompanyGoalPlanV1,
     runCreatedAt: string,
     signal: AbortSignal,
-  ): Promise<CompanyKnowledgeSelection> {
+  ): Promise<{
+    readonly revision: number | null;
+    readonly byAssignment: ReadonlyMap<string, string>;
+  }> {
     if (this.dependencies.learning === undefined) {
       return Object.freeze({
         revision: null,
-        entries: Object.freeze([]),
-        context: "",
+        byAssignment: new Map(plan.assignments.map((assignment) => [
+          assignment.id,
+          "",
+        ])),
       });
     }
     try {
       const beforeRun = new Date(
         new Date(runCreatedAt).valueOf() - 1,
       ).toISOString();
-      return await this.dependencies.learning.selectCompanyKnowledge({
-        companyId: blueprint.companyId,
-        query: objective,
-        asOf: beforeRun,
-        maximumEntries: 12,
-        maximumBytes: 8_192,
-        signal,
+      const selections = await Promise.all(plan.assignments.map(async (assignment) => {
+        const role = blueprint.roles.find((candidate) =>
+          candidate.id === assignment.roleId
+        )!;
+        const selection = await this.dependencies.learning!
+          .selectCompanyKnowledge({
+            companyId: blueprint.companyId,
+            query: truncateUtf8([
+              objective,
+              blueprint.project.purpose,
+              role.displayName,
+              role.kind,
+              role.responsibility,
+              assignment.description,
+              assignment.prompt,
+              ...assignment.acceptance,
+              ...assignment.expectedEvidence,
+            ].join("\n"), 4_000),
+            asOf: beforeRun,
+            maximumEntries: 6,
+            maximumBytes: 4_096,
+            signal,
+          });
+        return { assignmentId: assignment.id, selection };
+      }));
+      const revisions = new Set(selections.map((item) => item.selection.revision));
+      if (revisions.size > 1) {
+        throw new TypeError("Company knowledge snapshot changed during selection");
+      }
+      return Object.freeze({
+        revision: selections[0]?.selection.revision ?? null,
+        byAssignment: new Map(selections.map((item) => [
+          item.assignmentId,
+          item.selection.context,
+        ])),
       });
     } catch {
       throw new ToolError(
@@ -844,6 +868,19 @@ export class CompanyGoalSupervisor {
       reviews: Object.freeze(reviewBindings),
       repair,
     });
+    const reviewHeader = `Independently review the complete company goal: ${
+      truncateUtf8(run.objective, 1_000, " [truncated]")
+    }`;
+    const reviewPromptBytes = Math.floor(
+      (12_000 - encoder.encode(reviewHeader).byteLength -
+        Math.max(0, reviews.length - 1) * 2) / reviews.length,
+    );
+    if (reviewPromptBytes < 2_048) {
+      throw new ToolError(
+        "permission_denied",
+        "Company review charters exceed the bounded review instruction limit",
+      );
+    }
     const input: DelegateTeamInput = Object.freeze({
       description: truncateUtf8(run.objective, MAX_DESCRIPTION_BYTES),
       tasks: Object.freeze(implementations.map((assignment) => ({
@@ -852,19 +889,20 @@ export class CompanyGoalSupervisor {
           run,
           runtime.blueprint,
           assignment,
-          runtime.knowledgeContext,
+          runtime.knowledgeByAssignment.get(assignment.id) ?? "",
         ),
       }))),
       review: Object.freeze({
-        instructions: truncateUtf8([
-          `Independently review the complete company goal: ${run.objective}`,
+        instructions: [
+          reviewHeader,
           ...reviews.map((assignment) => rolePrompt(
             run,
             runtime.blueprint,
             assignment,
-            runtime.knowledgeContext,
+            runtime.knowledgeByAssignment.get(assignment.id) ?? "",
+            reviewPromptBytes,
           )),
-        ].join("\n\n"), 12_000, "\n[review instructions truncated by Recurs]"),
+        ].join("\n\n"),
       }),
       execution: "foreground",
     });
@@ -1383,7 +1421,7 @@ export class CompanyGoalSupervisor {
         runtime.journal.current.state,
         runtime.blueprint,
         assignment,
-        runtime.knowledgeContext,
+        runtime.knowledgeByAssignment.get(assignment.id) ?? "",
       ),
     };
     const company = parseCompanyBlueprintBindingV2({
@@ -1724,13 +1762,14 @@ export class CompanyGoalSupervisor {
     if (context.signal.aborted) throw new ToolError("cancelled", "Goal was cancelled");
     const { root, blueprint } = await this.#authority(context);
     const at = this.#now();
-    const knowledge = await this.#knowledge(
+    const plan = buildPlan(input, blueprint, at);
+    const knowledge = await this.#knowledgeForPlan(
       blueprint,
       input.objective,
+      plan,
       at,
       context.signal,
     );
-    const plan = buildPlan(input, blueprint, at);
     const mode = getOperatingModePolicy(root.agent.operatingMode.id);
     const companyPolicy = mode.company!;
     const run = parseCompanyGoalRun({
@@ -1769,7 +1808,7 @@ export class CompanyGoalSupervisor {
       journal,
       rootContext: context,
       root,
-      knowledgeContext: knowledge.context,
+      knowledgeByAssignment: knowledge.byAssignment,
       knowledgeRevision: knowledge.revision,
       budget: mutableBudget(run),
       activeAssignments: new Set(),
@@ -1838,7 +1877,7 @@ export class CompanyGoalSupervisor {
         journal: new GoalJournal(this.dependencies.runs, loaded),
         rootContext: context,
         root,
-        knowledgeContext: "",
+        knowledgeByAssignment: new Map(),
         knowledgeRevision: null,
         budget: mutableBudget(loaded.state),
         activeAssignments: new Set(),
@@ -1868,9 +1907,10 @@ export class CompanyGoalSupervisor {
       );
     }
     const journal = new GoalJournal(this.dependencies.runs, loaded);
-    const knowledge = await this.#knowledge(
+    const knowledge = await this.#knowledgeForPlan(
       blueprint,
       loaded.state.objective,
+      loaded.state.plan,
       loaded.state.createdAt,
       context.signal,
     );
@@ -1886,7 +1926,7 @@ export class CompanyGoalSupervisor {
       journal,
       rootContext: context,
       root,
-      knowledgeContext: knowledge.context,
+      knowledgeByAssignment: knowledge.byAssignment,
       knowledgeRevision: knowledge.revision,
       budget: mutableBudget(journal.current.state),
       activeAssignments: new Set(),

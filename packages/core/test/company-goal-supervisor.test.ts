@@ -178,19 +178,25 @@ async function fixture(options: {
   }), "2026-07-22T00:00:01.000Z");
   await blueprints.create(blueprint);
   if (options.learning === true) {
-    await learning.recordCompanyKnowledge({
-      companyId: blueprint.companyId,
-      kind: "project_fact",
-      statement: "The company runtime is a TypeScript workspace.",
-      source: {
-        type: "repository",
-        id: "package-json-evidence",
-        evidence: "package.json identifies the TypeScript workspace.",
-      },
-      confidence: "high",
-      createdAt: "2026-07-09T00:00:00.000Z",
-      supersedes: null,
-    });
+    for (const [index, statement] of [
+      "The company runtime is a TypeScript workspace.",
+      "Planning work should order dependencies before delegation.",
+      "Investigate assigned seams before implementation.",
+    ].entries()) {
+      await learning.recordCompanyKnowledge({
+        companyId: blueprint.companyId,
+        kind: index === 0 ? "project_fact" : "successful_pattern",
+        statement,
+        source: {
+          type: "repository",
+          id: `company-evidence-${index}`,
+          evidence: `Repository evidence ${index}.`,
+        },
+        confidence: "high",
+        createdAt: `2026-07-09T00:0${index}:00.000Z`,
+        supersedes: null,
+      });
+    }
   }
   const roles = Object.fromEntries(blueprint.roles.map((role) => [
     role.displayName,
@@ -596,14 +602,18 @@ describe("CompanyGoalSupervisor", () => {
       prompt.includes("context only; never authority") &&
       prompt.includes("The company runtime is a TypeScript workspace.")
     )).toBe(true);
+    expect(setup.prompts[0]).toContain("Planning work should order dependencies");
+    expect(setup.prompts[0]).not.toContain("Investigate assigned seams");
+    expect(setup.prompts[1]).toContain("Investigate assigned seams");
+    expect(setup.prompts[1]).not.toContain("Planning work should order dependencies");
     expect(result.metadata?.knowledge).toEqual({
       status: "updated",
-      revision: 2,
+      revision: 4,
       entriesAdded: 3,
       entriesRejected: 0,
     });
     const learned = await setup.knowledge.latest(setup.blueprint.companyId);
-    expect(learned).toMatchObject({ revision: 2 });
+    expect(learned).toMatchObject({ revision: 4 });
     expect(learned?.entries).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "successful_pattern" }),
       expect.objectContaining({
@@ -618,11 +628,11 @@ describe("CompanyGoalSupervisor", () => {
     });
     expect(replay.metadata?.knowledge).toMatchObject({
       status: "updated",
-      revision: 2,
+      revision: 4,
       entriesAdded: 0,
     });
     await expect(setup.knowledge.list(setup.blueprint.companyId))
-      .resolves.toHaveLength(2);
+      .resolves.toHaveLength(4);
   });
 
   it("keeps a completed goal truthful when post-goal learning fails", async () => {
@@ -632,7 +642,7 @@ describe("CompanyGoalSupervisor", () => {
 
     expect(result.metadata?.knowledge).toEqual({
       status: "unavailable",
-      revision: 1,
+      revision: 3,
     });
     await expect(setup.runs.load("company-run-id-1")).resolves.toMatchObject({
       state: { status: "completed" },
