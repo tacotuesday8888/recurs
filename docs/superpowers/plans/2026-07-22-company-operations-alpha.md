@@ -66,25 +66,25 @@
 - Add `/company run <run-id>` for exact run inspection.
 - Retain `/company activity` as the compact historical list and preserve every existing command.
 
-- [ ] **Step 1: Write failing command tests**
+- [x] **Step 1: Write failing command tests**
 
   Assert exact parsing, missing run errors, cross-session/blueprint filtering, aggregate output, detailed output, and usage rejection for extra tokens or unsafe IDs.
 
-- [ ] **Step 2: Run the focused test and confirm failure**
+- [x] **Step 2: Run the focused test and confirm failure**
 
   Run: `npx vitest run packages/cli/test/company-commands.test.ts`
 
   Expected: FAIL because the new subcommands are not registered.
 
-- [ ] **Step 3: Implement command routing**
+- [x] **Step 3: Implement command routing**
 
   Load company goal records once per inspection command, filter through the existing immutable session/blueprint authority, and pass only validated runs to the pure renderer. Do not add mutation, polling, or implicit resume behavior.
 
-- [ ] **Step 4: Document and verify**
+- [x] **Step 4: Document and verify**
 
   Update the slash-command table and company section in `docs/CLI.md`. Run both company renderer/command tests twice and `npm run typecheck`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   Commit message: `feat(cli): inspect company goal operations`
 

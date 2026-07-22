@@ -22,6 +22,10 @@ import {
 } from "../company-tool-readiness.js";
 import { CompanyCapabilityAuthorityError } from "../company-capability-authority.js";
 import {
+  renderCompanyGoalRun,
+  renderCompanyOperations,
+} from "../company-operating-view.js";
+import {
   message,
   type Command,
   type CommandContext,
@@ -29,7 +33,7 @@ import {
 } from "./types.js";
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
-const USAGE = "/company [blueprint|readiness|capabilities|bind <bundle> <skill|mcp> <id>|unbind <binding-id>|activity|knowledge|amendments|amendment <id>|approve-amendment <id>|reject-amendment <id>]";
+const USAGE = "/company [blueprint|readiness|capabilities|bind <bundle> <skill|mcp> <id>|unbind <binding-id>|operations|run <run-id>|activity|knowledge|amendments|amendment <id>|approve-amendment <id>|reject-amendment <id>]";
 
 class CompanyCommandPolicyError extends Error {}
 
@@ -145,6 +149,11 @@ function exactDecision(args: string): {
 
 function exactAmendment(args: string): string | null {
   const match = /^amendment\s+(\S+)$/u.exec(args);
+  return match !== null && SAFE_ID.test(match[1]!) ? match[1]! : null;
+}
+
+function exactRun(args: string): string | null {
+  const match = /^run\s+(\S+)$/u.exec(args);
   return match !== null && SAFE_ID.test(match[1]!) ? match[1]! : null;
 }
 
@@ -266,6 +275,27 @@ export function createCompanyCommand(dependencies: CommandDependencies): Command
           active.blueprint,
           companyRuns(await company.goals.list(currentSignal), active.session, active.blueprint),
         ));
+      }
+      if (action === "operations") {
+        return message(renderCompanyOperations(
+          active.blueprint,
+          companyRuns(
+            await company.goals.list(currentSignal),
+            active.session,
+            active.blueprint,
+          ),
+        ));
+      }
+      const runId = exactRun(action);
+      if (runId !== null) {
+        const run = companyRuns(
+          await company.goals.list(currentSignal),
+          active.session,
+          active.blueprint,
+        ).find((candidate) => candidate.id === runId);
+        return run === undefined
+          ? message(`Company goal run not found: ${runId}`, "error")
+          : message(renderCompanyGoalRun(active.blueprint, run));
       }
       if (action === "knowledge") {
         const knowledge = await company.knowledge.latest(

@@ -242,6 +242,27 @@ describe("company slash command", () => {
       });
     await expect(registry.execute("/company activity", active)).resolves
       .toMatchObject({ text: expect.stringContaining("planning-assignment") });
+    await expect(registry.execute("/company operations", active)).resolves
+      .toMatchObject({
+        text: expect.stringMatching(
+          /Company operations[\s\S]*Current: running \| company-run-cli/u,
+        ),
+      });
+    await expect(registry.execute("/company run company-run-cli", active)).resolves
+      .toMatchObject({
+        text: expect.stringMatching(
+          /Goal: company-run-cli \| running[\s\S]*Assignments:/u,
+        ),
+      });
+    await expect(registry.execute("/company run missing-run", active)).resolves
+      .toMatchObject({
+        level: "error",
+        text: "Company goal run not found: missing-run",
+      });
+    await expect(registry.execute(
+      "/company run company-run-cli extra",
+      active,
+    )).resolves.toMatchObject({ level: "error", text: expect.stringContaining("Usage") });
     await expect(registry.execute("/company knowledge", active)).resolves
       .toMatchObject({ text: expect.stringContaining("CLI is the first client") });
     await expect(registry.execute("/company amendments", active)).resolves
@@ -254,6 +275,42 @@ describe("company slash command", () => {
       });
     await expect(registry.execute("/company amendment missing", active))
       .resolves.toMatchObject({ level: "error", text: expect.stringContaining("not found") });
+  });
+
+  it("never exposes a goal run outside the active immutable company authority", async () => {
+    const blueprint = approvedBlueprint();
+    const baseDependencies = dependencies(blueprint);
+    const own = (await baseDependencies.goals.list())[0]!;
+    const foreign = {
+      ...own,
+      state: parseCompanyGoalRun({
+        ...own.state,
+        id: "foreign-company-run",
+        parentSessionId: "different-parent-session",
+        goalId: "foreign-goal",
+      }),
+    };
+    const registry = createCommandRegistry({
+      company: dependencies(blueprint, {
+        goals: { async list() { return [foreign, own]; } },
+      }),
+    });
+    const active = context(blueprint);
+
+    const operations = await registry.execute("/company operations", active);
+    expect(operations).toMatchObject({
+      type: "message",
+      text: expect.stringContaining("company-run-cli"),
+    });
+    expect(operations.type === "message" ? operations.text : "")
+      .not.toContain("foreign-company-run");
+    await expect(registry.execute(
+      "/company run foreign-company-run",
+      active,
+    )).resolves.toMatchObject({
+      level: "error",
+      text: "Company goal run not found: foreign-company-run",
+    });
   });
 
   it("fails closed for missing or stale company authority", async () => {

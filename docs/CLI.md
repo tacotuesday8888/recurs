@@ -545,6 +545,8 @@ roster is working:
 /company bind <bundle> skill <exact-skill-id>
 /company bind <bundle> mcp <exact-server-id>
 /company unbind <exact-binding-id>
+/company operations
+/company run <exact-run-id>
 /company activity
 /company knowledge
 /company amendments
@@ -568,7 +570,13 @@ of the role bundle, profile, parent policy, enabled Skill or trusted MCP server,
 and the exact binding. Missing, disabled, untrusted, or stale mappings fail
 closed.
 
-Activity, knowledge, and amendment views are bounded and omit prompts,
+`/company operations` renders a read-only snapshot of goal counts, only the
+roles with assignments actually marked running, current progress, request
+reservations and usage, provider-reported cost, and the latest durable state.
+`/company run <id>` renders one exact owned run with its assignment DAG,
+dependencies, child/team correlation, evidence counts, usage provenance,
+failure, and truthful next-state explanation. Neither command polls, resumes,
+approves, or mutates work. Activity, knowledge, and amendment views are bounded and omit prompts,
 credentials, private paths, and provider configuration. Successful company
 goals extract only attributable user or execution evidence into private,
 versioned knowledge; relevant active facts are supplied to later goals without
@@ -695,7 +703,7 @@ A daemon that outlives the CLI, unbounded recursive depth, terminal-child retrie
 | --- | --- |
 | `/help` | Show concise command help. |
 | `/goal ...` | Create, inspect, pause, resume, complete, or clear the durable goal. |
-| `/company [blueprint\|readiness\|capabilities\|bind ...\|unbind ...\|activity\|knowledge\|amendments\|amendment <id>\|approve-amendment <id>\|reject-amendment <id>]` | Inspect the active V2 company, approve exact capability bindings, view durable learning, and control amendments. |
+| `/company [blueprint\|readiness\|capabilities\|bind ...\|unbind ...\|operations\|run <id>\|activity\|knowledge\|amendments\|amendment <id>\|approve-amendment <id>\|reject-amendment <id>]` | Inspect the active V2 company and exact goal operations, approve exact capability bindings, view durable learning, and control amendments. |
 | `/plan [prompt\|exit]` | Enter enforced read-only planning or return to Act. |
 | `/permissions [ask\|approved\|full]` | Inspect or change the permission preset. |
 | `/agents [profiles\|activity [exact-id]\|teams\|team <id>\|wait <id>\|cancel <id>\|resume <id>\|apply <id>\|mode ...]` | Inspect profiles, child/team activity, control an owned durable team, or change the bounded policy. |
