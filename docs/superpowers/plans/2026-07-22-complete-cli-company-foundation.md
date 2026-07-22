@@ -187,9 +187,9 @@
 - Adds `/company`, `/company blueprint`, `/company activity`, `/company knowledge`, `/company amendments`, `/company approve-amendment <id>`, and `/company reject-amendment <id>`.
 - On an approved V2 company, `/goal <objective>` persists the goal and submits the bounded company-launch prompt; non-company and V1 command behavior remains compatible.
 
-- [ ] Write command parsing, state, permission, stale-revision, and launch tests.
-- [ ] Implement concise truthful rendering and wire services through command dependencies.
-- [ ] Run focused command/runtime tests and commit.
+- [x] Write command parsing, state, permission, stale-revision, and launch tests.
+- [x] Implement concise truthful rendering and wire services through command dependencies.
+- [x] Run focused command/runtime tests and commit.
 
 ### Task 10: Evidence-backed learning and amendments
 

@@ -1,4 +1,5 @@
 export * from "./commands/create.js";
+export * from "./commands/company.js";
 export * from "./commands/foundation.js";
 export * from "./commands/goal.js";
 export * from "./commands/model.js";

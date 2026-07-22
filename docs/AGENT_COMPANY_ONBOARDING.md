@@ -171,7 +171,7 @@ automatically.
 | Natural model-authored interview, proposal editing, and generated roadmap | Implemented behind strict contracts and user approval |
 | Automatic MCP/skill discovery, trust, or installation from the blueprint | Not implemented |
 | Unbounded recursion or autonomous role invention after approval | Not implemented |
-| `/company` inspection, activity, knowledge, and amendment commands | Not implemented yet |
+| `/company` status, blueprint, activity, knowledge, and amendment inspection | Implemented; approve/reject becomes operational with the controlled amendment service |
 | Long-lived project learning and evidence-driven team adaptation | Not implemented |
 | Company operating UI | Intentionally deferred |
 

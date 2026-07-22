@@ -1,6 +1,7 @@
 import {
   activeGoal,
   completeGoal,
+  isPinnedSessionState,
   pauseGoal,
   resumeGoal,
   type Goal,
@@ -51,6 +52,16 @@ function formatGoal(goal: Goal | null): string {
     details.push(`Evidence: ${goal.evidence.join("; ")}`);
   }
   return details.join("\n");
+}
+
+function companyLaunchPrompt(objective: string): string {
+  return [
+    "Launch the approved Recurs company for the exact durable goal below.",
+    `Goal: ${JSON.stringify(objective)}`,
+    "Use delegate_company_goal once with a bounded assignment DAG that uses only approved role IDs and includes every independent-review authority.",
+    "Do not widen the objective, permissions, tools, model routes, hierarchy, concurrency, requests, retries, or reported-cost limits.",
+    "Synthesize the durable company result for the user when the tool completes.",
+  ].join("\n");
 }
 
 export function createGoalCommand(): Command {
@@ -126,6 +137,14 @@ export function createGoalCommand(): Command {
       }
       const goal = activeGoal(action, context.now());
       await context.applyRecord(goalRecord(context, goal));
+      if (isPinnedSessionState(context.session) &&
+        context.session.agent.role === "parent" &&
+        context.session.agent.company?.blueprintVersion === 2) {
+        return {
+          type: "submit_prompt",
+          prompt: companyLaunchPrompt(goal.objective),
+        };
+      }
       return message(`Goal set: ${goal.objective}`);
     },
   };

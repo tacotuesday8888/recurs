@@ -45,6 +45,8 @@ import {
   FileGitPatchArtifactStore,
   FileCompanyBlueprintStore,
   FileCompanyBlueprintV2Store,
+  FileCompanyAmendmentStore,
+  FileCompanyKnowledgeStore,
   FileCompanyOnboardingStore,
   JsonlSessionStore,
   JsonlCompanyGoalStore,
@@ -825,6 +827,12 @@ export async function createStandaloneRuntime(
   );
   const companyGoals = new JsonlCompanyGoalStore(
     path.join(projectData, "company-goals"),
+  );
+  const companyKnowledge = new FileCompanyKnowledgeStore(
+    path.join(projectData, "company-knowledge"),
+  );
+  const companyAmendments = new FileCompanyAmendmentStore(
+    path.join(projectData, "company-amendments"),
   );
   const requestedCompany = options.companyBlueprint === undefined
     ? null
@@ -1773,6 +1781,12 @@ export async function createStandaloneRuntime(
     checkpoints,
     processes,
     teamRuns: teamSupervisor,
+    company: {
+      blueprints: companyBlueprintsV2,
+      goals: companyGoals,
+      knowledge: companyKnowledge,
+      amendments: companyAmendments,
+    },
     skills,
     mcp,
     ...(modelSessions === undefined ? {} : { models: modelSessions }),
