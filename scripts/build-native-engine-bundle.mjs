@@ -17,6 +17,10 @@ if (
 }
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const yamlBrowser = path.join(
+  path.dirname(fileURLToPath(import.meta.resolve("yaml/package.json"))),
+  "browser/index.js",
+);
 const entry = path.join(root, "packages/native-engine/src/main.ts");
 const sealedRuntimes = path.join(
   root,
@@ -52,7 +56,7 @@ try {
       name: "recurs-workspace-source",
       resolveId(specifier, importer) {
         if (specifier === "yaml") {
-          return path.join(root, "node_modules/yaml/browser/index.js");
+          return yamlBrowser;
         }
         if (specifier === "ws") {
           return sealedWebSocket;
