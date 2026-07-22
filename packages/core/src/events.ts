@@ -2,8 +2,9 @@ import type { ModelMessage, StopReason, ToolCall } from "@recurs/providers";
 import type {
   IntegrationFailure,
   AgentProfileId,
-  CompanyBlueprintBinding,
+  CompanyAgentBinding,
   CompanyDevelopmentStyle,
+  CompanyGoalAssignmentStatus,
   OperatingModeId,
   OperatingModeVersion,
   ProviderUsage,
@@ -152,6 +153,72 @@ export type RecursEvent =
       roleCount: number;
     })
   | (EventBase & {
+      type: "company_goal_started";
+      parentAgentId: string;
+      goalRunId: string;
+      objective: string;
+      blueprintId: string;
+      blueprintRevision: number;
+      operatingModeId: OperatingModeId;
+      assignmentCount: number;
+    })
+  | (EventBase & {
+      type: "company_assignment_started";
+      parentAgentId: string;
+      goalRunId: string;
+      assignmentId: string;
+      parentAssignmentId: string | null;
+      departmentId: string;
+      roleId: string;
+      roleName: string;
+      profileId: AgentProfileId;
+      childAgentId: string;
+      childSessionId: string;
+    })
+  | (EventBase & {
+      type: "company_handoff_completed";
+      parentAgentId: string;
+      goalRunId: string;
+      assignmentId: string;
+      parentAssignmentId: string | null;
+      departmentId: string;
+      roleId: string;
+      childAgentId: string;
+      childSessionId: string;
+      usage: ProviderUsage | null;
+      evidence: string[];
+      workflow: AgentWorkflowUsage;
+    })
+  | (EventBase & {
+      type: "company_handoff_failed" | "company_handoff_cancelled";
+      parentAgentId: string;
+      goalRunId: string;
+      assignmentId: string;
+      parentAssignmentId: string | null;
+      departmentId: string;
+      roleId: string;
+      childAgentId: string;
+      childSessionId: string;
+      status: Extract<CompanyGoalAssignmentStatus, "failed" | "cancelled">;
+      reason: string;
+    })
+  | (EventBase & {
+      type:
+        | "company_goal_completed"
+        | "company_goal_failed"
+        | "company_goal_cancelled"
+        | "company_goal_interrupted";
+      parentAgentId: string;
+      goalRunId: string;
+      status: Extract<
+        CompanyGoalAssignmentStatus | "interrupted",
+        "completed" | "failed" | "cancelled" | "interrupted"
+      >;
+      evidence: string[];
+      reason?: string;
+      workflow: AgentWorkflowUsage;
+    })
+  | (EventBase & {
       type: "agent_team_activity";
       parentAgentId: string;
       teamId: string;
@@ -283,7 +350,7 @@ export type RecursEvent =
       description: string;
       operatingModeId: OperatingModeId;
       profileId: AgentProfileId;
-      company?: CompanyBlueprintBinding;
+      company?: CompanyAgentBinding;
       batchId?: string;
       batchIndex?: number;
       teamId?: string;
@@ -300,7 +367,7 @@ export type RecursEvent =
       evidence: string[];
       costLimitExceeded: boolean;
       workflow: AgentWorkflowUsage;
-      company?: CompanyBlueprintBinding;
+      company?: CompanyAgentBinding;
       batchId?: string;
       batchIndex?: number;
       teamId?: string;
@@ -313,7 +380,7 @@ export type RecursEvent =
       childSessionId: string;
       profileId: AgentProfileId;
       failure: IntegrationFailure;
-      company?: CompanyBlueprintBinding;
+      company?: CompanyAgentBinding;
       batchId?: string;
       batchIndex?: number;
       teamId?: string;
@@ -326,7 +393,7 @@ export type RecursEvent =
       childSessionId: string;
       profileId: AgentProfileId;
       reason: string;
-      company?: CompanyBlueprintBinding;
+      company?: CompanyAgentBinding;
       batchId?: string;
       batchIndex?: number;
       teamId?: string;

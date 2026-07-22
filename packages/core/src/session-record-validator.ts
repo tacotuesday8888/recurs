@@ -11,7 +11,6 @@ import {
   modelImagesByteLength,
   narrowAgentPermissionMode,
   parseAgentProfileId,
-  parseCompanyBlueprintBinding,
   parseOperatingModeId,
 } from "@recurs/contracts";
 import type {
@@ -25,6 +24,10 @@ import type {
 
 import { SessionStoreError } from "./session-store-error.js";
 import type { SessionRecordV2 } from "./session-v2.js";
+import {
+  companyAgentLimits,
+  parseCompanyAgentBinding,
+} from "./company-agent-binding.js";
 
 export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -760,7 +763,7 @@ function isAgentDescriptor(
   if (!isObject(value) || !hasExactKeys(value, [
     "id", "role", "profile", "parentAgentId", "parentSessionId", "depth", "task",
     "operatingMode", "backend", "permissions", "limits",
-  ], ["company", "workspace", "team"]) ||
+  ], ["company", "companyGoal", "workspace", "team"]) ||
     !boundedNonEmptyString(value.id, MAX_RUNTIME_ID_LENGTH) ||
     (value.role !== "parent" && value.role !== "child") ||
     !Number.isSafeInteger(value.depth) || (value.depth as number) < 0 ||
@@ -807,23 +810,29 @@ function isAgentDescriptor(
   }
   const modeId = value.operatingMode.id;
   const policy = getOperatingModePolicy(modeId);
-  let company: ReturnType<typeof parseCompanyBlueprintBinding> | undefined;
+  let company: AgentSessionDescriptor["company"];
   try {
     company = value.company === undefined
       ? undefined
-      : parseCompanyBlueprintBinding(value.company);
+      : parseCompanyAgentBinding(value.company);
+  } catch {
+    return false;
+  }
+  let limits;
+  try {
+    limits = companyAgentLimits(modeId, company);
   } catch {
     return false;
   }
   const maxRequests = value.limits.maxRequests;
   if (value.operatingMode.version !== policy.version ||
     !Number.isSafeInteger(maxRequests) || (maxRequests as number) <= 0 ||
-    (maxRequests as number) > policy.orchestration.maxRequests ||
+    (maxRequests as number) > limits.maxRequests ||
     !isDeepStrictEqual(
       value.limits,
-      { ...policy.orchestration, maxRequests },
+      { ...limits, maxRequests },
     ) ||
-    (value.depth as number) > policy.orchestration.maxDepth ||
+    (value.depth as number) > limits.maxDepth ||
     narrowAgentPermissionMode(
       value.permissions.parentPermissionMode,
       value.permissions.permissionMode,
@@ -836,9 +845,11 @@ function isAgentDescriptor(
     return value.profile === null &&
       value.parentAgentId === null && value.parentSessionId === null &&
       value.depth === 0 && value.task === null &&
-      (company === undefined || company.roleId === "orchestrator_v1") &&
-      value.workspace === undefined && value.team === undefined &&
-      isDeepStrictEqual(value.limits, policy.orchestration) &&
+      (company === undefined || company.blueprintVersion === 2 ||
+        company.roleId === "orchestrator_v1") &&
+      value.companyGoal === undefined && value.workspace === undefined &&
+      value.team === undefined &&
+      isDeepStrictEqual(value.limits, limits) &&
       value.backend.strategy === "session_pin" &&
       value.permissions.parentExecutionMode === value.permissions.executionMode &&
       value.permissions.parentPermissionMode === value.permissions.permissionMode;
@@ -857,8 +868,8 @@ function isAgentDescriptor(
     profile.executionMode !== value.permissions.executionMode) {
     return false;
   }
-  const companyProfile = company === undefined
-    ? undefined
+  const companyProfile = company === undefined || company.blueprintVersion === 2
+    ? company === undefined ? undefined : profile.id
     : company.roleId === "scoped_builder_v1"
       ? "implement_v1"
       : company.roleId === "qa_reviewer_v1" ||
@@ -897,6 +908,20 @@ function isAgentDescriptor(
         ? "repair"
         : null;
   const team = value.team;
+  const companyGoal = value.companyGoal;
+  const validCompanyGoal = companyGoal === undefined || (
+    company?.blueprintVersion === 2 && isObject(companyGoal) &&
+    hasExactKeys(companyGoal, [
+      "runId", "assignmentId", "parentAssignmentId",
+    ]) &&
+    boundedNonEmptyString(companyGoal.runId, MAX_RUNTIME_ID_LENGTH) &&
+    boundedNonEmptyString(companyGoal.assignmentId, MAX_RUNTIME_ID_LENGTH) &&
+    (companyGoal.parentAssignmentId === null ||
+      boundedNonEmptyString(
+        companyGoal.parentAssignmentId,
+        MAX_RUNTIME_ID_LENGTH,
+      ))
+  );
   const validTeam = team === undefined || (
     expectedTeamRole !== null && policy.version >= 4 && isObject(team) &&
     hasExactKeys(team, ["runId", "role", "taskIndex", "round", "attemptId"]) &&
@@ -908,6 +933,8 @@ function isAgentDescriptor(
   );
   return validWorkspace &&
     validTeam &&
+    validCompanyGoal &&
+    ((company?.blueprintVersion === 2) === (companyGoal !== undefined)) &&
     (expectedTeamRole === null || (
       policy.version >= 4 && workspace !== undefined && team !== undefined &&
       value.backend.strategy === "policy_route"

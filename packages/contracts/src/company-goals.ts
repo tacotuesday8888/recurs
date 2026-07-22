@@ -40,7 +40,16 @@ export interface CompanyGoalAssignmentResultV1 {
   readonly summary: string;
   readonly evidence: readonly string[];
   readonly usage: ProviderUsage | null;
-  readonly usageSource: "provider" | "unknown";
+  readonly usageSource: "provider" | "runtime" | "unknown";
+}
+
+export interface CompanyGoalAssignmentExecutionV1 {
+  readonly attempt: 1;
+  readonly childAgentId: string;
+  readonly childSessionId: string;
+  readonly taskId: string;
+  readonly startedAt: string;
+  readonly completedAt: string | null;
 }
 
 export interface CompanyGoalAssignmentV1 {
@@ -53,6 +62,8 @@ export interface CompanyGoalAssignmentV1 {
   readonly acceptance: readonly string[];
   readonly expectedEvidence: readonly string[];
   readonly status: CompanyGoalAssignmentStatus;
+  /** Absent only on goal records written before execution correlation existed. */
+  readonly execution?: CompanyGoalAssignmentExecutionV1;
   readonly result: CompanyGoalAssignmentResultV1 | null;
   readonly failure: string | null;
 }
@@ -146,13 +157,13 @@ function parseAssignmentResult(value: unknown): CompanyGoalAssignmentResultV1 {
   const result = contractRecord(value, "Company assignment result");
   contractExact(result, ["summary", "evidence", "usage", "usageSource"],
     "Company assignment result");
-  const usageSource = contractEnum<"provider" | "unknown">(
+  const usageSource = contractEnum<"provider" | "runtime" | "unknown">(
     result.usageSource,
-    new Set(["provider", "unknown"]),
+    new Set(["provider", "runtime", "unknown"]),
     "Company assignment usage source",
   );
   const usage = result.usage === null ? null : parseUsage(result.usage);
-  if ((usageSource === "provider") !== (usage !== null)) {
+  if ((usageSource !== "unknown") !== (usage !== null)) {
     throw new TypeError("Company assignment usage source is inconsistent");
   }
   return {
@@ -169,11 +180,51 @@ function parseAssignmentResult(value: unknown): CompanyGoalAssignmentResultV1 {
   };
 }
 
+function parseAssignmentExecution(
+  value: unknown,
+): CompanyGoalAssignmentExecutionV1 {
+  const execution = contractRecord(value, "Company assignment execution");
+  contractExact(execution, [
+    "attempt", "childAgentId", "childSessionId", "taskId", "startedAt",
+    "completedAt",
+  ], "Company assignment execution");
+  if (execution.attempt !== 1) {
+    throw new TypeError("Company assignment execution attempt is invalid");
+  }
+  const startedAt = contractTimestamp(
+    execution.startedAt,
+    "Company assignment execution start",
+  );
+  const completedAt = execution.completedAt === null
+    ? null
+    : contractTimestamp(
+        execution.completedAt,
+        "Company assignment execution completion",
+      );
+  if (completedAt !== null &&
+    new Date(completedAt).valueOf() < new Date(startedAt).valueOf()) {
+    throw new TypeError("Company assignment completion precedes its start");
+  }
+  return {
+    attempt: 1,
+    childAgentId: contractId(execution.childAgentId, "Company child agent id"),
+    childSessionId: contractId(
+      execution.childSessionId,
+      "Company child session id",
+    ),
+    taskId: contractId(execution.taskId, "Company child task id"),
+    startedAt,
+    completedAt,
+  };
+}
+
 function parseAssignment(value: unknown): CompanyGoalAssignmentV1 {
   const assignment = contractRecord(value, "Company goal assignment");
+  const hasExecution = Object.hasOwn(assignment, "execution");
   contractExact(assignment, [
     "id", "roleId", "parentAssignmentId", "dependsOn", "description",
-    "prompt", "acceptance", "expectedEvidence", "status", "result", "failure",
+    "prompt", "acceptance", "expectedEvidence", "status",
+    ...(hasExecution ? ["execution"] : []), "result", "failure",
   ], "Company goal assignment");
   const status = contractEnum<CompanyGoalAssignmentStatus>(
     assignment.status,
@@ -188,11 +239,20 @@ function parseAssignment(value: unknown): CompanyGoalAssignmentV1 {
     "Company assignment failure",
     2_000,
   );
+  const execution = hasExecution
+    ? parseAssignmentExecution(assignment.execution)
+    : undefined;
   const failed = status === "failed" || status === "cancelled" ||
     status === "blocked";
   if ((status === "completed") !== (result !== null) ||
     failed !== (failure !== null)) {
     throw new TypeError("Company assignment lifecycle state is inconsistent");
+  }
+  if (execution !== undefined && (
+    (status === "pending" || status === "blocked") ||
+    (status === "running") !== (execution.completedAt === null)
+  )) {
+    throw new TypeError("Company assignment execution state is inconsistent");
   }
   return {
     id: contractId(assignment.id, "Company assignment id"),
@@ -226,6 +286,7 @@ function parseAssignment(value: unknown): CompanyGoalAssignmentV1 {
       false,
     ),
     status,
+    ...(execution === undefined ? {} : { execution }),
     result,
     failure,
   };
@@ -338,8 +399,7 @@ export function parseCompanyGoalBudget(value: unknown): CompanyGoalBudgetV1 {
   if (parsed.assignmentsStarted > parsed.maxAssignments ||
     parsed.maxConcurrentAssignments > parsed.maxAssignments ||
     parsed.requestsUsed > parsed.requestsReserved ||
-    parsed.requestsReserved > parsed.maxRequests ||
-    parsed.reportedCostUsd > parsed.maxReportedCostUsd) {
+    parsed.requestsReserved > parsed.maxRequests) {
     throw new TypeError("Company goal budget usage exceeds its limits");
   }
   return contractDeepFreeze(parsed) as CompanyGoalBudgetV1;

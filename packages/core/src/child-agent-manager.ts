@@ -7,15 +7,15 @@ import {
   getOperatingModePolicy,
   narrowAgentPermissionMode,
   parseAgentProfileId,
-  parseCompanyBlueprintBinding,
   parseOperatingModeId,
   type AgentBackendSelection,
+  type AgentCompanyGoalCorrelation,
   type AgentGitWorktreeWorkspace,
   type AgentExecutionMode,
   type AgentPermissionMode,
   type AgentProfileId,
   type AgentTeamCorrelation,
-  type CompanyBlueprintBinding,
+  type CompanyAgentBinding,
   type HostInvocation,
   type IntegrationFailure,
   type OperatingModeId,
@@ -52,6 +52,10 @@ import type {
   AgentBackendRouteDecision,
   AgentBackendRouter,
 } from "./agent-backend-router.js";
+import {
+  companyAgentLimits,
+  parseCompanyAgentBinding,
+} from "./company-agent-binding.js";
 
 export interface DelegateTaskInput {
   readonly profile: AgentProfileId;
@@ -104,7 +108,9 @@ interface TrustedChildOptions {
   readonly teamOperatingMode?: TeamOperatingModeBinding;
   readonly teamParentPermissions?: TeamParentPermissionBinding;
   readonly teamAuthority?: TeamChildAuthority;
-  readonly company?: CompanyBlueprintBinding;
+  readonly company?: CompanyAgentBinding;
+  readonly companyPermissionMode?: AgentPermissionMode;
+  readonly companyGoal?: AgentCompanyGoalCorrelation;
 }
 
 export interface ChildIdentityReservationOptions extends ChildDelegationCorrelation {
@@ -115,7 +121,9 @@ export interface ChildIdentityReservationOptions extends ChildDelegationCorrelat
   readonly teamAuthority?: TeamChildAuthority;
   readonly cwd?: string;
   readonly workspace?: AgentGitWorktreeWorkspace;
-  readonly company?: CompanyBlueprintBinding;
+  readonly company?: CompanyAgentBinding;
+  readonly companyPermissionMode?: AgentPermissionMode;
+  readonly companyGoal?: AgentCompanyGoalCorrelation;
 }
 
 export type ChildDelegationOptions = ChildDelegationCorrelation & TrustedChildOptions & (
@@ -151,7 +159,7 @@ export interface ChildDelegationMetadata extends Record<string, unknown> {
   readonly costLimitUsd: number;
   readonly costLimitExceeded: boolean;
   readonly workflow: AgentWorkflowUsage;
-  readonly company?: CompanyBlueprintBinding;
+  readonly company?: CompanyAgentBinding;
   readonly workspace?: AgentGitWorktreeWorkspace;
   readonly batchId?: string;
   readonly batchIndex?: number;
@@ -301,7 +309,9 @@ export class ChildAgentManager {
     readonly cwd: string | undefined;
     readonly workspace: AgentGitWorktreeWorkspace | undefined;
     readonly decision: AgentBackendRouteDecision | undefined;
-    readonly company: CompanyBlueprintBinding | undefined;
+    readonly company: CompanyAgentBinding | undefined;
+    readonly companyPermissionMode: AgentPermissionMode | undefined;
+    readonly companyGoal: AgentCompanyGoalCorrelation | undefined;
   }>();
 
   constructor(private readonly dependencies: ChildAgentManagerDependencies) {
@@ -454,7 +464,11 @@ export class ChildAgentManager {
       decision: options?.backend?.decision,
       company: options?.company === undefined
         ? undefined
-        : parseCompanyBlueprintBinding(options.company),
+        : parseCompanyAgentBinding(options.company),
+      companyPermissionMode: options?.companyPermissionMode,
+      companyGoal: options?.companyGoal === undefined
+        ? undefined
+        : structuredClone(options.companyGoal),
     });
     return identity;
   }
@@ -497,7 +511,9 @@ export class ChildAgentManager {
       reservation.cwd !== options.cwd ||
       !isDeepStrictEqual(reservation.workspace, options.workspace) ||
       reservation.decision !== options.backend?.decision ||
-      !isDeepStrictEqual(reservation.company, options.company)
+      !isDeepStrictEqual(reservation.company, options.company) ||
+      reservation.companyPermissionMode !== options.companyPermissionMode
+      || !isDeepStrictEqual(reservation.companyGoal, options.companyGoal)
     ) {
       throw new ToolError(
         "permission_denied",
@@ -582,7 +598,7 @@ export class ChildAgentManager {
     }
     const company = options?.company === undefined
       ? undefined
-      : parseCompanyBlueprintBinding(options.company);
+      : parseCompanyAgentBinding(options.company);
     const parent = await this.#parent(context);
     const childCwd = options?.workspace === undefined
       ? parent.cwd
@@ -597,15 +613,30 @@ export class ChildAgentManager {
       );
     }
     const profile = getAgentProfilePolicy(input.profile);
-    if (company !== undefined && (
-      parent.agent.company === undefined ||
-      parent.agent.company.roleId !== "orchestrator_v1" ||
-      company.blueprintId !== parent.agent.company.blueprintId ||
-      company.blueprintVersion !== parent.agent.company.blueprintVersion
-    )) {
+    const parentCompany = parent.agent.company;
+    const mismatchedCompany = (parentCompany === undefined) !==
+      (company === undefined) || (company !== undefined && (
+      parentCompany === undefined ||
+      company.blueprintId !== parentCompany.blueprintId ||
+      company.blueprintVersion !== parentCompany.blueprintVersion ||
+      (company.blueprintVersion === 1 &&
+        (parentCompany.blueprintVersion !== 1 ||
+          parentCompany.roleId !== "orchestrator_v1")) ||
+      (company.blueprintVersion === 2 &&
+        (parentCompany.blueprintVersion !== 2 ||
+          company.blueprintRevision !== parentCompany.blueprintRevision))
+    ));
+    if (mismatchedCompany) {
       throw new ToolError(
         "permission_denied",
         "Company child binding does not match the live parent company",
+      );
+    }
+    if ((company?.blueprintVersion === 2) !==
+      (options?.companyGoal !== undefined)) {
+      throw new ToolError(
+        "permission_denied",
+        "Company V2 children require an exact goal assignment correlation",
       );
     }
     const role = teamRole(profile.id);
@@ -682,10 +713,11 @@ export class ChildAgentManager {
       );
     }
     const childDepth = parent.agent.depth + 1;
-    if (childDepth > mode.orchestration.maxDepth) {
+    const agentLimits = companyAgentLimits(mode.id, company ?? parentCompany);
+    if (childDepth > agentLimits.maxDepth) {
       throw new ToolError(
         "permission_denied",
-        `Agent depth limit reached (${mode.orchestration.maxDepth})`,
+        `Agent depth limit reached (${agentLimits.maxDepth})`,
       );
     }
     if (context.runContext === undefined) {
@@ -701,7 +733,7 @@ export class ChildAgentManager {
       : {
           ...parent.agent,
           operatingMode: { id: mode.id, version: mode.version },
-          limits: mode.orchestration,
+          limits: agentLimits,
         };
     if (budget === undefined ||
       !isDelegationBudgetForAgent(budget, budgetAgent)) {
@@ -737,8 +769,14 @@ export class ChildAgentManager {
       childCwd,
       parentExecutionMode,
       parentPermissionMode,
+      permissionMode: narrowAgentPermissionMode(
+        parentPermissionMode,
+        options?.companyPermissionMode ?? parentPermissionMode,
+      ),
       runContext: context.runContext,
       company,
+      companyGoal: options?.companyGoal,
+      agentLimits,
     };
   }
 
@@ -765,8 +803,11 @@ export class ChildAgentManager {
       childCwd,
       parentExecutionMode,
       parentPermissionMode,
+      permissionMode,
       runContext,
       company,
+      companyGoal,
+      agentLimits,
     } = await this.#prepare(input, context, options);
 
     const { childSessionId, childAgentId, taskId } = this.#identity(
@@ -816,14 +857,10 @@ export class ChildAgentManager {
     const release = this.#claim(
       parent,
       childSessionId,
-      mode.orchestration.maxConcurrentChildren,
+      agentLimits.maxConcurrentChildren,
     );
     budget.childrenStarted += 1;
     budget.requestsReserved += childRequestLimit;
-    const permissionMode = narrowAgentPermissionMode(
-      parentPermissionMode,
-      parentPermissionMode,
-    );
     try {
       const child = await this.dependencies.sessions.createPinnedSession({
         id: childSessionId,
@@ -846,8 +883,9 @@ export class ChildAgentManager {
             parentPermissionMode,
             permissionMode,
           },
-          limits: { ...mode.orchestration, maxRequests: childRequestLimit },
+          limits: { ...agentLimits, maxRequests: childRequestLimit },
           ...(company === undefined ? {} : { company }),
+          ...(companyGoal === undefined ? {} : { companyGoal }),
           ...(options?.workspace === undefined
             ? {}
             : { workspace: options.workspace }),

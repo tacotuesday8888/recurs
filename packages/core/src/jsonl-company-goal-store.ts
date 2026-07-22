@@ -73,6 +73,18 @@ function validateTransition(previous: CompanyGoalRunV1, next: CompanyGoalRunV1):
   );
   for (const assignment of previous.plan.assignments) {
     const candidate = nextAssignments.get(assignment.id);
+    const priorExecution = assignment.execution;
+    const nextExecution = candidate?.execution;
+    const executionChanged = priorExecution !== undefined && (
+      nextExecution === undefined ||
+      priorExecution.attempt !== nextExecution.attempt ||
+      priorExecution.childAgentId !== nextExecution.childAgentId ||
+      priorExecution.childSessionId !== nextExecution.childSessionId ||
+      priorExecution.taskId !== nextExecution.taskId ||
+      priorExecution.startedAt !== nextExecution.startedAt ||
+      (priorExecution.completedAt !== null &&
+        priorExecution.completedAt !== nextExecution.completedAt)
+    );
     if (candidate === undefined || candidate.roleId !== assignment.roleId ||
       candidate.parentAssignmentId !== assignment.parentAssignmentId ||
       !isDeepStrictEqual(candidate.dependsOn, assignment.dependsOn) ||
@@ -80,6 +92,7 @@ function validateTransition(previous: CompanyGoalRunV1, next: CompanyGoalRunV1):
       candidate.prompt !== assignment.prompt ||
       !isDeepStrictEqual(candidate.acceptance, assignment.acceptance) ||
       !isDeepStrictEqual(candidate.expectedEvidence, assignment.expectedEvidence) ||
+      executionChanged ||
       !assignmentTransitions[assignment.status].has(candidate.status) ||
       ((assignment.status === "completed" || assignment.status === "failed" ||
         assignment.status === "cancelled" || assignment.status === "blocked") &&

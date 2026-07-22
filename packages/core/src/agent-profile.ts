@@ -11,36 +11,57 @@ import type {
 
 import type { AgentWorkflowUsage } from "./events.js";
 
+function delegationLimits(agent: AgentSessionDescriptor): {
+  readonly maxChildren: number;
+  readonly maxRequests: number;
+  readonly maxReportedCostUsd: number;
+} {
+  const mode = getOperatingModePolicy(agent.operatingMode.id);
+  if (agent.company?.blueprintVersion !== 2) {
+    return {
+      maxChildren: mode.workflow.maxChildrenPerRun,
+      maxRequests: mode.workflow.maxRequestsPerRun,
+      maxReportedCostUsd: mode.orchestration.maxReportedCostUsd,
+    };
+  }
+  if (mode.company === undefined) {
+    throw new TypeError("Company V2 agents require a company operating mode");
+  }
+  return {
+    maxChildren: mode.company.maxActiveRoles,
+    maxRequests: mode.company.maxGoalRequests,
+    maxReportedCostUsd: mode.company.maxReportedCostUsd,
+  };
+}
+
 export function createDelegationBudget(
   agent: AgentSessionDescriptor,
 ): DelegationBudget {
-  const mode = getOperatingModePolicy(agent.operatingMode.id);
+  const limits = delegationLimits(agent);
   return {
-    maxChildren: mode.workflow.maxChildrenPerRun,
+    maxChildren: limits.maxChildren,
     childrenStarted: 0,
-    maxRequests: mode.workflow.maxRequestsPerRun,
+    maxRequests: limits.maxRequests,
     requestsReserved: 0,
     requestsUsed: 0,
-    maxReportedCostUsd: mode.orchestration.maxReportedCostUsd,
+    maxReportedCostUsd: limits.maxReportedCostUsd,
     reportedCostUsd: 0,
   };
 }
 
 export function childRequestAllowance(agent: AgentSessionDescriptor): number {
-  const mode = getOperatingModePolicy(agent.operatingMode.id);
-  return Math.floor(
-    mode.workflow.maxRequestsPerRun / mode.workflow.maxChildrenPerRun,
-  );
+  const limits = delegationLimits(agent);
+  return Math.max(1, Math.floor(limits.maxRequests / limits.maxChildren));
 }
 
 export function isDelegationBudgetForAgent(
   budget: DelegationBudget,
   agent: AgentSessionDescriptor,
 ): boolean {
-  const mode = getOperatingModePolicy(agent.operatingMode.id);
-  return budget.maxChildren === mode.workflow.maxChildrenPerRun &&
-    budget.maxRequests === mode.workflow.maxRequestsPerRun &&
-    budget.maxReportedCostUsd === mode.orchestration.maxReportedCostUsd &&
+  const limits = delegationLimits(agent);
+  return budget.maxChildren === limits.maxChildren &&
+    budget.maxRequests === limits.maxRequests &&
+    budget.maxReportedCostUsd === limits.maxReportedCostUsd &&
     Number.isSafeInteger(budget.childrenStarted) &&
     budget.childrenStarted >= 0 &&
     Number.isSafeInteger(budget.requestsReserved) &&
