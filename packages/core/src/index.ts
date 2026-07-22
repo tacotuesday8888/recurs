@@ -11,6 +11,15 @@ export * from "./compatibility-coordinator.js";
 export * from "./company-blueprint.js";
 export * from "./company-agent-manager.js";
 export * from "./file-company-blueprint-store.js";
+export * from "./file-company-onboarding-store.js";
+export * from "./file-company-knowledge-store.js";
+export * from "./file-company-amendment-store.js";
+export * from "./jsonl-company-goal-store.js";
+export { CompanyStateStoreError } from "./private-state-store.js";
+export type {
+  CompanyStateStoreErrorCode,
+  SequencedCompanyState,
+} from "./private-state-store.js";
 export * from "./direct-model-executor.js";
 export * from "./delegated-agent-executor.js";
 export * from "./events.js";

@@ -73,10 +73,10 @@
 - Produces append/create/load/list/mutate APIs following the current company blueprint and session-store publication patterns.
 - Stores enforce private permissions, regular-file/no-symlink paths, exact UTF-8 JSON/JSONL, atomic publication, sequence monotonicity, idempotency, conflict-on-ID-reuse, and fail-closed tamper handling.
 
-- [ ] Write failing create/load/idempotency/conflict tests.
-- [ ] Add deterministic same-instance and cross-instance publication races plus corrupt/truncated/symlink/permission tests.
-- [ ] Implement stores by extracting only narrowly reusable publication helpers where duplication would otherwise create divergent security behavior.
-- [ ] Repeat focused race tests, run all new store suites, and commit.
+- [x] Write failing create/load/idempotency/conflict tests.
+- [x] Add deterministic same-instance and cross-instance publication races plus corrupt/truncated/symlink/permission tests.
+- [x] Implement stores by extracting only narrowly reusable publication helpers where duplication would otherwise create divergent security behavior.
+- [x] Repeat focused race tests, run all new store suites, and commit.
 
 ### Task 4: V2 compiler, YAML codec, and proposal revision
 

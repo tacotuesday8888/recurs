@@ -362,6 +362,7 @@ export function parseCompanyOnboardingRun(
     ((status === "interviewing" || status === "researching") &&
       proposal !== null) ||
     (status === "approved") !== (approvedBlueprintId !== null) ||
+    (status === "approved" && approvedBlueprintId !== proposal?.blueprint.id) ||
     terminal !== (terminalReason !== null) ||
     (status === "researching" && !research.some((item) =>
       item.status === "queued" || item.status === "running"

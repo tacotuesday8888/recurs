@@ -10,6 +10,7 @@ import {
 import {
   COMPANY_DEPARTMENT_IDS,
   COMPANY_REPOSITORY_MARKERS,
+  parseCompanyBlueprint,
   type CompanyBlueprintV1,
   type CompanyModelRoute,
   type CompanyProjectStage,
@@ -761,4 +762,13 @@ export function parseCompanyBlueprintBindingV2(
     roleId: safeId(binding.roleId, "Company blueprint binding role"),
     roleVersion: 1,
   });
+}
+
+export function parseAnyCompanyBlueprint(value: unknown): CompanyBlueprint {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError("Company blueprint must be an object");
+  }
+  return (value as { readonly version?: unknown }).version === 2
+    ? parseCompanyBlueprintV2(value)
+    : parseCompanyBlueprint(value);
 }
