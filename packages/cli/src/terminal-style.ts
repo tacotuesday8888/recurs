@@ -1,5 +1,10 @@
 import type { Writable } from "node:stream";
 
+import {
+  RECURS_MARK_ANSI_256,
+  RECURS_MARK_ROWS,
+} from "./generated/recurs-brand.js";
+
 type TerminalEnvironment = Readonly<Record<string, string | undefined>>;
 
 export interface TerminalThemeOptions {
@@ -20,18 +25,13 @@ export interface TerminalTheme {
 }
 
 const RESET = "\u001b[0m";
-const BRAND_COLORS = Object.freeze([95, 91, 93, 92, 96, 94]);
-const WORDMARK_GLYPHS = Object.freeze([
-  Object.freeze(["████ ", "█   █", "████ ", "█  █ ", "█   █"]),
-  Object.freeze(["█████", "█    ", "████ ", "█    ", "█████"]),
-  Object.freeze([" ████", "█    ", "█    ", "█    ", " ████"]),
-  Object.freeze(["█   █", "█   █", "█   █", "█   █", " ███ "]),
-  Object.freeze(["████ ", "█   █", "████ ", "█  █ ", "█   █"]),
-  Object.freeze([" ████", "█    ", " ███ ", "    █", "████ "]),
-]);
 
 function ansi(enabled: boolean, code: number, text: string): string {
   return enabled ? `\u001b[${code}m${text}${RESET}` : text;
+}
+
+function ansi256(enabled: boolean, code: number, text: string): string {
+  return enabled ? `\u001b[38;5;${code}m${text}${RESET}` : text;
 }
 
 function terminalSupportsColor(
@@ -57,7 +57,11 @@ export function createTerminalTheme(
     colorEnabled,
     accent: (text: string) => ansi(colorEnabled, 96, text),
     brand: (text: string, index: number) =>
-      ansi(colorEnabled, BRAND_COLORS[index % BRAND_COLORS.length] ?? 96, text),
+      ansi256(
+        colorEnabled,
+        RECURS_MARK_ANSI_256[index % RECURS_MARK_ANSI_256.length] ?? 51,
+        text,
+      ),
     failure: (text: string) => ansi(colorEnabled, 31, text),
     muted: (text: string) => ansi(colorEnabled, 2, text),
     strong: (text: string) => ansi(colorEnabled, 1, text),
@@ -68,10 +72,23 @@ export function createTerminalTheme(
 
 export function renderRecursWordmark(theme: TerminalTheme): string {
   if (!theme.colorEnabled) return "";
-  return Array.from({ length: 5 }, (_unused, row) =>
-    WORDMARK_GLYPHS.map((glyph, index) =>
-      theme.brand(glyph[row] ?? "", index)
-    ).join(" ")
+  const gradientSpan = Math.max(...RECURS_MARK_ROWS.flatMap((row, rowIndex) =>
+    Array.from(row, (glyph, columnIndex) =>
+      glyph === " " ? 0 : rowIndex * 2 + columnIndex
+    )
+  ));
+  return RECURS_MARK_ROWS.map((row, rowIndex) =>
+    Array.from(row, (glyph, columnIndex) =>
+      glyph === " "
+        ? glyph
+        : theme.brand(
+          glyph,
+          Math.floor(
+            (rowIndex * 2 + columnIndex) / gradientSpan *
+              (RECURS_MARK_ANSI_256.length - 1),
+          ),
+        )
+    ).join("")
   ).join("\n");
 }
 
@@ -80,7 +97,9 @@ export function renderRecursHeader(
   fallback: string,
 ): string {
   const wordmark = renderRecursWordmark(theme);
-  return wordmark.length === 0
-    ? fallback
-    : `${wordmark}\n${theme.strong(fallback)}`;
+  if (wordmark.length === 0) return fallback;
+  const rows = wordmark.split("\n");
+  const labelRow = 1;
+  rows[labelRow] = `${rows[labelRow] ?? ""}   ${theme.strong(fallback)}`;
+  return rows.join("\n");
 }

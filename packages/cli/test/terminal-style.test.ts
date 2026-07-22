@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createTerminalTheme,
+  renderRecursHeader,
   renderRecursWordmark,
 } from "../src/terminal-style.js";
 
@@ -22,7 +23,7 @@ class TerminalOutput extends Writable {
 const colorEnvironment = Object.freeze({ TERM: "xterm-256color" });
 
 describe("terminal presentation", () => {
-  it("renders a restrained rainbow wordmark for a color-capable TTY", () => {
+  it("renders the recursive loop mark in a cool gradient for a color-capable TTY", () => {
     const theme = createTerminalTheme(new TerminalOutput(), {
       environment: colorEnvironment,
     });
@@ -30,10 +31,11 @@ describe("terminal presentation", () => {
     const wordmark = renderRecursWordmark(theme);
 
     expect(theme.colorEnabled).toBe(true);
-    expect(wordmark.split("\n")).toHaveLength(5);
-    expect(wordmark).toContain("\u001b[95m");
-    expect(wordmark).toContain("\u001b[94m");
-    expect(wordmark).toContain("█");
+    expect(wordmark.split("\n")).toHaveLength(7);
+    expect(wordmark).toContain("\u001b[38;5;33m");
+    expect(wordmark).toContain("\u001b[38;5;121m");
+    expect(wordmark).toContain("◀");
+    expect(wordmark).toContain("▄");
   });
 
   it.each([
@@ -57,5 +59,16 @@ describe("terminal presentation", () => {
     expect(theme.success("✓ Verified")).toContain("✓ Verified");
     expect(theme.warning("Warning: retrying")).toContain("Warning: retrying");
     expect(theme.failure("Error: unavailable")).toContain("Error: unavailable");
+  });
+
+  it("places the readable header label beside the mark", () => {
+    const theme = createTerminalTheme(new TerminalOutput(), {
+      environment: colorEnvironment,
+    });
+
+    const header = renderRecursHeader(theme, "Welcome to Recurs");
+
+    expect(header.split("\n")).toHaveLength(7);
+    expect(header).toContain("Welcome to Recurs");
   });
 });

@@ -38,7 +38,7 @@ function failingRuntime(error: Error): RecursRuntime {
 }
 
 describe("startRepl", () => {
-  it("renders the full wordmark only for a color-capable terminal", async () => {
+  it("renders the gradient loop mark only for a color-capable terminal", async () => {
     const output = new TextOutput();
     const runtime = {
       state: { type: "session" },
@@ -55,7 +55,8 @@ describe("startRepl", () => {
       environment: { TERM: "xterm-256color" },
     });
 
-    expect(output.value).toContain("\u001b[95m");
+    expect(output.value).toContain("\u001b[38;5;33m");
+    expect(output.value).toContain("◀");
     expect(output.value).toContain("Recurs — local harness mode");
     expect(output.value).toContain("\u001b[96mrecurs> \u001b[0m");
   });
