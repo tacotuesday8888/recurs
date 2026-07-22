@@ -81,10 +81,10 @@
 - Run against the normal selected direct/local provider path with a temporary private Recurs home and fixture repository; accept credentials only through existing provider resolution and environment references.
 - Emit sanitized JSON plus a readable report containing scenario version, provider/model fingerprint, latency, reported usage/cost, rubric evidence, failures, and no prompts or environment secrets by default.
 
-- [ ] Write scripted-provider tests for pass/fail/partial results, malformed model output, cancellation, unknown usage, and secret-canary redaction.
-- [ ] Implement `npm run eval:company -- --scenario <id>` with explicit opt-in and no network behavior in ordinary test/check commands.
-- [ ] Add a deterministic offline smoke scenario and document the exact command for later OpenAI/Anthropic/local qualitative runs.
-- [ ] Run the complete evaluation suite and commit.
+- [x] Write scripted-provider tests for pass/fail/partial results, malformed model output, cancellation, unknown usage, and secret-canary redaction.
+- [x] Implement `npm run eval:company -- --scenario <id>` with explicit opt-in and no network behavior in ordinary test/check commands.
+- [x] Add a deterministic offline smoke scenario and document the exact command for later OpenAI/Anthropic/local qualitative runs.
+- [x] Run the complete evaluation suite and commit.
 
 ### Task 4: Tailored role charters and role-relevant memory
 
