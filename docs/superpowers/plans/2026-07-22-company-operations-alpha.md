@@ -100,25 +100,25 @@
 - Add `evaluateCompanyGoalExecution({ run, blueprint, mode, backend, startedAt, completedAt }): CompanyEvaluationReportV1`.
 - Score decomposition, attributable evidence, synthesis, and efficiency from the exact approved blueprint and terminal run. Mark interview and blueprint tailoring `not_applicable`; never convert semantic text quality into a structural pass.
 
-- [ ] **Step 1: Write failing scorer tests**
+- [x] **Step 1: Write failing scorer tests**
 
   Cover completed reviewed execution, missing review/evidence, failed/cancelled/interrupted runs, unknown configured cost, budget ceilings, secret-canary failures, stale blueprint binding, and deterministic report identity.
 
-- [ ] **Step 2: Confirm tests fail**
+- [x] **Step 2: Confirm tests fail**
 
   Run: `npx vitest run packages/cli/test/company-evaluation.test.ts`
 
   Expected: FAIL because the execution scenario and scorer do not exist.
 
-- [ ] **Step 3: Implement structural scoring**
+- [x] **Step 3: Implement structural scoring**
 
   Reuse `createCompanyEvaluationReport` and `sanitizeCompanyEvaluationText`. Validate the run with `parseCompanyGoalRun`, require exact blueprint ID/revision and independent-review coverage, preserve unknown provider cost, and emit bounded evidence without raw prompts.
 
-- [ ] **Step 4: Verify twice**
+- [x] **Step 4: Verify twice**
 
   Run the CLI and contract evaluation suites twice and `npm run typecheck`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   Commit message: `feat(company): evaluate durable goal execution`
 
