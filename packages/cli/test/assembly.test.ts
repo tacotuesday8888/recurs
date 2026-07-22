@@ -22,6 +22,7 @@ import type {
   NativeOpenAIResponsesPort,
   TeamRunDescriptor,
   TeamRunPolicySnapshot,
+  CompanyBlueprintV2,
 } from "@recurs/contracts";
 import { createHostInvocation, getOperatingModePolicy } from "@recurs/contracts";
 import {
@@ -38,7 +39,10 @@ import {
   compileCompanyBlueprint,
   compileCompanyBlueprintV2,
   CoordinatedRunError,
+  CompanyAmendmentService,
   DelegatedAgentExecutor,
+  FileCompanyAmendmentStore,
+  FileCompanyBlueprintV2Store,
   FileGitPatchArtifactStore,
   JsonlSessionStore,
   JsonlTeamRunStore,
@@ -625,6 +629,61 @@ describe("standalone assembly without a provider", () => {
       projectId,
       "company-blueprints-v2",
     ))).resolves.toEqual([`${blueprint.id}.json`]);
+
+    const projectData = path.join(root, "data", "projects", projectId);
+    const amendments = new CompanyAmendmentService({
+      blueprints: new FileCompanyBlueprintV2Store(
+        path.join(projectData, "company-blueprints-v2"),
+      ),
+      amendments: new FileCompanyAmendmentStore(
+        path.join(projectData, "company-amendments"),
+      ),
+    });
+    const proposedBlueprint: CompanyBlueprintV2 = {
+      ...blueprint,
+      id: "company-assembly-v2-r2",
+      revision: 2,
+      previousBlueprintId: blueprint.id,
+      state: "proposed",
+      createdAt: "2026-07-21T00:02:00.000Z",
+      approvedAt: null,
+      project: {
+        ...blueprint.project,
+        purpose: "Run future goals with attributable company learning.",
+      },
+    };
+    await amendments.propose({
+      amendmentId: "company-assembly-amendment-r2",
+      company: runtime.session.agent.company!,
+      proposedBlueprint,
+      reason: "Apply attributable project evidence to future company goals.",
+      at: "2026-07-21T00:03:00.000Z",
+    });
+    await expect(runtime.submit(
+      "/company amendment company-assembly-amendment-r2",
+      localManualInvocation(),
+    )).resolves.toMatchObject({
+      text: expect.stringContaining("Project brief changed"),
+    });
+    runtime.setConfirmHandler(async () => true);
+    await expect(runtime.submit(
+      "/company approve-amendment company-assembly-amendment-r2",
+      localManualInvocation(),
+    )).resolves.toMatchObject({
+      text: expect.stringContaining("revision 2 applies to future goals"),
+    });
+    const historicalSessionId = runtime.session.id;
+    expect(runtime.session.agent.company).toMatchObject({
+      blueprintId: blueprint.id,
+      blueprintRevision: 1,
+    });
+    await expect(runtime.submit("/new", localManualInvocation())).resolves
+      .toMatchObject({ text: expect.stringContaining("company revision 2") });
+    expect(runtime.session.agent.company).toMatchObject({
+      blueprintId: proposedBlueprint.id,
+      blueprintRevision: 2,
+    });
+    expect(runtime.session.id).not.toBe(historicalSessionId);
   });
 
   it("rejects company activation when approved authority differs from the session", async () => {

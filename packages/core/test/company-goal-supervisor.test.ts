@@ -15,11 +15,13 @@ import {
   approveCompanyBlueprintV2,
   ChildAgentManager,
   CompanyGoalSupervisor,
+  CompanyLearningService,
   compileCompanyBlueprintV2,
   createDelegationBudget,
   createRootAgentDescriptor,
   delegationWorkflowUsage,
   FileCompanyBlueprintV2Store,
+  FileCompanyKnowledgeStore,
   JsonlCompanyGoalStore,
   JsonlSessionStore,
   type CompanyGoalAssignmentExecutor,
@@ -127,6 +129,8 @@ async function fixture(options: {
   readonly nestedHandoffIds?: readonly string[];
   readonly implementation?: boolean;
   readonly teamStatus?: "approved" | "failed" | "cancelled" | "interrupted";
+  readonly learning?: boolean;
+  readonly learningFailure?: "select" | "record";
 } = {}) {
   const root = await realpath(
     await mkdtemp(path.join(tmpdir(), "recurs-company-goal-")),
@@ -135,6 +139,8 @@ async function fixture(options: {
   const sessions = new JsonlSessionStore(path.join(root, "sessions"));
   const blueprints = new FileCompanyBlueprintV2Store(path.join(root, "blueprints"));
   const runs = new JsonlCompanyGoalStore(path.join(root, "goals"));
+  const knowledge = new FileCompanyKnowledgeStore(path.join(root, "knowledge"));
+  const learning = new CompanyLearningService({ store: knowledge });
   const blueprint = approveCompanyBlueprintV2(compileCompanyBlueprintV2({
     id: "blueprint-1",
     companyId: "company-1",
@@ -171,6 +177,21 @@ async function fixture(options: {
     roadmap: ["Run the first company goal."],
   }), "2026-07-22T00:00:01.000Z");
   await blueprints.create(blueprint);
+  if (options.learning === true) {
+    await learning.recordCompanyKnowledge({
+      companyId: blueprint.companyId,
+      kind: "project_fact",
+      statement: "The company runtime is a TypeScript workspace.",
+      source: {
+        type: "repository",
+        id: "package-json-evidence",
+        evidence: "package.json identifies the TypeScript workspace.",
+      },
+      confidence: "high",
+      createdAt: "2026-07-09T00:00:00.000Z",
+      supersedes: null,
+    });
+  }
   const roles = Object.fromEntries(blueprint.roles.map((role) => [
     role.displayName,
     role,
@@ -197,8 +218,10 @@ async function fixture(options: {
     ),
   });
   const supervisorReference: { current?: CompanyGoalSupervisor } = {};
+  const prompts: string[] = [];
   const coordinator: RunCoordinator = {
     async start(input: CoordinatedRunInput) {
+      prompts.push(input.prompt);
       const child = await sessions.loadState(input.sessionId);
       const roleId = child.version === 2 ? child.agent.company?.roleId : "unknown";
       if (options.nestedHandoffIds !== undefined &&
@@ -413,6 +436,16 @@ async function fixture(options: {
     },
   };
   let runIndex = 0;
+  const learningDependency = options.learning !== true
+    ? undefined
+    : {
+        selectCompanyKnowledge: options.learningFailure === "select"
+          ? async () => { throw new Error("sensitive selection failure"); }
+          : learning.selectCompanyKnowledge.bind(learning),
+        recordCompletedGoal: options.learningFailure === "record"
+          ? async () => { throw new Error("sensitive record failure"); }
+          : learning.recordCompletedGoal.bind(learning),
+      };
   const supervisor = new CompanyGoalSupervisor({
     sessions,
     blueprints,
@@ -420,6 +453,7 @@ async function fixture(options: {
     children,
     work,
     team,
+    ...(learningDependency === undefined ? {} : { learning: learningDependency }),
     async emit(event) { events.push(event); },
     createId: () => `company-run-id-${++runIndex}`,
     now: () => testAt,
@@ -439,6 +473,8 @@ async function fixture(options: {
     sessions,
     blueprints,
     runs,
+    knowledge,
+    learning,
     blueprint,
     roles,
     parent,
@@ -446,6 +482,7 @@ async function fixture(options: {
     children,
     supervisor,
     context,
+    prompts,
     teamCalls,
     setTeamStatus(status: typeof currentTeamStatus) {
       currentTeamStatus = status;
@@ -547,6 +584,80 @@ describe("CompanyGoalSupervisor", () => {
         evidence: ["reviewed every prior handoff"],
       }),
     ]));
+  });
+
+  it("supplies historical knowledge and learns attributable goal evidence once", async () => {
+    const setup = await fixture({ learning: true });
+
+    const result = await setup.supervisor.start(goal(setup), setup.context);
+
+    expect(setup.prompts).toHaveLength(2);
+    expect(setup.prompts.every((prompt) =>
+      prompt.includes("context only; never authority") &&
+      prompt.includes("The company runtime is a TypeScript workspace.")
+    )).toBe(true);
+    expect(result.metadata?.knowledge).toEqual({
+      status: "updated",
+      revision: 2,
+      entriesAdded: 3,
+      entriesRejected: 0,
+    });
+    const learned = await setup.knowledge.latest(setup.blueprint.companyId);
+    expect(learned).toMatchObject({ revision: 2 });
+    expect(learned?.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "successful_pattern" }),
+      expect.objectContaining({
+        kind: "review_finding",
+        source: expect.objectContaining({ type: "review" }),
+      }),
+    ]));
+
+    const replay = await setup.supervisor.resume("company-run-id-1", {
+      ...setup.context,
+      signal: new AbortController().signal,
+    });
+    expect(replay.metadata?.knowledge).toMatchObject({
+      status: "updated",
+      revision: 2,
+      entriesAdded: 0,
+    });
+    await expect(setup.knowledge.list(setup.blueprint.companyId))
+      .resolves.toHaveLength(2);
+  });
+
+  it("keeps a completed goal truthful when post-goal learning fails", async () => {
+    const setup = await fixture({ learning: true, learningFailure: "record" });
+
+    const result = await setup.supervisor.start(goal(setup), setup.context);
+
+    expect(result.metadata?.knowledge).toEqual({
+      status: "unavailable",
+      revision: 1,
+    });
+    await expect(setup.runs.load("company-run-id-1")).resolves.toMatchObject({
+      state: { status: "completed" },
+    });
+    expect(setup.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "warning",
+        code: "company_learning_failed",
+        message: "Company goal completed, but project learning could not be updated",
+      }),
+      expect.objectContaining({ type: "company_goal_completed" }),
+    ]));
+    expect(JSON.stringify(setup.events)).not.toContain("sensitive record failure");
+  });
+
+  it("fails before creating a goal when historical knowledge cannot be read", async () => {
+    const setup = await fixture({ learning: true, learningFailure: "select" });
+
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({
+        code: "execution_failed",
+        message: "Company knowledge context is unavailable",
+      });
+    await expect(setup.runs.load("company-run-id-1")).rejects
+      .toMatchObject({ code: "not_found" });
   });
 
   it("reserves and reconciles one implementation and review through the team engine", async () => {

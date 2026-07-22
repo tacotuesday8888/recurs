@@ -204,10 +204,10 @@
 - Produces `recordCompanyKnowledge(evidence)` and propose/approve/reject amendment services.
 - Knowledge entries require source type, source identifier, evidence text, timestamp, and confidence; organization changes always target an exact approved blueprint revision.
 
-- [ ] Test user/evidence provenance, deduplication, contradictions, bounded context selection, and secret-like-content rejection.
-- [ ] Test amendment review, stale base, approval creating a new immutable blueprint revision, rejection, and historical-session stability.
-- [ ] Implement automatic post-goal learning and future-context selection without automatic organization changes.
-- [ ] Run focused tests and commit.
+- [x] Test user/evidence provenance, deduplication, contradictions, bounded context selection, and secret-like-content rejection.
+- [x] Test amendment review, stale base, approval creating a new immutable blueprint revision, rejection, and historical-session stability.
+- [x] Implement automatic post-goal learning and future-context selection without automatic organization changes.
+- [x] Run focused tests and commit.
 
 ### Task 11: Documentation, exhaustive verification, and delivery
 

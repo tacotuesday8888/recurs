@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import {
   AgentLoopError,
+  CompanyAmendmentError,
+  CompanyLearningError,
   CoordinatedRunError,
   safeAgentLoopErrorMessage,
   unexpectedFailureMessage as coreUnexpectedFailureMessage,
@@ -42,6 +44,8 @@ export function safeCliErrorMessage(
   }
   if (
     error instanceof RuntimeError ||
+    error instanceof CompanyAmendmentError ||
+    error instanceof CompanyLearningError ||
     error instanceof ImageInputError ||
     error instanceof LocalConnectionError ||
     error instanceof CodexOnboardingError ||

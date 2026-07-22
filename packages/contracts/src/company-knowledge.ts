@@ -69,7 +69,9 @@ const sourceTypes = new Set<string>([
   "user", "repository", "goal_evidence", "review",
 ]);
 
-function parseEntry(value: unknown): CompanyKnowledgeEntryV1 {
+export function parseCompanyKnowledgeEntry(
+  value: unknown,
+): CompanyKnowledgeEntryV1 {
   const entry = contractRecord(value, "Company knowledge entry");
   contractExact(entry, [
     "id", "kind", "statement", "source", "confidence", "createdAt",
@@ -116,7 +118,7 @@ export function parseCompanyKnowledge(value: unknown): CompanyKnowledgeV1 {
     knowledge.entries.length > 2_048) {
     throw new TypeError("Company knowledge version or entries are invalid");
   }
-  const entries = knowledge.entries.map(parseEntry);
+  const entries = knowledge.entries.map(parseCompanyKnowledgeEntry);
   const positions = new Map(entries.map((entry, index) => [entry.id, index] as const));
   if (positions.size !== entries.length) {
     throw new TypeError("Company knowledge entry ids must be unique");

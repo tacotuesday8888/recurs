@@ -11,7 +11,10 @@ import type {
   CompanyGoalRunV1,
 } from "@recurs/contracts";
 
-import { renderCompanyBlueprintYaml } from "../company-blueprint-yaml.js";
+import {
+  diffCompanyBlueprints,
+  renderCompanyBlueprintYaml,
+} from "../company-blueprint-yaml.js";
 import {
   message,
   type Command,
@@ -20,7 +23,7 @@ import {
 } from "./types.js";
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
-const USAGE = "/company [blueprint|activity|knowledge|amendments|approve-amendment <id>|reject-amendment <id>]";
+const USAGE = "/company [blueprint|activity|knowledge|amendments|amendment <id>|approve-amendment <id>|reject-amendment <id>]";
 
 class CompanyCommandPolicyError extends Error {}
 
@@ -132,6 +135,33 @@ function exactDecision(args: string): {
   };
 }
 
+function exactAmendment(args: string): string | null {
+  const match = /^amendment\s+(\S+)$/u.exec(args);
+  return match !== null && SAFE_ID.test(match[1]!) ? match[1]! : null;
+}
+
+function amendmentText(
+  amendment: CompanyAmendmentV1,
+  base: CompanyBlueprintV2,
+): string {
+  const changes = diffCompanyBlueprints(base, amendment.proposedBlueprint)
+    .slice(0, 100);
+  return [
+    `Amendment: ${amendment.id}`,
+    `State: ${amendment.state}`,
+    `Base: ${amendment.baseBlueprintId} (revision ${amendment.baseBlueprintRevision})`,
+    `Proposed: ${amendment.proposedBlueprint.id} (revision ${amendment.proposedBlueprint.revision})`,
+    `Reason: ${oneLine(amendment.reason, 500)}`,
+    ...(amendment.decisionReason === null
+      ? []
+      : [`Decision: ${oneLine(amendment.decisionReason, 500)}`]),
+    "Changes:",
+    ...(changes.length === 0 ? ["  No structural changes"] : changes.map((change) =>
+      `  - ${oneLine(change, 500)}`
+    )),
+  ].join("\n");
+}
+
 export function createCompanyCommand(dependencies: CommandDependencies): Command {
   const company = dependencies.company!;
   const signal = () => dependencies.signal?.() ?? new AbortController().signal;
@@ -186,6 +216,27 @@ export function createCompanyCommand(dependencies: CommandDependencies): Command
           currentSignal,
         )));
       }
+      const amendmentId = exactAmendment(action);
+      if (amendmentId !== null) {
+        const amendment = (await company.amendments.list(
+          active.blueprint.companyId,
+          currentSignal,
+        )).find((candidate) => candidate.id === amendmentId);
+        if (amendment === undefined) {
+          return message(`Company amendment not found: ${amendmentId}`, "error");
+        }
+        const base = await company.blueprints.load(
+          amendment.baseBlueprintId,
+          currentSignal,
+        );
+        if (base.companyId !== active.blueprint.companyId ||
+          base.id !== amendment.baseBlueprintId ||
+          base.revision !== amendment.baseBlueprintRevision ||
+          base.state !== "approved") {
+          return message("Company amendment history is invalid", "error");
+        }
+        return message(amendmentText(amendment, base));
+      }
       const decision = exactDecision(action);
       if (decision === null) return message(`Usage: ${USAGE}`, "error");
       if (company.decisions === undefined) {
@@ -199,9 +250,31 @@ export function createCompanyCommand(dependencies: CommandDependencies): Command
           "error",
         );
       }
+      const amendment = (await company.amendments.list(
+        active.blueprint.companyId,
+        currentSignal,
+      )).find((candidate) => candidate.id === decision.amendmentId);
+      if (amendment === undefined) {
+        return message(
+          `Company amendment not found: ${decision.amendmentId}`,
+          "error",
+        );
+      }
+      if (amendment.baseBlueprintId !== active.binding.blueprintId ||
+        amendment.baseBlueprintRevision !== active.binding.blueprintRevision) {
+        return message(
+          "The amendment does not target this session's immutable company revision",
+          "error",
+        );
+      }
       const verb = decision.action === "approve" ? "Approve" : "Reject";
+      const changes = diffCompanyBlueprints(
+        active.blueprint,
+        amendment.proposedBlueprint,
+      ).slice(0, 10).map((change) => oneLine(change)).join("; ") ||
+        "no structural changes";
       if (!await context.confirm(
-        `${verb} company amendment ${decision.amendmentId} for future goals?`,
+        `${verb} company amendment ${decision.amendmentId} for future goals? Reason: ${oneLine(amendment.reason, 500)} Changes: ${changes}`,
       )) {
         return message("Company amendment was left unchanged", "warning");
       }

@@ -10,6 +10,8 @@ export * from "./compaction.js";
 export * from "./compatibility-coordinator.js";
 export * from "./company-blueprint.js";
 export * from "./company-blueprint-v2.js";
+export * from "./company-learning.js";
+export * from "./company-amendments.js";
 export * from "./company-onboarding-coordinator.js";
 export * from "./company-agent-manager.js";
 export * from "./company-agent-binding.js";
