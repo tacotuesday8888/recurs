@@ -16,6 +16,10 @@ import type { CommandResult } from "./commands/types.js";
 import { safeCliErrorMessage } from "./error-rendering.js";
 import { ImageInputError, loadImageInputs } from "./image-input.js";
 import { renderCommandResult, writeOutput } from "./render.js";
+import {
+  createTerminalTheme,
+  renderRecursHeader,
+} from "./terminal-style.js";
 import { isCancellation, type RecursRuntime } from "./runtime.js";
 import {
   attachOwnedTerminalProcess,
@@ -34,6 +38,7 @@ export interface ReplOptions {
     paths: readonly string[],
     cwd: string,
   ) => Promise<readonly ModelImageInput[]>;
+  environment?: Readonly<Record<string, string | undefined>>;
 }
 
 function stagedImagesText(images: readonly ModelImageInput[]): string {
@@ -131,12 +136,18 @@ export async function startRepl(
   const cwd = options.cwd ?? process.cwd();
   const loadImages = options.loadImages ?? loadImageInputs;
   const attachProcess = options.attachProcess ?? attachOwnedTerminalProcess;
+  const terminal = options.terminal ??
+    (output as Writable & { isTTY?: boolean }).isTTY === true;
+  const theme = createTerminalTheme(output, {
+    terminal,
+    ...(options.environment === undefined
+      ? {}
+      : { environment: options.environment }),
+  });
   const createReadline = () => createInterface({
     input,
     output,
-    terminal:
-      options.terminal ??
-      (output as Writable & { isTTY?: boolean }).isTTY === true,
+    terminal,
   });
   let readline = createReadline();
   let questionTail = Promise.resolve();
@@ -185,7 +196,10 @@ export async function startRepl(
   };
   installSignalHandler();
 
-  await writeOutput(output, "Recurs — local harness mode\nType /help for commands.\n");
+  await writeOutput(
+    output,
+    `${renderRecursHeader(theme, "Recurs — local harness mode")}\n${theme.muted("Type /help for commands.")}\n`,
+  );
   if (runtime.state?.type === "workspace") {
     await writeOutput(
       output,
@@ -197,7 +211,10 @@ export async function startRepl(
         await renderCommandResult(discovery, output, output);
       }
     } catch (error) {
-      await writeOutput(output, `Provider discovery: ${safeCliErrorMessage(error)}\n`);
+      await writeOutput(
+        output,
+        `${theme.warning(`Provider discovery: ${safeCliErrorMessage(error)}`)}\n`,
+      );
     }
   }
   const activeSubmissions = new Set<Promise<void>>();
@@ -272,12 +289,12 @@ export async function startRepl(
       }
     } catch (error) {
       if (isCancellation(error)) {
-        await writeOutput(output, "Cancelled\n");
+        await writeOutput(output, `${theme.warning("Cancelled")}\n`);
         return false;
       }
       await writeOutput(
         output,
-        `Error: ${safeCliErrorMessage(error)}\n`,
+        `${theme.failure(`Error: ${safeCliErrorMessage(error)}`)}\n`,
       );
     }
     return false;
@@ -291,7 +308,10 @@ export async function startRepl(
       };
       pendingMainQuestion = mainQuestion;
       try {
-        inputLine = await question("recurs> ", mainQuestion.controller.signal);
+        inputLine = await question(
+          theme.accent("recurs> "),
+          mainQuestion.controller.signal,
+        );
       } catch {
         if (mainQuestion.preempted) continue;
         break;

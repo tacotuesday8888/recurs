@@ -38,6 +38,50 @@ function failingRuntime(error: Error): RecursRuntime {
 }
 
 describe("startRepl", () => {
+  it("renders the full wordmark only for a color-capable terminal", async () => {
+    const output = new TextOutput();
+    const runtime = {
+      state: { type: "session" },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async close() {},
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+
+    await startRepl(runtime, {
+      input: Readable.from(["/quit\n"]),
+      output,
+      terminal: true,
+      environment: { TERM: "xterm-256color" },
+    });
+
+    expect(output.value).toContain("\u001b[95m");
+    expect(output.value).toContain("Recurs — local harness mode");
+    expect(output.value).toContain("\u001b[96mrecurs> \u001b[0m");
+  });
+
+  it("keeps non-terminal output plain and compact", async () => {
+    const output = new TextOutput();
+    const runtime = {
+      state: { type: "session" },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async close() {},
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+
+    await startRepl(runtime, {
+      input: Readable.from(["/quit\n"]),
+      output,
+      terminal: false,
+      environment: { TERM: "xterm-256color" },
+    });
+
+    expect(output.value).toContain("Recurs — local harness mode");
+    expect(output.value).not.toContain("\u001b[");
+    expect(output.value).not.toContain("█");
+  });
+
   it("stages path-free images for exactly the next ordinary prompt", async () => {
     const root = "/canonical/project";
     const input = new PassThrough();

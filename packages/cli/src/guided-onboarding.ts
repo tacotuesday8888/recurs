@@ -56,6 +56,10 @@ import {
   type CompanyCapabilityCatalogs,
 } from "./company-tool-readiness.js";
 import { writeOutput } from "./render.js";
+import {
+  createTerminalTheme,
+  renderRecursHeader,
+} from "./terminal-style.js";
 
 export interface GuidedChoice {
   readonly id: string;
@@ -1346,10 +1350,11 @@ export async function runGuidedOnboarding(
     );
     return { state: "failed", exitCode: 2 };
   }
+  const theme = createTerminalTheme(ports.stdout);
   await writeOutput(ports.stdout, [
-    "\nWelcome to Recurs",
+    `\n${renderRecursHeader(theme, "Welcome to Recurs")}`,
     "Build a working agent company: connect its parent model, set its safety boundary, choose its operating mode, route specialists, and review a project-tailored roster.",
-    "Credentials stay with the vendor runtime, native authority, or named process environment—never this generic prompt.",
+    theme.muted("Credentials stay with the vendor runtime, native authority, or named process environment—never this generic prompt."),
     "",
   ].join("\n"));
   const [accounts, localRuntimes, providers] = await Promise.all([
@@ -1374,7 +1379,10 @@ export async function runGuidedOnboarding(
     (ports.createCompanyOnboarding !== undefined ||
       ports.inspectCompanyRepositoryFacts !== undefined);
   const stepCount = companyOnboarding ? 6 : 5;
-  await writeOutput(ports.stdout, `1 / ${stepCount} · Parent model\n`);
+  await writeOutput(
+    ports.stdout,
+    `${theme.accent(`1 / ${stepCount} · Parent model`)}\n`,
+  );
   let selected: GuidedConnectionChoice | null = null;
   while (true) {
     if (selected === null) {
@@ -1442,11 +1450,20 @@ export async function runGuidedOnboarding(
     }
     return { state: "failed", exitCode: connectionExit };
   }
-  await writeOutput(ports.stdout, `\n2 / ${stepCount} · Safety boundary\n`);
+  await writeOutput(
+    ports.stdout,
+    `\n${theme.accent(`2 / ${stepCount} · Safety boundary`)}\n`,
+  );
   const permissionMode = await selectPermission(ports);
-  await writeOutput(ports.stdout, `\n3 / ${stepCount} · Team operating mode\n`);
+  await writeOutput(
+    ports.stdout,
+    `\n${theme.accent(`3 / ${stepCount} · Team operating mode`)}\n`,
+  );
   const operatingModeId = await selectOperatingMode(ports);
-  await writeOutput(ports.stdout, `\n4 / ${stepCount} · Specialist routing\n`);
+  await writeOutput(
+    ports.stdout,
+    `\n${theme.accent(`4 / ${stepCount} · Specialist routing`)}\n`,
+  );
   const accountsAfterConnection = await ports.listAccounts?.() ?? [];
   const routed = await configureTeamRoutes(
     accountsAfterConnection,
@@ -1456,7 +1473,10 @@ export async function runGuidedOnboarding(
   if (!routed) return { state: "failed", exitCode: 2 };
   let company: CompanyOnboardingResult = {};
   if (companyOnboarding) {
-    await writeOutput(ports.stdout, "\n5 / 6 · Agent company\n");
+    await writeOutput(
+      ports.stdout,
+      `\n${theme.accent("5 / 6 · Agent company")}\n`,
+    );
     company = await setupCompanyBlueprint(
       ports,
       permissionMode,
@@ -1465,14 +1485,14 @@ export async function runGuidedOnboarding(
   }
   await writeOutput(
     ports.stdout,
-    `\n${companyOnboarding ? 6 : 5} / ${stepCount} · Project context\n`,
+    `\n${theme.accent(`${companyOnboarding ? 6 : 5} / ${stepCount} · Project context`)}\n`,
   );
   await setupProjectContext(ports, company.brief);
   const accountsAfterRouting = await ports.listAccounts?.() ?? accountsAfterConnection;
   const primary = accountsAfterRouting.find((account) => account.primary);
   const operatingMode = getOperatingModePolicy(operatingModeId);
   await writeOutput(ports.stdout, [
-    "Onboarding complete",
+    theme.success("Onboarding complete"),
     `Connection: ${primary === undefined ? "ready" : `${primary.label} · ${primary.modelId}`}`,
     `Permissions: ${permissionMode.replaceAll("_", " ")}`,
     `Mode: ${operatingMode.displayName} · ${operatingMode.id}`,

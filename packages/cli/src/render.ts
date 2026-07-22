@@ -5,6 +5,11 @@ import type { EventSink, RecursEvent } from "@recurs/core";
 import { getAgentProfilePolicy } from "@recurs/contracts";
 
 import type { CommandResult } from "./commands/types.js";
+import {
+  createTerminalTheme,
+  type TerminalTheme,
+  type TerminalThemeOptions,
+} from "./terminal-style.js";
 
 export async function writeOutput(
   output: Writable,
@@ -25,8 +30,14 @@ export class JsonlEventRenderer implements EventSink {
 
 export class TextEventRenderer implements EventSink {
   #textLineOpen = false;
+  readonly #theme: TerminalTheme;
 
-  constructor(private readonly output: Writable) {}
+  constructor(
+    private readonly output: Writable,
+    options: TerminalThemeOptions = {},
+  ) {
+    this.#theme = createTerminalTheme(output, options);
+  }
 
   async #status(text: string): Promise<void> {
     const prefix = this.#textLineOpen ? "\n" : "";
@@ -41,34 +52,42 @@ export class TextEventRenderer implements EventSink {
         await writeOutput(this.output, event.text);
         break;
       case "tool_started":
-        await this.#status(`→ ${event.call.name}`);
+        await this.#status(this.#theme.accent(`→ ${event.call.name}`));
         break;
       case "tool_failed":
-        await this.#status(`✗ tool failed: ${event.error.message}`);
+        await this.#status(
+          this.#theme.failure(`✗ tool failed: ${event.error.message}`),
+        );
         break;
       case "permission_requested":
         await this.#status(
-          `Permission requested: ${event.intent.category} ${event.intent.resource}`,
+          this.#theme.warning(
+            `Permission requested: ${event.intent.category} ${event.intent.resource}`,
+          ),
         );
         break;
       case "warning":
-        await this.#status(`Warning: ${event.message}`);
+        await this.#status(this.#theme.warning(`Warning: ${event.message}`));
         break;
       case "retry_scheduled":
         await this.#status(
-          `Retry ${event.attempt} scheduled in ${event.delayMs}ms`,
+          this.#theme.warning(
+            `Retry ${event.attempt} scheduled in ${event.delayMs}ms`,
+          ),
         );
         break;
       case "provider_transport_fallback":
         await this.#status(
-          `Provider transport changed: ${event.from} → ${event.to}`,
+          this.#theme.warning(
+            `Provider transport changed: ${event.from} → ${event.to}`,
+          ),
         );
         break;
       case "turn_steered":
-        await this.#status("↪ Steering applied");
+        await this.#status(this.#theme.accent("↪ Steering applied"));
         break;
       case "prompt_queued":
-        await this.#status("⇥ Next turn queued");
+        await this.#status(this.#theme.accent("⇥ Next turn queued"));
         break;
       case "prompt_queue_cleared":
         await this.#status("Queued turns cleared");
@@ -82,89 +101,127 @@ export class TextEventRenderer implements EventSink {
         }
         break;
       case "files_changed":
-        await this.#status(`Changed: ${event.paths.join(", ")}`);
+        await this.#status(
+          this.#theme.success(`Changed: ${event.paths.join(", ")}`),
+        );
         break;
       case "verification_recorded":
-        await this.#status(`Verified: ${event.evidence.join("; ")}`);
+        await this.#status(
+          this.#theme.success(`Verified: ${event.evidence.join("; ")}`),
+        );
         break;
       case "company_blueprint_activated":
         await this.#status(
-          `Company ${event.blueprintId} activated: ${event.roleCount} approved role${event.roleCount === 1 ? "" : "s"}`,
+          this.#theme.success(
+            `Company ${event.blueprintId} activated: ${event.roleCount} approved role${event.roleCount === 1 ? "" : "s"}`,
+          ),
         );
         break;
       case "agent_started":
         await this.#status(
-          `↳ ${getAgentProfilePolicy(event.profileId).displayName} child: ${event.description}`,
+          this.#theme.accent(
+            `↳ ${getAgentProfilePolicy(event.profileId).displayName} child: ${event.description}`,
+          ),
         );
         break;
       case "agent_batch_started":
         await this.#status(
-          `⇉ Agent batch ${event.batchId}: ${event.taskCount} tasks, up to ${event.maxConcurrentChildren} concurrent`,
+          this.#theme.accent(
+            `⇉ Agent batch ${event.batchId}: ${event.taskCount} tasks, up to ${event.maxConcurrentChildren} concurrent`,
+          ),
         );
         break;
       case "agent_batch_completed":
         await this.#status(
-          `✓ Agent batch ${event.batchId} completed: ${event.counts.completed}/${event.counts.total}`,
+          this.#theme.success(
+            `✓ Agent batch ${event.batchId} completed: ${event.counts.completed}/${event.counts.total}`,
+          ),
         );
         break;
       case "agent_batch_failed":
         await this.#status(
-          `✗ Agent batch ${event.batchId} ${event.partial ? "partially completed" : "failed"}: ${event.counts.completed} completed, ${event.counts.failed} failed${event.failure === undefined ? "" : ` — ${event.failure.message}`}`,
+          this.#theme.failure(
+            `✗ Agent batch ${event.batchId} ${event.partial ? "partially completed" : "failed"}: ${event.counts.completed} completed, ${event.counts.failed} failed${event.failure === undefined ? "" : ` — ${event.failure.message}`}`,
+          ),
         );
         break;
       case "agent_batch_cancelled":
         await this.#status(
-          `✗ Agent batch ${event.batchId} cancelled: ${event.counts.completed} completed, ${event.counts.cancelled} cancelled`,
+          this.#theme.failure(
+            `✗ Agent batch ${event.batchId} cancelled: ${event.counts.completed} completed, ${event.counts.cancelled} cancelled`,
+          ),
         );
         break;
       case "agent_team_started":
         await this.#status(
-          `⇶ Team ${event.teamId}: ${event.implementerCount} Implement worker${event.implementerCount === 1 ? "" : "s"} (${event.qualityStandard})`,
+          this.#theme.accent(
+            `⇶ Team ${event.teamId}: ${event.implementerCount} Implement worker${event.implementerCount === 1 ? "" : "s"} (${event.qualityStandard})`,
+          ),
         );
         break;
       case "agent_team_patch_captured":
         await this.#status(
-          `↳ Team ${event.teamId} worker ${event.teamIndex} captured ${event.paths.length} file${event.paths.length === 1 ? "" : "s"}`,
+          this.#theme.accent(
+            `↳ Team ${event.teamId} worker ${event.teamIndex} captured ${event.paths.length} file${event.paths.length === 1 ? "" : "s"}`,
+          ),
         );
         break;
       case "agent_team_patches_integrated":
         await this.#status(
-          `⇢ Team ${event.teamId} integrated ${event.artifactIds.length} patch${event.artifactIds.length === 1 ? "" : "es"} across ${event.changedFiles.length} file${event.changedFiles.length === 1 ? "" : "s"}`,
+          this.#theme.accent(
+            `⇢ Team ${event.teamId} integrated ${event.artifactIds.length} patch${event.artifactIds.length === 1 ? "" : "es"} across ${event.changedFiles.length} file${event.changedFiles.length === 1 ? "" : "s"}`,
+          ),
         );
         break;
       case "agent_team_review_recorded":
         await this.#status(event.status === "completed"
-          ? `✓ Team ${event.teamId} review ${event.reviewIndex}: ${event.verdict ?? "unverified"}${event.summary === undefined ? "" : ` — ${event.summary}`}`
-          : `✗ Team ${event.teamId} review ${event.reviewIndex}: ${event.status}${event.failure === undefined ? "" : ` — ${event.failure.message}`}`);
+          ? this.#theme.success(
+            `✓ Team ${event.teamId} review ${event.reviewIndex}: ${event.verdict ?? "unverified"}${event.summary === undefined ? "" : ` — ${event.summary}`}`,
+          )
+          : this.#theme.failure(
+            `✗ Team ${event.teamId} review ${event.reviewIndex}: ${event.status}${event.failure === undefined ? "" : ` — ${event.failure.message}`}`,
+          ));
         break;
       case "agent_team_completed":
         await this.#status(
-          `✓ Team ${event.teamId} ${event.status}: ${event.changedFiles.length} changed file${event.changedFiles.length === 1 ? "" : "s"}`,
+          this.#theme.success(
+            `✓ Team ${event.teamId} ${event.status}: ${event.changedFiles.length} changed file${event.changedFiles.length === 1 ? "" : "s"}`,
+          ),
         );
         break;
       case "agent_team_failed":
         await this.#status(
-          `✗ Team ${event.teamId} failed during ${event.phase}${event.partial ? " with workspace state requiring inspection" : ""}: ${event.failure.message}`,
+          this.#theme.failure(
+            `✗ Team ${event.teamId} failed during ${event.phase}${event.partial ? " with workspace state requiring inspection" : ""}: ${event.failure.message}`,
+          ),
         );
         break;
       case "agent_team_cancelled":
         await this.#status(
-          `✗ Team ${event.teamId} cancelled during ${event.phase}${event.partial ? " after integration" : ""}: ${event.reason}`,
+          this.#theme.failure(
+            `✗ Team ${event.teamId} cancelled during ${event.phase}${event.partial ? " after integration" : ""}: ${event.reason}`,
+          ),
         );
         break;
       case "agent_completed":
         await this.#status(
-          `✓ ${getAgentProfilePolicy(event.profileId).displayName} child completed: ${event.childAgentId} (${event.workflow.childrenStarted}/${event.workflow.maxChildren} this run)${event.costLimitExceeded ? " — reported-cost ceiling exceeded" : ""}`,
+          this.#theme.success(
+            `✓ ${getAgentProfilePolicy(event.profileId).displayName} child completed: ${event.childAgentId} (${event.workflow.childrenStarted}/${event.workflow.maxChildren} this run)${event.costLimitExceeded ? " — reported-cost ceiling exceeded" : ""}`,
+          ),
         );
         break;
       case "agent_failed":
         await this.#status(
-          `✗ ${getAgentProfilePolicy(event.profileId).displayName} child failed: ${event.failure.safeMessage}`,
+          this.#theme.failure(
+            `✗ ${getAgentProfilePolicy(event.profileId).displayName} child failed: ${event.failure.safeMessage}`,
+          ),
         );
         break;
       case "agent_cancelled":
         await this.#status(
-          `✗ ${getAgentProfilePolicy(event.profileId).displayName} child cancelled: ${event.reason}`,
+          this.#theme.failure(
+            `✗ ${getAgentProfilePolicy(event.profileId).displayName} child cancelled: ${event.reason}`,
+          ),
         );
         break;
       case "session_created":
@@ -192,5 +249,11 @@ export async function renderCommandResult(
     return;
   }
   const output = result.level === "error" ? stderr : stdout;
-  await writeOutput(output, `${result.text}\n`);
+  const theme = createTerminalTheme(output);
+  const text = result.level === "error"
+    ? theme.failure(result.text)
+    : result.level === "warning"
+      ? theme.warning(result.text)
+      : result.text;
+  await writeOutput(output, `${text}\n`);
 }

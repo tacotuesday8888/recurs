@@ -282,3 +282,32 @@ describe("TextEventRenderer agent activity", () => {
     expect(output).toContain("✗ Team team-3 cancelled during review after integration");
   });
 });
+
+describe("TextEventRenderer presentation", () => {
+  it("adds semantic color without changing status text", async () => {
+    let output = "";
+    const stream = new Writable({
+      write(chunk, _encoding, callback) {
+        output += chunk.toString();
+        callback();
+      },
+    });
+    const renderer = new TextEventRenderer(stream, { colorEnabled: true });
+
+    await renderer.emit({
+      type: "warning",
+      sessionId: "session-1",
+      at: "2026-07-22T00:00:00.000Z",
+      message: "Context is nearly full",
+    });
+    await renderer.emit({
+      type: "verification_recorded",
+      sessionId: "session-1",
+      at: "2026-07-22T00:00:01.000Z",
+      evidence: ["focused tests passed"],
+    });
+
+    expect(output).toContain("\u001b[33mWarning: Context is nearly full\u001b[0m");
+    expect(output).toContain("\u001b[32mVerified: focused tests passed\u001b[0m");
+  });
+});
