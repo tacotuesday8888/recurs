@@ -172,7 +172,7 @@ describe("provider onboarding end to end", () => {
       "byok:openrouter-api",
       "anthropic/claude-test",
       "approved_for_me",
-      "balanced_v5",
+      "balanced_v6",
       "create",
     ];
     let createdRuntime: Awaited<ReturnType<typeof createStandaloneRuntime>> | undefined;
@@ -242,7 +242,7 @@ describe("provider onboarding end to end", () => {
       type: "session",
       session: {
         permissionMode: "approved_for_me",
-        agent: { operatingMode: { id: "balanced_v5", version: 5 } },
+        agent: { operatingMode: { id: "balanced_v6", version: 6 } },
         backend: {
           pin: {
             modelLimitsAtCreation: {
