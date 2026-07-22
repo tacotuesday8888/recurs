@@ -4,7 +4,7 @@ import type {
   AgentLifecycle,
   AgentResult,
   AgentSessionDescriptor,
-  CompanyBlueprintBinding,
+  CompanyAgentBinding,
   IntegrationFailure,
   ModelImageInput,
   ModelMessage,
@@ -38,6 +38,7 @@ import type { Goal } from "./goal.js";
 import type { SessionState } from "./session.js";
 import { createBackendFingerprint } from "./backend-authorization.js";
 import { restoredRuntimePredecessor } from "./runtime-continuation-lifecycle.js";
+import { companyAgentLimits } from "./company-agent-binding.js";
 
 export interface SessionRecordBaseV2 {
   version: 2;
@@ -329,7 +330,7 @@ export function createRootAgentDescriptor(
   operatingModeId = DEFAULT_OPERATING_MODE_ID,
   permissionMode: PermissionMode = "ask_always",
   executionMode: ExecutionMode = "act",
-  company?: CompanyBlueprintBinding,
+  company?: CompanyAgentBinding,
 ): AgentSessionDescriptor {
   const mode = getOperatingModePolicy(operatingModeId);
   return {
@@ -353,7 +354,7 @@ export function createRootAgentDescriptor(
       parentPermissionMode: permissionMode,
       permissionMode,
     },
-    limits: mode.orchestration,
+    limits: companyAgentLimits(mode.id, company),
     ...(company === undefined ? {} : { company: structuredClone(company) }),
   };
 }

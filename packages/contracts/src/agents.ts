@@ -2,6 +2,7 @@ import type { IntegrationFailure } from "./failures.js";
 import type { ProviderUsage } from "./model.js";
 import type { BillingSource } from "./connections.js";
 import type { CompanyBlueprintBinding } from "./company.js";
+import type { CompanyBlueprintBindingV2 } from "./company-v2.js";
 
 export type AgentPermissionMode =
   | "ask_always"
@@ -19,6 +20,10 @@ export type AgentProfileId =
   | "repair_v1";
 
 export type AgentProfileVersion = 1 | 2;
+
+export type CompanyAgentBinding =
+  | CompanyBlueprintBinding
+  | CompanyBlueprintBindingV2;
 
 export type AgentToolPermissionCategory =
   | "read"
@@ -571,6 +576,12 @@ export interface AgentTeamCorrelation {
   readonly attemptId: string;
 }
 
+export interface AgentCompanyGoalCorrelation {
+  readonly runId: string;
+  readonly assignmentId: string;
+  readonly parentAssignmentId: string | null;
+}
+
 export interface AgentGitWorktreeWorkspace {
   readonly kind: "git_worktree";
   readonly version: 1;
@@ -603,7 +614,8 @@ export interface AgentSessionDescriptor {
     readonly permissionMode: AgentPermissionMode;
   };
   readonly limits: AgentLimits;
-  readonly company?: CompanyBlueprintBinding;
+  readonly company?: CompanyAgentBinding;
+  readonly companyGoal?: AgentCompanyGoalCorrelation;
   readonly workspace?: AgentGitWorktreeWorkspace;
   readonly team?: AgentTeamCorrelation;
 }

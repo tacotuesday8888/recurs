@@ -24,6 +24,7 @@ const MAX_BLUEPRINT_BYTES = 256 * 1024;
 const MAX_BLUEPRINTS = 512;
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 const decoder = new TextDecoder("utf-8", { fatal: true });
+const publicationTails = new Map<string, Promise<void>>();
 
 export type CompanyBlueprintStoreErrorCode =
   | "invalid_blueprint_id"
@@ -149,6 +150,21 @@ async function publishExclusive(
   }
 }
 
+async function serializePublication<T>(
+  file: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = publicationTails.get(file) ?? Promise.resolve();
+  const publication = previous.catch(() => undefined).then(operation);
+  const tail = publication.then(() => undefined, () => undefined);
+  publicationTails.set(file, tail);
+  try {
+    return await publication;
+  } finally {
+    if (publicationTails.get(file) === tail) publicationTails.delete(file);
+  }
+}
+
 function parseStoredBlueprint(bytes: Uint8Array): CompanyBlueprintV1 {
   try {
     return parseCompanyBlueprint(JSON.parse(decoder.decode(bytes)));
@@ -199,7 +215,6 @@ async function readBlueprintFile(file: string): Promise<CompanyBlueprintV1> {
 
 export class FileCompanyBlueprintStore {
   readonly directory: string;
-  #publicationTail: Promise<void> = Promise.resolve();
 
   constructor(directory: string) {
     this.directory = path.resolve(directory);
@@ -220,12 +235,13 @@ export class FileCompanyBlueprintStore {
     if (Buffer.byteLength(content, "utf8") > MAX_BLUEPRINT_BYTES) {
       corrupt("Company blueprint record is too large");
     }
-    const publication = this.#publicationTail.then(async () => {
+    const file = this.#file(blueprint.id);
+    await serializePublication(file, async () => {
       signal?.throwIfAborted();
       await requireCanonicalAncestor(this.directory);
       await requireDirectory(this.directory);
       signal?.throwIfAborted();
-      if (!await publishExclusive(this.directory, this.#file(blueprint.id), content)) {
+      if (!await publishExclusive(this.directory, file, content)) {
         const existing = await this.load(blueprint.id, signal);
         if (!isDeepStrictEqual(existing, blueprint)) {
           throw new CompanyBlueprintStoreError(
@@ -235,8 +251,6 @@ export class FileCompanyBlueprintStore {
         }
       }
     });
-    this.#publicationTail = publication.catch(() => undefined);
-    await publication;
   }
 
   async load(id: string, signal?: AbortSignal): Promise<CompanyBlueprintV1> {

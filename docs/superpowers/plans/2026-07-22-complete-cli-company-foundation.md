@@ -149,10 +149,10 @@
 - Produces `delegate_company_goal` and trusted internal `request_company_handoff` tools.
 - The supervisor owns one atomic goal budget; validates each assignment edge, depth, active-role ceiling, model route, permission ceiling, and evidence contract; then delegates through existing managers.
 
-- [ ] Write root→lead→worker and independent-review lifecycle tests with normalized role/department/handoff events.
-- [ ] Test cycles, unauthorized edges, depth/concurrency/request/cost exhaustion, cancellation, child failure, unknown usage, and process recovery.
-- [ ] Implement guarded nested read/planning delegation; keep mutating implementation owned by the existing root-authorized durable team pipeline.
-- [ ] Run focused hierarchy tests and commit.
+- [x] Write root→lead→worker and independent-review lifecycle tests with normalized role/department/handoff events.
+- [x] Test cycles, unauthorized edges, depth/concurrency/request/cost exhaustion, cancellation, child failure, unknown usage, and process recovery.
+- [x] Implement guarded nested read/planning delegation; keep mutating implementation owned by the existing root-authorized durable team pipeline.
+- [x] Run focused hierarchy tests and commit.
 
 ### Task 8: Blueprint-directed implementation, review, and repair
 

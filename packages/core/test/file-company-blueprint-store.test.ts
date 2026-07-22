@@ -81,10 +81,14 @@ describe("FileCompanyBlueprintStore", () => {
     const setup = await fixture();
     const value = blueprint();
 
-    await Promise.all([
-      setup.store.create(value),
-      new FileCompanyBlueprintStore(setup.directory).create(value),
-    ]);
+    const stores = [
+      setup.store,
+      ...Array.from(
+        { length: 15 },
+        () => new FileCompanyBlueprintStore(setup.directory),
+      ),
+    ];
+    await Promise.all(stores.map((store) => store.create(value)));
     await expect(setup.store.create(blueprint(value.id, "Different purpose")))
       .rejects.toMatchObject({ code: "blueprint_conflict" });
     await expect(setup.store.load(value.id)).resolves.toEqual(value);

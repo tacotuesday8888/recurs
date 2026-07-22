@@ -92,6 +92,21 @@ describe("company goal contracts", () => {
       ...planFixture(),
       assignments: [{ ...assignment, status: "completed" }],
     })).toThrow(/lifecycle/iu);
+    expect(() => parseCompanyGoalPlan({
+      ...planFixture(),
+      assignments: [{
+        ...assignment,
+        status: "running",
+        execution: {
+          attempt: 1,
+          childAgentId: "child-agent",
+          childSessionId: "child-session",
+          taskId: "child-task",
+          startedAt: "2026-07-22T01:00:00.000Z",
+          completedAt: "2026-07-22T00:59:59.000Z",
+        },
+      }],
+    })).toThrow(/precedes/iu);
   });
 
   it("reserves one immutable shared-budget allocation and fails closed", () => {
@@ -110,6 +125,10 @@ describe("company goal contracts", () => {
       ...budget,
       assignmentsStarted: budget.maxAssignments,
     }, 1)).toThrow(/exhausted/iu);
+    expect(() => parseCompanyGoalBudget({
+      ...budget,
+      reportedCostUsd: budget.maxReportedCostUsd + 1,
+    })).not.toThrow();
   });
 
   it("parses and freezes a durable goal run with truthful terminal state", () => {

@@ -255,6 +255,53 @@ describe("durable company state stores", () => {
       .rejects.toMatchObject({ code: "conflict" });
   });
 
+  it("never permits a durable goal to rewrite a reserved child identity", async () => {
+    const directory = path.join(await root("recurs-goal-identity-"), "runs");
+    const store = new JsonlCompanyGoalStore(directory);
+    const created = await store.create(goalRun());
+    const running = {
+      ...created.state,
+      status: "running" as const,
+      updatedAt: "2026-07-22T03:01:00.000Z",
+      plan: {
+        ...created.state.plan,
+        assignments: created.state.plan.assignments.map((assignment) => ({
+          ...assignment,
+          status: "running" as const,
+          execution: {
+            attempt: 1 as const,
+            childAgentId: "child-agent",
+            childSessionId: "child-session",
+            taskId: "child-task",
+            startedAt: "2026-07-22T03:01:00.000Z",
+            completedAt: null,
+          },
+        })),
+      },
+      budget: {
+        ...created.state.budget,
+        assignmentsStarted: 1,
+        requestsReserved: 10,
+      },
+    } satisfies CompanyGoalRunV1;
+    const reserved = await store.append(running.id, created.sequence, running);
+
+    await expect(store.append(running.id, reserved.sequence, {
+      ...reserved.state,
+      updatedAt: "2026-07-22T03:02:00.000Z",
+      plan: {
+        ...reserved.state.plan,
+        assignments: reserved.state.plan.assignments.map((assignment) => ({
+          ...assignment,
+          execution: {
+            ...assignment.execution!,
+            childSessionId: "different-session",
+          },
+        })),
+      },
+    })).rejects.toMatchObject({ code: "conflict" });
+  });
+
   it("publishes immutable knowledge and amendments idempotently", async () => {
     const base = await root("recurs-company-records-");
     const knowledgeStore = new FileCompanyKnowledgeStore(path.join(base, "knowledge"));
