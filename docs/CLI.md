@@ -541,6 +541,10 @@ roster is working:
 /company
 /company blueprint
 /company readiness
+/company capabilities
+/company bind <bundle> skill <exact-skill-id>
+/company bind <bundle> mcp <exact-server-id>
+/company unbind <exact-binding-id>
 /company activity
 /company knowledge
 /company amendments
@@ -555,7 +559,14 @@ JSON remains the canonical stored authority. `readiness` reports each approved
 tool bundle as ready or missing, then separately lists enabled Skills, enabled
 MCP servers, disabled counts, and project MCP trust. It omits paths, commands,
 descriptions, and warnings and never binds, installs, trusts, or grants those
-catalog entries automatically.
+catalog entries automatically. `capabilities` shows the same readiness plus
+exact approved bindings. `bind` and `unbind` require a confirmed local, manual,
+user-present CLI invocation and publish a new immutable binding revision for
+the exact active blueprint revision. A mapping grants no new tool, trust,
+permission, process, or network authority; runtime use remains the intersection
+of the role bundle, profile, parent policy, enabled Skill or trusted MCP server,
+and the exact binding. Missing, disabled, untrusted, or stale mappings fail
+closed.
 
 Activity, knowledge, and amendment views are bounded and omit prompts,
 credentials, private paths, and provider configuration. Successful company
@@ -581,11 +592,21 @@ DAG using stable blueprint role IDs; Recurs validates reporting/delegation
 edges, depth, active roles, independent-review coverage, permissions, tool
 bundles, concurrency, requests, and reported cost before starting anything.
 Read/planning assignments may form a bounded parent → lead → worker hierarchy
-through ordinary durable child sessions. Mutating assignments must form one
-parallel reviewed batch: approved Implement roles run in isolated worktrees,
-every approved independent-review role participates, bounded Repair reuses an
-approved implementation authority, and only an approved cumulative candidate
-can enter the existing checkpointed parent-apply transaction.
+through ordinary durable child sessions. Mutating assignments may form several
+dependency-ordered reviewed frontiers. For each ready frontier, approved
+Implement roles run in isolated worktrees with eligible independent reviewers;
+every implementation must be covered, and one final review follows all
+non-review work. Bounded Repair reuses approved implementation authority, and
+only an approved cumulative candidate can enter the existing checkpointed
+parent-apply transaction. Completed stages are not replayed after interruption;
+later stages remain locked until their durable dependencies settle.
+
+Every assignment prompt includes a harness-compiled role charter covering the
+approved department, responsibility, hierarchy, project constraints, model
+route, tool bundles, quality standard, and authority ceiling. Relevant durable
+knowledge is selected for that role and assignment at the run-start historical
+cutoff and quoted as untrusted evidence. Context truncation preserves the
+acceptance, evidence, and authority clauses.
 
 The company goal journal and team journal remain separate authoritative stores.
 Before the team starts, the goal reserves a worst-case local team slice from
@@ -666,7 +687,7 @@ Economy and every version-1 mode provide a sequential batch fallback. Standard t
 
 Existing `explore_v1` session records remain valid. Because Recurs remains pre-1.0 preview software, the earlier two-field `delegate_task` draft is not retained: embeddings must now provide an exact `profile` rather than receiving an implicit Explore child.
 
-A daemon that outlives the CLI, unbounded recursive depth, terminal-child retries, dirty-workspace snapshots, arbitrary worktree continuation, automatic model intelligence, post-approval role invention, auto-commit/push/deploy, schedules, and the company desktop interface remain later milestones. The V2 company runtime is a bounded, goal-scoped hierarchy plus one reviewed mutating batch; it is not an endless autonomous company. Current durable teams still require a clean committed parent, and only bounded valid Review findings trigger Repair. Worktree isolation and owner leases are not OS containment. See the [primary-source harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md).
+A daemon that outlives the CLI, unbounded recursive depth, terminal-child retries, dirty-workspace snapshots, arbitrary worktree continuation, automatic model intelligence, post-approval role invention, auto-commit/push/deploy, schedules, and the company desktop interface remain later milestones. The V2 company runtime is a bounded, goal-scoped hierarchy with a finite sequence of reviewed mutating frontiers; it is not an endless autonomous company. Current durable teams still require a clean committed parent, and only bounded valid Review findings trigger Repair. Worktree isolation and owner leases are not OS containment. See the [primary-source harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md).
 
 ## Slash commands
 
@@ -674,7 +695,7 @@ A daemon that outlives the CLI, unbounded recursive depth, terminal-child retrie
 | --- | --- |
 | `/help` | Show concise command help. |
 | `/goal ...` | Create, inspect, pause, resume, complete, or clear the durable goal. |
-| `/company [blueprint\|readiness\|activity\|knowledge\|amendments\|amendment <id>\|approve-amendment <id>\|reject-amendment <id>]` | Inspect the active V2 company, capability readiness, durable learning, and controlled amendments. |
+| `/company [blueprint\|readiness\|capabilities\|bind ...\|unbind ...\|activity\|knowledge\|amendments\|amendment <id>\|approve-amendment <id>\|reject-amendment <id>]` | Inspect the active V2 company, approve exact capability bindings, view durable learning, and control amendments. |
 | `/plan [prompt\|exit]` | Enter enforced read-only planning or return to Act. |
 | `/permissions [ask\|approved\|full]` | Inspect or change the permission preset. |
 | `/agents [profiles\|activity [exact-id]\|teams\|team <id>\|wait <id>\|cancel <id>\|resume <id>\|apply <id>\|mode ...]` | Inspect profiles, child/team activity, control an owned durable team, or change the bounded policy. |
