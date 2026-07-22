@@ -108,27 +108,27 @@ export interface CompanyEvaluationCommandDependencies {
 - `copyConfiguredConnection(sourceRoot, targetRoot, connectionId)` selects the exact requested record or current primary, copies only that immutable non-secret record, and retains its exact ID as evaluation primary.
 - Support `local_openai_compatible`, `environment_model_provider`, and `brokered_model_provider`; reject `delegated_agent` with the safe message: `Codex and other delegated subscriptions are Plan-only here; choose a direct API or local model connection for company formation evaluation.`
 
-- [ ] **Step 1: Write failing service tests**
+- [x] **Step 1: Write failing service tests**
 
   Create private registry fixtures for an exact non-primary environment connection, local connection, brokered connection with an injected native port, missing connection, and delegated Codex connection. Assert selection does not mutate the source registry and failures contain no labels, paths, credential-variable names, or fingerprints.
 
-- [ ] **Step 2: Confirm focused failure**
+- [x] **Step 2: Confirm focused failure**
 
   Run: `npx vitest run packages/cli/test/company-evaluation-command.test.ts`
 
-- [ ] **Step 3: Implement exact selection and native composition**
+- [x] **Step 3: Implement exact selection and native composition**
 
   Pass `connectionId` and `nativeOpenAIResponses` into `createStandaloneCompanyOnboarding`. Do not preflight credentials by reading or copying them; ordinary backend resolution remains authoritative.
 
-- [ ] **Step 4: Wire native authority and progress through process host**
+- [x] **Step 4: Wire native authority through process host**
 
-  `runCliProcess` supplies its existing `nativeOpenAIResponses` port. `runCli` supplies `onProgress` only for non-JSON human output and writes bounded progress text to stderr.
+  `runCliProcess` supplies its existing `nativeOpenAIResponses` port. Progress is wired with its closed event contract in Task 4.
 
-- [ ] **Step 5: Run focused tests twice and typecheck**
+- [x] **Step 5: Run focused tests twice and typecheck**
 
   Run both command-service and installed-command suites twice, followed by `npm run typecheck`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   Commit message: `feat(company): select evaluation connections safely`
 

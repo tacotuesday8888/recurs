@@ -11,6 +11,7 @@ import type {
   IntegrationFailure,
   OperatingModeId,
   RuntimeApprovalRequest,
+  RunAuthorization,
   RuntimeContinuationStore,
   SessionBackendPin,
   NativeOpenAIResponsesPort,
@@ -263,6 +264,12 @@ interface DirectRuntimeBackend {
   pin(at: string): SessionBackendPin;
   commandProvider: ModelProvider;
   createProvider(): ConnectionBoundModelProvider;
+  createAuthorization?(input: {
+    readonly pin: SessionBackendPin;
+    readonly sessionId: string;
+    readonly turnId: string;
+    readonly maxRequests: number;
+  }): RunAuthorization;
 }
 
 interface DelegatedRuntimeBackend {
@@ -751,6 +758,32 @@ async function companyOnboardingBackend(
       "This delegated subscription runtime cannot yet provide Recurs's restricted pre-approval tool boundary; connect a supported direct or local model for company formation",
     );
   }
+  if (connection?.kind === "brokered_model_provider" && document !== null) {
+    return {
+      ...backend,
+      createAuthorization({ pin, sessionId, turnId, maxRequests }) {
+        return bindRunAuthorization({
+          id: randomUUID(),
+          operation: "run",
+          sessionId,
+          operationId: turnId,
+          turnId,
+          pin,
+          connectionRevision: document.revision,
+          policyRevision: pin.policyRevisionAtCreation,
+          context: {
+            invocation: "goal",
+            presence: "unattended",
+            location: "local",
+            automation: "scripted",
+            embedding: "cli",
+          },
+          maxRequests,
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        });
+      },
+    };
+  }
   return backend;
 }
 
@@ -798,6 +831,17 @@ export async function createStandaloneCompanyOnboarding(
     ),
     cwd,
     createProvider: () => backend.createProvider(),
+    ...(backend.createAuthorization === undefined
+      ? {}
+      : {
+          createAuthorization: ({ sessionId, turnId, maxRequests }) =>
+            backend.createAuthorization!({
+              pin,
+              sessionId,
+              turnId,
+              maxRequests,
+            }),
+        }),
   });
   const coordinator = new CompanyOnboardingCoordinator({
     runs: new FileCompanyOnboardingStore(

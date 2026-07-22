@@ -2213,6 +2213,9 @@ export async function runCliProcess(
           projectRoot: cwd,
           dataDirectory,
           environment: process.env,
+          ...(nativeOpenAIResponses === undefined
+            ? {}
+            : { nativeOpenAIResponses }),
           ...(signal === undefined ? {} : { signal }),
         }),
       createRuntime: (events, options) => createStandaloneRuntime(

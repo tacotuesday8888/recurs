@@ -3,7 +3,10 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
 import { FileConnectionRegistry } from "@recurs/app";
-import type { CompanyEvaluationReportV1 } from "@recurs/contracts";
+import type {
+  CompanyEvaluationReportV1,
+  NativeOpenAIResponsesPort,
+} from "@recurs/contracts";
 import { ScriptedProvider } from "@recurs/providers";
 
 import { createStandaloneCompanyOnboarding } from "./assembly.js";
@@ -254,21 +257,21 @@ function offlineProvider(): ScriptedProvider {
   ], "scripted-evaluation");
 }
 
-async function copyConfiguredConnection(
+export async function copyConfiguredEvaluationConnection(
   sourceRoot: string,
   targetRoot: string,
+  connectionId: string | null,
 ) {
   const document = await new FileConnectionRegistry(sourceRoot).inspect();
   const connection = document.connections.find(
-    (candidate) => candidate.id === document.primaryConnectionId,
+    (candidate) => candidate.id === (connectionId ?? document.primaryConnectionId),
   );
   if (connection === undefined) {
-    throw new Error("Recurs has no primary provider connection to evaluate.");
+    throw new Error("The selected provider connection is unavailable.");
   }
-  if (connection.kind !== "local_openai_compatible" &&
-    connection.kind !== "environment_model_provider") {
+  if (connection.kind === "delegated_agent") {
     throw new Error(
-      "Configured evaluation requires a direct BYOK or local connection.",
+      "Codex and other delegated subscriptions are Plan-only here; choose a direct API or local model connection for company formation evaluation.",
     );
   }
   const target = new FileConnectionRegistry(targetRoot);
@@ -281,12 +284,7 @@ async function copyConfiguredConnection(
 
 export async function runCompanyEvaluationCommand(
   options: CompanyEvaluationRunOptions,
-  dependencies: {
-    readonly projectRoot: string;
-    readonly dataDirectory?: string;
-    readonly environment?: Readonly<NodeJS.ProcessEnv>;
-    readonly signal?: AbortSignal;
-  },
+  dependencies: CompanyEvaluationCommandDependencies,
 ): Promise<CompanyEvaluationReportV1> {
   if (options.scenario !== "company_formation_v1") {
     throw new CompanyEvaluationArgumentError(
@@ -304,9 +302,10 @@ export async function runCompanyEvaluationCommand(
       provider = offlineProvider();
       backend = { providerId: provider.id, modelId: "offline-baseline" };
     } else {
-      const connection = await copyConfiguredConnection(
+      const connection = await copyConfiguredEvaluationConnection(
         dependencies.dataDirectory ?? path.join(homedir(), ".recurs"),
         evaluationHome,
+        options.connectionId,
       );
       backend = {
         providerId: connection.providerId,
@@ -323,6 +322,12 @@ export async function runCompanyEvaluationCommand(
       dataDirectory: evaluationHome,
       skillHomeDirectory: evaluationHome,
       environment,
+      ...(options.connectionId === null
+        ? {}
+        : { connectionId: options.connectionId }),
+      ...(dependencies.nativeOpenAIResponses === undefined
+        ? {}
+        : { nativeOpenAIResponses: dependencies.nativeOpenAIResponses }),
       ...(provider === undefined ? {} : { provider }),
     });
     return await evaluateCompanyFormation({
@@ -336,4 +341,12 @@ export async function runCompanyEvaluationCommand(
   } finally {
     await rm(evaluationHome, { recursive: true, force: true });
   }
+}
+
+export interface CompanyEvaluationCommandDependencies {
+  readonly projectRoot: string;
+  readonly dataDirectory?: string;
+  readonly environment?: Readonly<NodeJS.ProcessEnv>;
+  readonly nativeOpenAIResponses?: NativeOpenAIResponsesPort;
+  readonly signal?: AbortSignal;
 }
