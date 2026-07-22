@@ -179,15 +179,15 @@
 - Record that operations are read-only snapshots, offline evaluation is structural rather than a claim of model quality, and configured qualitative evaluation still needs a real provider.
 - Keep npm/curl/Homebrew publication status truthful: prepared and verified does not mean published.
 
-- [ ] **Step 1: Update current-truth documents**
+- [x] **Step 1: Update current-truth documents**
 
   Remove the operating-view and installed-evaluation gaps only after their code and tests pass. Keep real-model quality proof and public distribution listed as absent.
 
-- [ ] **Step 2: Run strongest verification**
+- [x] **Step 2: Run strongest verification**
 
   Run focused tests repeatedly, then `npm run check`, `npm run package:smoke-install`, and `npm run check:native`.
 
-- [ ] **Step 3: Review publication safety**
+- [x] **Step 3: Review publication safety**
 
   Inspect status, complete diff, file modes, generated output, package contents, and secret patterns. Stage only intended files.
 

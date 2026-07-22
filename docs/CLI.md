@@ -401,6 +401,24 @@ Only the agent session that started a process can control it. Its original permi
 
 Piped sessions remain the default for dev servers, watchers, long verification, and simple line-oriented input. PTY attachment is a bounded raw relay, not a separate full-screen terminal emulator. Recurs does not claim scrollback management, arbitrary terminal-signal controls, or safe hidden input for authentication and passphrase prompts. The sealed native engine does not package the optional Node PTY dependency and therefore reports PTY requests as unavailable; Windows subprocess tools remain unsupported.
 
+### Company evaluation
+
+`recurs eval company --json -C <project>` runs the deterministic offline
+company-formation scenario through the installed CLI. It uses a temporary
+private Recurs home, an in-process scripted provider, and the same restricted
+read-only onboarding tools as normal company formation. It needs no provider,
+API key, saved account, or network access. The sanitized report scores the
+structural formation path; it does not claim that a real model interviews,
+delegates, or synthesizes well.
+
+`recurs eval company --configured --allow-network -C <project>` runs that same
+versioned formation scenario through the saved primary direct BYOK or local
+connection. The explicit network flag is mandatory. This path is for
+qualitative dogfooding with a real model and may incur provider usage. Both
+modes use a temporary evaluation state root, preserve the user's normal Recurs
+state, omit prompts and private paths from reports, and exit nonzero for a
+failed or cancelled report.
+
 ### ACP stdio agent
 
 `recurs acp` serves Recurs as an Agent Client Protocol v1 agent over standard input and output. It is a thin host over the same standalone runtime: every ACP `session/new` creates a distinct pinned Recurs session, and `session/prompt` uses the ordinary coordinator, provider, permissions, tools, sessions, and child/team engine. Model text and reasoning, tool lifecycles, and Recurs child, batch, and team activity are projected into typed ACP session updates. A client permission prompt can grant or reject one operation; Recurs does not advertise an always-allow choice through this boundary.

@@ -83,9 +83,9 @@ The repository is open source under Apache-2.0, with release-ready `0.1.0-alpha.
 2. **Ship a portable alpha.** Complete the one-time npm bootstrap and release
    the already verified npm, checksum-bound curl, and generated Homebrew
    artifacts. Bun remains unclaimed until compatibility is tested.
-3. **Make operation easier to understand.** Add a concise company operating
-   view over the existing event stream, goals, active roles, budgets, handoffs,
-   reviews, and approvals without changing runtime authority.
+3. **Tune from visible operations.** Use the implemented read-only company
+   snapshots and durable evaluation reports to find waste, weak handoffs, and
+   poor review coverage before expanding orchestration complexity.
 4. **Expand only through reviewed boundaries.** Add capability/price-aware
    routing, provider-specific coding plans, remote MCP/OAuth, signed native
    distribution, and platform containment as separate test-backed slices.
