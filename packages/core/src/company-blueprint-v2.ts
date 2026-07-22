@@ -449,3 +449,24 @@ export function approveCompanyBlueprintV2(
     approvedAt,
   });
 }
+
+export function companyContextInstructionsV2(
+  blueprint: CompanyBlueprintV2,
+): readonly string[] {
+  if (blueprint.state !== "approved") {
+    throw new TypeError("Only an approved V2 company blueprint can enter model context");
+  }
+  const executable = blueprint.roles
+    .filter((role) => role.executionProfileId !== null)
+    .map((role) => `${role.id} (${role.displayName})`)
+    .join(", ");
+  return Object.freeze([
+    `Approved Recurs company ${blueprint.companyId} revision ${blueprint.revision} is active for this session.`,
+    `Project purpose: ${blueprint.project.purpose}`,
+    `Approved initial goal: ${blueprint.initialGoal}`,
+    `Executable approved roles: ${executable || "none"}.`,
+    "Use delegate_company_goal for one goal-scoped assignment DAG. Include every independent-review authority and use only approved delegation relationships.",
+    "Implementation roles run through Recurs's isolated worktree, review, repair, and apply engine. Roster membership alone does not imply activity.",
+    "Never widen permissions, delegation depth, tool bundles, model eligibility, concurrency, requests, or reported-cost limits beyond the approved blueprint and operating mode.",
+  ]);
+}

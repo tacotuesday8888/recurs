@@ -4,6 +4,7 @@ import type {
   TeamReviewFinding,
   TeamRunAllocation,
   TeamRunBackendRoute,
+  TeamRunCompanyGoalCorrelation,
   TeamRunDescriptor,
   TeamRunNonApprovedTerminalStatus,
   TeamRunPhase,
@@ -22,6 +23,8 @@ describe("team run contracts", () => {
       readonly routes: readonly TeamRunBackendRoute[];
     }>();
     expectTypeOf<TeamReviewFinding["path"]>().toEqualTypeOf<string | "*">();
+    expectTypeOf<TeamRunDescriptor["companyGoal"]>()
+      .toEqualTypeOf<TeamRunCompanyGoalCorrelation | undefined>();
   });
 
   it("keeps phases and terminal classifications exact", () => {

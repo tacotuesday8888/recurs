@@ -22,6 +22,8 @@ export interface AgentBackendCandidate {
 
 export interface AgentBackendRouteInput {
   readonly role: TeamRunRole;
+  /** Select an explicitly assigned candidate for this route while preserving the child's actual role. */
+  readonly candidateRole?: TeamRunRole;
   readonly executionMode: AgentExecutionMode;
   readonly permissionMode: AgentPermissionMode;
   readonly background: boolean;
@@ -69,10 +71,11 @@ export class AgentBackendRouter {
   readonly #decisions = new WeakMap<object, AgentBackendRouteDecision>();
 
   select(input: AgentBackendRouteInput): AgentBackendRouteDecision {
+    const candidateRole = input.candidateRole ?? input.role;
     const eligible = input.candidates.filter((candidate) =>
       candidate.ready &&
       candidate.hostTools &&
-      candidate.roles.includes(input.role) &&
+      candidate.roles.includes(candidateRole) &&
       candidate.executionModes.includes(input.executionMode) &&
       candidate.permissionModes.includes(input.permissionMode) &&
       (!input.background || (

@@ -511,6 +511,29 @@ Replacing or clearing an unfinished goal requires confirmation. Each successful 
 
 `delegate_company_task` is the blueprint-aware single-child primitive. It is available only to a parent durably bound to an approved company and accepts exactly `{ role, description, prompt }`. Recurs reloads the immutable blueprint, verifies its operating-mode version and permission authority against the live parent, resolves the approved role to an existing execution profile and model route, scopes the role's tailored project instructions around the task, then uses the same child manager, provider/coordinator, approval policy, budgets, lifecycle, cancellation, usage, and result path as `delegate_task`. The durable child and normalized lifecycle events carry only the blueprint/role binding; the parent receives the child handoff for synthesis. Children cannot delegate again. Roster approval starts no work by itself.
 
+That tool is the historical V1 company path. An approved V2 company instead
+registers `delegate_company_goal`. The model proposes one explicit assignment
+DAG using stable blueprint role IDs; Recurs validates reporting/delegation
+edges, depth, active roles, independent-review coverage, permissions, tool
+bundles, concurrency, requests, and reported cost before starting anything.
+Read/planning assignments may form a bounded parent → lead → worker hierarchy
+through ordinary durable child sessions. Mutating assignments must form one
+parallel reviewed batch: approved Implement roles run in isolated worktrees,
+every approved independent-review role participates, bounded Repair reuses an
+approved implementation authority, and only an approved cumulative candidate
+can enter the existing checkpointed parent-apply transaction.
+
+The company goal journal and team journal remain separate authoritative stores.
+Before the team starts, the goal reserves a worst-case local team slice from
+its immutable V6 goal ledger. Internal workers draw only from that slice; the
+goal later reconciles actual requests, reported cost, evidence, cancellation,
+failure, or interruption exactly once. Every real team child carries the exact
+blueprint revision, company goal, assignment, department, role, narrowed
+permission, and tool-bundle correlation. Normalized activity attaches those
+fields only to children that actually start, so an approved roster is never
+rendered as an active workforce by itself. V1 blueprints and sessions keep
+their original adapter and behavior.
+
 `delegate_tasks` is the bounded independent-analysis primitive. Its exact input is `{ tasks: [{ profile, description, prompt }, ...] }` with two to eight tasks and no extra fields. Only Explore and Review are accepted. The active operating mode can impose a lower task and concurrency limit. Settled results always return in input order even when children finish in a different order, and successful sibling output and evidence remain available when another child fails.
 
 The version-1 profiles used by single-child and analysis-batch delegation are host policies, not prompt-only roles:
@@ -571,7 +594,7 @@ Economy and every version-1 mode provide a sequential batch fallback. Standard t
 
 Existing `explore_v1` session records remain valid. Because Recurs remains pre-1.0 preview software, the earlier two-field `delegate_task` draft is not retained: embeddings must now provide an exact `profile` rather than receiving an implicit Explore child.
 
-A daemon that outlives the CLI, recursive depth, automatic task decomposition, terminal-child retries, dirty-workspace snapshots, arbitrary worktree continuation, automatic model intelligence, dynamic role libraries, auto-commit/push/deploy, schedules, and the company desktop interface remain later milestones. The current CLI company vertical is an approved immutable roster plus one-at-a-time blueprint-aware depth-one handoff; it is not a recursive autonomous company. Current durable teams remain explicit depth-one workflows over a clean committed parent; only bounded valid Review findings trigger Repair. Worktree isolation and owner leases are not OS containment. See the [primary-source harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md).
+A daemon that outlives the CLI, unbounded recursive depth, terminal-child retries, dirty-workspace snapshots, arbitrary worktree continuation, automatic model intelligence, post-approval role invention, auto-commit/push/deploy, schedules, and the company desktop interface remain later milestones. The V2 company runtime is a bounded, goal-scoped hierarchy plus one reviewed mutating batch; it is not an endless autonomous company. Current durable teams still require a clean committed parent, and only bounded valid Review findings trigger Repair. Worktree isolation and owner leases are not OS containment. See the [primary-source harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md).
 
 ## Slash commands
 

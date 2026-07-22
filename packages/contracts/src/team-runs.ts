@@ -10,6 +10,10 @@ import type {
   OperatingModePolicy,
   OperatingModeVersion,
 } from "./agents.js";
+import type {
+  CompanyModelRoute,
+  CompanyToolBundleId,
+} from "./company.js";
 import type { TrustedRunContext } from "./runtime.js";
 
 export type TeamRunExecution = "foreground" | "background";
@@ -82,6 +86,27 @@ export interface TeamRunBackendRoute {
   readonly pin: SessionBackendPin;
 }
 
+export interface TeamRunCompanyRoleBinding {
+  readonly assignmentId: string;
+  readonly parentAssignmentId: string | null;
+  readonly roleId: string;
+  readonly departmentId: string;
+  readonly permissionMode: AgentPermissionMode;
+  readonly modelRoute: CompanyModelRoute;
+  readonly toolBundles: readonly CompanyToolBundleId[];
+}
+
+export interface TeamRunCompanyGoalCorrelation {
+  readonly version: 1;
+  readonly runId: string;
+  readonly goalId: string;
+  readonly blueprintId: string;
+  readonly blueprintRevision: number;
+  readonly implementations: readonly TeamRunCompanyRoleBinding[];
+  readonly reviews: readonly TeamRunCompanyRoleBinding[];
+  readonly repair: TeamRunCompanyRoleBinding | null;
+}
+
 export interface TeamRunDescriptor {
   readonly id: string;
   readonly version: 1;
@@ -100,4 +125,5 @@ export interface TeamRunDescriptor {
   readonly repositoryRoot: string;
   readonly baseRevision: string;
   readonly request: TeamRunRequest;
+  readonly companyGoal?: TeamRunCompanyGoalCorrelation;
 }

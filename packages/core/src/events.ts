@@ -153,6 +153,17 @@ export type RecursEvent =
       roleCount: number;
     })
   | (EventBase & {
+      type: "company_blueprint_v2_activated";
+      parentAgentId: string;
+      blueprintId: string;
+      blueprintVersion: 2;
+      blueprintRevision: number;
+      designMode: "stable_core_specialists" | "guardrailed_dynamic";
+      operatingModeId: OperatingModeId;
+      departmentCount: number;
+      roleCount: number;
+    })
+  | (EventBase & {
       type: "company_goal_started";
       parentAgentId: string;
       goalRunId: string;
@@ -234,6 +245,10 @@ export type RecursEvent =
       index?: number;
       routeStrategy?: TeamRunBackendRoute["strategy"];
       routeReason?: TeamRunBackendRoute["reason"];
+      goalRunId?: string;
+      assignmentId?: string;
+      companyRoleId?: string;
+      departmentId?: string;
     })
   | (EventBase & {
       type: "agent_batch_started";
@@ -450,6 +465,18 @@ export function projectTeamRunActivityEvent(
     ? undefined
     : state.descriptor.routes.find((candidate) => candidate.role === role.role);
   const accounting = state.accounting;
+  const companyBinding = role?.index === undefined ||
+      state.descriptor.companyGoal === undefined
+    ? undefined
+    : role.role === "implement"
+      ? state.descriptor.companyGoal.implementations[role.index - 1]
+      : role.role === "repair"
+        ? state.descriptor.companyGoal.repair ?? undefined
+        : state.descriptor.companyGoal.reviews.length === 0
+          ? undefined
+          : state.descriptor.companyGoal.reviews[
+              (role.index - 1) % state.descriptor.companyGoal.reviews.length
+            ];
   return {
     type: "agent_team_activity",
     sessionId: state.descriptor.parentSessionId,
@@ -480,6 +507,14 @@ export function projectTeamRunActivityEvent(
       routeStrategy: route.strategy,
       routeReason: route.reason,
     }),
+    ...(companyBinding === undefined || state.descriptor.companyGoal === undefined
+      ? {}
+      : {
+          goalRunId: state.descriptor.companyGoal.runId,
+          assignmentId: companyBinding.assignmentId,
+          companyRoleId: companyBinding.roleId,
+          departmentId: companyBinding.departmentId,
+        }),
   };
 }
 

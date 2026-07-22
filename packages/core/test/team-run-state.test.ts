@@ -131,6 +131,59 @@ function descriptorForMode(
   });
 }
 
+function companyDescriptor(): TeamRunDescriptor {
+  const policy = structuredClone(
+    getOperatingModePolicy("balanced_v6"),
+  ) as TeamRunPolicySnapshot;
+  return descriptor({
+    operatingModeId: "balanced_v6",
+    operatingModeVersion: 6,
+    policy,
+    companyGoal: {
+      version: 1,
+      runId: "company-goal-run-1",
+      goalId: "goal-1",
+      blueprintId: "blueprint-1",
+      blueprintRevision: 1,
+      implementations: [{
+        assignmentId: "implement-a",
+        parentAssignmentId: "lead-1",
+        roleId: "builder-a",
+        departmentId: "engineering",
+        permissionMode: "approved_for_me",
+        modelRoute: "implement",
+        toolBundles: ["implementation_v1", "project_context_v1"],
+      }, {
+        assignmentId: "implement-b",
+        parentAssignmentId: "lead-1",
+        roleId: "builder-b",
+        departmentId: "engineering",
+        permissionMode: "approved_for_me",
+        modelRoute: "implement",
+        toolBundles: ["implementation_v1", "project_context_v1"],
+      }],
+      reviews: [{
+        assignmentId: "review-1",
+        parentAssignmentId: null,
+        roleId: "reviewer-1",
+        departmentId: "quality",
+        permissionMode: "approved_for_me",
+        modelRoute: "review",
+        toolBundles: ["project_context_v1", "quality_v1"],
+      }],
+      repair: {
+        assignmentId: "implement-a",
+        parentAssignmentId: "lead-1",
+        roleId: "builder-a",
+        departmentId: "engineering",
+        permissionMode: "approved_for_me",
+        modelRoute: "implement",
+        toolBundles: ["implementation_v1", "project_context_v1"],
+      },
+    },
+  });
+}
+
 function created(value = descriptor()): TeamRunRecord {
   return {
     version: 1,
@@ -330,6 +383,33 @@ function approvedState(): TeamRunState {
 }
 
 describe("team run state", () => {
+  it("accepts one immutable company-goal correlation and rejects authority drift", () => {
+    const correlated = created(companyDescriptor());
+    expect(parseTeamRunRecord(correlated, correlated.runId)).toEqual(correlated);
+
+    const changed = structuredClone(correlated);
+    if (changed.type !== "team_created" ||
+      changed.descriptor.companyGoal === undefined) {
+      throw new Error("Expected a company team descriptor");
+    }
+    (changed.descriptor.companyGoal.implementations[0] as {
+      permissionMode: string;
+    }).permissionMode = "full_access";
+    expect(() => parseTeamRunRecord(changed, changed.runId))
+      .toThrow(/team_created record/iu);
+
+    const rerouted = structuredClone(correlated);
+    if (rerouted.type !== "team_created" ||
+      rerouted.descriptor.companyGoal === undefined) {
+      throw new Error("Expected a company team descriptor");
+    }
+    (rerouted.descriptor.companyGoal.reviews[0] as {
+      modelRoute: string;
+    }).modelRoute = "implement";
+    expect(() => parseTeamRunRecord(rerouted, rerouted.runId))
+      .toThrow(/team_created record/iu);
+  });
+
   it("reduces one exact approved workflow with derived accounting", () => {
     const state = approvedState();
 

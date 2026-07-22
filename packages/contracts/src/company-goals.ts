@@ -43,7 +43,7 @@ export interface CompanyGoalAssignmentResultV1 {
   readonly usageSource: "provider" | "runtime" | "unknown";
 }
 
-export interface CompanyGoalAssignmentExecutionV1 {
+export interface CompanyGoalChildExecutionV1 {
   readonly attempt: 1;
   readonly childAgentId: string;
   readonly childSessionId: string;
@@ -51,6 +51,19 @@ export interface CompanyGoalAssignmentExecutionV1 {
   readonly startedAt: string;
   readonly completedAt: string | null;
 }
+
+export interface CompanyGoalTeamExecutionV1 {
+  readonly attempt: 1;
+  readonly teamRunId: string;
+  readonly teamRole: "implement" | "review";
+  readonly taskIndex: number | null;
+  readonly startedAt: string;
+  readonly completedAt: string | null;
+}
+
+export type CompanyGoalAssignmentExecutionV1 =
+  | CompanyGoalChildExecutionV1
+  | CompanyGoalTeamExecutionV1;
 
 export interface CompanyGoalAssignmentV1 {
   readonly id: string;
@@ -184,10 +197,16 @@ function parseAssignmentExecution(
   value: unknown,
 ): CompanyGoalAssignmentExecutionV1 {
   const execution = contractRecord(value, "Company assignment execution");
-  contractExact(execution, [
-    "attempt", "childAgentId", "childSessionId", "taskId", "startedAt",
-    "completedAt",
-  ], "Company assignment execution");
+  const team = Object.hasOwn(execution, "teamRunId");
+  contractExact(execution, team
+    ? [
+        "attempt", "teamRunId", "teamRole", "taskIndex", "startedAt",
+        "completedAt",
+      ]
+    : [
+        "attempt", "childAgentId", "childSessionId", "taskId", "startedAt",
+        "completedAt",
+      ], "Company assignment execution");
   if (execution.attempt !== 1) {
     throw new TypeError("Company assignment execution attempt is invalid");
   }
@@ -204,6 +223,27 @@ function parseAssignmentExecution(
   if (completedAt !== null &&
     new Date(completedAt).valueOf() < new Date(startedAt).valueOf()) {
     throw new TypeError("Company assignment completion precedes its start");
+  }
+  if (team) {
+    const teamRole = contractEnum<"implement" | "review">(
+      execution.teamRole,
+      new Set(["implement", "review"]),
+      "Company team execution role",
+    );
+    const taskIndex = execution.taskIndex === null
+      ? null
+      : contractInteger(execution.taskIndex, "Company team task index", 1);
+    if ((teamRole === "implement") !== (taskIndex !== null)) {
+      throw new TypeError("Company team task index is inconsistent");
+    }
+    return {
+      attempt: 1,
+      teamRunId: contractId(execution.teamRunId, "Company team run id"),
+      teamRole,
+      taskIndex,
+      startedAt,
+      completedAt,
+    };
   }
   return {
     attempt: 1,

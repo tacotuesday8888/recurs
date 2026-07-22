@@ -48,6 +48,7 @@ function input(
   candidates: readonly AgentBackendCandidate[],
   overrides: Partial<{
     role: TeamRunRole;
+    candidateRole: TeamRunRole;
     executionMode: AgentExecutionMode;
     permissionMode: AgentPermissionMode;
     background: boolean;
@@ -141,6 +142,29 @@ describe("AgentBackendRouter", () => {
         { role: "repair", background: true },
       ))).toThrow(/eligible agent backend/u);
     }
+  });
+
+  it("selects an approved route candidate without changing the child's role", () => {
+    const router = new AgentBackendRouter();
+    const implement = candidate("implement", { roles: ["implement"] });
+    const repair = candidate("repair", { roles: ["repair"] });
+
+    const decision = router.select(input([repair, implement], {
+      role: "repair",
+      candidateRole: "implement",
+    }));
+
+    expect(decision).toMatchObject({
+      role: "repair",
+      candidateId: "implement",
+      strategy: "role_candidate",
+    });
+    expect(router.validate(decision, {
+      role: "repair",
+      executionMode: "act",
+      permissionMode: "approved_for_me",
+      background: false,
+    })).toBe(decision);
   });
 
   it("authenticates a defensive deep-frozen snapshot to one router and exact route", () => {

@@ -10,8 +10,12 @@ import {
   type AgentProfileId,
   type CompanyBlueprintV2,
   type CompanyGoalAssignmentV1,
+  type CompanyGoalChildExecutionV1,
   type CompanyGoalPlanV1,
   type CompanyGoalRunV1,
+  type CompanyToolBundleId,
+  type TeamRunCompanyGoalCorrelation,
+  type TeamRunCompanyRoleBinding,
 } from "@recurs/contracts";
 import {
   ToolError,
@@ -34,6 +38,14 @@ import type { JsonlCompanyGoalStore } from "./jsonl-company-goal-store.js";
 import type { JsonlSessionStore } from "./jsonl-session-store.js";
 import type { SequencedCompanyState } from "./private-state-store.js";
 import { isPinnedSessionState, type PinnedSessionState } from "./session-v2.js";
+import type { DelegateTeamInput } from "./team-agent-manager.js";
+import {
+  TEAM_APPLY_PERMISSION,
+  type CompanyTeamRunBudgetLimits,
+  type CompanyTeamRunReservation,
+  type TeamRunResult,
+  type TeamRunSupervisor,
+} from "./team-run-supervisor.js";
 
 const MAX_DESCRIPTION_BYTES = 256;
 const MAX_PROMPT_BYTES = 32_768;
@@ -64,6 +76,11 @@ export interface CompanyGoalAssignmentExecutor {
   delegate: ChildAgentManager["delegate"];
 }
 
+export type CompanyGoalTeamExecutor = Pick<
+  TeamRunSupervisor,
+  "reserveCompanyRun" | "startCompanyForeground" | "inspectCompanyRun"
+>;
+
 export interface CompanyGoalSupervisorDependencies {
   readonly sessions: Pick<JsonlSessionStore, "loadState">;
   readonly blueprints: Pick<FileCompanyBlueprintV2Store, "load">;
@@ -71,6 +88,7 @@ export interface CompanyGoalSupervisorDependencies {
   readonly children: CompanyGoalAssignmentExecutor;
   /** Mutating/review/repair work must be supplied by the durable team adapter. */
   readonly work?: CompanyGoalAssignmentExecutor;
+  readonly team?: CompanyGoalTeamExecutor;
   emit(event: RecursEvent): Promise<void>;
   readonly createId?: () => string;
   readonly now?: () => string;
@@ -202,6 +220,31 @@ function isCancelled(error: unknown, signal: AbortSignal): boolean {
   return signal.aborted || error instanceof ToolError && error.code === "cancelled";
 }
 
+function isChildExecution(
+  execution: NonNullable<CompanyGoalAssignmentV1["execution"]>,
+): execution is CompanyGoalChildExecutionV1 {
+  return "childSessionId" in execution;
+}
+
+function isTeamExecution(
+  execution: NonNullable<CompanyGoalAssignmentV1["execution"]>,
+): execution is Extract<
+  NonNullable<CompanyGoalAssignmentV1["execution"]>,
+  { readonly teamRunId: string }
+> {
+  return "teamRunId" in execution;
+}
+
+function mutatingProfile(profile: AgentProfileId | null): boolean {
+  return profile === "implement_v2" || profile === "repair_v1";
+}
+
+function sortedToolBundles(
+  bundles: readonly CompanyToolBundleId[],
+): readonly CompanyToolBundleId[] {
+  return Object.freeze([...new Set(bundles)].sort());
+}
+
 function mutableBudget(run: CompanyGoalRunV1): DelegationBudget {
   return {
     maxChildren: run.budget.maxAssignments,
@@ -325,6 +368,20 @@ function validatePlanPolicy(
       "Independent review must be top-level and follow every non-review assignment",
     );
   }
+  const implementationIds = new Set(plan.assignments.filter((assignment) =>
+    roles.get(assignment.roleId)?.executionProfileId === "implement_v2"
+  ).map((assignment) => assignment.id));
+  if ([...implementationIds].some((id) => {
+    const assignment = byId.get(id)!;
+    return (assignment.parentAssignmentId !== null &&
+        implementationIds.has(assignment.parentAssignmentId)) ||
+      assignment.dependsOn.some((dependency) => implementationIds.has(dependency));
+  })) {
+    throw new ToolError(
+      "permission_denied",
+      "Company implementation assignments must form one parallel reviewed batch",
+    );
+  }
 }
 
 function rolePrompt(
@@ -394,6 +451,12 @@ interface ActiveCompanyGoal {
   readonly activeAssignments: Set<string>;
 }
 
+interface PreparedCompanyTeam {
+  readonly assignments: readonly CompanyGoalAssignmentV1[];
+  readonly input: DelegateTeamInput;
+  readonly correlation: TeamRunCompanyGoalCorrelation;
+}
+
 export class CompanyGoalSupervisor {
   readonly #createId: () => string;
   readonly #now: () => string;
@@ -447,8 +510,18 @@ export class CompanyGoalSupervisor {
       },
       executionClass: "in_process",
       mutating: true,
+      checkpointOwnership: "self_managed",
       parse: parseGoalInput,
-      permissions() { return []; },
+      permissions() {
+        return [
+          TEAM_APPLY_PERMISSION,
+          {
+            category: "shell",
+            resource: "fixed Git worktree orchestration",
+            risk: "normal",
+          },
+        ];
+      },
       execute: (input, context) => this.start(input, context),
     };
   }
@@ -549,7 +622,11 @@ export class CompanyGoalSupervisor {
     const parent = runtime.journal.current.state.plan.assignments.find(
       (candidate) => candidate.id === assignment.parentAssignmentId,
     );
-    const sessionId = parent?.execution?.childSessionId;
+    const parentExecution = parent?.execution;
+    const sessionId = parentExecution !== undefined &&
+      isChildExecution(parentExecution)
+      ? parentExecution.childSessionId
+      : undefined;
     if (sessionId === undefined || parent === undefined) {
       throw new ToolError(
         "execution_failed",
@@ -571,6 +648,202 @@ export class CompanyGoalSupervisor {
       executionMode: state.executionMode,
       delegationBudget: runtime.budget,
     };
+  }
+
+  #teamBinding(
+    runtime: ActiveCompanyGoal,
+    assignment: CompanyGoalAssignmentV1,
+    requiredBundle: CompanyToolBundleId,
+  ): TeamRunCompanyRoleBinding {
+    const role = runtime.blueprint.roles.find(
+      (candidate) => candidate.id === assignment.roleId,
+    )!;
+    const toolBundles = sortedToolBundles(role.toolBundles);
+    if (!toolBundles.includes(requiredBundle)) {
+      throw new ToolError(
+        "permission_denied",
+        `${role.displayName} lacks the approved ${requiredBundle} tool bundle`,
+      );
+    }
+    return Object.freeze({
+      assignmentId: assignment.id,
+      parentAssignmentId: assignment.parentAssignmentId,
+      roleId: role.id,
+      departmentId: role.departmentId,
+      permissionMode: role.permissionMode,
+      modelRoute: role.modelRoute,
+      toolBundles,
+    });
+  }
+
+  #companyTeam(
+    runtime: ActiveCompanyGoal,
+  ): PreparedCompanyTeam | null {
+    const run = runtime.journal.current.state;
+    const roles = new Map(runtime.blueprint.roles.map((role) => [role.id, role]));
+    const implementations = run.plan.assignments.filter((assignment) =>
+      assignment.status === "pending" &&
+      roles.get(assignment.roleId)?.executionProfileId === "implement_v2"
+    );
+    if (implementations.length === 0) return null;
+    const implementationIds = new Set(implementations.map((item) => item.id));
+    const dependencyReady = (assignment: CompanyGoalAssignmentV1): boolean => {
+      const parentReady = assignment.parentAssignmentId === null ||
+        run.plan.assignments.find((candidate) =>
+          candidate.id === assignment.parentAssignmentId
+        )?.status === "completed";
+      return parentReady && assignment.dependsOn.every((id) =>
+        run.plan.assignments.find((candidate) => candidate.id === id)?.status ===
+          "completed"
+      );
+    };
+    if (!implementations.every(dependencyReady)) return null;
+    const independentRoles = new Set(
+      runtime.blueprint.authorityAnchors.independentReviewRoleIds,
+    );
+    const reviews = run.plan.assignments.filter((assignment) =>
+      assignment.status === "pending" && independentRoles.has(assignment.roleId)
+    );
+    if (reviews.length === 0 || reviews.some((assignment) =>
+      roles.get(assignment.roleId)?.executionProfileId !== "review_v2" ||
+      assignment.dependsOn.some((id) => {
+        const dependency = run.plan.assignments.find((item) => item.id === id);
+        return dependency?.status !== "completed" && !implementationIds.has(id);
+      })
+    )) {
+      throw new ToolError(
+        "permission_denied",
+        "Company implementation requires every independent review assignment in the durable team",
+      );
+    }
+    const mode = getOperatingModePolicy(runtime.root.agent.operatingMode.id);
+    const policy = mode.workflow.team;
+    if (policy === null || implementations.length > policy.maxImplementers ||
+      reviews.length > policy.maxReviewers) {
+      throw new ToolError(
+        "permission_denied",
+        "Company implementation batch exceeds the operating-mode team policy",
+      );
+    }
+    const implementationBindings = implementations.map((assignment) =>
+      this.#teamBinding(runtime, assignment, "implementation_v1")
+    );
+    const reviewBindings = reviews.map((assignment) =>
+      this.#teamBinding(runtime, assignment, "quality_v1")
+    );
+    const repairRole = runtime.blueprint.roles.find((role) =>
+      role.capabilities.includes("repair") &&
+      role.toolBundles.includes("implementation_v1")
+    ) ?? roles.get(implementations[0]!.roleId)!;
+    const repairBundles = sortedToolBundles(repairRole.toolBundles);
+    if (!repairBundles.includes("implementation_v1")) {
+      throw new ToolError(
+        "permission_denied",
+        "Company implementation has no approved repair authority",
+      );
+    }
+    const repair = policy.maxRepairRounds === 0
+      ? null
+      : Object.freeze({
+          assignmentId: implementations[0]!.id,
+          parentAssignmentId: implementations[0]!.parentAssignmentId,
+          roleId: repairRole.id,
+          departmentId: repairRole.departmentId,
+          permissionMode: repairRole.permissionMode,
+          modelRoute: repairRole.modelRoute,
+          toolBundles: repairBundles,
+        });
+    const correlation: TeamRunCompanyGoalCorrelation = Object.freeze({
+      version: 1,
+      runId: run.id,
+      goalId: run.goalId,
+      blueprintId: runtime.blueprint.id,
+      blueprintRevision: runtime.blueprint.revision,
+      implementations: Object.freeze(implementationBindings),
+      reviews: Object.freeze(reviewBindings),
+      repair,
+    });
+    const input: DelegateTeamInput = Object.freeze({
+      description: truncateUtf8(run.objective, MAX_DESCRIPTION_BYTES),
+      tasks: Object.freeze(implementations.map((assignment) => ({
+        description: assignment.description,
+        prompt: rolePrompt(run, runtime.blueprint, assignment),
+      }))),
+      review: Object.freeze({
+        instructions: truncateUtf8([
+          `Independently review the complete company goal: ${run.objective}`,
+          ...reviews.map((assignment) => rolePrompt(
+            run,
+            runtime.blueprint,
+            assignment,
+          )),
+        ].join("\n\n"), 12_000, "\n[review instructions truncated by Recurs]"),
+      }),
+      execution: "foreground",
+    });
+    return {
+      assignments: Object.freeze([...implementations, ...reviews]),
+      input,
+      correlation,
+    };
+  }
+
+  async #markTeamStarted(
+    runtime: ActiveCompanyGoal,
+    assignments: readonly CompanyGoalAssignmentV1[],
+    reservation: CompanyTeamRunReservation,
+  ): Promise<void> {
+    const run = runtime.journal.current.state;
+    if (run.budget.assignmentsStarted + assignments.length >
+        run.budget.maxAssignments ||
+      run.budget.requestsReserved + reservation.allocation.maxRequests >
+        run.budget.maxRequests ||
+      assignments.length > run.budget.maxConcurrentAssignments) {
+      throw new ToolError(
+        "permission_denied",
+        "Company team exceeds the remaining goal budget",
+      );
+    }
+    const ids = new Set(assignments.map((assignment) => assignment.id));
+    const at = this.#now();
+    await runtime.journal.update((current) => ({
+      ...current,
+      updatedAt: at,
+      plan: {
+        ...current.plan,
+        assignments: current.plan.assignments.map((assignment) =>
+          !ids.has(assignment.id)
+            ? assignment
+            : {
+                ...assignment,
+                status: "running" as const,
+                execution: {
+                  attempt: 1 as const,
+                  teamRunId: reservation.teamRunId,
+                  teamRole: reservation.companyGoal.implementations.some(
+                    (binding) => binding.assignmentId === assignment.id,
+                  ) ? "implement" as const : "review" as const,
+                  taskIndex: (() => {
+                    const index = reservation.companyGoal.implementations.findIndex(
+                      (binding) => binding.assignmentId === assignment.id,
+                    );
+                    return index < 0 ? null : index + 1;
+                  })(),
+                  startedAt: at,
+                  completedAt: null,
+                },
+              }
+        ),
+      },
+      budget: {
+        ...current.budget,
+        assignmentsStarted:
+          current.budget.assignmentsStarted + assignments.length,
+        requestsReserved:
+          current.budget.requestsReserved + reservation.allocation.maxRequests,
+      },
+    }));
+    this.#reconcileBudget(runtime);
   }
 
   async #markStarted(
@@ -668,6 +941,256 @@ export class CompanyGoalSupervisor {
       },
       budget: withBudget(run, runtime.budget),
     }));
+  }
+
+  #nextTeamBudget(
+    run: CompanyGoalRunV1,
+    result: TeamRunResult,
+  ): CompanyGoalRunV1["budget"] {
+    const requestsUsed = run.budget.requestsUsed +
+      result.metadata.accounting.requestsUsed;
+    const reportedCostUsd = run.budget.reportedCostUsd +
+      (result.metadata.accounting.reportedCostUsd ?? 0);
+    if (requestsUsed > run.budget.requestsReserved) {
+      throw new ToolError(
+        "execution_failed",
+        "Company team used more requests than its durable reservation",
+      );
+    }
+    return {
+      ...run.budget,
+      requestsUsed,
+      reportedCostUsd,
+    };
+  }
+
+  async #failTeamAssignments(
+    runtime: ActiveCompanyGoal,
+    teamRunId: string,
+    reason: string,
+    cancelled: boolean,
+    result?: TeamRunResult,
+  ): Promise<void> {
+    const at = this.#now();
+    await runtime.journal.update((run) => ({
+      ...run,
+      updatedAt: at,
+      plan: {
+        ...run.plan,
+        assignments: run.plan.assignments.map((assignment) =>
+          assignment.execution !== undefined &&
+            isTeamExecution(assignment.execution) &&
+            assignment.execution.teamRunId === teamRunId &&
+            assignment.status === "running"
+            ? {
+                ...assignment,
+                status: cancelled ? "cancelled" as const : "failed" as const,
+                execution: { ...assignment.execution, completedAt: at },
+                result: null,
+                failure: truncateUtf8(reason, 2_000, " [truncated]"),
+              }
+            : assignment
+        ),
+      },
+      budget: result === undefined ? run.budget : this.#nextTeamBudget(run, result),
+    }));
+    this.#reconcileBudget(runtime);
+  }
+
+  async #settleTeamResult(
+    runtime: ActiveCompanyGoal,
+    teamRunId: string,
+    result: TeamRunResult,
+  ): Promise<"settled" | "interrupted"> {
+    const running = runtime.journal.current.state.plan.assignments.filter(
+      (assignment) => assignment.status === "running" &&
+        assignment.execution !== undefined &&
+        isTeamExecution(assignment.execution) &&
+        assignment.execution.teamRunId === teamRunId,
+    );
+    const company = result.metadata.companyGoal;
+    if (running.length === 0 || company?.goalRunId !==
+        runtime.journal.current.state.id ||
+      company.assignments.length !== running.length ||
+      new Set(company.assignments.map((assignment) => assignment.assignmentId)).size !==
+        company.assignments.length ||
+      running.some((assignment) => !company.assignments.some(
+        (candidate) => candidate.assignmentId === assignment.id,
+      ))) {
+      await this.#failTeamAssignments(
+        runtime,
+        teamRunId,
+        "Company team result did not match its durable assignment reservation",
+        false,
+        result,
+      );
+      return "settled";
+    }
+    if (result.metadata.status !== "approved" &&
+      result.metadata.status !== "changes_requested" &&
+      result.metadata.status !== "unverified" &&
+      result.metadata.status !== "failed" &&
+      result.metadata.status !== "cancelled") {
+      await runtime.journal.update((run) => ({
+        ...run,
+        status: "interrupted",
+        updatedAt: this.#now(),
+      }));
+      this.#reconcileBudget(runtime);
+      await this.#emit({
+        type: "company_goal_interrupted",
+        sessionId: runtime.root.id,
+        at: this.#now(),
+        parentAgentId: runtime.root.agent.id,
+        goalRunId: runtime.journal.current.state.id,
+        status: "interrupted",
+        evidence: [...result.metadata.evidence],
+        reason: `Company team requires recovery from ${result.metadata.status}`,
+        workflow: delegationWorkflowUsage(runtime.budget),
+      });
+      return "interrupted";
+    }
+    if (result.metadata.status !== "approved") {
+      const cancelled = result.metadata.status === "cancelled" ||
+        runtime.rootContext.signal.aborted;
+      await this.#failTeamAssignments(
+        runtime,
+        teamRunId,
+        result.metadata.failure?.message ??
+          `Company team ended with ${result.metadata.status}`,
+        cancelled,
+        result,
+      );
+      return "settled";
+    }
+    if (company.assignments.some((assignment) =>
+      assignment.evidence.length === 0 ||
+      (assignment.usage === null) !== (assignment.usageSource === "unknown")
+    )) {
+      await this.#failTeamAssignments(
+        runtime,
+        teamRunId,
+        "Company team returned incomplete or inconsistent evidence",
+        false,
+        result,
+      );
+      return "settled";
+    }
+    const at = this.#now();
+    try {
+      await runtime.journal.update((run) => {
+        const budget = this.#nextTeamBudget(run, result);
+        if (budget.reportedCostUsd > budget.maxReportedCostUsd) {
+          throw new ToolError(
+            "execution_failed",
+            "Company goal reported-cost ceiling was exceeded",
+          );
+        }
+        return {
+          ...run,
+          updatedAt: at,
+          plan: {
+            ...run.plan,
+            assignments: run.plan.assignments.map((assignment) => {
+              if (assignment.execution === undefined ||
+                !isTeamExecution(assignment.execution) ||
+                assignment.execution.teamRunId !== teamRunId ||
+                assignment.status !== "running") return assignment;
+              const settled = company.assignments.find(
+                (candidate) => candidate.assignmentId === assignment.id,
+              )!;
+              return {
+                ...assignment,
+                status: "completed" as const,
+                execution: { ...assignment.execution, completedAt: at },
+                result: {
+                  summary: truncateUtf8(settled.summary, 8_192, " [truncated]"),
+                  evidence: boundedEvidence(settled.evidence),
+                  usage: settled.usage,
+                  usageSource: settled.usageSource,
+                },
+                failure: null,
+              };
+            }),
+          },
+          budget,
+        };
+      });
+      this.#reconcileBudget(runtime);
+      return "settled";
+    } catch (error) {
+      await this.#failTeamAssignments(
+        runtime,
+        teamRunId,
+        safeMessage(error, "Company team result could not be reconciled"),
+        false,
+        result,
+      );
+      return "settled";
+    }
+  }
+
+  async #executeCompanyTeam(
+    runtime: ActiveCompanyGoal,
+    team: PreparedCompanyTeam,
+  ): Promise<void> {
+    const executor = this.dependencies.team;
+    if (executor === undefined) {
+      throw new ToolError(
+        "tool_unavailable",
+        "Company implementation requires the durable team engine",
+      );
+    }
+    const remaining: CompanyTeamRunBudgetLimits = {
+      maxRequests: runtime.budget.maxRequests - runtime.budget.requestsReserved,
+      maxReportedCostUsd:
+        runtime.budget.maxReportedCostUsd - runtime.budget.reportedCostUsd,
+    };
+    if (remaining.maxRequests < 1 || remaining.maxReportedCostUsd <= 0) {
+      throw new ToolError("permission_denied", "Company goal budget is exhausted");
+    }
+    const reservation = await executor.reserveCompanyRun(
+      team.input,
+      runtime.rootContext,
+      team.correlation,
+      remaining,
+    );
+    const releases: Array<() => void> = [];
+    try {
+      for (const assignment of team.assignments) {
+        releases.push(this.#claim(runtime, assignment.id));
+      }
+      await this.#markTeamStarted(runtime, team.assignments, reservation);
+      let result: TeamRunResult;
+      try {
+        result = await executor.startCompanyForeground(
+          team.input,
+          runtime.rootContext,
+          reservation,
+        );
+      } catch (error) {
+        await this.#failTeamAssignments(
+          runtime,
+          reservation.teamRunId,
+          safeMessage(error, "Company team failed before producing a durable result"),
+          isCancelled(error, runtime.rootContext.signal),
+        );
+        return;
+      }
+      const outcome = await this.#settleTeamResult(
+        runtime,
+        reservation.teamRunId,
+        result,
+      );
+      if (outcome === "interrupted") {
+        throw new ToolError(
+          "checkpoint_conflict",
+          "Company team is interrupted and requires durable recovery",
+        );
+      }
+    } finally {
+      for (const release of releases.reverse()) release();
+    }
   }
 
   async #failAssignment(
@@ -871,6 +1394,13 @@ export class CompanyGoalSupervisor {
     assignment: CompanyGoalAssignmentV1,
     child: PinnedSessionState,
   ): Promise<void> {
+    if (assignment.execution === undefined ||
+      !isChildExecution(assignment.execution)) {
+      throw new ToolError(
+        "execution_failed",
+        "Company child recovery correlation is invalid",
+      );
+    }
     const lifecycle = child.agentLifecycle;
     const cancelled = lifecycle.status === "cancelled";
     const reason = lifecycle.status === "cancelled"
@@ -914,8 +1444,8 @@ export class CompanyGoalSupervisor {
       parentAssignmentId: assignment.parentAssignmentId,
       departmentId: role.departmentId,
       roleId: role.id,
-      childAgentId: assignment.execution!.childAgentId,
-      childSessionId: assignment.execution!.childSessionId,
+      childAgentId: assignment.execution.childAgentId,
+      childSessionId: assignment.execution.childSessionId,
       status,
       reason: truncateUtf8(reason, 2_000, " [truncated]"),
     });
@@ -960,7 +1490,35 @@ export class CompanyGoalSupervisor {
         assignment.status === "pending"
       );
       if (pending.length === 0) break;
+      let companyTeam: PreparedCompanyTeam | null;
+      try {
+        companyTeam = this.#companyTeam(runtime);
+      } catch (error) {
+        await this.#blockPending(
+          runtime,
+          safeMessage(error, "Company implementation plan is invalid"),
+        );
+        continue;
+      }
+      if (companyTeam !== null) {
+        try {
+          await this.#executeCompanyTeam(runtime, companyTeam);
+        } catch (error) {
+          if (runtime.journal.current.state.status === "interrupted") {
+            throw error;
+          }
+          await this.#blockPending(
+            runtime,
+            safeMessage(error, "Company implementation could not start"),
+          );
+        }
+        continue;
+      }
       const ready = pending.filter((assignment) => {
+        const profile = runtime.blueprint.roles.find(
+          (role) => role.id === assignment.roleId,
+        )?.executionProfileId ?? null;
+        if (mutatingProfile(profile)) return false;
         const parentReady = assignment.parentAssignmentId === null ||
           run.plan.assignments.find(
             (candidate) => candidate.id === assignment.parentAssignmentId,
@@ -1201,8 +1759,72 @@ export class CompanyGoalSupervisor {
       budget: mutableBudget(journal.current.state),
       activeAssignments: new Set(),
     };
+    const teamRunIds = new Set(journal.current.state.plan.assignments.flatMap(
+      (assignment) => assignment.status === "running" &&
+          assignment.execution !== undefined && isTeamExecution(assignment.execution)
+        ? [assignment.execution.teamRunId]
+        : [],
+    ));
+    for (const teamRunId of teamRunIds) {
+      const team = this.dependencies.team;
+      if (team === undefined) {
+        await journal.update((run) => ({
+          ...run,
+          status: "interrupted",
+          updatedAt: this.#now(),
+        }));
+        throw new ToolError(
+          "execution_failed",
+          "Company team recovery requires the durable team engine",
+        );
+      }
+      let result: TeamRunResult;
+      try {
+        result = await team.inspectCompanyRun(root.id, teamRunId);
+      } catch (error) {
+        await journal.update((run) => ({
+          ...run,
+          status: "interrupted",
+          updatedAt: this.#now(),
+        }));
+        throw new ToolError(
+          "execution_failed",
+          safeMessage(error, "Company team recovery state is unavailable"),
+        );
+      }
+      if (result.metadata.status !== "approved" &&
+        result.metadata.status !== "changes_requested" &&
+        result.metadata.status !== "unverified" &&
+        result.metadata.status !== "failed" &&
+        result.metadata.status !== "cancelled") {
+        await journal.update((run) => ({
+          ...run,
+          status: "interrupted",
+          updatedAt: this.#now(),
+        }));
+        await this.#emit({
+          type: "company_goal_interrupted",
+          sessionId: root.id,
+          at: this.#now(),
+          parentAgentId: root.agent.id,
+          goalRunId: runId,
+          status: "interrupted",
+          evidence: [],
+          reason: "A durable company team requires explicit runtime recovery",
+          workflow: delegationWorkflowUsage(runtime.budget),
+        });
+        throw new ToolError(
+          "execution_failed",
+          "Company goal is interrupted; its team run needs reconciliation",
+        );
+      }
+      await this.#settleTeamResult(runtime, teamRunId, result);
+    }
     for (const assignment of journal.current.state.plan.assignments) {
       if (assignment.status !== "running" || assignment.execution === undefined) continue;
+      if (!isChildExecution(assignment.execution)) {
+        continue;
+      }
       const child = await this.dependencies.sessions.loadState(
         assignment.execution.childSessionId,
       ).catch(() => null);
