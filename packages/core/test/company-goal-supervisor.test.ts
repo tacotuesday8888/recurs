@@ -129,6 +129,9 @@ async function fixture(options: {
   readonly nestedHandoffIds?: readonly string[];
   readonly implementation?: boolean;
   readonly teamStatus?: "approved" | "failed" | "cancelled" | "interrupted";
+  readonly teamStatuses?: readonly (
+    "approved" | "failed" | "cancelled" | "interrupted"
+  )[];
   readonly learning?: boolean;
   readonly learningFailure?: "select" | "record";
 } = {}) {
@@ -359,19 +362,24 @@ async function fixture(options: {
     },
   };
   let currentTeamStatus = options.teamStatus ?? "approved";
-  let teamCorrelation: Parameters<NonNullable<
+  type TeamCorrelation = Parameters<NonNullable<
     ConstructorParameters<typeof CompanyGoalSupervisor>[0]["team"]
-  >["reserveCompanyRun"]>[2] | undefined;
+  >["reserveCompanyRun"]>[2];
+  const teamCorrelations = new Map<string, TeamCorrelation>();
+  const teamStatuses = new Map<string, typeof currentTeamStatus>();
+  let teamIndex = 0;
   const teamCalls: string[] = [];
-  const teamResult = () => {
+  const teamResult = (teamRunId: string) => {
+    const teamCorrelation = teamCorrelations.get(teamRunId);
     if (teamCorrelation === undefined) throw new Error("Team was not reserved");
-    const terminalFailure = currentTeamStatus === "failed" ||
-      currentTeamStatus === "cancelled";
+    const teamStatus = teamStatuses.get(teamRunId) ?? currentTeamStatus;
+    const terminalFailure = teamStatus === "failed" ||
+      teamStatus === "cancelled";
     return {
-      output: `Team team-run-1: ${currentTeamStatus}`,
+      output: `Team ${teamRunId}: ${teamStatus}`,
       metadata: {
-        teamId: "team-run-1",
-        status: currentTeamStatus,
+        teamId: teamRunId,
+        status: teamStatus,
         operatingModeId: "balanced_v6" as const,
         repairRounds: 0,
         accounting: {
@@ -387,7 +395,7 @@ async function fixture(options: {
           costMissingChildren: 0,
           costCoverage: "complete" as const,
         },
-        changedFiles: currentTeamStatus === "approved" ? ["src/change.ts"] : [],
+        changedFiles: teamStatus === "approved" ? ["src/change.ts"] : [],
         evidence: ["durable team evidence"],
         companyGoal: {
           goalRunId: teamCorrelation.runId,
@@ -405,8 +413,8 @@ async function fixture(options: {
         ...(terminalFailure
           ? {
               failure: {
-                code: currentTeamStatus,
-                message: `team ${currentTeamStatus}`,
+                code: teamStatus,
+                message: `team ${teamStatus}`,
               },
             }
           : {}),
@@ -417,28 +425,38 @@ async function fixture(options: {
     async reserveCompanyRun(
       _input: unknown,
       _context: unknown,
-      correlation: NonNullable<typeof teamCorrelation>,
+      correlation: TeamCorrelation,
+      limits: { readonly maxRequests: number; readonly maxReportedCostUsd: number },
     ) {
       teamCalls.push("reserve");
-      teamCorrelation = correlation;
+      const teamRunId = `team-run-${++teamIndex}`;
+      teamCorrelations.set(teamRunId, correlation);
+      teamStatuses.set(
+        teamRunId,
+        options.teamStatuses?.[teamIndex - 1] ?? currentTeamStatus,
+      );
       return {
-        teamRunId: "team-run-1",
+        teamRunId,
         allocation: {
           maxChildren: 6,
-          maxRequests: 48,
+          maxRequests: Math.min(48, limits.maxRequests),
           requestAllowance: 8,
-          maxReportedCostUsd: 3,
+          maxReportedCostUsd: Math.min(3, limits.maxReportedCostUsd),
         },
         companyGoal: correlation,
       };
     },
-    async startCompanyForeground() {
+    async startCompanyForeground(
+      _input: unknown,
+      _context: unknown,
+      reservation: { readonly teamRunId: string },
+    ) {
       teamCalls.push("start");
-      return teamResult();
+      return teamResult(reservation.teamRunId);
     },
-    async inspectCompanyRun() {
+    async inspectCompanyRun(_parentId: string, teamRunId: string) {
       teamCalls.push("inspect");
-      return teamResult();
+      return teamResult(teamRunId);
     },
   };
   let runIndex = 0;
@@ -492,6 +510,9 @@ async function fixture(options: {
     teamCalls,
     setTeamStatus(status: typeof currentTeamStatus) {
       currentTeamStatus = status;
+      for (const teamRunId of teamStatuses.keys()) {
+        teamStatuses.set(teamRunId, status);
+      }
     },
   };
 }
@@ -527,6 +548,71 @@ function goal(setup: Awaited<ReturnType<typeof fixture>>): DelegateCompanyGoalIn
       description: "Review the company result",
       prompt: "Review every handoff independently.",
       acceptance: ["Approve or report a concrete finding."],
+    }],
+  };
+}
+
+function multiStageGoal(
+  setup: Awaited<ReturnType<typeof fixture>>,
+): DelegateCompanyGoalInput {
+  const lead = setup.roles["Planning Lead"]!;
+  const worker = setup.roles["Implementation Worker"]!;
+  const reviewer = setup.roles["Independent Reviewer"]!;
+  return {
+    objective: "Deliver two dependency-ordered reviewed implementation stages.",
+    assignments: [{
+      id: "lead-assignment",
+      roleId: lead.id,
+      parentAssignmentId: null,
+      dependsOn: [],
+      description: "Plan both bounded stages",
+      prompt: "Identify the two implementation frontiers.",
+      acceptance: ["Return a staged plan."],
+    }, {
+      id: "architecture-assignment",
+      roleId: lead.id,
+      parentAssignmentId: null,
+      dependsOn: ["lead-assignment"],
+      description: "Check the architecture boundary",
+      prompt: "Confirm the approved architecture seam before review.",
+      acceptance: ["Return architecture evidence."],
+    }, {
+      id: "implementation-one",
+      roleId: worker.id,
+      parentAssignmentId: "lead-assignment",
+      dependsOn: [],
+      description: "Implement the first frontier",
+      prompt: "Implement and verify the foundation.",
+      acceptance: ["Return the first verified patch."],
+    }, {
+      id: "review-one",
+      roleId: reviewer.id,
+      parentAssignmentId: null,
+      dependsOn: ["architecture-assignment", "implementation-one"],
+      description: "Review the first frontier",
+      prompt: "Independently review the foundation.",
+      acceptance: ["Approve or return findings."],
+    }, {
+      id: "implementation-two",
+      roleId: worker.id,
+      parentAssignmentId: "lead-assignment",
+      dependsOn: ["review-one"],
+      description: "Implement the dependent frontier",
+      prompt: "Build on the approved foundation and verify it.",
+      acceptance: ["Return the dependent verified patch."],
+    }, {
+      id: "review-two",
+      roleId: reviewer.id,
+      parentAssignmentId: null,
+      dependsOn: [
+        "lead-assignment",
+        "architecture-assignment",
+        "implementation-one",
+        "implementation-two",
+      ],
+      description: "Review the complete result",
+      prompt: "Independently review every non-review assignment.",
+      acceptance: ["Approve or return final findings."],
     }],
   };
 }
@@ -693,6 +779,130 @@ describe("CompanyGoalSupervisor", () => {
       assignment.execution !== undefined && "teamRunId" in assignment.execution &&
       assignment.execution.teamRunId === "team-run-1"
     )).toBe(true);
+  });
+
+  it("runs dependency-ordered implementation and review frontiers through separate durable teams", async () => {
+    const setup = await fixture({ implementation: true });
+
+    const result = await setup.supervisor.start(
+      multiStageGoal(setup),
+      setup.context,
+    );
+
+    expect(result.output).toContain("Company goal completed");
+    expect(setup.teamCalls).toEqual(["reserve", "start", "reserve", "start"]);
+    const stored = await setup.runs.load("company-run-id-1");
+    expect(stored.state).toMatchObject({
+      status: "completed",
+      budget: {
+        assignmentsStarted: 6,
+        requestsReserved: 80,
+        requestsUsed: 6,
+        reportedCostUsd: 0.06,
+      },
+    });
+    expect(stored.state.plan.assignments.map((assignment) => assignment.status))
+      .toEqual([
+        "completed", "completed", "completed", "completed", "completed",
+        "completed",
+      ]);
+    expect(stored.state.plan.assignments[2]?.execution).toMatchObject({
+      teamRunId: "team-run-1",
+      teamRole: "implement",
+    });
+    expect(stored.state.plan.assignments[3]?.execution).toMatchObject({
+      teamRunId: "team-run-1",
+      teamRole: "review",
+    });
+    expect(stored.state.plan.assignments[4]?.execution).toMatchObject({
+      teamRunId: "team-run-2",
+      teamRole: "implement",
+    });
+    expect(stored.state.plan.assignments[5]?.execution).toMatchObject({
+      teamRunId: "team-run-2",
+      teamRole: "review",
+    });
+  });
+
+  it("rejects a mutating stage whose only covering review is gated on future work", async () => {
+    const setup = await fixture({ implementation: true });
+    const input = multiStageGoal(setup);
+    const invalid = {
+      ...input,
+      assignments: input.assignments.map((assignment) =>
+        assignment.id === "review-one"
+          ? { ...assignment, dependsOn: ["architecture-assignment"] }
+          : assignment.id === "implementation-two"
+            ? { ...assignment, dependsOn: ["implementation-one"] }
+            : assignment
+      ),
+    };
+
+    await expect(setup.supervisor.start(invalid, setup.context)).rejects
+      .toMatchObject({
+        code: "permission_denied",
+        message: expect.stringContaining("reviewed execution frontier"),
+      });
+    await expect(setup.runs.load("company-run-id-1")).rejects
+      .toMatchObject({ code: "not_found" });
+    expect(setup.teamCalls).toEqual([]);
+  });
+
+  it("recovers an interrupted later frontier without replaying the approved first stage", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatuses: ["approved", "interrupted"],
+    });
+
+    await expect(setup.supervisor.start(
+      multiStageGoal(setup),
+      setup.context,
+    )).rejects.toMatchObject({ code: "checkpoint_conflict" });
+    const interrupted = await setup.runs.load("company-run-id-1");
+    expect(interrupted.state).toMatchObject({
+      status: "interrupted",
+      budget: { requestsReserved: 80, requestsUsed: 4, reportedCostUsd: 0.04 },
+    });
+    expect(interrupted.state.plan.assignments.map((assignment) => assignment.status))
+      .toEqual([
+        "completed", "completed", "completed", "completed", "running", "running",
+      ]);
+
+    setup.setTeamStatus("approved");
+    await expect(setup.supervisor.resume("company-run-id-1", {
+      ...setup.context,
+      signal: new AbortController().signal,
+      delegationBudget: createDelegationBudget(setup.parent.agent),
+    })).resolves.toMatchObject({ metadata: { status: "completed" } });
+    expect(setup.teamCalls).toEqual([
+      "reserve", "start", "reserve", "start", "inspect",
+    ]);
+    const completed = await setup.runs.load("company-run-id-1");
+    expect(completed.state).toMatchObject({
+      status: "completed",
+      budget: { requestsReserved: 80, requestsUsed: 6, reportedCostUsd: 0.06 },
+    });
+  });
+
+  it("propagates cancellation from a later frontier without rewriting prior evidence", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatuses: ["approved", "cancelled"],
+    });
+
+    await expect(setup.supervisor.start(
+      multiStageGoal(setup),
+      setup.context,
+    )).rejects.toMatchObject({ code: "cancelled" });
+    const cancelled = await setup.runs.load("company-run-id-1");
+    expect(cancelled.state.status).toBe("cancelled");
+    expect(cancelled.state.plan.assignments.map((assignment) => assignment.status))
+      .toEqual([
+        "completed", "completed", "completed", "completed", "cancelled",
+        "cancelled",
+      ]);
+    expect(cancelled.state.plan.assignments[2]?.result?.evidence)
+      .toEqual(["evidence for implementation-one"]);
   });
 
   it.each(["failed", "cancelled"] as const)(

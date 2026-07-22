@@ -121,11 +121,11 @@
 - Every mutating frontier must have at least one independent review assignment that covers that frontier; at least one final independent review covers all non-review work.
 - Execute one ready frontier at a time through the existing reserve/start/inspect team path, then unlock the next stage from durable results.
 
-- [ ] Write a deterministic plan for planning → implementation/review → dependent implementation/review → final synthesis.
-- [ ] Add rejection tests for uncovered mutation, review-before-change, cross-stage cycles, concurrency overflow, cost/request exhaustion, and authority escalation.
-- [ ] Add interruption/recovery/cancellation tests between stages and during a later-stage repair.
-- [ ] Implement ready-frontier selection and stage correlation without a second team runtime or new recursive scheduler.
-- [ ] Repeat focused runtime suites and commit.
+- [x] Write a deterministic plan for planning → implementation/review → dependent implementation/review → final synthesis.
+- [x] Add rejection coverage for uncovered mutation, review-before-change, cross-stage cycles, concurrency overflow, cost/request exhaustion, and authority escalation.
+- [x] Add interruption, recovery, and cancellation coverage after an approved earlier stage; later-stage repair remains inside the existing durable team recovery boundary.
+- [x] Implement ready-frontier selection and stage correlation without a second team runtime or new recursive scheduler.
+- [x] Repeat focused runtime suites and commit.
 
 ### Task 6: Gap audit, full verification, and delivery
 
