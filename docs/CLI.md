@@ -401,6 +401,24 @@ Only the agent session that started a process can control it. Its original permi
 
 Piped sessions remain the default for dev servers, watchers, long verification, and simple line-oriented input. PTY attachment is a bounded raw relay, not a separate full-screen terminal emulator. Recurs does not claim scrollback management, arbitrary terminal-signal controls, or safe hidden input for authentication and passphrase prompts. The sealed native engine does not package the optional Node PTY dependency and therefore reports PTY requests as unavailable; Windows subprocess tools remain unsupported.
 
+### Company evaluation
+
+`recurs eval company --json -C <project>` runs the deterministic offline
+company-formation scenario through the installed CLI. It uses a temporary
+private Recurs home, an in-process scripted provider, and the same restricted
+read-only onboarding tools as normal company formation. It needs no provider,
+API key, saved account, or network access. The sanitized report scores the
+structural formation path; it does not claim that a real model interviews,
+delegates, or synthesizes well.
+
+`recurs eval company --configured --allow-network -C <project>` runs that same
+versioned formation scenario through the saved primary direct BYOK or local
+connection. The explicit network flag is mandatory. This path is for
+qualitative dogfooding with a real model and may incur provider usage. Both
+modes use a temporary evaluation state root, preserve the user's normal Recurs
+state, omit prompts and private paths from reports, and exit nonzero for a
+failed or cancelled report.
+
 ### ACP stdio agent
 
 `recurs acp` serves Recurs as an Agent Client Protocol v1 agent over standard input and output. It is a thin host over the same standalone runtime: every ACP `session/new` creates a distinct pinned Recurs session, and `session/prompt` uses the ordinary coordinator, provider, permissions, tools, sessions, and child/team engine. Model text and reasoning, tool lifecycles, and Recurs child, batch, and team activity are projected into typed ACP session updates. A client permission prompt can grant or reject one operation; Recurs does not advertise an always-allow choice through this boundary.
@@ -545,6 +563,8 @@ roster is working:
 /company bind <bundle> skill <exact-skill-id>
 /company bind <bundle> mcp <exact-server-id>
 /company unbind <exact-binding-id>
+/company operations
+/company run <exact-run-id>
 /company activity
 /company knowledge
 /company amendments
@@ -568,7 +588,13 @@ of the role bundle, profile, parent policy, enabled Skill or trusted MCP server,
 and the exact binding. Missing, disabled, untrusted, or stale mappings fail
 closed.
 
-Activity, knowledge, and amendment views are bounded and omit prompts,
+`/company operations` renders a read-only snapshot of goal counts, only the
+roles with assignments actually marked running, current progress, request
+reservations and usage, provider-reported cost, and the latest durable state.
+`/company run <id>` renders one exact owned run with its assignment DAG,
+dependencies, child/team correlation, evidence counts, usage provenance,
+failure, and truthful next-state explanation. Neither command polls, resumes,
+approves, or mutates work. Activity, knowledge, and amendment views are bounded and omit prompts,
 credentials, private paths, and provider configuration. Successful company
 goals extract only attributable user or execution evidence into private,
 versioned knowledge; relevant active facts are supplied to later goals without
@@ -695,7 +721,7 @@ A daemon that outlives the CLI, unbounded recursive depth, terminal-child retrie
 | --- | --- |
 | `/help` | Show concise command help. |
 | `/goal ...` | Create, inspect, pause, resume, complete, or clear the durable goal. |
-| `/company [blueprint\|readiness\|capabilities\|bind ...\|unbind ...\|activity\|knowledge\|amendments\|amendment <id>\|approve-amendment <id>\|reject-amendment <id>]` | Inspect the active V2 company, approve exact capability bindings, view durable learning, and control amendments. |
+| `/company [blueprint\|readiness\|capabilities\|bind ...\|unbind ...\|operations\|run <id>\|activity\|knowledge\|amendments\|amendment <id>\|approve-amendment <id>\|reject-amendment <id>]` | Inspect the active V2 company and exact goal operations, approve exact capability bindings, view durable learning, and control amendments. |
 | `/plan [prompt\|exit]` | Enter enforced read-only planning or return to Act. |
 | `/permissions [ask\|approved\|full]` | Inspect or change the permission preset. |
 | `/agents [profiles\|activity [exact-id]\|teams\|team <id>\|wait <id>\|cancel <id>\|resume <id>\|apply <id>\|mode ...]` | Inspect profiles, child/team activity, control an owned durable team, or change the bounded policy. |

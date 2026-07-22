@@ -74,6 +74,7 @@ recurs                              # interactive setup or resume
 recurs run "inspect the project" --plan
 recurs review                       # bounded staged/unstaged Git review
 recurs doctor                       # redacted host readiness report
+recurs eval company --json          # deterministic offline company check
 recurs --help
 ```
 
@@ -92,8 +93,9 @@ sessions, permissions, and every supported command.
 - conversational or YAML proposal revision with explicit activation;
 - approved multi-stage role DAG execution, goal-wide accounting, attributable
   learning, and approval-gated organization amendments;
-- `/company` status, blueprint, activity, knowledge, amendment, readiness, and
-  exact user-approved Skill/MCP capability bindings.
+- `/company` status, blueprint, operations, exact-run, activity, knowledge,
+  amendment, readiness, and user-approved Skill/MCP capability bindings;
+- an installed offline structural evaluation that needs no API key or network.
 
 ### ⚙️ Agent runtime
 

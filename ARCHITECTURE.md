@@ -150,6 +150,17 @@ the newest contiguous, fully decided lineage. `/company amendment <id>` exposes
 a bounded structural diff, and decisions require an exact ID plus local,
 manual, user-present confirmation.
 
+The CLI's company operating view is a pure bounded projection over approved
+blueprints and durable goal journals. It counts a role as active only when a
+real assignment is running, reports reserved and consumed requests separately,
+preserves unknown cost as unknown, and never polls, resumes, approves, or
+mutates work. Company evaluation is similarly downstream of authority: the
+offline installed command exercises formation with a scripted provider and
+restricted read-only tools, while durable goal scoring reparses and validates
+the exact blueprint/run binding before scoring structure, evidence, synthesis,
+and efficiency. Neither projection can authorize execution or substitute for
+real-provider quality testing.
+
 `delegate_task` creates one durable Explore, Implement, or Review child session through `BackendRunCoordinator`. `delegate_tasks` schedules independent Explore/Review children through that same path. `delegate_team` composes isolated Implement, Review, and Repair children without creating another model loop. Child permissions can only narrow the parent, retries are zero, and every operating mode caps total and concurrent work. Immutable version-1 through version-5 IDs retain their historical behavior; display-name selection uses the V6 company-capable policy.
 
 Batch preflight requires the parent cwd to be the canonical root of a clean Git repository. `GitWorktreeLeaseManager` creates a detached worktree at exact `HEAD` under the private project-data root, outside the repository. Each child session stores its lease and revision, results settle in input order, linked cancellation stops active work, and every lease is cleaned before settlement. Explore/Review batches intentionally discard workspace effects while retaining successful sibling evidence after ordinary partial failure.

@@ -618,6 +618,39 @@ try {
   assert(JSON.parse(accounts).accounts?.length === 0, "A fresh install must start with no accounts.");
   assert(accountError === "", "The installed CLI wrote unexpected account diagnostics.");
 
+  await writeFile(
+    path.join(workspaceDirectory, "package.json"),
+    `${JSON.stringify({ name: "recurs-installed-evaluation" }, null, 2)}\n`,
+  );
+  const { stdout: companyEvaluation, stderr: companyEvaluationError } =
+    await execFileAsync(
+      executable,
+      ["eval", "company", "--json", "-C", workspaceDirectory],
+      {
+        cwd: installDirectory,
+        encoding: "utf8",
+        env: environment,
+        maxBuffer: 10 * 1024 * 1024,
+      },
+    );
+  const installedEvaluation = JSON.parse(companyEvaluation);
+  assert(
+    installedEvaluation.status === "passed" &&
+      installedEvaluation.mode === "offline" &&
+      installedEvaluation.scenarioId === "company_formation_v1" &&
+      installedEvaluation.rubric?.length === 6,
+    "The installed CLI did not pass its deterministic company evaluation.",
+  );
+  assert(
+    !companyEvaluation.includes("What should this company") &&
+      !companyEvaluation.includes("Build a dependable open-source"),
+    "The installed company evaluation exposed raw private evaluation content.",
+  );
+  assert(
+    companyEvaluationError === "",
+    "The installed company evaluation wrote unexpected diagnostics.",
+  );
+
   localModelServer = await startLocalModelServer();
   const { stdout: setup, stderr: setupError } = await execFileAsync(
     executable,
