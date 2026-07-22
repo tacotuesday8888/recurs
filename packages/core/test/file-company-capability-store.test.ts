@@ -85,6 +85,13 @@ describe("FileCompanyCapabilityStore", () => {
     await expect(store.create(fixture({ bindings: [] }))).rejects.toMatchObject({
       code: "conflict",
     });
+
+    await expect(store.create(fixture({
+      revision: 2,
+      blueprintId: "blueprint-capability-store-r3",
+      blueprintRevision: 3,
+      updatedAt: "2026-07-22T10:02:00.000Z",
+    }))).resolves.toBeUndefined();
   });
 
   it("serializes same-instance and cross-instance publication races", async () => {

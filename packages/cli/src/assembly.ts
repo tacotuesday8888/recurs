@@ -48,6 +48,7 @@ import {
   FileCompanyBlueprintStore,
   FileCompanyBlueprintV2Store,
   FileCompanyAmendmentStore,
+  FileCompanyCapabilityStore,
   FileCompanyKnowledgeStore,
   FileCompanyOnboardingStore,
   JsonlSessionStore,
@@ -129,6 +130,7 @@ import {
   companyOnboardingBackendFingerprint,
 } from "./company-onboarding-runtime.js";
 import { CompanyProposalEditor } from "./company-proposal-editor.js";
+import { CompanyCapabilityAuthority } from "./company-capability-authority.js";
 import type { CompanyCapabilityCatalogs } from "./company-tool-readiness.js";
 import { RecursRuntime, RuntimeError } from "./runtime.js";
 import {
@@ -860,6 +862,9 @@ export async function createStandaloneRuntime(
   const companyAmendments = new FileCompanyAmendmentStore(
     path.join(projectData, "company-amendments"),
   );
+  const companyCapabilities = new FileCompanyCapabilityStore(
+    path.join(projectData, "company-capabilities"),
+  );
   const companyLearning = new CompanyLearningService({ store: companyKnowledge });
   const companyAmendmentDecisions = new CompanyAmendmentService({
     blueprints: companyBlueprintsV2,
@@ -1247,6 +1252,17 @@ export async function createStandaloneRuntime(
     state = pinnedState;
   }
 
+  const companyCapabilityAuthority = new CompanyCapabilityAuthority({
+    store: companyCapabilities,
+    skills,
+    mcp,
+  });
+  const activeCompanyBlueprint = !("type" in state) &&
+      state.agent.company?.blueprintVersion === 2
+    ? await companyBlueprintsV2.load(state.agent.company.blueprintId)
+    : null;
+  await companyCapabilityAuthority.activate(activeCompanyBlueprint);
+
   const coordinatorReference: { current?: BackendRunCoordinator } = {};
   const processes = new OwnedProcessManager({
     checkpoints,
@@ -1479,12 +1495,18 @@ export async function createStandaloneRuntime(
       return events.emit(event);
     },
     createToolContext(session, signal, runContext) {
+      const capabilities = isPinnedSessionState(session)
+        ? companyCapabilityAuthority.policyForAgent(session.agent)
+        : undefined;
       return {
         sessionId: session.id,
         cwd: session.cwd,
         signal,
         executionMode: session.executionMode,
         readRevisions: new Map(),
+        ...(capabilities === undefined
+          ? {}
+          : { companyCapabilities: capabilities }),
         ...(runContext === undefined ? {} : { runContext }),
       };
     },
@@ -1496,29 +1518,43 @@ export async function createStandaloneRuntime(
     emit(event) {
       return events.emit(event);
     },
-    contextInstructions: async (session) => [
-      ...await projectContextInstructions(session.cwd),
-      ...(isPinnedSessionState(session) && session.agent.role === "parent" &&
-          session.agent.company !== undefined
-        ? session.agent.company.blueprintVersion === 2
-          ? companyContextInstructionsV2(
-              await companyBlueprintsV2.load(session.agent.company.blueprintId),
-            )
-          : companyContextInstructions(
-              await companyBlueprints.load(session.agent.company.blueprintId),
-            )
-        : []),
-      ...(isPinnedSessionState(session) && session.agent.profile === null
-        ? [...skills.contextInstructions(), ...mcp.contextInstructions()]
-        : []),
-    ],
+    contextInstructions: async (session) => {
+      const capabilities = isPinnedSessionState(session)
+        ? companyCapabilityAuthority.policyForAgent(session.agent)
+        : undefined;
+      return [
+        ...await projectContextInstructions(session.cwd),
+        ...(isPinnedSessionState(session) && session.agent.role === "parent" &&
+            session.agent.company !== undefined
+          ? session.agent.company.blueprintVersion === 2
+            ? companyContextInstructionsV2(
+                await companyBlueprintsV2.load(session.agent.company.blueprintId),
+              )
+            : companyContextInstructions(
+                await companyBlueprints.load(session.agent.company.blueprintId),
+              )
+          : []),
+        ...(isPinnedSessionState(session) && session.agent.profile === null
+          ? [
+              ...skills.contextInstructions(capabilities?.agentSkillNames),
+              ...mcp.contextInstructions(capabilities?.mcpServerIds),
+            ]
+          : []),
+      ];
+    },
     createToolContext(session, signal, runContext) {
+      const capabilities = isPinnedSessionState(session)
+        ? companyCapabilityAuthority.policyForAgent(session.agent)
+        : undefined;
       return {
         sessionId: session.id,
         cwd: session.cwd,
         signal,
         executionMode: session.executionMode,
         readRevisions: new Map(),
+        ...(capabilities === undefined
+          ? {}
+          : { companyCapabilities: capabilities }),
         ...(runContext === undefined ? {} : { runContext }),
       };
     },
@@ -1819,6 +1855,7 @@ export async function createStandaloneRuntime(
       knowledge: companyKnowledge,
       amendments: companyAmendments,
       decisions: companyAmendmentDecisions,
+      capabilities: companyCapabilityAuthority,
     },
     skills,
     mcp,

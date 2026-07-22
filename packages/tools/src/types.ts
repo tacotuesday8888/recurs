@@ -64,6 +64,10 @@ export interface ToolContext {
   runContext?: TrustedRunContext;
   toolPolicy?: ToolPolicy;
   delegationBudget?: DelegationBudget;
+  companyCapabilities?: {
+    readonly agentSkillNames: readonly string[];
+    readonly mcpServerIds: readonly string[];
+  };
   processSandbox?: {
     readonly mode: "workspace";
     readonly network: "allow" | "deny";

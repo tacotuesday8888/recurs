@@ -61,10 +61,10 @@
 - Resolve exact approved bindings against enabled catalogs and trusted project MCP state.
 - Pass a frozen per-agent capability policy through `ToolContext`; generic Skill/MCP tools reject every capability not explicitly bound to one of that role's approved bundles.
 
-- [ ] Write tests proving catalogs alone grant nothing and unavailable/disabled/untrusted/stale bindings remain unusable.
-- [ ] Write tests proving binding cannot add an unapproved role bundle, tool name, permission category, network grant, or project trust.
-- [ ] Implement command confirmation, immutable revision publication, safe rendering, role-policy intersection, and tool-level exact-ID enforcement.
-- [ ] Run the focused CLI/core/tools suites twice and commit.
+- [x] Write tests proving catalogs alone grant nothing and unavailable/disabled/untrusted/stale bindings remain unusable.
+- [x] Write tests proving binding cannot add an unapproved role bundle, tool name, permission category, network grant, or project trust.
+- [x] Implement command confirmation, immutable revision publication, safe rendering, role-policy intersection, and tool-level exact-ID enforcement.
+- [x] Run the focused CLI/core/tools suites twice and commit.
 
 ### Task 3: Repeatable real-provider company evaluation
 

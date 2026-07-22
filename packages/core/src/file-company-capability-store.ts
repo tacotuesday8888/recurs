@@ -37,7 +37,7 @@ function validateNext(
   }
   const sameBlueprint = next.blueprintRevision === previous.blueprintRevision &&
     next.blueprintId === previous.blueprintId;
-  const nextBlueprint = next.blueprintRevision === previous.blueprintRevision + 1 &&
+  const nextBlueprint = next.blueprintRevision > previous.blueprintRevision &&
     next.blueprintId !== previous.blueprintId;
   if ((!sameBlueprint && !nextBlueprint) || next.updatedAt < previous.updatedAt) {
     throw new CompanyStateStoreError(

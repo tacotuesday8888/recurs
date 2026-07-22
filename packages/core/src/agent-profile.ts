@@ -96,7 +96,22 @@ export function applyAgentToolPolicy(
     return context;
   }
   const profile = getAgentProfilePolicy(agent.profile.id);
-  const toolPolicy: ToolPolicy = profile.tools;
+  const capabilityTools = [
+    ...((context.companyCapabilities?.agentSkillNames.length ?? 0) > 0
+      ? ["activate_skill"]
+      : []),
+    ...((context.companyCapabilities?.mcpServerIds.length ?? 0) > 0
+      ? ["mcp"]
+      : []),
+  ];
+  const toolPolicy: ToolPolicy = capabilityTools.length === 0
+    ? profile.tools
+    : Object.freeze({
+        ...profile.tools,
+        allowedNames: Object.freeze([
+          ...new Set([...profile.tools.allowedNames, ...capabilityTools]),
+        ]),
+      });
   return { ...context, toolPolicy };
 }
 

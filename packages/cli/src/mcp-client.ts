@@ -1116,8 +1116,10 @@ export class McpServerCatalog {
     });
   }
 
-  contextInstructions(): readonly string[] {
+  contextInstructions(allowedIds?: readonly string[]): readonly string[] {
+    const allowed = allowedIds === undefined ? null : new Set(allowedIds);
     const servers = [...this.#activeServers().values()]
+      .filter((server) => allowed === null || allowed.has(server.id))
       .sort((left, right) => left.id.localeCompare(right.id))
       .map(({ id, description, network, source }) => ({
         id,
@@ -1213,6 +1215,15 @@ export class McpServerCatalog {
   }
 
   createTool(): Tool<McpToolInput> {
+    const assertAllowed = (input: McpToolInput, context: ToolContext): void => {
+      const allowed = context.companyCapabilities?.mcpServerIds;
+      if (allowed !== undefined && !allowed.includes(input.server)) {
+        throw new ToolError(
+          "tool_unavailable",
+          "MCP server is not approved for this company role",
+        );
+      }
+    };
     return {
       definition: {
         name: "mcp",
@@ -1231,8 +1242,12 @@ export class McpServerCatalog {
       },
       executionClass: "arbitrary_process",
       mutating: true,
+      available: (context) =>
+        context.companyCapabilities === undefined ||
+        context.companyCapabilities.mcpServerIds.length > 0,
       parse: parseToolInput,
-      permissions: (input) => {
+      permissions: (input, context) => {
+        assertAllowed(input, context);
         const server = this.#server(input.server);
         return [
           { category: "shell" as const, resource: `mcp:${server.id}`, risk: "elevated" as const },
@@ -1241,7 +1256,8 @@ export class McpServerCatalog {
             : []),
         ];
       },
-      preflight: async (input) => {
+      preflight: async (input, context) => {
+        assertAllowed(input, context);
         const server = this.#server(input.server);
         if (server.source === "project") {
           await this.#assertProjectConfigurationCurrent();
@@ -1257,11 +1273,10 @@ export class McpServerCatalog {
           });
         }
       },
-      execute: (input, context) => this.#execute(
-        this.#server(input.server),
-        input,
-        context,
-      ),
+      execute: (input, context) => {
+        assertAllowed(input, context);
+        return this.#execute(this.#server(input.server), input, context);
+      },
     };
   }
 
