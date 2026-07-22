@@ -74,6 +74,32 @@ function createNewCommand(dependencies: CommandDependencies): Command {
           "error",
         );
       }
+      let operatingModeId = context.session.agent.operatingMode.id;
+      let permissionMode = context.session.permissionMode;
+      let company = context.session.agent.company?.blueprintVersion === 2
+        ? context.session.agent.company
+        : undefined;
+      if (company !== undefined) {
+        if (dependencies.company?.decisions === undefined) {
+          return message(
+            "Company revision storage is unavailable; the current session was not changed",
+            "error",
+          );
+        }
+        const latest = await dependencies.company.decisions.latest({
+          company,
+          signal: dependencies.signal?.() ?? new AbortController().signal,
+        });
+        operatingModeId = latest.authority.operatingModeId;
+        permissionMode = latest.authority.permissionMode;
+        company = {
+          blueprintId: latest.id,
+          blueprintVersion: 2,
+          blueprintRevision: latest.revision,
+          roleId: latest.authorityAnchors.rootRoleId,
+          roleVersion: 1,
+        };
+      }
       let next = await dependencies.sessions.createPinnedSession({
         id,
         cwd: context.session.cwd,
@@ -81,14 +107,16 @@ function createNewCommand(dependencies: CommandDependencies): Command {
         agent: createRootAgentDescriptor(
           id,
           context.session.backend.pin,
-          context.session.agent.operatingMode.id,
-          context.session.permissionMode,
+          operatingModeId,
+          permissionMode,
+          "act",
+          company,
         ),
         at: context.now(),
       });
       if (
         next.executionMode !== context.session.executionMode ||
-        next.permissionMode !== context.session.permissionMode
+        next.permissionMode !== permissionMode
       ) {
         await dependencies.sessions.withSessionMutation(
           id,
@@ -99,13 +127,10 @@ function createNewCommand(dependencies: CommandDependencies): Command {
               source: "command",
               at: context.now(),
               executionMode: context.session.executionMode,
-              permissionMode: context.session.permissionMode,
-              ...(context.session.prePlanPermissionMode === undefined
+              permissionMode,
+              ...(context.session.executionMode !== "plan"
                 ? {}
-                : {
-                    prePlanPermissionMode:
-                      context.session.prePlanPermissionMode,
-                  }),
+                : { prePlanPermissionMode: permissionMode }),
             });
           },
         );
@@ -116,7 +141,9 @@ function createNewCommand(dependencies: CommandDependencies): Command {
         next = loaded;
       }
       context.session = next;
-      return message(`Started session ${id}`);
+      return message(company?.blueprintVersion === 2
+        ? `Started session ${id} with company revision ${company.blueprintRevision}`
+        : `Started session ${id}`);
     },
   };
 }

@@ -20,6 +20,7 @@ import {
 import {
   JsonlSessionStore,
   TEAM_APPLY_PERMISSION,
+  createRootAgentDescriptor,
   createSessionState,
   isPinnedSessionState,
   reduceSessionRecord,
@@ -28,6 +29,7 @@ import {
   type TeamRunResult,
   type TeamRunSnapshot,
 } from "@recurs/core";
+import { companyBlueprintV2Fixture } from "../../contracts/test/company-v2-fixture.js";
 import type { Checkpoint } from "@recurs/tools";
 import {
   CheckpointStore,
@@ -600,6 +602,88 @@ describe("session commands", () => {
     expect(await registry.execute("/resume s", commandContext)).toMatchObject({
       level: "error",
     });
+  });
+
+  it("starts future company sessions on the latest approved blueprint revision", async () => {
+    const base = companyBlueprintV2Fixture();
+    const latest = companyBlueprintV2Fixture({
+      id: "company-v2-fixture-r2",
+      revision: 2,
+      previousBlueprintId: base.id,
+    });
+    const backend = testBackendPin();
+    const original = await sessions.createPinnedSession({
+      id: "company-session-r1",
+      at,
+      cwd,
+      backend,
+      agent: createRootAgentDescriptor(
+        "company-session-r1",
+        backend,
+        base.authority.operatingModeId,
+        base.authority.permissionMode,
+        "act",
+        {
+          blueprintId: base.id,
+          blueprintVersion: 2,
+          blueprintRevision: base.revision,
+          roleId: base.authorityAnchors.rootRoleId,
+          roleVersion: 1,
+        },
+      ),
+    });
+    const unavailable = context(original);
+    await expect(createCommandRegistry({ sessions }).execute("/new", unavailable))
+      .resolves.toMatchObject({
+        level: "error",
+        text: expect.stringContaining("Company revision storage is unavailable"),
+      });
+    await expect(sessions.list()).resolves.toHaveLength(1);
+    const latestRevision = vi.fn(async () => latest);
+    const commands = createCommandRegistry({
+      sessions,
+      company: {
+        blueprints: { async load() { return base; } },
+        goals: { async list() { return []; } },
+        knowledge: { async latest() { return null; } },
+        amendments: { async list() { return []; } },
+        decisions: {
+          latest: latestRevision,
+          approve: vi.fn(),
+          reject: vi.fn(),
+        },
+      },
+    });
+    const commandContext = context(original);
+
+    const result = await commands.execute("/new", commandContext);
+
+    expect(result).toMatchObject({
+      text: expect.stringContaining("company revision 2"),
+    });
+    expect(commandContext.session).toMatchObject({
+      agent: {
+        company: {
+          blueprintId: latest.id,
+          blueprintRevision: 2,
+          roleId: latest.authorityAnchors.rootRoleId,
+        },
+      },
+    });
+    await expect(sessions.loadState(original.id)).resolves.toMatchObject({
+      agent: {
+        company: {
+          blueprintId: base.id,
+          blueprintRevision: 1,
+        },
+      },
+    });
+    expect(latestRevision).toHaveBeenCalledWith(expect.objectContaining({
+      company: expect.objectContaining({
+        blueprintId: base.id,
+        blueprintRevision: 1,
+      }),
+    }));
   });
 
   it("lists saved model connections and activates only one exact confirmed choice", async () => {

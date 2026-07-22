@@ -33,6 +33,10 @@ import type {
   ChildIdentityReservation,
 } from "./child-agent-manager.js";
 import type { FileCompanyBlueprintV2Store } from "./file-company-blueprint-v2-store.js";
+import type {
+  CompanyGoalLearningResult,
+  CompanyKnowledgeSelection,
+} from "./company-learning.js";
 import type { RecursEvent } from "./events.js";
 import type { JsonlCompanyGoalStore } from "./jsonl-company-goal-store.js";
 import type { JsonlSessionStore } from "./jsonl-session-store.js";
@@ -89,6 +93,22 @@ export interface CompanyGoalSupervisorDependencies {
   /** Mutating/review/repair work must be supplied by the durable team adapter. */
   readonly work?: CompanyGoalAssignmentExecutor;
   readonly team?: CompanyGoalTeamExecutor;
+  readonly learning?: {
+    selectCompanyKnowledge(input: {
+      readonly companyId: string;
+      readonly query: string;
+      readonly asOf: string;
+      readonly maximumEntries: number;
+      readonly maximumBytes: number;
+      readonly signal?: AbortSignal;
+    }): Promise<CompanyKnowledgeSelection>;
+    recordCompletedGoal(input: {
+      readonly blueprint: CompanyBlueprintV2;
+      readonly run: CompanyGoalRunV1;
+      readonly at: string;
+      readonly signal?: AbortSignal;
+    }): Promise<CompanyGoalLearningResult>;
+  };
   emit(event: RecursEvent): Promise<void>;
   readonly createId?: () => string;
   readonly now?: () => string;
@@ -388,6 +408,7 @@ function rolePrompt(
   run: CompanyGoalRunV1,
   blueprint: CompanyBlueprintV2,
   assignment: CompanyGoalAssignmentV1,
+  knowledgeContext: string,
 ): string {
   const role = blueprint.roles.find((candidate) => candidate.id === assignment.roleId)!;
   const dependencies = run.plan.assignments
@@ -400,6 +421,7 @@ function rolePrompt(
     `You are the approved Recurs company role: ${role.displayName}.`,
     `Responsibility: ${role.responsibility}`,
     role.instructions,
+    ...(knowledgeContext.length === 0 ? [] : [knowledgeContext]),
     `Company goal: ${run.objective}`,
     `Assignment: ${assignment.prompt}`,
     "Acceptance:",
@@ -447,6 +469,8 @@ interface ActiveCompanyGoal {
   readonly journal: GoalJournal;
   readonly rootContext: ToolContext;
   readonly root: PinnedSessionState;
+  readonly knowledgeContext: string;
+  readonly knowledgeRevision: number | null;
   readonly budget: DelegationBudget;
   readonly activeAssignments: Set<string>;
 }
@@ -555,6 +579,63 @@ export class CompanyGoalSupervisor {
       await this.dependencies.emit(event);
     } catch {
       // Durable goal state remains authoritative; presentation is best effort.
+    }
+  }
+
+  async #knowledge(
+    blueprint: CompanyBlueprintV2,
+    objective: string,
+    runCreatedAt: string,
+    signal: AbortSignal,
+  ): Promise<CompanyKnowledgeSelection> {
+    if (this.dependencies.learning === undefined) {
+      return Object.freeze({
+        revision: null,
+        entries: Object.freeze([]),
+        context: "",
+      });
+    }
+    try {
+      const beforeRun = new Date(
+        new Date(runCreatedAt).valueOf() - 1,
+      ).toISOString();
+      return await this.dependencies.learning.selectCompanyKnowledge({
+        companyId: blueprint.companyId,
+        query: objective,
+        asOf: beforeRun,
+        maximumEntries: 12,
+        maximumBytes: 8_192,
+        signal,
+      });
+    } catch {
+      throw new ToolError(
+        "execution_failed",
+        "Company knowledge context is unavailable",
+      );
+    }
+  }
+
+  async #learn(
+    runtime: ActiveCompanyGoal,
+    run: CompanyGoalRunV1,
+  ): Promise<CompanyGoalLearningResult | null> {
+    if (this.dependencies.learning === undefined) return null;
+    try {
+      return await this.dependencies.learning.recordCompletedGoal({
+        blueprint: runtime.blueprint,
+        run,
+        at: run.updatedAt,
+        signal: runtime.rootContext.signal,
+      });
+    } catch {
+      await this.#emit({
+        type: "warning",
+        sessionId: runtime.root.id,
+        at: this.#now(),
+        code: "company_learning_failed",
+        message: "Company goal completed, but project learning could not be updated",
+      });
+      return null;
     }
   }
 
@@ -767,7 +848,12 @@ export class CompanyGoalSupervisor {
       description: truncateUtf8(run.objective, MAX_DESCRIPTION_BYTES),
       tasks: Object.freeze(implementations.map((assignment) => ({
         description: assignment.description,
-        prompt: rolePrompt(run, runtime.blueprint, assignment),
+        prompt: rolePrompt(
+          run,
+          runtime.blueprint,
+          assignment,
+          runtime.knowledgeContext,
+        ),
       }))),
       review: Object.freeze({
         instructions: truncateUtf8([
@@ -776,6 +862,7 @@ export class CompanyGoalSupervisor {
             run,
             runtime.blueprint,
             assignment,
+            runtime.knowledgeContext,
           )),
         ].join("\n\n"), 12_000, "\n[review instructions truncated by Recurs]"),
       }),
@@ -1296,6 +1383,7 @@ export class CompanyGoalSupervisor {
         runtime.journal.current.state,
         runtime.blueprint,
         assignment,
+        runtime.knowledgeContext,
       ),
     };
     const company = parseCompanyBlueprintBindingV2({
@@ -1591,7 +1679,7 @@ export class CompanyGoalSupervisor {
         return `${role.displayName}: ${assignment.result!.summary}`;
       }),
     ].join("\n"), 16_384, "\n[company synthesis truncated by Recurs]");
-    await runtime.journal.update((run) => ({
+    const completed = await runtime.journal.update((run) => ({
       ...run,
       status: "completed",
       updatedAt: this.#now(),
@@ -1599,6 +1687,7 @@ export class CompanyGoalSupervisor {
       failure: null,
       budget: withBudget(run, runtime.budget),
     }));
+    const learning = await this.#learn(runtime, completed.state);
     await this.#emit({
       type: "company_goal_completed",
       sessionId: runtime.root.id,
@@ -1616,6 +1705,14 @@ export class CompanyGoalSupervisor {
         status: "completed",
         evidence,
         workflow: delegationWorkflowUsage(runtime.budget),
+        knowledge: learning === null
+          ? { status: "unavailable", revision: runtime.knowledgeRevision }
+          : {
+              status: "updated",
+              revision: learning.snapshotRevision,
+              entriesAdded: learning.entriesAdded,
+              entriesRejected: learning.entriesRejected,
+            },
       },
     };
   }
@@ -1627,6 +1724,12 @@ export class CompanyGoalSupervisor {
     if (context.signal.aborted) throw new ToolError("cancelled", "Goal was cancelled");
     const { root, blueprint } = await this.#authority(context);
     const at = this.#now();
+    const knowledge = await this.#knowledge(
+      blueprint,
+      input.objective,
+      at,
+      context.signal,
+    );
     const plan = buildPlan(input, blueprint, at);
     const mode = getOperatingModePolicy(root.agent.operatingMode.id);
     const companyPolicy = mode.company!;
@@ -1666,6 +1769,8 @@ export class CompanyGoalSupervisor {
       journal,
       rootContext: context,
       root,
+      knowledgeContext: knowledge.context,
+      knowledgeRevision: knowledge.revision,
       budget: mutableBudget(run),
       activeAssignments: new Set(),
     };
@@ -1728,12 +1833,31 @@ export class CompanyGoalSupervisor {
       );
     }
     if (loaded.state.status === "completed") {
+      const runtime: ActiveCompanyGoal = {
+        blueprint,
+        journal: new GoalJournal(this.dependencies.runs, loaded),
+        rootContext: context,
+        root,
+        knowledgeContext: "",
+        knowledgeRevision: null,
+        budget: mutableBudget(loaded.state),
+        activeAssignments: new Set(),
+      };
+      const learning = await this.#learn(runtime, loaded.state);
       return {
         output: loaded.state.result!.summary,
         metadata: {
           goalRunId: loaded.state.id,
           status: "completed",
           evidence: [...loaded.state.result!.evidence],
+          knowledge: learning === null
+            ? { status: "unavailable", revision: null }
+            : {
+                status: "updated",
+                revision: learning.snapshotRevision,
+                entriesAdded: learning.entriesAdded,
+                entriesRejected: learning.entriesRejected,
+              },
         },
       };
     }
@@ -1744,6 +1868,12 @@ export class CompanyGoalSupervisor {
       );
     }
     const journal = new GoalJournal(this.dependencies.runs, loaded);
+    const knowledge = await this.#knowledge(
+      blueprint,
+      loaded.state.objective,
+      loaded.state.createdAt,
+      context.signal,
+    );
     if (loaded.state.status === "created" || loaded.state.status === "interrupted") {
       await journal.update((run) => ({
         ...run,
@@ -1756,6 +1886,8 @@ export class CompanyGoalSupervisor {
       journal,
       rootContext: context,
       root,
+      knowledgeContext: knowledge.context,
+      knowledgeRevision: knowledge.revision,
       budget: mutableBudget(journal.current.state),
       activeAssignments: new Set(),
     };

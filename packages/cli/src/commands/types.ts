@@ -102,6 +102,10 @@ export interface CompanyAmendmentDecisionInput {
 }
 
 export interface CompanyAmendmentDecisionService {
+  latest(input: {
+    readonly company: CompanyBlueprintBindingV2;
+    readonly signal: AbortSignal;
+  }): Promise<CompanyBlueprintV2>;
   approve(input: CompanyAmendmentDecisionInput): Promise<{
     readonly amendment: CompanyAmendmentV1;
     readonly blueprint: CompanyBlueprintV2;

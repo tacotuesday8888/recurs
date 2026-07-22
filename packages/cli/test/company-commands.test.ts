@@ -240,6 +240,14 @@ describe("company slash command", () => {
       .toMatchObject({ text: expect.stringContaining("CLI is the first client") });
     await expect(registry.execute("/company amendments", active)).resolves
       .toMatchObject({ text: expect.stringContaining("amendment-cli") });
+    await expect(registry.execute("/company amendment amendment-cli", active))
+      .resolves.toMatchObject({
+        text: expect.stringMatching(
+          /Amendment: amendment-cli[\s\S]*Proposed: blueprint-cli-r2 \(revision 2\)[\s\S]*Changes:/u,
+        ),
+      });
+    await expect(registry.execute("/company amendment missing", active))
+      .resolves.toMatchObject({ level: "error", text: expect.stringContaining("not found") });
   });
 
   it("fails closed for missing or stale company authority", async () => {
@@ -267,6 +275,7 @@ describe("company slash command", () => {
     const approved = {
       ...dependencies(blueprint),
       decisions: {
+        latest: vi.fn(async () => blueprint),
         approve: vi.fn(async () => ({
           amendment: {
             ...(await dependencies(blueprint).amendments.list())[0]!,

@@ -152,6 +152,29 @@ async function prepareMutationRoot(directory: string, id: string): Promise<void>
   }
 }
 
+export function withPrivateStateMutationLock<T>(
+  directory: string,
+  id: string,
+  operation: () => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> {
+  const resolved = path.resolve(directory);
+  validateId(id);
+  return serializeMutation(path.join(resolved, id), async () => {
+    signal?.throwIfAborted();
+    await prepareMutationRoot(resolved, id);
+    const lock = await acquireSessionLock(resolved, id);
+    try {
+      signal?.throwIfAborted();
+      const result = await operation();
+      await lock.assertOwned();
+      return result;
+    } finally {
+      await lock.release();
+    }
+  });
+}
+
 async function syncDirectory(directory: string): Promise<void> {
   let handle;
   try {

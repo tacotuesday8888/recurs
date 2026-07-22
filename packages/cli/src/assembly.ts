@@ -40,7 +40,9 @@ import {
   ChildAgentManager,
   CompanyOnboardingCoordinator,
   CompanyAgentManager,
+  CompanyAmendmentService,
   CompanyGoalSupervisor,
+  CompanyLearningService,
   DelegatedAgentExecutor,
   FileGitPatchArtifactStore,
   FileCompanyBlueprintStore,
@@ -834,6 +836,11 @@ export async function createStandaloneRuntime(
   const companyAmendments = new FileCompanyAmendmentStore(
     path.join(projectData, "company-amendments"),
   );
+  const companyLearning = new CompanyLearningService({ store: companyKnowledge });
+  const companyAmendmentDecisions = new CompanyAmendmentService({
+    blueprints: companyBlueprintsV2,
+    amendments: companyAmendments,
+  });
   const requestedCompany = options.companyBlueprint === undefined
     ? null
     : options.companyBlueprint.version === 2
@@ -1374,6 +1381,7 @@ export async function createStandaloneRuntime(
       runs: companyGoals,
       children: childAgents,
       team: teamSupervisor,
+      learning: companyLearning,
       emit(event) {
         return events.emit(event);
       },
@@ -1786,6 +1794,7 @@ export async function createStandaloneRuntime(
       goals: companyGoals,
       knowledge: companyKnowledge,
       amendments: companyAmendments,
+      decisions: companyAmendmentDecisions,
     },
     skills,
     mcp,
