@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/tacotuesday8888/recurs/main/docs/assets/recurs-mark.svg" alt="Recurs loop logo" width="132">
+<img src="docs/assets/recurs-mark.svg" alt="Recurs loop logo" width="132">
 
 # Recurs
 
@@ -14,8 +14,8 @@ agents, and apply only what you approve.
 [![Status: alpha](https://img.shields.io/badge/status-alpha-d29922.svg)](#-project-status)
 [![Node.js 22.22+](https://img.shields.io/badge/node-%E2%89%A522.22-3c873a.svg)](package.json)
 
-[🚀 Quick start](#-quick-start) · [✅ What works](#-what-works-today) ·
-[🛡️ Boundaries](#-how-a-goal-runs) · [📚 Docs](#-documentation)
+[Quick start](#-quick-start) · [What works](#-what-works-today) ·
+[Boundaries](#-how-a-goal-runs) · [Documentation](#-documentation)
 
 </div>
 
@@ -23,7 +23,7 @@ agents, and apply only what you approve.
 > Recurs is a source-installable alpha. The npm package, Homebrew formula,
 > curl installer, signed binary, and desktop app are not published yet.
 
-![Recurs guided setup in a terminal](https://raw.githubusercontent.com/tacotuesday8888/recurs/main/docs/assets/terminal-preview.svg)
+![Recurs guided setup in a terminal](docs/assets/terminal-preview.svg)
 
 Recurs builds a versioned agent-company blueprint for your project, then runs
 approved roles inside explicit permission, concurrency, request, cost, review,
