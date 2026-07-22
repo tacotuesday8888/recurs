@@ -612,6 +612,12 @@ describe("standalone assembly without a provider", () => {
     expect(JSON.stringify(provider.requests[0]?.messages)).toContain(
       `Approved Recurs company ${blueprint.companyId} revision 1 is active`,
     );
+    expect(JSON.stringify(provider.requests[0]?.messages)).toContain(
+      `Stable role ID: ${blueprint.authorityAnchors.rootRoleId}`,
+    );
+    expect(JSON.stringify(provider.requests[0]?.messages)).toContain(
+      "Authority boundary (mandatory)",
+    );
     expect(events).toContainEqual(expect.objectContaining({
       type: "company_blueprint_v2_activated",
       blueprintId: blueprint.id,

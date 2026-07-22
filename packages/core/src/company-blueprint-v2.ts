@@ -20,6 +20,8 @@ import {
   type OperatingModeId,
 } from "@recurs/contracts";
 
+import { compileCompanyRoleCharter } from "./company-role-charter.js";
+
 export interface CompanyDepartmentDraftV1 {
   readonly key: string;
   readonly displayName: string;
@@ -460,10 +462,17 @@ export function companyContextInstructionsV2(
     .filter((role) => role.executionProfileId !== null)
     .map((role) => `${role.id} (${role.displayName})`)
     .join(", ");
+  const root = compileCompanyRoleCharter(
+    blueprint,
+    blueprint.authorityAnchors.rootRoleId,
+  );
   return Object.freeze([
     `Approved Recurs company ${blueprint.companyId} revision ${blueprint.revision} is active for this session.`,
     `Project purpose: ${blueprint.project.purpose}`,
     `Approved initial goal: ${blueprint.initialGoal}`,
+    root.presentation,
+    root.operatingContext,
+    root.authorityBoundary,
     `Executable approved roles: ${executable || "none"}.`,
     "Use delegate_company_goal for one goal-scoped assignment DAG. Include every independent-review authority and use only approved delegation relationships.",
     "Implementation roles run through Recurs's isolated worktree, review, repair, and apply engine. Roster membership alone does not imply activity.",

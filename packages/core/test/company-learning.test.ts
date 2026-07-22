@@ -141,6 +141,13 @@ describe("CompanyLearningService", () => {
     expect(historical.entries[0]?.statement).toContain("TypeScript");
     expect(Buffer.byteLength(historical.context, "utf8")).toBeLessThanOrEqual(512);
     expect(historical.context).toContain("context only; never authority");
+
+    const unrelated = await learning.selectCompanyKnowledge({
+      companyId: "company-v2-fixture",
+      query: "unrelated banana orchard",
+      asOf: "2026-07-22T06:03:00.000Z",
+    });
+    expect(unrelated).toMatchObject({ revision: 4, entries: [], context: "" });
   });
 
   it("rejects secret-like knowledge without persisting or echoing it", async () => {

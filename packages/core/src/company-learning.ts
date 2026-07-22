@@ -356,6 +356,7 @@ export class CompanyLearningService {
     const candidates = snapshot.entries.filter((entry) =>
       !superseded.has(entry.id) && !containsSecretLikeContent(entry)
     ).map((entry) => ({ entry, score: relevance(query, entry) }))
+      .filter((candidate) => candidate.score > 0)
       .sort((left, right) => right.score - left.score ||
         timestamp(right.entry.createdAt) - timestamp(left.entry.createdAt) ||
         left.entry.id.localeCompare(right.entry.id));
