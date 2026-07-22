@@ -1353,6 +1353,7 @@ export async function runGuidedOnboarding(
   const theme = createTerminalTheme(ports.stdout);
   await writeOutput(ports.stdout, [
     `\n${renderRecursHeader(theme, "Welcome to Recurs")}`,
+    "",
     "Build a working agent company: connect its parent model, set its safety boundary, choose its operating mode, route specialists, and review a project-tailored roster.",
     theme.muted("Credentials stay with the vendor runtime, native authority, or named process environment—never this generic prompt."),
     "",

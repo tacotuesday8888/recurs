@@ -9,15 +9,7 @@ export const RECURS_BRAND = Object.freeze({
     muted: "#8e98a8",
   }),
   terminalAnsi256: Object.freeze([33, 39, 45, 51, 87, 121]),
-  terminalRows: Object.freeze([
-    "    ▄██████▄   ",
-    "  ▄██▀    ▀██▄ ",
-    " ▄██        ██ ",
-    " ▀██▄   ▄██▀   ",
-    "    ▀██▄██▀    ",
-    "  ▄██▀ ▀██▄    ",
-    "◀██▄▄▄▄▀  ▀██▄ ",
-  ]),
+  terminalMark: "↻R",
   strokes: Object.freeze([
     Object.freeze({
       d: "M 122 73 L 136 59 C 145 41 138 18 114 18 H 47 C 17 18 17 63 47 63 H 70 C 84 63 94 70 104 81 L 137 123",
