@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/recurs-mark.svg" alt="Recurs loop logo" width="132">
+<img src="./docs/assets/recurs-mark.svg" alt="Recurs loop logo" width="132">
 
 # Recurs
 
@@ -23,7 +23,7 @@ agents, and apply only what you approve.
 > Recurs is a source-installable alpha. The npm package, Homebrew formula,
 > curl installer, signed binary, and desktop app are not published yet.
 
-![Recurs guided setup in a terminal](docs/assets/terminal-preview.svg)
+![Recurs guided setup in a terminal](./docs/assets/terminal-preview.svg)
 
 Recurs builds a versioned agent-company blueprint for your project, then runs
 approved roles inside explicit permission, concurrency, request, cost, review,
