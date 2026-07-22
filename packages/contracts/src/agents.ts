@@ -78,7 +78,10 @@ export const agentProfilePolicies: readonly AgentProfilePolicy[] = Object.freeze
     "Explore",
     "plan",
     true,
-    ["read_file", "list_files", "search_text", "code_outline", "git_status", "git_diff"],
+    [
+      "read_file", "list_files", "search_text", "code_outline", "git_status",
+      "git_history", "git_show", "git_diff",
+    ],
     ["read"],
     "normal",
   ),

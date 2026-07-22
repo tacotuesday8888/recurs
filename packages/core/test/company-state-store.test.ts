@@ -40,6 +40,7 @@ async function root(prefix: string): Promise<string> {
 function onboardingRun(): CompanyOnboardingRunV1 {
   return {
     id: "onboarding-store-run",
+    companyId: "company-v2-fixture",
     version: 1,
     projectRoot: "/workspace/project",
     status: "interviewing",
@@ -52,11 +53,12 @@ function onboardingRun(): CompanyOnboardingRunV1 {
       operatingModeId: "balanced_v6",
       operatingModeVersion: 6,
     },
+    backend: { fingerprint: "backend-fixture" },
     repositoryAccess: {
       scope: "project_read",
       grantedAt: "2026-07-22T03:00:00.000Z",
     },
-    interview: { complete: false, answers: [] },
+    interview: { complete: false, pendingQuestion: null, answers: [] },
     research: [],
     usage: { modelRequests: 0, reportedCostUsd: 0 },
     proposal: null,
@@ -175,12 +177,11 @@ describe("durable company state stores", () => {
       usage: { modelRequests: 1, reportedCostUsd: 0 },
       interview: {
         complete: false,
-        answers: [{
+        pendingQuestion: {
           id: "answer-1",
           question: "What should the company own?",
-          answer: "A dependable CLI foundation.",
-          at: "2026-07-22T03:01:00.000Z",
-        }],
+        },
+        answers: [],
       },
     } satisfies CompanyOnboardingRunV1;
     await expect(store.append(next.id, 0, next)).resolves.toMatchObject({

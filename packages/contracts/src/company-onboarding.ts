@@ -101,6 +101,11 @@ export interface CompanyInterviewAnswerV1 {
   readonly at: string;
 }
 
+export interface CompanyInterviewQuestionV1 {
+  readonly id: string;
+  readonly question: string;
+}
+
 export interface CompanyResearchAssignmentV1 {
   readonly id: string;
   readonly description: string;
@@ -119,6 +124,7 @@ export interface CompanyProposalRevisionV1 {
 
 export interface CompanyOnboardingRunV1 {
   readonly id: string;
+  readonly companyId: string;
   readonly version: 1;
   readonly projectRoot: string;
   readonly status: CompanyOnboardingStatus;
@@ -131,12 +137,16 @@ export interface CompanyOnboardingRunV1 {
     readonly operatingModeId: OperatingModeId;
     readonly operatingModeVersion: OperatingModeVersion;
   };
+  readonly backend: {
+    readonly fingerprint: string;
+  };
   readonly repositoryAccess: {
     readonly scope: "none" | "project_read";
     readonly grantedAt: string | null;
   };
   readonly interview: {
     readonly complete: boolean;
+    readonly pendingQuestion: CompanyInterviewQuestionV1 | null;
     readonly answers: readonly CompanyInterviewAnswerV1[];
   };
   readonly research: readonly CompanyResearchAssignmentV1[];
@@ -156,6 +166,7 @@ const statuses = new Set<string>([
 const permissionModes = new Set<string>([
   "ask_always", "approved_for_me", "full_access",
 ]);
+const backendFingerprintPattern = /^(?:[A-Za-z0-9][A-Za-z0-9_-]{0,127}|sha256:[0-9a-f]{64})$/u;
 
 function parseAuthority(value: unknown) {
   const authority = contractRecord(value, "Onboarding authority");
@@ -195,6 +206,19 @@ function parseAnswer(value: unknown): CompanyInterviewAnswerV1 {
     question: contractText(answer.question, "Company interview question", 2_000),
     answer: contractText(answer.answer, "Company interview answer", 8_192),
     at: contractTimestamp(answer.at, "Company interview answer timestamp"),
+  };
+}
+
+function parseQuestion(value: unknown): CompanyInterviewQuestionV1 {
+  const question = contractRecord(value, "Company interview question");
+  contractExact(question, ["id", "question"], "Company interview question");
+  return {
+    id: contractId(question.id, "Company interview question id"),
+    question: contractText(
+      question.question,
+      "Company interview question",
+      2_000,
+    ),
   };
 }
 
@@ -265,12 +289,14 @@ export function parseCompanyOnboardingRun(
 ): CompanyOnboardingRunV1 {
   const run = contractRecord(value, "Company onboarding run");
   contractExact(run, [
-    "id", "version", "projectRoot", "status", "createdAt", "updatedAt",
-    "depth", "designMode", "authority", "repositoryAccess", "interview",
-    "research", "usage", "proposal", "approvedBlueprintId", "terminalReason",
+    "id", "companyId", "version", "projectRoot", "status", "createdAt",
+    "updatedAt", "depth", "designMode", "authority", "backend",
+    "repositoryAccess", "interview", "research", "usage", "proposal",
+    "approvedBlueprintId", "terminalReason",
   ], "Company onboarding run");
   if (run.version !== 1) throw new TypeError("Onboarding run version is invalid");
   const id = contractId(run.id, "Onboarding run id");
+  const companyId = contractId(run.companyId, "Onboarding company id");
   const depth = contractEnum<CompanyOnboardingDepth>(
     run.depth,
     new Set(COMPANY_ONBOARDING_DEPTHS),
@@ -282,6 +308,16 @@ export function parseCompanyOnboardingRun(
     "Onboarding design mode",
   );
   const authority = parseAuthority(run.authority);
+  const backend = contractRecord(run.backend, "Onboarding backend");
+  contractExact(backend, ["fingerprint"], "Onboarding backend");
+  const backendFingerprint = contractText(
+    backend.fingerprint,
+    "Onboarding backend fingerprint",
+    128,
+  );
+  if (!backendFingerprintPattern.test(backendFingerprint)) {
+    throw new TypeError("Onboarding backend fingerprint is invalid");
+  }
   const policy = getCompanyOnboardingDepthPolicy(depth, authority.operatingModeId);
   const repositoryAccess = contractRecord(
     run.repositoryAccess,
@@ -301,13 +337,20 @@ export function parseCompanyOnboardingRun(
     throw new TypeError("Repository scope and consent timestamp must agree");
   }
   const interview = contractRecord(run.interview, "Company interview");
-  contractExact(interview, ["complete", "answers"], "Company interview");
+  contractExact(interview, ["complete", "pendingQuestion", "answers"],
+    "Company interview");
   if (typeof interview.complete !== "boolean" || !Array.isArray(interview.answers) ||
     interview.answers.length > policy.maxInterviewRounds) {
     throw new TypeError("Company interview exceeds its depth policy");
   }
   const answers = interview.answers.map(parseAnswer);
-  if (new Set(answers.map((answer) => answer.id)).size !== answers.length) {
+  const pendingQuestion = interview.pendingQuestion === null
+    ? null
+    : parseQuestion(interview.pendingQuestion);
+  if (new Set(answers.map((answer) => answer.id)).size !== answers.length ||
+    (pendingQuestion !== null && answers.some((answer) =>
+      answer.id === pendingQuestion.id
+    ))) {
     throw new TypeError("Company interview answer ids must be unique");
   }
   if (!Array.isArray(run.research) ||
@@ -335,6 +378,7 @@ export function parseCompanyOnboardingRun(
   );
   const proposal = run.proposal === null ? null : parseProposal(run.proposal);
   if (proposal !== null && (
+    proposal.blueprint.companyId !== companyId ||
     proposal.blueprint.provenance.onboardingRunId !== id ||
     proposal.blueprint.provenance.depth !== depth ||
     proposal.blueprint.designMode !== designMode ||
@@ -363,6 +407,8 @@ export function parseCompanyOnboardingRun(
       proposal !== null) ||
     (status === "approved") !== (approvedBlueprintId !== null) ||
     (status === "approved" && approvedBlueprintId !== proposal?.blueprint.id) ||
+    ((interview.complete || status === "researching" || status === "proposed" ||
+      status === "approved") && pendingQuestion !== null) ||
     terminal !== (terminalReason !== null) ||
     (status === "researching" && !research.some((item) =>
       item.status === "queued" || item.status === "running"
@@ -371,6 +417,7 @@ export function parseCompanyOnboardingRun(
   }
   const parsed: CompanyOnboardingRunV1 = {
     id,
+    companyId,
     version: 1,
     projectRoot: contractText(run.projectRoot, "Onboarding project root", 4_096),
     status,
@@ -379,8 +426,9 @@ export function parseCompanyOnboardingRun(
     depth,
     designMode,
     authority,
+    backend: { fingerprint: backendFingerprint },
     repositoryAccess: { scope, grantedAt },
-    interview: { complete: interview.complete, answers },
+    interview: { complete: interview.complete, pendingQuestion, answers },
     research,
     usage: { modelRequests, reportedCostUsd },
     proposal,

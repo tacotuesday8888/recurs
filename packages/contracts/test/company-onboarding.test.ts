@@ -10,6 +10,7 @@ import { companyBlueprintV2Fixture } from "./company-v2-fixture.js";
 function runFixture(): CompanyOnboardingRunV1 {
   return {
     id: "onboarding-fixture",
+    companyId: "company-v2-fixture",
     version: 1,
     projectRoot: "/workspace/project",
     status: "proposed",
@@ -22,12 +23,14 @@ function runFixture(): CompanyOnboardingRunV1 {
       operatingModeId: "balanced_v6",
       operatingModeVersion: 6,
     },
+    backend: { fingerprint: "backend-fixture" },
     repositoryAccess: {
       scope: "project_read",
       grantedAt: "2026-07-22T00:00:30.000Z",
     },
     interview: {
       complete: true,
+      pendingQuestion: null,
       answers: [{
         id: "answer-1",
         question: "What outcome should the company own?",

@@ -9,6 +9,9 @@ import {
   getOperatingModePolicy,
   operatingModePolicies,
   type CompanyBlueprintV1,
+  type CompanyBlueprintV2,
+  type CompanyDesignMode,
+  type CompanyOnboardingDepth,
   type CompanyDevelopmentStyle,
   type CompanyProjectStage,
   type CompanyProjectType,
@@ -21,6 +24,8 @@ import {
 import {
   approveCompanyBlueprint,
   compileCompanyBlueprint,
+  CompanyOnboardingCoordinatorError,
+  type CompanyOnboardingCoordinator,
 } from "@recurs/core";
 import { openAIResponsesReasoningEfforts } from "@recurs/app";
 import {
@@ -265,6 +270,7 @@ export type GuidedOnboardingOutcome =
     readonly permissionMode: PermissionMode;
     readonly operatingModeId: OperatingModeId;
     readonly companyBlueprint?: CompanyBlueprintV1;
+    readonly companyBlueprintV2?: CompanyBlueprintV2;
   }
   | { readonly state: "skipped" }
   | { readonly state: "failed"; readonly exitCode: number };
@@ -301,6 +307,14 @@ export interface GuidedOnboardingPorts {
   ): Promise<readonly EnvironmentModelDescriptor[]>;
   inspectProjectInstructions?(): Promise<readonly ProjectInstructionDocument[]>;
   inspectCompanyRepositoryFacts?(): Promise<CompanyRepositoryFactsV1>;
+  createCompanyOnboarding?(input: {
+    readonly permissionMode: PermissionMode;
+    readonly operatingModeId: OperatingModeId;
+  }): Promise<{
+    readonly coordinator: CompanyOnboardingCoordinator;
+    readonly projectRoot: string;
+    readonly backendFingerprint: string;
+  }>;
   createProjectInstructions?(
     input: ProjectBriefInput,
   ): Promise<"created" | "exists">;
@@ -709,8 +723,40 @@ interface CapturedProjectBrief {
 
 interface CompanyOnboardingResult {
   readonly blueprint?: CompanyBlueprintV1;
+  readonly blueprintV2?: CompanyBlueprintV2;
   readonly brief?: CapturedProjectBrief;
 }
+
+const COMPANY_ONBOARDING_DEPTH_CHOICES: readonly GuidedChoice[] = Object.freeze([
+  Object.freeze({
+    id: "quick",
+    label: "Quick",
+    detail: "a short interview with no project-research agents",
+  }),
+  Object.freeze({
+    id: "guided",
+    label: "Guided (recommended)",
+    detail: "adaptive questions and up to three bounded read-only investigations",
+  }),
+  Object.freeze({
+    id: "deep",
+    label: "Deep",
+    detail: "a longer interview and up to eight mode-clamped investigations",
+  }),
+]);
+
+const COMPANY_DESIGN_MODE_CHOICES: readonly GuidedChoice[] = Object.freeze([
+  Object.freeze({
+    id: "stable_core_specialists",
+    label: "Stable core + specialists (recommended)",
+    detail: "fixed accountability departments with project-tailored specialist roles",
+  }),
+  Object.freeze({
+    id: "guardrailed_dynamic",
+    label: "Guardrailed dynamic",
+    detail: "project-specific departments and roles with mandatory orchestration and independent review",
+  }),
+]);
 
 const COMPANY_PROJECT_TYPE_CHOICES: readonly GuidedChoice[] = Object.freeze([
   Object.freeze({ id: "existing_project", label: "Existing project", detail: "improve or extend a repository that already exists" }),
@@ -764,6 +810,9 @@ async function setupCompanyBlueprint(
   permissionMode: PermissionMode,
   operatingModeId: OperatingModeId,
 ): Promise<CompanyOnboardingResult> {
+  if (ports.createCompanyOnboarding !== undefined && ports.confirm !== undefined) {
+    return await setupCompanyBlueprintV2(ports, permissionMode, operatingModeId);
+  }
   if (
     ports.inspectCompanyRepositoryFacts === undefined ||
     ports.confirm === undefined
@@ -888,6 +937,195 @@ async function setupCompanyBlueprint(
   return { blueprint, brief };
 }
 
+async function setupCompanyBlueprintV2(
+  ports: GuidedOnboardingPorts,
+  permissionMode: PermissionMode,
+  operatingModeId: OperatingModeId,
+): Promise<CompanyOnboardingResult> {
+  const action = await ports.selectChoice(
+    "Tailor the first Recurs agent company to this project",
+    Object.freeze([
+      Object.freeze({
+        id: "create",
+        label: "Design my company (recommended)",
+        detail: "interview, inspect with consent, review, then explicitly approve",
+      }),
+      Object.freeze({
+        id: "skip",
+        label: "Skip for now",
+        detail: "start without activating a company",
+      }),
+    ]),
+  );
+  if (action !== "create") return {};
+
+  const depth = companyChoice<CompanyOnboardingDepth>(
+    await ports.selectChoice(
+      "How deeply should Recurs understand the project before proposing your company?",
+      COMPANY_ONBOARDING_DEPTH_CHOICES,
+    ),
+    COMPANY_ONBOARDING_DEPTH_CHOICES,
+  ) ?? "guided";
+  const designMode = companyChoice<CompanyDesignMode>(
+    await ports.selectChoice(
+      "How should Recurs form the company?",
+      COMPANY_DESIGN_MODE_CHOICES,
+    ),
+    COMPANY_DESIGN_MODE_CHOICES,
+  ) ?? "stable_core_specialists";
+  const repositoryConsent = await ports.confirm!(
+    "Allow company formation to inspect this project read-only? Only bounded file, outline, search, and read-only Git tools are exposed. No shell, writes, network, credentials, installation, MCP, skills, or project commands are available before approval.",
+  );
+
+  let service;
+  try {
+    service = await ports.createCompanyOnboarding!({
+      permissionMode,
+      operatingModeId,
+    });
+  } catch (error) {
+    await writeOutput(
+      ports.stderr,
+      `Company formation is unavailable: ${safeCliErrorMessage(error)}\n`,
+    );
+    return {};
+  }
+  const start = {
+    projectRoot: service.projectRoot,
+    depth,
+    designMode,
+    permissionMode,
+    operatingModeId,
+    backendFingerprint: service.backendFingerprint,
+    repositoryConsent,
+    ...(ports.signal === undefined ? {} : { signal: ports.signal }),
+  };
+  let run;
+  try {
+    run = await service.coordinator.resume(start);
+  } catch (error) {
+    if (!(error instanceof CompanyOnboardingCoordinatorError) ||
+      error.code !== "resume_mismatch") {
+      throw error;
+    }
+    const choice = await ports.selectChoice(
+      "An unfinished company interview uses different model or authority settings",
+      Object.freeze([
+        Object.freeze({
+          id: "new",
+          label: "Start a new interview (recommended)",
+          detail: "preserve the earlier run unchanged",
+        }),
+        Object.freeze({
+          id: "stop",
+          label: "Save and stop",
+          detail: "change back to the earlier settings before resuming",
+        }),
+      ]),
+    );
+    if (choice !== "new") return {};
+    run = null;
+  }
+  if (run !== null) {
+    const choice = await ports.selectChoice(
+      "Resume the unfinished company interview?",
+      Object.freeze([
+        Object.freeze({
+          id: "resume",
+          label: "Resume (recommended)",
+          detail: `${run.state.depth} · ${run.state.interview.answers.length} answered · ${run.state.research.length} investigations`,
+        }),
+        Object.freeze({
+          id: "new",
+          label: "Start a new interview",
+          detail: "preserve the unfinished run and create another",
+        }),
+        Object.freeze({
+          id: "stop",
+          label: "Save and stop",
+          detail: "leave all durable onboarding state unchanged",
+        }),
+      ]),
+    );
+    if (choice === "stop" || choice === null) return {};
+    if (choice === "new") run = null;
+  }
+  if (run === null) run = await service.coordinator.start(start);
+
+  for (;;) {
+    const advanced = await service.coordinator.advance(run.state.id, ports.signal);
+    run = advanced.run;
+    if (advanced.kind === "researched") {
+      const completed = run.state.research.filter((item) =>
+        item.status === "completed"
+      ).length;
+      await writeOutput(
+        ports.stdout,
+        `Project understanding updated from ${completed} bounded investigation(s).\n`,
+      );
+      continue;
+    }
+    if (advanced.kind === "question") {
+      const answer = (await ports.promptText(advanced.question.question))?.trim();
+      if (answer === undefined || answer.length === 0) {
+        await writeOutput(
+          ports.stdout,
+          `Company interview saved. Resume run ${run.state.id} during setup.\n`,
+        );
+        return {};
+      }
+      run = await service.coordinator.answer(
+        run.state.id,
+        run.sequence,
+        answer,
+        ports.signal,
+      );
+      continue;
+    }
+
+    const blueprint = advanced.blueprint;
+    const requiredTools = blueprint.toolPlan
+      .filter((tool) => tool.status === "required")
+      .map((tool) => tool.id);
+    const approved = await ports.confirm!([
+      "Approve this company and freeze its first goal?",
+      `Project: ${blueprint.project.purpose}`,
+      `Design: ${blueprint.designMode.replaceAll("_", " ")}`,
+      `Departments: ${blueprint.departments.map((item) => item.displayName).join(", ")}`,
+      `Roles: ${blueprint.roles.map((item) => item.displayName).join(", ")}`,
+      `Authority: ${blueprint.authority.permissionMode.replaceAll("_", " ")} · ${blueprint.authority.operatingModeId}`,
+      `Required capabilities: ${requiredTools.join(", ") || "none"}`,
+      `Initial goal: ${blueprint.initialGoal}`,
+      "Approval does not begin implementation. The approved /goal starts bounded company operation later.",
+    ].join("\n"));
+    const brief = { purpose: blueprint.project.purpose };
+    if (!approved) {
+      await service.coordinator.abandon(
+        run.state.id,
+        run.sequence,
+        "The user declined the proposed company.",
+        ports.signal,
+      );
+      await writeOutput(ports.stdout, "Company proposal was not activated.\n");
+      return { brief };
+    }
+    const approvedRun = await service.coordinator.approve(
+      run.state.id,
+      run.sequence,
+      ports.signal,
+    );
+    const approvedBlueprint = await service.coordinator.approvedBlueprint(
+      approvedRun.state.approvedBlueprintId!,
+      ports.signal,
+    );
+    await writeOutput(
+      ports.stdout,
+      `Company approved: ${approvedBlueprint.departments.length} department(s), ${approvedBlueprint.roles.length} role(s).\n`,
+    );
+    return { blueprintV2: approvedBlueprint, brief };
+  }
+}
+
 async function setupProjectContext(
   ports: GuidedOnboardingPorts,
   captured?: CapturedProjectBrief,
@@ -1010,9 +1248,9 @@ export async function runGuidedOnboarding(
     );
     return { state: "skipped" };
   }
-  const companyOnboarding =
-    ports.inspectCompanyRepositoryFacts !== undefined &&
-    ports.confirm !== undefined;
+  const companyOnboarding = ports.confirm !== undefined &&
+    (ports.createCompanyOnboarding !== undefined ||
+      ports.inspectCompanyRepositoryFacts !== undefined);
   const stepCount = companyOnboarding ? 6 : 5;
   await writeOutput(ports.stdout, `1 / ${stepCount} · Parent model\n`);
   let selected: GuidedConnectionChoice | null = null;
@@ -1117,7 +1355,11 @@ export async function runGuidedOnboarding(
     `Permissions: ${permissionMode.replaceAll("_", " ")}`,
     `Mode: ${operatingMode.displayName} · ${operatingMode.id}`,
     `Team: ${routeSummary(accountsAfterRouting)}`,
-    `Company: ${company.blueprint === undefined ? "not activated" : `${company.blueprint.roles.length} approved role(s) · ${company.blueprint.developmentStyle.replaceAll("_", " ")}`}`,
+    `Company: ${company.blueprintV2 !== undefined
+      ? `${company.blueprintV2.departments.length} department(s) · ${company.blueprintV2.roles.length} approved role(s)`
+      : company.blueprint === undefined
+        ? "not activated"
+        : `${company.blueprint.roles.length} approved role(s) · ${company.blueprint.developmentStyle.replaceAll("_", " ")}`}`,
     "Starting a fresh durable session. Change these later with /provider, /model, /permissions, or /agents mode.",
     "",
   ].join("\n"));
@@ -1128,5 +1370,8 @@ export async function runGuidedOnboarding(
     ...(company.blueprint === undefined
       ? {}
       : { companyBlueprint: company.blueprint }),
+    ...(company.blueprintV2 === undefined
+      ? {}
+      : { companyBlueprintV2: company.blueprintV2 }),
   };
 }

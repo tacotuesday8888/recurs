@@ -57,6 +57,28 @@ function prefixEqual<T>(previous: readonly T[], next: readonly T[]): boolean {
   );
 }
 
+function validInterviewTransition(
+  previous: CompanyOnboardingRunV1["interview"],
+  next: CompanyOnboardingRunV1["interview"],
+  nextStatus: CompanyOnboardingRunV1["status"],
+): boolean {
+  const pending = previous.pendingQuestion;
+  if (pending === null) {
+    return next.answers.length === previous.answers.length;
+  }
+  if (isDeepStrictEqual(pending, next.pendingQuestion)) {
+    return next.answers.length === previous.answers.length;
+  }
+  if (next.pendingQuestion !== null) return false;
+  if (terminalStatuses.has(nextStatus) &&
+    next.answers.length === previous.answers.length) {
+    return true;
+  }
+  const answer = next.answers.at(-1);
+  return next.answers.length === previous.answers.length + 1 &&
+    answer?.id === pending.id && answer.question === pending.question;
+}
+
 function validateTransition(
   previous: CompanyOnboardingRunV1,
   next: CompanyOnboardingRunV1,
@@ -69,14 +91,17 @@ function validateTransition(
     );
   }
   if (previous.id !== next.id || previous.version !== next.version ||
+    previous.companyId !== next.companyId ||
     previous.projectRoot !== next.projectRoot || previous.createdAt !== next.createdAt ||
     previous.depth !== next.depth || previous.designMode !== next.designMode ||
     !isDeepStrictEqual(previous.authority, next.authority) ||
+    !isDeepStrictEqual(previous.backend, next.backend) ||
     !isDeepStrictEqual(previous.repositoryAccess, next.repositoryAccess) ||
     timestampMs(next.updatedAt) < timestampMs(previous.updatedAt) ||
     next.usage.modelRequests < previous.usage.modelRequests ||
     next.usage.reportedCostUsd < previous.usage.reportedCostUsd ||
     !prefixEqual(previous.interview.answers, next.interview.answers) ||
+    !validInterviewTransition(previous.interview, next.interview, next.status) ||
     previous.interview.complete && !next.interview.complete) {
     throw new CompanyStateStoreError(
       "conflict",

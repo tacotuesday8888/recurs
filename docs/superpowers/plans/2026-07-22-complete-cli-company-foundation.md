@@ -110,11 +110,11 @@
 - Produces a durable state machine for interview, consented discovery, proposal, revision, approval, abandonment, cancellation, and resume.
 - The dedicated onboarding AgentLoop registry contains only `read_file`, `list_files`, `search_text`, `code_outline`, `git_status`, `git_history`, `git_show`, and `git_diff`; research children use `explore_v1` and the same restricted registry.
 
-- [ ] Write scripted-provider tests for Quick, Guided, and Deep limits, adaptive follow-ups, early completion, and bounded research fan-out.
-- [ ] Prove unavailable write/shell/network/MCP/skill/process tools cannot be invoked even under Full Access.
-- [ ] Test consent denial, SIGINT, crash/resume, corrupt state, save/exit, and cwd/provider/authority mismatch.
-- [ ] Implement coordinator integration after provider, safety, mode, and routing selection; resume the newest compatible unfinished run or offer a clean restart without deleting history.
-- [ ] Run focused onboarding tests and commit.
+- [x] Write scripted-provider tests for Quick, Guided, and Deep limits, adaptive follow-ups, early completion, and bounded research fan-out.
+- [x] Prove unavailable write/shell/network/MCP/skill/process tools cannot be invoked even under Full Access.
+- [x] Test consent denial, SIGINT, crash/resume, corrupt state, save/exit, and cwd/provider/authority mismatch.
+- [x] Implement coordinator integration after provider, safety, mode, and routing selection; resume the newest compatible unfinished run or offer a clean restart without deleting history.
+- [x] Run focused onboarding tests and commit.
 
 ### Task 6: Conversation and structured company editor
 

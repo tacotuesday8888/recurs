@@ -39,6 +39,8 @@ describe("agent profile contracts", () => {
       "search_text",
       "code_outline",
       "git_status",
+      "git_history",
+      "git_show",
       "git_diff",
     ]);
     expect(getAgentProfilePolicy("implement_v1")).toMatchObject({

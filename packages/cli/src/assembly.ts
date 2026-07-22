@@ -35,10 +35,13 @@ import {
   BackendRunCoordinator,
   ChildAgentBatchManager,
   ChildAgentManager,
+  CompanyOnboardingCoordinator,
   CompanyAgentManager,
   DelegatedAgentExecutor,
   FileGitPatchArtifactStore,
   FileCompanyBlueprintStore,
+  FileCompanyBlueprintV2Store,
+  FileCompanyOnboardingStore,
   JsonlSessionStore,
   JsonlTeamRunStore,
   SessionStoreError,
@@ -111,6 +114,10 @@ import { McpServerCatalog } from "./mcp-client.js";
 import { projectContextInstructions } from "./project-instructions.js";
 import type { LocalConnectionConfiguration } from "./local-connection.js";
 import { createCodexAgentRuntime } from "./codex-connection.js";
+import {
+  CompanyOnboardingAgentRuntime,
+  companyOnboardingBackendFingerprint,
+} from "./company-onboarding-runtime.js";
 import { RecursRuntime, RuntimeError } from "./runtime.js";
 import {
   providerDiscoveryOverview,
@@ -649,6 +656,130 @@ async function backendForConnection(
     pin: () => delegatedBackendPin(connection),
     createRuntime: (store) => delegatedRuntimeFactory(connection, store),
   };
+}
+
+async function companyOnboardingBackend(
+  root: string,
+  options: StandaloneRuntimeOptions,
+): Promise<DirectRuntimeBackend> {
+  const injected = options.provider;
+  const runtimeEnvironment = options.environment ?? process.env;
+  const environmentConnection = injected === undefined
+    ? await resolveEnvironmentProvider(
+        runtimeEnvironment,
+        options.environmentFetch,
+      )
+    : null;
+  const registry = new FileConnectionRegistry(root);
+  const document = injected === undefined
+    ? await registry.migrateLegacyLocal()
+    : null;
+  if (options.connectionId !== undefined &&
+    (injected !== undefined || environmentConnection !== null)) {
+    throw new RuntimeError(
+      "invalid_input",
+      "A saved connection cannot be selected while a process-scoped provider is active",
+    );
+  }
+  const connection = document === null
+    ? null
+    : options.connectionId === undefined
+      ? selectedConnection(document)
+      : document.connections.find((item) => item.id === options.connectionId) ?? null;
+  if (options.connectionId !== undefined && connection === null) {
+    throw new RuntimeError(
+      "invalid_input",
+      "The requested saved connection was not found",
+    );
+  }
+  const backend: RuntimeBackend | undefined = injected !== undefined
+    ? {
+        kind: "direct",
+        pin: (at) => injectedBackendPin(
+          injected,
+          options.model ?? injected.id,
+          at,
+        ),
+        commandProvider: injected,
+        createProvider: () => ({
+          id: injected.id,
+          adapterId: `injected:${injected.id}`,
+          connectionId: `injected:${injected.id}`,
+          stream: (request) => injected.stream(request),
+        }),
+      }
+    : environmentConnection !== null
+      ? {
+          kind: "direct",
+          pin: (at) => environmentBackendPin(environmentConnection, at),
+          commandProvider: environmentConnection.provider,
+          createProvider: () => environmentConnection.provider,
+        }
+      : connection === null
+        ? undefined
+        : await backendForConnection(
+            connection,
+            options.delegatedRuntimeFactory ?? createCodexAgentRuntime,
+            randomUUID(),
+            options.nativeOpenAIResponses,
+            runtimeEnvironment,
+            options.environmentFetch,
+          ) ?? undefined;
+  if (backend === undefined) {
+    throw new RuntimeError(
+      "provider_not_configured",
+      "A ready parent-model connection is required for company formation",
+    );
+  }
+  if (backend.kind !== "direct") {
+    throw new RuntimeError(
+      "provider_not_configured",
+      "This delegated subscription runtime cannot yet provide Recurs's restricted pre-approval tool boundary; connect a supported direct or local model for company formation",
+    );
+  }
+  return backend;
+}
+
+export async function createStandaloneCompanyOnboarding(
+  input: {
+    readonly permissionMode: PermissionMode;
+    readonly operatingModeId: OperatingModeId;
+  },
+  options: StandaloneRuntimeOptions = {},
+) {
+  const cwd = await realpath(options.cwd ?? process.cwd());
+  const root = options.dataDirectory ?? process.env.RECURS_HOME ??
+    path.join(homedir(), ".recurs");
+  const projectId = createHash("sha256").update(cwd).digest("hex").slice(0, 24);
+  const projectData = path.join(root, "projects", projectId);
+  const backend = await companyOnboardingBackend(root, options);
+  const at = new Date().toISOString();
+  const pin = backend.pin(at);
+  const agentRuntime = new CompanyOnboardingAgentRuntime({
+    backend: pin,
+    sessions: new JsonlSessionStore(
+      path.join(projectData, "company-onboarding-agent-sessions"),
+    ),
+    cwd,
+    createProvider: () => backend.createProvider(),
+  });
+  const coordinator = new CompanyOnboardingCoordinator({
+    runs: new FileCompanyOnboardingStore(
+      path.join(projectData, "company-onboarding-runs"),
+    ),
+    blueprints: new FileCompanyBlueprintV2Store(
+      path.join(projectData, "company-blueprints-v2"),
+    ),
+    model: agentRuntime,
+    research: agentRuntime,
+  });
+  return Object.freeze({
+    coordinator,
+    projectRoot: cwd,
+    backendFingerprint: companyOnboardingBackendFingerprint(pin),
+    permissionMode: input.permissionMode,
+    operatingModeId: input.operatingModeId,
+  });
 }
 
 export async function createStandaloneRuntime(
