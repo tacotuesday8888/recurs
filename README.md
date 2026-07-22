@@ -113,7 +113,8 @@ sessions, permissions, and every supported command.
 - official Codex ACP with an existing ChatGPT login for local, interactive,
   user-present, Plan-only work;
 - bounded Agent Skills from user or explicitly trusted project locations;
-- bounded parent-only stdio MCP servers with digest-bound project trust;
+- bounded stdio MCP servers with digest-bound project trust and exact
+  user-approved company-role bindings;
 - interactive text and images, headless text/JSON/JSONL, and a Recurs-owned
   ACP v1 stdio endpoint.
 
@@ -179,6 +180,8 @@ lifecycle.
 
 ## Documentation
 
+- [Feature status](docs/FEATURE_STATUS.md) — code-backed inventory of what is
+  implemented, bounded, prepared-only, and absent
 - [CLI guide](docs/CLI.md) — setup, commands, storage, outputs, and limits
 - [Architecture](ARCHITECTURE.md) — engine boundaries and lifecycle
 - [Agent company onboarding](docs/AGENT_COMPANY_ONBOARDING.md) — product and

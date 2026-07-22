@@ -2,6 +2,7 @@
 
 Current documents:
 
+- [Feature status](FEATURE_STATUS.md) — concise code-backed inventory of what is implemented, bounded, prepared-only, and absent.
 - [CLI guide](CLI.md) — local and Codex setup, provider/account commands, permissions, storage, output, and limits.
 - [Security policy](../SECURITY.md) — current support boundary, private reporting expectations, and credential-canary rules.
 - [Release runbook](RELEASING.md) — verified artifact boundary, one-time npm bootstrap, trusted publishing, and later preview releases.
@@ -12,7 +13,10 @@ Current documents:
 - [Architecture](../ARCHITECTURE.md) — implemented package boundaries and direct/delegated engine lifecycle.
 - [Product direction](../PRODUCT.md) — CLI-first agent manager and sub-agent roadmap.
 
-Reviewed specifications and implementation plans:
+Reviewed specifications and implementation plans follow. These dated files are
+design and delivery records; unchecked historical steps are not a live backlog.
+Use [Feature status](FEATURE_STATUS.md), the CLI guide, and the architecture for
+current product truth.
 
 - [Core v0 design](superpowers/specs/2026-07-10-recurs-core-v0-design.md) — implemented single-agent foundation.
 - [Provider, authentication, and onboarding design](superpowers/specs/2026-07-10-recurs-provider-auth-design.md) — reviewed umbrella design; contracts, its original 25-path catalog plus the reviewed xAI API path, non-secret registry, local setup, official Codex delegated path, and private native OpenAI/Anthropic/Kimi direct-provider verticals are implemented. Persistent credential-bearing setup remains production-signed-macOS-only and is not yet distributed; source/npm environment BYOK is the documented weaker path.
@@ -27,7 +31,8 @@ Reviewed specifications and implementation plans:
 - [Tool safety foundation plan](superpowers/plans/2026-07-11-recurs-host-safety-foundation.md) — unified credential exclusions, checkpoint format gating, clean child state, tool profiles, and sanitized failures.
 - [Recurs-owned child-agent plan](superpowers/plans/2026-07-17-recurs-owned-subagent-vertical.md), [multi-profile plan](superpowers/plans/2026-07-17-multi-approach-orchestration.md), [parallel analysis/review plan](superpowers/plans/2026-07-17-parallel-analysis-fanout.md), and [Team Orchestration v1 plan](superpowers/plans/2026-07-17-team-orchestration-v1.md) — durable parent/child state, exact profiles, shared budgets, versioned modes, isolated Git worktrees, safe patch integration/rollback, adaptive Review panels, and the original bounded foreground team.
 - [Company blueprint v1 plan](superpowers/plans/2026-07-21-company-blueprint-v1.md) — implemented immutable tailored-company contracts and private storage, consent-gated root-marker intake, explicit roster/authority/tool/quality review, fresh orchestrator-bound activation, durable initial goal, and one real blueprint-aware parent-to-child synthesis path.
-- [Durable Team Runtime v2 design](superpowers/specs/2026-07-18-durable-team-runtime-v2-design.md) and [implementation plan](superpowers/plans/2026-07-18-durable-team-runtime-v2.md) — implemented version-4 Implement/Review/Repair profiles without arbitrary-command or verification tools, sequenced team journals, staged durable candidates, foreground/background parity, owner fencing, explicit control/apply, restart recovery, provider-neutral routing contracts, and bounded repair. Only hardened Git inspection may spawn a process. Process-lifetime background is not a daemon; deep recursion and multiple live role-specific backends remain absent.
+- [Complete CLI company foundation plan](superpowers/plans/2026-07-22-complete-cli-company-foundation.md) and [runtime quality plan](superpowers/plans/2026-07-22-company-runtime-quality.md) — implemented V2 company onboarding, validated assignment DAGs, multi-stage reviewed execution, role charters, attributable learning, amendments, exact Skill/MCP bindings, and deterministic/configured-provider evaluation.
+- [Durable Team Runtime v2 design](superpowers/specs/2026-07-18-durable-team-runtime-v2-design.md) and [implementation plan](superpowers/plans/2026-07-18-durable-team-runtime-v2.md) — implemented Implement/Review/Repair profiles, sequenced journals, staged candidates, foreground/process-lifetime-background parity, owner fencing, explicit control/apply, restart recovery, explicit saved role routes, and bounded repair. Process-lifetime background is not a daemon; child-created unbounded recursion and automatic provider ranking remain absent.
 - [MCP client v1 design](superpowers/specs/2026-07-19-mcp-client-v1-design.md) — bounded user-owned stdio configuration, isolated process execution, progressive tool discovery/calls, permission integration, explicit omissions, and the next safe interoperability slices.
 - [Linux process-containment hardening review](security/linux-process-containment/hardening.md) — evidence, alternatives, tradeoffs, and the selected fail-closed system-Bubblewrap boundary for Linux tool subprocesses.
 
