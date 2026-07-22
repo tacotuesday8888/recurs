@@ -21,13 +21,49 @@ It is not an IDE. Users may keep their editor of choice. Recurs manages the peop
 
 ## What exists now
 
-Core v0, the provider/authentication catalog foundation, and the first onboarding-to-company vertical are implemented: a provider-neutral loop, bounded built-in and user-configured stdio MCP tools, agent-owned long-running command sessions, three general delegation primitives plus one blueprint-aware role handoff, three permission presets, Plan and review modes, goals, pinned version-2 sessions, immutable tailored company blueprints, cross-process mutation leases, trusted run context, direct and delegated coordinator lanes, interrupted-work recovery, compaction, checkpoints/undo, sessionless workspace shell, interactive and JSONL CLI paths, and full end-to-end coding workflows.
+Core v0, the provider/authentication foundation, and the bounded CLI company
+runtime are implemented: a provider-neutral loop, built-in and user-configured
+stdio MCP tools, agent-owned long-running command sessions, three general
+delegation primitives, company-goal orchestration, three permission presets,
+Plan and review modes, goals, pinned version-2 sessions, immutable tailored
+company blueprints, cross-process mutation leases, trusted run context, direct
+and delegated coordinator lanes, interrupted-work recovery, compaction,
+checkpoints/undo, a sessionless workspace shell, interactive and structured CLI
+paths, and end-to-end coding workflows.
 
-The Recurs-owned team vertical is now durable. A parent can create one Explore, Implement, or Review child, run a bounded foreground Explore/Review batch, or ask `delegate_team` to run up to four isolated Implement workers followed by strict Review and bounded finding-driven Repair. Version-5 Economy through Max policies combine quality, team width, reviewers, repair rounds, child/request limits, concurrency, depth, retries, reported-cost ceilings, and eligible billing classes. Users can explicitly assign Implement, Review, and Repair to saved direct-model connections; Recurs revalidates those connections, freezes the selected backend evidence per run, and falls back to the parent when policy or availability makes an assignment ineligible. All candidate work stays in private staging until approval. Foreground applies an approved candidate through a two-phase checkpoint transaction; process-lifetime background stops at `ready_to_apply` for explicit control. A sequenced journal, cross-process owner leases, truthful interruption/resume, startup recovery, normalized events, `/agents` controls, and model control tools make lifecycle and evidence inspectable. Recursion, automatic task decomposition, automatic model ranking, a persistent daemon, dirty-parent snapshots, and auto-commit/push/deploy remain intentionally absent.
+The Recurs-owned team vertical is durable. A parent can create one Explore,
+Implement, or Review child, run a bounded foreground Explore/Review batch, or
+ask `delegate_team` to run up to four isolated Implement workers followed by
+strict Review and bounded finding-driven Repair. Version-6 Economy through Max
+policies combine quality, company depth and width, reviewers, repair rounds,
+request limits, concurrency, retries, reported-cost ceilings, and eligible
+billing classes. Users can explicitly assign Implement, Review, and Repair to
+saved direct-model connections; Recurs revalidates those connections, freezes
+the selected backend evidence per run, and falls back to the parent when policy
+or availability makes an assignment ineligible. All candidate work stays in
+private staging until approval. Foreground applies an approved candidate
+through a two-phase checkpoint transaction; process-lifetime background stops
+at `ready_to_apply` for explicit control. A sequenced journal, cross-process
+owner leases, truthful interruption/resume, startup recovery, normalized
+events, `/agents` controls, and model control tools make lifecycle and evidence
+inspectable. Child-created unbounded recursion, automatic model ranking, a
+persistent daemon, dirty-parent snapshots, and auto-commit/push/deploy remain
+intentionally absent.
 
 Built-in tools now share a permanent credential-path denial, aggregate tools and new checkpoints exclude those paths, child processes receive clean synthetic state, and provider/tool/CLI failures are sanitized before durable or user-visible boundaries. Hosts may choose `workspace_sandboxed`, `local_guarded`, or a fail-closed `tools_disabled` profile. The standalone CLI selects the workspace sandbox by default on macOS and Linux, and the guarded profile on Windows.
 
-The MCP stdio slice accepts private user configuration and exact-digest project configuration after explicit local user trust. It progressively lists/calls tools through ordinary permission, checkpoint, normalized-event, isolated-environment, sandbox, timeout, cancellation, output, and process-group boundaries. A runtime retains one serialized session per exact server/workspace/sandbox identity, checks health before reuse, restarts only before an operation, never retries an ambiguous tool call, invalidates changed project configuration, and owns teardown across untrust, CLI, and ACP exits. It is a parent-only interoperability seam, not a marketplace: remote OAuth/transports, cross-runtime daemons, installation, prompts/resources, and child/team access remain absent.
+The MCP stdio slice accepts private user configuration and exact-digest project
+configuration after explicit local user trust. It progressively lists/calls
+tools through ordinary permission, checkpoint, normalized-event,
+isolated-environment, sandbox, timeout, cancellation, output, and process-group
+boundaries. A runtime retains one serialized session per exact
+server/workspace/sandbox identity, checks health before reuse, restarts only
+before an operation, never retries an ambiguous tool call, invalidates changed
+project configuration, and owns teardown across untrust, CLI, and ACP exits.
+The parent can use configured servers; a company role can use one only after an
+exact user-approved bundle binding that also survives its role and parent
+policy intersection. This is not a marketplace: remote OAuth/transports,
+installation, prompts/resources, and automatic trust remain absent.
 
 The CLI now has a validated 26-path catalog, a non-secret saved-connection lifecycle, and cross-platform saved plus ephemeral BYOK for fixed-origin OpenAI Responses and reviewed OpenAI Chat-compatible and Anthropic Messages providers. Saved BYOK retains a provider/model policy binding, environment-variable name, and one-way credential fingerprint—not the key—and refuses to run if the current process lacks the exact credential. Authenticated fixed-origin discovery verifies selected OpenAI, Anthropic, OpenRouter, xAI, DeepSeek, and MiniMax models during setup; remaining reviewed providers keep the bounded public-catalog or exact-ID path. xAI runs use the documented compatibility Chat endpoint and do not claim Responses continuation semantics. Public OpenAI Responses runs disable API storage and retain encrypted reasoning only in bounded process memory. An interrupted tool turn is not resumable after the CLI exits; a completed conversation resumes from its last visible answer, while the native broker remains the persistent hidden-continuation design. Literal-loopback Ollama/LM Studio and the pinned official Codex ACP adapter remain supported. Codex setup and every Codex turn recheck vendor-reported authentication/account identity; the connection is local, manual, user-present, and Plan-only. Versioned protocol-level harness profiles distinguish native tool use from conservative compatibility-model tool use without ranking model brands.
 
@@ -37,32 +73,26 @@ On macOS and Linux, `workspace_sandboxed` gives command and verification childre
 
 The repository is open source under Apache-2.0, with release-ready `0.1.0-alpha.1` package metadata. It is source-installable only; no npm, Bun, Homebrew, curl, or binary release has been published. The guarded release path is prepared: one exact npm tarball feeds trusted npm publishing, a checksum-verifying user-local installer, a generated Homebrew formula, GitHub release assets, and provenance attestations. Publication remains owner-controlled through a documented one-time npm bootstrap, the later trusted-publisher relationship, and exact manually dispatched tags.
 
-## Roadmap
+## Next priorities
 
-### 1. Provider and onboarding layer
+1. **Prove the company experience with real models.** Run the versioned
+   configured-provider evaluation and complete real repository goals through
+   onboarding, decomposition, implementation, independent review, repair, and
+   synthesis. Improve interview and delegation quality from measured failures,
+   not from another speculative scheduler.
+2. **Ship a portable alpha.** Complete the one-time npm bootstrap and release
+   the already verified npm, checksum-bound curl, and generated Homebrew
+   artifacts. Bun remains unclaimed until compatibility is tested.
+3. **Make operation easier to understand.** Add a concise company operating
+   view over the existing event stream, goals, active roles, budgets, handoffs,
+   reviews, and approvals without changing runtime authority.
+4. **Expand only through reviewed boundaries.** Add capability/price-aware
+   routing, provider-specific coding plans, remote MCP/OAuth, signed native
+   distribution, and platform containment as separate test-backed slices.
 
-Credential-free onboarding for literal-loopback OpenAI-compatible local providers is implemented. It collects no key, refuses non-loopback endpoints and redirects, and persists only endpoint/model metadata. Interactive saved-BYOK setup adds fixed-origin OpenAI Responses plus reviewed Chat and Anthropic Messages providers without persisting their keys, with explicit billing acknowledgement and credential-binding verification. OpenAI, Anthropic, OpenRouter, xAI, DeepSeek, and MiniMax additionally authenticate against exact reviewed model-list endpoints before their selected model is saved. The first-run guide creates a real initial company configuration: parent connection, permission boundary, durably recorded versioned operating mode, optional confirmation-gated Implement/Review/Repair candidates from eligible saved direct connections, bounded project instructions, and an optional tailored company. That company intake captures purpose/type/stage/style and one constraint, asks before checking only a fixed list of root filenames, and previews its immutable roster, authority, tools, quality plan, and first goal before approval. Existing root-to-cwd `AGENTS.md` policy is reused; otherwise the confirmed intake may become a non-overwriting starter brief. It does not claim automatic decomposition, tool installation, deep recursion, or a company UI. The 26-path catalog, billing/restriction projection, redacted provider/account commands, and official Codex-with-ChatGPT delegated path are also implemented.
-
-The private macOS OpenAI, Anthropic, and Kimi paths are assembled without rewriting the TypeScript harness: exact profile binding, model discovery, crash-safe setup, generation codecs, CLI onboarding, cancellation, usage, and redacted diagnostics are implemented. The next step is a signed/notarized installed artifact plus recovery and credential-canary proof. A manifest flag or shared wire protocol alone still cannot activate a provider.
-
-Additional providers and delegated runtimes remain provider-specific integrations. Future native HTTPS treats macOS system proxy/root configuration as trusted host policy. The current macOS/Linux tool profile is a subprocess boundary, not a persistent-credential authority. A provider stays unavailable whenever any required attestation, codec/profile, policy, platform, onboarding, or release evidence is absent.
-
-### 2. Sub-agent company runtime
-
-The durable parent/child and team-run contracts, exact worker profiles, shared budgets, foreground and process-lifetime background delegation, normalized activity, isolated staging, strict Review, bounded Repair, explicit apply, ownership fencing, restart recovery, and first immutable company-blueprint path are implemented. An approved company starts a fresh orchestrator-bound session with a durable goal; that parent can delegate one concrete role assignment through the ordinary child engine and synthesize its returned evidence. Continue the primary product differentiator with:
-
-- capability- and price-aware routing beyond the explicit saved role assignments, without brand ranking or silent secondary spend;
-- Windows containment and a reviewed Linux syscall policy before claiming cross-platform unattended arbitrary-command workers;
-- a separately designed durable worker host if work must continue after the CLI exits;
-- mapping approved builder/reviewer roles onto the isolated durable-team workflow without weakening its staging and apply guarantees;
-- a richer editable interview and model-proposed roadmap that cannot grant authority; and
-- a company-level operating view over the existing goals, modes, budgets, cancellation, handoffs, review, repair, and normalized activity stream.
-
-Current process-lifetime workers remain bounded to the CLI lifetime. Any worker that must survive it needs a separately authenticated durable host rather than a detached CLI child.
-
-### 3. Product surfaces and ecosystem
-
-Add the company-style desktop client, plugin packaging and later MCP remote/profile slices, background/cloud execution, and distribution. npm, checksum-bound curl, and a Homebrew formula now share one prepared versioned artifact path, but none is live until the release gate is satisfied; a tap is still absent. Bun may later install the package while Node remains the runtime, and Windows support remains later work.
+Current background workers remain bounded to the CLI lifetime. Work that must
+survive it needs a separately authenticated durable host rather than a detached
+CLI child.
 
 ## Not current commitments
 
@@ -70,8 +100,6 @@ Recurs is not currently building its own foundation model, replacing code editor
 
 Historical exploration is preserved under [docs/research](docs/research/README.md). Current technical decisions live in [ARCHITECTURE.md](ARCHITECTURE.md) and the reviewed specs indexed in [docs/README.md](docs/README.md).
 
-The canonical product target for connecting onboarding to the sub-agent system
-is [Agent Company Onboarding](docs/AGENT_COMPANY_ONBOARDING.md). It records the
-settled original company concept, what the current harness implements, and the
-next blueprint-to-runtime slices without treating unresolved UI ideas as engine
-requirements.
+The current code-backed inventory is [Feature Status](docs/FEATURE_STATUS.md).
+The canonical company concept and implemented boundary are recorded in
+[Agent Company Onboarding](docs/AGENT_COMPANY_ONBOARDING.md).
