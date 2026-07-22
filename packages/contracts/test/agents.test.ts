@@ -149,7 +149,7 @@ describe("agent profile contracts", () => {
 });
 
 describe("agent operating-mode contracts", () => {
-  it("preserves historical modes and adds stable v5 role-routing policies", () => {
+  it("preserves historical modes and adds stable v6 company policies", () => {
     expect(operatingModePolicies.map((policy) => policy.id)).toEqual([
       "economy_v1",
       "standard_v1",
@@ -176,8 +176,18 @@ describe("agent operating-mode contracts", () => {
       "balanced_v5",
       "performance_v5",
       "max_v5",
+      "economy_v6",
+      "standard_v6",
+      "balanced_v6",
+      "performance_v6",
+      "max_v6",
     ]);
     expect(operatingModePolicies.map((policy) => policy.displayName)).toEqual([
+      "Economy",
+      "Standard",
+      "Balanced",
+      "Performance",
+      "Max",
       "Economy",
       "Standard",
       "Balanced",
@@ -210,23 +220,26 @@ describe("agent operating-mode contracts", () => {
       3, 3, 3, 3, 3,
       4, 4, 4, 4, 4,
       5, 5, 5, 5, 5,
+      6, 6, 6, 6, 6,
     ]);
   });
 
-  it("defaults new sessions to v5 while retaining an explicit legacy default", () => {
-    expect(DEFAULT_OPERATING_MODE_ID).toBe("balanced_v5");
+  it("defaults new sessions to v6 while retaining an explicit legacy default", () => {
+    expect(DEFAULT_OPERATING_MODE_ID).toBe("balanced_v6");
     expect(LEGACY_OPERATING_MODE_ID).toBe("balanced_v1");
     expect(getOperatingModePolicy(DEFAULT_OPERATING_MODE_ID).displayName).toBe("Balanced");
     expect(getOperatingModePolicy(LEGACY_OPERATING_MODE_ID).version).toBe(1);
   });
 
   it("parses display names to latest policies and every exact stable id", () => {
-    expect(parseOperatingModeId("economy")).toBe("economy_v5");
-    expect(parseOperatingModeId("Performance")).toBe("performance_v5");
+    expect(parseOperatingModeId("economy")).toBe("economy_v6");
+    expect(parseOperatingModeId("Performance")).toBe("performance_v6");
     expect(parseOperatingModeId("max_v1")).toBe("max_v1");
     expect(parseOperatingModeId("max_v2")).toBe("max_v2");
     expect(parseOperatingModeId("max_v3")).toBe("max_v3");
     expect(parseOperatingModeId("max_v4")).toBe("max_v4");
+    expect(parseOperatingModeId("max_v5")).toBe("max_v5");
+    expect(parseOperatingModeId("max_v6")).toBe("max_v6");
     expect(parseOperatingModeId("bal")).toBeNull();
     expect(parseOperatingModeId("max extra")).toBeNull();
   });
@@ -242,7 +255,7 @@ describe("agent operating-mode contracts", () => {
     expect(operatingModePolicies.slice(0, 20).every(
       (mode) => mode.model.selection === "inherit_parent",
     )).toBe(true);
-    expect(operatingModePolicies.slice(20).map((mode) => mode.model)).toEqual([
+    const routedModels = [
       {
         selection: "configured_role_candidate",
         fallback: "inherit_parent",
@@ -262,7 +275,11 @@ describe("agent operating-mode contracts", () => {
           "metered_api",
         ],
       })),
-    ]);
+    ];
+    expect(operatingModePolicies.slice(20, 25).map((mode) => mode.model))
+      .toEqual(routedModels);
+    expect(operatingModePolicies.slice(25).map((mode) => mode.model))
+      .toEqual(routedModels);
     expect(operatingModePolicies.slice(0, 5).map((policy) =>
       policy.orchestration.maxConcurrentChildren
     )).toEqual([1, 1, 1, 1, 1]);
@@ -280,6 +297,7 @@ describe("agent operating-mode contracts", () => {
       2, 3, 4, 6, 8,
       2, 6, 7, 10, 18,
       2, 6, 7, 10, 18,
+      2, 6, 7, 10, 18,
     ]);
     expect(operatingModePolicies.map((policy) =>
       policy.workflow.maxRequestsPerRun
@@ -287,6 +305,7 @@ describe("agent operating-mode contracts", () => {
       16, 48, 96, 192, 320,
       8, 16, 24, 32, 40,
       8, 18, 32, 60, 96,
+      8, 36, 56, 100, 216,
       8, 36, 56, 100, 216,
       8, 36, 56, 100, 216,
     ]);
@@ -422,8 +441,20 @@ describe("agent operating-mode contracts", () => {
         fallback: "inherit_parent",
       },
     });
-    expect(DEFAULT_OPERATING_MODE_ID).toBe("balanced_v5");
-    expect(parseOperatingModeId("balanced")).toBe("balanced_v5");
+    expect(getOperatingModePolicy("balanced_v6")).toMatchObject({
+      version: 6,
+      company: {
+        maxRoles: 16,
+        maxActiveRoles: 8,
+        maxDepth: 2,
+        maxConcurrentAssignments: 3,
+        maxGoalRequests: 80,
+        maxResearchChildren: 3,
+        maxReportedCostUsd: 3,
+      },
+    });
+    expect(DEFAULT_OPERATING_MODE_ID).toBe("balanced_v6");
+    expect(parseOperatingModeId("balanced")).toBe("balanced_v6");
     expect(parseOperatingModeId("balanced_v4")).toBe("balanced_v4");
   });
 });

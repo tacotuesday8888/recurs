@@ -193,9 +193,14 @@ export type OperatingModeId =
   | "standard_v5"
   | "balanced_v5"
   | "performance_v5"
-  | "max_v5";
+  | "max_v5"
+  | "economy_v6"
+  | "standard_v6"
+  | "balanced_v6"
+  | "performance_v6"
+  | "max_v6";
 
-export type OperatingModeVersion = 1 | 2 | 3 | 4 | 5;
+export type OperatingModeVersion = 1 | 2 | 3 | 4 | 5 | 6;
 
 export type AgentTeamQualityStandard =
   | "essential"
@@ -221,6 +226,17 @@ export interface AgentLimits {
   readonly maxReportedCostUsd: number;
 }
 
+export interface CompanyModePolicy {
+  readonly maxDepartments: number;
+  readonly maxRoles: number;
+  readonly maxActiveRoles: number;
+  readonly maxDepth: number;
+  readonly maxConcurrentAssignments: number;
+  readonly maxGoalRequests: number;
+  readonly maxResearchChildren: number;
+  readonly maxReportedCostUsd: number;
+}
+
 export interface OperatingModePolicy {
   readonly id: OperatingModeId;
   readonly version: OperatingModeVersion;
@@ -238,6 +254,7 @@ export interface OperatingModePolicy {
     readonly maxRequestsPerRun: number;
     readonly team: AgentTeamPolicy | null;
   };
+  readonly company?: CompanyModePolicy;
 }
 
 function routedPolicy(
@@ -266,6 +283,37 @@ function routedPolicy(
       fallback: "inherit_parent" as const,
       eligibleBillingSources: Object.freeze([...eligibleBillingSources]),
     }),
+  });
+}
+
+function routedCompanyPolicy(
+  id: OperatingModeId,
+  displayName: string,
+  maxConcurrentChildren: number,
+  maxRequests: number,
+  maxReportedCostUsd: number,
+  maxChildrenPerRun: number,
+  teamPolicy: AgentTeamPolicy,
+  eligibleBillingSources: readonly BillingSource[],
+  companyPolicy: CompanyModePolicy,
+): OperatingModePolicy {
+  return Object.freeze({
+    ...policy(
+      id,
+      6,
+      displayName,
+      maxConcurrentChildren,
+      maxRequests,
+      maxReportedCostUsd,
+      maxChildrenPerRun,
+      teamPolicy,
+    ),
+    model: Object.freeze({
+      selection: "configured_role_candidate" as const,
+      fallback: "inherit_parent" as const,
+      eligibleBillingSources: Object.freeze([...eligibleBillingSources]),
+    }),
+    company: Object.freeze({ ...companyPolicy }),
   });
 }
 
@@ -378,10 +426,69 @@ export const operatingModePolicies: readonly OperatingModePolicy[] =
     routedPolicy("max_v5", "Max", 6, 216, 25, 18,
       teamV4("maximum", 4, 2, 4, 2),
       ["local_compute", "included_subscription", "metered_api"]),
+    routedCompanyPolicy("economy_v6", "Economy", 1, 8, 0.25, 2,
+      teamV4("essential", 1, 1, 1, 0), ["local_compute"], {
+        maxDepartments: 6,
+        maxRoles: 8,
+        maxActiveRoles: 3,
+        maxDepth: 1,
+        maxConcurrentAssignments: 1,
+        maxGoalRequests: 12,
+        maxResearchChildren: 1,
+        maxReportedCostUsd: 0.25,
+      }),
+    routedCompanyPolicy("standard_v6", "Standard", 2, 36, 1, 6,
+      teamV4("standard", 1, 1, 2, 1),
+      ["local_compute", "included_subscription"], {
+        maxDepartments: 8,
+        maxRoles: 12,
+        maxActiveRoles: 5,
+        maxDepth: 2,
+        maxConcurrentAssignments: 2,
+        maxGoalRequests: 48,
+        maxResearchChildren: 3,
+        maxReportedCostUsd: 1,
+      }),
+    routedCompanyPolicy("balanced_v6", "Balanced", 3, 56, 3, 7,
+      teamV4("balanced", 2, 1, 2, 1),
+      ["local_compute", "included_subscription", "metered_api"], {
+        maxDepartments: 10,
+        maxRoles: 16,
+        maxActiveRoles: 8,
+        maxDepth: 2,
+        maxConcurrentAssignments: 3,
+        maxGoalRequests: 80,
+        maxResearchChildren: 3,
+        maxReportedCostUsd: 3,
+      }),
+    routedCompanyPolicy("performance_v6", "Performance", 4, 100, 10, 10,
+      teamV4("thorough", 3, 2, 3, 1),
+      ["local_compute", "included_subscription", "metered_api"], {
+        maxDepartments: 12,
+        maxRoles: 20,
+        maxActiveRoles: 12,
+        maxDepth: 3,
+        maxConcurrentAssignments: 4,
+        maxGoalRequests: 140,
+        maxResearchChildren: 6,
+        maxReportedCostUsd: 10,
+      }),
+    routedCompanyPolicy("max_v6", "Max", 6, 216, 25, 18,
+      teamV4("maximum", 4, 2, 4, 2),
+      ["local_compute", "included_subscription", "metered_api"], {
+        maxDepartments: 16,
+        maxRoles: 24,
+        maxActiveRoles: 16,
+        maxDepth: 3,
+        maxConcurrentAssignments: 6,
+        maxGoalRequests: 260,
+        maxResearchChildren: 8,
+        maxReportedCostUsd: 25,
+      }),
   ]);
 
 export const LEGACY_OPERATING_MODE_ID: OperatingModeId = "balanced_v1";
-export const DEFAULT_OPERATING_MODE_ID: OperatingModeId = "balanced_v5";
+export const DEFAULT_OPERATING_MODE_ID: OperatingModeId = "balanced_v6";
 
 const policiesById = new Map(
   operatingModePolicies.map((item) => [item.id, item] as const),
