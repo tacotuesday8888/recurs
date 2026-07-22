@@ -54,21 +54,21 @@ export type CompanyEvaluationCommandOptions =
     };
 ```
 
-- [ ] **Step 1: Write failing parser and routing tests**
+- [x] **Step 1: Write failing parser and routing tests**
 
   Cover `--list`, `--list --json`, configured formation with `--connection`, execution with required `--run`, stable scenario order, and rejection of crossed flags such as execution plus `--configured`, offline plus `--connection`, or formation plus `--run`.
 
-- [ ] **Step 2: Confirm the focused tests fail**
+- [x] **Step 2: Confirm the focused tests fail**
 
   Run: `npx vitest run packages/cli/test/run-mode.test.ts -t "installed company evaluation command"`
 
   Expected: failures because list, connection selection, and execution-run parsing are absent.
 
-- [ ] **Step 3: Implement the strict parser and safe catalog renderer**
+- [x] **Step 3: Implement the strict parser and safe catalog renderer**
 
   Parse every value with the existing bounded ID rules or an equivalent exact ASCII ID expression. Reject duplicates and unknown flags. Render only stable IDs, versions, network behavior, and a one-line description.
 
-- [ ] **Step 4: Update scoped help and run tests twice**
+- [x] **Step 4: Update scoped help and run tests twice**
 
   The help must show:
 
@@ -80,7 +80,7 @@ recurs eval company --scenario company_goal_execution_v1 --run <exact-run-id> [-
 
   Run the focused test twice, then `npm run typecheck`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   Commit message: `feat(cli): define company evaluation scenarios`
 

@@ -72,8 +72,10 @@ import { CLI_HELP, parseCliHelpRequest } from "./cli-help.js";
 import {
   CompanyEvaluationArgumentError,
   parseCompanyEvaluationCommand,
+  renderCompanyEvaluationScenarios,
   runCompanyEvaluationCommand,
   type CompanyEvaluationCommandOptions,
+  type CompanyEvaluationRunOptions,
 } from "./company-evaluation-command.js";
 import { renderCompanyEvaluationReport } from "./company-evaluation.js";
 import {
@@ -164,7 +166,7 @@ export interface CliDependencies {
     readonly repositoryConsent: boolean;
     readonly cwd: string;
   }): ReturnType<typeof createStandaloneCompanyOnboarding>;
-  evaluateCompany?(input: CompanyEvaluationCommandOptions & {
+  evaluateCompany?(input: CompanyEvaluationRunOptions & {
     readonly cwd: string;
     readonly signal?: AbortSignal;
   }): Promise<CompanyEvaluationReportV1>;
@@ -1270,6 +1272,13 @@ export async function runCli(
         return 2;
       }
       throw error;
+    }
+    if (command.action === "list") {
+      await writeOutput(
+        dependencies.stdout,
+        `${renderCompanyEvaluationScenarios(command.json)}\n`,
+      );
+      return 0;
     }
     if (dependencies.evaluateCompany === undefined) {
       await writeOutput(dependencies.stderr, help);
