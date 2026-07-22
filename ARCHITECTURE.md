@@ -27,7 +27,7 @@ public/source CLI ──fixed unavailable port──► shared process host
 - `@recurs/app` owns the non-secret connection registry, redacted lifecycle and native-authority services, local onboarding, onboarding projection, and Codex onboarding policy. It depends on contracts, providers, and auth, never on the CLI.
 - `@recurs/runtimes` owns bounded ACP process/protocol handling and the pinned official Codex ACP profile. It receives opaque continuation-store capabilities and does not import vendor credentials.
 - `@recurs/tools` owns tool definitions and execution, permission intents, the unified credential/workspace path policy, command classification, clean one-shot and agent-owned resumable process setup and bounds, Git inspection, and checkpoint format gates.
-- `@recurs/core` owns the direct agent loop, delegated executor, backend-neutral coordinator, owned child manager, immutable company-blueprint compiler/stores, resumable company onboarding, bounded company-goal supervisor, bounded batch and team coordinators, durable goal/team journals and recovery, provider-neutral role routing, cross-process run ownership, durable patch artifacts, activity projection, Git worktree leases, adaptive Review panels, shared delegation budgets, normalized runtime/agent events, trusted preflight handoff, process-scoped continuation authority, durable goals, session reduction, JSONL persistence, compaction, and recovery.
+- `@recurs/core` owns the direct agent loop, delegated executor, backend-neutral coordinator, owned child manager, immutable company-blueprint compiler/stores, resumable company onboarding, bounded company-goal supervisor, provenance-backed company learning, controlled amendment authority, bounded batch and team coordinators, durable goal/team journals and recovery, provider-neutral role routing, cross-process run ownership, durable patch artifacts, activity projection, Git worktree leases, adaptive Review panels, shared delegation budgets, normalized runtime/agent events, trusted preflight handoff, process-scoped continuation authority, durable goals, session reduction, JSONL persistence, compaction, and recovery.
 - `@recurs/cli` composes app (which assembles auth), providers, runtimes, core, and tools; it owns slash commands, operating-mode selection, agent activity rendering, redacted native diagnostics, interactive input, non-interactive execution, the Recurs-owned ACP stdio server, the bounded user-configured MCP stdio client, and process exit behavior.
 - `packages/native-engine` is the launcher-only entrypoint that claims descriptor 3 before loading the shared process host. Its sealed build substitutes a fixed denial for delegated Codex rather than resolving an ambient runtime.
 - `native/macos` contains the headless Swift launcher, exact-peer XPC broker, fixed bundle/child lifecycle, foreground secret capture, Data Protection Keychain adapter, credential journal/state machine, endpoint policy, model catalogs, and broker-owned OpenAI/Anthropic/Kimi generation. This is native CLI infrastructure, not a desktop interface.
@@ -52,7 +52,36 @@ For one prompt in the coordinated direct-model lane:
 
 Provider retries are bounded to two attempts and are allowed only before text, reasoning, or a tool call has appeared. Retrying after semantic output could duplicate visible text or work.
 
-## Owned child orchestration
+## Company formation and owned orchestration
+
+Company formation is a durable state machine rather than one transient prompt.
+`CompanyOnboardingRunV1` records depth, design mode, immutable authority,
+interview answers, bounded research, uncertainty, usage, proposal revisions,
+approval, cancellation, and failure. Quick, Guided, and Deep policies cap
+interview rounds, research children, model requests, concurrency, and reported
+cost, then intersect those limits with the selected V6 operating mode. Resume
+requires the same canonical project root, backend fingerprint, permission mode,
+operating mode, depth, and design mode. Stores publish private immutable objects
+atomically and use append-only sequenced state plus mutation fencing; corruption
+and stale writers fail closed.
+
+Before approval, `CompanyOnboardingAgentRuntime` exposes only `read_file`,
+`list_files`, `search_text`, `code_outline`, `git_status`, `git_diff`,
+`git_history`, and `git_show` through an enforced Plan-only registry. No shell,
+write, network, credential, installation, MCP, Skill, project-command, or
+delegation tool enters that registry. Repository access is consent-gated.
+Model-authored interview decisions and dynamic organizations cross strict
+parsers; Stable Core + Specialists retains Recurs's coherent baseline, while
+Guardrailed Dynamic still requires a root orchestrator, independent-review
+authority, acyclic reporting/delegation, bounded roles, monotonic permissions,
+valid model routes, evidence obligations, and stable opaque IDs.
+
+The proposal remains editable through conversational revision or bounded YAML,
+but validated JSON is canonical. Structural diffs and final readiness are shown
+before explicit approval. With repository consent, readiness separately reports
+enabled/disabled Agent Skills, MCP servers, and project trust without exposing
+paths or commands. Catalog metadata is not a semantic tool-bundle binding and
+cannot install, trust, satisfy capability policy, or widen a role.
 
 An approved `CompanyBlueprintV1` is a private immutable project policy, not an
 independent execution engine. Guided onboarding deterministically compiles the
@@ -87,6 +116,25 @@ the global ledger. Terminal team evidence and accounting reconcile once into
 the goal. Failure, cancellation, and interruption remain explicit rather than
 being rewritten as successful synthesis.
 
+After a company goal has durably completed, `CompanyLearningService` accepts
+only attributable user or execution evidence, rejects secret-shaped content,
+deduplicates immutable entries, enforces same-kind supersession, and publishes a
+new bounded `CompanyKnowledgeV1` revision. Goal preparation selects relevant
+active facts under entry and byte limits and supplies them as context; it never
+rewrites historical messages or blueprint authority. A post-completion learning
+failure is emitted as a warning rather than falsifying the already-completed
+goal, while an unreadable pre-run knowledge boundary blocks execution.
+
+`CompanyAmendmentService` keeps organizational change separate from learning.
+Every proposal targets the exact currently approved blueprint revision and is
+stored immutably; approval or rejection is a separate fenced decision. Approval
+creates the next immutable blueprint revision only after revalidating the full
+lineage and proposal, while rejection publishes no blueprint. The current
+session remains pinned to its original binding; a future session may adopt only
+the newest contiguous, fully decided lineage. `/company amendment <id>` exposes
+a bounded structural diff, and decisions require an exact ID plus local,
+manual, user-present confirmation.
+
 `delegate_task` creates one durable Explore, Implement, or Review child session through `BackendRunCoordinator`. `delegate_tasks` schedules independent Explore/Review children through that same path. `delegate_team` composes isolated Implement, Review, and Repair children without creating another model loop. Child permissions can only narrow the parent, retries are zero, and every operating mode caps total and concurrent work. Immutable version-1 through version-5 IDs retain their historical behavior; display-name selection uses the V6 company-capable policy.
 
 Batch preflight requires the parent cwd to be the canonical root of a clean Git repository. `GitWorktreeLeaseManager` creates a detached worktree at exact `HEAD` under the private project-data root, outside the repository. Each child session stores its lease and revision, results settle in input order, linked cancellation stops active work, and every lease is cleaned before settlement. Explore/Review batches intentionally discard workspace effects while retaining successful sibling evidence after ordinary partial failure.
@@ -114,7 +162,7 @@ The collector rejects malformed usage, duplicate or empty tool identities, data 
 
 `BackendRunCoordinator` selects the immutable session pin's direct-model or delegated-runtime lane. Standalone assembly rereads the registry on every operation, finds the exact pinned connection ID, reconstructs its canonical pin, and compares the complete value before creating a provider or runtime. Changing the global primary therefore cannot redirect an old session; changing or disconnecting its record fails preflight. Local pins include a domain-separated digest of the normalized loopback origin. The coordinator also rejects a resolver whose run authorization is bound to a different operation, turn, session, connection, model, policy, billing mode, or invalid request budget. Direct providers are instantiated per run and enter `AgentLoop` through `AgentLoopDirectExecutor`; the authorization's request budget limits model steps. `DelegatedAgentExecutor` separately validates bounded runtime events, approval option IDs, capabilities, continuation provenance, and one terminal result.
 
-`AgentBackendRouter` evaluates role candidates by declared capability—execution mode, host-controlled tools, background eligibility, permission support, connection readiness, and billing policy—rather than provider brand. Registry schema v2 stores at most one explicit direct-model connection assignment for each Implement, Review, and Repair role. Production assembly rereads and resolves those assignments at team preflight, filters them through the active version-5 mode's eligible billing classes, always retains the immutable parent pin as fallback, and freezes each decision and backend pin into the durable descriptor. Historical modes continue to inherit the parent. Resume requires the fresh eligible decision to match the frozen route exactly. This is explicit routing, not automatic model intelligence: Recurs does not infer strength, estimate price, route ordinary `delegate_task` calls, or silently choose an unassigned account.
+`AgentBackendRouter` evaluates role candidates by declared capability—execution mode, host-controlled tools, background eligibility, permission support, connection readiness, and billing policy—rather than provider brand. Registry schema v2 stores at most one explicit direct-model connection assignment for each Implement, Review, and Repair role. Production assembly rereads and resolves those assignments at team preflight, filters them through the active V6 mode's eligible billing classes, always retains the immutable parent pin as fallback, and freezes each decision and backend pin into the durable descriptor. Historical modes continue to inherit the parent. Resume requires the fresh eligible decision to match the frozen route exactly. This is explicit routing, not automatic model intelligence: Recurs does not infer strength, estimate price, route ordinary `delegate_task` calls, or silently choose an unassigned account.
 
 The live direct transports are credential-free literal-loopback Ollama/LM Studio, fixed-origin environment BYOK for OpenAI Responses plus reviewed OpenAI Chat-compatible and Anthropic Messages providers, and the injected test/embedding seam. Environment selection is all-or-nothing (`RECURS_PROVIDER`, `RECURS_MODEL`, `RECURS_API_KEY`), rejects arbitrary origins, derives the adapter from the reviewed manifest protocol, hashes the credential into a non-secret pin identity, and strips key-bearing variables from all tool children. The public Responses adapter keeps API storage disabled, validates typed streaming lifecycle and function items, and holds replayable encrypted reasoning behind bounded process-scoped handles; it fails closed rather than claiming restart durability. The Anthropic adapter translates durable system/message/tool history into native Messages blocks and uses bounded named-SSE decoding. Both normalize usage and reject redirects, malformed events, and split-chunk credential echoes. Protocol-level harness profiles add stable native or conservative compatibility tool-use instructions to every direct-model step. The live delegated transport is the pinned official `@agentclientprotocol/codex-acp` 1.1.2 profile with `@openai/codex` 0.144.0. It enforces Codex `read-only`/Plan mode and local, manual, user-present CLI context. Before every run or reconciliation, assembly rereads saved connections and current policy. The runtime verifies structured ChatGPT authentication and the canonical account fingerprint on the exact ACP child that will perform the work. One-shot, unattended, recognized CI, remote, scripted, implicit SDK, Act-mode, stale-policy, changed-account, or changed-connection use fails before delegated Codex work continues.
 
@@ -206,6 +254,6 @@ The remaining extension order is deliberate:
 5. add official delegated runtimes to the sealed host only with fixed signed layouts plus provider-specific capability and policy proof;
 6. complete Windows containment and evaluate a reviewed Linux syscall policy before claiming cross-platform unattended arbitrary-command workers, then design any post-CLI worker host as a separately authenticated owner rather than detaching it from the CLI;
 7. extend explicit role routing with reviewed capability and price metadata only while preserving frozen routing, user intent, and accounting truth;
-8. extend MCP only through separately reviewed authenticated remote, project-trust, prompt/resource, and child-profile slices; add the company coordinator, desktop, plugin packaging, and distribution over the same durable contracts and the live ACP client boundary.
+8. extend MCP only through separately reviewed authenticated remote, project-trust, prompt/resource, and child-profile slices; add explicit reviewed Skill/MCP-to-company-bundle bindings, desktop, plugin packaging, and distribution over the same durable contracts and the live ACP client boundary.
 
 See [the engine comparison](docs/BASE_ENGINE_COMPARISON.md), [the Core v0 design](docs/superpowers/specs/2026-07-10-recurs-core-v0-design.md), and [the provider design](docs/superpowers/specs/2026-07-10-recurs-provider-auth-design.md).

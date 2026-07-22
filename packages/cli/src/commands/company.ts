@@ -16,6 +16,10 @@ import {
   renderCompanyBlueprintYaml,
 } from "../company-blueprint-yaml.js";
 import {
+  companyToolReadinessCounts,
+  renderCompanyToolReadiness,
+} from "../company-tool-readiness.js";
+import {
   message,
   type Command,
   type CommandContext,
@@ -23,7 +27,7 @@ import {
 } from "./types.js";
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
-const USAGE = "/company [blueprint|activity|knowledge|amendments|amendment <id>|approve-amendment <id>|reject-amendment <id>]";
+const USAGE = "/company [blueprint|readiness|activity|knowledge|amendments|amendment <id>|approve-amendment <id>|reject-amendment <id>]";
 
 class CompanyCommandPolicyError extends Error {}
 
@@ -81,6 +85,7 @@ function statusText(
   blueprint: CompanyBlueprintV2,
   runs: readonly CompanyGoalRunV1[],
 ): string {
+  const readiness = companyToolReadinessCounts(blueprint);
   const active = runs.filter((run) =>
     run.status === "created" || run.status === "running" ||
     run.status === "waiting_for_approval" || run.status === "interrupted"
@@ -93,6 +98,7 @@ function statusText(
     `Mode: ${blueprint.authority.operatingModeId}`,
     `Departments: ${blueprint.departments.length}`,
     `Roles: ${blueprint.roles.length}`,
+    `Tool bundles: ${readiness.ready} ready, ${readiness.missing} missing`,
     `Goal runs: ${runs.length} total, ${active} active or interrupted`,
   ].join("\n");
 }
@@ -189,6 +195,16 @@ export function createCompanyCommand(dependencies: CommandDependencies): Command
       }
       if (action === "blueprint") {
         return message(renderCompanyBlueprintYaml(active.blueprint));
+      }
+      if (action === "readiness") {
+        return message(renderCompanyToolReadiness(active.blueprint, {
+          ...(dependencies.skills === undefined
+            ? {}
+            : { skills: dependencies.skills.snapshot() }),
+          ...(dependencies.mcp === undefined
+            ? {}
+            : { mcp: dependencies.mcp.snapshot() }),
+        }));
       }
       if (action === "activity") {
         return message(activityText(
