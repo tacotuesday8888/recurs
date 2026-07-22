@@ -51,6 +51,10 @@ import type {
   CompanyProposalEditResult,
   CompanyProposalEditor,
 } from "./company-proposal-editor.js";
+import {
+  renderCompanyToolReadiness,
+  type CompanyCapabilityCatalogs,
+} from "./company-tool-readiness.js";
 import { writeOutput } from "./render.js";
 
 export interface GuidedChoice {
@@ -314,11 +318,13 @@ export interface GuidedOnboardingPorts {
   createCompanyOnboarding?(input: {
     readonly permissionMode: PermissionMode;
     readonly operatingModeId: OperatingModeId;
+    readonly repositoryConsent: boolean;
   }): Promise<{
     readonly coordinator: CompanyOnboardingCoordinator;
     readonly proposalEditor?: CompanyProposalEditor;
     readonly projectRoot: string;
     readonly backendFingerprint: string;
+    readonly capabilityCatalogs?: CompanyCapabilityCatalogs;
   }>;
   createProjectInstructions?(
     input: ProjectBriefInput,
@@ -1028,7 +1034,7 @@ async function setupCompanyBlueprintV2(
     COMPANY_DESIGN_MODE_CHOICES,
   ) ?? "stable_core_specialists";
   const repositoryConsent = await ports.confirm!(
-    "Allow company formation to inspect this project read-only? Only bounded file, outline, search, and read-only Git tools are exposed. No shell, writes, network, credentials, installation, MCP, skills, or project commands are available before approval.",
+    "Allow company formation to inspect this project read-only and inspect installed Skill/MCP catalog metadata for readiness? Only bounded file, outline, search, and read-only Git tools are exposed to the formation model. No shell, writes, network, credentials, installation, MCP, skills, or project commands are available before approval.",
   );
 
   let service;
@@ -1036,6 +1042,7 @@ async function setupCompanyBlueprintV2(
     service = await ports.createCompanyOnboarding!({
       permissionMode,
       operatingModeId,
+      repositoryConsent,
     });
   } catch (error) {
     await writeOutput(
@@ -1173,6 +1180,8 @@ async function setupCompanyBlueprintV2(
         `Initial goal: ${blueprint.initialGoal}`,
         "No implementation starts until an approved /goal is launched.",
         "",
+        renderCompanyToolReadiness(blueprint, service.capabilityCatalogs),
+        "",
       ].join("\n"));
       for (;;) {
         const action = await ports.selectChoice(
@@ -1213,6 +1222,12 @@ async function setupCompanyBlueprintV2(
         run = edited.run;
         blueprint = edited.blueprint;
         await renderCompanyProposalEdit(ports, edited);
+        if (edited.kind === "updated") {
+          await writeOutput(
+            ports.stdout,
+            `${renderCompanyToolReadiness(blueprint, service.capabilityCatalogs)}\n\n`,
+          );
+        }
       }
     }
     const brief = { purpose: blueprint.project.purpose };

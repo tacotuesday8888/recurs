@@ -214,14 +214,19 @@
 **Files:**
 - Modify: `docs/AGENT_COMPANY_ONBOARDING.md`
 - Modify: `docs/CLI.md`
-- Modify: `docs/ARCHITECTURE.md`
+- Modify: `ARCHITECTURE.md`
 - Modify: `README.md`
+- Create: `packages/cli/src/company-tool-readiness.ts`
+- Modify: `packages/cli/src/commands/company.ts`
+- Test: `packages/cli/test/company-tool-readiness.test.ts`
 
 **Interfaces:**
 - Documents only capabilities backed by tests and explicitly lists remaining exclusions.
+- Adds `/company readiness` and consent-gated onboarding catalog reporting without
+  inferring Skill/MCP bindings, installing, trusting, or granting authority.
 
-- [ ] Run all focused company/onboarding/team suites repeatedly and resolve nondeterminism rather than retrying it away.
-- [ ] Run `npm run check` and `npm run check:native` from a clean worktree.
-- [ ] Inspect `git status`, complete diff, generated files, and secret patterns; stage only intended files.
+- [x] Run all focused company/onboarding/team suites repeatedly and resolve nondeterminism rather than retrying it away.
+- [x] Run `npm run check` and `npm run check:native` from a clean worktree.
+- [x] Inspect `git status`, complete diff, generated files, and secret patterns; stage only intended files.
 - [ ] Push focused branches/commits, open reviewable PRs, monitor both verification jobs, address failures, and merge only when green.
 - [ ] Fetch and non-destructively synchronize canonical `main`; verify `main == origin/main`, canonical status is clean, and no intended commit remains stranded.

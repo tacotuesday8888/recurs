@@ -898,6 +898,10 @@ describe("guided onboarding policy", () => {
       expect(decisions).toEqual([]);
       expect(output.join(""))
         .toContain("Company approved: 6 department(s), 8 role(s).");
+      expect(output.join(""))
+        .toContain("Company capability readiness");
+      expect(output.join(""))
+        .toContain("Agent Skills: not inspected");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

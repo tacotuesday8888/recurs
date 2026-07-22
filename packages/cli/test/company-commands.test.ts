@@ -234,6 +234,12 @@ describe("company slash command", () => {
     });
     await expect(registry.execute("/company blueprint", active)).resolves
       .toMatchObject({ text: expect.stringContaining("version: 2") });
+    await expect(registry.execute("/company readiness", active)).resolves
+      .toMatchObject({
+        text: expect.stringMatching(
+          /Company capability readiness[\s\S]*Agent Skills: not inspected/u,
+        ),
+      });
     await expect(registry.execute("/company activity", active)).resolves
       .toMatchObject({ text: expect.stringContaining("planning-assignment") });
     await expect(registry.execute("/company knowledge", active)).resolves

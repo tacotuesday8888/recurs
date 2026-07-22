@@ -29,6 +29,7 @@ describe("standalone company onboarding assembly", () => {
       const options = {
         cwd: root,
         dataDirectory: path.join(root, "data"),
+        skillHomeDirectory: root,
         provider,
       };
       const service = await createStandaloneCompanyOnboarding({
@@ -38,9 +39,15 @@ describe("standalone company onboarding assembly", () => {
       const repeated = await createStandaloneCompanyOnboarding({
         permissionMode: "full_access",
         operatingModeId: "balanced_v6",
+        repositoryConsent: true,
       }, options);
       expect(repeated.backendFingerprint).toBe(service.backendFingerprint);
       expect(service.proposalEditor).toBeDefined();
+      expect(service.capabilityCatalogs).toBeUndefined();
+      expect(repeated.capabilityCatalogs).toMatchObject({
+        skills: { skills: [] },
+        mcp: { projectTrust: "absent", servers: [] },
+      });
 
       const started = await service.coordinator.start({
         projectRoot: service.projectRoot,

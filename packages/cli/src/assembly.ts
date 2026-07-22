@@ -129,6 +129,7 @@ import {
   companyOnboardingBackendFingerprint,
 } from "./company-onboarding-runtime.js";
 import { CompanyProposalEditor } from "./company-proposal-editor.js";
+import type { CompanyCapabilityCatalogs } from "./company-tool-readiness.js";
 import { RecursRuntime, RuntimeError } from "./runtime.js";
 import {
   providerDiscoveryOverview,
@@ -755,6 +756,7 @@ export async function createStandaloneCompanyOnboarding(
   input: {
     readonly permissionMode: PermissionMode;
     readonly operatingModeId: OperatingModeId;
+    readonly repositoryConsent?: boolean;
   },
   options: StandaloneRuntimeOptions = {},
 ) {
@@ -764,6 +766,27 @@ export async function createStandaloneCompanyOnboarding(
   const projectId = createHash("sha256").update(cwd).digest("hex").slice(0, 24);
   const projectData = path.join(root, "projects", projectId);
   const backend = await companyOnboardingBackend(root, options);
+  let capabilityCatalogs: CompanyCapabilityCatalogs | undefined;
+  if (input.repositoryConsent === true) {
+    const [skills, mcp] = await Promise.allSettled([
+      AgentSkillCatalog.discover({
+        cwd,
+        dataDirectory: root,
+        homeDirectory: options.skillHomeDirectory ?? homedir(),
+      }),
+      McpServerCatalog.load({
+        dataDirectory: root,
+        workspace: cwd,
+        projectDataDirectory: projectData,
+      }),
+    ]);
+    capabilityCatalogs = Object.freeze({
+      ...(skills.status === "fulfilled"
+        ? { skills: skills.value.snapshot() }
+        : {}),
+      ...(mcp.status === "fulfilled" ? { mcp: mcp.value.snapshot() } : {}),
+    });
+  }
   const at = new Date().toISOString();
   const pin = backend.pin(at);
   const agentRuntime = new CompanyOnboardingAgentRuntime({
@@ -794,6 +817,7 @@ export async function createStandaloneCompanyOnboarding(
     proposalEditor,
     projectRoot: cwd,
     backendFingerprint: companyOnboardingBackendFingerprint(pin),
+    ...(capabilityCatalogs === undefined ? {} : { capabilityCatalogs }),
     permissionMode: input.permissionMode,
     operatingModeId: input.operatingModeId,
   });

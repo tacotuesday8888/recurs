@@ -1,8 +1,8 @@
 # Agent Company Onboarding
 
-**Status:** First vertical implemented. This document distinguishes the
-bounded onboarding-to-company path that exists now from the deeper company
-system Recurs is intended to become.
+**Status:** CLI company foundation implemented. This document distinguishes
+the durable, bounded company system that exists now from later desktop,
+distribution, and long-running-worker work.
 
 ## Product thesis
 
@@ -41,14 +41,17 @@ later project decisions taking precedence where the direction changed.
   orchestration, and company model.
 - **The company is hierarchical, not a flat agent list.** A senior
   orchestrator delegates through leads and specialists to bounded workers.
-  Deeper delegation is a target, not a current capability.
+  V2 supports a validated orchestrator → lead → worker planning hierarchy and
+  one bounded parallel implementation → independent review → repair workflow.
+  Arbitrary recursive delegation remains unavailable.
 - **Use pre-built roles with tailored identities.** Stable role charters and
   permission ceilings are supplied by Recurs. Onboarding specializes their
   prompts, context, tools, model routes, and working relationships for the
   project. A free-form agent builder is not required for the first version.
-- **Keep a stable department map.** Product, Engineering, QA, Security, Tools,
-  and Deployment are the default departments. Project-specific specialists
-  attach to the closest department instead of creating an incoherent org chart.
+- **Offer a coherent default and a guarded dynamic option.** Stable Core +
+  Specialists uses Product, Engineering, QA, Security, Tools, and Deployment.
+  Guardrailed Dynamic may propose project-specific departments and roles, but
+  it cannot remove the root orchestrator or independent-review authority.
 - **A meaningful default company is larger than a three-agent demo.** The
   original baseline was at least seven or eight roles: orchestrator, product
   planner, tool curator, architect, implementation lead, scoped builder, QA,
@@ -66,10 +69,13 @@ later project decisions taking precedence where the direction changed.
 - **Tools are assigned as coherent bundles.** Users should not have to reason
   about an unstructured wall of individual MCP servers and skills. Recurs
   recommends role- and project-specific bundles, explains why each is needed,
-  checks local readiness, and requires approval before installation or trust.
-- **The first run is both disciplined and visibly useful.** Planning,
-  documentation, and safe foundation work may proceed in parallel, but review
-  and permission gates still decide what becomes accepted work.
+  and checks local readiness. Installed Skills and configured MCP servers are
+  reported separately and never inferred to satisfy a bundle, become trusted,
+  or gain role authority automatically.
+- **The first run is both disciplined and visibly useful.** Blueprint approval
+  starts no work. An explicit `/goal` may then run bounded planning and
+  implementation in parallel, while review and permission gates decide what
+  becomes accepted work.
 - **The company adapts from evidence.** Project instructions, successful
   patterns, review findings, tool readiness, and user corrections should refine
   future assignments. Adaptation must never silently expand permissions,
@@ -169,19 +175,24 @@ automatically.
 | Model-proposed assignment DAG with harness validation and parent synthesis | Implemented through `delegate_company_goal`; no claim of deterministic optimal decomposition |
 | Role-specific tool-bundle readiness plan | Implemented as bounded available/required policy; no installation |
 | Natural model-authored interview, proposal editing, and generated roadmap | Implemented behind strict contracts and user approval |
-| Automatic MCP/skill discovery, trust, or installation from the blueprint | Not implemented |
+| Consent-gated readiness view over installed Agent Skills and configured MCP servers | Implemented; reports enabled/disabled/trust state without semantic bundle binding |
+| Automatic MCP/skill binding, trust, installation, or role-authority expansion from the blueprint | Not implemented |
 | Unbounded recursion or autonomous role invention after approval | Not implemented |
-| `/company` status, blueprint, activity, knowledge, and amendment inspection | Implemented; approve/reject becomes operational with the controlled amendment service |
-| Long-lived project learning and evidence-driven team adaptation | Not implemented |
+| `/company` status, blueprint, readiness, activity, knowledge, and amendment inspection | Implemented, including exact-ID local approval/rejection of existing proposals |
+| Durable attributable project learning supplied to future company goals | Implemented; secret-shaped evidence is rejected and historical sessions are unchanged |
+| Controlled organizational amendments | Implemented as immutable proposals and explicit decisions; no automatic organization rewrite |
 | Company operating UI | Intentionally deferred |
 
 In plain language: onboarding now creates and launches a real personalized
 company policy. The parent can run a validated company goal across bounded
 planning handoffs and one parallel implementation batch, with independent
 review, repair, evidence, shared accounting, and permission-controlled parent
-apply. Inactive roster members remain inactive. Recurs does not install tools,
-change the approved organization by itself, run unbounded recursion, or keep
-compute alive after the CLI exits.
+apply. Successful goal evidence can become provenance-backed context for later
+goals. Approved amendments create a new blueprint revision for future sessions;
+the current session remains pinned to its historical revision. Inactive roster
+members remain inactive. Recurs does not install tools, change the approved
+organization by itself, run unbounded recursion, or keep compute alive after
+the CLI exits.
 
 ## How the model and harness divide the work
 
@@ -198,20 +209,21 @@ A real API key is useful later for qualitative end-to-end evaluation of the
 interview and company proposal, but it is not needed to design or enforce the
 company contracts.
 
-## Next implementation slices
+## Deliberate remaining boundaries
 
-1. **CLI company operations.** Add truthful status, blueprint, activity,
-   knowledge, amendment, and approved-goal launch commands over the durable V2
-   state that already exists.
-2. **Tool readiness.** Resolve required tool bundles to installed skills and
-   MCP configuration without automatically installing, trusting, or granting
-   anything.
-3. **Measured adaptation.** Learn attributable project facts and successful
-   patterns from durable evidence, then require explicit approval for every
-   organizational amendment.
-
-Desktop UI, autonomous deployment, long-lived self-modifying agents, and
-unbounded recursion remain outside this milestone.
+- Skills and MCP servers do not yet declare an approved semantic mapping to a
+  company tool-bundle ID. `/company readiness` therefore reports both catalogs
+  and the immutable bundle plan without guessing that a name or description
+  grants capability.
+- Amendment proposal creation is a durable service boundary, not an autonomous
+  self-reorganization loop. Existing proposals are inspectable and require an
+  exact-ID, local, user-present decision.
+- A real provider is still needed for qualitative evaluation of interview
+  tone, question quality, and company proposals; deterministic providers cover
+  the enforcement and recovery behavior.
+- Desktop UI, autonomous deployment, automatic plugin/MCP installation, a
+  daemon that survives the CLI, and unbounded recursive agents remain outside
+  this milestone.
 
 ## Success criteria
 

@@ -54,14 +54,33 @@ Run `recurs setup`, or launch `recurs` with no configured connection. The same l
 4. selects Ask Always, Approved for Me, or Full Access;
 5. selects a current versioned Economy, Standard, Balanced, Performance, or Max operating mode; Balanced is recommended; and
 6. when another eligible saved Act + Plan connection exists, optionally assigns Implement, Review, and Repair specialist candidates;
-7. optionally captures project purpose, type, stage, one bounded constraint, and layered/lean/single-agent style; asks before checking only ten fixed root marker names; then previews the exact roster, authority, repository facts, tool readiness, quality plan, and initial goal for approval; and
-8. reports existing project instructions or offers to create the already-captured concise brief as `AGENTS.md` without overwriting any existing instruction file, then creates a fresh durable session and enters the ordinary REPL.
+7. optionally starts resumable company formation, selects Quick, Guided, or Deep understanding plus Stable Core + Specialists or Guardrailed Dynamic design, and asks before exposing the closed read-only project-inspection registry;
+8. conducts an adaptive interview, runs only the depth-bounded research assignments the user approved, and presents one durable company proposal with exact roster, hierarchy, authority, model routes, bundle readiness, quality policy, initial goal, and roadmap; the user may discuss a revision, edit validated YAML, save and exit, reject, or explicitly approve; and
+9. reports existing project instructions or offers to create the already-captured concise brief as `AGENTS.md` without overwriting any existing instruction file, then creates a fresh durable session and enters the ordinary REPL.
 
 Approved for Me is the recommended interactive preset. Full Access still requires a separate warning and confirmation. Cancelling that confirmation safely falls back to Ask Always. The selected permission and operating mode are stored in the new session rather than mutable global preferences; existing sessions keep their recorded boundaries. Role customization never changes the parent connection, excludes Plan-only delegated runtimes and billing classes ineligible for the chosen mode, and uses the existing confirmation-gated `account route` command for every changed role. Keeping current routing is the default. With no eligible secondary connection, every role honestly inherits the parent. Skipping connection setup leaves the sessionless `/provider` workspace available.
 
 If the first parent-model connection cannot be completed, the guide stays in setup and offers to retry the same path, return to the provider/runtime list, or stop. Before authenticated BYOK discovery, it checks only whether the named environment variable is present in the current Recurs process; the guide never receives, renders, or persists the credential value. Provider, authentication, and transport failures are rendered through the same redacted CLI error boundary before recovery is offered.
 
-Company setup is optional and explicit. Repository intake uses `lstat` only for `.git`, `package.json`, `Package.swift`, `Cargo.toml`, `pyproject.toml`, `go.mod`, `Gemfile`, `Podfile`, `Dockerfile`, and `AGENTS.md`; it ignores symbolic links, does not recurse, and does not read contents. Approval persists one private immutable version-1 blueprint, starts a fresh session bound to its orchestrator role, and records its initial goal through the ordinary session journal. Declining it leaves provider setup intact and creates an ordinary unbound session. A blueprint cannot be retrofitted onto a resumed session or activated under different permission or operating-mode authority.
+Company setup is optional and explicit. Before approval, the formation model can
+see only `read_file`, `list_files`, `search_text`, `code_outline`, and bounded
+read-only Git inspection. It cannot receive shell, write, network, credential,
+installation, MCP, Skill, or project-command tools. Quick performs a short
+interview without research children; Guided permits up to three bounded
+research assignments; Deep permits up to eight. The selected V6 operating mode
+further clamps model requests, concurrency, active roles, and reported cost.
+The interview and proposal are private durable state, so interruption and
+save/exit can resume without silently restarting or spending again.
+
+With repository consent, final review also cross-reports the immutable bundle
+plan with enabled/disabled Agent Skills, configured MCP servers, and project MCP
+trust state. Names or descriptions are never treated as proof that a Skill or
+server satisfies a bundle, and onboarding never installs or trusts one.
+Approval freezes a private V2 blueprint and its first goal, starts a fresh
+session bound to the root orchestrator, and starts no project work. Declining or
+abandoning the proposal leaves provider setup intact and creates no company
+work. Historical V1 blueprints remain loadable and executable; they are not
+silently rewritten as V2.
 
 After setup, `/model` lists every saved connection with its exact ID, provider/model, execution capability, billing source, active/primary state, and any explicit reasoning effort. `/model <exact-connection-id>` is local, manual, user-present, and confirmation-gated. It resolves the current connection policy and credential/runtime boundary, then creates a fresh pinned session while preserving the active operating mode, permission preset, Plan state where supported, and workspace. It does not mutate conversation history or silently change the registry primary; the prior session remains available through `/resume`. A Plan-only delegated connection starts in Plan mode. Injected test providers and process-only environment overrides remain intentionally unswitchable because they are not saved registry choices.
 
@@ -521,21 +540,34 @@ roster is working:
 ```text
 /company
 /company blueprint
+/company readiness
 /company activity
 /company knowledge
 /company amendments
+/company amendment <exact-id>
 /company approve-amendment <exact-id>
 /company reject-amendment <exact-id>
 ```
 
 `/company` shows the exact blueprint revision and only the goal runs owned by
 the current parent session. `blueprint` renders the human-editable YAML view;
-JSON remains the canonical stored authority. Activity, knowledge, and amendment
-views are bounded and omit prompts, credentials, private paths, and provider
-configuration. An amendment decision requires its exact ID plus a confirmed
-local, manual, user-present CLI invocation. The decision service additionally
-revalidates the immutable base revision; an approved revision applies only to
-future goals and never rewrites an existing session.
+JSON remains the canonical stored authority. `readiness` reports each approved
+tool bundle as ready or missing, then separately lists enabled Skills, enabled
+MCP servers, disabled counts, and project MCP trust. It omits paths, commands,
+descriptions, and warnings and never binds, installs, trusts, or grants those
+catalog entries automatically.
+
+Activity, knowledge, and amendment views are bounded and omit prompts,
+credentials, private paths, and provider configuration. Successful company
+goals extract only attributable user or execution evidence into private,
+versioned knowledge; relevant active facts are supplied to later goals without
+rewriting earlier sessions. `/company amendment <id>` renders the exact base,
+proposed revision, reason, and structural diff. A decision requires the exact
+ID plus a confirmed local, manual, user-present CLI invocation. The service
+revalidates the immutable base revision and stores the decision separately. An
+approved revision applies only to future sessions—`/new` may adopt the newest
+fully approved lineage—while the current and historical sessions retain their
+original blueprint. Rejection leaves the company unchanged.
 
 ## Owned child agents and operating modes
 
@@ -608,21 +640,29 @@ Parent apply records a durable checkpoint and `apply_prepared` before mutation, 
 
 For an opaque delegated runtime, Recurs cannot advertise or filter vendor-internal tools. Explore is accepted only when the pinned runtime guarantees enforced Plan mode. Implement, Review, and Repair require host-controlled tools and checkpointing and therefore fail preflight on the current opaque Codex ACP runtime. Recurs does not claim visibility into vendor-internal model calls, tool catalogs, or spend.
 
-`/agents` shows the exact policy version, concurrency, workflow child/request budget, per-child reservation, team width/review/repair policy, batch eligibility, and reported-cost ceiling. `/agents profiles` shows the profile enforcement boundaries. `/agents activity` lists durable children owned by the current parent, and `/agents activity <exact-child-or-session-id>` shows one child's safe status, usage, files, evidence, failure, and isolation revision without exposing its prompt, worktree path, account fingerprint, or provider configuration. `/agents mode economy|standard|balanced|performance|max` selects the current version-5 policy; an exact historical ID remains selectable for deterministic replay. Names are display labels, while logs and sessions store IDs such as `balanced_v5`.
+`/agents` shows the exact policy version, concurrency, workflow child/request budget, per-child reservation, team width/review/repair policy, batch eligibility, and reported-cost ceiling. `/agents profiles` shows the profile enforcement boundaries. `/agents activity` lists durable children owned by the current parent, and `/agents activity <exact-child-or-session-id>` shows one child's safe status, usage, files, evidence, failure, and isolation revision without exposing its prompt, worktree path, account fingerprint, or provider configuration. `/agents mode economy|standard|balanced|performance|max` selects the current version-6 policy; an exact historical ID remains selectable for deterministic replay. Names are display labels, while logs and sessions store IDs such as `balanced_v6`.
 
 | Current mode | Children | Concurrency | Requests | Reserved/child | Implement max | Review initial/max | Repair rounds | Eligible assigned billing | Quality | Cost ceiling |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: |
-| Economy (`economy_v5`) | 2 | 1 | 8 | 4 | 1 | 1/1 | 0 | local compute | essential | $0.25 |
-| Standard (`standard_v5`) | 6 | 2 | 36 | 6 | 1 | 1/2 | 1 | local or included subscription | standard | $1 |
-| Balanced (`balanced_v5`) | 7 | 3 | 56 | 8 | 2 | 1/2 | 1 | local, included subscription, or metered API | balanced | $3 |
-| Performance (`performance_v5`) | 10 | 4 | 100 | 10 | 3 | 2/3 | 1 | local, included subscription, or metered API | thorough | $10 |
-| Max (`max_v5`) | 18 | 6 | 216 | 12 | 4 | 2/4 | 2 | local, included subscription, or metered API | maximum | $25 |
+| Economy (`economy_v6`) | 2 | 1 | 8 | 4 | 1 | 1/1 | 0 | local compute | essential | $0.25 |
+| Standard (`standard_v6`) | 6 | 2 | 36 | 6 | 1 | 1/2 | 1 | local or included subscription | standard | $1 |
+| Balanced (`balanced_v6`) | 7 | 3 | 56 | 8 | 2 | 1/2 | 1 | local, included subscription, or metered API | balanced | $3 |
+| Performance (`performance_v6`) | 10 | 4 | 100 | 10 | 3 | 2/3 | 1 | local, included subscription, or metered API | thorough | $10 |
+| Max (`max_v6`) | 18 | 6 | 216 | 12 | 4 | 2/4 | 2 | local, included subscription, or metered API | maximum | $25 |
 
-Immutable version-1 through version-4 IDs remain valid for old sessions and explicit selection. Version 1 keeps concurrency one and its original total workflow budgets; version 2 keeps its original bounded Explore/Review fan-out; version 3 keeps the original foreground team semantics without durable repair/background controls; version 4 keeps durable teams with parent-only routing. Historical policies never silently acquire newer behavior. Display-name selection chooses version 5.
+Immutable version-1 through version-5 IDs remain valid for old sessions and explicit selection. Version 1 keeps concurrency one and its original total workflow budgets; version 2 keeps its original bounded Explore/Review fan-out; version 3 keeps the original foreground team semantics without durable repair/background controls; version 4 keeps durable teams with parent-only routing; version 5 adds explicit provider-neutral role routing. Historical policies never silently acquire newer behavior. Display-name selection chooses version 6.
 
-Version-5 team routing is explicit and conservative. Registry assignments are candidates, not unconditional redirects: preflight rereads the exact record, resolves its immutable pin, applies the mode's billing-class eligibility, checks the role/permission/background contract, and retains the parent fallback. The frozen decision is journaled before any child starts; resume fails closed if the fresh route no longer matches. Background routing additionally permits only direct local-compute or metered-API pins, never included-subscription pins. Recurs does not rank models, estimate prices, spread work across unassigned accounts, or route ordinary single/batch children yet. At child start, Recurs atomically claims one child slot and reserves that child's request allowance from the shared run budget. Starting or resuming detached work reserves the complete live parent-turn delegation budget; resume separately reconstructs the frozen run's remaining accounting, so ordinary delegation cannot share that turn. Direct runs report observed steps; an opaque runtime consumes the full reservation because its internal calls are not observable. Reported USD cost becomes known only after provider/runtime telemetry arrives, so already-active siblings can complete past the ceiling; the overrun is reported and no later child starts. Missing USD telemetry remains explicitly unavailable rather than estimated.
+Version 6 retains version-5 team routing and adds immutable company limits. Registry assignments are candidates, not unconditional redirects: preflight rereads the exact record, resolves its immutable pin, applies the mode's billing-class eligibility, checks the role/permission/background contract, and retains the parent fallback. The frozen decision is journaled before any child starts; resume fails closed if the fresh route no longer matches. Background routing additionally permits only direct local-compute or metered-API pins, never included-subscription pins. Recurs does not rank models, estimate prices, spread work across unassigned accounts, or route ordinary single/batch children yet. At child start, Recurs atomically claims one child slot and reserves that child's request allowance from the shared run budget. Starting or resuming detached work reserves the complete live parent-turn delegation budget; resume separately reconstructs the frozen run's remaining accounting, so ordinary delegation cannot share that turn. Direct runs report observed steps; an opaque runtime consumes the full reservation because its internal calls are not observable. Reported USD cost becomes known only after provider/runtime telemetry arrives, so already-active siblings can complete past the ceiling; the overrun is reported and no later child starts. Missing USD telemetry remains explicitly unavailable rather than estimated.
 
-Economy and every version-1 mode provide a sequential batch fallback. Standard through Max version 5 cap concurrent children at two, three, four, or six. Batch results include completed, failed, and cancelled entries; ordinary partial failure is returned for synthesis, while linked cancellation or worktree-cleanup failure fails the tool. Durable teams emit normalized sequence/phase/round, routing, repair, ready, apply, interruption, recovery, failure, cancellation, and team-correlated child lifecycle activity. `/agents` projections and `agent_team_activity` omit prompts, patch bodies, private worktree paths, credentials, and account data. The private team journal and child session logs persist assigned prompts and tool calls; the general JSONL transcript can include prompts and tool arguments and is not a redacted audit feed.
+| Current company mode | Departments | Roles | Active roles | Delegation depth | Assignment concurrency | Goal requests | Research children | Cost ceiling |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Economy | 6 | 8 | 3 | 1 | 1 | 12 | 1 | $0.25 |
+| Standard | 8 | 12 | 5 | 2 | 2 | 48 | 3 | $1 |
+| Balanced | 10 | 16 | 8 | 2 | 3 | 80 | 3 | $3 |
+| Performance | 12 | 20 | 12 | 3 | 4 | 140 | 6 | $10 |
+| Max | 16 | 24 | 16 | 3 | 6 | 260 | 8 | $25 |
+
+Economy and every version-1 mode provide a sequential batch fallback. Standard through Max version 6 cap concurrent children at two, three, four, or six. Batch results include completed, failed, and cancelled entries; ordinary partial failure is returned for synthesis, while linked cancellation or worktree-cleanup failure fails the tool. Durable teams emit normalized sequence/phase/round, routing, repair, ready, apply, interruption, recovery, failure, cancellation, and team-correlated child lifecycle activity. `/agents` projections and `agent_team_activity` omit prompts, patch bodies, private worktree paths, credentials, and account data. The private team journal and child session logs persist assigned prompts and tool calls; the general JSONL transcript can include prompts and tool arguments and is not a redacted audit feed.
 
 Existing `explore_v1` session records remain valid. Because Recurs remains pre-1.0 preview software, the earlier two-field `delegate_task` draft is not retained: embeddings must now provide an exact `profile` rather than receiving an implicit Explore child.
 
@@ -634,7 +674,7 @@ A daemon that outlives the CLI, unbounded recursive depth, terminal-child retrie
 | --- | --- |
 | `/help` | Show concise command help. |
 | `/goal ...` | Create, inspect, pause, resume, complete, or clear the durable goal. |
-| `/company [blueprint\|activity\|knowledge\|amendments\|approve-amendment <id>\|reject-amendment <id>]` | Inspect the active V2 company and review controlled amendments. |
+| `/company [blueprint\|readiness\|activity\|knowledge\|amendments\|amendment <id>\|approve-amendment <id>\|reject-amendment <id>]` | Inspect the active V2 company, capability readiness, durable learning, and controlled amendments. |
 | `/plan [prompt\|exit]` | Enter enforced read-only planning or return to Act. |
 | `/permissions [ask\|approved\|full]` | Inspect or change the permission preset. |
 | `/agents [profiles\|activity [exact-id]\|teams\|team <id>\|wait <id>\|cancel <id>\|resume <id>\|apply <id>\|mode ...]` | Inspect profiles, child/team activity, control an owned durable team, or change the bounded policy. |

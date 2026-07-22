@@ -153,6 +153,7 @@ export interface CliDependencies {
   createCompanyOnboarding?(input: {
     readonly permissionMode: PermissionMode;
     readonly operatingModeId: OperatingModeId;
+    readonly repositoryConsent: boolean;
     readonly cwd: string;
   }): ReturnType<typeof createStandaloneCompanyOnboarding>;
   credentialEnvironmentAvailable?(name: string): boolean;
