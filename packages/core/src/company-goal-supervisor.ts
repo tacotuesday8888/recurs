@@ -380,28 +380,74 @@ function validatePlanPolicy(
   const nonReviewIds = plan.assignments
     .filter((item) => !reviewers.has(item.roleId))
     .map((item) => item.id);
-  if (reviewAssignments.some((review) =>
-    review.parentAssignmentId !== null ||
-    nonReviewIds.some((id) => !review.dependsOn.includes(id))
-  )) {
+  if (reviewAssignments.some((review) => review.parentAssignmentId !== null) ||
+    !reviewAssignments.some((review) =>
+      nonReviewIds.every((id) => review.dependsOn.includes(id))
+    )) {
     throw new ToolError(
       "permission_denied",
-      "Independent review must be top-level and follow every non-review assignment",
+      "Independent review must be top-level and one final review must follow every non-review assignment",
     );
   }
   const implementationIds = new Set(plan.assignments.filter((assignment) =>
     roles.get(assignment.roleId)?.executionProfileId === "implement_v2"
   ).map((assignment) => assignment.id));
-  if ([...implementationIds].some((id) => {
-    const assignment = byId.get(id)!;
-    return (assignment.parentAssignmentId !== null &&
-        implementationIds.has(assignment.parentAssignmentId)) ||
-      assignment.dependsOn.some((dependency) => implementationIds.has(dependency));
-  })) {
+  if ([...implementationIds].some((id) =>
+    !reviewAssignments.some((review) => review.dependsOn.includes(id))
+  )) {
     throw new ToolError(
       "permission_denied",
-      "Company implementation assignments must form one parallel reviewed batch",
+      "Every company implementation assignment requires a dependent independent review",
     );
+  }
+  const pending = new Set(plan.assignments.map((assignment) => assignment.id));
+  const completed = new Set<string>();
+  const dependencyReady = (assignment: CompanyGoalAssignmentV1): boolean =>
+    (assignment.parentAssignmentId === null ||
+      completed.has(assignment.parentAssignmentId)) &&
+    assignment.dependsOn.every((id) => completed.has(id));
+  while (pending.size > 0) {
+    const readyImplementations = plan.assignments.filter((assignment) =>
+      pending.has(assignment.id) && implementationIds.has(assignment.id) &&
+      dependencyReady(assignment)
+    );
+    const readyIds = new Set(readyImplementations.map((assignment) => assignment.id));
+    const eligibleReviews = reviewAssignments.filter((review) =>
+      pending.has(review.id) && review.dependsOn.every((id) =>
+        completed.has(id) || readyIds.has(id)
+      )
+    );
+    const reviewedIds = new Set(eligibleReviews.flatMap((review) =>
+      review.dependsOn.filter((id) => readyIds.has(id))
+    ));
+    const frontier = readyImplementations.filter((assignment) =>
+      reviewedIds.has(assignment.id)
+    );
+    if (frontier.length > 0) {
+      const frontierIds = new Set(frontier.map((assignment) => assignment.id));
+      const reviews = eligibleReviews.filter((review) =>
+        review.dependsOn.some((id) => frontierIds.has(id))
+      );
+      for (const assignment of [...frontier, ...reviews]) {
+        pending.delete(assignment.id);
+        completed.add(assignment.id);
+      }
+      continue;
+    }
+    const nonMutating = plan.assignments.filter((assignment) =>
+      pending.has(assignment.id) && !implementationIds.has(assignment.id) &&
+      dependencyReady(assignment)
+    );
+    if (nonMutating.length === 0) {
+      throw new ToolError(
+        "permission_denied",
+        "Company implementation stages cannot reach a reviewed execution frontier",
+      );
+    }
+    for (const assignment of nonMutating) {
+      pending.delete(assignment.id);
+      completed.add(assignment.id);
+    }
   }
 }
 
@@ -786,12 +832,6 @@ export class CompanyGoalSupervisor {
   ): PreparedCompanyTeam | null {
     const run = runtime.journal.current.state;
     const roles = new Map(runtime.blueprint.roles.map((role) => [role.id, role]));
-    const implementations = run.plan.assignments.filter((assignment) =>
-      assignment.status === "pending" &&
-      roles.get(assignment.roleId)?.executionProfileId === "implement_v2"
-    );
-    if (implementations.length === 0) return null;
-    const implementationIds = new Set(implementations.map((item) => item.id));
     const dependencyReady = (assignment: CompanyGoalAssignmentV1): boolean => {
       const parentReady = assignment.parentAssignmentId === null ||
         run.plan.assignments.find((candidate) =>
@@ -802,23 +842,44 @@ export class CompanyGoalSupervisor {
           "completed"
       );
     };
-    if (!implementations.every(dependencyReady)) return null;
+    const readyImplementations = run.plan.assignments.filter((assignment) =>
+      assignment.status === "pending" &&
+      roles.get(assignment.roleId)?.executionProfileId === "implement_v2" &&
+      dependencyReady(assignment)
+    );
+    if (readyImplementations.length === 0) return null;
+    const readyImplementationIds = new Set(
+      readyImplementations.map((item) => item.id),
+    );
     const independentRoles = new Set(
       runtime.blueprint.authorityAnchors.independentReviewRoleIds,
     );
-    const reviews = run.plan.assignments.filter((assignment) =>
-      assignment.status === "pending" && independentRoles.has(assignment.roleId)
-    );
-    if (reviews.length === 0 || reviews.some((assignment) =>
-      roles.get(assignment.roleId)?.executionProfileId !== "review_v2" ||
-      assignment.dependsOn.some((id) => {
+    const eligibleReviews = run.plan.assignments.filter((assignment) =>
+      assignment.status === "pending" && independentRoles.has(assignment.roleId) &&
+      assignment.dependsOn.every((id) => {
         const dependency = run.plan.assignments.find((item) => item.id === id);
-        return dependency?.status !== "completed" && !implementationIds.has(id);
+        return dependency?.status === "completed" || readyImplementationIds.has(id);
       })
+    );
+    const reviewedImplementationIds = new Set(eligibleReviews.flatMap((review) =>
+      review.dependsOn.filter((id) => readyImplementationIds.has(id))
+    ));
+    const implementations = readyImplementations.filter((assignment) =>
+      reviewedImplementationIds.has(assignment.id)
+    );
+    if (implementations.length === 0) return null;
+    const implementationIds = new Set(implementations.map((item) => item.id));
+    const reviews = eligibleReviews.filter((review) =>
+      review.dependsOn.some((id) => implementationIds.has(id))
+    );
+    if (reviews.some((assignment) =>
+      roles.get(assignment.roleId)?.executionProfileId !== "review_v2"
+    ) || [...implementationIds].some((id) =>
+      !reviews.some((review) => review.dependsOn.includes(id))
     )) {
       throw new ToolError(
         "permission_denied",
-        "Company implementation requires every independent review assignment in the durable team",
+        "Company implementation frontier requires dependent independent review",
       );
     }
     const mode = getOperatingModePolicy(runtime.root.agent.operatingMode.id);
