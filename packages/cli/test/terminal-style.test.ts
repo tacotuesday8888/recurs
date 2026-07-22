@@ -23,7 +23,7 @@ class TerminalOutput extends Writable {
 const colorEnvironment = Object.freeze({ TERM: "xterm-256color" });
 
 describe("terminal presentation", () => {
-  it("renders a compact recursive signature for a color-capable TTY", () => {
+  it("renders the loop-and-return silhouette for a color-capable TTY", () => {
     const theme = createTerminalTheme(new TerminalOutput(), {
       environment: colorEnvironment,
     });
@@ -31,11 +31,12 @@ describe("terminal presentation", () => {
     const wordmark = renderRecursWordmark(theme);
 
     expect(theme.colorEnabled).toBe(true);
-    expect(wordmark.split("\n")).toHaveLength(1);
+    expect(wordmark.split("\n")).toHaveLength(4);
     expect(wordmark).toContain("\u001b[38;5;33m");
     expect(wordmark).toContain("\u001b[38;5;121m");
-    expect(wordmark).toContain("↻");
-    expect(wordmark).toContain("R");
+    expect(wordmark).toContain("╭");
+    expect(wordmark).toContain("↰");
+    expect(wordmark).toContain("╲");
   });
 
   it.each([
@@ -61,14 +62,15 @@ describe("terminal presentation", () => {
     expect(theme.failure("Error: unavailable")).toContain("Error: unavailable");
   });
 
-  it("keeps the readable header and mark on one line", () => {
+  it("keeps the readable title beside the compact mark", () => {
     const theme = createTerminalTheme(new TerminalOutput(), {
       environment: colorEnvironment,
     });
 
     const header = renderRecursHeader(theme, "Welcome to Recurs");
 
-    expect(header.split("\n")).toHaveLength(1);
+    expect(header.split("\n")).toHaveLength(4);
+    expect(header.split("\n")[1]).toContain("Welcome to Recurs");
     expect(header).toContain("Welcome to Recurs");
   });
 });
