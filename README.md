@@ -1,200 +1,196 @@
+<div align="center">
+
 # Recurs
 
-Recurs is an Apache-2.0-licensed, provider-neutral coding-agent harness that will grow into an agent manager. It is not an IDE: the CLI and future desktop app are clients over the same engine.
+**Build and run a bounded agent company from your terminal.**
 
-## Current foundation
+Recurs is a first-party, provider-neutral coding-agent harness with durable
+sessions, explicit permissions, and evidence-bearing team workflows.
 
-The repository contains a usable agent base and a bounded, Recurs-owned child-agent vertical:
+[![CI](https://github.com/tacotuesday8888/recurs/actions/workflows/ci.yml/badge.svg)](https://github.com/tacotuesday8888/recurs/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-4c8eda.svg)](LICENSE)
+[![Status: alpha](https://img.shields.io/badge/status-alpha-d29922.svg)](#project-status)
+[![Node.js 22.22+](https://img.shields.io/badge/node-%E2%89%A522.22-3c873a.svg)](package.json)
 
-- one streaming tool-calling loop with a five-minute provider-event idle deadline, two bounded pre-output retries, provider-aware delay hints, cancellation-safe exponential backoff, step limits, and repeated-loop detection;
-- one foreground `delegate_task` path that selects an exact Explore, Implement, or Review profile, creates a durable child session, runs it through the same coordinator/provider/runtime/approval seams, and returns its evidence-bearing handoff to the parent for synthesis;
-- one foreground `delegate_tasks` path for two to eight independent Explore/Review tasks, with mode-bounded parallelism, clean detached Git worktrees, deterministic input-order results, partial-failure evidence, linked cancellation, and parent synthesis;
-- one durable `delegate_team` path that stages isolated Implement work outside the parent, performs strict independent Review, runs bounded finding-driven Repair, and either applies an approved foreground candidate or leaves an approved background candidate for explicit apply;
-- durable parent/child/task/lifecycle/workspace/result contracts plus a sequenced team-run journal, normalized activity events, monotonic permission inheritance, shared child/request/reported-cost budgets, and explicit depth-one/zero-retry/mode-bounded limits;
-- process-lifetime background team control through model tools and `/agents`, with cross-process owner leases, truthful interruption, safe resume boundaries, two-phase parent apply, conservative startup recovery, and stale private-worktree cleanup;
-- five version-6 operating modes, with Balanced v6 as the default, explicit saved-connection assignment for Implement/Review/Repair, frozen provider-neutral route evidence with parent fallback, immutable version-1 through version-5 replay policies, and separate bounded team/company child, request, depth, concurrency, active-role, and reported-cost policy;
-- strict provider-event validation and normalized text, reasoning, tool, usage, and completion events; provider-reported cached-input, cache-write, and reasoning-token breakdowns survive direct, native-broker, session, and status boundaries without price estimates;
-- versioned protocol-level harness profiles that give native-tool and compatibility models different, stable tool-use instructions without baking model brands into policy; native v2 may request up to four independent reads together, while compatibility v1 remains sequential;
-- bounded root-to-cwd `AGENTS.md` project instructions, with local override support, exact per-turn snapshots shared by direct-model parent and child agents, and a confirmation-gated first-run project brief that never overwrites existing instructions;
-- a resumable Quick/Guided/Deep onboarding-to-company vertical with an adaptive interview, consented closed read-only project discovery, stable-core or guardrailed-dynamic V2 compilation, conversational/YAML proposal revision, explicit approval, and full V1 compatibility;
-- a bounded V2 company-goal runtime that validates the approved role DAG, runs read/planning handoffs through the existing child engine, maps parallel builders plus independent review and bounded repair onto the existing durable worktree team engine, reconciles one shared goal ledger, and depicts only agents that actually run;
-- provenance-backed project learning extracted from attributable user or completed-goal evidence, bounded relevant context for future company goals, immutable organization-amendment proposals and decisions, and historical sessions that remain pinned to their original blueprint revision;
-- `/company` inspection for exact blueprint, activity, knowledge, amendment diffs, and capability readiness that cross-reports approved bundle status with enabled/disabled Skills and MCP servers without inferring a binding, installing software, trusting project configuration, or widening role authority;
-- credential-free OpenAI-compatible local model setup for literal-loopback Ollama and LM Studio servers;
-- cross-platform saved and ephemeral BYOK for fixed-origin OpenAI Responses, Anthropic Messages, Gemini GenerateContent, and reviewed OpenAI Chat-compatible providers; OpenAI Responses reuses an authenticated WebSocket across one tool loop and falls back to equivalent HTTPS/SSE only before request delivery, while any post-delivery interruption fails without replay; reviewed OpenAI Responses connections may pin an explicit supported reasoning effort into each new session; saved setup retains only provider/model policy metadata, authenticated catalog limits when the provider reports them, an environment-variable name, and a credential fingerprint, while key values are never persisted or forwarded to tools;
-- private signed-macOS activation paths for OpenAI API, Anthropic API, and Kimi Code credentials, with native model discovery and streamed tool calling;
-- a validated 26-path provider/authentication catalog, a revisioned non-secret connection registry, and exact-ID account listing, verification, primary selection, and metadata-only disconnection;
-- a bounded `models.dev` discovery catalog, fixed-origin credential-visible model discovery for OpenAI, Anthropic, Gemini, OpenRouter, xAI, DeepSeek, and MiniMax, fixed-port loopback detection for Ollama and LM Studio, and one `/provider` surface shared with first-run onboarding;
-- an official Codex ACP path for an existing ChatGPT login, constrained to local, interactive, user-present, Plan-only work;
-- fourteen tools for stable bounded UTF-8 file reading, deterministic structured glob-aware listing, structured fixed-text or explicit linear-time regex search, bounded parser-backed TypeScript/JavaScript and lexical multi-language code outlines, read-only no-emit TypeScript project diagnostics, explicitly approved public-web evidence, patching, bounded shell execution, owned process-session control, shell-free allowlisted verification, structured Git status, literal bounded Git diff, and root-only bounded Git history and commit inspection; public fetches pin verified public DNS answers to the socket, recheck every same-host redirect, and return only bounded text labeled as untrusted; a command that outlives its yield deadline can be polled, receive bounded stdin, or be stopped without losing its original sandbox, permission, timeout, output, ownership, or checkpoint boundary; supported macOS/Linux npm installations can explicitly request a real pseudo-terminal and later resize it through the same owned-session boundary; independent built-in reads can run in bounded parallel groups, while mutations, approvals, network access, MCP, delegation, and commands remain ordered barriers; each child profile receives an exact host-tool and intent ceiling;
-- Ask Always, Approved for Me, Full Access, enforced Plan mode, and a read-only Review profile;
-- durable `/goal` state, append-only JSONL sessions, same-turn steering, bounded FIFO follow-up turns with explicit restart recovery, safe completed-conversation forks, interrupted-tool recovery, fenced byte-bounded compaction with typed failure/usage records, conservative parent pre-turn compaction from verified limits and one safe reactive recovery from a clean provider context overflow, checkpoints, and conflict-safe undo;
-- interactive and non-interactive CLI paths with text, one aggregate JSON result, or normalized JSONL events, including one canonical `-C`/`--cd` working root, fresh-by-default headless runs, exact fail-closed `--resume <session-id>` continuation, explicit saved-connection and operating-mode selection, immutable headless `--plan` sessions, a real `recurs review` entry point over the bounded Git-diff reviewer, bounded piped prompts, repeatable headless `--image`, and path-free one-turn interactive `/image` staging;
-- provider-neutral durable image messages across tool rounds and resume, with native wire encoding for the reviewed OpenAI Responses, OpenAI Chat-compatible, Anthropic Messages, and private macOS broker paths; file paths are validated locally but never persisted or sent to a model;
-- a Recurs-owned ACP v1 stdio agent endpoint for editor and agent-client integration, with isolated sessions, text and bounded image prompts, streamed model/tool/child/team activity, one-shot permission forwarding, cancellation, and honest capability negotiation;
-- bounded Agent Skills discovery and progressive activation for user-installed `~/.agents/skills` and `$RECURS_HOME/skills`, plus explicitly trusted project `.agents/skills` and `.recurs/skills`;
-- a bounded persistent-stdio MCP client for private user configuration and explicitly trusted `.recurs/mcp-servers.json` project configuration, with digest-bound trust invalidation, progressive tool discovery, ordinary shell/network approvals, sanitized process environments, health-checked reuse, and full runtime-owned process-group cleanup;
-- immutable backend pins, strict version-2 session records, cross-process mutation leases, typed preflight failures, and durable delegated-runtime results and recovery;
-- one credential-path policy enforced across direct and aggregate built-in tools, permanent denial of classified credential intents, and checkpoint capture that excludes those paths;
-- clean per-child environments, bounded process-group cleanup, safe provider/tool/CLI failures, and explicit `workspace_sandboxed`, `local_guarded`, or fail-closed `tools_disabled` composition;
-- a macOS 14.4+ native-authority foundation with tested binary framing, Data Protection Keychain, credential-state/journal, exact signed peers, production-gated broker recovery, bounded OpenAI onboarding, fixed sealed-bundle paths, and redacted diagnostics;
-- a read-only `recurs doctor` readiness report with stable redacted JSON for the installed version, Node.js, Git, ripgrep, protected Git workspace, saved-provider state, and one real network-denied Seatbelt/Bubblewrap launch; the existing `doctor native` reports the separate private authority;
-- one `npm run check` path covering lint, type checking, tests, build output, and the exact npm package manifest; CI also installs the packed artifact into an empty prefix and runs its `recurs` binary.
+</div>
 
-The standalone CLI can use credential-free OpenAI-compatible servers on literal `127.0.0.1` or `[::1]`, saved or ephemeral environment BYOK for OpenAI Responses or a reviewed Chat-compatible/Anthropic Messages provider, or the pinned official `@agentclientprotocol/codex-acp` adapter with an existing ChatGPT account. Saved connections retain explicit primary selection and immutable historical pins. Interactive `/model` lists those saved connections and can start a fresh pinned session on one exact connection without changing the primary or rewriting the current conversation. When authenticated model discovery reports a context limit, that setup-time fact is frozen into newly created sessions and shown by `/status`; Recurs never guesses one. An explicit supported reasoning effort on a reviewed saved OpenAI Responses connection is likewise frozen into each new session and sent on every request; omitting it preserves the provider default. A complete `RECURS_PROVIDER`/`RECURS_MODEL`/`RECURS_API_KEY` selection overrides saved selection for that process. Codex is read-only/Plan-only, local, manual, and user-present: one-shot and unattended runs fail closed. Without any connection, an interactive launch builds the first working team in five short phases: parent provider/model, permissions, a versioned Economy–Max operating mode, optional eligible saved-model routing for Implement/Review/Repair, and project context. Existing root-to-cwd instructions are reported; otherwise the user may explicitly create a concise `AGENTS.md` brief after reviewing and confirming its contents. The selected permission and mode are pinned into a fresh durable session; confirmed role routes affect only future team runs and retain parent fallback. Skipping setup keeps the honest sessionless workspace shell. Test hosts can also inject the public `ModelProvider` interface.
+![Recurs first-run terminal](https://raw.githubusercontent.com/tacotuesday8888/recurs/main/docs/assets/terminal-preview.png)
+
+Recurs turns a project brief into a reviewed company blueprint, then runs only
+the roles and workflows the user approved. The CLI is the product today; a
+future desktop client will sit on the same engine rather than replace it.
+
+> [!IMPORTANT]
+> Recurs is in source-installable alpha. No npm package, Homebrew formula,
+> curl installer, signed binary, or desktop app has been published yet.
+
+## Why Recurs
+
+- **Company-shaped work.** Quick, Guided, or Deep onboarding can produce a
+  tailored, versioned roster with explicit roles, reporting lines, tools,
+  quality gates, and an initial goal.
+- **Bounded execution.** Parent, Explore, Implement, Review, Repair, and
+  company-role work all run inside enforced depth, concurrency, request, cost,
+  permission, and cancellation limits.
+- **Evidence before apply.** Mutating team work stays in isolated Git
+  worktrees, passes independent review and bounded repair, and reaches the
+  parent workspace only through an explicit apply path.
+- **Provider choice without invented portability.** Recurs supports reviewed
+  direct APIs, literal-loopback local models, and the official Codex ACP path,
+  while preserving the real restrictions of each connection.
+- **Durable by default.** Sessions, goals, team journals, checkpoints,
+  company knowledge, and approved organization revisions survive restarts and
+  remain inspectable.
 
 ## Quick start
 
-Requirements: Node.js 22.22 or newer, Git 2.45 or newer, and ripgrep. Linux
-also requires the distribution `bubblewrap` package at `/usr/bin/bwrap` with
-unprivileged user namespaces enabled. On AppArmor-restricted Ubuntu systems,
-the distribution `bwrap-userns-restrict` profile must also permit Bubblewrap's
-namespace setup. Recurs fails closed if the host blocks that boundary; see
-[Ubuntu bug 2141298](https://bugs.launchpad.net/bugs/2141298) for the current
-Ubuntu 24.04 profile/kernel regression and distribution workaround.
+Requirements:
+
+- Node.js 22.22 or newer
+- Git 2.45 or newer
+- ripgrep
+- Linux only: `/usr/bin/bwrap` with unprivileged user namespaces enabled
 
 ```bash
+git clone https://github.com/tacotuesday8888/recurs.git
+cd recurs
 npm ci
-npm run check
 npm run build
 npm link
-recurs --version
-recurs --help
-recurs run --help
-recurs review --help
-recurs setup
-node packages/cli/dist/main.js --help
-# Recommended first run: connect a reviewed path, select a model and permission
-# preset, then enter a fresh durable Recurs session.
-node packages/cli/dist/main.js setup
-node packages/cli/dist/main.js provider list
-node packages/cli/dist/main.js provider catalog kimi
-node packages/cli/dist/main.js provider detect
-node packages/cli/dist/main.js account list
-node packages/cli/dist/main.js account verify <connection-id>
-node packages/cli/dist/main.js account set-primary <connection-id>
-node packages/cli/dist/main.js account route implement <connection-id>
-node packages/cli/dist/main.js account route review parent
-node packages/cli/dist/main.js account disconnect <connection-id>
-# In the interactive CLI: /model lists saved connections and
-# /model <connection-id> starts a fresh session without changing primary.
-node packages/cli/dist/main.js doctor native --json
-node packages/cli/dist/main.js doctor --json
-node packages/cli/dist/main.js acp
-node packages/cli/dist/main.js setup local --url http://127.0.0.1:11434/v1 --model qwen2.5-coder:7b
-# Or save a reviewed public provider/model binding without saving its key:
-export OPENROUTER_API_KEY=<key>
-node packages/cli/dist/main.js setup byok --provider openrouter-api --model <provider/model> --key-env OPENROUTER_API_KEY
-node packages/cli/dist/main.js setup byok --provider xai-api --model <grok-model> --key-env XAI_API_KEY
-# OpenAI Responses is available through the same non-persistent BYOK path:
-export OPENAI_API_KEY=<key>
-node packages/cli/dist/main.js provider models --provider openai-api --key-env OPENAI_API_KEY
-node packages/cli/dist/main.js setup byok --provider openai-api --model <reported-compatible-model> --key-env OPENAI_API_KEY
-# For an exact reviewed model, optionally append --reasoning-effort none|low|medium|high|xhigh|max.
-# Anthropic Messages is also available without persisting its key:
-export ANTHROPIC_API_KEY=<key>
-node packages/cli/dist/main.js provider models --provider anthropic-api --key-env ANTHROPIC_API_KEY
-node packages/cli/dist/main.js setup byok --provider anthropic-api --model <exact-model-id> --key-env ANTHROPIC_API_KEY
-# Gemini GenerateContent uses the same environment-only credential boundary:
-export GEMINI_API_KEY=<key>
-node packages/cli/dist/main.js provider models --provider google-gemini-api --key-env GEMINI_API_KEY
-node packages/cli/dist/main.js setup byok --provider google-gemini-api --model <exact-model-id> --key-env GEMINI_API_KEY
-# Or use a reviewed provider for one process without saving its key:
-RECURS_PROVIDER=openrouter-api RECURS_MODEL=<provider/model> RECURS_API_KEY=<key> node packages/cli/dist/main.js
-# Or, from a local interactive terminal, connect an existing ChatGPT account:
-# node packages/cli/dist/main.js setup codex
-# The private native macOS path also supports:
-# recurs setup openai [--model <exact-id>]
-# recurs setup anthropic --model <exact-id>
-# recurs setup kimi --model <exact-id>
-# A plain interactive launch offers the same guide when no model is configured.
-node packages/cli/dist/main.js
-# Work in another project without changing the caller's shell directory.
-node packages/cli/dist/main.js -C /path/to/project
-# Run one arbitrary prompt with mutating tools unavailable from sequence zero.
-node packages/cli/dist/main.js run "inspect the architecture" --plan --format json
-# Or invoke the built-in staged/unstaged Git review in a fresh Plan session.
-node packages/cli/dist/main.js review -C /path/to/project --format json
+recurs
 ```
 
-After building, `npm link` exposes the local `recurs` command. It can be removed
-with `npm unlink --global recurs`.
+The first launch walks through the parent model, safety boundary, operating
+mode, specialist routing, agent company, and project context. No API key is
+entered into the generic Recurs prompt: supported credentials remain with the
+vendor runtime, native authority, or a named process environment.
 
-This is currently the only live installation path. The root build also produces a self-contained Recurs-code bundle at `dist/cli/main.js`; `npm run package:check` proves the tarball contains only that executable, `package.json`, `LICENSE`, `README.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md`. After a build, `npm run package:smoke-install` packs and installs the artifact into an empty temporary prefix, configures a deterministic loopback model, and proves the installed agent can activate a user Agent Skill, call a private stdio MCP server, run a sandboxed command, deny an outside-workspace write, read the workspace result, and return each result to the model. It also negotiates ACP v1 over the installed binary's stdio, creates and closes a real session, and verifies streamed model output. Runtime packages remain exact dependencies rather than copied third-party source.
-
-The public source repository and preview package metadata are licensed under Apache-2.0 and versioned `0.1.0-alpha.1`. The official license text is hash-pinned in the release gate, and reviewed direct-runtime dependency notices ship in `THIRD_PARTY_NOTICES.md`. A manual protected-environment workflow is prepared to build one exact npm tarball, render checksum-bound curl and Homebrew assets, create a draft GitHub release, attest the artifacts, publish or verify that exact tarball through npm trusted publishing, and only then publish the GitHub release. The preflight still refuses changed license text, wrong package/repository/workflow context, a non-public repository, disabled provenance, or a long-lived npm token. Because npm requires a package to exist before trusted publishing can be configured, the first package needs the narrow interactive bootstrap documented in the [release runbook](docs/RELEASING.md); later releases are tokenless OIDC. Nothing is published today.
-
-After the first authorized release, the same versioned tarball supports three installation surfaces:
+Useful entry points:
 
 ```bash
-# npm
-npm install --global recurs@<version>
-
-# checksum-verifying, user-local installer (defaults to ~/.local)
-curl -fsSLO https://github.com/tacotuesday8888/recurs/releases/download/v<version>/install.sh
-sh install.sh
-
-# Homebrew formula generated from the same npm tarball and SHA-256
-curl -fsSLO https://github.com/tacotuesday8888/recurs/releases/download/v<version>/recurs.rb
-brew install --formula ./recurs.rb
+recurs                              # interactive setup or resume
+recurs run "inspect the project" --plan
+recurs review                       # bounded staged/unstaged Git review
+recurs doctor                       # redacted host readiness report
+recurs --help
 ```
 
-The installer requires Node.js 22.22 or newer, downloads only the exact tagged GitHub asset over HTTPS, verifies its embedded SHA-256 before npm runs, installs with lifecycle scripts disabled into `RECURS_INSTALL_PREFIX` or `~/.local`, and performs a CLI health check. The generated formula follows Homebrew's Node guidance: a stable checksummed npm URL, `depends_on "node"`, `std_npm_args`, and `libexec` isolation. A dedicated Homebrew tap does not exist yet, so `brew install tacotuesday8888/tap/recurs` is not claimed. Bun may later install the npm artifact while Node remains the supported runtime; Bun runtime support is not implemented.
+Use `-C /path/to/project` with interactive, run, or review commands to select a
+working root without changing the caller's shell directory. See the
+[CLI guide](docs/CLI.md) for provider setup, JSON/JSONL output, image inputs,
+sessions, permissions, and every supported command.
 
-## Packages
+## What works today
+
+### Agent company
+
+- resumable Quick, Guided, and Deep onboarding;
+- Stable Core + Specialists and Guardrailed Dynamic company designs;
+- consented, closed, read-only project discovery before approval;
+- conversational or YAML proposal revision with explicit activation;
+- approved role DAG execution, goal-wide accounting, attributable learning,
+  and approval-gated organization amendments;
+- `/company` status, blueprint, activity, knowledge, amendment, and capability
+  readiness inspection.
+
+### Agent runtime
+
+- a streaming tool-calling loop with bounded retries, step limits,
+  cancellation, and repeated-loop detection;
+- one child, parallel Explore/Review batches, and isolated Implement teams;
+- independent review, finding-driven repair, staged candidates, explicit
+  apply, restart recovery, and truthful partial-failure reporting;
+- five version-6 operating modes from Economy through Max, with immutable
+  historical policy replay;
+- durable goals, steering, queued follow-ups, compaction, forks, checkpoints,
+  and conflict-safe undo.
+
+### Models and integrations
+
+- fixed-origin environment BYOK for reviewed OpenAI Responses,
+  Anthropic Messages, Gemini GenerateContent, and OpenAI-compatible providers;
+- credential-free literal-loopback Ollama and LM Studio setup;
+- official Codex ACP with an existing ChatGPT login for local, interactive,
+  user-present, Plan-only work;
+- bounded Agent Skills from user or explicitly trusted project locations;
+- bounded parent-only stdio MCP servers with digest-bound project trust;
+- interactive text and images, headless text/JSON/JSONL, and a Recurs-owned
+  ACP v1 stdio endpoint.
+
+### Safety and host boundaries
+
+- Ask Always, Approved for Me, Full Access, enforced Plan, and read-only Review
+  profiles;
+- permanent classified-credential path denial across built-in tools and new
+  checkpoints;
+- clean child environments and sanitized provider, tool, process, and CLI
+  failures;
+- workspace-write containment for arbitrary subprocesses on supported macOS
+  and Linux hosts; Linux fails closed when Bubblewrap is unavailable;
+- private, tested macOS native credential authority foundations that are not
+  yet distributed as a signed/notarized product.
+
+## How a company goal runs
 
 ```text
-packages/contracts   Dependency-leaf model, connection, backend, failure, and runtime contracts
-packages/auth        Credential-free bounded client for an inherited native socket
-packages/providers   Validated provider manifests, protocol metadata, and direct-provider implementations
-packages/app         Non-secret connection registry, lifecycle service, onboarding, and policy
-packages/runtimes    Bounded ACP transport and the pinned official Codex runtime profile
-packages/tools       Tool registry, permissions, path policy, Git, and checkpoints
-packages/core        Direct/delegated execution, events, sessions, goals, compaction, and recovery
-packages/cli         Runtime assembly, slash commands, renderers, REPL, ACP server, and executable
-packages/native-engine  Sealed launcher-only host for the health bridge
-native/macos         Native security/state libraries and recovered broker/launcher executables
-tests/e2e            Public-interface coding workflow proof
+approved goal
+    └─ orchestrator
+       ├─ read / planning handoffs
+       └─ implementation team
+          ├─ isolated builders
+          ├─ independent review
+          └─ bounded repair
+                 ↓
+        reviewed candidate → explicit apply → parent synthesis
 ```
 
-The engine is first-party. Open-source agents informed its design; their source code was not copied into Recurs. See the [base-engine comparison](docs/BASE_ENGINE_COMPARISON.md) and [sub-agent harness comparison](docs/research/SUBAGENT_HARNESS_COMPARISON.md).
+Recurs depicts only agents that actually run. It does not claim arbitrary
+recursive hierarchies, autonomous deployment, unattended daemon workers, or
+automatic installation/trust of Skills and MCP servers.
 
-## Trust boundary
+## Project status
 
-Built-in file, search, patch, Git, and checkpoint paths share one case-insensitive credential classification. Direct classified credential paths are permanently denied in every permission preset, and aggregate tools omit them. New checkpoint stores carry a format marker recording the version-2 credential-exclusion contract used for new captures; an ambiguous nonempty legacy store fails closed and requires a manual reset. The marker is an unauthenticated upgrade assertion, not hardened proof about storage contents.
+| Surface | Current state |
+| --- | --- |
+| Source CLI | Usable alpha on the supported Node.js toolchain |
+| Package metadata | `0.1.0-alpha.1`; release gate prepared |
+| npm / Homebrew / curl | Not published |
+| macOS native authority | Implemented and tested; unsigned and undistributed |
+| Windows subprocess containment | Not implemented; subprocess tools fail closed |
+| Desktop app | Not implemented |
 
-Fixed Git inspection requires Git 2.45 or newer, pins the requested worktree, and disables optional index writes, lazy object fetching, repository hooks, fsmonitor commands, external diff/text conversion, configured clean/smudge/process filters, signature programs, replacement objects, notes, and expanded dirty-submodule diffs. Root-only history returns bounded JSON-escaped commit IDs, authored timestamps, author names, and subjects from `HEAD`; it accepts no revision expression or patch/body output and excludes credential-only paths. Root-only commit inspection accepts only one full object ID already reachable from the current `HEAD`, returns the same escaped metadata plus a bounded first-parent patch, treats an optional path literally, and omits credential paths. Patch input uses exact slash-separated declarations, rejects rename/copy operations, denies canonical credential aliases before checkpoint capture, and must match Git's complete parsed path set. Checkpoint capture and undo also reclassify canonical parent and file targets, so a stable safe-looking symlink alias into an auth directory is omitted or refused before a read or restore.
+The package build produces one self-contained Recurs code bundle and a minimal
+tarball. CI installs that artifact into an empty prefix and exercises the real
+binary, OS sandbox, Agent Skills, stdio MCP, and ACP negotiation. Publication
+remains an explicit owner-controlled release step.
 
-Parallel Explore/Review batches and team implementation start only when the session directory is the canonical root of a clean Git repository at an exact committed `HEAD`. Ignored files are intentionally absent from detached child worktrees. Batch leases are force-cleaned without importing changes. Team Implement workers return bounded, hash-addressed, text-only patch artifacts after credential paths, modes, symlinks, submodules, binary content, renames, size, and complete path sets are validated.
+## Develop and verify
 
-The default version-6 team path applies worker artifacts to a private staging worktree, runs Review and bounded finding-driven Repair there without arbitrary-command or verification tools, and captures one durable cumulative candidate. A user may explicitly assign each team role to a saved direct-model connection; the selected mode gates its billing class, the parent remains the fallback, and the exact route and immutable backend pin are frozen before work starts. An approved V2 company can reserve a smaller immutable team slice and bind every real child to one approved assignment/role without forking this engine. Only hardened Git inspection may spawn a process; project scripts cannot be executed by these roles. An approved foreground run applies that candidate to the parent behind a durable two-phase checkpoint transaction; an approved background run stops at `ready_to_apply` until explicit `/agents apply <id>` or `apply_team`. Startup recovery reclaims dead owners, settles bound child records, removes owned stale worktrees, and classifies an interrupted parent apply as unchanged, exact-candidate, or ambiguous. Ambiguity requires manual attention and is never overwritten or called approved. Historical policies replay their original behavior and never gain company behavior. Worktrees and owner locks separate workspace effects and writers, but they are not an OS sandbox.
+```bash
+npm run check          # generated state, lint, types, tests, build, package checks
+npm run check:native   # full Swift/native suite on macOS
+npm run package:smoke-install
+```
 
-All fixed and arbitrary child processes receive a fresh private home, config, cache, and temporary tree plus an allowlisted environment. They do not inherit provider/cloud variables, the real home, `SHELL`, proxy variables, sockets, or workspace-contained `PATH` entries. Process-group cleanup and output-pipe draining are bounded so inherited pipes alone cannot hold Recurs settlement open before synthetic-state cleanup. The default macOS and Linux workspace profiles add OS containment for arbitrary shell and verification children; an embedding that explicitly selects `local_guarded` retains only the application-level cleanup boundary. Provider, tool, process, and unexpected CLI failures cross durable/user-visible boundaries through safe typed messages instead of raw causes or stderr.
+The monorepo keeps contracts at the dependency leaf, then builds provider,
+runtime, tool, application, core, and CLI layers above them. Read
+[Architecture](ARCHITECTURE.md) for the package boundaries and execution
+lifecycle.
 
-Stdio MCP servers use that same process boundary. Recurs accepts private user-owned configuration under its data directory and discovers `.recurs/mcp-servers.json` in the canonical workspace as disabled project configuration. `/mcp trust-project` is local, user-present, and explicit; it persists only the exact workspace and SHA-256 of the reviewed config. A changed, replaced, unsafe, or colliding project file immediately fails preflight and is disabled until trusted again. Server commands remain absolute paths, arguments are literal, no shell or configured environment injection is accepted, and host credentials are removed. The first approved operation creates one bounded server session for the exact server/workspace/sandbox identity. Later operations are serialized and require a successful MCP ping before reuse. A failed health check may restart the server before an operation; a failed or ambiguous tool call is never retried. Cancellation, timeout, untrust, and runtime close clean up the owned process groups. Server descriptions, schemas, annotations, and results remain untrusted data and never grant permissions. Server installation, cross-runtime daemons, remote transports/OAuth, prompts/resources, and child/team MCP access are not implemented.
+## Documentation
 
-On macOS and Linux, the standalone CLI now defaults shell and verification subprocesses to the `workspace_sandboxed` profile. Apple Seatbelt and a fixed system-Bubblewrap policy permit host writes only in the canonical workspace and a private per-process tree, hide common host credential/runtime locations, and deny network unless the command's approved intents include network access. Linux keeps the remaining host filesystem read-only so user-installed toolchains still work, hides host temporary/runtime state, and uses fresh user, PID, IPC, UTS, mount, and deny-network namespaces; it refuses a workspace that contains the host home or sits inside a host credential directory, and it does not yet add a Recurs seccomp filter. Sandbox setup fails closed, including when `/usr/bin/bwrap` or unprivileged user namespaces are unavailable. Windows still selects `local_guarded`, so subprocess tools remain unsupported there; an embedding can explicitly select the same guarded host-authority profile on macOS/Linux. The optional `tools_disabled` profile exposes no model-callable tools at all. Long-running commands remain owned by the exact conversation; both the agent and `/process` can poll or wait, write bounded visible input, close piped stdin, resize a PTY, or stop them. `/process` also lists sessions without consuming output, and the local user-present CLI can attach to an owned PTY until `Ctrl-]` detaches. Attachment restores terminal mode but is a raw relay, not protected secret capture or a separate terminal emulator. The root model can ask one bounded clarification through the local manual CLI; prompt arbitration keeps that answer separate from live steering, while every headless or child path fails closed. Questions and answers are persisted tool context and are never a secret-entry channel. Persistent provider credentials stay in the signed native authority when that path is used. Cross-platform environment BYOK is deliberately weaker: the selected key enters the Recurs process, is kept in a private provider field, never persisted or rendered, and is removed from every tool subprocess environment along with variables containing `KEY`, `SECRET`, `TOKEN`, `PROXY`, or `KEYCHAIN` segments. Saved BYOK records contain the environment-variable name and a one-way provider-bound fingerprint so a later process can require the same credential without storing it. The official Codex runtime continues to own its existing ChatGPT authentication.
-
-The macOS native-authority foundation includes the launcher-to-engine process boundary. After production-signing validation, the launcher resolves only nonsymlinked `Contents/Resources/runtime/bin/node` and `Contents/Resources/engine/main.js`, spawns that engine in its foreground process group with descriptors `0`–`3` only, and serves bounded health, cancellation, and OpenAI onboarding frames over the anonymous descriptor-3 socket. The public npm/source CLI deletes an injected `RECURS_NATIVE_FD` before loading the application and never writes to it. Unsigned, ad-hoc, and source launchers cannot substitute an engine through `PATH`, cwd, environment, or arguments; the engine path fails with fixed exit `78` and empty output.
-
-The broker is no longer health-only: its production-gated startup derives and validates the exact launcher signing requirement and Keychain configuration, fully recovers one credential authority before listener construction or activation, and then exposes a private launcher-only lifecycle surface with `persistentCredentials: true`. Its schema-v2 journal authenticates one exact provider/profile binding on every record; custom bindings include canonical host, port, base path, and model-catalog behavior. Native component `0.2.0` carries that identity through bounded, non-secret metadata while keeping lifecycle replies redacted. Because this credential state has never shipped, schema-v1 journals are not migrated; development users reset the unpublished native journal and reconnect.
-
-The broker also has internal setup/run/maintenance route authority. It derives every capability from authenticated journal binding and candidate or usable-ready state, rechecks that state across actor suspension, and atomically couples exact scope, expiry, cancellation, and checked budgets to a one-use reservation for the matching Keychain generation. Pre-authorization failures clean up without a debit; a returned reservation is conservatively charged exactly once. The launcher performs foreground TTY capture for OpenAI onboarding; capture restores exact terminal state, cancellation is sticky, transient secret buffers are erased, lifecycle request IDs are independently correlated, and replies remain redacted. One process coordinator owns launcher termination signals and capture suspension handling, and real controlling-PTY tests prove restoration with no input echo across interrupt, termination, hangup, and suspend/resume.
-
-The private native path supports crash-safe OpenAI API, Anthropic API, and Kimi Code activation. It remains the stronger persistent-credential path and is still undistributed pending a signed/notarized artifact. Source/npm builds can use a separate environment-BYOK path for fixed-origin OpenAI Responses, Anthropic Messages, Gemini GenerateContent, and reviewed OpenAI Chat-compatible providers; it neither collects nor persists a key and does not weaken native connection records. OpenAI, Anthropic, Gemini, OpenRouter, xAI, DeepSeek, and MiniMax setup plus `provider models` authenticate against each provider's reviewed fixed model-list endpoint, expose only bounded credential-visible metadata, and require the selected exact model before saving. xAI uses its documented language-model catalog and conservative OpenAI-compatible Chat Completions path; Recurs does not claim xAI Responses continuation features. The public OpenAI Responses transport uses `store: false`, bounded typed WebSocket/SSE decoding, native function tools, and in-memory encrypted-reasoning replay behind process-scoped handles. Its run-owned WebSocket is reused across sequential model/tool rounds; a failed handshake produces a visible switch to HTTPS/SSE, while a failure after `response.create` is sent is never replayed over another transport. Bounded JSON errors and streamed failures map only reviewed machine codes; provider prose never reaches durable state, and clean `context_length_exceeded` failures can enter the one-shot compaction path. An interrupted tool turn must be retried after Recurs restarts; a completed conversation resumes from its last visible answer without claiming that hidden reasoning survived. Anthropic uses its required versioned headers and native Messages tool/SSE translation. Gemini uses `x-goog-api-key`, native function calls, bounded SSE, and exact process-scoped thought-signature replay. Every authenticated discovery path denies redirects and detects split-chunk credential echo. Broker-owned generation retains its stricter persistent continuation, reservation, custody, and lifecycle guarantees. The macOS/Linux command sandboxes are defense in depth for tool subprocesses; neither replaces the native credential authority, and Windows containment remains absent.
-
-## Next
-
-1. Complete the documented one-time npm bootstrap, configure the protected trusted-publisher relationship, and exercise the gated tagged workflow; create a Homebrew tap only after the generated formula has been proven from that exact published artifact.
-2. Produce and verify a signed/notarized installed launcher bundle, including the isolated owner-run broker recovery smoke.
-3. Exercise the completed OpenAI, Anthropic, and Kimi Code verticals through installed-artifact security and credential-canary tests.
-4. Add further provider-specific authenticated discovery or transport profiles only where official endpoints and continuation semantics are documented, without permitting arbitrary remote URLs.
-5. Extend MCP only through separately reviewed authenticated Streamable HTTP, prompt/resource, and versioned child-profile slices; trusted project stdio does not imply those authorities.
-6. Give any delegated runtime included in the sealed engine its own fixed signed layout; expand delegated runtimes only through documented integrations and provider-specific policy review.
-7. Extend team execution only through enforceable OS containment, stronger capability/price-aware routing policy, and a separately designed durable worker host; do not mistake process-lifetime background work for a daemon or turn repair into unbounded token burn.
-
-Start with the [documentation index](docs/README.md), [CLI guide](docs/CLI.md), [architecture](ARCHITECTURE.md), [security policy](SECURITY.md), and [product direction](PRODUCT.md).
+- [CLI guide](docs/CLI.md) — setup, commands, storage, outputs, and limits
+- [Architecture](ARCHITECTURE.md) — engine boundaries and lifecycle
+- [Agent company onboarding](docs/AGENT_COMPANY_ONBOARDING.md) — product and
+  authority model
+- [Security policy](SECURITY.md) — support and disclosure boundary
+- [Product direction](PRODUCT.md) — current product shape and roadmap
+- [Release runbook](docs/RELEASING.md) — exact artifact and publication gate
+- [Documentation index](docs/README.md) — reviewed designs and implementation
+  plans
 
 ## License
 
-Recurs is licensed under the [Apache License 2.0](LICENSE). Third-party runtime packages retain their own licenses as listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Recurs is licensed under the [Apache License 2.0](LICENSE). Direct runtime
+dependencies retain their own licenses as listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
