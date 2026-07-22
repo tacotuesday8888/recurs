@@ -374,7 +374,7 @@ describe("runCli", () => {
     const selections = [
       "local:ollama",
       "full_access",
-      "balanced_v5",
+      "balanced_v6",
       "skip",
     ];
     let localInput: unknown;
@@ -437,7 +437,7 @@ describe("runCli", () => {
       modelId: "qwen-coder",
     });
     expect(runtimeOptions).toEqual({
-      operatingModeId: "balanced_v5",
+      operatingModeId: "balanced_v6",
       permissionMode: "ask_always",
       reuseExistingSession: false,
     });
@@ -458,7 +458,7 @@ describe("runCli", () => {
       "byok:openrouter-api",
       "anthropic/claude-test",
       "approved_for_me",
-      "balanced_v5",
+      "balanced_v6",
       "skip",
     ];
     let configured = false;
@@ -584,7 +584,7 @@ describe("runCli", () => {
     expect(runtimeOptions).toEqual([
       undefined,
       {
-        operatingModeId: "balanced_v5",
+        operatingModeId: "balanced_v6",
         permissionMode: "approved_for_me",
         reuseExistingSession: false,
       },
@@ -605,7 +605,7 @@ describe("runCli", () => {
     const selections = [
       "account:parent",
       "approved_for_me",
-      "balanced_v5",
+      "balanced_v6",
       "create",
       "existing_project",
       "active",
@@ -673,7 +673,7 @@ describe("runCli", () => {
 
     expect(inspectedCwd).toBe(cwd);
     expect(runtimeOptions).toMatchObject({
-      operatingModeId: "balanced_v5",
+      operatingModeId: "balanced_v6",
       permissionMode: "approved_for_me",
       reuseExistingSession: false,
       companyBlueprint: {
@@ -701,7 +701,7 @@ describe("runCli", () => {
       "byok:anthropic-api",
       "claude-sonnet-visible",
       "approved_for_me",
-      "balanced_v5",
+      "balanced_v6",
       "skip",
     ];
     let configured = false;
@@ -2651,7 +2651,7 @@ describe("runCli", () => {
     expect(runtimeOptions).toEqual({
       connectionId: "saved.review:1",
       executionMode: "plan",
-      operatingModeId: "standard_v5",
+      operatingModeId: "standard_v6",
       reuseExistingSession: false,
     });
     expect(submitted).toBe("/review");
@@ -2671,11 +2671,11 @@ describe("runCli", () => {
   });
 
   it.each([
-    ["economy", "economy_v5"],
-    ["standard", "standard_v5"],
-    ["balanced", "balanced_v5"],
-    ["performance", "performance_v5"],
-    ["max", "max_v5"],
+    ["economy", "economy_v6"],
+    ["standard", "standard_v6"],
+    ["balanced", "balanced_v6"],
+    ["performance", "performance_v6"],
+    ["max", "max_v6"],
     ["balanced_v4", "balanced_v4"],
   ] as const)(
     "pins the explicit %s operating mode into a fresh one-shot session",

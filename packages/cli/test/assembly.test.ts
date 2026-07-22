@@ -2558,7 +2558,7 @@ describe("standalone assembly without a provider", () => {
     expect(toolFeedback).not.toContain("Legacy team execution");
   });
 
-  it("freezes an explicitly configured secondary model into the v5 Implement route", async () => {
+  it("freezes an explicitly configured secondary model into the current Implement route", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-v5-model-route-"));
     directories.push(root);
     const workspace = path.join(root, "workspace");
@@ -2658,7 +2658,7 @@ describe("standalone assembly without a provider", () => {
     const [entry] = await store.list(runtime.session.id);
     if (entry === undefined) throw new Error("Expected a routed team run");
     const state = await store.load(entry.id);
-    expect(state.descriptor.operatingModeId).toBe("balanced_v5");
+    expect(state.descriptor.operatingModeId).toBe("balanced_v6");
     expect(state.descriptor.routes).toEqual(expect.arrayContaining([
       expect.objectContaining({
         role: "implement",

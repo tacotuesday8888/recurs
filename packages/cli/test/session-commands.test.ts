@@ -236,7 +236,7 @@ describe("session commands", () => {
     expect(await commands.execute("/agents", commandContext)).toMatchObject({
       type: "message",
       text: expect.stringMatching(
-          /Balanced \(balanced_v5\)[\s\S]*Policy version: 5[\s\S]*explicit saved role candidates[\s\S]*metered_api[\s\S]*concurrency 3[\s\S]*Workflow: 7 children, 56 total requests, 8 reserved per child[\s\S]*Team: up to 2 Implement workers, 1 initial and 2 maximum Review workers[\s\S]*Review rule: unanimous, balanced quality standard[\s\S]*Repair rounds: 1/u,
+          /Balanced \(balanced_v6\)[\s\S]*Policy version: 6[\s\S]*explicit saved role candidates[\s\S]*metered_api[\s\S]*concurrency 3[\s\S]*Workflow: 7 children, 56 total requests, 8 reserved per child[\s\S]*Team: up to 2 Implement workers, 1 initial and 2 maximum Review workers[\s\S]*Review rule: unanimous, balanced quality standard[\s\S]*Repair rounds: 1/u,
       ),
     });
     const profiles = await commands.execute("/agents profiles", commandContext);
@@ -266,13 +266,13 @@ describe("session commands", () => {
     expect(await commands.execute("/agents mode economy", commandContext)).toMatchObject({
       type: "message",
       text: expect.stringMatching(
-          /Economy \(economy_v5\)[\s\S]*local_compute[\s\S]*concurrency 1 \(sequential fallback\)[\s\S]*Workflow: 2 children, 8 total requests, 4 reserved per child[\s\S]*Team: up to 1 Implement worker, 1 initial and 1 maximum Review worker/u,
+          /Economy \(economy_v6\)[\s\S]*local_compute[\s\S]*concurrency 1 \(sequential fallback\)[\s\S]*Workflow: 2 children, 8 total requests, 4 reserved per child[\s\S]*Team: up to 1 Implement worker, 1 initial and 1 maximum Review worker/u,
       ),
     });
     const reloaded = await sessions.loadState("agent-mode-session");
     expect(reloaded).toMatchObject({
       agent: {
-        operatingMode: { id: "economy_v5", version: 5 },
+        operatingMode: { id: "economy_v6", version: 6 },
         limits: { maxRequests: 8, maxDepth: 1, maxConcurrentChildren: 1 },
       },
       backend: initial.backend,
@@ -298,7 +298,7 @@ describe("session commands", () => {
       });
     expect(await commands.execute("/agents mode balanced", commandContext))
       .toMatchObject({
-        text: expect.stringMatching(/Balanced \(balanced_v5\)[\s\S]*Policy version: 5/u),
+        text: expect.stringMatching(/Balanced \(balanced_v6\)[\s\S]*Policy version: 6/u),
       });
   });
 
@@ -718,13 +718,13 @@ describe("session commands", () => {
       executionMode: "plan",
       permissionMode: "approved_for_me",
       prePlanPermissionMode: "approved_for_me",
-      agent: { operatingMode: { id: "performance_v5", version: 5 } },
+      agent: { operatingMode: { id: "performance_v6", version: 6 } },
     });
     await expect(sessions.loadState(commandContext.session.id)).resolves
       .toMatchObject({
         executionMode: "plan",
         permissionMode: "approved_for_me",
-        agent: { operatingMode: { id: "performance_v5", version: 5 } },
+        agent: { operatingMode: { id: "performance_v6", version: 6 } },
       });
   });
 
@@ -775,7 +775,7 @@ describe("session commands", () => {
       openTurnId: null,
       agent: {
         role: "parent",
-        operatingMode: { id: "performance_v5", version: 5 },
+        operatingMode: { id: "performance_v6", version: 6 },
       },
     });
     expect(fork.agent.id).toBe(`${fork.id}:agent`);

@@ -928,7 +928,7 @@ try {
     `${stdinSessionId}.jsonl`,
   ), "utf8")).split("\n", 1)[0]);
   assert(
-    stdinSession.agent?.operatingMode?.id === "economy_v5",
+    stdinSession.agent?.operatingMode?.id === "economy_v6",
     "The installed headless mode flag did not pin the requested policy.",
   );
   assert(
@@ -1058,7 +1058,7 @@ try {
   assert(
     reviewSession.agent?.permissions?.parentExecutionMode === "plan" &&
       reviewSession.agent?.permissions?.executionMode === "plan" &&
-      reviewSession.agent?.operatingMode?.id === "economy_v5",
+      reviewSession.agent?.operatingMode?.id === "economy_v6",
     "The installed review did not pin its fresh session to the requested Plan policy.",
   );
   const reviewRequest = localModelServer.chatRequests.find((request) =>

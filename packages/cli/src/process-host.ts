@@ -61,7 +61,10 @@ import {
 } from "@recurs/app";
 import { CoordinatedRunError, type EventSink } from "@recurs/core";
 
-import { createStandaloneRuntime } from "./assembly.js";
+import {
+  createStandaloneCompanyOnboarding,
+  createStandaloneRuntime,
+} from "./assembly.js";
 import { serveRecursAcpStdio } from "./acp-server.js";
 import { setupCodexSubscription } from "./codex-connection.js";
 import { CLI_HELP, parseCliHelpRequest } from "./cli-help.js";
@@ -147,6 +150,11 @@ export interface CliDependencies {
   inspectCompanyRepositoryFacts?(
     cwd: string,
   ): ReturnType<typeof inspectCompanyRepositoryFacts>;
+  createCompanyOnboarding?(input: {
+    readonly permissionMode: PermissionMode;
+    readonly operatingModeId: OperatingModeId;
+    readonly cwd: string;
+  }): ReturnType<typeof createStandaloneCompanyOnboarding>;
   credentialEnvironmentAvailable?(name: string): boolean;
   selectOpenAIModel?(modelIds: readonly string[]): Promise<string | null>;
   nativeAuthority?: NativeAuthorityPort;
@@ -1130,6 +1138,15 @@ async function runGuidedOnboarding(
               dependencies.cwd ?? process.cwd(),
             ),
         }),
+    ...(dependencies.createCompanyOnboarding === undefined
+      ? {}
+      : {
+          createCompanyOnboarding: (input) =>
+            dependencies.createCompanyOnboarding!({
+              ...input,
+              cwd: dependencies.cwd ?? process.cwd(),
+            }),
+        }),
     createProjectInstructions: (input) => createProjectInstructions(
       dependencies.cwd ?? process.cwd(),
       input,
@@ -2105,6 +2122,17 @@ export async function runCliProcess(
         recover: async () => ({ state: "none" }),
       },
       inspectCompanyRepositoryFacts,
+      createCompanyOnboarding: ({ cwd, ...input }) => createStandaloneCompanyOnboarding(
+        input,
+        {
+          cwd,
+          dataDirectory,
+          ...(nativeOpenAIResponses === undefined
+            ? {}
+            : { nativeOpenAIResponses }),
+          environment: process.env,
+        },
+      ),
       createRuntime: (events, options) => createStandaloneRuntime(
         events,
         {

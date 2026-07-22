@@ -1,9 +1,15 @@
 import { Writable } from "node:stream";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
+
+import {
+  CompanyOnboardingCoordinator,
+  FileCompanyBlueprintV2Store,
+  FileCompanyOnboardingStore,
+} from "@recurs/core";
 
 import {
   type AccountSummary,
@@ -164,13 +170,13 @@ describe("guided onboarding policy", () => {
 
   it("offers only current stable operating-mode policies", () => {
     expect(GUIDED_OPERATING_MODE_CHOICES.map((choice) => choice.id)).toEqual([
-      "economy_v5",
-      "standard_v5",
-      "balanced_v5",
-      "performance_v5",
-      "max_v5",
+      "economy_v6",
+      "standard_v6",
+      "balanced_v6",
+      "performance_v6",
+      "max_v6",
     ]);
-    expect(guidedOperatingModeId("balanced_v5")).toBe("balanced_v5");
+    expect(guidedOperatingModeId("balanced_v6")).toBe("balanced_v6");
     expect(guidedOperatingModeId("balanced_v4")).toBeNull();
   });
 
@@ -179,7 +185,7 @@ describe("guided onboarding policy", () => {
       "byok:kilo-gateway",
       "kilo/model",
       "ask_always",
-      "balanced_v5",
+      "balanced_v6",
     ];
     const commands: string[][] = [];
     const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
@@ -232,7 +238,7 @@ describe("guided onboarding policy", () => {
     expect(outcome).toEqual({
       state: "configured",
       permissionMode: "ask_always",
-      operatingModeId: "balanced_v5",
+      operatingModeId: "balanced_v6",
     });
     expect(commands).toEqual([[
       "setup", "byok",
@@ -248,7 +254,7 @@ describe("guided onboarding policy", () => {
       "gpt-5.6-sol",
       "max",
       "ask_always",
-      "balanced_v5",
+      "balanced_v6",
     ];
     const commands: string[][] = [];
     const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
@@ -307,7 +313,7 @@ describe("guided onboarding policy", () => {
     expect(outcome).toEqual({
       state: "configured",
       permissionMode: "ask_always",
-      operatingModeId: "balanced_v5",
+      operatingModeId: "balanced_v6",
     });
     expect(commands).toEqual([[
       "setup", "byok",
@@ -323,7 +329,7 @@ describe("guided onboarding policy", () => {
       "byok:google-gemini-api",
       "gemini-test",
       "ask_always",
-      "balanced_v5",
+      "balanced_v6",
     ];
     const commands: string[][] = [];
     const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
@@ -376,7 +382,7 @@ describe("guided onboarding policy", () => {
     expect(outcome).toEqual({
       state: "configured",
       permissionMode: "ask_always",
-      operatingModeId: "balanced_v5",
+      operatingModeId: "balanced_v6",
     });
     expect(commands).toEqual([[
       "setup", "byok",
@@ -392,7 +398,7 @@ describe("guided onboarding policy", () => {
       "retry_connection",
       "anthropic/claude-test",
       "ask_always",
-      "balanced_v5",
+      "balanced_v6",
     ];
     const environmentVariables = ["MISSING_API_KEY", "OPENROUTER_API_KEY"];
     const commands: string[][] = [];
@@ -445,7 +451,7 @@ describe("guided onboarding policy", () => {
     expect(outcome).toEqual({
       state: "configured",
       permissionMode: "ask_always",
-      operatingModeId: "balanced_v5",
+      operatingModeId: "balanced_v6",
     });
     expect(errors).toBe(
       "Error: Credential environment variable MISSING_API_KEY is not set in this Recurs process\n",
@@ -464,7 +470,7 @@ describe("guided onboarding policy", () => {
       "change_connection",
       "account:saved-1",
       "approved_for_me",
-      "balanced_v5",
+      "balanced_v6",
     ];
     const commands: string[][] = [];
     let errors = "";
@@ -503,7 +509,7 @@ describe("guided onboarding policy", () => {
     expect(outcome).toEqual({
       state: "configured",
       permissionMode: "approved_for_me",
-      operatingModeId: "balanced_v5",
+      operatingModeId: "balanced_v6",
     });
     expect(errors).toMatch(
       /^Error: Unexpected failure \(diagnostic [0-9a-f-]{36}\)\n$/u,
@@ -564,7 +570,7 @@ describe("guided onboarding policy", () => {
     const selections = [
       "account:parent",
       "approved_for_me",
-      "performance_v5",
+      "performance_v6",
       "customize",
       "specialist",
       "specialist",
@@ -602,7 +608,7 @@ describe("guided onboarding policy", () => {
     expect(outcome).toEqual({
       state: "configured",
       permissionMode: "approved_for_me",
-      operatingModeId: "performance_v5",
+      operatingModeId: "performance_v6",
     });
     expect(commands).toEqual([
       ["account", "verify", "parent"],
@@ -616,7 +622,7 @@ describe("guided onboarding policy", () => {
     const selections = [
       "account:saved-1",
       "approved_for_me",
-      "balanced_v5",
+      "balanced_v6",
       "create",
     ];
     const prompts = [
@@ -655,7 +661,7 @@ describe("guided onboarding policy", () => {
     expect(outcome).toEqual({
       state: "configured",
       permissionMode: "approved_for_me",
-      operatingModeId: "balanced_v5",
+      operatingModeId: "balanced_v6",
     });
     expect(brief).toEqual({
       purpose: "Build a dependable multi-agent coding harness.",
@@ -684,7 +690,7 @@ describe("guided onboarding policy", () => {
     const selections = [
       "account:saved-1",
       "approved_for_me",
-      "balanced_v5",
+      "balanced_v6",
       "create",
       "existing_project",
       "active",
@@ -737,7 +743,7 @@ describe("guided onboarding policy", () => {
     expect(outcome).toMatchObject({
       state: "configured",
       permissionMode: "approved_for_me",
-      operatingModeId: "balanced_v5",
+      operatingModeId: "balanced_v6",
       companyBlueprint: {
         version: 1,
         state: "approved",
@@ -748,7 +754,7 @@ describe("guided onboarding policy", () => {
         },
         authority: {
           permissionMode: "approved_for_me",
-          operatingModeId: "balanced_v5",
+          operatingModeId: "balanced_v6",
         },
       },
     });
@@ -764,5 +770,125 @@ describe("guided onboarding policy", () => {
     expect(confirmations[1]).toContain("Approve and activate");
     expect(confirmations[2]).toContain("never overwrite");
     expect(output.join("")).toContain("6 / 6 · Project context");
+  });
+
+  it("runs the durable V2 interview and approval path when the restricted runtime is ready", async () => {
+    const root = await realpath(
+      await mkdtemp(path.join(tmpdir(), "recurs-guided-company-v2-")),
+    );
+    const runs = new FileCompanyOnboardingStore(path.join(root, "runs"));
+    const blueprints = new FileCompanyBlueprintV2Store(
+      path.join(root, "blueprints"),
+    );
+    const decisions: unknown[] = [{
+      kind: "question",
+      id: "desired_outcome",
+      question: "What outcome should this company own?",
+    }, {
+      kind: "propose",
+      project: {
+        type: "existing_project",
+        stage: "active",
+        purpose: "Ship a dependable open-source agent company.",
+        users: ["Software teams"],
+        successCriteria: ["Every change has independent evidence."],
+        constraints: ["Never widen child authority."],
+        risks: ["Unbounded delegation"],
+        architecturePreferences: ["Reuse existing runtime seams."],
+        deploymentTargets: ["CLI"],
+        repository: {
+          inspected: true,
+          markers: [".git", "package.json"],
+          evidence: [{
+            path: "package.json",
+            finding: "The project is a TypeScript workspace.",
+          }],
+        },
+      },
+      initialGoal: "Deliver the first independently reviewed company goal.",
+      roadmap: ["Understand the project.", "Deliver a reviewed slice."],
+    }];
+    const coordinator = new CompanyOnboardingCoordinator({
+      runs,
+      blueprints,
+      model: {
+        async decide() {
+          return {
+            decision: decisions.shift(),
+            requestsUsed: 1,
+            reportedCostUsd: 0,
+          };
+        },
+      },
+      research: {
+        async run() { throw new Error("research was not requested"); },
+      },
+    });
+    const selections = [
+      "account:saved-1",
+      "approved_for_me",
+      "balanced_v6",
+      "create",
+      "guided",
+      "stable_core_specialists",
+    ];
+    const output: string[] = [];
+    const sink = new Writable({
+      write(chunk, _encoding, done) {
+        output.push(String(chunk));
+        done();
+      },
+    });
+    try {
+      const outcome = await runGuidedOnboarding({
+        stdout: sink,
+        stderr: sink,
+        interactive: true,
+        automation: false,
+        nativeProviders: new Set(),
+        async listAccounts() { return [account]; },
+        async detectProviders() { return []; },
+        async listProviders() { return []; },
+        async selectChoice(_message, choices) {
+          const selected = selections.shift() ?? null;
+          expect(choices.some((choice) => choice.id === selected)).toBe(true);
+          return selected;
+        },
+        async promptText(message) {
+          expect(message).toBe("What outcome should this company own?");
+          return "A trustworthy coding-agent company.";
+        },
+        async confirm() { return true; },
+        async executeCommand() { return 0; },
+        async createCompanyOnboarding() {
+          return {
+            coordinator,
+            projectRoot: root,
+            backendFingerprint: "backend-fixture",
+          };
+        },
+      });
+
+      expect(outcome).toMatchObject({
+        state: "configured",
+        permissionMode: "approved_for_me",
+        operatingModeId: "balanced_v6",
+        companyBlueprintV2: {
+          version: 2,
+          state: "approved",
+          designMode: "stable_core_specialists",
+          project: { purpose: "Ship a dependable open-source agent company." },
+        },
+      });
+      expect(
+        outcome.state === "configured" && outcome.companyBlueprintV2?.roles,
+      ).toHaveLength(8);
+      expect(selections).toEqual([]);
+      expect(decisions).toEqual([]);
+      expect(output.join(""))
+        .toContain("Company approved: 6 department(s), 8 role(s).");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
