@@ -21,6 +21,7 @@ export * from "./file-company-blueprint-v2-store.js";
 export * from "./file-company-onboarding-store.js";
 export * from "./file-company-knowledge-store.js";
 export * from "./file-company-amendment-store.js";
+export * from "./file-company-capability-store.js";
 export * from "./jsonl-company-goal-store.js";
 export { CompanyStateStoreError } from "./private-state-store.js";
 export type {

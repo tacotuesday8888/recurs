@@ -1,6 +1,7 @@
 export * from "./agents.js";
 export * from "./build-metadata.js";
 export * from "./company.js";
+export * from "./company-capabilities.js";
 export * from "./company-v2.js";
 export * from "./company-onboarding.js";
 export * from "./company-goals.js";
