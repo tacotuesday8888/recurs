@@ -47,6 +47,10 @@ import {
   type ProjectInstructionDocument,
 } from "./project-instructions.js";
 import { safeCliErrorMessage } from "./error-rendering.js";
+import type {
+  CompanyProposalEditResult,
+  CompanyProposalEditor,
+} from "./company-proposal-editor.js";
 import { writeOutput } from "./render.js";
 
 export interface GuidedChoice {
@@ -312,6 +316,7 @@ export interface GuidedOnboardingPorts {
     readonly operatingModeId: OperatingModeId;
   }): Promise<{
     readonly coordinator: CompanyOnboardingCoordinator;
+    readonly proposalEditor?: CompanyProposalEditor;
     readonly projectRoot: string;
     readonly backendFingerprint: string;
   }>;
@@ -937,6 +942,55 @@ async function setupCompanyBlueprint(
   return { blueprint, brief };
 }
 
+const COMPANY_PROPOSAL_ACTIONS: readonly GuidedChoice[] = Object.freeze([
+  Object.freeze({
+    id: "approve",
+    label: "Approve this company (recommended)",
+    detail: "freeze this blueprint and its first goal without starting project work",
+  }),
+  Object.freeze({
+    id: "discuss",
+    label: "Discuss a revision",
+    detail: "ask the formation model for one validated, bounded change",
+  }),
+  Object.freeze({
+    id: "edit_yaml",
+    label: "Edit structured YAML",
+    detail: "open a private temporary file through VISUAL or EDITOR",
+  }),
+  Object.freeze({
+    id: "save_exit",
+    label: "Save and exit",
+    detail: "leave the proposal durable and start no project work",
+  }),
+]);
+
+async function renderCompanyProposalEdit(
+  ports: GuidedOnboardingPorts,
+  edited: CompanyProposalEditResult,
+): Promise<void> {
+  if (edited.kind === "updated") {
+    await writeOutput(ports.stdout, [
+      "Company proposal updated:",
+      ...edited.changes.map((change) => `- ${change}`),
+      "",
+    ].join("\n"));
+    return;
+  }
+  if (edited.kind === "unchanged") {
+    await writeOutput(ports.stdout, "The company proposal was unchanged.\n");
+    return;
+  }
+  if (edited.kind === "cancelled") {
+    await writeOutput(ports.stdout, "Company proposal editing was cancelled safely.\n");
+    return;
+  }
+  await writeOutput(
+    edited.kind === "invalid" ? ports.stderr : ports.stdout,
+    `${edited.message ?? "Company proposal editing was unavailable."}\n`,
+  );
+}
+
 async function setupCompanyBlueprintV2(
   ports: GuidedOnboardingPorts,
   permissionMode: PermissionMode,
@@ -1083,32 +1137,85 @@ async function setupCompanyBlueprintV2(
       continue;
     }
 
-    const blueprint = advanced.blueprint;
-    const requiredTools = blueprint.toolPlan
-      .filter((tool) => tool.status === "required")
-      .map((tool) => tool.id);
-    const approved = await ports.confirm!([
-      "Approve this company and freeze its first goal?",
-      `Project: ${blueprint.project.purpose}`,
-      `Design: ${blueprint.designMode.replaceAll("_", " ")}`,
-      `Departments: ${blueprint.departments.map((item) => item.displayName).join(", ")}`,
-      `Roles: ${blueprint.roles.map((item) => item.displayName).join(", ")}`,
-      `Authority: ${blueprint.authority.permissionMode.replaceAll("_", " ")} · ${blueprint.authority.operatingModeId}`,
-      `Required capabilities: ${requiredTools.join(", ") || "none"}`,
-      `Initial goal: ${blueprint.initialGoal}`,
-      "Approval does not begin implementation. The approved /goal starts bounded company operation later.",
-    ].join("\n"));
-    const brief = { purpose: blueprint.project.purpose };
-    if (!approved) {
-      await service.coordinator.abandon(
-        run.state.id,
-        run.sequence,
-        "The user declined the proposed company.",
-        ports.signal,
-      );
-      await writeOutput(ports.stdout, "Company proposal was not activated.\n");
-      return { brief };
+    let blueprint = advanced.blueprint;
+    if (service.proposalEditor === undefined) {
+      const requiredTools = blueprint.toolPlan
+        .filter((tool) => tool.status === "required")
+        .map((tool) => tool.id);
+      const approved = await ports.confirm!([
+        "Approve this company and freeze its first goal?",
+        `Project: ${blueprint.project.purpose}`,
+        `Design: ${blueprint.designMode.replaceAll("_", " ")}`,
+        `Departments: ${blueprint.departments.map((item) => item.displayName).join(", ")}`,
+        `Roles: ${blueprint.roles.map((item) => item.displayName).join(", ")}`,
+        `Authority: ${blueprint.authority.permissionMode.replaceAll("_", " ")} · ${blueprint.authority.operatingModeId}`,
+        `Required capabilities: ${requiredTools.join(", ") || "none"}`,
+        `Initial goal: ${blueprint.initialGoal}`,
+        "Approval does not begin implementation. The approved /goal starts bounded company operation later.",
+      ].join("\n"));
+      if (!approved) {
+        await service.coordinator.abandon(
+          run.state.id,
+          run.sequence,
+          "The user declined the proposed company.",
+          ports.signal,
+        );
+        await writeOutput(ports.stdout, "Company proposal was not activated.\n");
+        return { brief: { purpose: blueprint.project.purpose } };
+      }
+    } else {
+      await writeOutput(ports.stdout, [
+        "Company proposal ready for review",
+        `Project: ${blueprint.project.purpose}`,
+        `Design: ${blueprint.designMode.replaceAll("_", " ")}`,
+        `Departments: ${blueprint.departments.length}`,
+        `Roles: ${blueprint.roles.map((item) => item.displayName).join(", ")}`,
+        `Initial goal: ${blueprint.initialGoal}`,
+        "No implementation starts until an approved /goal is launched.",
+        "",
+      ].join("\n"));
+      for (;;) {
+        const action = await ports.selectChoice(
+          "Review the proposed agent company",
+          COMPANY_PROPOSAL_ACTIONS,
+        );
+        if (action === null || action === "save_exit") {
+          await writeOutput(
+            ports.stdout,
+            `Company proposal saved. Resume run ${run.state.id} during setup.\n`,
+          );
+          return { brief: { purpose: blueprint.project.purpose } };
+        }
+        if (action === "approve") break;
+        let edited: CompanyProposalEditResult;
+        if (action === "discuss") {
+          const instruction = await ports.promptText(
+            "What should change about this company proposal?",
+          );
+          if (instruction === null || instruction.trim().length === 0) {
+            await writeOutput(ports.stdout, "No company revision was requested.\n");
+            continue;
+          }
+          edited = await service.proposalEditor.discuss({
+            run,
+            instruction,
+            ...(ports.signal === undefined ? {} : { signal: ports.signal }),
+          });
+        } else if (action === "edit_yaml") {
+          edited = await service.proposalEditor.editYaml({
+            run,
+            ...(ports.signal === undefined ? {} : { signal: ports.signal }),
+          });
+        } else {
+          await writeOutput(ports.stderr, "Invalid company review selection.\n");
+          continue;
+        }
+        run = edited.run;
+        blueprint = edited.blueprint;
+        await renderCompanyProposalEdit(ports, edited);
+      }
     }
+    const brief = { purpose: blueprint.project.purpose };
     const approvedRun = await service.coordinator.approve(
       run.state.id,
       run.sequence,

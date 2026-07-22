@@ -129,10 +129,10 @@
 - Produces the review loop actions `discuss`, `edit_yaml`, `approve`, and `save_exit`.
 - Chat revisions must return a validated V2 draft and display a bounded structural diff; editor revisions use `$VISUAL`, then `$EDITOR`, and otherwise retain chat revision without launching an unknown command.
 
-- [ ] Write tests for natural-language revision, invalid model output, YAML editor success/failure/cancellation, unchanged drafts, authority escalation, and final approval.
-- [ ] Implement the editor with private temporary files, exact cleanup, no shell interpolation, and canonical revalidation.
-- [ ] Connect approved output to immutable blueprint creation and the initial durable goal; rejected proposals start no normal session work.
-- [ ] Run focused CLI suites and commit.
+- [x] Write tests for natural-language revision, invalid model output, YAML editor success/failure/cancellation, unchanged drafts, authority escalation, and final approval.
+- [x] Implement the editor with private temporary files, exact cleanup, no shell interpolation, and canonical revalidation.
+- [x] Connect approved output to immutable blueprint creation and the initial durable goal; rejected proposals start no normal session work.
+- [x] Run focused CLI suites and commit.
 
 ### Task 7: Goal-wide policy and bounded company hierarchy
 

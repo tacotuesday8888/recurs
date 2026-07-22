@@ -4,6 +4,7 @@ import {
   COMPANY_REPOSITORY_MARKERS,
   getCompanyOnboardingDepthPolicy,
   getOperatingModePolicy,
+  parseCompanyBlueprintV2,
   parseCompanyOnboardingRun,
   type AgentPermissionMode,
   type AgentProfileId,
@@ -16,6 +17,7 @@ import {
   type CompanyRoleKind,
   type CompanyToolBundleId,
   type CompanyDesignMode,
+  type CompanyBlueprintV2,
   type OperatingModeId,
 } from "@recurs/contracts";
 
@@ -89,6 +91,32 @@ export interface CompanyOnboardingResearchPort {
     readonly requestsUsed: number;
     readonly reportedCostUsd: number;
   }>;
+}
+
+export interface CompanyProposalRevisionModelPort {
+  revise(input: {
+    readonly run: CompanyOnboardingRunV1;
+    readonly blueprint: CompanyBlueprintV2;
+    readonly instruction: string;
+    readonly allowedTools: typeof COMPANY_ONBOARDING_TOOL_NAMES;
+    readonly maxRequests: number;
+  }, signal: AbortSignal): Promise<{
+    readonly blueprint: unknown;
+    readonly requestsUsed: number;
+    readonly reportedCostUsd: number;
+  }>;
+}
+
+export interface CompanyProposalRevisionInput {
+  readonly source: "chat" | "yaml";
+  readonly blueprint: unknown;
+  readonly requestsUsed: number;
+  readonly reportedCostUsd: number;
+}
+
+export interface CompanyProposalRevisionResult {
+  readonly changed: boolean;
+  readonly run: SequencedCompanyState<CompanyOnboardingRunV1>;
 }
 
 export interface CompanyOnboardingStartInput {
@@ -456,6 +484,35 @@ function validUsage(value: {
     Number.isFinite(value.reportedCostUsd) && value.reportedCostUsd >= 0;
 }
 
+function sameIds(
+  left: readonly { readonly id: string }[],
+  right: readonly { readonly id: string }[],
+): boolean {
+  const leftIds = left.map((item) => item.id).sort();
+  const rightIds = right.map((item) => item.id).sort();
+  return leftIds.length === rightIds.length &&
+    leftIds.every((id, index) => id === rightIds[index]);
+}
+
+function assertProposalRevision(
+  previous: CompanyBlueprintV2,
+  next: CompanyBlueprintV2,
+): void {
+  if (next.state !== "proposed" || next.approvedAt !== null ||
+    next.id !== previous.id || next.companyId !== previous.companyId ||
+    next.version !== previous.version || next.revision !== previous.revision ||
+    next.previousBlueprintId !== previous.previousBlueprintId ||
+    next.createdAt !== previous.createdAt || next.designMode !== previous.designMode ||
+    JSON.stringify(next.authority) !== JSON.stringify(previous.authority) ||
+    JSON.stringify(next.provenance) !== JSON.stringify(previous.provenance) ||
+    !sameIds(previous.departments, next.departments) ||
+    !sameIds(previous.roles, next.roles)) {
+    throw new TypeError(
+      "Proposal identity, authority, provenance, and stable role ids are immutable",
+    );
+  }
+}
+
 export class CompanyOnboardingCoordinator {
   readonly #now: () => string;
   readonly #newId: NonNullable<Dependencies["newId"]>;
@@ -773,6 +830,87 @@ export class CompanyOnboardingCoordinator {
       updatedAt: this.#now(),
       approvedBlueprintId: approved.id,
     }, signal);
+  }
+
+  async reviseProposal(
+    runId: string,
+    expectedSequence: number,
+    input: CompanyProposalRevisionInput,
+    signal?: AbortSignal,
+  ): Promise<CompanyProposalRevisionResult> {
+    signal?.throwIfAborted();
+    let loaded = await this.dependencies.runs.load(runId, signal);
+    if (loaded.sequence !== expectedSequence || loaded.state.status !== "proposed" ||
+      loaded.state.proposal === null) {
+      throw new CompanyOnboardingCoordinatorError(
+        "invalid_state",
+        "Company onboarding has no current proposal to revise",
+      );
+    }
+    const previousProposal = loaded.state.proposal;
+    const chat = input.source === "chat";
+    if (!Number.isSafeInteger(input.requestsUsed) ||
+      (chat ? input.requestsUsed < 1 : input.requestsUsed !== 0) ||
+      !Number.isFinite(input.reportedCostUsd) || input.reportedCostUsd < 0 ||
+      (!chat && input.reportedCostUsd !== 0)) {
+      throw new CompanyOnboardingCoordinatorError(
+        "invalid_model_output",
+        "Company proposal revision reported invalid usage",
+      );
+    }
+    const depthPolicy = getCompanyOnboardingDepthPolicy(
+      loaded.state.depth,
+      loaded.state.authority.operatingModeId,
+    );
+    const maximumCost = getOperatingModePolicy(
+      loaded.state.authority.operatingModeId,
+    ).company!.maxReportedCostUsd;
+    const usage = {
+      modelRequests: loaded.state.usage.modelRequests + input.requestsUsed,
+      reportedCostUsd: loaded.state.usage.reportedCostUsd + input.reportedCostUsd,
+    };
+    if (usage.modelRequests > depthPolicy.maxModelRequests ||
+      usage.reportedCostUsd > maximumCost) {
+      throw new CompanyOnboardingCoordinatorError(
+        "policy_violation",
+        "Company proposal revision exceeded the onboarding budget",
+      );
+    }
+    if (chat) {
+      loaded = await this.#append(loaded, {
+        ...loaded.state,
+        updatedAt: this.#now(),
+        usage,
+      }, signal);
+    }
+
+    let candidate: CompanyBlueprintV2;
+    try {
+      candidate = parseCompanyBlueprintV2(input.blueprint);
+      assertProposalRevision(previousProposal.blueprint, candidate);
+    } catch (error) {
+      throw new CompanyOnboardingCoordinatorError(
+        "invalid_model_output",
+        "Company proposal revision is invalid",
+        { cause: error },
+      );
+    }
+    if (JSON.stringify(candidate) ===
+      JSON.stringify(previousProposal.blueprint)) {
+      return { changed: false, run: loaded };
+    }
+    const run = await this.#append(loaded, {
+      ...loaded.state,
+      updatedAt: this.#now(),
+      ...(chat ? {} : { usage }),
+      proposal: {
+        revision: previousProposal.revision + 1,
+        source: input.source,
+        createdAt: this.#now(),
+        blueprint: candidate,
+      },
+    }, signal);
+    return { changed: true, run };
   }
 
   async cancel(

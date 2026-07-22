@@ -40,6 +40,7 @@ describe("standalone company onboarding assembly", () => {
         operatingModeId: "balanced_v6",
       }, options);
       expect(repeated.backendFingerprint).toBe(service.backendFingerprint);
+      expect(service.proposalEditor).toBeDefined();
 
       const started = await service.coordinator.start({
         projectRoot: service.projectRoot,

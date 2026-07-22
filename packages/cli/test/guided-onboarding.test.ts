@@ -28,6 +28,7 @@ import {
   runGuidedOnboarding,
 } from "../src/guided-onboarding.js";
 import type { ProjectBriefInput } from "../src/project-instructions.js";
+import { CompanyProposalEditor } from "../src/company-proposal-editor.js";
 
 const providers: readonly ProviderSummary[] = [
   {
@@ -831,6 +832,7 @@ describe("guided onboarding policy", () => {
       "create",
       "guided",
       "stable_core_specialists",
+      "approve",
     ];
     const output: string[] = [];
     const sink = new Writable({
@@ -863,6 +865,15 @@ describe("guided onboarding policy", () => {
         async createCompanyOnboarding() {
           return {
             coordinator,
+            proposalEditor: new CompanyProposalEditor({
+              coordinator,
+              model: {
+                async revise() {
+                  throw new Error("proposal revision was not requested");
+                },
+              },
+              environment: {},
+            }),
             projectRoot: root,
             backendFingerprint: "backend-fixture",
           };

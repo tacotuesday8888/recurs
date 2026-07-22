@@ -27,6 +27,7 @@ import {
 import {
   type CompanyOnboardingModelPort,
   type CompanyOnboardingResearchPort,
+  type CompanyProposalRevisionModelPort,
 } from "@recurs/core";
 
 export function createCompanyOnboardingToolRegistry(): ToolRegistry {
@@ -78,6 +79,14 @@ const decisionInstructions = [
   "For guardrailed_dynamic design, the propose action must also contain organization with departments, roles, rootRoleKey, independentReviewRoleKeys, and defaultActiveRoleKeys.",
 ].join("\n");
 
+const revisionInstructions = [
+  "You are revising a proposed Recurs company during explicit user review.",
+  "Return exactly one complete CompanyBlueprintV2 JSON object and no markdown.",
+  "Follow the user's requested revision while preserving id, companyId, version, revision, previousBlueprintId, state, createdAt, approvedAt, designMode, authority, provenance, and every department and role id.",
+  "The result must retain a root orchestrator and independent review, must not widen permissions, and must remain within the current operating policy.",
+  "Use only supplied read-only project tools. Never execute project code, change files, install capabilities, request credentials, use the network, or begin implementation.",
+].join("\n");
+
 function decisionPrompt(run: CompanyOnboardingRunV1): string {
   return [
     "Advance this durable onboarding run by one decision.",
@@ -109,7 +118,8 @@ function safeResearchHandoff(text: string): string {
 }
 
 export class CompanyOnboardingAgentRuntime
-  implements CompanyOnboardingModelPort, CompanyOnboardingResearchPort {
+  implements CompanyOnboardingModelPort, CompanyOnboardingResearchPort,
+    CompanyProposalRevisionModelPort {
   readonly #tools = createCompanyOnboardingToolRegistry();
   readonly #now: () => string;
 
@@ -129,9 +139,41 @@ export class CompanyOnboardingAgentRuntime
       maxRequests: input.maxRequests,
       signal,
       profile: null,
+      instructions: decisionInstructions,
     });
     return {
       decision: parseJson(result.finalText),
+      requestsUsed: result.steps,
+      reportedCostUsd: result.usage.costUsd ?? 0,
+    };
+  }
+
+  async revise(
+    input: Parameters<CompanyProposalRevisionModelPort["revise"]>[0],
+    signal: AbortSignal,
+  ) {
+    this.#assertBackend(input.run);
+    const result = await this.#run({
+      sessionId: `onboarding-revision-${input.run.id}`,
+      run: input.run,
+      prompt: [
+        "Revise this proposed company according to the user's instruction.",
+        `Instruction: ${input.instruction}`,
+        `Current blueprint: ${JSON.stringify(input.blueprint)}`,
+      ].join("\n"),
+      maxRequests: input.maxRequests,
+      signal,
+      profile: null,
+      instructions: revisionInstructions,
+    });
+    let blueprint: unknown;
+    try {
+      blueprint = parseJson(result.finalText);
+    } catch {
+      blueprint = { invalidCompanyProposalRevision: true };
+    }
+    return {
+      blueprint,
       requestsUsed: result.steps,
       reportedCostUsd: result.usage.costUsd ?? 0,
     };
@@ -159,6 +201,7 @@ export class CompanyOnboardingAgentRuntime
       signal,
       profile: "explore_v1",
       assignment: input.assignment,
+      instructions: "This is pre-approval project research. Work read-only, use only supplied tools, and return attributable evidence. Never implement, install, authenticate, or use the network.",
     });
     return {
       evidence: result.evidence.length > 0
@@ -185,6 +228,7 @@ export class CompanyOnboardingAgentRuntime
     readonly signal: AbortSignal;
     readonly profile: "explore_v1" | null;
     readonly assignment?: CompanyOnboardingRunV1["research"][number];
+    readonly instructions: string;
   }) {
     await this.#ensureSession(input);
     const emit = this.dependencies.emit;
@@ -204,11 +248,7 @@ export class CompanyOnboardingAgentRuntime
         };
       },
       contextInstructions() {
-        return input.profile === null
-          ? [decisionInstructions]
-          : [
-              "This is pre-approval project research. Work read-only, use only supplied tools, and return attributable evidence. Never implement, install, authenticate, or use the network.",
-            ];
+        return [input.instructions];
       },
     }).run({
       sessionId: input.sessionId,
