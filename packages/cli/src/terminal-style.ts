@@ -90,9 +90,5 @@ export function renderRecursHeader(
 ): string {
   const wordmark = renderRecursWordmark(theme);
   if (wordmark.length === 0) return fallback;
-  const rows = wordmark.split("\n");
-  const titleRow = 1;
-  return rows.map((row, index) =>
-    index === titleRow ? `${row}  ${theme.strong(fallback)}` : row
-  ).join("\n");
+  return `${wordmark}\n${theme.strong(fallback)}`;
 }
