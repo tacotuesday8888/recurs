@@ -54,10 +54,10 @@
 - Produces `CompanyOnboardingRunV1`, `CompanyOnboardingDepthPolicy`, `CompanyProposalRevisionV1`, `CompanyGoalRunV1`, `CompanyGoalPlanV1`, `CompanyGoalAssignmentV1`, `CompanyGoalBudgetV1`, `CompanyKnowledgeV1`, and `CompanyAmendmentV1` plus strict parsers.
 - Depth policies are Quick `4/0/1/8`, Guided `10/3/2/24`, and Deep `20/8/4/64` for interview rounds, total research children, research concurrency, and total model requests; live operating policy clamps the latter three.
 
-- [ ] Write failing exact-schema and invariant tests for every lifecycle state and transition payload.
-- [ ] Test assignment DAG validation, role/delegation matching, shared ledger arithmetic, terminal-state truth, provenance requirements, and immutable amendment bases.
-- [ ] Implement strict, dependency-free parsers and transition helpers with safe text/size bounds and deep freezing.
-- [ ] Run the three focused contract suites and commit the green slice.
+- [x] Write failing exact-schema and invariant tests for every lifecycle state and transition payload.
+- [x] Test assignment DAG validation, role/delegation matching, shared ledger arithmetic, terminal-state truth, provenance requirements, and immutable amendment bases.
+- [x] Implement strict, dependency-free parsers and transition helpers with safe text/size bounds and deep freezing.
+- [x] Run the three focused contract suites and commit the green slice.
 
 ### Task 3: Private durable stores
 
