@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ToolCall } from "@recurs/providers";
+import type { ToolCall } from "@recurs/contracts";
 
 import {
   type CheckpointStore,

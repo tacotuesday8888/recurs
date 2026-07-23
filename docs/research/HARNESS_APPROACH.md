@@ -612,7 +612,7 @@ The first coding flow should be:
 
 ## Remaining Decisions
 
-- Engine service language: TypeScript is attractive because many agent/MCP/ACP projects are TypeScript; Rust is attractive for a stable local daemon; Swift is attractive for Mac-native integration; Python is attractive for agent-framework reuse. Decide after a small prototype.
+- Engine service language: decided in favor of one portable TypeScript core. Platform integration stays at narrow process and terminal boundaries rather than becoming a second provider runtime.
 - First external adapter: OpenCode and Qwen Code are the best initial ACP candidates. Pi is the best minimal-runtime reference. Aider is the best Git-quality reference.
 - CLI packaging: decide whether the CLI ships inside the Mac app bundle, as a separate Homebrew-style install, or both.
 - Sandbox path: compare local worktrees, macOS sandboxing, Docker/Colima, and remote VM execution.

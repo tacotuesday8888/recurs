@@ -1621,7 +1621,8 @@ Examples:
 
 - 1Password, Doppler, cloud secret stores.
 
-Recommendation: B first, C later.
+Current decision: A. Recurs stores only non-secret connection metadata and
+reads direct-provider credentials from a named process environment variable.
 
 ### 14.3 What should be the trust promise?
 
@@ -1655,7 +1656,8 @@ Examples:
 
 - User connects OpenAI API key.
 - User connects Anthropic API key.
-- API keys are stored in macOS Keychain.
+- API keys remain in a named process environment variable and are not persisted
+  by Recurs.
 
 B. **Official coding-client integrations**
 

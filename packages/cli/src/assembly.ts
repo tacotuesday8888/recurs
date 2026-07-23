@@ -14,7 +14,6 @@ import type {
   RunAuthorization,
   RuntimeContinuationStore,
   SessionBackendPin,
-  NativeOpenAIResponsesPort,
   CompanyBlueprint,
 } from "@recurs/contracts";
 import {
@@ -24,9 +23,6 @@ import {
 import {
   FileConnectionRegistry,
   OnboardingCatalog,
-  OPENAI_RESPONSES_CAPABILITY_PROFILE_REVISION,
-  isCompatibleOpenAIResponsesModelId,
-  type BrokeredModelProviderConnectionRecord,
   type ConnectionRecord,
   type DelegatedConnectionRecord,
   type EnvironmentModelProviderConnectionRecord,
@@ -84,7 +80,6 @@ import {
   environmentByokAdapterId,
   environmentCredentialFingerprint,
   LocalOpenAICompatibleProvider,
-  NativeOpenAIResponsesProvider,
   resolveEnvironmentProvider,
   type EnvironmentProviderConfiguration,
   type ModelProvider,
@@ -152,7 +147,6 @@ export interface StandaloneRuntimeOptions {
     connection: DelegatedConnectionRecord,
     store: RuntimeContinuationStore,
   ) => AgentRuntime;
-  nativeOpenAIResponses?: NativeOpenAIResponsesPort;
   environment?: Readonly<NodeJS.ProcessEnv>;
   environmentFetch?: typeof globalThis.fetch;
   reuseExistingSession?: boolean;
@@ -398,26 +392,6 @@ function delegatedBackendPin(
   };
 }
 
-function brokeredOpenAIBackendPin(
-  connection: BrokeredModelProviderConnectionRecord,
-): SessionBackendPin {
-  return {
-    kind: "model_provider",
-    providerId: connection.providerId,
-    adapterId: connection.adapterId,
-    connectionId: connection.id,
-    modelId: connection.modelId,
-    modelIdentityKind: "versioned",
-    providerResolvedModelRevisionAtCreation: connection.modelId,
-    catalogRevision: OPENAI_RESPONSES_CAPABILITY_PROFILE_REVISION,
-    policyRevisionAtCreation: connection.policyRevision,
-    billingPolicyRevisionAtCreation: connection.billingPolicy.revision,
-    primaryBillingSourceAtCreation: connection.billingPolicy.primarySource,
-    billingSelectionAtCreation: structuredClone(connection.billingSelection),
-    accountSubjectFingerprint: connection.credentialIdentityFingerprint,
-  };
-}
-
 function savedEnvironmentBackendPin(
   connection: EnvironmentModelProviderConnectionRecord,
 ): SessionBackendPin {
@@ -475,8 +449,6 @@ function connectionInvalid(diagnosticId: string): IntegrationFailure {
 function unavailableConnectionMessage(connection: ConnectionRecord): string {
   return connection.kind === "environment_model_provider"
     ? `The selected BYOK connection requires ${connection.credentialEnvironmentVariable} with the credential used during setup.`
-    : connection.kind === "brokered_model_provider"
-    ? "The selected brokered provider is connected, but brokered provider execution is not available yet."
     : "The selected provider connection is not available.";
 }
 
@@ -529,57 +501,6 @@ function assertCodexPolicy(
   }
 }
 
-function assertBrokeredProviderPolicy(
-  connection: BrokeredModelProviderConnectionRecord,
-  diagnosticId: string,
-): void {
-  const entry = new OnboardingCatalog().list({ includeBlocked: true }).find(
-    (candidate) => candidate.id === connection.providerId,
-  );
-  if (
-    entry === undefined ||
-    (entry.status !== "requires_native_broker" &&
-      entry.status !== "runnable_byok") ||
-    !(
-      (connection.providerId === "openai-api" &&
-        connection.adapterId === "openai-responses" &&
-        connection.activationProfileId === "openai_api_v1" &&
-        isCompatibleOpenAIResponsesModelId(connection.modelId)) ||
-      (connection.providerId === "anthropic-api" &&
-        connection.adapterId === "anthropic-messages" &&
-        connection.activationProfileId === "anthropic_api_v1") ||
-      (connection.providerId === "kimi-code" &&
-        connection.adapterId === "openai-chat-completions" &&
-        connection.activationProfileId === "kimi_code_v1")
-    ) ||
-    connection.policyRevision !== entry.policy.revision ||
-    connection.modelId.length === 0
-  ) {
-    throw policyBlocked(
-      diagnosticId,
-      "The provider connection no longer matches the reviewed capability policy",
-      "policy_stale",
-    );
-  }
-  if (
-    !isDeepStrictEqual(connection.billingPolicy, entry.billing) ||
-    connection.billingSelection.mode !== "strict_primary_only" ||
-    connection.billingSelection.policyRevision !== entry.billing.revision ||
-    connection.billingSelection.disclosureRevision !==
-      entry.billing.disclosureRevision ||
-    !isDeepStrictEqual(connection.billingSelection.allowedSources, [
-      entry.billing.primarySource,
-      ...entry.billing.possibleAdditionalSources,
-    ])
-  ) {
-    throw policyBlocked(
-      diagnosticId,
-      "The API billing acknowledgement no longer matches provider behavior",
-      "billing_policy_blocked",
-    );
-  }
-}
-
 function assertEnvironmentProviderPolicy(
   connection: EnvironmentModelProviderConnectionRecord,
   diagnosticId: string,
@@ -617,7 +538,6 @@ async function backendForConnection(
   connection: ConnectionRecord,
   delegatedRuntimeFactory: DelegatedRuntimeFactory,
   diagnosticId: string,
-  nativeOpenAIResponses?: NativeOpenAIResponsesPort,
   environment: Readonly<Record<string, string | undefined>> = process.env,
   environmentFetch?: typeof globalThis.fetch,
 ): Promise<RuntimeBackend | null> {
@@ -634,23 +554,6 @@ async function backendForConnection(
         baseUrl: localConnection.baseUrl,
         connectionId: localConnection.id,
       }),
-    };
-  }
-  if (connection.kind === "brokered_model_provider") {
-    if (nativeOpenAIResponses === undefined) return null;
-    assertBrokeredProviderPolicy(connection, diagnosticId);
-    const provider = () => new NativeOpenAIResponsesProvider({
-      connectionId: connection.id,
-      modelId: connection.modelId,
-      port: nativeOpenAIResponses,
-      providerId: connection.providerId,
-      adapterId: connection.adapterId,
-    });
-    return {
-      kind: "direct",
-      pin: () => brokeredOpenAIBackendPin(connection),
-      commandProvider: provider(),
-      createProvider: provider,
     };
   }
   if (connection.kind === "environment_model_provider") {
@@ -755,7 +658,6 @@ async function companyOnboardingBackend(
             connection,
             options.delegatedRuntimeFactory ?? createCodexAgentRuntime,
             randomUUID(),
-            options.nativeOpenAIResponses,
             runtimeEnvironment,
             options.environmentFetch,
           ) ?? undefined;
@@ -770,32 +672,6 @@ async function companyOnboardingBackend(
       "provider_not_configured",
       "This delegated subscription runtime cannot yet provide Recurs's restricted pre-approval tool boundary; connect a supported direct or local model for company formation",
     );
-  }
-  if (connection?.kind === "brokered_model_provider" && document !== null) {
-    return {
-      ...backend,
-      createAuthorization({ pin, sessionId, turnId, maxRequests }) {
-        return bindRunAuthorization({
-          id: randomUUID(),
-          operation: "run",
-          sessionId,
-          operationId: turnId,
-          turnId,
-          pin,
-          connectionRevision: document.revision,
-          policyRevision: pin.policyRevisionAtCreation,
-          context: {
-            invocation: "goal",
-            presence: "unattended",
-            location: "local",
-            automation: "scripted",
-            embedding: "cli",
-          },
-          maxRequests,
-          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-        });
-      },
-    };
   }
   return backend;
 }
@@ -1058,7 +934,6 @@ export async function createStandaloneRuntime(
           configuredConnection,
           delegatedRuntimeFactory,
           randomUUID(),
-          options.nativeOpenAIResponses,
           runtimeEnvironment,
           options.environmentFetch,
         ) ?? undefined;
@@ -1132,7 +1007,6 @@ export async function createStandaloneRuntime(
             connection,
             delegatedRuntimeFactory,
             randomUUID(),
-            options.nativeOpenAIResponses,
             runtimeEnvironment,
             options.environmentFetch,
           );
@@ -1434,7 +1308,6 @@ export async function createStandaloneRuntime(
             connection,
             delegatedRuntimeFactory,
             randomUUID(),
-            options.nativeOpenAIResponses,
             runtimeEnvironment,
             options.environmentFetch,
           );
@@ -1652,7 +1525,6 @@ export async function createStandaloneRuntime(
             connection,
             delegatedRuntimeFactory,
             input.operationId,
-            options.nativeOpenAIResponses,
             runtimeEnvironment,
             options.environmentFetch,
           );
@@ -1771,7 +1643,6 @@ export async function createStandaloneRuntime(
           connection,
           delegatedRuntimeFactory,
           randomUUID(),
-          options.nativeOpenAIResponses,
           runtimeEnvironment,
           options.environmentFetch,
         );
@@ -1834,7 +1705,6 @@ export async function createStandaloneRuntime(
                 connection,
                 delegatedRuntimeFactory,
                 randomUUID(),
-                options.nativeOpenAIResponses,
                 runtimeEnvironment,
                 options.environmentFetch,
               );

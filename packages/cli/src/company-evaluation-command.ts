@@ -3,10 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 
 import { FileConnectionRegistry } from "@recurs/app";
-import type {
-  CompanyEvaluationReportV1,
-  NativeOpenAIResponsesPort,
-} from "@recurs/contracts";
+import type { CompanyEvaluationReportV1 } from "@recurs/contracts";
 import { ScriptedProvider } from "@recurs/providers";
 
 import { createStandaloneCompanyOnboarding } from "./assembly.js";
@@ -338,9 +335,6 @@ export async function runCompanyEvaluationCommand(
       ...(options.connectionId === null
         ? {}
         : { connectionId: options.connectionId }),
-      ...(dependencies.nativeOpenAIResponses === undefined
-        ? {}
-        : { nativeOpenAIResponses: dependencies.nativeOpenAIResponses }),
       ...(provider === undefined ? {} : { provider }),
     });
     return await evaluateCompanyFormation({
@@ -363,7 +357,6 @@ export interface CompanyEvaluationCommandDependencies {
   readonly projectRoot: string;
   readonly dataDirectory?: string;
   readonly environment?: Readonly<NodeJS.ProcessEnv>;
-  readonly nativeOpenAIResponses?: NativeOpenAIResponsesPort;
   readonly signal?: AbortSignal;
   readonly onProgress?: (
     progress: CompanyEvaluationProgress,

@@ -495,11 +495,13 @@ describe("run_command", () => {
           ["-p"],
           { env: { PATH: "/usr/bin:/bin" } },
         );
-        expect(child.developerDir).toBe(
-          await import("node:fs/promises").then(({ realpath }) =>
-            realpath(selected.stdout.trim())
-          ),
-        );
+        const { realpath, stat } = await import("node:fs/promises");
+        const canonical = await realpath(selected.stdout.trim());
+        const details = await stat(canonical);
+        const trusted = details.isDirectory() &&
+          details.uid === 0 &&
+          (details.mode & 0o022) === 0;
+        expect(child.developerDir).toBe(trusted ? canonical : null);
       } else {
         expect(child.developerDir).toBeNull();
       }
@@ -531,15 +533,8 @@ describe("run_command", () => {
     }
   });
 
-  it("removes native authority, Keychain, token, and proxy variables", async () => {
+  it("removes credential, token, and proxy variables", async () => {
     const deniedEnvironment = {
-      RECURS_NATIVE_FD: "71",
-      RECURS_NATIVE_AUTHORITY: "native-authority-canary",
-      RECURS_BROKER_ENDPOINT: "broker-endpoint-canary",
-      RECURS_BROKER_TOKEN: "broker-token-canary",
-      RECURS_LAUNCHER_FD: "72",
-      RECURS_LAUNCHER_DESCRIPTOR: "launcher-descriptor-canary",
-      RECURS_PROVIDER_AUTHORITY_HANDLE: "authority-handle-canary",
       KEYCHAIN_ACCESS_GROUP: "keychain-canary",
       OPENAI_API_KEY: "openai-key-canary",
       PROVIDER_CLIENT_SECRET: "provider-secret-canary",

@@ -14,10 +14,6 @@ Usage:
   recurs setup local --url <loopback-url> --model <model-id>
   recurs setup byok --provider <id> --model <id> --key-env <ENV> [--billing strict|allow-additional] [--reasoning-effort none|low|medium|high|xhigh|max]
   recurs setup codex             Connect an existing ChatGPT Codex subscription
-  recurs setup openai [--model <exact-id>]
-  recurs setup openai --recover  Reconcile interrupted OpenAI API setup
-  recurs setup anthropic --model <exact-id>
-  recurs setup kimi --model <exact-id>
   recurs provider list [--all] [--json]
   recurs provider catalog [query] [--json]
   recurs provider detect [--json]
@@ -28,7 +24,6 @@ Usage:
   recurs account verify <id>
   recurs account disconnect <id>
   recurs doctor [--json]         Check installation and execution readiness
-  recurs doctor native [--json]  Inspect native authority status
   recurs eval company [--json]   Run the offline company-formation evaluation
   recurs help <command>          Show scoped command help
   recurs --version               Show the installed Recurs version
@@ -40,9 +35,6 @@ Local setup supports credential-free OpenAI-compatible servers on literal loopba
 Cross-platform BYOK saves provider/model metadata and an environment-variable name, never the key.
 Ephemeral override remains available with RECURS_PROVIDER, RECURS_MODEL, and RECURS_API_KEY together.
 Codex setup is interactive and exposes only Recurs-scoped tools. It never imports or stores vendor credentials.
-OpenAI API setup captures credentials only in the native authority; API billing is separate from ChatGPT.
-Anthropic API setup captures credentials only in the native authority; API billing is separate from Claude subscriptions.
-Kimi Code setup captures its coding-plan key only in the native authority.
 `;
 
 const HELP_BY_TOPIC = Object.freeze({
@@ -88,14 +80,9 @@ Usage:
                      [--billing strict|allow-additional]
                      [--reasoning-effort none|low|medium|high|xhigh|max]
   recurs setup codex
-  recurs setup openai [--model <exact-id>]
-  recurs setup openai --recover
-  recurs setup anthropic --model <exact-id>
-  recurs setup kimi --model <exact-id>
 
 Setup is local and user-present. BYOK stores only the environment-variable name
-and a one-way binding. Native setup keeps supported persistent credentials in
-the native authority. Codex credentials remain owned by the official runtime.
+and a one-way binding. Codex credentials remain owned by the official runtime.
 `,
   provider: `Inspect available provider paths and model catalogs
 
@@ -124,12 +111,10 @@ Recurs metadata and does not log out of the provider-owned account.
 
 Usage:
   recurs doctor [--json]
-  recurs doctor native [--json]
 
 The default report checks Node.js, Git, ripgrep, the current Git worktree, saved
 provider metadata, and a real network-denied OS-sandbox launch. It is read-only,
 does not contact a provider, and never reveals paths, account values, or secrets.
-The native subcommand reports the separate private native-authority status.
 `,
   eval: `Evaluate the bounded company foundation
 

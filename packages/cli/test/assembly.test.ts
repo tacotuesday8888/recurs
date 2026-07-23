@@ -19,7 +19,6 @@ import type {
   RuntimeContinuationStore,
   SessionBackendPin,
   TrustedRunContext,
-  NativeOpenAIResponsesPort,
   TeamRunDescriptor,
   TeamRunPolicySnapshot,
   CompanyBlueprintV2,
@@ -29,7 +28,6 @@ import {
   ConnectionLifecycleService,
   FileConnectionRegistry,
   setupEnvironmentConnection,
-  type BrokeredModelProviderConnectionRecord,
   type DelegatedConnectionRecord,
 } from "@recurs/app";
 import {
@@ -114,35 +112,6 @@ function codexAppServerConnection(
   };
 }
 
-const brokeredConnection: BrokeredModelProviderConnectionRecord = {
-  kind: "brokered_model_provider",
-  id: "71000000-0000-4000-8000-000000000001",
-  providerId: "openai-api",
-  adapterId: "openai-responses",
-  activationProfileId: "openai_api_v1",
-  label: "OpenAI API",
-  modelId: "gpt-5.6-sol",
-  credentialIdentityFingerprint: `sha256:${"b".repeat(64)}`,
-  policyRevision: "openai-api-2026-07-11",
-  billingPolicy: {
-    revision: "billing:openai-api:2026-07-11",
-    disclosureRevision: "billing-disclosure:openai-api:2026-07-11",
-    primarySource: "metered_api",
-    possibleAdditionalSources: [],
-    providerFallback: "none",
-    availableSelections: ["strict_primary_only"],
-  },
-  billingSelection: {
-    mode: "strict_primary_only",
-    policyRevision: "billing:openai-api:2026-07-11",
-    disclosureRevision: "billing-disclosure:openai-api:2026-07-11",
-    allowedSources: ["metered_api"],
-    acknowledgedAt: "2026-07-11T00:00:00.000Z",
-  },
-  verifiedAt: "2026-07-11T00:00:00.000Z",
-  createdAt: "2026-07-11T00:00:00.000Z",
-  updatedAt: "2026-07-11T00:00:00.000Z",
-};
 
 async function writeCodexConnection(directory: string): Promise<void> {
   const registry = new FileConnectionRegistry(directory);
@@ -652,7 +621,11 @@ describe("standalone assembly without a provider", () => {
       "projects",
       projectId,
       "company-blueprints-v2",
-    ))).resolves.toEqual([`${blueprint.id}.json`]);
+    ))).resolves.toEqual([
+      ".fences",
+      ".locks",
+      `${blueprint.id}.json`,
+    ]);
 
     const projectData = path.join(root, "data", "projects", projectId);
     const amendments = new CompanyAmendmentService({
@@ -1823,119 +1796,6 @@ describe("standalone assembly without a provider", () => {
     });
   });
 
-  it("keeps a brokered provider unavailable until run activation is wired", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "recurs-brokered-disabled-"));
-    directories.push(root);
-    const workspace = path.join(root, "workspace");
-    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
-    const dataDirectory = path.join(root, "data");
-    const registry = new FileConnectionRegistry(dataDirectory);
-    await registry.commit(0, (draft) => {
-      draft.connections.push(structuredClone(brokeredConnection));
-      draft.primaryConnectionId = brokeredConnection.id;
-    });
-
-    const runtime = await createStandaloneRuntime(
-      { async emit() {} },
-      { cwd: workspace, dataDirectory },
-    );
-
-    expect(runtime.state).toMatchObject({ type: "workspace" });
-    await expect(runtime.submit("inspect")).rejects.toEqual(
-      new RuntimeError(
-        "provider_not_configured",
-        "The selected brokered provider is connected, but brokered provider execution is not available yet.",
-      ),
-    );
-  });
-
-  it("runs a brokered OpenAI connection only through an injected native port", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "recurs-brokered-native-"));
-    directories.push(root);
-    const workspace = path.join(root, "workspace");
-    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
-    const dataDirectory = path.join(root, "data");
-    const registry = new FileConnectionRegistry(dataDirectory);
-    await registry.commit(0, (draft) => {
-      draft.connections.push(structuredClone(brokeredConnection));
-      draft.primaryConnectionId = brokeredConnection.id;
-    });
-    let receivedContext: unknown;
-    const nativeOpenAIResponses: NativeOpenAIResponsesPort = {
-      async *streamOpenAIResponses(request) {
-        receivedContext = request.directContext;
-        yield { type: "text_delta", text: "native complete" };
-        yield { type: "usage", inputTokens: 2, outputTokens: 2 };
-        yield { type: "done", stopReason: "complete" };
-      },
-    };
-    const runtime = await createStandaloneRuntime(
-      { async emit() {} },
-      { cwd: workspace, dataDirectory, nativeOpenAIResponses },
-    );
-
-    await expect(runtime.submit("inspect")).resolves.toMatchObject({
-      finalText: "native complete",
-    });
-    expect(receivedContext).toMatchObject({
-      authorization: {
-        operation: "run",
-        connectionId: brokeredConnection.id,
-        modelId: brokeredConnection.modelId,
-      },
-      expectedSessionRecordSequence: 1,
-    });
-  });
-
-  it("runs a brokered Anthropic connection through the shared native port", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "recurs-anthropic-native-"));
-    directories.push(root);
-    const workspace = path.join(root, "workspace");
-    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
-    const dataDirectory = path.join(root, "data");
-    const connection: BrokeredModelProviderConnectionRecord = {
-      ...structuredClone(brokeredConnection),
-      providerId: "anthropic-api",
-      adapterId: "anthropic-messages",
-      activationProfileId: "anthropic_api_v1",
-      label: "Anthropic API",
-      modelId: "claude-opus-4-6",
-      policyRevision: "anthropic-api-2026-07-11",
-      billingPolicy: {
-        ...structuredClone(brokeredConnection.billingPolicy),
-        revision: "billing:anthropic-api:2026-07-11",
-        disclosureRevision: "billing-disclosure:anthropic-api:2026-07-11",
-      },
-      billingSelection: {
-        ...structuredClone(brokeredConnection.billingSelection),
-        policyRevision: "billing:anthropic-api:2026-07-11",
-        disclosureRevision: "billing-disclosure:anthropic-api:2026-07-11",
-      },
-    };
-    const registry = new FileConnectionRegistry(dataDirectory);
-    await registry.commit(0, (draft) => {
-      draft.connections.push(connection);
-      draft.primaryConnectionId = connection.id;
-    });
-    let adapterId: string | undefined;
-    const nativeOpenAIResponses: NativeOpenAIResponsesPort = {
-      async *streamOpenAIResponses(_request, adapter) {
-        adapterId = adapter;
-        yield { type: "text_delta", text: "anthropic complete" };
-        yield { type: "done", stopReason: "complete" };
-      },
-    };
-    const runtime = await createStandaloneRuntime(
-      { async emit() {} },
-      { cwd: workspace, dataDirectory, nativeOpenAIResponses },
-    );
-
-    await expect(runtime.submit("inspect")).resolves.toMatchObject({
-      finalText: "anthropic complete",
-    });
-    expect(adapterId).toBe("anthropic-messages");
-  });
-
   it("does not choose a saved connection when no primary is explicit", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-no-primary-"));
     directories.push(root);
@@ -2733,125 +2593,6 @@ describe("standalone assembly without a provider", () => {
     const toolFeedback = JSON.stringify(provider.requests[1]?.messages ?? []);
     expect(toolFeedback).toContain("supports at most 2 Implement workers");
     expect(toolFeedback).not.toContain("Legacy team execution");
-  });
-
-  it("freezes an explicitly configured secondary model into the current Implement route", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "recurs-v5-model-route-"));
-    directories.push(root);
-    const workspace = path.join(root, "workspace");
-    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
-    await execFileAsync("git", ["init", "--quiet"], { cwd: workspace });
-    await writeFile(path.join(workspace, "README.md"), "base\n", "utf8");
-    await execFileAsync("git", ["add", "README.md"], { cwd: workspace });
-    await execFileAsync("git", [
-      "-c", "user.name=Recurs Tests",
-      "-c", "user.email=tests@recurs.invalid",
-      "commit", "--quiet", "-m", "initial",
-    ], { cwd: workspace });
-    const dataDirectory = path.join(root, "data");
-    const worker: BrokeredModelProviderConnectionRecord = {
-      ...structuredClone(brokeredConnection),
-      id: "72000000-0000-4000-8000-000000000002",
-      providerId: "anthropic-api",
-      adapterId: "anthropic-messages",
-      activationProfileId: "anthropic_api_v1",
-      label: "Anthropic worker",
-      modelId: "claude-opus-4-6",
-      policyRevision: "anthropic-api-2026-07-11",
-      credentialIdentityFingerprint: `sha256:${"c".repeat(64)}`,
-      billingPolicy: {
-        ...structuredClone(brokeredConnection.billingPolicy),
-        revision: "billing:anthropic-api:2026-07-11",
-        disclosureRevision: "billing-disclosure:anthropic-api:2026-07-11",
-      },
-      billingSelection: {
-        ...structuredClone(brokeredConnection.billingSelection),
-        policyRevision: "billing:anthropic-api:2026-07-11",
-        disclosureRevision: "billing-disclosure:anthropic-api:2026-07-11",
-      },
-    };
-    const registry = new FileConnectionRegistry(dataDirectory);
-    await registry.commit(0, (draft) => {
-      draft.connections.push(structuredClone(brokeredConnection), worker);
-      draft.primaryConnectionId = brokeredConnection.id;
-      draft.agentRoutes = { ...draft.agentRoutes, implement: worker.id };
-    });
-    let parentCalls = 0;
-    const nativeOpenAIResponses: NativeOpenAIResponsesPort = {
-      async *streamOpenAIResponses(request) {
-        const connectionId = request.directContext?.authorization.connectionId;
-        if (connectionId === worker.id) {
-          yield { type: "text_delta", text: "Worker inspected the task." };
-          yield { type: "done", stopReason: "complete" };
-          return;
-        }
-        parentCalls += 1;
-        if (parentCalls === 1) {
-          yield {
-            type: "tool_call",
-            call: {
-              id: "route-team-call",
-              name: "delegate_team",
-              arguments: {
-                description: "Prove model routing",
-                tasks: [{
-                  description: "Inspect the candidate",
-                  prompt: "Inspect the repository without changing it.",
-                }],
-                review: { instructions: "Review the candidate." },
-              },
-            },
-          };
-          yield { type: "done", stopReason: "tool_calls" };
-          return;
-        }
-        yield { type: "text_delta", text: "Routing attempt recorded." };
-        yield { type: "done", stopReason: "complete" };
-      },
-    };
-    const runtime = await createStandaloneRuntime(
-      { async emit() {} },
-      {
-        cwd: workspace,
-        dataDirectory,
-        nativeOpenAIResponses,
-      },
-    );
-    runtime.setConfirmHandler(async () => true);
-
-    await expect(runtime.submit("Run the configured team.")).resolves.toMatchObject({
-      finalText: "Routing attempt recorded.",
-    });
-    const projectId = createHash("sha256")
-      .update(await realpath(workspace))
-      .digest("hex")
-      .slice(0, 24);
-    const store = new JsonlTeamRunStore(path.join(
-      dataDirectory,
-      "projects",
-      projectId,
-      "team-runs",
-    ));
-    const [entry] = await store.list(runtime.session.id);
-    if (entry === undefined) throw new Error("Expected a routed team run");
-    const state = await store.load(entry.id);
-    expect(state.descriptor.operatingModeId).toBe("balanced_v6");
-    expect(state.descriptor.routes).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        role: "implement",
-        strategy: "role_candidate",
-        candidateId: `configured-${createHash("sha256").update(worker.id).digest("hex").slice(0, 32)}`,
-        pin: expect.objectContaining({
-          connectionId: worker.id,
-          modelId: worker.modelId,
-        }),
-      }),
-      expect.objectContaining({
-        role: "review",
-        strategy: "inherit_parent",
-        candidateId: "parent-session-pin",
-      }),
-    ]));
   });
 
   it("routes foreground company roles across Sol, Terra, and Luna subscription models", async () => {

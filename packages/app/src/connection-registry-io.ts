@@ -12,13 +12,6 @@ import {
 import path from "node:path";
 
 import {
-  MAX_CONNECTION_ACTIVATION_BYTES,
-  emptyConnectionActivationDocument,
-  parseConnectionActivationDocument,
-  serializeConnectionActivationDocument,
-  type ConnectionActivationDocument,
-} from "./connection-activation-model.js";
-import {
   ConnectionRegistryError,
   LOCK_UNAVAILABLE,
   MAX_LEGACY_BYTES,
@@ -70,11 +63,6 @@ export interface RegistrySnapshot {
   identity: FileIdentity | null;
 }
 
-export interface ActivationSnapshot {
-  document: ConnectionActivationDocument;
-  identity: FileIdentity | null;
-}
-
 export interface LegacySnapshot {
   record: LocalConnectionRecord;
   identity: FileIdentity;
@@ -82,17 +70,11 @@ export interface LegacySnapshot {
 
 export interface LockedRegistryAccess {
   readRegistry(): Promise<RegistrySnapshot>;
-  readActivation(): Promise<ActivationSnapshot>;
   readLegacy(): Promise<LegacySnapshot | null>;
   writeRegistry(
     document: ConnectionRegistryDocument,
     expected: FileIdentity | null,
   ): Promise<void>;
-  writeActivation(
-    document: ConnectionActivationDocument,
-    expected: FileIdentity | null,
-  ): Promise<void>;
-  removeActivation(expected: FileIdentity): Promise<void>;
   removeLegacy(expected: FileIdentity): Promise<void>;
 }
 
@@ -134,11 +116,6 @@ function validatePrivateFileStat(stat: Stats, maximumLinks = 1): void {
   ) {
     throw unsafeStorage();
   }
-}
-
-function validateRemovableActivationStat(stat: Stats): void {
-  validatePrivateFileStat(stat);
-  if ((stat.mode & 0o777) !== 0o600) throw unsafeStorage();
 }
 
 async function statNoFollow(filename: string): Promise<Stats | null> {
@@ -313,23 +290,6 @@ async function readRegistry(
   }
   return {
     document: parseRegistryDocument(stored.value),
-    identity: stored.identity,
-  };
-}
-
-async function readActivation(
-  context: DirectoryContext,
-): Promise<ActivationSnapshot> {
-  const stored = await readStoredValue(
-    context,
-    path.join(context.directory, "connection-activations.json"),
-    MAX_CONNECTION_ACTIVATION_BYTES,
-  );
-  if (stored === null) {
-    return { document: emptyConnectionActivationDocument(), identity: null };
-  }
-  return {
-    document: parseConnectionActivationDocument(stored.value),
     identity: stored.identity,
   };
 }
@@ -526,7 +486,6 @@ export class RegistryFileStore {
       release = await this.#acquireLock(context, signal);
       const access: LockedRegistryAccess = {
         readRegistry: () => readRegistry(context),
-        readActivation: () => readActivation(context),
         async readLegacy() {
           const stored = await readStoredValue(
             context,
@@ -542,10 +501,6 @@ export class RegistryFileStore {
         },
         writeRegistry: (document, expected) =>
           this.#writeRegistry(context, document, expected),
-        writeActivation: (document, expected) =>
-          this.#writeActivation(context, document, expected),
-        removeActivation: (expected) =>
-          this.#removeActivation(context, expected),
         async removeLegacy(expected) {
           await validateDirectoryIdentity(context);
           await unlinkIfSame(
@@ -576,20 +531,6 @@ export class RegistryFileStore {
       "connections.json",
       ".connections",
       serializeRegistryDocument(document),
-      expected,
-    );
-  }
-
-  async #writeActivation(
-    context: DirectoryContext,
-    document: ConnectionActivationDocument,
-    expected: FileIdentity | null,
-  ): Promise<void> {
-    await this.#writeStoredValue(
-      context,
-      "connection-activations.json",
-      ".connection-activations",
-      serializeConnectionActivationDocument(document),
       expected,
     );
   }
@@ -652,82 +593,6 @@ export class RegistryFileStore {
       await handle?.close().catch(() => undefined);
       await unlink(temporary).catch(() => undefined);
     }
-  }
-
-  async #removeActivation(
-    context: DirectoryContext,
-    expected: FileIdentity,
-  ): Promise<void> {
-    await this.#faultInjector?.("before_remove");
-    const target = path.join(
-      context.directory,
-      "connection-activations.json",
-    );
-    const retirement = path.join(
-      context.directory,
-      `.connection-activations.remove.${process.pid}.${randomUUID()}`,
-    );
-    let handle: FileHandle | undefined;
-    let injected = false;
-    let injectedError: unknown;
-    const inject = async (point: RegistryFaultPoint): Promise<void> => {
-      try {
-        await this.#faultInjector?.(point);
-      } catch (error) {
-        injected = true;
-        injectedError = error;
-        throw error;
-      }
-    };
-    try {
-      await validateDirectoryIdentity(context);
-      await assertTargetUnchanged(target, expected);
-      handle = await open(
-        target,
-        constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-      );
-      const opened = await handle.stat();
-      validateRemovableActivationStat(opened);
-      if (!sameIdentity(fileIdentity(opened), expected)) throw unsafeStorage();
-      await assertTargetUnchanged(target, expected);
-      await rename(target, retirement);
-      await validateDirectoryIdentity(context);
-      await inject("after_remove_retirement");
-      const moved = await statNoFollow(retirement);
-      if (
-        moved === null ||
-        !sameIdentity(fileIdentity(moved), expected)
-      ) {
-        throw unsafeStorage();
-      }
-      validateRemovableActivationStat(moved);
-      if (await statNoFollow(target) !== null) throw unsafeStorage();
-      await context.handle.sync();
-      await inject("after_remove_durable_rename");
-      // Node has no inode-addressed unlink. Retire the exact opened inode to a
-      // zero-byte private path so a same-UID path swap can never be deleted.
-      await handle.truncate(0);
-      await handle.sync();
-      await validateDirectoryIdentity(context);
-      const retired = await statNoFollow(retirement);
-      if (
-        retired === null ||
-        retired.size !== 0 ||
-        !sameIdentity(fileIdentity(retired), expected)
-      ) {
-        throw unsafeStorage();
-      }
-      validateRemovableActivationStat(retired);
-      if (await statNoFollow(target) !== null) throw unsafeStorage();
-      await context.handle.sync();
-    } catch (error) {
-      if (error instanceof ConnectionRegistryError) throw error;
-      if (injected && error === injectedError) throw error;
-      throw unsafeStorage(error);
-    } finally {
-      await handle?.close().catch(() => undefined);
-    }
-    await this.#faultInjector?.("after_remove");
   }
 
   async #acquireLock(

@@ -314,7 +314,6 @@ async function truncateSecure(
 
 export class PrivateImmutableJsonStore<T> {
   readonly directory: string;
-  #publicationTail: Promise<void> = Promise.resolve();
 
   constructor(directory: string, private readonly options: ImmutableOptions<T>) {
     this.directory = path.resolve(directory);
@@ -342,7 +341,7 @@ export class PrivateImmutableJsonStore<T> {
     if (Buffer.byteLength(content, "utf8") > this.options.maximumBytes) {
       fail(`${this.options.label} record exceeds its byte limit`);
     }
-    const publication = this.#publicationTail.then(async () => {
+    await withPrivateStateMutationLock(this.directory, id, async () => {
       signal?.throwIfAborted();
       await requireCanonicalAncestor(this.directory);
       await requireDirectory(this.directory);
@@ -355,9 +354,7 @@ export class PrivateImmutableJsonStore<T> {
           );
         }
       }
-    });
-    this.#publicationTail = publication.catch(() => undefined);
-    await publication;
+    }, signal);
   }
 
   async load(id: string, signal?: AbortSignal): Promise<T> {

@@ -5,9 +5,6 @@
       "path": "./packages/contracts"
     },
     {
-      "path": "./packages/auth"
-    },
-    {
       "path": "./packages/providers"
     },
     {
@@ -24,9 +21,6 @@
     },
     {
       "path": "./packages/cli"
-    },
-    {
-      "path": "./packages/native-engine"
     }
   ],
   "compilerOptions": {

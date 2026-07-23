@@ -37,16 +37,16 @@ describe("OnboardingCatalog", () => {
       "zai-api",
       "deepseek-api",
       "google-gemini-api",
+      "anthropic-claude-subscription",
+      "github-copilot-subscription",
       "opencode-zen",
+      "nous-portal",
       "alibaba-coding-plan",
       "minimax-token-plan",
+      "zai-glm-coding-plan",
       "aws-bedrock",
       "google-vertex-ai",
       "azure-openai",
-      "anthropic-claude-subscription",
-      "github-copilot-subscription",
-      "nous-portal",
-      "zai-glm-coding-plan",
     ]);
 
     const statuses = Object.fromEntries(
@@ -60,23 +60,23 @@ describe("OnboardingCatalog", () => {
       "github-copilot-subscription": "blocked",
       "openrouter-api": "runnable_byok",
       "xai-api": "runnable_byok",
-      "opencode-zen": "requires_native_broker",
+      "opencode-zen": "blocked",
       "opencode-go": "runnable_byok",
       "kilo-gateway": "runnable_byok",
       "nous-portal": "blocked",
       "alibaba-model-studio-api": "runnable_byok",
-      "alibaba-coding-plan": "requires_native_broker",
+      "alibaba-coding-plan": "blocked",
       "kimi-platform-api": "runnable_byok",
       "kimi-code": "runnable_byok",
       "minimax-api": "runnable_byok",
-      "minimax-token-plan": "requires_native_broker",
+      "minimax-token-plan": "blocked",
       "zai-api": "runnable_byok",
       "zai-glm-coding-plan": "blocked",
       "deepseek-api": "runnable_byok",
-      "aws-bedrock": "requires_native_broker",
+      "aws-bedrock": "blocked",
       "google-gemini-api": "runnable_byok",
-      "google-vertex-ai": "requires_native_broker",
-      "azure-openai": "requires_native_broker",
+      "google-vertex-ai": "blocked",
+      "azure-openai": "blocked",
       "ollama-local": "runnable",
       "lm-studio-local": "runnable",
     });
@@ -269,7 +269,6 @@ describe("application package boundary", () => {
       "@recurs/contracts": "0.0.0",
       "@recurs/providers": "0.0.0",
     });
-    expect(app.dependencies).not.toHaveProperty("@recurs/auth");
     expect(app.dependencies).not.toHaveProperty("@recurs/cli");
     expect(cli.dependencies).toHaveProperty("@recurs/app", "0.0.0");
   });

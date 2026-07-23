@@ -82,7 +82,7 @@ const providers: readonly ProviderSummary[] = [
   {
     id: "openai-api",
     displayName: "OpenAI API",
-    status: "requires_native_broker",
+    status: "blocked",
     supportStatus: "supported",
     adapterKind: "model_provider",
     accessKind: "api",
@@ -112,7 +112,7 @@ const account: AccountSummary = {
 };
 
 describe("guided onboarding policy", () => {
-  it("composes saved, detected, subscription, BYOK, and available native paths", () => {
+  it("composes saved, detected, subscription, BYOK, and portable provider paths", () => {
     const choices = guidedConnectionChoices({
       accounts: [account],
       localRuntimes: [{
@@ -122,7 +122,6 @@ describe("guided onboarding policy", () => {
         detected: true,
       }],
       providers,
-      nativeProviders: new Set(["openai"]),
     });
 
     expect(choices.map((choice) => choice.id)).toEqual([
@@ -131,7 +130,6 @@ describe("guided onboarding policy", () => {
       "codex",
       "byok:openrouter-api",
       "byok:xai-api",
-      "native:openai",
     ]);
     expect(choices.find((choice) => choice.id === "codex")?.detail)
       .toContain("Act + Plan");
@@ -195,7 +193,6 @@ describe("guided onboarding policy", () => {
       stderr: sink,
       interactive: true,
       automation: false,
-      nativeProviders: new Set(),
       async listAccounts() { return []; },
       async detectProviders() { return []; },
       async listProviders() {
@@ -264,7 +261,6 @@ describe("guided onboarding policy", () => {
       stderr: sink,
       interactive: true,
       automation: false,
-      nativeProviders: new Set(),
       async listAccounts() { return []; },
       async detectProviders() { return []; },
       async listProviders() {
@@ -350,7 +346,6 @@ describe("guided onboarding policy", () => {
       stderr: sink,
       interactive: true,
       automation: false,
-      nativeProviders: new Set(),
       async listAccounts() { return []; },
       async detectProviders() { return []; },
       async listProviders() { return [gemini]; },
@@ -416,7 +411,6 @@ describe("guided onboarding policy", () => {
       stderr,
       interactive: true,
       automation: false,
-      nativeProviders: new Set(),
       async listAccounts() { return []; },
       async detectProviders() { return []; },
       async listProviders() { return [providers[1]!]; },
@@ -487,7 +481,6 @@ describe("guided onboarding policy", () => {
       stderr,
       interactive: true,
       automation: false,
-      nativeProviders: new Set(),
       async listAccounts() { return [account]; },
       async detectProviders() { return []; },
       async listProviders() { return [providers[1]!]; },
@@ -530,7 +523,6 @@ describe("guided onboarding policy", () => {
       stderr: sink,
       interactive: true,
       automation: false,
-      nativeProviders: new Set(),
       async listAccounts() { return [account]; },
       async detectProviders() { return []; },
       async listProviders() { return []; },
@@ -584,7 +576,6 @@ describe("guided onboarding policy", () => {
       stderr: sink,
       interactive: true,
       automation: false,
-      nativeProviders: new Set(),
       async listAccounts() { return [primary, specialist()]; },
       async detectProviders() { return []; },
       async listProviders() { return []; },
@@ -637,7 +628,6 @@ describe("guided onboarding policy", () => {
       stderr: sink,
       interactive: true,
       automation: false,
-      nativeProviders: new Set(),
       async listAccounts() { return [account]; },
       async detectProviders() { return []; },
       async listProviders() { return []; },
@@ -716,7 +706,6 @@ describe("guided onboarding policy", () => {
       stderr: sink,
       interactive: true,
       automation: false,
-      nativeProviders: new Set(),
       async listAccounts() { return [account]; },
       async detectProviders() { return []; },
       async listProviders() { return []; },
@@ -860,7 +849,6 @@ describe("guided onboarding policy", () => {
         stderr: sink,
         interactive: true,
         automation: false,
-        nativeProviders: new Set(),
         async listAccounts() { return [account]; },
         async detectProviders() { return []; },
         async listProviders() { return []; },

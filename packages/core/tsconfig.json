@@ -13,6 +13,9 @@
   ],
   "references": [
     {
+      "path": "../contracts"
+    },
+    {
       "path": "../providers"
     },
     {
