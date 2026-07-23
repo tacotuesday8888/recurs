@@ -23,6 +23,7 @@ export * from "./company-onboarding-runtime.js";
 export * from "./company-proposal-editor.js";
 export * from "./company-tool-readiness.js";
 export * from "./doctor.js";
+export * from "./error-rendering.js";
 export * from "./local-connection.js";
 export * from "./provider-account.js";
 export * from "./provider-discovery.js";

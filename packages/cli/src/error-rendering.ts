@@ -22,6 +22,7 @@ import {
 import { RuntimeError } from "./runtime.js";
 import { ImageInputError } from "./image-input.js";
 import { LocalConnectionError } from "./local-connection.js";
+import { CompanyEvaluationStoreError } from "./company-evaluation-store.js";
 
 export function unexpectedFailureMessage(
   diagnosticId: string = randomUUID(),
@@ -44,6 +45,7 @@ export function safeCliErrorMessage(
   }
   if (
     error instanceof RuntimeError ||
+    error instanceof CompanyEvaluationStoreError ||
     error instanceof CompanyAmendmentError ||
     error instanceof CompanyLearningError ||
     error instanceof ImageInputError ||

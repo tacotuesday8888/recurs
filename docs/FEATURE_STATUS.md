@@ -1,6 +1,6 @@
 # Recurs Feature Status
 
-**Audited:** 2026-07-22 against the source, exported package surfaces, CLI
+**Audited:** 2026-07-23 against the source, exported package surfaces, CLI
 assembly, durable contracts/stores, provider manifests, native targets, and
 automated tests on `main`.
 
@@ -26,7 +26,7 @@ context, not a product commitment.
 | Company execution | Validated assignment DAGs, orchestrator/lead/worker planning handoffs, dependency-ordered implementation stages, independent review, bounded repair, parent apply, and synthesis |
 | Company authority | Immutable blueprints, root orchestrator and independent-review anchors, permission monotonicity, active-role/depth/concurrency/request/retry/reported-cost limits, cancellation, and truthful events |
 | Company adaptation | Tailored role charters, attributable project knowledge, historical blueprint pinning, exact Skill/MCP bundle bindings, and approval-gated amendments |
-| Evaluation | Installed deterministic offline company-formation evaluation, durable company-goal execution scoring, and explicit sanitized configured-provider formation evaluation |
+| Evaluation | Discoverable versioned scenarios; deterministic offline formation; exact-connection, explicit-network configured formation; read-only exact-run company-goal scoring; sanitized reports and bounded human progress |
 | Providers | Reviewed saved environment BYOK, literal-loopback Ollama/LM Studio, official local user-present Plan-only Codex ACP, and tested private macOS OpenAI/Anthropic/Kimi authority |
 | Host safety | Permanent credential-path denial, clean child environments, bounded failures, macOS Seatbelt, Linux Bubblewrap, Git worktree isolation, and tamper-evident private state |
 
@@ -73,12 +73,15 @@ binary, or desktop app is public today.
 ## Readiness assessment
 
 The base harness and bounded heavy-company architecture are implemented. The
-CLI now exposes read-only operating snapshots and an offline structural
-formation check; neither is evidence of real-model quality. The largest
-remaining product risk is qualitative: real models have not yet been exercised
-enough to prove that the interview creates the right company, that delegation
-uses agents economically, and that the final result consistently beats a
-strong single-agent run.
+CLI now exposes read-only operating snapshots, deterministic formation,
+explicit configured-provider dogfooding, and provider-free scoring of one
+durable goal. Codex remains truthfully excluded from automated formation
+because its subscription route is Plan-only and user-present. These implemented
+workflows are not evidence of real-model quality until they are actually run
+with an authorized provider. The largest remaining product risk is qualitative:
+real models have not yet been exercised enough to prove that the interview
+creates the right company, that delegation uses agents economically, and that
+the final result consistently beats a strong single-agent run.
 
 The next product milestone should therefore be real-provider dogfooding and
 evaluation, followed by the already prepared alpha distribution path. A new

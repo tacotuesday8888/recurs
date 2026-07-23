@@ -403,6 +403,9 @@ Piped sessions remain the default for dev servers, watchers, long verification, 
 
 ### Company evaluation
 
+`recurs eval company --list --json` returns the stable versioned scenario
+catalog without initializing a provider or project runtime.
+
 `recurs eval company --json -C <project>` runs the deterministic offline
 company-formation scenario through the installed CLI. It uses a temporary
 private Recurs home, an in-process scripted provider, and the same restricted
@@ -411,13 +414,30 @@ API key, saved account, or network access. The sanitized report scores the
 structural formation path; it does not claim that a real model interviews,
 delegates, or synthesizes well.
 
-`recurs eval company --configured --allow-network -C <project>` runs that same
-versioned formation scenario through the saved primary direct BYOK or local
-connection. The explicit network flag is mandatory. This path is for
-qualitative dogfooding with a real model and may incur provider usage. Both
-modes use a temporary evaluation state root, preserve the user's normal Recurs
-state, omit prompts and private paths from reports, and exit nonzero for a
-failed or cancelled report.
+`recurs eval company --configured --allow-network --connection <exact-id> -C <project>`
+runs that same formation scenario through one exact saved direct
+or local model connection; omit `--connection` to use the explicit primary.
+The selected non-secret record is copied into temporary evaluation state, and
+the source registry and primary remain unchanged. The explicit network flag is
+mandatory because this qualitative dogfood run may incur provider usage.
+Supported native-brokered model connections use the injected native authority.
+Codex and other delegated subscriptions are rejected here: Codex remains
+local, manual, user-present, foreground, and Plan-only, while automated
+formation needs a restricted direct-model loop.
+
+`recurs eval company --scenario company_goal_execution_v1 --run <exact-id> --json -C <project>`
+scores one existing durable company goal. It strictly
+loads the exact run, approved blueprint revision, and pinned parent backend
+through non-repairing reads. It does not resume, retry, approve, apply, repair,
+or contact a provider. Human output shows only bounded phase/count progress on
+stderr; successful JSON output leaves stderr empty. Every report omits prompts,
+answers, provider labels, credentials, environment values, model output, and
+private paths. A failed or cancelled report exits nonzero.
+
+These scenarios make repeated structural comparisons possible; they do not by
+themselves prove interview, delegation, or synthesis quality. That qualitative
+claim still requires an explicitly authorized configured run with a real
+provider connection.
 
 ### ACP stdio agent
 

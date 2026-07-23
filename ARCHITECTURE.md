@@ -161,6 +161,18 @@ the exact blueprint/run binding before scoring structure, evidence, synthesis,
 and efficiency. Neither projection can authorize execution or substitute for
 real-provider quality testing.
 
+Configured formation copies only one exact selected (or primary) non-secret
+connection record into a temporary evaluation root; it never changes the
+source registry primary. Direct environment/local and native-brokered model
+routes retain their existing authority. Delegated Codex is intentionally
+excluded because its reviewed subscription boundary remains local, manual,
+user-present, foreground, and Plan-only. Durable `company_goal_execution_v1`
+scoring is a provider-free projection over the exact run, approved V2 blueprint
+revision, and pinned parent backend. Its non-repairing reads never resume,
+truncate, heal, or otherwise mutate historical state. Human evaluation output
+receives sanitized phase/count events; successful JSON output keeps stderr
+empty.
+
 `delegate_task` creates one durable Explore, Implement, or Review child session through `BackendRunCoordinator`. `delegate_tasks` schedules independent Explore/Review children through that same path. `delegate_team` composes isolated Implement, Review, and Repair children without creating another model loop. Child permissions can only narrow the parent, retries are zero, and every operating mode caps total and concurrent work. Immutable version-1 through version-5 IDs retain their historical behavior; display-name selection uses the V6 company-capable policy.
 
 Batch preflight requires the parent cwd to be the canonical root of a clean Git repository. `GitWorktreeLeaseManager` creates a detached worktree at exact `HEAD` under the private project-data root, outside the repository. Each child session stores its lease and revision, results settle in input order, linked cancellation stops active work, and every lease is cleaned before settlement. Explore/Review batches intentionally discard workspace effects while retaining successful sibling evidence after ordinary partial failure.

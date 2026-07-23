@@ -75,6 +75,7 @@ recurs run "inspect the project" --plan
 recurs review                       # bounded staged/unstaged Git review
 recurs doctor                       # redacted host readiness report
 recurs eval company --json          # deterministic offline company check
+recurs eval company --list --json   # discover versioned evaluation scenarios
 recurs --help
 ```
 
@@ -95,7 +96,10 @@ sessions, permissions, and every supported command.
   learning, and approval-gated organization amendments;
 - `/company` status, blueprint, operations, exact-run, activity, knowledge,
   amendment, readiness, and user-approved Skill/MCP capability bindings;
-- an installed offline structural evaluation that needs no API key or network.
+- installed versioned evaluation for deterministic offline formation and
+  read-only scoring of one exact durable company goal;
+- opt-in real-provider formation dogfooding with exact connection selection,
+  bounded progress, and sanitized comparable reports.
 
 ### ⚙️ Agent runtime
 

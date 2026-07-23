@@ -5,19 +5,25 @@ import path from "node:path";
 import process from "node:process";
 
 import {
+  CompanyEvaluationArgumentError,
   parseCompanyEvaluationCommand,
+  renderCompanyEvaluationScenarios,
   renderCompanyEvaluationReport,
   runCompanyEvaluationCommand,
+  safeCliErrorMessage,
 } from "../packages/cli/dist/index.js";
 
 function usage() {
   return [
-    "Usage: npm run eval:company -- [--scenario company_formation_v1] [--json]",
-    "       [--configured --allow-network]",
+    "Usage: npm run eval:company -- --list [--json]",
+    "       [--scenario company_formation_v1] [--json]",
+    "       [--configured --allow-network] [--connection <id>] [--json]",
+    "       --scenario company_goal_execution_v1 --run <id> [--json]",
     "       [--project <path>] [--recurs-home <path>]",
     "",
     "Offline mode is deterministic and performs no network requests.",
-    "Configured mode uses the primary direct/local connection already saved by Recurs.",
+    "Configured mode uses one exact selected or primary direct/local connection.",
+    "Stored goal evaluation is read-only and never contacts a provider.",
   ].join("\n");
 }
 
@@ -56,10 +62,23 @@ async function main() {
     process.stdout.write(`${usage()}\n`);
     return;
   }
+  if (parsed.options.action === "list") {
+    process.stdout.write(
+      `${renderCompanyEvaluationScenarios(parsed.options.json)}\n`,
+    );
+    return;
+  }
   const report = await runCompanyEvaluationCommand(parsed.options, {
     projectRoot: parsed.projectRoot,
     dataDirectory: parsed.dataDirectory,
     environment: process.env,
+    ...(parsed.options.json
+      ? {}
+      : {
+          onProgress(progress) {
+            process.stderr.write(`${progress.message}\n`);
+          },
+        }),
   });
   process.stdout.write(parsed.options.json
     ? `${JSON.stringify(report, null, 2)}\n`
@@ -70,6 +89,8 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.message : "Evaluation failed"}\n`);
+  process.stderr.write(`${error instanceof CompanyEvaluationArgumentError
+    ? error.message
+    : safeCliErrorMessage(error)}\n`);
   process.exitCode = 1;
 });

@@ -243,19 +243,19 @@ export type CompanyEvaluationProgress =
 - The compatibility npm script forwards scenario, run, connection, configured, network, project, and Recurs-home options to the shared parser/service.
 - Packed smoke runs `--list --json`, offline formation, and safe invalid durable-run lookup through the installed binary. It must not need an API key or network.
 
-- [ ] **Step 1: Extend script and packed-artifact tests**
+- [x] **Step 1: Extend script and packed-artifact tests**
 
   Assert both stable scenarios are discoverable, offline formation remains green, invalid stored-run lookup is sanitized, and successful JSON commands keep stderr empty.
 
-- [ ] **Step 2: Update current-truth documents**
+- [x] **Step 2: Update current-truth documents**
 
   Document exact selection, no-primary-mutation, Codex's Plan-only exclusion, execution scoring's read-only nature, human progress, and the remaining absence of real-model quality proof until a user supplies and explicitly authorizes a configured connection run.
 
-- [ ] **Step 3: Run strongest verification**
+- [x] **Step 3: Run strongest verification**
 
   Run focused tests repeatedly, then `npm run check`, `npm run package:smoke-install`, and `npm run check:native` outside the enclosing sandbox where Recurs's own process sandbox requires it.
 
-- [ ] **Step 4: Review publication safety**
+- [x] **Step 4: Review publication safety**
 
   Inspect `git status`, complete branch diff, file modes, generated/package output, and secret patterns. Stage only intended files.
 
