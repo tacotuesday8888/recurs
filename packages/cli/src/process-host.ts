@@ -78,6 +78,7 @@ import {
   type CompanyEvaluationRunOptions,
 } from "./company-evaluation-command.js";
 import { renderCompanyEvaluationReport } from "./company-evaluation.js";
+import type { CompanyEvaluationProgress } from "./company-evaluation.js";
 import {
   createDoctorReport,
   renderDoctorReport,
@@ -169,6 +170,9 @@ export interface CliDependencies {
   evaluateCompany?(input: CompanyEvaluationRunOptions & {
     readonly cwd: string;
     readonly signal?: AbortSignal;
+    readonly onProgress?: (
+      progress: CompanyEvaluationProgress,
+    ) => void | Promise<void>;
   }): Promise<CompanyEvaluationReportV1>;
   credentialEnvironmentAvailable?(name: string): boolean;
   selectOpenAIModel?(modelIds: readonly string[]): Promise<string | null>;
@@ -1291,6 +1295,16 @@ export async function runCli(
         ...(dependencies.signal === undefined
           ? {}
           : { signal: dependencies.signal }),
+        ...(command.json
+          ? {}
+          : {
+              onProgress: async (progress) => {
+                await writeOutput(
+                  dependencies.stderr,
+                  `${progress.message}\n`,
+                );
+              },
+            }),
       });
       await writeOutput(
         dependencies.stdout,
@@ -2208,7 +2222,7 @@ export async function runCliProcess(
           environment: process.env,
         },
       ),
-      evaluateCompany: ({ cwd, signal, ...options }) =>
+      evaluateCompany: ({ cwd, signal, onProgress, ...options }) =>
         runCompanyEvaluationCommand(options, {
           projectRoot: cwd,
           dataDirectory,
@@ -2217,6 +2231,7 @@ export async function runCliProcess(
             ? {}
             : { nativeOpenAIResponses }),
           ...(signal === undefined ? {} : { signal }),
+          ...(onProgress === undefined ? {} : { onProgress }),
         }),
       createRuntime: (events, options) => createStandaloneRuntime(
         events,

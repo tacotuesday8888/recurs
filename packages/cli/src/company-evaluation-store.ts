@@ -11,6 +11,7 @@ import {
 import type { CompanyEvaluationReportV1 } from "@recurs/contracts";
 
 import { evaluateCompanyGoalExecution } from "./company-evaluation.js";
+import type { CompanyEvaluationProgress } from "./company-evaluation.js";
 
 export class CompanyEvaluationStoreError extends Error {
   constructor(message: string, options?: ErrorOptions) {
@@ -41,6 +42,9 @@ export async function evaluateStoredCompanyGoal(input: {
   readonly runId: string;
   readonly signal?: AbortSignal;
   readonly now?: () => string;
+  readonly onProgress?: (
+    progress: CompanyEvaluationProgress,
+  ) => void | Promise<void>;
 }): Promise<CompanyEvaluationReportV1> {
   input.signal?.throwIfAborted();
   const projectRoot = await realpath(input.projectRoot);
@@ -52,6 +56,10 @@ export async function evaluateStoredCompanyGoal(input: {
     projectId,
   );
   try {
+    await input.onProgress?.({
+      phase: "preparing",
+      message: "Preparing company_goal_execution_v1.",
+    });
     const run = (await new JsonlCompanyGoalStore(
       path.join(projectData, "company-goals"),
     ).loadReadOnly(input.runId, input.signal)).state;
@@ -68,6 +76,10 @@ export async function evaluateStoredCompanyGoal(input: {
         "The durable company goal parent session is not a pinned V2 session.",
       );
     }
+    await input.onProgress?.({
+      phase: "scoring",
+      message: "Scoring company_goal_execution_v1.",
+    });
     return evaluateCompanyGoalExecution({
       run,
       blueprint,

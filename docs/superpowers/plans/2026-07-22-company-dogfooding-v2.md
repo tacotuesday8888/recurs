@@ -204,25 +204,25 @@ export type CompanyEvaluationProgress =
 
 - Messages contain only phase, counts, and scenario IDs. They never contain the question, answer, prompt, evidence, provider label, path, or model output.
 
-- [ ] **Step 1: Write failing progress and onboarding-presentation tests**
+- [x] **Step 1: Write failing progress and onboarding-presentation tests**
 
   Assert ordered formation phases, no progress on JSON output, bounded human stderr progress, and guided onboarding headings for interview question count, completed investigations, proposal review, and approval. Preserve all existing choices and semantics.
 
-- [ ] **Step 2: Confirm focused failure**
+- [x] **Step 2: Confirm focused failure**
 
   Run: `npx vitest run packages/cli/test/company-evaluation.test.ts packages/cli/test/guided-onboarding.test.ts packages/cli/test/run-mode.test.ts`
 
-- [ ] **Step 3: Emit sanitized phase events**
+- [x] **Step 3: Emit sanitized phase events**
 
   `evaluateCompanyFormation` emits preparing before start, interview before each answer boundary, research after settled research, proposal before approval, and scoring after the approved blueprint loads. Await callbacks so ordering is deterministic; callback failure fails safely before claiming success.
 
-- [ ] **Step 4: Tighten guided onboarding presentation**
+- [x] **Step 4: Tighten guided onboarding presentation**
 
   Add concise phase lines such as `Company interview · question 2`, `Project understanding · 3 bounded investigations complete`, and `Company proposal · ready for review`. Do not add animation, a full-screen TUI, new choices, or extra model requests.
 
-- [ ] **Step 5: Run focused tests twice and typecheck**
+- [x] **Step 5: Run focused tests twice and typecheck**
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   Commit message: `feat(cli): show company formation progress`
 

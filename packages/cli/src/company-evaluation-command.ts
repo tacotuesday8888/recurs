@@ -10,7 +10,10 @@ import type {
 import { ScriptedProvider } from "@recurs/providers";
 
 import { createStandaloneCompanyOnboarding } from "./assembly.js";
-import { evaluateCompanyFormation } from "./company-evaluation.js";
+import {
+  evaluateCompanyFormation,
+  type CompanyEvaluationProgress,
+} from "./company-evaluation.js";
 import { evaluateStoredCompanyGoal } from "./company-evaluation-store.js";
 
 export const COMPANY_EVALUATION_USAGE = [
@@ -296,6 +299,9 @@ export async function runCompanyEvaluationCommand(
       ...(dependencies.signal === undefined
         ? {}
         : { signal: dependencies.signal }),
+      ...(dependencies.onProgress === undefined
+        ? {}
+        : { onProgress: dependencies.onProgress }),
     });
   }
   const projectRoot = await realpath(dependencies.projectRoot);
@@ -344,6 +350,9 @@ export async function runCompanyEvaluationCommand(
       ...(dependencies.signal === undefined
         ? {}
         : { signal: dependencies.signal }),
+      ...(dependencies.onProgress === undefined
+        ? {}
+        : { onProgress: dependencies.onProgress }),
     });
   } finally {
     await rm(evaluationHome, { recursive: true, force: true });
@@ -356,4 +365,7 @@ export interface CompanyEvaluationCommandDependencies {
   readonly environment?: Readonly<NodeJS.ProcessEnv>;
   readonly nativeOpenAIResponses?: NativeOpenAIResponsesPort;
   readonly signal?: AbortSignal;
+  readonly onProgress?: (
+    progress: CompanyEvaluationProgress,
+  ) => void | Promise<void>;
 }

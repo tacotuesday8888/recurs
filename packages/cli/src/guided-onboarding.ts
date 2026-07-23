@@ -1006,6 +1006,7 @@ async function setupCompanyBlueprintV2(
   permissionMode: PermissionMode,
   operatingModeId: OperatingModeId,
 ): Promise<CompanyOnboardingResult> {
+  const theme = createTerminalTheme(ports.stdout);
   const action = await ports.selectChoice(
     "Tailor the first Recurs agent company to this project",
     Object.freeze([
@@ -1126,11 +1127,15 @@ async function setupCompanyBlueprintV2(
       ).length;
       await writeOutput(
         ports.stdout,
-        `Project understanding updated from ${completed} bounded investigation(s).\n`,
+        `${theme.accent(`Project understanding · ${completed} bounded investigation${completed === 1 ? "" : "s"} complete`)}\n`,
       );
       continue;
     }
     if (advanced.kind === "question") {
+      await writeOutput(
+        ports.stdout,
+        `${theme.accent(`Company interview · question ${run.state.interview.answers.length + 1}`)}\n`,
+      );
       const answer = (await ports.promptText(advanced.question.question))?.trim();
       if (answer === undefined || answer.length === 0) {
         await writeOutput(
@@ -1176,7 +1181,7 @@ async function setupCompanyBlueprintV2(
       }
     } else {
       await writeOutput(ports.stdout, [
-        "Company proposal ready for review",
+        theme.accent("Company proposal · ready for review"),
         `Project: ${blueprint.project.purpose}`,
         `Design: ${blueprint.designMode.replaceAll("_", " ")}`,
         `Departments: ${blueprint.departments.length}`,
@@ -1246,7 +1251,7 @@ async function setupCompanyBlueprintV2(
     );
     await writeOutput(
       ports.stdout,
-      `Company approved: ${approvedBlueprint.departments.length} department(s), ${approvedBlueprint.roles.length} role(s).\n`,
+      `${theme.success(`Company approved · ${approvedBlueprint.departments.length} department(s), ${approvedBlueprint.roles.length} role(s)`)}\n`,
     );
     return { blueprintV2: approvedBlueprint, brief };
   }

@@ -130,11 +130,13 @@ describe("company formation evaluation", () => {
       "2026-07-22T00:00:00.000Z",
       "2026-07-22T00:00:01.250Z",
     ];
+    const progress: unknown[] = [];
     const report = await evaluateCompanyFormation({
       service: setup.service,
       mode: "offline",
       backend: { providerId: provider.id, modelId: "offline-baseline" },
       now: () => timestamps.shift()!,
+      async onProgress(event) { progress.push(event); },
     });
 
     expect(report).toMatchObject({
@@ -145,6 +147,16 @@ describe("company formation evaluation", () => {
     expect(report.rubric.find((item) => item.dimension === "synthesis"))
       .toMatchObject({ status: "not_applicable" });
     expect(provider.requests).toHaveLength(5);
+    expect(progress).toEqual([
+      { phase: "preparing", message: "Preparing company_formation_v1." },
+      { phase: "interview", message: "Company interview · question 1" },
+      {
+        phase: "research",
+        message: "Project understanding · 1 bounded investigation complete",
+      },
+      { phase: "proposal", message: "Company proposal · ready for review" },
+      { phase: "scoring", message: "Scoring company_formation_v1." },
+    ]);
     expect(provider.requests.every((request) => request.tools.every((tool) =>
       !["apply_patch", "run_command", "web_fetch"].includes(tool.name)
     ))).toBe(true);
@@ -202,6 +214,27 @@ describe("company formation evaluation", () => {
       usage: { requestsUsed: 0, reportedCostUsd: null, source: "unknown" },
       failures: [{ code: "cancelled" }],
     });
+    expect(provider.requests).toHaveLength(0);
+  });
+
+  it("fails safely when a progress consumer fails", async () => {
+    const provider = scriptedProvider();
+    const setup = await fixture(provider);
+    const secret = `sk-proj-${"p".repeat(30)}`;
+
+    const report = await evaluateCompanyFormation({
+      service: setup.service,
+      mode: "offline",
+      backend: { providerId: provider.id, modelId: "offline-baseline" },
+      async onProgress() { throw new Error(`private progress ${secret}`); },
+    });
+
+    expect(report).toMatchObject({
+      status: "failed",
+      usage: { requestsUsed: 0 },
+      failures: [{ code: "evaluation_failed" }],
+    });
+    expect(JSON.stringify(report)).not.toContain(secret);
     expect(provider.requests).toHaveLength(0);
   });
 });

@@ -3641,6 +3641,39 @@ describe("installed company evaluation command", () => {
     }));
   });
 
+  it("prints bounded progress only for human-readable evaluation output", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const evaluateCompany: NonNullable<CliDependencies["evaluateCompany"]> =
+      async (input) => {
+        await input.onProgress?.({
+          phase: "preparing",
+          message: "Preparing company_formation_v1.",
+        });
+        return report();
+      };
+    const dependencies = {
+      stdout,
+      stderr,
+      evaluateCompany,
+      async createRuntime() {
+        throw new Error("ordinary runtime must not start");
+      },
+    } satisfies CliDependencies;
+
+    expect(await runCli(["eval", "company"], dependencies)).toBe(0);
+    expect(stdout.value).toContain("Company evaluation: company_formation_v1");
+    expect(stderr.value).toBe("Preparing company_formation_v1.\n");
+
+    stdout.value = "";
+    stderr.value = "";
+    expect(await runCli(["eval", "company", "--json"], dependencies)).toBe(0);
+    expect(JSON.parse(stdout.value)).toMatchObject({
+      scenarioId: "company_formation_v1",
+    });
+    expect(stderr.value).toBe("");
+  });
+
   it("rejects crossed evaluation scenario flags", async () => {
     const invalid = [
       ["eval", "company", "--list", "--configured"],

@@ -202,12 +202,14 @@ describe("stored company goal evaluation", () => {
   it("scores the exact durable run through its pinned backend without mutation", async () => {
     const setup = await fixture();
     const before = await snapshot(setup.projectData);
+    const progress: unknown[] = [];
 
     const report = await evaluateStoredCompanyGoal({
       dataDirectory: setup.dataDirectory,
       projectRoot: setup.projectRoot,
       runId: setup.run.id,
       now: () => "2026-07-22T02:00:05.000Z",
+      async onProgress(event) { progress.push(event); },
     });
 
     expect(report).toMatchObject({
@@ -218,6 +220,13 @@ describe("stored company goal evaluation", () => {
       usage: { requestsUsed: 2, reportedCostUsd: 0.02 },
     });
     expect(await snapshot(setup.projectData)).toEqual(before);
+    expect(progress).toEqual([
+      {
+        phase: "preparing",
+        message: "Preparing company_goal_execution_v1.",
+      },
+      { phase: "scoring", message: "Scoring company_goal_execution_v1." },
+    ]);
   });
 
   it("reports incomplete and unknown-cost runs truthfully", async () => {
