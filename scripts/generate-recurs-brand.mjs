@@ -52,9 +52,9 @@ function terminalPreviewSvg() {
   const markLines = terminalRows.map((row, rowIndex) =>
     `<text x="40" y="${52 + rowIndex * 23}" class="mark" xml:space="preserve">${Array.from(row, (glyph, glyphIndex) => `<tspan fill="${markPalette[Math.min(Math.floor(((glyphIndex + rowIndex * 0.2) / Math.max(1, row.length - 1)) * markPalette.length), markPalette.length - 1)]}">${escapeXml(glyph)}</tspan>`).join("")}</text>`
   ).join("\n  ");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520" role="img" aria-labelledby="title description">
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="760" height="380" viewBox="0 0 760 380" role="img" aria-labelledby="title description">
   <title id="title">Recurs guided setup in a terminal</title>
-  <desc id="description">The Recurs loop mark beside a guided agent-company setup.</desc>
+  <desc id="description">The Recurs loop mark beside the first step of guided model setup.</desc>
   <!-- ${GENERATED_HEADER} -->
   <defs>
     <linearGradient id="recurs-gradient" x1="0" y1="0" x2="1" y2="1">
@@ -63,26 +63,25 @@ function terminalPreviewSvg() {
       <stop offset="1" stop-color="${palette.mint}"/>
     </linearGradient>
     <style>
-      .text { fill: ${palette.foreground}; font: 19px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .text { fill: ${palette.foreground}; font: 21px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .muted { fill: ${palette.muted}; font: 16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-      .accent { fill: ${palette.cyan}; font: 700 19px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-      .strong { fill: ${palette.foreground}; font: 800 27px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .accent { fill: ${palette.cyan}; font: 700 21px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .strong { fill: ${palette.foreground}; font: 800 29px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .mark { font: 800 23px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     </style>
   </defs>
-  <rect width="900" height="520" rx="16" fill="${palette.background}"/>
+  <rect width="760" height="380" rx="16" fill="${palette.background}"/>
   ${markLines}
-  <text x="40" y="166" class="strong">Welcome to Recurs</text>
-  <text x="40" y="210" class="text">Build a working agent company: connect its parent model,</text>
-  <text x="40" y="239" class="text">set its safety boundary, choose its operating mode,</text>
-  <text x="40" y="268" class="text">route specialists, and review a project-tailored roster.</text>
-  <text x="40" y="308" class="muted">Credentials stay with the vendor runtime or native authority—</text>
-  <text x="40" y="334" class="muted">never this generic prompt.</text>
-  <text x="40" y="382" class="accent">1 / 6 · Parent model</text>
-  <text x="40" y="420" class="text">Choose how Recurs should access a model:</text>
-  <text x="40" y="458" class="text">1. Connect Codex with ChatGPT</text>
-  <text x="68" y="484" class="muted">official Codex runtime · Plan-only · vendor-owned login</text>
-  <text x="40" y="512" class="text">2. Connect OpenAI API</text>
+  <text x="190" y="68" class="strong">Welcome to Recurs</text>
+  <text x="190" y="101" class="muted">A bounded agent company for your terminal.</text>
+  <line x1="40" y1="145" x2="720" y2="145" stroke="#202a36"/>
+  <text x="40" y="188" class="accent">1 / 6 · Parent model</text>
+  <text x="40" y="230" class="text">Choose how Recurs should access a model:</text>
+  <rect x="32" y="251" width="696" height="62" rx="9" fill="#151c25"/>
+  <text x="52" y="289" class="text">› Codex with ChatGPT</text>
+  <text x="330" y="289" class="muted">official runtime · Plan-only</text>
+  <text x="52" y="351" class="text">2. OpenAI API</text>
+  <text x="255" y="351" class="muted">reviewed origin · Act + Plan</text>
 </svg>
 `;
 }
