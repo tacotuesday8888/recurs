@@ -7,6 +7,7 @@ import type {
   CompanyGoalAssignmentStatus,
   OperatingModeId,
   OperatingModeVersion,
+  ModelReasoningEffort,
   ProviderUsage,
   TeamRunBackendRoute,
   TeamRunExecution,
@@ -245,6 +246,8 @@ export type RecursEvent =
       index?: number;
       routeStrategy?: TeamRunBackendRoute["strategy"];
       routeReason?: TeamRunBackendRoute["reason"];
+      modelId?: string;
+      reasoningEffort?: ModelReasoningEffort | null;
       goalRunId?: string;
       assignmentId?: string;
       companyRoleId?: string;
@@ -365,6 +368,8 @@ export type RecursEvent =
       description: string;
       operatingModeId: OperatingModeId;
       profileId: AgentProfileId;
+      modelId: string;
+      reasoningEffort: ModelReasoningEffort | null;
       company?: CompanyAgentBinding;
       batchId?: string;
       batchIndex?: number;
@@ -506,6 +511,8 @@ export function projectTeamRunActivityEvent(
     ...(route === undefined ? {} : {
       routeStrategy: route.strategy,
       routeReason: route.reason,
+      modelId: route.pin.modelId,
+      reasoningEffort: route.pin.reasoningEffortAtCreation ?? null,
     }),
     ...(companyBinding === undefined || state.descriptor.companyGoal === undefined
       ? {}

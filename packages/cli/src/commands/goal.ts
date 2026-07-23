@@ -58,7 +58,9 @@ function companyLaunchPrompt(objective: string): string {
   return [
     "Launch the approved Recurs company for the exact durable goal below.",
     `Goal: ${JSON.stringify(objective)}`,
-    "Use delegate_company_goal once with a bounded assignment DAG that uses only approved role IDs and includes every independent-review authority.",
+    "Run at most one accepted delegate_company_goal with a bounded assignment DAG that uses only approved role IDs and includes every independent-review authority.",
+    "If Recurs rejects arguments before creating the durable company goal, correct the DAG and retry; never start a second accepted company goal.",
+    "The approved company context already contains the exact roles and delegation edges. Do not inspect files, commands, providers, models, Skills, MCPs, or other host state before delegation; the first tool call must be delegate_company_goal.",
     "Do not widen the objective, permissions, tools, model routes, hierarchy, concurrency, requests, retries, or reported-cost limits.",
     "Synthesize the durable company result for the user when the tool completes.",
   ].join("\n");

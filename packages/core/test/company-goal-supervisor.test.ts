@@ -910,10 +910,20 @@ describe("CompanyGoalSupervisor", () => {
     async (teamStatus) => {
       const setup = await fixture({ implementation: true, teamStatus });
 
-      await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
-        .toMatchObject({
-          code: teamStatus === "cancelled" ? "cancelled" : "execution_failed",
+      const operation = setup.supervisor.start(goal(setup), setup.context);
+      if (teamStatus === "cancelled") {
+        await expect(operation).rejects.toMatchObject({ code: "cancelled" });
+      } else {
+        await expect(operation).resolves.toMatchObject({
+          output: expect.stringContaining(
+            "terminal failure after acceptance",
+          ),
+          metadata: {
+            goalRunId: "company-run-id-1",
+            status: "failed",
+          },
         });
+      }
 
       const stored = await setup.runs.load("company-run-id-1");
       expect(stored.state.status).toBe(teamStatus);
@@ -1004,7 +1014,10 @@ describe("CompanyGoalSupervisor", () => {
     };
 
     await expect(setup.supervisor.start(input, setup.context))
-      .rejects.toThrow(/concurrency/iu);
+      .resolves.toMatchObject({
+        output: expect.stringMatching(/failure[\s\S]*concurrency/iu),
+        metadata: { status: "failed" },
+      });
     const run = await setup.runs.load("company-run-id-1");
     expect(run.state.status).toBe("failed");
     expect(run.state.budget.assignmentsStarted).toBe(3);
@@ -1053,14 +1066,20 @@ describe("CompanyGoalSupervisor", () => {
   it("fails closed on review failure and reported-cost overflow", async () => {
     const failed = await fixture({ workResult: "failure" });
     await expect(failed.supervisor.start(goal(failed), failed.context))
-      .rejects.toMatchObject({ code: "execution_failed" });
+      .resolves.toMatchObject({
+        output: expect.stringMatching(/failure[\s\S]*review failed/iu),
+        metadata: { status: "failed" },
+      });
     await expect(failed.runs.load("company-run-id-1")).resolves.toMatchObject({
       state: { status: "failed" },
     });
 
     const costly = await fixture({ workResult: "cost" });
     await expect(costly.supervisor.start(goal(costly), costly.context))
-      .rejects.toThrow(/cost/iu);
+      .resolves.toMatchObject({
+        output: expect.stringMatching(/failure[\s\S]*cost/iu),
+        metadata: { status: "failed" },
+      });
     const stored = await costly.runs.load("company-run-id-1");
     expect(stored.state).toMatchObject({
       status: "failed",

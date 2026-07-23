@@ -1671,7 +1671,10 @@ export class CompanyGoalSupervisor {
           reason,
           workflow: delegationWorkflowUsage(runtime.budget),
         });
-        throw new ToolError(cancelled ? "cancelled" : "execution_failed", reason);
+        if (cancelled) {
+          throw new ToolError("cancelled", reason);
+        }
+        return this.#failedResult(runtime, reason);
       }
       const pending = run.plan.assignments.filter((assignment) =>
         assignment.status === "pending"
@@ -1764,7 +1767,7 @@ export class CompanyGoalSupervisor {
         reason,
         workflow: delegationWorkflowUsage(runtime.budget),
       });
-      throw new ToolError("execution_failed", reason);
+      return this.#failedResult(runtime, reason);
     }
     const evidence = boundedEvidence(current.plan.assignments.flatMap(
       (assignment) => assignment.result?.evidence ?? [],
@@ -1812,6 +1815,27 @@ export class CompanyGoalSupervisor {
               entriesAdded: learning.entriesAdded,
               entriesRejected: learning.entriesRejected,
             },
+      },
+    };
+  }
+
+  #failedResult(runtime: ActiveCompanyGoal, reason: string): ToolResult {
+    const run = runtime.journal.current.state;
+    const evidence = boundedEvidence(run.plan.assignments.flatMap(
+      (assignment) => assignment.result?.evidence ?? [],
+    ), 128);
+    return {
+      output: truncateUtf8([
+        `Company goal reached a terminal failure after acceptance: ${run.objective}`,
+        `Goal run: ${run.id}`,
+        `Reason: ${reason}`,
+        "Do not call delegate_company_goal again for this objective; synthesize this durable result.",
+      ].join("\n"), 16_384, "\n[company failure truncated by Recurs]"),
+      metadata: {
+        goalRunId: run.id,
+        status: "failed",
+        evidence,
+        workflow: delegationWorkflowUsage(runtime.budget),
       },
     };
   }

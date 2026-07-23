@@ -26,6 +26,60 @@ describe("TextEventRenderer agent activity", () => {
       operatingModeId: "balanced_v5",
       roleCount: 8,
     });
+    await renderer.emit({
+      type: "company_blueprint_v2_activated",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      blueprintId: "company-2",
+      blueprintVersion: 2,
+      blueprintRevision: 1,
+      designMode: "stable_core_specialists",
+      operatingModeId: "balanced_v6",
+      departmentCount: 3,
+      roleCount: 6,
+    });
+    await renderer.emit({
+      type: "company_goal_started",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      goalRunId: "goal-run-1",
+      objective: "Ship a reviewed change",
+      blueprintId: "company-2",
+      blueprintRevision: 1,
+      operatingModeId: "balanced_v6",
+      assignmentCount: 3,
+    });
+    await renderer.emit({
+      type: "agent_team_activity",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      teamId: "durable-team-1",
+      sequence: 2,
+      status: "running",
+      phase: "implement",
+      round: 0,
+      operatingModeId: "balanced_v6",
+      execution: "foreground",
+      activity: "child_reserved",
+      counts: {
+        childrenReserved: 1,
+        childrenFinished: 0,
+        requestsReserved: 12,
+        requestsUsed: 0,
+        costReportedChildren: 0,
+        costMissingChildren: 0,
+        costCoverage: "none",
+      },
+      role: "implement",
+      index: 1,
+      routeStrategy: "role_candidate",
+      routeReason: "eligible_role_candidate",
+      modelId: "gpt-5.6-terra",
+      reasoningEffort: "medium",
+    });
 
     await renderer.emit({
       type: "agent_started",
@@ -38,6 +92,8 @@ describe("TextEventRenderer agent activity", () => {
       description: "Inspect cache key",
       operatingModeId: "balanced_v1",
       profileId: "explore_v1",
+      modelId: "gpt-explore",
+      reasoningEffort: "medium",
     });
     await renderer.emit({
       type: "agent_completed",
@@ -261,8 +317,21 @@ describe("TextEventRenderer agent activity", () => {
     });
 
     expect(output).toContain("Company company-1 activated: 8 approved roles");
-    expect(output).toContain("↳ Explore child: Inspect cache key");
-    expect(output).toContain("✓ Explore child completed: child-agent (1/4 this run)");
+    expect(output).toContain(
+      "Company activated: 3 departments · 6 approved roles",
+    );
+    expect(output).toContain(
+      "⇶ Company goal goal-run-1: 3 assignments · balanced_v6",
+    );
+    expect(output).toContain(
+      "↳ Activated implement 1 · gpt-5.6-terra · medium",
+    );
+    expect(output).toContain(
+      "↳ Explore child · gpt-explore · medium: Inspect cache key",
+    );
+    expect(output).toContain(
+      "✓ Explore child completed: child-agent · 10 in / 4 out (1/4 this run)",
+    );
     expect(output).toContain("✗ Implement child failed: Focused tests failed");
     expect(output).toContain("✗ Review child cancelled: Parent cancelled the run");
     expect(output).toContain("⇉ Agent batch batch-1: 3 tasks, up to 3 concurrent");
@@ -277,7 +346,9 @@ describe("TextEventRenderer agent activity", () => {
     expect(output).toContain("↳ Team team-1 worker 1 captured 2 files");
     expect(output).toContain("⇢ Team team-1 integrated 2 patches across 2 files");
     expect(output).toContain("✓ Team team-1 review 1: approve — Focused verification passed");
-    expect(output).toContain("✓ Team team-1 approved: 2 changed files");
+    expect(output).toContain(
+      "✓ Team team-1 approved: 2 changed files · 9/32 requests",
+    );
     expect(output).toContain("✗ Team team-2 failed during integration: Patches conflict");
     expect(output).toContain("✗ Team team-3 cancelled during review after integration");
   });

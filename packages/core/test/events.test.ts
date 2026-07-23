@@ -221,6 +221,8 @@ describe("durable team activity events", () => {
       index: 1,
       routeStrategy: "role_candidate",
       routeReason: "eligible_role_candidate",
+      modelId: "model-secret",
+      reasoningEffort: null,
     });
 
     const serialized = JSON.stringify(event);

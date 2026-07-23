@@ -12,6 +12,7 @@ export * from "./failures.js";
 export * from "./json.js";
 export * from "./manifests.js";
 export * from "./model.js";
+export * from "./model-teams.js";
 export * from "./model-image.js";
 export * from "./provider-activation-profiles.js";
 export * from "./runtime.js";

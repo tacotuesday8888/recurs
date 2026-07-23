@@ -138,6 +138,28 @@ async function writeAndCommit(
 }
 
 describe("ProcessScopedRuntimeContinuationStore", () => {
+  it("keeps the default process capability valid for a long reasoning turn", async () => {
+    time = Date.parse("2026-07-11T00:00:00.000Z");
+    const store = new ProcessScopedRuntimeContinuationStore({
+      now: () => new Date(time),
+    });
+    const auth = authorization("long-reasoning");
+    const writer = await store.authority.mintWriter({
+      authorization: auth,
+      pin,
+      expectedSessionRecordSequence: 0,
+      previous: null,
+      stateVersion: 1,
+    });
+
+    time += 31_000;
+
+    await expect(store.authority.recoverStaged({
+      authorization: auth,
+      writer,
+    })).resolves.toBeNull();
+  });
+
   it("shares copied opaque state across fresh runtime facets without serializing it", async () => {
     time = Date.parse("2026-07-11T00:00:00.000Z");
     const store = createStore();

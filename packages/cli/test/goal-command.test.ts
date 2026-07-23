@@ -128,6 +128,12 @@ describe("goal command company launch", () => {
     });
     expect(result.type === "submit_prompt" ? result.prompt : "")
       .toContain(JSON.stringify("Ship the company CLI"));
+    expect(result.type === "submit_prompt" ? result.prompt : "")
+      .toContain("Run at most one accepted delegate_company_goal");
+    expect(result.type === "submit_prompt" ? result.prompt : "")
+      .toContain("correct the DAG and retry");
+    expect(result.type === "submit_prompt" ? result.prompt : "")
+      .toContain("the first tool call must be delegate_company_goal");
   });
 
   it("retains ordinary goal behavior outside an approved V2 company", async () => {

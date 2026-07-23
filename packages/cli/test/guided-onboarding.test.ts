@@ -759,7 +759,12 @@ describe("guided onboarding policy", () => {
     expect(confirmations[0]).toContain("will not read file contents");
     expect(confirmations[1]).toContain("Approve and activate");
     expect(confirmations[2]).toContain("never overwrite");
-    expect(output.join("")).toContain("6 / 6 · Project context");
+    expect(output.join("")).toMatch(
+      /2 \/ 6 · Authority[\s\S]*3 \/ 6 · Team[\s\S]*4 \/ 6 · Models[\s\S]*5 \/ 6 · Roster[\s\S]*6 \/ 6 · Project context/u,
+    );
+    expect(output.join("")).toMatch(
+      /Team: Balanced[\s\S]*Models: implement:[\s\S]*Roster: Recommended[\s\S]*Authority: Approved for Me[\s\S]*Models Auto becomes available after eligible real company-goal evidence/u,
+    );
   });
 
   it("runs the durable V2 interview and approval path when the restricted runtime is ready", async () => {

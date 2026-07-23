@@ -18,6 +18,8 @@ import type {
   CompanyBlueprintBindingV2,
   CompanyBlueprintV2,
   HostInvocation,
+  ModelTeamEvaluationV1,
+  ModelTeamSelectionV1,
   ModelReasoningEffort,
 } from "@recurs/contracts";
 import type { ModelProvider } from "@recurs/providers";
@@ -30,6 +32,7 @@ import type {
 import type { AgentSkillCatalog } from "../agent-skills.js";
 import type { McpServerCatalog } from "../mcp-client.js";
 import type { CompanyCapabilityAuthority } from "../company-capability-authority.js";
+import type { ModelTeamStatus } from "../model-team-service.js";
 
 export interface ParsedCommand {
   name: string;
@@ -91,7 +94,17 @@ export interface CommandDependencies {
   skills?: AgentSkillCatalog;
   mcp?: McpServerCatalog;
   models?: ModelSessionService;
+  modelTeams?: ModelTeamCommandService;
   company?: CompanyCommandDependencies;
+}
+
+export interface ModelTeamCommandService {
+  status(signal?: AbortSignal): Promise<ModelTeamStatus>;
+  evaluate(
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<ModelTeamEvaluationV1>;
+  select(signal?: AbortSignal): Promise<ModelTeamSelectionV1>;
 }
 
 export interface CompanyAmendmentDecisionInput {

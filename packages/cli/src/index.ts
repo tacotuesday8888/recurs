@@ -36,4 +36,5 @@ export * from "./terminal-attach.js";
 export * from "./user-input-tool.js";
 export * from "./agent-skills.js";
 export * from "./mcp-client.js";
+export * from "./model-team-service.js";
 export * from "./project-instructions.js";

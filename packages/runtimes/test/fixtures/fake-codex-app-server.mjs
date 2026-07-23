@@ -93,6 +93,12 @@ lines.on("line", (line) => {
       message.params.environments.length === 0 &&
       message.params?.sandbox === "read-only" &&
       message.params?.approvalPolicy === "never" &&
+      message.params?.developerInstructions?.includes(
+        "when apply_patch is supplied, it is the authorized write path",
+      ) &&
+      message.params?.developerInstructions?.includes(
+        'standard Git unified diff beginning with "diff --git "',
+      ) &&
       Array.isArray(message.params?.dynamicTools);
     if (!safe) {
       send({ id: message.id, error: { code: -32000, message: "unsafe thread" } });

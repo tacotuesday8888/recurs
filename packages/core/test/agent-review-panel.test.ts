@@ -238,6 +238,43 @@ describe("parseAgentReviewVerdictV2", () => {
     })).findings).toEqual([]);
   });
 
+  it("accepts one final exact verdict after bounded model preamble", () => {
+    expect(parseAgentReviewVerdictV2([
+      "I inspected the staged change with the supplied read-only tools.",
+      JSON.stringify({
+        verdict: "request_changes",
+        summary: "The empty namespace remains unsafe.",
+        findings: [finding],
+        evidence: ["src/cache.ts:42"],
+      }),
+    ].join("\n"))).toMatchObject({
+      verdict: "request_changes",
+      findings: [finding],
+    });
+  });
+
+  it.each([
+    `${JSON.stringify({
+      verdict: "approve",
+      summary: "Looks good.",
+      findings: [],
+      evidence: ["proof"],
+    })}\ntrailing prose`,
+    [
+      "```json",
+      JSON.stringify({
+        verdict: "approve",
+        summary: "Looks good.",
+        findings: [],
+        evidence: ["proof"],
+      }),
+      "```",
+    ].join("\n"),
+  ])("rejects a verdict that is not the final unwrapped JSON value", (output) => {
+    expect(() => parseAgentReviewVerdictV2(output))
+      .toThrow(/verdict contract/u);
+  });
+
   it.each([
     {
       verdict: "approve",

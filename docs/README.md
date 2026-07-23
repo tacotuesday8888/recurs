@@ -10,7 +10,9 @@ Current documents:
 - [Sub-agent harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md) — commit-pinned primary-source execution patterns from Codex, OpenCode, Kimi Code, Kilo Code, Roo Code, Pi, Goose, and Grok Build, plus the exact Recurs boundary derived from them.
 - [Agent company onboarding](AGENT_COMPANY_ONBOARDING.md) — canonical product target for turning project intent into a tailored, durable agent company, including the implemented foundation and remaining gaps.
 - [Company evaluation](COMPANY_EVALUATION.md) — deterministic offline and explicit configured-provider checks for the restricted formation path.
-- [Auto model teams and simple controls](AUTO_MODEL_TEAMS.md) — current product direction for the Economy-to-Max intensity control, recommended rosters, and evidence-backed automatic model lineups; automatic ranking remains unimplemented.
+- [Auto model teams and simple controls](AUTO_MODEL_TEAMS.md) — implemented
+  alpha for Economy-to-Max intensity, recommended rosters, and evidence-backed
+  automatic four-role model lineups.
 - [Architecture](../ARCHITECTURE.md) — implemented package boundaries and direct/delegated engine lifecycle.
 - [Product direction](../PRODUCT.md) — CLI-first agent manager and sub-agent roadmap.
 
@@ -20,7 +22,7 @@ Use [Feature status](FEATURE_STATUS.md), the CLI guide, and the architecture for
 current product truth.
 
 - [Core v0 design](superpowers/specs/2026-07-10-recurs-core-v0-design.md) — implemented single-agent foundation.
-- [Provider, authentication, and onboarding design](superpowers/specs/2026-07-10-recurs-provider-auth-design.md) — reviewed umbrella design; contracts, its original 25-path catalog plus the reviewed xAI API path, non-secret registry, local setup, official Codex delegated path, and private native OpenAI/Anthropic/Kimi direct-provider verticals are implemented. Persistent credential-bearing setup remains production-signed-macOS-only and is not yet distributed; source/npm environment BYOK is the documented weaker path.
+- [Provider, authentication, and onboarding design](superpowers/specs/2026-07-10-recurs-provider-auth-design.md) — historical umbrella design. The current portable TypeScript implementation retains the non-secret registry, local setup, environment BYOK, and official Codex delegated path; the obsolete private native provider engine was removed.
 - [Saved public BYOK design](superpowers/specs/2026-07-19-saved-public-byok-design.md) — reviewed fixed-origin Chat/Anthropic providers, authenticated Anthropic model discovery, environment-reference setup, non-secret persistence, billing acknowledgement, immutable pins, and fail-closed runtime binding.
 - [npm release-readiness design](superpowers/specs/2026-07-19-npm-release-readiness-design.md) — single-file Recurs bundle, exact runtime dependencies, minimal tarball allowlist, empty-prefix install smoke, hash-pinned Apache-2.0 preview metadata, and a protected publication gate. The implementation also derives checksum-bound curl and Homebrew assets plus GitHub attestations from the same exact tarball.
 - [Provider Activation v1 design](superpowers/specs/2026-07-13-provider-activation-v1-design.md) — historical provider-policy work. The current implementation uses the portable TypeScript adapters and connection model described in the root architecture document.
