@@ -76,10 +76,17 @@ export function renderRecursWordmark(theme: TerminalTheme): string {
     Array.from(row, (glyph, glyphIndex) =>
       glyph === " "
         ? glyph
-        : theme.brand(glyph, Math.min(
-          glyphIndex + rowIndex,
-          RECURS_MARK_ANSI_256.length - 1,
-        ))
+        : theme.brand(
+          glyph,
+          Math.min(
+            Math.floor(
+              ((glyphIndex + rowIndex * 0.35) /
+                Math.max(1, row.length - 1)) *
+                RECURS_MARK_ANSI_256.length,
+            ),
+            RECURS_MARK_ANSI_256.length - 1,
+          ),
+        )
     ).join("")
   ).join("\n");
 }
