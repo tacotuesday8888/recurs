@@ -31,8 +31,8 @@ keeping Recurs TypeScript-first and maintainable.
   are rejected before child execution.
 - One-shot and streaming child APIs use the same policy.
 - Linux defaults to the sandbox and never silently downgrades.
-- Focused tests, the full TypeScript check, native check, package smoke, and CI
-  pass before merge.
+- Focused tests, the full TypeScript check, installed-package smoke, and CI pass
+  before merge.
 
 ## Rollback
 
