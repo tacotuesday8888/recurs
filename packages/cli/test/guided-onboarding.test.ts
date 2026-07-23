@@ -22,6 +22,7 @@ import {
   credentialEnvironmentSuggestion,
   filterCatalogModels,
   guidedConnectionChoices,
+  guidedConnectionMenu,
   guidedOperatingModeId,
   guidedPermissionMode,
   inspectCompanyRepositoryFacts,
@@ -112,8 +113,8 @@ const account: AccountSummary = {
 };
 
 describe("guided onboarding policy", () => {
-  it("composes saved, detected, subscription, BYOK, and portable provider paths", () => {
-    const choices = guidedConnectionChoices({
+  it("features saved, detected, and recommended paths without hiding other providers", () => {
+    const inventory = {
       accounts: [account],
       localRuntimes: [{
         id: "ollama",
@@ -122,13 +123,24 @@ describe("guided onboarding policy", () => {
         detected: true,
       }],
       providers,
-    });
+    } as const;
+    const choices = guidedConnectionChoices(inventory);
+    const menu = guidedConnectionMenu(inventory);
 
     expect(choices.map((choice) => choice.id)).toEqual([
       "account:saved-1",
       "local:ollama",
       "codex",
       "byok:openrouter-api",
+      "byok:xai-api",
+    ]);
+    expect(menu.featured.map((choice) => choice.id)).toEqual([
+      "account:saved-1",
+      "local:ollama",
+      "codex",
+      "byok:openrouter-api",
+    ]);
+    expect(menu.additional.map((choice) => choice.id)).toEqual([
       "byok:xai-api",
     ]);
     expect(choices.find((choice) => choice.id === "codex")?.detail)
@@ -181,6 +193,7 @@ describe("guided onboarding policy", () => {
 
   it("retains public-catalog model selection when authenticated discovery is not reviewed", async () => {
     const selections = [
+      "more-providers",
       "byok:kilo-gateway",
       "kilo/model",
       "ask_always",
@@ -323,6 +336,7 @@ describe("guided onboarding policy", () => {
 
   it("uses authenticated Gemini discovery in the guided BYOK path", async () => {
     const selections = [
+      "more-providers",
       "byok:google-gemini-api",
       "gemini-test",
       "ask_always",
@@ -517,7 +531,13 @@ describe("guided onboarding policy", () => {
 
   it("does not offer connection recovery after cancellation", async () => {
     const messages: string[] = [];
-    const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
+    let output = "";
+    const sink = new Writable({
+      write(chunk, _encoding, done) {
+        output += String(chunk);
+        done();
+      },
+    });
     const outcome = await runGuidedOnboarding({
       stdout: sink,
       stderr: sink,
@@ -537,7 +557,129 @@ describe("guided onboarding policy", () => {
     });
 
     expect(outcome).toEqual({ state: "failed", exitCode: 130 });
-    expect(messages).toEqual(["Choose how Recurs should access a model"]);
+    expect(messages).toEqual([
+      "Choose a saved, detected, or recommended model connection",
+    ]);
+    expect(output).toContain("Setup cancelled. No new session was created.");
+    expect(output).not.toContain("Unexpected failure");
+  });
+
+  it("cancels cleanly when the initial selection prompt is aborted", async () => {
+    let commands = 0;
+    let output = "";
+    const sink = new Writable({
+      write(chunk, _encoding, done) {
+        output += String(chunk);
+        done();
+      },
+    });
+    const outcome = await runGuidedOnboarding({
+      stdout: sink,
+      stderr: sink,
+      interactive: true,
+      automation: false,
+      async listAccounts() { return [account]; },
+      async detectProviders() { return []; },
+      async listProviders() { return []; },
+      async selectChoice() {
+        throw new DOMException("private cancellation detail", "AbortError");
+      },
+      async promptText() { return null; },
+      async executeCommand() {
+        commands += 1;
+        return 0;
+      },
+    });
+
+    expect(outcome).toEqual({ state: "failed", exitCode: 130 });
+    expect(commands).toBe(0);
+    expect(output).toContain("Setup cancelled. No new session was created.");
+    expect(output).not.toContain("private cancellation detail");
+    expect(output).not.toContain("Unexpected failure");
+  });
+
+  it("cancels cleanly when a BYOK text prompt is aborted", async () => {
+    let commands = 0;
+    let output = "";
+    const sink = new Writable({
+      write(chunk, _encoding, done) {
+        output += String(chunk);
+        done();
+      },
+    });
+    const outcome = await runGuidedOnboarding({
+      stdout: sink,
+      stderr: sink,
+      interactive: true,
+      automation: false,
+      async listAccounts() { return []; },
+      async detectProviders() { return []; },
+      async listProviders() { return [providers[1]!]; },
+      async selectChoice(_message, choices) {
+        expect(choices.some((choice) => choice.id === "byok:openrouter-api"))
+          .toBe(true);
+        return "byok:openrouter-api";
+      },
+      async promptText() {
+        const error = new Error("private readline cancellation detail");
+        error.name = "AbortError";
+        throw error;
+      },
+      async executeCommand() {
+        commands += 1;
+        return 0;
+      },
+    });
+
+    expect(outcome).toEqual({ state: "failed", exitCode: 130 });
+    expect(commands).toBe(0);
+    expect(output).toContain("Setup cancelled. No new session was created.");
+    expect(output).not.toContain("private readline cancellation detail");
+    expect(output).not.toContain("Unexpected failure");
+  });
+
+  it("does not report completion when cancellation arrives at the final boundary", async () => {
+    const controller = new AbortController();
+    const selections = [
+      "account:saved-1",
+      "approved_for_me",
+      "balanced_v6",
+    ];
+    let listCalls = 0;
+    let output = "";
+    const sink = new Writable({
+      write(chunk, _encoding, done) {
+        output += String(chunk);
+        done();
+      },
+    });
+
+    const outcome = await runGuidedOnboarding({
+      stdout: sink,
+      stderr: sink,
+      interactive: true,
+      automation: false,
+      signal: controller.signal,
+      async listAccounts() {
+        listCalls += 1;
+        if (listCalls === 3) controller.abort();
+        return [account];
+      },
+      async detectProviders() { return []; },
+      async listProviders() { return []; },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText() { return null; },
+      async executeCommand() { return 0; },
+    });
+
+    expect(outcome).toEqual({ state: "failed", exitCode: 130 });
+    expect(listCalls).toBe(3);
+    expect(output).toContain("Setup cancelled. No new session was created.");
+    expect(output).not.toContain("Onboarding complete");
   });
 
   it("configures eligible specialist routes without changing the parent", async () => {
@@ -570,6 +712,10 @@ describe("guided onboarding policy", () => {
       "parent",
     ];
     const commands: string[][] = [];
+    const routeBatches: Array<readonly {
+      readonly role: "implement" | "review" | "repair";
+      readonly connectionId: string | null;
+    }[]> = [];
     const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
     const outcome = await runGuidedOnboarding({
       stdout: sink,
@@ -585,14 +731,15 @@ describe("guided onboarding policy", () => {
         return selected;
       },
       async promptText() { return null; },
+      async setTeamRoutes(assignments) {
+        routeBatches.push(assignments);
+        roles = assignments
+          .filter((assignment) => assignment.connectionId === "specialist")
+          .map((assignment) => assignment.role);
+        return assignments;
+      },
       async executeCommand(argv) {
         commands.push([...argv]);
-        if (argv[0] === "account" && argv[1] === "route") {
-          const role = argv[2]!;
-          roles = argv[3] === "parent"
-            ? roles.filter((candidate) => candidate !== role)
-            : [...new Set([...roles, role])];
-        }
         return 0;
       },
     });
@@ -605,9 +752,11 @@ describe("guided onboarding policy", () => {
     expect(commands).toEqual([
       ["account", "verify", "parent"],
       ["account", "set-primary", "parent"],
-      ["account", "route", "implement", "specialist"],
-      ["account", "route", "review", "specialist"],
     ]);
+    expect(routeBatches).toEqual([[
+      { role: "implement", connectionId: "specialist" },
+      { role: "review", connectionId: "specialist" },
+    ]]);
   });
 
   it("creates a confirmed project brief without handling credential values", async () => {

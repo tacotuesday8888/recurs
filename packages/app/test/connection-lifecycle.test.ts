@@ -136,6 +136,32 @@ class RacingRegistry implements ConnectionRegistryPort {
   }
 }
 
+class AbortOnCommitRegistry implements ConnectionRegistryPort {
+  constructor(
+    private readonly inner: FileConnectionRegistry,
+    private readonly controller: AbortController,
+  ) {}
+
+  read(): Promise<ConnectionRegistryDocument> {
+    return this.inner.read();
+  }
+
+  migrateLegacyLocal(
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ConnectionRegistryDocument> {
+    return this.inner.migrateLegacyLocal(options);
+  }
+
+  async commit(
+    expectedRevision: number,
+    mutation: ConnectionRegistryMutation,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ConnectionRegistryDocument> {
+    this.controller.abort();
+    return await this.inner.commit(expectedRevision, mutation, options);
+  }
+}
+
 describe("connection lifecycle service", () => {
   it("lists deeply frozen summaries without private account or endpoint data", async () => {
     const { registry } = await seededRegistry();
@@ -230,6 +256,89 @@ describe("connection lifecycle service", () => {
       connectionId: null,
     });
     expect((await registry.read()).agentRoutes.implement).toBeNull();
+  });
+
+  it("commits multiple team routes atomically", async () => {
+    const { registry } = await seededRegistry();
+    const service = new ConnectionLifecycleService(registry);
+
+    await expect(service.setAgentRoutes([
+      { role: "implement", connectionId: "local-primary" },
+      { role: "review", connectionId: "codex-secondary" },
+    ])).rejects.toMatchObject({
+      code: "operation_unavailable",
+      message: "Plan-only delegated connections cannot run team roles",
+    });
+    expect((await registry.read()).agentRoutes).toEqual({
+      implement: null,
+      review: null,
+      repair: null,
+    });
+
+    await expect(service.setAgentRoutes([
+      { role: "implement", connectionId: "local-primary" },
+      { role: "review", connectionId: "local-primary" },
+      { role: "repair", connectionId: null },
+    ])).resolves.toEqual([
+      { role: "implement", connectionId: "local-primary" },
+      { role: "review", connectionId: "local-primary" },
+      { role: "repair", connectionId: null },
+    ]);
+    expect((await registry.read()).agentRoutes).toEqual({
+      implement: "local-primary",
+      review: "local-primary",
+      repair: null,
+    });
+
+    const revision = (await registry.read()).revision;
+    await service.setAgentRoutes([
+      { role: "implement", connectionId: "local-primary" },
+      { role: "review", connectionId: "local-primary" },
+      { role: "repair", connectionId: null },
+    ]);
+    expect((await registry.read()).revision).toBe(revision);
+  });
+
+  it("rejects invalid or cancelled route batches without mutation", async () => {
+    const { registry } = await seededRegistry();
+    const service = new ConnectionLifecycleService(registry);
+    const before = await registry.read();
+
+    await expect(service.setAgentRoutes([
+      { role: "implement", connectionId: "local-primary" },
+      { role: "implement", connectionId: null },
+    ])).rejects.toMatchObject({
+      code: "operation_unavailable",
+      message: "Agent route assignments are invalid",
+    });
+    await expect(service.setAgentRoutes([
+      {
+        role: "explore" as never,
+        connectionId: "local-primary",
+      },
+    ])).rejects.toMatchObject({
+      code: "operation_unavailable",
+      message: "Agent route assignments are invalid",
+    });
+    expect((await registry.read()).revision).toBe(before.revision);
+
+    const controller = new AbortController();
+    await expect(
+      new ConnectionLifecycleService(
+        new AbortOnCommitRegistry(registry, controller),
+      ).setAgentRoutes(
+        [
+          { role: "implement", connectionId: "local-primary" },
+          { role: "review", connectionId: "local-primary" },
+        ],
+        { signal: controller.signal },
+      ),
+    ).rejects.toMatchObject({
+      code: "cancelled",
+      message: "Connection operation was cancelled",
+    });
+    expect((await registry.read()).agentRoutes).toEqual(before.agentRoutes);
+    expect((await registry.read()).revision).toBe(before.revision);
   });
 
   it("assigns a host-tool Codex app-server connection to a team role", async () => {

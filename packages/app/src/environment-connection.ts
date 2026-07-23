@@ -160,7 +160,25 @@ function configuration(
   });
 }
 
-function safeFailure(error: unknown): EnvironmentConnectionError {
+function safeFailure(
+  error: unknown,
+  signal?: AbortSignal,
+): EnvironmentConnectionError {
+  if (
+    signal?.aborted === true ||
+    (
+      typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      error.name === "AbortError"
+    )
+  ) {
+    return new EnvironmentConnectionError(
+      "cancelled",
+      "BYOK connection setup was cancelled",
+      { cause: error },
+    );
+  }
   if (error instanceof EnvironmentConnectionError) return error;
   return new EnvironmentConnectionError(
     "configuration_invalid",
@@ -339,7 +357,12 @@ export async function setupEnvironmentConnection(
   const registry = new FileConnectionRegistry(dataDirectory);
   try {
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const current = await registry.migrateLegacyLocal();
+      dependencies.signal?.throwIfAborted();
+      const current = await registry.migrateLegacyLocal(
+        dependencies.signal === undefined
+          ? {}
+          : { signal: dependencies.signal },
+      );
       const matches = environmentRecords(current).filter(
         (record) => record.providerId === input.providerId &&
           record.credentialEnvironmentVariable ===
@@ -376,14 +399,21 @@ export async function setupEnvironmentConnection(
         current.connections.length === 0 &&
         current.primaryConnectionId === null;
       try {
-        const committed = await registry.commit(current.revision, (draft) => {
-          const index = draft.connections.findIndex(
-            (candidate) => candidate.id === record.id,
-          );
-          if (index === -1) draft.connections.push(record);
-          else draft.connections[index] = record;
-          if (makePrimary) draft.primaryConnectionId = record.id;
-        });
+        dependencies.signal?.throwIfAborted();
+        const committed = await registry.commit(
+          current.revision,
+          (draft) => {
+            const index = draft.connections.findIndex(
+              (candidate) => candidate.id === record.id,
+            );
+            if (index === -1) draft.connections.push(record);
+            else draft.connections[index] = record;
+            if (makePrimary) draft.primaryConnectionId = record.id;
+          },
+          dependencies.signal === undefined
+            ? {}
+            : { signal: dependencies.signal },
+        );
         return configuration(record, committed.primaryConnectionId);
       } catch (error) {
         if (
@@ -401,7 +431,7 @@ export async function setupEnvironmentConnection(
       "Connection registry revision changed",
     );
   } catch (error) {
-    throw safeFailure(error);
+    throw safeFailure(error, dependencies.signal);
   }
 }
 

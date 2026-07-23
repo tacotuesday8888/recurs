@@ -126,6 +126,27 @@ describe("application local connection onboarding", () => {
     expect((await registry.read()).primaryConnectionId).toBeNull();
   });
 
+  it("does not persist a connection when setup is cancelled after discovery", async () => {
+    const root = await temporaryRoot();
+    const controller = new AbortController();
+
+    await expect(setupLocalConnection(root, {
+      baseUrl: "http://127.0.0.1:11434/v1",
+      modelId: "qwen",
+      signal: controller.signal,
+      fetch: async () => {
+        controller.abort();
+        return Response.json({
+          object: "list",
+          data: [{ id: "qwen", object: "model", owned_by: "local" }],
+        });
+      },
+    })).rejects.toMatchObject({ name: "AbortError" });
+
+    expect((await new FileConnectionRegistry(root).read()).connections)
+      .toEqual([]);
+  });
+
   it("fails closed when one normalized origin has duplicate records", async () => {
     const root = await temporaryRoot();
     const registry = new FileConnectionRegistry(root);

@@ -1183,7 +1183,7 @@ describe("validateProviderManifest", () => {
     );
   });
 
-  it("keeps direct bundled providers non-runnable after native diagnostics", () => {
+  it("keeps direct bundled providers non-runnable until a trusted activation is assembled", () => {
     expect([
       bundled("openai-api"),
       bundled("anthropic-api"),
@@ -1194,6 +1194,17 @@ describe("validateProviderManifest", () => {
         { id: "anthropic-api", runnable: false },
         { id: "kimi-code", runnable: false },
       ]);
+  });
+
+  it("describes current credential custody without obsolete native-path claims", () => {
+    const evidence = BUNDLED_PROVIDER_MANIFESTS
+      .map((manifest) => manifest.usagePolicy.evidenceSummary)
+      .join("\n");
+
+    expect(evidence).not.toMatch(/signed native|native authority/i);
+    expect(bundled("anthropic-api").usagePolicy.evidenceSummary).toContain(
+      "process-environment BYOK",
+    );
   });
 
   it("distinguishes concrete origins from cloud templates and fails closed on empty endpoints", () => {

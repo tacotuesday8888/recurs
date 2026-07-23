@@ -68,6 +68,16 @@ describe("parseCommand", () => {
   it("rejects an empty or malformed command name", () => {
     expect(parseCommand("/")).toBeNull();
     expect(parseCommand("/goal! nope")).toBeNull();
+    expect(parseCommand("/goal first line\nsecond line")).toBeNull();
+  });
+
+  it("parses long slash-command input without regular-expression backtracking", () => {
+    const argument = "x".repeat(100_000);
+    expect(parseCommand(`/goal ${argument}`)).toEqual({
+      name: "goal",
+      args: argument,
+    });
+    expect(parseCommand(`/${"a".repeat(100_000)}!`)).toBeNull();
   });
 });
 

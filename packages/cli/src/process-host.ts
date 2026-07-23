@@ -76,6 +76,7 @@ import {
   listProviderSummaries,
   disconnectAccount,
   setAccountAgentRoute,
+  setAccountAgentRoutes,
   setPrimaryAccount,
   verifyAccount,
   type AccountSummary,
@@ -165,11 +166,16 @@ export interface CliDependencies {
     },
   ): Promise<RecursRuntime>;
   runAcp?(): Promise<void>;
-  setupLocal?(input: { baseUrl: string; modelId: string }): Promise<Pick<LocalConnectionConfiguration, "id" | "label" | "baseUrl" | "modelId" | "primary">>;
+  setupLocal?(input: {
+    baseUrl: string;
+    modelId: string;
+    signal?: AbortSignal;
+  }): Promise<Pick<LocalConnectionConfiguration, "id" | "label" | "baseUrl" | "modelId" | "primary">>;
   setupCodex?(input: {
     cwd: string;
     interactive: true;
     billingSelection: "allow_declared_additional";
+    signal?: AbortSignal;
   }): Promise<{
     readonly id: string;
     readonly label: string;
@@ -184,7 +190,7 @@ export interface CliDependencies {
     credentialEnvironmentVariable: string;
     billingSelection: "strict_primary_only" | "allow_declared_additional";
     reasoningEffort?: ModelReasoningEffort;
-  }): Promise<EnvironmentConnectionConfiguration>;
+  }, signal?: AbortSignal): Promise<EnvironmentConnectionConfiguration>;
   listProviders?(input: {
     includeBlocked: boolean;
   }): Promise<readonly ProviderSummary[]>;
@@ -201,12 +207,21 @@ export interface CliDependencies {
     signal?: AbortSignal,
   ): Promise<readonly LocalRuntimeDetection[]>;
   listAccounts?(): Promise<readonly AccountSummary[]>;
-  setPrimaryAccount?(id: string): Promise<AccountSummary>;
+  setPrimaryAccount?(id: string, signal?: AbortSignal): Promise<AccountSummary>;
   setAccountAgentRoute?(
     role: TeamRunRole,
     id: string | null,
+    signal?: AbortSignal,
   ): Promise<AgentRouteAssignment>;
-  verifyAccount?(id: string, cwd: string): Promise<ConnectionVerification>;
+  setAccountAgentRoutes?(
+    assignments: readonly AgentRouteAssignment[],
+    signal?: AbortSignal,
+  ): Promise<readonly AgentRouteAssignment[]>;
+  verifyAccount?(
+    id: string,
+    cwd: string,
+    signal?: AbortSignal,
+  ): Promise<ConnectionVerification>;
   disconnectAccount?(id: string): Promise<ConnectionDisconnection>;
 }
 
@@ -279,11 +294,10 @@ async function canonicalWorkingRoot(
 }
 
 function isAbortError(error: unknown): boolean {
-  try {
-    return error instanceof DOMException && error.name === "AbortError";
-  } catch {
-    return false;
-  }
+  return typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "AbortError";
 }
 
 function parseAgentArguments(
@@ -784,7 +798,16 @@ function isCommandResult(value: unknown): value is CommandResult {
   );
 }
 
-function exitCodeFor(error: unknown): number {
+function exitCodeFor(error: unknown, signal?: AbortSignal): number {
+  if (signal?.aborted === true) return 130;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "cancelled"
+  ) {
+    return 130;
+  }
   if (isCancellation(error) || isAbortError(error)) {
     return 130;
   }
@@ -801,6 +824,9 @@ function exitCodeFor(error: unknown): number {
   if (error instanceof ImageInputError) return 2;
   if (error instanceof EnvironmentConnectionError) {
     return error.code === "cancelled" ? 130 : 2;
+  }
+  if (error instanceof ProviderError && error.code === "cancelled") {
+    return 130;
   }
   if (error instanceof CodexOnboardingError) return 2;
   if (error instanceof ConnectionLifecycleError) {
@@ -936,6 +962,9 @@ async function runGuidedOnboarding(
         }),
     executeCommand: (argv) => runCli(argv, dependencies),
     ...(dependencies.signal === undefined ? {} : { signal: dependencies.signal }),
+    ...(dependencies.setAccountAgentRoutes === undefined
+      ? {}
+      : { setTeamRoutes: dependencies.setAccountAgentRoutes }),
     ...(dependencies.confirm === undefined ? {} : { confirm: dependencies.confirm }),
     ...(dependencies.listAccounts === undefined
       ? {}
@@ -1190,6 +1219,9 @@ export async function runCli(
         const onboarding = await runGuidedOnboarding(dependencies);
         if (onboarding.state === "failed") return onboarding.exitCode;
         if (onboarding.state === "configured") {
+          if (dependencies.signal?.aborted === true) {
+            throw new DOMException("Guided setup was cancelled", "AbortError");
+          }
           await runtime.close?.();
           runtime = await dependencies.createRuntime(renderer, {
             operatingModeId: onboarding.operatingModeId,
@@ -1227,6 +1259,9 @@ export async function runCli(
       const onboarding = await runGuidedOnboarding(dependencies);
       if (onboarding.state === "failed") return onboarding.exitCode;
       if (onboarding.state === "skipped") return 0;
+      if (dependencies.signal?.aborted === true) {
+        throw new DOMException("Guided setup was cancelled", "AbortError");
+      }
       const renderer = new TextEventRenderer(dependencies.stdout);
       const runtime = await dependencies.createRuntime(renderer, {
         operatingModeId: onboarding.operatingModeId,
@@ -1343,11 +1378,21 @@ export async function runCli(
       }
       return 0;
     } catch (error) {
+      const exitCode = exitCodeFor(error, dependencies.signal);
+      if (exitCode === 130) {
+        if (dependencies.signal?.aborted !== true) {
+          await writeOutput(
+            dependencies.stderr,
+            "Error: Provider discovery was cancelled\n",
+          );
+        }
+        return exitCode;
+      }
       await writeOutput(
         dependencies.stderr,
         `Error: ${safeCliErrorMessage(error)}\n`,
       );
-      return exitCodeFor(error);
+      return exitCode;
     }
   }
 
@@ -1377,7 +1422,10 @@ export async function runCli(
           await writeOutput(dependencies.stderr, help);
           return 2;
         }
-        const account = await dependencies.setPrimaryAccount(command.id);
+        const account = await dependencies.setPrimaryAccount(
+          command.id,
+          dependencies.signal,
+        );
         await writeOutput(
           dependencies.stdout,
           `Primary connection — ${account.id} · ${account.modelId}\nProvider: ${account.providerId} · Billing: ${account.billingSources.join(" + ")}\nExisting sessions keep their pinned backend.\n`,
@@ -1414,6 +1462,7 @@ export async function runCli(
         const route = await dependencies.setAccountAgentRoute(
           command.role,
           command.id,
+          dependencies.signal,
         );
         await writeOutput(
           dependencies.stdout,
@@ -1431,6 +1480,7 @@ export async function runCli(
         const result = await dependencies.verifyAccount(
           command.id,
           dependencies.cwd ?? process.cwd(),
+          dependencies.signal,
         );
         const verification = result.connection.kind ===
             "environment_model_provider"
@@ -1466,11 +1516,21 @@ export async function runCli(
       );
       return 0;
     } catch (error) {
+      const exitCode = exitCodeFor(error, dependencies.signal);
+      if (exitCode === 130) {
+        if (dependencies.signal?.aborted !== true) {
+          await writeOutput(
+            dependencies.stderr,
+            "Error: Account operation was cancelled\n",
+          );
+        }
+        return exitCode;
+      }
       await writeOutput(
         dependencies.stderr,
         `Error: ${safeCliErrorMessage(error)}\n`,
       );
-      return exitCodeFor(error);
+      return exitCode;
     }
   }
 
@@ -1509,18 +1569,23 @@ export async function runCli(
         return 2;
       }
       try {
-        const connection = await dependencies.setupEnvironment(byokCommand);
+        const connection = await dependencies.setupEnvironment(
+          byokCommand,
+          dependencies.signal,
+        );
         await writeOutput(
           dependencies.stdout,
           `Ready — ${connection.label} · ${connection.modelId}\nProvider: ${connection.providerId}\nReasoning effort: ${connection.reasoningEffort ?? "provider default"}\nCredential: ${connection.credentialEnvironmentVariable} (value not stored; fingerprint bound)\nBilling: ${connection.billingSelection}\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it, or recurs account route implement ${connection.id} to assign team work\n`}`,
         );
         return 0;
       } catch (error) {
+        const exitCode = exitCodeFor(error, dependencies.signal);
+        if (exitCode === 130) return exitCode;
         await writeOutput(
           dependencies.stderr,
           `Error: ${safeCliErrorMessage(error)}\n`,
         );
-        return exitCodeFor(error);
+        return exitCode;
       }
     }
     if (argv.length === 2 && argv[1] === "codex") {
@@ -1551,6 +1616,9 @@ export async function runCli(
           cwd: dependencies.cwd ?? process.cwd(),
           interactive: true,
           billingSelection: "allow_declared_additional",
+          ...(dependencies.signal === undefined
+            ? {}
+            : { signal: dependencies.signal }),
         });
         await writeOutput(
           dependencies.stdout,
@@ -1558,11 +1626,13 @@ export async function runCli(
         );
         return 0;
       } catch (error) {
+        const exitCode = exitCodeFor(error, dependencies.signal);
+        if (exitCode === 130) return exitCode;
         await writeOutput(
           dependencies.stderr,
           `Error: ${safeCliErrorMessage(error)}\n`,
         );
-        return exitCodeFor(error);
+        return exitCode;
       }
     }
     const input = parseLocalSetupArguments(argv.slice(1));
@@ -1571,15 +1641,22 @@ export async function runCli(
       return 2;
     }
     try {
-      const connection = await dependencies.setupLocal(input);
+      const connection = await dependencies.setupLocal({
+        ...input,
+        ...(dependencies.signal === undefined
+          ? {}
+          : { signal: dependencies.signal }),
+      });
       await writeOutput(
         dependencies.stdout,
         `Ready — ${connection.label} · ${connection.modelId}\nEndpoint: ${connection.baseUrl}\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it, or recurs account route implement ${connection.id} to assign team work\n`}`,
       );
       return 0;
     } catch (error) {
+      const exitCode = exitCodeFor(error, dependencies.signal);
+      if (exitCode === 130) return exitCode;
       await writeOutput(dependencies.stderr, `Error: ${safeCliErrorMessage(error)}\n`);
-      return exitCodeFor(error);
+      return exitCode;
     }
   }
 
@@ -1790,15 +1867,13 @@ export async function runCliProcess(
   const argv = process.argv.slice(2);
   const doctorRequested = argv[0] === "doctor" && (
     argv.length === 1 ||
-    (argv.length === 2 && argv[1] === "--json") ||
-    (argv[1] === "native" &&
-      (argv.length === 2 || (argv.length === 3 && argv[2] === "--json")))
+    (argv.length === 2 && argv[1] === "--json")
   );
   const interactiveOperationRequested = doctorRequested ||
     argv.length === 0 ||
-    (argv[0] === "provider" && argv[1] === "models") ||
-    (argv[0] === "setup" &&
-      (argv.length === 1 || argv[1] === "byok"));
+    argv[0] === "provider" ||
+    argv[0] === "account" ||
+    argv[0] === "setup";
   const interactiveOperationController = interactiveOperationRequested
     ? new AbortController()
     : undefined;
@@ -1944,16 +2019,11 @@ export async function runCliProcess(
         processStdin,
         processStdout,
       ),
-      setupLocal: (input) => setupLocalConnection(
-        dataDirectory,
-        input,
-      ),
-      setupEnvironment: (input) => setupEnvironmentConnection(
+      setupLocal: (input) => setupLocalConnection(dataDirectory, input),
+      setupEnvironment: (input, signal) => setupEnvironmentConnection(
         dataDirectory,
         { ...input, environment: process.env },
-        interactiveOperationController === undefined
-          ? {}
-          : { signal: interactiveOperationController.signal },
+        signal === undefined ? {} : { signal },
       ),
       setupCodex: (input) => setupCodexSubscription(dataDirectory, input),
       credentialEnvironmentAvailable: (name) => {
@@ -1976,14 +2046,29 @@ export async function runCliProcess(
       detectProviders: (signal) =>
         detectLocalRuntimes(signal === undefined ? {} : { signal }),
       listAccounts: () => listAccountSummaries(dataDirectory),
-      setPrimaryAccount: (id) => setPrimaryAccount(dataDirectory, id),
-      setAccountAgentRoute: (role, id) =>
-        setAccountAgentRoute(dataDirectory, role, id),
-      verifyAccount: (id, cwd) => verifyAccount(
+      setPrimaryAccount: (id, signal) => setPrimaryAccount(
+        dataDirectory,
+        id,
+        signal,
+      ),
+      setAccountAgentRoute: (role, id, signal) =>
+        setAccountAgentRoute(
+          dataDirectory,
+          role,
+          id,
+          signal,
+        ),
+      setAccountAgentRoutes: (assignments, signal) =>
+        setAccountAgentRoutes(
+          dataDirectory,
+          assignments,
+          signal,
+        ),
+      verifyAccount: (id, cwd, signal) => verifyAccount(
         dataDirectory,
         id,
         cwd,
-        undefined,
+        signal,
         { environment: process.env },
       ),
       disconnectAccount: (id) => disconnectAccount(dataDirectory, id),
