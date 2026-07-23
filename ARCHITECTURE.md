@@ -37,7 +37,7 @@ or orchestration. The core does not parse terminal input.
 
 ## Process model
 
-The published command starts one Node.js process:
+The packaged CLI starts one Node.js process:
 
 ```text
 terminal / ACP client
