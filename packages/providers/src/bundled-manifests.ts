@@ -138,7 +138,7 @@ const bundled = [
       "https://developers.openai.com/api/docs/guides/streaming-responses",
     ],
     evidenceSummary:
-      "OpenAI documents direct Responses API access with separate platform billing; environment BYOK is process-scoped while persistent credential custody requires the native broker.",
+      "OpenAI documents direct Responses API access with separate platform billing; Recurs supports process-scoped environment BYOK and does not persist the key.",
   }),
   manifest({
     id: "openai-codex-chatgpt",

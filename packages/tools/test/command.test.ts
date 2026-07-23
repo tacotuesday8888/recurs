@@ -531,15 +531,8 @@ describe("run_command", () => {
     }
   });
 
-  it("removes native authority, Keychain, token, and proxy variables", async () => {
+  it("removes credential, token, and proxy variables", async () => {
     const deniedEnvironment = {
-      RECURS_NATIVE_FD: "71",
-      RECURS_NATIVE_AUTHORITY: "native-authority-canary",
-      RECURS_BROKER_ENDPOINT: "broker-endpoint-canary",
-      RECURS_BROKER_TOKEN: "broker-token-canary",
-      RECURS_LAUNCHER_FD: "72",
-      RECURS_LAUNCHER_DESCRIPTOR: "launcher-descriptor-canary",
-      RECURS_PROVIDER_AUTHORITY_HANDLE: "authority-handle-canary",
       KEYCHAIN_ACCESS_GROUP: "keychain-canary",
       OPENAI_API_KEY: "openai-key-canary",
       PROVIDER_CLIENT_SECRET: "provider-secret-canary",

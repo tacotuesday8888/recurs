@@ -155,7 +155,7 @@ export function providerOverviewText(
         )
     : [`  ${overview.catalog.unavailable}`];
   const available = listProviderSummaries().filter((provider) =>
-    provider.status === "runnable" || provider.status === "requires_native_broker"
+    provider.status === "runnable" || provider.status === "runnable_byok"
   ).slice(0, 8).map((provider) =>
     `  ${provider.displayName} · ${provider.status.replaceAll("_", " ")}`
   );

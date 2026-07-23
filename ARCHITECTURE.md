@@ -1,307 +1,155 @@
-# Recurs Architecture
+# Recurs architecture
 
-Recurs has one small coding-agent engine and multiple future clients. The terminal is the first client; the planned desktop app will present projects as agent-managed companies without turning Recurs into an IDE.
+Recurs is a TypeScript coding-agent harness. One portable core owns provider
+access, agent execution, tools, durable state, and team orchestration. Platform
+code is limited to process containment and terminal integration.
 
-## Package boundaries
+This follows the durable shape used by strong coding-agent projects: one
+dominant implementation language, a small CLI edge, explicit provider
+adapters, and an orchestration core that does not depend on presentation code.
 
-Dependencies point inward:
+## Package map
 
 ```text
-contracts ◄── providers ◄── app ◄── cli
-    ▲             ▲                  ▲
-    ├── auth ─────┘                  │
-    ├── runtimes ────────────────────┤
-    └── tools ◄── core ──────────────┘
+packages/cli ──────────────── application entrypoint and terminal/ACP surfaces
+    │
+    ├── packages/app ─────── connection registry and onboarding policy
+    ├── packages/core ────── agent loop, sessions, teams, goals, checkpoints
+    ├── packages/runtimes ── delegated vendor runtimes
+    ├── packages/providers ─ direct and local model adapters
+    └── packages/tools ───── bounded filesystem, Git, process, and MCP tools
 
-native broker ◄──private XPC── native launcher
-      │ Keychain, lifecycle, catalog, and generation authority
-                                      │ fixed Node/main.js + anonymous fd 3
-                                      ▼
-auth ◄──bounded native frames── sealed private engine
-public/source CLI ──fixed unavailable port──► shared process host
+packages/contracts ───────── shared data contracts; depends on no workspace code
 ```
 
-- `@recurs/contracts` owns dependency-free model, connection, billing, backend-pin, trusted-invocation, failure, direct-provider, delegated-runtime, coordinator, agent-profile, operating-mode, immutable company-blueprint/onboarding/goal/knowledge/amendment, and parent/child state contracts.
-- `@recurs/providers` owns strict provider manifests, the immutable 26-path catalog, normalized direct-provider streams, safe provider-error mapping, and deterministic fixtures. It has no credential implementation.
-- `@recurs/auth` owns the credential-free, bounded client and strict redacted onboarding/generation codecs for one injected native duplex. Descriptor parsing and ownership stay in the private engine, and auth has no credential or secret-retrieval operation.
-- `@recurs/app` owns the non-secret connection registry, redacted lifecycle and native-authority services, local onboarding, onboarding projection, and Codex onboarding policy. It depends on contracts, providers, and auth, never on the CLI.
-- `@recurs/runtimes` owns bounded ACP process/protocol handling and the pinned official Codex ACP profile. It receives opaque continuation-store capabilities and does not import vendor credentials.
-- `@recurs/tools` owns tool definitions and execution, permission intents, the unified credential/workspace path policy, command classification, clean one-shot and agent-owned resumable process setup and bounds, Git inspection, and checkpoint format gates.
-- `@recurs/core` owns the direct agent loop, delegated executor, backend-neutral coordinator, owned child manager, immutable company-blueprint compiler/stores, resumable company onboarding, bounded company-goal supervisor, provenance-backed company learning, controlled amendment authority, bounded batch and team coordinators, durable goal/team journals and recovery, provider-neutral role routing, cross-process run ownership, durable patch artifacts, activity projection, Git worktree leases, adaptive Review panels, shared delegation budgets, normalized runtime/agent events, trusted preflight handoff, process-scoped continuation authority, durable goals, session reduction, JSONL persistence, compaction, and recovery.
-- `@recurs/cli` composes app (which assembles auth), providers, runtimes, core, and tools; it owns slash commands, operating-mode selection, agent activity rendering, redacted native diagnostics, interactive input, non-interactive execution, the Recurs-owned ACP stdio server, the bounded user-configured MCP stdio client, and process exit behavior.
-- `packages/native-engine` is the launcher-only entrypoint that claims descriptor 3 before loading the shared process host. Its sealed build substitutes a fixed denial for delegated Codex rather than resolving an ambient runtime.
-- `native/macos` contains the headless Swift launcher, exact-peer XPC broker, fixed bundle/child lifecycle, foreground secret capture, Data Protection Keychain adapter, credential journal/state machine, endpoint policy, model catalogs, and broker-owned OpenAI/Anthropic/Kimi generation. This is native CLI infrastructure, not a desktop interface.
-
-The implemented child, durable-team, and V2 company-goal orchestrators consume these boundaries rather than reimplementing the loop. The future desktop app must do the same.
-
-## Turn lifecycle
-
-For one prompt in the coordinated direct-model lane:
-
-1. `BackendRunCoordinator` acquires a cross-process session mutation lease with a monotonic fencing token and exact expected sequence;
-2. it resolves trusted invocation context, the immutable pinned backend, and run-bound authorization before persisting the prompt;
-3. closes pending tool records and inserts missing interrupted tool results;
-4. records the user message and turn start;
-5. loads a bounded root-to-cwd project-instruction snapshot once for the turn;
-6. sends that immutable context/message/tool snapshot to the selected provider;
-7. validates and streams provider events through one reducer;
-8. executes normalized tool calls sequentially through permissions and checkpoints;
-9. records a terminal tool record plus a model-visible result for every started call;
-10. repeats until a final response, cancellation, repeated interaction, failure, or step limit;
-11. persists the terminal turn record and updates active-goal progress.
-
-Provider retries are bounded to two attempts and are allowed only before text, reasoning, or a tool call has appeared. Retrying after semantic output could duplicate visible text or work.
-
-## Company formation and owned orchestration
-
-Company formation is a durable state machine rather than one transient prompt.
-`CompanyOnboardingRunV1` records depth, design mode, immutable authority,
-interview answers, bounded research, uncertainty, usage, proposal revisions,
-approval, cancellation, and failure. Quick, Guided, and Deep policies cap
-interview rounds, research children, model requests, concurrency, and reported
-cost, then intersect those limits with the selected V6 operating mode. Resume
-requires the same canonical project root, backend fingerprint, permission mode,
-operating mode, depth, and design mode. Stores publish private immutable objects
-atomically and use append-only sequenced state plus mutation fencing; corruption
-and stale writers fail closed.
-
-Before approval, `CompanyOnboardingAgentRuntime` exposes only `read_file`,
-`list_files`, `search_text`, `code_outline`, `git_status`, `git_diff`,
-`git_history`, and `git_show` through an enforced Plan-only registry. No shell,
-write, network, credential, installation, MCP, Skill, project-command, or
-delegation tool enters that registry. Repository access is consent-gated.
-Model-authored interview decisions and dynamic organizations cross strict
-parsers; Stable Core + Specialists retains Recurs's coherent baseline, while
-Guardrailed Dynamic still requires a root orchestrator, independent-review
-authority, acyclic reporting/delegation, bounded roles, monotonic permissions,
-valid model routes, evidence obligations, and stable opaque IDs.
-
-The proposal remains editable through conversational revision or bounded YAML,
-but validated JSON is canonical. Structural diffs and final readiness are shown
-before explicit approval. With repository consent, readiness separately reports
-enabled/disabled Agent Skills, MCP servers, and project trust without exposing
-paths or commands. Catalog metadata alone grants nothing. A local, manual,
-user-present `/company bind` decision may publish one immutable exact-ID mapping
-from an approved blueprint revision and tool bundle to an enabled Skill or
-trusted MCP server. Runtime preparation intersects that mapping with the role,
-profile, parent permission, process, network, and operating-mode policies. A
-binding cannot install, trust, or widen anything; stale and unavailable mappings
-fail closed.
-
-An approved `CompanyBlueprintV1` is a private immutable project policy, not an
-independent execution engine. Guided onboarding deterministically compiles the
-bounded project intake, optional consented root-marker facts, selected
-permission preset, and exact operating-mode ID/version into stable role,
-model-route, tool-readiness, and quality contracts. Assembly persists it before
-creating a fresh root session, binds that session to `orchestrator_v1`, and
-records its proposed first objective through the existing `goal_updated`
-journal. Authority mismatch, a missing provider, a proposed rather than
-approved blueprint, or an attempt to attach one during resume fails before
-successful activation.
-
-`delegate_company_task` is a narrow adapter over `ChildAgentManager`. It
-reloads the exact bound blueprint, resolves one approved role to an existing
-profile, scopes the role instructions around one assignment, and returns the
-ordinary durable child result to the parent. Company correlation is included
-in normalized activation and child lifecycle events. The adapter does not add
-another model loop, permission engine, retry budget, recursion level, or
-background daemon. Approved roster entries remain idle until the parent makes
-a concrete tool call.
-
-V2 preserves that historical path but activates a different adapter.
-`CompanyGoalSupervisor` validates a model-proposed assignment DAG against the
-exact approved blueprint revision and immutable V6 company policy. Bounded
-read/planning handoffs reuse `ChildAgentManager`; company implementation does
-not create a second work engine. It reserves a local slice from the goal-wide
-ledger and repeatedly calls `TeamRunSupervisor` for each dependency-ready
-implementation frontier together with its eligible independent reviewers.
-Every implementation is review-covered, and one final independent review must
-depend on all non-review work. A later frontier cannot start until its durable
-dependencies settle. The team journal remains authoritative for worktrees,
-artifacts, review, repair, apply, and child accounting; the goal journal remains
-authoritative for assignment lifecycle, company synthesis, and the global
-ledger. Terminal team evidence and accounting reconcile exactly once per
-stage. Failure, cancellation, and interruption remain explicit, and resume
-continues only the next valid frontier rather than replaying completed work.
+The dependency direction is inward:
 
-Each assignment receives a bounded charter compiled from the immutable role,
-department, project, hierarchy, model route, tool bundles, quality standard,
-and authority ceiling. Relevant attributable knowledge is selected at the
-run's historical cutoff and quoted as untrusted context. Prompt truncation may
-remove context but never the assignment's acceptance, evidence, or authority
-tail.
+- `@recurs/contracts` defines stable, provider-neutral data shapes.
+- `@recurs/providers` implements model transports against those contracts.
+- `@recurs/app` owns non-secret connection metadata and activation policy.
+- `@recurs/runtimes` adapts delegated vendor runtimes.
+- `@recurs/tools` owns host-facing tool implementations and containment.
+- `@recurs/core` owns execution and orchestration.
+- `@recurs/cli` composes the packages and owns user-facing I/O.
 
-After a company goal has durably completed, `CompanyLearningService` accepts
-only attributable user or execution evidence, rejects secret-shaped content,
-deduplicates immutable entries, enforces same-kind supersession, and publishes a
-new bounded `CompanyKnowledgeV1` revision. Goal preparation selects relevant
-active facts under entry and byte limits and supplies them as context; it never
-rewrites historical messages or blueprint authority. A post-completion learning
-failure is emitted as a warning rather than falsifying the already-completed
-goal, while an unreadable pre-run knowledge boundary blocks execution.
+No package imports the CLI. Provider adapters do not own onboarding, storage,
+or orchestration. The core does not parse terminal input.
 
-`CompanyAmendmentService` keeps organizational change separate from learning.
-Every proposal targets the exact currently approved blueprint revision and is
-stored immutably; approval or rejection is a separate fenced decision. Approval
-creates the next immutable blueprint revision only after revalidating the full
-lineage and proposal, while rejection publishes no blueprint. The current
-session remains pinned to its original binding; a future session may adopt only
-the newest contiguous, fully decided lineage. `/company amendment <id>` exposes
-a bounded structural diff, and decisions require an exact ID plus local,
-manual, user-present confirmation.
+## Process model
 
-The CLI's company operating view is a pure bounded projection over approved
-blueprints and durable goal journals. It counts a role as active only when a
-real assignment is running, reports reserved and consumed requests separately,
-preserves unknown cost as unknown, and never polls, resumes, approves, or
-mutates work. Company evaluation is similarly downstream of authority: the
-offline installed command exercises formation with a scripted provider and
-restricted read-only tools, while durable goal scoring reparses and validates
-the exact blueprint/run binding before scoring structure, evidence, synthesis,
-and efficiency. Neither projection can authorize execution or substitute for
-real-provider quality testing.
+The published command starts one Node.js process:
 
-Configured formation copies only one exact selected (or primary) non-secret
-connection record into a temporary evaluation root; it never changes the
-source registry primary. Direct environment/local and native-brokered model
-routes retain their existing authority. Delegated Codex is intentionally
-excluded because its reviewed subscription boundary remains local, manual,
-user-present, foreground, and Plan-only. Durable `company_goal_execution_v1`
-scoring is a provider-free projection over the exact run, approved V2 blueprint
-revision, and pinned parent backend. Its non-repairing reads never resume,
-truncate, heal, or otherwise mutate historical state. Human evaluation output
-receives sanitized phase/count events; successful JSON output keeps stderr
-empty.
+```text
+terminal / ACP client
+        │
+        ▼
+     CLI host
+        │
+        ├── connection selection
+        ├── agent runtime
+        ├── provider adapter or delegated runtime
+        └── bounded tools
+```
 
-`delegate_task` creates one durable Explore, Implement, or Review child session through `BackendRunCoordinator`. `delegate_tasks` schedules independent Explore/Review children through that same path. `delegate_team` composes isolated Implement, Review, and Repair children without creating another model loop. Child permissions can only narrow the parent, retries are zero, and every operating mode caps total and concurrent work. Immutable version-1 through version-5 IDs retain their historical behavior; display-name selection uses the V6 company-capable policy.
+There is no private second engine, platform broker, or platform-specific model
+client. macOS and Linux differences live at the subprocess containment edge.
+Windows subprocess tools currently fail closed.
 
-Batch preflight requires the parent cwd to be the canonical root of a clean Git repository. `GitWorktreeLeaseManager` creates a detached worktree at exact `HEAD` under the private project-data root, outside the repository. Each child session stores its lease and revision, results settle in input order, linked cancellation stops active work, and every lease is cleaned before settlement. Explore/Review batches intentionally discard workspace effects while retaining successful sibling evidence after ordinary partial failure.
+## Multi-provider connection architecture
 
-For a version-4-or-newer team workflow, all Implement workers must succeed before staging begins. `GitPatchArtifactManager` captures each lease against the same revision, accepts at most 256 unambiguous non-credential paths and 1 MiB of text patch data per artifact, and rejects binaries, symlinks, submodules, mode changes, renames/copies, and tampered or foreign handles. Recurs applies artifacts sequentially in declared task order to a dedicated private staging worktree, never directly to the parent. `implement_v2`, `review_v2`, and `repair_v1` deliberately expose no arbitrary-command or verification tool; only hardened Git inspection may spawn a process, and project scripts cannot be executed. Strict Review JSON produces `approved`, `changes_requested`, or `unverified`; only valid structured findings can start a new depth-one Repair sibling, and the frozen policy bounds the number of repair rounds.
+One shared interface supports many model providers without coupling the runtime
+to one vendor. Recurs currently supports three explicit connection families:
 
-`JsonlTeamRunStore` is authoritative for the descriptor, frozen policy/routes, lifecycle, child reservations and results, artifact links, review/repair rounds, cancellation, accounting, and outcome. The journal uses strict records, monotonic sequences, private files, fsynced appends, and cross-process append fencing. `TeamRunOwnerLeaseManager` separately admits one live owner per parent and run, reclaims a dead owner, and fences stale in-process writers. A parent may have only one unresolved durable team run.
+1. `local_openai_compatible` for reviewed loopback endpoints.
+2. `environment_model_provider` for fixed-origin BYOK adapters.
+3. `delegated_agent` for vendor-owned runtimes such as Codex.
 
-Foreground and background use the same `TeamRunSupervisor`. Foreground waits for an approved candidate and applies it before returning. `execution: "background"` returns after durable ownership is established, continues only for the lifetime of that Recurs process, and stops an approved run at `ready_to_apply`. Recurs releases the staging worktree before publishing that boundary and best-effort discards intermediate artifacts; bounded wait and apply confirm the cross-process owner handoff before treating ready as actionable. Status, bounded wait, cancellation, safe resume, and explicit apply are exposed through model tools and `/agents`. Background start and resume require a local, manual, user-present Act session, an eligible backend, and Full Access; explicit apply requires Full Access or one explicit elevated write approval. These are lifecycle controls, not a daemon.
+Saved records contain routing and policy metadata, never reusable credential
+bytes. Environment BYOK stores the environment-variable name and a one-way
+credential fingerprint. At runtime, the named value must be present and match
+that fingerprint before a request can begin.
 
-Parent apply is a two-phase transaction. Recurs verifies the frozen parent/backend/policy/base/candidate binding, captures a durable checkpoint, records `apply_prepared`, applies the cumulative artifact, validates the complete dirty path set, completes the checkpoint, and records `apply_committed`. Startup recovery settles exact bound child sessions, cleans owned stale worktrees, and reconciles an interrupted apply: a clean unchanged base returns to `ready_to_apply`, an exact candidate diff completes idempotently, and any other workspace state becomes `interrupted` with manual attention required. It never resets or overwrites an ambiguous parent.
+Provider manifests are discovery and policy data, not executable authority.
+An integration is runnable only when a reviewed adapter, endpoint policy,
+billing acknowledgement, and current usage policy all agree.
 
-Interrupted version-4-or-newer background runs support safe resume from an interrupted boundary; resume creates fresh depth-one siblings and preserves prior attempts. These runs also support bounded finding-driven repair. The ordinary team tool does not recursively delegate or decompose its own input; model-proposed decomposition belongs to the separately validated V2 company-goal supervisor. Retrying a terminal child, dirty-parent snapshots, auto-commit, push/deploy, a persistent worker daemon, and automatic backend ranking remain absent. `/agents activity` projects child lifecycle from durable session state, while `/agents teams` and `/agents team <id>` project safe run state from the team journal.
+There is no automatic model ranking or silent provider fallback.
 
-## Provider boundary
+## Execution lifecycle
 
-`ModelProvider.stream()` accepts a model identifier, immutable messages, visible tool definitions, and an abort signal. It returns normalized events:
+A new run:
 
-- text and reasoning deltas;
-- complete tool calls;
-- token usage;
-- exactly one terminal event.
+1. resolves the canonical working root;
+2. selects an injected, saved, or explicit provider connection;
+3. freezes a backend pin, permissions, and operating mode;
+4. creates or resumes a durable session;
+5. streams the parent agent loop;
+6. validates tool calls against the active tool profile;
+7. records bounded events and normalized provider usage; and
+8. closes owned processes and state handles.
 
-The collector rejects malformed usage, duplicate or empty tool identities, data after completion, oversized output, excessive tool calls, and missing completion. `ScriptedProvider` makes the full engine deterministic in tests.
+Resumed sessions retain their original backend pin. Changing the primary
+connection affects future sessions, not historical ones.
 
-`BackendRunCoordinator` selects the immutable session pin's direct-model or delegated-runtime lane. Standalone assembly rereads the registry on every operation, finds the exact pinned connection ID, reconstructs its canonical pin, and compares the complete value before creating a provider or runtime. Changing the global primary therefore cannot redirect an old session; changing or disconnecting its record fails preflight. Local pins include a domain-separated digest of the normalized loopback origin. The coordinator also rejects a resolver whose run authorization is bound to a different operation, turn, session, connection, model, policy, billing mode, or invalid request budget. Direct providers are instantiated per run and enter `AgentLoop` through `AgentLoopDirectExecutor`; the authorization's request budget limits model steps. `DelegatedAgentExecutor` separately validates bounded runtime events, approval option IDs, capabilities, continuation provenance, and one terminal result.
+## Agent teams
 
-`AgentBackendRouter` evaluates role candidates by declared capability—execution mode, host-controlled tools, background eligibility, permission support, connection readiness, and billing policy—rather than provider brand. Registry schema v2 stores at most one explicit direct-model connection assignment for each Implement, Review, and Repair role. Production assembly rereads and resolves those assignments at team preflight, filters them through the active V6 mode's eligible billing classes, always retains the immutable parent pin as fallback, and freezes each decision and backend pin into the durable descriptor. Historical modes continue to inherit the parent. Resume requires the fresh eligible decision to match the frozen route exactly. This is explicit routing, not automatic model intelligence: Recurs does not infer strength, estimate price, route ordinary `delegate_task` calls, or silently choose an unassigned account.
+The parent runtime may create bounded Explore, Implement, Review, and Repair
+children according to a versioned operating-mode policy.
 
-The live direct transports are credential-free literal-loopback Ollama/LM Studio, fixed-origin environment BYOK for OpenAI Responses plus reviewed OpenAI Chat-compatible and Anthropic Messages providers, and the injected test/embedding seam. Environment selection is all-or-nothing (`RECURS_PROVIDER`, `RECURS_MODEL`, `RECURS_API_KEY`), rejects arbitrary origins, derives the adapter from the reviewed manifest protocol, hashes the credential into a non-secret pin identity, and strips key-bearing variables from all tool children. The public Responses adapter keeps API storage disabled, validates typed streaming lifecycle and function items, and holds replayable encrypted reasoning behind bounded process-scoped handles; it fails closed rather than claiming restart durability. The Anthropic adapter translates durable system/message/tool history into native Messages blocks and uses bounded named-SSE decoding. Both normalize usage and reject redirects, malformed events, and split-chunk credential echoes. Protocol-level harness profiles add stable native or conservative compatibility tool-use instructions to every direct-model step. The live delegated transport is the pinned official `@agentclientprotocol/codex-acp` 1.1.2 profile with `@openai/codex` 0.144.0. It enforces Codex `read-only`/Plan mode and local, manual, user-present CLI context. Before every run or reconciliation, assembly rereads saved connections and current policy. The runtime verifies structured ChatGPT authentication and the canonical account fingerprint on the exact ACP child that will perform the work. One-shot, unattended, recognized CI, remote, scripted, implicit SDK, Act-mode, stale-policy, changed-account, or changed-connection use fails before delegated Codex work continues.
+- Explore and Review are read-only.
+- Implement works in isolated Git worktrees.
+- Review findings are structured and bounded.
+- Repair is allowed only when the active policy permits it.
+- The parent owns apply authority.
 
-That Codex implementation belongs to the public npm/source CLI. The sealed private engine does not bundle or dynamically resolve the Codex binary/adapter graph; its `@recurs/runtimes` seam returns one fixed `adapter_unavailable` failure. Delegated Codex can enter the sealed host only after the runtime binary and adapter have their own reviewed fixed signed-bundle layout.
+Child depth, concurrency, requests, retries, cost reports, and tool profiles
+are frozen before execution. A child cannot widen the parent’s permission
+boundary or create unbounded recursion.
 
-Broker-owned saved connections require current native attestation, an exact registered codec/endpoint profile, current policy, a compatible platform, and a production-signed launcher/broker relationship. The public environment path is intentionally separate: it can use only supported fixed HTTPS manifest protocols implemented by its explicit Responses, Chat, or Anthropic adapter and never creates or activates a brokered registry record. A catalog manifest or caller-created object alone still cannot activate a provider.
+## Tools and containment
 
-## Tools and permissions
+Tool registration is capability-based. The runtime supplies only the tools
+allowed by the current role, execution mode, and permission profile.
 
-The registry parses tool input, evaluates every permission intent, asks when required, records exact session grants, runs an optional side-effect-free validation preflight, creates checkpoints around mutating tools, and executes the tool. A failed preflight cannot start checkpoint capture. Unknown implementation errors are converted to safe typed tool failures before they can enter events or session storage.
+Filesystem and Git tools enforce canonical workspace boundaries. Process tools
+receive a filtered environment and a private synthetic home/config/cache/temp
+tree. The default macOS path uses Seatbelt; Linux uses Bubblewrap with a fresh
+network namespace unless the approved command requires network.
 
-Plan mode removes mutating tools from the provider-visible registry and rejects them if called directly. It is an enforced capability boundary, not a prompt convention.
+Containment reduces host exposure but is not a credential-safe sandbox. A
+user-selected credential is present in the parent Node.js process for
+environment BYOK and may be observable by same-user host authority.
 
-The parent direct-provider loop may register one generic `mcp` tool from private user-owned configuration or project configuration whose canonical workspace and exact bytes have been explicitly trusted. Project trust is stored below that workspace's private Recurs data root and is invalidated before execution when the config digest changes; user/project server-ID collisions fail closed. MCP server startup is always mutating/elevated shell authority and optional network authority is explicit. One runtime may retain a single serialized stdio session for each exact server/workspace/sandbox identity. Reuse requires a protocol ping; failed health may restart only before an operation, never after an ambiguous tool call. Cancellation, timeout, failure, untrust, runtime close, one-shot settlement, REPL exit, and ACP close/disconnect converge on process-group cleanup. Protocol metadata and results are untrusted data. Historical and ordinary unbound child/team profiles do not include the tool; an approved V2 company role can receive one only through an exact enabled/trusted server binding and its narrower role/parent policy. Remote authentication/transports, cross-runtime daemons, and ACP-client declarations remain outside this boundary.
+## Durable state
 
-Permission engines and reusable grants are isolated by session. The three presets are:
+State is stored below the Recurs data directory:
 
-- **Ask Always:** normal project reads run; writes and shell commands ask; classified credential paths are denied.
-- **Approved for Me:** normal guarded project reads and writes run; all shell, network, sensitive, external, deployment, and destructive actions ask; classified credential paths are denied.
-- **Full Access:** routine workspace, shell, network, deployment, and destructive prompts are skipped after explicit confirmation; sensitive and external paths still ask; classified credential paths are denied.
+- non-secret connection metadata;
+- append-only session events;
+- checkpoints and patch artifacts;
+- team-run journals and leases;
+- company blueprints, amendments, knowledge, and goals.
 
-Built-in file, search, patch, Git, and checkpoint operations derive their case-insensitive credential exclusions from one path policy. Direct and canonical classified targets fail before tool execution, and aggregate `rg`/Git operations exclude slash and literal-backslash variants. Checkpoint capture reclassifies canonical parent and regular-file targets before any content read or blob write. This path-based defense does not eliminate adversarial symlink-swap races and does not constrain arbitrary shell scripts.
+Writes use private directories, bounded documents, canonical parsing, atomic
+replacement, and revision checks. User prompts and tool arguments may appear
+in private session logs; redacted projections are not substitutes for those
+logs.
 
-Fixed Git operations require Git 2.45 or newer, pin the requested worktree, and disable optional index locks, lazy object fetching, repository hooks, fsmonitor, external diff/text conversion, expanded dirty-submodule diffs, and configured clean/smudge/process filters. Filter key names are enumerated through a bounded name-only Git query; their command values never enter Recurs, and command-line empty overrides make the filters pass through without execution. The same prefix protects status, diff, patch parsing/check/application, and checkpoint enumeration. Apply-patch accepts exact slash-separated declarations, rejects path spellings that its policy would transform, rejects rename/copy operations, resolves canonical targets in a pre-checkpoint preflight, and compares Git's NUL-delimited `--numstat` path set with the declared, revision-checked files before mutation. This is application-level configuration preflight, not an OS boundary against another same-user process changing repository state concurrently.
+## Generated sources
 
-Every fixed or arbitrary child process receives exactly standard descriptors `0`–`2`, a mode-`0700` synthetic home, config, cache, and temporary tree under the canonical root-owned sticky system temporary directory. Its environment contains those paths, a filtered absolute `PATH`, and selected locale/terminal values only; it does not inherit the launcher descriptor, native-authority markers, Keychain/token variables, provider/cloud variables, the real home, `SHELL`, proxy variables, sockets, or workspace-contained `PATH` entries. Shell execution has command-risk classification, timeout, cancellation, process-group termination, output bounds, and a bounded output-pipe drain before parent handles are destroyed and synthetic-state cleanup proceeds. `run_command` normally settles within a 10-second yield window; a still-running process receives one unguessable owner-scoped identifier and may later be polled, receive bounded stdin, close stdin, or be stopped through `process_session`. Runtime close terminates every remaining owned group. This is pipe-based process control, not PTY allocation or hidden-input handling. These controls prevent inherited pipes alone from holding Recurs settlement open; they do not terminate or contain a descendant that deliberately creates another process group or session. Managed sessions expose bounded incremental output while running, but every terminal nonzero exit remains a typed failure without attaching its uncollected stderr. Windows subprocess use fails with a typed unsupported-platform error.
+Two policy sources are canonical:
 
-The current security profiles are:
+- `policy/non-secret-policy.v1.json`
+- `policy/provider-activation-profiles.v1.json`
 
-- `workspace_sandboxed` (standalone default on macOS and Linux): all registered tools remain subject to Plan mode and permissions. Shell and verification children run under Apple Seatbelt or a fixed system-Bubblewrap policy with canonical workspace-only host writes, hidden host credential/runtime state, and network denied unless an approved command intent requires it. Linux adds mount/user/PID/IPC/UTS namespaces but no Recurs seccomp filter. Sandbox setup fails closed.
-- `local_guarded` (standalone default on Windows and explicit embedding option elsewhere): all registered tools are available subject to Plan mode and permissions. On supported process platforms, arbitrary commands still have the user's host filesystem, network, IPC, and process authority. Windows subprocess execution is rejected as unsupported.
-- `tools_disabled`: no model tool definitions are advertised, and every direct invocation is rejected before parsing, permissions, or checkpoint capture. It is a fail-closed composition option, not a useful coding profile or sandbox.
+Generation produces TypeScript consumed by the portable runtime. CI checks that
+generated files match their sources.
 
-The macOS/Linux sandbox is a subprocess boundary, not authorization to expose provider credentials to TypeScript. Windows containment remains unimplemented. Full Access does not change those boundaries.
+## Verification
 
-## Sessions and recovery
+`npm run check` is the repository gate. It runs generated-source checks, lint,
+TypeScript project references, contract type tests, the Vitest suite, the
+production build, and npm-package verification.
 
-New sessions are append-only version-2 JSONL logs. Sequence zero records an immutable backend pin; every later record increments by exactly one and carries turn or operation provenance. Strict validators reject unknown fields, mixed versions, invalid transitions, stale sequences, malformed nested messages/failures, and contradictory terminals. Every append is flushed and synced.
-
-The loop repairs an interrupted protocol boundary before the next request:
-
-- pending `tool_started` records receive `tool_failed` with code `interrupted`;
-- assistant tool calls without a tool result receive a synthetic interrupted result.
-
-The mutation lease uses an atomic lock directory, owner-process recovery, and monotonic fence. A concurrent or stale writer fails before provider work. Version-1 logs remain readable and listable but are permanently read-only; continuing them will require the later explicit generic fork flow. Partial trailing records are quarantined, while committed corruption fails loudly.
-
-Delegated turns persist normalized text, usage, changed files, evidence, failure/cancellation, and provenance-bearing continuation updates in the same version-2 log. Vendor session identifiers remain behind bounded process-scoped continuation capabilities and are not written to JSONL. A continuation is staged as uncertain before terminal settlement and committed only with the matching durable terminal. On a later attempt while that process-scoped payload remains available, the coordinator asks the runtime to reconcile the uncertain tip before any new prompt. Core can record a proven committed or gone outcome, but the current ACP implementation conservatively reports an existing resumable vendor session as still uncertain and advances only when the session is proven gone; it never repeats remote work. After process loss the opaque payload is unavailable, so the durable uncertain record blocks unsafe replay rather than promising cross-process vendor-session recovery. The current continuation store is not a persistent broker.
-
-An orphaned compaction start is closed locally as interrupted with unknown usage and is never retried automatically. The agent loop closes incomplete tool boundaries and the previous open turn before beginning another request. Model-call usage is accounted when its durable completion record is replayed, so a later interrupted turn does not erase already incurred usage.
-
-Compaction targets the latest six messages but extends the retained window when necessary so an assistant tool call is never separated from its tool results.
-
-Team-run recovery is separate from conversational replay. At standalone assembly startup, before provider-policy or conversational-session activation, Recurs acquires dead-owner leases before changing a run, validates child identity against the frozen task/workspace/assignment binding, converts terminal child usage into team accounting, interrupts unsafe in-flight work, reconciles prepared parent applies, and removes only stale worktrees under Recurs's private project-data root. Per-run failures are sanitized; after all runs are inspected, any failure blocks startup with one safe error. A stable `ready_to_apply` candidate survives restart. Active compute does not: without a daemon, an ownerless running team becomes `interrupted` and requires an explicit safe resume. Legacy run records that lack the complete child binding fail closed rather than trusting a coincidentally matching session.
-
-## Checkpoints
-
-Mutating tools capture content-addressed before/after workspace states outside the project. A managed command owns one checkpoint from before spawn through exit, timeout, cancellation, explicit stop, startup failure, or runtime shutdown, so writes after the initial yield remain inside its undo boundary. Credential-classified paths are removed before any workspace read or blob write. Fresh stores receive a private version-2 format marker asserting that this exclusion was active from the first capture. A nonempty unversioned store, invalid or symlinked marker, or unknown format fails with `checkpoint_migration_required`; Recurs never blesses, rewrites, or deletes it automatically. Because this is pre-1.0 preview data, the supported migration is an explicit user-initiated move of the legacy checkpoint directory so a fresh store can be created.
-
-Undo chooses the newest checkpoint that changed files and verifies the current files still match the agent-produced after-state before restoring anything. Credential-classified canonical parents and targets are conflicts—even when the expected after-state is absent—and are checked again before each restore. Git is used for enumeration only; Recurs does not reset, clean, checkout, or commit the user's repository. The format marker protects upgrade semantics; the Node pathname-based store is not suitable for authentication secrets.
-
-## Native provider authority
-
-The macOS authority checks exact launcher/broker identifiers, Team ID, production signing class, and Hardened Runtime posture. It stores provider credentials as non-synchronizing `WhenUnlockedThisDeviceOnly` Data Protection Keychain items in a broker-private access group. Production broker startup authenticates and recovers the complete journal-v2 authority before activating XPC. Every record is bound to one exact provider/profile identity and generation; unreleased schema-v1 state deliberately fails closed and is reset rather than assigned a synthetic identity.
-
-The production-signed launcher resolves only fixed nonsymlinked Node and engine resources, owns foreground TTY capture and restoration, erases transient secret buffers, and bridges bounded redacted frames over anonymous descriptor 3. The sealed engine never receives a reusable credential. The public npm/source CLI removes an injected native descriptor before application loading, while unsigned and ad-hoc launchers fail the private engine path closed. Signal ownership, exact-PID process cleanup, terminal restoration, framing, and peer identity are covered by native and controlling-PTY tests.
-
-OpenAI API, Anthropic API, and Kimi Code activation are complete private verticals. The authority captures a credential, performs the exact bound model catalog, and transactionally commits Keychain plus non-secret registry state with crash recovery. Broker-owned generation streams OpenAI Responses, Anthropic Messages, or Kimi's OpenAI Chat Completions profile through scoped, expiring, cancellation- and budget-bound one-use reservations. OpenAI continuation state is encrypted behind opaque handles; Anthropic and Kimi use the durable transcript. Strict codecs normalize events and usage, reject redirects/profile drift, and filter credential echoes before any reply crosses the native boundary.
-
-No signed/notarized installed artifact or production credential-canary smoke has shipped, so these completed verticals are not distributed and source/npm execution cannot activate them. Native release work still needs the installed-artifact proof. The standalone CLI applies fail-closed Seatbelt on macOS and system Bubblewrap on Linux to shell and verification children; `local_guarded` remains an explicit macOS/Linux embedding option and the Windows default. The private provider design relies on credentials and reusable request authority remaining exclusively in the broker; rewriting the agent loop, session engine, or CLI wholesale in Rust is not required for that boundary.
-
-The source tree also provides a versioned company-formation evaluation harness.
-Its default scripted baseline exercises the real restricted onboarding path
-without network access. A configured run is explicit, accepts only an existing
-direct BYOK or local connection through ordinary resolution, uses a temporary
-private Recurs home, and emits only sanitized rubric and usage metadata. It is
-an evaluation tool, not a second company runtime.
-
-Public release assembly retains one npm tarball as the authoritative portable artifact. A protected exact-tag workflow reruns verification, renders a SHA-256-bound user-local installer and Homebrew formula from that archive, creates a draft GitHub release, attests the assets, and publishes or verifies the same tarball's npm SHA-512 integrity before making the release public. The `0.1.0-alpha.1` metadata pins the official Apache-2.0 text, reviewed notices, public registry, and provenance. npm requires one interactive first-package bootstrap before its trusted-publisher relationship can exist; after that narrow documented exception, publication uses the exact manually dispatched tokenless OIDC workflow. No live package, tap, or signed native bundle is claimed.
-
-The public npm/source Codex path does not weaken that gate: Recurs launches the pinned official adapter, delegates any advertised `chat-gpt` login flow to it, and stores only non-secret linkage, verified account label/fingerprint, policy/billing acknowledgement, and model metadata. Recurs never reads `auth.json`, browser cookies, copied tokens, or credential values. The adapter/runtime remains vendor-authenticated, and the current path is deliberately Plan-only and foreground-only. The sealed private engine denies this delegated path until it can ship without ambient runtime resolution.
-
-## Verification and extension order
-
-`npm run check` is the repository gate: lint, strict TypeScript, all tests, and build. GitHub Actions runs the same command.
-
-Without an explicit primary, the CLI remains in a `WorkspaceShellState` and creates no durable session even when secondary records exist. A configured credential-free OpenAI-compatible server is accepted only at literal HTTP loopback, is verified through `/models`, and is pinned to an exact connection/model/origin before a session is created. Saved environment BYOK accepts only reviewed supported OpenAI Chat profiles with fixed HTTPS origins and unconditional current usage policy; setup stores the provider/model policy and billing snapshot, environment-variable name, and credential fingerprint but never the key. Runtime rereads policy and registry state, requires the exact environment credential, and creates the provider only through the reviewed manifest origin. A Codex connection is established only through interactive billing acknowledgement, structured ChatGPT authentication/status checks, a read-only capability probe, and non-secret registry commit. The first record in an empty registry becomes primary; later records never replace it implicitly. Exact-ID account commands list, verify, select, and disconnect records through bounded atomic registry mutations. Verification is read-only; environment verification checks the local binding, not live vendor authentication. Disconnection removes Recurs metadata only and clears a removed primary rather than promoting another record. Public results omit account labels, fingerprints, endpoints, and credentials. Empty-argument REPL startup requires a user-present local TTY and rejects recognized automation even when it has a TTY; supported noninteractive direct-model work uses the explicit `recurs run` command. Noninteractive prompts without a connection—and all noninteractive Codex prompts—fail before provider work. Provider, tool, process, and unexpected CLI failures cross user-visible or durable boundaries through allowlisted messages; unknown CLI faults receive a diagnostic UUID rather than raw error text.
-
-The Recurs ACP server is another process host over this same boundary, not a second agent implementation. `session/new` creates a distinct pinned runtime session instead of reusing an interactive conversation. ACP prompts are branded as local, unattended, scripted SDK invocations, so provider policy remains authoritative; the user-present Codex subscription path is not silently made available. The adapter projects normalized model, tool, child, batch, and team events into ACP updates, forwards only allow-once/reject-once permission decisions, propagates cancellation and disconnect, and exposes no client filesystem or terminal capability. It rejects additional roots and MCP declarations until those authorities can be admitted through Recurs's own containment and tool-policy layers.
-
-The remaining extension order is deliberate:
-
-1. complete the one-time npm bootstrap, configure the protected trusted-publisher relationship, exercise the prepared tagged release path, and create a tap only after proving its generated formula;
-2. produce and verify the signed/notarized installed bundle, including isolated broker recovery and credential-canary smokes for the completed OpenAI, Anthropic, and Kimi verticals;
-3. add the explicit public-HTTPS OpenAI-compatible profile only with DNS-rebinding-safe endpoint verification;
-4. add further direct API and coding-plan verticals only with exact provider profiles, billing disclosure, and installed-artifact evidence;
-5. add official delegated runtimes to the sealed host only with fixed signed layouts plus provider-specific capability and policy proof;
-6. complete Windows containment and evaluate a reviewed Linux syscall policy before claiming cross-platform unattended arbitrary-command workers, then design any post-CLI worker host as a separately authenticated owner rather than detaching it from the CLI;
-7. extend explicit role routing with reviewed capability and price metadata only while preserving frozen routing, user intent, and accounting truth;
-8. extend MCP only through separately reviewed authenticated remote,
-   prompt/resource, and broader profile slices; build desktop, plugin packaging,
-   and distribution over the existing exact company-bundle bindings, durable
-   contracts, and live ACP client boundary.
-
-See [the engine comparison](docs/BASE_ENGINE_COMPARISON.md), [the Core v0 design](docs/superpowers/specs/2026-07-10-recurs-core-v0-design.md), and [the provider design](docs/superpowers/specs/2026-07-10-recurs-provider-auth-design.md).
+CI runs the portable gate on Linux and macOS. Platform-specific tests exercise
+the containment implementation without introducing a second application core.

@@ -9,7 +9,6 @@ export * from "./harness-profile.js";
 export * from "./local-openai-compatible.js";
 export * from "./manifest-registry.js";
 export * from "./manifest-validator.js";
-export * from "./native-openai-responses.js";
 export * from "./openai-responses.js";
 export * from "./provider-discovery.js";
 export * from "./safe-error.js";

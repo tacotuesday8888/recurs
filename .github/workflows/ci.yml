@@ -43,11 +43,9 @@ jobs:
       - run: npm run check
       - run: npm run package:smoke-install
 
-  native:
+  verify-macos:
     runs-on: macos-15
     timeout-minutes: 10
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
@@ -55,4 +53,4 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm run check:native
+      - run: npm run check

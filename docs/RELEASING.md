@@ -13,7 +13,6 @@ Run these gates from a clean checkout of the exact commit that will be tagged:
 npm ci
 npm run check
 npm run package:smoke-install
-npm run check:native
 ```
 
 The package gate permits exactly `dist/cli/main.js`, `package.json`, `LICENSE`,
@@ -24,9 +23,7 @@ build-machine paths. The installed-artifact smoke runs the real CLI, local
 provider loop, OS workspace sandbox, Agent Skills, stdio MCP, and ACP server
 from a new temporary prefix.
 
-The portable npm artifact does not contain the private native launcher,
-Keychain broker, or persistent native credentials. Those need a separate
-signed and notarized distribution.
+The portable npm artifact contains the same TypeScript runtime verified in CI.
 
 ## Deferred distribution limitation
 
@@ -36,11 +33,8 @@ Homebrew formula installs the same npm tarball with Node as a runtime
 dependency. This is acceptable while Recurs remains unreleased, but it must not
 be presented as three distinct delivery architectures.
 
-Before a public release, revisit the intended Mac installation experience and
-decide which surfaces should deliver a signed, notarized native artifact without
-requiring npm. Keep npm as a supported developer or portable installation path
-only if that distinction remains useful. This is intentionally deferred and is
-not a blocker for current agent-system development.
+Before a public release, revisit the intended installation experience and keep
+only distribution surfaces that add real value beyond the npm artifact.
 
 ## One-time npm bootstrap
 

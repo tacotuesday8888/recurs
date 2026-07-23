@@ -17,7 +17,6 @@ import {
 export type OnboardingStatus =
   | "runnable"
   | "runnable_byok"
-  | "requires_native_broker"
   | "blocked";
 
 export interface OnboardingCatalogEntry {
@@ -86,12 +85,6 @@ function statusFor(
   }
   if (manifest.runnable && RUNNABLE_IDS.has(manifest.id)) return "runnable";
   if (isEnvironmentByokManifest(manifest)) return "runnable_byok";
-  if (
-    manifest.credentialOwner === "recurs_broker" &&
-    manifest.endpoints.length > 0
-  ) {
-    return "requires_native_broker";
-  }
   return "blocked";
 }
 
@@ -109,8 +102,6 @@ function restrictionsFor(
     restrictions.push("The reviewed usage policy is expired or not yet current.");
   } else if (manifest.billingPolicy.providerFallback === "unknown") {
     restrictions.push("Unknown provider billing fallback is blocked.");
-  } else if (status === "requires_native_broker") {
-    restrictions.push("Activation requires the native credential broker.");
   } else if (status === "runnable_byok") {
     restrictions.push(
       "BYOK stores only provider/model metadata, an environment-variable name, and a one-way credential fingerprint; the key remains in the process environment.",
@@ -154,8 +145,7 @@ function entryFor(
 const STATUS_ORDER: Readonly<Record<OnboardingStatus, number>> = {
   runnable: 0,
   runnable_byok: 1,
-  requires_native_broker: 2,
-  blocked: 3,
+  blocked: 2,
 };
 
 export class OnboardingCatalog {

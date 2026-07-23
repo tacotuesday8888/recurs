@@ -78,7 +78,6 @@ export interface ConnectionSummary {
   readonly kind:
     | "local_openai_compatible"
     | "delegated_agent"
-    | "brokered_model_provider"
     | "environment_model_provider";
   readonly modelId: string;
   readonly primary: boolean;
@@ -326,12 +325,6 @@ export class ConnectionLifecycleService {
         throw registryFailure(error, signal);
       }
       const record = exactRecord(current, id);
-      if (record.kind === "brokered_model_provider") {
-        throw new ConnectionLifecycleError(
-          "operation_unavailable",
-          "Brokered connection disconnection is not activated yet",
-        );
-      }
       const primaryCleared = current.primaryConnectionId === record.id;
       try {
         const committed = await this.#registry.commit(

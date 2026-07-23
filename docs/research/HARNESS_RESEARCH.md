@@ -675,5 +675,5 @@ Do not start by forking OpenHands, Cline, Roo Code, Continue, Crush, or AutoGen 
 - Run a local worker proof of concept using a minimal loop plus MCP tools and a per-task Git worktree.
 - Test macOS sandbox options, Docker/Colima, and a remote sandbox option for command execution.
 - Perform file-level license audits before copying any implementation.
-- Decide whether the first engine service should be TypeScript, Rust, Swift, Python, or a hybrid.
+- Decision: use one portable TypeScript engine; keep platform-specific code at narrow host-integration boundaries.
 - Define the exact event schema that connects chat, graph, commands, agents, and quality evidence.

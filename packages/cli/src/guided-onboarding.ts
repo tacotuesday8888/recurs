@@ -75,11 +75,7 @@ export type GuidedConnectionAction =
     readonly baseUrl: string;
   }
   | { readonly kind: "codex" }
-  | { readonly kind: "byok"; readonly providerId: string }
-  | {
-    readonly kind: "native";
-    readonly provider: "openai" | "anthropic" | "kimi";
-  };
+  | { readonly kind: "byok"; readonly providerId: string };
 
 export interface GuidedConnectionChoice extends GuidedChoice {
   readonly action: GuidedConnectionAction;
@@ -89,14 +85,7 @@ export interface GuidedOnboardingInventory {
   readonly accounts: readonly AccountSummary[];
   readonly localRuntimes: readonly LocalRuntimeDetection[];
   readonly providers: readonly ProviderSummary[];
-  readonly nativeProviders: ReadonlySet<"openai" | "anthropic" | "kimi">;
 }
-
-const NATIVE_PROVIDER_IDS = Object.freeze({
-  openai: "openai-api",
-  anthropic: "anthropic-api",
-  kimi: "kimi-code",
-} as const);
 
 const CATALOG_PROVIDER_IDS: Readonly<Record<string, string>> = Object.freeze({
   "openai-api": "openai",
@@ -166,17 +155,6 @@ export function guidedConnectionChoices(
       label: `Connect ${provider.displayName}`,
       detail: "environment key · reviewed fixed origin · Act + Plan",
       action: { kind: "byok", providerId: provider.id },
-    });
-  }
-  for (const provider of ["openai", "anthropic", "kimi"] as const) {
-    if (!inventory.nativeProviders.has(provider)) continue;
-    const summary = providerById(inventory.providers, NATIVE_PROVIDER_IDS[provider]);
-    if (summary === undefined || summary.status === "blocked") continue;
-    choices.push({
-      id: `native:${provider}`,
-      label: `Connect ${summary.displayName} with Keychain`,
-      detail: "native credential authority · metered or coding-plan billing",
-      action: { kind: "native", provider },
     });
   }
   return Object.freeze(choices.map((choice) => Object.freeze(choice)));
@@ -293,7 +271,6 @@ export interface GuidedOnboardingPorts {
   readonly interactive: boolean;
   readonly automation: boolean;
   readonly signal?: AbortSignal;
-  readonly nativeProviders: ReadonlySet<"openai" | "anthropic" | "kimi">;
   selectChoice(
     message: string,
     choices: readonly GuidedChoice[],
@@ -578,22 +555,7 @@ async function executeConnectionAction(
         : ["--reasoning-effort", reasoningEffort]),
     ]);
   }
-  if (action.provider === "openai") {
-    return await ports.executeCommand(["setup", "openai"]);
-  }
-  const providerId = action.provider === "anthropic"
-    ? "anthropic-api"
-    : "kimi-code";
-  const label = action.provider === "anthropic" ? "Anthropic API" : "Kimi Code";
-  const modelId = await selectCatalogModel(providerId, label, ports);
-  return modelId === null
-    ? 2
-    : await ports.executeCommand([
-        "setup",
-        action.provider,
-        "--model",
-        modelId,
-      ]);
+  throw new TypeError("Unsupported guided connection action");
 }
 
 async function selectPermission(
@@ -1360,7 +1322,7 @@ export async function runGuidedOnboarding(
     `\n${renderRecursHeader(theme, "Welcome to Recurs")}`,
     "",
     "Build a working agent company: connect its parent model, set its safety boundary, choose its operating mode, route specialists, and review a project-tailored roster.",
-    theme.muted("Credentials stay with the vendor runtime, native authority, or named process environment—never this generic prompt."),
+    theme.muted("Credentials stay with the vendor runtime or a named process environment—never this generic prompt."),
     "",
   ].join("\n"));
   const [accounts, localRuntimes, providers] = await Promise.all([
@@ -1372,7 +1334,6 @@ export async function runGuidedOnboarding(
     accounts,
     localRuntimes,
     providers,
-    nativeProviders: ports.nativeProviders,
   });
   if (choices.length === 0) {
     await writeOutput(

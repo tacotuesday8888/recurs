@@ -20,9 +20,6 @@ import {
   type CompanyBlueprint,
   type CompanyEvaluationReportV1,
   type IntegrationFailure,
-  type NativeAuthorityPort,
-  type NativeAuthorityStatus,
-  type NativeOpenAIResponsesPort,
   type ModelReasoningEffort,
   type RunResult,
   type TeamRunRole,
@@ -40,24 +37,11 @@ import {
   ConnectionLifecycleError,
   discoverEnvironmentConnectionModels,
   EnvironmentConnectionError,
-  NativeAuthorityService,
-  OPENAI_RESPONSES_EXACT_MODEL_IDS,
-  anthropicOnboardingDisclosure,
-  kimiOnboardingDisclosure,
-  openAIOnboardingDisclosure,
-  recoverPendingOpenAIConnection,
   setupEnvironmentConnection,
-  setupOpenAIConnection,
   type ConnectionDisconnection,
   type AgentRouteAssignment,
   type ConnectionVerification,
   type EnvironmentConnectionConfiguration,
-  type OpenAIOnboardingDisclosure,
-  type AnthropicOnboardingDisclosure,
-  type KimiOnboardingDisclosure,
-  type OpenAIRecoveryOutcome,
-  type OpenAISetupOutcome,
-  type SetupOpenAIConnectionInput,
 } from "@recurs/app";
 import { CoordinatedRunError, type EventSink } from "@recurs/core";
 
@@ -135,14 +119,6 @@ import {
 
 const help = CLI_HELP;
 
-export interface OpenAICliOnboardingPort {
-  readonly provider?: "openai" | "anthropic" | "kimi";
-  readonly disclosure: OpenAIOnboardingDisclosure | AnthropicOnboardingDisclosure | KimiOnboardingDisclosure;
-  readonly modelIds: readonly string[];
-  setup(input: SetupOpenAIConnectionInput): Promise<OpenAISetupOutcome>;
-  recover(signal?: AbortSignal): Promise<OpenAIRecoveryOutcome>;
-}
-
 export interface CliDependencies {
   stdout: Writable;
   stderr: Writable;
@@ -174,12 +150,7 @@ export interface CliDependencies {
     ) => void | Promise<void>;
   }): Promise<CompanyEvaluationReportV1>;
   credentialEnvironmentAvailable?(name: string): boolean;
-  selectOpenAIModel?(modelIds: readonly string[]): Promise<string | null>;
-  nativeAuthority?: NativeAuthorityPort;
   doctor?(cwd: string, signal?: AbortSignal): Promise<DoctorReport>;
-  openAIOnboarding?: OpenAICliOnboardingPort;
-  anthropicOnboarding?: OpenAICliOnboardingPort;
-  kimiOnboarding?: OpenAICliOnboardingPort;
   createRuntime(
     events: EventSink,
     options?: {
@@ -305,24 +276,6 @@ async function canonicalWorkingRoot(
       "The requested working directory is unavailable",
     );
   }
-}
-
-function nativeAuthorityText(status: NativeAuthorityStatus): string {
-  if (status.state === "unavailable") {
-    return `Native authority: unavailable\nReason: ${status.reason}\n`;
-  }
-  return [
-    "Native authority: available",
-    `Protocol: ${status.attestation.protocolVersion}`,
-    `Launcher: ${status.attestation.launcherVersion}`,
-    `Broker: ${status.attestation.brokerVersion}`,
-    `Platform: ${status.attestation.platform} (macOS ${status.attestation.minimumMacosVersion}+)`,
-    `Production signed: ${status.attestation.productionSigned ? "yes" : "no"}`,
-    `Persistent credentials: ${status.attestation.persistentCredentials ? "yes" : "no"}`,
-    `Keychain: ${status.health.keychain}`,
-    `Peer identity: ${status.health.peerIdentity}`,
-    "",
-  ].join("\n");
 }
 
 function isAbortError(error: unknown): boolean {
@@ -666,154 +619,6 @@ function parseByokSetupArguments(
       };
 }
 
-type OpenAISetupCommand =
-  | {
-    readonly kind: "setup";
-    readonly provider: "openai" | "anthropic" | "kimi";
-    readonly modelId?: string;
-  }
-  | { readonly kind: "recover"; readonly provider: "openai" };
-
-function parseOpenAISetupCommand(
-  args: readonly string[],
-): OpenAISetupCommand | null {
-  const provider = args[0];
-  if (provider !== "openai" && provider !== "anthropic" && provider !== "kimi") return null;
-  if (args.length === 1 && provider === "openai") {
-    return { kind: "setup", provider };
-  }
-  if (args.length === 2 && args[1] === "--recover" && provider === "openai") {
-    return { kind: "recover", provider };
-  }
-  if (
-    args.length === 3 &&
-    args[1] === "--model" &&
-    args[2] !== undefined &&
-    isSafeModelId(args[2])
-  ) {
-    return { kind: "setup", provider, modelId: args[2] };
-  }
-  return null;
-}
-
-function openAISetupDisclosureText(
-  disclosure: OpenAIOnboardingDisclosure | AnthropicOnboardingDisclosure | KimiOnboardingDisclosure,
-): string {
-  return [
-    `Connect ${disclosure.displayName} at ${disclosure.endpoint}.`,
-    "The API key is captured from the terminal by Recurs's native credential authority and stored in Keychain; Node never receives it.",
-    disclosure.billingNotice,
-    "The system proxy and configured certificate roots are trusted in v1.",
-    "This setup path is restricted to a local, user-present CLI.",
-    "Continue and accept the current credential, billing, proxy, and run-context disclosure?",
-  ].join("\n");
-}
-
-async function renderOpenAIOutcome(
-  outcome: OpenAISetupOutcome,
-  dependencies: Pick<CliDependencies, "stdout" | "stderr">,
-): Promise<number> {
-  if (outcome.state === "cancelled") {
-    await writeOutput(dependencies.stderr, "Error: Provider setup was cancelled\n");
-    return 130;
-  }
-  if (outcome.state === "failed") {
-    const recovery = outcome.recovery === "pending_reconciliation"
-      ? "\nRun recurs setup openai --recover before trying setup again."
-      : "";
-    await writeOutput(
-      dependencies.stderr,
-      `Error: ${outcome.safeMessage}${recovery}\n`,
-    );
-    return 2;
-  }
-  const connection = outcome.connection;
-  await writeOutput(
-    dependencies.stdout,
-    `Stored — ${connection.label} · ${connection.modelId}\nCredential: native authority (identifier redacted)\nBilling: metered provider API, separate from consumer subscriptions\nActivation: ready through the signed native authority\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it, or recurs account route implement ${connection.id} to assign team work\n`}${outcome.cleanupPending ? "Activation cleanup remains pending; run recurs setup openai --recover.\n" : ""}`,
-  );
-  return 0;
-}
-
-async function runOpenAISetupCommand(
-  command: OpenAISetupCommand,
-  onboarding: OpenAICliOnboardingPort,
-  dependencies: CliDependencies,
-): Promise<number> {
-  if (command.kind === "recover") {
-    const recovered = await onboarding.recover(dependencies.signal);
-    if (recovered.state === "none") {
-      await writeOutput(
-        dependencies.stdout,
-        "No pending OpenAI activation requires recovery.\n",
-      );
-      return 0;
-    }
-    if (recovered.state === "discarded") {
-      await writeOutput(
-        dependencies.stdout,
-        `Recovered — discarded inactive OpenAI activation ${recovered.connectionId}.\nRun recurs setup openai to start again.\n`,
-      );
-      return 0;
-    }
-    return renderOpenAIOutcome(recovered, dependencies);
-  }
-  if (
-    dependencies.confirm === undefined ||
-    (command.modelId === undefined &&
-      dependencies.selectOpenAIModel === undefined)
-  ) {
-    await writeOutput(dependencies.stderr, help);
-    return 2;
-  }
-  const accepted = await dependencies.confirm(
-    openAISetupDisclosureText(onboarding.disclosure),
-  );
-  if (!accepted) {
-    await writeOutput(
-      dependencies.stderr,
-      `Error: ${onboarding.disclosure.displayName} credential and billing disclosure was not accepted\n`,
-    );
-    return 2;
-  }
-  const modelId = command.modelId ??
-    await dependencies.selectOpenAIModel?.(onboarding.modelIds);
-  if (modelId === null || modelId === undefined) {
-    await writeOutput(
-      dependencies.stderr,
-      "Error: Provider model selection was cancelled\n",
-    );
-    return 2;
-  }
-  if (
-    (onboarding.provider ?? "openai") === "openai" &&
-    !onboarding.modelIds.includes(modelId)
-  ) {
-    await writeOutput(
-      dependencies.stderr,
-      "Error: The selected OpenAI model is outside the reviewed capability profile\n",
-    );
-    return 2;
-  }
-  const disclosure = onboarding.disclosure;
-  const outcome = await onboarding.setup({
-    modelId,
-    acknowledgement: {
-      policyRevision: disclosure.policyRevision,
-      billingPolicyRevision: disclosure.billingPolicyRevision,
-      billingDisclosureRevision: disclosure.billingDisclosureRevision,
-      mode: "strict_primary_only",
-    },
-    ...(command.provider !== "openai"
-      ? { provider: command.provider }
-      : {}),
-    ...(dependencies.signal === undefined
-      ? {}
-      : { signal: dependencies.signal }),
-  });
-  return renderOpenAIOutcome(outcome, dependencies);
-}
-
 function parseListArguments(
   args: readonly string[],
   allowAll: boolean,
@@ -1116,16 +921,11 @@ async function runGuidedOnboarding(
     );
     return { state: "failed", exitCode: 2 };
   }
-  const nativeProviders = new Set<"openai" | "anthropic" | "kimi">();
-  if (dependencies.openAIOnboarding !== undefined) nativeProviders.add("openai");
-  if (dependencies.anthropicOnboarding !== undefined) nativeProviders.add("anthropic");
-  if (dependencies.kimiOnboarding !== undefined) nativeProviders.add("kimi");
   return await runGuidedOnboardingFlow({
     stdout: dependencies.stdout,
     stderr: dependencies.stderr,
     interactive: dependencies.interactive === true,
     automation: dependencies.automation === true,
-    nativeProviders,
     selectChoice: dependencies.selectChoice,
     promptText: dependencies.promptText,
     ...(dependencies.credentialEnvironmentAvailable === undefined
@@ -1363,47 +1163,8 @@ export async function runCli(
       }
     }
 
-    const json = argv.length === 3 && argv[2] === "--json";
-    const nativeAuthority = dependencies.nativeAuthority;
-    const valid =
-      argv[1] === "native" &&
-      (argv.length === 2 || json) &&
-      nativeAuthority !== undefined;
-    if (!valid) {
-      await writeOutput(dependencies.stderr, help);
-      return 2;
-    }
-    try {
-      const status = await new NativeAuthorityService(nativeAuthority).status(
-        dependencies.signal,
-      );
-      await writeOutput(
-        dependencies.stdout,
-        json
-          ? `${JSON.stringify({ version: 1, nativeAuthority: status })}\n`
-          : nativeAuthorityText(status),
-      );
-      return 0;
-    } catch (error) {
-      if (isAbortError(error)) {
-        await writeOutput(
-          dependencies.stderr,
-          "Error: Native authority check was cancelled\n",
-        );
-        return 130;
-      }
-      const status: NativeAuthorityStatus = Object.freeze({
-        state: "unavailable",
-        reason: "broker_unavailable",
-      });
-      await writeOutput(
-        dependencies.stdout,
-        json
-          ? `${JSON.stringify({ version: 1, nativeAuthority: status })}\n`
-          : nativeAuthorityText(status),
-      );
-      return 0;
-    }
+    await writeOutput(dependencies.stderr, help);
+    return 2;
   }
 
   if (argv.length === 0) {
@@ -1762,45 +1523,6 @@ export async function runCli(
         return exitCodeFor(error);
       }
     }
-    const openAICommand = parseOpenAISetupCommand(argv.slice(1));
-    if (openAICommand !== null) {
-      const onboarding = openAICommand.provider === "anthropic"
-        ? dependencies.anthropicOnboarding
-        : openAICommand.provider === "kimi"
-        ? dependencies.kimiOnboarding
-        : dependencies.openAIOnboarding;
-      if (
-        dependencies.interactive !== true ||
-        dependencies.automation === true ||
-        onboarding === undefined
-      ) {
-        await writeOutput(
-          dependencies.stderr,
-          "Error: Provider API setup requires an interactive local terminal and the native credential authority\n",
-        );
-        return 2;
-      }
-      try {
-        return await runOpenAISetupCommand(
-          openAICommand,
-          onboarding,
-          dependencies,
-        );
-      } catch (error) {
-        if (dependencies.signal?.aborted === true || isAbortError(error)) {
-          await writeOutput(
-            dependencies.stderr,
-            "Error: Provider setup was cancelled\n",
-          );
-          return 130;
-        }
-        await writeOutput(
-          dependencies.stderr,
-          `Error: ${safeCliErrorMessage(error)}\n`,
-        );
-        return 2;
-      }
-    }
     if (argv.length === 2 && argv[1] === "codex") {
       if (
         dependencies.interactive !== true ||
@@ -2063,8 +1785,6 @@ export function isAutomationEnvironment(
 }
 
 export async function runCliProcess(
-  nativeAuthority: NativeAuthorityPort,
-  nativeOpenAIResponses?: NativeOpenAIResponsesPort,
   processOptions: { readonly ptyDriver?: PtyDriver } = {},
 ): Promise<void> {
   const argv = process.argv.slice(2);
@@ -2078,8 +1798,7 @@ export async function runCliProcess(
     argv.length === 0 ||
     (argv[0] === "provider" && argv[1] === "models") ||
     (argv[0] === "setup" &&
-      (argv.length === 1 || argv[1] === "byok" || argv[1] === "openai" ||
-        argv[1] === "anthropic" || argv[1] === "kimi"));
+      (argv.length === 1 || argv[1] === "byok"));
   const interactiveOperationController = interactiveOperationRequested
     ? new AbortController()
     : undefined;
@@ -2144,20 +1863,7 @@ export async function runCliProcess(
     }
     return choices.some((choice) => choice.id === answer) ? answer : null;
   };
-  const selectOpenAIModel = async (
-    modelIds: readonly string[],
-  ): Promise<string | null> => await selectChoice(
-    "Select one exact reviewed OpenAI model",
-    modelIds.map((modelId) => ({
-      id: modelId,
-      label: modelId,
-      detail: "reviewed OpenAI Responses capability profile",
-    })),
-  );
   const dataDirectory = process.env.RECURS_HOME ?? path.join(homedir(), ".recurs");
-  const disclosure = openAIOnboardingDisclosure();
-  const anthropicDisclosure = anthropicOnboardingDisclosure();
-  const kimiDisclosure = kimiOnboardingDisclosure();
   try {
     process.exitCode = await runCli(argv, {
       stdin: processStdin,
@@ -2172,59 +1878,17 @@ export async function runCliProcess(
       confirm,
       promptText,
       selectChoice,
-      selectOpenAIModel,
-      nativeAuthority,
       doctor: (cwd, signal) => createDoctorReport({
         cwd,
         dataDirectory,
         ...(signal === undefined ? {} : { signal }),
       }),
-      openAIOnboarding: {
-        provider: "openai",
-        disclosure,
-        modelIds: OPENAI_RESPONSES_EXACT_MODEL_IDS,
-        setup: (input) => setupOpenAIConnection(
-          dataDirectory,
-          input,
-          { nativeAuthority },
-        ),
-        recover: (signal) => recoverPendingOpenAIConnection(
-          dataDirectory,
-          { nativeAuthority },
-          signal === undefined ? {} : { signal },
-        ),
-      },
-      anthropicOnboarding: {
-        provider: "anthropic",
-        disclosure: anthropicDisclosure,
-        modelIds: [],
-        setup: (input) => setupOpenAIConnection(
-          dataDirectory,
-          { ...input, provider: "anthropic" },
-          { nativeAuthority },
-        ),
-        recover: async () => ({ state: "none" }),
-      },
-      kimiOnboarding: {
-        provider: "kimi",
-        disclosure: kimiDisclosure,
-        modelIds: [],
-        setup: (input) => setupOpenAIConnection(
-          dataDirectory,
-          { ...input, provider: "kimi" },
-          { nativeAuthority },
-        ),
-        recover: async () => ({ state: "none" }),
-      },
       inspectCompanyRepositoryFacts,
       createCompanyOnboarding: ({ cwd, ...input }) => createStandaloneCompanyOnboarding(
         input,
         {
           cwd,
           dataDirectory,
-          ...(nativeOpenAIResponses === undefined
-            ? {}
-            : { nativeOpenAIResponses }),
           environment: process.env,
         },
       ),
@@ -2233,16 +1897,12 @@ export async function runCliProcess(
           projectRoot: cwd,
           dataDirectory,
           environment: process.env,
-          ...(nativeOpenAIResponses === undefined
-            ? {}
-            : { nativeOpenAIResponses }),
           ...(signal === undefined ? {} : { signal }),
           ...(onProgress === undefined ? {} : { onProgress }),
         }),
       createRuntime: (events, options) => createStandaloneRuntime(
         events,
         {
-          ...(nativeOpenAIResponses === undefined ? {} : { nativeOpenAIResponses }),
           ...(processOptions.ptyDriver === undefined
             ? {}
             : { ptyDriver: processOptions.ptyDriver }),
@@ -2276,9 +1936,6 @@ export async function runCliProcess(
             cwd,
             dataDirectory,
             reuseExistingSession: false,
-            ...(nativeOpenAIResponses === undefined
-              ? {}
-              : { nativeOpenAIResponses }),
             ...(processOptions.ptyDriver === undefined
               ? {}
               : { ptyDriver: processOptions.ptyDriver }),

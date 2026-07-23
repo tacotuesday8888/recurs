@@ -1134,12 +1134,12 @@ describe("validateProviderManifest", () => {
     );
   });
 
-  it("hard-disables broker-owned paths regardless of fabricated extra arguments", () => {
+  it("hard-disables non-runnable paths regardless of fabricated extra arguments", () => {
     const direct = cloneManifest(bundled("openai-api"));
     direct["runnable"] = true;
     const canary = "activation-getter-secret-canary";
     const hostile: Record<string, unknown> = {};
-    Object.defineProperty(hostile, "nativeAuthority", {
+    Object.defineProperty(hostile, "runtimeAuthority", {
       enumerable: true,
       get() {
         throw new Error(canary);
@@ -1152,9 +1152,9 @@ describe("validateProviderManifest", () => {
 
     for (const [label, fabricatedClaim] of [
       ["boolean", true],
-      ["native claim", { nativeAuthority: { state: "ready" } }],
+      ["runtime claim", { runtimeAuthority: { state: "ready" } }],
       ["complete claim", {
-        nativeAuthority: { state: "ready" },
+        runtimeAuthority: { state: "ready" },
         codecProfile: { state: "registered" },
         policy: { state: "current" },
         platform: { state: "compatible" },

@@ -28,8 +28,6 @@ export const MAX_REVISION = Number.MAX_SAFE_INTEGER - 1;
 
 const MAX_CONNECTIONS = 256;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u;
-const BROKER_CONNECTION_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const SHA256_FINGERPRINT_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const ENVIRONMENT_VARIABLE_PATTERN = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const BILLING_SOURCES = new Set<BillingSource>([
@@ -94,23 +92,6 @@ export interface DelegatedConnectionRecord {
   updatedAt: string;
 }
 
-export interface BrokeredModelProviderConnectionRecord {
-  kind: "brokered_model_provider";
-  id: string;
-  providerId: "openai-api" | "anthropic-api" | "kimi-code";
-  adapterId: "openai-responses" | "anthropic-messages" | "openai-chat-completions";
-  activationProfileId: "openai_api_v1" | "anthropic_api_v1" | "kimi_code_v1";
-  label: string;
-  modelId: string;
-  credentialIdentityFingerprint: string;
-  policyRevision: string;
-  billingPolicy: BillingPolicy;
-  billingSelection: BillingSelection;
-  verifiedAt: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface EnvironmentModelProviderConnectionRecord {
   kind: "environment_model_provider";
   id: string;
@@ -137,7 +118,6 @@ export interface EnvironmentModelProviderConnectionRecord {
 export type ConnectionRecord =
   | LocalConnectionRecord
   | DelegatedConnectionRecord
-  | BrokeredModelProviderConnectionRecord
   | EnvironmentModelProviderConnectionRecord;
 
 export type AgentRoleRoutes = Readonly<Record<TeamRunRole, string | null>>;
@@ -856,133 +836,12 @@ export function parseEnvironmentModelProviderConnectionRecord(
   };
 }
 
-export function parseBrokeredModelProviderConnectionRecord(
-  value: unknown,
-): BrokeredModelProviderConnectionRecord {
-  rejectSecretMaterial(value);
-  if (!isRecord(value)) throw invalidRegistry();
-  exactKeys(value, [
-    "kind",
-    "id",
-    "providerId",
-    "adapterId",
-    "activationProfileId",
-    "label",
-    "modelId",
-    "credentialIdentityFingerprint",
-    "policyRevision",
-    "billingPolicy",
-    "billingSelection",
-    "verifiedAt",
-    "createdAt",
-    "updatedAt",
-  ]);
-  if (value.kind !== "brokered_model_provider") {
-    throw invalidRegistry();
-  }
-  const profile = brokeredProviderProfile(value);
-  const createdAt = timestamp(value.createdAt);
-  const updatedAt = timestamp(value.updatedAt);
-  const verifiedAt = timestamp(value.verifiedAt);
-  const billingPolicy = parseBillingPolicy(value.billingPolicy);
-  const billingSelection = parseBillingSelection(
-    value.billingSelection,
-    billingPolicy,
-  );
-  const expectedPrimarySource = profile.providerId === "kimi-code"
-    ? "included_subscription"
-    : "metered_api";
-  if (
-    createdAt > updatedAt ||
-    verifiedAt < createdAt ||
-    verifiedAt > updatedAt ||
-    billingSelection.acknowledgedAt < createdAt ||
-    billingSelection.acknowledgedAt > updatedAt ||
-    billingPolicy.primarySource !== expectedPrimarySource ||
-    billingPolicy.possibleAdditionalSources.length !== 0 ||
-    billingPolicy.providerFallback !== "none" ||
-    billingPolicy.availableSelections.length !== 1 ||
-    billingPolicy.availableSelections[0] !== "strict_primary_only" ||
-    billingSelection.mode !== "strict_primary_only" ||
-    billingSelection.allowedSources.length !== 1 ||
-    billingSelection.allowedSources[0] !== expectedPrimarySource
-  ) {
-    throw invalidRegistry();
-  }
-  return {
-    kind: "brokered_model_provider",
-    id: boundedString(value.id, 36, {
-      trim: true,
-      pattern: BROKER_CONNECTION_ID_PATTERN,
-    }),
-    ...profile,
-    label: boundedString(value.label, 256, { trim: true }),
-    modelId: boundedUtf8String(value.modelId, 256, { trim: true }),
-    credentialIdentityFingerprint: boundedString(
-      value.credentialIdentityFingerprint,
-      71,
-      { trim: true, pattern: SHA256_FINGERPRINT_PATTERN },
-    ),
-    policyRevision: boundedString(value.policyRevision, 256, { trim: true }),
-    billingPolicy,
-    billingSelection,
-    verifiedAt,
-    createdAt,
-    updatedAt,
-  };
-}
-
-function brokeredProviderProfile(
-  value: Record<string, unknown>,
-): Pick<
-  BrokeredModelProviderConnectionRecord,
-  "providerId" | "adapterId" | "activationProfileId"
-> {
-  if (
-    value.providerId === "openai-api" &&
-    value.adapterId === "openai-responses" &&
-    value.activationProfileId === "openai_api_v1"
-  ) {
-    return {
-      providerId: "openai-api",
-      adapterId: "openai-responses",
-      activationProfileId: "openai_api_v1",
-    };
-  }
-  if (
-    value.providerId === "anthropic-api" &&
-    value.adapterId === "anthropic-messages" &&
-    value.activationProfileId === "anthropic_api_v1"
-  ) {
-    return {
-      providerId: "anthropic-api",
-      adapterId: "anthropic-messages",
-      activationProfileId: "anthropic_api_v1",
-    };
-  }
-  if (
-    value.providerId === "kimi-code" &&
-    value.adapterId === "openai-chat-completions" &&
-    value.activationProfileId === "kimi_code_v1"
-  ) {
-    return {
-      providerId: "kimi-code",
-      adapterId: "openai-chat-completions",
-      activationProfileId: "kimi_code_v1",
-    };
-  }
-  throw invalidRegistry();
-}
-
 function parseConnection(value: unknown): ConnectionRecord {
   if (!isRecord(value) || typeof value.kind !== "string") {
     throw invalidRegistry();
   }
   if (value.kind === "local_openai_compatible") return parseLocal(value);
   if (value.kind === "delegated_agent") return parseDelegated(value);
-  if (value.kind === "brokered_model_provider") {
-    return parseBrokeredModelProviderConnectionRecord(value);
-  }
   if (value.kind === "environment_model_provider") {
     return parseEnvironmentModelProviderConnectionRecord(value);
   }

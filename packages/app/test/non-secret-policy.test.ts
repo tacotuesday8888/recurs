@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -25,27 +24,11 @@ const canonicalUrl = new URL(
   "../../../tests/fixtures/non-secret-policy-cases.json",
   import.meta.url,
 );
-const swiftUrl = new URL(
-  "../../../native/macos/Tests/RecursBrokerCoreTests/Fixtures/non-secret-policy-cases.json",
-  import.meta.url,
-);
-
 async function cases(): Promise<PolicyCases> {
   return JSON.parse(await readFile(canonicalUrl, "utf8")) as PolicyCases;
 }
 
 describe("shared non-secret policy", () => {
-  it("keeps the Swift behavioral cases byte-identical", async () => {
-    const [canonical, swift] = await Promise.all([
-      readFile(canonicalUrl),
-      readFile(swiftUrl),
-    ]);
-    expect(swift.equals(canonical)).toBe(true);
-    expect(fileURLToPath(swiftUrl)).toContain(
-      "RecursBrokerCoreTests/Fixtures/non-secret-policy-cases.json",
-    );
-  });
-
   it("applies every key and value boundary from the shared cases", async () => {
     const fixture = await cases();
     expect(fixture.schemaVersion).toBe(1);

@@ -38,8 +38,8 @@ recurs
 
 On first launch, Recurs guides you through model access, safety boundaries,
 operating mode, specialist routing, company review, and project context.
-Credentials remain with the vendor runtime, native authority, or named process
-environment.
+Credentials remain with the vendor runtime or a named process environment.
+Recurs never persists BYOK values.
 
 > On Linux, subprocess containment also requires `/usr/bin/bwrap` with
 > unprivileged user namespaces. Windows subprocess containment is not yet
@@ -117,8 +117,8 @@ session, and JSON/JSONL option.
 - The source CLI is usable on the supported Node.js toolchain.
 - Package metadata is `0.1.0-alpha.1`; the release gate is prepared, but no
   package-manager distribution is published.
-- The macOS native authority is implemented and tested, but unsigned and
-  undistributed.
+- The runtime is TypeScript-first and runs on the supported Node.js toolchain
+  across macOS and Linux.
 - Windows subprocess containment and a desktop app are not implemented.
 
 ## 📚 Documentation
@@ -136,7 +136,6 @@ session, and JSON/JSONL option.
 
 ```bash
 npm run check
-npm run check:native            # full Swift/native suite on macOS
 npm run package:smoke-install
 ```
 
