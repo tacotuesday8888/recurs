@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/tacotuesday8888/recurs/main/docs/assets/recurs-mark.svg" alt="Recurs loop logo" width="172">
+<img src="https://raw.githubusercontent.com/tacotuesday8888/recurs/266cc806b450106e6b0dca756ce688c6ad46688d/docs/assets/recurs-mark.svg" alt="Recurs loop logo" width="172">
 
 # Recurs
 
@@ -19,7 +19,7 @@ explicit limits, and keeps every change reviewable before apply.
 
 </div>
 
-![Recurs guided setup in a terminal](https://raw.githubusercontent.com/tacotuesday8888/recurs/main/docs/assets/terminal-preview.svg)
+![Recurs guided setup in a terminal](https://raw.githubusercontent.com/tacotuesday8888/recurs/266cc806b450106e6b0dca756ce688c6ad46688d/docs/assets/terminal-preview.svg)
 
 ## ✨ Why Recurs
 
