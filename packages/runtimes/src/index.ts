@@ -29,10 +29,20 @@ export {
   type CodexAppServerRequestId,
 } from "./codex-app-server-protocol.js";
 export {
+  CodexAppServerCatalogError,
+  codexAppServerEnvironment,
+  createCodexAppServerProcessProfile,
+  inspectCodexAppServerSubscription,
+  type CodexAppServerCatalogErrorCode,
+  type CodexSubscriptionCatalog,
+  type CodexSubscriptionModel,
+} from "./codex-app-server-catalog.js";
+export {
   CODEX_ACP_ADAPTER_ID,
   CODEX_ACP_ADAPTER_INTEGRITY,
   CODEX_ACP_ADAPTER_VERSION,
   CODEX_ACP_PROFILE_REVISION,
+  CODEX_ALLOWED_ENVIRONMENT_KEYS,
   CODEX_CLI_INTEGRITY,
   CODEX_CLI_VERSION,
   CODEX_PLAN_MODE_ID,

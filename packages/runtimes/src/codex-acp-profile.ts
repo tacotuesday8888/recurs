@@ -114,7 +114,7 @@ const platformArtifacts: Readonly<Record<string, PlatformArtifact>> = deepFreeze
   },
 });
 
-const allowedEnvironmentKeys = Object.freeze([
+export const CODEX_ALLOWED_ENVIRONMENT_KEYS = Object.freeze([
   "APPDATA",
   "CODEX_HOME",
   "COLORTERM",
@@ -326,7 +326,7 @@ export function createCodexAcpProfile(
     command: process.execPath,
     args: [installation.adapterEntry],
     clientInfo: { name: "recurs", version: RECURS_VERSION, title: "Recurs" },
-    allowedEnvironmentKeys,
+    allowedEnvironmentKeys: CODEX_ALLOWED_ENVIRONMENT_KEYS,
     usageSemantics: "prompt_response",
     mappings: [
       codexMapping(input.modelId, "ask_always"),

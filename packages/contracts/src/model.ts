@@ -55,7 +55,8 @@ export type ModelReasoningEffort =
   | "medium"
   | "high"
   | "xhigh"
-  | "max";
+  | "max"
+  | "ultra";
 
 export type StopReason =
   | "complete"
