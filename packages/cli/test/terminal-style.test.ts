@@ -31,12 +31,12 @@ describe("terminal presentation", () => {
     const wordmark = renderRecursWordmark(theme);
 
     expect(theme.colorEnabled).toBe(true);
-    expect(wordmark.split("\n")).toHaveLength(4);
+    expect(wordmark.split("\n")).toHaveLength(7);
     expect(wordmark).toContain("\u001b[38;5;33m");
-    expect(wordmark).toContain("\u001b[38;5;121m");
-    expect(wordmark).toContain("╭");
-    expect(wordmark).toContain("↰");
-    expect(wordmark).toContain("╲");
+    expect(wordmark).toContain("\u001b[38;5;118m");
+    expect(wordmark).toContain("◀");
+    expect(wordmark.match(/█/g)?.length).toBeGreaterThan(30);
+    expect(wordmark.match(/▀/g)?.length).toBeGreaterThan(4);
   });
 
   it.each([
@@ -69,8 +69,8 @@ describe("terminal presentation", () => {
 
     const header = renderRecursHeader(theme, "Welcome to Recurs");
 
-    expect(header.split("\n")).toHaveLength(5);
-    expect(header.split("\n")[4]).toContain("Welcome to Recurs");
+    expect(header.split("\n")).toHaveLength(8);
+    expect(header.split("\n")[7]).toContain("Welcome to Recurs");
     expect(header).toContain("Welcome to Recurs");
   });
 });
