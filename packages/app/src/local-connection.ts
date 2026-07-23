@@ -19,7 +19,10 @@ const INVALID = "Local connection configuration is invalid";
 
 export class LocalConnectionError extends Error {
   constructor(
-    public readonly code: "configuration_invalid" | "model_unavailable",
+    public readonly code:
+      | "configuration_invalid"
+      | "model_unavailable"
+      | "cancelled",
     message: string,
     options?: ErrorOptions,
   ) {
@@ -45,6 +48,7 @@ export interface WriteLocalConnectionInput {
   modelId: string;
   label?: string;
   now?: string;
+  signal?: AbortSignal;
 }
 
 export interface SetupLocalConnectionInput {
@@ -115,7 +119,17 @@ function configuration(
   };
 }
 
-function localError(error: unknown): LocalConnectionError {
+function localError(
+  error: unknown,
+  signal?: AbortSignal,
+): LocalConnectionError {
+  if (signal?.aborted === true) {
+    return new LocalConnectionError(
+      "cancelled",
+      "Local connection setup was cancelled",
+      { cause: error },
+    );
+  }
   if (error instanceof LocalConnectionError) return error;
   return new LocalConnectionError("configuration_invalid", INVALID, {
     cause: error,
@@ -155,7 +169,10 @@ export async function writeLocalConnection(
   const proposedId = `local-${randomUUID()}`;
   try {
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const current = await registry.migrateLegacyLocal();
+      input.signal?.throwIfAborted();
+      const current = await registry.migrateLegacyLocal(
+        input.signal === undefined ? {} : { signal: input.signal },
+      );
       const matches = recordsForOrigin(current, baseUrl);
       if (matches.length > 1) {
         throw new LocalConnectionError(
@@ -179,14 +196,19 @@ export async function writeLocalConnection(
         current.connections.length === 0 &&
         current.primaryConnectionId === null;
       try {
-        const committed = await registry.commit(current.revision, (draft) => {
-          const index = draft.connections.findIndex(
-            (connection) => connection.id === record.id,
-          );
-          if (index === -1) draft.connections.push(record);
-          else draft.connections[index] = record;
-          if (makePrimary) draft.primaryConnectionId = record.id;
-        });
+        input.signal?.throwIfAborted();
+        const committed = await registry.commit(
+          current.revision,
+          (draft) => {
+            const index = draft.connections.findIndex(
+              (connection) => connection.id === record.id,
+            );
+            if (index === -1) draft.connections.push(record);
+            else draft.connections[index] = record;
+            if (makePrimary) draft.primaryConnectionId = record.id;
+          },
+          input.signal === undefined ? {} : { signal: input.signal },
+        );
         return configuration(record, committed.primaryConnectionId);
       } catch (error) {
         if (
@@ -204,7 +226,7 @@ export async function writeLocalConnection(
       "Connection registry revision changed",
     );
   } catch (error) {
-    throw localError(error);
+    throw localError(error, input.signal);
   }
 }
 
@@ -233,10 +255,12 @@ export async function setupLocalConnection(
       "Selected local model was not reported by the server",
     );
   }
+  input.signal?.throwIfAborted();
   return await writeLocalConnection(dataDirectory, {
     baseUrl,
     modelId: input.modelId,
     label: "Local model",
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
   });
 }
 

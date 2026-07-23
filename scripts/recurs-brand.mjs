@@ -15,6 +15,28 @@ export const RECURS_BRAND = Object.freeze({
     "▜█▀▜▙ ",
     "◀▀  ▝▀",
   ]),
+  terminalPreview: Object.freeze({
+    evidenceLabel: "ACTUAL ALPHA RUN · 2026-07-23",
+    rows: Object.freeze([
+      Object.freeze({
+        role: "Parent",
+        model: "gpt-5.6-sol · high",
+        result: "synthesis passed",
+      }),
+      Object.freeze({
+        role: "Implement",
+        model: "gpt-5.6-terra · medium",
+        result: "2-file candidate",
+      }),
+      Object.freeze({
+        role: "Review",
+        model: "gpt-5.6-luna · medium",
+        result: "approved",
+      }),
+    ]),
+    verification: "4 tests passed",
+    usage: "216,879 input (161,024 cached) · 3,274 output · cost unknown",
+  }),
   strokes: Object.freeze([
     Object.freeze({
       d: "M 122 73 L 136 59 C 145 41 138 18 114 18 H 47 C 17 18 17 63 47 63 H 70 C 84 63 94 70 104 81 L 137 123",

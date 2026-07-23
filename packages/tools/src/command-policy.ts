@@ -62,14 +62,61 @@ function intent(
   return { category, resource, risk };
 }
 
+function normalizedShellToken(token: string): string {
+  return token
+    .replaceAll("\\", "")
+    .replaceAll('"', "")
+    .replaceAll("'", "");
+}
+
+function hasShortOption(token: string, option: string): boolean {
+  const normalized = normalizedShellToken(token);
+  return normalized.startsWith("-") &&
+    !normalized.startsWith("--") &&
+    normalized.slice(1).includes(option);
+}
+
+function isDestructiveRemoval(tokens: readonly string[]): boolean {
+  const commandIndex = tokens.indexOf("rm");
+  if (commandIndex < 0) return false;
+  return tokens.slice(commandIndex + 1).some((token) => {
+    const normalized = normalizedShellToken(token);
+    return normalized === "--recursive" ||
+      normalized === "--force" ||
+      hasShortOption(normalized, "r") ||
+      hasShortOption(normalized, "f");
+  });
+}
+
+function isDestructiveGitCommand(tokens: readonly string[]): boolean {
+  if (tokens[0] !== "git") return false;
+  const subcommand = tokens[1];
+  if (subcommand === "reset") {
+    return tokens.slice(2).some((token) =>
+      normalizedShellToken(token) === "--hard"
+    );
+  }
+  if (subcommand === "clean") {
+    return tokens.slice(2).some((token) => {
+      const normalized = normalizedShellToken(token);
+      return normalized === "--force" || hasShortOption(normalized, "f");
+    });
+  }
+  if (subcommand === "checkout") {
+    return normalizedShellToken(tokens[2] ?? "") === "--";
+  }
+  return subcommand === "restore" && tokens.length > 2;
+}
+
 function classifySegment(segment: string): PermissionIntent {
   const normalized = segment.trim().replace(/\s+/gu, " ");
   const lower = normalized.toLowerCase();
+  const tokens = lower.split(" ");
 
   if (
     /(^|\s)(sudo|doas)(\s|$)/u.test(lower) ||
-    /(^|\s)rm\s+[^\n]*(?:-[^\s]*r|--recursive|-[^\s]*f|--force)/u.test(lower) ||
-    /^git\s+(?:reset\s+--hard|clean\s+.*-[^\s]*f|checkout\s+--|restore\s+)/u.test(lower) ||
+    isDestructiveRemoval(tokens) ||
+    isDestructiveGitCommand(tokens) ||
     /^(?:mkfs|fdisk|diskutil\s+erase|dd\s+if=|shutdown|reboot|halt)(\s|$)/u.test(lower) ||
     /^(?:launchctl|systemctl|service)\s+(?:unload|disable|stop|remove)/u.test(lower) ||
     /(^|\s)(?:eval|bash\s+-c|sh\s+-c|zsh\s+-c)(\s|$)/u.test(lower) ||

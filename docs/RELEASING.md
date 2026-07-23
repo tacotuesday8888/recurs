@@ -24,6 +24,18 @@ provider loop, OS workspace sandbox, Agent Skills, stdio MCP, and ACP server
 from a new temporary prefix.
 
 The portable npm artifact contains the same TypeScript runtime verified in CI.
+Its package gate caps the unpacked artifact at 2.1 MB; that is not the installed
+footprint. npm resolves runtime dependencies separately, including the
+platform-specific Codex package. The audited Apple-silicon source checkout
+used about 390 MiB for dependencies, about 297 MiB of which was that Codex
+package. Record a clean installed-prefix measurement for every release
+candidate and disclose it in release notes.
+
+The Bun compatibility gate is similarly narrow: the pinned Linux lane globally
+installs this npm tarball, preserves its Node shebang, launches it through
+Node.js, and verifies that it fails without Node. Release notes may document
+Bun as an alternative global installer only; they must not imply native Bun
+execution, `bun run` support, or untested version/platform coverage.
 
 ## Deferred distribution limitation
 

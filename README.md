@@ -16,14 +16,17 @@ isolated worktrees, and returns reviewed work for your approval.
 </div>
 
 <p align="center">
-  <img src="./docs/assets/terminal-preview.svg" alt="Recurs guided setup in a terminal" width="680">
+  <img src="./docs/assets/terminal-preview.svg" alt="An actual Recurs alpha company run showing the activated Parent, Implement, and Review roles, their models, results, and usage" width="760">
 </p>
 
 ## 🚀 Start locally
 
 > [!IMPORTANT]
-> Recurs is a source-installable alpha. npm, Homebrew, curl, signed binary, and
-> desktop releases are not published yet.
+> Recurs is a source-only public alpha candidate. The npm registry package,
+> GitHub release and curl installer, Homebrew formula, signed binary, and
+> desktop app are not published. Bun can install the prepared npm tarball in a
+> pinned compatibility smoke, but Recurs remains a Node.js CLI; Bun is not a
+> supported runtime.
 
 You need Node.js 22.22+, Git 2.45+, and ripgrep.
 
@@ -40,6 +43,12 @@ On first launch, Recurs guides you through model access, safety boundaries,
 operating mode, specialist routing, company review, and project context.
 Credentials remain with the vendor runtime or a named process environment.
 Recurs never persists BYOK values.
+
+The repository builds a small CLI archive, but installed dependencies dominate
+the footprint. In the audited Apple-silicon source checkout, `node_modules`
+used about 390 MiB; the pinned Codex platform package accounted for about
+297 MiB. Exact size varies by platform and npm version. Reducing or making that
+dependency optional is release work, not a solved distribution claim.
 
 > On Linux, subprocess containment also requires `/usr/bin/bwrap` with
 > unprivileged user namespaces. Windows subprocess containment is not yet
@@ -101,6 +110,25 @@ automatic installation or trust of Skills and MCP servers.
 The [feature status](docs/FEATURE_STATUS.md) is the code-backed inventory of
 implemented, bounded, prepared-only, and absent capabilities.
 
+## 📊 Alpha evidence
+
+One real Codex subscription dogfood on 2026-07-23 completed Quick company
+formation and a reviewed Balanced coding goal:
+
+- Sol (`gpt-5.6-sol`, high) led and synthesized the run;
+- Terra (`gpt-5.6-terra`, medium) produced the two-file candidate;
+- Luna (`gpt-5.6-luna`, medium) independently approved it;
+- all four fixture tests passed; and
+- provider-reported usage totaled 216,879 input tokens, including 161,024
+  cached input tokens, and 3,274 output tokens. Dollar cost was unavailable.
+
+The first candidate passed review, so no Repair role activated. Deterministic
+integration tests cover request-changes, bounded repair, and re-review. This is
+proof that the full path can run, not proof that this lineup is cheaper or
+better than a strong single agent or another team. The
+[evaluation record](docs/COMPANY_EVALUATION.md) gives the role-level evidence
+and the next comparison work.
+
 ## ⌨️ Everyday commands
 
 ```bash
@@ -118,15 +146,23 @@ session, and JSON/JSONL option.
 
 ## Project status
 
-- The source CLI is usable on the supported Node.js toolchain.
-- Package metadata is `0.1.0-alpha.1`; the release gate is prepared, but no
-  package-manager distribution is published.
-- The runtime is TypeScript-first and runs on the supported Node.js toolchain
-  across macOS and Linux.
-- Windows subprocess containment and a desktop app are not implemented.
+- **Usable now:** source checkout on Node.js 22.22+ with npm, Git, and ripgrep;
+  macOS and Linux are the supported subprocess platforms.
+- **Proven once:** company formation, isolated implementation, independent
+  review, synthesis, explicit apply, and evidence-backed Auto activation
+  through a real Codex subscription.
+- **Not distributed:** package metadata is `0.1.0-alpha.1`, but there is no
+  public npm package, GitHub release, curl installer, or Homebrew tap. The
+  prepared Bun global-install path cannot work until the npm package exists and
+  still launches Recurs with Node.js.
+- **Still to prove:** repeated quality, latency, token, and cost comparisons
+  against a strong single agent and alternative teams.
+- **Not implemented:** Windows subprocess containment and a desktop app.
 
 ## 📚 Documentation
 
+- [Public alpha status](docs/PUBLIC_ALPHA.md) — installation, evidence, limits,
+  and release criteria in one page
 - [CLI guide](docs/CLI.md) — setup, commands, outputs, storage, and limits
 - [Feature status](docs/FEATURE_STATUS.md) — exact capability inventory
 - [Architecture](ARCHITECTURE.md) — engine boundaries and lifecycle
@@ -142,6 +178,10 @@ session, and JSON/JSONL option.
 npm run check
 npm run package:smoke-install
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Use
+[SUPPORT.md](SUPPORT.md) for help and [SECURITY.md](SECURITY.md) for private
+security-reporting guidance.
 
 ## License
 

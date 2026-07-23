@@ -105,6 +105,19 @@ export async function setAccountAgentRoute(
   ).setAgentRoute(role, id, signal === undefined ? {} : { signal });
 }
 
+export async function setAccountAgentRoutes(
+  dataDirectory: string,
+  assignments: readonly AgentRouteAssignment[],
+  signal?: AbortSignal,
+): Promise<readonly AgentRouteAssignment[]> {
+  return await new ConnectionLifecycleService(
+    new FileConnectionRegistry(dataDirectory),
+  ).setAgentRoutes(
+    assignments,
+    signal === undefined ? {} : { signal },
+  );
+}
+
 export async function disconnectAccount(
   dataDirectory: string,
   id: string,

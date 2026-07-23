@@ -175,8 +175,9 @@ export function providerOverviewText(
     "Recurs setup paths",
     ...available,
     "",
-    "Next: recurs setup codex, recurs setup openai, recurs setup anthropic --model <id>,",
-    "      recurs setup kimi --model <id>, or recurs setup local --url <loopback-url> --model <id>.",
+    "Next: recurs setup for guided setup, or recurs setup codex.",
+    "BYOK: recurs setup byok --provider <id> --model <id> --key-env <ENV>.",
+    "Local: recurs setup local --url <loopback-url> --model <id>.",
     "Ephemeral BYOK: set RECURS_PROVIDER, RECURS_MODEL, and RECURS_API_KEY together, then restart Recurs.",
     "Catalog entries are discovery metadata, not a claim that every provider is runnable.",
   ].join("\n");

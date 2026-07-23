@@ -242,7 +242,7 @@ const bundled = [
       "https://platform.claude.com/docs/en/manage-claude/authentication",
     ],
     evidenceSummary:
-      "Anthropic documents direct Messages API authentication and metered API use; source/npm builds can use explicit environment BYOK while the signed native path retains stronger persistent credential custody.",
+      "Anthropic documents direct Messages API authentication and metered API use; Recurs supports explicit process-environment BYOK and stores only the environment-variable binding and credential fingerprint.",
   }),
   manifest({
     id: "anthropic-claude-subscription",

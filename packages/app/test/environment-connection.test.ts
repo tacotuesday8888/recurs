@@ -153,6 +153,32 @@ describe("saved environment BYOK connections", () => {
       ]);
   });
 
+  it("does not persist BYOK metadata when setup is cancelled after discovery", async () => {
+    const directory = await root();
+    const controller = new AbortController();
+
+    await expect(setupEnvironmentConnection(directory, {
+      providerId: "openai-api",
+      modelId: "gpt-5.6-terra",
+      credentialEnvironmentVariable: "OPENAI_API_KEY",
+      billingSelection: "strict_primary_only",
+      environment: { OPENAI_API_KEY: "openai-private-value" },
+      now: AT,
+    }, {
+      signal: controller.signal,
+      fetch: async () => {
+        controller.abort();
+        return openAIModels("gpt-5.6-terra");
+      },
+    })).rejects.toMatchObject({
+      name: "EnvironmentConnectionError",
+      code: "cancelled",
+    });
+
+    expect((await new FileConnectionRegistry(directory).read()).connections)
+      .toEqual([]);
+  });
+
   it("rejects a tampered saved reasoning effort outside the reviewed model profile", async () => {
     const directory = await root();
     const filename = connectionRegistryPath(directory);

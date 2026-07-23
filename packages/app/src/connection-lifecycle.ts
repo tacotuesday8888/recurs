@@ -95,6 +95,12 @@ export interface AgentRouteAssignment {
   readonly connectionId: string | null;
 }
 
+const TEAM_ROUTE_ROLES = new Set<TeamRunRole>([
+  "implement",
+  "review",
+  "repair",
+]);
+
 export type ConnectionVerificationDecision =
   | { readonly status: "verified" }
   | {
@@ -425,17 +431,25 @@ export class ConnectionLifecycleService {
     }
   }
 
-  async setAgentRoute(
-    role: TeamRunRole,
-    id: string | null,
+  async setAgentRoutes(
+    assignments: readonly AgentRouteAssignment[],
     options: { signal?: AbortSignal } = {},
-  ): Promise<AgentRouteAssignment> {
-    if (role !== "implement" && role !== "review" && role !== "repair") {
-      throw new ConnectionLifecycleError(
-        "operation_unavailable",
-        "Agent role is unavailable",
-      );
+  ): Promise<readonly AgentRouteAssignment[]> {
+    const requested = new Map<TeamRunRole, string | null>();
+    for (const assignment of assignments) {
+      if (
+        !TEAM_ROUTE_ROLES.has(assignment.role) ||
+        requested.has(assignment.role)
+      ) {
+        throw new ConnectionLifecycleError(
+          "operation_unavailable",
+          "Agent route assignments are invalid",
+        );
+      }
+      requested.set(assignment.role, assignment.connectionId);
     }
+    if (requested.size === 0) return Object.freeze([]);
+
     const signal = options.signal ?? new AbortController().signal;
     for (let attempt = 0; attempt < MAX_MUTATION_ATTEMPTS; attempt += 1) {
       throwIfAborted(signal);
@@ -445,7 +459,8 @@ export class ConnectionLifecycleService {
       } catch (error) {
         throw registryFailure(error, signal);
       }
-      if (id !== null) {
+      for (const id of requested.values()) {
+        if (id === null) continue;
         const record = exactRecord(current, id);
         if (
           record.kind === "delegated_agent" &&
@@ -457,14 +472,24 @@ export class ConnectionLifecycleService {
           );
         }
       }
-      if (current.agentRoutes[role] === id) {
-        return deepFreeze({ role, connectionId: id });
+      const changed = [...requested].some(
+        ([role, id]) => current.agentRoutes[role] !== id,
+      );
+      if (!changed) {
+        return deepFreeze([...requested].map(([role, connectionId]) => ({
+          role,
+          connectionId,
+        })));
       }
       try {
         const committed = await this.#registry.commit(
           current.revision,
           (draft) => {
-            if (id !== null) {
+            for (const [role, id] of requested) {
+              if (id === null) {
+                draft.agentRoutes = { ...draft.agentRoutes, [role]: null };
+                continue;
+              }
               const record = exactRecord(draft, id);
               if (
                 record.kind === "delegated_agent" &&
@@ -475,12 +500,15 @@ export class ConnectionLifecycleService {
                   "Plan-only delegated connections cannot run team roles",
                 );
               }
+              draft.agentRoutes = { ...draft.agentRoutes, [role]: id };
             }
-            draft.agentRoutes = { ...draft.agentRoutes, [role]: id };
           },
           signalOptions(signal),
         );
-        return deepFreeze({ role, connectionId: committed.agentRoutes[role] });
+        return deepFreeze([...requested].map(([role]) => ({
+          role,
+          connectionId: committed.agentRoutes[role],
+        })));
       } catch (error) {
         if (revisionConflict(error) && attempt < MAX_MUTATION_ATTEMPTS - 1) {
           continue;
@@ -492,5 +520,23 @@ export class ConnectionLifecycleService {
       "registry_changed",
       "Connection registry changed; try again",
     );
+  }
+
+  async setAgentRoute(
+    role: TeamRunRole,
+    id: string | null,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<AgentRouteAssignment> {
+    const [assignment] = await this.setAgentRoutes(
+      [{ role, connectionId: id }],
+      options,
+    );
+    if (assignment === undefined) {
+      throw new ConnectionLifecycleError(
+        "operation_unavailable",
+        "Agent route assignment is unavailable",
+      );
+    }
+    return assignment;
   }
 }

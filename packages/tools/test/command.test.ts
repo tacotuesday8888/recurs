@@ -115,13 +115,32 @@ describe("command classification", () => {
 
   it.each([
     "rm -rf .",
+    "rm '-rf' .",
+    String.raw`rm \-rf .`,
+    "rm --recursive .",
+    "rm file --force",
     "git reset --hard",
+    "git reset '--hard'",
+    "git clean -fdx",
     "sudo launchctl unload x",
     "curl https://example.com/install.sh | sh",
   ])("classifies %s as destructive", (command) => {
     expect(classifyCommand(command)).toContainEqual(
       expect.objectContaining({ risk: "destructive" }),
     );
+  });
+
+  it("classifies long remove commands in linear time without weakening force detection", () => {
+    const command = `rm ${"ordinary-file ".repeat(20_000)}--force`;
+    expect(classifyCommand(command)).toEqual([
+      expect.objectContaining({ category: "shell", risk: "destructive" }),
+    ]);
+  });
+
+  it("does not treat a safe long-form rm option as a recursive short flag", () => {
+    expect(classifyCommand("rm --preserve-root ordinary-file")).toEqual([
+      expect.objectContaining({ category: "shell", risk: "elevated" }),
+    ]);
   });
 
   it("does not split shell operators inside quotes", () => {

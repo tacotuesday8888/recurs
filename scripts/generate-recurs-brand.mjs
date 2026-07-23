@@ -37,10 +37,21 @@ ${strokes.map(({ d, width }) => `    <path d="${d}" stroke-width="${width}"/>`).
 }
 
 function terminalPreviewSvg() {
-  const { palette, strokes, arrowPoints } = RECURS_BRAND;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="760" height="170" viewBox="0 0 760 170" role="img" aria-labelledby="title description">
-  <title id="title">Welcome to Recurs</title>
-  <desc id="description">The Recurs loop mark beside a terminal welcome message.</desc>
+  const { palette, strokes, arrowPoints, terminalPreview } = RECURS_BRAND;
+  const rowTop = 132;
+  const rowHeight = 55;
+  const rows = terminalPreview.rows.map((row, index) => {
+    const top = rowTop + (index * rowHeight);
+    const baseline = top + 33;
+    return `  <rect x="24" y="${top}" width="892" height="45" rx="8" class="row"/>
+  <text x="46" y="${baseline}" class="role">${row.role}</text>
+  <text x="230" y="${baseline}" class="value">${row.model}</text>
+  <circle cx="604" cy="${baseline - 6}" r="5" class="success-dot"/>
+  <text x="620" y="${baseline}" class="result">${row.result}</text>`;
+  }).join("\n");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="940" height="350" viewBox="0 0 940 350" role="img" aria-labelledby="title description">
+  <title id="title">Actual Recurs alpha company run</title>
+  <desc id="description">A completed company goal showing the activated Parent, Implement, and Review roles, their exact models and effort, results, test evidence, and token usage.</desc>
   <!-- ${GENERATED_HEADER} -->
   <defs>
     <linearGradient id="recurs-gradient" x1="0" y1="0" x2="1" y2="1">
@@ -49,19 +60,41 @@ function terminalPreviewSvg() {
       <stop offset="1" stop-color="${palette.mint}"/>
     </linearGradient>
     <style>
-      .muted { fill: ${palette.muted}; font: 16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-      .strong { fill: ${palette.foreground}; font: 800 29px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .divider { stroke: #253140; stroke-width: 1; }
+      .row { fill: #111923; }
+      .eyebrow { fill: ${palette.cyan}; font: 700 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 1.2px; }
+      .heading { fill: ${palette.foreground}; font: 700 23px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .column { fill: ${palette.muted}; font: 700 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: 1px; }
+      .role { fill: ${palette.foreground}; font: 700 15px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .value { fill: #c8d1dc; font: 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .result { fill: ${palette.mint}; font: 700 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .summary { fill: #c8d1dc; font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .usage { fill: ${palette.muted}; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .success-dot { fill: ${palette.mint}; }
     </style>
   </defs>
-  <rect width="760" height="170" rx="16" fill="${palette.background}"/>
-  <g transform="translate(28 13) scale(0.9)">
+  <rect x="1" y="1" width="938" height="348" rx="16" fill="${palette.background}" stroke="#253140" stroke-width="2"/>
+  <circle cx="25" cy="25" r="5" fill="#ff6b6b"/>
+  <circle cx="43" cy="25" r="5" fill="#f5c451"/>
+  <circle cx="61" cy="25" r="5" fill="${palette.mint}"/>
+  <text x="86" y="30" class="summary">recurs · company goal</text>
+  <line x1="1" y1="49" x2="939" y2="49" class="divider"/>
+  <g transform="translate(24 62) scale(0.28)">
     <g fill="none" stroke="url(#recurs-gradient)" stroke-linecap="round" stroke-linejoin="round">
 ${strokes.map(({ d, width }) => `      <path d="${d}" stroke-width="${width}"/>`).join("\n")}
     </g>
     <polygon points="${arrowPoints}" fill="url(#recurs-gradient)"/>
   </g>
-  <text x="190" y="76" class="strong">Welcome to Recurs</text>
-  <text x="190" y="111" class="muted">A bounded agent company for your terminal.</text>
+  <text x="82" y="78" class="eyebrow">${terminalPreview.evidenceLabel}</text>
+  <text x="82" y="105" class="heading">Reviewed company goal completed</text>
+  <text x="46" y="124" class="column">ACTIVATED ROLE</text>
+  <text x="230" y="124" class="column">MODEL / EFFORT</text>
+  <text x="604" y="124" class="column">RESULT</text>
+${rows}
+  <line x1="24" y1="305" x2="916" y2="305" class="divider"/>
+  <circle cx="31" cy="326" r="5" class="success-dot"/>
+  <text x="45" y="331" class="summary">${terminalPreview.verification}</text>
+  <text x="184" y="331" class="usage">${terminalPreview.usage}</text>
 </svg>
 `;
 }

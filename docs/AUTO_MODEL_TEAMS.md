@@ -193,15 +193,19 @@ Today Recurs does select an evaluated model lineup through `/model auto`, but
 only after eligible real completed-goal evidence exists. It does not have
 enough repeated authorized real-provider evidence to claim a default
 Sol/Terra/Luna winner, classify arbitrary tasks, expire stale benchmarks, or
-optimize price automatically.
+optimize price automatically. The first completed Codex dogfood reported
+216,879 input tokens (161,024 cached), 3,274 output tokens, and unknown dollar
+cost. It proved execution and evidence capture, not team efficiency.
 
 ## Delivery sequence
 
-1. Dogfood representative Sol/Terra/Luna goals through the implemented
-   workflow and record them with `/model auto evaluate <run-id>`.
-2. Repeat comparable goals before publishing a default recommendation.
+1. Run the same representative goals with a strong single agent, the recorded
+   Sol/Terra/Luna lineup, and at least one alternative team.
+2. Record every eligible run with `/model auto evaluate <run-id>` and compare
+   quality, review value, latency, total/cached tokens, and reported cost.
 3. Add a small versioned task taxonomy and evidence freshness policy.
-4. Compare lineups using quality, reliability, latency, and cost evidence.
+4. Repeat enough comparable goals to establish reliability before publishing a
+   default recommendation.
 5. Preserve Custom routing and advanced policy inspection.
 
 Until repeated evidence exists, public copy must describe evidence-backed Auto

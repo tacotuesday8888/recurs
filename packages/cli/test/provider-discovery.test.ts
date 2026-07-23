@@ -44,6 +44,12 @@ describe("provider discovery presentation", () => {
     expect(text).toContain("* Primary model · coder");
     expect(text).toContain("Ollama · http://127.0.0.1:11434/v1");
     expect(text).toContain("public provider catalog is temporarily unavailable");
+    expect(text).toContain(
+      "recurs setup byok --provider <id> --model <id> --key-env <ENV>",
+    );
+    expect(text).not.toContain("recurs setup openai");
+    expect(text).not.toContain("recurs setup anthropic");
+    expect(text).not.toContain("recurs setup kimi");
     expect(text).not.toContain("private network details");
   });
 

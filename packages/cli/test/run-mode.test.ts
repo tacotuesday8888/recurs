@@ -117,9 +117,10 @@ function dependencies(stdout: TextOutput, stderr: TextOutput): CliDependencies {
 
 describe("public CLI process boundary", () => {
   it("exports process assembly without re-exporting or evaluating the bin", async () => {
-    const [indexSource, binSource] = await Promise.all([
+    const [indexSource, binSource, processHostSource] = await Promise.all([
       readFile(new URL("../src/index.ts", import.meta.url), "utf8"),
       readFile(new URL("../src/main.ts", import.meta.url), "utf8"),
+      readFile(new URL("../src/process-host.ts", import.meta.url), "utf8"),
     ]);
 
     expect(runCliProcess).toBeTypeOf("function");
@@ -129,6 +130,7 @@ describe("public CLI process boundary", () => {
     expect(binSource).not.toContain("inherited-socket");
     expect(binSource).toContain('import("./process-host.js")');
     expect(binSource).toContain('import("./pty-driver.js")');
+    expect(processHostSource).not.toContain('argv[1] === "native"');
   });
 });
 
@@ -223,6 +225,114 @@ describe("runCli", () => {
     expect(exitCode).toBe(2);
     expect(called).toBe(false);
     expect(stderr.value).toContain("recurs setup local --url");
+  });
+
+  it("returns 130 without creating a session when guided selection is aborted", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const controller = new AbortController();
+    let runtimeCreated = false;
+
+    const exitCode = await runCli(["setup"], {
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      signal: controller.signal,
+      async listAccounts() {
+        return [{
+          id: "saved",
+          label: "Saved model",
+          providerId: "openrouter-api",
+          adapterId: "openai-chat-completions",
+          kind: "environment_model_provider",
+          modelId: "provider/model",
+          primary: true,
+          account: "environment credential (value not stored)",
+          execution: "Act + Plan",
+          billingSources: ["prepaid_credits"],
+          agentRoles: [],
+        }];
+      },
+      async listProviders() { return []; },
+      async detectProviders() { return []; },
+      async selectChoice() {
+        controller.abort();
+        const error = new Error("private readline cancellation detail");
+        error.name = "AbortError";
+        throw error;
+      },
+      async promptText() { return null; },
+      async createRuntime() {
+        runtimeCreated = true;
+        throw new Error("runtime must not start");
+      },
+    });
+
+    expect(exitCode).toBe(130);
+    expect(runtimeCreated).toBe(false);
+    expect(stdout.value).toContain(
+      "Setup cancelled. No new session was created.",
+    );
+    expect(stdout.value).not.toContain("private readline cancellation detail");
+    expect(stdout.value).not.toContain("Unexpected failure");
+    expect(stderr.value).toBe("");
+  });
+
+  it("forwards cancellation through guided connection setup without partial activation", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const controller = new AbortController();
+    let runtimeCreated = false;
+    let setupCalls = 0;
+
+    const exitCode = await runCli(["setup"], {
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      signal: controller.signal,
+      async listAccounts() { return []; },
+      async listProviders() { return []; },
+      async detectProviders() {
+        return [{
+          id: "ollama",
+          name: "Ollama",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          detected: true,
+        }];
+      },
+      async selectChoice(_message, choices) {
+        expect(choices.some((choice) => choice.id === "local:ollama"))
+          .toBe(true);
+        return "local:ollama";
+      },
+      async promptText() { return "qwen-coder"; },
+      async setupLocal(input) {
+        setupCalls += 1;
+        expect(input.signal).toBe(controller.signal);
+        controller.abort();
+        throw new ProviderError(
+          "cancelled",
+          "private provider cancellation detail",
+          false,
+        );
+      },
+      async createRuntime() {
+        runtimeCreated = true;
+        throw new Error("runtime must not start");
+      },
+    });
+
+    expect(exitCode).toBe(130);
+    expect(setupCalls).toBe(1);
+    expect(runtimeCreated).toBe(false);
+    expect(stdout.value).toContain(
+      "Setup cancelled. No new session was created.",
+    );
+    expect(stdout.value).not.toContain("private provider cancellation detail");
+    expect(stdout.value).not.toContain("Unexpected failure");
+    expect(stderr.value).toBe("");
   });
 
   it("guides explicit local setup and falls back safely when Full Access is declined", async () => {

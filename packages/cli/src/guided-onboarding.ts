@@ -87,6 +87,11 @@ export interface GuidedOnboardingInventory {
   readonly providers: readonly ProviderSummary[];
 }
 
+export interface GuidedConnectionMenu {
+  readonly featured: readonly GuidedConnectionChoice[];
+  readonly additional: readonly GuidedConnectionChoice[];
+}
+
 const CATALOG_PROVIDER_IDS: Readonly<Record<string, string>> = Object.freeze({
   "openai-api": "openai",
   "anthropic-api": "anthropic",
@@ -104,6 +109,12 @@ const CATALOG_PROVIDER_IDS: Readonly<Record<string, string>> = Object.freeze({
   "zai-glm-coding-plan": "zai-coding-plan",
   "deepseek-api": "deepseek",
 });
+
+const RECOMMENDED_BYOK_PROVIDER_IDS = new Set([
+  "openai-api",
+  "anthropic-api",
+  "openrouter-api",
+]);
 
 function providerById(
   providers: readonly ProviderSummary[],
@@ -158,6 +169,21 @@ export function guidedConnectionChoices(
     });
   }
   return Object.freeze(choices.map((choice) => Object.freeze(choice)));
+}
+
+export function guidedConnectionMenu(
+  inventory: GuidedOnboardingInventory,
+): GuidedConnectionMenu {
+  const choices = guidedConnectionChoices(inventory);
+  const featured = choices.filter((choice) =>
+    choice.action.kind !== "byok" ||
+    RECOMMENDED_BYOK_PROVIDER_IDS.has(choice.action.providerId)
+  );
+  const additional = choices.filter((choice) => !featured.includes(choice));
+  return Object.freeze({
+    featured: Object.freeze(featured),
+    additional: Object.freeze(additional),
+  });
 }
 
 export function catalogProviderId(providerId: string): string | null {
@@ -310,7 +336,48 @@ export interface GuidedOnboardingPorts {
   createProjectInstructions?(
     input: ProjectBriefInput,
   ): Promise<"created" | "exists">;
+  setTeamRoutes?(
+    assignments: readonly {
+      readonly role: TeamRunRole;
+      readonly connectionId: string | null;
+    }[],
+    signal?: AbortSignal,
+  ): Promise<readonly {
+    readonly role: TeamRunRole;
+    readonly connectionId: string | null;
+  }[]>;
   executeCommand(argv: readonly string[]): Promise<number>;
+}
+
+function isOnboardingCancellation(
+  error: unknown,
+  signal: AbortSignal | undefined,
+): boolean {
+  return signal?.aborted === true ||
+    (
+      typeof error === "object" &&
+      error !== null &&
+      (
+        ("name" in error && error.name === "AbortError") ||
+        ("code" in error && error.code === "cancelled")
+      )
+    );
+}
+
+function throwIfOnboardingAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted === true) {
+    throw new DOMException("Guided setup was cancelled", "AbortError");
+  }
+}
+
+async function cancelledOnboarding(
+  ports: GuidedOnboardingPorts,
+): Promise<GuidedOnboardingOutcome> {
+  await writeOutput(
+    ports.stdout,
+    "\nSetup cancelled. No new session was created.\n",
+  );
+  return { state: "failed", exitCode: 130 };
 }
 
 export async function inspectCompanyRepositoryFacts(
@@ -343,7 +410,8 @@ async function catalogProvider(
   try {
     const snapshot = await ports.discoverProviders(catalogId, ports.signal);
     return snapshot.providers.find((provider) => provider.id === catalogId) ?? null;
-  } catch {
+  } catch (error) {
+    if (isOnboardingCancellation(error, ports.signal)) throw error;
     return null;
   }
 }
@@ -668,6 +736,10 @@ async function configureTeamRoutes(
   );
   if (setup !== "customize") return true;
 
+  const changes: Array<{
+    readonly role: TeamRunRole;
+    readonly connectionId: string | null;
+  }> = [];
   for (const role of TEAM_ROLES) {
     const existing = currentRoute(accounts, role);
     const selected = await ports.selectChoice(
@@ -688,14 +760,18 @@ async function configureTeamRoutes(
     if (selected === null) continue;
     const connectionId = selected === "parent" ? null : selected;
     if (connectionId === existing) continue;
-    const exitCode = await ports.executeCommand([
-      "account",
-      "route",
-      role,
-      connectionId ?? "parent",
-    ]);
-    if (exitCode !== 0) return false;
+    changes.push({ role, connectionId });
   }
+
+  if (changes.length === 0) return true;
+  if (ports.setTeamRoutes === undefined) {
+    await writeOutput(
+      ports.stderr,
+      "Team routing is unavailable in this setup host.\n",
+    );
+    return false;
+  }
+  await ports.setTeamRoutes(changes, ports.signal);
   return true;
 }
 
@@ -867,7 +943,8 @@ async function setupCompanyBlueprint(
   if (inspect) {
     try {
       repository = await ports.inspectCompanyRepositoryFacts();
-    } catch {
+    } catch (error) {
+      if (isOnboardingCancellation(error, ports.signal)) throw error;
       await writeOutput(
         ports.stderr,
         "Repository marker inspection failed safely; no repository facts were added.\n",
@@ -1018,6 +1095,7 @@ async function setupCompanyBlueprintV2(
       repositoryConsent,
     });
   } catch (error) {
+    if (isOnboardingCancellation(error, ports.signal)) throw error;
     await writeOutput(
       ports.stderr,
       `Company formation is unavailable: ${safeCliErrorMessage(error)}\n`,
@@ -1313,9 +1391,47 @@ async function setupProjectContext(
   );
 }
 
-export async function runGuidedOnboarding(
+async function selectGuidedConnection(
+  menu: GuidedConnectionMenu,
+  ports: GuidedOnboardingPorts,
+): Promise<GuidedConnectionChoice | null> {
+  const moreProviders: GuidedChoice = Object.freeze({
+    id: "more-providers",
+    label: "More providers",
+    detail: `${menu.additional.length} other reviewed connection path${menu.additional.length === 1 ? "" : "s"}`,
+  });
+  const back: GuidedChoice = Object.freeze({
+    id: "back-to-recommended",
+    label: "Back",
+    detail: "return to saved, detected, and recommended paths",
+  });
+
+  while (true) {
+    const selectedId = await ports.selectChoice(
+      "Choose a saved, detected, or recommended model connection",
+      menu.additional.length === 0
+        ? menu.featured
+        : [...menu.featured, moreProviders],
+    );
+    if (selectedId === null) return null;
+    if (selectedId !== moreProviders.id) {
+      return menu.featured.find((choice) => choice.id === selectedId) ?? null;
+    }
+
+    const additionalId = await ports.selectChoice(
+      "Choose another reviewed provider",
+      [...menu.additional, back],
+    );
+    if (additionalId === null) return null;
+    if (additionalId === back.id) continue;
+    return menu.additional.find((choice) => choice.id === additionalId) ?? null;
+  }
+}
+
+async function runGuidedOnboardingSteps(
   ports: GuidedOnboardingPorts,
 ): Promise<GuidedOnboardingOutcome> {
+  ports.signal?.throwIfAborted();
   if (!ports.interactive || ports.automation) {
     await writeOutput(
       ports.stderr,
@@ -1333,15 +1449,18 @@ export async function runGuidedOnboarding(
   ].join("\n"));
   const [accounts, localRuntimes, providers] = await Promise.all([
     ports.listAccounts?.() ?? Promise.resolve([]),
-    ports.detectProviders?.(ports.signal).catch(() => []) ?? Promise.resolve([]),
+    ports.detectProviders?.(ports.signal).catch((error: unknown) => {
+      if (isOnboardingCancellation(error, ports.signal)) throw error;
+      return [];
+    }) ?? Promise.resolve([]),
     ports.listProviders?.({ includeBlocked: false }) ?? Promise.resolve([]),
   ]);
-  const choices = guidedConnectionChoices({
+  const menu = guidedConnectionMenu({
     accounts,
     localRuntimes,
     providers,
   });
-  if (choices.length === 0) {
+  if (menu.featured.length === 0 && menu.additional.length === 0) {
     await writeOutput(
       ports.stderr,
       "No reviewed setup path is currently available. Use /provider for diagnostics.\n",
@@ -1359,21 +1478,13 @@ export async function runGuidedOnboarding(
   let selected: GuidedConnectionChoice | null = null;
   while (true) {
     if (selected === null) {
-      const selectedId = await ports.selectChoice(
-        "Choose how Recurs should access a model",
-        choices,
-      );
-      if (selectedId === null) {
+      selected = await selectGuidedConnection(menu, ports);
+      if (selected === null) {
         await writeOutput(
           ports.stdout,
           "Setup skipped. Run recurs setup or /provider whenever you are ready.\n",
         );
         return { state: "skipped" };
-      }
-      selected = choices.find((choice) => choice.id === selectedId) ?? null;
-      if (selected === null) {
-        await writeOutput(ports.stderr, "Error: Invalid setup selection\n");
-        return { state: "failed", exitCode: 2 };
       }
     }
 
@@ -1385,6 +1496,7 @@ export async function runGuidedOnboarding(
         ports,
       );
     } catch (error) {
+      if (isOnboardingCancellation(error, ports.signal)) throw error;
       await writeOutput(
         ports.stderr,
         `Error: ${safeCliErrorMessage(error)}\n`,
@@ -1393,7 +1505,7 @@ export async function runGuidedOnboarding(
     }
     if (connectionExit === 0) break;
     if (connectionExit === 130 || ports.signal?.aborted === true) {
-      return { state: "failed", exitCode: 130 };
+      return await cancelledOnboarding(ports);
     }
 
     const recovery = await ports.selectChoice(
@@ -1461,7 +1573,9 @@ export async function runGuidedOnboarding(
     `\n${theme.accent(`${companyOnboarding ? 6 : 5} / ${stepCount} · Project context`)}\n`,
   );
   await setupProjectContext(ports, company.brief);
+  throwIfOnboardingAborted(ports.signal);
   const accountsAfterRouting = await ports.listAccounts?.() ?? accountsAfterConnection;
+  throwIfOnboardingAborted(ports.signal);
   const primary = accountsAfterRouting.find((account) => account.primary);
   const operatingMode = getOperatingModePolicy(operatingModeId);
   await writeOutput(ports.stdout, [
@@ -1490,4 +1604,17 @@ export async function runGuidedOnboarding(
       ? {}
       : { companyBlueprintV2: company.blueprintV2 }),
   };
+}
+
+export async function runGuidedOnboarding(
+  ports: GuidedOnboardingPorts,
+): Promise<GuidedOnboardingOutcome> {
+  try {
+    return await runGuidedOnboardingSteps(ports);
+  } catch (error) {
+    if (isOnboardingCancellation(error, ports.signal)) {
+      return await cancelledOnboarding(ports);
+    }
+    throw error;
+  }
 }
