@@ -237,6 +237,8 @@ class AcpEventBridge implements EventSink {
             profileId: event.profileId,
             operatingModeId: event.operatingModeId,
             taskId: event.taskId,
+            modelId: event.modelId,
+            reasoningEffort: event.reasoningEffort,
           },
         });
         return;

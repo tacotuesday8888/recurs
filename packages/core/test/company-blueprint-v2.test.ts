@@ -10,6 +10,7 @@ import {
 import {
   approveCompanyBlueprintV2,
   compileCompanyBlueprintV2,
+  companyContextInstructionsV2,
   type CompanyOrganizationDraftV1,
 } from "../src/index.js";
 
@@ -169,6 +170,48 @@ describe("compileCompanyBlueprintV2", () => {
     );
     expect(second.id).not.toBe(first.id);
     expect(second.companyId).toBe(first.companyId);
+  });
+
+  it("gives the parent the exact executable DAG and review rules", () => {
+    const blueprint = approveCompanyBlueprintV2(
+      compileCompanyBlueprintV2(input()),
+      "2026-07-22T00:01:00.000Z",
+    );
+    const root = blueprint.roles.find((role) =>
+      role.id === blueprint.authorityAnchors.rootRoleId
+    )!;
+    const lead = blueprint.roles.find((role) =>
+      role.displayName === "Implementation Lead"
+    )!;
+    const builder = blueprint.roles.find((role) =>
+      role.displayName === "Scoped Builder"
+    )!;
+    const instructions = companyContextInstructionsV2(blueprint).join("\n");
+
+    expect(instructions).toContain(
+      `Approved delegation edges: ${root.id} ->`,
+    );
+    expect(instructions).toContain(`${lead.id} -> ${builder.id}`);
+    expect(instructions).toContain(
+      `Independent-review role IDs: ${
+        blueprint.authorityAnchors.independentReviewRoleIds.join(", ")
+      }.`,
+    );
+    expect(instructions).toContain(
+      "A top-level assignment must use a role directly delegated by the root",
+    );
+    expect(instructions).toContain(
+      "must depend on every non-review assignment",
+    );
+    expect(instructions).toContain(
+      `profile implement_v2; route implement`,
+    );
+    expect(instructions).toContain(
+      `Coding-goal role path: top-level lead ${lead.id}; nested implementation ${builder.id}`,
+    );
+    expect(instructions).toContain(
+      "Review-driven repair and re-review happen inside the durable team engine",
+    );
   });
 
   it("clamps reporting depth and active roles to the operating mode", () => {

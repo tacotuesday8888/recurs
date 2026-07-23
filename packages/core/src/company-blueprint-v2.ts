@@ -460,11 +460,39 @@ export function companyContextInstructionsV2(
   }
   const executable = blueprint.roles
     .filter((role) => role.executionProfileId !== null)
-    .map((role) => `${role.id} (${role.displayName})`)
+    .map((role) =>
+      `${role.id} (${role.displayName}; profile ${role.executionProfileId}; route ${role.modelRoute})`
+    )
     .join(", ");
+  const executableIds = new Set(
+    blueprint.roles
+      .filter((role) => role.executionProfileId !== null)
+      .map((role) => role.id),
+  );
+  const delegationEdges = blueprint.roles
+    .map((role) => {
+      const children = role.delegatesTo.filter((roleId) =>
+        executableIds.has(roleId)
+      );
+      return children.length === 0
+        ? null
+        : `${role.id} -> ${children.join(", ")}`;
+    })
+    .filter((line): line is string => line !== null)
+    .join("; ");
   const root = compileCompanyRoleCharter(
     blueprint,
     blueprint.authorityAnchors.rootRoleId,
+  );
+  const implementationRole = blueprint.roles.find((role) =>
+    role.executionProfileId === "implement_v2"
+  );
+  const implementationParent = implementationRole?.reportsTo === null
+    ? undefined
+    : blueprint.roles.find((role) => role.id === implementationRole?.reportsTo);
+  const implementationReviewer = blueprint.roles.find((role) =>
+    blueprint.authorityAnchors.independentReviewRoleIds.includes(role.id) &&
+    role.executionProfileId === "review_v2"
   );
   return Object.freeze([
     `Approved Recurs company ${blueprint.companyId} revision ${blueprint.revision} is active for this session.`,
@@ -474,7 +502,19 @@ export function companyContextInstructionsV2(
     root.operatingContext,
     root.authorityBoundary,
     `Executable approved roles: ${executable || "none"}.`,
-    "Use delegate_company_goal for one goal-scoped assignment DAG. Include every independent-review authority and use only approved delegation relationships.",
+    `Approved delegation edges: ${delegationEdges || "none"}.`,
+    `Independent-review role IDs: ${blueprint.authorityAnchors.independentReviewRoleIds.join(", ")}.`,
+    "Use delegate_company_goal for one goal-scoped assignment DAG. Every assignment role must be executable. A top-level assignment must use a role directly delegated by the root; a nested assignment's parent role must delegate to its role.",
+    "Every independent-review role must have a top-level assignment. At least one final independent-review assignment must depend on every non-review assignment, and every implementation assignment must be one of its dependencies.",
+    ...(implementationRole === undefined || implementationReviewer === undefined
+      ? []
+      : [
+          implementationParent?.executionProfileId === null ||
+              implementationParent === undefined
+            ? `Coding-goal role path: top-level implementation ${implementationRole.id}; top-level review ${implementationReviewer.id} depends on it.`
+            : `Coding-goal role path: top-level lead ${implementationParent.id}; nested implementation ${implementationRole.id} is parented by that lead assignment; top-level review ${implementationReviewer.id} depends on both assignments.`,
+          "Use only the implementation_v2 role for mutating work and the review_v2 authority for its independent review. Review-driven repair and re-review happen inside the durable team engine; do not add separate repair or final-review assignments.",
+        ]),
     "Implementation roles run through Recurs's isolated worktree, review, repair, and apply engine. Roster membership alone does not imply activity.",
     "Never widen permissions, delegation depth, tool bundles, model eligibility, concurrency, requests, or reported-cost limits beyond the approved blueprint and operating mode.",
   ]);

@@ -70,6 +70,34 @@ const updatePatch = [
 ].join("\n");
 
 describe("apply_patch", () => {
+  it("describes the accepted Git patch format unambiguously", () => {
+    const tool = createApplyPatchTool();
+    expect(tool.definition.description).toContain('beginning with "diff --git "');
+    expect(tool.definition.description).toContain('Never use Codex "*** Begin Patch"');
+    expect(tool.definition.inputSchema.properties?.patch).toMatchObject({
+      description: expect.stringContaining('Do not wrap it in "*** Begin Patch"'),
+    });
+  });
+
+  it("rejects a Codex patch envelope before resolving or changing files", async () => {
+    await expect(invoke(createApplyPatchTool(), {
+      patch: [
+        "*** Begin Patch",
+        "*** Update File: src/a.ts",
+        "@@",
+        "-export const value = 1;",
+        "+export const value = 2;",
+        "*** End Patch",
+      ].join("\n"),
+      files: [{ path: "src/a.ts", expected_hash: "observed" }],
+    })).rejects.toMatchObject({
+      code: "invalid_input",
+      message: expect.stringContaining('beginning with "diff --git "'),
+    });
+    expect(await readFile(path.join(cwd, "src", "a.ts"), "utf8"))
+      .toBe("export const value = 1;\n");
+  });
+
   it("rejects undeclared input fields before changing the workspace", async () => {
     const read = await invoke(createReadFileTool(), { path: "src/a.ts" });
     const revision = {
@@ -99,6 +127,76 @@ describe("apply_patch", () => {
       "value = 2",
     );
     expect(result.metadata).toMatchObject({ changedFiles: ["src/a.ts"] });
+  });
+
+  it("normalizes redundant hunk counts before Git validation", async () => {
+    await invoke(createReadFileTool(), { path: "src/a.ts" });
+    const malformedCounts = updatePatch.replace(
+      "@@ -1 +1 @@",
+      "@@ -1,99 +1,77 @@",
+    );
+
+    await invoke(createApplyPatchTool(), {
+      patch: malformedCounts,
+      files: [{ path: "src/a.ts", expected_hash: "observed" }],
+    });
+
+    expect(await readFile(path.join(cwd, "src", "a.ts"), "utf8"))
+      .toBe("export const value = 2;\n");
+  });
+
+  it("does not mistake deleted source beginning with dashes for a file marker", async () => {
+    await writeFile(path.join(cwd, "src", "a.ts"), "-- old\nvalue\n", "utf8");
+    await invoke(createReadFileTool(), { path: "src/a.ts" });
+    const patch = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -1,99 +1,77 @@",
+      "--- old",
+      "+-- new",
+      " value",
+      "",
+    ].join("\n");
+
+    await invoke(createApplyPatchTool(), {
+      patch,
+      files: [{ path: "src/a.ts", expected_hash: "observed" }],
+    });
+
+    expect(await readFile(path.join(cwd, "src", "a.ts"), "utf8"))
+      .toBe("-- new\nvalue\n");
+  });
+
+  it("resolves the observed revision token to the exact hidden current-turn hash", async () => {
+    await invoke(createReadFileTool(), { path: "src/a.ts" });
+
+    const result = await invoke(createApplyPatchTool(), {
+      patch: updatePatch,
+      files: [{ path: "src/a.ts", expected_hash: "observed" }],
+    });
+
+    expect(await readFile(path.join(cwd, "src", "a.ts"), "utf8")).toContain(
+      "value = 2",
+    );
+    expect(result.metadata).toMatchObject({ changedFiles: ["src/a.ts"] });
+  });
+
+  it("rejects the observed revision token without a current-turn read", async () => {
+    await expect(invoke(createApplyPatchTool(), {
+      patch: updatePatch,
+      files: [{ path: "src/a.ts", expected_hash: "observed" }],
+    })).rejects.toMatchObject({ code: "unread_file" });
+  });
+
+  it("keeps stale-file protection when the observed token is used", async () => {
+    await invoke(createReadFileTool(), { path: "src/a.ts" });
+    await writeFile(path.join(cwd, "src", "a.ts"), "user edit\n", "utf8");
+
+    await expect(invoke(createApplyPatchTool(), {
+      patch: updatePatch,
+      files: [{ path: "src/a.ts", expected_hash: "observed" }],
+    })).rejects.toMatchObject({ code: "stale_file" });
   });
 
   it("rejects an existing file that was not read this turn", async () => {
@@ -214,6 +312,7 @@ describe("apply_patch", () => {
       checkpoints,
     });
     const patch = [
+      "diff --git a/settings.txt b/settings.txt",
       "--- a/settings.txt",
       "+++ b/settings.txt",
       "@@ -1 +1 @@",

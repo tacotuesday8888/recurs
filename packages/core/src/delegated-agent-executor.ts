@@ -97,9 +97,41 @@ export interface DelegatedAgentExecutorDependencies {
     signal: AbortSignal,
     context?: DelegatedRunExecutorInput["context"],
   ): ToolContext;
+  contextInstructions?(
+    state: SessionState,
+  ): readonly string[] | Promise<readonly string[]>;
   readonly now?: () => Date;
   readonly createDiagnosticId?: () => string;
   readonly limits?: Partial<DelegatedAgentExecutorLimits>;
+}
+
+const MAX_CONTEXT_INSTRUCTION_BYTES = 64 * 1_024;
+const MAX_CONTEXT_INSTRUCTIONS_BYTES = 256 * 1_024;
+
+function delegatedRuntimePrompt(
+  prompt: string,
+  instructions: readonly string[],
+): string {
+  let totalBytes = 0;
+  for (const instruction of instructions) {
+    const bytes = Buffer.byteLength(instruction, "utf8");
+    if (
+      instruction.trim().length === 0 ||
+      bytes > MAX_CONTEXT_INSTRUCTION_BYTES ||
+      totalBytes + bytes > MAX_CONTEXT_INSTRUCTIONS_BYTES
+    ) {
+      throw new TypeError("Delegated runtime context instructions are invalid");
+    }
+    totalBytes += bytes;
+  }
+  if (instructions.length === 0) return prompt;
+  return [
+    "Recurs session instructions:",
+    ...instructions,
+    "",
+    "Current user request:",
+    prompt,
+  ].join("\n");
 }
 
 interface TerminalDone {
@@ -192,6 +224,10 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
 
     try {
       const capabilities = this.#preflight(input, diagnosticId);
+      const runtimePrompt = delegatedRuntimePrompt(
+        input.prompt,
+        await this.dependencies.contextInstructions?.(input.session) ?? [],
+      );
       const pin = input.session.backend.pin as SessionBackendPinRuntime;
       const expectedSequence = input.mutation.currentSequence;
       const previous = input.session.runtimeContinuation;
@@ -341,7 +377,7 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
       const request: AgentRunRequest = Object.freeze({
         sessionId: input.session.id,
         turnId: input.turnId,
-        prompt: input.prompt,
+        prompt: runtimePrompt,
         cwd: input.session.cwd,
         modelId: pin.modelId,
         executionMode: input.executionMode,

@@ -1,8 +1,8 @@
 # Recurs Feature Status
 
 **Audited:** 2026-07-23 against the source, exported package surfaces, CLI
-assembly, durable contracts/stores, provider manifests, native targets, and
-automated tests on `main`.
+assembly, durable contracts/stores, provider manifests, and automated tests on
+`main`.
 
 This is the concise current capability inventory. Dated files under
 `docs/superpowers/` are design and delivery records; their historical
@@ -26,8 +26,9 @@ context, not a product commitment.
 | Company execution | Validated assignment DAGs, orchestrator/lead/worker planning handoffs, dependency-ordered implementation stages, independent review, bounded repair, parent apply, and synthesis |
 | Company authority | Immutable blueprints, root orchestrator and independent-review anchors, permission monotonicity, active-role/depth/concurrency/request/retry/reported-cost limits, cancellation, and truthful events |
 | Company adaptation | Tailored role charters, attributable project knowledge, historical blueprint pinning, exact Skill/MCP bundle bindings, and approval-gated amendments |
-| Evaluation | Discoverable versioned scenarios; deterministic offline formation; exact-connection, explicit-network configured formation; read-only exact-run company-goal scoring; sanitized reports and bounded human progress |
-| Providers | Reviewed saved environment BYOK, literal-loopback Ollama/LM Studio, local user-present Codex subscription discovery/execution through the official app-server, and tested private macOS OpenAI/Anthropic/Kimi authority |
+| Evaluation | Discoverable versioned scenarios; deterministic offline formation; exact-connection, explicit-network configured formation including Codex app-server; read-only exact-run company-goal scoring; sanitized reports and bounded human progress |
+| Model teams | `/model auto` records exact completed company-goal evidence and selects a four-role Parent/Implement/Review/Repair lineup only when decomposition, evidence, and synthesis passed; selected routes apply to future sessions and remain inspectable |
+| Providers | Reviewed saved environment BYOK, literal-loopback Ollama/LM Studio, and local user-present Codex subscription discovery/execution through the official app-server |
 | Host safety | Permanent credential-path denial, clean child environments, bounded failures, macOS Seatbelt, Linux Bubblewrap, Git worktree isolation, and tamper-evident private state |
 
 ## Real but bounded
@@ -37,10 +38,9 @@ context, not a product commitment.
 | Company hierarchy | Up to the selected operating mode's fixed depth and active-role ceiling; children do not freely create an unbounded recursive swarm |
 | Background work | Durable and resumable while the Recurs process owns it; no daemon survives CLI exit |
 | Cost enforcement | Uses provider-reported cost when available; unknown cost remains unknown, and already-running siblings may finish after a ceiling is crossed |
-| Model selection | Users choose the parent and optional Implement/Review/Repair routes; Recurs does not automatically rank every model by quality or price |
+| Model selection | Users may choose explicit routes or activate evidence-backed Auto for the current `general_coding` task class; Recurs does not infer a winner without eligible completed-goal evidence or perform broad price/capability ranking |
 | MCP and Skills | Exact enabled/trusted IDs can be bound to approved company bundles; Recurs does not install, trust, or infer a binding automatically |
 | Codex subscription | Official app-server, existing ChatGPT authentication, live model/effort discovery, local/manual/user-present foreground execution, Recurs-scoped host tools, and optional Sol/Terra/Luna parent/role routing; no remaining-quota claim, background work, or vendor continuation in V1 |
-| Native credentials | OpenAI, Anthropic, and Kimi verticals are implemented and tested but unavailable to normal users until signed/notarized distribution and production canary proof |
 | Code intelligence | Strong lexical multi-language outlines and TypeScript project diagnostics; no general LSP or semantic reference engine |
 
 ## Prepared, not shipped
@@ -48,8 +48,7 @@ context, not a product commitment.
 - npm package metadata, minimal bundle, empty-prefix installation smoke, and
   protected publication workflow;
 - checksum-verifying curl installer and generated Homebrew formula derived from
-  that exact npm archive; and
-- the private macOS launcher/broker bundle foundation.
+  that exact npm archive.
 
 No npm package, curl release, Homebrew tap/formula, Bun runtime, signed native
 binary, or desktop app is public today.
@@ -57,13 +56,15 @@ binary, or desktop app is public today.
 ## Not implemented
 
 - a full-screen company operating UI or desktop client;
-- real-model quality gates for onboarding, decomposition, and synthesis;
+- enough repeated real-model evidence to publish a default Sol/Terra/Luna
+  winner;
 - a persistent daemon, cloud worker, scheduler, or work that survives CLI exit;
 - child-created unbounded recursion, autonomous organization rewrites, or
   automatic role/tool authority expansion;
 - automatic plugin/MCP installation, a plugin marketplace, remote MCP/OAuth,
   MCP prompts/resources, or broad connector support;
-- automatic model ranking or general capability/price-aware role routing;
+- automatic task classification, evidence-expiry policy, or general
+  capability/price-aware role routing;
 - Windows subprocess containment and a Recurs-owned Linux seccomp policy;
 - arbitrary public OpenAI-compatible endpoints or general cloud-identity
   onboarding;
@@ -75,15 +76,16 @@ binary, or desktop app is public today.
 The base harness and bounded heavy-company architecture are implemented. The
 CLI now exposes read-only operating snapshots, deterministic formation,
 explicit configured-provider dogfooding, and provider-free scoring of one
-durable goal. Codex subscriptions can now execute foreground parent and company
-assignments through Recurs-scoped tools, but remain excluded from the separate
-automated formation evaluator until that direct-provider interface is unified
-with the agent-runtime boundary. These implemented
-workflows are not evidence of real-model quality until they are actually run
-with an authorized provider. The largest remaining product risk is qualitative:
-real models have not yet been exercised enough to prove that the interview
-creates the right company, that delegation uses agents economically, and that
-the final result consistently beats a strong single-agent run.
+durable goal. Codex subscriptions can now execute restricted pre-approval
+company formation and foreground parent/company assignments through
+Recurs-scoped tools. `Models: Auto` is implemented as an evidence gate rather
+than a brand ranking. One safe real Codex subscription dogfood completed Quick
+formation, approval, a reviewed coding goal, parent synthesis, and
+evidence-backed Auto activation with Sol as parent, Terra as Implement/Repair,
+and Luna as Review. The terminal now reports only activated agents, their exact
+model/effort, and bounded usage. The largest remaining product risk is
+qualitative: one run is not enough to prove this lineup consistently beats
+alternatives or a strong single-agent run.
 
 The next product milestone should therefore be real-provider dogfooding and
 evaluation, followed by the already prepared alpha distribution path. A new

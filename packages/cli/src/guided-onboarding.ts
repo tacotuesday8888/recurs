@@ -632,6 +632,12 @@ function routeSummary(accounts: readonly AccountSummary[]): string {
   }).join(" · ");
 }
 
+function permissionLabel(mode: PermissionMode): string {
+  if (mode === "approved_for_me") return "Approved for Me";
+  if (mode === "ask_always") return "Ask Always";
+  return "Full Access";
+}
+
 async function configureTeamRoutes(
   accounts: readonly AccountSummary[],
   operatingModeId: OperatingModeId,
@@ -1419,17 +1425,17 @@ export async function runGuidedOnboarding(
   }
   await writeOutput(
     ports.stdout,
-    `\n${theme.accent(`2 / ${stepCount} · Safety boundary`)}\n`,
+    `\n${theme.accent(`2 / ${stepCount} · Authority`)}\n`,
   );
   const permissionMode = await selectPermission(ports);
   await writeOutput(
     ports.stdout,
-    `\n${theme.accent(`3 / ${stepCount} · Team operating mode`)}\n`,
+    `\n${theme.accent(`3 / ${stepCount} · Team`)}\n`,
   );
   const operatingModeId = await selectOperatingMode(ports);
   await writeOutput(
     ports.stdout,
-    `\n${theme.accent(`4 / ${stepCount} · Specialist routing`)}\n`,
+    `\n${theme.accent(`4 / ${stepCount} · Models`)}\n`,
   );
   const accountsAfterConnection = await ports.listAccounts?.() ?? [];
   const routed = await configureTeamRoutes(
@@ -1442,7 +1448,7 @@ export async function runGuidedOnboarding(
   if (companyOnboarding) {
     await writeOutput(
       ports.stdout,
-      `\n${theme.accent("5 / 6 · Agent company")}\n`,
+      `\n${theme.accent("5 / 6 · Roster")}\n`,
     );
     company = await setupCompanyBlueprint(
       ports,
@@ -1461,14 +1467,15 @@ export async function runGuidedOnboarding(
   await writeOutput(ports.stdout, [
     theme.success("Onboarding complete"),
     `Connection: ${primary === undefined ? "ready" : `${primary.label} · ${primary.modelId}`}`,
-    `Permissions: ${permissionMode.replaceAll("_", " ")}`,
-    `Mode: ${operatingMode.displayName} · ${operatingMode.id}`,
-    `Team: ${routeSummary(accountsAfterRouting)}`,
-    `Company: ${company.blueprintV2 !== undefined
-      ? `${company.blueprintV2.departments.length} department(s) · ${company.blueprintV2.roles.length} approved role(s)`
+    `Team: ${operatingMode.displayName}`,
+    `Models: ${routeSummary(accountsAfterRouting)}`,
+    `Roster: ${company.blueprintV2 !== undefined
+      ? `Recommended · ${company.blueprintV2.departments.length} department(s) · ${company.blueprintV2.roles.length} approved role(s)`
       : company.blueprint === undefined
         ? "not activated"
-        : `${company.blueprint.roles.length} approved role(s) · ${company.blueprint.developmentStyle.replaceAll("_", " ")}`}`,
+        : `Recommended · ${company.blueprint.roles.length} approved role(s) · ${company.blueprint.developmentStyle.replaceAll("_", " ")}`}`,
+    `Authority: ${permissionLabel(permissionMode)}`,
+    "Models Auto becomes available after eligible real company-goal evidence is recorded.",
     "Starting a fresh durable session. Change these later with /provider, /model, /permissions, or /agents mode.",
     "",
   ].join("\n"));

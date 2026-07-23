@@ -73,7 +73,10 @@ Provider manifests are discovery and policy data, not executable authority.
 An integration is runnable only when a reviewed adapter, endpoint policy,
 billing acknowledgement, and current usage policy all agree.
 
-There is no automatic model ranking or silent provider fallback.
+There is no silent provider fallback. The optional Auto model-team layer ranks
+only immutable configured company-goal evaluations that pass declared
+decomposition, evidence, and synthesis gates. It never ranks a model from its
+brand name or changes an already-pinned session.
 
 ## Execution lifecycle
 
@@ -128,7 +131,8 @@ State is stored below the Recurs data directory:
 - append-only session events;
 - checkpoints and patch artifacts;
 - team-run journals and leases;
-- company blueprints, amendments, knowledge, and goals.
+- company blueprints, amendments, knowledge, and goals; and
+- immutable model-team evaluations and selections.
 
 Writes use private directories, bounded documents, canonical parsing, atomic
 replacement, and revision checks. User prompts and tool arguments may appear

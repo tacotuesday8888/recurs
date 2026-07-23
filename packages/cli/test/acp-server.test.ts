@@ -140,6 +140,8 @@ describe("Recurs ACP agent", () => {
               description: "Review the patch",
               operatingModeId: "balanced_v4",
               profileId: "review_v2",
+              modelId: "gpt-review",
+              reasoningEffort: "high",
             });
             await sink.emit({
               ...base,

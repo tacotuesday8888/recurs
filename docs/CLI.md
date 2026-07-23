@@ -77,8 +77,9 @@ recurs provider models --provider <id> --key-env <ENV> [--json]
 recurs doctor [--json]
 ```
 
-Recurs does not automatically rank models, silently select providers, or
-fallback across billing sources.
+Recurs does not silently select providers or fallback across billing sources.
+Its optional Models Auto path uses recorded successful company-goal evidence;
+it does not invent a ranking from model names.
 
 ## Saved accounts
 
@@ -117,6 +118,27 @@ Common slash commands:
 ```
 
 Use `/help <command>` inside the CLI for the exact current syntax.
+
+### Models Auto
+
+Explicit `/model <connection-id>` selection remains available. The Auto alpha
+uses exact immutable backend routes from completed company goals:
+
+```text
+/model auto status
+/model auto evaluate <company-goal-run-id>
+/model auto
+```
+
+`evaluate` records a configured goal only after its decomposition, evidence,
+and synthesis can be inspected. `/model auto` then confirmation-gates the
+strongest eligible recorded four-role lineup and applies it to future
+Parent/Implement/Review/Repair sessions. Changed or missing connections fail
+closed. The command shows the selected models, reasoning effort, evidence
+count, and rationale. It does not change the current session. During a company
+goal, the terminal also shows only agents that actually activate, their exact
+assigned model and reasoning effort, and bounded request/token/reported-cost
+usage as it becomes available.
 
 ## Headless runs
 
@@ -196,6 +218,10 @@ recurs eval company --scenario company_goal_execution_v1 \
 ```
 
 Configured evaluation requires an explicit network opt-in.
+Codex app-server connections use the same restricted pre-approval formation
+boundary: decision turns receive no project tools, while bounded Explore
+research receives only the reviewed read-only file, outline, search, and Git
+inspection tools.
 
 ## ACP
 

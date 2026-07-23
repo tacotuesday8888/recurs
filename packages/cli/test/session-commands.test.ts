@@ -14,6 +14,7 @@ import {
   getOperatingModePolicy,
   createHostInvocation,
   type AgentSessionDescriptor,
+  type ModelTeamSelectionV1,
   type ModelProvider,
   type SessionBackendPin,
 } from "@recurs/contracts";
@@ -786,6 +787,103 @@ describe("session commands", () => {
       text: expect.stringContaining("local, user-present, manual terminal"),
     });
     expect(models.create).not.toHaveBeenCalled();
+  });
+
+  it("shows and activates evidence-backed Models Auto without changing the current session", async () => {
+    const original = await storeSession("model-auto");
+    const selection: ModelTeamSelectionV1 = {
+      id: "selection-1",
+      version: 1,
+      taskClass: "general_coding",
+      selectedAt: at,
+      lineup: ([
+        ["parent", "gpt-5.6-sol", "high"],
+        ["implement", "gpt-5.6-terra", "medium"],
+        ["review", "gpt-5.6-luna", "medium"],
+        ["repair", "gpt-5.6-terra", "medium"],
+      ] as const).map(([role, modelId, reasoningEffort]) => ({
+        role,
+        providerId: "openai-codex-chatgpt",
+        adapterId: "codex-app-server",
+        connectionId: `connection-${role}`,
+        modelId,
+        reasoningEffort,
+      })),
+      evidenceIds: ["evaluation-1"],
+      rationale:
+        "1 eligible configured company-goal evaluation supports this lineup; decomposition, evidence, and synthesis passed.",
+    };
+    const modelTeams: NonNullable<CommandDependencies["modelTeams"]> = {
+      status: vi.fn()
+        .mockResolvedValueOnce({ mode: "custom", selection })
+        .mockResolvedValueOnce({ mode: "custom", selection }),
+      evaluate: vi.fn(),
+      select: vi.fn(async () => selection),
+    };
+    const commands = createCommandRegistry({ sessions, modelTeams });
+    const confirm = vi.fn(async () => true);
+    const commandContext = context(original, confirm);
+
+    expect(await commands.execute(
+      "/model auto status",
+      commandContext,
+    )).toMatchObject({
+      text: expect.stringMatching(
+        /Models: Custom[\s\S]*gpt-5\.6-sol · high[\s\S]*gpt-5\.6-luna · medium[\s\S]*Evidence: 1[\s\S]*Why:/u,
+      ),
+    });
+    expect(await commands.execute("/model auto", commandContext)).toMatchObject({
+      text: expect.stringContaining("Models: Auto"),
+    });
+    expect(modelTeams.select).toHaveBeenCalledOnce();
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(commandContext.session).toEqual(original);
+  });
+
+  it("records exact company-goal evidence and rejects automated Models Auto", async () => {
+    const original = await storeSession("model-auto-evidence");
+    const modelTeams: NonNullable<CommandDependencies["modelTeams"]> = {
+      status: vi.fn(),
+      evaluate: vi.fn(async () => ({
+        id: "evaluation-1",
+        version: 1,
+        taskClass: "general_coding",
+        companyGoalRunId: "company-goal-1",
+        evaluatedAt: at,
+        lineup: [],
+        report: { status: "passed" },
+      } as never)),
+      select: vi.fn(),
+    };
+    const commands = createCommandRegistry({ sessions, modelTeams });
+    const commandContext = context(original);
+
+    expect(await commands.execute(
+      "/model auto evaluate company-goal-1",
+      commandContext,
+    )).toMatchObject({
+      text: expect.stringContaining("Recorded model-team evidence evaluation-1"),
+    });
+    expect(modelTeams.evaluate).toHaveBeenCalledWith(
+      "company-goal-1",
+      expect.any(AbortSignal),
+    );
+
+    commandContext.invocation = createHostInvocation({
+      invocation: "one_shot",
+      userPresent: false,
+      remote: false,
+      scripted: true,
+      embedding: "cli",
+    });
+    expect(await commands.execute(
+      "/model auto",
+      commandContext,
+    )).toMatchObject({
+      level: "error",
+      text: expect.stringContaining("local, user-present, manual terminal"),
+    });
+    expect(modelTeams.select).not.toHaveBeenCalled();
   });
 
   it("preserves Plan and permission safety when creating another session", async () => {

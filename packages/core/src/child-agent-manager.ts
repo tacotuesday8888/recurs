@@ -970,6 +970,8 @@ export class ChildAgentManager {
         description: input.description,
         operatingModeId: mode.id,
         profileId: profile.id,
+        modelId: childBackend.modelId,
+        reasoningEffort: childBackend.reasoningEffortAtCreation ?? null,
         ...(company === undefined ? {} : { company }),
         ...(options?.batch === undefined
           ? {}

@@ -1,9 +1,10 @@
 # Auto Model Teams And Simple Controls
 
-**Status:** Product direction. The operating policies, bounded sub-agent
-runtime, tailored rosters, explicit role routes, permissions, budgets, and
-evaluation foundation exist. Automatic model ranking and automatic model-team
-selection do not.
+**Status:** Alpha implemented for one `general_coding` task class. The
+operating policies, bounded sub-agent runtime, tailored rosters, explicit role
+routes, permissions, budgets, immutable configured-goal evaluations, and
+evidence-backed model-team selection exist. Automatic task classification,
+freshness expiry, price optimization, and a published default winner do not.
 
 ## Product idea
 
@@ -128,13 +129,15 @@ Models
   Custom     Choose the parent and role routes manually
 ```
 
-Auto does not redesign the company. It:
+Auto does not redesign the company. The current alpha:
 
-1. classifies the goal by task type and difficulty;
-2. determines which roles from the current roster are needed;
-3. selects an eligible, available, evaluated model lineup for those roles;
-4. freezes the routing evidence for the run; and
-5. displays the selected models, rationale, evidence freshness, and fallback.
+1. records an exact completed `general_coding` company goal;
+2. requires passed decomposition, evidence, and synthesis;
+3. groups and ranks exact Parent/Implement/Review/Repair lineups by passed
+   rubric dimensions, eligible sample count, recency, and a deterministic key;
+4. revalidates every saved connection before confirmation-gated activation;
+5. applies the selected routes to future sessions and goals; and
+6. displays the selected models, efforts, evidence count, and rationale.
 
 An illustrative result:
 
@@ -186,20 +189,20 @@ Today Recurs already has:
 - permissions, request limits, cost ceilings, recovery, and evaluation
   infrastructure.
 
-Today Recurs does not automatically rank models, select an evaluated model
-lineup, or have enough authorized real-provider evidence to claim which lineup
-is best.
+Today Recurs does select an evaluated model lineup through `/model auto`, but
+only after eligible real completed-goal evidence exists. It does not have
+enough repeated authorized real-provider evidence to claim a default
+Sol/Terra/Luna winner, classify arbitrary tasks, expire stale benchmarks, or
+optimize price automatically.
 
 ## Delivery sequence
 
-1. Dogfood representative real-provider goals through the implemented
-   workflow.
-2. Define a small, versioned task taxonomy and lineup catalog.
-3. Compare lineups using quality, reliability, latency, and cost evidence.
-4. Publish inspectable recommendations and evidence freshness.
-5. Add Auto selection with explicit fallback and a truthful explanation.
-6. Present Economy through Max as the simple team-size/intensity control.
-7. Preserve Custom routing and advanced policy inspection.
+1. Dogfood representative Sol/Terra/Luna goals through the implemented
+   workflow and record them with `/model auto evaluate <run-id>`.
+2. Repeat comparable goals before publishing a default recommendation.
+3. Add a small versioned task taxonomy and evidence freshness policy.
+4. Compare lineups using quality, reliability, latency, and cost evidence.
+5. Preserve Custom routing and advanced policy inspection.
 
-Until that work is complete, public product copy should describe bounded
-multi-model sub-agent teams without claiming automatic best-model selection.
+Until repeated evidence exists, public copy must describe evidence-backed Auto
+without claiming that any named lineup is universally best.

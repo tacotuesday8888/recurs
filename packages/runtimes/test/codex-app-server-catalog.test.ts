@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CodexAppServerCatalogError,
+  createCodexAppServerProcessProfile,
   inspectCodexAppServerSubscription,
   type CodexAppServerProcessProfile,
 } from "@recurs/runtimes";
@@ -30,6 +31,29 @@ function profile(scenario = "happy"): CodexAppServerProcessProfile {
 }
 
 describe("Codex app-server subscription catalog", () => {
+  it("allows bounded high-reasoning requests to exceed a short network timeout", () => {
+    expect(createCodexAppServerProcessProfile().bounds.requestTimeoutMs)
+      .toBe(120_000);
+  });
+
+  it("disables vendor workspace execution while retaining only Recurs host tools", () => {
+    const profile = createCodexAppServerProcessProfile();
+    const disabled = profile.args.flatMap((argument, index) =>
+      argument === "--disable" ? [profile.args[index + 1]] : []
+    );
+
+    expect(disabled).toEqual(expect.arrayContaining([
+      "apps",
+      "code_mode_host",
+      "multi_agent",
+      "plugins",
+      "shell_tool",
+      "unified_exec",
+      "workspace_dependencies",
+    ]));
+    expect(profile.args).toContain("mcp_servers={}");
+  });
+
   it("binds a ChatGPT account and paginates exact model effort options", async () => {
     const catalog = await inspectCodexAppServerSubscription(
       profile(),

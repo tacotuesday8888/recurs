@@ -270,9 +270,12 @@ export async function copyConfiguredEvaluationConnection(
   if (connection === undefined) {
     throw new Error("The selected provider connection is unavailable.");
   }
-  if (connection.kind === "delegated_agent") {
+  if (
+    connection.kind === "delegated_agent" &&
+    connection.adapterId !== "codex-app-server"
+  ) {
     throw new Error(
-      "Delegated subscription runtimes are not yet used for company-formation evaluation; choose a supported direct API or local model connection.",
+      "This delegated runtime cannot provide the restricted company-formation tool boundary; choose Codex app-server, a supported direct API, or a local model connection.",
     );
   }
   const target = new FileConnectionRegistry(targetRoot);

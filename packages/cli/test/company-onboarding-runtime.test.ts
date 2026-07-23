@@ -47,7 +47,10 @@ async function fixture(provider: ScriptedProvider) {
   };
 }
 
-function run(backendFingerprint: string): CompanyOnboardingRunV1 {
+function run(
+  backendFingerprint: string,
+  depth: CompanyOnboardingRunV1["depth"] = "guided",
+): CompanyOnboardingRunV1 {
   return parseCompanyOnboardingRun({
     id: "onboarding-runtime",
     companyId: "company-runtime",
@@ -56,7 +59,7 @@ function run(backendFingerprint: string): CompanyOnboardingRunV1 {
     status: "interviewing",
     createdAt: "2026-07-22T00:00:00.000Z",
     updatedAt: "2026-07-22T00:00:00.000Z",
-    depth: "guided",
+    depth,
     designMode: "stable_core_specialists",
     authority: {
       permissionMode: "full_access",
@@ -153,15 +156,78 @@ describe("company onboarding runtime", () => {
       reportedCostUsd: 0.01,
     });
     expect(await readFile(marker, "utf8")).toBe("unchanged\n");
-    expect(provider.requests.every((request) =>
-      request.tools.map((tool) => tool.name).join(",") === toolNames.join(",")
-    )).toBe(true);
+    expect(provider.requests.every((request) => request.tools.length === 0))
+      .toBe(true);
     const state = await setup.sessions.loadState("onboarding-model-onboarding-runtime");
     expect(state.toolOutcomes["hostile-write"]).toMatchObject({
       type: "failed",
       error: { code: "tool_failed" },
     });
   });
+
+  it.each([
+    ["quick", "Research assignments remaining: 0.", "A research action is forbidden"],
+    ["guided", "Research assignments remaining: 3.", "at most 2 new assignments"],
+    ["deep", "Research assignments remaining: 1.", "at most 1 new assignment"],
+  ] as const)(
+    "states the effective %s research boundary in the model prompt",
+    async (depth, remaining, action) => {
+      const provider = new ScriptedProvider([[
+        {
+          type: "text_delta",
+          text: JSON.stringify({
+            kind: "question",
+            id: "project_outcome",
+            question: "What outcome matters most?",
+          }),
+        },
+        { type: "done", stopReason: "complete" },
+      ]]);
+      const setup = await fixture(provider);
+      const onboarding = run(
+        companyOnboardingBackendFingerprint(setup.backend),
+        depth,
+      );
+      const input = depth === "deep"
+        ? {
+          ...onboarding,
+          research: [
+            {
+              id: "research-one",
+              description: "First investigation",
+              prompt: "Inspect the project shape.",
+              status: "completed" as const,
+              evidence: ["package.json exists"],
+              failure: null,
+            },
+            {
+              id: "research-two",
+              description: "Second investigation",
+              prompt: "Inspect the test layout.",
+              status: "completed" as const,
+              evidence: ["tests exist"],
+              failure: null,
+            },
+          ],
+        }
+        : onboarding;
+
+      await setup.runtime.decide({
+        run: input,
+        allowedTools: toolNames as never,
+        maxRequests: 1,
+      }, new AbortController().signal);
+
+      const prompt = JSON.stringify(provider.requests[0]?.messages);
+      expect(prompt).toContain(remaining);
+      expect(prompt).toContain(action);
+      expect(prompt).toContain("workspace/relative/path");
+      expect(prompt).toContain("observed fact");
+      expect(prompt).toContain(
+        "interview answers are not repository evidence",
+      );
+    },
+  );
 
   it("runs research as an Explore child with attributable evidence", async () => {
     const provider = new ScriptedProvider([

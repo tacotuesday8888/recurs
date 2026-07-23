@@ -51,6 +51,15 @@ function parseApplyPatchInput(value: unknown): ApplyPatchInput {
       `Patch exceeds the ${MAX_PATCH_BYTES}-byte limit`,
     );
   }
+  if (
+    !record.patch.startsWith("diff --git ") &&
+    !record.patch.startsWith("--- ")
+  ) {
+    throw new ToolError(
+      "invalid_input",
+      'patch must be a standard unified diff beginning with "diff --git " or "--- "; Codex "*** Begin Patch" envelopes are not supported',
+    );
+  }
   const files = record.files.map((file, index): PatchFileRevision => {
     if (
       typeof file !== "object" ||
@@ -72,6 +81,7 @@ function parseApplyPatchInput(value: unknown): ApplyPatchInput {
       revision.path.includes("\0") ||
       (revision.expected_hash !== null &&
         (typeof revision.expected_hash !== "string" ||
+          revision.expected_hash !== "observed" &&
           !/^[a-f0-9]{64}$/u.test(revision.expected_hash)))
     ) {
       throw new ToolError(
@@ -118,7 +128,9 @@ function decodePatchMarker(raw: string): string | null {
 
 function extractPatchFiles(patch: string): string[] {
   const paths = new Set<string>();
-  for (const line of patch.split("\n")) {
+  const lines = patch.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
     if (
       line.startsWith("rename from ") ||
       line.startsWith("rename to ") ||
@@ -130,17 +142,56 @@ function extractPatchFiles(patch: string): string[] {
         "Rename and copy patches are unsupported",
       );
     }
-    if (line.startsWith("--- ") || line.startsWith("+++ ")) {
-      const decoded = decodePatchMarker(line.slice(4));
-      if (decoded !== null) {
-        paths.add(decoded);
+    if (line.startsWith("--- ") && lines[index + 1]?.startsWith("+++ ")) {
+      for (const marker of [line, lines[index + 1]!]) {
+        const decoded = decodePatchMarker(marker.slice(4));
+        if (decoded !== null) {
+          paths.add(decoded);
+        }
       }
+      index += 1;
     }
   }
   if (paths.size === 0) {
     throw new ToolError("invalid_input", "Patch does not declare any file paths");
   }
   return [...paths].sort((left, right) => left.localeCompare(right));
+}
+
+function normalizeHunkCounts(patch: string): string {
+  const lines = patch.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/u.exec(
+      lines[index] ?? "",
+    );
+    if (header === null) continue;
+    let oldLines = 0;
+    let newLines = 0;
+    for (let body = index + 1; body < lines.length; body += 1) {
+      const line = lines[body] ?? "";
+      if (
+        line.length === 0 ||
+        line.startsWith("@@ ") ||
+        line.startsWith("diff --git ") ||
+        (line.startsWith("--- ") && lines[body + 1]?.startsWith("+++ "))
+      ) {
+        break;
+      }
+      if (line.startsWith(" ") || line.startsWith("-")) oldLines += 1;
+      if (line.startsWith(" ") || line.startsWith("+")) newLines += 1;
+      if (
+        !line.startsWith(" ") &&
+        !line.startsWith("+") &&
+        !line.startsWith("-") &&
+        line !== "\\ No newline at end of file"
+      ) {
+        break;
+      }
+    }
+    lines[index] =
+      `@@ -${header[1]},${oldLines} +${header[2]},${newLines} @@${header[3]}`;
+  }
+  return lines.join("\n");
 }
 
 function parseNumstatPaths(output: string): string[] {
@@ -187,17 +238,21 @@ async function assertFresh(
   context: ToolContext,
 ): Promise<void> {
   for (const { declared, resolved } of revisions) {
-    if (
+    const observed = context.readRevisions.get(resolved.absolute);
+    const expected = declared.expected_hash === "observed"
+      ? observed
+      : declared.expected_hash;
+    if (declared.expected_hash === "observed" && observed === undefined ||
       declared.expected_hash !== null &&
-      context.readRevisions.get(resolved.absolute) !== declared.expected_hash
-    ) {
+        declared.expected_hash !== "observed" &&
+        observed !== declared.expected_hash) {
       throw new ToolError(
         "unread_file",
         `Read ${declared.path} in the current turn before editing it`,
       );
     }
     const current = await sha256FileOrNull(resolved.absolute);
-    if (current !== declared.expected_hash) {
+    if (current !== expected) {
       throw new ToolError(
         "stale_file",
         `${declared.path} changed after it was read`,
@@ -259,18 +314,28 @@ export function createApplyPatchTool(
   return {
     definition: {
       name: "apply_patch",
-      description: "Apply a validated Git patch to declared workspace files",
+      description:
+        'Apply a standard Git unified diff beginning with "diff --git " to declared workspace files. Never use Codex "*** Begin Patch" markers. Read every existing file first and set expected_hash to "observed"; use null only for a new file.',
       inputSchema: {
         type: "object",
         properties: {
-          patch: { type: "string", minLength: 1 },
+          patch: {
+            type: "string",
+            minLength: 1,
+            description:
+              'Standard Git unified diff beginning with "diff --git ". Do not wrap it in "*** Begin Patch" or "*** End Patch" markers.',
+          },
           files: {
             type: "array",
             items: {
               type: "object",
               properties: {
                 path: { type: "string" },
-                expected_hash: { type: ["string", "null"] },
+                expected_hash: {
+                  type: ["string", "null"],
+                  description:
+                    "Use \"observed\" for an existing file read in this turn, or null only for a new file.",
+                },
               },
               required: ["path", "expected_hash"],
               additionalProperties: false,
@@ -308,6 +373,7 @@ export function createApplyPatchTool(
         [],
         context.signal,
       );
+      const patch = normalizeHunkCounts(input.patch);
       let numstat: string;
       try {
         numstat = (await runProcess("git", [
@@ -318,7 +384,7 @@ export function createApplyPatchTool(
           "-",
         ], {
           cwd: context.cwd,
-          stdin: input.patch,
+          stdin: patch,
           signal: context.signal,
           maxOutputBytes: MAX_PATCH_BYTES,
         })).stdout;
@@ -340,7 +406,7 @@ export function createApplyPatchTool(
           "-",
         ], {
           cwd: context.cwd,
-          stdin: input.patch,
+          stdin: patch,
           signal: context.signal,
         });
         await assertFresh(revisions, context);
@@ -351,7 +417,7 @@ export function createApplyPatchTool(
           "-",
         ], {
           cwd: context.cwd,
-          stdin: input.patch,
+          stdin: patch,
           signal: context.signal,
         });
       } catch (error) {

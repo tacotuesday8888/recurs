@@ -219,7 +219,13 @@ function developerInstructions(executionMode: "act" | "plan"): string {
     "Never claim a change, command, or verification unless its Recurs tool returned evidence.",
     executionMode === "plan"
       ? "This is Plan mode: inspect and propose only; do not mutate the project."
-      : "This is Act mode: stay within the bounded assigned task and supplied permissions.",
+      : [
+          "This is Act mode: stay within the bounded assigned task and supplied permissions.",
+          "The vendor sandbox is intentionally read-only so every mutation remains under Recurs control.",
+          "Host tools supplied by Recurs enforce their own permissions; when apply_patch is supplied, it is the authorized write path for the assigned code change.",
+          'The apply_patch patch argument must be a standard Git unified diff beginning with "diff --git "; never use Codex "*** Begin Patch" markers.',
+          "Do not treat Recurs host tools as read-only merely because the vendor sandbox is read-only.",
+        ].join(" "),
   ].join("\n");
 }
 

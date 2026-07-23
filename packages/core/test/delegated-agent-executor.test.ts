@@ -115,6 +115,7 @@ type ExecutorOverrides = Partial<Pick<
   | "approvals"
   | "runtimeApprovals"
   | "emit"
+  | "contextInstructions"
   | "limits"
 >>;
 
@@ -156,6 +157,9 @@ async function fixture(overrides: ExecutorOverrides = {}) {
         ...(runContext === undefined ? {} : { runContext }),
       };
     },
+    ...(overrides.contextInstructions === undefined
+      ? {}
+      : { contextInstructions: overrides.contextInstructions }),
     now: () => new Date(now),
     createDiagnosticId: () => "diagnostic-1",
     ...(overrides.limits === undefined ? {} : { limits: overrides.limits }),
@@ -352,6 +356,44 @@ describe("DelegatedAgentExecutor", () => {
       expect.objectContaining({ type: "model_text_delta", text: "text" }),
       expect.objectContaining({ type: "turn_completed" }),
     ]));
+  });
+
+  it("supplies bounded session instructions to the runtime without rewriting history", async () => {
+    const { sessions, session, executor } = await fixture({
+      contextInstructions: async () => [
+        "Approved company role: role-builder.",
+        "Use only the approved delegation graph.",
+      ],
+    });
+    const runtime = scriptedRuntime(async function* (request) {
+      expect(request.prompt).toContain("Recurs session instructions:");
+      expect(request.prompt).toContain("Approved company role: role-builder.");
+      expect(request.prompt).toContain("Current user request:\nship it");
+      yield { type: "done", finalText: "done", stopReason: "complete" };
+    });
+
+    await sessions.withSessionMutation(
+      session.id,
+      session.lastSequence,
+      (mutation) => executor.run({
+        session,
+        turnId: "turn-with-context",
+        prompt: "ship it",
+        executionMode: "act",
+        runtime,
+        authorization: authorization(session.id, "turn-with-context"),
+        context,
+        mutation,
+        signal: new AbortController().signal,
+      }),
+    );
+
+    expect((await sessions.load(session.id)).records).toContainEqual(
+      expect.objectContaining({
+        type: "turn_started",
+        prompt: "ship it",
+      }),
+    );
   });
 
   it.each([
@@ -2043,6 +2085,58 @@ describe("DelegatedAgentExecutor", () => {
       type: "permission_resolved",
       decision: "deny",
     }));
+  });
+
+  it("returns safe actionable guidance for a malformed host tool request", async () => {
+    const tool: Tool<Record<string, unknown>> = {
+      definition: {
+        name: "strict_tool",
+        description: "Strict",
+        inputSchema: { type: "object" },
+      },
+      executionClass: "in_process",
+      mutating: false,
+      parse() {
+        throw new ToolError("invalid_input", "sensitive implementation detail");
+      },
+      permissions() {
+        return [];
+      },
+      async execute() {
+        return { output: "unreachable" };
+      },
+    };
+    const { sessions, session, executor } = await fixture({
+      tools: toolRegistry(tool),
+    });
+    let runtimeResult: { output: string } | null = null;
+    const runtime = scriptedRuntime(async function* (_run, host) {
+      runtimeResult = await host.executeTool!({
+        id: "call-invalid",
+        name: "strict_tool",
+        arguments: {},
+      }, new AbortController().signal);
+      yield { type: "done", finalText: "corrected", stopReason: "complete" };
+    });
+
+    await sessions.withSessionMutation(session.id, 0, (mutation) =>
+      executor.run({
+        session,
+        turnId: "turn-invalid-tool",
+        prompt: "use the strict tool",
+        executionMode: "act",
+        runtime,
+        authorization: authorization(session.id, "turn-invalid-tool"),
+        context,
+        mutation,
+        signal: new AbortController().signal,
+      })
+    );
+
+    expect(runtimeResult?.output).toContain(
+      "Check the supplied tool schema and correct the argument format",
+    );
+    expect(runtimeResult?.output).not.toContain("sensitive implementation detail");
   });
 
   it("omits executeTool when the declared runtime capability is not host_tools", async () => {

@@ -9,6 +9,7 @@ import {
   type DelegatedConnectionRecord,
   type LocalConnectionRecord,
 } from "@recurs/app";
+import { CODEX_APP_SERVER_PROFILE_REVISION } from "@recurs/runtimes";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -89,6 +90,16 @@ function delegated(): DelegatedConnectionRecord {
   };
 }
 
+function delegatedAppServer(): DelegatedConnectionRecord {
+  return {
+    ...delegated(),
+    id: "codex-app-server",
+    adapterId: "codex-app-server",
+    reasoningEffort: "high",
+    runtimeCapabilityProfileRevision: CODEX_APP_SERVER_PROFILE_REVISION,
+  };
+}
+
 describe("configured company evaluation connection selection", () => {
   it("copies one exact non-primary environment connection without mutating the source", async () => {
     const source = await temporaryRoot("recurs-eval-source-");
@@ -147,7 +158,7 @@ describe("configured company evaluation connection selection", () => {
       .resolves.toMatchObject({ id: connection.id, kind: connection.kind });
   });
 
-  it("rejects missing and delegated routes without exposing stored metadata", async () => {
+  it("copies Codex app-server but rejects opaque delegated routes without exposing stored metadata", async () => {
     const source = await temporaryRoot("recurs-eval-source-");
     const target = await temporaryRoot("recurs-eval-target-");
     const registry = new FileConnectionRegistry(source);
@@ -169,12 +180,25 @@ describe("configured company evaluation connection selection", () => {
       failure = error instanceof Error ? error.message : String(error);
     }
     expect(failure).toBe(
-      "Delegated subscription runtimes are not yet used for company-formation evaluation; choose a supported direct API or local model connection.",
+      "This delegated runtime cannot provide the restricted company-formation tool boundary; choose Codex app-server, a supported direct API, or a local model connection.",
     );
     expect(failure).not.toContain("private@example.com");
     expect(failure).not.toContain("Private Codex label");
     expect(failure).not.toContain("sha256:");
     expect(failure).not.toContain(source);
+
+    const document = await registry.read();
+    await registry.commit(document.revision, (draft) => {
+      draft.connections.push(delegatedAppServer());
+    });
+    await expect(copyConfiguredEvaluationConnection(
+      source,
+      target,
+      "codex-app-server",
+    )).resolves.toMatchObject({
+      id: "codex-app-server",
+      adapterId: "codex-app-server",
+    });
   });
 
 });

@@ -40,6 +40,8 @@ export * from "./git-patch-artifacts.js";
 export * from "./jsonl-session-store.js";
 export * from "./jsonl-team-run-store.js";
 export * from "./loop-detector.js";
+export * from "./model-team-evaluation.js";
+export * from "./file-model-team-store.js";
 export * from "./run-coordinator.js";
 export * from "./runtime.js";
 export * from "./runtime-continuation-store.js";

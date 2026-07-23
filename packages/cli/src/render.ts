@@ -2,7 +2,11 @@ import { once } from "node:events";
 import type { Writable } from "node:stream";
 
 import type { EventSink, RecursEvent } from "@recurs/core";
-import { getAgentProfilePolicy } from "@recurs/contracts";
+import {
+  getAgentProfilePolicy,
+  type ModelReasoningEffort,
+  type ProviderUsage,
+} from "@recurs/contracts";
 
 import type { CommandResult } from "./commands/types.js";
 import {
@@ -26,6 +30,31 @@ export class JsonlEventRenderer implements EventSink {
   readonly emit = async (event: RecursEvent): Promise<void> => {
     await writeOutput(this.output, `${JSON.stringify(event)}\n`);
   };
+}
+
+function modelLabel(
+  modelId: string,
+  effort: ModelReasoningEffort | null,
+): string {
+  return effort === null ? modelId : `${modelId} · ${effort}`;
+}
+
+function usageLabel(usage: ProviderUsage | null): string {
+  if (usage === null) return "usage unavailable";
+  const details = [
+    `${usage.inputTokens} in`,
+    `${usage.outputTokens} out`,
+    ...(usage.cachedInputTokens === undefined
+      ? []
+      : [`${usage.cachedInputTokens} cached`]),
+    ...(usage.reasoningTokens === undefined
+      ? []
+      : [`${usage.reasoningTokens} reasoning`]),
+    ...(usage.costUsd === undefined
+      ? []
+      : [`$${usage.costUsd.toFixed(4)} reported`]),
+  ];
+  return details.join(" / ");
 }
 
 export class TextEventRenderer implements EventSink {
@@ -117,10 +146,84 @@ export class TextEventRenderer implements EventSink {
           ),
         );
         break;
+      case "company_blueprint_v2_activated":
+        await this.#status(
+          this.#theme.success(
+            `Company activated: ${event.departmentCount} department${event.departmentCount === 1 ? "" : "s"} · ${event.roleCount} approved role${event.roleCount === 1 ? "" : "s"}`,
+          ),
+        );
+        break;
+      case "company_goal_started":
+        await this.#status(
+          this.#theme.accent(
+            `⇶ Company goal ${event.goalRunId}: ${event.assignmentCount} assignment${event.assignmentCount === 1 ? "" : "s"} · ${event.operatingModeId}`,
+          ),
+        );
+        break;
+      case "company_assignment_started":
+        await this.#status(
+          this.#theme.accent(
+            `↳ Activated ${event.roleName} · ${getAgentProfilePolicy(event.profileId).displayName}`,
+          ),
+        );
+        break;
+      case "company_handoff_completed":
+        await this.#status(
+          this.#theme.success(
+            `✓ Company handoff ${event.assignmentId} · ${usageLabel(event.usage)}`,
+          ),
+        );
+        break;
+      case "company_handoff_failed":
+      case "company_handoff_cancelled":
+        await this.#status(
+          this.#theme.failure(
+            `✗ Company handoff ${event.assignmentId} ${event.status}: ${event.reason}`,
+          ),
+        );
+        break;
+      case "company_goal_completed":
+        await this.#status(
+          this.#theme.success(
+            `✓ Company goal completed · ${event.workflow.requestsUsed}/${event.workflow.maxRequests} requests · $${event.workflow.reportedCostUsd.toFixed(4)}/$${event.workflow.maxReportedCostUsd.toFixed(4)} reported`,
+          ),
+        );
+        break;
+      case "company_goal_failed":
+      case "company_goal_cancelled":
+      case "company_goal_interrupted":
+        await this.#status(
+          this.#theme.failure(
+            `✗ Company goal ${event.status}${event.reason === undefined ? "" : `: ${event.reason}`}`,
+          ),
+        );
+        break;
+      case "agent_team_activity":
+        if (
+          event.activity === "child_reserved" &&
+          event.role !== undefined &&
+          event.modelId !== undefined
+        ) {
+          await this.#status(
+            this.#theme.accent(
+              `↳ Activated ${event.role}${event.index === undefined ? "" : ` ${event.index}`} · ${modelLabel(event.modelId, event.reasoningEffort ?? null)}`,
+            ),
+          );
+        } else if (
+          event.activity === "child_finished" &&
+          event.role !== undefined
+        ) {
+          await this.#status(
+            this.#theme.success(
+              `✓ ${event.role}${event.index === undefined ? "" : ` ${event.index}`} finished · ${event.counts.requestsUsed}/${event.counts.requestsReserved} requests`,
+            ),
+          );
+        }
+        break;
       case "agent_started":
         await this.#status(
           this.#theme.accent(
-            `↳ ${getAgentProfilePolicy(event.profileId).displayName} child: ${event.description}`,
+            `↳ ${getAgentProfilePolicy(event.profileId).displayName} child · ${modelLabel(event.modelId, event.reasoningEffort)}: ${event.description}`,
           ),
         );
         break;
@@ -185,7 +288,7 @@ export class TextEventRenderer implements EventSink {
       case "agent_team_completed":
         await this.#status(
           this.#theme.success(
-            `✓ Team ${event.teamId} ${event.status}: ${event.changedFiles.length} changed file${event.changedFiles.length === 1 ? "" : "s"}`,
+            `✓ Team ${event.teamId} ${event.status}: ${event.changedFiles.length} changed file${event.changedFiles.length === 1 ? "" : "s"} · ${event.workflow.requestsUsed}/${event.workflow.maxRequests} requests`,
           ),
         );
         break;
@@ -206,7 +309,7 @@ export class TextEventRenderer implements EventSink {
       case "agent_completed":
         await this.#status(
           this.#theme.success(
-            `✓ ${getAgentProfilePolicy(event.profileId).displayName} child completed: ${event.childAgentId} (${event.workflow.childrenStarted}/${event.workflow.maxChildren} this run)${event.costLimitExceeded ? " — reported-cost ceiling exceeded" : ""}`,
+            `✓ ${getAgentProfilePolicy(event.profileId).displayName} child completed: ${event.childAgentId} · ${usageLabel(event.usage)} (${event.workflow.childrenStarted}/${event.workflow.maxChildren} this run)${event.costLimitExceeded ? " — reported-cost ceiling exceeded" : ""}`,
           ),
         );
         break;

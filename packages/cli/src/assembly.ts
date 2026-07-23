@@ -48,6 +48,8 @@ import {
   FileCompanyCapabilityStore,
   FileCompanyKnowledgeStore,
   FileCompanyOnboardingStore,
+  FileModelTeamEvaluationStore,
+  FileModelTeamSelectionStore,
   JsonlSessionStore,
   JsonlCompanyGoalStore,
   JsonlTeamRunStore,
@@ -127,9 +129,11 @@ import { createCodexAgentRuntime } from "./codex-connection.js";
 import {
   CompanyOnboardingAgentRuntime,
   companyOnboardingBackendFingerprint,
+  createCompanyOnboardingToolRegistry,
 } from "./company-onboarding-runtime.js";
 import { CompanyProposalEditor } from "./company-proposal-editor.js";
 import { CompanyCapabilityAuthority } from "./company-capability-authority.js";
+import { ModelTeamService } from "./model-team-service.js";
 import type { CompanyCapabilityCatalogs } from "./company-tool-readiness.js";
 import { RecursRuntime, RuntimeError } from "./runtime.js";
 import {
@@ -595,10 +599,15 @@ async function backendForConnection(
   };
 }
 
+interface CompanyOnboardingBackendResolution {
+  readonly backend: RuntimeBackend;
+  readonly connectionRevision: number;
+}
+
 async function companyOnboardingBackend(
   root: string,
   options: StandaloneRuntimeOptions,
-): Promise<DirectRuntimeBackend> {
+): Promise<CompanyOnboardingBackendResolution> {
   const injected = options.provider;
   const runtimeEnvironment = options.environment ?? process.env;
   const environmentConnection = injected === undefined
@@ -667,13 +676,119 @@ async function companyOnboardingBackend(
       "A ready parent-model connection is required for company formation",
     );
   }
-  if (backend.kind !== "direct") {
-    throw new RuntimeError(
-      "provider_not_configured",
-      "This delegated subscription runtime cannot yet provide Recurs's restricted pre-approval tool boundary; connect a supported direct or local model for company formation",
-    );
+  return {
+    backend,
+    connectionRevision: document?.revision ?? 1,
+  };
+}
+
+function createCompanyOnboardingRunCoordinator(input: {
+  readonly backend: DelegatedRuntimeBackend;
+  readonly pin: SessionBackendPin;
+  readonly connectionRevision: number;
+  readonly sessions: JsonlSessionStore;
+  readonly cwd: string;
+  readonly emit?: (event: unknown) => void | Promise<void>;
+}) {
+  if (input.pin.kind !== "agent_runtime") {
+    throw new TypeError("Delegated company onboarding requires a runtime pin");
   }
-  return backend;
+  const pin = input.pin;
+  const tools = createCompanyOnboardingToolRegistry();
+  const continuations = new ProcessScopedRuntimeContinuationStore();
+  const delegated = new DelegatedAgentExecutor({
+    continuationAuthority: continuations.authority,
+    tools,
+    approvals: { async request() { return "deny"; } },
+    runtimeApprovals: {
+      async request(request) {
+        const reject = exactRuntimeOption(request, "reject_once");
+        return reject === null
+          ? {
+              decision: { outcome: "cancelled" as const },
+              scope: "cancel" as const,
+            }
+          : {
+              decision: {
+                outcome: "selected" as const,
+                optionId: reject.optionId,
+              },
+              scope: "deny" as const,
+            };
+      },
+    },
+    async emit(event) { await input.emit?.(event); },
+    createToolContext(session, signal) {
+      return {
+        sessionId: session.id,
+        cwd: input.cwd,
+        executionMode: "plan",
+        signal,
+        readRevisions: new Map(),
+        ...(isPinnedSessionState(session) && session.agent.profile === null
+          ? {
+              toolPolicy: {
+                readOnly: true,
+                evidenceFromSources: true,
+                allowedNames: [],
+                allowedCategories: [],
+                maxRisk: "normal" as const,
+              },
+            }
+          : {}),
+      };
+    },
+  });
+  const resolver: StandaloneBackendResolver = {
+    runtimeContinuationStore: continuations.runtimeStore,
+    async resolve(request) {
+      if (
+        request.context.presence !== "present" ||
+        request.context.location !== "local" ||
+        request.context.automation !== "manual" ||
+        request.context.embedding !== "cli" ||
+        !isDeepStrictEqual(request.pin, pin)
+      ) {
+        throw policyBlocked(
+          request.operationId,
+          "Codex company formation requires a local, user-present, manual CLI session",
+        );
+      }
+      return {
+        kind: "delegated" as const,
+        pin,
+        authorization: bindRunAuthorization({
+          id: randomUUID(),
+          operation: request.operation,
+          sessionId: request.sessionId,
+          operationId: request.operationId,
+          turnId: request.turnId,
+          pin,
+          connectionRevision: input.connectionRevision,
+          policyRevision: pin.policyRevisionAtCreation,
+          context: request.context,
+          maxRequests: 1,
+          expiresAt: new Date(Date.now() + 30 * 60 * 1_000).toISOString(),
+        }),
+        async createRuntime() {
+          return input.backend.createRuntime(continuations.runtimeStore);
+        },
+      };
+    },
+  };
+  return new BackendRunCoordinator({
+    sessions: input.sessions,
+    resolver,
+    direct: {
+      async run() {
+        throw new TypeError(
+          "The delegated company onboarding coordinator cannot run direct providers",
+        );
+      },
+    },
+    delegated,
+    continuationAuthority: continuations.authority,
+  });
 }
 
 export async function createStandaloneCompanyOnboarding(
@@ -689,7 +804,8 @@ export async function createStandaloneCompanyOnboarding(
     path.join(homedir(), ".recurs");
   const projectId = createHash("sha256").update(cwd).digest("hex").slice(0, 24);
   const projectData = path.join(root, "projects", projectId);
-  const backend = await companyOnboardingBackend(root, options);
+  const resolved = await companyOnboardingBackend(root, options);
+  const backend = resolved.backend;
   let capabilityCatalogs: CompanyCapabilityCatalogs | undefined;
   if (input.repositoryConsent === true) {
     const [skills, mcp] = await Promise.allSettled([
@@ -713,23 +829,42 @@ export async function createStandaloneCompanyOnboarding(
   }
   const at = new Date().toISOString();
   const pin = backend.pin(at);
+  const sessions = new JsonlSessionStore(
+    path.join(projectData, "company-onboarding-agent-sessions"),
+  );
   const agentRuntime = new CompanyOnboardingAgentRuntime({
     backend: pin,
-    sessions: new JsonlSessionStore(
-      path.join(projectData, "company-onboarding-agent-sessions"),
-    ),
+    sessions,
     cwd,
-    createProvider: () => backend.createProvider(),
-    ...(backend.createAuthorization === undefined
-      ? {}
+    ...(backend.kind === "direct"
+      ? {
+          createProvider: () => backend.createProvider(),
+          ...(backend.createAuthorization === undefined
+            ? {}
+            : {
+                createAuthorization: (
+                  { sessionId, turnId, maxRequests }: {
+                    readonly sessionId: string;
+                    readonly turnId: string;
+                    readonly maxRequests: number;
+                  },
+                ) =>
+                  backend.createAuthorization!({
+                    pin,
+                    sessionId,
+                    turnId,
+                    maxRequests,
+                  }),
+              }),
+        }
       : {
-          createAuthorization: ({ sessionId, turnId, maxRequests }) =>
-            backend.createAuthorization!({
-              pin,
-              sessionId,
-              turnId,
-              maxRequests,
-            }),
+          coordinator: createCompanyOnboardingRunCoordinator({
+            backend,
+            pin,
+            connectionRevision: resolved.connectionRevision,
+            sessions,
+            cwd,
+          }),
         }),
   });
   const coordinator = new CompanyOnboardingCoordinator({
@@ -878,6 +1013,19 @@ export async function createStandaloneRuntime(
     );
   }
   const connectionRegistry = new FileConnectionRegistry(root);
+  const modelTeams = new ModelTeamService({
+    registry: connectionRegistry,
+    sessions,
+    goals: companyGoals,
+    teams: teamRuns,
+    blueprints: companyBlueprintsV2,
+    evaluations: new FileModelTeamEvaluationStore(
+      path.join(projectData, "model-team-evaluations"),
+    ),
+    selections: new FileModelTeamSelectionStore(
+      path.join(projectData, "model-team-selections"),
+    ),
+  });
   const registryDocument = injected === undefined
     ? await connectionRegistry.migrateLegacyLocal()
     : null;
@@ -1391,6 +1539,30 @@ export async function createStandaloneRuntime(
       return allowed ? "allow_once" as const : "deny" as const;
     },
   };
+  const runtimeContextInstructions = async (session: SessionState) => {
+    const capabilities = isPinnedSessionState(session)
+      ? companyCapabilityAuthority.policyForAgent(session.agent)
+      : undefined;
+    return [
+      ...await projectContextInstructions(session.cwd),
+      ...(isPinnedSessionState(session) && session.agent.role === "parent" &&
+          session.agent.company !== undefined
+        ? session.agent.company.blueprintVersion === 2
+          ? companyContextInstructionsV2(
+              await companyBlueprintsV2.load(session.agent.company.blueprintId),
+            )
+          : companyContextInstructions(
+              await companyBlueprints.load(session.agent.company.blueprintId),
+            )
+        : []),
+      ...(isPinnedSessionState(session) && session.agent.profile === null
+        ? [
+            ...skills.contextInstructions(capabilities?.agentSkillNames),
+            ...mcp.contextInstructions(capabilities?.mcpServerIds),
+          ]
+        : []),
+    ];
+  };
   const continuations = new ProcessScopedRuntimeContinuationStore();
   const delegated = new DelegatedAgentExecutor({
     continuationAuthority: continuations.authority,
@@ -1435,6 +1607,7 @@ export async function createStandaloneRuntime(
     emit(event) {
       return events.emit(event);
     },
+    contextInstructions: runtimeContextInstructions,
     createToolContext(session, signal, runContext) {
       const capabilities = isPinnedSessionState(session)
         ? companyCapabilityAuthority.policyForAgent(session.agent)
@@ -1459,30 +1632,7 @@ export async function createStandaloneRuntime(
     emit(event) {
       return events.emit(event);
     },
-    contextInstructions: async (session) => {
-      const capabilities = isPinnedSessionState(session)
-        ? companyCapabilityAuthority.policyForAgent(session.agent)
-        : undefined;
-      return [
-        ...await projectContextInstructions(session.cwd),
-        ...(isPinnedSessionState(session) && session.agent.role === "parent" &&
-            session.agent.company !== undefined
-          ? session.agent.company.blueprintVersion === 2
-            ? companyContextInstructionsV2(
-                await companyBlueprintsV2.load(session.agent.company.blueprintId),
-              )
-            : companyContextInstructions(
-                await companyBlueprints.load(session.agent.company.blueprintId),
-              )
-          : []),
-        ...(isPinnedSessionState(session) && session.agent.profile === null
-          ? [
-              ...skills.contextInstructions(capabilities?.agentSkillNames),
-              ...mcp.contextInstructions(capabilities?.mcpServerIds),
-            ]
-          : []),
-      ];
-    },
+    contextInstructions: runtimeContextInstructions,
     createToolContext(session, signal, runContext) {
       const capabilities = isPinnedSessionState(session)
         ? companyCapabilityAuthority.policyForAgent(session.agent)
@@ -1798,6 +1948,7 @@ export async function createStandaloneRuntime(
     skills,
     mcp,
     ...(modelSessions === undefined ? {} : { models: modelSessions }),
+    ...(modelSessions === undefined ? {} : { modelTeams }),
     signal: () =>
       runtimeReference.current?.currentSignal() ?? new AbortController().signal,
   });

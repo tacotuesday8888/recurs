@@ -211,6 +211,22 @@ function exactFinding(value: unknown): value is TeamReviewFinding {
     record.evidence.every((item) => boundedUtf8(item, MAX_EVIDENCE_LENGTH));
 }
 
+function parseFinalJsonObject(output: string): unknown {
+  try {
+    return JSON.parse(output);
+  } catch {
+    for (let index = output.indexOf("{"); index >= 0;
+      index = output.indexOf("{", index + 1)) {
+      try {
+        return JSON.parse(output.slice(index));
+      } catch {
+        // A bounded final JSON object may follow harmless model preamble.
+      }
+    }
+    throw invalidReviewV2();
+  }
+}
+
 export function parseAgentReviewVerdict(output: string): AgentReviewVerdict {
   if (
     output.length === 0 ||
@@ -255,12 +271,7 @@ export function parseAgentReviewVerdictV2(output: string): AgentReviewVerdictV2 
     Buffer.byteLength(output, "utf8") > MAX_REVIEW_V2_OUTPUT_BYTES) {
     throw invalidReviewV2();
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(output);
-  } catch {
-    throw invalidReviewV2();
-  }
+  const parsed = parseFinalJsonObject(output);
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw invalidReviewV2();
   }

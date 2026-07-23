@@ -26,11 +26,12 @@ Economy through Max remain the versioned operating policies and should appear
 as one intensity control. Onboarding depth, roster design, execution state, and
 permissions remain separate choices because they answer different questions.
 
-The longer-term Auto direction keeps the default sub-agent structure and
-selects an evaluated model lineup to power the roles needed for a task. It does
-not continuously invent a new organization. Model names and “best” claims must
-come from versioned real-provider evaluation, with visible rationale,
-freshness, and fallback. Automatic model ranking is not implemented today.
+The Auto alpha keeps the default sub-agent structure and selects an evaluated
+four-role lineup to power future company goals. It does not continuously invent
+a new organization. Model names and “best” claims come from versioned
+configured-goal evidence with a visible rationale. Broader task
+classification, evidence freshness, and price/capability routing remain later
+work.
 
 See [Auto Model Teams and Simple Controls](docs/AUTO_MODEL_TEAMS.md) for the
 current product direction and the exact implemented boundary.
@@ -71,7 +72,7 @@ through a two-phase checkpoint transaction; process-lifetime background stops
 at `ready_to_apply` for explicit control. A sequenced journal, cross-process
 owner leases, truthful interruption/resume, startup recovery, normalized
 events, `/agents` controls, and model control tools make lifecycle and evidence
-inspectable. Child-created unbounded recursion, automatic model ranking, a
+inspectable. Child-created unbounded recursion, speculative model ranking, a
 persistent daemon, dirty-parent snapshots, and auto-commit/push/deploy remain
 intentionally absent.
 
@@ -90,9 +91,7 @@ exact user-approved bundle binding that also survives its role and parent
 policy intersection. This is not a marketplace: remote OAuth/transports,
 installation, prompts/resources, and automatic trust remain absent.
 
-The CLI now has a validated 26-path catalog, a non-secret saved-connection lifecycle, and cross-platform saved plus ephemeral BYOK for fixed-origin OpenAI Responses and reviewed OpenAI Chat-compatible and Anthropic Messages providers. Saved BYOK retains a provider/model policy binding, environment-variable name, and one-way credential fingerprint—not the key—and refuses to run if the current process lacks the exact credential. Authenticated fixed-origin discovery verifies selected OpenAI, Anthropic, OpenRouter, xAI, DeepSeek, and MiniMax models during setup; remaining reviewed providers keep the bounded public-catalog or exact-ID path. xAI runs use the documented compatibility Chat endpoint and do not claim Responses continuation semantics. OpenAI Responses runs disable API storage and retain encrypted reasoning only in bounded process memory. An interrupted tool turn is not resumable after the CLI exits; a completed conversation resumes from its last visible answer. Literal-loopback Ollama/LM Studio and the pinned official Codex ACP adapter remain supported. Codex setup and every Codex turn recheck vendor-reported authentication/account identity; the connection is local, manual, user-present, and Plan-only. Versioned protocol-level harness profiles distinguish provider-native tool use from conservative compatibility-model tool use without ranking model brands.
-
-The private macOS authority implements complete OpenAI API, Anthropic API, and Kimi Code activation and generation verticals. It remains the stronger persistent-credential design: the sealed TypeScript engine sees only redacted lifecycle and normalized generation frames. Source/npm BYOK is a separate, explicitly weaker process-environment option and never impersonates a native connection. No signed/notarized installed artifact or production credential-canary smoke has shipped, so the native verticals are implemented and tested but not distributed.
+The CLI now has a validated 26-path catalog, a non-secret saved-connection lifecycle, and cross-platform saved plus ephemeral BYOK for fixed-origin OpenAI Responses and reviewed OpenAI Chat-compatible and Anthropic Messages providers. Saved BYOK retains a provider/model policy binding, environment-variable name, and one-way credential fingerprint—not the key—and refuses to run if the current process lacks the exact credential. Authenticated fixed-origin discovery verifies selected OpenAI, Anthropic, OpenRouter, xAI, DeepSeek, and MiniMax models during setup; remaining reviewed providers keep the bounded public-catalog or exact-ID path. xAI runs use the documented compatibility Chat endpoint and do not claim Responses continuation semantics. OpenAI Responses runs disable API storage and retain encrypted reasoning only in bounded process memory. An interrupted tool turn is not resumable after the CLI exits; a completed conversation resumes from its last visible answer. Literal-loopback Ollama/LM Studio and the pinned official Codex app-server adapter remain supported. Codex setup and every Codex turn recheck vendor-reported authentication/account identity; the connection is local, manual, and user-present. Versioned protocol-level harness profiles distinguish provider-native tool use from conservative compatibility-model tool use without ranking model brands.
 
 On macOS and Linux, `workspace_sandboxed` gives command and verification children canonical workspace-only host writes, hides host credential/runtime state, and binds network access to approved command intent. Linux uses system Bubblewrap namespaces and deliberately does not claim a Recurs seccomp policy. Windows still selects `local_guarded` but rejects subprocess execution as unsupported; an explicit guarded profile on macOS/Linux retains host authority. `tools_disabled` avoids model tools but is not a usable coding profile and does not replace the private credential boundary.
 

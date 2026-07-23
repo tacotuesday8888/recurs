@@ -404,6 +404,24 @@ export function safeToolFailure(
   const code = error instanceof ToolError ? error.code : "execution_failed";
   const cancelled = code === "cancelled";
   const safeMessage = `Tool error [${code}]: The host tool request did not complete`;
+  let retryGuidance: string | undefined;
+  switch (code) {
+    case "invalid_input":
+      retryGuidance = "Check the supplied tool schema and correct the argument format before retrying.";
+      break;
+    case "unread_file":
+      retryGuidance = "Read every existing target file in this turn before retrying the edit.";
+      break;
+    case "stale_file":
+      retryGuidance = "A target changed after it was read; read it again before retrying.";
+      break;
+    case "patch_files_mismatch":
+      retryGuidance = "Declare exactly every path changed by the patch, then retry.";
+      break;
+    case "patch_failed":
+      retryGuidance = "The patch did not apply to the current file contents; read the targets again and rebuild it.";
+      break;
+  }
   return {
     failure: startedFailure(
       "tool_failed",
@@ -411,7 +429,9 @@ export function safeToolFailure(
       diagnosticId,
       "tool",
     ),
-    output: safeMessage,
+    output: retryGuidance === undefined
+      ? safeMessage
+      : `${safeMessage}. ${retryGuidance}`,
     cancelled,
   };
 }

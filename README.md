@@ -56,7 +56,8 @@ Recurs never persists BYOK values.
 - 🔌 **Explicit model access.** Use reviewed OpenAI, Anthropic, Gemini,
   OpenAI-compatible, Ollama, LM Studio, or local user-present Codex
   subscriptions with exact model/effort routing through Recurs tools. Recurs
-  does not claim automatic model ranking or silent provider routing.
+  never silently routes providers; optional Models Auto activates only from
+  eligible, inspectable completed-goal evidence.
 - 💾 **Designed to resume.** Goals, sessions, checkpoints, company knowledge,
   and approved organization revisions survive restarts.
 
@@ -93,6 +94,9 @@ automatic installation or trust of Skills and MCP servers.
 - **Operations:** company status, activity, knowledge, readiness, amendments,
   exact-run inspection, deterministic formation, provider dogfooding, and
   durable-goal scoring.
+- **Evidence-backed model teams:** `/model auto` records exact configured goal
+  results, shows the selected Parent/Implement/Review/Repair models and
+  rationale, and applies only a validated lineup to future work.
 
 The [feature status](docs/FEATURE_STATUS.md) is the code-backed inventory of
 implemented, bounded, prepared-only, and absent capabilities.
