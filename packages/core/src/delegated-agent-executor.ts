@@ -304,6 +304,11 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
       const host: AgentRuntimeHost = capabilities.toolExecution === "host_tools"
         ? Object.freeze({
             ...hostBase,
+            tools: Object.freeze(this.dependencies.tools.definitions(
+              input.executionMode,
+              toolContext.toolPolicy,
+              toolContext,
+            )),
             executeTool: (rawCall: ToolCall, runtimeSignal: AbortSignal) => {
               const pending = queue.run(async () => {
                 this.#assertRuntimeStable(

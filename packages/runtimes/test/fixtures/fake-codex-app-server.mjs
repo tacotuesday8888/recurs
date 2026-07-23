@@ -11,6 +11,7 @@ if (scenario === "frame-overflow") {
 }
 
 let pendingServerRequest = null;
+let pendingRuntimeTurn = null;
 let initialized = false;
 const lines = readline.createInterface({ input: process.stdin });
 
@@ -82,6 +83,122 @@ lines.on("line", (line) => {
       id: message.id,
       result: { data: models, nextCursor: secondPage ? null : "page-2" },
     });
+    return;
+  }
+  if (message.method === "thread/start") {
+    const safe = message.params?.model === "gpt-test" &&
+      Array.isArray(message.params?.environments) &&
+      message.params.environments.length === 0 &&
+      message.params?.sandbox === "read-only" &&
+      message.params?.approvalPolicy === "never" &&
+      Array.isArray(message.params?.dynamicTools);
+    if (!safe) {
+      send({ id: message.id, error: { code: -32000, message: "unsafe thread" } });
+      return;
+    }
+    send({
+      id: message.id,
+      result: {
+        thread: { id: "vendor-thread-1" },
+        model: "gpt-test",
+        reasoningEffort: null,
+      },
+    });
+    return;
+  }
+  if (message.method === "turn/start") {
+    if (
+      message.params?.threadId !== "vendor-thread-1" ||
+      message.params?.model !== "gpt-test" ||
+      message.params?.effort !== "ultra" ||
+      !Array.isArray(message.params?.environments) ||
+      message.params.environments.length !== 0
+    ) {
+      send({ id: message.id, error: { code: -32000, message: "unsafe turn" } });
+      return;
+    }
+    send({ id: message.id, result: { turn: { id: "vendor-turn-1" } } });
+    if (scenario === "runtime-cancel") {
+      pendingRuntimeTurn = "vendor-turn-1";
+      return;
+    }
+    if (scenario === "runtime-tool") {
+      pendingRuntimeTurn = "vendor-turn-1";
+      send({
+        id: "dynamic-tool-1",
+        method: "item/tool/call",
+        params: {
+          threadId: "vendor-thread-1",
+          turnId: "vendor-turn-1",
+          callId: "call-1",
+          namespace: null,
+          tool: "read_file",
+          arguments: { path: "README.md" },
+        },
+      });
+      return;
+    }
+    send({
+      method: "item/agentMessage/delta",
+      params: {
+        threadId: "vendor-thread-1",
+        turnId: "vendor-turn-1",
+        itemId: "message-1",
+        delta: "hello from Codex",
+      },
+    });
+    send({
+      method: "thread/tokenUsage/updated",
+      params: {
+        threadId: "vendor-thread-1",
+        turnId: "vendor-turn-1",
+        tokenUsage: {
+          total: { inputTokens: 10, cachedInputTokens: 3, outputTokens: 4, reasoningOutputTokens: 2, totalTokens: 14 },
+          last: { inputTokens: 10, cachedInputTokens: 3, outputTokens: 4, reasoningOutputTokens: 2, totalTokens: 14 },
+          modelContextWindow: 1000,
+        },
+      },
+    });
+    send({
+      method: "turn/completed",
+      params: {
+        threadId: "vendor-thread-1",
+        turn: { id: "vendor-turn-1", status: "completed", error: null },
+      },
+    });
+    return;
+  }
+  if (message.id === "dynamic-tool-1" && pendingRuntimeTurn !== null) {
+    const text = message.result?.contentItems?.[0]?.text;
+    send({
+      method: "item/agentMessage/delta",
+      params: {
+        threadId: "vendor-thread-1",
+        turnId: pendingRuntimeTurn,
+        itemId: "message-2",
+        delta: `tool said: ${text}`,
+      },
+    });
+    send({
+      method: "turn/completed",
+      params: {
+        threadId: "vendor-thread-1",
+        turn: { id: pendingRuntimeTurn, status: "completed", error: null },
+      },
+    });
+    pendingRuntimeTurn = null;
+    return;
+  }
+  if (message.method === "turn/interrupt") {
+    send({ id: message.id, result: {} });
+    send({
+      method: "turn/completed",
+      params: {
+        threadId: "vendor-thread-1",
+        turn: { id: pendingRuntimeTurn ?? "vendor-turn-1", status: "interrupted", error: null },
+      },
+    });
+    pendingRuntimeTurn = null;
     return;
   }
   if (message.method === "echo") {

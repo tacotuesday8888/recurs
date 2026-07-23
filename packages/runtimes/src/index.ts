@@ -31,12 +31,20 @@ export {
 export {
   CodexAppServerCatalogError,
   codexAppServerEnvironment,
+  codexSubscriptionAccountFingerprint,
   createCodexAppServerProcessProfile,
   inspectCodexAppServerSubscription,
   type CodexAppServerCatalogErrorCode,
   type CodexSubscriptionCatalog,
   type CodexSubscriptionModel,
 } from "./codex-app-server-catalog.js";
+export {
+  CODEX_APP_SERVER_ADAPTER_ID,
+  CODEX_APP_SERVER_PROFILE_REVISION,
+  CodexAppServerRuntime,
+  createAccountBoundCodexAppServerRuntime,
+  type CreateCodexAppServerRuntimeInput,
+} from "./codex-app-server-runtime.js";
 export {
   CODEX_ACP_ADAPTER_ID,
   CODEX_ACP_ADAPTER_INTEGRITY,

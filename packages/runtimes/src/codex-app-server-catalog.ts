@@ -111,7 +111,7 @@ function catalogError(error: unknown): CodexAppServerCatalogError {
   );
 }
 
-function accountFingerprint(email: string): string {
+export function codexSubscriptionAccountFingerprint(email: string): string {
   return `sha256:${createHash("sha256")
     .update(`openai-codex-chatgpt\0${email.toLocaleLowerCase("en-US")}`)
     .digest("hex")}`;
@@ -280,7 +280,7 @@ export async function inspectCodexAppServerSubscription(
     }
     const planType = accountResponse.account.planType;
     return Object.freeze({
-      accountSubjectFingerprint: accountFingerprint(
+      accountSubjectFingerprint: codexSubscriptionAccountFingerprint(
         accountResponse.account.email,
       ),
       accountDisplayLabel: accountDisplayLabel(planType),
