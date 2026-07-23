@@ -53,7 +53,11 @@ function createStatusCommand(): Command {
         : `${context.session.goal.status}: ${context.session.goal.objective}`;
       const backend = context.session.backend.type === "pinned" &&
           context.session.backend.pin.kind === "agent_runtime"
-        ? `Runtime: ${context.session.backend.pin.adapterId === "codex-acp" ? "Codex (Plan-only)" : "Delegated agent"}`
+        ? `Runtime: ${context.session.backend.pin.adapterId === "codex-acp"
+          ? "Codex (Plan-only)"
+          : context.session.backend.pin.adapterId === "codex-app-server"
+            ? "Codex (Recurs tools)"
+            : "Delegated agent"}`
         : null;
       const agentMode = isPinnedSessionState(context.session)
         ? getOperatingModePolicy(context.session.agent.operatingMode.id).displayName

@@ -1303,9 +1303,14 @@ describe("runCli", () => {
         return {
           id: "codex-1",
           label: "Codex with ChatGPT",
-          modelId: "gpt-test",
-          planOnly: true,
+          modelId: "gpt-5.6-sol",
+          planOnly: false,
           primary: false,
+          configuredModels: [
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
+          ],
         };
       },
     });
@@ -1316,8 +1321,11 @@ describe("runCli", () => {
       interactive: true,
       billingSelection: "allow_declared_additional",
     });
-    expect(stdout.value).toContain("Codex with ChatGPT · gpt-test");
-    expect(stdout.value).toContain("Plan-only");
+    expect(stdout.value).toContain("Codex with ChatGPT · gpt-5.6-sol");
+    expect(stdout.value).toContain("Act + Plan through Recurs permissions");
+    expect(stdout.value).toContain(
+      "Company routes: gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna",
+    );
     expect(stdout.value).toContain("Saved as secondary");
     expect(stdout.value).toContain("account set-primary");
     expect(stdout.value).not.toContain("owner@example.com");

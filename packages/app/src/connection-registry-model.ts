@@ -83,6 +83,8 @@ export interface DelegatedConnectionRecord {
   accountLabel: string;
   organizationLabel: string | null;
   modelId: string;
+  reasoningEffort?: ModelReasoningEffort;
+  runtimeCapabilityProfileRevision?: string;
   accountSubjectFingerprint: string;
   policyRevision: string;
   billingPolicy: BillingPolicy;
@@ -609,6 +611,8 @@ function parseLocal(value: Record<string, unknown>): LocalConnectionRecord {
 function parseDelegated(
   value: Record<string, unknown>,
 ): DelegatedConnectionRecord {
+  const extended = value.reasoningEffort !== undefined ||
+    value.runtimeCapabilityProfileRevision !== undefined;
   exactKeys(value, [
     "kind",
     "id",
@@ -618,6 +622,9 @@ function parseDelegated(
     "accountLabel",
     "organizationLabel",
     "modelId",
+    ...(extended
+      ? ["reasoningEffort", "runtimeCapabilityProfileRevision"]
+      : []),
     "accountSubjectFingerprint",
     "policyRevision",
     "billingPolicy",
@@ -662,6 +669,18 @@ function parseDelegated(
     accountLabel: boundedString(value.accountLabel, 256, { trim: true }),
     organizationLabel,
     modelId: boundedString(value.modelId, 512, { trim: true }),
+    ...(value.reasoningEffort === undefined
+      ? {}
+      : { reasoningEffort: parseReasoningEffort(value.reasoningEffort) }),
+    ...(value.runtimeCapabilityProfileRevision === undefined
+      ? {}
+      : {
+          runtimeCapabilityProfileRevision: boundedString(
+            value.runtimeCapabilityProfileRevision,
+            256,
+            { trim: true, pattern: ID_PATTERN },
+          ),
+        }),
     accountSubjectFingerprint: boundedString(
       value.accountSubjectFingerprint,
       71,
@@ -676,6 +695,21 @@ function parseDelegated(
   };
 }
 
+function parseReasoningEffort(value: unknown): ModelReasoningEffort {
+  if (
+    value !== "none" &&
+    value !== "minimal" &&
+    value !== "low" &&
+    value !== "medium" &&
+    value !== "high" &&
+    value !== "xhigh" &&
+    value !== "max" &&
+    value !== "ultra"
+  ) {
+    throw invalidRegistry();
+  }
+  return value;
+}
 function credentialEnvironmentVariable(value: unknown): string {
   const name = boundedString(value, 128, {
     trim: true,
@@ -1019,7 +1053,11 @@ export function parseRegistryDocument(
         pattern: ID_PATTERN,
       });
       const connection = connections.find((candidate) => candidate.id === connectionId);
-      if (connection === undefined || connection.kind === "delegated_agent") {
+      if (
+        connection === undefined ||
+        (connection.kind === "delegated_agent" &&
+          connection.adapterId !== "codex-app-server")
+      ) {
         throw invalidRegistry();
       }
       agentRoutes[role] = connectionId;

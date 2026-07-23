@@ -51,7 +51,6 @@ import {
   type ConnectionDisconnection,
   type AgentRouteAssignment,
   type ConnectionVerification,
-  type CodexConnectionConfiguration,
   type EnvironmentConnectionConfiguration,
   type OpenAIOnboardingDisclosure,
   type AnthropicOnboardingDisclosure,
@@ -200,7 +199,14 @@ export interface CliDependencies {
     cwd: string;
     interactive: true;
     billingSelection: "allow_declared_additional";
-  }): Promise<Pick<CodexConnectionConfiguration, "id" | "label" | "modelId" | "planOnly" | "primary">>;
+  }): Promise<{
+    readonly id: string;
+    readonly label: string;
+    readonly modelId: string;
+    readonly planOnly: boolean;
+    readonly primary: boolean;
+    readonly configuredModels?: readonly string[];
+  }>;
   setupEnvironment?(input: {
     providerId: string;
     modelId: string;
@@ -1826,7 +1832,7 @@ export async function runCli(
         });
         await writeOutput(
           dependencies.stdout,
-          `Ready — ${connection.label} · ${connection.modelId}\nMode: Plan-only (read-only Codex runtime)\nAccount: verified by the vendor runtime; credentials remain vendor-owned\n${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}`,
+          `Ready — ${connection.label} · ${connection.modelId}\nMode: ${connection.planOnly ? "Plan-only" : "Act + Plan through Recurs permissions"}\nAccount: verified by the vendor runtime; credentials remain vendor-owned\n${connection.configuredModels === undefined ? "" : `Company routes: ${connection.configuredModels.join(", ")}\n`}${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}`,
         );
         return 0;
       } catch (error) {

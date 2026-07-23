@@ -1,3 +1,5 @@
+/* global process */
+
 import readline from "node:readline";
 
 const scenarioIndex = process.argv.indexOf("--scenario");
