@@ -60,7 +60,7 @@
     "recurs": "node dist/cli/main.js"
   },
   "dependencies": {
-    "@agentclientprotocol/codex-acp": "1.1.2",
+    "@agentclientprotocol/codex-acp": "1.1.7",
     "@agentclientprotocol/sdk": "1.2.1",
     "@openai/codex": "0.144.0",
     "typescript": "6.0.3",
