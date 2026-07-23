@@ -10,6 +10,31 @@ It is not an IDE. Users may keep their editor of choice. Recurs manages the peop
 - **Desktop later:** selecting a project opens the company operating view rather than only a chat archive. Chat remains central, surrounded by agents, current work, goals, handoffs, approvals, reviews, and history.
 - **One engine:** CLI, desktop, automation, and future cloud workers use the same event, session, tool, permission, and orchestration contracts.
 
+## Simple controls and Auto model teams
+
+The intended default experience is understandable without exposing every
+orchestration contract:
+
+```text
+Team size     Balanced
+Models        Auto
+Roster        Recommended
+Permissions   Approved for Me
+```
+
+Economy through Max remain the versioned operating policies and should appear
+as one intensity control. Onboarding depth, roster design, execution state, and
+permissions remain separate choices because they answer different questions.
+
+The longer-term Auto direction keeps the default sub-agent structure and
+selects an evaluated model lineup to power the roles needed for a task. It does
+not continuously invent a new organization. Model names and “best” claims must
+come from versioned real-provider evaluation, with visible rationale,
+freshness, and fallback. Automatic model ranking is not implemented today.
+
+See [Auto Model Teams and Simple Controls](docs/AUTO_MODEL_TEAMS.md) for the
+current product direction and the exact implemented boundary.
+
 ## Principles
 
 1. **A strong base before a large surface.** Reliability, recovery, permissions, and observability matter more than matching every competitor command.
