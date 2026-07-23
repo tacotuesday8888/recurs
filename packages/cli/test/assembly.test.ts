@@ -2436,9 +2436,9 @@ describe("standalone assembly without a provider", () => {
       await expect(runtime.submit("start the watcher")).resolves.toMatchObject({
         finalText: "Background command started.",
       });
-      expect(provider.requests[1]?.messages.findLast(
+      const initialOutput = provider.requests[1]?.messages.findLast(
         (message) => message.role === "tool",
-      )?.content).toContain("ready");
+      )?.content ?? "";
       const listed = await runtime.submit("/process");
       expect(listed).toMatchObject({
         type: "message",
@@ -2449,6 +2449,15 @@ describe("standalone assembly without a provider", () => {
       });
       if (listed.type !== "message") throw new Error("Expected process list");
       const sessionId = listed.text.split(" · ")[0]!;
+      let readyOutput = initialOutput;
+      if (!readyOutput.includes("ready")) {
+        const waited = await runtime.submit(`/process ${sessionId} wait 5000`);
+        if (waited.type !== "message") {
+          throw new Error("Expected process output");
+        }
+        readyOutput = waited.text;
+      }
+      expect(readyOutput).toContain("ready");
       await expect(runtime.submit(`/process ${sessionId} enter hello`)).resolves
         .toMatchObject({
           type: "message",
