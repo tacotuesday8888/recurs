@@ -11,6 +11,7 @@ import { ScriptedProvider } from "@recurs/providers";
 
 import { createStandaloneCompanyOnboarding } from "./assembly.js";
 import { evaluateCompanyFormation } from "./company-evaluation.js";
+import { evaluateStoredCompanyGoal } from "./company-evaluation-store.js";
 
 export const COMPANY_EVALUATION_USAGE = [
   "Usage: recurs eval company --list [--json]",
@@ -286,10 +287,16 @@ export async function runCompanyEvaluationCommand(
   options: CompanyEvaluationRunOptions,
   dependencies: CompanyEvaluationCommandDependencies,
 ): Promise<CompanyEvaluationReportV1> {
-  if (options.scenario !== "company_formation_v1") {
-    throw new CompanyEvaluationArgumentError(
-      "Stored company goal evaluation is not available in this build.",
-    );
+  if (options.scenario === "company_goal_execution_v1") {
+    return await evaluateStoredCompanyGoal({
+      projectRoot: dependencies.projectRoot,
+      dataDirectory:
+        dependencies.dataDirectory ?? path.join(homedir(), ".recurs"),
+      runId: options.runId,
+      ...(dependencies.signal === undefined
+        ? {}
+        : { signal: dependencies.signal }),
+    });
   }
   const projectRoot = await realpath(dependencies.projectRoot);
   const evaluationHome = await realpath(

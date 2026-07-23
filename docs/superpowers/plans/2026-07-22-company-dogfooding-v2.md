@@ -156,27 +156,27 @@ export async function evaluateStoredCompanyGoal(input: {
 
 - Derive the existing project directory from the canonical real project root. Strictly load the exact `JsonlCompanyGoalStore` run, exact `FileCompanyBlueprintV2Store` blueprint ID/revision, and exact parent `JsonlSessionStore` state. Require a pinned V2 parent backend and pass its provider/model identity to `evaluateCompanyGoalExecution`.
 
-- [ ] **Step 1: Write failing store-adapter tests**
+- [x] **Step 1: Write failing store-adapter tests**
 
   Cover one complete run, unknown cost, incomplete/failed run, nonexistent ID, corrupt state, blueprint mismatch, revision mismatch, legacy/unpinned parent session, cancellation, and sanitized failures. Assert the source files are byte-identical before and after evaluation.
 
-- [ ] **Step 2: Confirm focused failure**
+- [x] **Step 2: Confirm focused failure**
 
   Run: `npx vitest run packages/cli/test/company-evaluation-store.test.ts`
 
-- [ ] **Step 3: Implement the read-only adapter**
+- [x] **Step 3: Implement the read-only adapter**
 
   Reuse the existing stores directly; do not add a second persistence format or copy project state into the evaluation temp root. Use the run's `createdAt` as `startedAt` and the injected current time as `completedAt`, preserving nonnegative timestamp order.
 
-- [ ] **Step 4: Route the execution scenario**
+- [x] **Step 4: Route the execution scenario**
 
   `runCompanyEvaluationCommand` dispatches formation to the temporary evaluation home and execution scoring to `evaluateStoredCompanyGoal`. The execution path ignores provider configuration entirely and performs no network calls.
 
-- [ ] **Step 5: Run focused tests twice and typecheck**
+- [x] **Step 5: Run focused tests twice and typecheck**
 
   Run the new adapter, existing evaluator, and installed routing suites twice, followed by `npm run typecheck`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   Commit message: `feat(company): score stored company goals`
 

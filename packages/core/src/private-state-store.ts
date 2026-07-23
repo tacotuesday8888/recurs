@@ -587,6 +587,25 @@ export class PrivateJsonlStateStore<T> {
     return serializeMutation(this.#file(id), () => this.#load(id, signal));
   }
 
+  loadReadOnly(
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<SequencedCompanyState<T>> {
+    return serializeMutation(this.#file(id), async () => {
+      signal?.throwIfAborted();
+      validateId(id);
+      if (!await inspectDirectory(this.directory)) {
+        throw new CompanyStateStoreError(
+          "not_found",
+          `${this.options.label} not found`,
+        );
+      }
+      const read = await this.#read(id, false);
+      const last = read.records.at(-1)!;
+      return Object.freeze({ sequence: last.sequence, state: last.state });
+    });
+  }
+
   async #load(
     id: string,
     signal?: AbortSignal,
