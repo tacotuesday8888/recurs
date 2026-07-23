@@ -10,6 +10,7 @@ Current documents:
 - [Sub-agent harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md) — commit-pinned primary-source execution patterns from Codex, OpenCode, Kimi Code, Kilo Code, Roo Code, Pi, Goose, and Grok Build, plus the exact Recurs boundary derived from them.
 - [Agent company onboarding](AGENT_COMPANY_ONBOARDING.md) — canonical product target for turning project intent into a tailored, durable agent company, including the implemented foundation and remaining gaps.
 - [Company evaluation](COMPANY_EVALUATION.md) — deterministic offline and explicit configured-provider checks for the restricted formation path.
+- [Auto model teams and simple controls](AUTO_MODEL_TEAMS.md) — current product direction for the Economy-to-Max intensity control, recommended rosters, and evidence-backed automatic model lineups; automatic ranking remains unimplemented.
 - [Architecture](../ARCHITECTURE.md) — implemented package boundaries and direct/delegated engine lifecycle.
 - [Product direction](../PRODUCT.md) — CLI-first agent manager and sub-agent roadmap.
 
