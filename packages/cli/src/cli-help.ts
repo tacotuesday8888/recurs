@@ -134,13 +134,16 @@ The native subcommand reports the separate private native-authority status.
   eval: `Evaluate the bounded company foundation
 
 Usage:
+  recurs eval company --list [--json]
   recurs eval company [--scenario company_formation_v1] [--json] [-C <dir>]
-  recurs eval company --configured --allow-network [--json] [-C <dir>]
+  recurs eval company --configured --allow-network [--connection <id>] [--json] [-C <dir>]
+  recurs eval company --scenario company_goal_execution_v1 --run <id> [--json] [-C <dir>]
 
 Offline evaluation is deterministic, uses a temporary private Recurs home,
 exposes only the restricted onboarding read tools, and makes no network request.
-Configured evaluation uses the saved primary direct/local connection and
-requires explicit network opt-in. Reports are sanitized and contain no prompts,
+Configured evaluation uses the exact selected or primary direct/local connection
+and requires explicit network opt-in. Stored goal evaluation is read-only and
+never contacts a provider. Reports are sanitized and contain no prompts,
 credentials, private paths, or environment values.
 `,
   acp: `Serve Recurs as an ACP agent over standard input and output

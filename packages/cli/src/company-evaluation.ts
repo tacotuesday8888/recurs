@@ -37,6 +37,21 @@ export const COMPANY_GOAL_EXECUTION_EVALUATION_SCENARIO = Object.freeze({
   version: 1 as const,
 });
 
+export type CompanyEvaluationProgress =
+  | { readonly phase: "preparing"; readonly message: string }
+  | { readonly phase: "interview"; readonly message: string }
+  | { readonly phase: "research"; readonly message: string }
+  | { readonly phase: "proposal"; readonly message: string }
+  | { readonly phase: "scoring"; readonly message: string };
+
+async function emitProgress(
+  callback: ((progress: CompanyEvaluationProgress) => void | Promise<void>) |
+    undefined,
+  progress: CompanyEvaluationProgress,
+): Promise<void> {
+  await callback?.(progress);
+}
+
 const scenarioAnswer = [
   "Build Recurs as a dependable open-source coding-agent company for software maintainers.",
   "The CLI should understand an existing TypeScript repository, delegate bounded work, require independent review, and return attributable evidence.",
@@ -311,11 +326,18 @@ export async function evaluateCompanyFormation(input: {
   readonly backend: { readonly providerId: string; readonly modelId: string };
   readonly signal?: AbortSignal;
   readonly now?: () => string;
+  readonly onProgress?: (
+    progress: CompanyEvaluationProgress,
+  ) => void | Promise<void>;
 }): Promise<CompanyEvaluationReportV1> {
   const now = input.now ?? (() => new Date().toISOString());
   const startedAt = now();
   let lastRun: CompanyOnboardingRunV1 | null = null;
   try {
+    await emitProgress(input.onProgress, {
+      phase: "preparing",
+      message: "Preparing company_formation_v1.",
+    });
     const started = await input.service.coordinator.start({
       projectRoot: input.service.projectRoot,
       depth: COMPANY_FORMATION_EVALUATION_SCENARIO.depth,
@@ -340,6 +362,11 @@ export async function evaluateCompanyFormation(input: {
       run = advanced.run;
       lastRun = run.state;
       if (advanced.kind === "question") {
+        await emitProgress(input.onProgress, {
+          phase: "interview",
+          message:
+            `Company interview · question ${run.state.interview.answers.length + 1}`,
+        });
         run = await input.service.coordinator.answer(
           run.state.id,
           run.sequence,
@@ -349,7 +376,20 @@ export async function evaluateCompanyFormation(input: {
         lastRun = run.state;
         continue;
       }
-      if (advanced.kind === "researched") continue;
+      if (advanced.kind === "researched") {
+        const completed = run.state.research.filter((item) =>
+          item.status === "completed"
+        ).length;
+        await emitProgress(input.onProgress, {
+          phase: "research",
+          message: `Project understanding · ${completed} bounded investigation${completed === 1 ? "" : "s"} complete`,
+        });
+        continue;
+      }
+      await emitProgress(input.onProgress, {
+        phase: "proposal",
+        message: "Company proposal · ready for review",
+      });
       const approved = await input.service.coordinator.approve(
         run.state.id,
         run.sequence,
@@ -360,6 +400,10 @@ export async function evaluateCompanyFormation(input: {
         approved.state.approvedBlueprintId!,
         input.signal,
       );
+      await emitProgress(input.onProgress, {
+        phase: "scoring",
+        message: "Scoring company_formation_v1.",
+      });
       break;
     }
     if (blueprint === null || lastRun.status !== "approved") {

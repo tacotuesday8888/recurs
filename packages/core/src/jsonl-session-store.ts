@@ -481,6 +481,17 @@ export class JsonlSessionStore {
   }
 
   async load(sessionId: string): Promise<LoadedSessionRecords> {
+    return await this.#load(sessionId, true);
+  }
+
+  async loadReadOnly(sessionId: string): Promise<LoadedSessionRecords> {
+    return await this.#load(sessionId, false);
+  }
+
+  async #load(
+    sessionId: string,
+    repairPartialRecord: boolean,
+  ): Promise<LoadedSessionRecords> {
     const file = this.#file(sessionId);
     let serialized: string;
     try {
@@ -540,6 +551,13 @@ export class JsonlSessionStore {
             { cause: error },
           );
         }
+        if (!repairPartialRecord) {
+          throw new SessionStoreError(
+            "corrupt_log",
+            "Session log has an undurable final record",
+            { cause: error },
+          );
+        }
 
         await appendFile(`${file}.quarantine`, `${line}\n`, {
           encoding: "utf8",
@@ -556,6 +574,18 @@ export class JsonlSessionStore {
 
   async loadState(sessionId: string): Promise<SessionState> {
     const loaded = await this.load(sessionId);
+    return this.#restoreState(sessionId, loaded);
+  }
+
+  async loadStateReadOnly(sessionId: string): Promise<SessionState> {
+    const loaded = await this.loadReadOnly(sessionId);
+    return this.#restoreState(sessionId, loaded);
+  }
+
+  #restoreState(
+    sessionId: string,
+    loaded: LoadedSessionRecords,
+  ): SessionState {
     if (loaded.records.length === 0) {
       throw new SessionStoreError(
         "session_not_found",

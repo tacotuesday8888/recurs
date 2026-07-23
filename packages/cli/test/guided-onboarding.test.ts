@@ -786,6 +786,13 @@ describe("guided onboarding policy", () => {
       id: "desired_outcome",
       question: "What outcome should this company own?",
     }, {
+      kind: "research",
+      assignments: [{
+        key: "repository_shape",
+        description: "Inspect the repository shape.",
+        prompt: "Read the package manifest and report the workspace shape.",
+      }],
+    }, {
       kind: "propose",
       project: {
         type: "existing_project",
@@ -822,7 +829,13 @@ describe("guided onboarding policy", () => {
         },
       },
       research: {
-        async run() { throw new Error("research was not requested"); },
+        async run() {
+          return {
+            evidence: ["package.json: TypeScript workspace"],
+            requestsUsed: 1,
+            reportedCostUsd: 0,
+          };
+        },
       },
     });
     const selections = [
@@ -897,7 +910,13 @@ describe("guided onboarding policy", () => {
       expect(selections).toEqual([]);
       expect(decisions).toEqual([]);
       expect(output.join(""))
-        .toContain("Company approved: 6 department(s), 8 role(s).");
+        .toContain("Company interview · question 1");
+      expect(output.join(""))
+        .toContain("Project understanding · 1 bounded investigation complete");
+      expect(output.join(""))
+        .toContain("Company proposal · ready for review");
+      expect(output.join(""))
+        .toContain("Company approved · 6 department(s), 8 role(s)");
       expect(output.join(""))
         .toContain("Company capability readiness");
       expect(output.join(""))

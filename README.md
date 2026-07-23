@@ -66,6 +66,7 @@ recurs run "inspect the project" --plan    # one bounded headless run
 recurs review                               # review staged/unstaged Git work
 recurs doctor                               # redacted host-readiness report
 recurs eval company --json                  # deterministic offline evaluation
+recurs eval company --list --json           # discover evaluation scenarios
 ```
 
 Use `-C /path/to/project` with interactive, run, or review commands. The
@@ -88,7 +89,8 @@ JSON/JSONL output, and every supported command.
   environments, sanitized failures, and supported macOS/Linux subprocess
   containment.
 - 📈 **Operations:** company status, activity, knowledge, readiness,
-  amendments, exact-run inspection, and offline structural evaluation.
+  amendments, exact-run inspection, deterministic formation, exact-connection
+  provider dogfooding, and read-only durable-goal scoring.
 
 See [Feature status](docs/FEATURE_STATUS.md) for the code-backed inventory of
 implemented, bounded, prepared-only, and absent capabilities.

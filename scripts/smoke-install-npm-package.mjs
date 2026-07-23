@@ -622,6 +622,26 @@ try {
     path.join(workspaceDirectory, "package.json"),
     `${JSON.stringify({ name: "recurs-installed-evaluation" }, null, 2)}\n`,
   );
+  const { stdout: evaluationCatalog, stderr: evaluationCatalogError } =
+    await execFileAsync(
+      executable,
+      ["eval", "company", "--list", "--json"],
+      {
+        cwd: installDirectory,
+        encoding: "utf8",
+        env: environment,
+      },
+    );
+  assert(
+    JSON.parse(evaluationCatalog).scenarios?.map((scenario) => scenario.id)
+      .join(",") ===
+      "company_formation_v1,company_goal_execution_v1",
+    "The installed CLI did not expose its versioned company evaluations.",
+  );
+  assert(
+    evaluationCatalogError === "",
+    "The installed company-evaluation catalog wrote diagnostics.",
+  );
   const { stdout: companyEvaluation, stderr: companyEvaluationError } =
     await execFileAsync(
       executable,
@@ -650,6 +670,37 @@ try {
     companyEvaluationError === "",
     "The installed company evaluation wrote unexpected diagnostics.",
   );
+  try {
+    await execFileAsync(
+      executable,
+      [
+        "eval",
+        "company",
+        "--scenario",
+        "company_goal_execution_v1",
+        "--run",
+        "missing-installed-run",
+        "--json",
+        "-C",
+        workspaceDirectory,
+      ],
+      {
+        cwd: installDirectory,
+        encoding: "utf8",
+        env: environment,
+      },
+    );
+    throw new Error("The installed missing-run evaluation unexpectedly passed.");
+  } catch (error) {
+    assert(
+      error?.code === 1 && error.stdout === "" &&
+        error.stderr ===
+          "Error: The selected durable company goal could not be read.\n" &&
+        !error.stderr.includes(workspaceDirectory) &&
+        !error.stderr.includes(environment.RECURS_HOME),
+      "The installed missing-run evaluation was not safely sanitized.",
+    );
+  }
 
   localModelServer = await startLocalModelServer();
   const { stdout: setup, stderr: setupError } = await execFileAsync(

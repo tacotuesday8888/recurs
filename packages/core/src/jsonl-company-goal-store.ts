@@ -156,6 +156,13 @@ export class JsonlCompanyGoalStore {
     return this.#store.load(id, signal);
   }
 
+  loadReadOnly(
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<SequencedCompanyState<CompanyGoalRunV1>> {
+    return this.#store.loadReadOnly(id, signal);
+  }
+
   list(
     signal?: AbortSignal,
   ): Promise<readonly SequencedCompanyState<CompanyGoalRunV1>[]> {

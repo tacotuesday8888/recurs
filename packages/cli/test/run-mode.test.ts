@@ -3561,6 +3561,150 @@ describe("installed company evaluation command", () => {
     }));
   });
 
+  it("lists the stable evaluation scenarios without starting evaluation", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const evaluateCompany = vi.fn(async () => report());
+
+    expect(await runCli(["eval", "company", "--list", "--json"], {
+      stdout,
+      stderr,
+      evaluateCompany,
+      async createRuntime() {
+        throw new Error("ordinary runtime must not start");
+      },
+    })).toBe(0);
+
+    expect(JSON.parse(stdout.value)).toEqual({
+      version: 1,
+      scenarios: [
+        {
+          id: "company_formation_v1",
+          version: 1,
+          network: "optional_explicit",
+          description: "Form and approve a bounded company in isolated evaluation state.",
+        },
+        {
+          id: "company_goal_execution_v1",
+          version: 1,
+          network: "never",
+          description: "Score one existing durable company goal without resuming it.",
+        },
+      ],
+    });
+    expect(stderr.value).toBe("");
+    expect(evaluateCompany).not.toHaveBeenCalled();
+  });
+
+  it("routes exact formation connections and stored goal runs", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const evaluateCompany = vi.fn(async () => report());
+    const dependencies = {
+      stdout,
+      stderr,
+      evaluateCompany,
+      async createRuntime() {
+        throw new Error("ordinary runtime must not start");
+      },
+    } satisfies CliDependencies;
+
+    expect(await runCli([
+      "eval",
+      "company",
+      "--configured",
+      "--allow-network",
+      "--connection",
+      "connection_exact",
+    ], dependencies)).toBe(0);
+    expect(evaluateCompany).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: "run",
+      scenario: "company_formation_v1",
+      connectionId: "connection_exact",
+    }));
+
+    stdout.value = "";
+    stderr.value = "";
+    expect(await runCli([
+      "eval",
+      "company",
+      "--scenario",
+      "company_goal_execution_v1",
+      "--run",
+      "run_exact",
+      "--json",
+    ], dependencies)).toBe(0);
+    expect(evaluateCompany).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: "run",
+      scenario: "company_goal_execution_v1",
+      runId: "run_exact",
+    }));
+  });
+
+  it("prints bounded progress only for human-readable evaluation output", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const evaluateCompany: NonNullable<CliDependencies["evaluateCompany"]> =
+      async (input) => {
+        await input.onProgress?.({
+          phase: "preparing",
+          message: "Preparing company_formation_v1.",
+        });
+        return report();
+      };
+    const dependencies = {
+      stdout,
+      stderr,
+      evaluateCompany,
+      async createRuntime() {
+        throw new Error("ordinary runtime must not start");
+      },
+    } satisfies CliDependencies;
+
+    expect(await runCli(["eval", "company"], dependencies)).toBe(0);
+    expect(stdout.value).toContain("Company evaluation: company_formation_v1");
+    expect(stderr.value).toBe("Preparing company_formation_v1.\n");
+
+    stdout.value = "";
+    stderr.value = "";
+    expect(await runCli(["eval", "company", "--json"], dependencies)).toBe(0);
+    expect(JSON.parse(stdout.value)).toMatchObject({
+      scenarioId: "company_formation_v1",
+    });
+    expect(stderr.value).toBe("");
+  });
+
+  it("rejects crossed evaluation scenario flags", async () => {
+    const invalid = [
+      ["eval", "company", "--list", "--configured"],
+      ["eval", "company", "--connection", "connection_exact"],
+      ["eval", "company", "--run", "run_exact"],
+      [
+        "eval",
+        "company",
+        "--scenario",
+        "company_goal_execution_v1",
+        "--run",
+        "run_exact",
+        "--configured",
+      ],
+      ["eval", "company", "--scenario", "company_goal_execution_v1"],
+    ] as const;
+    for (const argv of invalid) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      expect(await runCli(argv, {
+        stdout,
+        stderr,
+        async createRuntime() {
+          throw new Error("ordinary runtime must not start");
+        },
+      })).toBe(2);
+      expect(stdout.value).toBe("");
+      expect(stderr.value).toContain("Error:");
+    }
+  });
+
   it("requires explicit configured-network consent and maps failed reports", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();

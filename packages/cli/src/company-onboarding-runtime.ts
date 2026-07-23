@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   createBackendFingerprint,
   createRootAgentDescriptor,
@@ -9,6 +11,7 @@ import {
 import type {
   AgentSessionDescriptor,
   CompanyOnboardingRunV1,
+  RunAuthorization,
   SessionBackendPin,
 } from "@recurs/contracts";
 import type { ModelProvider } from "@recurs/providers";
@@ -62,6 +65,11 @@ export interface CompanyOnboardingAgentRuntimeDependencies {
   readonly sessions: JsonlSessionStore;
   readonly cwd: string;
   readonly createProvider: () => ModelProvider | Promise<ModelProvider>;
+  readonly createAuthorization?: (input: {
+    readonly sessionId: string;
+    readonly turnId: string;
+    readonly maxRequests: number;
+  }) => RunAuthorization;
   readonly emit?: (event: RecursEvent) => void | Promise<void>;
   readonly now?: () => string;
 }
@@ -232,6 +240,12 @@ export class CompanyOnboardingAgentRuntime
   }) {
     await this.#ensureSession(input);
     const emit = this.dependencies.emit;
+    const turnId = `${input.sessionId}:${randomUUID()}`;
+    const authorization = this.dependencies.createAuthorization?.({
+      sessionId: input.sessionId,
+      turnId,
+      maxRequests: input.maxRequests,
+    });
     return await new AgentLoop({
       provider: await this.dependencies.createProvider(),
       tools: this.#tools,
@@ -250,8 +264,10 @@ export class CompanyOnboardingAgentRuntime
       contextInstructions() {
         return [input.instructions];
       },
+      ...(authorization === undefined ? {} : { authorization }),
     }).run({
       sessionId: input.sessionId,
+      turnId,
       prompt: input.prompt,
       executionMode: "plan",
       maxSteps: input.maxRequests,

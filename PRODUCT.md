@@ -75,11 +75,13 @@ The repository is open source under Apache-2.0, with release-ready `0.1.0-alpha.
 
 ## Next priorities
 
-1. **Prove the company experience with real models.** Run the versioned
-   configured-provider evaluation and complete real repository goals through
+1. **Prove the company experience with real models.** Use the installed
+   versioned configured-provider formation evaluation and durable-goal scorer,
+   then complete real repository goals through
    onboarding, decomposition, implementation, independent review, repair, and
-   synthesis. Improve interview and delegation quality from measured failures,
-   not from another speculative scheduler.
+   synthesis. The workflow is implemented, but no authorized real-provider run
+   is evidence yet. Improve interview and delegation quality from measured
+   failures, not from another speculative scheduler.
 2. **Ship a portable alpha.** Complete the one-time npm bootstrap and release
    the already verified npm, checksum-bound curl, and generated Homebrew
    artifacts. Bun remains unclaimed until compatibility is tested.
