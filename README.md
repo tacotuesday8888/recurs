@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/tacotuesday8888/recurs/266cc806b450106e6b0dca756ce688c6ad46688d/docs/assets/recurs-mark.svg" alt="Recurs loop logo" width="172">
+<img src="./docs/assets/recurs-mark.svg" alt="Recurs loop logo" width="80">
 
 # Recurs
 
-### Build and run a bounded agent company from your terminal.
+**Build and run a bounded agent company from your terminal.**
 
 Give Recurs a goal. It proposes a specialist team, runs approved work inside
 explicit limits, and keeps every change reviewable before apply.
@@ -19,7 +19,9 @@ explicit limits, and keeps every change reviewable before apply.
 
 </div>
 
-![Recurs guided setup in a terminal](https://raw.githubusercontent.com/tacotuesday8888/recurs/266cc806b450106e6b0dca756ce688c6ad46688d/docs/assets/terminal-preview.svg)
+<p align="center">
+  <img src="./docs/assets/terminal-preview.svg" alt="Recurs guided setup in a terminal" width="560">
+</p>
 
 ## ✨ Why Recurs
 

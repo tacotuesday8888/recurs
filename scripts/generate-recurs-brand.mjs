@@ -50,9 +50,9 @@ function terminalPreviewSvg() {
     palette.mint,
   ];
   const markLines = terminalRows.map((row, rowIndex) =>
-    `<text x="46" y="${60 + rowIndex * 28}" class="mark" xml:space="preserve">${Array.from(row, (glyph, glyphIndex) => `<tspan fill="${markPalette[Math.min(Math.floor(((glyphIndex + rowIndex * 0.35) / Math.max(1, row.length - 1)) * markPalette.length), markPalette.length - 1)]}">${escapeXml(glyph)}</tspan>`).join("")}</text>`
+    `<text x="40" y="${52 + rowIndex * 23}" class="mark" xml:space="preserve">${Array.from(row, (glyph, glyphIndex) => `<tspan fill="${markPalette[Math.min(Math.floor(((glyphIndex + rowIndex * 0.2) / Math.max(1, row.length - 1)) * markPalette.length), markPalette.length - 1)]}">${escapeXml(glyph)}</tspan>`).join("")}</text>`
   ).join("\n  ");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="720" viewBox="0 0 1040 720" role="img" aria-labelledby="title description">
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520" role="img" aria-labelledby="title description">
   <title id="title">Recurs guided setup in a terminal</title>
   <desc id="description">The Recurs loop mark beside a guided agent-company setup.</desc>
   <!-- ${GENERATED_HEADER} -->
@@ -63,26 +63,26 @@ function terminalPreviewSvg() {
       <stop offset="1" stop-color="${palette.mint}"/>
     </linearGradient>
     <style>
-      .text { fill: ${palette.foreground}; font: 21px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-      .muted { fill: ${palette.muted}; font: 18px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-      .accent { fill: ${palette.cyan}; font: 700 21px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-      .strong { fill: ${palette.foreground}; font: 800 30px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-      .mark { font: 800 28px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .text { fill: ${palette.foreground}; font: 19px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .muted { fill: ${palette.muted}; font: 16px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .accent { fill: ${palette.cyan}; font: 700 19px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .strong { fill: ${palette.foreground}; font: 800 27px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .mark { font: 800 23px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     </style>
   </defs>
-  <rect width="1040" height="720" rx="18" fill="${palette.background}"/>
+  <rect width="900" height="520" rx="16" fill="${palette.background}"/>
   ${markLines}
-  <text x="46" y="286" class="strong">Welcome to Recurs</text>
-  <text x="46" y="336" class="text">Build a working agent company: connect its parent model,</text>
-  <text x="46" y="368" class="text">set its safety boundary, choose its operating mode,</text>
-  <text x="46" y="400" class="text">route specialists, and review a project-tailored roster.</text>
-  <text x="46" y="443" class="muted">Credentials stay with the vendor runtime or native authority—</text>
-  <text x="46" y="472" class="muted">never this generic prompt.</text>
-  <text x="46" y="522" class="accent">1 / 6 · Parent model</text>
-  <text x="46" y="562" class="text">Choose how Recurs should access a model:</text>
-  <text x="46" y="606" class="text">1. Connect Codex with ChatGPT</text>
-  <text x="76" y="635" class="muted">official Codex runtime · Plan-only · vendor-owned login</text>
-  <text x="46" y="680" class="text">2. Connect OpenAI API</text>
+  <text x="40" y="166" class="strong">Welcome to Recurs</text>
+  <text x="40" y="210" class="text">Build a working agent company: connect its parent model,</text>
+  <text x="40" y="239" class="text">set its safety boundary, choose its operating mode,</text>
+  <text x="40" y="268" class="text">route specialists, and review a project-tailored roster.</text>
+  <text x="40" y="308" class="muted">Credentials stay with the vendor runtime or native authority—</text>
+  <text x="40" y="334" class="muted">never this generic prompt.</text>
+  <text x="40" y="382" class="accent">1 / 6 · Parent model</text>
+  <text x="40" y="420" class="text">Choose how Recurs should access a model:</text>
+  <text x="40" y="458" class="text">1. Connect Codex with ChatGPT</text>
+  <text x="68" y="484" class="muted">official Codex runtime · Plan-only · vendor-owned login</text>
+  <text x="40" y="512" class="text">2. Connect OpenAI API</text>
 </svg>
 `;
 }
