@@ -60,7 +60,9 @@ subscription connections without copying credentials:
   a two-file patch, and the fixture's four tests passed.
 - Provider-reported usage was 95,305 input / 1,293 output tokens for the Sol
   lead, 78,559 / 977 for Terra implementation, and 43,015 / 1,004 for Luna
-  review. Reported dollar cost was unavailable and remains unknown.
+  review: 216,879 input and 3,274 output tokens in total. Of the input total,
+  161,024 tokens were reported as cached. Reported dollar cost was unavailable
+  and remains unknown.
 - `/model auto evaluate <run-id>` recorded a `partial` report because dollar
   cost coverage was unknown; decomposition, evidence, and synthesis passed.
   `/model auto` then selected that exact four-route snapshot.
@@ -69,4 +71,8 @@ The successful live review approved the first patch, so no repair agent was
 needed. The request-changes → bounded Repair → independent re-review path
 remains proved by the deterministic `team-run-supervisor` integration suite.
 This is one representative run, not evidence that the named lineup is a
-universal winner.
+universal winner or that the team was more efficient than one strong agent.
+The next evidence set must compare the same bounded tasks across a strong
+single-agent run, this lineup, and at least one alternative team. Record
+quality, review findings, repair rounds, elapsed time, total and cached tokens,
+and reported cost when available; do not treat cache-heavy input as free.

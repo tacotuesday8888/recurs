@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Support guide
+    url: https://github.com/tacotuesday8888/recurs/blob/main/SUPPORT.md
+    about: Check supported platforms, diagnostics, and safe reporting details.
+  - name: Security policy
+    url: https://github.com/tacotuesday8888/recurs/security/policy
+    about: Do not disclose vulnerabilities or secrets in a public issue.

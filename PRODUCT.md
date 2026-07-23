@@ -95,20 +95,42 @@ The CLI now has a validated 26-path catalog, a non-secret saved-connection lifec
 
 On macOS and Linux, `workspace_sandboxed` gives command and verification children canonical workspace-only host writes, hides host credential/runtime state, and binds network access to approved command intent. Linux uses system Bubblewrap namespaces and deliberately does not claim a Recurs seccomp policy. Windows still selects `local_guarded` but rejects subprocess execution as unsupported; an explicit guarded profile on macOS/Linux retains host authority. `tools_disabled` avoids model tools but is not a usable coding profile and does not replace the private credential boundary.
 
-The repository is open source under Apache-2.0, with release-ready `0.1.0-alpha.1` package metadata. It is source-installable only; no npm, Bun, Homebrew, curl, or binary release has been published. The guarded release path is prepared: one exact npm tarball feeds trusted npm publishing, a checksum-verifying user-local installer, a generated Homebrew formula, GitHub release assets, and provenance attestations. Publication remains owner-controlled through a documented one-time npm bootstrap, the later trusted-publisher relationship, and exact manually dispatched tags.
+The repository is open source under Apache-2.0, with release-ready
+`0.1.0-alpha.1` package metadata. It is source-installable with npm only; no
+npm registry package, Homebrew tap, curl release, or binary has been published.
+The exact npm tarball also has a pinned Linux smoke proving that Bun can install
+it globally while preserving Node as the required runtime; this is not native
+Bun-runtime support. The guarded release path feeds the tarball to trusted npm
+publishing, a checksum-verifying user-local installer, a generated Homebrew
+formula, GitHub release assets, and provenance attestations. Publication
+remains owner-controlled through a documented one-time npm bootstrap, the
+later trusted-publisher relationship, and exact manually dispatched tags.
+
+The CLI artifact is small, but the current install is not. In the audited
+Apple-silicon source checkout, dependencies occupied about 390 MiB and the
+pinned Codex platform package accounted for about 297 MiB. Platform and package
+manager differences make those measurements directional, but dependency size
+is a product constraint that must be disclosed and reduced or made optional
+before Recurs can claim a lightweight install.
 
 ## Next priorities
 
-1. **Prove the company experience with real models.** Use the installed
-   versioned configured-provider formation evaluation and durable-goal scorer,
-   then complete real repository goals through
-   onboarding, decomposition, implementation, independent review, repair, and
-   synthesis. The workflow is implemented, but no authorized real-provider run
-   is evidence yet. Improve interview and delegation quality from measured
-   failures, not from another speculative scheduler.
+1. **Compare the company experience, not just prove it can run.** One
+   authorized Codex subscription dogfood completed formation, decomposition,
+   isolated implementation, independent review, synthesis, and Auto
+   activation. It used 216,879 input and 3,274 output tokens; 161,024 input
+   tokens were cached and dollar cost was unavailable. Repeat representative
+   goals against a strong single-agent baseline and alternative lineups, then
+   improve delegation, context reuse, review value, latency, and cost from the
+   measured differences. The successful live run did not require Repair;
+   deterministic integration tests remain the evidence for that branch.
 2. **Ship a portable alpha.** Complete the one-time npm bootstrap and release
    the already verified npm, checksum-bound curl, and generated Homebrew
-   artifacts. Bun remains unclaimed until compatibility is tested.
+   artifacts only after the public repository protections and release
+   environment are in place. Keep Bun's claim limited to npm-compatible global
+   installation on the verified version/platform; Recurs still requires
+   Node.js. Treat the shared npm dependency graph and install footprint as one
+   distribution path, not several independent products.
 3. **Tune from visible operations.** Use the implemented read-only company
    snapshots and durable evaluation reports to find waste, weak handoffs, and
    poor review coverage before expanding orchestration complexity.

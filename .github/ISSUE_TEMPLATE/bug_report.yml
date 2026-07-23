@@ -1,0 +1,60 @@
+name: Bug report
+description: Report a reproducible problem in the supported Recurs alpha.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Recurs. Do not include credentials, private source, account identifiers, or unredacted Recurs data. Security vulnerabilities belong in the private path described by SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Recurs version or commit
+      description: Use `recurs --version` or `git rev-parse --short HEAD`.
+      placeholder: 0.1.0-alpha.1 or abc1234
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system and architecture, Node, npm, Git, and installation path.
+      placeholder: macOS 15 arm64; Node 22.22.0; npm 11.x; source checkout
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: List the smallest safe sequence of commands or interactions that reproduces the problem.
+      placeholder: |
+        1. Run ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Diagnostics and verification
+      description: Add redacted `recurs doctor` findings, error text, or checks you ran. Do not attach a full Recurs data directory.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety check
+      options:
+        - label: I searched existing issues and the current feature-status documentation.
+          required: true
+        - label: I removed credentials, private source, personal data, and account identifiers.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

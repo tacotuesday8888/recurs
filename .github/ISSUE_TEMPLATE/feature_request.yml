@@ -1,0 +1,45 @@
+name: Feature request
+description: Propose a focused improvement to Recurs.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Recurs favors small, testable capabilities with explicit authority and product boundaries. Please start with the user problem rather than a proposed framework.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Who is blocked, and what are they trying to accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the smallest useful behavior from the user's point of view.
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Safety and scope boundary
+      description: Note permissions, credentials, network, cost, compatibility, or durable-state implications.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What can users do today, and why is it insufficient?
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Existing work
+      options:
+        - label: I searched existing issues and pull requests.
+          required: true
+        - label: I checked the public alpha and feature-status documentation.
+          required: true

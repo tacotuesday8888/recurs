@@ -21,8 +21,19 @@ npm link
 recurs
 ```
 
-Recurs is an unpublished alpha. No npm, Homebrew, curl, signed binary, or
-desktop release is available yet.
+Recurs is an unpublished alpha. The commands above use npm to install from a
+source checkout; `npm install -g recurs` does not work because the registry
+package is not published. No Homebrew tap, curl release, signed binary, or
+desktop release is available. A pinned Linux smoke verifies that Bun can
+globally install the prepared npm tarball, but there is nothing public for it
+to install yet. Recurs still launches through `#!/usr/bin/env node` and requires
+Node.js 22.22+; Bun is not a supported runtime and `bun run` is not claimed.
+
+The packaged Recurs artifact is gated below 2.1 MB unpacked, but its runtime
+dependencies are installed separately. On the audited Apple-silicon source
+checkout, dependencies used about 390 MiB, including about 297 MiB for the
+pinned Codex platform package. Treat these as directional measurements because
+platform packages and npm versions differ.
 
 ## First run
 

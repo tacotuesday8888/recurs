@@ -12,9 +12,12 @@ host isolation.
 Do not open a public issue, discussion, pull request, or chat containing a
 credential, exploit details, private repository data, or another user’s data.
 
-GitHub private vulnerability reporting is not configured yet. Until it is,
-contact the repository owner through a private channel you already share and
-send only the smallest redacted reproduction needed to establish the problem.
+Use GitHub's
+[private vulnerability report](https://github.com/tacotuesday8888/recurs/security/advisories/new)
+to contact the maintainers without publishing the report. Send only the
+smallest redacted reproduction needed to establish the problem. If the report
+itself could expose another party's secret or private data, first submit a
+minimal notice and coordinate a safer transfer channel with the maintainers.
 
 Include:
 

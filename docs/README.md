@@ -2,6 +2,8 @@
 
 Current documents:
 
+- [Public alpha status](PUBLIC_ALPHA.md) — one-page installation,
+  distribution, evidence, and remaining-risk summary.
 - [Feature status](FEATURE_STATUS.md) — concise code-backed inventory of what is implemented, bounded, prepared-only, and absent.
 - [CLI guide](CLI.md) — local and Codex setup, provider/account commands, permissions, storage, output, and limits.
 - [Security policy](../SECURITY.md) — current support boundary, private reporting expectations, and credential-canary rules.
@@ -40,7 +42,27 @@ current product truth.
 
 ## Release status
 
-Recurs is currently source-installable with npm and runs on Node.js. The repository builds and verifies a minimal npm artifact, includes reviewed direct-runtime dependency notices, installs it into an empty temporary prefix in CI, and proves the installed binary's redacted readiness report can launch the real OS sandbox. It also carries a manual fail-closed OIDC release workflow. That workflow derives a checksum-verifying user-local installer and Homebrew formula from the exact npm tarball, drafts and attests the GitHub assets, verifies npm SRI on recovery, and publishes the release only after package publication succeeds. No npm package, Bun runtime, Homebrew tap/formula, curl installer, or signed binary has been published yet.
+Recurs is currently source-installable with npm and runs on Node.js. The
+repository builds and verifies a minimal npm artifact, includes reviewed
+direct-runtime dependency notices, installs it into an empty temporary prefix
+in CI, and proves the installed binary's redacted readiness report can launch
+the real OS sandbox. It also carries a manual fail-closed OIDC release
+workflow. That workflow derives a checksum-verifying user-local installer and
+Homebrew formula from the exact npm tarball, drafts and attests the GitHub
+assets, verifies npm SRI on recovery, and publishes the release only after
+package publication succeeds. No npm package, Bun runtime, Homebrew
+tap/formula, curl installer, or signed binary has been published yet.
+
+A pinned Linux CI smoke lets Bun globally install the prepared npm tarball,
+then verifies that the `recurs` entry point runs through Node.js and fails when
+Node is unavailable. This is package-manager compatibility, not a native Bun
+runtime claim.
+
+The CLI artifact is gated below 2.1 MB unpacked, but dependencies dominate the
+installed footprint. The audited Apple-silicon source checkout used about
+390 MiB for dependencies, including about 297 MiB for the Codex platform
+package. See [Public alpha status](PUBLIC_ALPHA.md) for the current support and
+evidence boundary.
 
 The repository and `0.1.0-alpha.1` preview package are Apache-2.0 licensed and release-metadata ready. The one-time npm bootstrap, trusted-publisher relationship, exact release tag, and manual protected workflow remain owner-controlled; no registry package or GitHub release exists yet.
 

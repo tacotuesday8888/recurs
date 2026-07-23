@@ -48,10 +48,18 @@ context, not a product commitment.
 - npm package metadata, minimal bundle, empty-prefix installation smoke, and
   protected publication workflow;
 - checksum-verifying curl installer and generated Homebrew formula derived from
-  that exact npm archive.
+  that exact npm archive; and
+- a pinned Linux Bun smoke that globally installs the npm archive, preserves
+  the Node shebang, runs it through Node.js, and proves it fails without Node.
 
-No npm package, curl release, Homebrew tap/formula, Bun runtime, signed native
-binary, or desktop app is public today.
+No npm package, curl release, Homebrew tap/formula, native Bun runtime, signed
+binary, or desktop app is public today. Bun's verified boundary is package
+installation, not Recurs execution.
+
+The package gate keeps the unpacked Recurs artifact below 2.1 MB, but runtime
+dependencies are separate and much larger. The audited Apple-silicon source
+checkout used about 390 MiB for dependencies, including about 297 MiB for the
+pinned Codex platform package. Exact installed size varies by platform.
 
 ## Not implemented
 
@@ -83,10 +91,12 @@ than a brand ranking. One safe real Codex subscription dogfood completed Quick
 formation, approval, a reviewed coding goal, parent synthesis, and
 evidence-backed Auto activation with Sol as parent, Terra as Implement/Repair,
 and Luna as Review. The terminal now reports only activated agents, their exact
-model/effort, and bounded usage. The largest remaining product risk is
-qualitative: one run is not enough to prove this lineup consistently beats
-alternatives or a strong single-agent run.
+model/effort, and bounded usage. That run reported 216,879 input tokens
+(161,024 cached), 3,274 output tokens, and unknown dollar cost. The largest
+remaining product risk is comparative: one run is not enough to prove this
+lineup consistently beats alternatives or a strong single-agent run.
 
-The next product milestone should therefore be real-provider dogfooding and
-evaluation, followed by the already prepared alpha distribution path. A new
-orchestration foundation is not the next step.
+The next product milestone should therefore be repeated controlled
+real-provider comparisons and context/cost tuning, followed by the already
+prepared alpha distribution path. A new orchestration foundation is not the
+next step.

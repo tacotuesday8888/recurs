@@ -192,19 +192,22 @@ API, DeepSeek API, and Gemini API. It also supports literal-loopback Ollama and
 LM Studio plus the official Codex app-server path under its local,
 user-present, foreground subscription policy. The app-server discovers the
 authenticated model/effort catalog and exposes only Recurs-owned host tools;
-historical ACP records remain Plan-only. Catalog entries marked conditional, blocked, or
-native-required are not silently treated as runnable; this includes Claude
-subscription reuse, Copilot, Alibaba Coding Plan, MiniMax Token Plan, Z.ai GLM
-Coding Plan, and cloud-identity paths whose reviewed runtime is absent.
+historical ACP records remain Plan-only. Catalog entries marked conditional or
+blocked, and paths without a reviewed runnable adapter, are not silently
+treated as runnable; this includes Claude subscription reuse, Copilot, Alibaba
+Coding Plan, MiniMax Token Plan, Z.ai GLM Coding Plan, and cloud-identity paths
+whose reviewed runtime is absent.
 
 The release pipeline builds one minimal npm tarball, installs it into an empty
 prefix, derives checksum-bound curl and Homebrew assets from that exact archive,
 and supports an owner-controlled attested release. These are verified release
 foundations, not published products: no npm package, Homebrew formula, curl
-release, signed binary, or desktop app has shipped. The private macOS
-OpenAI/Anthropic/Kimi authority is extensively tested but remains unavailable
-until a signed/notarized installed-artifact and credential-canary smoke pass.
-No speculative provider or installer surface was added by this audit.
+release, signed binary, or desktop app has shipped. Bun is verified only as an
+npm-compatible installer for the prepared tarball on a pinned Linux CI lane;
+Recurs still requires Node.js at runtime. The removed private native credential
+authority is not a product path: current remote execution uses the documented
+portable TypeScript adapters or an official delegated vendor runtime. No
+speculative provider or installer surface was added by this audit.
 
 In plain language: onboarding now creates and launches a real personalized
 company policy. The parent can run a validated company goal across bounded
