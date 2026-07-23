@@ -621,7 +621,11 @@ describe("standalone assembly without a provider", () => {
       "projects",
       projectId,
       "company-blueprints-v2",
-    ))).resolves.toEqual([`${blueprint.id}.json`]);
+    ))).resolves.toEqual([
+      ".fences",
+      ".locks",
+      `${blueprint.id}.json`,
+    ]);
 
     const projectData = path.join(root, "data", "projects", projectId);
     const amendments = new CompanyAmendmentService({

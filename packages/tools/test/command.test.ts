@@ -495,11 +495,13 @@ describe("run_command", () => {
           ["-p"],
           { env: { PATH: "/usr/bin:/bin" } },
         );
-        expect(child.developerDir).toBe(
-          await import("node:fs/promises").then(({ realpath }) =>
-            realpath(selected.stdout.trim())
-          ),
-        );
+        const { realpath, stat } = await import("node:fs/promises");
+        const canonical = await realpath(selected.stdout.trim());
+        const details = await stat(canonical);
+        const trusted = details.isDirectory() &&
+          details.uid === 0 &&
+          (details.mode & 0o022) === 0;
+        expect(child.developerDir).toBe(trusted ? canonical : null);
       } else {
         expect(child.developerDir).toBeNull();
       }
