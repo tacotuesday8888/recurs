@@ -17,6 +17,18 @@ export {
 } from "./acp-profile.js";
 export type { AcpConfigSelection } from "./acp-updates.js";
 export {
+  CodexAppServerClient,
+  CodexAppServerProtocolError,
+  createCodexAppServerClient,
+  type CodexAppServerClientHandlers,
+  type CodexAppServerMessage,
+  type CodexAppServerProcessBounds,
+  type CodexAppServerProcessProfile,
+  type CodexAppServerProtocolErrorCode,
+  type CodexAppServerRequest,
+  type CodexAppServerRequestId,
+} from "./codex-app-server-protocol.js";
+export {
   CODEX_ACP_ADAPTER_ID,
   CODEX_ACP_ADAPTER_INTEGRITY,
   CODEX_ACP_ADAPTER_VERSION,
