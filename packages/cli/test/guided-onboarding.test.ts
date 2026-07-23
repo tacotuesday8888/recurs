@@ -134,7 +134,7 @@ describe("guided onboarding policy", () => {
       "native:openai",
     ]);
     expect(choices.find((choice) => choice.id === "codex")?.detail)
-      .toContain("Plan-only");
+      .toContain("Act + Plan");
     expect(choices.find((choice) => choice.id === "byok:openrouter-api")?.detail)
       .toContain("environment key");
   });

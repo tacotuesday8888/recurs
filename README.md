@@ -54,7 +54,8 @@ environment.
 - 🔎 **Evidence before apply.** Mutating work stays in isolated Git worktrees
   through implementation, independent review, and bounded repair.
 - 🔌 **Explicit model access.** Use reviewed OpenAI, Anthropic, Gemini,
-  OpenAI-compatible, Ollama, LM Studio, or official Codex ACP paths. Recurs
+  OpenAI-compatible, Ollama, LM Studio, or local user-present Codex
+  subscriptions with exact model/effort routing through Recurs tools. Recurs
   does not claim automatic model ranking or silent provider routing.
 - 💾 **Designed to resume.** Goals, sessions, checkpoints, company knowledge,
   and approved organization revisions survive restarts.

@@ -10,6 +10,10 @@ import {
   FileConnectionRegistry,
   type DelegatedConnectionRecord,
 } from "@recurs/app";
+import {
+  CodexAppServerCatalogError,
+  type CodexSubscriptionCatalog,
+} from "@recurs/runtimes";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -17,11 +21,38 @@ import {
   listAccountSummaries,
   listProviderSummaries,
   setPrimaryAccount,
+  setupCodexSubscription,
   verifyAccount,
   verifyCodexSubscriptionConnection,
 } from "../src/index.js";
 
 const directories: string[] = [];
+
+const appServerCatalog: CodexSubscriptionCatalog = {
+  accountSubjectFingerprint: `sha256:${"c".repeat(64)}`,
+  accountDisplayLabel: "ChatGPT Pro subscription",
+  planType: "pro",
+  models: [
+    {
+      id: "gpt-5.6-sol",
+      displayName: "GPT-5.6 Sol",
+      defaultReasoningEffort: "low",
+      supportedReasoningEfforts: ["low", "medium", "high", "ultra"],
+    },
+    {
+      id: "gpt-5.6-terra",
+      displayName: "GPT-5.6 Terra",
+      defaultReasoningEffort: "medium",
+      supportedReasoningEfforts: ["low", "medium", "high", "ultra"],
+    },
+    {
+      id: "gpt-5.6-luna",
+      displayName: "GPT-5.6 Luna",
+      defaultReasoningEffort: "medium",
+      supportedReasoningEfforts: ["low", "medium", "high", "max"],
+    },
+  ],
+};
 
 function inspection(
   email: string,
@@ -108,6 +139,21 @@ function codexRecord(): DelegatedConnectionRecord {
   };
 }
 
+function codexAppServerRecord(): DelegatedConnectionRecord {
+  return {
+    ...codexRecord(),
+    id: "codex-app-server-1",
+    adapterId: "codex-app-server",
+    label: "GPT-5.6 Sol · ChatGPT",
+    accountLabel: "ChatGPT Pro subscription",
+    modelId: "gpt-5.6-sol",
+    reasoningEffort: "high",
+    runtimeCapabilityProfileRevision:
+      "codex-app-server-0.144.0-host-tools-v1",
+    accountSubjectFingerprint: appServerCatalog.accountSubjectFingerprint,
+  };
+}
+
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) =>
     rm(directory, { recursive: true, force: true })
@@ -115,6 +161,51 @@ afterEach(async () => {
 });
 
 describe("provider and account projections", () => {
+  it("sets up Sol, Terra, and Luna from one existing Codex login", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-codex-setup-"));
+    directories.push(directory);
+    const codexHome = path.join(directory, "codex-home");
+    let inspections = 0;
+    const configured = await setupCodexSubscription(directory, {
+      cwd: directory,
+      interactive: true,
+      billingSelection: "allow_declared_additional",
+      now: "2026-07-23T00:00:00.000Z",
+    }, {
+      codexHome,
+      async inspectCatalog() {
+        inspections += 1;
+        if (inspections === 1) {
+          throw new CodexAppServerCatalogError(
+            "authentication_required",
+            "login required",
+          );
+        }
+        return appServerCatalog;
+      },
+      async authenticateChatGpt() {},
+    });
+
+    expect(configured).toMatchObject({
+      modelId: "gpt-5.6-sol",
+      planOnly: false,
+      primary: true,
+      configuredModels: [
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+      ],
+    });
+    expect(inspections).toBe(2);
+    const document = await new FileConnectionRegistry(directory).read();
+    expect(document.agentRoutes).toEqual({
+      implement: expect.any(String),
+      review: expect.any(String),
+      repair: expect.any(String),
+    });
+    expect(document.connections).toHaveLength(3);
+  });
+
   it("lists the truthful runnable/broker catalog without making blocked paths ready", () => {
     const normal = listProviderSummaries(false);
     const all = listProviderSummaries(true);
@@ -258,6 +349,29 @@ describe("provider and account projections", () => {
       reason: "policy_stale",
     });
     expect(staleRuntime.inspectionCalls).toBe(0);
+  });
+
+  it("verifies an app-server connection against its exact account, model, and effort", async () => {
+    const record = codexAppServerRecord();
+    const signal = new AbortController().signal;
+    await expect(verifyCodexSubscriptionConnection(
+      record,
+      "/tmp/workspace",
+      signal,
+      { async inspectCatalog() { return appServerCatalog; } },
+    )).resolves.toEqual({ status: "verified" });
+    await expect(verifyCodexSubscriptionConnection(
+      { ...record, accountSubjectFingerprint: `sha256:${"d".repeat(64)}` },
+      "/tmp/workspace",
+      signal,
+      { async inspectCatalog() { return appServerCatalog; } },
+    )).resolves.toEqual({ status: "failed", reason: "account_mismatch" });
+    await expect(verifyCodexSubscriptionConnection(
+      { ...record, modelId: "missing-model" },
+      "/tmp/workspace",
+      signal,
+      { async inspectCatalog() { return appServerCatalog; } },
+    )).resolves.toEqual({ status: "failed", reason: "model_unavailable" });
   });
 
   it("uses the application lifecycle service for primary selection and disconnection", async () => {

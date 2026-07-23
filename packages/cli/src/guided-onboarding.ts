@@ -155,7 +155,7 @@ export function guidedConnectionChoices(
     choices.push({
       id: "codex",
       label: "Connect Codex with ChatGPT",
-      detail: "official Codex runtime · Plan-only · vendor-owned login",
+      detail: "official Codex runtime · Act + Plan · vendor-owned login",
       action: { kind: "codex" },
     });
   }

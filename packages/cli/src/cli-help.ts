@@ -39,7 +39,7 @@ discards staged attachments before the next ordinary prompt.
 Local setup supports credential-free OpenAI-compatible servers on literal loopback only.
 Cross-platform BYOK saves provider/model metadata and an environment-variable name, never the key.
 Ephemeral override remains available with RECURS_PROVIDER, RECURS_MODEL, and RECURS_API_KEY together.
-Codex setup is interactive and Plan-only. It never imports or stores vendor credentials.
+Codex setup is interactive and exposes only Recurs-scoped tools. It never imports or stores vendor credentials.
 OpenAI API setup captures credentials only in the native authority; API billing is separate from ChatGPT.
 Anthropic API setup captures credentials only in the native authority; API billing is separate from Claude subscriptions.
 Kimi Code setup captures its coding-plan key only in the native authority.

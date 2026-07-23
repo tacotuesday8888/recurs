@@ -96,6 +96,24 @@ const codexConnection: DelegatedConnectionRecord = {
   updatedAt: "2026-07-11T00:00:00.000Z",
 };
 
+function codexAppServerConnection(
+  id: string,
+  modelId: "gpt-5.6-sol" | "gpt-5.6-terra" | "gpt-5.6-luna",
+  reasoningEffort: "high" | "medium",
+): DelegatedConnectionRecord {
+  return {
+    ...structuredClone(codexConnection),
+    id,
+    adapterId: "codex-app-server",
+    label: `${modelId} · ChatGPT`,
+    accountLabel: "ChatGPT Pro subscription",
+    modelId,
+    reasoningEffort,
+    runtimeCapabilityProfileRevision:
+      "codex-app-server-0.144.0-host-tools-v1",
+  };
+}
+
 const brokeredConnection: BrokeredModelProviderConnectionRecord = {
   kind: "brokered_model_provider",
   id: "71000000-0000-4000-8000-000000000001",
@@ -2832,6 +2850,138 @@ describe("standalone assembly without a provider", () => {
         role: "review",
         strategy: "inherit_parent",
         candidateId: "parent-session-pin",
+      }),
+    ]));
+  });
+
+  it("routes foreground company roles across Sol, Terra, and Luna subscription models", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-codex-company-route-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    await execFileAsync("git", ["init", "--quiet"], { cwd: workspace });
+    await writeFile(path.join(workspace, "README.md"), "base\n", "utf8");
+    await execFileAsync("git", ["add", "README.md"], { cwd: workspace });
+    await execFileAsync("git", [
+      "-c", "user.name=Recurs Tests",
+      "-c", "user.email=tests@recurs.invalid",
+      "commit", "--quiet", "-m", "initial",
+    ], { cwd: workspace });
+    const dataDirectory = path.join(root, "data");
+    const sol = codexAppServerConnection("codex-sol", "gpt-5.6-sol", "high");
+    const terra = codexAppServerConnection(
+      "codex-terra",
+      "gpt-5.6-terra",
+      "medium",
+    );
+    const luna = codexAppServerConnection(
+      "codex-luna",
+      "gpt-5.6-luna",
+      "medium",
+    );
+    const registry = new FileConnectionRegistry(dataDirectory);
+    await registry.commit(0, (draft) => {
+      draft.connections.push(sol, terra, luna);
+      draft.primaryConnectionId = sol.id;
+      draft.agentRoutes = {
+        implement: terra.id,
+        review: luna.id,
+        repair: terra.id,
+      };
+    });
+    let solRuns = 0;
+    let delegateOutput: string | null = null;
+    const factory = (connection: DelegatedConnectionRecord): AgentRuntime => ({
+      adapterId: "codex-app-server",
+      connectionId: connection.id,
+      capabilityProfileRevision:
+        "codex-app-server-0.144.0-host-tools-v1",
+      capabilities: {
+        resume: false,
+        cancellation: "protocol",
+        fileEvents: false,
+        usageEvents: true,
+        supportedPermissionModes: [
+          "ask_always",
+          "approved_for_me",
+          "full_access",
+        ],
+        approvalControl: "host",
+        planMode: "enforced",
+        toolExecution: "host_tools",
+        checkpointing: "host_tools",
+      },
+      async *run(_request, host) {
+        if (connection.id === sol.id && solRuns++ === 0) {
+          if (host.executeTool === undefined) {
+            throw new Error("Expected Recurs host tools");
+          }
+          const result = await host.executeTool({
+            id: "codex-route-team-call",
+            name: "delegate_team",
+            arguments: {
+              description: "Prove Codex subscription routing",
+              tasks: [{
+                description: "Inspect with Terra",
+                prompt: "Inspect the repository without changing it.",
+              }],
+              review: { instructions: "Review with Luna." },
+            },
+          }, new AbortController().signal);
+          delegateOutput = result.output;
+        }
+        yield {
+          type: "done",
+          finalText: connection.id === sol.id
+            ? "Codex company routing recorded."
+            : `${connection.modelId} completed its bounded assignment.`,
+          stopReason: "complete",
+        };
+      },
+    });
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      { cwd: workspace, dataDirectory, delegatedRuntimeFactory: factory },
+    );
+    runtime.setConfirmHandler(async () => true);
+
+    await expect(runtime.submit(
+      "Run the configured Codex team.",
+      localManualInvocation(),
+    ))
+      .resolves.toMatchObject({ finalText: "Codex company routing recorded." });
+    expect(delegateOutput).not.toMatch(/^Tool error/u);
+    const projectId = createHash("sha256")
+      .update(await realpath(workspace))
+      .digest("hex")
+      .slice(0, 24);
+    const store = new JsonlTeamRunStore(path.join(
+      dataDirectory,
+      "projects",
+      projectId,
+      "team-runs",
+    ));
+    const [entry] = await store.list(runtime.session.id);
+    if (entry === undefined) throw new Error("Expected a Codex team run");
+    const state = await store.load(entry.id);
+    expect(state.descriptor.routes).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        role: "implement",
+        strategy: "role_candidate",
+        pin: expect.objectContaining({
+          connectionId: terra.id,
+          modelId: terra.modelId,
+          reasoningEffortAtCreation: "medium",
+        }),
+      }),
+      expect.objectContaining({
+        role: "review",
+        strategy: "role_candidate",
+        pin: expect.objectContaining({
+          connectionId: luna.id,
+          modelId: luna.modelId,
+          reasoningEffortAtCreation: "medium",
+        }),
       }),
     ]));
   });

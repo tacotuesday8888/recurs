@@ -51,6 +51,7 @@ interface PackageJson {
 interface PlatformArtifact {
   readonly id: string;
   readonly suffix: string;
+  readonly targetTriple: string;
   readonly integrity: string;
   readonly os: string;
   readonly cpu: string;
@@ -60,6 +61,7 @@ const platformArtifacts: Readonly<Record<string, PlatformArtifact>> = deepFreeze
   "darwin-arm64": {
     id: "@openai/codex-darwin-arm64",
     suffix: "darwin-arm64",
+    targetTriple: "aarch64-apple-darwin",
     integrity:
       "sha512-rqFAJdOa2I0VRgepVsSZeLxs96+Y+LXTjccOOvH6894FyaFAYPZ/o+6hgpB1iGHxxdoY/DsGa8jrJC8Leqn9Kg==",
     os: "darwin",
@@ -68,6 +70,7 @@ const platformArtifacts: Readonly<Record<string, PlatformArtifact>> = deepFreeze
   "darwin-x64": {
     id: "@openai/codex-darwin-x64",
     suffix: "darwin-x64",
+    targetTriple: "x86_64-apple-darwin",
     integrity:
       "sha512-4p2jxRbN+Khg5UQzpkzT9upFj+qkEF/abmdvrtflkkWmVKP6Nt+yi8ospdqv9PDqvQ9SotPvX7iXaFaeUTrtmA==",
     os: "darwin",
@@ -76,6 +79,7 @@ const platformArtifacts: Readonly<Record<string, PlatformArtifact>> = deepFreeze
   "linux-arm64": {
     id: "@openai/codex-linux-arm64",
     suffix: "linux-arm64",
+    targetTriple: "aarch64-unknown-linux-musl",
     integrity:
       "sha512-k++xhZrn9P3laO00Q92APG6mdOFDD66nUBo+8ExCa1NXi2pjLEMLC4+UNJTUUtUT1PEflOZ5pDKxPXgzaiFFFg==",
     os: "linux",
@@ -84,6 +88,7 @@ const platformArtifacts: Readonly<Record<string, PlatformArtifact>> = deepFreeze
   "linux-x64": {
     id: "@openai/codex-linux-x64",
     suffix: "linux-x64",
+    targetTriple: "x86_64-unknown-linux-musl",
     integrity:
       "sha512-GmKtQeX+cO9lN7mQD1FEVcXYEMLMgMByHwZdvlluH0bj/+c2ind3hwbRtE3eECFDekNhEiB80Ez0FfbkyFQqoA==",
     os: "linux",
@@ -92,6 +97,7 @@ const platformArtifacts: Readonly<Record<string, PlatformArtifact>> = deepFreeze
   "win32-arm64": {
     id: "@openai/codex-win32-arm64",
     suffix: "win32-arm64",
+    targetTriple: "aarch64-pc-windows-msvc",
     integrity:
       "sha512-e2yGSgwdzrT1SoJMoOzWD58WBEsIaAMZpEchuV2VGkE2T955SG7dn7EyVQTQcy7/rdpE8aEDktZ/1eQQfjkdtQ==",
     os: "win32",
@@ -100,6 +106,7 @@ const platformArtifacts: Readonly<Record<string, PlatformArtifact>> = deepFreeze
   "win32-x64": {
     id: "@openai/codex-win32-x64",
     suffix: "win32-x64",
+    targetTriple: "x86_64-pc-windows-msvc",
     integrity:
       "sha512-QiholLCYqNeYvNM77HOmPtrOFrY0rQc/N9nXt+sQGXO3rEGmcWjpLzujY4Oegl3CLRHoieWqlep3EqEvFBjoIA==",
     os: "win32",
@@ -107,7 +114,7 @@ const platformArtifacts: Readonly<Record<string, PlatformArtifact>> = deepFreeze
   },
 });
 
-const allowedEnvironmentKeys = Object.freeze([
+export const CODEX_ALLOWED_ENVIRONMENT_KEYS = Object.freeze([
   "APPDATA",
   "CODEX_HOME",
   "COLORTERM",
@@ -152,6 +159,7 @@ export interface CodexAcpInstallation {
   readonly codexVersion: typeof CODEX_CLI_VERSION;
   readonly platformPackageId: string;
   readonly platformPackageJson: string;
+  readonly codexExecutable: string;
   readonly platformVersion: string;
   readonly platformIntegrity: string;
 }
@@ -234,6 +242,18 @@ export function resolveCodexAcpInstallation(): CodexAcpInstallation {
   ) {
     throw new TypeError("Installed Codex platform artifact is not the reviewed release");
   }
+  const platformRoot = path.dirname(platformPackageJson);
+  const codexExecutable = realContainedFile(
+    platformRoot,
+    path.join(
+      platformRoot,
+      "vendor",
+      artifact.targetTriple,
+      "bin",
+      process.platform === "win32" ? "codex.exe" : "codex",
+    ),
+    "Codex executable",
+  );
   return deepFreeze({
     adapterEntry,
     adapterPackageJson,
@@ -242,6 +262,7 @@ export function resolveCodexAcpInstallation(): CodexAcpInstallation {
     codexVersion: CODEX_CLI_VERSION,
     platformPackageId: artifact.id,
     platformPackageJson,
+    codexExecutable,
     platformVersion,
     platformIntegrity: artifact.integrity,
   });
@@ -305,7 +326,7 @@ export function createCodexAcpProfile(
     command: process.execPath,
     args: [installation.adapterEntry],
     clientInfo: { name: "recurs", version: RECURS_VERSION, title: "Recurs" },
-    allowedEnvironmentKeys,
+    allowedEnvironmentKeys: CODEX_ALLOWED_ENVIRONMENT_KEYS,
     usageSemantics: "prompt_response",
     mappings: [
       codexMapping(input.modelId, "ask_always"),

@@ -17,10 +17,40 @@ export {
 } from "./acp-profile.js";
 export type { AcpConfigSelection } from "./acp-updates.js";
 export {
+  CodexAppServerClient,
+  CodexAppServerProtocolError,
+  createCodexAppServerClient,
+  type CodexAppServerClientHandlers,
+  type CodexAppServerMessage,
+  type CodexAppServerProcessBounds,
+  type CodexAppServerProcessProfile,
+  type CodexAppServerProtocolErrorCode,
+  type CodexAppServerRequest,
+  type CodexAppServerRequestId,
+} from "./codex-app-server-protocol.js";
+export {
+  CodexAppServerCatalogError,
+  codexAppServerEnvironment,
+  codexSubscriptionAccountFingerprint,
+  createCodexAppServerProcessProfile,
+  inspectCodexAppServerSubscription,
+  type CodexAppServerCatalogErrorCode,
+  type CodexSubscriptionCatalog,
+  type CodexSubscriptionModel,
+} from "./codex-app-server-catalog.js";
+export {
+  CODEX_APP_SERVER_ADAPTER_ID,
+  CODEX_APP_SERVER_PROFILE_REVISION,
+  CodexAppServerRuntime,
+  createAccountBoundCodexAppServerRuntime,
+  type CreateCodexAppServerRuntimeInput,
+} from "./codex-app-server-runtime.js";
+export {
   CODEX_ACP_ADAPTER_ID,
   CODEX_ACP_ADAPTER_INTEGRITY,
   CODEX_ACP_ADAPTER_VERSION,
   CODEX_ACP_PROFILE_REVISION,
+  CODEX_ALLOWED_ENVIRONMENT_KEYS,
   CODEX_CLI_INTEGRITY,
   CODEX_CLI_VERSION,
   CODEX_PLAN_MODE_ID,

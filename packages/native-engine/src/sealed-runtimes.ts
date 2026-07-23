@@ -1,4 +1,6 @@
 import {
+  CODEX_APP_SERVER_ONBOARDING_ADAPTER_ID,
+  CODEX_APP_SERVER_ONBOARDING_PROFILE_REVISION,
   CODEX_ONBOARDING_ADAPTER_ID,
   CODEX_ONBOARDING_ADAPTER_VERSION,
   CODEX_ONBOARDING_CAPABILITY_PROFILE_REVISION,
@@ -9,9 +11,15 @@ export const CODEX_ACP_ADAPTER_ID = CODEX_ONBOARDING_ADAPTER_ID;
 export const CODEX_ACP_ADAPTER_VERSION = CODEX_ONBOARDING_ADAPTER_VERSION;
 export const CODEX_ACP_PROFILE_REVISION =
   CODEX_ONBOARDING_CAPABILITY_PROFILE_REVISION;
+export const CODEX_APP_SERVER_ADAPTER_ID =
+  CODEX_APP_SERVER_ONBOARDING_ADAPTER_ID;
+export const CODEX_APP_SERVER_PROFILE_REVISION =
+  CODEX_APP_SERVER_ONBOARDING_PROFILE_REVISION;
 
 const UNAVAILABLE_MESSAGE =
   "Delegated Codex runtime is unavailable in the sealed native engine";
+const ONBOARDING_UNAVAILABLE_MESSAGE =
+  "The official Codex onboarding runtime could not be prepared";
 
 function delegatedRuntimeUnavailable(): never {
   throw new CodexOnboardingError("adapter_unavailable", UNAVAILABLE_MESSAGE);
@@ -60,5 +68,28 @@ export function createAccountBoundCodexAcpRuntime(
   void _profile;
   void _accountSubjectFingerprint;
   void _continuationStore;
+  return delegatedRuntimeUnavailable();
+}
+
+export function createCodexAppServerProcessProfile(): Readonly<Record<string, never>> {
+  return Object.freeze({});
+}
+
+export async function inspectCodexAppServerSubscription(
+  _profile: unknown,
+  _signal: AbortSignal,
+): Promise<never> {
+  void _profile;
+  void _signal;
+  throw new CodexOnboardingError(
+    "adapter_unavailable",
+    ONBOARDING_UNAVAILABLE_MESSAGE,
+  );
+}
+
+export function createAccountBoundCodexAppServerRuntime(
+  _input: unknown,
+): never {
+  void _input;
   return delegatedRuntimeUnavailable();
 }

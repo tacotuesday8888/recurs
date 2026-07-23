@@ -1852,6 +1852,61 @@ describe("DelegatedAgentExecutor", () => {
     ]));
   });
 
+  it("exposes only mode-scoped Recurs tool definitions to a host-tools runtime", async () => {
+    const readTool: Tool<Record<string, unknown>> = {
+      definition: {
+        name: "read_file",
+        description: "Read one file",
+        inputSchema: { type: "object" },
+      },
+      executionClass: "in_process",
+      mutating: false,
+      parse(input) {
+        return input as Record<string, unknown>;
+      },
+      permissions() {
+        return [];
+      },
+      async execute() {
+        return { output: "read" };
+      },
+    };
+    const writeTool: Tool<Record<string, unknown>> = {
+      ...readTool,
+      definition: {
+        name: "apply_patch",
+        description: "Apply a patch",
+        inputSchema: { type: "object" },
+      },
+      mutating: true,
+    };
+    const tools = new ToolRegistry();
+    tools.register(readTool);
+    tools.register(writeTool);
+    const { sessions, session, executor } = await fixture({ tools });
+    let visibleNames: readonly string[] = [];
+    const runtime = scriptedRuntime(async function* (_run, host) {
+      visibleNames = host.tools?.map((tool) => tool.name) ?? [];
+      yield { type: "done", finalText: "planned", stopReason: "complete" };
+    });
+
+    await sessions.withSessionMutation(session.id, 0, (mutation) =>
+      executor.run({
+        session,
+        turnId: "turn-plan-tools",
+        prompt: "inspect",
+        executionMode: "plan",
+        runtime,
+        authorization: authorization(session.id, "turn-plan-tools"),
+        context,
+        mutation,
+        signal: new AbortController().signal,
+      })
+    );
+
+    expect(visibleNames).toEqual(["read_file"]);
+  });
+
   it("shares one host-created operating-mode delegation budget across runtime tool calls", async () => {
     type Budget = {
       maxChildren: number;

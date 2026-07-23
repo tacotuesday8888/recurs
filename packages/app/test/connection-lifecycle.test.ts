@@ -79,6 +79,19 @@ function codex(): DelegatedConnectionRecord {
   };
 }
 
+function codexAppServer(): DelegatedConnectionRecord {
+  return {
+    ...codex(),
+    id: "codex-app-server",
+    adapterId: "codex-app-server",
+    label: "GPT-5.6 Terra · ChatGPT",
+    modelId: "gpt-5.6-terra",
+    reasoningEffort: "medium",
+    runtimeCapabilityProfileRevision:
+      "codex-app-server-0.144.0-host-tools-v1",
+  };
+}
+
 function brokered(): BrokeredModelProviderConnectionRecord {
   return {
     kind: "brokered_model_provider",
@@ -319,6 +332,26 @@ describe("connection lifecycle service", () => {
       connectionId: null,
     });
     expect((await registry.read()).agentRoutes.implement).toBeNull();
+  });
+
+  it("assigns a host-tool Codex app-server connection to a team role", async () => {
+    const registry = new FileConnectionRegistry(await temporaryRoot());
+    const connection = codexAppServer();
+    await registry.commit(0, (draft) => {
+      draft.connections.push(connection);
+      draft.primaryConnectionId = connection.id;
+    });
+
+    const service = new ConnectionLifecycleService(registry);
+    await expect(service.setAgentRoute("implement", connection.id))
+      .resolves.toEqual({ role: "implement", connectionId: connection.id });
+    await expect(service.list()).resolves.toEqual([
+      expect.objectContaining({
+        id: connection.id,
+        execution: "Act + Plan",
+        agentRoles: ["implement"],
+      }),
+    ]);
   });
 
   it("disconnects exact metadata without implicitly promoting another connection", async () => {

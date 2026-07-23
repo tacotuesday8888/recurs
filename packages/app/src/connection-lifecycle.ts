@@ -184,7 +184,8 @@ function summary(
     modelId: connection.modelId,
     primary: primaryConnectionId === connection.id,
     account: "verified (identifier redacted)" as const,
-    execution: connection.adapterId === "codex-acp"
+    execution: connection.kind === "delegated_agent" &&
+        connection.adapterId !== "codex-app-server"
       ? "Plan-only" as const
       : "Act + Plan" as const,
     billingSources: [...connection.billingSelection.allowedSources],
@@ -453,7 +454,10 @@ export class ConnectionLifecycleService {
       }
       if (id !== null) {
         const record = exactRecord(current, id);
-        if (record.kind === "delegated_agent") {
+        if (
+          record.kind === "delegated_agent" &&
+          record.adapterId !== "codex-app-server"
+        ) {
           throw new ConnectionLifecycleError(
             "operation_unavailable",
             "Plan-only delegated connections cannot run team roles",
@@ -469,7 +473,10 @@ export class ConnectionLifecycleService {
           (draft) => {
             if (id !== null) {
               const record = exactRecord(draft, id);
-              if (record.kind === "delegated_agent") {
+              if (
+                record.kind === "delegated_agent" &&
+                record.adapterId !== "codex-app-server"
+              ) {
                 throw new ConnectionLifecycleError(
                   "operation_unavailable",
                   "Plan-only delegated connections cannot run team roles",

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -7,12 +8,13 @@ import {
   CODEX_ONBOARDING_ADAPTER_ID,
   CODEX_ONBOARDING_ADAPTER_VERSION,
   CODEX_ONBOARDING_CAPABILITY_PROFILE_REVISION,
+  CODEX_APP_SERVER_ONBOARDING_ADAPTER_ID,
+  CODEX_APP_SERVER_ONBOARDING_PROFILE_REVISION,
   CodexOnboardingError,
   OnboardingCatalog,
   codexAccountSubjectFingerprint,
   matchesCodexOnboardingRuntimeProfile,
-  setupCodexConnection,
-  type CodexConnectionConfiguration,
+  setupCodexAppServerConnections,
   type CodexOnboardingRuntime,
   type DelegatedConnectionRecord,
   type SetupCodexConnectionInput,
@@ -26,11 +28,17 @@ import {
   CODEX_ACP_ADAPTER_ID,
   CODEX_ACP_ADAPTER_VERSION,
   CODEX_ACP_PROFILE_REVISION,
+  CODEX_APP_SERVER_ADAPTER_ID,
+  CODEX_APP_SERVER_PROFILE_REVISION,
   authenticateCodexAcpChatGpt,
+  createAccountBoundCodexAppServerRuntime,
   createAccountBoundCodexAcpRuntime,
+  createCodexAppServerProcessProfile,
   createCodexAcpProfile,
   inspectCodexAcp,
+  inspectCodexAppServerSubscription,
   probeCodexAcp,
+  type CodexSubscriptionCatalog,
 } from "@recurs/runtimes";
 
 const PROVIDER_ID = "openai-codex-chatgpt";
@@ -43,7 +51,11 @@ function currentCodexPolicy(connection: DelegatedConnectionRecord): boolean {
   return entry !== undefined &&
     entry.status === "runnable" &&
     connection.providerId === PROVIDER_ID &&
-    connection.adapterId === CODEX_ONBOARDING_ADAPTER_ID &&
+    (connection.adapterId === CODEX_ONBOARDING_ADAPTER_ID ||
+      (connection.adapterId === CODEX_APP_SERVER_ONBOARDING_ADAPTER_ID &&
+        connection.runtimeCapabilityProfileRevision ===
+          CODEX_APP_SERVER_ONBOARDING_PROFILE_REVISION &&
+        connection.reasoningEffort !== undefined)) &&
     connection.policyRevision === entry.policy.revision &&
     isDeepStrictEqual(connection.billingPolicy, entry.billing) &&
     connection.billingSelection.mode === "allow_declared_additional" &&
@@ -95,11 +107,28 @@ export function createCodexOnboardingRuntime(
   });
 }
 
+export interface SetupCodexSubscriptionDependencies {
+  readonly codexHome?: string;
+  readonly inspectCatalog?: (
+    signal: AbortSignal,
+  ) => Promise<CodexSubscriptionCatalog>;
+  readonly authenticateChatGpt?: (signal: AbortSignal) => Promise<void>;
+  readonly persist?: typeof setupCodexAppServerConnections;
+}
+
 export async function setupCodexSubscription(
   dataDirectory: string,
   input: SetupCodexConnectionInput,
-): Promise<CodexConnectionConfiguration> {
-  const configuredHome = process.env.CODEX_HOME;
+  dependencies: SetupCodexSubscriptionDependencies = {},
+): Promise<{
+  readonly id: string;
+  readonly label: string;
+  readonly modelId: string;
+  readonly planOnly: false;
+  readonly primary: boolean;
+  readonly configuredModels: readonly string[];
+}> {
+  const configuredHome = dependencies.codexHome ?? process.env.CODEX_HOME;
   const codexHome = configuredHome === undefined
     ? path.join(homedir(), ".codex")
     : configuredHome;
@@ -127,13 +156,71 @@ export async function setupCodexSubscription(
       "Codex could not prepare its vendor-owned home directory",
     );
   }
-  return await setupCodexConnection(dataDirectory, input, {
-    createRuntime: createCodexOnboardingRuntime,
+  const signal = input.signal ?? new AbortController().signal;
+  const inspectCatalog = dependencies.inspectCatalog ?? ((currentSignal) =>
+    inspectCodexAppServerSubscription(
+      createCodexAppServerProcessProfile(),
+      currentSignal,
+    ));
+  const authenticateChatGpt = dependencies.authenticateChatGpt ??
+    (async (currentSignal) => {
+      const loginProfile = createCodexAcpProfile({
+        connectionId: `codex-login-${randomUUID()}`,
+        modelId: DISCOVERY_MODEL_ID,
+      });
+      await authenticateCodexAcpChatGpt(loginProfile, currentSignal);
+    });
+  let catalog;
+  try {
+    catalog = await inspectCatalog(signal);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "authentication_required" &&
+      input.interactive
+    ) {
+      await authenticateChatGpt(signal);
+      catalog = await inspectCatalog(signal);
+    } else {
+      throw error;
+    }
+  }
+  const configured = await (dependencies.persist ??
+    setupCodexAppServerConnections)(dataDirectory, {
+    accountSubjectFingerprint: catalog.accountSubjectFingerprint,
+    accountDisplayLabel: catalog.accountDisplayLabel,
+    models: catalog.models,
+    billingSelection: input.billingSelection,
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
+    ...(input.now === undefined ? {} : { now: input.now }),
+  });
+  const primary = configured.connections.find((connection) =>
+    connection.id === configured.primaryConnectionId
+  ) ?? configured.connections[0];
+  if (primary === undefined) {
+    throw new CodexOnboardingError(
+      "persistence_failed",
+      "Codex app-server setup did not save a model connection",
+    );
+  }
+  return Object.freeze({
+    id: primary.id,
+    label: primary.label,
+    modelId: primary.modelId,
+    planOnly: false as const,
+    primary: primary.id === configured.primaryConnectionId,
+    configuredModels: Object.freeze(
+      configured.connections.map((connection) => connection.modelId),
+    ),
   });
 }
 
 export interface VerifyCodexSubscriptionDependencies {
   readonly runtime?: CodexOnboardingRuntime;
+  readonly inspectCatalog?: (
+    signal: AbortSignal,
+  ) => Promise<CodexSubscriptionCatalog>;
 }
 
 export async function verifyCodexSubscriptionConnection(
@@ -145,12 +232,42 @@ export async function verifyCodexSubscriptionConnection(
   if (signal.aborted) throw new Error("cancelled");
   if (
     connection.providerId !== PROVIDER_ID ||
-    connection.adapterId !== CODEX_ONBOARDING_ADAPTER_ID
+    (connection.adapterId !== CODEX_ONBOARDING_ADAPTER_ID &&
+      connection.adapterId !== CODEX_APP_SERVER_ONBOARDING_ADAPTER_ID)
   ) {
     return { status: "failed", reason: "adapter_unavailable" };
   }
   if (!currentCodexPolicy(connection)) {
     return { status: "failed", reason: "policy_stale" };
+  }
+  if (connection.adapterId === CODEX_APP_SERVER_ONBOARDING_ADAPTER_ID) {
+    try {
+      const catalog = await (dependencies.inspectCatalog ?? ((currentSignal) =>
+        inspectCodexAppServerSubscription(
+          createCodexAppServerProcessProfile(),
+          currentSignal,
+        )))(signal);
+      const model = catalog.models.find((candidate) =>
+        candidate.id === connection.modelId
+      );
+      if (
+        catalog.accountSubjectFingerprint !==
+          connection.accountSubjectFingerprint
+      ) {
+        return { status: "failed", reason: "account_mismatch" };
+      }
+      if (
+        model === undefined ||
+        connection.reasoningEffort === undefined ||
+        !model.supportedReasoningEfforts.includes(connection.reasoningEffort)
+      ) {
+        return { status: "failed", reason: "model_unavailable" };
+      }
+      return { status: "verified" };
+    } catch {
+      if (signal.aborted) throw new Error("cancelled");
+      return { status: "failed", reason: "adapter_unavailable" };
+    }
   }
   try {
     const runtime = dependencies.runtime ?? createCodexOnboardingRuntime(
@@ -195,6 +312,27 @@ export function createCodexAgentRuntime(
   connection: DelegatedConnectionRecord,
   store: RuntimeContinuationStore,
 ): AgentRuntime {
+  if (connection.adapterId === CODEX_APP_SERVER_ADAPTER_ID) {
+    if (
+      connection.providerId !== PROVIDER_ID ||
+      connection.reasoningEffort === undefined ||
+      connection.runtimeCapabilityProfileRevision !==
+        CODEX_APP_SERVER_PROFILE_REVISION ||
+      CODEX_APP_SERVER_ONBOARDING_ADAPTER_ID !==
+        CODEX_APP_SERVER_ADAPTER_ID ||
+      CODEX_APP_SERVER_ONBOARDING_PROFILE_REVISION !==
+        CODEX_APP_SERVER_PROFILE_REVISION
+    ) {
+      throw new TypeError("Connection is not a reviewed Codex app-server record");
+    }
+    return createAccountBoundCodexAppServerRuntime({
+      connectionId: connection.id,
+      modelId: connection.modelId,
+      reasoningEffort: connection.reasoningEffort,
+      expectedAccountSubjectFingerprint: connection.accountSubjectFingerprint,
+      store,
+    });
+  }
   assertSharedConstants();
   if (
     connection.providerId !== PROVIDER_ID ||

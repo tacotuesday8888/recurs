@@ -378,6 +378,10 @@ describe("official Codex ACP profile", () => {
     expect(path.isAbsolute(installation.adapterEntry)).toBe(true);
     expect(installation.adapterEntry).toMatch(/codex-acp\/dist\/index\.js$/u);
     expect(path.isAbsolute(installation.platformPackageJson)).toBe(true);
+    expect(path.isAbsolute(installation.codexExecutable)).toBe(true);
+    expect(installation.codexExecutable).toMatch(
+      process.platform === "win32" ? /codex\.exe$/u : /\/codex$/u,
+    );
 
     const lock = JSON.parse(
       await readFile(path.join(repositoryRoot, "package-lock.json"), "utf8"),

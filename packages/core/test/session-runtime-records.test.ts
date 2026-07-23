@@ -176,6 +176,21 @@ describe("delegated runtime session records", () => {
     }
   });
 
+  it("persists an exact reasoning effort on a delegated runtime pin", async () => {
+    const store = await temporaryStore();
+    await expect(store.createPinnedSession({
+      id: "runtime-reasoning-effort",
+      cwd: "/workspace",
+      backend: { ...runtimeBackend, reasoningEffortAtCreation: "ultra" },
+      at,
+    })).resolves.toMatchObject({
+      backend: {
+        type: "pinned",
+        pin: { reasoningEffortAtCreation: "ultra" },
+      },
+    });
+  });
+
   it("replays one completed runtime result with exact approval and continuation provenance", async () => {
     const store = await temporaryStore();
     await createRuntimeSession(store);

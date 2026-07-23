@@ -275,7 +275,7 @@ export async function copyConfiguredEvaluationConnection(
   }
   if (connection.kind === "delegated_agent") {
     throw new Error(
-      "Codex and other delegated subscriptions are Plan-only here; choose a direct API or local model connection for company formation evaluation.",
+      "Delegated subscription runtimes are not yet used for company-formation evaluation; choose a supported direct API or local model connection.",
     );
   }
   const target = new FileConnectionRegistry(targetRoot);

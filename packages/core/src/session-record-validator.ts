@@ -693,7 +693,8 @@ export function isBackendPin(value: unknown): value is SessionBackendPin {
     reasoningEffort === "medium" ||
     reasoningEffort === "high" ||
     reasoningEffort === "xhigh" ||
-    reasoningEffort === "max";
+    reasoningEffort === "max" ||
+    reasoningEffort === "ultra";
   const validModelLimits = modelLimits === undefined || (
     isObject(modelLimits) &&
     hasExactKeys(modelLimits, [
@@ -737,8 +738,7 @@ export function isBackendPin(value: unknown): value is SessionBackendPin {
       ? boundedNonEmptyString(
           value.runtimeCapabilityProfileRevisionAtCreation,
           MAX_RUNTIME_ID_LENGTH,
-        ) && value.modelLimitsAtCreation === undefined &&
-        value.reasoningEffortAtCreation === undefined
+        ) && value.modelLimitsAtCreation === undefined
       : value.runtimeCapabilityProfileRevisionAtCreation === undefined);
 }
 

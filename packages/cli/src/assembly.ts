@@ -89,7 +89,10 @@ import {
   type EnvironmentProviderConfiguration,
   type ModelProvider,
 } from "@recurs/providers";
-import { CODEX_ACP_PROFILE_REVISION } from "@recurs/runtimes";
+import {
+  CODEX_ACP_PROFILE_REVISION,
+  CODEX_APP_SERVER_PROFILE_REVISION,
+} from "@recurs/runtimes";
 import {
   FileCheckpointStore,
   OwnedProcessManager,
@@ -341,7 +344,8 @@ function modelSelectionOption(
     label: connection.label,
     providerId: connection.providerId,
     modelId: connection.modelId,
-    ...(connection.kind === "environment_model_provider" &&
+    ...((connection.kind === "environment_model_provider" ||
+          connection.kind === "delegated_agent") &&
         connection.reasoningEffort !== undefined
       ? { reasoningEffort: connection.reasoningEffort }
       : {}),
@@ -378,6 +382,9 @@ function delegatedBackendPin(
     adapterId: connection.adapterId,
     connectionId: connection.id,
     modelId: connection.modelId,
+    ...(connection.reasoningEffort === undefined
+      ? {}
+      : { reasoningEffortAtCreation: connection.reasoningEffort }),
     modelIdentityKind: "mutable_alias",
     providerResolvedModelRevisionAtCreation: null,
     catalogRevision: connection.policyRevision,
@@ -386,7 +393,8 @@ function delegatedBackendPin(
     primaryBillingSourceAtCreation: connection.billingPolicy.primarySource,
     billingSelectionAtCreation: structuredClone(connection.billingSelection),
     accountSubjectFingerprint: connection.accountSubjectFingerprint,
-    runtimeCapabilityProfileRevisionAtCreation: CODEX_ACP_PROFILE_REVISION,
+    runtimeCapabilityProfileRevisionAtCreation:
+      connection.runtimeCapabilityProfileRevision ?? CODEX_ACP_PROFILE_REVISION,
   };
 }
 
@@ -488,7 +496,12 @@ function assertCodexPolicy(
   }
   if (
     connection.providerId !== "openai-codex-chatgpt" ||
-    connection.adapterId !== "codex-acp" ||
+    (connection.adapterId !== "codex-acp" &&
+      connection.adapterId !== "codex-app-server") ||
+    (connection.adapterId === "codex-app-server" &&
+      (connection.runtimeCapabilityProfileRevision !==
+        CODEX_APP_SERVER_PROFILE_REVISION ||
+        connection.reasoningEffort === undefined)) ||
     connection.policyRevision !== entry.policy.revision
   ) {
     throw policyBlocked(
@@ -1250,7 +1263,10 @@ export async function createStandaloneRuntime(
       }
       pinnedState = loaded;
     }
-    if (initialBackend.kind === "delegated") {
+    if (
+      initialBackend.kind === "delegated" &&
+      initialBackend.connection.adapterId === "codex-acp"
+    ) {
       if (pinnedState.executionMode !== "plan") {
         await sessions.withSessionMutation(
           pinnedState.id,
@@ -1371,6 +1387,10 @@ export async function createStandaloneRuntime(
     router: backendRouter,
     checkpoints,
     async backendCandidates(parent) {
+      const parentUsesHostTools = parent.backend.pin.kind === "model_provider" ||
+        (parent.backend.pin.kind === "agent_runtime" &&
+          parent.backend.pin.runtimeCapabilityProfileRevisionAtCreation ===
+            CODEX_APP_SERVER_PROFILE_REVISION);
       const candidates: AgentBackendCandidate[] = [{
         id: "parent-session-pin",
         pin: parent.backend.pin,
@@ -1378,7 +1398,7 @@ export async function createStandaloneRuntime(
         roles: ["implement", "review", "repair"],
         executionModes: ["act"],
         permissionModes: [parent.permissionMode],
-        hostTools: parent.backend.pin.kind === "model_provider",
+        hostTools: parentUsesHostTools,
         background: parent.backend.pin.kind === "model_provider",
         ready: true,
       }];
@@ -1421,11 +1441,15 @@ export async function createStandaloneRuntime(
         } catch {
           continue;
         }
-        if (backend === null || backend.kind !== "direct") continue;
+        if (backend === null) continue;
         const pin = backend.pin(
           parent.backend.pin.billingSelectionAtCreation.acknowledgedAt,
         );
-        if (pin.kind !== "model_provider") continue;
+        const hostTools = pin.kind === "model_provider" ||
+          (pin.kind === "agent_runtime" &&
+            pin.runtimeCapabilityProfileRevisionAtCreation ===
+              CODEX_APP_SERVER_PROFILE_REVISION);
+        if (!hostTools) continue;
         candidates.push({
           id: `configured-${createHash("sha256").update(connectionId).digest("hex").slice(0, 32)}`,
           pin,
@@ -1433,8 +1457,8 @@ export async function createStandaloneRuntime(
           roles,
           executionModes: ["act"],
           permissionModes: [parent.permissionMode],
-          hostTools: true,
-          background: true,
+          hostTools,
+          background: pin.kind === "model_provider",
           ready: true,
         });
       }

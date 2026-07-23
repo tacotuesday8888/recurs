@@ -6,6 +6,7 @@ import type {
   ModelImageInput,
   ProviderUsage,
   ToolCall,
+  ToolDefinition,
 } from "./model.js";
 
 const hostInvocationBrand: unique symbol = Symbol("HostInvocation");
@@ -221,6 +222,7 @@ export type RuntimeApprovalDecision =
   | { readonly outcome: "cancelled" };
 
 export interface AgentRuntimeHost {
+  readonly tools?: readonly ToolDefinition[];
   requestApproval?(request: RuntimeApprovalRequest): Promise<RuntimeApprovalDecision>;
   executeTool?(call: ToolCall, signal: AbortSignal): Promise<{ output: string }>;
 }
