@@ -250,11 +250,13 @@ Run Codex setup from a local interactive terminal:
 recurs setup codex
 ```
 
-Before starting, the CLI requires explicit acknowledgement that eligible ChatGPT plans include Codex usage but the provider may automatically consume available prepaid credits after included limits. The pinned official adapter reports authentication status; Recurs accepts only a structured `chat-gpt` account, uses only a currently advertised `chat-gpt` login method when sign-in is needed, rechecks status after login, and verifies a temporary session exposes the selected model and Codex `read-only` mode. Adapter 1.1.2 does not report plan tier, organization, or remaining allowance, so Recurs claims only ChatGPT authentication and session usability. The non-secret registry retains the verified account label and a canonical one-way fingerprint so later runs can detect an account change. Public account output omits both; session pins retain only the non-authorizing fingerprint, not the account label. Recurs never imports or stores the token, auth-file contents, or browser cookie. Vendor session IDs are kept only as bounded process-scoped continuation payloads and never enter the registry, JSONL session log, or public account output.
+Before starting, the CLI requires explicit acknowledgement that eligible ChatGPT plans include Codex usage but the provider may automatically consume available prepaid credits after included limits. Recurs asks the official Codex app-server for the authenticated ChatGPT account and current model catalog. If sign-in is needed, only the official Codex login flow is launched. Recurs never imports or stores a token, auth file, or browser cookie.
 
-Adding another ChatGPT account leaves the existing primary unchanged. Re-running setup for the same verified account updates that exact record without changing whether it is primary or secondary.
+Setup saves one non-secret, account-bound record per selected model and effort. When advertised by the live catalog, the default layout is Sol at High as the parent, Terra at Medium for Implement and Repair, and Luna at Medium for Review. IDs and efforts are pinned independently; changing a display name does not rewrite historical sessions. Re-running setup is idempotent for the same account and models, preserves unrelated primary/routes, and refreshes only matching records. Public account output omits the account label and one-way fingerprint.
 
-Every Codex run rereads the registry and current billing/usage policy. The active account is then verified against the saved fingerprint on the exact initialized ACP child, after continuation loading when resuming, and again after configuration immediately before continuation staging and prompting. Codex runs only in a local manual CLI REPL with the user present. It is Plan-only/read-only: Act mode, remote or scripted use, recognized CI even with a TTY, implicit programmatic submission, `recurs run`, unattended/background work, and automatic continuation while account or policy state is uncertain all fail closed. Core also rejects every non-read opaque runtime approval in Plan mode regardless of Ask Always, Approved for Me, or Full Access.
+Every Codex run rereads current policy and verifies the active account, exact model, and effort against the live catalog. The app-server starts with Codex environments, shell, MCP, plugins, apps, browser/computer use, and native multi-agent behavior disabled. It receives only the tools Recurs exposes for that agent profile and mode; all calls return through Recurs permissions, checkpoints, budgets, and evidence accounting. Plan sessions receive only read-only tools. Act sessions may use the same bounded mutating tools as another Recurs agent, subject to the selected permission mode.
+
+This path is local, manual, user-present, and foreground. Remote, scripted, CI, implicit programmatic, and background subscription execution fail closed. V1 intentionally creates an ephemeral vendor thread per Recurs turn and does not claim vendor-side resume, remaining quota, or autonomous Codex sub-agents. The older ACP adapter remains loadable for historical Plan-only records.
 
 This Codex path remains implemented for the public npm/source executable. The sealed private engine intentionally replaces the delegated-runtime module with a fixed `adapter_unavailable` implementation; it does not search `node_modules` or invoke an ambient Codex binary. Codex remains unavailable through the native launcher until its adapter and binary have a reviewed fixed signed-bundle layout.
 
@@ -421,9 +423,10 @@ The selected non-secret record is copied into temporary evaluation state, and
 the source registry and primary remain unchanged. The explicit network flag is
 mandatory because this qualitative dogfood run may incur provider usage.
 Supported native-brokered model connections use the injected native authority.
-Codex and other delegated subscriptions are rejected here: Codex remains
-local, manual, user-present, foreground, and Plan-only, while automated
-formation needs a restricted direct-model loop.
+Delegated subscriptions are rejected by this evaluator because company
+formation still uses the restricted direct-model interface. This is an
+interface boundary, not a claim that Codex execution is Plan-only: an approved
+company can use the app-server path for local, user-present foreground goals.
 
 `recurs eval company --scenario company_goal_execution_v1 --run <exact-id> --json -C <project>`
 scores one existing durable company goal. It strictly

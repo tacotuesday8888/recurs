@@ -27,7 +27,7 @@ context, not a product commitment.
 | Company authority | Immutable blueprints, root orchestrator and independent-review anchors, permission monotonicity, active-role/depth/concurrency/request/retry/reported-cost limits, cancellation, and truthful events |
 | Company adaptation | Tailored role charters, attributable project knowledge, historical blueprint pinning, exact Skill/MCP bundle bindings, and approval-gated amendments |
 | Evaluation | Discoverable versioned scenarios; deterministic offline formation; exact-connection, explicit-network configured formation; read-only exact-run company-goal scoring; sanitized reports and bounded human progress |
-| Providers | Reviewed saved environment BYOK, literal-loopback Ollama/LM Studio, official local user-present Plan-only Codex ACP, and tested private macOS OpenAI/Anthropic/Kimi authority |
+| Providers | Reviewed saved environment BYOK, literal-loopback Ollama/LM Studio, local user-present Codex subscription discovery/execution through the official app-server, and tested private macOS OpenAI/Anthropic/Kimi authority |
 | Host safety | Permanent credential-path denial, clean child environments, bounded failures, macOS Seatbelt, Linux Bubblewrap, Git worktree isolation, and tamper-evident private state |
 
 ## Real but bounded
@@ -39,7 +39,7 @@ context, not a product commitment.
 | Cost enforcement | Uses provider-reported cost when available; unknown cost remains unknown, and already-running siblings may finish after a ceiling is crossed |
 | Model selection | Users choose the parent and optional Implement/Review/Repair routes; Recurs does not automatically rank every model by quality or price |
 | MCP and Skills | Exact enabled/trusted IDs can be bound to approved company bundles; Recurs does not install, trust, or infer a binding automatically |
-| Codex subscription | Official adapter, existing ChatGPT authentication, local/manual/user-present, foreground, Plan-only; no plan-tier or remaining-quota claim |
+| Codex subscription | Official app-server, existing ChatGPT authentication, live model/effort discovery, local/manual/user-present foreground execution, Recurs-scoped host tools, and optional Sol/Terra/Luna parent/role routing; no remaining-quota claim, background work, or vendor continuation in V1 |
 | Native credentials | OpenAI, Anthropic, and Kimi verticals are implemented and tested but unavailable to normal users until signed/notarized distribution and production canary proof |
 | Code intelligence | Strong lexical multi-language outlines and TypeScript project diagnostics; no general LSP or semantic reference engine |
 
@@ -75,8 +75,10 @@ binary, or desktop app is public today.
 The base harness and bounded heavy-company architecture are implemented. The
 CLI now exposes read-only operating snapshots, deterministic formation,
 explicit configured-provider dogfooding, and provider-free scoring of one
-durable goal. Codex remains truthfully excluded from automated formation
-because its subscription route is Plan-only and user-present. These implemented
+durable goal. Codex subscriptions can now execute foreground parent and company
+assignments through Recurs-scoped tools, but remain excluded from the separate
+automated formation evaluator until that direct-provider interface is unified
+with the agent-runtime boundary. These implemented
 workflows are not evidence of real-model quality until they are actually run
 with an authorized provider. The largest remaining product risk is qualitative:
 real models have not yet been exercised enough to prove that the interview

@@ -189,8 +189,10 @@ The source CLI can run saved environment BYOK connections for 13 reviewed
 fixed-origin providers: OpenAI API, Anthropic API, OpenRouter, xAI, OpenCode Go,
 Kilo Gateway, Alibaba Model Studio, Kimi Platform, Kimi Code, MiniMax API, Z.ai
 API, DeepSeek API, and Gemini API. It also supports literal-loopback Ollama and
-LM Studio plus the official Codex ACP path under its local, user-present,
-Plan-only subscription policy. Catalog entries marked conditional, blocked, or
+LM Studio plus the official Codex app-server path under its local,
+user-present, foreground subscription policy. The app-server discovers the
+authenticated model/effort catalog and exposes only Recurs-owned host tools;
+historical ACP records remain Plan-only. Catalog entries marked conditional, blocked, or
 native-required are not silently treated as runnable; this includes Claude
 subscription reuse, Copilot, Alibaba Coding Plan, MiniMax Token Plan, Z.ai GLM
 Coding Plan, and cloud-identity paths whose reviewed runtime is absent.

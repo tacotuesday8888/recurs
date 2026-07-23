@@ -92,7 +92,7 @@ automatic installation or trust of Skills and MCP servers.
 | --- | --- |
 | **Company design** | Resumable onboarding, versioned rosters, proposal revision, explicit activation, and multi-stage role DAGs |
 | **Agent runtime** | Streaming tools, parallel Explore/Review, isolated Implement teams, repair, apply, cancellation, recovery, compaction, steering, forks, and undo |
-| **Models** | Reviewed OpenAI, Anthropic, Gemini, OpenAI-compatible, Ollama, LM Studio, and user-present Plan-only Codex ACP paths |
+| **Models** | Reviewed OpenAI, Anthropic, Gemini, OpenAI-compatible, Ollama, LM Studio, plus local user-present Codex subscriptions with exact model/effort routing through Recurs tools |
 | **Extensions** | Bounded Agent Skills, digest-bound stdio MCP, text and images, headless JSON/JSONL, and a Recurs ACP endpoint |
 | **Host safety** | Permission profiles, credential-path denial, clean child environments, sanitized failures, and supported macOS/Linux containment |
 | **Operations** | Company status, activity, knowledge, readiness, amendments, exact-run inspection, deterministic formation, exact-connection provider dogfooding, and durable-goal scoring |
