@@ -58,6 +58,14 @@ function createToolChildStdio(): ["pipe", "pipe", "pipe"] {
   return stdio;
 }
 
+export interface WorkspaceProcessSandbox {
+  readonly mode: "workspace";
+  readonly network: "allow" | "deny";
+  /** Existing command execution remains read-write unless explicitly narrowed. */
+  readonly workspaceAccess?: "read_write" | "read_only";
+  readonly readOnlyPaths?: readonly string[];
+}
+
 export interface RunProcessOptions {
   cwd: string;
   stdin?: string;
@@ -66,11 +74,7 @@ export interface RunProcessOptions {
   captureStdoutBytes?: boolean;
   acceptableExitCodes?: readonly number[];
   timeoutMs?: number;
-  sandbox?: {
-    readonly mode: "workspace";
-    readonly network: "allow" | "deny";
-    readonly readOnlyPaths?: readonly string[];
-  };
+  sandbox?: WorkspaceProcessSandbox;
 }
 
 export interface ProcessResult {
@@ -85,10 +89,7 @@ export interface ProcessSessionOptions {
   signal?: AbortSignal;
   maxOutputBytes?: number;
   timeoutMs?: number;
-  sandbox?: {
-    readonly mode: "workspace";
-    readonly network: "allow" | "deny";
-  };
+  sandbox?: WorkspaceProcessSandbox;
 }
 
 export interface ProcessSession {
@@ -175,7 +176,6 @@ const DARWIN_SANDBOX_PROFILE = [
   '    (require-not (literal (param "HOME_GIT_CREDENTIALS")))',
   "  )",
   ")",
-  '(allow file-write* (subpath (param "WORKSPACE")))',
   '(allow file-write* (subpath (param "PRIVATE_ROOT")))',
   '(allow file-write-data (literal "/dev/null"))',
 ].join("\n");
@@ -213,9 +213,11 @@ function darwinSandboxLaunch(
   options: NonNullable<RunProcessOptions["sandbox"]>,
   roots: SandboxRoots,
 ): ProcessLaunch {
-  const profile = options.network === "deny"
-    ? DARWIN_SANDBOX_PROFILE
-    : `${DARWIN_SANDBOX_PROFILE}\n(allow network*)`;
+  const workspaceWrite = options.workspaceAccess === "read_only"
+    ? ""
+    : '\n(allow file-write* (subpath (param "WORKSPACE")))';
+  const network = options.network === "deny" ? "" : "\n(allow network*)";
+  const profile = `${DARWIN_SANDBOX_PROFILE}${workspaceWrite}${network}`;
   const definitions = [
     ["WORKSPACE", roots.workspaceRoot],
     ["PRIVATE_ROOT", roots.privateRoot],
@@ -477,7 +479,7 @@ function linuxSandboxLaunch(
     bwrapArgs.push("--remount-ro", root);
   }
   bwrapArgs.push(
-    "--bind",
+    options.workspaceAccess === "read_only" ? "--ro-bind" : "--bind",
     roots.workspaceRoot,
     roots.workspaceRoot,
     "--bind",

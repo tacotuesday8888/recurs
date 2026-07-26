@@ -71,6 +71,8 @@ export interface ToolContext {
   processSandbox?: {
     readonly mode: "workspace";
     readonly network: "allow" | "deny";
+    readonly workspaceAccess?: "read_write" | "read_only";
+    readonly readOnlyPaths?: readonly string[];
   };
 }
 

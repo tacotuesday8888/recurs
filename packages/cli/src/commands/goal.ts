@@ -132,6 +132,18 @@ export function createGoalCommand(): Command {
       }
 
       if (
+        context.session.goal?.status === "active" &&
+        context.session.goal.objective === action &&
+        isPinnedSessionState(context.session) &&
+        context.session.agent.role === "parent" &&
+        context.session.agent.company?.blueprintVersion === 2
+      ) {
+        return {
+          type: "submit_prompt",
+          prompt: companyLaunchPrompt(action),
+        };
+      }
+      if (
         isUnfinished(context.session.goal) &&
         !(await context.confirm("Replace the unfinished goal?"))
       ) {

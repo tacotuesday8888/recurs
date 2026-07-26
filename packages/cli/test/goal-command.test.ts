@@ -136,6 +136,32 @@ describe("goal command company launch", () => {
       .toContain("the first tool call must be delegate_company_goal");
   });
 
+  it("launches an already-approved initial goal without asking to replace it", async () => {
+    const initial = context({
+      ...companySession(),
+      goal: {
+        objective: "Launch safely.",
+        status: "active",
+        progress: "",
+        blockers: [],
+        evidence: [],
+        createdAt: at,
+        updatedAt: at,
+      },
+    });
+    const result = await createCommandRegistry().execute(
+      "/goal Launch safely.",
+      initial,
+    );
+
+    expect(initial.confirm).not.toHaveBeenCalled();
+    expect(initial.records).toHaveLength(0);
+    expect(result).toMatchObject({
+      type: "submit_prompt",
+      prompt: expect.stringContaining(JSON.stringify("Launch safely.")),
+    });
+  });
+
   it("retains ordinary goal behavior outside an approved V2 company", async () => {
     const ordinary = context(createSessionState({
       id: "ordinary-goal-session",

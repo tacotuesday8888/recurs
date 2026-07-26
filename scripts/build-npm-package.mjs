@@ -80,7 +80,14 @@ try {
       legal: true,
     },
     format: "esm",
-    minify: false,
+    minify: {
+      compress: false,
+      mangle: false,
+      codegen: {
+        removeWhitespace: true,
+        legalComments: "inline",
+      },
+    },
     sourcemap: false,
   });
   if (
