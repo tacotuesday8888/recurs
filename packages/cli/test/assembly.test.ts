@@ -69,9 +69,11 @@ const codexConnection: DelegatedConnectionRecord = {
   accountLabel: "owner@example.com",
   organizationLabel: null,
   modelId: "gpt-test",
+  runtimeCapabilityProfileRevision:
+    "codex-acp-1.1.7-codex-0.145.0-plan-only-v2",
   accountSubjectFingerprint:
     "sha256:51ad6241d1bfb3fbf43e889bf15530e6ca0c985d6a816d3358c3d356b0a768fa",
-  policyRevision: "openai-codex-chatgpt-2026-07-11",
+  policyRevision: "openai-codex-chatgpt-2026-07-24",
   billingPolicy: {
     revision: "billing:openai-codex-chatgpt:2026-07-11",
     disclosureRevision:
@@ -108,7 +110,7 @@ function codexAppServerConnection(
     modelId,
     reasoningEffort,
     runtimeCapabilityProfileRevision:
-      "codex-app-server-0.144.0-host-tools-v1",
+      "codex-app-server-0.145.0-host-tools-v2",
   };
 }
 
@@ -220,7 +222,7 @@ describe("standalone assembly without a provider", () => {
       adapterId: "codex-acp",
       connectionId: codexConnection.id,
       capabilityProfileRevision:
-        "codex-acp-1.1.2-codex-0.144.0-plan-only-v2",
+        "codex-acp-1.1.7-codex-0.145.0-plan-only-v2",
       capabilities: {
         resume: true,
         cancellation: "protocol",
@@ -276,7 +278,7 @@ describe("standalone assembly without a provider", () => {
             connectionId: codexConnection.id,
             primaryBillingSourceAtCreation: "included_subscription",
             runtimeCapabilityProfileRevisionAtCreation:
-              "codex-acp-1.1.2-codex-0.144.0-plan-only-v2",
+              "codex-acp-1.1.7-codex-0.145.0-plan-only-v2",
           },
         },
       },
@@ -2645,7 +2647,7 @@ describe("standalone assembly without a provider", () => {
       adapterId: "codex-app-server",
       connectionId: connection.id,
       capabilityProfileRevision:
-        "codex-app-server-0.144.0-host-tools-v1",
+        "codex-app-server-0.145.0-host-tools-v2",
       capabilities: {
         resume: false,
         cancellation: "protocol",

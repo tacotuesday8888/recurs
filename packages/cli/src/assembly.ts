@@ -391,8 +391,12 @@ function delegatedBackendPin(
     primaryBillingSourceAtCreation: connection.billingPolicy.primarySource,
     billingSelectionAtCreation: structuredClone(connection.billingSelection),
     accountSubjectFingerprint: connection.accountSubjectFingerprint,
-    runtimeCapabilityProfileRevisionAtCreation:
-      connection.runtimeCapabilityProfileRevision ?? CODEX_ACP_PROFILE_REVISION,
+    ...(connection.runtimeCapabilityProfileRevision === undefined
+      ? {}
+      : {
+          runtimeCapabilityProfileRevisionAtCreation:
+            connection.runtimeCapabilityProfileRevision,
+        }),
   };
 }
 
@@ -474,6 +478,9 @@ function assertCodexPolicy(
     connection.providerId !== "openai-codex-chatgpt" ||
     (connection.adapterId !== "codex-acp" &&
       connection.adapterId !== "codex-app-server") ||
+    (connection.adapterId === "codex-acp" &&
+      connection.runtimeCapabilityProfileRevision !==
+        CODEX_ACP_PROFILE_REVISION) ||
     (connection.adapterId === "codex-app-server" &&
       (connection.runtimeCapabilityProfileRevision !==
         CODEX_APP_SERVER_PROFILE_REVISION ||

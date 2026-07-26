@@ -34,6 +34,8 @@ export {
   codexSubscriptionAccountFingerprint,
   createCodexAppServerProcessProfile,
   inspectCodexAppServerSubscription,
+  loginCodexAppServerChatGpt,
+  type CodexChatGptLoginPrompt,
   type CodexAppServerCatalogErrorCode,
   type CodexSubscriptionCatalog,
   type CodexSubscriptionModel,
@@ -46,13 +48,20 @@ export {
   type CreateCodexAppServerRuntimeInput,
 } from "./codex-app-server-runtime.js";
 export {
+  CODEX_CLI_INTEGRITY,
+  CODEX_CLI_VERSION,
+  resolveBundledCodexInstallation,
+  resolveCodexCliInstallation,
+  type BundledCodexInstallation,
+  type CodexCliInstallation,
+  type CodexCliResolutionDependencies,
+} from "./codex-cli-installation.js";
+export {
   CODEX_ACP_ADAPTER_ID,
   CODEX_ACP_ADAPTER_INTEGRITY,
   CODEX_ACP_ADAPTER_VERSION,
   CODEX_ACP_PROFILE_REVISION,
   CODEX_ALLOWED_ENVIRONMENT_KEYS,
-  CODEX_CLI_INTEGRITY,
-  CODEX_CLI_VERSION,
   CODEX_PLAN_MODE_ID,
   authenticateCodexAcpChatGpt,
   createAccountBoundCodexAcpRuntime,

@@ -15,7 +15,7 @@ import {
 } from "@recurs/app";
 
 const directories: string[] = [];
-const at = "2026-07-11T01:02:03.000Z";
+const at = "2026-07-24T01:02:03.000Z";
 
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) =>
@@ -38,7 +38,7 @@ function inspection(
       protocolVersion: 1,
       agentInfo: {
         name: "@agentclientprotocol/codex-acp",
-        version: "1.1.2",
+        version: "1.1.7",
       },
       authMethods: [
         { id: "api-key", name: "API Key", type: "agent" },
@@ -54,9 +54,9 @@ function inspection(
 
 class FakeCodexRuntime implements CodexOnboardingRuntime {
   readonly adapterId = "codex-acp";
-  readonly adapterVersion = "1.1.2";
+  readonly adapterVersion = "1.1.7";
   readonly capabilityProfileRevision =
-    "codex-acp-1.1.2-codex-0.144.0-plan-only-v2";
+    "codex-acp-1.1.7-codex-0.145.0-plan-only-v2";
   readonly inspections: CodexRuntimeVerification[];
   readonly probeResult: CodexRuntimeProbeResult;
   inspectCalls = 0;
@@ -138,7 +138,9 @@ describe("Codex subscription onboarding", () => {
     expect(document.connections[0]).toMatchObject({
       accountSubjectFingerprint: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u),
       organizationLabel: null,
-      policyRevision: "openai-codex-chatgpt-2026-07-11",
+      policyRevision: "openai-codex-chatgpt-2026-07-24",
+      runtimeCapabilityProfileRevision:
+        "codex-acp-1.1.7-codex-0.145.0-plan-only-v2",
     });
     const serialized = await readFile(connectionRegistryPath(directory), "utf8");
     for (const forbidden of [
@@ -163,7 +165,7 @@ describe("Codex subscription onboarding", () => {
       cwd: workspace,
       interactive: false,
       billingSelection: "allow_declared_additional",
-      now: "2026-07-12T00:00:00.000Z",
+      now: "2026-07-24T02:00:00.000Z",
     }, {
       runtime: new FakeCodexRuntime([
         inspection({ type: "chat-gpt", email: "first@example.com" }),
@@ -173,7 +175,7 @@ describe("Codex subscription onboarding", () => {
       cwd: workspace,
       interactive: false,
       billingSelection: "allow_declared_additional",
-      now: "2026-07-12T00:01:00.000Z",
+      now: "2026-07-24T02:01:00.000Z",
     }, {
       runtime: new FakeCodexRuntime([
         inspection({ type: "chat-gpt", email: "second@example.com" }),
@@ -183,7 +185,7 @@ describe("Codex subscription onboarding", () => {
       cwd: workspace,
       interactive: false,
       billingSelection: "allow_declared_additional",
-      now: "2026-07-12T00:02:00.000Z",
+      now: "2026-07-24T02:02:00.000Z",
     }, {
       runtime: new FakeCodexRuntime([
         inspection({ type: "chat-gpt", email: "second@example.com" }),
@@ -211,8 +213,8 @@ describe("Codex subscription onboarding", () => {
         label: "Local model",
         baseUrl: "http://127.0.0.1:11434/v1",
         modelId: "qwen",
-        createdAt: "2026-07-12T00:00:00.000Z",
-        updatedAt: "2026-07-12T00:00:00.000Z",
+        createdAt: "2026-07-24T02:00:00.000Z",
+        updatedAt: "2026-07-24T02:00:00.000Z",
       });
     });
 
@@ -220,7 +222,7 @@ describe("Codex subscription onboarding", () => {
       cwd: workspace,
       interactive: false,
       billingSelection: "allow_declared_additional",
-      now: "2026-07-12T00:01:00.000Z",
+      now: "2026-07-24T02:01:00.000Z",
     }, {
       runtime: new FakeCodexRuntime([
         inspection({ type: "chat-gpt", email: "owner@example.com" }),

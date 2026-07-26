@@ -155,6 +155,43 @@ describe("Codex app-server runtime", () => {
     });
   });
 
+  it("allows only reviewed passive item lifecycle notifications", async () => {
+    const events = await collect("runtime-passive-items");
+    expect(events.at(-1)).toEqual({
+      type: "done",
+      finalText: "",
+      stopReason: "complete",
+    });
+  });
+
+  it.each([
+    ["runtime-command-tool", "command execution"],
+    ["runtime-file-change", "file changes"],
+    ["runtime-mcp-tool", "an MCP tool call"],
+    ["runtime-legacy-collab-tool", "legacy Codex sub-agent delegation"],
+    ["runtime-collab-tool", "Codex sub-agent delegation"],
+    ["runtime-web-search", "hosted web search"],
+    ["runtime-image-view", "vendor image viewing"],
+    ["runtime-unknown-item", "an unknown future item"],
+    ["runtime-unknown-dynamic-tool", "an unregistered dynamic tool"],
+  ])("fails closed when Codex emits %s (%s)", async (scenario) => {
+    const events = await collect(scenario);
+    expect(events).not.toContainEqual(expect.objectContaining({ type: "done" }));
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      failure: { code: "runtime_failed" },
+    });
+  });
+
+  it("fails closed when Codex reroutes the pinned model", async () => {
+    const events = await collect("runtime-model-rerouted");
+    expect(events).not.toContainEqual(expect.objectContaining({ type: "done" }));
+    expect(events.at(-1)).toMatchObject({
+      type: "failed",
+      failure: { code: "runtime_failed" },
+    });
+  });
+
   it("interrupts the vendor turn when Recurs cancels", async () => {
     const controller = new AbortController();
     const events = await collect(

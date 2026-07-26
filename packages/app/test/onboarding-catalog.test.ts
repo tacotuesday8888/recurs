@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import { OnboardingCatalog } from "../src/index.js";
 
-const FRESH = new Date("2026-07-21T12:00:00.000Z");
+const FRESH = new Date("2026-07-24T12:00:00.000Z");
 
 function catalogAt(now: Date): OnboardingCatalog {
   return new OnboardingCatalog(new ProviderManifestRegistry(), {
@@ -109,13 +109,22 @@ describe("OnboardingCatalog", () => {
 
     expect(before.find((entry) => entry.id === "openai-codex-chatgpt")?.status)
       .toBe("runnable");
-    expect(boundary.filter((entry) => entry.id !== "xai-api").every(
+    expect(boundary.filter((entry) =>
+      entry.id !== "xai-api" &&
+      entry.id !== "openai-codex-chatgpt"
+    ).every(
       (entry) => entry.status === "blocked",
     )).toBe(true);
     expect(boundary.find((entry) => entry.id === "xai-api")?.status)
       .toBe("runnable_byok");
+    expect(boundary.find((entry) => entry.id === "openai-codex-chatgpt")?.status)
+      .toBe("runnable");
+    const codexBoundary = catalogAt(new Date("2026-10-24T00:00:00.000Z"))
+      .list({ includeBlocked: true })
+      .find((entry) => entry.id === "openai-codex-chatgpt");
+    expect(codexBoundary?.status).toBe("blocked");
     expect(
-      boundary.find((entry) => entry.id === "openai-codex-chatgpt")?.restrictions,
+      codexBoundary?.restrictions,
     ).toContain("The reviewed usage policy is expired or not yet current.");
   });
 
@@ -162,12 +171,18 @@ describe("OnboardingCatalog", () => {
       expect(entry.restrictions.length).toBeGreaterThan(0);
       expect(entry.policy.revision).not.toBe("");
       expect(entry.policy.reviewedAt).toBe(
-        entry.id === "xai-api" ? "2026-07-21" : "2026-07-11",
+        entry.id === "openai-codex-chatgpt"
+          ? "2026-07-24"
+          : entry.id === "xai-api"
+            ? "2026-07-21"
+            : "2026-07-11",
       );
       expect(entry.policy.expiresAt).toBe(
-        entry.id === "xai-api"
-          ? "2026-10-21T00:00:00.000Z"
-          : "2026-10-11T00:00:00.000Z",
+        entry.id === "openai-codex-chatgpt"
+          ? "2026-10-24T00:00:00.000Z"
+          : entry.id === "xai-api"
+            ? "2026-10-21T00:00:00.000Z"
+            : "2026-10-11T00:00:00.000Z",
       );
       expect(entry.policy.sourceUrls.length).toBeGreaterThan(0);
       expect(entry.policy.evidenceSummary).not.toBe("");
@@ -213,7 +228,7 @@ describe("OnboardingCatalog", () => {
     });
     expect(codex?.restrictions.join(" ")).toContain("local user-present workflows");
     expect(codex?.restrictions.join(" ")).toContain(
-      "plan tier is not reported by the adapter",
+      "plan type is contextual and does not prove entitlement",
     );
     expect(codex?.restrictions.join(" ")).toContain(
       "explicit acceptance of possible prepaid-credit use",

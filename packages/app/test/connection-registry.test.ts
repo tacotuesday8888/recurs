@@ -74,7 +74,7 @@ function delegated(
     organizationLabel: null,
     modelId: "gpt-5-codex",
     accountSubjectFingerprint: `sha256:${"a".repeat(64)}`,
-    policyRevision: "openai-codex-chatgpt-2026-07-11",
+    policyRevision: "openai-codex-chatgpt-2026-07-24",
     billingPolicy: {
       revision: "billing:openai-codex-chatgpt:2026-07-11",
       disclosureRevision:
@@ -500,6 +500,25 @@ describe("FileConnectionRegistry", () => {
     };
     copy.connections[0]!.label = "Changed";
     expect((await registry.read()).connections[0]?.label).toBe("Codex");
+  });
+
+  it("persists an ACP capability revision without inventing reasoning effort", async () => {
+    const registry = new FileConnectionRegistry(await root());
+    const profileRevision =
+      "codex-acp-1.1.7-codex-0.145.0-plan-only-v2";
+    await registry.commit(0, (draft) => {
+      draft.connections.push(delegated({
+        runtimeCapabilityProfileRevision: profileRevision,
+      }));
+    });
+
+    expect((await registry.read()).connections[0]).toMatchObject({
+      adapterId: "codex-acp",
+      runtimeCapabilityProfileRevision: profileRevision,
+    });
+    expect((await registry.read()).connections[0]).not.toHaveProperty(
+      "reasoningEffort",
+    );
   });
 
   it("rejects delegated billing policies whose fallback semantics are inconsistent", async () => {

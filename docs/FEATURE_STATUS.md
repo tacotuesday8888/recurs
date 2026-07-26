@@ -40,7 +40,7 @@ context, not a product commitment.
 | Cost enforcement | Uses provider-reported cost when available; unknown cost remains unknown, and already-running siblings may finish after a ceiling is crossed |
 | Model selection | Users may choose explicit routes or activate evidence-backed Auto for the current `general_coding` task class; Recurs does not infer a winner without eligible completed-goal evidence or perform broad price/capability ranking |
 | MCP and Skills | Exact enabled/trusted IDs can be bound to approved company bundles; Recurs does not install, trust, or infer a binding automatically |
-| Codex subscription | Official app-server, existing ChatGPT authentication, live model/effort discovery, local/manual/user-present foreground execution, Recurs-scoped host tools, and optional Sol/Terra/Luna parent/role routing; no remaining-quota claim, background work, or vendor continuation in V1 |
+| Codex subscription | Exact reviewed user-installed Codex CLI, official app-server login/discovery/execution, local/manual/user-present foreground execution, Recurs-scoped host tools, and optional Sol/Terra/Luna parent/role routing; no remaining-quota claim, background work, or vendor continuation in V1 |
 | Code intelligence | Strong lexical multi-language outlines and TypeScript project diagnostics; no general LSP or semantic reference engine |
 
 ## Prepared, not shipped
@@ -56,10 +56,12 @@ No npm package, curl release, Homebrew tap/formula, native Bun runtime, signed
 binary, or desktop app is public today. Bun's verified boundary is package
 installation, not Recurs execution.
 
-The package gate keeps the unpacked Recurs artifact below 2.1 MB, but runtime
-dependencies are separate and much larger. The audited Apple-silicon source
-checkout used about 390 MiB for dependencies, including about 297 MiB for the
-pinned Codex platform package. Exact installed size varies by platform.
+The package gate keeps the unpacked Recurs artifact below 2.1 MB. A normal
+installed-product smoke proves that optional Codex compatibility packages are
+not downloaded with Recurs. Codex subscription users supply the exact reviewed
+official CLI separately, so an existing Codex installation is shared rather
+than duplicated. Source development still installs the pinned Codex packages
+to exercise legacy compatibility and exact app-server behavior in tests.
 
 ## Not implemented
 
