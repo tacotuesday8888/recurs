@@ -8,7 +8,10 @@ import {
   JsonlCompanyGoalStore,
   JsonlSessionStore,
 } from "@recurs/core";
-import type { CompanyEvaluationReportV1 } from "@recurs/contracts";
+import type {
+  CompanyEvaluationReportV1,
+  CompanyGoalRunV1,
+} from "@recurs/contracts";
 
 import { evaluateCompanyGoalExecution } from "./company-evaluation.js";
 import type { CompanyEvaluationProgress } from "./company-evaluation.js";
@@ -34,6 +37,19 @@ function completedAt(startedAt: string, candidate: string): string {
 function interrupted(signal: AbortSignal | undefined, error: unknown): boolean {
   return signal?.aborted === true ||
     error instanceof DOMException && error.name === "AbortError";
+}
+
+function evaluationCompletion(
+  run: CompanyGoalRunV1,
+  now: () => string,
+): string {
+  return completedAt(
+    run.createdAt,
+    run.status === "completed" || run.status === "failed" ||
+        run.status === "cancelled" || run.status === "interrupted"
+      ? run.updatedAt
+      : now(),
+  );
 }
 
 export async function evaluateStoredCompanyGoal(input: {
@@ -89,9 +105,9 @@ export async function evaluateStoredCompanyGoal(input: {
         modelId: session.backend.pin.modelId,
       },
       startedAt: run.createdAt,
-      completedAt: completedAt(
-        run.createdAt,
-        (input.now ?? (() => new Date().toISOString()))(),
+      completedAt: evaluationCompletion(
+        run,
+        input.now ?? (() => new Date().toISOString()),
       ),
     });
   } catch (error) {

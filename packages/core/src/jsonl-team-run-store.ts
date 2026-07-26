@@ -409,6 +409,38 @@ export class JsonlTeamRunStore {
     }
   }
 
+  async loadReadOnly(
+    runId: string,
+    signal?: AbortSignal,
+  ): Promise<TeamRunState> {
+    signal?.throwIfAborted();
+    this.#file(runId);
+    if (!await inspectPrivateDirectory(this.directory)) {
+      throw new SessionStoreError(
+        "session_not_found",
+        `Team run not found: ${runId}`,
+      );
+    }
+    const file = this.#file(runId);
+    const exists = await requirePrivateFile(file, true);
+    if (!exists) {
+      throw new SessionStoreError(
+        "session_not_found",
+        `Team run not found: ${runId}`,
+      );
+    }
+    const bytes = await readFile(file);
+    signal?.throwIfAborted();
+    requireBoundedLog(bytes, runId);
+    if (bytes.at(-1) !== 0x0a) {
+      throw new SessionStoreError(
+        "corrupt_log",
+        `Team run ${runId} has an incomplete final record`,
+      );
+    }
+    return parseDurableLines(decodeUtf8(bytes, runId), runId);
+  }
+
   async list(parentSessionId?: string): Promise<readonly TeamRunListEntry[]> {
     if (!await inspectPrivateDirectory(this.directory)) return [];
     const entries = await readdir(this.directory, { withFileTypes: true });

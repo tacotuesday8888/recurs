@@ -110,8 +110,12 @@ export interface CompanyResearchAssignmentV1 {
   readonly id: string;
   readonly description: string;
   readonly prompt: string;
+  /** Cumulative model-request count immediately before the originating decision. */
+  readonly decisionRequestCursor?: number;
   readonly status: "queued" | "running" | "completed" | "failed" | "cancelled";
   readonly evidence: readonly string[];
+  /** Bounded model synthesis. Untrusted context, never repository evidence. */
+  readonly handoff?: string;
   readonly failure: string | null;
 }
 
@@ -222,11 +226,24 @@ function parseQuestion(value: unknown): CompanyInterviewQuestionV1 {
   };
 }
 
-function parseResearch(value: unknown): CompanyResearchAssignmentV1 {
+export function parseCompanyResearchAssignmentV1(
+  value: unknown,
+): CompanyResearchAssignmentV1 {
   const research = contractRecord(value, "Company research assignment");
-  contractExact(research, [
-    "id", "description", "prompt", "status", "evidence", "failure",
-  ], "Company research assignment");
+  const hasHandoff = Object.hasOwn(research, "handoff");
+  const hasDecisionRequestCursor = Object.hasOwn(
+    research,
+    "decisionRequestCursor",
+  );
+  contractExact(
+    research,
+    [
+      "id", "description", "prompt", "status", "evidence", "failure",
+      ...(hasDecisionRequestCursor ? ["decisionRequestCursor"] : []),
+      ...(hasHandoff ? ["handoff"] : []),
+    ],
+    "Company research assignment",
+  );
   const status = contractEnum<CompanyResearchAssignmentV1["status"]>(
     research.status,
     new Set(["queued", "running", "completed", "failed", "cancelled"]),
@@ -243,7 +260,15 @@ function parseResearch(value: unknown): CompanyResearchAssignmentV1 {
     "Company research failure",
     2_000,
   );
+  const handoff = hasHandoff
+    ? contractText(
+        research.handoff,
+        "Company research handoff",
+        2_000,
+      )
+    : undefined;
   if ((status === "completed") !== (evidence.length > 0) ||
+    (handoff !== undefined && status !== "completed") ||
     ((status === "failed" || status === "cancelled") !== (failure !== null))) {
     throw new TypeError("Company research terminal state is inconsistent");
   }
@@ -255,8 +280,18 @@ function parseResearch(value: unknown): CompanyResearchAssignmentV1 {
       512,
     ),
     prompt: contractText(research.prompt, "Company research prompt", 8_192),
+    ...(hasDecisionRequestCursor
+      ? {
+          decisionRequestCursor: contractInteger(
+            research.decisionRequestCursor,
+            "Company research decision request cursor",
+            0,
+          ),
+        }
+      : {}),
     status,
     evidence,
+    ...(handoff === undefined ? {} : { handoff }),
     failure,
   };
 }
@@ -357,7 +392,7 @@ export function parseCompanyOnboardingRun(
     run.research.length > policy.maxResearchChildren) {
     throw new TypeError("Company research exceeds its depth policy");
   }
-  const research = run.research.map(parseResearch);
+  const research = run.research.map(parseCompanyResearchAssignmentV1);
   if (new Set(research.map((item) => item.id)).size !== research.length ||
     (scope === "none" && research.length > 0)) {
     throw new TypeError("Company research requires unique consented assignments");

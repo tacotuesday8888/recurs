@@ -6,6 +6,7 @@ import {
   getOperatingModePolicy,
   parseCompanyBlueprintV2,
   parseCompanyOnboardingRun,
+  parseCompanyResearchAssignmentV1,
   type AgentPermissionMode,
   type AgentProfileId,
   type CompanyOnboardingDepth,
@@ -88,6 +89,7 @@ export interface CompanyOnboardingResearchPort {
     readonly maxRequests: number;
   }, signal: AbortSignal): Promise<{
     readonly evidence: readonly string[];
+    readonly handoff?: string;
     readonly requestsUsed: number;
     readonly reportedCostUsd: number;
   }>;
@@ -667,6 +669,7 @@ export class CompanyOnboardingCoordinator {
       );
     }
 
+    const decisionRequestCursor = loaded.state.usage.modelRequests;
     let result: CompanyOnboardingModelResult;
     try {
       result = await this.dependencies.model.decide({
@@ -754,7 +757,13 @@ export class CompanyOnboardingCoordinator {
       return { kind: "question", question: run.state.interview.pendingQuestion!, run };
     }
     if (decision.kind === "research") {
-      return await this.#research(loaded, decision.assignments, policy, signal);
+      return await this.#research(
+        loaded,
+        decision.assignments,
+        decisionRequestCursor,
+        policy,
+        signal,
+      );
     }
 
     let blueprint;
@@ -954,6 +963,7 @@ export class CompanyOnboardingCoordinator {
   async #research(
     loaded: SequencedCompanyState<CompanyOnboardingRunV1>,
     drafts: readonly CompanyOnboardingResearchDraftV1[],
+    decisionRequestCursor: number,
     policy: ReturnType<typeof getCompanyOnboardingDepthPolicy>,
     signal: AbortSignal,
   ): Promise<Extract<CompanyOnboardingAdvanceResult, { kind: "researched" }>> {
@@ -978,6 +988,7 @@ export class CompanyOnboardingCoordinator {
       id: this.#newId("research"),
       description: draft.description,
       prompt: draft.prompt,
+      decisionRequestCursor,
       status: "queued" as const,
       evidence: [] as string[],
       failure: null,
@@ -1009,6 +1020,7 @@ export class CompanyOnboardingCoordinator {
     const allowance = Math.max(1, Math.floor(remainingRequests / queued.length));
     const results = new Map<string, {
       evidence: readonly string[];
+      handoff?: string;
       requestsUsed: number;
       reportedCostUsd: number;
       failure: string | null;
@@ -1024,11 +1036,36 @@ export class CompanyOnboardingCoordinator {
             allowedTools: COMPANY_ONBOARDING_TOOL_NAMES,
             maxRequests: allowance,
           }, signal);
-          if (!validUsage(result) || result.requestsUsed > allowance ||
-            !Array.isArray(result.evidence) || result.evidence.length === 0) {
+          if (!validUsage(result) || result.requestsUsed > allowance) {
             throw new TypeError("Invalid research result");
           }
-          results.set(assignment.id, { ...result, failure: null });
+          try {
+            const completed = parseCompanyResearchAssignmentV1({
+              ...assignment,
+              status: "completed",
+              evidence: result.evidence,
+              ...(result.handoff === undefined
+                ? {}
+                : { handoff: result.handoff }),
+              failure: null,
+            });
+            results.set(assignment.id, {
+              evidence: completed.evidence,
+              ...(completed.handoff === undefined
+                ? {}
+                : { handoff: completed.handoff }),
+              requestsUsed: result.requestsUsed,
+              reportedCostUsd: result.reportedCostUsd,
+              failure: null,
+            });
+          } catch {
+            results.set(assignment.id, {
+              evidence: [],
+              requestsUsed: result.requestsUsed,
+              reportedCostUsd: result.reportedCostUsd,
+              failure: "Research assignment failed safely.",
+            });
+          }
         } catch (error) {
           if (isCancelled(error, signal)) throw error;
           results.set(assignment.id, {
@@ -1084,6 +1121,9 @@ export class CompanyOnboardingCoordinator {
               ...assignment,
               status: "completed" as const,
               evidence: [...result.evidence],
+              ...(result.handoff === undefined
+                ? {}
+                : { handoff: result.handoff }),
               failure: null,
             }
           : {

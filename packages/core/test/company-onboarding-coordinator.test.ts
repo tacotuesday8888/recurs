@@ -121,6 +121,32 @@ const startInput = {
 };
 
 describe("CompanyOnboardingCoordinator", () => {
+  it.each(["quick", "guided", "deep"] as const)(
+    "durably resumes an interrupted %s interview",
+    async (depth) => {
+      const model = scriptedModel([{
+        kind: "question",
+        id: "outcome",
+        question: "What outcome should the company own?",
+      }]);
+      const setup = await coordinator(model);
+      const input = { ...startInput, depth };
+      const started = await setup.coordinator.start(input);
+      const interrupted = await setup.coordinator.advance(started.state.id);
+
+      const restarted = new CompanyOnboardingCoordinator(
+        setup.coordinator.dependencies,
+      );
+      await expect(restarted.resume(input)).resolves.toEqual(interrupted.run);
+      await expect(restarted.advance(started.state.id)).resolves.toMatchObject({
+        kind: "question",
+        question: { id: "outcome" },
+        run: { sequence: interrupted.run.sequence },
+      });
+      expect(model.calls).toHaveLength(1);
+    },
+  );
+
   it("supports a durable adaptive question, answer, proposal, and approval", async () => {
     const model = scriptedModel([{
       kind: "question",
@@ -225,6 +251,123 @@ describe("CompanyOnboardingCoordinator", () => {
     }
     const proposed = await setup.coordinator.advance(started.state.id);
     expect(proposed.kind).toBe("proposal");
+  });
+
+  it("stores research synthesis separately from attributable evidence", async () => {
+    const setup = await coordinator(scriptedModel([{
+      kind: "research",
+      assignments: [{
+        key: "repository_shape",
+        description: "Inspect the repository shape.",
+        prompt: "Read the package manifest.",
+      }],
+    }]), {
+      async run() {
+        return {
+          evidence: ["read package.json:1-20 (sha256 abcdef)"],
+          handoff: "The package manifest describes a TypeScript workspace.",
+          requestsUsed: 1,
+          reportedCostUsd: 0,
+        };
+      },
+    });
+    const started = await setup.coordinator.start(startInput);
+
+    const researched = await setup.coordinator.advance(started.state.id);
+
+    expect(researched).toMatchObject({
+      kind: "researched",
+      run: {
+        state: {
+          research: [{
+            evidence: ["read package.json:1-20 (sha256 abcdef)"],
+            handoff: "The package manifest describes a TypeScript workspace.",
+          }],
+        },
+      },
+    });
+  });
+
+  it("binds research to the pre-decision request cursor when a decision uses multiple requests", async () => {
+    const model: CompanyOnboardingModelPort = {
+      async decide() {
+        return {
+          decision: {
+            kind: "research",
+            assignments: [{
+              key: "repository_shape",
+              description: "Inspect the repository shape.",
+              prompt: "Read the package manifest.",
+            }],
+          },
+          requestsUsed: 2,
+          reportedCostUsd: 0,
+        };
+      },
+    };
+    const setup = await coordinator(model, {
+      async run(input) {
+        expect(input.assignment).toMatchObject({
+          decisionRequestCursor: 0,
+        });
+        return {
+          evidence: ["read package.json:1-20 (sha256 abcdef)"],
+          requestsUsed: 1,
+          reportedCostUsd: 0,
+        };
+      },
+    });
+    const started = await setup.coordinator.start(startInput);
+
+    const researched = await setup.coordinator.advance(started.state.id);
+
+    expect(researched).toMatchObject({
+      kind: "researched",
+      run: {
+        state: {
+          research: [{ decisionRequestCursor: 0 }],
+          usage: { modelRequests: 3 },
+        },
+      },
+    });
+  });
+
+  it("turns a contract-invalid handoff into an accounted assignment failure", async () => {
+    const setup = await coordinator(scriptedModel([{
+      kind: "research",
+      assignments: [{
+        key: "repository_shape",
+        description: "Inspect the repository shape.",
+        prompt: "Read the package manifest.",
+      }],
+    }]), {
+      async run() {
+        return {
+          evidence: ["read package.json:1-20 (sha256 abcdef)"],
+          handoff: "\u200b".repeat(2_001),
+          requestsUsed: 1,
+          reportedCostUsd: 0.25,
+        };
+      },
+    });
+    const started = await setup.coordinator.start(startInput);
+
+    const researched = await setup.coordinator.advance(started.state.id);
+
+    expect(researched).toMatchObject({
+      kind: "researched",
+      run: {
+        state: {
+          status: "interviewing",
+          usage: { modelRequests: 2, reportedCostUsd: 0.25 },
+          research: [{
+            status: "failed",
+            evidence: [],
+            failure: "Research assignment failed safely.",
+          }],
+        },
+      },
+    });
   });
 
   it("fails closed on research without consent or above the depth limit", async () => {
