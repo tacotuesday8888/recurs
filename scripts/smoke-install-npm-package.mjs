@@ -26,6 +26,7 @@ const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "recurs-install-
 const packageDirectory = path.join(temporaryDirectory, "package");
 const installDirectory = path.join(temporaryDirectory, "install");
 const homeDirectory = path.join(temporaryDirectory, "home");
+const npmCacheDirectory = path.join(temporaryDirectory, "npm-cache");
 const workspaceDirectory = path.join(temporaryDirectory, "workspace");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const modelId = "recurs-install-smoke";
@@ -509,6 +510,8 @@ try {
     "--ignore-scripts",
     "--pack-destination",
     packageDirectory,
+    "--cache",
+    npmCacheDirectory,
   ], {
     cwd: root,
     encoding: "utf8",
@@ -528,12 +531,29 @@ try {
     "--no-audit",
     "--no-fund",
     "--prefer-offline",
+    "--cache",
+    npmCacheDirectory,
     archive,
   ], {
     cwd: installDirectory,
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
   });
+  assert(
+    !(await pathExists(path.join(
+      installDirectory,
+      "node_modules",
+      "@openai",
+      "codex",
+    ))) &&
+      !(await pathExists(path.join(
+        installDirectory,
+        "node_modules",
+        "@agentclientprotocol",
+        "codex-acp",
+      ))),
+    "A normal Recurs install must not download optional Codex runtimes.",
+  );
 
   const executable = process.platform === "win32"
     ? path.join(installDirectory, "node_modules/.bin/recurs.cmd")

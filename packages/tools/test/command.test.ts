@@ -246,6 +246,50 @@ describe("run_command", () => {
   );
 
   it.runIf(process.platform === "darwin" || process.platform === "linux")(
+    "supports a genuinely read-only workspace sandbox",
+    async () => {
+      const existing = path.join(cwd, "read-only-input.txt");
+      await writeFile(existing, "input", "utf8");
+
+      try {
+        const result = await toolExports.runProcess(
+          "/bin/sh",
+          ["-c", `cat ${shellQuote(existing)}`],
+          {
+            cwd,
+            sandbox: {
+              mode: "workspace",
+              network: "deny",
+              workspaceAccess: "read_only",
+            },
+          },
+        );
+        expect(result).toMatchObject({ stdout: "input", exitCode: 0 });
+      } catch (error) {
+        if (error instanceof ToolError && /exited with 71$/u.test(error.message)) {
+          // A containing macOS Seatbelt profile can reject nested sandbox-exec.
+          return;
+        }
+        throw error;
+      }
+
+      await expect(toolExports.runProcess(
+        "/bin/sh",
+        ["-c", `printf changed > ${shellQuote(existing)}`],
+        {
+          cwd,
+          sandbox: {
+            mode: "workspace",
+            network: "deny",
+            workspaceAccess: "read_only",
+          },
+        },
+      )).rejects.toMatchObject({ code: "process_failed" });
+      expect(await readFile(existing, "utf8")).toBe("input");
+    },
+  );
+
+  it.runIf(process.platform === "darwin" || process.platform === "linux")(
     "denies host credential paths even when they are below the workspace",
     async () => {
       const originalHome = process.env.HOME;

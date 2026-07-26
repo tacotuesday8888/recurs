@@ -65,7 +65,7 @@ function delegated(): DelegatedConnectionRecord {
     organizationLabel: null,
     modelId: "gpt-5.6-sol",
     accountSubjectFingerprint: `sha256:${"a".repeat(64)}`,
-    policyRevision: "openai-codex-chatgpt-2026-07-11",
+    policyRevision: "openai-codex-chatgpt-2026-07-24",
     billingPolicy: {
       ...billingPolicy,
       revision: "billing:openai-codex-chatgpt:2026-07-11",

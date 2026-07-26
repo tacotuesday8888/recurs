@@ -94,7 +94,7 @@ describe("standalone company onboarding assembly", () => {
       runtimeCapabilityProfileRevision: CODEX_APP_SERVER_PROFILE_REVISION,
       accountSubjectFingerprint:
         "sha256:51ad6241d1bfb3fbf43e889bf15530e6ca0c985d6a816d3358c3d356b0a768fa",
-      policyRevision: "openai-codex-chatgpt-2026-07-11",
+      policyRevision: "openai-codex-chatgpt-2026-07-24",
       billingPolicy: {
         revision: "billing:openai-codex-chatgpt:2026-07-11",
         disclosureRevision:

@@ -4,14 +4,15 @@ import { RECURS_VERSION, type ModelReasoningEffort } from "@recurs/contracts";
 import { z } from "zod";
 
 import {
+  type CodexAppServerClient,
   CodexAppServerProtocolError,
   createCodexAppServerClient,
   type CodexAppServerProcessProfile,
 } from "./codex-app-server-protocol.js";
 import {
   CODEX_ALLOWED_ENVIRONMENT_KEYS,
-  resolveCodexAcpInstallation,
 } from "./codex-acp-profile.js";
+import { resolveCodexCliInstallation } from "./codex-cli-installation.js";
 
 export type CodexAppServerCatalogErrorCode =
   | "authentication_required"
@@ -89,6 +90,16 @@ const modelListSchema = z.object({
   })).max(128),
   nextCursor: z.string().min(1).max(1_024).nullable(),
 });
+const loginStartSchema = z.object({
+  type: z.literal("chatgpt"),
+  loginId: z.string().min(1).max(256),
+  authUrl: z.string().url().max(8_192),
+});
+const loginCompletedSchema = z.object({
+  loginId: z.string().min(1).max(256),
+  success: z.boolean(),
+  error: z.string().max(4_096).nullable(),
+});
 
 const SAFE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u;
 const MAX_MODEL_PAGES = 16;
@@ -137,7 +148,7 @@ export function codexAppServerEnvironment(
 }
 
 export function createCodexAppServerProcessProfile(): CodexAppServerProcessProfile {
-  const installation = resolveCodexAcpInstallation();
+  const installation = resolveCodexCliInstallation();
   return Object.freeze({
     command: installation.codexExecutable,
     args: Object.freeze([
@@ -168,6 +179,8 @@ export function createCodexAppServerProcessProfile(): CodexAppServerProcessProfi
       "workspace_dependencies",
       "-c",
       "mcp_servers={}",
+      "-c",
+      'web_search="disabled"',
     ]),
     environment: codexAppServerEnvironment(),
     bounds: Object.freeze({
@@ -182,6 +195,131 @@ export function createCodexAppServerProcessProfile(): CodexAppServerProcessProfi
   });
 }
 
+async function initializeCodexAppServer(
+  client: CodexAppServerClient,
+  signal: AbortSignal,
+): Promise<void> {
+  initializeSchema.parse(await client.request("initialize", {
+    clientInfo: {
+      name: "recurs",
+      title: "Recurs",
+      version: RECURS_VERSION,
+    },
+    capabilities: {
+      experimentalApi: true,
+      requestAttestation: false,
+    },
+  }, signal));
+  client.notify("initialized");
+}
+
+export interface CodexChatGptLoginPrompt {
+  readonly loginId: string;
+  readonly authUrl: string;
+}
+
+export async function loginCodexAppServerChatGpt(
+  profile: CodexAppServerProcessProfile,
+  signal: AbortSignal,
+  present: (
+    prompt: CodexChatGptLoginPrompt,
+  ) => void | Promise<void>,
+): Promise<void> {
+  if (signal.aborted) {
+    throw new CodexAppServerCatalogError(
+      "cancelled",
+      "Codex ChatGPT login was cancelled",
+    );
+  }
+  let expectedLoginId: string | null = null;
+  let bufferedCompletion: z.infer<typeof loginCompletedSchema> | null = null;
+  let resolveCompletion!: () => void;
+  let rejectCompletion!: (error: Error) => void;
+  let completed = false;
+  const completion = new Promise<void>((resolve, reject) => {
+    resolveCompletion = resolve;
+    rejectCompletion = reject;
+  });
+  const acceptCompletion = (
+    result: z.infer<typeof loginCompletedSchema>,
+  ): void => {
+    if (completed || result.loginId !== expectedLoginId) return;
+    completed = true;
+    if (result.success) resolveCompletion();
+    else {
+      rejectCompletion(new CodexAppServerCatalogError(
+        "authentication_required",
+        "Codex ChatGPT login did not complete",
+      ));
+    }
+  };
+  const client = createCodexAppServerClient(profile, {
+    onMessage(message) {
+      if (message.method !== "account/login/completed") return;
+      const result = loginCompletedSchema.parse(message.params);
+      if (expectedLoginId === null) bufferedCompletion = result;
+      else acceptCompletion(result);
+    },
+  });
+  let loginId: string | null = null;
+  let timer: NodeJS.Timeout | null = null;
+  let rejectAbort!: (error: Error) => void;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    rejectAbort = reject;
+  });
+  const onAbort = (): void => rejectAbort(new CodexAppServerCatalogError(
+    "cancelled",
+    "Codex ChatGPT login was cancelled",
+  ));
+  signal.addEventListener("abort", onAbort, { once: true });
+  try {
+    await initializeCodexAppServer(client, signal);
+    const started = loginStartSchema.parse(await client.request(
+      "account/login/start",
+      {
+        type: "chatgpt",
+        useHostedLoginSuccessPage: true,
+        appBrand: "codex",
+      },
+      signal,
+    ));
+    loginId = started.loginId;
+    expectedLoginId = loginId;
+    if (bufferedCompletion !== null) acceptCompletion(bufferedCompletion);
+    await present(Object.freeze({
+      loginId,
+      authUrl: started.authUrl,
+    }));
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new CodexAppServerCatalogError(
+        "authentication_required",
+        "Codex ChatGPT login timed out",
+      )), 10 * 60_000);
+    });
+    await Promise.race([
+      completion,
+      aborted,
+      timeout,
+      client.closed.then(() => {
+        throw new CodexAppServerCatalogError(
+          "authentication_required",
+          "Codex app-server closed before login completed",
+        );
+      }),
+    ]);
+  } catch (error) {
+    if (loginId !== null && !completed) {
+      await client.request("account/login/cancel", { loginId })
+        .catch(() => undefined);
+    }
+    throw catalogError(error);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+    signal.removeEventListener("abort", onAbort);
+    await client.close();
+  }
+}
+
 export async function inspectCodexAppServerSubscription(
   profile: CodexAppServerProcessProfile,
   signal: AbortSignal,
@@ -194,18 +332,7 @@ export async function inspectCodexAppServerSubscription(
   }
   const client = createCodexAppServerClient(profile);
   try {
-    initializeSchema.parse(await client.request("initialize", {
-      clientInfo: {
-        name: "recurs",
-        title: "Recurs",
-        version: RECURS_VERSION,
-      },
-      capabilities: {
-        experimentalApi: true,
-        requestAttestation: false,
-      },
-    }, signal));
-    client.notify("initialized");
+    await initializeCodexAppServer(client, signal);
 
     const accountResponse = accountSchema.parse(
       await client.request("account/read", { refreshToken: false }, signal),

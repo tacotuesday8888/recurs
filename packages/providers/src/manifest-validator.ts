@@ -41,6 +41,7 @@ const PROTOCOLS = [
   "azure_openai",
   "acp",
   "sdk",
+  "official_runtime",
   "local_openai",
 ] as const;
 const SUPPORT_STATUSES = [
@@ -655,7 +656,9 @@ function validateLaneAndCredentials(manifest: UnknownRecord): void {
       accessKind !== "subscription" ||
       credentialOwner !== "vendor_runtime" ||
       !exactValues(authKinds, ["official_runtime"]) ||
-      (protocol !== "acp" && protocol !== "sdk")
+      (protocol !== "acp" &&
+        protocol !== "sdk" &&
+        protocol !== "official_runtime")
     ) {
       fail("Agent-runtime manifests require a vendor-runtime credential owner");
     }
@@ -684,7 +687,12 @@ function validateLaneAndCredentials(manifest: UnknownRecord): void {
   if (credentialOwner !== "recurs_broker") {
     fail("Remote model-provider manifests require the Recurs broker credential owner");
   }
-  if (protocol === "acp" || protocol === "sdk" || protocol === "local_openai") {
+  if (
+    protocol === "acp" ||
+    protocol === "sdk" ||
+    protocol === "official_runtime" ||
+    protocol === "local_openai"
+  ) {
     fail("Remote model-provider manifests use an invalid protocol for their lane");
   }
   if (accessKind === "coding_plan" && !exactValues(authKinds, ["coding_plan_key"])) {

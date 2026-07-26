@@ -147,10 +147,10 @@ const bundled = [
     accessKind: "subscription",
     authKinds: ["official_runtime"],
     credentialOwner: "vendor_runtime",
-    protocol: "acp",
+    protocol: "official_runtime",
     endpoints: [],
     endpointEvidence:
-      "The official Codex runtime owns transport and authentication instead of exposing an HTTP origin to Recurs.",
+      "The official Codex runtime owns transport and authentication instead of exposing an HTTP origin to Recurs; Recurs prefers app-server and retains ACP as a compatibility path.",
     regionAvailability: { kind: "global" },
     billingPolicy: billingPolicy(
       "openai-codex-chatgpt",
@@ -171,7 +171,9 @@ const bundled = [
       "https://help.openai.com/en/articles/12642688-using-credits-for-flexible-usage-in-chatgpt-plus-pro",
     ],
     evidenceSummary:
-      "OpenAI documents Codex as included with eligible ChatGPT plans; after included limits, where credits are available, usage automatically draws from the credit balance. Activation is restricted to local user-present workflows and requires structured ChatGPT authentication plus a usable Codex session/model/mode; codex-acp 1.1.2 does not report plan tier, organization, or billing source.",
+      "OpenAI documents Codex as included with eligible ChatGPT plans; after included limits, where credits are available, usage automatically draws from the credit balance. Activation is restricted to local user-present workflows and requires structured ChatGPT authentication plus a usable Codex session/model/mode; the official app-server reports the ChatGPT plan type, while organization and billing source remain unavailable to Recurs.",
+    reviewedAt: "2026-07-24",
+    expiresAt: "2026-10-24T00:00:00.000Z",
     rules: [
       {
         when: {
@@ -196,7 +198,7 @@ const bundled = [
           ],
         },
         reason:
-          "Local CLI use requires structured chat-gpt authentication, a successful Codex session/model/mode check, and explicit acceptance of possible prepaid-credit use; plan tier is not reported by the adapter.",
+          "Local CLI use requires structured chat-gpt authentication, a successful Codex session/model/mode check, and explicit acceptance of possible prepaid-credit use; the reported plan type is contextual and does not prove entitlement or identify billing source.",
       },
       {
         when: {
@@ -221,7 +223,7 @@ const bundled = [
           ],
         },
         reason:
-          "Local desktop use requires structured chat-gpt authentication, a successful Codex session/model/mode check, and explicit acceptance of possible prepaid-credit use; plan tier is not reported by the adapter.",
+          "Local desktop use requires structured chat-gpt authentication, a successful Codex session/model/mode check, and explicit acceptance of possible prepaid-credit use; the reported plan type is contextual and does not prove entitlement or identify billing source.",
       },
     ],
   }),

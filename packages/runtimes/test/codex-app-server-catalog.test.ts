@@ -6,6 +6,7 @@ import {
   CodexAppServerCatalogError,
   createCodexAppServerProcessProfile,
   inspectCodexAppServerSubscription,
+  loginCodexAppServerChatGpt,
   type CodexAppServerProcessProfile,
 } from "@recurs/runtimes";
 
@@ -52,6 +53,7 @@ describe("Codex app-server subscription catalog", () => {
       "workspace_dependencies",
     ]));
     expect(profile.args).toContain("mcp_servers={}");
+    expect(profile.args).toContain('web_search="disabled"');
   });
 
   it("binds a ChatGPT account and paginates exact model effort options", async () => {
@@ -105,5 +107,42 @@ describe("Codex app-server subscription catalog", () => {
       constructor: CodexAppServerCatalogError,
       code: "cancelled",
     }));
+  });
+
+  it("runs the official bounded ChatGPT login flow without retaining its URL", async () => {
+    const presented: unknown[] = [];
+    await loginCodexAppServerChatGpt(
+      profile(),
+      new AbortController().signal,
+      (prompt) => presented.push(prompt),
+    );
+    expect(presented).toEqual([{
+      loginId: "fake-login-1",
+      authUrl: "https://chatgpt.example/login?state=ephemeral",
+    }]);
+  });
+
+  it("fails closed when the official ChatGPT login reports failure", async () => {
+    await expect(loginCodexAppServerChatGpt(
+      profile("login-failed"),
+      new AbortController().signal,
+      () => undefined,
+    )).rejects.toMatchObject({
+      constructor: CodexAppServerCatalogError,
+      code: "authentication_required",
+      message: "Codex ChatGPT login did not complete",
+    });
+  });
+
+  it("cancels an in-flight official ChatGPT login", async () => {
+    const controller = new AbortController();
+    await expect(loginCodexAppServerChatGpt(
+      profile("login-cancel"),
+      controller.signal,
+      () => controller.abort(),
+    )).rejects.toMatchObject({
+      constructor: CodexAppServerCatalogError,
+      code: "cancelled",
+    });
   });
 });

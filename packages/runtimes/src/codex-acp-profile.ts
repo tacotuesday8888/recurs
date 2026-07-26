@@ -27,15 +27,18 @@ import {
   type AcpRuntimeProfile,
   type AcpSessionMapping,
 } from "./acp-profile.js";
+import {
+  CODEX_CLI_INTEGRITY,
+  CODEX_CLI_VERSION,
+  resolveBundledCodexInstallation,
+} from "./codex-cli-installation.js";
 
-export const CODEX_ACP_ADAPTER_VERSION = "1.1.2";
+export const CODEX_ACP_ADAPTER_VERSION = "1.1.7";
 export const CODEX_ACP_ADAPTER_INTEGRITY =
-  "sha512-qE/R1WdqJJ9OFHsHGvbmVmS2j9iCMZzpWT3g2XIViXrGHu1fLOALLINBIlW+WzKDllCh131aB6cqcIWSt0otbw==";
-export const CODEX_CLI_VERSION = "0.144.0";
-export const CODEX_CLI_INTEGRITY =
-  "sha512-QFh6f+v5QUx/Vg0HjIl9HB94p7aDLBDkZjc4IXX5RXUcXHPVCZNb6Hl2R49Og/fqW7orgZkeDcgWfRANUa1WoQ==";
+  "sha512-bhFLbGtOMEw6+PAp33vNERb6dXlULOfV3mWbRdps4v7sY7PHha/C2T1dnlG0yVcvBu9W+NYPzL0CAupnVoFTiQ==";
+export { CODEX_CLI_INTEGRITY, CODEX_CLI_VERSION };
 export const CODEX_ACP_PROFILE_REVISION =
-  "codex-acp-1.1.2-codex-0.144.0-plan-only-v2";
+  "codex-acp-1.1.7-codex-0.145.0-plan-only-v2";
 export const CODEX_ACP_ADAPTER_ID = "codex-acp";
 export const CODEX_PLAN_MODE_ID = "read-only";
 
@@ -47,72 +50,6 @@ interface PackageJson {
   readonly os?: unknown;
   readonly cpu?: unknown;
 }
-
-interface PlatformArtifact {
-  readonly id: string;
-  readonly suffix: string;
-  readonly targetTriple: string;
-  readonly integrity: string;
-  readonly os: string;
-  readonly cpu: string;
-}
-
-const platformArtifacts: Readonly<Record<string, PlatformArtifact>> = deepFreeze({
-  "darwin-arm64": {
-    id: "@openai/codex-darwin-arm64",
-    suffix: "darwin-arm64",
-    targetTriple: "aarch64-apple-darwin",
-    integrity:
-      "sha512-rqFAJdOa2I0VRgepVsSZeLxs96+Y+LXTjccOOvH6894FyaFAYPZ/o+6hgpB1iGHxxdoY/DsGa8jrJC8Leqn9Kg==",
-    os: "darwin",
-    cpu: "arm64",
-  },
-  "darwin-x64": {
-    id: "@openai/codex-darwin-x64",
-    suffix: "darwin-x64",
-    targetTriple: "x86_64-apple-darwin",
-    integrity:
-      "sha512-4p2jxRbN+Khg5UQzpkzT9upFj+qkEF/abmdvrtflkkWmVKP6Nt+yi8ospdqv9PDqvQ9SotPvX7iXaFaeUTrtmA==",
-    os: "darwin",
-    cpu: "x64",
-  },
-  "linux-arm64": {
-    id: "@openai/codex-linux-arm64",
-    suffix: "linux-arm64",
-    targetTriple: "aarch64-unknown-linux-musl",
-    integrity:
-      "sha512-k++xhZrn9P3laO00Q92APG6mdOFDD66nUBo+8ExCa1NXi2pjLEMLC4+UNJTUUtUT1PEflOZ5pDKxPXgzaiFFFg==",
-    os: "linux",
-    cpu: "arm64",
-  },
-  "linux-x64": {
-    id: "@openai/codex-linux-x64",
-    suffix: "linux-x64",
-    targetTriple: "x86_64-unknown-linux-musl",
-    integrity:
-      "sha512-GmKtQeX+cO9lN7mQD1FEVcXYEMLMgMByHwZdvlluH0bj/+c2ind3hwbRtE3eECFDekNhEiB80Ez0FfbkyFQqoA==",
-    os: "linux",
-    cpu: "x64",
-  },
-  "win32-arm64": {
-    id: "@openai/codex-win32-arm64",
-    suffix: "win32-arm64",
-    targetTriple: "aarch64-pc-windows-msvc",
-    integrity:
-      "sha512-e2yGSgwdzrT1SoJMoOzWD58WBEsIaAMZpEchuV2VGkE2T955SG7dn7EyVQTQcy7/rdpE8aEDktZ/1eQQfjkdtQ==",
-    os: "win32",
-    cpu: "arm64",
-  },
-  "win32-x64": {
-    id: "@openai/codex-win32-x64",
-    suffix: "win32-x64",
-    targetTriple: "x86_64-pc-windows-msvc",
-    integrity:
-      "sha512-QiholLCYqNeYvNM77HOmPtrOFrY0rQc/N9nXt+sQGXO3rEGmcWjpLzujY4Oegl3CLRHoieWqlep3EqEvFBjoIA==",
-    os: "win32",
-    cpu: "x64",
-  },
-});
 
 export const CODEX_ALLOWED_ENVIRONMENT_KEYS = Object.freeze([
   "APPDATA",
@@ -212,59 +149,23 @@ export function resolveCodexAcpInstallation(): CodexAcpInstallation {
     "Codex ACP entry",
   );
 
-  const codexPackageJson = realpathSync(require.resolve("@openai/codex/package.json"));
-  const codexPackage = readPackage(codexPackageJson);
-  if (
-    codexPackage.name !== "@openai/codex" ||
-    codexPackage.version !== CODEX_CLI_VERSION
-  ) {
-    throw new TypeError("Installed Codex CLI is not the reviewed release");
+  const codex = resolveBundledCodexInstallation();
+  if (codex === null) {
+    throw new TypeError(
+      "The optional Codex ACP compatibility packages are not installed",
+    );
   }
-
-  const artifact = platformArtifacts[`${process.platform}-${process.arch}`];
-  if (artifact === undefined) {
-    throw new TypeError("This platform has no reviewed Codex executable artifact");
-  }
-  const platformPackageJson = realpathSync(
-    require.resolve(`${artifact.id}/package.json`),
-  );
-  const platformPackage = readPackage(platformPackageJson);
-  const platformVersion = `${CODEX_CLI_VERSION}-${artifact.suffix}`;
-  if (
-    platformPackage.name !== "@openai/codex" ||
-    platformPackage.version !== platformVersion ||
-    !Array.isArray(platformPackage.os) ||
-    platformPackage.os.length !== 1 ||
-    platformPackage.os[0] !== artifact.os ||
-    !Array.isArray(platformPackage.cpu) ||
-    platformPackage.cpu.length !== 1 ||
-    platformPackage.cpu[0] !== artifact.cpu
-  ) {
-    throw new TypeError("Installed Codex platform artifact is not the reviewed release");
-  }
-  const platformRoot = path.dirname(platformPackageJson);
-  const codexExecutable = realContainedFile(
-    platformRoot,
-    path.join(
-      platformRoot,
-      "vendor",
-      artifact.targetTriple,
-      "bin",
-      process.platform === "win32" ? "codex.exe" : "codex",
-    ),
-    "Codex executable",
-  );
   return deepFreeze({
     adapterEntry,
     adapterPackageJson,
     adapterVersion: CODEX_ACP_ADAPTER_VERSION,
-    codexPackageJson,
+    codexPackageJson: codex.codexPackageJson,
     codexVersion: CODEX_CLI_VERSION,
-    platformPackageId: artifact.id,
-    platformPackageJson,
-    codexExecutable,
-    platformVersion,
-    platformIntegrity: artifact.integrity,
+    platformPackageId: codex.platformPackageId,
+    platformPackageJson: codex.platformPackageJson,
+    codexExecutable: codex.codexExecutable,
+    platformVersion: codex.platformVersion,
+    platformIntegrity: codex.platformIntegrity,
   });
 }
 

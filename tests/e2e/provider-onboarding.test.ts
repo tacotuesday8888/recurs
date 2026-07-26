@@ -133,8 +133,10 @@ function codexConnection(): DelegatedConnectionRecord {
     accountLabel: "private-owner@example.com",
     organizationLabel: null,
     modelId: "gpt-test",
+    runtimeCapabilityProfileRevision:
+      "codex-acp-1.1.7-codex-0.145.0-plan-only-v2",
     accountSubjectFingerprint: `sha256:${"a".repeat(64)}`,
-    policyRevision: "openai-codex-chatgpt-2026-07-11",
+    policyRevision: "openai-codex-chatgpt-2026-07-24",
     billingPolicy: {
       revision: "billing:openai-codex-chatgpt:2026-07-11",
       disclosureRevision:

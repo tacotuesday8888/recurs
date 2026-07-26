@@ -10,7 +10,7 @@ import {
 } from "@recurs/app";
 
 const directories: string[] = [];
-const now = "2026-07-23T00:00:00.000Z";
+const now = "2026-07-24T00:00:00.000Z";
 
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) =>
@@ -64,7 +64,7 @@ describe("Codex app-server onboarding", () => {
       adapterId: "codex-app-server",
       reasoningEffort: "high",
       runtimeCapabilityProfileRevision:
-        "codex-app-server-0.144.0-host-tools-v1",
+        "codex-app-server-0.145.0-host-tools-v2",
     });
     expect(result.agentRoutes).toEqual({
       implement: byModel.get("gpt-5.6-terra")!.id,
@@ -90,7 +90,7 @@ describe("Codex app-server onboarding", () => {
     );
     const second = await setupCodexAppServerConnections(
       directory,
-      { ...input, now: "2026-07-23T00:01:00.000Z" },
+      { ...input, now: "2026-07-24T00:01:00.000Z" },
       { createId: () => `unexpected-${++nextId}` },
     );
     expect(second.connections.map((record) => record.id)).toEqual(

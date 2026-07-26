@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { mkdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -37,7 +36,9 @@ import {
   createCodexAcpProfile,
   inspectCodexAcp,
   inspectCodexAppServerSubscription,
+  loginCodexAppServerChatGpt,
   probeCodexAcp,
+  type CodexChatGptLoginPrompt,
   type CodexSubscriptionCatalog,
 } from "@recurs/runtimes";
 
@@ -51,7 +52,9 @@ function currentCodexPolicy(connection: DelegatedConnectionRecord): boolean {
   return entry !== undefined &&
     entry.status === "runnable" &&
     connection.providerId === PROVIDER_ID &&
-    (connection.adapterId === CODEX_ONBOARDING_ADAPTER_ID ||
+    ((connection.adapterId === CODEX_ONBOARDING_ADAPTER_ID &&
+      connection.runtimeCapabilityProfileRevision ===
+        CODEX_ONBOARDING_CAPABILITY_PROFILE_REVISION) ||
       (connection.adapterId === CODEX_APP_SERVER_ONBOARDING_ADAPTER_ID &&
         connection.runtimeCapabilityProfileRevision ===
           CODEX_APP_SERVER_ONBOARDING_PROFILE_REVISION &&
@@ -113,6 +116,9 @@ export interface SetupCodexSubscriptionDependencies {
     signal: AbortSignal,
   ) => Promise<CodexSubscriptionCatalog>;
   readonly authenticateChatGpt?: (signal: AbortSignal) => Promise<void>;
+  readonly presentLogin?: (
+    prompt: CodexChatGptLoginPrompt,
+  ) => void | Promise<void>;
   readonly persist?: typeof setupCodexAppServerConnections;
 }
 
@@ -164,11 +170,17 @@ export async function setupCodexSubscription(
     ));
   const authenticateChatGpt = dependencies.authenticateChatGpt ??
     (async (currentSignal) => {
-      const loginProfile = createCodexAcpProfile({
-        connectionId: `codex-login-${randomUUID()}`,
-        modelId: DISCOVERY_MODEL_ID,
-      });
-      await authenticateCodexAcpChatGpt(loginProfile, currentSignal);
+      if (dependencies.presentLogin === undefined) {
+        throw new CodexOnboardingError(
+          "interaction_required",
+          "Codex ChatGPT login requires an interactive URL presenter",
+        );
+      }
+      await loginCodexAppServerChatGpt(
+        createCodexAppServerProcessProfile(),
+        currentSignal,
+        dependencies.presentLogin,
+      );
     });
   let catalog;
   try {
@@ -336,7 +348,8 @@ export function createCodexAgentRuntime(
   assertSharedConstants();
   if (
     connection.providerId !== PROVIDER_ID ||
-    connection.adapterId !== CODEX_ACP_ADAPTER_ID
+    connection.adapterId !== CODEX_ACP_ADAPTER_ID ||
+    connection.runtimeCapabilityProfileRevision !== CODEX_ACP_PROFILE_REVISION
   ) {
     throw new TypeError("Connection is not an official Codex runtime record");
   }
