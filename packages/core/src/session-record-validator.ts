@@ -10,6 +10,7 @@ import {
   MAX_QUEUED_TURN_BYTES,
   modelImagesByteLength,
   narrowAgentPermissionMode,
+  parseTrustedRunContext,
   parseAgentProfileId,
   parseOperatingModeId,
 } from "@recurs/contracts";
@@ -45,6 +46,15 @@ export function hasExactKeys(
 
 function strings(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isTrustedRunContext(value: unknown): boolean {
+  try {
+    parseTrustedRunContext(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 const MAX_RUNTIME_ID_LENGTH = 512;
@@ -1045,12 +1055,13 @@ export function parseSessionRecordV2(
       valid = recordKeys(
         value,
         ["queuedInputId", "prompt"],
-        ["sourceTurnId"],
+        ["sourceTurnId", "origin"],
       ) &&
         boundedNonEmptyString(value.queuedInputId, MAX_RUNTIME_ID_LENGTH) &&
         boundedNonEmptyUtf8(value.prompt, MAX_QUEUED_TURN_BYTES) &&
         (value.sourceTurnId === undefined ||
-          boundedNonEmptyString(value.sourceTurnId, MAX_RUNTIME_ID_LENGTH));
+          boundedNonEmptyString(value.sourceTurnId, MAX_RUNTIME_ID_LENGTH)) &&
+        (value.origin === undefined || isTrustedRunContext(value.origin));
       break;
     case "prompt_queue_cleared":
       valid = recordKeys(value, ["queuedInputIds"]) &&

@@ -634,6 +634,7 @@ export class BackendRunCoordinator implements RunCoordinator {
               ),
             } as const;
           }
+          const context = deriveTrustedRunContext(input.invocation);
           if (input.queuedInputId !== undefined) {
             const queued = loadedSession.queuedTurns[0];
             if (
@@ -648,8 +649,22 @@ export class BackendRunCoordinator implements RunCoordinator {
                 ),
               } as const;
             }
+            if (
+              queued.origin === null ||
+              !isDeepStrictEqual(queued.origin, context)
+            ) {
+              return {
+                ok: false,
+                failure: failure(
+                  "authorization_denied",
+                  queued.origin === null
+                    ? "The queued turn predates durable origin authority and cannot be resumed"
+                    : "The queued turn authority does not match its durable origin",
+                  operationId,
+                ),
+              } as const;
+            }
           }
-          const context = deriveTrustedRunContext(input.invocation);
           this.#throwIfPreflightAborted(input.signal, operationId);
           const reconciled = await this.#reconcileRuntimeContinuation({
             session: loadedSession,

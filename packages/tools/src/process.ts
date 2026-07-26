@@ -14,25 +14,55 @@ const PROCESS_STDIN_CLOSE_GRACE_MS = 100;
 const LINUX_BUBBLEWRAP_PATH = "/usr/bin/bwrap";
 const LINUX_HIDDEN_DIRECTORY_MODE = "111";
 
-const HOST_CREDENTIAL_DIRECTORIES = [
-  ".ssh",
-  ".aws",
-  ".azure",
-  ".docker",
-  ".gnupg",
-  ".kube",
-  ".password-store",
-  path.join(".config", "gcloud"),
-  path.join(".config", "gh"),
-  path.join(".local", "share", "keyrings"),
+const HOST_CREDENTIAL_PATHS = [
+  { parameter: "HOME_SSH", relative: ".ssh", directory: true },
+  { parameter: "HOME_AWS", relative: ".aws", directory: true },
+  { parameter: "HOME_AZURE", relative: ".azure", directory: true },
+  { parameter: "HOME_DOCKER", relative: ".docker", directory: true },
+  { parameter: "HOME_GNUPG", relative: ".gnupg", directory: true },
+  { parameter: "HOME_KUBE", relative: ".kube", directory: true },
+  {
+    parameter: "HOME_PASSWORD_STORE",
+    relative: ".password-store",
+    directory: true,
+  },
+  {
+    parameter: "HOME_GCLOUD",
+    relative: path.join(".config", "gcloud"),
+    directory: true,
+  },
+  {
+    parameter: "HOME_GH",
+    relative: path.join(".config", "gh"),
+    directory: true,
+  },
+  {
+    parameter: "HOME_KEYRINGS",
+    relative: path.join(".local", "share", "keyrings"),
+    directory: true,
+  },
+  {
+    parameter: "HOME_KEYCHAINS",
+    relative: path.join("Library", "Keychains"),
+    directory: true,
+  },
+  {
+    parameter: "HOME_GIT_CREDENTIALS",
+    relative: ".git-credentials",
+    directory: false,
+  },
+  { parameter: "HOME_NETRC", relative: ".netrc", directory: false },
+  { parameter: "HOME_NPMRC", relative: ".npmrc", directory: false },
+  { parameter: "HOME_PYPIRC", relative: ".pypirc", directory: false },
 ] as const;
 
-const HOST_CREDENTIAL_FILES = [
-  ".git-credentials",
-  ".netrc",
-  ".npmrc",
-  ".pypirc",
-] as const;
+const HOST_CREDENTIAL_DIRECTORIES = HOST_CREDENTIAL_PATHS
+  .filter((entry) => entry.directory)
+  .map((entry) => entry.relative);
+
+const HOST_CREDENTIAL_FILES = HOST_CREDENTIAL_PATHS
+  .filter((entry) => !entry.directory)
+  .map((entry) => entry.relative);
 
 export const TOOL_CHILD_STDIO = Object.freeze([
   "pipe",
@@ -142,6 +172,15 @@ interface SandboxRoots {
   readonly privateRoot: string;
 }
 
+const DARWIN_CREDENTIAL_READ_DENIALS = HOST_CREDENTIAL_PATHS.flatMap(
+  ({ parameter, directory }) => [
+    `    (require-not (literal (param "${parameter}")))`,
+    ...(directory
+      ? [`    (require-not (subpath (param "${parameter}")))`]
+      : []),
+  ],
+);
+
 const DARWIN_SANDBOX_PROFILE = [
   "(version 1)",
   "(deny default)",
@@ -159,21 +198,7 @@ const DARWIN_SANDBOX_PROFILE = [
   "(allow file-read*",
   "  (require-all",
   '    (subpath "/")',
-  '    (require-not (literal (param "HOME_SSH")))',
-  '    (require-not (subpath (param "HOME_SSH")))',
-  '    (require-not (literal (param "HOME_AWS")))',
-  '    (require-not (subpath (param "HOME_AWS")))',
-  '    (require-not (literal (param "HOME_GCLOUD")))',
-  '    (require-not (subpath (param "HOME_GCLOUD")))',
-  '    (require-not (literal (param "HOME_KUBE")))',
-  '    (require-not (subpath (param "HOME_KUBE")))',
-  '    (require-not (literal (param "HOME_DOCKER")))',
-  '    (require-not (subpath (param "HOME_DOCKER")))',
-  '    (require-not (literal (param "HOME_KEYCHAINS")))',
-  '    (require-not (subpath (param "HOME_KEYCHAINS")))',
-  '    (require-not (literal (param "HOME_NETRC")))',
-  '    (require-not (literal (param "HOME_NPMRC")))',
-  '    (require-not (literal (param "HOME_GIT_CREDENTIALS")))',
+  ...DARWIN_CREDENTIAL_READ_DENIALS,
   "  )",
   ")",
   '(allow file-write* (subpath (param "PRIVATE_ROOT")))',
@@ -207,7 +232,7 @@ function canonicalSandboxRoots(
   return { hostHome, workspaceRoot, privateRoot };
 }
 
-function darwinSandboxLaunch(
+export function darwinSandboxLaunch(
   command: string,
   args: readonly string[],
   options: NonNullable<RunProcessOptions["sandbox"]>,
@@ -221,15 +246,9 @@ function darwinSandboxLaunch(
   const definitions = [
     ["WORKSPACE", roots.workspaceRoot],
     ["PRIVATE_ROOT", roots.privateRoot],
-    ["HOME_SSH", path.join(roots.hostHome, ".ssh")],
-    ["HOME_AWS", path.join(roots.hostHome, ".aws")],
-    ["HOME_GCLOUD", path.join(roots.hostHome, ".config", "gcloud")],
-    ["HOME_KUBE", path.join(roots.hostHome, ".kube")],
-    ["HOME_DOCKER", path.join(roots.hostHome, ".docker")],
-    ["HOME_KEYCHAINS", path.join(roots.hostHome, "Library", "Keychains")],
-    ["HOME_NETRC", path.join(roots.hostHome, ".netrc")],
-    ["HOME_NPMRC", path.join(roots.hostHome, ".npmrc")],
-    ["HOME_GIT_CREDENTIALS", path.join(roots.hostHome, ".git-credentials")],
+    ...HOST_CREDENTIAL_PATHS.map(({ parameter, relative }) =>
+      [parameter, path.join(roots.hostHome, relative)] as const
+    ),
   ] as const;
   return {
     command: "/usr/bin/sandbox-exec",

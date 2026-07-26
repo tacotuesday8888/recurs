@@ -31,6 +31,44 @@ export interface TrustedRunContext {
   embedding: "cli" | "desktop" | "sdk" | "ci";
 }
 
+export function parseTrustedRunContext(input: unknown): TrustedRunContext {
+  if (
+    typeof input !== "object" || input === null || Array.isArray(input) ||
+    Object.getPrototypeOf(input) !== Object.prototype
+  ) {
+    throw new TypeError("Trusted run context is invalid");
+  }
+  const value = input as Record<string, unknown>;
+  const keys = Object.keys(value).sort();
+  if (
+    keys.length !== 5 ||
+    keys[0] !== "automation" ||
+    keys[1] !== "embedding" ||
+    keys[2] !== "invocation" ||
+    keys[3] !== "location" ||
+    keys[4] !== "presence" ||
+    (value.invocation !== "repl" &&
+      value.invocation !== "one_shot" &&
+      value.invocation !== "goal") ||
+    (value.presence !== "present" && value.presence !== "unattended") ||
+    (value.location !== "local" && value.location !== "remote") ||
+    (value.automation !== "manual" && value.automation !== "scripted") ||
+    (value.embedding !== "cli" &&
+      value.embedding !== "desktop" &&
+      value.embedding !== "sdk" &&
+      value.embedding !== "ci")
+  ) {
+    throw new TypeError("Trusted run context is invalid");
+  }
+  return Object.freeze({
+    invocation: value.invocation,
+    presence: value.presence,
+    location: value.location,
+    automation: value.automation,
+    embedding: value.embedding,
+  });
+}
+
 export function createHostInvocation(input: HostInvocationInput): HostInvocation {
   return Object.freeze({ ...input, [hostInvocationBrand]: true as const });
 }
@@ -47,6 +85,19 @@ export function deriveTrustedRunContext(
     location: input.remote ? "remote" : "local",
     automation: input.scripted ? "scripted" : "manual",
     embedding: input.embedding,
+  });
+}
+
+export function hostInvocationFromTrustedRunContext(
+  input: TrustedRunContext,
+): HostInvocation {
+  const context = parseTrustedRunContext(input);
+  return createHostInvocation({
+    invocation: context.invocation,
+    userPresent: context.presence === "present",
+    remote: context.location === "remote",
+    scripted: context.automation === "scripted",
+    embedding: context.embedding,
   });
 }
 
@@ -348,6 +399,7 @@ export interface QueuedTurnInput {
   id: string;
   prompt: string;
   at: string;
+  origin: TrustedRunContext;
 }
 
 export const MAX_PENDING_QUEUED_TURNS = 4;

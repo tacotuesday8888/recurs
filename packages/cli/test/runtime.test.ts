@@ -9,6 +9,7 @@ import {
 } from "@recurs/providers";
 import {
   createHostInvocation,
+  deriveTrustedRunContext,
   type CoordinatedRunInput,
   type RunCoordinator,
 } from "@recurs/contracts";
@@ -362,6 +363,13 @@ describe("RecursRuntime", () => {
       text: expect.stringContaining("explicit resume"),
     });
     expect(runtime.session.queuedTurns).toHaveLength(1);
+    expect(runtime.session.queuedTurns[0]?.origin).toEqual({
+      invocation: "one_shot",
+      presence: "unattended",
+      location: "local",
+      automation: "scripted",
+      embedding: "sdk",
+    });
     await expect(runtime.submit("unrelated task")).rejects.toMatchObject({
       code: "busy",
       message: expect.stringContaining("/queue resume"),
@@ -377,6 +385,102 @@ describe("RecursRuntime", () => {
     expect(runtime.session.queuedTurns).toEqual([]);
     expect(provider.requests).toHaveLength(1);
     expect(runtime.session.messages[0]?.content).toBe("saved task");
+  });
+
+  it("resumes durable queued work with its origin authority, not the resumer", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-queue-origin-"));
+    directories.push(directory);
+    const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
+    await sessions.createPinnedSession({
+      id: "s1",
+      at: testAt,
+      cwd: directory,
+      backend: testBackendPin(),
+    });
+    const origin = {
+      invocation: "one_shot",
+      presence: "unattended",
+      location: "local",
+      automation: "scripted",
+      embedding: "sdk",
+    } as const;
+    await sessions.withSessionMutation("s1", 0, async (mutation) => {
+      await mutation.append({
+        type: "prompt_queued",
+        queuedInputId: "queued-1",
+        prompt: "saved task",
+        origin,
+        at: testAt,
+      });
+    });
+    const started: CoordinatedRunInput[] = [];
+    const coordinator: RunCoordinator = {
+      async start(input) {
+        started.push(input);
+        await sessions.withSessionMutation(
+          input.sessionId,
+          input.expectedSessionRecordSequence,
+          async (mutation) => {
+            await mutation.append({
+              type: "turn_started",
+              turnId: "queued-turn",
+              prompt: input.prompt,
+              queuedInputId: input.queuedInputId,
+              at: testAt,
+            });
+            await mutation.append({
+              type: "turn_completed",
+              turnId: "queued-turn",
+              result: {
+                finalText: "resumed",
+                usage: null,
+                usageSource: "unavailable",
+                steps: null,
+                changedFiles: [],
+                changedFilesSource: "none",
+                evidence: [],
+                evidenceSource: "none",
+              },
+              at: testAt,
+            });
+          },
+        );
+        return {
+          events: (async function* () {})(),
+          outcome: Promise.resolve({
+            ok: true,
+            result: {
+              finalText: "resumed",
+              usage: null,
+              usageSource: "unavailable",
+              steps: null,
+              changedFiles: [],
+              changedFilesSource: "none",
+              evidence: [],
+              evidenceSource: "none",
+            },
+          }),
+        };
+      },
+    };
+    const runtime = new RecursRuntime({
+      commands: createCommandRegistry({ sessions }),
+      coordinator,
+      sessions,
+      confirm: async () => true,
+    }, await sessions.loadState("s1"));
+    const strongerResumer = createHostInvocation({
+      invocation: "repl",
+      userPresent: true,
+      remote: false,
+      scripted: false,
+      embedding: "cli",
+    });
+
+    await expect(runtime.submit("/queue resume", strongerResumer)).resolves
+      .toMatchObject({ finalText: "resumed" });
+    expect(started).toHaveLength(1);
+    expect(deriveTrustedRunContext(started[0]!.invocation)).toEqual(origin);
   });
 
   it("preserves a durably admitted turn when cancellation wins completion", async () => {
@@ -415,6 +519,13 @@ describe("RecursRuntime", () => {
     });
     expect(runtime.session.queuedTurns).toHaveLength(1);
     expect(runtime.session.queuedTurns[0]?.prompt).toBe("recover me");
+    expect(runtime.session.queuedTurns[0]?.origin).toEqual({
+      invocation: "one_shot",
+      presence: "unattended",
+      location: "local",
+      automation: "scripted",
+      embedding: "sdk",
+    });
   });
 
   it("keeps read-only slash commands safe during an active turn", async () => {

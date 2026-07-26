@@ -340,6 +340,72 @@ describe("BackendRunCoordinator", () => {
     expect((await sessions.load("s2")).records).toHaveLength(1);
   });
 
+  it.each([
+    {
+      label: "stronger resumer",
+      origin: deriveTrustedRunContext(invocation),
+      resumer: createHostInvocation({
+        invocation: "repl",
+        userPresent: true,
+        remote: false,
+        scripted: false,
+        embedding: "cli",
+      }),
+      message: "The queued turn authority does not match its durable origin",
+    },
+    {
+      label: "legacy record",
+      origin: undefined,
+      resumer: invocation,
+      message:
+        "The queued turn predates durable origin authority and cannot be resumed",
+    },
+  ])("fails closed for a queued turn with $label authority", async ({
+    origin,
+    resumer,
+    message,
+  }) => {
+    const { sessions } = await setup();
+    await sessions.withSessionMutation("s2", 0, async (mutation) => {
+      await mutation.append({
+        type: "prompt_queued",
+        queuedInputId: "queued-1",
+        prompt: "queued work",
+        ...(origin === undefined ? {} : { origin }),
+        at,
+      });
+    });
+    const resolver: BackendResolver = {
+      resolve: vi.fn(async () => {
+        throw new Error("resolver must not run");
+      }),
+    };
+    const direct: DirectRunExecutor = {
+      run: vi.fn(async () => result),
+    };
+    const coordinator = new BackendRunCoordinator({ sessions, resolver, direct });
+
+    const outcome = (await coordinator.start({
+      sessionId: "s2",
+      expectedSessionRecordSequence: 1,
+      prompt: "queued work",
+      queuedInputId: "queued-1",
+      invocation: resumer,
+      signal: new AbortController().signal,
+    })).outcome;
+
+    await expect(outcome).resolves.toMatchObject({
+      ok: false,
+      failure: {
+        code: "authorization_denied",
+        safeMessage: message,
+      },
+    });
+    expect(resolver.resolve).not.toHaveBeenCalled();
+    expect(direct.run).not.toHaveBeenCalled();
+    expect((await sessions.load("s2")).records).toHaveLength(2);
+  });
+
   it("lets cancellation after resolution prevent a backend factory", async () => {
     const { sessions } = await setup();
     const controller = new AbortController();

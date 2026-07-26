@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   createHostInvocation,
   deriveTrustedRunContext,
+  hostInvocationFromTrustedRunContext,
+  parseTrustedRunContext,
 } from "../src/index.js";
 import type {
   ProviderManifest,
@@ -93,6 +95,29 @@ describe("provider-neutral contracts", () => {
       scripted: false,
       embedding: "cli",
     } as never)).toThrow("trusted host");
+  });
+
+  it("strictly restores a persisted trusted context without widening it", () => {
+    const context = parseTrustedRunContext({
+      invocation: "goal",
+      presence: "unattended",
+      location: "remote",
+      automation: "scripted",
+      embedding: "ci",
+    });
+
+    expect(deriveTrustedRunContext(
+      hostInvocationFromTrustedRunContext(context),
+    )).toEqual(context);
+    expect(() => parseTrustedRunContext({
+      ...context,
+      userPresent: true,
+    })).toThrow("Trusted run context is invalid");
+    expect(() => parseTrustedRunContext({
+      ...context,
+      presence: "present",
+      embedding: "browser",
+    })).toThrow("Trusted run context is invalid");
   });
 
   it("keeps contracts as a dependency leaf", async () => {
