@@ -64,6 +64,10 @@ export interface ToolContext {
   runContext?: TrustedRunContext;
   toolPolicy?: ToolPolicy;
   delegationBudget?: DelegationBudget;
+  toolCallBudget?: {
+    readonly maxCalls: number;
+    callsUsed: number;
+  };
   companyCapabilities?: {
     readonly agentSkillNames: readonly string[];
     readonly mcpServerIds: readonly string[];

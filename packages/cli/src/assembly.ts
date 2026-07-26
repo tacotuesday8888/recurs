@@ -127,8 +127,10 @@ import { projectContextInstructions } from "./project-instructions.js";
 import type { LocalConnectionConfiguration } from "./local-connection.js";
 import { createCodexAgentRuntime } from "./codex-connection.js";
 import {
+  COMPANY_ONBOARDING_RESEARCH_TOOL_CALL_LIMIT,
   CompanyOnboardingAgentRuntime,
   companyOnboardingBackendFingerprint,
+  companyOnboardingResearchToolCallsUsed,
   createCompanyOnboardingToolRegistry,
 } from "./company-onboarding-runtime.js";
 import { CompanyProposalEditor } from "./company-proposal-editor.js";
@@ -732,6 +734,15 @@ function createCompanyOnboardingRunCoordinator(input: {
         executionMode: "plan",
         signal,
         readRevisions: new Map(),
+        ...(isPinnedSessionState(session) &&
+            session.agent.profile?.id === "explore_v1"
+          ? {
+              toolCallBudget: {
+                maxCalls: COMPANY_ONBOARDING_RESEARCH_TOOL_CALL_LIMIT,
+                callsUsed: companyOnboardingResearchToolCallsUsed(session),
+              },
+            }
+          : {}),
         ...(isPinnedSessionState(session) && session.agent.profile === null
           ? {
               toolPolicy: {

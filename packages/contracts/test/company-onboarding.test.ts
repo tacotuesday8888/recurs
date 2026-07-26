@@ -74,9 +74,41 @@ describe("company onboarding contracts", () => {
   it("parses and deeply freezes a resumable proposed run", () => {
     const parsed = parseCompanyOnboardingRun(runFixture());
     expect(parsed).toEqual(runFixture());
+    expect(parsed.research[0]).not.toHaveProperty("handoff");
     expect(Object.isFrozen(parsed)).toBe(true);
     expect(Object.isFrozen(parsed.interview.answers)).toBe(true);
     expect(Object.isFrozen(parsed.proposal?.blueprint.roles)).toBe(true);
+  });
+
+  it("loads legacy research and preserves a bounded untrusted handoff separately from evidence", () => {
+    const parsed = parseCompanyOnboardingRun({
+      ...runFixture(),
+      research: [{
+        ...runFixture().research[0]!,
+        decisionRequestCursor: 3,
+        handoff: "UNTRUSTED synthesis: the contracts use bounded modes.",
+      }],
+    });
+
+    expect(parsed.research[0]).toMatchObject({
+      decisionRequestCursor: 3,
+      evidence: ["packages/contracts/src/agents.ts defines bounded modes."],
+      handoff: "UNTRUSTED synthesis: the contracts use bounded modes.",
+    });
+    expect(() => parseCompanyOnboardingRun({
+      ...runFixture(),
+      research: [{
+        ...runFixture().research[0]!,
+        handoff: "x".repeat(2_001),
+      }],
+    })).toThrow(/handoff/iu);
+    expect(() => parseCompanyOnboardingRun({
+      ...runFixture(),
+      research: [{
+        ...runFixture().research[0]!,
+        decisionRequestCursor: -1,
+      }],
+    })).toThrow(/request cursor/iu);
   });
 
   it("rejects research without consent and depth-budget overflow", () => {

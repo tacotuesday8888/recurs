@@ -214,6 +214,32 @@ describe("JsonlTeamRunStore", () => {
     expect(await readFile(file, "utf8")).not.toContain("runId\":\"team-run-1\"\n{");
   });
 
+  it("loads durable journals read-only and rejects a torn tail without repairing it", async () => {
+    const { directory, store } = await fixture();
+    await store.create(descriptor(), baseAt);
+    await expect(store.loadReadOnly("team-run-1")).resolves.toMatchObject({
+      lastSequence: 0,
+    });
+    const file = path.join(directory, "team-run-1.jsonl");
+    await appendFile(file, "{\"version\":1,\"runId\":\"team-run-1\"", "utf8");
+    const before = await readFile(file);
+
+    await expect(store.loadReadOnly("team-run-1")).rejects.toMatchObject({
+      code: "corrupt_log",
+    });
+    expect(await readFile(file)).toEqual(before);
+  });
+
+  it("cancels a read-only load before touching durable state", async () => {
+    const { store } = await fixture();
+    await store.create(descriptor(), baseAt);
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(store.loadReadOnly("team-run-1", controller.signal))
+      .rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("repairs a torn tail that ends midway through a UTF-8 code point", async () => {
     const { directory, store } = await fixture();
     await store.create(descriptor(), baseAt);

@@ -218,6 +218,8 @@ describe("stored company goal evaluation", () => {
       status: "passed",
       backend: { providerId: "stored-provider", modelId: "stored-model" },
       usage: { requestsUsed: 2, reportedCostUsd: 0.02 },
+      completedAt: setup.run.updatedAt,
+      latencyMs: 2_000,
     });
     expect(await snapshot(setup.projectData)).toEqual(before);
     expect(progress).toEqual([
@@ -250,10 +252,13 @@ describe("stored company goal evaluation", () => {
       dataDirectory: setup.dataDirectory,
       projectRoot: setup.projectRoot,
       runId: setup.run.id,
+      now: () => "2026-07-22T03:00:00.000Z",
     });
 
     expect(report).toMatchObject({
       status: "failed",
+      completedAt: setup.run.updatedAt,
+      latencyMs: 2_000,
       usage: { reportedCostUsd: null, source: "unknown" },
       failures: [{ code: "execution_failed" }],
     });

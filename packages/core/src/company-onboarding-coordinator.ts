@@ -4,8 +4,10 @@ import {
   COMPANY_REPOSITORY_MARKERS,
   getCompanyOnboardingDepthPolicy,
   getOperatingModePolicy,
+  narrowAgentPermissionMode,
   parseCompanyBlueprintV2,
   parseCompanyOnboardingRun,
+  parseCompanyResearchAssignmentV1,
   type AgentPermissionMode,
   type AgentProfileId,
   type CompanyOnboardingDepth,
@@ -13,6 +15,7 @@ import {
   type CompanyProjectStage,
   type CompanyProjectType,
   type CompanyProjectV2,
+  type CompanyRoleV2,
   type CompanyRoleCapability,
   type CompanyRoleKind,
   type CompanyToolBundleId,
@@ -88,6 +91,7 @@ export interface CompanyOnboardingResearchPort {
     readonly maxRequests: number;
   }, signal: AbortSignal): Promise<{
     readonly evidence: readonly string[];
+    readonly handoff?: string;
     readonly requestsUsed: number;
     readonly reportedCostUsd: number;
   }>;
@@ -494,6 +498,51 @@ function sameIds(
     leftIds.every((id, index) => id === rightIds[index]);
 }
 
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.length === sortedRight.length &&
+    sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
+function isSubset(
+  candidate: readonly string[],
+  ceiling: readonly string[],
+): boolean {
+  const allowed = new Set(ceiling);
+  return candidate.every((value) => allowed.has(value));
+}
+
+function assertRoleAuthorityRevision(
+  previous: CompanyRoleV2,
+  next: CompanyRoleV2,
+): void {
+  const fixedBoundaryChanged =
+    next.version !== previous.version ||
+    next.kind !== previous.kind ||
+    next.departmentId !== previous.departmentId ||
+    next.reportsTo !== previous.reportsTo ||
+    !sameStringSet(next.delegatesTo, previous.delegatesTo) ||
+    next.executionProfileId !== previous.executionProfileId ||
+    next.modelRoute !== previous.modelRoute;
+  const permissionWidened =
+    narrowAgentPermissionMode(previous.permissionMode, next.permissionMode) !==
+      next.permissionMode;
+  const activationWidened =
+    previous.activation === "on_demand" && next.activation === "always";
+  if (
+    fixedBoundaryChanged ||
+    permissionWidened ||
+    !isSubset(next.capabilities, previous.capabilities) ||
+    !isSubset(next.toolBundles, previous.toolBundles) ||
+    activationWidened
+  ) {
+    throw new TypeError(
+      `Proposal revision cannot widen authority for role ${previous.id}`,
+    );
+  }
+}
+
 function assertProposalRevision(
   previous: CompanyBlueprintV2,
   next: CompanyBlueprintV2,
@@ -505,11 +554,25 @@ function assertProposalRevision(
     next.createdAt !== previous.createdAt || next.designMode !== previous.designMode ||
     JSON.stringify(next.authority) !== JSON.stringify(previous.authority) ||
     JSON.stringify(next.provenance) !== JSON.stringify(previous.provenance) ||
+    JSON.stringify(next.authorityAnchors) !==
+      JSON.stringify(previous.authorityAnchors) ||
     !sameIds(previous.departments, next.departments) ||
-    !sameIds(previous.roles, next.roles)) {
+    !sameIds(previous.roles, next.roles) ||
+    !isSubset(
+      next.activation.defaultActiveRoleIds,
+      previous.activation.defaultActiveRoleIds,
+    )) {
     throw new TypeError(
       "Proposal identity, authority, provenance, and stable role ids are immutable",
     );
+  }
+  const previousRoles = new Map(previous.roles.map((role) => [role.id, role]));
+  for (const role of next.roles) {
+    const previousRole = previousRoles.get(role.id);
+    if (previousRole === undefined) {
+      throw new TypeError(`Proposal revision role ${role.id} is not stable`);
+    }
+    assertRoleAuthorityRevision(previousRole, role);
   }
 }
 
@@ -667,6 +730,7 @@ export class CompanyOnboardingCoordinator {
       );
     }
 
+    const decisionRequestCursor = loaded.state.usage.modelRequests;
     let result: CompanyOnboardingModelResult;
     try {
       result = await this.dependencies.model.decide({
@@ -754,7 +818,13 @@ export class CompanyOnboardingCoordinator {
       return { kind: "question", question: run.state.interview.pendingQuestion!, run };
     }
     if (decision.kind === "research") {
-      return await this.#research(loaded, decision.assignments, policy, signal);
+      return await this.#research(
+        loaded,
+        decision.assignments,
+        decisionRequestCursor,
+        policy,
+        signal,
+      );
     }
 
     let blueprint;
@@ -954,6 +1024,7 @@ export class CompanyOnboardingCoordinator {
   async #research(
     loaded: SequencedCompanyState<CompanyOnboardingRunV1>,
     drafts: readonly CompanyOnboardingResearchDraftV1[],
+    decisionRequestCursor: number,
     policy: ReturnType<typeof getCompanyOnboardingDepthPolicy>,
     signal: AbortSignal,
   ): Promise<Extract<CompanyOnboardingAdvanceResult, { kind: "researched" }>> {
@@ -978,6 +1049,7 @@ export class CompanyOnboardingCoordinator {
       id: this.#newId("research"),
       description: draft.description,
       prompt: draft.prompt,
+      decisionRequestCursor,
       status: "queued" as const,
       evidence: [] as string[],
       failure: null,
@@ -1009,6 +1081,7 @@ export class CompanyOnboardingCoordinator {
     const allowance = Math.max(1, Math.floor(remainingRequests / queued.length));
     const results = new Map<string, {
       evidence: readonly string[];
+      handoff?: string;
       requestsUsed: number;
       reportedCostUsd: number;
       failure: string | null;
@@ -1024,11 +1097,36 @@ export class CompanyOnboardingCoordinator {
             allowedTools: COMPANY_ONBOARDING_TOOL_NAMES,
             maxRequests: allowance,
           }, signal);
-          if (!validUsage(result) || result.requestsUsed > allowance ||
-            !Array.isArray(result.evidence) || result.evidence.length === 0) {
+          if (!validUsage(result) || result.requestsUsed > allowance) {
             throw new TypeError("Invalid research result");
           }
-          results.set(assignment.id, { ...result, failure: null });
+          try {
+            const completed = parseCompanyResearchAssignmentV1({
+              ...assignment,
+              status: "completed",
+              evidence: result.evidence,
+              ...(result.handoff === undefined
+                ? {}
+                : { handoff: result.handoff }),
+              failure: null,
+            });
+            results.set(assignment.id, {
+              evidence: completed.evidence,
+              ...(completed.handoff === undefined
+                ? {}
+                : { handoff: completed.handoff }),
+              requestsUsed: result.requestsUsed,
+              reportedCostUsd: result.reportedCostUsd,
+              failure: null,
+            });
+          } catch {
+            results.set(assignment.id, {
+              evidence: [],
+              requestsUsed: result.requestsUsed,
+              reportedCostUsd: result.reportedCostUsd,
+              failure: "Research assignment failed safely.",
+            });
+          }
         } catch (error) {
           if (isCancelled(error, signal)) throw error;
           results.set(assignment.id, {
@@ -1084,6 +1182,9 @@ export class CompanyOnboardingCoordinator {
               ...assignment,
               status: "completed" as const,
               evidence: [...result.evidence],
+              ...(result.handoff === undefined
+                ? {}
+                : { handoff: result.handoff }),
               failure: null,
             }
           : {

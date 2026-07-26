@@ -4,6 +4,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import {
+  parseCompanyBlueprintV2,
+  type CompanyBlueprintV2,
+  type CompanyRoleV2,
+} from "@recurs/contracts";
 import type {
   CompanyOnboardingDecisionV1,
   CompanyOnboardingModelPort,
@@ -121,6 +126,32 @@ const startInput = {
 };
 
 describe("CompanyOnboardingCoordinator", () => {
+  it.each(["quick", "guided", "deep"] as const)(
+    "durably resumes an interrupted %s interview",
+    async (depth) => {
+      const model = scriptedModel([{
+        kind: "question",
+        id: "outcome",
+        question: "What outcome should the company own?",
+      }]);
+      const setup = await coordinator(model);
+      const input = { ...startInput, depth };
+      const started = await setup.coordinator.start(input);
+      const interrupted = await setup.coordinator.advance(started.state.id);
+
+      const restarted = new CompanyOnboardingCoordinator(
+        setup.coordinator.dependencies,
+      );
+      await expect(restarted.resume(input)).resolves.toEqual(interrupted.run);
+      await expect(restarted.advance(started.state.id)).resolves.toMatchObject({
+        kind: "question",
+        question: { id: "outcome" },
+        run: { sequence: interrupted.run.sequence },
+      });
+      expect(model.calls).toHaveLength(1);
+    },
+  );
+
   it("supports a durable adaptive question, answer, proposal, and approval", async () => {
     const model = scriptedModel([{
       kind: "question",
@@ -225,6 +256,123 @@ describe("CompanyOnboardingCoordinator", () => {
     }
     const proposed = await setup.coordinator.advance(started.state.id);
     expect(proposed.kind).toBe("proposal");
+  });
+
+  it("stores research synthesis separately from attributable evidence", async () => {
+    const setup = await coordinator(scriptedModel([{
+      kind: "research",
+      assignments: [{
+        key: "repository_shape",
+        description: "Inspect the repository shape.",
+        prompt: "Read the package manifest.",
+      }],
+    }]), {
+      async run() {
+        return {
+          evidence: ["read package.json:1-20 (sha256 abcdef)"],
+          handoff: "The package manifest describes a TypeScript workspace.",
+          requestsUsed: 1,
+          reportedCostUsd: 0,
+        };
+      },
+    });
+    const started = await setup.coordinator.start(startInput);
+
+    const researched = await setup.coordinator.advance(started.state.id);
+
+    expect(researched).toMatchObject({
+      kind: "researched",
+      run: {
+        state: {
+          research: [{
+            evidence: ["read package.json:1-20 (sha256 abcdef)"],
+            handoff: "The package manifest describes a TypeScript workspace.",
+          }],
+        },
+      },
+    });
+  });
+
+  it("binds research to the pre-decision request cursor when a decision uses multiple requests", async () => {
+    const model: CompanyOnboardingModelPort = {
+      async decide() {
+        return {
+          decision: {
+            kind: "research",
+            assignments: [{
+              key: "repository_shape",
+              description: "Inspect the repository shape.",
+              prompt: "Read the package manifest.",
+            }],
+          },
+          requestsUsed: 2,
+          reportedCostUsd: 0,
+        };
+      },
+    };
+    const setup = await coordinator(model, {
+      async run(input) {
+        expect(input.assignment).toMatchObject({
+          decisionRequestCursor: 0,
+        });
+        return {
+          evidence: ["read package.json:1-20 (sha256 abcdef)"],
+          requestsUsed: 1,
+          reportedCostUsd: 0,
+        };
+      },
+    });
+    const started = await setup.coordinator.start(startInput);
+
+    const researched = await setup.coordinator.advance(started.state.id);
+
+    expect(researched).toMatchObject({
+      kind: "researched",
+      run: {
+        state: {
+          research: [{ decisionRequestCursor: 0 }],
+          usage: { modelRequests: 3 },
+        },
+      },
+    });
+  });
+
+  it("turns a contract-invalid handoff into an accounted assignment failure", async () => {
+    const setup = await coordinator(scriptedModel([{
+      kind: "research",
+      assignments: [{
+        key: "repository_shape",
+        description: "Inspect the repository shape.",
+        prompt: "Read the package manifest.",
+      }],
+    }]), {
+      async run() {
+        return {
+          evidence: ["read package.json:1-20 (sha256 abcdef)"],
+          handoff: "\u200b".repeat(2_001),
+          requestsUsed: 1,
+          reportedCostUsd: 0.25,
+        };
+      },
+    });
+    const started = await setup.coordinator.start(startInput);
+
+    const researched = await setup.coordinator.advance(started.state.id);
+
+    expect(researched).toMatchObject({
+      kind: "researched",
+      run: {
+        state: {
+          status: "interviewing",
+          usage: { modelRequests: 2, reportedCostUsd: 0.25 },
+          research: [{
+            status: "failed",
+            evidence: [],
+            failure: "Research assignment failed safely.",
+          }],
+        },
+      },
+    });
   });
 
   it("fails closed on research without consent or above the depth limit", async () => {
@@ -384,6 +532,169 @@ describe("CompanyOnboardingCoordinator", () => {
       {
         source: "yaml",
         blueprint: replacedRole,
+        requestsUsed: 0,
+        reportedCostUsd: 0,
+      },
+    )).rejects.toMatchObject({ code: "invalid_model_output" });
+  });
+
+  it("rejects every valid proposal revision that broadens role authority", async () => {
+    const setup = await coordinator(scriptedModel([proposal()]));
+    const started = await setup.coordinator.start(startInput);
+    const proposed = await setup.coordinator.advance(started.state.id);
+    if (proposed.kind !== "proposal") throw new Error("expected proposal");
+    const base = proposed.blueprint;
+    const candidate = (
+      revise: (blueprint: CompanyBlueprintV2) => CompanyBlueprintV2,
+    ): CompanyBlueprintV2 =>
+      parseCompanyBlueprintV2(revise(structuredClone(base)));
+    const replaceRole = (
+      blueprint: CompanyBlueprintV2,
+      roleId: string,
+      update: Partial<CompanyRoleV2>,
+    ): CompanyBlueprintV2 => ({
+      ...blueprint,
+      roles: blueprint.roles.map((item) =>
+        item.id === roleId ? { ...item, ...update } : item
+      ),
+    });
+    const reviewer = base.roles.find((role) =>
+      role.permissionMode === "ask_always"
+    );
+    const specialist = base.roles.find((role) =>
+      role.displayName === "Product Planner"
+    );
+    const inactiveRole = base.roles.find((role) =>
+      role.activation === "on_demand"
+    );
+    const lead = base.roles.find((role) => role.kind === "lead");
+    const root = base.roles.find((role) =>
+      role.id === base.authorityAnchors.rootRoleId
+    );
+    if (
+      reviewer === undefined || specialist === undefined ||
+      inactiveRole === undefined || lead === undefined || root === undefined ||
+      specialist.reportsTo !== root.id
+    ) {
+      throw new Error("expected stable-core authority fixtures");
+    }
+    const cases = [
+      candidate((blueprint) =>
+        replaceRole(blueprint, reviewer.id, {
+          permissionMode: "approved_for_me",
+        })
+      ),
+      candidate((blueprint) =>
+        replaceRole(blueprint, specialist.id, {
+          capabilities: [...specialist.capabilities, "release"],
+        })
+      ),
+      candidate((blueprint) =>
+        replaceRole(blueprint, specialist.id, {
+          toolBundles: [...specialist.toolBundles, "source_control_v1"],
+        })
+      ),
+      candidate((blueprint) =>
+        replaceRole(blueprint, inactiveRole.id, { activation: "always" })
+      ),
+      candidate((blueprint) =>
+        replaceRole(blueprint, specialist.id, {
+          executionProfileId: "implement_v2",
+          modelRoute: "implement",
+        })
+      ),
+      candidate((blueprint) => ({
+        ...blueprint,
+        roles: blueprint.roles.map((item) =>
+          item.id === root.id
+            ? {
+                ...item,
+                delegatesTo: item.delegatesTo.filter(
+                  (id) => id !== specialist.id,
+                ),
+              }
+            : item.id === lead.id
+              ? {
+                  ...item,
+                  delegatesTo: [...item.delegatesTo, specialist.id],
+                }
+              : item.id === specialist.id
+                ? { ...item, reportsTo: lead.id }
+                : item
+        ),
+      })),
+    ];
+
+    for (const blueprint of cases) {
+      await expect(setup.coordinator.reviseProposal(
+        started.state.id,
+        proposed.run.sequence,
+        {
+          source: "yaml",
+          blueprint,
+          requestsUsed: 0,
+          reportedCostUsd: 0,
+        },
+      )).rejects.toMatchObject({ code: "invalid_model_output" });
+    }
+  });
+
+  it("permits explicit authority narrowing but cannot silently restore it", async () => {
+    const setup = await coordinator(scriptedModel([proposal()]));
+    const started = await setup.coordinator.start(startInput);
+    const proposed = await setup.coordinator.advance(started.state.id);
+    if (proposed.kind !== "proposal") throw new Error("expected proposal");
+    const onDemand = proposed.blueprint.roles.find((role) =>
+      role.activation === "on_demand" &&
+      role.permissionMode === "approved_for_me" &&
+      proposed.blueprint.activation.defaultActiveRoleIds.includes(role.id)
+    );
+    if (onDemand === undefined) throw new Error("expected active optional role");
+    const narrowed = parseCompanyBlueprintV2({
+      ...proposed.blueprint,
+      roles: proposed.blueprint.roles.map((role) =>
+        role.id === onDemand.id ? { ...role, permissionMode: "ask_always" } : role
+      ),
+      activation: {
+        defaultActiveRoleIds:
+          proposed.blueprint.activation.defaultActiveRoleIds.filter(
+            (id) => id !== onDemand.id,
+          ),
+      },
+    });
+
+    const accepted = await setup.coordinator.reviseProposal(
+      started.state.id,
+      proposed.run.sequence,
+      {
+        source: "yaml",
+        blueprint: narrowed,
+        requestsUsed: 0,
+        reportedCostUsd: 0,
+      },
+    );
+    expect(accepted.changed).toBe(true);
+
+    const restored = parseCompanyBlueprintV2({
+      ...accepted.run.state.proposal!.blueprint,
+      roles: accepted.run.state.proposal!.blueprint.roles.map((role) =>
+        role.id === onDemand.id
+          ? { ...role, permissionMode: "approved_for_me" }
+          : role
+      ),
+      activation: {
+        defaultActiveRoleIds: [
+          ...accepted.run.state.proposal!.blueprint.activation.defaultActiveRoleIds,
+          onDemand.id,
+        ],
+      },
+    });
+    await expect(setup.coordinator.reviseProposal(
+      started.state.id,
+      accepted.run.sequence,
+      {
+        source: "yaml",
+        blueprint: restored,
         requestsUsed: 0,
         reportedCostUsd: 0,
       },

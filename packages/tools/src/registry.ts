@@ -169,6 +169,26 @@ function applyToolPolicyMetadata(
   };
 }
 
+function reserveToolCall(context: ToolContext): void {
+  const budget = context.toolCallBudget;
+  if (budget === undefined) return;
+  if (!Number.isSafeInteger(budget.maxCalls) || budget.maxCalls < 1 ||
+    !Number.isSafeInteger(budget.callsUsed) || budget.callsUsed < 0 ||
+    budget.callsUsed > budget.maxCalls) {
+    throw new ToolError(
+      "permission_denied",
+      "Tool call budget is invalid",
+    );
+  }
+  if (budget.callsUsed >= budget.maxCalls) {
+    throw new ToolError(
+      "permission_denied",
+      "Tool call ceiling was exhausted",
+    );
+  }
+  budget.callsUsed += 1;
+}
+
 export class ToolRegistry {
   readonly #tools = new Map<string, RegisteredTool>();
   readonly #checkpoints: CheckpointStore | undefined;
@@ -268,6 +288,7 @@ export class ToolRegistry {
         "Model tools are disabled for this runtime",
       );
     }
+    reserveToolCall(context);
     const tool = this.#tools.get(call.name);
     if (tool === undefined) {
       throw new ToolError("unknown_tool", `Unknown tool: ${call.name}`);

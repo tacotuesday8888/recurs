@@ -382,6 +382,70 @@ describe("ToolRegistry", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("enforces one shared tool-call ceiling across repeated and concurrent invocations", async () => {
+    const tool = textTool();
+    const execute = vi.spyOn(tool, "execute");
+    const registry = new ToolRegistry([tool]);
+    const toolContext: ToolContext = {
+      ...context(),
+      toolCallBudget: { maxCalls: 2, callsUsed: 0 },
+    };
+    const engine = new PermissionEngine("full_access");
+
+    await expect(Promise.all([
+      registry.invoke(
+        { id: "1", name: "echo", arguments: { text: "one" } },
+        toolContext,
+        engine,
+        deny,
+      ),
+      registry.invoke(
+        { id: "2", name: "echo", arguments: { text: "two" } },
+        toolContext,
+        engine,
+        deny,
+      ),
+    ])).resolves.toHaveLength(2);
+    await expect(registry.invoke(
+      { id: "3", name: "echo", arguments: { text: "three" } },
+      toolContext,
+      engine,
+      deny,
+    )).rejects.toMatchObject({
+      code: "permission_denied",
+      message: "Tool call ceiling was exhausted",
+    });
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it("continues from a previously consumed tool-call budget", async () => {
+    const tool = textTool();
+    const execute = vi.spyOn(tool, "execute");
+    const registry = new ToolRegistry([tool]);
+    const toolContext: ToolContext = {
+      ...context(),
+      toolCallBudget: { maxCalls: 8, callsUsed: 7 },
+    };
+    const engine = new PermissionEngine("full_access");
+
+    await expect(registry.invoke(
+      { id: "8", name: "echo", arguments: { text: "eight" } },
+      toolContext,
+      engine,
+      deny,
+    )).resolves.toBeDefined();
+    await expect(registry.invoke(
+      { id: "9", name: "echo", arguments: { text: "nine" } },
+      toolContext,
+      engine,
+      deny,
+    )).rejects.toMatchObject({
+      code: "permission_denied",
+      message: "Tool call ceiling was exhausted",
+    });
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
   it("persists an approved action only for the current session engine", async () => {
     const approvals: ApprovalHandler = {
       request: vi.fn(async () => "allow_session" as const),
