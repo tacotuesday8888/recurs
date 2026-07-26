@@ -4,6 +4,7 @@ import {
   COMPANY_REPOSITORY_MARKERS,
   getCompanyOnboardingDepthPolicy,
   getOperatingModePolicy,
+  narrowAgentPermissionMode,
   parseCompanyBlueprintV2,
   parseCompanyOnboardingRun,
   parseCompanyResearchAssignmentV1,
@@ -14,6 +15,7 @@ import {
   type CompanyProjectStage,
   type CompanyProjectType,
   type CompanyProjectV2,
+  type CompanyRoleV2,
   type CompanyRoleCapability,
   type CompanyRoleKind,
   type CompanyToolBundleId,
@@ -496,6 +498,51 @@ function sameIds(
     leftIds.every((id, index) => id === rightIds[index]);
 }
 
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.length === sortedRight.length &&
+    sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
+function isSubset(
+  candidate: readonly string[],
+  ceiling: readonly string[],
+): boolean {
+  const allowed = new Set(ceiling);
+  return candidate.every((value) => allowed.has(value));
+}
+
+function assertRoleAuthorityRevision(
+  previous: CompanyRoleV2,
+  next: CompanyRoleV2,
+): void {
+  const fixedBoundaryChanged =
+    next.version !== previous.version ||
+    next.kind !== previous.kind ||
+    next.departmentId !== previous.departmentId ||
+    next.reportsTo !== previous.reportsTo ||
+    !sameStringSet(next.delegatesTo, previous.delegatesTo) ||
+    next.executionProfileId !== previous.executionProfileId ||
+    next.modelRoute !== previous.modelRoute;
+  const permissionWidened =
+    narrowAgentPermissionMode(previous.permissionMode, next.permissionMode) !==
+      next.permissionMode;
+  const activationWidened =
+    previous.activation === "on_demand" && next.activation === "always";
+  if (
+    fixedBoundaryChanged ||
+    permissionWidened ||
+    !isSubset(next.capabilities, previous.capabilities) ||
+    !isSubset(next.toolBundles, previous.toolBundles) ||
+    activationWidened
+  ) {
+    throw new TypeError(
+      `Proposal revision cannot widen authority for role ${previous.id}`,
+    );
+  }
+}
+
 function assertProposalRevision(
   previous: CompanyBlueprintV2,
   next: CompanyBlueprintV2,
@@ -507,11 +554,25 @@ function assertProposalRevision(
     next.createdAt !== previous.createdAt || next.designMode !== previous.designMode ||
     JSON.stringify(next.authority) !== JSON.stringify(previous.authority) ||
     JSON.stringify(next.provenance) !== JSON.stringify(previous.provenance) ||
+    JSON.stringify(next.authorityAnchors) !==
+      JSON.stringify(previous.authorityAnchors) ||
     !sameIds(previous.departments, next.departments) ||
-    !sameIds(previous.roles, next.roles)) {
+    !sameIds(previous.roles, next.roles) ||
+    !isSubset(
+      next.activation.defaultActiveRoleIds,
+      previous.activation.defaultActiveRoleIds,
+    )) {
     throw new TypeError(
       "Proposal identity, authority, provenance, and stable role ids are immutable",
     );
+  }
+  const previousRoles = new Map(previous.roles.map((role) => [role.id, role]));
+  for (const role of next.roles) {
+    const previousRole = previousRoles.get(role.id);
+    if (previousRole === undefined) {
+      throw new TypeError(`Proposal revision role ${role.id} is not stable`);
+    }
+    assertRoleAuthorityRevision(previousRole, role);
   }
 }
 

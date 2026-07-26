@@ -4,6 +4,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import {
+  parseCompanyBlueprintV2,
+  type CompanyBlueprintV2,
+  type CompanyRoleV2,
+} from "@recurs/contracts";
 import type {
   CompanyOnboardingDecisionV1,
   CompanyOnboardingModelPort,
@@ -527,6 +532,169 @@ describe("CompanyOnboardingCoordinator", () => {
       {
         source: "yaml",
         blueprint: replacedRole,
+        requestsUsed: 0,
+        reportedCostUsd: 0,
+      },
+    )).rejects.toMatchObject({ code: "invalid_model_output" });
+  });
+
+  it("rejects every valid proposal revision that broadens role authority", async () => {
+    const setup = await coordinator(scriptedModel([proposal()]));
+    const started = await setup.coordinator.start(startInput);
+    const proposed = await setup.coordinator.advance(started.state.id);
+    if (proposed.kind !== "proposal") throw new Error("expected proposal");
+    const base = proposed.blueprint;
+    const candidate = (
+      revise: (blueprint: CompanyBlueprintV2) => CompanyBlueprintV2,
+    ): CompanyBlueprintV2 =>
+      parseCompanyBlueprintV2(revise(structuredClone(base)));
+    const replaceRole = (
+      blueprint: CompanyBlueprintV2,
+      roleId: string,
+      update: Partial<CompanyRoleV2>,
+    ): CompanyBlueprintV2 => ({
+      ...blueprint,
+      roles: blueprint.roles.map((item) =>
+        item.id === roleId ? { ...item, ...update } : item
+      ),
+    });
+    const reviewer = base.roles.find((role) =>
+      role.permissionMode === "ask_always"
+    );
+    const specialist = base.roles.find((role) =>
+      role.displayName === "Product Planner"
+    );
+    const inactiveRole = base.roles.find((role) =>
+      role.activation === "on_demand"
+    );
+    const lead = base.roles.find((role) => role.kind === "lead");
+    const root = base.roles.find((role) =>
+      role.id === base.authorityAnchors.rootRoleId
+    );
+    if (
+      reviewer === undefined || specialist === undefined ||
+      inactiveRole === undefined || lead === undefined || root === undefined ||
+      specialist.reportsTo !== root.id
+    ) {
+      throw new Error("expected stable-core authority fixtures");
+    }
+    const cases = [
+      candidate((blueprint) =>
+        replaceRole(blueprint, reviewer.id, {
+          permissionMode: "approved_for_me",
+        })
+      ),
+      candidate((blueprint) =>
+        replaceRole(blueprint, specialist.id, {
+          capabilities: [...specialist.capabilities, "release"],
+        })
+      ),
+      candidate((blueprint) =>
+        replaceRole(blueprint, specialist.id, {
+          toolBundles: [...specialist.toolBundles, "source_control_v1"],
+        })
+      ),
+      candidate((blueprint) =>
+        replaceRole(blueprint, inactiveRole.id, { activation: "always" })
+      ),
+      candidate((blueprint) =>
+        replaceRole(blueprint, specialist.id, {
+          executionProfileId: "implement_v2",
+          modelRoute: "implement",
+        })
+      ),
+      candidate((blueprint) => ({
+        ...blueprint,
+        roles: blueprint.roles.map((item) =>
+          item.id === root.id
+            ? {
+                ...item,
+                delegatesTo: item.delegatesTo.filter(
+                  (id) => id !== specialist.id,
+                ),
+              }
+            : item.id === lead.id
+              ? {
+                  ...item,
+                  delegatesTo: [...item.delegatesTo, specialist.id],
+                }
+              : item.id === specialist.id
+                ? { ...item, reportsTo: lead.id }
+                : item
+        ),
+      })),
+    ];
+
+    for (const blueprint of cases) {
+      await expect(setup.coordinator.reviseProposal(
+        started.state.id,
+        proposed.run.sequence,
+        {
+          source: "yaml",
+          blueprint,
+          requestsUsed: 0,
+          reportedCostUsd: 0,
+        },
+      )).rejects.toMatchObject({ code: "invalid_model_output" });
+    }
+  });
+
+  it("permits explicit authority narrowing but cannot silently restore it", async () => {
+    const setup = await coordinator(scriptedModel([proposal()]));
+    const started = await setup.coordinator.start(startInput);
+    const proposed = await setup.coordinator.advance(started.state.id);
+    if (proposed.kind !== "proposal") throw new Error("expected proposal");
+    const onDemand = proposed.blueprint.roles.find((role) =>
+      role.activation === "on_demand" &&
+      role.permissionMode === "approved_for_me" &&
+      proposed.blueprint.activation.defaultActiveRoleIds.includes(role.id)
+    );
+    if (onDemand === undefined) throw new Error("expected active optional role");
+    const narrowed = parseCompanyBlueprintV2({
+      ...proposed.blueprint,
+      roles: proposed.blueprint.roles.map((role) =>
+        role.id === onDemand.id ? { ...role, permissionMode: "ask_always" } : role
+      ),
+      activation: {
+        defaultActiveRoleIds:
+          proposed.blueprint.activation.defaultActiveRoleIds.filter(
+            (id) => id !== onDemand.id,
+          ),
+      },
+    });
+
+    const accepted = await setup.coordinator.reviseProposal(
+      started.state.id,
+      proposed.run.sequence,
+      {
+        source: "yaml",
+        blueprint: narrowed,
+        requestsUsed: 0,
+        reportedCostUsd: 0,
+      },
+    );
+    expect(accepted.changed).toBe(true);
+
+    const restored = parseCompanyBlueprintV2({
+      ...accepted.run.state.proposal!.blueprint,
+      roles: accepted.run.state.proposal!.blueprint.roles.map((role) =>
+        role.id === onDemand.id
+          ? { ...role, permissionMode: "approved_for_me" }
+          : role
+      ),
+      activation: {
+        defaultActiveRoleIds: [
+          ...accepted.run.state.proposal!.blueprint.activation.defaultActiveRoleIds,
+          onDemand.id,
+        ],
+      },
+    });
+    await expect(setup.coordinator.reviseProposal(
+      started.state.id,
+      accepted.run.sequence,
+      {
+        source: "yaml",
+        blueprint: restored,
         requestsUsed: 0,
         reportedCostUsd: 0,
       },
