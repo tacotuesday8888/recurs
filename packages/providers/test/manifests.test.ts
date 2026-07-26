@@ -238,7 +238,7 @@ const CANONICAL_MATRIX = [
     id: "openai-codex-chatgpt",
     adapterKind: "agent_runtime",
     accessKind: "subscription",
-    protocol: "acp",
+    protocol: "official_runtime",
     endpoints: [],
     supportStatus: "conditional",
   },
@@ -563,7 +563,7 @@ describe("bundled provider manifests", () => {
     });
   });
 
-  it("models usable ChatGPT Codex sessions without claiming plan visibility", () => {
+  it("models usable ChatGPT Codex sessions without treating plan type as entitlement", () => {
     const codex = bundled("openai-codex-chatgpt");
 
     expect(codex.billingPolicy).toEqual(expectedBillingPolicy(
@@ -584,7 +584,7 @@ describe("bundled provider manifests", () => {
     expect(serialized).not.toContain("openai.codex.chatgpt_plan_active");
     expect(serialized).not.toMatch(/verified plan entitlement|report an active ChatGPT plan/i);
     expect(codex.usagePolicy.evidenceSummary).toContain(
-      "codex-acp 1.1.2 does not report plan tier, organization, or billing source",
+      "app-server reports the ChatGPT plan type, while organization and billing source remain unavailable",
     );
     expect(codex.usagePolicy.evidenceSummary).toContain(
       "automatically draws from the credit balance",
@@ -614,7 +614,7 @@ describe("bundled provider manifests", () => {
           ],
         },
         reason: expect.stringMatching(
-          /successful Codex session\/model\/mode check.*plan tier is not reported by the adapter/i,
+          /successful Codex session\/model\/mode check.*plan type is contextual and does not prove entitlement or identify billing source/i,
         ),
       },
       {
@@ -640,7 +640,7 @@ describe("bundled provider manifests", () => {
           ],
         },
         reason: expect.stringMatching(
-          /successful Codex session\/model\/mode check.*plan tier is not reported by the adapter/i,
+          /successful Codex session\/model\/mode check.*plan type is contextual and does not prove entitlement or identify billing source/i,
         ),
       },
     ]);
@@ -675,12 +675,18 @@ describe("bundled provider manifests", () => {
   it("ships current, sourced policy evidence and typed conditional gates", () => {
     for (const manifest of BUNDLED_PROVIDER_MANIFESTS) {
       expect(manifest.usagePolicy.reviewedAt).toBe(
-        manifest.id === "xai-api" ? "2026-07-21" : REVIEWED_AT,
+        manifest.id === "openai-codex-chatgpt"
+          ? "2026-07-24"
+          : manifest.id === "xai-api"
+            ? "2026-07-21"
+            : REVIEWED_AT,
       );
       expect(manifest.usagePolicy.expiresAt).toBe(
-        manifest.id === "xai-api"
-          ? "2026-10-21T00:00:00.000Z"
-          : EXPIRES_AT,
+        manifest.id === "openai-codex-chatgpt"
+          ? "2026-10-24T00:00:00.000Z"
+          : manifest.id === "xai-api"
+            ? "2026-10-21T00:00:00.000Z"
+            : EXPIRES_AT,
       );
       expect(manifest.usagePolicy.revision.trim()).not.toBe("");
       expect(manifest.usagePolicy.evidenceSummary.trim()).not.toBe("");
@@ -1113,6 +1119,12 @@ describe("validateProviderManifest", () => {
     const direct = cloneManifest(bundled("openai-api"));
     direct["credentialOwner"] = "vendor_runtime";
     expect(() => validateProviderManifest(direct)).toThrow(/credential owner/i);
+
+    const directOfficialRuntime = cloneManifest(bundled("openai-api"));
+    directOfficialRuntime["protocol"] = "official_runtime";
+    expect(() => validateProviderManifest(directOfficialRuntime)).toThrow(
+      /invalid protocol for their lane/i,
+    );
 
     const conditional = cloneManifest(bundled("minimax-token-plan"));
     const policy = conditional["usagePolicy"] as Record<string, unknown>;

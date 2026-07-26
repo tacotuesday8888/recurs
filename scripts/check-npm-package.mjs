@@ -18,22 +18,24 @@ const bundlePath = path.join(root, "dist/cli/main.js");
 const licensePath = path.join(root, "LICENSE");
 const noticesPath = path.join(root, "THIRD_PARTY_NOTICES.md");
 const expectedDependencies = Object.freeze({
-  "@agentclientprotocol/codex-acp": "1.1.2",
-  "@agentclientprotocol/sdk": "1.2.1",
-  "@openai/codex": "0.144.0",
+  "@agentclientprotocol/sdk": "1.3.0",
   typescript: "6.0.3",
   ws: "8.21.1",
   yaml: "2.9.0",
   zod: "4.4.3",
 });
+const expectedOptionalPeerDependencies = Object.freeze({
+  "@agentclientprotocol/codex-acp": "1.1.7",
+  "@openai/codex": "0.145.0",
+});
 const expectedOptionalDependencies = Object.freeze({
   "@lydell/node-pty": "1.1.0",
 });
 const expectedNoticeRows = Object.freeze([
-  "| `@agentclientprotocol/codex-acp` | 1.1.2 | Apache-2.0 |",
-  "| `@agentclientprotocol/sdk` | 1.2.1 | Apache-2.0 |",
+  "| `@agentclientprotocol/codex-acp` | 1.1.7 | Apache-2.0 |",
+  "| `@agentclientprotocol/sdk` | 1.3.0 | Apache-2.0 |",
   "| `@lydell/node-pty` | 1.1.0 | MIT |",
-  "| `@openai/codex` | 0.144.0 | Apache-2.0 |",
+  "| `@openai/codex` | 0.145.0 | Apache-2.0 |",
   "| `typescript` | 6.0.3 | Apache-2.0 |",
   "| `ws` | 8.21.1 | MIT |",
   "| `yaml` | 2.9.0 | ISC |",
@@ -91,6 +93,14 @@ assert(
   JSON.stringify(packageJson.optionalDependencies) ===
     JSON.stringify(expectedOptionalDependencies),
   "Optional runtime dependencies must remain exact and reviewed.",
+);
+assert(
+  JSON.stringify(packageJson.peerDependencies) ===
+    JSON.stringify(expectedOptionalPeerDependencies) &&
+    Object.keys(expectedOptionalPeerDependencies).every((dependency) =>
+      packageJson.peerDependenciesMeta?.[dependency]?.optional === true
+    ),
+  "Codex compatibility peers must remain exact, reviewed, and optional.",
 );
 for (const row of expectedNoticeRows) {
   assert(

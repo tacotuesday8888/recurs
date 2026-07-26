@@ -52,6 +52,39 @@ lines.on("line", (line) => {
     send({ id: message.id, result: { account, requiresOpenaiAuth: true } });
     return;
   }
+  if (message.method === "account/login/start") {
+    if (
+      !initialized ||
+      message.params?.type !== "chatgpt" ||
+      message.params?.useHostedLoginSuccessPage !== true ||
+      message.params?.appBrand !== "codex"
+    ) {
+      send({ id: message.id, error: { code: -32000, message: "invalid login" } });
+      return;
+    }
+    send({
+      id: message.id,
+      result: {
+        type: "chatgpt",
+        loginId: "fake-login-1",
+        authUrl: "https://chatgpt.example/login?state=ephemeral",
+      },
+    });
+    if (scenario === "login-cancel") return;
+    send({
+      method: "account/login/completed",
+      params: {
+        loginId: "fake-login-1",
+        success: scenario !== "login-failed",
+        error: scenario === "login-failed" ? "vendor detail" : null,
+      },
+    });
+    return;
+  }
+  if (message.method === "account/login/cancel") {
+    send({ id: message.id, result: {} });
+    return;
+  }
   if (message.method === "model/list") {
     if (scenario === "malformed-catalog") {
       send({ id: message.id, result: { data: [{ id: "bad" }], nextCursor: null } });
@@ -89,10 +122,14 @@ lines.on("line", (line) => {
   }
   if (message.method === "thread/start") {
     const safe = message.params?.model === "gpt-test" &&
+      message.params?.allowProviderModelFallback === false &&
       Array.isArray(message.params?.environments) &&
       message.params.environments.length === 0 &&
+      Array.isArray(message.params?.selectedCapabilityRoots) &&
+      message.params.selectedCapabilityRoots.length === 0 &&
       message.params?.sandbox === "read-only" &&
       message.params?.approvalPolicy === "never" &&
+      message.params?.ephemeral === true &&
       message.params?.developerInstructions?.includes(
         "when apply_patch is supplied, it is the authorized write path",
       ) &&
@@ -133,6 +170,19 @@ lines.on("line", (line) => {
     if (scenario === "runtime-tool") {
       pendingRuntimeTurn = "vendor-turn-1";
       send({
+        method: "item/started",
+        params: {
+          threadId: "vendor-thread-1",
+          turnId: "vendor-turn-1",
+          item: {
+            id: "call-1",
+            type: "dynamicToolCall",
+            tool: "read_file",
+            status: "inProgress",
+          },
+        },
+      });
+      send({
         id: "dynamic-tool-1",
         method: "item/tool/call",
         params: {
@@ -142,6 +192,91 @@ lines.on("line", (line) => {
           namespace: null,
           tool: "read_file",
           arguments: { path: "README.md" },
+        },
+      });
+      return;
+    }
+    const lifecycleScenarios = {
+      "runtime-command-tool": "commandExecution",
+      "runtime-file-change": "fileChange",
+      "runtime-mcp-tool": "mcpToolCall",
+      "runtime-legacy-collab-tool": "collabAgentToolCall",
+      "runtime-collab-tool": "collabToolCall",
+      "runtime-web-search": "webSearch",
+      "runtime-image-view": "imageView",
+      "runtime-unknown-item": "futureHostedTool",
+      "runtime-unknown-dynamic-tool": "dynamicToolCall",
+    };
+    const lifecycleType = lifecycleScenarios[scenario];
+    if (lifecycleType !== undefined) {
+      send({
+        method: "item/started",
+        params: {
+          threadId: "vendor-thread-1",
+          turnId: "vendor-turn-1",
+          item: {
+            id: "vendor-item-1",
+            type: lifecycleType,
+            tool: lifecycleType === "dynamicToolCall" ? "unknown_tool" : undefined,
+            status: "inProgress",
+          },
+        },
+      });
+      send({
+        method: "turn/completed",
+        params: {
+          threadId: "vendor-thread-1",
+          turn: { id: "vendor-turn-1", status: "completed", error: null },
+        },
+      });
+      return;
+    }
+    if (scenario === "runtime-model-rerouted") {
+      send({
+        method: "model/rerouted",
+        params: {
+          threadId: "vendor-thread-1",
+          turnId: "vendor-turn-1",
+          fromModel: "gpt-test",
+          toModel: "gpt-fallback",
+          reason: "safety",
+        },
+      });
+      send({
+        method: "turn/completed",
+        params: {
+          threadId: "vendor-thread-1",
+          turn: { id: "vendor-turn-1", status: "completed", error: null },
+        },
+      });
+      return;
+    }
+    if (scenario === "runtime-passive-items") {
+      for (const type of [
+        "userMessage",
+        "agentMessage",
+        "plan",
+        "reasoning",
+        "sleep",
+        "enteredReviewMode",
+        "exitedReviewMode",
+        "contextCompaction",
+        "compacted",
+      ]) {
+        send({
+          method: "item/completed",
+          params: {
+            threadId: "vendor-thread-1",
+            turnId: "vendor-turn-1",
+            item: { id: `passive-${type}`, type },
+          },
+        });
+      }
+      send({
+        method: "turn/completed",
+        params: {
+          threadId: "vendor-thread-1",
+          turn: { id: "vendor-turn-1", status: "completed", error: null },
         },
       });
       return;
@@ -178,6 +313,19 @@ lines.on("line", (line) => {
   }
   if (message.id === "dynamic-tool-1" && pendingRuntimeTurn !== null) {
     const text = message.result?.contentItems?.[0]?.text;
+    send({
+      method: "item/completed",
+      params: {
+        threadId: "vendor-thread-1",
+        turnId: pendingRuntimeTurn,
+        item: {
+          id: "call-1",
+          type: "dynamicToolCall",
+          tool: "read_file",
+          status: "completed",
+        },
+      },
+    });
     send({
       method: "item/agentMessage/delta",
       params: {

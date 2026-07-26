@@ -108,7 +108,7 @@ rl.on("line", (line) => {
     }
     result(message.id, {
       protocolVersion: 1,
-      agentInfo: { name: "@agentclientprotocol/codex-acp", version: "1.1.2" },
+      agentInfo: { name: "@agentclientprotocol/codex-acp", version: "1.1.7" },
       authMethods: scenario === "no-browser"
         ? [{ id: "api-key", name: "API Key" }]
         : [

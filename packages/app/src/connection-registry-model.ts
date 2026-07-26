@@ -591,8 +591,6 @@ function parseLocal(value: Record<string, unknown>): LocalConnectionRecord {
 function parseDelegated(
   value: Record<string, unknown>,
 ): DelegatedConnectionRecord {
-  const extended = value.reasoningEffort !== undefined ||
-    value.runtimeCapabilityProfileRevision !== undefined;
   exactKeys(value, [
     "kind",
     "id",
@@ -602,9 +600,10 @@ function parseDelegated(
     "accountLabel",
     "organizationLabel",
     "modelId",
-    ...(extended
-      ? ["reasoningEffort", "runtimeCapabilityProfileRevision"]
-      : []),
+    ...(value.reasoningEffort === undefined ? [] : ["reasoningEffort"]),
+    ...(value.runtimeCapabilityProfileRevision === undefined
+      ? []
+      : ["runtimeCapabilityProfileRevision"]),
     "accountSubjectFingerprint",
     "policyRevision",
     "billingPolicy",

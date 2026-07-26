@@ -70,6 +70,13 @@ recurs setup byok \
 recurs setup codex
 ```
 
+Codex subscription setup uses the separately installed official Codex CLI
+`0.145.0` and its app-server. Recurs discovers that exact version on `PATH`;
+`RECURS_CODEX_PATH` may instead name its absolute executable. If ChatGPT is not
+already connected, Recurs presents the official one-time login URL and waits
+for Codex to confirm it. Recurs does not receive or persist the vendor
+credential.
+
 BYOK stores provider/model metadata, the environment-variable name, and a
 one-way credential fingerprint. It never stores the key value. The same named
 value must be present and match the fingerprint when a run starts.

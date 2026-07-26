@@ -12,7 +12,7 @@ import { OnboardingCatalog } from "./onboarding-catalog.js";
 const PROVIDER_ID = "openai-codex-chatgpt";
 export const CODEX_APP_SERVER_ONBOARDING_ADAPTER_ID = "codex-app-server";
 export const CODEX_APP_SERVER_ONBOARDING_PROFILE_REVISION =
-  "codex-app-server-0.144.0-host-tools-v1";
+  "codex-app-server-0.145.0-host-tools-v2";
 const SAFE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u;
 const FINGERPRINT = /^sha256:[a-f0-9]{64}$/u;
 

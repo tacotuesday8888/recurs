@@ -30,12 +30,23 @@ import {
 
 export const CODEX_APP_SERVER_ADAPTER_ID = "codex-app-server";
 export const CODEX_APP_SERVER_PROFILE_REVISION =
-  "codex-app-server-0.144.0-host-tools-v1";
+  "codex-app-server-0.145.0-host-tools-v2";
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/u;
 const FINGERPRINT = /^sha256:[a-f0-9]{64}$/u;
 const MAX_TOOLS = 128;
 const MAX_FINAL_TEXT_BYTES = 4 * 1_024 * 1_024;
+const ALLOWED_PASSIVE_ITEM_TYPES = new Set([
+  "userMessage",
+  "agentMessage",
+  "plan",
+  "reasoning",
+  "sleep",
+  "enteredReviewMode",
+  "exitedReviewMode",
+  "contextCompaction",
+  "compacted",
+]);
 
 const accountSchema = z.object({
   account: z.object({
@@ -92,6 +103,13 @@ const turnCompletedSchema = z.object({
     status: z.enum(["completed", "interrupted", "failed"]),
     error: z.object({ message: z.string().max(4_096) }).nullable(),
   }),
+});
+const modelReroutedSchema = z.object({
+  threadId: z.string().min(1).max(1_024),
+  turnId: z.string().min(1).max(1_024),
+  fromModel: z.string().min(1).max(256),
+  toModel: z.string().min(1).max(256),
+  reason: z.string().min(1).max(4_096),
 });
 const itemLifecycleSchema = z.object({
   threadId: z.string().min(1).max(1_024),
@@ -325,6 +343,7 @@ export class CodexAppServerRuntime implements AgentRuntime {
       this.#onMessage(
         message,
         queue,
+        toolNames,
         () => ({ threadId, turnId }),
         appendText,
         resolveTerminal,
@@ -514,6 +533,7 @@ export class CodexAppServerRuntime implements AgentRuntime {
   #onMessage(
     message: CodexAppServerMessage,
     queue: EventQueue,
+    toolNames: ReadonlySet<string>,
     active: () => { readonly threadId: string | null; readonly turnId: string | null },
     appendText: (text: string) => void,
     resolveTerminal: (terminal: Terminal) => void,
@@ -546,17 +566,35 @@ export class CodexAppServerRuntime implements AgentRuntime {
       });
       return;
     }
+    if (message.method === "model/rerouted") {
+      const rerouted = modelReroutedSchema.parse(message.params);
+      if (
+        rerouted.threadId !== expected.threadId ||
+        rerouted.turnId !== expected.turnId
+      ) return;
+      resolveTerminal({
+        status: "failed",
+        message: "Codex rerouted the request to a different model",
+      });
+      throw new TypeError("Codex rerouted the pinned model");
+    }
     if (message.method === "item/started" || message.method === "item/completed") {
       const lifecycle = itemLifecycleSchema.parse(message.params);
       if (
         lifecycle.threadId !== expected.threadId ||
         lifecycle.turnId !== expected.turnId
       ) return;
-      if (["commandExecution", "fileChange", "mcpToolCall", "collabAgentToolCall"]
-        .includes(lifecycle.item.type)) {
-        throw new TypeError("Codex emitted a disabled built-in tool item");
-      }
       if (lifecycle.item.type === "dynamicToolCall") {
+        if (
+          lifecycle.item.tool === undefined ||
+          !toolNames.has(lifecycle.item.tool)
+        ) {
+          resolveTerminal({
+            status: "failed",
+            message: "Codex emitted an unregistered dynamic tool item",
+          });
+          throw new TypeError("Codex emitted an unregistered dynamic tool item");
+        }
         queue.push({
           type: "activity",
           activity: {
@@ -570,6 +608,14 @@ export class CodexAppServerRuntime implements AgentRuntime {
                 : "completed",
           },
         });
+        return;
+      }
+      if (!ALLOWED_PASSIVE_ITEM_TYPES.has(lifecycle.item.type)) {
+        resolveTerminal({
+          status: "failed",
+          message: "Codex emitted a non-host tool item",
+        });
+        throw new TypeError("Codex emitted a disabled or unknown item type");
       }
       return;
     }

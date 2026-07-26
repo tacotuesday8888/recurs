@@ -23,6 +23,7 @@ export type ProviderProtocol =
   | "azure_openai"
   | "acp"
   | "sdk"
+  | "official_runtime"
   | "local_openai";
 
 export type ProviderEndpoint =

@@ -2118,7 +2118,12 @@ export async function runCliProcess(
         { ...input, environment: process.env },
         signal === undefined ? {} : { signal },
       ),
-      setupCodex: (input) => setupCodexSubscription(dataDirectory, input),
+      setupCodex: (input) => setupCodexSubscription(dataDirectory, input, {
+        presentLogin: (prompt) => writeOutput(
+          processStdout,
+          `Open this one-time Codex login URL in your browser:\n${prompt.authUrl}\nWaiting for Codex to confirm the login…\n`,
+        ),
+      }),
       credentialEnvironmentAvailable: (name) => {
         const value = process.env[name];
         return value !== undefined && value.length > 0;

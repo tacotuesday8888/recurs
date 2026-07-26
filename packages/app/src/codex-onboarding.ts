@@ -12,9 +12,9 @@ import { OnboardingCatalog } from "./onboarding-catalog.js";
 
 const PROVIDER_ID = "openai-codex-chatgpt";
 export const CODEX_ONBOARDING_ADAPTER_ID = "codex-acp";
-export const CODEX_ONBOARDING_ADAPTER_VERSION = "1.1.2";
+export const CODEX_ONBOARDING_ADAPTER_VERSION = "1.1.7";
 export const CODEX_ONBOARDING_CAPABILITY_PROFILE_REVISION =
-  "codex-acp-1.1.2-codex-0.144.0-plan-only-v2";
+  "codex-acp-1.1.7-codex-0.145.0-plan-only-v2";
 const SAFE_MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/u;
 
 export type CodexOnboardingErrorCode =
@@ -432,6 +432,8 @@ export async function setupCodexConnection(
         accountLabel,
         organizationLabel: null,
         modelId: probe.modelId,
+        runtimeCapabilityProfileRevision:
+          CODEX_ONBOARDING_CAPABILITY_PROFILE_REVISION,
         accountSubjectFingerprint: fingerprint,
         policyRevision: catalogEntry.policy.revision,
         billingPolicy,

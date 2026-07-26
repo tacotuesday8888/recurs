@@ -62,7 +62,7 @@ function inspection(
       protocolVersion: 1,
       agentInfo: {
         name: "@agentclientprotocol/codex-acp",
-        version: "1.1.2",
+        version: "1.1.7",
       },
       authMethods: [{ id: "chat-gpt", name: "ChatGPT", type: "agent" }],
       sessionCapabilities: { resume: true, close: true },
@@ -73,9 +73,9 @@ function inspection(
 
 class VerificationRuntime implements CodexOnboardingRuntime {
   readonly adapterId = "codex-acp";
-  readonly adapterVersion = "1.1.2";
+  readonly adapterVersion = "1.1.7";
   readonly capabilityProfileRevision =
-    "codex-acp-1.1.2-codex-0.144.0-plan-only-v2";
+    "codex-acp-1.1.7-codex-0.145.0-plan-only-v2";
   authenticationCalls = 0;
   inspectionCalls = 0;
 
@@ -113,9 +113,11 @@ function codexRecord(): DelegatedConnectionRecord {
     accountLabel: "private-owner@example.com",
     organizationLabel: null,
     modelId: "gpt-test",
+    runtimeCapabilityProfileRevision:
+      "codex-acp-1.1.7-codex-0.145.0-plan-only-v2",
     accountSubjectFingerprint:
       codexAccountSubjectFingerprint("private-owner@example.com"),
-    policyRevision: "openai-codex-chatgpt-2026-07-11",
+    policyRevision: "openai-codex-chatgpt-2026-07-24",
     billingPolicy: {
       revision: "billing:openai-codex-chatgpt:2026-07-11",
       disclosureRevision:
@@ -149,7 +151,7 @@ function codexAppServerRecord(): DelegatedConnectionRecord {
     modelId: "gpt-5.6-sol",
     reasoningEffort: "high",
     runtimeCapabilityProfileRevision:
-      "codex-app-server-0.144.0-host-tools-v1",
+      "codex-app-server-0.145.0-host-tools-v2",
     accountSubjectFingerprint: appServerCatalog.accountSubjectFingerprint,
   };
 }
@@ -170,7 +172,7 @@ describe("provider and account projections", () => {
       cwd: directory,
       interactive: true,
       billingSelection: "allow_declared_additional",
-      now: "2026-07-23T00:00:00.000Z",
+      now: "2026-07-24T00:00:00.000Z",
     }, {
       codexHome,
       async inspectCatalog() {
@@ -215,6 +217,7 @@ describe("provider and account projections", () => {
         status: "runnable",
         accessKind: "subscription",
         adapterKind: "agent_runtime",
+        protocol: "official_runtime",
         connectionOwner: "vendor_runtime",
         billing: {
           primarySource: "included_subscription",
@@ -349,6 +352,24 @@ describe("provider and account projections", () => {
       reason: "policy_stale",
     });
     expect(staleRuntime.inspectionCalls).toBe(0);
+
+    const oldProfileRuntime = new VerificationRuntime(
+      inspection("private-owner@example.com"),
+    );
+    await expect(verifyCodexSubscriptionConnection(
+      {
+        ...record,
+        runtimeCapabilityProfileRevision:
+          "codex-acp-1.1.2-codex-0.144.0-plan-only-v2",
+      },
+      "/tmp/workspace",
+      new AbortController().signal,
+      { runtime: oldProfileRuntime },
+    )).resolves.toEqual({
+      status: "failed",
+      reason: "policy_stale",
+    });
+    expect(oldProfileRuntime.inspectionCalls).toBe(0);
   });
 
   it("verifies an app-server connection against its exact account, model, and effort", async () => {
@@ -372,6 +393,24 @@ describe("provider and account projections", () => {
       signal,
       { async inspectCatalog() { return appServerCatalog; } },
     )).resolves.toEqual({ status: "failed", reason: "model_unavailable" });
+
+    let oldProfileInspections = 0;
+    await expect(verifyCodexSubscriptionConnection(
+      {
+        ...record,
+        runtimeCapabilityProfileRevision:
+          "codex-app-server-0.144.0-host-tools-v1",
+      },
+      "/tmp/workspace",
+      signal,
+      {
+        async inspectCatalog() {
+          oldProfileInspections += 1;
+          return appServerCatalog;
+        },
+      },
+    )).resolves.toEqual({ status: "failed", reason: "policy_stale" });
+    expect(oldProfileInspections).toBe(0);
   });
 
   it("uses the application lifecycle service for primary selection and disconnection", async () => {
