@@ -9,6 +9,7 @@ import type {
 import { ProviderError } from "./types.js";
 import { COMPATIBLE_TOOL_USE_PROFILE } from "./harness-profile.js";
 import { environmentByokManifest } from "./environment-provider-policy.js";
+import { CredentialEchoGuard } from "./credential-echo-guard.js";
 import { retryAfterOptions } from "./retry-after.js";
 import {
   imageDataUrl,
@@ -216,6 +217,7 @@ interface ChatCompletionStreamOptions {
   readonly fetch: Fetch;
   readonly request: ProviderRequest;
   readonly local: boolean;
+  readonly responseCredential?: string;
 }
 
 function requestFailure(
@@ -296,6 +298,9 @@ async function* streamChatCompletions(
     throw new ProviderError("invalid_response", "Provider response had no body", false);
   }
   const decoder = new TextDecoder();
+  const credentialGuard = options.responseCredential === undefined
+    ? null
+    : new CredentialEchoGuard(options.responseCredential);
   const tools = new Map<number, PartialToolCall>();
   let buffer = "";
   let bytes = 0;
@@ -388,6 +393,7 @@ async function* streamChatCompletions(
     while (true) {
       const chunk = await reader.read();
       if (chunk.done) break;
+      credentialGuard?.inspect(chunk.value);
       bytes += chunk.value.byteLength;
       if (bytes > MAX_STREAM_BYTES) {
         await reader.cancel();
@@ -522,6 +528,7 @@ export class RemoteOpenAICompatibleProvider
       fetch: this.#fetch,
       request,
       local: false,
+      responseCredential: this.#apiKey,
     });
   }
 }
