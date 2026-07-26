@@ -53,6 +53,16 @@ import { serveRecursAcpStdio } from "./acp-server.js";
 import { setupCodexSubscription } from "./codex-connection.js";
 import { CLI_HELP, parseCliHelpRequest } from "./cli-help.js";
 import {
+  CompanyBenchmarkArgumentError,
+  parseCompanyBenchmarkCommand,
+  renderCompanyBenchmarkReport,
+  renderCompanyBenchmarkScenarios,
+  runCompanyBenchmarkCommand,
+  type CompanyBenchmarkCommandOptions,
+  type CompanyBenchmarkCommandReport,
+  type CompanyBenchmarkProgress,
+} from "./company-benchmark-command.js";
+import {
   CompanyEvaluationArgumentError,
   parseCompanyEvaluationCommand,
   renderCompanyEvaluationScenarios,
@@ -150,6 +160,15 @@ export interface CliDependencies {
       progress: CompanyEvaluationProgress,
     ) => void | Promise<void>;
   }): Promise<CompanyEvaluationReportV1>;
+  benchmarkCompany?(input: Exclude<
+    CompanyBenchmarkCommandOptions,
+    { readonly action: "list" }
+  > & {
+    readonly signal?: AbortSignal;
+    readonly onProgress?: (
+      progress: CompanyBenchmarkProgress,
+    ) => void | Promise<void>;
+  }): Promise<CompanyBenchmarkCommandReport>;
   credentialEnvironmentAvailable?(name: string): boolean;
   doctor?(cwd: string, signal?: AbortSignal): Promise<DoctorReport>;
   createRuntime(
@@ -1101,6 +1120,73 @@ export async function runCli(
       }),
     };
   }
+  if (argv[0] === "benchmark") {
+    let command: CompanyBenchmarkCommandOptions;
+    try {
+      command = parseCompanyBenchmarkCommand(argv.slice(1));
+    } catch (error) {
+      if (error instanceof CompanyBenchmarkArgumentError) {
+        await writeOutput(dependencies.stderr, `Error: ${error.message}\n`);
+        return 2;
+      }
+      throw error;
+    }
+    if (command.action === "list") {
+      await writeOutput(
+        dependencies.stdout,
+        `${renderCompanyBenchmarkScenarios(command.json)}\n`,
+      );
+      return 0;
+    }
+    if (dependencies.benchmarkCompany === undefined) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    try {
+      const report = await dependencies.benchmarkCompany({
+        ...command,
+        ...(dependencies.signal === undefined
+          ? {}
+          : { signal: dependencies.signal }),
+        ...(command.json
+          ? {}
+          : {
+              onProgress: async (progress) => {
+                await writeOutput(
+                  dependencies.stderr,
+                  `${progress.message}\n`,
+                );
+              },
+            }),
+      });
+      await writeOutput(
+        dependencies.stdout,
+        command.json
+          ? `${JSON.stringify(report)}\n`
+          : `${renderCompanyBenchmarkReport(report)}\n`,
+      );
+      return report.trials.length === report.campaign.armOrder.length &&
+          report.trials.every((trial) =>
+            trial.executionStatus === "completed" &&
+            trial.verification.status === "passed"
+          )
+        ? 0
+        : 1;
+    } catch (error) {
+      if (dependencies.signal?.aborted === true || isAbortError(error)) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: Company proof was cancelled; resume it with the recorded campaign ID.\n",
+        );
+        return 130;
+      }
+      await writeOutput(
+        dependencies.stderr,
+        `Error: ${safeCliErrorMessage(error)}\n`,
+      );
+      return 1;
+    }
+  }
   if (argv[0] === "eval") {
     let command: CompanyEvaluationCommandOptions;
     try {
@@ -1871,6 +1957,7 @@ export async function runCliProcess(
   );
   const interactiveOperationRequested = doctorRequested ||
     argv.length === 0 ||
+    argv[0] === "benchmark" ||
     argv[0] === "provider" ||
     argv[0] === "account" ||
     argv[0] === "setup";
@@ -1972,6 +2059,12 @@ export async function runCliProcess(
           projectRoot: cwd,
           dataDirectory,
           environment: process.env,
+          ...(signal === undefined ? {} : { signal }),
+          ...(onProgress === undefined ? {} : { onProgress }),
+        }),
+      benchmarkCompany: ({ signal, onProgress, ...options }) =>
+        runCompanyBenchmarkCommand(options, {
+          dataDirectory,
           ...(signal === undefined ? {} : { signal }),
           ...(onProgress === undefined ? {} : { onProgress }),
         }),

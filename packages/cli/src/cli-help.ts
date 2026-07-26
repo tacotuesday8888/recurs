@@ -25,6 +25,7 @@ Usage:
   recurs account disconnect <id>
   recurs doctor [--json]         Check installation and execution readiness
   recurs eval company [--json]   Run the offline company-formation evaluation
+  recurs benchmark company --configured --allow-network [--repetitions 1|2|3] [--json]
   recurs help <command>          Show scoped command help
   recurs --version               Show the installed Recurs version
   recurs --help                  Show this help
@@ -130,6 +131,23 @@ Configured evaluation uses the exact selected or primary direct/local connection
 and requires explicit network opt-in. Stored goal evaluation is read-only and
 never contacts a provider. Reports are sanitized and contain no prompts,
 credentials, private paths, or environment values.
+`,
+  benchmark: `Run the bounded single-agent versus company proof
+
+Usage:
+  recurs benchmark company --list [--json]
+  recurs benchmark company --configured --allow-network
+                           [--connection <id>] [--repetitions 1|2|3] [--json]
+  recurs benchmark company --resume <campaign-id> --allow-network [--json]
+
+Each trial gets a byte-identical temporary fixture and private Recurs home.
+The strong single-agent baseline and bounded company share the exact parent
+route. External hidden verification—not model prose—determines correctness.
+Normalized reports include activated roles, review, Repair, latency, usage,
+cache and cost coverage, overlap, and intervention counts without prompts,
+credentials, private paths, or continuation identifiers. Configured execution
+requires explicit network consent; interrupted campaigns are immutable and
+resumable without replaying settled slots.
 `,
   acp: `Serve Recurs as an ACP agent over standard input and output
 

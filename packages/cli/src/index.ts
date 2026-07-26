@@ -18,6 +18,8 @@ export * from "./company-capability-authority.js";
 export * from "./company-evaluation.js";
 export * from "./company-evaluation-command.js";
 export * from "./company-evaluation-store.js";
+export * from "./company-benchmark-execution.js";
+export * from "./company-benchmark-command.js";
 export * from "./company-operating-view.js";
 export * from "./company-onboarding-runtime.js";
 export * from "./company-proposal-editor.js";
