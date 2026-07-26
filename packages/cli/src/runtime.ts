@@ -22,6 +22,8 @@ import {
 } from "@recurs/core";
 import {
   createHostInvocation,
+  deriveTrustedRunContext,
+  hostInvocationFromTrustedRunContext,
   type HostInvocation,
   type ModelImageInput,
   type RunCoordinator,
@@ -115,7 +117,6 @@ export class RecursRuntime {
   #activeController: AbortController | null = null;
   #activeSteering: TurnSteeringQueue | null = null;
   #activeQueuedTurns: QueuedTurnAdmissionQueue | null = null;
-  readonly #queuedInvocations = new Map<string, HostInvocation>();
   #confirm: (message: string) => Promise<boolean>;
   #userInput: UserInputHandler | null = null;
   #session: SessionState | null;
@@ -463,6 +464,7 @@ export class RecursRuntime {
         id,
         prompt: args,
         at: this.dependencies.now?.() ?? new Date().toISOString(),
+        origin: deriveTrustedRunContext(invocation),
       });
       if (!enqueued.accepted) {
         if (enqueued.reason === "too_large") {
@@ -479,11 +481,9 @@ export class RecursRuntime {
         }
         throw new RuntimeError("busy", "The active turn is already finishing");
       }
-      this.#queuedInvocations.set(id, invocation);
       try {
         await enqueued.persisted;
       } catch (error) {
-        this.#queuedInvocations.delete(id);
         throw new RuntimeError(
           "busy",
           error instanceof Error ? error.message : "Queued prompt was not persisted",
@@ -521,6 +521,12 @@ export class RecursRuntime {
     }
     if (args === "resume") {
       const queued = reloaded.queuedTurns[0];
+      if (queued?.origin === null) {
+        throw new RuntimeError(
+          "invalid_input",
+          "This queued turn predates durable origin authority and cannot be resumed; clear it and queue it again",
+        );
+      }
       return queued === undefined
         ? { type: "message", level: "warning", text: "No queued turns to resume" }
         : {
@@ -549,7 +555,6 @@ export class RecursRuntime {
           });
         },
       );
-      this.#queuedInvocations.clear();
       this.#activateSession(await this.dependencies.sessions.loadState(reloaded.id));
       return { type: "message", level: "info", text: "Cleared queued turns" };
     }
@@ -573,6 +578,7 @@ export class RecursRuntime {
           type: "prompt_queued",
           queuedInputId: randomUUID(),
           prompt: args,
+          origin: deriveTrustedRunContext(invocation),
           at: this.dependencies.now?.() ?? new Date().toISOString(),
         });
       },
@@ -592,7 +598,6 @@ export class RecursRuntime {
     executionMode?: "act" | "plan",
     invocation: HostInvocation = untrustedProgrammaticInvocation(),
     queuedInputId?: string,
-    resumePersistedQueue = false,
     images?: readonly ModelImageInput[],
   ): Promise<RunResult> {
     if (this.#activeController !== null) {
@@ -622,7 +627,6 @@ export class RecursRuntime {
     let nextExecutionMode = executionMode;
     let nextImages = images;
     let result: RunResult | undefined;
-    const resumeAllPersisted = resumePersistedQueue || queuedInputId !== undefined;
     try {
       for (;;) {
         const direct = isPinnedSessionState(this.#session) &&
@@ -663,13 +667,9 @@ export class RecursRuntime {
           ? this.#session.queuedTurns[0]
           : undefined;
         if (queued === undefined) break;
-        const queuedInvocation = resumeAllPersisted
-          ? invocation
-          : this.#queuedInvocations.get(queued.id);
-        if (queuedInvocation === undefined) break;
-        this.#queuedInvocations.delete(queued.id);
+        if (queued.origin === null) break;
         nextPrompt = queued.prompt;
-        nextInvocation = queuedInvocation;
+        nextInvocation = hostInvocationFromTrustedRunContext(queued.origin);
         nextQueuedInputId = queued.id;
         nextExecutionMode = undefined;
       }
@@ -678,7 +678,6 @@ export class RecursRuntime {
       }
       return result;
     } catch (error) {
-      this.#queuedInvocations.clear();
       try {
         this.#activateSession(
           await this.dependencies.sessions.loadState(this.#session.id),
@@ -770,12 +769,25 @@ export class RecursRuntime {
         );
       }
       if (result.type === "submit_queued_prompt") {
+        const queued = this.#session !== null &&
+          isPinnedSessionState(this.#session)
+          ? this.#session.queuedTurns[0]
+          : undefined;
+        if (
+          queued?.id !== result.queuedInputId ||
+          queued.prompt !== result.prompt ||
+          queued.origin === null
+        ) {
+          throw new RuntimeError(
+            "invalid_input",
+            "The queued turn does not have durable origin authority",
+          );
+        }
         return this.#runPrompt(
           result.prompt,
           undefined,
-          invocation,
+          hostInvocationFromTrustedRunContext(queued.origin),
           result.queuedInputId,
-          true,
         );
       }
       return result;
@@ -839,7 +851,6 @@ export class RecursRuntime {
       undefined,
       invocation,
       undefined,
-      false,
       options.images,
     );
   }

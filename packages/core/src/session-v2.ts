@@ -17,6 +17,7 @@ import type {
   SessionBackendPin,
   StopReason,
   ToolCall,
+  TrustedRunContext,
 } from "@recurs/contracts";
 import {
   DEFAULT_OPERATING_MODE_ID,
@@ -52,6 +53,7 @@ export interface QueuedTurn {
   readonly prompt: string;
   readonly queuedAt: string;
   readonly sourceTurnId: string | null;
+  readonly origin: TrustedRunContext | null;
 }
 
 export interface SessionForkSnapshotV2 {
@@ -169,6 +171,7 @@ export type SessionRecordV2 =
       queuedInputId: string;
       prompt: string;
       sourceTurnId?: string;
+      origin?: TrustedRunContext;
     })
   | (SessionRecordBaseV2 & {
       type: "prompt_queue_cleared";
@@ -710,6 +713,7 @@ export function reduceSessionRecordV2(
           prompt: record.prompt,
           queuedAt: record.at,
           sourceTurnId: record.sourceTurnId ?? null,
+          origin: record.origin ?? null,
         }],
       };
       break;

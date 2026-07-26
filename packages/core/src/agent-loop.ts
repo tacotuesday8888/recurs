@@ -892,6 +892,7 @@ async function runAgentLoopUnlocked(
           sourceTurnId: turnId,
           queuedInputId: queued.id,
           prompt: queued.prompt,
+          origin: queued.origin,
           at: queued.at,
         });
         await emitPersistedEvent(deps, persisted);

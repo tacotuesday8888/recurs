@@ -17,6 +17,29 @@ function completion(): Response {
   });
 }
 
+function splitCredentialCompletion(credential: string): Response {
+  const encoder = new TextEncoder();
+  const credentialSplit = Math.floor(credential.length / 2);
+  const first = encoder.encode(
+    `data: {"choices":[{"delta":{"content":"${
+      credential.slice(0, credentialSplit)
+    }`,
+  );
+  const second = encoder.encode(
+    `${credential.slice(credentialSplit)}"},"finish_reason":"stop"}]}\n\n`,
+  );
+  return new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(first);
+      controller.enqueue(second);
+      controller.close();
+    },
+  }), {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
 describe("remote OpenAI-compatible provider", () => {
   it("uses only the reviewed provider origin and keeps the key in the header", async () => {
     const key = "remote-key-canary";
@@ -167,5 +190,30 @@ describe("remote OpenAI-compatible provider", () => {
       });
       expect(String(thrown)).not.toContain(key);
     }
+  });
+
+  it("fails closed when credential material spans response chunks", async () => {
+    const key = "split-credential-canary";
+    const provider = new RemoteOpenAICompatibleProvider({
+      providerId: "openrouter-api",
+      connectionId: "openrouter-env",
+      apiKey: key,
+      fetch: async () => splitCredentialCompletion(key),
+    });
+
+    const consume = async () => {
+      for await (const event of provider.stream({
+        model: "model-id",
+        messages: [{ id: "user", role: "user", content: "work" }],
+        tools: [],
+        signal: new AbortController().signal,
+      })) void event;
+    };
+
+    await expect(consume()).rejects.toMatchObject({
+      code: "invalid_response",
+      retryable: false,
+      message: "Provider response contained credential material",
+    });
   });
 });

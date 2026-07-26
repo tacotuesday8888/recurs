@@ -7,7 +7,18 @@ import {
 } from "../src/index.js";
 
 function input(id: string, prompt = id) {
-  return { id, prompt, at: "2026-07-10T00:00:00.000Z" };
+  return {
+    id,
+    prompt,
+    at: "2026-07-10T00:00:00.000Z",
+    origin: {
+      invocation: "repl",
+      presence: "present",
+      location: "local",
+      automation: "manual",
+      embedding: "cli",
+    } as const,
+  };
 }
 
 describe("QueuedTurnAdmissionQueue", () => {

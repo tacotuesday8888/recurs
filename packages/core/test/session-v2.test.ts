@@ -13,6 +13,13 @@ import { JsonlSessionStore, createRootAgentDescriptor } from "../src/index.js";
 
 const directories: string[] = [];
 const at = "2026-07-10T00:00:00.000Z";
+const queueOrigin = {
+  invocation: "repl",
+  presence: "present",
+  location: "local",
+  automation: "manual",
+  embedding: "cli",
+} as const;
 
 const backend: SessionBackendPin = {
   kind: "model_provider",
@@ -195,6 +202,7 @@ describe("version 2 sessions", () => {
         type: "prompt_queued",
         queuedInputId: "queued-1",
         prompt: "first queued task",
+        origin: queueOrigin,
         at,
       });
       await lease.append({
@@ -208,6 +216,10 @@ describe("version 2 sessions", () => {
     expect(queued.queuedTurns.map((turn) => turn.id)).toEqual([
       "queued-1",
       "queued-2",
+    ]);
+    expect(queued.queuedTurns.map((turn) => turn.origin)).toEqual([
+      queueOrigin,
+      null,
     ]);
 
     await expect(store.withSessionMutation(
@@ -277,6 +289,7 @@ describe("version 2 sessions", () => {
         type: "prompt_queued",
         queuedInputId: "queued-after-compaction",
         prompt: "continue after compaction",
+        origin: queueOrigin,
         at,
       });
     });
