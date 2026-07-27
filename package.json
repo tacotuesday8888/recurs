@@ -74,7 +74,7 @@
     "@openai/codex": "0.145.0",
     "eslint": "10.6.0",
     "rolldown": "1.1.5",
-    "typescript-eslint": "8.63.0",
+    "typescript-eslint": "8.65.0",
     "vitest": "4.1.10"
   },
   "optionalDependencies": {
