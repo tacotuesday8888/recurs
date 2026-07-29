@@ -315,6 +315,15 @@ export function validateCompanyBlueprintV2ExecutionPolicy(
       );
     }
   }
+  if ([...activeRoleIds].some((roleId) =>
+    roles.get(roleId)?.executionProfileId === "review_v2"
+  ) && ![...activeRoleIds].some((roleId) =>
+    roles.get(roleId)?.executionProfileId === "implement_v2"
+  )) {
+    throw new TypeError(
+      "An active review_v2 role requires an active implement_v2 candidate",
+    );
+  }
 }
 
 function compileOrganization(

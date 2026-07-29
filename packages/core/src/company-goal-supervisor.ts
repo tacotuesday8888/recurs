@@ -10,6 +10,7 @@ import {
   parseCompanyGoalRun,
   reserveCompanyGoalBudget,
   validateCompanyGoalPlanAgainstBlueprint,
+  type AgentBackendSelection,
   type AgentProfileId,
   type CompanyBlueprintV2,
   type CompanyGoalAssignmentV1,
@@ -106,7 +107,10 @@ export interface CompanyGoalAssignmentExecutor {
 
 export type CompanyGoalTeamExecutor = Pick<
   TeamRunSupervisor,
-  "reserveCompanyRun" | "startCompanyForeground" | "inspectCompanyRun"
+  | "reserveCompanyRun"
+  | "selectCompanyChildBackend"
+  | "startCompanyForeground"
+  | "inspectCompanyRun"
 >;
 
 export interface CompanyGoalSupervisorDependencies {
@@ -871,6 +875,26 @@ export class CompanyGoalSupervisor {
             "Company implementation and independent review require the durable team engine",
           );
         })();
+  }
+
+  async #directReviewBackend(
+    parent: PinnedSessionState,
+    modelRoute: CompanyBlueprintV2["roles"][number]["modelRoute"],
+  ): Promise<NonNullable<ChildDelegationOptions["backend"]>> {
+    if (this.dependencies.team === undefined || modelRoute !== "review") {
+      throw new ToolError(
+        "tool_unavailable",
+        "Direct company review requires a trusted backend router",
+      );
+    }
+    return {
+      decision: await this.dependencies.team.selectCompanyChildBackend({
+        parent,
+        profileId: "review_v1",
+        modelRoute,
+        background: false,
+      }),
+    };
   }
 
   #claim(runtime: ActiveCompanyGoal, assignmentId: string): () => void {
@@ -1649,10 +1673,28 @@ export class CompanyGoalSupervisor {
       assignmentId: assignment.id,
       parentAssignmentId: assignment.parentAssignmentId,
     };
+    let backend: ChildDelegationOptions["backend"] | undefined;
+    if (profile === "review_v1") {
+      const delegationParent = await this.dependencies.sessions.loadState(
+        context.sessionId,
+        context.signal,
+      );
+      if (!isPinnedSessionState(delegationParent)) {
+        throw new ToolError(
+          "tool_unavailable",
+          "Company assignment parent is unavailable",
+        );
+      }
+      backend = await this.#directReviewBackend(
+        delegationParent,
+        role.modelRoute,
+      );
+    }
     const options: ChildDelegationOptions = {
       company,
       companyPermissionMode: role.permissionMode,
       companyGoal,
+      ...(backend === undefined ? {} : { backend }),
     };
     const identity = executor.reserveIdentity(input, context, options);
     const release = this.#claim(runtime, assignment.id);
@@ -2186,6 +2228,32 @@ export class CompanyGoalSupervisor {
         role.permissionMode,
       ),
     };
+    let expectedPin = parent.backend.pin;
+    let expectedBackend: AgentBackendSelection = {
+      strategy: "inherit_parent" as const,
+      adapterId: parent.backend.pin.adapterId,
+      connectionId: parent.backend.pin.connectionId,
+      modelId: parent.backend.pin.modelId,
+    };
+    if (profile.id === "review_v1") {
+      try {
+        const routed = await this.#directReviewBackend(
+          parent,
+          role.modelRoute,
+        );
+        expectedPin = routed.decision.pin;
+        expectedBackend = {
+          strategy: "policy_route" as const,
+          candidateId: routed.decision.candidateId,
+          reason: routed.decision.reason,
+          adapterId: routed.decision.pin.adapterId,
+          connectionId: routed.decision.pin.connectionId,
+          modelId: routed.decision.pin.modelId,
+        };
+      } catch {
+        return false;
+      }
+    }
     const backend = child.agent.backend;
     return child.id === assignment.execution.childSessionId &&
       child.agent.role === "child" &&
@@ -2203,11 +2271,8 @@ export class CompanyGoalSupervisor {
         version: profile.version,
       }) &&
       isDeepStrictEqual(child.agent.operatingMode, parent.agent.operatingMode) &&
-      isDeepStrictEqual(child.backend.pin, parent.backend.pin) &&
-      backend.strategy === "inherit_parent" &&
-      backend.adapterId === parent.backend.pin.adapterId &&
-      backend.connectionId === parent.backend.pin.connectionId &&
-      backend.modelId === parent.backend.pin.modelId &&
+      isDeepStrictEqual(child.backend.pin, expectedPin) &&
+      isDeepStrictEqual(backend, expectedBackend) &&
       isDeepStrictEqual(child.agent.permissions, permissions) &&
       child.executionMode === permissions.executionMode &&
       child.permissionMode === permissions.permissionMode &&
@@ -2220,6 +2285,54 @@ export class CompanyGoalSupervisor {
       ) &&
       child.agent.workspace === undefined &&
       child.agent.team === undefined;
+  }
+
+  async #preflightRecoveredChildren(
+    runtime: ActiveCompanyGoal,
+    signal: AbortSignal,
+  ): Promise<ReadonlyMap<string, PinnedSessionState>> {
+    const recovered = new Map<string, PinnedSessionState>();
+    for (const assignment of runtime.journal.current.state.plan.assignments) {
+      if (assignment.status !== "running" ||
+        assignment.execution === undefined ||
+        !isChildExecution(assignment.execution)) continue;
+      let child: Awaited<ReturnType<JsonlSessionStore["loadState"]>> | null;
+      try {
+        child = await this.dependencies.sessions.loadState(
+          assignment.execution.childSessionId,
+          signal,
+        );
+        assertRecoveryActive(signal);
+      } catch {
+        assertRecoveryActive(signal);
+        child = null;
+      }
+      if (child === null || !isPinnedSessionState(child) ||
+        !await this.#matchesRecoveredChild(
+          runtime,
+          assignment,
+          child,
+          signal,
+        )) {
+        assertRecoveryActive(signal);
+        throw new ToolError(
+          "execution_failed",
+          "Company child recovery correlation or terminal state is invalid",
+        );
+      }
+      assertRecoveryActive(signal);
+      if (child.agentLifecycle.status !== "failed" &&
+        child.agentLifecycle.status !== "cancelled" &&
+        (child.agentLifecycle.status !== "completed" ||
+          child.agentResult === null)) {
+        throw new ToolError(
+          "execution_failed",
+          "Company child recovery correlation or terminal state is invalid",
+        );
+      }
+      recovered.set(assignment.id, child);
+    }
+    return recovered;
   }
 
   async #resumeOwned(
@@ -2311,14 +2424,6 @@ export class CompanyGoalSupervisor {
       context.signal,
     );
     assertRecoveryActive(context.signal);
-    if (loaded.state.status === "created" || loaded.state.status === "interrupted") {
-      await journal.update((run) => ({
-        ...run,
-        status: "running",
-        updatedAt: this.#now(),
-      }), context.signal);
-      assertRecoveryActive(context.signal);
-    }
     const runtime: ActiveCompanyGoal = {
       blueprint,
       journal,
@@ -2329,6 +2434,19 @@ export class CompanyGoalSupervisor {
       budget: mutableBudget(journal.current.state),
       activeAssignments: new Set(),
     };
+    const recoveredChildren = await this.#preflightRecoveredChildren(
+      runtime,
+      context.signal,
+    );
+    assertRecoveryActive(context.signal);
+    if (loaded.state.status === "created" || loaded.state.status === "interrupted") {
+      await journal.update((run) => ({
+        ...run,
+        status: "running",
+        updatedAt: this.#now(),
+      }), context.signal);
+      assertRecoveryActive(context.signal);
+    }
     const teamRunIds = new Set(journal.current.state.plan.assignments.flatMap(
       (assignment) => assignment.status === "running" &&
           assignment.execution !== undefined && isTeamExecution(assignment.execution)
@@ -2409,27 +2527,7 @@ export class CompanyGoalSupervisor {
       if (!isChildExecution(assignment.execution)) {
         continue;
       }
-      let child: Awaited<ReturnType<JsonlSessionStore["loadState"]>> | null;
-      try {
-        child = await this.dependencies.sessions.loadState(
-          assignment.execution.childSessionId,
-          context.signal,
-        );
-        assertRecoveryActive(context.signal);
-      } catch {
-        assertRecoveryActive(context.signal);
-        child = null;
-      }
-      let recoveredChild: PinnedSessionState | null = null;
-      if (child !== null && isPinnedSessionState(child) &&
-        await this.#matchesRecoveredChild(
-          runtime,
-          assignment,
-          child,
-          context.signal,
-        )) {
-        recoveredChild = child;
-      }
+      const recoveredChild = recoveredChildren.get(assignment.id) ?? null;
       assertRecoveryActive(context.signal);
       if (recoveredChild !== null &&
         (recoveredChild.agentLifecycle.status === "failed" ||
@@ -2447,22 +2545,6 @@ export class CompanyGoalSupervisor {
         recoveredChild.agentResult === null ||
         recoveredChild.agentLifecycle.status !== "completed") {
         assertRecoveryActive(context.signal);
-        await journal.update((run) => ({
-          ...run,
-          status: "interrupted",
-          updatedAt: this.#now(),
-        }), context.signal);
-        await this.#emit({
-          type: "company_goal_interrupted",
-          sessionId: root.id,
-          at: this.#now(),
-          parentAgentId: root.agent.id,
-          goalRunId: runId,
-          status: "interrupted",
-          evidence: [],
-          reason: "A running child could not be recovered truthfully",
-          workflow: delegationWorkflowUsage(runtime.budget),
-        });
         throw new ToolError(
           "execution_failed",
           "Company child recovery correlation or terminal state is invalid",

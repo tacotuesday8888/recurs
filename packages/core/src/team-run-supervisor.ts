@@ -128,6 +128,13 @@ export interface CompanyTeamRunReservation {
   readonly companyGoal: TeamRunCompanyGoalCorrelation;
 }
 
+export interface CompanyChildBackendRouteInput {
+  readonly parent: PinnedSessionState;
+  readonly profileId: "review_v1";
+  readonly modelRoute: "review";
+  readonly background: false;
+}
+
 export interface TeamRunResult extends ToolResult {
   readonly metadata: TeamRunResultMetadata;
 }
@@ -1070,6 +1077,24 @@ export class TeamRunSupervisor {
     });
     this.#companyReservations.set(reservation, prepared);
     return reservation;
+  }
+
+  async selectCompanyChildBackend(
+    input: CompanyChildBackendRouteInput,
+  ): Promise<AgentBackendRouteDecision> {
+    const mode = getOperatingModePolicy(input.parent.agent.operatingMode.id);
+    const candidates = candidatesForMode(
+      mode as TeamRunPolicySnapshot,
+      await this.dependencies.backendCandidates(input.parent),
+    );
+    return this.dependencies.router.select({
+      role: "review",
+      candidateRole: input.modelRoute,
+      executionMode: getAgentProfilePolicy(input.profileId).executionMode,
+      permissionMode: input.parent.permissionMode,
+      background: input.background,
+      candidates,
+    });
   }
 
   startCompanyForeground(

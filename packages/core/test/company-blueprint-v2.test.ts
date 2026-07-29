@@ -381,6 +381,25 @@ describe("compileCompanyBlueprintV2", () => {
     },
   );
 
+  it("rejects an active review_v2 topology without an implement_v2 candidate", () => {
+    const organization = dynamicOrganization();
+    const unpaired: CompanyOrganizationDraftV1 = {
+      ...organization,
+      roles: organization.roles.map((role) => role.key === "builder"
+        ? {
+            ...role,
+            capabilities: ["review" as const],
+            executionProfileId: "review_v1" as const,
+          }
+        : role),
+    };
+
+    expect(() => compileCompanyBlueprintV2(input({
+      designMode: "guardrailed_dynamic",
+      organization: unpaired,
+    }))).toThrow(/review_v2.*implement_v2/iu);
+  });
+
   it("rejects non-anchor review_v2 during approval", () => {
     const organization = dynamicOrganization();
     const proposed = compileCompanyBlueprintV2(input({

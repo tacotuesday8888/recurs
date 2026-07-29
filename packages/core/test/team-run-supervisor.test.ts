@@ -35,7 +35,10 @@ import {
   type DelegateTaskInput,
 } from "../src/child-agent-manager.js";
 import { createDelegationBudget } from "../src/agent-profile.js";
-import { createRootAgentDescriptor } from "../src/session-v2.js";
+import {
+  createRootAgentDescriptor,
+  type PinnedSessionState,
+} from "../src/session-v2.js";
 import type {
   GitPatchArtifactHandle,
   GitPatchBase,
@@ -178,6 +181,7 @@ interface HarnessOptions {
   readonly pauseReadyEvent?: boolean;
   readonly operatingModeId?: OperatingModeId;
   readonly secondaryCandidate?: AgentBackendCandidate;
+  readonly omitParentCandidate?: boolean;
   readonly companyV2?: boolean;
 }
 
@@ -595,9 +599,12 @@ async function harness(options: HarnessOptions = {}) {
         background: options.backgroundCandidate ?? true,
         ready: true,
       };
-      return options.secondaryCandidate === undefined
-        ? [parentCandidate]
-        : [options.secondaryCandidate, parentCandidate];
+      return [
+        ...(options.secondaryCandidate === undefined
+          ? []
+          : [options.secondaryCandidate]),
+        ...(options.omitParentCandidate === true ? [] : [parentCandidate]),
+      ];
     },
     async emit(event) {
       attemptedEvents.push(event);
@@ -1120,6 +1127,129 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
         candidateId: "parent",
         pin: testBackendPin("team-model"),
       });
+  });
+
+  it("selects the exact eligible Review candidate through the real company child router", async () => {
+    const reviewPin = {
+      ...testBackendPin("review-model", "review-connection"),
+      primaryBillingSourceAtCreation: "included_subscription" as const,
+      billingSelectionAtCreation: {
+        ...testBackendPin().billingSelectionAtCreation,
+        allowedSources: ["included_subscription" as const],
+      },
+    };
+    const test = await harness({
+      companyV2: true,
+      operatingModeId: "balanced_v6",
+      secondaryCandidate: {
+        id: "configured-review",
+        pin: reviewPin,
+        parent: false,
+        roles: ["review"],
+        executionModes: ["act"],
+        permissionModes: ["approved_for_me"],
+        hostTools: true,
+        background: true,
+        ready: true,
+      },
+    });
+    const parent = await test.sessions.loadState(
+      test.context.sessionId,
+    ) as PinnedSessionState;
+
+    await expect(test.supervisor.selectCompanyChildBackend({
+      parent,
+      profileId: "review_v1",
+      modelRoute: "review",
+      background: false,
+    })).resolves.toEqual({
+      role: "review",
+      executionMode: "act",
+      permissionMode: "approved_for_me",
+      background: false,
+      strategy: "role_candidate",
+      candidateId: "configured-review",
+      reason: "eligible_role_candidate",
+      pin: reviewPin,
+    });
+  });
+
+  it("filters direct Review routes by operating mode and fails closed without one", async () => {
+    const reviewPin = {
+      ...testBackendPin("subscription-review", "review-connection"),
+      primaryBillingSourceAtCreation: "included_subscription" as const,
+      billingSelectionAtCreation: {
+        ...testBackendPin().billingSelectionAtCreation,
+        allowedSources: ["included_subscription" as const],
+      },
+    };
+    const reviewCandidate: AgentBackendCandidate = {
+      id: "configured-review",
+      pin: reviewPin,
+      parent: false,
+      roles: ["review"],
+      executionModes: ["act"],
+      permissionModes: ["approved_for_me"],
+      hostTools: true,
+      background: true,
+      ready: true,
+    };
+    const fallback = await harness({
+      companyV2: true,
+      operatingModeId: "economy_v6",
+      secondaryCandidate: reviewCandidate,
+    });
+    const fallbackParent = await fallback.sessions.loadState(
+      fallback.context.sessionId,
+    ) as PinnedSessionState;
+    await expect(fallback.supervisor.selectCompanyChildBackend({
+      parent: fallbackParent,
+      profileId: "review_v1",
+      modelRoute: "review",
+      background: false,
+    })).resolves.toMatchObject({
+      strategy: "inherit_parent",
+      candidateId: "parent",
+      reason: "parent_fallback",
+      pin: fallbackParent.backend.pin,
+    });
+
+    const filtered = await harness({
+      companyV2: true,
+      operatingModeId: "economy_v6",
+      secondaryCandidate: reviewCandidate,
+      omitParentCandidate: true,
+    });
+    const filteredParent = await filtered.sessions.loadState(
+      filtered.context.sessionId,
+    ) as PinnedSessionState;
+    await expect(filtered.supervisor.selectCompanyChildBackend({
+      parent: filteredParent,
+      profileId: "review_v1",
+      modelRoute: "review",
+      background: false,
+    })).rejects.toMatchObject({
+      code: "tool_unavailable",
+      message: "No eligible agent backend",
+    });
+
+    const missing = await harness({
+      companyV2: true,
+      operatingModeId: "balanced_v6",
+      omitParentCandidate: true,
+    });
+    const missingParent = await missing.sessions.loadState(
+      missing.context.sessionId,
+    ) as PinnedSessionState;
+    await expect(missing.supervisor.selectCompanyChildBackend({
+      parent: missingParent,
+      profileId: "review_v1",
+      modelRoute: "review",
+      background: false,
+    })).rejects.toMatchObject({
+      code: "tool_unavailable",
+      message: "No eligible agent backend",
+    });
   });
 
   it("admits one cross-instance team, records the lease owner, and releases it", async () => {
