@@ -4,7 +4,7 @@ import type {
   CompanyGoalRunV1,
 } from "@recurs/contracts";
 
-const ACTIVE_GOAL_STATUSES = new Set<CompanyGoalRunV1["status"]>([
+const UNRESOLVED_GOAL_STATUSES = new Set<CompanyGoalRunV1["status"]>([
   "created",
   "running",
   "waiting_for_approval",
@@ -33,12 +33,13 @@ function progress(run: CompanyGoalRunV1): string {
   const total = run.plan.assignments.length;
   const count = (status: CompanyGoalAssignmentV1["status"]): number =>
     run.plan.assignments.filter((assignment) => assignment.status === status).length;
-  const stopped = count("failed") + count("cancelled") + count("blocked");
   return [
     `Progress: ${count("completed")}/${total} completed`,
     `${count("running")} running`,
     `${count("pending")} pending`,
-    `${stopped} failed/blocked`,
+    `${count("failed")} failed`,
+    `${count("blocked")} blocked`,
+    `${count("cancelled")} cancelled`,
   ].join(" | ");
 }
 
@@ -140,7 +141,10 @@ function nextState(run: CompanyGoalRunV1): string {
     assignment.status === "running"
   ).length;
   if (running > 0) {
-    return `${running} assignment${running === 1 ? " is" : "s are"} running; no additional role is implied active.`;
+    return [
+      `Durable state records ${running} running assignment${running === 1 ? "" : "s"}; this view does not prove a process is live.`,
+      `Use /company run ${run.id} to inspect it; after interruption, use /company resume ${run.id}.`,
+    ].join(" ");
   }
   const byId = new Map(run.plan.assignments.map((assignment) => [
     assignment.id,
@@ -151,23 +155,23 @@ function nextState(run: CompanyGoalRunV1): string {
   );
   const ready = pending.filter((assignment) => dependenciesSatisfied(assignment, byId));
   return ready.length === 0
-    ? "No pending assignment has satisfied dependencies; durable state may need recovery."
-    : `${ready.length} pending assignment(s) have satisfied dependencies.`;
+    ? `No pending assignment has satisfied dependencies; inspect with /company run ${run.id}, then use /company resume ${run.id} after interruption.`
+    : `${ready.length} pending assignment(s) have satisfied dependencies; this view does not prove a process is live, so use /company resume ${run.id} after interruption.`;
 }
 
 function sortedRuns(runs: readonly CompanyGoalRunV1[]): readonly CompanyGoalRunV1[] {
   return [...runs].sort((left, right) =>
     right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id)
-  ).slice(0, 20);
+  );
 }
 
-function activeRoleNames(
+function recordedRunningRoleNames(
   blueprint: CompanyBlueprintV2,
   runs: readonly CompanyGoalRunV1[],
 ): readonly string[] {
   const names = roles(blueprint);
   return [...new Set(runs.flatMap((run) =>
-    ACTIVE_GOAL_STATUSES.has(run.status)
+    run.status === "running"
       ? run.plan.assignments.filter((assignment) =>
           assignment.status === "running"
         ).map((assignment) => roleName(names, assignment.roleId))
@@ -182,26 +186,30 @@ export function renderCompanyOperations(
   const runs = sortedRuns(values);
   const count = (status: CompanyGoalRunV1["status"]): number =>
     runs.filter((run) => run.status === status).length;
-  const active = runs.filter((run) => ACTIVE_GOAL_STATUSES.has(run.status)).length;
-  const activeRoles = activeRoleNames(blueprint, runs);
+  const unresolved = runs.filter((run) =>
+    UNRESOLVED_GOAL_STATUSES.has(run.status)
+  ).length;
+  const runningRoles = recordedRunningRoleNames(blueprint, runs);
   const lines = [
     "Company operations",
     `Company: ${oneLine(blueprint.companyId, 128)} | Blueprint: ${oneLine(blueprint.id, 128)} r${blueprint.revision}`,
-    `Goals: ${runs.length} total | ${active} active | ${count("completed")} completed | ${count("failed")} failed | ${count("cancelled")} cancelled`,
-    `Active roles: ${activeRoles.length === 0 ? "none" : activeRoles.join(", ")}`,
+    `Goals: ${runs.length} total | ${unresolved} unresolved | ${count("completed")} completed | ${count("failed")} failed | ${count("cancelled")} cancelled`,
+    `Recorded running roles: ${runningRoles.length === 0 ? "none" : runningRoles.join(", ")}`,
   ];
   if (runs.length === 0) {
     lines.push("No company goal runs exist for this session and blueprint.");
     return lines.join("\n");
   }
-  const current = runs.find((run) => ACTIVE_GOAL_STATUSES.has(run.status)) ?? runs[0]!;
+  const current = runs.find((run) =>
+    UNRESOLVED_GOAL_STATUSES.has(run.status)
+  ) ?? runs[0]!;
   lines.push(
     `Current: ${current.status} | ${current.id} | ${oneLine(current.objective, 300)} | ${current.updatedAt}`,
     progress(current),
     ...accounting(current),
     `Next: ${nextState(current)}`,
     "Recent goals:",
-    ...runs.map((run) =>
+    ...runs.slice(0, 20).map((run) =>
       `- ${run.status} | ${run.id} | ${oneLine(run.objective, 180)} | ${run.updatedAt}`
     ),
   );

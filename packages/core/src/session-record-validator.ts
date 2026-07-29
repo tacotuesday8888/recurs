@@ -941,6 +941,9 @@ function isAgentDescriptor(
     Number.isSafeInteger(team.round) && (team.round as number) >= 0 &&
     boundedNonEmptyString(team.attemptId, MAX_RUNTIME_ID_LENGTH)
   );
+  const routedCompanyReview = company?.blueprintVersion === 2 &&
+    companyGoal !== undefined && profile.id === "review_v1" &&
+    workspace === undefined && team === undefined;
   return validWorkspace &&
     validTeam &&
     validCompanyGoal &&
@@ -954,7 +957,8 @@ function isAgentDescriptor(
     (value.depth as number) > 0 &&
     (value.backend.strategy === "inherit_parent" || (
       value.backend.strategy === "policy_route" &&
-      policy.version >= 4 && expectedTeamRole !== null
+      policy.version >= 4 &&
+      (expectedTeamRole !== null || routedCompanyReview)
     )) &&
     isObject(value.task) && hasExactKeys(value.task, [
       "id", "description", "prompt",

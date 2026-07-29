@@ -52,8 +52,8 @@ not required to verify Recurs's contracts or authority boundaries.
 `recurs benchmark company --list` exposes three immutable coding fixtures:
 `alias_registry`, the cross-file `layered_config`, and the review-sensitive
 `retry_after`. Each configured campaign runs byte-identical fresh workspaces
-through a strong single-agent baseline and the saved recommended company.
-When saved worker routes differ from the parent,
+through the selected parent-only baseline and the currently configured saved
+role-route snapshot. When saved worker routes differ from the parent,
 `--compare-all-strong` explicitly adds an all-strong bounded lineup.
 
 ```sh
@@ -90,12 +90,26 @@ both passed, the company was slower once and slightly faster once, while using
 three requests and more input tokens in both. Every company candidate received
 independent approval and none required Repair. Dollar cost was unavailable.
 
-This is useful product evidence, not a published winner: each scenario has one
-pair, the task catalog is small, and there is no all-strong-team comparison.
-It supports selective company activation for quality insurance, not mandatory
-fan-out on every task. The runs also found and drove fixes for benchmark
-approval handling, bounded worker verification, review evidence handoff,
-scenario-bound company authority, and hidden-verifier versioning.
+### 2026-07-29 `alias_registry` replication
+
+A later same-day pair reran the same immutable fixture:
+
+| Arm | Verifier | Time | Requests | Input (cached) | Output |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Sol baseline | passed 7/7 | 103.341s | 1 | 135,236 (91,648) | 4,824 |
+| company | passed 7/7 | 125.310s | 3 | 159,828 (99,328) | 4,204 |
+
+The company candidate received independent approval, and both arms passed all
+seven checks. Dollar cost was unavailable.
+
+The campaign and replication demonstrate that the machinery, saved routing,
+independent review, hidden verification, and comparable-arm recording execute
+correctly. They do not establish a quality or efficiency advantage: the task
+catalog remains small, the replication is one additional pair, and there is no
+all-strong-team comparison. Repeated trials are still required. The runs also
+found and drove fixes for benchmark approval handling, bounded worker
+verification, review evidence handoff, scenario-bound company authority, and
+hidden-verifier versioning.
 
 ## Auto Team Alpha dogfood
 
@@ -118,9 +132,10 @@ subscription connections without copying credentials:
   cost coverage was unknown; decomposition, evidence, and synthesis passed.
   `/model auto` then selected that exact four-route snapshot.
 
-The successful live review approved the first patch, so no repair agent was
-needed. The request-changes → bounded Repair → independent re-review path
-remains proved by the deterministic `team-run-supervisor` integration suite.
+The successful live review approved the first patch, so the configured Repair
+fallback did not activate. The request-changes → bounded Repair → independent
+re-review path remains proved by the deterministic `team-run-supervisor`
+integration suite.
 This formation-to-apply run plus the later three-scenario comparison proves the
 lineup and comparison machinery execute end to end. It still does not show that
 the named lineup is a universal winner or always more efficient than one

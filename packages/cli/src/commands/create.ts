@@ -21,7 +21,7 @@ export function createCommandRegistry(
     ...createSessionCommands(dependencies),
     createModelCommand(dependencies),
     ...createRepositoryCommands(dependencies),
-    createGoalCommand(),
+    createGoalCommand(dependencies),
     createPlanCommand(),
     createPermissionsCommand(),
     createProcessCommand(dependencies),

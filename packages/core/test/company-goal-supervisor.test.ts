@@ -5,13 +5,19 @@ import path from "node:path";
 import {
   createHostInvocation,
   deriveTrustedRunContext,
+  type OperatingModeId,
   type CoordinatedRunInput,
   type RunCoordinator,
 } from "@recurs/contracts";
-import { ToolError, type ToolContext } from "@recurs/tools";
+import {
+  permissionIntentKey,
+  ToolError,
+  type ToolContext,
+} from "@recurs/tools";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  AgentBackendRouter,
   approveCompanyBlueprintV2,
   ChildAgentManager,
   CompanyGoalSupervisor,
@@ -19,13 +25,14 @@ import {
   compileCompanyBlueprintV2,
   createDelegationBudget,
   createRootAgentDescriptor,
-  delegationWorkflowUsage,
   FileCompanyBlueprintV2Store,
   FileCompanyKnowledgeStore,
   JsonlCompanyGoalStore,
   JsonlSessionStore,
-  type CompanyGoalAssignmentExecutor,
+  TEAM_APPLY_PERMISSION,
+  TeamRunOwnerLeaseManager,
   type DelegateCompanyGoalInput,
+  type PinnedSessionState,
   type RecursEvent,
 } from "../src/index.js";
 import { testAt, testBackendPin } from "../../../tests/support/backend.js";
@@ -38,6 +45,18 @@ const trusted = deriveTrustedRunContext(createHostInvocation({
   scripted: false,
   embedding: "cli",
 }));
+const WORKTREE_ORCHESTRATION_PERMISSION = Object.freeze({
+  category: "shell" as const,
+  resource: "fixed Git worktree orchestration",
+  risk: "normal" as const,
+});
+
+function companyResumeApprovals(): Set<string> {
+  return new Set([
+    permissionIntentKey(TEAM_APPLY_PERMISSION),
+    permissionIntentKey(WORKTREE_ORCHESTRATION_PERMISSION),
+  ]);
+}
 
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) =>
@@ -45,7 +64,11 @@ afterEach(async () => {
   ));
 });
 
-function organization(implementation = false) {
+function organization(
+  implementation = false,
+  economy = false,
+  directReview = false,
+) {
   const common = {
     departmentKey: "delivery",
     permissionMode: "approved_for_me" as const,
@@ -80,6 +103,7 @@ function organization(implementation = false) {
       capabilities: ["plan" as const, "research" as const],
       executionProfileId: "explore_v1" as const,
       expectedEvidence: ["Relevant project paths."],
+      activation: economy ? "on_demand" as const : "always" as const,
     }, {
       ...common,
       key: "worker",
@@ -91,7 +115,7 @@ function organization(implementation = false) {
       instructions: implementation
         ? "Work only in the isolated team workspace."
         : "Stay read-only and cite the inspected code.",
-      reportsToKey: "lead",
+      reportsToKey: economy ? "orchestrator" : "lead",
       capabilities: implementation
         ? ["implement" as const, "repair" as const]
         : ["research" as const],
@@ -104,7 +128,31 @@ function organization(implementation = false) {
       expectedEvidence: [implementation
         ? "A verified implementation patch."
         : "A cited implementation seam."],
-    }, {
+    }, ...(!implementation ? [{
+      ...common,
+      key: "implementation_candidate",
+      displayName: "Implementation Candidate",
+      kind: "worker" as const,
+      responsibility: "Implement the researched company handoff.",
+      instructions: "Work only in the isolated team workspace.",
+      reportsToKey: "lead",
+      capabilities: ["implement" as const],
+      executionProfileId: "implement_v2" as const,
+      toolBundles: ["implementation_v1" as const],
+      expectedEvidence: ["A verified implementation patch."],
+    }] : []), ...(directReview ? [{
+      ...common,
+      key: "direct_reviewer",
+      displayName: "Direct Reviewer",
+      kind: "reviewer" as const,
+      responsibility: "Review one read-only company handoff.",
+      instructions: "Review independently and cite concrete evidence.",
+      reportsToKey: "orchestrator",
+      capabilities: ["review" as const],
+      executionProfileId: "review_v1" as const,
+      toolBundles: ["quality_v1" as const],
+      expectedEvidence: ["Evidence-backed direct review."],
+    }] : []), {
       ...common,
       key: "reviewer",
       displayName: "Independent Reviewer",
@@ -120,12 +168,22 @@ function organization(implementation = false) {
     }],
     rootRoleKey: "orchestrator",
     independentReviewRoleKeys: ["reviewer"],
-    defaultActiveRoleKeys: ["orchestrator", "lead", "worker", "reviewer"],
+    defaultActiveRoleKeys: economy
+      ? ["orchestrator", "worker", "reviewer"]
+      : [
+          "orchestrator",
+          "lead",
+          ...(directReview ? ["direct_reviewer"] : []),
+          "worker",
+          ...(!implementation ? ["implementation_candidate"] : []),
+          "reviewer",
+        ],
   };
 }
 
 async function fixture(options: {
-  readonly workResult?: "success" | "failure" | "cancelled" | "cost" | "unknown";
+  readonly teamReviewResult?:
+    "success" | "failure" | "cancelled" | "cost" | "unknown";
   readonly nestedHandoffIds?: readonly string[];
   readonly implementation?: boolean;
   readonly teamStatus?: "approved" | "failed" | "cancelled" | "interrupted";
@@ -134,6 +192,8 @@ async function fixture(options: {
   )[];
   readonly learning?: boolean;
   readonly learningFailure?: "select" | "record";
+  readonly operatingModeId?: OperatingModeId;
+  readonly reviewBackendPin?: ReturnType<typeof testBackendPin>;
 } = {}) {
   const root = await realpath(
     await mkdtemp(path.join(tmpdir(), "recurs-company-goal-")),
@@ -142,6 +202,9 @@ async function fixture(options: {
   const sessions = new JsonlSessionStore(path.join(root, "sessions"));
   const blueprints = new FileCompanyBlueprintV2Store(path.join(root, "blueprints"));
   const runs = new JsonlCompanyGoalStore(path.join(root, "goals"));
+  const owners = new TeamRunOwnerLeaseManager({
+    rootDirectory: path.join(root, "company-goal-owners"),
+  });
   const knowledge = new FileCompanyKnowledgeStore(path.join(root, "knowledge"));
   const learning = new CompanyLearningService({ store: knowledge });
   const blueprint = approveCompanyBlueprintV2(compileCompanyBlueprintV2({
@@ -171,8 +234,12 @@ async function fixture(options: {
       },
     },
     permissionMode: "approved_for_me",
-    operatingModeId: "balanced_v6",
-    organization: organization(options.implementation === true),
+    operatingModeId: options.operatingModeId ?? "balanced_v6",
+    organization: organization(
+      options.implementation === true,
+      options.operatingModeId === "economy_v6",
+      options.reviewBackendPin !== undefined,
+    ),
     availableToolBundles: [
       "project_context_v1", "quality_v1", "implementation_v1",
     ],
@@ -301,67 +368,21 @@ async function fixture(options: {
   };
   const events: RecursEvent[] = [];
   let childIndex = 0;
+  const backendRouter = new AgentBackendRouter();
   const children = new ChildAgentManager({
     sessions,
+    backendRouter,
     getCoordinator: () => coordinator,
     async emit(event) { events.push(event); },
     createId: () => `child-${++childIndex}`,
     now: () => testAt,
   });
-  let workIndex = 0;
-  const work: CompanyGoalAssignmentExecutor = {
-    reserveIdentity() {
-      const index = ++workIndex;
-      return {
-        childSessionId: `work-session-${index}`,
-        childAgentId: `work-agent-${index}`,
-        taskId: `work-task-${index}`,
-      };
-    },
-    async delegate(input, context) {
-      const budget = context.delegationBudget!;
-      const allowance = Math.max(1, Math.floor(budget.maxRequests / budget.maxChildren));
-      budget.childrenStarted += 1;
-      budget.requestsReserved += allowance;
-      budget.requestsUsed += 1;
-      if (options.workResult === "failure") {
-        throw new ToolError("execution_failed", "Independent review failed");
-      }
-      if (options.workResult === "cancelled") {
-        throw new ToolError("cancelled", "Independent review was cancelled");
-      }
-      const usage = options.workResult === "unknown"
-        ? null
-        : {
-            inputTokens: 2,
-            outputTokens: 1,
-            costUsd: options.workResult === "cost" ? 4 : 0.02,
-          };
-      budget.reportedCostUsd += usage?.costUsd ?? 0;
-      return {
-        output: "independent review approved",
-        metadata: {
-          childSessionId: `work-session-${workIndex}`,
-          childAgentId: `work-agent-${workIndex}`,
-          taskId: `work-task-${workIndex}`,
-          attempts: 1,
-          retries: 0,
-          operatingModeId: "balanced_v6",
-          profileId: input.profile,
-          usage,
-          usageSource: usage === null ? "unavailable" : "provider",
-          requestsUsed: 1,
-          evidenceSource: "independent_verification",
-          changedFiles: [],
-          evidence: ["reviewed every prior handoff"],
-          costLimitUsd: budget.maxReportedCostUsd,
-          costLimitExceeded: budget.reportedCostUsd > budget.maxReportedCostUsd,
-          workflow: delegationWorkflowUsage(budget),
-        },
-      };
-    },
-  };
-  let currentTeamStatus = options.teamStatus ?? "approved";
+  let currentTeamStatus = options.teamStatus ??
+    (options.teamReviewResult === "failure"
+      ? "failed"
+      : options.teamReviewResult === "cancelled"
+        ? "cancelled"
+        : "approved");
   type TeamCorrelation = Parameters<NonNullable<
     ConstructorParameters<typeof CompanyGoalSupervisor>[0]["team"]
   >["reserveCompanyRun"]>[2];
@@ -369,6 +390,7 @@ async function fixture(options: {
   const teamStatuses = new Map<string, typeof currentTeamStatus>();
   let teamIndex = 0;
   const teamCalls: string[] = [];
+  let currentReviewBackendPin = options.reviewBackendPin;
   const teamResult = (teamRunId: string) => {
     const teamCorrelation = teamCorrelations.get(teamRunId);
     if (teamCorrelation === undefined) throw new Error("Team was not reserved");
@@ -387,13 +409,23 @@ async function fixture(options: {
           childrenFinished: 2,
           requestsReserved: 16,
           requestsUsed: 2,
-          usage: { inputTokens: 4, outputTokens: 2, costUsd: 0.02 },
-          usageReportedChildren: 2,
-          usageMissingChildren: 0,
-          reportedCostUsd: 0.02,
-          costReportedChildren: 2,
-          costMissingChildren: 0,
-          costCoverage: "complete" as const,
+          usage: options.teamReviewResult === "unknown"
+            ? null
+            : {
+                inputTokens: 4,
+                outputTokens: 2,
+                costUsd: options.teamReviewResult === "cost" ? 4 : 0.02,
+              },
+          usageReportedChildren: options.teamReviewResult === "unknown" ? 0 : 2,
+          usageMissingChildren: options.teamReviewResult === "unknown" ? 2 : 0,
+          reportedCostUsd: options.teamReviewResult === "unknown"
+            ? null
+            : options.teamReviewResult === "cost" ? 4 : 0.02,
+          costReportedChildren: options.teamReviewResult === "unknown" ? 0 : 2,
+          costMissingChildren: options.teamReviewResult === "unknown" ? 2 : 0,
+          costCoverage: options.teamReviewResult === "unknown"
+            ? "unknown" as const
+            : "complete" as const,
         },
         changedFiles: teamStatus === "approved" ? ["src/change.ts"] : [],
         evidence: ["durable team evidence"],
@@ -406,15 +438,29 @@ async function fixture(options: {
             assignmentId: binding.assignmentId,
             summary: `completed ${binding.assignmentId}`,
             evidence: [`evidence for ${binding.assignmentId}`],
-            usage: { inputTokens: 2, outputTokens: 1, costUsd: 0.01 },
-            usageSource: "provider" as const,
+            usage: options.teamReviewResult === "unknown" &&
+                binding.assignmentId === "review-assignment"
+              ? null
+              : {
+                  inputTokens: 2,
+                  outputTokens: 1,
+                  costUsd: options.teamReviewResult === "cost" ? 2 : 0.01,
+                },
+            usageSource: options.teamReviewResult === "unknown" &&
+                binding.assignmentId === "review-assignment"
+              ? "unknown" as const
+              : "provider" as const,
           })),
         },
         ...(terminalFailure
           ? {
               failure: {
                 code: teamStatus,
-                message: `team ${teamStatus}`,
+                message: options.teamReviewResult === "failure"
+                  ? "Independent review failed"
+                  : options.teamReviewResult === "cancelled"
+                    ? "Independent review was cancelled"
+                    : `team ${teamStatus}`,
               },
             }
           : {}),
@@ -422,6 +468,41 @@ async function fixture(options: {
     };
   };
   const team = {
+    async selectCompanyChildBackend(input: {
+      readonly parent: PinnedSessionState;
+      readonly profileId: "review_v1";
+      readonly modelRoute: "review";
+      readonly background: false;
+    }) {
+      return backendRouter.select({
+        role: "review",
+        candidateRole: input.modelRoute,
+        executionMode: "act",
+        permissionMode: input.parent.permissionMode,
+        background: input.background,
+        candidates: [{
+          id: "parent",
+          pin: input.parent.backend.pin,
+          parent: true,
+          roles: ["implement", "review", "repair"],
+          executionModes: ["act"],
+          permissionModes: [input.parent.permissionMode],
+          hostTools: true,
+          background: true,
+          ready: true,
+        }, ...(currentReviewBackendPin === undefined ? [] : [{
+          id: "direct-review",
+          pin: currentReviewBackendPin,
+          parent: false,
+          roles: ["review" as const],
+          executionModes: ["act" as const],
+          permissionModes: [input.parent.permissionMode],
+          hostTools: true,
+          background: true,
+          ready: true,
+        }])],
+      });
+    },
     async reserveCompanyRun(
       _input: unknown,
       _context: unknown,
@@ -470,18 +551,19 @@ async function fixture(options: {
           ? async () => { throw new Error("sensitive record failure"); }
           : learning.recordCompletedGoal.bind(learning),
       };
-  const supervisor = new CompanyGoalSupervisor({
+  const supervisorDependencies = {
     sessions,
     blueprints,
     runs,
+    owners,
     children,
-    work,
     team,
     ...(learningDependency === undefined ? {} : { learning: learningDependency }),
     async emit(event) { events.push(event); },
     createId: () => `company-run-id-${++runIndex}`,
     now: () => testAt,
-  });
+  };
+  const supervisor = new CompanyGoalSupervisor(supervisorDependencies);
   supervisorReference.current = supervisor;
   const context: ToolContext = {
     sessionId: parent.id,
@@ -490,6 +572,7 @@ async function fixture(options: {
     signal: new AbortController().signal,
     readRevisions: new Map(),
     runContext: trusted,
+    approvedIntents: companyResumeApprovals(),
     delegationBudget: createDelegationBudget(parent.agent),
   };
   return {
@@ -507,7 +590,22 @@ async function fixture(options: {
     supervisor,
     context,
     prompts,
+    team,
     teamCalls,
+    teamCorrelations,
+    createSupervisor(
+      overrides: Partial<typeof supervisorDependencies> = {},
+    ) {
+      return new CompanyGoalSupervisor({
+        ...supervisorDependencies,
+        ...overrides,
+      });
+    },
+    setReviewBackendPin(
+      reviewBackendPin: typeof currentReviewBackendPin,
+    ) {
+      currentReviewBackendPin = reviewBackendPin;
+    },
     setTeamStatus(status: typeof currentTeamStatus) {
       currentTeamStatus = status;
       for (const teamRunId of teamStatuses.keys()) {
@@ -521,6 +619,8 @@ function goal(setup: Awaited<ReturnType<typeof fixture>>): DelegateCompanyGoalIn
   const lead = setup.roles["Planning Lead"]!;
   const worker = setup.roles["Research Worker"] ??
     setup.roles["Implementation Worker"]!;
+  const implementationCandidate = setup.roles["Implementation Candidate"];
+  const directReviewer = setup.roles["Direct Reviewer"];
   const reviewer = setup.roles["Independent Reviewer"]!;
   return {
     objective: "Map the company goal runtime and review the evidence.",
@@ -532,19 +632,42 @@ function goal(setup: Awaited<ReturnType<typeof fixture>>): DelegateCompanyGoalIn
       description: "Plan the bounded investigation",
       prompt: "Identify the relevant runtime seam.",
       acceptance: ["Return a concrete handoff."],
-    }, {
+    }, ...(directReviewer === undefined ? [] : [{
+      id: "direct-review-assignment",
+      roleId: directReviewer.id,
+      parentAssignmentId: null,
+      dependsOn: ["lead-assignment"],
+      description: "Review the planned runtime seam",
+      prompt: "Independently review the plan before implementation.",
+      acceptance: ["Return a cited review."],
+    }]), {
       id: "worker-assignment",
       roleId: worker.id,
       parentAssignmentId: "lead-assignment",
-      dependsOn: [],
+      dependsOn: directReviewer === undefined ? [] : ["direct-review-assignment"],
       description: "Investigate the runtime seam",
       prompt: "Inspect the approved seam and cite evidence.",
       acceptance: ["Cite the inspected implementation."],
-    }, {
+    }, ...(implementationCandidate === undefined ? [] : [{
+      id: "implementation-assignment",
+      roleId: implementationCandidate.id,
+      parentAssignmentId: "lead-assignment",
+      dependsOn: ["worker-assignment"],
+      description: "Implement the researched runtime seam",
+      prompt: "Implement and verify the approved bounded change.",
+      acceptance: ["Return a verified patch."],
+    }]), {
       id: "review-assignment",
       roleId: reviewer.id,
       parentAssignmentId: null,
-      dependsOn: ["lead-assignment", "worker-assignment"],
+      dependsOn: [
+        "lead-assignment",
+        ...(directReviewer === undefined ? [] : ["direct-review-assignment"]),
+        "worker-assignment",
+        ...(implementationCandidate === undefined
+          ? []
+          : ["implementation-assignment"]),
+      ],
       description: "Review the company result",
       prompt: "Review every handoff independently.",
       acceptance: ["Approve or report a concrete finding."],
@@ -617,7 +740,895 @@ function multiStageGoal(
   };
 }
 
+async function seedRecoverableChild(
+  setup: Awaited<ReturnType<typeof fixture>>,
+  runStatus: "running" | "interrupted" = "running",
+): Promise<string> {
+  const input = goal(setup);
+  const lead = input.assignments[0]!;
+  const worker = input.assignments[1]!;
+  const implementation = input.assignments[2]!;
+  const reviewer = input.assignments[3]!;
+  const leadRole = setup.roles["Planning Lead"]!;
+  const workerRole = setup.roles["Research Worker"]!;
+  const implementationRole = setup.roles["Implementation Candidate"]!;
+  const reviewRole = setup.roles["Independent Reviewer"]!;
+  const companyGoal = {
+    runId: "recovery-run",
+    assignmentId: lead.id,
+    parentAssignmentId: null,
+  };
+  const childInput = {
+    profile: "explore_v1" as const,
+    description: lead.description,
+    prompt: lead.prompt,
+  };
+  const childOptions = {
+    company: {
+      blueprintId: setup.blueprint.id,
+      blueprintVersion: 2 as const,
+      blueprintRevision: setup.blueprint.revision,
+      roleId: leadRole.id,
+      roleVersion: 1 as const,
+    },
+    companyPermissionMode: leadRole.permissionMode,
+    companyGoal,
+  };
+  const identity = setup.children.reserveIdentity(
+    childInput,
+    setup.context,
+    childOptions,
+  );
+  const child = await setup.children.delegate(childInput, setup.context, {
+    ...childOptions,
+    identity,
+  });
+  await setup.runs.create({
+    id: "recovery-run",
+    version: 1,
+    parentSessionId: setup.parent.id,
+    goalId: "recovery-goal",
+    objective: input.objective,
+    company: setup.parent.agent.company as Extract<
+      NonNullable<typeof setup.parent.agent.company>,
+      { blueprintVersion: 2 }
+    >,
+    status: runStatus,
+    createdAt: testAt,
+    updatedAt: testAt,
+    plan: {
+      revision: 1,
+      createdAt: testAt,
+      assignments: [{
+        ...lead,
+        expectedEvidence: leadRole.expectedEvidence,
+        status: "running",
+        execution: {
+          attempt: 1,
+          childAgentId: child.metadata.childAgentId,
+          childSessionId: child.metadata.childSessionId,
+          taskId: child.metadata.taskId,
+          startedAt: testAt,
+          completedAt: null,
+        },
+        result: null,
+        failure: null,
+      }, {
+        ...worker,
+        expectedEvidence: workerRole.expectedEvidence,
+        status: "completed",
+        result: {
+          summary: "completed historical worker assignment",
+          evidence: ["historical worker evidence"],
+          usage: { inputTokens: 3, outputTokens: 2, costUsd: 0.01 },
+          usageSource: "provider",
+        },
+        failure: null,
+      }, {
+        ...implementation,
+        expectedEvidence: implementationRole.expectedEvidence,
+        status: "pending",
+        result: null,
+        failure: null,
+      }, {
+        ...reviewer,
+        expectedEvidence: reviewRole.expectedEvidence,
+        status: "pending",
+        result: null,
+        failure: null,
+      }],
+    },
+    budget: {
+      maxAssignments: 8,
+      assignmentsStarted: 2,
+      maxConcurrentAssignments: 3,
+      maxRequests: 80,
+      requestsReserved: 20,
+      requestsUsed: 1,
+      maxReportedCostUsd: 3,
+      reportedCostUsd: 0.01,
+    },
+    result: null,
+    failure: null,
+  });
+  return child.metadata.childSessionId;
+}
+
+async function seedRecoverableDirectReview(
+  setup: Awaited<ReturnType<typeof fixture>>,
+  options: {
+    readonly runStatus?: "running" | "interrupted";
+    readonly includeRunningTeam?: boolean;
+  } = {},
+): Promise<string> {
+  const input = goal(setup);
+  const lead = input.assignments.find((assignment) =>
+    assignment.id === "lead-assignment"
+  )!;
+  const directReview = input.assignments.find((assignment) =>
+    assignment.id === "direct-review-assignment"
+  )!;
+  const worker = input.assignments.find((assignment) =>
+    assignment.id === "worker-assignment"
+  )!;
+  const finalReview = input.assignments.find((assignment) =>
+    assignment.id === "review-assignment"
+  )!;
+  const leadRole = setup.roles["Planning Lead"]!;
+  const directReviewRole = setup.roles["Direct Reviewer"]!;
+  const workerRole = setup.roles["Implementation Worker"]!;
+  const finalReviewRole = setup.roles["Independent Reviewer"]!;
+  const companyGoal = {
+    runId: "direct-review-recovery-run",
+    assignmentId: directReview.id,
+    parentAssignmentId: null,
+  };
+  const childInput = {
+    profile: "review_v1" as const,
+    description: directReview.description,
+    prompt: directReview.prompt,
+  };
+  const childOptions = {
+    company: {
+      blueprintId: setup.blueprint.id,
+      blueprintVersion: 2 as const,
+      blueprintRevision: setup.blueprint.revision,
+      roleId: directReviewRole.id,
+      roleVersion: 1 as const,
+    },
+    companyPermissionMode: directReviewRole.permissionMode,
+    companyGoal,
+    backend: {
+      decision: await setup.team.selectCompanyChildBackend({
+        parent: setup.parent,
+        profileId: "review_v1",
+        modelRoute: "review",
+        background: false,
+      }),
+    },
+  };
+  const identity = setup.children.reserveIdentity(
+    childInput,
+    setup.context,
+    childOptions,
+  );
+  const child = await setup.children.delegate(childInput, setup.context, {
+    ...childOptions,
+    identity,
+  });
+  await setup.runs.create({
+    id: companyGoal.runId,
+    version: 1,
+    parentSessionId: setup.parent.id,
+    goalId: "direct-review-recovery-goal",
+    objective: input.objective,
+    company: setup.parent.agent.company as Extract<
+      NonNullable<typeof setup.parent.agent.company>,
+      { blueprintVersion: 2 }
+    >,
+    status: options.runStatus ?? "running",
+    createdAt: testAt,
+    updatedAt: testAt,
+    plan: {
+      revision: 1,
+      createdAt: testAt,
+      assignments: [{
+        ...lead,
+        expectedEvidence: leadRole.expectedEvidence,
+        status: "completed",
+        result: {
+          summary: "completed historical lead assignment",
+          evidence: ["historical lead evidence"],
+          usage: { inputTokens: 3, outputTokens: 2, costUsd: 0.01 },
+          usageSource: "provider",
+        },
+        failure: null,
+      }, {
+        ...directReview,
+        expectedEvidence: directReviewRole.expectedEvidence,
+        status: "running",
+        execution: {
+          attempt: 1,
+          childAgentId: child.metadata.childAgentId,
+          childSessionId: child.metadata.childSessionId,
+          taskId: child.metadata.taskId,
+          startedAt: testAt,
+          completedAt: null,
+        },
+        result: null,
+        failure: null,
+      }, {
+        ...worker,
+        expectedEvidence: workerRole.expectedEvidence,
+        status: options.includeRunningTeam === true ? "running" : "pending",
+        ...(options.includeRunningTeam === true
+          ? {
+              execution: {
+                attempt: 1 as const,
+                teamRunId: "preflight-order-team",
+                teamRole: "implement" as const,
+                taskIndex: 1,
+                startedAt: testAt,
+                completedAt: null,
+              },
+            }
+          : {}),
+        result: null,
+        failure: null,
+      }, {
+        ...finalReview,
+        expectedEvidence: finalReviewRole.expectedEvidence,
+        status: "pending",
+        result: null,
+        failure: null,
+      }],
+    },
+    budget: {
+      maxAssignments: 8,
+      assignmentsStarted: options.includeRunningTeam === true ? 3 : 2,
+      maxConcurrentAssignments: 3,
+      maxRequests: 80,
+      requestsReserved: options.includeRunningTeam === true ? 28 : 20,
+      requestsUsed: 1,
+      maxReportedCostUsd: 3,
+      reportedCostUsd: 0.01,
+    },
+    result: null,
+    failure: null,
+  });
+  return child.metadata.childSessionId;
+}
+
+async function expectDirectReviewRecoveryRejectedWithoutSideEffects(
+  setup: Awaited<ReturnType<typeof fixture>>,
+  supervisor: CompanyGoalSupervisor,
+): Promise<void> {
+  const before = await setup.runs.load("direct-review-recovery-run");
+  const sessionsBefore = await setup.sessions.list();
+  const promptsBefore = [...setup.prompts];
+  const eventsBefore = [...setup.events];
+  const teamCallsBefore = [...setup.teamCalls];
+
+  await expect(supervisor.resume(
+    "direct-review-recovery-run",
+    setup.context,
+  )).rejects.toMatchObject({
+    code: "execution_failed",
+    message: expect.stringContaining("correlation"),
+  });
+
+  await expect(setup.runs.load("direct-review-recovery-run")).resolves
+    .toEqual(before);
+  await expect(setup.sessions.list()).resolves.toEqual(sessionsBefore);
+  expect(setup.prompts).toEqual(promptsBefore);
+  expect(setup.events).toEqual(eventsBefore);
+  expect(setup.teamCalls).toEqual(teamCallsBefore);
+}
+
+function corruptChildCorrelation(
+  state: PinnedSessionState,
+  path: readonly string[],
+  replacement: unknown,
+): PinnedSessionState {
+  const corrupted = structuredClone(state) as unknown as Record<string, unknown>;
+  let target = corrupted;
+  for (const key of path.slice(0, -1)) {
+    const value = target[key];
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new Error(`Invalid child corruption path: ${path.join(".")}`);
+    }
+    target = value as Record<string, unknown>;
+  }
+  target[path.at(-1)!] = replacement;
+  return corrupted as unknown as PinnedSessionState;
+}
+
+const childCorrelationCorruptions = [
+  ["child agent", ["agent", "id"], "wrong-child-agent"],
+  ["task", ["agent", "task", "id"], "wrong-task"],
+  ["parent session", ["agent", "parentSessionId"], "wrong-parent-session"],
+  ["parent agent", ["agent", "parentAgentId"], "wrong-parent-agent"],
+  ["goal run", ["agent", "companyGoal", "runId"], "wrong-run"],
+  ["goal assignment", ["agent", "companyGoal", "assignmentId"], "wrong-assignment"],
+  [
+    "goal parent assignment",
+    ["agent", "companyGoal", "parentAssignmentId"],
+    "wrong-parent-assignment",
+  ],
+  ["blueprint", ["agent", "company", "blueprintId"], "wrong-blueprint"],
+  ["blueprint revision", ["agent", "company", "blueprintRevision"], 2],
+  ["role", ["agent", "company", "roleId"], "wrong-role"],
+  ["profile", ["agent", "profile", "id"], "review_v1"],
+  ["operating mode", ["agent", "operatingMode", "version"], 5],
+  ["session backend", ["backend", "pin", "modelId"], "wrong-model"],
+  ["agent backend", ["agent", "backend", "modelId"], "wrong-model"],
+  ["permission binding", ["agent", "permissions", "permissionMode"], "full_access"],
+] as const;
+
 describe("CompanyGoalSupervisor", () => {
+  it("rejects missing, unknown, and non-default assignment roles before durable work", async () => {
+    const missing = await fixture();
+    const missingInput = goal(missing);
+    await expect(missing.supervisor.start({
+      ...missingInput,
+      assignments: missingInput.assignments
+        .filter((assignment) =>
+          assignment.id !== "worker-assignment" &&
+          assignment.id !== "implementation-assignment"
+        )
+        .map((assignment) => assignment.id === "review-assignment"
+          ? { ...assignment, dependsOn: ["lead-assignment"] }
+          : assignment),
+    }, missing.context)).rejects.toMatchObject({
+      code: "invalid_input",
+      message: expect.stringContaining("Every default-active role"),
+    });
+    await expect(missing.runs.load("company-run-id-1")).rejects
+      .toMatchObject({ code: "not_found" });
+
+    const unknown = await fixture();
+    const unknownInput = goal(unknown);
+    await expect(unknown.supervisor.start({
+      ...unknownInput,
+      assignments: unknownInput.assignments.map((assignment) =>
+        assignment.id === "worker-assignment"
+          ? { ...assignment, roleId: "unknown-role" }
+          : assignment
+      ),
+    }, unknown.context)).rejects.toMatchObject({
+      code: "invalid_input",
+    });
+    await expect(unknown.runs.load("company-run-id-1")).rejects
+      .toMatchObject({ code: "not_found" });
+
+    const inactive = await fixture();
+    const inactiveWorker = inactive.roles["Research Worker"]!;
+    const inactiveBlueprint = {
+      ...inactive.blueprint,
+      activation: {
+        defaultActiveRoleIds:
+          inactive.blueprint.activation.defaultActiveRoleIds.filter(
+            (roleId) => roleId !== inactiveWorker.id,
+          ),
+      },
+    };
+    await expect(inactive.createSupervisor({
+      blueprints: { async load() { return inactiveBlueprint; } },
+    }).start(goal(inactive), inactive.context)).rejects.toMatchObject({
+      code: "invalid_input",
+      message: expect.stringContaining("not active"),
+    });
+    await expect(inactive.runs.load("company-run-id-1")).rejects
+      .toMatchObject({ code: "not_found" });
+    expect(inactive.prompts).toEqual([]);
+    expect(inactive.teamCalls).toEqual([]);
+    expect(inactive.events).toEqual([]);
+  });
+
+  it("requires mandatory review and rejects unsupported active profiles at authority", async () => {
+    const missingReview = await fixture();
+    const input = goal(missingReview);
+    await expect(missingReview.supervisor.start({
+      ...input,
+      assignments: input.assignments.filter((assignment) =>
+        assignment.id !== "review-assignment"
+      ),
+    }, missingReview.context)).rejects.toMatchObject({
+      code: "invalid_input",
+      message: expect.stringContaining("Every default-active role"),
+    });
+
+    const unsupported = await fixture();
+    const lead = unsupported.roles["Planning Lead"]!;
+    const unsupportedBlueprint = {
+      ...unsupported.blueprint,
+      roles: unsupported.blueprint.roles.map((role) => role.id === lead.id
+        ? {
+            ...role,
+            executionProfileId: "implement_v1" as const,
+            modelRoute: "implement" as const,
+          }
+        : role),
+    };
+    await expect(unsupported.createSupervisor({
+      blueprints: { async load() { return unsupportedBlueprint; } },
+    }).start(goal(unsupported), unsupported.context)).rejects.toMatchObject({
+      code: "permission_denied",
+      message: expect.stringContaining("execution profile"),
+    });
+    await expect(unsupported.runs.load("company-run-id-1")).rejects
+      .toMatchObject({ code: "not_found" });
+    expect(unsupported.prompts).toEqual([]);
+    expect(unsupported.teamCalls).toEqual([]);
+    expect(unsupported.events).toEqual([]);
+  });
+
+  it("revalidates a historical inactive-role plan before resume side effects", async () => {
+    const setup = await fixture();
+    await seedRecoverableChild(setup);
+    const lead = setup.roles["Planning Lead"]!;
+    const worker = setup.roles["Research Worker"]!;
+    const historicalBlueprint = {
+      ...setup.blueprint,
+      activation: {
+        defaultActiveRoleIds: setup.blueprint.activation.defaultActiveRoleIds
+          .filter((roleId) => roleId !== lead.id && roleId !== worker.id),
+      },
+    };
+    const before = await setup.runs.load("recovery-run");
+    const prompts = setup.prompts.length;
+    const events = setup.events.length;
+    const teamCalls = [...setup.teamCalls];
+    const childLoads: string[] = [];
+    const sessions = {
+      async loadState(sessionId: string, signal?: AbortSignal) {
+        childLoads.push(sessionId);
+        return await setup.sessions.loadState(sessionId, signal);
+      },
+    };
+
+    await expect(setup.createSupervisor({
+      sessions,
+      blueprints: { async load() { return historicalBlueprint; } },
+    }).resume("recovery-run", setup.context)).rejects.toMatchObject({
+      code: "permission_denied",
+      message: expect.stringContaining("reporting ancestry"),
+    });
+
+    expect(childLoads).toEqual([setup.parent.id]);
+    expect(setup.prompts).toHaveLength(prompts);
+    expect(setup.events).toHaveLength(events);
+    expect(setup.teamCalls).toEqual(teamCalls);
+    await expect(setup.runs.load("recovery-run")).resolves.toMatchObject({
+      sequence: before.sequence,
+      state: {
+        status: "running",
+        budget: before.state.budget,
+      },
+    });
+  });
+
+  it("rejects a historical review_v2 topology without implementation before resume side effects", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatus: "interrupted",
+    });
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({ code: "checkpoint_conflict" });
+    const implementation = setup.roles["Implementation Worker"]!;
+    const historicalBlueprint = {
+      ...setup.blueprint,
+      roles: setup.blueprint.roles.map((role) => role.id === implementation.id
+        ? {
+            ...role,
+            capabilities: ["review" as const],
+            executionProfileId: "review_v1" as const,
+            modelRoute: "review" as const,
+          }
+        : role),
+    };
+    const before = await setup.runs.load("company-run-id-1");
+    const prompts = setup.prompts.length;
+    const events = setup.events.length;
+    const teamCalls = [...setup.teamCalls];
+    const childLoads: string[] = [];
+    const sessions = {
+      async loadState(sessionId: string, signal?: AbortSignal) {
+        childLoads.push(sessionId);
+        return await setup.sessions.loadState(sessionId, signal);
+      },
+    };
+
+    await expect(setup.createSupervisor({
+      sessions,
+      blueprints: { async load() { return historicalBlueprint; } },
+    }).resume("company-run-id-1", {
+      ...setup.context,
+      signal: new AbortController().signal,
+      delegationBudget: createDelegationBudget(setup.parent.agent),
+    })).rejects.toMatchObject({
+      code: "permission_denied",
+      message: expect.stringMatching(/review_v2.*implement_v2/iu),
+    });
+
+    expect(childLoads).toEqual([setup.parent.id]);
+    expect(setup.prompts).toHaveLength(prompts);
+    expect(setup.events).toHaveLength(events);
+    expect(setup.teamCalls).toEqual(teamCalls);
+    await expect(setup.runs.load("company-run-id-1")).resolves.toMatchObject({
+      sequence: before.sequence,
+      state: { status: "interrupted", budget: before.state.budget },
+    });
+  });
+
+  it("never binds inactive repair capacity into a company team", async () => {
+    const setup = await fixture({ implementation: true });
+    const root = setup.blueprint.roles.find((role) =>
+      role.id === setup.blueprint.authorityAnchors.rootRoleId
+    )!;
+    const worker = setup.roles["Implementation Worker"]!;
+    const inactiveRepair = {
+      ...worker,
+      id: "inactive-repair-role",
+      displayName: "Inactive Repair Specialist",
+      reportsTo: root.id,
+      delegatesTo: [],
+      capabilities: ["repair" as const],
+      executionProfileId: "repair_v1" as const,
+      modelRoute: "repair" as const,
+      activation: "on_demand" as const,
+    };
+    const noAssignedRepair = {
+      ...setup.blueprint,
+      roles: [
+        ...setup.blueprint.roles.map((role) => role.id === root.id
+          ? { ...role, delegatesTo: [...role.delegatesTo, inactiveRepair.id] }
+          : role.id === worker.id
+            ? {
+                ...role,
+                capabilities: role.capabilities.filter((capability) =>
+                  capability !== "repair"
+                ),
+              }
+            : role),
+        inactiveRepair,
+      ],
+    };
+
+    await expect(setup.createSupervisor({
+      blueprints: { async load() { return noAssignedRepair; } },
+    }).start(goal(setup), setup.context)).resolves.toMatchObject({
+      metadata: { status: "completed" },
+    });
+    expect([...setup.teamCorrelations.values()][0]?.repair).toBeNull();
+  });
+
+  it("runs direct review_v1 assignments on their declared Review backend", async () => {
+    const reviewPin = testBackendPin("review-model", "review-connection");
+    const setup = await fixture({
+      implementation: true,
+      reviewBackendPin: reviewPin,
+    });
+
+    const result = await setup.supervisor.start(goal(setup), setup.context);
+    expect(result.output).not.toContain("terminal failure");
+    expect(result).toMatchObject({ metadata: { status: "completed" } });
+
+    const run = await setup.runs.load("company-run-id-1");
+    const assignment = run.state.plan.assignments.find((candidate) =>
+      candidate.id === "direct-review-assignment"
+    )!;
+    expect(assignment.execution).toMatchObject({
+      childSessionId: expect.any(String),
+    });
+    const child = await setup.sessions.loadState(
+      (assignment.execution as { readonly childSessionId: string }).childSessionId,
+    );
+    expect(child).toMatchObject({
+      backend: { pin: reviewPin },
+      agent: {
+        profile: { id: "review_v1", version: 1 },
+        backend: {
+          strategy: "policy_route",
+          candidateId: "direct-review",
+          reason: "eligible_role_candidate",
+          adapterId: reviewPin.adapterId,
+          connectionId: reviewPin.connectionId,
+          modelId: reviewPin.modelId,
+        },
+      },
+    });
+  });
+
+  it("runs the Economy builder and reviewer as sequential team phases", async () => {
+    const setup = await fixture({
+      implementation: true,
+      operatingModeId: "economy_v6",
+    });
+    const builder = setup.roles["Implementation Worker"]!;
+    const reviewer = setup.roles["Independent Reviewer"]!;
+    const input: DelegateCompanyGoalInput = {
+      objective: "Deliver one bounded Economy implementation with review.",
+      assignments: [{
+        id: "economy-implementation",
+        roleId: builder.id,
+        parentAssignmentId: null,
+        dependsOn: [],
+        description: "Implement the Economy slice",
+        prompt: "Implement and verify the bounded slice.",
+        acceptance: ["Return a verified patch."],
+      }, {
+        id: "economy-review",
+        roleId: reviewer.id,
+        parentAssignmentId: null,
+        dependsOn: ["economy-implementation"],
+        description: "Review the Economy slice",
+        prompt: "Independently review the complete patch.",
+        acceptance: ["Approve or return findings."],
+      }],
+    };
+
+    const result = await setup.supervisor.start(input, setup.context);
+    expect(result.output).not.toContain("terminal failure");
+    expect(result).toMatchObject({ metadata: { status: "completed" } });
+    expect(setup.teamCalls).toEqual(["reserve", "start"]);
+    const run = await setup.runs.load("company-run-id-1");
+    expect(run.state).toMatchObject({
+      status: "completed",
+      budget: {
+        assignmentsStarted: 2,
+        maxConcurrentAssignments: 1,
+      },
+    });
+  });
+
+  it("allows exactly one durable start across two supervisor instances", async () => {
+    const setup = await fixture({ implementation: true });
+    const second = setup.createSupervisor();
+
+    const outcomes = await Promise.allSettled([
+      setup.supervisor.start(goal(setup), setup.context),
+      second.start(goal(setup), {
+        ...setup.context,
+        signal: new AbortController().signal,
+        delegationBudget: createDelegationBudget(setup.parent.agent),
+      }),
+    ]);
+
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled"))
+      .toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === "rejected"))
+      .toEqual([
+        expect.objectContaining({
+          reason: expect.objectContaining({
+            code: "permission_denied",
+            message: expect.stringContaining(
+              "Do not retry delegate_company_goal",
+            ),
+          }),
+        }),
+      ]);
+    expect(await setup.runs.list()).toHaveLength(1);
+    expect(setup.prompts).toHaveLength(1);
+    expect(setup.teamCalls).toEqual(["reserve", "start"]);
+    expect(setup.events.filter((event) => event.type === "company_goal_started"))
+      .toHaveLength(1);
+  });
+
+  it("allows exactly one durable resume across two supervisor instances", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatus: "interrupted",
+    });
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({ code: "checkpoint_conflict" });
+    setup.setTeamStatus("approved");
+    const second = setup.createSupervisor();
+
+    const outcomes = await Promise.allSettled([
+      setup.supervisor.resume("company-run-id-1", {
+        ...setup.context,
+        signal: new AbortController().signal,
+        delegationBudget: createDelegationBudget(setup.parent.agent),
+      }),
+      second.resume("company-run-id-1", {
+        ...setup.context,
+        signal: new AbortController().signal,
+        delegationBudget: createDelegationBudget(setup.parent.agent),
+      }),
+    ]);
+
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled"))
+      .toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === "rejected"))
+      .toEqual([
+        expect.objectContaining({
+          reason: expect.objectContaining({
+            code: "permission_denied",
+            message: expect.stringContaining("already owned"),
+          }),
+        }),
+      ]);
+    expect(setup.teamCalls.filter((call) => call === "inspect")).toHaveLength(1);
+    await expect(setup.runs.load("company-run-id-1")).resolves.toMatchObject({
+      state: { status: "completed" },
+    });
+  });
+
+  it("fails closed when legacy state has multiple unresolved company runs", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatus: "interrupted",
+    });
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({ code: "checkpoint_conflict" });
+    const selected = await setup.runs.load("company-run-id-1");
+    await setup.runs.create({
+      ...selected.state,
+      id: "legacy-sibling",
+      goalId: "legacy-sibling-goal",
+    });
+    setup.setTeamStatus("approved");
+
+    await expect(setup.supervisor.resume(
+      "company-run-id-1",
+      setup.context,
+    )).rejects.toMatchObject({
+      code: "permission_denied",
+      message: expect.stringContaining("multiple unresolved"),
+    });
+    expect(setup.teamCalls.filter((call) => call === "inspect")).toHaveLength(0);
+  });
+
+  it("does not generically resume a run waiting for approval", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatus: "interrupted",
+    });
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({ code: "checkpoint_conflict" });
+    const interrupted = await setup.runs.load("company-run-id-1");
+    const running = await setup.runs.append(
+      interrupted.state.id,
+      interrupted.sequence,
+      { ...interrupted.state, status: "running" },
+    );
+    await setup.runs.append(
+      running.state.id,
+      running.sequence,
+      { ...running.state, status: "waiting_for_approval" },
+    );
+    setup.setTeamStatus("approved");
+
+    await expect(setup.supervisor.resume(
+      "company-run-id-1",
+      setup.context,
+    )).rejects.toMatchObject({
+      code: "permission_denied",
+      message: expect.stringContaining("waiting for approval"),
+    });
+    expect(setup.teamCalls.filter((call) => call === "inspect")).toHaveLength(0);
+  });
+
+  it.each([
+    ["Plan", (context: ToolContext) => ({ ...context, executionMode: "plan" as const })],
+    ["stale project", (context: ToolContext) => ({
+      ...context,
+      cwd: path.join(context.cwd, "stale-project"),
+    })],
+    ["non-REPL", (context: ToolContext) => ({
+      ...context,
+      runContext: { ...trusted, invocation: "goal" as const },
+    })],
+    ["remote", (context: ToolContext) => ({
+      ...context,
+      runContext: { ...trusted, location: "remote" as const },
+    })],
+    ["automated", (context: ToolContext) => ({
+      ...context,
+      runContext: { ...trusted, automation: "scripted" as const },
+    })],
+    ["unattended", (context: ToolContext) => ({
+      ...context,
+      runContext: { ...trusted, presence: "unattended" as const },
+    })],
+    ["non-CLI", (context: ToolContext) => ({
+      ...context,
+      runContext: { ...trusted, embedding: "desktop" as const },
+    })],
+    ["missing team apply approval", (context: ToolContext) => ({
+      ...context,
+      approvedIntents: new Set([
+        permissionIntentKey(WORKTREE_ORCHESTRATION_PERMISSION),
+      ]),
+    })],
+    ["missing worktree approval", (context: ToolContext) => ({
+      ...context,
+      approvedIntents: new Set([
+        permissionIntentKey(TEAM_APPLY_PERMISSION),
+      ]),
+    })],
+  ] as const)(
+    "rejects %s direct resume authority before durable execution",
+    async (label, mutate) => {
+      const setup = await fixture({
+        implementation: true,
+        teamStatus: "interrupted",
+      });
+      await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+        .toMatchObject({ code: "checkpoint_conflict" });
+      setup.setTeamStatus("approved");
+      const before = await setup.runs.load("company-run-id-1");
+
+      await expect(setup.supervisor.resume(
+        "company-run-id-1",
+        mutate({
+          ...setup.context,
+          signal: new AbortController().signal,
+          delegationBudget: createDelegationBudget(setup.parent.agent),
+        }),
+      )).rejects.toMatchObject({
+        code: label === "stale project"
+          ? "tool_unavailable"
+          : "permission_denied",
+      });
+      await expect(setup.runs.load("company-run-id-1")).resolves
+        .toMatchObject({ sequence: before.sequence, state: { status: "interrupted" } });
+      expect(setup.teamCalls.filter((call) => call === "inspect")).toHaveLength(0);
+    },
+  );
+
+  it("returns completed state idempotently without replaying execution", async () => {
+    const setup = await fixture({ implementation: true });
+    const completed = await setup.supervisor.start(goal(setup), setup.context);
+    const before = await setup.runs.load("company-run-id-1");
+    const calls = [...setup.teamCalls];
+    const events = setup.events.length;
+
+    const replay = await setup.createSupervisor().resume(
+      "company-run-id-1",
+      {
+        ...setup.context,
+        signal: new AbortController().signal,
+        delegationBudget: createDelegationBudget(setup.parent.agent),
+      },
+    );
+
+    expect(replay).toEqual(completed);
+    await expect(setup.runs.load("company-run-id-1")).resolves
+      .toMatchObject({ sequence: before.sequence, state: { status: "completed" } });
+    expect(setup.teamCalls).toEqual(calls);
+    expect(setup.events).toHaveLength(events);
+  });
+
+  it.each(["failed", "cancelled"] as const)(
+    "keeps a %s terminal run truthful during direct resume",
+    async (status) => {
+      const setup = await fixture({
+        implementation: true,
+        teamStatus: status,
+      });
+      const started = setup.supervisor.start(goal(setup), setup.context);
+      if (status === "failed") await started;
+      else await expect(started).rejects.toMatchObject({ code: "cancelled" });
+      const before = await setup.runs.load("company-run-id-1");
+
+      await expect(setup.createSupervisor().resume(
+        "company-run-id-1",
+        {
+          ...setup.context,
+          signal: new AbortController().signal,
+          delegationBudget: createDelegationBudget(setup.parent.agent),
+        },
+      )).rejects.toMatchObject({
+        code: status === "failed" ? "execution_failed" : "cancelled",
+        message: expect.stringContaining(`team ${status}`),
+      });
+      await expect(setup.runs.load("company-run-id-1")).resolves
+        .toMatchObject({ sequence: before.sequence, state: { status } });
+    },
+  );
+
   it("runs root to lead to worker to independent review with one durable budget", async () => {
     const setup = await fixture();
 
@@ -628,14 +1639,14 @@ describe("CompanyGoalSupervisor", () => {
     expect(stored.state).toMatchObject({
       status: "completed",
       budget: {
-        assignmentsStarted: 3,
-        requestsReserved: 30,
-        requestsUsed: 3,
+        assignmentsStarted: 4,
+        requestsReserved: 68,
+        requestsUsed: 4,
         reportedCostUsd: 0.04,
       },
     });
     expect(stored.state.plan.assignments.map((assignment) => assignment.status))
-      .toEqual(["completed", "completed", "completed"]);
+      .toEqual(["completed", "completed", "completed", "completed"]);
     expect(stored.state.plan.assignments.every((assignment) =>
       assignment.execution?.attempt === 1 && assignment.result !== null
     )).toBe(true);
@@ -661,8 +1672,6 @@ describe("CompanyGoalSupervisor", () => {
       "company_handoff_completed",
       "company_assignment_started",
       "company_handoff_completed",
-      "company_assignment_started",
-      "company_handoff_completed",
       "company_goal_completed",
     ]);
     expect(companyEvents).toEqual(expect.arrayContaining([
@@ -670,12 +1679,8 @@ describe("CompanyGoalSupervisor", () => {
         type: "company_assignment_started",
         roleName: "Planning Lead",
       }),
-      expect.objectContaining({
-        type: "company_handoff_completed",
-        assignmentId: "review-assignment",
-        evidence: ["reviewed every prior handoff"],
-      }),
     ]));
+    expect(setup.teamCalls).toEqual(["reserve", "start"]);
   });
 
   it("supplies historical knowledge and learns attributable goal evidence once", async () => {
@@ -695,7 +1700,7 @@ describe("CompanyGoalSupervisor", () => {
     expect(result.metadata?.knowledge).toEqual({
       status: "updated",
       revision: 4,
-      entriesAdded: 3,
+      entriesAdded: 4,
       entriesRejected: 0,
     });
     const learned = await setup.knowledge.latest(setup.blueprint.companyId);
@@ -983,8 +1988,6 @@ describe("CompanyGoalSupervisor", () => {
       "company_assignment_started",
       "company_handoff_completed",
       "company_handoff_completed",
-      "company_assignment_started",
-      "company_handoff_completed",
       "company_goal_completed",
     ]);
     const run = await setup.runs.load("company-run-id-1");
@@ -1003,13 +2006,22 @@ describe("CompanyGoalSupervisor", () => {
     const setup = await fixture({ nestedHandoffIds: workerIds });
     const base = goal(setup);
     const worker = base.assignments[1]!;
-    const review = base.assignments[2]!;
+    const implementation = base.assignments[2]!;
+    const review = base.assignments[3]!;
     const input: DelegateCompanyGoalInput = {
       ...base,
       assignments: [
         base.assignments[0]!,
         ...workerIds.map((id) => ({ ...worker, id })),
-        { ...review, dependsOn: ["lead-assignment", ...workerIds] },
+        { ...implementation, dependsOn: workerIds },
+        {
+          ...review,
+          dependsOn: [
+            "lead-assignment",
+            ...workerIds,
+            "implementation-assignment",
+          ],
+        },
       ],
     };
 
@@ -1064,7 +2076,7 @@ describe("CompanyGoalSupervisor", () => {
   });
 
   it("fails closed on review failure and reported-cost overflow", async () => {
-    const failed = await fixture({ workResult: "failure" });
+    const failed = await fixture({ teamReviewResult: "failure" });
     await expect(failed.supervisor.start(goal(failed), failed.context))
       .resolves.toMatchObject({
         output: expect.stringMatching(/failure[\s\S]*review failed/iu),
@@ -1074,7 +2086,7 @@ describe("CompanyGoalSupervisor", () => {
       state: { status: "failed" },
     });
 
-    const costly = await fixture({ workResult: "cost" });
+    const costly = await fixture({ teamReviewResult: "cost" });
     await expect(costly.supervisor.start(goal(costly), costly.context))
       .resolves.toMatchObject({
         output: expect.stringMatching(/failure[\s\S]*cost/iu),
@@ -1088,7 +2100,7 @@ describe("CompanyGoalSupervisor", () => {
   });
 
   it("preserves unknown usage instead of inventing accounting", async () => {
-    const setup = await fixture({ workResult: "unknown" });
+    const setup = await fixture({ teamReviewResult: "unknown" });
     await setup.supervisor.start(goal(setup), setup.context);
     const run = await setup.runs.load("company-run-id-1");
     expect(run.state.plan.assignments.at(-1)?.result).toMatchObject({
@@ -1098,7 +2110,7 @@ describe("CompanyGoalSupervisor", () => {
   });
 
   it("propagates cancellation into the assignment and goal records", async () => {
-    const setup = await fixture({ workResult: "cancelled" });
+    const setup = await fixture({ teamReviewResult: "cancelled" });
     await expect(setup.supervisor.start(goal(setup), setup.context))
       .rejects.toMatchObject({ code: "cancelled" });
     const run = await setup.runs.load("company-run-id-1");
@@ -1110,11 +2122,11 @@ describe("CompanyGoalSupervisor", () => {
       status: "cancelled",
       failure: "Independent review was cancelled",
     });
+    expect(run.state.plan.assignments.at(-2)).toMatchObject({
+      status: "cancelled",
+      failure: "Independent review was cancelled",
+    });
     expect(setup.events).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        type: "company_handoff_cancelled",
-        status: "cancelled",
-      }),
       expect.objectContaining({
         type: "company_goal_cancelled",
         status: "cancelled",
@@ -1124,93 +2136,7 @@ describe("CompanyGoalSupervisor", () => {
 
   it("recovers a completed durable child before continuing pending review", async () => {
     const setup = await fixture();
-    const input = goal(setup);
-    const lead = input.assignments[0]!;
-    const reviewer = input.assignments[2]!;
-    const leadRole = setup.roles["Planning Lead"]!;
-    const reviewRole = setup.roles["Independent Reviewer"]!;
-    const companyGoal = {
-      runId: "recovery-run",
-      assignmentId: lead.id,
-      parentAssignmentId: null,
-    };
-    const childInput = {
-      profile: "explore_v1" as const,
-      description: lead.description,
-      prompt: lead.prompt,
-    };
-    const childOptions = {
-      company: {
-        blueprintId: setup.blueprint.id,
-        blueprintVersion: 2 as const,
-        blueprintRevision: setup.blueprint.revision,
-        roleId: leadRole.id,
-        roleVersion: 1 as const,
-      },
-      companyPermissionMode: leadRole.permissionMode,
-      companyGoal,
-    };
-    const identity = setup.children.reserveIdentity(
-      childInput,
-      setup.context,
-      childOptions,
-    );
-    const child = await setup.children.delegate(childInput, setup.context, {
-      ...childOptions,
-      identity,
-    });
-    await setup.runs.create({
-      id: "recovery-run",
-      version: 1,
-      parentSessionId: setup.parent.id,
-      goalId: "recovery-goal",
-      objective: input.objective,
-      company: setup.parent.agent.company as Extract<
-        NonNullable<typeof setup.parent.agent.company>,
-        { blueprintVersion: 2 }
-      >,
-      status: "running",
-      createdAt: testAt,
-      updatedAt: testAt,
-      plan: {
-        revision: 1,
-        createdAt: testAt,
-        assignments: [{
-          ...lead,
-          expectedEvidence: leadRole.expectedEvidence,
-          status: "running",
-          execution: {
-            attempt: 1,
-            childAgentId: child.metadata.childAgentId,
-            childSessionId: child.metadata.childSessionId,
-            taskId: child.metadata.taskId,
-            startedAt: testAt,
-            completedAt: null,
-          },
-          result: null,
-          failure: null,
-        }, {
-          ...reviewer,
-          dependsOn: [lead.id],
-          expectedEvidence: reviewRole.expectedEvidence,
-          status: "pending",
-          result: null,
-          failure: null,
-        }],
-      },
-      budget: {
-        maxAssignments: 8,
-        assignmentsStarted: 1,
-        maxConcurrentAssignments: 3,
-        maxRequests: 80,
-        requestsReserved: 10,
-        requestsUsed: 0,
-        maxReportedCostUsd: 3,
-        reportedCostUsd: 0,
-      },
-      result: null,
-      failure: null,
-    });
+    await seedRecoverableChild(setup);
 
     const result = await setup.supervisor.resume("recovery-run", setup.context);
 
@@ -1219,10 +2145,315 @@ describe("CompanyGoalSupervisor", () => {
     expect(recovered.state).toMatchObject({
       status: "completed",
       budget: {
-        assignmentsStarted: 2,
-        requestsReserved: 20,
-        requestsUsed: 2,
-        reportedCostUsd: 0.03,
+        assignmentsStarted: 4,
+        requestsReserved: 68,
+        requestsUsed: 4,
+        reportedCostUsd: 0.04,
+      },
+    });
+  });
+
+  it.each(["running", "interrupted"] as const)(
+    "reconciles an exact completed durable direct Review child from a %s goal without replay",
+    async (runStatus) => {
+      const reviewPin = testBackendPin("review-model", "review-connection");
+      const setup = await fixture({
+        implementation: true,
+        reviewBackendPin: reviewPin,
+      });
+      const childSessionId = await seedRecoverableDirectReview(setup, {
+        runStatus,
+      });
+      const promptsBefore = [...setup.prompts];
+      const sessionsBefore = await setup.sessions.list();
+
+      const result = await setup.supervisor.resume(
+        "direct-review-recovery-run",
+        setup.context,
+      );
+
+      expect(result).toMatchObject({ metadata: { status: "completed" } });
+      expect(setup.prompts).toEqual(promptsBefore);
+      await expect(setup.sessions.list()).resolves.toEqual(sessionsBefore);
+      expect(setup.events).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          type: "company_assignment_started",
+          assignmentId: "direct-review-assignment",
+        }),
+      ]));
+      const recovered = await setup.runs.load("direct-review-recovery-run");
+      expect(recovered.state.plan.assignments.find((assignment) =>
+        assignment.id === "direct-review-assignment"
+      )).toMatchObject({
+        status: "completed",
+        execution: { childSessionId },
+        result: {
+          summary: expect.stringContaining("completed"),
+          evidence: expect.arrayContaining([expect.any(String)]),
+        },
+      });
+    },
+  );
+
+  it.each([
+    ["running", "changed"],
+    ["running", "missing"],
+    ["interrupted", "changed"],
+    ["interrupted", "missing"],
+  ] as const)(
+    "rejects a %s goal with a %s direct Review route before team, provider, event, or journal side effects",
+    async (runStatus, routeState) => {
+      const setup = await fixture({
+        implementation: true,
+        reviewBackendPin: testBackendPin("review-model", "review-connection"),
+      });
+      await seedRecoverableDirectReview(setup, {
+        runStatus,
+        includeRunningTeam: true,
+      });
+      let supervisor = setup.supervisor;
+      if (routeState === "changed") {
+        setup.setReviewBackendPin(
+          testBackendPin("changed-review-model", "changed-review-connection"),
+        );
+      } else {
+        supervisor = setup.createSupervisor({
+          team: {
+            ...setup.team,
+            async selectCompanyChildBackend() {
+              throw new ToolError(
+                "tool_unavailable",
+                "No eligible agent backend",
+              );
+            },
+          },
+        });
+      }
+
+      await expectDirectReviewRecoveryRejectedWithoutSideEffects(
+        setup,
+        supervisor,
+      );
+    },
+  );
+
+  it.each([
+    [
+      "running",
+      "backend pin",
+      ["backend", "pin", "modelId"],
+      "corrupted-model",
+    ],
+    [
+      "running",
+      "backend selection",
+      ["agent", "backend", "candidateId"],
+      "corrupted-candidate",
+    ],
+    [
+      "interrupted",
+      "backend pin",
+      ["backend", "pin", "modelId"],
+      "corrupted-model",
+    ],
+    [
+      "interrupted",
+      "backend selection",
+      ["agent", "backend", "candidateId"],
+      "corrupted-candidate",
+    ],
+  ] as const)(
+    "rejects a %s goal with a corrupted persisted direct Review %s without provider or journal side effects",
+    async (runStatus, _field, path, replacement) => {
+      const setup = await fixture({
+        implementation: true,
+        reviewBackendPin: testBackendPin("review-model", "review-connection"),
+      });
+      const childSessionId = await seedRecoverableDirectReview(setup, {
+        runStatus,
+      });
+      const sessions = {
+        async loadState(sessionId: string, signal?: AbortSignal) {
+          const state = await setup.sessions.loadState(sessionId, signal);
+          return sessionId === childSessionId
+            ? corruptChildCorrelation(
+                state as PinnedSessionState,
+                path,
+                replacement,
+              )
+            : state;
+        },
+      };
+
+      await expectDirectReviewRecoveryRejectedWithoutSideEffects(
+        setup,
+        setup.createSupervisor({ sessions }),
+      );
+    },
+  );
+
+  it.each(
+    (["running", "interrupted"] as const).flatMap((runStatus) =>
+      childCorrelationCorruptions.map(([field, path, replacement]) =>
+        [runStatus, field, path, replacement] as const
+      )
+    ),
+  )(
+    "fails closed without journal mutation when a %s goal has mismatched durable child %s correlation",
+    async (runStatus, _field, path, replacement) => {
+      const setup = await fixture();
+      const childSessionId = await seedRecoverableChild(setup, runStatus);
+      const before = await setup.runs.load("recovery-run");
+      const sessions = {
+        async loadState(sessionId: string) {
+          const state = await setup.sessions.loadState(sessionId);
+          return sessionId === childSessionId
+            ? corruptChildCorrelation(
+                state as PinnedSessionState,
+                path,
+                replacement,
+              )
+            : state;
+        },
+      };
+
+      await expect(setup.createSupervisor({ sessions }).resume(
+        "recovery-run",
+        setup.context,
+      )).rejects.toMatchObject({
+        code: "execution_failed",
+        message: expect.stringContaining("correlation"),
+      });
+      await expect(setup.runs.load("recovery-run")).resolves.toEqual(before);
+    },
+  );
+
+  it("does not reconcile a team result after cancellation during inspection", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatus: "interrupted",
+    });
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({ code: "checkpoint_conflict" });
+    setup.setTeamStatus("approved");
+    const controller = new AbortController();
+    const team = {
+      ...setup.team,
+      async inspectCompanyRun(
+        parentSessionId: string,
+        teamRunId: string,
+        signal?: AbortSignal,
+      ) {
+        const result = await setup.team.inspectCompanyRun(
+          parentSessionId,
+          teamRunId,
+        );
+        if (signal === controller.signal) controller.abort();
+        return result;
+      },
+    };
+
+    await expect(setup.createSupervisor({ team }).resume(
+      "company-run-id-1",
+      {
+        ...setup.context,
+        signal: controller.signal,
+        delegationBudget: createDelegationBudget(setup.parent.agent),
+      },
+    )).rejects.toMatchObject({ code: "cancelled" });
+    await expect(setup.runs.load("company-run-id-1")).resolves.toMatchObject({
+      state: {
+        status: "running",
+        budget: { requestsUsed: 1, reportedCostUsd: 0.01 },
+        plan: {
+          assignments: [
+            { status: "completed" },
+            { status: "running" },
+            { status: "running" },
+          ],
+        },
+      },
+    });
+  });
+
+  it("does not reconcile a child result after cancellation during loading", async () => {
+    const setup = await fixture();
+    const childSessionId = await seedRecoverableChild(setup);
+    const controller = new AbortController();
+    const sessions = {
+      async loadState(sessionId: string, signal?: AbortSignal) {
+        const state = await setup.sessions.loadState(sessionId);
+        if (sessionId === childSessionId && signal === controller.signal) {
+          controller.abort();
+        }
+        return state;
+      },
+    };
+
+    await expect(setup.createSupervisor({ sessions }).resume(
+      "recovery-run",
+      { ...setup.context, signal: controller.signal },
+    )).rejects.toMatchObject({ code: "cancelled" });
+    await expect(setup.runs.load("recovery-run")).resolves.toMatchObject({
+      state: {
+        status: "running",
+        budget: { requestsUsed: 1, reportedCostUsd: 0.01 },
+        plan: {
+          assignments: [
+            { status: "running", result: null },
+            { status: "completed", result: expect.any(Object) },
+            { status: "pending", result: null },
+            { status: "pending", result: null },
+          ],
+        },
+      },
+    });
+  });
+
+  it("does not complete a goal cancelled after team reconciliation", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatus: "interrupted",
+    });
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({ code: "checkpoint_conflict" });
+    setup.setTeamStatus("approved");
+    const controller = new AbortController();
+    const runs = {
+      create: setup.runs.create.bind(setup.runs),
+      load: setup.runs.load.bind(setup.runs),
+      list: setup.runs.list.bind(setup.runs),
+      append: async (...args: Parameters<typeof setup.runs.append>) => {
+        const next = await setup.runs.append(...args);
+        if (next.state.status === "running" &&
+          next.state.plan.assignments.every(
+            (assignment) => assignment.status === "completed",
+          )) {
+          controller.abort();
+        }
+        return next;
+      },
+    };
+
+    await expect(setup.createSupervisor({ runs }).resume(
+      "company-run-id-1",
+      {
+        ...setup.context,
+        signal: controller.signal,
+        delegationBudget: createDelegationBudget(setup.parent.agent),
+      },
+    )).rejects.toMatchObject({ code: "cancelled" });
+    await expect(setup.runs.load("company-run-id-1")).resolves.toMatchObject({
+      state: {
+        status: "running",
+        result: null,
+        plan: {
+          assignments: [
+            { status: "completed" },
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
       },
     });
   });

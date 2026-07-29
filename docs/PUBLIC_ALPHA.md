@@ -39,9 +39,9 @@ One real Codex subscription dogfood on 2026-07-23 also completed:
 
 The run changed two files and passed four fixture tests. It reported 216,879
 input tokens, including 161,024 cached input tokens, and 3,274 output tokens.
-Dollar cost was unavailable. Review approved the first candidate, so Repair did
-not activate in that live run; deterministic integration tests cover the
-request-changes, repair, and re-review branch.
+Dollar cost was unavailable. Review approved the first candidate, so the
+configured Repair fallback did not activate in that live run; deterministic
+integration tests cover the request-changes, repair, and re-review branch.
 
 On 2026-07-29 a fresh Company Proof pair was also run for each of the three
 hidden-verifier fixtures. The Sol/Terra/Luna company passed all three; the Sol
@@ -65,9 +65,10 @@ Recurs needs repeated, same-task comparisons that record:
 
 The source contains the repeatable comparison machinery: three immutable
 hidden-verifier fixtures, alternating campaign order, distinct
-Quick/Guided/Deep formation evaluations, a recommended bounded team, and an
-explicit all-strong comparison option. The first full task-catalog pass is
-recorded, but it does not substitute for repeated runs or alternative teams.
+Quick/Guided/Deep formation evaluations, the selected parent-only baseline,
+the currently configured saved role-route snapshot, and an explicit all-strong
+comparison option. The first full task-catalog pass is recorded, but it does
+not substitute for repeated runs or alternative teams.
 
 Other current limits include Windows subprocess containment, a persistent
 worker daemon, a company operating UI, automatic plugin installation, remote

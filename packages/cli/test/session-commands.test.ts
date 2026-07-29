@@ -811,7 +811,7 @@ describe("session commands", () => {
       })),
       evidenceIds: ["evaluation-1"],
       rationale:
-        "1 eligible configured company-goal evaluation supports this lineup; decomposition, evidence, and synthesis passed.",
+        "1 eligible recorded configured company-goal evaluation supports this lineup; decomposition, evidence, and synthesis passed.",
     };
     const modelTeams: NonNullable<CommandDependencies["modelTeams"]> = {
       status: vi.fn()
@@ -836,7 +836,9 @@ describe("session commands", () => {
       text: expect.stringContaining("Models: Auto"),
     });
     expect(modelTeams.select).toHaveBeenCalledOnce();
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(confirm).toHaveBeenCalledWith(
+      "Activate the most-supported eligible recorded configured lineup for future sessions?",
+    );
     expect(commandContext.session).toEqual(original);
   });
 
@@ -862,7 +864,9 @@ describe("session commands", () => {
       "/model auto evaluate company-goal-1",
       commandContext,
     )).toMatchObject({
-      text: expect.stringContaining("Recorded model-team evidence evaluation-1"),
+      text: expect.stringMatching(
+        /Recorded model-team evidence evaluation-1[\s\S]*Run \/model auto to select the most-supported eligible recorded configured lineup\.[\s\S]*Repair is part of the configured four-route snapshot and may not have activated in this recorded run\./u,
+      ),
     });
     expect(modelTeams.evaluate).toHaveBeenCalledWith(
       "company-goal-1",

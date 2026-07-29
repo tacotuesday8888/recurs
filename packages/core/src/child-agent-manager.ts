@@ -247,6 +247,10 @@ function teamRole(profile: AgentProfileId): TeamRunRole | null {
         : null;
 }
 
+function backendRole(profile: AgentProfileId): TeamRunRole | null {
+  return profile === "review_v1" ? "review" : teamRole(profile);
+}
+
 function validTeamCorrelation(
   value: AgentTeamCorrelation,
   role: TeamRunRole,
@@ -884,7 +888,7 @@ export class ChildAgentManager {
       modelId: parent.backend.pin.modelId,
     };
     if (options?.backend !== undefined) {
-      const role = teamRole(profile.id);
+      const role = backendRole(profile.id);
       if (role === null || this.dependencies.backendRouter === undefined) {
         throw new ToolError("permission_denied", "A trusted backend route is required");
       }

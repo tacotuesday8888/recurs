@@ -151,6 +151,9 @@ describe("ModelTeamService", () => {
 
     const selected = await service.select();
     expect(selected.evidenceIds).toEqual(["evaluation-balanced-1"]);
+    expect(selected.rationale).toBe(
+      "1 eligible recorded configured company-goal evaluation supports this lineup; decomposition, evidence, and synthesis passed.",
+    );
     await expect(service.status()).resolves.toMatchObject({
       mode: "auto",
       selection: { id: selected.id },

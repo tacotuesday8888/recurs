@@ -117,4 +117,41 @@ describe("company role charters", () => {
     expect(panelPrompt).toContain("Required evidence:\n- Cite the inspected source.");
     expect(panelPrompt).toContain("Authority boundary (mandatory):");
   });
+
+  it("labels inactive capacity and omits it from executable delegation targets", () => {
+    const blueprint = companyBlueprintV2Fixture();
+    const root = blueprint.roles[0]!;
+    const reviewer = blueprint.roles[1]!;
+    const reserve = {
+      ...reviewer,
+      id: "inactive_reserve",
+      displayName: "Inactive Reserve",
+      activation: "on_demand" as const,
+    };
+    const roster = {
+      ...blueprint,
+      roles: [
+        { ...root, delegatesTo: [reviewer.id, reserve.id] },
+        reviewer,
+        reserve,
+      ],
+    };
+
+    const rootCharter = compileCompanyRoleCharter(roster, root.id);
+    const reserveCharter = compileCompanyRoleCharter(roster, reserve.id);
+
+    expect(rootCharter.operatingContext).toContain(
+      "Activation: default-active (executable)",
+    );
+    expect(rootCharter.operatingContext).toContain(
+      `May delegate only to: ${reviewer.id}`,
+    );
+    expect(rootCharter.operatingContext).not.toContain(reserve.id);
+    expect(reserveCharter.operatingContext).toContain(
+      "Activation: inactive roster capacity (not executable)",
+    );
+    expect(reserveCharter.authorityBoundary).toContain(
+      "cannot execute assignments or delegate",
+    );
+  });
 });

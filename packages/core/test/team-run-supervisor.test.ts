@@ -35,7 +35,10 @@ import {
   type DelegateTaskInput,
 } from "../src/child-agent-manager.js";
 import { createDelegationBudget } from "../src/agent-profile.js";
-import { createRootAgentDescriptor } from "../src/session-v2.js";
+import {
+  createRootAgentDescriptor,
+  type PinnedSessionState,
+} from "../src/session-v2.js";
 import type {
   GitPatchArtifactHandle,
   GitPatchBase,
@@ -178,6 +181,7 @@ interface HarnessOptions {
   readonly pauseReadyEvent?: boolean;
   readonly operatingModeId?: OperatingModeId;
   readonly secondaryCandidate?: AgentBackendCandidate;
+  readonly omitParentCandidate?: boolean;
   readonly companyV2?: boolean;
 }
 
@@ -595,9 +599,12 @@ async function harness(options: HarnessOptions = {}) {
         background: options.backgroundCandidate ?? true,
         ready: true,
       };
-      return options.secondaryCandidate === undefined
-        ? [parentCandidate]
-        : [options.secondaryCandidate, parentCandidate];
+      return [
+        ...(options.secondaryCandidate === undefined
+          ? []
+          : [options.secondaryCandidate]),
+        ...(options.omitParentCandidate === true ? [] : [parentCandidate]),
+      ];
     },
     async emit(event) {
       attemptedEvents.push(event);
@@ -901,6 +908,142 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
     }));
   });
 
+  it("reserves and spends no repair capacity when company repair authority is absent", async () => {
+    const test = await harness({
+      operatingModeId: "balanced_v6",
+      companyV2: true,
+      reviewByRound: () => "changes_requested",
+    });
+    const correlation = {
+      version: 1 as const,
+      runId: "company-goal-no-repair",
+      goalId: "goal-no-repair",
+      blueprintId: "blueprint-v2",
+      blueprintRevision: 1,
+      implementations: [{
+        assignmentId: "implementation-1",
+        parentAssignmentId: "lead-1",
+        roleId: "builder-alpha",
+        departmentId: "engineering",
+        permissionMode: "approved_for_me" as const,
+        modelRoute: "implement" as const,
+        toolBundles: ["implementation_v1" as const],
+      }, {
+        assignmentId: "implementation-2",
+        parentAssignmentId: "lead-1",
+        roleId: "builder-beta",
+        departmentId: "engineering",
+        permissionMode: "approved_for_me" as const,
+        modelRoute: "implement" as const,
+        toolBundles: ["implementation_v1" as const],
+      }],
+      reviews: [{
+        assignmentId: "review-1",
+        parentAssignmentId: null,
+        roleId: "independent-reviewer",
+        departmentId: "quality",
+        permissionMode: "ask_always" as const,
+        modelRoute: "review" as const,
+        toolBundles: ["quality_v1" as const],
+      }],
+      repair: null,
+    };
+    const reservation = await test.supervisor.reserveCompanyRun(
+      test.input,
+      test.context,
+      correlation,
+      { maxRequests: 80, maxReportedCostUsd: 3 },
+    );
+
+    expect(reservation.allocation).toEqual({
+      maxChildren: 4,
+      maxRequests: 32,
+      requestAllowance: 8,
+      maxReportedCostUsd: 3,
+    });
+    const result = await test.supervisor.startCompanyForeground(
+      test.input,
+      test.context,
+      reservation,
+    );
+    const state = await test.state(reservation.teamRunId);
+
+    expect(result.metadata).toMatchObject({
+      status: "changes_requested",
+      repairRounds: 0,
+      accounting: {
+        childrenReserved: 4,
+        requestsReserved: 32,
+        requestsUsed: 4,
+      },
+    });
+    expect(state.status).toBe("changes_requested");
+    expect(state.reviews.map((review) => review.round)).toEqual([0]);
+    expect(state.children.some((child) => child.reservation.role === "repair"))
+      .toBe(false);
+    expect(test.log.some((entry) => entry.includes(":repair:"))).toBe(false);
+    expect(test.parentMutationCount()).toBe(0);
+  });
+
+  it("runs an Economy company implementation then review within concurrency one", async () => {
+    const test = await harness({
+      operatingModeId: "economy_v6",
+      companyV2: true,
+    });
+    const input = {
+      ...test.input,
+      tasks: [test.input.tasks[0]!],
+    };
+    const correlation = {
+      version: 1 as const,
+      runId: "economy-company-goal",
+      goalId: "economy-goal",
+      blueprintId: "blueprint-v2",
+      blueprintRevision: 1,
+      implementations: [{
+        assignmentId: "economy-implementation",
+        parentAssignmentId: null,
+        roleId: "economy-builder",
+        departmentId: "engineering",
+        permissionMode: "approved_for_me" as const,
+        modelRoute: "implement" as const,
+        toolBundles: ["implementation_v1" as const],
+      }],
+      reviews: [{
+        assignmentId: "economy-review",
+        parentAssignmentId: null,
+        roleId: "economy-reviewer",
+        departmentId: "quality",
+        permissionMode: "ask_always" as const,
+        modelRoute: "review" as const,
+        toolBundles: ["quality_v1" as const],
+      }],
+      repair: null,
+    };
+    const reservation = await test.supervisor.reserveCompanyRun(
+      input,
+      test.context,
+      correlation,
+      { maxRequests: 12, maxReportedCostUsd: 0.25 },
+    );
+
+    expect(reservation.allocation).toEqual({
+      maxChildren: 2,
+      maxRequests: 8,
+      requestAllowance: 4,
+      maxReportedCostUsd: 0.25,
+    });
+    const result = await test.supervisor.startCompanyForeground(
+      input,
+      test.context,
+      reservation,
+    );
+    expect(result.metadata.status).toBe("approved");
+    expect(test.log.indexOf("child:implement:1:finish")).toBeLessThan(
+      test.log.indexOf("child:review:1:start"),
+    );
+  });
+
   it("freezes eligible v5 role candidates while preserving historical parent routing", async () => {
     const candidate: AgentBackendCandidate = {
       id: "configured-worker",
@@ -984,6 +1127,129 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
         candidateId: "parent",
         pin: testBackendPin("team-model"),
       });
+  });
+
+  it("selects the exact eligible Review candidate through the real company child router", async () => {
+    const reviewPin = {
+      ...testBackendPin("review-model", "review-connection"),
+      primaryBillingSourceAtCreation: "included_subscription" as const,
+      billingSelectionAtCreation: {
+        ...testBackendPin().billingSelectionAtCreation,
+        allowedSources: ["included_subscription" as const],
+      },
+    };
+    const test = await harness({
+      companyV2: true,
+      operatingModeId: "balanced_v6",
+      secondaryCandidate: {
+        id: "configured-review",
+        pin: reviewPin,
+        parent: false,
+        roles: ["review"],
+        executionModes: ["act"],
+        permissionModes: ["approved_for_me"],
+        hostTools: true,
+        background: true,
+        ready: true,
+      },
+    });
+    const parent = await test.sessions.loadState(
+      test.context.sessionId,
+    ) as PinnedSessionState;
+
+    await expect(test.supervisor.selectCompanyChildBackend({
+      parent,
+      profileId: "review_v1",
+      modelRoute: "review",
+      background: false,
+    })).resolves.toEqual({
+      role: "review",
+      executionMode: "act",
+      permissionMode: "approved_for_me",
+      background: false,
+      strategy: "role_candidate",
+      candidateId: "configured-review",
+      reason: "eligible_role_candidate",
+      pin: reviewPin,
+    });
+  });
+
+  it("filters direct Review routes by operating mode and fails closed without one", async () => {
+    const reviewPin = {
+      ...testBackendPin("subscription-review", "review-connection"),
+      primaryBillingSourceAtCreation: "included_subscription" as const,
+      billingSelectionAtCreation: {
+        ...testBackendPin().billingSelectionAtCreation,
+        allowedSources: ["included_subscription" as const],
+      },
+    };
+    const reviewCandidate: AgentBackendCandidate = {
+      id: "configured-review",
+      pin: reviewPin,
+      parent: false,
+      roles: ["review"],
+      executionModes: ["act"],
+      permissionModes: ["approved_for_me"],
+      hostTools: true,
+      background: true,
+      ready: true,
+    };
+    const fallback = await harness({
+      companyV2: true,
+      operatingModeId: "economy_v6",
+      secondaryCandidate: reviewCandidate,
+    });
+    const fallbackParent = await fallback.sessions.loadState(
+      fallback.context.sessionId,
+    ) as PinnedSessionState;
+    await expect(fallback.supervisor.selectCompanyChildBackend({
+      parent: fallbackParent,
+      profileId: "review_v1",
+      modelRoute: "review",
+      background: false,
+    })).resolves.toMatchObject({
+      strategy: "inherit_parent",
+      candidateId: "parent",
+      reason: "parent_fallback",
+      pin: fallbackParent.backend.pin,
+    });
+
+    const filtered = await harness({
+      companyV2: true,
+      operatingModeId: "economy_v6",
+      secondaryCandidate: reviewCandidate,
+      omitParentCandidate: true,
+    });
+    const filteredParent = await filtered.sessions.loadState(
+      filtered.context.sessionId,
+    ) as PinnedSessionState;
+    await expect(filtered.supervisor.selectCompanyChildBackend({
+      parent: filteredParent,
+      profileId: "review_v1",
+      modelRoute: "review",
+      background: false,
+    })).rejects.toMatchObject({
+      code: "tool_unavailable",
+      message: "No eligible agent backend",
+    });
+
+    const missing = await harness({
+      companyV2: true,
+      operatingModeId: "balanced_v6",
+      omitParentCandidate: true,
+    });
+    const missingParent = await missing.sessions.loadState(
+      missing.context.sessionId,
+    ) as PinnedSessionState;
+    await expect(missing.supervisor.selectCompanyChildBackend({
+      parent: missingParent,
+      profileId: "review_v1",
+      modelRoute: "review",
+      background: false,
+    })).rejects.toMatchObject({
+      code: "tool_unavailable",
+      message: "No eligible agent backend",
+    });
   });
 
   it("admits one cross-instance team, records the lease owner, and releases it", async () => {

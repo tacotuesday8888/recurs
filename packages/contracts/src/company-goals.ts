@@ -385,11 +385,27 @@ export function validateCompanyGoalPlanAgainstBlueprint(
 ): void {
   const roles = new Map(blueprint.roles.map((role) => [role.id, role] as const));
   const assignments = new Map(plan.assignments.map((item) => [item.id, item] as const));
+  const activeRoleIds = new Set(blueprint.activation.defaultActiveRoleIds);
   for (const assignment of plan.assignments) {
     const role = roles.get(assignment.roleId);
     if (role === undefined || role.executionProfileId === null) {
       throw new TypeError("Company assignment role is not executable");
     }
+    if (!activeRoleIds.has(role.id)) {
+      throw new TypeError("Company assignment role is not active");
+    }
+  }
+  const assignedRoleIds = new Set(plan.assignments.map((item) => item.roleId));
+  if (blueprint.activation.defaultActiveRoleIds.some((roleId) =>
+    roleId !== blueprint.authorityAnchors.rootRoleId &&
+    !assignedRoleIds.has(roleId)
+  )) {
+    throw new TypeError(
+      "Every default-active role other than the root requires an assignment",
+    );
+  }
+  for (const assignment of plan.assignments) {
+    const role = roles.get(assignment.roleId)!;
     if (assignment.parentAssignmentId === null) continue;
     const parent = assignments.get(assignment.parentAssignmentId)!;
     const parentRole = roles.get(parent.roleId)!;

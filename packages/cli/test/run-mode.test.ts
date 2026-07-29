@@ -2664,6 +2664,11 @@ describe("runCli", () => {
     ["provider", "Inspect available provider paths", "provider models"],
     ["account", "Manage saved non-secret", "account set-primary"],
     ["doctor", "Check Recurs installation", "recurs doctor [--json]"],
+    [
+      "benchmark",
+      "Run the bounded single-agent versus company proof",
+      "selected parent-only baseline",
+    ],
     ["acp", "Serve Recurs as an ACP agent", "standard output"],
   ] as const)(
     "prints scoped %s help through both supported forms",

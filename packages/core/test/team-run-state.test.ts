@@ -184,6 +184,22 @@ function companyDescriptor(): TeamRunDescriptor {
   });
 }
 
+function companyDescriptorWithoutRepair(): TeamRunDescriptor {
+  const withRepair = companyDescriptor();
+  return {
+    ...withRepair,
+    allocation: {
+      ...withRepair.allocation,
+      maxChildren: 4,
+      maxRequests: 32,
+    },
+    companyGoal: {
+      ...withRepair.companyGoal!,
+      repair: null,
+    },
+  };
+}
+
 function created(value = descriptor()): TeamRunRecord {
   return {
     version: 1,
@@ -408,6 +424,59 @@ describe("team run state", () => {
     }).modelRoute = "implement";
     expect(() => parseTeamRunRecord(rerouted, rerouted.runId))
       .toThrow(/team_created record/iu);
+  });
+
+  it("terminalizes a company change request at round zero when repair is unbound", () => {
+    const state = reduceTeamRunRecords([
+      created(companyDescriptorWithoutRepair()),
+      claim(),
+      phase(2, "implement"),
+      reservation(3, "implement-a", "implement", 1),
+      finished(4, "implement-a", { changedFiles: ["src/a.ts"] }),
+      artifact(5, "worker", "patch-a", "implement-a", ["src/a.ts"]),
+      reservation(6, "implement-b", "implement", 2),
+      finished(7, "implement-b", { changedFiles: ["src/b.ts"] }),
+      artifact(8, "worker", "patch-b", "implement-b", ["src/b.ts"]),
+      phase(9, "stage"),
+      phase(10, "review"),
+      reservation(11, "review-a", "review", 1),
+      finished(12, "review-a"),
+      reservation(13, "review-b", "review", 2),
+      finished(14, "review-b"),
+      record(15, {
+        type: "review_recorded",
+        review: {
+          round: 0,
+          verdict: "changes_requested",
+          findings: [{
+            path: "src/a.ts",
+            problem: "The boundary remains incomplete",
+            acceptance: "Handle the boundary",
+            evidence: ["src/a.ts:1"],
+          }],
+          evidence: ["review evidence"],
+        },
+        at: at(15),
+      }),
+      record(16, {
+        type: "run_terminal",
+        status: "changes_requested",
+        outcome: {
+          changedFiles: [],
+          evidence: ["review evidence"],
+          failure: null,
+        },
+        at: at(16),
+      }),
+    ]);
+
+    expect(state.status).toBe("changes_requested");
+    expect(state.accounting).toMatchObject({
+      childrenReserved: 4,
+      requestsReserved: 32,
+    });
+    expect(state.children.some((child) => child.reservation.role === "repair"))
+      .toBe(false);
   });
 
   it("reduces one exact approved workflow with derived accounting", () => {

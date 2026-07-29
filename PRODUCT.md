@@ -1,6 +1,10 @@
 # Recurs Product Direction
 
-Recurs is an agent manager for software work. It combines a coding-agent CLI with a later desktop experience where a project looks and behaves like a small software company: agents have responsibilities, conversations, goals, handoffs, reviews, approvals, and visible progress.
+Recurs is an agent manager for software work. It can form and run a
+project-specific company, but company formation is not required. It combines a
+coding-agent CLI with a later desktop experience where a project can look and
+behave like a small software company: agents have responsibilities,
+conversations, goals, handoffs, reviews, approvals, and visible progress.
 
 It is not an IDE. Users may keep their editor of choice. Recurs manages the people-like software agents doing the work.
 
@@ -26,12 +30,12 @@ Economy through Max remain the versioned operating policies and should appear
 as one intensity control. Onboarding depth, roster design, execution state, and
 permissions remain separate choices because they answer different questions.
 
-The Auto alpha keeps the default sub-agent structure and selects an evaluated
-four-role lineup to power future company goals. It does not continuously invent
-a new organization. Model names and “best” claims come from versioned
-configured-goal evidence with a visible rationale. Broader task
-classification, evidence freshness, and price/capability routing remain later
-work.
+The Auto alpha keeps the default sub-agent structure and selects the
+most-supported eligible recorded configured four-role lineup to power future
+company goals. It does not continuously invent a new organization or establish
+a comparative winner. Model names and selection rationale come from versioned
+configured-goal evidence. Broader task classification, evidence freshness, and
+price/capability routing remain later work.
 
 See [Auto Model Teams and Simple Controls](docs/AUTO_MODEL_TEAMS.md) for the
 current product direction and the exact implemented boundary.
@@ -75,6 +79,9 @@ events, `/agents` controls, and model control tools make lifecycle and evidence
 inspectable. Child-created unbounded recursion, speculative model ranking, a
 persistent daemon, dirty-parent snapshots, and auto-commit/push/deploy remain
 intentionally absent.
+
+Repair is a configured fallback in a saved four-route snapshot and activates
+only when valid review findings and the selected policy require it.
 
 Built-in tools now share a permanent credential-path denial, aggregate tools and new checkpoints exclude those paths, child processes receive clean synthetic state, and provider/tool/CLI failures are sanitized before durable or user-visible boundaries. Hosts may choose `workspace_sandboxed`, `local_guarded`, or a fail-closed `tools_disabled` profile. The standalone CLI selects the workspace sandbox by default on macOS and Linux, and the guarded profile on Windows.
 

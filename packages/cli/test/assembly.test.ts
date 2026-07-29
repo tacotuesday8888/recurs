@@ -23,7 +23,13 @@ import type {
   TeamRunPolicySnapshot,
   CompanyBlueprintV2,
 } from "@recurs/contracts";
-import { createHostInvocation, getOperatingModePolicy } from "@recurs/contracts";
+import {
+  createHostInvocation,
+  getAgentProfilePolicy,
+  getOperatingModePolicy,
+  narrowAgentPermissionMode,
+  parseCompanyGoalRun,
+} from "@recurs/contracts";
 import {
   ConnectionLifecycleService,
   FileConnectionRegistry,
@@ -42,8 +48,12 @@ import {
   FileCompanyAmendmentStore,
   FileCompanyBlueprintV2Store,
   FileGitPatchArtifactStore,
+  childRequestAllowance,
+  companyAgentLimits,
+  JsonlCompanyGoalStore,
   JsonlSessionStore,
   JsonlTeamRunStore,
+  type TeamRunRecordInput,
   type RecursEvent,
   verifyRunAuthorization,
 } from "@recurs/core";
@@ -56,6 +66,8 @@ import {
   createStandaloneRuntime,
   writeLocalConnection,
 } from "../src/index.js";
+import { companyBenchmarkApprovalHandler } from "../src/company-benchmark-execution.js";
+import { companyBlueprintV2Fixture } from "../../contracts/test/company-v2-fixture.js";
 
 const directories: string[] = [];
 const execFileAsync = promisify(execFile);
@@ -683,6 +695,579 @@ describe("standalone assembly without a provider", () => {
       blueprintRevision: 2,
     });
     expect(runtime.session.id).not.toBe(historicalSessionId);
+  });
+
+  it("rejects an approved V2 company with an invalid execution policy before provider use", async () => {
+    const temporary = await mkdtemp(
+      path.join(tmpdir(), "recurs-company-invalid-policy-"),
+    );
+    directories.push(temporary);
+    const root = await realpath(temporary);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const blueprint = companyBlueprintV2Fixture();
+    const implementer = blueprint.roles.find((role) =>
+      role.executionProfileId === "implement_v2"
+    )!;
+    const invalid = {
+      ...blueprint,
+      activation: {
+        defaultActiveRoleIds: blueprint.activation.defaultActiveRoleIds.filter(
+          (roleId) => roleId !== implementer.id,
+        ),
+      },
+    };
+    const provider = new ScriptedProvider([]);
+
+    await expect(createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        provider,
+        permissionMode: "approved_for_me",
+        operatingModeId: "balanced_v6",
+        reuseExistingSession: false,
+        companyBlueprint: invalid,
+      },
+    )).rejects.toMatchObject({
+      code: "invalid_input",
+      message: expect.stringMatching(/review_v2.*implement_v2/iu),
+    });
+    expect(provider.requests).toHaveLength(0);
+  });
+
+  it("resumes durable completed company child and team work without replaying execution", async () => {
+    const temporary = await mkdtemp(
+      path.join(tmpdir(), "recurs-company-recovery-assembly-"),
+    );
+    directories.push(temporary);
+    const root = await realpath(temporary);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const blueprint = approveCompanyBlueprintV2(compileCompanyBlueprintV2({
+      id: "company-recovery-assembly-v2",
+      companyId: "company-recovery-assembly",
+      revision: 1,
+      previousBlueprintId: null,
+      createdAt: "2026-07-29T00:00:00.000Z",
+      onboardingRunId: "company-recovery-onboarding",
+      onboardingDepth: "guided",
+      generatedBy: "deterministic",
+      designMode: "stable_core_specialists",
+      project: {
+        type: "existing_project",
+        stage: "active",
+        purpose: "Recover durable company work without replay.",
+        users: ["Maintainers"],
+        successCriteria: ["Completed work is synthesized once."],
+        constraints: ["Do not duplicate provider or assignment execution."],
+        risks: [],
+        architecturePreferences: ["Reuse the durable company supervisor."],
+        deploymentTargets: ["CLI"],
+        repository: { inspected: false, markers: [], evidence: [] },
+      },
+      permissionMode: "approved_for_me",
+      operatingModeId: "balanced_v6",
+      availableToolBundles: [
+        "project_context_v1", "source_control_v1", "architecture_v1",
+        "implementation_v1", "quality_v1", "security_v1", "release_v1",
+      ],
+      initialGoal: "Recover the durable company goal.",
+      roadmap: ["Resume exact durable state."],
+    }), "2026-07-29T00:01:00.000Z");
+    const provider = new ScriptedProvider([]);
+    const events: RecursEvent[] = [];
+    const dataDirectory = path.join(root, "data");
+    const runtime = await createStandaloneRuntime(
+      { async emit(event) { events.push(event); } },
+      {
+        cwd: workspace,
+        dataDirectory,
+        provider,
+        permissionMode: "approved_for_me",
+        operatingModeId: "balanced_v6",
+        reuseExistingSession: false,
+        companyBlueprint: blueprint,
+      },
+    );
+    const projectId = createHash("sha256")
+      .update(await realpath(workspace))
+      .digest("hex")
+      .slice(0, 24);
+    const runs = new JsonlCompanyGoalStore(path.join(
+      dataDirectory,
+      "projects",
+      projectId,
+      "company-goals",
+    ));
+    const sessions = new JsonlSessionStore(path.join(
+      dataDirectory,
+      "projects",
+      projectId,
+      "sessions",
+    ));
+    const teamRuns = new JsonlTeamRunStore(path.join(
+      dataDirectory,
+      "projects",
+      projectId,
+      "team-runs",
+    ));
+    const implementation = blueprint.roles.find((role) =>
+      role.executionProfileId === "implement_v2"
+    )!;
+    const implementationParent = implementation.reportsTo === null
+      ? undefined
+      : blueprint.roles.find((role) =>
+          role.id === implementation.reportsTo &&
+          role.executionProfileId !== null
+        );
+    const reviewer = blueprint.roles.find((role) =>
+      blueprint.authorityAnchors.independentReviewRoleIds.includes(role.id)
+    )!;
+    if (implementationParent === undefined) {
+      throw new Error("Balanced company recovery fixture requires a lead role");
+    }
+    const profile = getAgentProfilePolicy(implementationParent.executionProfileId!);
+    const company = {
+      blueprintId: blueprint.id,
+      blueprintVersion: 2 as const,
+      blueprintRevision: blueprint.revision,
+      roleId: implementationParent.id,
+      roleVersion: implementationParent.version,
+    };
+    const durableLead = await sessions.createPinnedSession({
+      id: "durable-child-session",
+      cwd: runtime.session.cwd,
+      backend: runtime.session.backend.pin,
+      at: "2026-07-29T00:02:05.000Z",
+      agent: {
+        id: "durable-child-agent",
+        role: "child",
+        profile: { id: profile.id, version: profile.version },
+        company,
+        companyGoal: {
+          runId: "assembly-recovery-run",
+          assignmentId: "durable-lead",
+          parentAssignmentId: null,
+        },
+        parentAgentId: runtime.session.agent.id,
+        parentSessionId: runtime.session.id,
+        depth: runtime.session.agent.depth + 1,
+        task: {
+          id: "durable-child-task",
+          description: "Use the durable completed child planning handoff",
+          prompt: "Do not replay this completed child handoff.",
+        },
+        operatingMode: runtime.session.agent.operatingMode,
+        backend: {
+          strategy: "inherit_parent",
+          adapterId: runtime.session.backend.pin.adapterId,
+          connectionId: runtime.session.backend.pin.connectionId,
+          modelId: runtime.session.backend.pin.modelId,
+        },
+        permissions: {
+          parentExecutionMode: runtime.session.executionMode,
+          executionMode: profile.executionMode,
+          parentPermissionMode: runtime.session.permissionMode,
+          permissionMode: narrowAgentPermissionMode(
+            runtime.session.permissionMode,
+            implementationParent.permissionMode,
+          ),
+        },
+        limits: {
+          ...companyAgentLimits(runtime.session.agent.operatingMode.id, company),
+          maxRequests: childRequestAllowance(runtime.session.agent),
+        },
+      },
+    });
+    await sessions.withSessionMutation(durableLead.id, durableLead.lastSequence, async (lease) => {
+      await lease.append({
+        type: "turn_started",
+        turnId: "durable-child-turn",
+        prompt: durableLead.agent.task!.prompt,
+        at: "2026-07-29T00:02:06.000Z",
+      });
+      await lease.append({
+        type: "turn_completed",
+        turnId: "durable-child-turn",
+        result: {
+          finalText: "Durable child planning handoff already completed.",
+          usage: { inputTokens: 2, outputTokens: 1, costUsd: 0.01 },
+          usageSource: "provider",
+          steps: 1,
+          changedFiles: [],
+          changedFilesSource: "none",
+          evidence: ["durable child evidence"],
+          evidenceSource: "host_tools",
+        },
+        at: "2026-07-29T00:02:09.000Z",
+      });
+    });
+    const teamPolicy = structuredClone(
+      getOperatingModePolicy("balanced_v6"),
+    ) as TeamRunPolicySnapshot;
+    const baseRevision = "a".repeat(40);
+    const teamRunId = "durable-team-run";
+    const implementationBinding = {
+      assignmentId: "durable-implementation",
+      parentAssignmentId: "durable-lead",
+      roleId: implementation.id,
+      departmentId: implementation.departmentId,
+      permissionMode: implementation.permissionMode,
+      modelRoute: "implement" as const,
+      toolBundles: ["implementation_v1"],
+    };
+    const reviewBinding = {
+      assignmentId: "durable-review",
+      parentAssignmentId: null,
+      roleId: reviewer.id,
+      departmentId: reviewer.departmentId,
+      permissionMode: reviewer.permissionMode,
+      modelRoute: "review" as const,
+      toolBundles: ["quality_v1"],
+    };
+    const descriptor: TeamRunDescriptor = {
+      id: teamRunId,
+      version: 1,
+      parentSessionId: runtime.session.id,
+      parentAgentId: runtime.session.agent.id,
+      execution: "foreground",
+      parentExecutionMode: "act",
+      parentPermissionMode: runtime.session.permissionMode,
+      invocation: localContext(),
+      operatingModeId: teamPolicy.id,
+      operatingModeVersion: teamPolicy.version,
+      policy: teamPolicy,
+      allocation: {
+        maxChildren: 3,
+        maxRequests: 24,
+        requestAllowance: 8,
+        maxReportedCostUsd: 2.99,
+      },
+      routes: ([
+        ["implement", "implement_v2"],
+        ["review", "review_v2"],
+        ["repair", "repair_v1"],
+      ] as const).map(([role, profileId]) => ({
+        role,
+        profileId,
+        executionMode: "act",
+        permissionMode: runtime.session.permissionMode,
+        strategy: "inherit_parent",
+        candidateId: "parent",
+        reason: "parent_fallback",
+        pin: runtime.session.backend.pin,
+      })) as TeamRunDescriptor["routes"],
+      backend: runtime.session.backend.pin,
+      repositoryRoot: runtime.session.cwd,
+      baseRevision,
+      request: {
+        description: "Recover the durable company implementation and review.",
+        tasks: [{
+          description: "Use the durable completed team implementation",
+          prompt: "Do not replay this completed implementation.",
+        }],
+        review: {
+          instructions: "Use the durable approved independent review.",
+        },
+      },
+      companyGoal: {
+        version: 1,
+        runId: "assembly-recovery-run",
+        goalId: "assembly-recovery-goal",
+        blueprintId: blueprint.id,
+        blueprintRevision: blueprint.revision,
+        implementations: [implementationBinding],
+        reviews: [reviewBinding],
+        repair: null,
+      },
+    };
+    const candidate = {
+      id: "durable-team-candidate",
+      leaseId: "durable-team-candidate-lease",
+      baseRevision,
+      sha256: "b".repeat(64),
+      byteLength: 128,
+      paths: ["src/recovered.ts"],
+    } as const;
+    await teamRuns.create(descriptor, "2026-07-29T00:02:10.000Z");
+    let teamSequence = 0;
+    const appendTeam = async (record: TeamRunRecordInput) =>
+      await teamRuns.append(teamRunId, teamSequence++, record);
+    await appendTeam({
+      type: "run_claimed",
+      ownerId: "durable-team-owner",
+      claimEpoch: 1,
+      at: "2026-07-29T00:02:11.000Z",
+    });
+    await appendTeam({
+      type: "phase_started",
+      phase: "implement",
+      round: 0,
+      at: "2026-07-29T00:02:12.000Z",
+    });
+    await appendTeam({
+      type: "child_reserved",
+      child: {
+        attemptId: "durable-implement-attempt",
+        role: "implement",
+        index: 1,
+        round: 0,
+        childAgentId: "durable-implement-agent",
+        childSessionId: "durable-implement-session",
+        requestAllowance: 8,
+      },
+      at: "2026-07-29T00:02:13.000Z",
+    });
+    await appendTeam({
+      type: "child_finished",
+      child: {
+        attemptId: "durable-implement-attempt",
+        status: "completed",
+        requestsUsed: 1,
+        usage: { inputTokens: 2, outputTokens: 1, costUsd: 0.01 },
+        usageSource: "provider",
+        changedFiles: ["src/recovered.ts"],
+        evidence: ["durable team implementation evidence"],
+        failure: null,
+      },
+      at: "2026-07-29T00:02:14.000Z",
+    });
+    await appendTeam({
+      type: "artifact_linked",
+      artifact: {
+        kind: "worker",
+        handle: { ...candidate, id: "durable-team-worker" },
+        round: 0,
+        attemptId: "durable-implement-attempt",
+      },
+      at: "2026-07-29T00:02:15.000Z",
+    });
+    await appendTeam({
+      type: "phase_started",
+      phase: "stage",
+      round: 0,
+      at: "2026-07-29T00:02:16.000Z",
+    });
+    await appendTeam({
+      type: "phase_started",
+      phase: "review",
+      round: 0,
+      at: "2026-07-29T00:02:17.000Z",
+    });
+    await appendTeam({
+      type: "child_reserved",
+      child: {
+        attemptId: "durable-review-attempt",
+        role: "review",
+        index: 1,
+        round: 0,
+        childAgentId: "durable-review-agent",
+        childSessionId: "durable-review-session",
+        requestAllowance: 8,
+      },
+      at: "2026-07-29T00:02:18.000Z",
+    });
+    await appendTeam({
+      type: "child_finished",
+      child: {
+        attemptId: "durable-review-attempt",
+        status: "completed",
+        requestsUsed: 1,
+        usage: { inputTokens: 2, outputTokens: 1, costUsd: 0.01 },
+        usageSource: "provider",
+        changedFiles: [],
+        evidence: ["durable team review evidence"],
+        failure: null,
+      },
+      at: "2026-07-29T00:02:19.000Z",
+    });
+    await appendTeam({
+      type: "review_recorded",
+      review: {
+        round: 0,
+        verdict: "approved",
+        findings: [],
+        evidence: ["durable independent review evidence"],
+      },
+      at: "2026-07-29T00:02:20.000Z",
+    });
+    await appendTeam({
+      type: "artifact_linked",
+      artifact: { kind: "staged_candidate", handle: candidate, round: 0, attemptId: null },
+      at: "2026-07-29T00:02:21.000Z",
+    });
+    await appendTeam({
+      type: "candidate_ready",
+      artifact: candidate,
+      changedFiles: ["src/recovered.ts"],
+      at: "2026-07-29T00:02:22.000Z",
+    });
+    await appendTeam({
+      type: "phase_started",
+      phase: "apply",
+      round: 0,
+      at: "2026-07-29T00:02:23.000Z",
+    });
+    const checkpoint = {
+      id: "durable-team-checkpoint",
+      sessionId: runtime.session.id,
+      toolCallId: teamRunId,
+    };
+    await appendTeam({
+      type: "apply_prepared",
+      checkpoint,
+      at: "2026-07-29T00:02:24.000Z",
+    });
+    await appendTeam({
+      type: "apply_committed",
+      checkpoint,
+      changedFiles: ["src/recovered.ts"],
+      at: "2026-07-29T00:02:25.000Z",
+    });
+    await expect(teamRuns.load(teamRunId)).resolves.toMatchObject({
+      status: "approved",
+      lastSequence: 15,
+    });
+    await runs.create(parseCompanyGoalRun({
+      id: "assembly-recovery-run",
+      version: 1,
+      parentSessionId: runtime.session.id,
+      goalId: "assembly-recovery-goal",
+      objective: "Recover completed durable implementation and review.",
+      company: runtime.session.agent.company,
+      status: "interrupted",
+      createdAt: "2026-07-29T00:02:00.000Z",
+      updatedAt: "2026-07-29T00:03:00.000Z",
+      plan: {
+        revision: 1,
+        createdAt: "2026-07-29T00:02:00.000Z",
+        assignments: [
+          ...(implementationParent === undefined
+            ? []
+            : [{
+                id: "durable-lead",
+                roleId: implementationParent.id,
+                parentAssignmentId: null,
+                dependsOn: [],
+                description: "Use the durable completed child planning handoff",
+                prompt: "Do not replay this completed child handoff.",
+                acceptance: ["Keep its durable evidence."],
+                expectedEvidence: implementationParent.expectedEvidence,
+                status: "running" as const,
+                execution: {
+                  attempt: 1 as const,
+                  childAgentId: "durable-child-agent",
+                  childSessionId: "durable-child-session",
+                  taskId: "durable-child-task",
+                  startedAt: "2026-07-29T00:02:05.000Z",
+                  completedAt: null,
+                },
+                result: null,
+                failure: null,
+              }]),
+          {
+          id: "durable-implementation",
+          roleId: implementation.id,
+          parentAssignmentId: implementationParent === undefined
+            ? null
+            : "durable-lead",
+          dependsOn: [],
+          description: "Use the durable completed team implementation",
+          prompt: "Do not replay this completed implementation.",
+          acceptance: ["Keep its durable evidence."],
+          expectedEvidence: implementation.expectedEvidence,
+          status: "running",
+          execution: {
+            attempt: 1,
+            teamRunId: "durable-team-run",
+            teamRole: "implement",
+            taskIndex: 1,
+            startedAt: "2026-07-29T00:02:10.000Z",
+            completedAt: null,
+          },
+          result: null,
+          failure: null,
+        }, {
+          id: "durable-review",
+          roleId: reviewer.id,
+          parentAssignmentId: null,
+          dependsOn: [
+            ...(implementationParent === undefined ? [] : ["durable-lead"]),
+            "durable-implementation",
+          ],
+          description: "Use the durable approved team review",
+          prompt: "Do not replay this completed independent review.",
+          acceptance: ["Keep its durable approval evidence."],
+          expectedEvidence: reviewer.expectedEvidence,
+          status: "running",
+          execution: {
+            attempt: 1,
+            teamRunId: "durable-team-run",
+            teamRole: "review",
+            taskIndex: null,
+            startedAt: "2026-07-29T00:02:30.000Z",
+            completedAt: null,
+          },
+          result: null,
+          failure: null,
+        }],
+      },
+      budget: {
+        maxAssignments: 8,
+        assignmentsStarted: 3,
+        maxConcurrentAssignments: 3,
+        maxRequests: 80,
+        requestsReserved: 34,
+        requestsUsed: 0,
+        maxReportedCostUsd: 3,
+        reportedCostUsd: 0,
+      },
+      result: null,
+      failure: null,
+    }));
+    runtime.setConfirmHandler(async () => true);
+
+    const result = await runtime.submit(
+      "/company resume assembly-recovery-run",
+      localManualInvocation(),
+    );
+
+    expect(result).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+        /Goal: assembly-recovery-run \| completed[\s\S]*Durable child planning handoff already completed/iu,
+      ),
+    });
+    expect(provider.requests).toHaveLength(0);
+    await expect(teamRuns.list(runtime.session.id)).resolves.toHaveLength(1);
+    await expect(teamRuns.load(teamRunId)).resolves.toMatchObject({
+      status: "approved",
+      lastSequence: 15,
+    });
+    const recovered = await runs.load("assembly-recovery-run");
+    expect(recovered.state).toMatchObject({
+      status: "completed",
+      budget: {
+        assignmentsStarted: 3,
+        requestsReserved: 34,
+        requestsUsed: 3,
+        reportedCostUsd: 0.03,
+      },
+    });
+    expect(recovered.state.plan.assignments.find((assignment) =>
+      assignment.id === "durable-lead"
+    )).toMatchObject({
+      status: "completed",
+      result: {
+        summary: "Durable child planning handoff already completed.",
+        evidence: ["durable child evidence"],
+      },
+    });
+    expect(events.filter((event) =>
+      event.type === "company_assignment_started"
+    )).toHaveLength(0);
   });
 
   it("rejects company activation when approved authority differs from the session", async () => {
@@ -2552,6 +3137,63 @@ describe("standalone assembly without a provider", () => {
       expect(provider.requests[1]?.messages.findLast(
         (message) => message.role === "tool",
       )?.content).toContain("terminal-output");
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it("denies a benchmark look-alike command before the process runner starts", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-benchmark-denial-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const spawnPty = vi.fn(() => {
+      throw new Error("denied commands must not spawn a process");
+    });
+    const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "denied-command-call",
+            name: "run_command",
+            arguments: {
+              command: "node --test",
+              tty: true,
+              timeoutMs: 5_000,
+              yieldTimeMs: 1_000,
+            },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "The denied command was not run." },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const events: RecursEvent[] = [];
+    const runtime = await createStandaloneRuntime(
+      { async emit(event) { events.push(event); } },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        skillHomeDirectory: path.join(root, "home"),
+        provider,
+        permissionMode: "approved_for_me",
+        approvalHandler: companyBenchmarkApprovalHandler,
+        ptyDriver: { spawn: spawnPty },
+      },
+    );
+    try {
+      await expect(runtime.submit("attempt a denied benchmark command")).resolves
+        .toMatchObject({ finalText: "The denied command was not run." });
+      expect(events).toContainEqual(expect.objectContaining({
+        type: "permission_resolved",
+        decision: "deny",
+        intent: { category: "shell", resource: "node --test", risk: "elevated" },
+      }));
+      expect(spawnPty).not.toHaveBeenCalled();
     } finally {
       await runtime.close();
     }

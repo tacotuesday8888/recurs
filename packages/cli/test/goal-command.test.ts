@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createHostInvocation } from "@recurs/contracts";
+import {
+  createHostInvocation,
+  parseCompanyGoalRun,
+  type CompanyGoalRunV1,
+} from "@recurs/contracts";
 import {
   approveCompanyBlueprintV2,
   compileCompanyBlueprintV2,
@@ -109,6 +113,57 @@ function context(session: SessionState): CommandContext & {
   return commandContext;
 }
 
+function companyRun(
+  session: SessionState,
+  status: CompanyGoalRunV1["status"],
+  id = `goal-command-${status}`,
+): CompanyGoalRunV1 {
+  if (!("agent" in session) ||
+    session.agent.company?.blueprintVersion !== 2) {
+    throw new Error("Expected a V2 company session");
+  }
+  return parseCompanyGoalRun({
+    id,
+    version: 1,
+    parentSessionId: session.id,
+    goalId: `${id}-goal`,
+    objective: "Launch safely.",
+    company: session.agent.company,
+    status,
+    createdAt: at,
+    updatedAt: at,
+    plan: {
+      revision: 1,
+      createdAt: at,
+      assignments: [{
+        id: "goal-command-assignment",
+        roleId: session.agent.company.roleId,
+        parentAssignmentId: null,
+        dependsOn: [],
+        description: "Recover the existing company goal",
+        prompt: "Return durable state.",
+        acceptance: ["Do not duplicate execution."],
+        expectedEvidence: ["Durable state."],
+        status: "pending",
+        result: null,
+        failure: null,
+      }],
+    },
+    budget: {
+      maxAssignments: 8,
+      assignmentsStarted: 0,
+      maxConcurrentAssignments: 3,
+      maxRequests: 80,
+      requestsReserved: 0,
+      requestsUsed: 0,
+      maxReportedCostUsd: 3,
+      reportedCostUsd: 0,
+    },
+    result: null,
+    failure: null,
+  });
+}
+
 describe("goal command company launch", () => {
   it("persists a V2 goal before submitting the bounded company launch prompt", async () => {
     const active = context(companySession());
@@ -134,7 +189,58 @@ describe("goal command company launch", () => {
       .toContain("correct the DAG and retry");
     expect(result.type === "submit_prompt" ? result.prompt : "")
       .toContain("the first tool call must be delegate_company_goal");
+    expect(result.type === "submit_prompt" ? result.prompt : "")
+      .toContain("Do not retry delegate_company_goal");
   });
+
+  it.each([
+    ["created", ["/company resume goal-command-created"]],
+    ["running", [
+      "/company run goal-command-running",
+      "/company resume goal-command-running",
+    ]],
+    ["waiting_for_approval", [
+      "/company run goal-command-waiting_for_approval",
+    ]],
+    ["interrupted", ["/company resume goal-command-interrupted"]],
+  ] as const)(
+    "refuses a model launch for an existing %s exact company run",
+    async (status, commands) => {
+      const session = companySession();
+      const active = context({
+        ...session,
+        goal: {
+          objective: "Launch safely.",
+          status: "active",
+          progress: "",
+          blockers: [],
+          evidence: [],
+          createdAt: at,
+          updatedAt: at,
+        },
+      });
+      const existing = companyRun(active.session, status);
+      const registry = createCommandRegistry({
+        company: {
+          goals: {
+            async list() { return [{ sequence: 0, state: existing }]; },
+          },
+        } as never,
+      });
+
+      const result = await registry.execute("/goal Launch safely.", active);
+
+      expect(result).toMatchObject({
+        type: "message",
+        level: "error",
+      });
+      for (const command of commands) {
+        expect(result.type === "message" ? result.text : "")
+          .toContain(command);
+      }
+      expect(active.records).toHaveLength(0);
+    },
+  );
 
   it("launches an already-approved initial goal without asking to replace it", async () => {
     const initial = context({

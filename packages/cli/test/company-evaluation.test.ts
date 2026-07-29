@@ -456,7 +456,7 @@ describe("company goal execution evaluation", () => {
     ).every((item) => item.status === "passed")).toBe(true);
   });
 
-  it("reports unknown cost and structural rubric failures without inventing quality", () => {
+  it("rejects an incomplete active-role plan without inventing quality", () => {
     const blueprint = executionBlueprint();
     const stored = executionRun(blueprint);
     const withoutReview = executionRun(blueprint, {
@@ -501,10 +501,13 @@ describe("company goal execution evaluation", () => {
       reportedCostUsd: null,
       source: "unknown",
     });
+    expect(first.failures).toEqual([
+      expect.objectContaining({ code: "evaluation_failed" }),
+    ]);
     expect(first.rubric.find((item) => item.dimension === "decomposition"))
-      .toMatchObject({ status: "failed" });
+      .toMatchObject({ status: "unknown" });
     expect(first.rubric.find((item) => item.dimension === "evidence"))
-      .toMatchObject({ status: "passed" });
+      .toMatchObject({ status: "unknown" });
     expect(first.rubric.find((item) => item.dimension === "efficiency"))
       .toMatchObject({ status: "unknown" });
   });

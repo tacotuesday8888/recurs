@@ -145,10 +145,10 @@ Usage:
   recurs benchmark company --resume <campaign-id> --allow-network [--json]
 
 Each trial gets a byte-identical temporary fixture and private Recurs home.
-The strong single-agent baseline and recommended bounded company share the exact
-parent route. Add --compare-all-strong to explicitly schedule an additional
-all-strong company when saved worker routes differ. External hidden
-verification—not model prose—determines correctness.
+The selected parent-only baseline and the currently configured saved role-route
+snapshot share the exact parent route. Add --compare-all-strong to explicitly
+schedule an additional all-strong company when saved worker routes differ.
+External hidden verification—not model prose—determines correctness.
 Normalized reports include activated roles, review, Repair, latency, usage,
 cache and cost coverage, overlap, and intervention counts without prompts,
 credentials, private paths, or continuation identifiers. Configured execution

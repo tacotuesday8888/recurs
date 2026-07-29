@@ -120,7 +120,7 @@ export function selectEvaluatedModelTeam(input: {
     lineup: winner.lineup,
     evidenceIds,
     rationale: [
-      `${winner.evaluations.length} eligible configured company-goal evaluation`,
+      `${winner.evaluations.length} eligible recorded configured company-goal evaluation`,
       winner.evaluations.length === 1 ? " supports " : "s support ",
       "this lineup; decomposition, evidence, and synthesis passed.",
     ].join(""),

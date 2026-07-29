@@ -7,8 +7,22 @@ import {
   type Goal,
   type SessionRecord,
 } from "@recurs/core";
+import type { CompanyGoalRunV1 } from "@recurs/contracts";
 
-import { message, type Command, type CommandContext } from "./types.js";
+import {
+  message,
+  type Command,
+  type CommandContext,
+  type CommandDependencies,
+  type CommandResult,
+} from "./types.js";
+
+const unresolvedCompanyStatuses = new Set<CompanyGoalRunV1["status"]>([
+  "created",
+  "running",
+  "waiting_for_approval",
+  "interrupted",
+]);
 
 function goalRecord(
   context: CommandContext,
@@ -60,13 +74,60 @@ function companyLaunchPrompt(objective: string): string {
     `Goal: ${JSON.stringify(objective)}`,
     "Run at most one accepted delegate_company_goal with a bounded assignment DAG that uses only approved role IDs and includes every independent-review authority.",
     "If Recurs rejects arguments before creating the durable company goal, correct the DAG and retry; never start a second accepted company goal.",
+    "If Recurs reports an unresolved company goal, stop. Do not retry delegate_company_goal; follow the exact /company run or /company resume command in that error.",
     "The approved company context already contains the exact roles and delegation edges. Do not inspect files, commands, providers, models, Skills, MCPs, or other host state before delegation; the first tool call must be delegate_company_goal.",
     "Do not widen the objective, permissions, tools, model routes, hierarchy, concurrency, requests, retries, or reported-cost limits.",
     "Synthesize the durable company result for the user when the tool completes.",
   ].join("\n");
 }
 
-export function createGoalCommand(): Command {
+async function existingCompanyRun(
+  context: CommandContext,
+  dependencies: CommandDependencies,
+): Promise<CommandResult | null> {
+  const company = dependencies.company;
+  const session = context.session;
+  if (company === undefined || !isPinnedSessionState(session) ||
+    session.agent.role !== "parent" ||
+    session.agent.company?.blueprintVersion !== 2) {
+    return null;
+  }
+  const binding = session.agent.company;
+  const signal = dependencies.signal?.() ?? new AbortController().signal;
+  const unresolved = (await company.goals.list(signal))
+    .map((entry) => entry.state)
+    .filter((run) =>
+      run.parentSessionId === session.id &&
+      run.company.blueprintId === binding.blueprintId &&
+      run.company.blueprintRevision === binding.blueprintRevision &&
+      unresolvedCompanyStatuses.has(run.status)
+    )
+    .sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt) ||
+      left.id.localeCompare(right.id)
+    );
+  if (unresolved.length === 0) return null;
+  if (unresolved.length > 1) {
+    return message(
+      "Multiple unresolved company goals require manual inspection with /company operations; no model request was started",
+      "error",
+    );
+  }
+  const run = unresolved[0]!;
+  const guidance = run.status === "running"
+    ? `use /company run ${run.id} to inspect it; if its process was interrupted, use /company resume ${run.id}`
+    : run.status === "waiting_for_approval"
+      ? `use /company run ${run.id}`
+      : `use /company resume ${run.id}`;
+  return message(
+    `Company goal ${run.id} is ${run.status}; ${guidance} before launching another model request`,
+    "error",
+  );
+}
+
+export function createGoalCommand(
+  dependencies: CommandDependencies = {},
+): Command {
   return {
     name: "goal",
     description: "Create, inspect, pause, resume, complete, or clear the durable goal",
@@ -131,6 +192,8 @@ export function createGoalCommand(): Command {
         return message("Goal cleared");
       }
 
+      const existing = await existingCompanyRun(context, dependencies);
+      if (existing !== null) return existing;
       if (
         context.session.goal?.status === "active" &&
         context.session.goal.objective === action &&

@@ -128,6 +128,13 @@ export interface CompanyTeamRunReservation {
   readonly companyGoal: TeamRunCompanyGoalCorrelation;
 }
 
+export interface CompanyChildBackendRouteInput {
+  readonly parent: PinnedSessionState;
+  readonly profileId: "review_v1";
+  readonly modelRoute: "review";
+  readonly background: false;
+}
+
 export interface TeamRunResult extends ToolResult {
   readonly metadata: TeamRunResultMetadata;
 }
@@ -749,6 +756,12 @@ async function boundedWait(
   }
 }
 
+function assertCompanyInspectionActive(signal?: AbortSignal): void {
+  if (signal?.aborted === true) {
+    throw new ToolError("cancelled", "Company team inspection was cancelled");
+  }
+}
+
 async function cancellablePause(
   milliseconds: number,
   signal: AbortSignal,
@@ -963,8 +976,11 @@ export class TeamRunSupervisor {
     }
     const runId = company?.runId ?? this.#createId();
     const policy = structuredClone(mode) as TeamRunPolicySnapshot;
+    const repairRounds = company?.companyGoal.repair === null
+      ? 0
+      : team.maxRepairRounds!;
     const requiredChildren = input.tasks.length +
-      team.maxReviewers * (team.maxRepairRounds! + 1) + team.maxRepairRounds!;
+      team.maxReviewers * (repairRounds + 1) + repairRounds;
     const ordinaryAllowance = Math.max(
       1,
       Math.floor(mode.workflow.maxRequestsPerRun / mode.workflow.maxChildrenPerRun),
@@ -1061,6 +1077,24 @@ export class TeamRunSupervisor {
     });
     this.#companyReservations.set(reservation, prepared);
     return reservation;
+  }
+
+  async selectCompanyChildBackend(
+    input: CompanyChildBackendRouteInput,
+  ): Promise<AgentBackendRouteDecision> {
+    const mode = getOperatingModePolicy(input.parent.agent.operatingMode.id);
+    const candidates = candidatesForMode(
+      mode as TeamRunPolicySnapshot,
+      await this.dependencies.backendCandidates(input.parent),
+    );
+    return this.dependencies.router.select({
+      role: "review",
+      candidateRole: input.modelRoute,
+      executionMode: getAgentProfilePolicy(input.profileId).executionMode,
+      permissionMode: input.parent.permissionMode,
+      background: input.background,
+      candidates,
+    });
   }
 
   startCompanyForeground(
@@ -1464,9 +1498,11 @@ export class TeamRunSupervisor {
     const team = state.descriptor.policy.workflow.team;
     const remainingChildren = state.descriptor.allocation.maxChildren -
       state.accounting.childrenReserved;
+    const repairRounds = state.descriptor.companyGoal?.repair === null
+      ? 0
+      : team.maxRepairRounds;
     const requiredChildren = state.descriptor.request.tasks.length +
-      (team.maxRepairRounds + 1) * team.maxReviewers +
-      team.maxRepairRounds;
+      (repairRounds + 1) * team.maxReviewers + repairRounds;
     const remainingRequests = state.descriptor.allocation.maxRequests -
       state.accounting.requestsReserved;
     if (remainingChildren < requiredChildren || remainingRequests <
@@ -1866,7 +1902,10 @@ export class TeamRunSupervisor {
           return await this.#terminal(journal, "unverified", null, evidence);
         }
         if (review.verdict === "approved") break;
-        if (round >= descriptor.policy.workflow.team.maxRepairRounds) {
+        const maximumRepairRounds = descriptor.companyGoal?.repair === null
+          ? 0
+          : descriptor.policy.workflow.team.maxRepairRounds;
+        if (round >= maximumRepairRounds) {
           return await this.#terminal(
             journal,
             "changes_requested",
@@ -2212,8 +2251,11 @@ export class TeamRunSupervisor {
   async inspectCompanyRun(
     parentSessionId: string,
     runId: string,
+    signal?: AbortSignal,
   ): Promise<TeamRunResult> {
+    assertCompanyInspectionActive(signal);
     const state = await this.#ownedState(parentSessionId, runId);
+    assertCompanyInspectionActive(signal);
     if (state.descriptor.companyGoal === undefined) {
       throw new ToolError("not_found", "Company team run not found");
     }

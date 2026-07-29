@@ -1,11 +1,11 @@
 import {
-  appendFile,
   mkdir,
   open,
   readFile,
   readdir,
 } from "node:fs/promises";
 import path from "node:path";
+import { TextDecoder } from "node:util";
 
 import type {
   AgentSessionDescriptor,
@@ -69,6 +69,19 @@ export interface SessionMutationLease {
   readonly fencingToken: number;
   readonly currentSequence: number;
   append(record: SessionRecordInputV2): Promise<SessionRecordV2>;
+}
+
+const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+class IncompleteSessionTailError extends Error {
+  constructor(
+    readonly records: AnySessionRecord[],
+    readonly durableByteLength: number,
+    readonly tail: Uint8Array,
+  ) {
+    super("Session log has an undurable final record");
+    this.name = "IncompleteSessionTailError";
+  }
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -158,13 +171,39 @@ async function appendAndSync(file: string, content: string): Promise<void> {
   }
 }
 
-async function replaceAndSync(file: string, content: string): Promise<void> {
-  const handle = await open(file, "w", 0o600);
+async function quarantineAndSync(
+  file: string,
+  tail: Uint8Array,
+): Promise<void> {
+  const handle = await open(file, "a", 0o600);
   try {
-    await handle.writeFile(content, "utf8");
+    await handle.appendFile(tail);
+    await handle.appendFile("\n", "utf8");
     await handle.sync();
   } finally {
     await handle.close();
+  }
+}
+
+async function truncateAndSync(file: string, byteLength: number): Promise<void> {
+  const handle = await open(file, "r+", 0o600);
+  try {
+    await handle.truncate(byteLength);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+function decodeUtf8(bytes: Uint8Array, sessionId: string): string {
+  try {
+    return utf8Decoder.decode(bytes);
+  } catch (error) {
+    throw new SessionStoreError(
+      "corrupt_log",
+      `Session ${sessionId} contains invalid UTF-8`,
+      { cause: error },
+    );
   }
 }
 
@@ -211,7 +250,7 @@ export class JsonlSessionStore {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     const lock = await acquireSessionLock(this.directory, options.id);
     try {
-      const existing = await this.load(options.id);
+      const existing = await this.#loadUnderMutationLock(options.id);
       if (existing.records.length > 0) {
         throw new SessionStoreError(
           "session_conflict",
@@ -231,7 +270,10 @@ export class JsonlSessionStore {
       };
       parseSessionRecordV2(created, options.id);
       await appendAndSync(file, `${JSON.stringify(created)}\n`);
-      const state = await this.loadState(options.id);
+      const state = this.#restoreState(
+        options.id,
+        await this.#loadUnderMutationLock(options.id),
+      );
       if (!isPinnedSessionState(state)) {
         throw new SessionStoreError(
           "corrupt_log",
@@ -254,7 +296,10 @@ export class JsonlSessionStore {
     let creation: CreatePinnedSessionInput | undefined;
     const sourceLock = await acquireSessionLock(this.directory, options.sourceId);
     try {
-      const source = await this.loadState(options.sourceId);
+      const source = this.#restoreState(
+        options.sourceId,
+        await this.#loadUnderMutationLock(options.sourceId),
+      );
       if (!isPinnedSessionState(source)) {
         throw new SessionStoreError(
           "legacy_read_only",
@@ -342,7 +387,7 @@ export class JsonlSessionStore {
     const lock = await acquireSessionLock(this.directory, sessionId);
     let active = true;
     try {
-      const loaded = await this.load(sessionId);
+      const loaded = await this.#loadUnderMutationLock(sessionId);
       const first = loaded.records[0];
       const last = loaded.records.at(-1);
       if (first === undefined || last === undefined) {
@@ -492,10 +537,52 @@ export class JsonlSessionStore {
     sessionId: string,
     repairPartialRecord: boolean,
   ): Promise<LoadedSessionRecords> {
-    const file = this.#file(sessionId);
-    let serialized: string;
     try {
-      serialized = await readFile(file, "utf8");
+      return await this.#readWithoutMutation(sessionId);
+    } catch (error) {
+      if (!(error instanceof IncompleteSessionTailError)) {
+        throw error;
+      }
+      if (!repairPartialRecord) {
+        throw new SessionStoreError(
+          "corrupt_log",
+          "Session log has an undurable final record",
+          { cause: error },
+        );
+      }
+    }
+
+    const lock = await acquireSessionLock(this.directory, sessionId);
+    try {
+      return await this.#loadUnderMutationLock(sessionId);
+    } finally {
+      await lock.release();
+    }
+  }
+
+  async #loadUnderMutationLock(
+    sessionId: string,
+  ): Promise<LoadedSessionRecords> {
+    try {
+      return await this.#readWithoutMutation(sessionId);
+    } catch (error) {
+      if (!(error instanceof IncompleteSessionTailError)) {
+        throw error;
+      }
+      const file = this.#file(sessionId);
+      await quarantineAndSync(`${file}.quarantine`, error.tail);
+      await truncateAndSync(file, error.durableByteLength);
+      return { records: error.records, recoveredPartialRecord: true };
+    }
+  }
+
+  async #readWithoutMutation(
+    sessionId: string,
+  ): Promise<LoadedSessionRecords> {
+    const file = this.#file(sessionId);
+    let bytes: Uint8Array;
+    try {
+      bytes = await readFile(file);
     } catch (error) {
       if (isObject(error) && error.code === "ENOENT") {
         return { records: [], recoveredPartialRecord: false };
@@ -503,7 +590,30 @@ export class JsonlSessionStore {
       throw error;
     }
 
-    const hasTerminatingNewline = serialized.endsWith("\n");
+    if (bytes.byteLength === 0) {
+      return { records: [], recoveredPartialRecord: false };
+    }
+
+    const durableByteLength = bytes.lastIndexOf(0x0a) + 1;
+    const serialized = decodeUtf8(
+      bytes.subarray(0, durableByteLength),
+      sessionId,
+    );
+    const records = this.#parseRecords(sessionId, serialized);
+    if (durableByteLength !== bytes.byteLength) {
+      throw new IncompleteSessionTailError(
+        records,
+        durableByteLength,
+        bytes.subarray(durableByteLength),
+      );
+    }
+    return { records, recoveredPartialRecord: false };
+  }
+
+  #parseRecords(
+    sessionId: string,
+    serialized: string,
+  ): AnySessionRecord[] {
     const lines = serialized.split("\n");
     if (lines.at(-1) === "") {
       lines.pop();
@@ -539,46 +649,37 @@ export class JsonlSessionStore {
         }
         records.push(record);
       } catch (error) {
-        const isPartialTrailingRecord =
-          index === lines.length - 1 && !hasTerminatingNewline;
-        if (!isPartialTrailingRecord) {
-          if (error instanceof SessionStoreError) {
-            throw error;
-          }
-          throw new SessionStoreError(
-            "corrupt_log",
-            `Corrupt session record at line ${index + 1}`,
-            { cause: error },
-          );
+        if (error instanceof SessionStoreError) {
+          throw error;
         }
-        if (!repairPartialRecord) {
-          throw new SessionStoreError(
-            "corrupt_log",
-            "Session log has an undurable final record",
-            { cause: error },
-          );
-        }
-
-        await appendFile(`${file}.quarantine`, `${line}\n`, {
-          encoding: "utf8",
-          mode: 0o600,
-        });
-        const recovered = lines.slice(0, index).join("\n");
-        await replaceAndSync(file, recovered.length > 0 ? `${recovered}\n` : "");
-        return { records, recoveredPartialRecord: true };
+        throw new SessionStoreError(
+          "corrupt_log",
+          `Corrupt session record at line ${index + 1}`,
+          { cause: error },
+        );
       }
     }
 
-    return { records, recoveredPartialRecord: false };
+    return records;
   }
 
-  async loadState(sessionId: string): Promise<SessionState> {
+  async loadState(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<SessionState> {
+    signal?.throwIfAborted();
     const loaded = await this.load(sessionId);
+    signal?.throwIfAborted();
     return this.#restoreState(sessionId, loaded);
   }
 
-  async loadStateReadOnly(sessionId: string): Promise<SessionState> {
+  async loadStateReadOnly(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<SessionState> {
+    signal?.throwIfAborted();
     const loaded = await this.loadReadOnly(sessionId);
+    signal?.throwIfAborted();
     return this.#restoreState(sessionId, loaded);
   }
 

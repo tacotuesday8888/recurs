@@ -15,6 +15,7 @@ import type {
   RuntimeContinuationStore,
   SessionBackendPin,
   CompanyBlueprint,
+  CompanyBlueprintV2,
 } from "@recurs/contracts";
 import {
   parseCompanyBlueprint,
@@ -70,6 +71,7 @@ import {
   createTeamRunTools,
   isPinnedSessionState,
   recoverDurableTeamChild,
+  validateCompanyBlueprintV2ExecutionPolicy,
   type AgentBackendCandidate,
   type EventSink,
   type PinnedSessionState,
@@ -112,6 +114,7 @@ import {
   type PermissionMode,
   type ExecutionMode,
   type PtyDriver,
+  type ApprovalHandler,
   type ToolSecurityProfile,
 } from "@recurs/tools";
 
@@ -143,6 +146,22 @@ import {
   providerOverviewText,
 } from "./provider-discovery.js";
 
+function validateCompanyExecutionPolicy(
+  blueprint: CompanyBlueprintV2,
+): void {
+  try {
+    validateCompanyBlueprintV2ExecutionPolicy(blueprint);
+  } catch (error) {
+    const detail = error instanceof Error
+      ? error.message
+      : "The execution policy could not be validated";
+    throw new RuntimeError(
+      "invalid_input",
+      `The approved company execution policy is invalid: ${detail}`,
+    );
+  }
+}
+
 export interface StandaloneRuntimeOptions {
   cwd?: string;
   dataDirectory?: string;
@@ -164,6 +183,7 @@ export interface StandaloneRuntimeOptions {
   companyBlueprint?: CompanyBlueprint;
   skillHomeDirectory?: string;
   ptyDriver?: PtyDriver;
+  approvalHandler?: ApprovalHandler;
 }
 
 function injectedBackendPin(
@@ -967,6 +987,9 @@ export async function createStandaloneRuntime(
       "Only an explicitly approved company blueprint can be activated",
     );
   }
+  if (requestedCompany?.version === 2) {
+    validateCompanyExecutionPolicy(requestedCompany);
+  }
   if (requestedCompany !== null && options.resumeSessionId !== undefined) {
     throw new RuntimeError(
       "invalid_input",
@@ -987,6 +1010,9 @@ export async function createStandaloneRuntime(
   });
   const teamRuns = new JsonlTeamRunStore(path.join(projectData, "team-runs"));
   const teamOwners = new TeamRunOwnerLeaseManager({ rootDirectory: projectData });
+  const companyGoalOwners = new TeamRunOwnerLeaseManager({
+    rootDirectory: path.join(projectData, "company-goal-owners"),
+  });
   const teamRecovery = new TeamRunRecoveryCoordinator({
     runs: teamRuns,
     owners: teamOwners,
@@ -1361,6 +1387,9 @@ export async function createStandaloneRuntime(
       state.agent.company?.blueprintVersion === 2
     ? await companyBlueprintsV2.load(state.agent.company.blueprintId)
     : null;
+  if (activeCompanyBlueprint !== null) {
+    validateCompanyExecutionPolicy(activeCompanyBlueprint);
+  }
   await companyCapabilityAuthority.activate(activeCompanyBlueprint);
 
   const coordinatorReference: { current?: BackendRunCoordinator } = {};
@@ -1521,11 +1550,13 @@ export async function createStandaloneRuntime(
   });
   tools.register(teams.createTool());
   for (const tool of createTeamRunTools(teamSupervisor)) tools.register(tool);
+  let companyGoalsSupervisor: CompanyGoalSupervisor | undefined;
   if (!("type" in state) && state.agent.company?.blueprintVersion === 2) {
-    const companyGoalsSupervisor = new CompanyGoalSupervisor({
+    companyGoalsSupervisor = new CompanyGoalSupervisor({
       sessions,
       blueprints: companyBlueprintsV2,
       runs: companyGoals,
+      owners: companyGoalOwners,
       children: childAgents,
       team: teamSupervisor,
       learning: companyLearning,
@@ -1545,11 +1576,11 @@ export async function createStandaloneRuntime(
     }
     return await runtime.requestUserInput(request, signal);
   }));
-  const approvals = {
-    async request(intent: {
-      readonly category: string;
-      readonly resource: string;
-    }) {
+  const approvals: ApprovalHandler = {
+    async request(intent) {
+      if (options.approvalHandler !== undefined) {
+        return await options.approvalHandler.request(intent);
+      }
       const allowed =
         (await runtimeReference.current?.confirm(
           `Allow ${intent.category} access to ${intent.resource}?`,
@@ -1962,6 +1993,9 @@ export async function createStandaloneRuntime(
       amendments: companyAmendments,
       decisions: companyAmendmentDecisions,
       capabilities: companyCapabilityAuthority,
+      ...(companyGoalsSupervisor === undefined
+        ? {}
+        : { recovery: companyGoalsSupervisor }),
     },
     skills,
     mcp,

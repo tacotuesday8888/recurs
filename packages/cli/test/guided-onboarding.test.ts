@@ -759,6 +759,73 @@ describe("guided onboarding policy", () => {
     ]]);
   });
 
+  it("explains optional formation and the exact setup return path after skipping the roster", async () => {
+    const selections = [
+      "account:saved-1",
+      "approved_for_me",
+      "balanced_v6",
+      "skip",
+    ];
+    const choiceMenus: Array<{
+      readonly message: string;
+      readonly ids: readonly string[];
+    }> = [];
+    let output = "";
+    const sink = new Writable({
+      write(chunk, _encoding, done) {
+        output += String(chunk);
+        done();
+      },
+    });
+
+    const outcome = await runGuidedOnboarding({
+      stdout: sink,
+      stderr: sink,
+      interactive: true,
+      automation: false,
+      async listAccounts() { return [account]; },
+      async detectProviders() { return []; },
+      async listProviders() { return []; },
+      async inspectCompanyRepositoryFacts() {
+        throw new Error("a skipped roster must not inspect the repository");
+      },
+      async selectChoice(message, choices) {
+        choiceMenus.push({
+          message,
+          ids: choices.map((choice) => choice.id),
+        });
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText() {
+        throw new Error("a skipped roster must not request project text");
+      },
+      async confirm() {
+        throw new Error("a skipped roster must not request formation approval");
+      },
+      async executeCommand() { return 0; },
+    });
+
+    expect(outcome).toEqual({
+      state: "configured",
+      permissionMode: "approved_for_me",
+      operatingModeId: "balanced_v6",
+    });
+    expect(selections).toEqual([]);
+    expect(choiceMenus.map((menu) => menu.message)).toEqual([
+      "Choose a saved, detected, or recommended model connection",
+      "Choose how much Recurs may do without asking",
+      "Choose how much agent teamwork Recurs should use",
+      "Tailor the first Recurs agent company to this project",
+    ]);
+    expect(choiceMenus[3]?.ids).toEqual(["create", "skip"]);
+    expect(output).toContain("Company formation is optional.");
+    expect(output).toContain(
+      "Roster: not activated · Run recurs setup to form a company later.",
+    );
+  });
+
   it("creates a confirmed project brief without handling credential values", async () => {
     const selections = [
       "account:saved-1",

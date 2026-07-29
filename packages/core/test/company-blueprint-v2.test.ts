@@ -154,6 +154,11 @@ describe("compileCompanyBlueprintV2", () => {
     });
     expect(blueprint.activation.defaultActiveRoleIds).toContain(root.id);
     expect(blueprint.activation.defaultActiveRoleIds).toContain(reviewer.id);
+    expect(blueprint.roles.find((role) => role.displayName === "Scoped Builder"))
+      .toMatchObject({ capabilities: ["implement", "repair"] });
+    expect(blueprint.roles.find((role) =>
+      role.displayName === "Security and Release Reviewer"
+    )).toMatchObject({ executionProfileId: "review_v1" });
   });
 
   it("keeps opaque role IDs stable across blueprint revisions", () => {
@@ -189,7 +194,7 @@ describe("compileCompanyBlueprintV2", () => {
     const instructions = companyContextInstructionsV2(blueprint).join("\n");
 
     expect(instructions).toContain(
-      `Approved delegation edges: ${root.id} ->`,
+      `Approved active delegation edges: ${root.id} ->`,
     );
     expect(instructions).toContain(`${lead.id} -> ${builder.id}`);
     expect(instructions).toContain(
@@ -250,6 +255,60 @@ describe("compileCompanyBlueprintV2", () => {
     expect(maximumReportingDepth(blueprint)).toBeLessThanOrEqual(policy.maxDepth);
   });
 
+  it.each([
+    ["economy_v6", [
+      "Company Orchestrator",
+      "Scoped Builder",
+      "Independent QA Reviewer",
+    ]],
+    ["standard_v6", [
+      "Company Orchestrator",
+      "Implementation Lead",
+      "Scoped Builder",
+      "Independent QA Reviewer",
+    ]],
+    ["balanced_v6", [
+      "Company Orchestrator",
+      "Implementation Lead",
+      "Scoped Builder",
+      "Independent QA Reviewer",
+    ]],
+    ["performance_v6", [
+      "Company Orchestrator",
+      "Implementation Lead",
+      "Scoped Builder",
+      "Independent QA Reviewer",
+    ]],
+    ["max_v6", [
+      "Company Orchestrator",
+      "Implementation Lead",
+      "Scoped Builder",
+      "Independent QA Reviewer",
+    ]],
+  ] as const)("starts %s with its runnable implementation/review spine", (
+    operatingModeId,
+    expectedNames,
+  ) => {
+    const blueprint = compileCompanyBlueprintV2(input({ operatingModeId }));
+    const names = new Map(blueprint.roles.map((role) => [
+      role.id,
+      role.displayName,
+    ]));
+
+    expect(blueprint.activation.defaultActiveRoleIds.map((id) => names.get(id)))
+      .toEqual(expectedNames);
+    const active = new Set(blueprint.activation.defaultActiveRoleIds);
+    for (const roleId of active) {
+      let role = blueprint.roles.find((candidate) => candidate.id === roleId)!;
+      while (role.reportsTo !== null) {
+        expect(active.has(role.reportsTo)).toBe(true);
+        role = blueprint.roles.find((candidate) =>
+          candidate.id === role.reportsTo
+        )!;
+      }
+    }
+  });
+
   it("compiles a dynamic organization while narrowing role authority", () => {
     const blueprint = compileCompanyBlueprintV2(input({
       designMode: "guardrailed_dynamic",
@@ -303,5 +362,126 @@ describe("compileCompanyBlueprintV2", () => {
       approved,
       "2026-07-22T00:02:00.000Z",
     )).toThrow("Only a proposed");
+  });
+
+  it.each(["implement_v1", "repair_v1"] as const)(
+    "rejects active %s during compile",
+    (executionProfileId) => {
+      const organization = dynamicOrganization();
+      const unsupported: CompanyOrganizationDraftV1 = {
+        ...organization,
+        roles: organization.roles.map((role, index) => index === 1
+          ? { ...role, executionProfileId }
+          : role),
+      };
+      expect(() => compileCompanyBlueprintV2(input({
+        designMode: "guardrailed_dynamic",
+        organization: unsupported,
+      }))).toThrow(/execution profile/iu);
+    },
+  );
+
+  it("rejects an active review_v2 topology without an implement_v2 candidate", () => {
+    const organization = dynamicOrganization();
+    const unpaired: CompanyOrganizationDraftV1 = {
+      ...organization,
+      roles: organization.roles.map((role) => role.key === "builder"
+        ? {
+            ...role,
+            capabilities: ["review" as const],
+            executionProfileId: "review_v1" as const,
+          }
+        : role),
+    };
+
+    expect(() => compileCompanyBlueprintV2(input({
+      designMode: "guardrailed_dynamic",
+      organization: unpaired,
+    }))).toThrow(/review_v2.*implement_v2/iu);
+  });
+
+  it("rejects non-anchor review_v2 during approval", () => {
+    const organization = dynamicOrganization();
+    const proposed = compileCompanyBlueprintV2(input({
+      designMode: "guardrailed_dynamic",
+      organization,
+    }));
+    const builderId = proposed.roles.find((role) =>
+      role.displayName === "Builder"
+    )!.id;
+    const edited = {
+      ...proposed,
+      roles: proposed.roles.map((role) => role.id === builderId
+        ? {
+            ...role,
+            executionProfileId: "review_v2" as const,
+            modelRoute: "review" as const,
+          }
+        : role),
+    };
+
+    expect(() => approveCompanyBlueprintV2(
+      edited,
+      "2026-07-22T00:01:00.000Z",
+    )).toThrow(/independent-review authority/iu);
+  });
+
+  it("rejects an active role whose reporting ancestry is inactive", () => {
+    const organization = dynamicOrganization();
+    const root = organization.roles[0]!;
+    const builder = organization.roles[1]!;
+    const reviewer = organization.roles[2]!;
+    const lead = {
+      ...builder,
+      key: "inactive_lead",
+      displayName: "Inactive Lead",
+      kind: "lead" as const,
+      reportsToKey: root.key,
+      capabilities: ["plan" as const],
+      executionProfileId: "explore_v1" as const,
+      activation: "on_demand" as const,
+    };
+    const invalid = {
+      ...organization,
+      roles: [
+        root,
+        lead,
+        { ...builder, reportsToKey: lead.key },
+        reviewer,
+      ],
+    };
+
+    expect(() => compileCompanyBlueprintV2(input({
+      designMode: "guardrailed_dynamic",
+      organization: invalid,
+    }))).toThrow(/reporting ancestry/iu);
+  });
+
+  it("advertises only default-active roles as executable authority", () => {
+    const blueprint = approveCompanyBlueprintV2(
+      compileCompanyBlueprintV2(input({ operatingModeId: "economy_v6" })),
+      "2026-07-22T00:01:00.000Z",
+    );
+    const active = new Set(blueprint.activation.defaultActiveRoleIds);
+    const inactive = blueprint.roles.filter((role) => !active.has(role.id));
+    const instructions = companyContextInstructionsV2(blueprint);
+    const executable = instructions.find((line) =>
+      line.startsWith("Executable default-active roles:")
+    );
+    const delegation = instructions.find((line) =>
+      line.startsWith("Approved active delegation edges:")
+    );
+    const capacity = instructions.find((line) =>
+      line.startsWith("Inactive roster capacity")
+    );
+
+    expect(executable).toBeDefined();
+    expect(delegation).toBeDefined();
+    expect(capacity).toBeDefined();
+    for (const role of inactive) {
+      expect(executable).not.toContain(role.id);
+      expect(delegation).not.toContain(role.id);
+      expect(capacity).toContain(role.id);
+    }
   });
 });
