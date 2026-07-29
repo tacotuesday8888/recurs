@@ -204,9 +204,12 @@ cost. It proved execution and evidence capture, not team efficiency.
 A later one-pair-per-scenario comparison covered all three immutable coding
 tasks. The Sol/Terra/Luna company passed all three hidden verifiers; the Sol
 baseline passed two. On the two shared successes, the company used more input
-tokens and was neither consistently faster nor slower. This supports selective
-activation for review value. It is not enough evidence for a universal
-recommendation.
+tokens and was neither consistently faster nor slower. A same-day
+`alias_registry` replication had both arms pass all seven checks; the company
+used three requests, more input tokens, and more elapsed time. Together the
+runs demonstrate that the machinery, routing, independent review, hidden
+verification, and comparability execute correctly. They do not establish a
+quality or efficiency advantage; repeated trials are still required.
 
 The repeatable Company Proof surface now supplies three immutable tasks. Its
 default compares the selected parent-only baseline with the currently

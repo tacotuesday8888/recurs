@@ -90,12 +90,26 @@ both passed, the company was slower once and slightly faster once, while using
 three requests and more input tokens in both. Every company candidate received
 independent approval and none required Repair. Dollar cost was unavailable.
 
-This is useful product evidence, not a published winner: each scenario has one
-pair, the task catalog is small, and there is no all-strong-team comparison.
-It supports selective company activation for quality insurance, not mandatory
-fan-out on every task. The runs also found and drove fixes for benchmark
-approval handling, bounded worker verification, review evidence handoff,
-scenario-bound company authority, and hidden-verifier versioning.
+### 2026-07-29 `alias_registry` replication
+
+A later same-day pair reran the same immutable fixture:
+
+| Arm | Verifier | Time | Requests | Input (cached) | Output |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Sol baseline | passed 7/7 | 103.341s | 1 | 135,236 (91,648) | 4,824 |
+| company | passed 7/7 | 125.310s | 3 | 159,828 (99,328) | 4,204 |
+
+The company candidate received independent approval, and both arms passed all
+seven checks. Dollar cost was unavailable.
+
+The campaign and replication demonstrate that the machinery, saved routing,
+independent review, hidden verification, and comparable-arm recording execute
+correctly. They do not establish a quality or efficiency advantage: the task
+catalog remains small, the replication is one additional pair, and there is no
+all-strong-team comparison. Repeated trials are still required. The runs also
+found and drove fixes for benchmark approval handling, bounded worker
+verification, review evidence handoff, scenario-bound company authority, and
+hidden-verifier versioning.
 
 ## Auto Team Alpha dogfood
 

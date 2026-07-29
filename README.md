@@ -132,9 +132,12 @@ repair, and re-review. This is proof that the full path can run.
 On 2026-07-29, one fresh comparison pair ran on each of three immutable coding
 fixtures. The Sol/Terra/Luna company passed all three hidden verifiers; the Sol
 single-agent baseline passed two. On the two shared successes the company used
-more input tokens, was slower once, and slightly faster once. This supports
-selective team activation for quality insurance—not a claim that more agents
-are always cheaper, faster, or better. The
+more input tokens, was slower once, and slightly faster once. A same-day
+`alias_registry` replication had both arms pass all seven checks; the company
+used three requests, more input tokens, and more elapsed time. Together these
+runs show that the machinery, routing, independent review, hidden verification,
+and comparable-arm recording execute correctly. They do not establish a
+quality or efficiency advantage; repeated trials are still required. The
 [evaluation record](docs/COMPANY_EVALUATION.md) gives the exact results and
 remaining evidence bar.
 
