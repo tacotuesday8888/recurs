@@ -403,7 +403,11 @@ export function createCompanyCommand(dependencies: CommandDependencies): Command
         }
         return message(
           renderCompanyGoalRun(active.blueprint, recovered),
-          recoveryError === null ? "info" : "error",
+          recoveryError === null &&
+              recovered.status !== "failed" &&
+              recovered.status !== "cancelled"
+            ? "info"
+            : "error",
         );
       }
       if (action === "knowledge") {

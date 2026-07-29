@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import {
+  getAgentProfilePolicy,
   getOperatingModePolicy,
+  narrowAgentPermissionMode,
   parseCompanyBlueprintBindingV2,
   parseCompanyGoalPlan,
   parseCompanyGoalRun,
@@ -28,6 +31,7 @@ import {
 } from "@recurs/tools";
 
 import { childRequestAllowance, delegationWorkflowUsage } from "./agent-profile.js";
+import { companyAgentLimits } from "./company-agent-binding.js";
 import { renderCompanyAssignmentPrompt } from "./company-role-charter.js";
 import type {
   ChildAgentManager,
@@ -105,7 +109,12 @@ export type CompanyGoalTeamExecutor = Pick<
 >;
 
 export interface CompanyGoalSupervisorDependencies {
-  readonly sessions: Pick<JsonlSessionStore, "loadState">;
+  readonly sessions: {
+    loadState(
+      sessionId: string,
+      signal?: AbortSignal,
+    ): ReturnType<JsonlSessionStore["loadState"]>;
+  };
   readonly blueprints: Pick<FileCompanyBlueprintV2Store, "load">;
   readonly runs: Pick<
     JsonlCompanyGoalStore,
@@ -261,6 +270,12 @@ function safeMessage(error: unknown, fallback: string): string {
 
 function isCancelled(error: unknown, signal: AbortSignal): boolean {
   return signal.aborted || error instanceof ToolError && error.code === "cancelled";
+}
+
+function assertRecoveryActive(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw new ToolError("cancelled", "Company goal resume was cancelled");
+  }
 }
 
 function isChildExecution(
@@ -1187,6 +1202,7 @@ export class CompanyGoalSupervisor {
     runtime: ActiveCompanyGoal,
     assignment: CompanyGoalAssignmentV1,
     result: ChildDelegationResult,
+    signal?: AbortSignal,
   ): Promise<void> {
     const evidence = boundedEvidence(result.metadata.evidence);
     if (evidence.length === 0 || result.metadata.costLimitExceeded) {
@@ -1227,7 +1243,7 @@ export class CompanyGoalSupervisor {
         ),
       },
       budget: withBudget(run, runtime.budget),
-    }));
+    }), signal);
   }
 
   #nextTeamBudget(
@@ -1257,6 +1273,7 @@ export class CompanyGoalSupervisor {
     reason: string,
     cancelled: boolean,
     result?: TeamRunResult,
+    signal?: AbortSignal,
   ): Promise<void> {
     const at = this.#now();
     await runtime.journal.update((run) => ({
@@ -1280,7 +1297,7 @@ export class CompanyGoalSupervisor {
         ),
       },
       budget: result === undefined ? run.budget : this.#nextTeamBudget(run, result),
-    }));
+    }), signal);
     this.#reconcileBudget(runtime);
   }
 
@@ -1288,6 +1305,7 @@ export class CompanyGoalSupervisor {
     runtime: ActiveCompanyGoal,
     teamRunId: string,
     result: TeamRunResult,
+    signal?: AbortSignal,
   ): Promise<"settled" | "interrupted"> {
     const running = runtime.journal.current.state.plan.assignments.filter(
       (assignment) => assignment.status === "running" &&
@@ -1310,6 +1328,7 @@ export class CompanyGoalSupervisor {
         "Company team result did not match its durable assignment reservation",
         false,
         result,
+        signal,
       );
       return "settled";
     }
@@ -1322,7 +1341,7 @@ export class CompanyGoalSupervisor {
         ...run,
         status: "interrupted",
         updatedAt: this.#now(),
-      }));
+      }), signal);
       this.#reconcileBudget(runtime);
       await this.#emit({
         type: "company_goal_interrupted",
@@ -1347,6 +1366,7 @@ export class CompanyGoalSupervisor {
           `Company team ended with ${result.metadata.status}`,
         cancelled,
         result,
+        signal,
       );
       return "settled";
     }
@@ -1360,6 +1380,7 @@ export class CompanyGoalSupervisor {
         "Company team returned incomplete or inconsistent evidence",
         false,
         result,
+        signal,
       );
       return "settled";
     }
@@ -1402,16 +1423,18 @@ export class CompanyGoalSupervisor {
           },
           budget,
         };
-      });
+      }, signal);
       this.#reconcileBudget(runtime);
       return "settled";
     } catch (error) {
+      if (signal?.aborted === true) throw error;
       await this.#failTeamAssignments(
         runtime,
         teamRunId,
         safeMessage(error, "Company team result could not be reconciled"),
         false,
         result,
+        signal,
       );
       return "settled";
     }
@@ -1656,7 +1679,11 @@ export class CompanyGoalSupervisor {
     }
   }
 
-  async #blockPending(runtime: ActiveCompanyGoal, reason: string): Promise<void> {
+  async #blockPending(
+    runtime: ActiveCompanyGoal,
+    reason: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     await runtime.journal.update((run) => ({
       ...run,
       updatedAt: this.#now(),
@@ -1674,13 +1701,14 @@ export class CompanyGoalSupervisor {
         ),
       },
       budget: withBudget(run, runtime.budget),
-    }));
+    }), signal);
   }
 
   async #recoverTerminalAssignment(
     runtime: ActiveCompanyGoal,
     assignment: CompanyGoalAssignmentV1,
     child: PinnedSessionState,
+    signal?: AbortSignal,
   ): Promise<void> {
     if (assignment.execution === undefined ||
       !isChildExecution(assignment.execution)) {
@@ -1718,7 +1746,7 @@ export class CompanyGoalSupervisor {
         ),
       },
       budget: withBudget(run, runtime.budget),
-    }));
+    }), signal);
     const role = runtime.blueprint.roles.find(
       (candidate) => candidate.id === assignment.roleId,
     )!;
@@ -1739,8 +1767,12 @@ export class CompanyGoalSupervisor {
     });
   }
 
-  async #finish(runtime: ActiveCompanyGoal): Promise<ToolResult> {
+  async #finish(
+    runtime: ActiveCompanyGoal,
+    recoverySignal?: AbortSignal,
+  ): Promise<ToolResult> {
     for (;;) {
+      if (recoverySignal !== undefined) assertRecoveryActive(recoverySignal);
       const run = runtime.journal.current.state;
       const terminalFailure = run.plan.assignments.find((assignment) =>
         assignment.status === "failed" || assignment.status === "cancelled"
@@ -1749,7 +1781,7 @@ export class CompanyGoalSupervisor {
         const cancelled = terminalFailure.status === "cancelled" ||
           runtime.rootContext.signal.aborted;
         const reason = terminalFailure.failure ?? "Company assignment failed";
-        await this.#blockPending(runtime, reason);
+        await this.#blockPending(runtime, reason, recoverySignal);
         await runtime.journal.update((current) => ({
           ...current,
           status: cancelled ? "cancelled" : "failed",
@@ -1757,7 +1789,7 @@ export class CompanyGoalSupervisor {
           result: null,
           failure: reason,
           budget: withBudget(current, runtime.budget),
-        }));
+        }), recoverySignal);
         const eventType = cancelled
           ? "company_goal_cancelled" as const
           : "company_goal_failed" as const;
@@ -1788,6 +1820,7 @@ export class CompanyGoalSupervisor {
         await this.#blockPending(
           runtime,
           safeMessage(error, "Company implementation plan is invalid"),
+          recoverySignal,
         );
         continue;
       }
@@ -1801,6 +1834,7 @@ export class CompanyGoalSupervisor {
           await this.#blockPending(
             runtime,
             safeMessage(error, "Company implementation could not start"),
+            recoverySignal,
           );
         }
         continue;
@@ -1820,7 +1854,11 @@ export class CompanyGoalSupervisor {
         );
       });
       if (ready.length === 0) {
-        await this.#blockPending(runtime, "Company assignment dependencies failed");
+        await this.#blockPending(
+          runtime,
+          "Company assignment dependencies failed",
+          recoverySignal,
+        );
         continue;
       }
       const available = Math.max(
@@ -1840,6 +1878,7 @@ export class CompanyGoalSupervisor {
           rejected?.status === "rejected"
             ? safeMessage(rejected.reason, "Company assignment could not start")
             : "Company assignment made no durable progress",
+          recoverySignal,
         );
       }
     }
@@ -1848,6 +1887,7 @@ export class CompanyGoalSupervisor {
       assignment.status === "blocked"
     );
     if (blocked !== undefined) {
+      if (recoverySignal !== undefined) assertRecoveryActive(recoverySignal);
       const reason = blocked.failure ?? "Company assignment was blocked";
       await runtime.journal.update((run) => ({
         ...run,
@@ -1856,7 +1896,7 @@ export class CompanyGoalSupervisor {
         result: null,
         failure: reason,
         budget: withBudget(run, runtime.budget),
-      }));
+      }), recoverySignal);
       await this.#emit({
         type: "company_goal_failed",
         sessionId: runtime.root.id,
@@ -1882,6 +1922,7 @@ export class CompanyGoalSupervisor {
         return `${role.displayName}: ${assignment.result!.summary}`;
       }),
     ].join("\n"), 16_384, "\n[company synthesis truncated by Recurs]");
+    if (recoverySignal !== undefined) assertRecoveryActive(recoverySignal);
     const completed = await runtime.journal.update((run) => ({
       ...run,
       status: "completed",
@@ -1889,7 +1930,7 @@ export class CompanyGoalSupervisor {
       result: { summary, evidence },
       failure: null,
       budget: withBudget(run, runtime.budget),
-    }));
+    }), recoverySignal);
     const learning = await this.#learn(runtime, completed.state);
     await this.#emit({
       type: "company_goal_completed",
@@ -2052,6 +2093,107 @@ export class CompanyGoalSupervisor {
     return await this.#executeAssignment(runtime, assignment.id, context);
   }
 
+  async #matchesRecoveredChild(
+    runtime: ActiveCompanyGoal,
+    assignment: CompanyGoalAssignmentV1,
+    child: PinnedSessionState,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    if (assignment.execution === undefined ||
+      !isChildExecution(assignment.execution)) return false;
+    let parent = runtime.root;
+    if (assignment.parentAssignmentId !== null) {
+      const parentAssignment = runtime.journal.current.state.plan.assignments.find(
+        (candidate) => candidate.id === assignment.parentAssignmentId,
+      );
+      if (parentAssignment?.status !== "completed" ||
+        parentAssignment.execution === undefined ||
+        !isChildExecution(parentAssignment.execution)) return false;
+      try {
+        const loaded = await this.dependencies.sessions.loadState(
+          parentAssignment.execution.childSessionId,
+          signal,
+        );
+        assertRecoveryActive(signal);
+        if (!isPinnedSessionState(loaded) ||
+          loaded.id !== parentAssignment.execution.childSessionId ||
+          loaded.agent.id !== parentAssignment.execution.childAgentId ||
+          !await this.#matchesRecoveredChild(
+            runtime,
+            parentAssignment,
+            loaded,
+            signal,
+          )) return false;
+        parent = loaded;
+      } catch {
+        assertRecoveryActive(signal);
+        return false;
+      }
+    }
+    const role = runtime.blueprint.roles.find(
+      (candidate) => candidate.id === assignment.roleId,
+    );
+    if (role?.executionProfileId === null || role?.executionProfileId === undefined) {
+      return false;
+    }
+    const profile = getAgentProfilePolicy(role.executionProfileId);
+    const company = {
+      blueprintId: runtime.blueprint.id,
+      blueprintVersion: 2 as const,
+      blueprintRevision: runtime.blueprint.revision,
+      roleId: role.id,
+      roleVersion: role.version,
+    };
+    const companyGoal = {
+      runId: runtime.journal.current.state.id,
+      assignmentId: assignment.id,
+      parentAssignmentId: assignment.parentAssignmentId,
+    };
+    const permissions = {
+      parentExecutionMode: parent.executionMode,
+      executionMode: profile.executionMode,
+      parentPermissionMode: parent.permissionMode,
+      permissionMode: narrowAgentPermissionMode(
+        parent.permissionMode,
+        role.permissionMode,
+      ),
+    };
+    const backend = child.agent.backend;
+    return child.id === assignment.execution.childSessionId &&
+      child.agent.role === "child" &&
+      child.agent.id === assignment.execution.childAgentId &&
+      child.agent.task?.id === assignment.execution.taskId &&
+      child.agent.parentSessionId === parent.id &&
+      child.agent.parentAgentId === parent.agent.id &&
+      child.agent.depth === parent.agent.depth + 1 &&
+      child.cwd === parent.cwd &&
+      child.pendingCompaction === null &&
+      isDeepStrictEqual(child.agent.company, company) &&
+      isDeepStrictEqual(child.agent.companyGoal, companyGoal) &&
+      isDeepStrictEqual(child.agent.profile, {
+        id: profile.id,
+        version: profile.version,
+      }) &&
+      isDeepStrictEqual(child.agent.operatingMode, parent.agent.operatingMode) &&
+      isDeepStrictEqual(child.backend.pin, parent.backend.pin) &&
+      backend.strategy === "inherit_parent" &&
+      backend.adapterId === parent.backend.pin.adapterId &&
+      backend.connectionId === parent.backend.pin.connectionId &&
+      backend.modelId === parent.backend.pin.modelId &&
+      isDeepStrictEqual(child.agent.permissions, permissions) &&
+      child.executionMode === permissions.executionMode &&
+      child.permissionMode === permissions.permissionMode &&
+      isDeepStrictEqual(
+        child.agent.limits,
+        {
+          ...companyAgentLimits(parent.agent.operatingMode.id, company),
+          maxRequests: childRequestAllowance(parent.agent),
+        },
+      ) &&
+      child.agent.workspace === undefined &&
+      child.agent.team === undefined;
+  }
+
   async #resumeOwned(
     runId: string,
     context: ToolContext,
@@ -2059,6 +2201,7 @@ export class CompanyGoalSupervisor {
     blueprint: CompanyBlueprintV2,
   ): Promise<ToolResult> {
     const loaded = await this.dependencies.runs.load(runId, context.signal);
+    assertRecoveryActive(context.signal);
     if (loaded.state.parentSessionId !== root.id ||
       loaded.state.company.blueprintId !== blueprint.id ||
       loaded.state.company.blueprintRevision !== blueprint.revision) {
@@ -2079,6 +2222,7 @@ export class CompanyGoalSupervisor {
       blueprint,
       context.signal,
     );
+    assertRecoveryActive(context.signal);
     if (loaded.state.status === "waiting_for_approval") {
       throw new ToolError(
         "permission_denied",
@@ -2138,12 +2282,14 @@ export class CompanyGoalSupervisor {
       loaded.state.createdAt,
       context.signal,
     );
+    assertRecoveryActive(context.signal);
     if (loaded.state.status === "created" || loaded.state.status === "interrupted") {
       await journal.update((run) => ({
         ...run,
         status: "running",
         updatedAt: this.#now(),
-      }));
+      }), context.signal);
+      assertRecoveryActive(context.signal);
     }
     const runtime: ActiveCompanyGoal = {
       blueprint,
@@ -2164,11 +2310,12 @@ export class CompanyGoalSupervisor {
     for (const teamRunId of teamRunIds) {
       const team = this.dependencies.team;
       if (team === undefined) {
+        assertRecoveryActive(context.signal);
         await journal.update((run) => ({
           ...run,
           status: "interrupted",
           updatedAt: this.#now(),
-        }));
+        }), context.signal);
         throw new ToolError(
           "execution_failed",
           "Company team recovery requires the durable team engine",
@@ -2176,13 +2323,19 @@ export class CompanyGoalSupervisor {
       }
       let result: TeamRunResult;
       try {
-        result = await team.inspectCompanyRun(root.id, teamRunId);
+        result = await team.inspectCompanyRun(
+          root.id,
+          teamRunId,
+          context.signal,
+        );
+        assertRecoveryActive(context.signal);
       } catch (error) {
+        assertRecoveryActive(context.signal);
         await journal.update((run) => ({
           ...run,
           status: "interrupted",
           updatedAt: this.#now(),
-        }));
+        }), context.signal);
         throw new ToolError(
           "execution_failed",
           safeMessage(error, "Company team recovery state is unavailable"),
@@ -2193,11 +2346,12 @@ export class CompanyGoalSupervisor {
         result.metadata.status !== "unverified" &&
         result.metadata.status !== "failed" &&
         result.metadata.status !== "cancelled") {
+        assertRecoveryActive(context.signal);
         await journal.update((run) => ({
           ...run,
           status: "interrupted",
           updatedAt: this.#now(),
-        }));
+        }), context.signal);
         await this.#emit({
           type: "company_goal_interrupted",
           sessionId: root.id,
@@ -2214,29 +2368,62 @@ export class CompanyGoalSupervisor {
           "Company goal is interrupted; its team run needs reconciliation",
         );
       }
-      await this.#settleTeamResult(runtime, teamRunId, result);
+      await this.#settleTeamResult(
+        runtime,
+        teamRunId,
+        result,
+        context.signal,
+      );
+      assertRecoveryActive(context.signal);
     }
     for (const assignment of journal.current.state.plan.assignments) {
       if (assignment.status !== "running" || assignment.execution === undefined) continue;
       if (!isChildExecution(assignment.execution)) {
         continue;
       }
-      const child = await this.dependencies.sessions.loadState(
-        assignment.execution.childSessionId,
-      ).catch(() => null);
+      let child: Awaited<ReturnType<JsonlSessionStore["loadState"]>> | null;
+      try {
+        child = await this.dependencies.sessions.loadState(
+          assignment.execution.childSessionId,
+          context.signal,
+        );
+        assertRecoveryActive(context.signal);
+      } catch {
+        assertRecoveryActive(context.signal);
+        child = null;
+      }
+      let recoveredChild: PinnedSessionState | null = null;
       if (child !== null && isPinnedSessionState(child) &&
-        (child.agentLifecycle.status === "failed" ||
-          child.agentLifecycle.status === "cancelled")) {
-        await this.#recoverTerminalAssignment(runtime, assignment, child);
+        await this.#matchesRecoveredChild(
+          runtime,
+          assignment,
+          child,
+          context.signal,
+        )) {
+        recoveredChild = child;
+      }
+      assertRecoveryActive(context.signal);
+      if (recoveredChild !== null &&
+        (recoveredChild.agentLifecycle.status === "failed" ||
+          recoveredChild.agentLifecycle.status === "cancelled")) {
+        await this.#recoverTerminalAssignment(
+          runtime,
+          assignment,
+          recoveredChild,
+          context.signal,
+        );
+        assertRecoveryActive(context.signal);
         continue;
       }
-      if (child === null || !isPinnedSessionState(child) ||
-        child.agentResult === null || child.agentLifecycle.status !== "completed") {
+      if (recoveredChild === null ||
+        recoveredChild.agentResult === null ||
+        recoveredChild.agentLifecycle.status !== "completed") {
+        assertRecoveryActive(context.signal);
         await journal.update((run) => ({
           ...run,
           status: "interrupted",
           updatedAt: this.#now(),
-        }));
+        }), context.signal);
         await this.#emit({
           type: "company_goal_interrupted",
           sessionId: root.id,
@@ -2250,45 +2437,56 @@ export class CompanyGoalSupervisor {
         });
         throw new ToolError(
           "execution_failed",
-          "Company goal is interrupted; its running child needs reconciliation",
+          "Company child recovery correlation or terminal state is invalid",
         );
       }
-      const used = child.agentResult.steps === null
+      const used = recoveredChild.agentResult.steps === null
         ? childRequestAllowance(root.agent)
-        : Math.min(childRequestAllowance(root.agent), child.agentResult.steps);
+        : Math.min(
+            childRequestAllowance(root.agent),
+            recoveredChild.agentResult.steps,
+          );
       runtime.budget.requestsUsed = Math.min(
         runtime.budget.maxRequests,
         runtime.budget.requestsUsed + used,
       );
-      runtime.budget.reportedCostUsd += child.agentResult.usage?.costUsd ?? 0;
+      runtime.budget.reportedCostUsd +=
+        recoveredChild.agentResult.usage?.costUsd ?? 0;
       const result: ChildDelegationResult = {
-        output: child.agentResult.finalText,
+        output: recoveredChild.agentResult.finalText,
         metadata: {
-          childAgentId: child.agent.id,
-          childSessionId: child.id,
-          taskId: child.agent.task!.id,
+          childAgentId: recoveredChild.agent.id,
+          childSessionId: recoveredChild.id,
+          taskId: recoveredChild.agent.task!.id,
           attempts: 1,
           retries: 0,
-          operatingModeId: child.agent.operatingMode.id,
-          profileId: child.agent.profile!.id,
-          usage: child.agentResult.usage,
-          usageSource: child.agentResult.usageSource,
+          operatingModeId: recoveredChild.agent.operatingMode.id,
+          profileId: recoveredChild.agent.profile!.id,
+          usage: recoveredChild.agentResult.usage,
+          usageSource: recoveredChild.agentResult.usageSource,
           requestsUsed: used,
-          evidenceSource: child.agentResult.evidenceSource,
-          changedFiles: [...child.agentResult.changedFiles],
-          evidence: [...child.agentResult.evidence],
+          evidenceSource: recoveredChild.agentResult.evidenceSource,
+          changedFiles: [...recoveredChild.agentResult.changedFiles],
+          evidence: [...recoveredChild.agentResult.evidence],
           costLimitUsd: runtime.budget.maxReportedCostUsd,
           costLimitExceeded:
             runtime.budget.reportedCostUsd > runtime.budget.maxReportedCostUsd,
           workflow: delegationWorkflowUsage(runtime.budget),
-          company: child.agent.company!,
+          company: recoveredChild.agent.company!,
         },
       };
-      await this.#completeAssignment(runtime, assignment, result);
+      await this.#completeAssignment(
+        runtime,
+        assignment,
+        result,
+        context.signal,
+      );
+      assertRecoveryActive(context.signal);
     }
     this.#activeRuns.set(runId, runtime);
     try {
-      return await this.#finish(runtime);
+      assertRecoveryActive(context.signal);
+      return await this.#finish(runtime, context.signal);
     } finally {
       this.#activeRuns.delete(runId);
     }
@@ -2302,7 +2500,12 @@ export class CompanyGoalSupervisor {
     const owner = await this.#acquireOwner(runId, root.id, "resume");
     try {
       await owner.assertOwned();
-      return await this.#resumeOwned(runId, context, root, blueprint);
+      try {
+        return await this.#resumeOwned(runId, context, root, blueprint);
+      } catch (error) {
+        if (context.signal.aborted) assertRecoveryActive(context.signal);
+        throw error;
+      }
     } finally {
       await owner.release();
     }

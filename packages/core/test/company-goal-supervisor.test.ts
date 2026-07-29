@@ -32,6 +32,7 @@ import {
   TeamRunOwnerLeaseManager,
   type CompanyGoalAssignmentExecutor,
   type DelegateCompanyGoalInput,
+  type PinnedSessionState,
   type RecursEvent,
 } from "../src/index.js";
 import { testAt, testBackendPin } from "../../../tests/support/backend.js";
@@ -531,9 +532,15 @@ async function fixture(options: {
     supervisor,
     context,
     prompts,
+    team,
     teamCalls,
-    createSupervisor() {
-      return new CompanyGoalSupervisor(supervisorDependencies);
+    createSupervisor(
+      overrides: Partial<typeof supervisorDependencies> = {},
+    ) {
+      return new CompanyGoalSupervisor({
+        ...supervisorDependencies,
+        ...overrides,
+      });
     },
     setTeamStatus(status: typeof currentTeamStatus) {
       currentTeamStatus = status;
@@ -643,6 +650,139 @@ function multiStageGoal(
     }],
   };
 }
+
+async function seedRecoverableChild(
+  setup: Awaited<ReturnType<typeof fixture>>,
+): Promise<string> {
+  const input = goal(setup);
+  const lead = input.assignments[0]!;
+  const reviewer = input.assignments[2]!;
+  const leadRole = setup.roles["Planning Lead"]!;
+  const reviewRole = setup.roles["Independent Reviewer"]!;
+  const companyGoal = {
+    runId: "recovery-run",
+    assignmentId: lead.id,
+    parentAssignmentId: null,
+  };
+  const childInput = {
+    profile: "explore_v1" as const,
+    description: lead.description,
+    prompt: lead.prompt,
+  };
+  const childOptions = {
+    company: {
+      blueprintId: setup.blueprint.id,
+      blueprintVersion: 2 as const,
+      blueprintRevision: setup.blueprint.revision,
+      roleId: leadRole.id,
+      roleVersion: 1 as const,
+    },
+    companyPermissionMode: leadRole.permissionMode,
+    companyGoal,
+  };
+  const identity = setup.children.reserveIdentity(
+    childInput,
+    setup.context,
+    childOptions,
+  );
+  const child = await setup.children.delegate(childInput, setup.context, {
+    ...childOptions,
+    identity,
+  });
+  await setup.runs.create({
+    id: "recovery-run",
+    version: 1,
+    parentSessionId: setup.parent.id,
+    goalId: "recovery-goal",
+    objective: input.objective,
+    company: setup.parent.agent.company as Extract<
+      NonNullable<typeof setup.parent.agent.company>,
+      { blueprintVersion: 2 }
+    >,
+    status: "running",
+    createdAt: testAt,
+    updatedAt: testAt,
+    plan: {
+      revision: 1,
+      createdAt: testAt,
+      assignments: [{
+        ...lead,
+        expectedEvidence: leadRole.expectedEvidence,
+        status: "running",
+        execution: {
+          attempt: 1,
+          childAgentId: child.metadata.childAgentId,
+          childSessionId: child.metadata.childSessionId,
+          taskId: child.metadata.taskId,
+          startedAt: testAt,
+          completedAt: null,
+        },
+        result: null,
+        failure: null,
+      }, {
+        ...reviewer,
+        dependsOn: [lead.id],
+        expectedEvidence: reviewRole.expectedEvidence,
+        status: "pending",
+        result: null,
+        failure: null,
+      }],
+    },
+    budget: {
+      maxAssignments: 8,
+      assignmentsStarted: 1,
+      maxConcurrentAssignments: 3,
+      maxRequests: 80,
+      requestsReserved: 10,
+      requestsUsed: 0,
+      maxReportedCostUsd: 3,
+      reportedCostUsd: 0,
+    },
+    result: null,
+    failure: null,
+  });
+  return child.metadata.childSessionId;
+}
+
+function corruptChildCorrelation(
+  state: PinnedSessionState,
+  path: readonly string[],
+  replacement: unknown,
+): PinnedSessionState {
+  const corrupted = structuredClone(state) as unknown as Record<string, unknown>;
+  let target = corrupted;
+  for (const key of path.slice(0, -1)) {
+    const value = target[key];
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new Error(`Invalid child corruption path: ${path.join(".")}`);
+    }
+    target = value as Record<string, unknown>;
+  }
+  target[path.at(-1)!] = replacement;
+  return corrupted as unknown as PinnedSessionState;
+}
+
+const childCorrelationCorruptions = [
+  ["child agent", ["agent", "id"], "wrong-child-agent"],
+  ["task", ["agent", "task", "id"], "wrong-task"],
+  ["parent session", ["agent", "parentSessionId"], "wrong-parent-session"],
+  ["parent agent", ["agent", "parentAgentId"], "wrong-parent-agent"],
+  ["goal run", ["agent", "companyGoal", "runId"], "wrong-run"],
+  ["goal assignment", ["agent", "companyGoal", "assignmentId"], "wrong-assignment"],
+  [
+    "goal parent assignment",
+    ["agent", "companyGoal", "parentAssignmentId"],
+    "wrong-parent-assignment",
+  ],
+  ["blueprint", ["agent", "company", "blueprintId"], "wrong-blueprint"],
+  ["blueprint revision", ["agent", "company", "blueprintRevision"], 2],
+  ["role", ["agent", "company", "roleId"], "wrong-role"],
+  ["profile", ["agent", "profile", "id"], "review_v1"],
+  ["operating mode", ["agent", "operatingMode", "version"], 5],
+  ["session backend", ["backend", "pin", "modelId"], "wrong-model"],
+  ["agent backend", ["agent", "backend", "modelId"], "wrong-model"],
+  ["permission binding", ["agent", "permissions", "permissionMode"], "full_access"],
+] as const;
 
 describe("CompanyGoalSupervisor", () => {
   it("allows exactly one durable start across two supervisor instances", async () => {
@@ -1398,93 +1538,7 @@ describe("CompanyGoalSupervisor", () => {
 
   it("recovers a completed durable child before continuing pending review", async () => {
     const setup = await fixture();
-    const input = goal(setup);
-    const lead = input.assignments[0]!;
-    const reviewer = input.assignments[2]!;
-    const leadRole = setup.roles["Planning Lead"]!;
-    const reviewRole = setup.roles["Independent Reviewer"]!;
-    const companyGoal = {
-      runId: "recovery-run",
-      assignmentId: lead.id,
-      parentAssignmentId: null,
-    };
-    const childInput = {
-      profile: "explore_v1" as const,
-      description: lead.description,
-      prompt: lead.prompt,
-    };
-    const childOptions = {
-      company: {
-        blueprintId: setup.blueprint.id,
-        blueprintVersion: 2 as const,
-        blueprintRevision: setup.blueprint.revision,
-        roleId: leadRole.id,
-        roleVersion: 1 as const,
-      },
-      companyPermissionMode: leadRole.permissionMode,
-      companyGoal,
-    };
-    const identity = setup.children.reserveIdentity(
-      childInput,
-      setup.context,
-      childOptions,
-    );
-    const child = await setup.children.delegate(childInput, setup.context, {
-      ...childOptions,
-      identity,
-    });
-    await setup.runs.create({
-      id: "recovery-run",
-      version: 1,
-      parentSessionId: setup.parent.id,
-      goalId: "recovery-goal",
-      objective: input.objective,
-      company: setup.parent.agent.company as Extract<
-        NonNullable<typeof setup.parent.agent.company>,
-        { blueprintVersion: 2 }
-      >,
-      status: "running",
-      createdAt: testAt,
-      updatedAt: testAt,
-      plan: {
-        revision: 1,
-        createdAt: testAt,
-        assignments: [{
-          ...lead,
-          expectedEvidence: leadRole.expectedEvidence,
-          status: "running",
-          execution: {
-            attempt: 1,
-            childAgentId: child.metadata.childAgentId,
-            childSessionId: child.metadata.childSessionId,
-            taskId: child.metadata.taskId,
-            startedAt: testAt,
-            completedAt: null,
-          },
-          result: null,
-          failure: null,
-        }, {
-          ...reviewer,
-          dependsOn: [lead.id],
-          expectedEvidence: reviewRole.expectedEvidence,
-          status: "pending",
-          result: null,
-          failure: null,
-        }],
-      },
-      budget: {
-        maxAssignments: 8,
-        assignmentsStarted: 1,
-        maxConcurrentAssignments: 3,
-        maxRequests: 80,
-        requestsReserved: 10,
-        requestsUsed: 0,
-        maxReportedCostUsd: 3,
-        reportedCostUsd: 0,
-      },
-      result: null,
-      failure: null,
-    });
+    await seedRecoverableChild(setup);
 
     const result = await setup.supervisor.resume("recovery-run", setup.context);
 
@@ -1497,6 +1551,174 @@ describe("CompanyGoalSupervisor", () => {
         requestsReserved: 20,
         requestsUsed: 2,
         reportedCostUsd: 0.03,
+      },
+    });
+  });
+
+  it.each(childCorrelationCorruptions)(
+    "fails closed when the durable child %s correlation is mismatched",
+    async (_field, path, replacement) => {
+      const setup = await fixture();
+      const childSessionId = await seedRecoverableChild(setup);
+      const sessions = {
+        async loadState(sessionId: string) {
+          const state = await setup.sessions.loadState(sessionId);
+          return sessionId === childSessionId
+            ? corruptChildCorrelation(
+                state as PinnedSessionState,
+                path,
+                replacement,
+              )
+            : state;
+        },
+      };
+
+      await expect(setup.createSupervisor({ sessions }).resume(
+        "recovery-run",
+        setup.context,
+      )).rejects.toMatchObject({
+        code: "execution_failed",
+        message: expect.stringContaining("correlation"),
+      });
+      await expect(setup.runs.load("recovery-run")).resolves.toMatchObject({
+        state: {
+          status: "interrupted",
+          budget: { requestsUsed: 0, reportedCostUsd: 0 },
+          plan: {
+            assignments: [
+              { status: "running", result: null },
+              { status: "pending", result: null },
+            ],
+          },
+        },
+      });
+    },
+  );
+
+  it("does not reconcile a team result after cancellation during inspection", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatus: "interrupted",
+    });
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({ code: "checkpoint_conflict" });
+    setup.setTeamStatus("approved");
+    const controller = new AbortController();
+    const team = {
+      ...setup.team,
+      async inspectCompanyRun(
+        parentSessionId: string,
+        teamRunId: string,
+        signal?: AbortSignal,
+      ) {
+        const result = await setup.team.inspectCompanyRun(
+          parentSessionId,
+          teamRunId,
+        );
+        if (signal === controller.signal) controller.abort();
+        return result;
+      },
+    };
+
+    await expect(setup.createSupervisor({ team }).resume(
+      "company-run-id-1",
+      {
+        ...setup.context,
+        signal: controller.signal,
+        delegationBudget: createDelegationBudget(setup.parent.agent),
+      },
+    )).rejects.toMatchObject({ code: "cancelled" });
+    await expect(setup.runs.load("company-run-id-1")).resolves.toMatchObject({
+      state: {
+        status: "running",
+        budget: { requestsUsed: 1, reportedCostUsd: 0.01 },
+        plan: {
+          assignments: [
+            { status: "completed" },
+            { status: "running" },
+            { status: "running" },
+          ],
+        },
+      },
+    });
+  });
+
+  it("does not reconcile a child result after cancellation during loading", async () => {
+    const setup = await fixture();
+    const childSessionId = await seedRecoverableChild(setup);
+    const controller = new AbortController();
+    const sessions = {
+      async loadState(sessionId: string, signal?: AbortSignal) {
+        const state = await setup.sessions.loadState(sessionId);
+        if (sessionId === childSessionId && signal === controller.signal) {
+          controller.abort();
+        }
+        return state;
+      },
+    };
+
+    await expect(setup.createSupervisor({ sessions }).resume(
+      "recovery-run",
+      { ...setup.context, signal: controller.signal },
+    )).rejects.toMatchObject({ code: "cancelled" });
+    await expect(setup.runs.load("recovery-run")).resolves.toMatchObject({
+      state: {
+        status: "running",
+        budget: { requestsUsed: 0, reportedCostUsd: 0 },
+        plan: {
+          assignments: [
+            { status: "running", result: null },
+            { status: "pending", result: null },
+          ],
+        },
+      },
+    });
+  });
+
+  it("does not complete a goal cancelled after team reconciliation", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatus: "interrupted",
+    });
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({ code: "checkpoint_conflict" });
+    setup.setTeamStatus("approved");
+    const controller = new AbortController();
+    const runs = {
+      create: setup.runs.create.bind(setup.runs),
+      load: setup.runs.load.bind(setup.runs),
+      list: setup.runs.list.bind(setup.runs),
+      append: async (...args: Parameters<typeof setup.runs.append>) => {
+        const next = await setup.runs.append(...args);
+        if (next.state.status === "running" &&
+          next.state.plan.assignments.every(
+            (assignment) => assignment.status === "completed",
+          )) {
+          controller.abort();
+        }
+        return next;
+      },
+    };
+
+    await expect(setup.createSupervisor({ runs }).resume(
+      "company-run-id-1",
+      {
+        ...setup.context,
+        signal: controller.signal,
+        delegationBudget: createDelegationBudget(setup.parent.agent),
+      },
+    )).rejects.toMatchObject({ code: "cancelled" });
+    await expect(setup.runs.load("company-run-id-1")).resolves.toMatchObject({
+      state: {
+        status: "running",
+        result: null,
+        plan: {
+          assignments: [
+            { status: "completed" },
+            { status: "completed" },
+            { status: "completed" },
+          ],
+        },
       },
     });
   });

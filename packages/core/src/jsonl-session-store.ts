@@ -663,13 +663,23 @@ export class JsonlSessionStore {
     return records;
   }
 
-  async loadState(sessionId: string): Promise<SessionState> {
+  async loadState(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<SessionState> {
+    signal?.throwIfAborted();
     const loaded = await this.load(sessionId);
+    signal?.throwIfAborted();
     return this.#restoreState(sessionId, loaded);
   }
 
-  async loadStateReadOnly(sessionId: string): Promise<SessionState> {
+  async loadStateReadOnly(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<SessionState> {
+    signal?.throwIfAborted();
     const loaded = await this.loadReadOnly(sessionId);
+    signal?.throwIfAborted();
     return this.#restoreState(sessionId, loaded);
   }
 

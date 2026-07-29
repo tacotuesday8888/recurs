@@ -17,7 +17,7 @@ import {
   TEAM_APPLY_PERMISSION,
   type SessionRecord,
 } from "@recurs/core";
-import { permissionIntentKey, ToolError } from "@recurs/tools";
+import { permissionIntentKey } from "@recurs/tools";
 
 import {
   createCommandRegistry,
@@ -457,7 +457,7 @@ describe("company slash command", () => {
     expect(resume).not.toHaveBeenCalled();
   });
 
-  it("renders truthful failed state when durable resume reports failure", async () => {
+  it("renders a durable failed result as an error when recovery resolves normally", async () => {
     const blueprint = approvedBlueprint();
     const base = dependencies(blueprint);
     let current: CompanyGoalRunV1 = {
@@ -475,7 +475,13 @@ describe("company slash command", () => {
               status: "failed",
               failure: "Durable review failed",
             };
-            throw new ToolError("execution_failed", "Durable review failed");
+            return {
+              output: "Company goal reached a terminal failure",
+              metadata: {
+                goalRunId: current.id,
+                status: "failed",
+              },
+            };
           },
         },
       },

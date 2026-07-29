@@ -749,6 +749,12 @@ async function boundedWait(
   }
 }
 
+function assertCompanyInspectionActive(signal?: AbortSignal): void {
+  if (signal?.aborted === true) {
+    throw new ToolError("cancelled", "Company team inspection was cancelled");
+  }
+}
+
 async function cancellablePause(
   milliseconds: number,
   signal: AbortSignal,
@@ -2212,8 +2218,11 @@ export class TeamRunSupervisor {
   async inspectCompanyRun(
     parentSessionId: string,
     runId: string,
+    signal?: AbortSignal,
   ): Promise<TeamRunResult> {
+    assertCompanyInspectionActive(signal);
     const state = await this.#ownedState(parentSessionId, runId);
+    assertCompanyInspectionActive(signal);
     if (state.descriptor.companyGoal === undefined) {
       throw new ToolError("not_found", "Company team run not found");
     }
