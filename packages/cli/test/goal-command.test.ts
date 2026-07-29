@@ -194,13 +194,18 @@ describe("goal command company launch", () => {
   });
 
   it.each([
-    ["created", "/company resume goal-command-created"],
-    ["running", "/company run goal-command-running"],
-    ["waiting_for_approval", "/company run goal-command-waiting_for_approval"],
-    ["interrupted", "/company resume goal-command-interrupted"],
+    ["created", ["/company resume goal-command-created"]],
+    ["running", [
+      "/company run goal-command-running",
+      "/company resume goal-command-running",
+    ]],
+    ["waiting_for_approval", [
+      "/company run goal-command-waiting_for_approval",
+    ]],
+    ["interrupted", ["/company resume goal-command-interrupted"]],
   ] as const)(
     "refuses a model launch for an existing %s exact company run",
-    async (status, command) => {
+    async (status, commands) => {
       const session = companySession();
       const active = context({
         ...session,
@@ -228,8 +233,11 @@ describe("goal command company launch", () => {
       expect(result).toMatchObject({
         type: "message",
         level: "error",
-        text: expect.stringContaining(command),
       });
+      for (const command of commands) {
+        expect(result.type === "message" ? result.text : "")
+          .toContain(command);
+      }
       expect(active.records).toHaveLength(0);
     },
   );

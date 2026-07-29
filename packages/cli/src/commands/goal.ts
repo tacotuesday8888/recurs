@@ -114,12 +114,13 @@ async function existingCompanyRun(
     );
   }
   const run = unresolved[0]!;
-  const command = run.status === "running" ||
-      run.status === "waiting_for_approval"
-    ? `/company run ${run.id}`
-    : `/company resume ${run.id}`;
+  const guidance = run.status === "running"
+    ? `use /company run ${run.id} to inspect it; if its process was interrupted, use /company resume ${run.id}`
+    : run.status === "waiting_for_approval"
+      ? `use /company run ${run.id}`
+      : `use /company resume ${run.id}`;
   return message(
-    `Company goal ${run.id} is ${run.status}; use ${command} before launching another model request`,
+    `Company goal ${run.id} is ${run.status}; ${guidance} before launching another model request`,
     "error",
   );
 }

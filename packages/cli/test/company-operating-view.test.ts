@@ -166,7 +166,7 @@ describe("company operating views", () => {
       "Company operations",
       "Company: company-operations | Blueprint: blueprint-operations r1",
       "Goals: 0 total | 0 unresolved | 0 completed | 0 failed | 0 cancelled",
-      "Active roles: none",
+      "Recorded running roles: none",
       "No company goal runs exist for this session and blueprint.",
     ].join("\n"));
   });
@@ -221,10 +221,10 @@ describe("company operating views", () => {
     expect(rendered).toContain("Requests: 5 used | 16 reserved | 80 max");
     expect(rendered).toContain("Reported cost: $0.0100 / $3.0000");
     expect(rendered).toContain(
-      `Active roles: ${company.roles.find((role) => role.executionProfileId === "implement_v2")!.displayName}`,
+      `Recorded running roles: ${company.roles.find((role) => role.executionProfileId === "implement_v2")!.displayName}`,
     );
     expect(rendered).not.toContain(
-      `Active roles: ${company.roles.find((role) => role.executionProfileId === "review_v2")!.displayName}`,
+      `Recorded running roles: ${company.roles.find((role) => role.executionProfileId === "review_v2")!.displayName}`,
     );
   });
 
@@ -300,7 +300,7 @@ describe("company operating views", () => {
     expect(rendered).toContain(
       "Current: interrupted | run-interrupted-older | Recover the older interrupted company goal.",
     );
-    expect(rendered).toContain("Active roles: none");
+    expect(rendered).toContain("Recorded running roles: none");
     expect(rendered).toContain(
       "Progress: 1/3 completed | 1 running | 0 pending | 0 failed | 0 blocked | 1 cancelled",
     );
@@ -332,7 +332,10 @@ describe("company operating views", () => {
     expect(rendered).toContain("team team-operations | implement task 1");
     expect(rendered).toContain("depends on lead-assignment, implementation-assignment");
     expect(rendered).toContain("Evidence: 1 item | Usage: 10 in / 4 out / $0.0100");
-    expect(rendered).toContain("Next: 1 assignment is running; no additional role is implied active.");
+    expect(rendered).toContain(
+      "Next: Durable state records 1 running assignment; this view does not prove a process is live.",
+    );
+    expect(rendered).toContain("/company resume run-operations");
     expect(rendered).not.toContain("\u0007");
   });
 

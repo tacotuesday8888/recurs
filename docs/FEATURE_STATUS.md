@@ -1,8 +1,8 @@
 # Recurs Feature Status
 
 **Audited:** 2026-07-29 against the source, exported package surfaces, CLI
-assembly, durable contracts/stores, provider manifests, and automated tests on
-`main`.
+assembly, durable contracts/stores, provider manifests, and automated tests in
+this release candidate.
 
 This is the concise current capability inventory. Dated files under
 `docs/superpowers/` are design and delivery records; their historical
