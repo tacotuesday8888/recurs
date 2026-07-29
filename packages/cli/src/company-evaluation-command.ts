@@ -8,14 +8,17 @@ import { ScriptedProvider } from "@recurs/providers";
 
 import { createStandaloneCompanyOnboarding } from "./assembly.js";
 import {
+  COMPANY_FORMATION_EVALUATION_SCENARIOS,
   evaluateCompanyFormation,
+  getCompanyFormationEvaluationScenario,
+  type CompanyFormationEvaluationScenario,
   type CompanyEvaluationProgress,
 } from "./company-evaluation.js";
 import { evaluateStoredCompanyGoal } from "./company-evaluation-store.js";
 
 export const COMPANY_EVALUATION_USAGE = [
   "Usage: recurs eval company --list [--json]",
-  "       recurs eval company [--scenario company_formation_v1] [--json]",
+  "       recurs eval company [--scenario company_formation_<quick|guided|deep>_v1] [--json]",
   "       recurs eval company --configured --allow-network [--connection <id>] [--json]",
   "       recurs eval company --scenario company_goal_execution_v1 --run <id> [--json]",
 ].join("\n");
@@ -25,8 +28,15 @@ export const COMPANY_EVALUATION_SCENARIOS = Object.freeze([
     id: "company_formation_v1" as const,
     version: 1 as const,
     network: "optional_explicit" as const,
-    description: "Form and approve a bounded company in isolated evaluation state.",
+    description: "Compatibility alias for the Guided formation scenario.",
   }),
+  ...COMPANY_FORMATION_EVALUATION_SCENARIOS.map((scenario) => Object.freeze({
+    id: scenario.id,
+    version: scenario.version,
+    network: "optional_explicit" as const,
+    description:
+      `Form and approve a bounded company using ${scenario.depth} onboarding.`,
+  })),
   Object.freeze({
     id: "company_goal_execution_v1" as const,
     version: 1 as const,
@@ -42,7 +52,7 @@ export type CompanyEvaluationCommandOptions =
   | { readonly action: "list"; readonly json: boolean }
   | {
       readonly action: "run";
-      readonly scenario: "company_formation_v1";
+      readonly scenario: CompanyFormationEvaluationScenario["id"];
       readonly mode: "offline" | "configured";
       readonly allowNetwork: boolean;
       readonly connectionId: string | null;
@@ -140,7 +150,11 @@ export function parseCompanyEvaluationCommand(
     }
     return { action: "list", json };
   }
-  if (scenario !== "company_formation_v1" &&
+  const formationScenarioIds = new Set<string>([
+    "company_formation_v1",
+    ...COMPANY_FORMATION_EVALUATION_SCENARIOS.map((candidate) => candidate.id),
+  ]);
+  if (!formationScenarioIds.has(scenario) &&
     scenario !== "company_goal_execution_v1") {
     throw new CompanyEvaluationArgumentError(
       `Unknown company evaluation scenario: ${scenario}`,
@@ -181,7 +195,7 @@ export function parseCompanyEvaluationCommand(
   }
   return {
     action: "run",
-    scenario,
+    scenario: scenario as CompanyFormationEvaluationScenario["id"],
     mode: configured ? "configured" : "offline",
     allowNetwork,
     connectionId,
@@ -197,65 +211,82 @@ function response(text: string) {
   ];
 }
 
-function offlineProvider(): ScriptedProvider {
-  return new ScriptedProvider([
+function offlineProvider(
+  scenario: CompanyFormationEvaluationScenario,
+): ScriptedProvider {
+  const proposal = response(JSON.stringify({
+    kind: "propose",
+    project: {
+      type: "existing_project",
+      stage: "active",
+      purpose: "Build a dependable open-source coding-agent company for software maintainers.",
+      users: ["Software maintainers"],
+      successCriteria: [
+        "Every implementation is independently reviewed with attributable evidence.",
+      ],
+      constraints: [
+        "Delegated agents remain within inherited authority and shared budgets.",
+      ],
+      risks: ["Unbounded or misleading delegation"],
+      architecturePreferences: ["Reuse durable runtime and provider seams."],
+      deploymentTargets: ["CLI"],
+      repository: scenario.depth === "quick"
+        ? { inspected: false, markers: [], evidence: [] }
+        : {
+            inspected: true,
+            markers: ["package.json"],
+            evidence: [{
+              path: "package.json",
+              finding:
+                "The repository has a package manifest and a CLI workspace.",
+            }],
+          },
+    },
+    initialGoal:
+      "Deliver one bounded, independently reviewed company-directed coding change.",
+    roadmap: [
+      "Understand the repository and authority boundaries.",
+      "Implement and independently review a bounded goal.",
+    ],
+  }));
+  const steps = [
     response(JSON.stringify({
       kind: "question",
       id: "product_outcome",
       question: "What should this company reliably deliver?",
     })),
-    response(JSON.stringify({
-      kind: "research",
-      assignments: [{
-        key: "package_shape",
-        description: "Inspect the package manifest.",
-        prompt: "Read package.json and identify the repository shape.",
-      }],
-    })),
-    [
-      {
-        type: "tool_call" as const,
-        call: {
-          id: "read-package",
-          name: "read_file",
-          arguments: { path: "package.json" },
-        },
-      },
-      { type: "done" as const, stopReason: "tool_calls" as const },
-    ],
-    response("The repository has a package manifest and a CLI workspace."),
-    response(JSON.stringify({
-      kind: "propose",
-      project: {
-        type: "existing_project",
-        stage: "active",
-        purpose: "Build a dependable open-source coding-agent company for software maintainers.",
-        users: ["Software maintainers"],
-        successCriteria: [
-          "Every implementation is independently reviewed with attributable evidence.",
-        ],
-        constraints: [
-          "Delegated agents remain within inherited authority and shared budgets.",
-        ],
-        risks: ["Unbounded or misleading delegation"],
-        architecturePreferences: ["Reuse durable runtime and provider seams."],
-        deploymentTargets: ["CLI"],
-        repository: {
-          inspected: true,
-          markers: ["package.json"],
-          evidence: [{
-            path: "package.json",
-            finding: "The repository has a package manifest and a CLI workspace.",
-          }],
-        },
-      },
-      initialGoal: "Deliver one bounded, independently reviewed company-directed coding change.",
-      roadmap: [
-        "Understand the repository and authority boundaries.",
-        "Implement and independently review a bounded goal.",
-      ],
-    })),
-  ], "scripted-evaluation");
+    ...(scenario.depth === "quick"
+      ? []
+      : [
+          response(JSON.stringify({
+            kind: "research",
+            assignments: [{
+              key: "package_shape",
+              description: "Inspect the package manifest.",
+              prompt: "Read package.json and identify the repository shape.",
+            }],
+          })),
+          [
+            {
+              type: "tool_call" as const,
+              call: {
+                id: "read-package",
+                name: "read_file",
+                arguments: { path: "package.json" },
+              },
+            },
+            { type: "done" as const, stopReason: "tool_calls" as const },
+          ],
+          response(
+            "The repository has a package manifest and a CLI workspace.",
+          ),
+        ]),
+    proposal,
+  ];
+  return new ScriptedProvider(
+    steps as ConstructorParameters<typeof ScriptedProvider>[0],
+    `scripted-evaluation-${scenario.depth}`,
+  );
 }
 
 export async function copyConfiguredEvaluationConnection(
@@ -304,6 +335,7 @@ export async function runCompanyEvaluationCommand(
         : { onProgress: dependencies.onProgress }),
     });
   }
+  const scenario = getCompanyFormationEvaluationScenario(options.scenario);
   const projectRoot = await realpath(dependencies.projectRoot);
   const evaluationHome = await realpath(
     await mkdtemp(path.join(tmpdir(), "recurs-company-evaluation-")),
@@ -312,7 +344,7 @@ export async function runCompanyEvaluationCommand(
     let provider: ScriptedProvider | undefined;
     let backend: { readonly providerId: string; readonly modelId: string };
     if (options.mode === "offline") {
-      provider = offlineProvider();
+      provider = offlineProvider(scenario);
       backend = { providerId: provider.id, modelId: "offline-baseline" };
     } else {
       const connection = await copyConfiguredEvaluationConnection(
@@ -342,6 +374,7 @@ export async function runCompanyEvaluationCommand(
     });
     return await evaluateCompanyFormation({
       service,
+      scenario,
       mode: options.mode,
       backend,
       ...(dependencies.signal === undefined

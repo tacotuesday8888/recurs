@@ -197,6 +197,13 @@ optimize price automatically. The first completed Codex dogfood reported
 216,879 input tokens (161,024 cached), 3,274 output tokens, and unknown dollar
 cost. It proved execution and evidence capture, not team efficiency.
 
+The repeatable Company Proof surface now supplies three immutable tasks. Its
+default compares the recommended route snapshot with the exact same strong
+parent; when saved worker routes differ, `--compare-all-strong` explicitly adds
+an all-strong bounded team. Distinct Quick, Guided, and Deep formation
+scenarios make onboarding cost and quality separately observable. No configured
+result is claimed until the corresponding durable trials actually exist.
+
 ## Delivery sequence
 
 1. Run the same representative goals with a strong single agent, the recorded

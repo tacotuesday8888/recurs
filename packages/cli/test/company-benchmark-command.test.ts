@@ -87,9 +87,17 @@ describe("company benchmark command", () => {
       "company", "--configured", "--allow-network", "--repetitions", "2",
     ])).toEqual({
       action: "run",
+      scenarioId: "alias_registry",
       connectionId: null,
       repetitions: 2,
+      compareAllStrong: false,
       json: false,
+    });
+    expect(parseCompanyBenchmarkCommand([
+      "company", "--configured", "--allow-network", "--compare-all-strong",
+    ])).toMatchObject({
+      action: "run",
+      compareAllStrong: true,
     });
     expect(parseCompanyBenchmarkCommand([
       "company", "--resume", "company-proof-1", "--allow-network", "--json",
@@ -105,9 +113,27 @@ describe("company benchmark command", () => {
       "company", "--resume", "company-proof-1", "--allow-network",
       "--connection", "changed",
     ])).toThrow("frozen campaign");
+    expect(() => parseCompanyBenchmarkCommand([
+      "company", "--resume", "company-proof-1", "--allow-network",
+      "--compare-all-strong",
+    ])).toThrow("frozen campaign");
+    expect(() => parseCompanyBenchmarkCommand([
+      "company", "--list", "--compare-all-strong",
+    ])).toThrow("--list can be combined only with --json");
     expect(renderCompanyBenchmarkScenarios(false)).toContain(
       "alias_registry v1",
     );
+    expect(parseCompanyBenchmarkCommand([
+      "company", "--configured", "--allow-network",
+      "--scenario", "layered_config",
+    ])).toMatchObject({
+      action: "run",
+      scenarioId: "layered_config",
+    });
+    expect(() => parseCompanyBenchmarkCommand([
+      "company", "--configured", "--allow-network",
+      "--scenario", "missing",
+    ])).toThrow("Unknown company benchmark scenario");
   });
 
   it("builds a canonical alternating campaign from exact saved role routes", async () => {
@@ -128,8 +154,10 @@ describe("company benchmark command", () => {
 
     const campaign = createConfiguredCompanyBenchmarkCampaign({
       document: await registry.inspect(),
+      scenarioId: "layered_config",
       connectionId: null,
       repetitions: 2,
+      compareAllStrong: false,
       campaignId: "company-proof-test",
       createdAt: AT,
     });
@@ -140,6 +168,7 @@ describe("company benchmark command", () => {
       "company-auto",
       "single-strong",
     ]);
+    expect(campaign.scenario.id).toBe("layered_config");
     expect(campaign.baseline.configuredRoutes).toEqual([
       expect.objectContaining({
         role: "parent",
@@ -147,6 +176,7 @@ describe("company benchmark command", () => {
         modelId: parent.modelId,
       }),
     ]);
+    expect(campaign.companyArms.map((arm) => arm.id)).toEqual(["company-auto"]);
     expect(campaign.companyArms[0]?.configuredRoutes.map((route) => [
       route.role,
       route.connectionId,
@@ -161,6 +191,33 @@ describe("company benchmark command", () => {
       maxRequests: 384,
       maxReportedCostUsd: 12,
     });
+
+    const expanded = createConfiguredCompanyBenchmarkCampaign({
+      document: await registry.inspect(),
+      scenarioId: "layered_config",
+      connectionId: null,
+      repetitions: 2,
+      compareAllStrong: true,
+      campaignId: "company-proof-test-expanded",
+      createdAt: AT,
+    });
+    expect(expanded.companyArms.map((arm) => arm.id)).toEqual([
+      "company-auto",
+      "company-strong",
+    ]);
+    expect(expanded.armOrder.map((slot) => slot.armId)).toEqual([
+      "single-strong",
+      "company-auto",
+      "company-strong",
+      "company-strong",
+      "company-auto",
+      "single-strong",
+    ]);
+    expect(expanded.ceilings).toEqual({
+      maxTrialSlots: 6,
+      maxRequests: 576,
+      maxReportedCostUsd: 18,
+    });
   });
 
   it("routes the public JSON command without creating an ordinary runtime", async () => {
@@ -174,8 +231,10 @@ describe("company benchmark command", () => {
     });
     const campaign = createConfiguredCompanyBenchmarkCampaign({
       document: await registry.inspect(),
+      scenarioId: "alias_registry",
       connectionId: null,
       repetitions: 1,
+      compareAllStrong: false,
       campaignId: "company-proof-public-command",
       createdAt: AT,
     });
@@ -207,6 +266,8 @@ describe("company benchmark command", () => {
         requested = true;
         expect(input).toMatchObject({
           action: "run",
+          compareAllStrong: false,
+          scenarioId: "alias_registry",
           repetitions: 1,
           connectionId: null,
         });

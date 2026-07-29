@@ -1,5 +1,10 @@
 # Company Proof And Efficiency Alpha
 
+> Historical implementation checklist. The code-backed current state lives in
+> `docs/FEATURE_STATUS.md` and `docs/COMPANY_EVALUATION.md`; unchecked boxes
+> below preserve the original planning record and must not be read as the
+> current product inventory.
+
 **Goal:** Prove when Recurs's bounded company earns its orchestration overhead,
 make that evidence durable and inspectable, remove known onboarding context
 waste, exercise the real Repair route, keep the Codex integration current, and

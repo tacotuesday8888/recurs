@@ -44,11 +44,12 @@ operating mode, specialist routing, company review, and project context.
 Credentials remain with the vendor runtime or a named process environment.
 Recurs never persists BYOK values.
 
-The repository builds a small CLI archive, but installed dependencies dominate
-the footprint. In the audited Apple-silicon source checkout, `node_modules`
-used about 390 MiB; the pinned Codex platform package accounted for about
-297 MiB. Exact size varies by platform and npm version. Reducing or making that
-dependency optional is release work, not a solved distribution claim.
+The exact local alpha archive measured 414 KiB compressed and 1.79 MiB
+unpacked; a clean Apple-silicon production install measured about 38.7 MiB on
+2026-07-26 and did not install Codex. Subscription users share a separately
+installed exact official Codex CLI. The full development checkout remains
+larger—about 402 MiB in this measurement, including about 307 MiB of pinned
+Codex test fixtures. Exact size varies by platform and npm version.
 
 > On Linux, subprocess containment also requires `/usr/bin/bwrap` with
 > unprivileged user namespaces. Windows subprocess containment is not yet
@@ -138,6 +139,7 @@ recurs review                               # review staged/unstaged Git work
 recurs doctor                               # redacted host-readiness report
 recurs eval company --json                  # deterministic offline evaluation
 recurs eval company --list --json           # discover evaluation scenarios
+recurs benchmark company --list --json      # discover immutable proof fixtures
 ```
 
 Use `-C /path/to/project` with interactive, run, or review commands. The
@@ -155,8 +157,11 @@ session, and JSON/JSONL option.
   public npm package, GitHub release, curl installer, or Homebrew tap. The
   prepared Bun global-install path cannot work until the npm package exists and
   still launches Recurs with Node.js.
-- **Still to prove:** repeated quality, latency, token, and cost comparisons
-  against a strong single agent and alternative teams.
+- **Prepared to prove:** three immutable hidden-verifier fixtures, repeatable
+  single-agent versus recommended team campaigns, an explicit all-strong
+  comparison option, and distinct Quick/Guided/Deep formation evaluations are
+  implemented. Repeated configured quality, latency, token, and cost evidence
+  still needs authorized model runs.
 - **Not implemented:** Windows subprocess containment and a desktop app.
 
 ## 📚 Documentation

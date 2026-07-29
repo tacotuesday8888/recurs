@@ -4,6 +4,7 @@ import type {
   CompanyBlueprintV2,
   CompanyEvaluationReportV1,
   CompanyGoalRunV1,
+  CompanyOnboardingDepth,
   CompanyOnboardingRunV1,
 } from "@recurs/contracts";
 import {
@@ -22,15 +23,68 @@ type CompanyOnboardingService = Awaited<ReturnType<
   typeof createStandaloneCompanyOnboarding
 >>;
 
-export const COMPANY_FORMATION_EVALUATION_SCENARIO = Object.freeze({
-  id: "company_formation_v1",
-  version: 1 as const,
-  depth: "guided" as const,
-  designMode: "stable_core_specialists" as const,
-  maximumAdvances: 16,
-  maximumRequests: 32,
-  maximumReportedCostUsd: 3,
-});
+export interface CompanyFormationEvaluationScenario {
+  readonly id:
+    | "company_formation_v1"
+    | "company_formation_quick_v1"
+    | "company_formation_guided_v1"
+    | "company_formation_deep_v1";
+  readonly version: 1;
+  readonly depth: CompanyOnboardingDepth;
+  readonly designMode: "stable_core_specialists";
+  readonly maximumAdvances: number;
+  readonly maximumRequests: number;
+  readonly maximumReportedCostUsd: number;
+}
+
+function formationScenario(
+  id: CompanyFormationEvaluationScenario["id"],
+  depth: CompanyOnboardingDepth,
+  maximumAdvances: number,
+  maximumRequests: number,
+): CompanyFormationEvaluationScenario {
+  return Object.freeze({
+    id,
+    version: 1,
+    depth,
+    designMode: "stable_core_specialists",
+    maximumAdvances,
+    maximumRequests,
+    maximumReportedCostUsd: 3,
+  });
+}
+
+export const COMPANY_FORMATION_EVALUATION_SCENARIOS = Object.freeze([
+  formationScenario("company_formation_quick_v1", "quick", 12, 16),
+  formationScenario("company_formation_guided_v1", "guided", 16, 32),
+  formationScenario("company_formation_deep_v1", "deep", 24, 64),
+] as const);
+
+/**
+ * Compatibility scenario retained for existing scripts and stored reports.
+ * New evidence should use the depth-specific scenario IDs above.
+ */
+export const COMPANY_FORMATION_EVALUATION_SCENARIO = formationScenario(
+  "company_formation_v1",
+  "guided",
+  16,
+  32,
+);
+
+export function getCompanyFormationEvaluationScenario(
+  id: CompanyFormationEvaluationScenario["id"],
+): CompanyFormationEvaluationScenario {
+  if (id === COMPANY_FORMATION_EVALUATION_SCENARIO.id) {
+    return COMPANY_FORMATION_EVALUATION_SCENARIO;
+  }
+  const scenario = COMPANY_FORMATION_EVALUATION_SCENARIOS.find(
+    (candidate) => candidate.id === id,
+  );
+  if (scenario === undefined) {
+    throw new TypeError(`Unknown company formation evaluation scenario: ${id}`);
+  }
+  return scenario;
+}
 
 export const COMPANY_GOAL_EXECUTION_EVALUATION_SCENARIO = Object.freeze({
   id: "company_goal_execution_v1",
@@ -272,6 +326,7 @@ function scoredRubric(
   run: CompanyOnboardingRunV1,
   blueprint: CompanyBlueprintV2,
   costKnown: boolean,
+  scenario: CompanyFormationEvaluationScenario,
 ): Parameters<typeof createCompanyEvaluationReport>[0]["rubric"] {
   const questions = run.interview.answers.map((answer) => answer.question);
   const interview = questions.length >= 1 && questions.length <= 6 &&
@@ -283,13 +338,15 @@ function scoredRubric(
   const decomposed = blueprint.roles.length >= 4 && kinds.has("orchestrator") &&
     kinds.has("reviewer") && blueprint.authorityAnchors.independentReviewRoleIds.length > 0;
   const completedResearch = run.research.filter((item) => item.status === "completed");
-  const evidenceReady = completedResearch.length > 0 &&
-    completedResearch.every((item) => item.evidence.length > 0) &&
-    blueprint.project.repository.evidence.length > 0;
+  const evidenceReady = scenario.depth === "quick"
+    ? run.research.length === 0
+    : completedResearch.length > 0 &&
+      completedResearch.every((item) => item.evidence.length > 0) &&
+      blueprint.project.repository.evidence.length > 0;
   const efficient = run.usage.modelRequests <=
-      COMPANY_FORMATION_EVALUATION_SCENARIO.maximumRequests &&
+      scenario.maximumRequests &&
     run.usage.reportedCostUsd <=
-      COMPANY_FORMATION_EVALUATION_SCENARIO.maximumReportedCostUsd;
+      scenario.maximumReportedCostUsd;
   return {
     interview_quality: rubric(
       interview,
@@ -305,7 +362,9 @@ function scoredRubric(
     ),
     evidence: rubric(
       evidenceReady,
-      `${completedResearch.length} completed research assignment(s) and ${blueprint.project.repository.evidence.length} repository evidence item(s).`,
+      scenario.depth === "quick"
+        ? `${run.research.length} research assignment(s); Quick intentionally performs no research child work.`
+        : `${completedResearch.length} completed research assignment(s) and ${blueprint.project.repository.evidence.length} repository evidence item(s).`,
     ),
     synthesis: {
       status: "not_applicable",
@@ -322,6 +381,7 @@ function scoredRubric(
 
 export async function evaluateCompanyFormation(input: {
   readonly service: CompanyOnboardingService;
+  readonly scenario?: CompanyFormationEvaluationScenario;
   readonly mode: "offline" | "configured";
   readonly backend: { readonly providerId: string; readonly modelId: string };
   readonly signal?: AbortSignal;
@@ -330,18 +390,19 @@ export async function evaluateCompanyFormation(input: {
     progress: CompanyEvaluationProgress,
   ) => void | Promise<void>;
 }): Promise<CompanyEvaluationReportV1> {
+  const scenario = input.scenario ?? COMPANY_FORMATION_EVALUATION_SCENARIO;
   const now = input.now ?? (() => new Date().toISOString());
   const startedAt = now();
   let lastRun: CompanyOnboardingRunV1 | null = null;
   try {
     await emitProgress(input.onProgress, {
       phase: "preparing",
-      message: "Preparing company_formation_v1.",
+      message: `Preparing ${scenario.id}.`,
     });
     const started = await input.service.coordinator.start({
       projectRoot: input.service.projectRoot,
-      depth: COMPANY_FORMATION_EVALUATION_SCENARIO.depth,
-      designMode: COMPANY_FORMATION_EVALUATION_SCENARIO.designMode,
+      depth: scenario.depth,
+      designMode: scenario.designMode,
       permissionMode: "approved_for_me",
       operatingModeId: "balanced_v6",
       backendFingerprint: input.service.backendFingerprint,
@@ -352,7 +413,7 @@ export async function evaluateCompanyFormation(input: {
     lastRun = run.state;
     let blueprint: CompanyBlueprintV2 | null = null;
     for (let step = 0;
-      step < COMPANY_FORMATION_EVALUATION_SCENARIO.maximumAdvances;
+      step < scenario.maximumAdvances;
       step += 1) {
       input.signal?.throwIfAborted();
       const advanced = await input.service.coordinator.advance(
@@ -402,7 +463,7 @@ export async function evaluateCompanyFormation(input: {
       );
       await emitProgress(input.onProgress, {
         phase: "scoring",
-        message: "Scoring company_formation_v1.",
+        message: `Scoring ${scenario.id}.`,
       });
       break;
     }
@@ -411,7 +472,7 @@ export async function evaluateCompanyFormation(input: {
     }
     const costKnown = input.mode === "offline";
     return createCompanyEvaluationReport({
-      scenarioId: COMPANY_FORMATION_EVALUATION_SCENARIO.id,
+      scenarioId: scenario.id,
       mode: input.mode,
       startedAt,
       completedAt: now(),
@@ -424,7 +485,7 @@ export async function evaluateCompanyFormation(input: {
         requestsUsed: lastRun.usage.modelRequests,
         reportedCostUsd: costKnown ? lastRun.usage.reportedCostUsd : null,
       },
-      rubric: scoredRubric(lastRun, blueprint, costKnown),
+      rubric: scoredRubric(lastRun, blueprint, costKnown, scenario),
     });
   } catch (error) {
     const cancelled = input.signal?.aborted === true ||
@@ -445,7 +506,7 @@ export async function evaluateCompanyFormation(input: {
       efficiency: notCompleted,
     };
     return createCompanyEvaluationReport({
-      scenarioId: COMPANY_FORMATION_EVALUATION_SCENARIO.id,
+      scenarioId: scenario.id,
       mode: input.mode,
       startedAt,
       completedAt: now(),

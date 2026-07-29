@@ -20,6 +20,9 @@ test("company evaluation scenarios are stable and discoverable", async () => {
   assert.equal(stderr, "");
   assert.deepEqual(catalog.scenarios.map((scenario) => scenario.id), [
     "company_formation_v1",
+    "company_formation_quick_v1",
+    "company_formation_guided_v1",
+    "company_formation_deep_v1",
     "company_goal_execution_v1",
   ]);
 });
@@ -41,6 +44,29 @@ test("offline company evaluation smoke emits safe deterministic structure", asyn
   assert.equal(report.scenarioId, "company_formation_v1");
   assert.equal(report.rubric.length, 6);
   assert.equal(JSON.stringify(report).includes("What should this company"), false);
+});
+
+test("offline Quick, Guided, and Deep formation scenarios are independently reproducible", async () => {
+  for (const [scenarioId, expectedRequests] of [
+    ["company_formation_quick_v1", 2],
+    ["company_formation_guided_v1", 5],
+    ["company_formation_deep_v1", 5],
+  ]) {
+    const { stdout, stderr } = await execute(process.execPath, [
+      script,
+      "--scenario",
+      scenarioId,
+      "--project",
+      process.cwd(),
+      "--json",
+    ]);
+    const report = JSON.parse(stdout);
+    assert.equal(stderr, "");
+    assert.equal(report.status, "passed");
+    assert.equal(report.scenarioId, scenarioId);
+    assert.equal(report.usage.requestsUsed, expectedRequests);
+    assert.equal(JSON.stringify(report).includes("What should this company"), false);
+  }
 });
 
 test("configured evaluation requires explicit network opt-in", async () => {

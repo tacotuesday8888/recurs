@@ -655,7 +655,13 @@ try {
   assert(
     JSON.parse(evaluationCatalog).scenarios?.map((scenario) => scenario.id)
       .join(",") ===
-      "company_formation_v1,company_goal_execution_v1",
+      [
+        "company_formation_v1",
+        "company_formation_quick_v1",
+        "company_formation_guided_v1",
+        "company_formation_deep_v1",
+        "company_goal_execution_v1",
+      ].join(","),
     "The installed CLI did not expose its versioned company evaluations.",
   );
   assert(
@@ -665,7 +671,15 @@ try {
   const { stdout: companyEvaluation, stderr: companyEvaluationError } =
     await execFileAsync(
       executable,
-      ["eval", "company", "--json", "-C", workspaceDirectory],
+      [
+        "eval",
+        "company",
+        "--scenario",
+        "company_formation_deep_v1",
+        "--json",
+        "-C",
+        workspaceDirectory,
+      ],
       {
         cwd: installDirectory,
         encoding: "utf8",
@@ -677,7 +691,7 @@ try {
   assert(
     installedEvaluation.status === "passed" &&
       installedEvaluation.mode === "offline" &&
-      installedEvaluation.scenarioId === "company_formation_v1" &&
+      installedEvaluation.scenarioId === "company_formation_deep_v1" &&
       installedEvaluation.rubric?.length === 6,
     "The installed CLI did not pass its deterministic company evaluation.",
   );
@@ -689,6 +703,26 @@ try {
   assert(
     companyEvaluationError === "",
     "The installed company evaluation wrote unexpected diagnostics.",
+  );
+  const { stdout: benchmarkCatalog, stderr: benchmarkCatalogError } =
+    await execFileAsync(
+      executable,
+      ["benchmark", "company", "--list", "--json"],
+      {
+        cwd: installDirectory,
+        encoding: "utf8",
+        env: environment,
+      },
+    );
+  assert(
+    JSON.parse(benchmarkCatalog).scenarios?.map((scenario) => scenario.id)
+      .join(",") ===
+      ["alias_registry", "layered_config", "retry_after"].join(","),
+    "The installed CLI did not expose all immutable company-proof fixtures.",
+  );
+  assert(
+    benchmarkCatalogError === "",
+    "The installed company-proof catalog wrote unexpected diagnostics.",
   );
   try {
     await execFileAsync(

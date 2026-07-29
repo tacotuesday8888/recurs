@@ -24,8 +24,8 @@ Usage:
   recurs account verify <id>
   recurs account disconnect <id>
   recurs doctor [--json]         Check installation and execution readiness
-  recurs eval company [--json]   Run the offline company-formation evaluation
-  recurs benchmark company --configured --allow-network [--repetitions 1|2|3] [--json]
+  recurs eval company [--json]   Run a bounded company-formation evaluation
+  recurs benchmark company --configured --allow-network [--scenario <id>] [--repetitions 1|2|3] [--compare-all-strong] [--json]
   recurs help <command>          Show scoped command help
   recurs --version               Show the installed Recurs version
   recurs --help                  Show this help
@@ -121,12 +121,14 @@ does not contact a provider, and never reveals paths, account values, or secrets
 
 Usage:
   recurs eval company --list [--json]
-  recurs eval company [--scenario company_formation_v1] [--json] [-C <dir>]
+  recurs eval company [--scenario company_formation_<quick|guided|deep>_v1] [--json] [-C <dir>]
   recurs eval company --configured --allow-network [--connection <id>] [--json] [-C <dir>]
   recurs eval company --scenario company_goal_execution_v1 --run <id> [--json] [-C <dir>]
 
 Offline evaluation is deterministic, uses a temporary private Recurs home,
 exposes only the restricted onboarding read tools, and makes no network request.
+Depth-specific scenarios produce distinct Quick, Guided, and Deep evidence;
+company_formation_v1 remains a compatibility alias for Guided.
 Configured evaluation uses the exact selected or primary direct/local connection
 and requires explicit network opt-in. Stored goal evaluation is read-only and
 never contacts a provider. Reports are sanitized and contain no prompts,
@@ -137,12 +139,16 @@ credentials, private paths, or environment values.
 Usage:
   recurs benchmark company --list [--json]
   recurs benchmark company --configured --allow-network
-                           [--connection <id>] [--repetitions 1|2|3] [--json]
+                           [--scenario <id>] [--connection <id>]
+                           [--repetitions 1|2|3]
+                           [--compare-all-strong] [--json]
   recurs benchmark company --resume <campaign-id> --allow-network [--json]
 
 Each trial gets a byte-identical temporary fixture and private Recurs home.
-The strong single-agent baseline and bounded company share the exact parent
-route. External hidden verification—not model prose—determines correctness.
+The strong single-agent baseline and recommended bounded company share the exact
+parent route. Add --compare-all-strong to explicitly schedule an additional
+all-strong company when saved worker routes differ. External hidden
+verification—not model prose—determines correctness.
 Normalized reports include activated roles, review, Repair, latency, usage,
 cache and cost coverage, overlap, and intervention counts without prompts,
 credentials, private paths, or continuation identifiers. Configured execution

@@ -3136,7 +3136,25 @@ describe("installed company evaluation command", () => {
           id: "company_formation_v1",
           version: 1,
           network: "optional_explicit",
-          description: "Form and approve a bounded company in isolated evaluation state.",
+          description: "Compatibility alias for the Guided formation scenario.",
+        },
+        {
+          id: "company_formation_quick_v1",
+          version: 1,
+          network: "optional_explicit",
+          description: "Form and approve a bounded company using quick onboarding.",
+        },
+        {
+          id: "company_formation_guided_v1",
+          version: 1,
+          network: "optional_explicit",
+          description: "Form and approve a bounded company using guided onboarding.",
+        },
+        {
+          id: "company_formation_deep_v1",
+          version: 1,
+          network: "optional_explicit",
+          description: "Form and approve a bounded company using deep onboarding.",
         },
         {
           id: "company_goal_execution_v1",
@@ -3174,6 +3192,24 @@ describe("installed company evaluation command", () => {
     expect(evaluateCompany).toHaveBeenLastCalledWith(expect.objectContaining({
       action: "run",
       scenario: "company_formation_v1",
+      connectionId: "connection_exact",
+    }));
+
+    stdout.value = "";
+    stderr.value = "";
+    expect(await runCli([
+      "eval",
+      "company",
+      "--scenario",
+      "company_formation_deep_v1",
+      "--configured",
+      "--allow-network",
+      "--connection",
+      "connection_exact",
+    ], dependencies)).toBe(0);
+    expect(evaluateCompany).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: "run",
+      scenario: "company_formation_deep_v1",
       connectionId: "connection_exact",
     }));
 

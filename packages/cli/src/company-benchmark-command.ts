@@ -41,7 +41,7 @@ const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 
 export const COMPANY_BENCHMARK_USAGE = [
   "Usage: recurs benchmark company --list [--json]",
-  "       recurs benchmark company --configured --allow-network [--connection <id>] [--repetitions 1|2|3] [--json]",
+  "       recurs benchmark company --configured --allow-network [--scenario <id>] [--connection <id>] [--repetitions 1|2|3] [--compare-all-strong] [--json]",
   "       recurs benchmark company --resume <campaign-id> --allow-network [--json]",
 ].join("\n");
 
@@ -49,8 +49,10 @@ export type CompanyBenchmarkCommandOptions =
   | { readonly action: "list"; readonly json: boolean }
   | {
       readonly action: "run";
+      readonly scenarioId: string;
       readonly connectionId: string | null;
       readonly repetitions: 1 | 2 | 3;
+      readonly compareAllStrong: boolean;
       readonly json: boolean;
     }
   | {
@@ -100,7 +102,9 @@ export function parseCompanyBenchmarkCommand(
   let allowNetwork = false;
   let json = false;
   let connectionId: string | null = null;
+  let scenarioId = "alias_registry";
   let repetitions: 1 | 2 | 3 = 3;
+  let compareAllStrong = false;
   let resume: string | null = null;
   const seen = new Set<string>();
   for (let index = 1; index < argv.length; index += 1) {
@@ -112,7 +116,12 @@ export function parseCompanyBenchmarkCommand(
     if (argument === "--list") list = true;
     else if (argument === "--configured") configured = true;
     else if (argument === "--allow-network") allowNetwork = true;
+    else if (argument === "--compare-all-strong") compareAllStrong = true;
     else if (argument === "--json") json = true;
+    else if (argument === "--scenario") {
+      scenarioId = argumentValue(argv, index);
+      index += 1;
+    }
     else if (argument === "--connection") {
       connectionId = argumentValue(argv, index);
       index += 1;
@@ -136,7 +145,8 @@ export function parseCompanyBenchmarkCommand(
   }
   if (list) {
     if (configured || allowNetwork || connectionId !== null ||
-      resume !== null || repetitions !== 3) {
+      resume !== null || repetitions !== 3 || scenarioId !== "alias_registry" ||
+      compareAllStrong) {
       throw new CompanyBenchmarkArgumentError(
         "--list can be combined only with --json.",
       );
@@ -149,7 +159,10 @@ export function parseCompanyBenchmarkCommand(
     );
   }
   if (resume !== null) {
-    if (configured || connectionId !== null || repetitions !== 3) {
+    if (
+      configured || connectionId !== null || repetitions !== 3 ||
+      scenarioId !== "alias_registry" || compareAllStrong
+    ) {
       throw new CompanyBenchmarkArgumentError(
         "--resume uses the frozen campaign and accepts only --allow-network and --json.",
       );
@@ -161,7 +174,21 @@ export function parseCompanyBenchmarkCommand(
       "A new Company proof requires --configured --allow-network.",
     );
   }
-  return { action: "run", connectionId, repetitions, json };
+  if (!COMPANY_BENCHMARK_SCENARIOS.some((scenario) =>
+    scenario.id === scenarioId
+  )) {
+    throw new CompanyBenchmarkArgumentError(
+      `Unknown company benchmark scenario: ${scenarioId}`,
+    );
+  }
+  return {
+    action: "run",
+    scenarioId,
+    connectionId,
+    repetitions,
+    compareAllStrong,
+    json,
+  };
 }
 
 export function renderCompanyBenchmarkScenarios(json: boolean): string {
@@ -219,13 +246,15 @@ function requireCodexConnection(
 
 export function createConfiguredCompanyBenchmarkCampaign(input: {
   readonly document: ConnectionRegistryDocument;
+  readonly scenarioId: string;
   readonly connectionId: string | null;
   readonly repetitions: 1 | 2 | 3;
+  readonly compareAllStrong: boolean;
   readonly campaignId: string;
   readonly createdAt: string;
 }): CompanyBenchmarkCampaignV1 {
   const blueprint = createCompanyBenchmarkBlueprint();
-  const scenario = getCompanyBenchmarkScenario("alias_registry", 1);
+  const scenario = getCompanyBenchmarkScenario(input.scenarioId, 1);
   const parent = requireCodexConnection(input.document, input.connectionId);
   const roles = (["implement", "review", "repair"] as const).map((role) => {
     const configured = input.document.agentRoutes[role];
@@ -234,14 +263,41 @@ export function createConfiguredCompanyBenchmarkCampaign(input: {
       requireCodexConnection(input.document, configured ?? parent.id),
     );
   });
-  const companyId = "company-auto";
+  const autoRoutes = [route("parent", parent), ...roles] as const;
+  const strongRoutes = [
+    route("parent", parent),
+    route("implement", parent),
+    route("review", parent),
+    route("repair", parent),
+  ] as const;
+  const autoDiffers = autoRoutes.some((candidate, index) => {
+    const strong = strongRoutes[index]!;
+    return candidate.connectionId !== strong.connectionId ||
+      candidate.modelId !== strong.modelId ||
+      candidate.reasoningEffort !== strong.reasoningEffort;
+  });
+  const companyArms = [
+    {
+      id: "company-auto",
+      kind: "company" as const,
+      configuredRoutes: autoRoutes,
+    },
+    ...(input.compareAllStrong && autoDiffers
+      ? [{
+          id: "company-strong",
+          kind: "company" as const,
+          configuredRoutes: strongRoutes,
+        }]
+      : []),
+  ];
   const armOrder = Array.from(
     { length: input.repetitions },
     (_, index) => index + 1,
   ).flatMap((repetition) => {
+    const companyIds = companyArms.map((arm) => arm.id);
     const armIds = repetition % 2 === 1
-      ? ["single-strong", companyId]
-      : [companyId, "single-strong"];
+      ? ["single-strong", ...companyIds]
+      : [...companyIds].reverse().concat("single-strong");
     return armIds.map((armId) => ({
       slotId: companyBenchmarkTrialSlotId(armId, repetition),
       armId,
@@ -284,11 +340,7 @@ export function createConfiguredCompanyBenchmarkCampaign(input: {
       kind: "single_agent",
       configuredRoutes: [route("parent", parent)],
     },
-    companyArms: [{
-      id: companyId,
-      kind: "company",
-      configuredRoutes: [route("parent", parent), ...roles],
-    }],
+    companyArms,
     armOrder,
   });
 }
@@ -346,8 +398,10 @@ export async function runCompanyBenchmarkCommand(
     ).inspect();
     campaign = createConfiguredCompanyBenchmarkCampaign({
       document,
+      scenarioId: options.scenarioId,
       connectionId: options.connectionId,
       repetitions: options.repetitions,
+      compareAllStrong: options.compareAllStrong,
       campaignId: `company-proof-${(dependencies.createId ?? randomUUID)()}`,
       createdAt: (dependencies.now ?? (() => new Date().toISOString()))(),
     });
@@ -421,10 +475,12 @@ function metric(value: number | null, suffix = ""): string {
 export function renderCompanyBenchmarkReport(
   report: CompanyBenchmarkCommandReport,
 ): string {
-  const routeLines = report.campaign.companyArms[0]!.configuredRoutes.map(
-    (item) =>
-      `  ${item.role}: ${item.modelId}${item.reasoningEffort === null ? "" : ` · ${item.reasoningEffort}`}`,
-  );
+  const routeLines = report.campaign.companyArms.flatMap((arm) => [
+    `Configured team ${arm.id}`,
+    ...arm.configuredRoutes.map((item) =>
+      `  ${item.role}: ${item.modelId}${item.reasoningEffort === null ? "" : ` · ${item.reasoningEffort}`}`
+    ),
+  ]);
   const trialLines = report.trials.flatMap((trial) => {
     const roles = trial.roles.map((role) =>
       `${role.role}:${role.attempts}`
@@ -438,7 +494,6 @@ export function renderCompanyBenchmarkReport(
   return [
     `Company proof — ${report.campaign.id}`,
     `${report.summary.completedTrialIds.length}/${report.campaign.armOrder.length} trials recorded · correctness ${report.summary.correctnessEligibility} · efficiency ${report.summary.efficiencyEligibility}`,
-    "Configured team",
     ...routeLines,
     ...trialLines,
     `Rationale: ${report.summary.rationale.join(", ") || "none"}`,
