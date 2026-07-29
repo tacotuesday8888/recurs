@@ -81,8 +81,9 @@ async function executeAuto(
         ...renderLineup(evaluation.lineup),
         evaluation.report.status === "passed" ||
             evaluation.report.status === "partial"
-          ? "Run /model auto to select the strongest eligible recorded lineup."
+          ? "Run /model auto to select the most-supported eligible recorded configured lineup."
           : "This run is recorded for inspection but is not eligible for Auto.",
+        "Repair is part of the configured four-route snapshot and may not have activated in this recorded run.",
       ].join("\n"), evaluation.report.status === "failed" ? "warning" : "info");
     }
     if (action !== "select" || tokens.length > 1) {
@@ -101,7 +102,7 @@ async function executeAuto(
       ].join("\n"));
     }
     if (!await context.confirm(
-      "Activate the strongest eligible model lineup from recorded company-goal evaluations for future sessions?",
+      "Activate the most-supported eligible recorded configured lineup for future sessions?",
     )) {
       return message("Models remain Custom", "warning");
     }
