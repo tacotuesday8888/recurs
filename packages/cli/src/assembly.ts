@@ -989,6 +989,9 @@ export async function createStandaloneRuntime(
   });
   const teamRuns = new JsonlTeamRunStore(path.join(projectData, "team-runs"));
   const teamOwners = new TeamRunOwnerLeaseManager({ rootDirectory: projectData });
+  const companyGoalOwners = new TeamRunOwnerLeaseManager({
+    rootDirectory: path.join(projectData, "company-goal-owners"),
+  });
   const teamRecovery = new TeamRunRecoveryCoordinator({
     runs: teamRuns,
     owners: teamOwners,
@@ -1523,11 +1526,13 @@ export async function createStandaloneRuntime(
   });
   tools.register(teams.createTool());
   for (const tool of createTeamRunTools(teamSupervisor)) tools.register(tool);
+  let companyGoalsSupervisor: CompanyGoalSupervisor | undefined;
   if (!("type" in state) && state.agent.company?.blueprintVersion === 2) {
-    const companyGoalsSupervisor = new CompanyGoalSupervisor({
+    companyGoalsSupervisor = new CompanyGoalSupervisor({
       sessions,
       blueprints: companyBlueprintsV2,
       runs: companyGoals,
+      owners: companyGoalOwners,
       children: childAgents,
       team: teamSupervisor,
       learning: companyLearning,
@@ -1964,6 +1969,9 @@ export async function createStandaloneRuntime(
       amendments: companyAmendments,
       decisions: companyAmendmentDecisions,
       capabilities: companyCapabilityAuthority,
+      ...(companyGoalsSupervisor === undefined
+        ? {}
+        : { recovery: companyGoalsSupervisor }),
     },
     skills,
     mcp,

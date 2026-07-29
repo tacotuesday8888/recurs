@@ -1,9 +1,17 @@
 import { deriveTrustedRunContext } from "@recurs/contracts";
 import {
+  COMPANY_GOAL_WORKTREE_PERMISSION,
+  createDelegationBudget,
   isPinnedSessionState,
+  TEAM_APPLY_PERMISSION,
   type PinnedSessionState,
   type SequencedCompanyState,
 } from "@recurs/core";
+import {
+  permissionIntentKey,
+  ToolError,
+  type ToolContext,
+} from "@recurs/tools";
 import type {
   CompanyAmendmentV1,
   CompanyBlueprintBindingV2,
@@ -33,7 +41,7 @@ import {
 } from "./types.js";
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
-const USAGE = "/company [blueprint|readiness|capabilities|bind <bundle> <skill|mcp> <id>|unbind <binding-id>|operations|run <run-id>|activity|knowledge|amendments|amendment <id>|approve-amendment <id>|reject-amendment <id>]";
+const USAGE = "/company [blueprint|readiness|capabilities|bind <bundle> <skill|mcp> <id>|unbind <binding-id>|operations|run <run-id>|resume <run-id>|activity|knowledge|amendments|amendment <id>|approve-amendment <id>|reject-amendment <id>]";
 
 class CompanyCommandPolicyError extends Error {}
 
@@ -157,6 +165,11 @@ function exactRun(args: string): string | null {
   return match !== null && SAFE_ID.test(match[1]!) ? match[1]! : null;
 }
 
+function exactResume(args: string): string | null {
+  const match = /^resume\s+(\S+)$/u.exec(args);
+  return match !== null && SAFE_ID.test(match[1]!) ? match[1]! : null;
+}
+
 function exactCapabilityMutation(args: string):
   | {
       readonly action: "bind";
@@ -190,6 +203,36 @@ function localManual(context: CommandContext): boolean {
   const invocation = deriveTrustedRunContext(context.invocation);
   return invocation.invocation === "repl" && invocation.presence === "present" &&
     invocation.location === "local" && invocation.automation === "manual";
+}
+
+function companyResumeContext(
+  context: CommandContext,
+  session: PinnedSessionState,
+  dependencies: NonNullable<CommandDependencies["company"]>,
+  signal: AbortSignal,
+  explicitlyApproved: boolean,
+): ToolContext {
+  const capabilities = dependencies.capabilities?.policyForAgent(session.agent);
+  return {
+    sessionId: session.id,
+    cwd: session.cwd,
+    signal,
+    executionMode: session.executionMode,
+    readRevisions: new Map(),
+    runContext: deriveTrustedRunContext(context.invocation),
+    delegationBudget: createDelegationBudget(session.agent),
+    ...(capabilities === undefined
+      ? {}
+      : { companyCapabilities: capabilities }),
+    ...(explicitlyApproved
+      ? {
+          approvedIntents: new Set([
+            permissionIntentKey(TEAM_APPLY_PERMISSION),
+            permissionIntentKey(COMPANY_GOAL_WORKTREE_PERMISSION),
+          ]),
+        }
+      : {}),
+  };
 }
 
 function amendmentText(
@@ -296,6 +339,72 @@ export function createCompanyCommand(dependencies: CommandDependencies): Command
         return run === undefined
           ? message(`Company goal run not found: ${runId}`, "error")
           : message(renderCompanyGoalRun(active.blueprint, run));
+      }
+      const resumeId = exactResume(action);
+      if (resumeId !== null) {
+        if (company.recovery === undefined) {
+          return message("Company goal recovery is unavailable", "error");
+        }
+        if (!localManual(context) || active.session.executionMode !== "act") {
+          return message(
+            "Company goal recovery requires a local, manual, user-present Act CLI session",
+            "error",
+          );
+        }
+        const before = companyRuns(
+          await company.goals.list(currentSignal),
+          active.session,
+          active.blueprint,
+        ).find((candidate) => candidate.id === resumeId);
+        if (before === undefined) {
+          return message(`Company goal run not found: ${resumeId}`, "error");
+        }
+        if (before.status === "waiting_for_approval") {
+          return message(
+            `Company goal ${resumeId} is waiting for approval; inspect it with /company run ${resumeId}`,
+            "error",
+          );
+        }
+        const explicitlyApproved =
+          active.session.permissionMode !== "full_access";
+        if (explicitlyApproved && !await context.confirm(
+          `Resume exact company goal ${resumeId}? This may reconcile reviewed candidate work in the current workspace.`,
+        )) {
+          return message("Company goal recovery was not approved", "warning");
+        }
+        let recoveryError: ToolError | null = null;
+        try {
+          await company.recovery.resume(
+            resumeId,
+            companyResumeContext(
+              context,
+              active.session,
+              company,
+              currentSignal,
+              explicitlyApproved,
+            ),
+          );
+        } catch (error) {
+          if (!(error instanceof ToolError)) throw error;
+          recoveryError = error;
+        }
+        const recovered = companyRuns(
+          await company.goals.list(currentSignal),
+          active.session,
+          active.blueprint,
+        ).find((candidate) => candidate.id === resumeId);
+        if (recovered === undefined) {
+          return message(`Company goal run not found: ${resumeId}`, "error");
+        }
+        if (recoveryError !== null &&
+          recovered.status !== "failed" &&
+          recovered.status !== "cancelled") {
+          return message(oneLine(recoveryError.message, 1_000), "error");
+        }
+        return message(
+          renderCompanyGoalRun(active.blueprint, recovered),
+          recoveryError === null ? "info" : "error",
+        );
       }
       if (action === "knowledge") {
         const knowledge = await company.knowledge.latest(

@@ -689,6 +689,9 @@ describe("TeamRunSupervisor Git integration", () => {
       sessions,
       blueprints,
       runs: goals,
+      owners: new TeamRunOwnerLeaseManager({
+        rootDirectory: path.join(root, "company-goal-owners"),
+      }),
       children,
       team,
       async emit() {},

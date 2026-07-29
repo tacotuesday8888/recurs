@@ -6,14 +6,18 @@ import {
   parseCompanyKnowledge,
   type CompanyAmendmentV1,
   type CompanyBlueprintV2,
+  type CompanyGoalRunV1,
 } from "@recurs/contracts";
 import {
   approveCompanyBlueprintV2,
+  COMPANY_GOAL_WORKTREE_PERMISSION,
   compileCompanyBlueprintV2,
   createRootAgentDescriptor,
   reduceSessionRecordsV2,
+  TEAM_APPLY_PERMISSION,
   type SessionRecord,
 } from "@recurs/core";
+import { permissionIntentKey, ToolError } from "@recurs/tools";
 
 import {
   createCommandRegistry,
@@ -28,6 +32,7 @@ function compileBlueprint(input: {
   readonly id: string;
   readonly revision: number;
   readonly previousBlueprintId: string | null;
+  readonly permissionMode?: "ask_always" | "approved_for_me" | "full_access";
 }): CompanyBlueprintV2 {
   return compileCompanyBlueprintV2({
     id: input.id,
@@ -51,7 +56,7 @@ function compileBlueprint(input: {
       deploymentTargets: ["CLI"],
       repository: { inspected: false, markers: [], evidence: [] },
     },
-    permissionMode: "approved_for_me",
+    permissionMode: input.permissionMode ?? "approved_for_me",
     operatingModeId: "balanced_v6",
     availableToolBundles: [
       "project_context_v1", "source_control_v1", "architecture_v1",
@@ -78,7 +83,7 @@ function context(blueprint: CompanyBlueprintV2): CommandContext & {
     sessionId,
     pin,
     "balanced_v6",
-    "approved_for_me",
+    blueprint.authority.permissionMode,
     "act",
     {
       blueprintId: blueprint.id,
@@ -223,6 +228,271 @@ function dependencies(
 }
 
 describe("company slash command", () => {
+  it("resumes one exact interrupted run with explicit authority and renders reloaded state", async () => {
+    const blueprint = approvedBlueprint();
+    const base = dependencies(blueprint);
+    let current: CompanyGoalRunV1 = {
+      ...(await base.goals.list())[0]!.state,
+      status: "interrupted",
+    };
+    const capabilityPolicy = {
+      agentSkillNames: ["company-recovery-skill"],
+      mcpServerIds: ["company-recovery-mcp"],
+    };
+    const resume = vi.fn(async () => {
+      current = {
+        ...current,
+        status: "completed",
+        result: {
+          summary: "Recovered the durable company goal.",
+          evidence: ["durable child evidence"],
+        },
+      };
+      return {
+        output: current.result.summary,
+        metadata: { goalRunId: current.id, status: current.status },
+      };
+    });
+    const capabilities = {
+      bindings: vi.fn(() => null),
+      bind: vi.fn(),
+      unbind: vi.fn(),
+      policyForAgent: vi.fn(() => capabilityPolicy),
+    };
+    const registry = createCommandRegistry({
+      company: {
+        ...base,
+        goals: { async list() { return [{ sequence: 2, state: current }]; } },
+        capabilities,
+        recovery: { resume },
+      },
+      signal: () => new AbortController().signal,
+    });
+    const active = context(blueprint);
+
+    const result = await registry.execute(
+      "/company resume company-run-cli",
+      active,
+    );
+
+    expect(active.confirm).toHaveBeenCalledOnce();
+    expect(resume).toHaveBeenCalledOnce();
+    const toolContext = resume.mock.calls[0]![1] as {
+      readonly sessionId: string;
+      readonly cwd: string;
+      readonly executionMode: string;
+      readonly approvedIntents?: Set<string>;
+      readonly companyCapabilities?: typeof capabilityPolicy;
+      readonly delegationBudget?: { readonly maxChildren: number };
+    };
+    expect(toolContext).toMatchObject({
+      sessionId: active.session.id,
+      cwd: active.session.cwd,
+      executionMode: "act",
+      companyCapabilities: capabilityPolicy,
+      delegationBudget: { maxChildren: 8 },
+    });
+    expect(toolContext.approvedIntents).toEqual(new Set([
+      permissionIntentKey(TEAM_APPLY_PERMISSION),
+      permissionIntentKey(COMPANY_GOAL_WORKTREE_PERMISSION),
+    ]));
+    expect(result).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+        /Goal: company-run-cli \| completed[\s\S]*Result: Recovered the durable company goal/u,
+      ),
+    });
+  });
+
+  it("uses Full Access without confirmation for an idempotent completed resume", async () => {
+    const blueprint = approveCompanyBlueprintV2(compileBlueprint({
+      id: "blueprint-full-access",
+      revision: 1,
+      previousBlueprintId: null,
+      permissionMode: "full_access",
+    }), at);
+    const base = dependencies(blueprint);
+    const completed = {
+      ...(await base.goals.list())[0]!.state,
+      status: "completed" as const,
+      result: {
+        summary: "The durable goal was already complete.",
+        evidence: ["durable completion evidence"],
+      },
+    };
+    const resume = vi.fn(async () => ({
+      output: completed.result.summary,
+      metadata: { goalRunId: completed.id, status: completed.status },
+    }));
+    const registry = createCommandRegistry({
+      company: {
+        ...base,
+        goals: { async list() { return [{ sequence: 1, state: completed }]; } },
+        recovery: { resume },
+      },
+    });
+    const active = context(blueprint);
+
+    const result = await registry.execute(
+      "/company resume company-run-cli",
+      active,
+    );
+
+    expect(active.confirm).not.toHaveBeenCalled();
+    expect(resume).toHaveBeenCalledOnce();
+    expect("approvedIntents" in (resume.mock.calls[0]![1] as object)).toBe(false);
+    expect(result).toMatchObject({
+      text: expect.stringMatching(
+        /Goal: company-run-cli \| completed[\s\S]*already complete/u,
+      ),
+    });
+  });
+
+  it.each([
+    ["Plan", (active: CommandContext) => {
+      active.session = { ...active.session, executionMode: "plan" };
+    }],
+    ["remote", (active: CommandContext) => {
+      active.invocation = createHostInvocation({
+        invocation: "repl",
+        userPresent: true,
+        remote: true,
+        scripted: false,
+        embedding: "cli",
+      });
+    }],
+    ["automated", (active: CommandContext) => {
+      active.invocation = createHostInvocation({
+        invocation: "repl",
+        userPresent: true,
+        remote: false,
+        scripted: true,
+        embedding: "cli",
+      });
+    }],
+    ["unattended", (active: CommandContext) => {
+      active.invocation = createHostInvocation({
+        invocation: "one_shot",
+        userPresent: false,
+        remote: false,
+        scripted: false,
+        embedding: "cli",
+      });
+    }],
+  ] as const)(
+    "rejects %s company recovery before confirmation or execution",
+    async (_label, mutate) => {
+      const blueprint = approvedBlueprint();
+      const base = dependencies(blueprint);
+      const interrupted = {
+        ...(await base.goals.list())[0]!.state,
+        status: "interrupted" as const,
+      };
+      const resume = vi.fn();
+      const registry = createCommandRegistry({
+        company: {
+          ...base,
+          goals: {
+            async list() { return [{ sequence: 1, state: interrupted }]; },
+          },
+          recovery: { resume },
+        },
+      });
+      const active = context(blueprint);
+      mutate(active);
+
+      await expect(registry.execute(
+        "/company resume company-run-cli",
+        active,
+      )).resolves.toMatchObject({
+        level: "error",
+        text: expect.stringMatching(/local|manual|user-present|Act/iu),
+      });
+      expect(active.confirm).not.toHaveBeenCalled();
+      expect(resume).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects unknown, foreign, waiting, and inexact resume IDs without recovery", async () => {
+    const blueprint = approvedBlueprint();
+    const base = dependencies(blueprint);
+    const own = (await base.goals.list())[0]!;
+    const foreign = {
+      ...own,
+      state: {
+        ...own.state,
+        id: "foreign-resume-run",
+        parentSessionId: "foreign-parent",
+      },
+    };
+    const waiting = {
+      ...own,
+      state: {
+        ...own.state,
+        id: "waiting-resume-run",
+        status: "waiting_for_approval" as const,
+      },
+    };
+    const resume = vi.fn();
+    const registry = createCommandRegistry({
+      company: {
+        ...base,
+        goals: { async list() { return [foreign, waiting, own]; } },
+        recovery: { resume },
+      },
+    });
+    const active = context(blueprint);
+
+    for (const command of [
+      "/company resume missing-run",
+      "/company resume foreign-resume-run",
+      "/company resume waiting-resume-run",
+      "/company resume company-run-cli extra",
+    ]) {
+      await expect(registry.execute(command, active)).resolves.toMatchObject({
+        level: "error",
+      });
+    }
+    expect(active.confirm).not.toHaveBeenCalled();
+    expect(resume).not.toHaveBeenCalled();
+  });
+
+  it("renders truthful failed state when durable resume reports failure", async () => {
+    const blueprint = approvedBlueprint();
+    const base = dependencies(blueprint);
+    let current: CompanyGoalRunV1 = {
+      ...(await base.goals.list())[0]!.state,
+      status: "interrupted",
+    };
+    const registry = createCommandRegistry({
+      company: {
+        ...base,
+        goals: { async list() { return [{ sequence: 3, state: current }]; } },
+        recovery: {
+          async resume() {
+            current = {
+              ...current,
+              status: "failed",
+              failure: "Durable review failed",
+            };
+            throw new ToolError("execution_failed", "Durable review failed");
+          },
+        },
+      },
+    });
+    const active = context(blueprint);
+
+    await expect(registry.execute(
+      "/company resume company-run-cli",
+      active,
+    )).resolves.toMatchObject({
+      level: "error",
+      text: expect.stringMatching(
+        /Goal: company-run-cli \| failed[\s\S]*Failure: Durable review failed/u,
+      ),
+    });
+  });
+
   it("renders bounded status, YAML, activity, knowledge, and amendments", async () => {
     const blueprint = approvedBlueprint();
     const registry = createCommandRegistry({ company: dependencies(blueprint) });

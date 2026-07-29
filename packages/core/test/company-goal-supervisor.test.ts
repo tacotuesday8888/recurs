@@ -8,7 +8,11 @@ import {
   type CoordinatedRunInput,
   type RunCoordinator,
 } from "@recurs/contracts";
-import { ToolError, type ToolContext } from "@recurs/tools";
+import {
+  permissionIntentKey,
+  ToolError,
+  type ToolContext,
+} from "@recurs/tools";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -24,6 +28,8 @@ import {
   FileCompanyKnowledgeStore,
   JsonlCompanyGoalStore,
   JsonlSessionStore,
+  TEAM_APPLY_PERMISSION,
+  TeamRunOwnerLeaseManager,
   type CompanyGoalAssignmentExecutor,
   type DelegateCompanyGoalInput,
   type RecursEvent,
@@ -38,6 +44,18 @@ const trusted = deriveTrustedRunContext(createHostInvocation({
   scripted: false,
   embedding: "cli",
 }));
+const WORKTREE_ORCHESTRATION_PERMISSION = Object.freeze({
+  category: "shell" as const,
+  resource: "fixed Git worktree orchestration",
+  risk: "normal" as const,
+});
+
+function companyResumeApprovals(): Set<string> {
+  return new Set([
+    permissionIntentKey(TEAM_APPLY_PERMISSION),
+    permissionIntentKey(WORKTREE_ORCHESTRATION_PERMISSION),
+  ]);
+}
 
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) =>
@@ -142,6 +160,9 @@ async function fixture(options: {
   const sessions = new JsonlSessionStore(path.join(root, "sessions"));
   const blueprints = new FileCompanyBlueprintV2Store(path.join(root, "blueprints"));
   const runs = new JsonlCompanyGoalStore(path.join(root, "goals"));
+  const owners = new TeamRunOwnerLeaseManager({
+    rootDirectory: path.join(root, "company-goal-owners"),
+  });
   const knowledge = new FileCompanyKnowledgeStore(path.join(root, "knowledge"));
   const learning = new CompanyLearningService({ store: knowledge });
   const blueprint = approveCompanyBlueprintV2(compileCompanyBlueprintV2({
@@ -470,10 +491,11 @@ async function fixture(options: {
           ? async () => { throw new Error("sensitive record failure"); }
           : learning.recordCompletedGoal.bind(learning),
       };
-  const supervisor = new CompanyGoalSupervisor({
+  const supervisorDependencies = {
     sessions,
     blueprints,
     runs,
+    owners,
     children,
     work,
     team,
@@ -481,7 +503,8 @@ async function fixture(options: {
     async emit(event) { events.push(event); },
     createId: () => `company-run-id-${++runIndex}`,
     now: () => testAt,
-  });
+  };
+  const supervisor = new CompanyGoalSupervisor(supervisorDependencies);
   supervisorReference.current = supervisor;
   const context: ToolContext = {
     sessionId: parent.id,
@@ -490,6 +513,7 @@ async function fixture(options: {
     signal: new AbortController().signal,
     readRevisions: new Map(),
     runContext: trusted,
+    approvedIntents: companyResumeApprovals(),
     delegationBudget: createDelegationBudget(parent.agent),
   };
   return {
@@ -508,6 +532,9 @@ async function fixture(options: {
     context,
     prompts,
     teamCalls,
+    createSupervisor() {
+      return new CompanyGoalSupervisor(supervisorDependencies);
+    },
     setTeamStatus(status: typeof currentTeamStatus) {
       currentTeamStatus = status;
       for (const teamRunId of teamStatuses.keys()) {
@@ -618,6 +645,253 @@ function multiStageGoal(
 }
 
 describe("CompanyGoalSupervisor", () => {
+  it("allows exactly one durable start across two supervisor instances", async () => {
+    const setup = await fixture({ implementation: true });
+    const second = setup.createSupervisor();
+
+    const outcomes = await Promise.allSettled([
+      setup.supervisor.start(goal(setup), setup.context),
+      second.start(goal(setup), {
+        ...setup.context,
+        signal: new AbortController().signal,
+        delegationBudget: createDelegationBudget(setup.parent.agent),
+      }),
+    ]);
+
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled"))
+      .toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === "rejected"))
+      .toEqual([
+        expect.objectContaining({
+          reason: expect.objectContaining({
+            code: "permission_denied",
+            message: expect.stringContaining(
+              "Do not retry delegate_company_goal",
+            ),
+          }),
+        }),
+      ]);
+    expect(await setup.runs.list()).toHaveLength(1);
+    expect(setup.prompts).toHaveLength(1);
+    expect(setup.teamCalls).toEqual(["reserve", "start"]);
+    expect(setup.events.filter((event) => event.type === "company_goal_started"))
+      .toHaveLength(1);
+  });
+
+  it("allows exactly one durable resume across two supervisor instances", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatus: "interrupted",
+    });
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({ code: "checkpoint_conflict" });
+    setup.setTeamStatus("approved");
+    const second = setup.createSupervisor();
+
+    const outcomes = await Promise.allSettled([
+      setup.supervisor.resume("company-run-id-1", {
+        ...setup.context,
+        signal: new AbortController().signal,
+        delegationBudget: createDelegationBudget(setup.parent.agent),
+      }),
+      second.resume("company-run-id-1", {
+        ...setup.context,
+        signal: new AbortController().signal,
+        delegationBudget: createDelegationBudget(setup.parent.agent),
+      }),
+    ]);
+
+    expect(outcomes.filter((outcome) => outcome.status === "fulfilled"))
+      .toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === "rejected"))
+      .toEqual([
+        expect.objectContaining({
+          reason: expect.objectContaining({
+            code: "permission_denied",
+            message: expect.stringContaining("already owned"),
+          }),
+        }),
+      ]);
+    expect(setup.teamCalls.filter((call) => call === "inspect")).toHaveLength(1);
+    await expect(setup.runs.load("company-run-id-1")).resolves.toMatchObject({
+      state: { status: "completed" },
+    });
+  });
+
+  it("fails closed when legacy state has multiple unresolved company runs", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatus: "interrupted",
+    });
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({ code: "checkpoint_conflict" });
+    const selected = await setup.runs.load("company-run-id-1");
+    await setup.runs.create({
+      ...selected.state,
+      id: "legacy-sibling",
+      goalId: "legacy-sibling-goal",
+    });
+    setup.setTeamStatus("approved");
+
+    await expect(setup.supervisor.resume(
+      "company-run-id-1",
+      setup.context,
+    )).rejects.toMatchObject({
+      code: "permission_denied",
+      message: expect.stringContaining("multiple unresolved"),
+    });
+    expect(setup.teamCalls.filter((call) => call === "inspect")).toHaveLength(0);
+  });
+
+  it("does not generically resume a run waiting for approval", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatus: "interrupted",
+    });
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({ code: "checkpoint_conflict" });
+    const interrupted = await setup.runs.load("company-run-id-1");
+    const running = await setup.runs.append(
+      interrupted.state.id,
+      interrupted.sequence,
+      { ...interrupted.state, status: "running" },
+    );
+    await setup.runs.append(
+      running.state.id,
+      running.sequence,
+      { ...running.state, status: "waiting_for_approval" },
+    );
+    setup.setTeamStatus("approved");
+
+    await expect(setup.supervisor.resume(
+      "company-run-id-1",
+      setup.context,
+    )).rejects.toMatchObject({
+      code: "permission_denied",
+      message: expect.stringContaining("waiting for approval"),
+    });
+    expect(setup.teamCalls.filter((call) => call === "inspect")).toHaveLength(0);
+  });
+
+  it.each([
+    ["Plan", (context: ToolContext) => ({ ...context, executionMode: "plan" as const })],
+    ["stale project", (context: ToolContext) => ({
+      ...context,
+      cwd: path.join(context.cwd, "stale-project"),
+    })],
+    ["non-REPL", (context: ToolContext) => ({
+      ...context,
+      runContext: { ...trusted, invocation: "goal" as const },
+    })],
+    ["remote", (context: ToolContext) => ({
+      ...context,
+      runContext: { ...trusted, location: "remote" as const },
+    })],
+    ["automated", (context: ToolContext) => ({
+      ...context,
+      runContext: { ...trusted, automation: "scripted" as const },
+    })],
+    ["unattended", (context: ToolContext) => ({
+      ...context,
+      runContext: { ...trusted, presence: "unattended" as const },
+    })],
+    ["non-CLI", (context: ToolContext) => ({
+      ...context,
+      runContext: { ...trusted, embedding: "desktop" as const },
+    })],
+    ["missing team apply approval", (context: ToolContext) => ({
+      ...context,
+      approvedIntents: new Set([
+        permissionIntentKey(WORKTREE_ORCHESTRATION_PERMISSION),
+      ]),
+    })],
+    ["missing worktree approval", (context: ToolContext) => ({
+      ...context,
+      approvedIntents: new Set([
+        permissionIntentKey(TEAM_APPLY_PERMISSION),
+      ]),
+    })],
+  ] as const)(
+    "rejects %s direct resume authority before durable execution",
+    async (label, mutate) => {
+      const setup = await fixture({
+        implementation: true,
+        teamStatus: "interrupted",
+      });
+      await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+        .toMatchObject({ code: "checkpoint_conflict" });
+      setup.setTeamStatus("approved");
+      const before = await setup.runs.load("company-run-id-1");
+
+      await expect(setup.supervisor.resume(
+        "company-run-id-1",
+        mutate({
+          ...setup.context,
+          signal: new AbortController().signal,
+          delegationBudget: createDelegationBudget(setup.parent.agent),
+        }),
+      )).rejects.toMatchObject({
+        code: label === "stale project"
+          ? "tool_unavailable"
+          : "permission_denied",
+      });
+      await expect(setup.runs.load("company-run-id-1")).resolves
+        .toMatchObject({ sequence: before.sequence, state: { status: "interrupted" } });
+      expect(setup.teamCalls.filter((call) => call === "inspect")).toHaveLength(0);
+    },
+  );
+
+  it("returns completed state idempotently without replaying execution", async () => {
+    const setup = await fixture({ implementation: true });
+    const completed = await setup.supervisor.start(goal(setup), setup.context);
+    const before = await setup.runs.load("company-run-id-1");
+    const calls = [...setup.teamCalls];
+    const events = setup.events.length;
+
+    const replay = await setup.createSupervisor().resume(
+      "company-run-id-1",
+      {
+        ...setup.context,
+        signal: new AbortController().signal,
+        delegationBudget: createDelegationBudget(setup.parent.agent),
+      },
+    );
+
+    expect(replay).toEqual(completed);
+    await expect(setup.runs.load("company-run-id-1")).resolves
+      .toMatchObject({ sequence: before.sequence, state: { status: "completed" } });
+    expect(setup.teamCalls).toEqual(calls);
+    expect(setup.events).toHaveLength(events);
+  });
+
+  it.each(["failed", "cancelled"] as const)(
+    "keeps a %s terminal run truthful during direct resume",
+    async (status) => {
+      const setup = await fixture({
+        implementation: true,
+        teamStatus: status,
+      });
+      const started = setup.supervisor.start(goal(setup), setup.context);
+      if (status === "failed") await started;
+      else await expect(started).rejects.toMatchObject({ code: "cancelled" });
+      const before = await setup.runs.load("company-run-id-1");
+
+      await expect(setup.createSupervisor().resume(
+        "company-run-id-1",
+        {
+          ...setup.context,
+          signal: new AbortController().signal,
+          delegationBudget: createDelegationBudget(setup.parent.agent),
+        },
+      )).rejects.toMatchObject({
+        code: status === "failed" ? "execution_failed" : "cancelled",
+        message: expect.stringContaining(`team ${status}`),
+      });
+      await expect(setup.runs.load("company-run-id-1")).resolves
+        .toMatchObject({ sequence: before.sequence, state: { status } });
+    },
+  );
+
   it("runs root to lead to worker to independent review with one durable budget", async () => {
     const setup = await fixture();
 

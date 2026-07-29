@@ -23,7 +23,11 @@ import type {
   TeamRunPolicySnapshot,
   CompanyBlueprintV2,
 } from "@recurs/contracts";
-import { createHostInvocation, getOperatingModePolicy } from "@recurs/contracts";
+import {
+  createHostInvocation,
+  getOperatingModePolicy,
+  parseCompanyGoalRun,
+} from "@recurs/contracts";
 import {
   ConnectionLifecycleService,
   FileConnectionRegistry,
@@ -42,6 +46,7 @@ import {
   FileCompanyAmendmentStore,
   FileCompanyBlueprintV2Store,
   FileGitPatchArtifactStore,
+  JsonlCompanyGoalStore,
   JsonlSessionStore,
   JsonlTeamRunStore,
   type RecursEvent,
@@ -684,6 +689,216 @@ describe("standalone assembly without a provider", () => {
       blueprintRevision: 2,
     });
     expect(runtime.session.id).not.toBe(historicalSessionId);
+  });
+
+  it("resumes durable completed company child and team work without replaying execution", async () => {
+    const temporary = await mkdtemp(
+      path.join(tmpdir(), "recurs-company-recovery-assembly-"),
+    );
+    directories.push(temporary);
+    const root = await realpath(temporary);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const blueprint = approveCompanyBlueprintV2(compileCompanyBlueprintV2({
+      id: "company-recovery-assembly-v2",
+      companyId: "company-recovery-assembly",
+      revision: 1,
+      previousBlueprintId: null,
+      createdAt: "2026-07-29T00:00:00.000Z",
+      onboardingRunId: "company-recovery-onboarding",
+      onboardingDepth: "guided",
+      generatedBy: "deterministic",
+      designMode: "stable_core_specialists",
+      project: {
+        type: "existing_project",
+        stage: "active",
+        purpose: "Recover durable company work without replay.",
+        users: ["Maintainers"],
+        successCriteria: ["Completed work is synthesized once."],
+        constraints: ["Do not duplicate provider or assignment execution."],
+        risks: [],
+        architecturePreferences: ["Reuse the durable company supervisor."],
+        deploymentTargets: ["CLI"],
+        repository: { inspected: false, markers: [], evidence: [] },
+      },
+      permissionMode: "approved_for_me",
+      operatingModeId: "balanced_v6",
+      availableToolBundles: [
+        "project_context_v1", "source_control_v1", "architecture_v1",
+        "implementation_v1", "quality_v1", "security_v1", "release_v1",
+      ],
+      initialGoal: "Recover the durable company goal.",
+      roadmap: ["Resume exact durable state."],
+    }), "2026-07-29T00:01:00.000Z");
+    const provider = new ScriptedProvider([]);
+    const events: RecursEvent[] = [];
+    const dataDirectory = path.join(root, "data");
+    const runtime = await createStandaloneRuntime(
+      { async emit(event) { events.push(event); } },
+      {
+        cwd: workspace,
+        dataDirectory,
+        provider,
+        permissionMode: "approved_for_me",
+        operatingModeId: "balanced_v6",
+        reuseExistingSession: false,
+        companyBlueprint: blueprint,
+      },
+    );
+    const projectId = createHash("sha256")
+      .update(await realpath(workspace))
+      .digest("hex")
+      .slice(0, 24);
+    const runs = new JsonlCompanyGoalStore(path.join(
+      dataDirectory,
+      "projects",
+      projectId,
+      "company-goals",
+    ));
+    const implementation = blueprint.roles.find((role) =>
+      role.executionProfileId === "implement_v2"
+    )!;
+    const implementationParent = implementation.reportsTo === null
+      ? undefined
+      : blueprint.roles.find((role) =>
+          role.id === implementation.reportsTo &&
+          role.executionProfileId !== null
+        );
+    const reviewer = blueprint.roles.find((role) =>
+      blueprint.authorityAnchors.independentReviewRoleIds.includes(role.id)
+    )!;
+    const assignmentResult = (summary: string, evidence: string) => ({
+      summary,
+      evidence: [evidence],
+      usage: { inputTokens: 2, outputTokens: 1, costUsd: 0.01 },
+      usageSource: "provider" as const,
+    });
+    await runs.create(parseCompanyGoalRun({
+      id: "assembly-recovery-run",
+      version: 1,
+      parentSessionId: runtime.session.id,
+      goalId: "assembly-recovery-goal",
+      objective: "Recover completed durable implementation and review.",
+      company: runtime.session.agent.company,
+      status: "interrupted",
+      createdAt: "2026-07-29T00:02:00.000Z",
+      updatedAt: "2026-07-29T00:03:00.000Z",
+      plan: {
+        revision: 1,
+        createdAt: "2026-07-29T00:02:00.000Z",
+        assignments: [
+          ...(implementationParent === undefined
+            ? []
+            : [{
+                id: "durable-lead",
+                roleId: implementationParent.id,
+                parentAssignmentId: null,
+                dependsOn: [],
+                description: "Use the durable completed child planning handoff",
+                prompt: "Do not replay this completed child handoff.",
+                acceptance: ["Keep its durable evidence."],
+                expectedEvidence: implementationParent.expectedEvidence,
+                status: "completed" as const,
+                execution: {
+                  attempt: 1 as const,
+                  childAgentId: "durable-child-agent",
+                  childSessionId: "durable-child-session",
+                  taskId: "durable-child-task",
+                  startedAt: "2026-07-29T00:02:05.000Z",
+                  completedAt: "2026-07-29T00:02:09.000Z",
+                },
+                result: assignmentResult(
+                  "Durable child planning handoff already completed.",
+                  "durable child evidence",
+                ),
+                failure: null,
+              }]),
+          {
+          id: "durable-implementation",
+          roleId: implementation.id,
+          parentAssignmentId: implementationParent === undefined
+            ? null
+            : "durable-lead",
+          dependsOn: [],
+          description: "Use the durable completed team implementation",
+          prompt: "Do not replay this completed implementation.",
+          acceptance: ["Keep its durable evidence."],
+          expectedEvidence: implementation.expectedEvidence,
+          status: "completed",
+          execution: {
+            attempt: 1,
+            teamRunId: "durable-team-run",
+            teamRole: "implement",
+            taskIndex: 1,
+            startedAt: "2026-07-29T00:02:10.000Z",
+            completedAt: "2026-07-29T00:02:20.000Z",
+          },
+          result: assignmentResult(
+            "Durable implementation already completed.",
+            "durable team implementation evidence",
+          ),
+          failure: null,
+        }, {
+          id: "durable-review",
+          roleId: reviewer.id,
+          parentAssignmentId: null,
+          dependsOn: [
+            ...(implementationParent === undefined ? [] : ["durable-lead"]),
+            "durable-implementation",
+          ],
+          description: "Use the durable approved team review",
+          prompt: "Do not replay this completed independent review.",
+          acceptance: ["Keep its durable approval evidence."],
+          expectedEvidence: reviewer.expectedEvidence,
+          status: "completed",
+          execution: {
+            attempt: 1,
+            teamRunId: "durable-team-run",
+            teamRole: "review",
+            taskIndex: null,
+            startedAt: "2026-07-29T00:02:30.000Z",
+            completedAt: "2026-07-29T00:02:40.000Z",
+          },
+          result: assignmentResult(
+            "Durable independent review already approved.",
+            "durable team review evidence",
+          ),
+          failure: null,
+        }],
+      },
+      budget: {
+        maxAssignments: 8,
+        assignmentsStarted: 2,
+        maxConcurrentAssignments: 3,
+        maxRequests: 80,
+        requestsReserved: 16,
+        requestsUsed: 2,
+        maxReportedCostUsd: 3,
+        reportedCostUsd: 0.02,
+      },
+      result: null,
+      failure: null,
+    }));
+    runtime.setConfirmHandler(async () => true);
+
+    const result = await runtime.submit(
+      "/company resume assembly-recovery-run",
+      localManualInvocation(),
+    );
+
+    expect(result).toMatchObject({
+      type: "message",
+      text: expect.stringMatching(
+        /Goal: assembly-recovery-run \| completed[\s\S]*Durable child planning handoff already completed/iu,
+      ),
+    });
+    expect(provider.requests).toHaveLength(0);
+    await expect(runs.load("assembly-recovery-run")).resolves.toMatchObject({
+      state: { status: "completed" },
+    });
+    expect(events.filter((event) =>
+      event.type === "company_assignment_started"
+    )).toHaveLength(0);
   });
 
   it("rejects company activation when approved authority differs from the session", async () => {

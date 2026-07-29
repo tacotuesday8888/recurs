@@ -4,6 +4,7 @@ import type {
   FileCompanyKnowledgeStore,
   JsonlSessionStore,
   JsonlCompanyGoalStore,
+  CompanyGoalSupervisor,
   PinnedSessionState,
   SessionRecord,
   SessionState,
@@ -137,8 +138,9 @@ export interface CompanyCommandDependencies {
   readonly decisions?: CompanyAmendmentDecisionService;
   readonly capabilities?: Pick<
     CompanyCapabilityAuthority,
-    "bindings" | "bind" | "unbind"
+    "bindings" | "bind" | "unbind" | "policyForAgent"
   >;
+  readonly recovery?: Pick<CompanyGoalSupervisor, "resume">;
 }
 
 export interface ModelSelectionOption {
