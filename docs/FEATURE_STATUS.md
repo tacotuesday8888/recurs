@@ -1,6 +1,6 @@
 # Recurs Feature Status
 
-**Audited:** 2026-07-29 against the source, exported package surfaces, CLI
+**Audited:** 2026-07-30 against the source, exported package surfaces, CLI
 assembly, durable contracts/stores, provider manifests, and automated tests in
 this release candidate.
 
