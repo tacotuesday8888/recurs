@@ -78,6 +78,7 @@ function blueprint(): CompanyBlueprintV2 {
 }
 
 function completedRun(company: CompanyBlueprintV2): CompanyGoalRunV1 {
+  const lead = company.roles.find((role) => role.kind === "lead")!;
   const worker = company.roles.find((role) => role.kind === "worker")!;
   const reviewer = company.roles.find((role) => role.kind === "reviewer")!;
   const result = (summary: string, evidence: string) => ({
@@ -106,9 +107,24 @@ function completedRun(company: CompanyBlueprintV2): CompanyGoalRunV1 {
       revision: 1,
       createdAt: "2026-07-22T02:00:02.000Z",
       assignments: [{
+        id: "lead-assignment",
+        roleId: lead.id,
+        parentAssignmentId: null,
+        dependsOn: [],
+        description: "Plan the bounded result.",
+        prompt: "Identify the implementation seam.",
+        acceptance: ["Return planning evidence."],
+        expectedEvidence: lead.expectedEvidence,
+        status: "completed",
+        result: {
+          ...result("Implementation planned.", "planning:complete"),
+          usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+        },
+        failure: null,
+      }, {
         id: "implementation-assignment",
         roleId: worker.id,
-        parentAssignmentId: null,
+        parentAssignmentId: "lead-assignment",
         dependsOn: [],
         description: "Implement the bounded result.",
         prompt: "Implement and verify the result.",
@@ -121,7 +137,7 @@ function completedRun(company: CompanyBlueprintV2): CompanyGoalRunV1 {
         id: "review-assignment",
         roleId: reviewer.id,
         parentAssignmentId: null,
-        dependsOn: ["implementation-assignment"],
+        dependsOn: ["lead-assignment", "implementation-assignment"],
         description: "Review the complete result independently.",
         prompt: "Review the implementation and its evidence.",
         acceptance: ["Approve or return findings."],
@@ -133,7 +149,7 @@ function completedRun(company: CompanyBlueprintV2): CompanyGoalRunV1 {
     },
     budget: {
       maxAssignments: 8,
-      assignmentsStarted: 2,
+      assignmentsStarted: 3,
       maxConcurrentAssignments: 3,
       maxRequests: 80,
       requestsReserved: 8,

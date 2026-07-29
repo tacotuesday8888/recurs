@@ -32,6 +32,7 @@ import {
 
 import { childRequestAllowance, delegationWorkflowUsage } from "./agent-profile.js";
 import { companyAgentLimits } from "./company-agent-binding.js";
+import { validateCompanyBlueprintV2ExecutionPolicy } from "./company-blueprint-v2.js";
 import { renderCompanyAssignmentPrompt } from "./company-role-charter.js";
 import type {
   ChildAgentManager,
@@ -755,6 +756,14 @@ export class CompanyGoalSupervisor {
       root.agent.company.blueprintId,
       context.signal,
     );
+    try {
+      validateCompanyBlueprintV2ExecutionPolicy(blueprint);
+    } catch (error) {
+      throw new ToolError(
+        "permission_denied",
+        safeMessage(error, "The approved company execution policy is invalid"),
+      );
+    }
     const binding = root.agent.company;
     if (blueprint.state !== "approved" || blueprint.revision !== binding.blueprintRevision ||
       blueprint.authorityAnchors.rootRoleId !== binding.roleId ||
@@ -877,6 +886,38 @@ export class CompanyGoalSupervisor {
     }
     runtime.activeAssignments.add(assignmentId);
     return () => runtime.activeAssignments.delete(assignmentId);
+  }
+
+  #claimTeam(
+    runtime: ActiveCompanyGoal,
+    assignments: readonly CompanyGoalAssignmentV1[],
+    reservation: CompanyTeamRunReservation,
+  ): () => void {
+    if (assignments.some((assignment) =>
+      runtime.activeAssignments.has(assignment.id)
+    )) {
+      throw new ToolError("permission_denied", "Company assignment is already running");
+    }
+    const phaseConcurrency = Math.max(
+      reservation.companyGoal.implementations.length,
+      reservation.companyGoal.reviews.length,
+      reservation.companyGoal.repair === null ? 0 : 1,
+    );
+    if (runtime.activeAssignments.size + phaseConcurrency >
+      runtime.journal.current.state.budget.maxConcurrentAssignments) {
+      throw new ToolError(
+        "permission_denied",
+        "Company goal concurrency limit is reached",
+      );
+    }
+    for (const assignment of assignments) {
+      runtime.activeAssignments.add(assignment.id);
+    }
+    return () => {
+      for (const assignment of assignments) {
+        runtime.activeAssignments.delete(assignment.id);
+      }
+    };
   }
 
   async #assignmentContext(
@@ -1013,28 +1054,14 @@ export class CompanyGoalSupervisor {
     const reviewBindings = reviews.map((assignment) =>
       this.#teamBinding(runtime, assignment, "quality_v1")
     );
-    const repairRole = runtime.blueprint.roles.find((role) =>
-      role.capabilities.includes("repair") &&
-      role.toolBundles.includes("implementation_v1")
-    ) ?? roles.get(implementations[0]!.roleId)!;
-    const repairBundles = sortedToolBundles(repairRole.toolBundles);
-    if (!repairBundles.includes("implementation_v1")) {
-      throw new ToolError(
-        "permission_denied",
-        "Company implementation has no approved repair authority",
-      );
-    }
-    const repair = policy.maxRepairRounds === 0
+    const repairAssignment = implementations.find((assignment) => {
+      const role = roles.get(assignment.roleId)!;
+      return role.capabilities.includes("repair") &&
+        role.toolBundles.includes("implementation_v1");
+    });
+    const repair = policy.maxRepairRounds === 0 || repairAssignment === undefined
       ? null
-      : Object.freeze({
-          assignmentId: implementations[0]!.id,
-          parentAssignmentId: implementations[0]!.parentAssignmentId,
-          roleId: repairRole.id,
-          departmentId: repairRole.departmentId,
-          permissionMode: repairRole.permissionMode,
-          modelRoute: repairRole.modelRoute,
-          toolBundles: repairBundles,
-        });
+      : this.#teamBinding(runtime, repairAssignment, "implementation_v1");
     const correlation: TeamRunCompanyGoalCorrelation = Object.freeze({
       version: 1,
       runId: run.id,
@@ -1100,7 +1127,11 @@ export class CompanyGoalSupervisor {
         run.budget.maxAssignments ||
       run.budget.requestsReserved + reservation.allocation.maxRequests >
         run.budget.maxRequests ||
-      assignments.length > run.budget.maxConcurrentAssignments) {
+      Math.max(
+        reservation.companyGoal.implementations.length,
+        reservation.companyGoal.reviews.length,
+        reservation.companyGoal.repair === null ? 0 : 1,
+      ) > run.budget.maxConcurrentAssignments) {
       throw new ToolError(
         "permission_denied",
         "Company team exceeds the remaining goal budget",
@@ -1465,11 +1496,8 @@ export class CompanyGoalSupervisor {
       team.correlation,
       remaining,
     );
-    const releases: Array<() => void> = [];
+    const release = this.#claimTeam(runtime, team.assignments, reservation);
     try {
-      for (const assignment of team.assignments) {
-        releases.push(this.#claim(runtime, assignment.id));
-      }
       await this.#markTeamStarted(runtime, team.assignments, reservation);
       let result: TeamRunResult;
       try {
@@ -1499,7 +1527,7 @@ export class CompanyGoalSupervisor {
         );
       }
     } finally {
-      for (const release of releases.reverse()) release();
+      release();
     }
   }
 

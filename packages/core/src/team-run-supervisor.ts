@@ -969,8 +969,11 @@ export class TeamRunSupervisor {
     }
     const runId = company?.runId ?? this.#createId();
     const policy = structuredClone(mode) as TeamRunPolicySnapshot;
+    const repairRounds = company?.companyGoal.repair === null
+      ? 0
+      : team.maxRepairRounds!;
     const requiredChildren = input.tasks.length +
-      team.maxReviewers * (team.maxRepairRounds! + 1) + team.maxRepairRounds!;
+      team.maxReviewers * (repairRounds + 1) + repairRounds;
     const ordinaryAllowance = Math.max(
       1,
       Math.floor(mode.workflow.maxRequestsPerRun / mode.workflow.maxChildrenPerRun),
@@ -1470,9 +1473,11 @@ export class TeamRunSupervisor {
     const team = state.descriptor.policy.workflow.team;
     const remainingChildren = state.descriptor.allocation.maxChildren -
       state.accounting.childrenReserved;
+    const repairRounds = state.descriptor.companyGoal?.repair === null
+      ? 0
+      : team.maxRepairRounds;
     const requiredChildren = state.descriptor.request.tasks.length +
-      (team.maxRepairRounds + 1) * team.maxReviewers +
-      team.maxRepairRounds;
+      (repairRounds + 1) * team.maxReviewers + repairRounds;
     const remainingRequests = state.descriptor.allocation.maxRequests -
       state.accounting.requestsReserved;
     if (remainingChildren < requiredChildren || remainingRequests <
@@ -1872,7 +1877,10 @@ export class TeamRunSupervisor {
           return await this.#terminal(journal, "unverified", null, evidence);
         }
         if (review.verdict === "approved") break;
-        if (round >= descriptor.policy.workflow.team.maxRepairRounds) {
+        const maximumRepairRounds = descriptor.companyGoal?.repair === null
+          ? 0
+          : descriptor.policy.workflow.team.maxRepairRounds;
+        if (round >= maximumRepairRounds) {
           return await this.#terminal(
             journal,
             "changes_requested",

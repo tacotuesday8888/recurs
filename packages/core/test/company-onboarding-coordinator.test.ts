@@ -594,9 +594,15 @@ describe("CompanyOnboardingCoordinator", () => {
           toolBundles: [...specialist.toolBundles, "source_control_v1"],
         })
       ),
-      candidate((blueprint) =>
-        replaceRole(blueprint, inactiveRole.id, { activation: "always" })
-      ),
+      candidate((blueprint) => ({
+        ...replaceRole(blueprint, inactiveRole.id, { activation: "always" }),
+        activation: {
+          defaultActiveRoleIds: [
+            ...blueprint.activation.defaultActiveRoleIds,
+            inactiveRole.id,
+          ],
+        },
+      })),
       candidate((blueprint) =>
         replaceRole(blueprint, specialist.id, {
           executionProfileId: "implement_v2",

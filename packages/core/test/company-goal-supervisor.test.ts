@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   createHostInvocation,
   deriveTrustedRunContext,
+  type OperatingModeId,
   type CoordinatedRunInput,
   type RunCoordinator,
 } from "@recurs/contracts";
@@ -64,7 +65,7 @@ afterEach(async () => {
   ));
 });
 
-function organization(implementation = false) {
+function organization(implementation = false, economy = false) {
   const common = {
     departmentKey: "delivery",
     permissionMode: "approved_for_me" as const,
@@ -99,6 +100,7 @@ function organization(implementation = false) {
       capabilities: ["plan" as const, "research" as const],
       executionProfileId: "explore_v1" as const,
       expectedEvidence: ["Relevant project paths."],
+      activation: economy ? "on_demand" as const : "always" as const,
     }, {
       ...common,
       key: "worker",
@@ -110,7 +112,7 @@ function organization(implementation = false) {
       instructions: implementation
         ? "Work only in the isolated team workspace."
         : "Stay read-only and cite the inspected code.",
-      reportsToKey: "lead",
+      reportsToKey: economy ? "orchestrator" : "lead",
       capabilities: implementation
         ? ["implement" as const, "repair" as const]
         : ["research" as const],
@@ -139,7 +141,9 @@ function organization(implementation = false) {
     }],
     rootRoleKey: "orchestrator",
     independentReviewRoleKeys: ["reviewer"],
-    defaultActiveRoleKeys: ["orchestrator", "lead", "worker", "reviewer"],
+    defaultActiveRoleKeys: economy
+      ? ["orchestrator", "worker", "reviewer"]
+      : ["orchestrator", "lead", "worker", "reviewer"],
   };
 }
 
@@ -153,6 +157,7 @@ async function fixture(options: {
   )[];
   readonly learning?: boolean;
   readonly learningFailure?: "select" | "record";
+  readonly operatingModeId?: OperatingModeId;
 } = {}) {
   const root = await realpath(
     await mkdtemp(path.join(tmpdir(), "recurs-company-goal-")),
@@ -193,8 +198,11 @@ async function fixture(options: {
       },
     },
     permissionMode: "approved_for_me",
-    operatingModeId: "balanced_v6",
-    organization: organization(options.implementation === true),
+    operatingModeId: options.operatingModeId ?? "balanced_v6",
+    organization: organization(
+      options.implementation === true,
+      options.operatingModeId === "economy_v6",
+    ),
     availableToolBundles: [
       "project_context_v1", "quality_v1", "implementation_v1",
     ],
@@ -368,7 +376,7 @@ async function fixture(options: {
           taskId: `work-task-${workIndex}`,
           attempts: 1,
           retries: 0,
-          operatingModeId: "balanced_v6",
+          operatingModeId: blueprint.authority.operatingModeId,
           profileId: input.profile,
           usage,
           usageSource: usage === null ? "unavailable" : "provider",
@@ -534,6 +542,7 @@ async function fixture(options: {
     prompts,
     team,
     teamCalls,
+    teamCorrelations,
     createSupervisor(
       overrides: Partial<typeof supervisorDependencies> = {},
     ) {
@@ -656,8 +665,10 @@ async function seedRecoverableChild(
 ): Promise<string> {
   const input = goal(setup);
   const lead = input.assignments[0]!;
+  const worker = input.assignments[1]!;
   const reviewer = input.assignments[2]!;
   const leadRole = setup.roles["Planning Lead"]!;
+  const workerRole = setup.roles["Research Worker"]!;
   const reviewRole = setup.roles["Independent Reviewer"]!;
   const companyGoal = {
     runId: "recovery-run",
@@ -720,8 +731,19 @@ async function seedRecoverableChild(
         result: null,
         failure: null,
       }, {
+        ...worker,
+        expectedEvidence: workerRole.expectedEvidence,
+        status: "completed",
+        result: {
+          summary: "completed historical worker assignment",
+          evidence: ["historical worker evidence"],
+          usage: { inputTokens: 3, outputTokens: 2, costUsd: 0.01 },
+          usageSource: "provider",
+        },
+        failure: null,
+      }, {
         ...reviewer,
-        dependsOn: [lead.id],
+        dependsOn: [lead.id, worker.id],
         expectedEvidence: reviewRole.expectedEvidence,
         status: "pending",
         result: null,
@@ -730,13 +752,13 @@ async function seedRecoverableChild(
     },
     budget: {
       maxAssignments: 8,
-      assignmentsStarted: 1,
+      assignmentsStarted: 2,
       maxConcurrentAssignments: 3,
       maxRequests: 80,
-      requestsReserved: 10,
-      requestsUsed: 0,
+      requestsReserved: 20,
+      requestsUsed: 1,
       maxReportedCostUsd: 3,
-      reportedCostUsd: 0,
+      reportedCostUsd: 0.01,
     },
     result: null,
     failure: null,
@@ -785,6 +807,229 @@ const childCorrelationCorruptions = [
 ] as const;
 
 describe("CompanyGoalSupervisor", () => {
+  it("rejects missing, unknown, and non-default assignment roles before durable work", async () => {
+    const missing = await fixture();
+    const missingInput = goal(missing);
+    await expect(missing.supervisor.start({
+      ...missingInput,
+      assignments: missingInput.assignments
+        .filter((assignment) => assignment.id !== "worker-assignment")
+        .map((assignment) => assignment.id === "review-assignment"
+          ? { ...assignment, dependsOn: ["lead-assignment"] }
+          : assignment),
+    }, missing.context)).rejects.toMatchObject({
+      code: "invalid_input",
+      message: expect.stringContaining("Every default-active role"),
+    });
+    await expect(missing.runs.load("company-run-id-1")).rejects
+      .toMatchObject({ code: "not_found" });
+
+    const unknown = await fixture();
+    const unknownInput = goal(unknown);
+    await expect(unknown.supervisor.start({
+      ...unknownInput,
+      assignments: unknownInput.assignments.map((assignment) =>
+        assignment.id === "worker-assignment"
+          ? { ...assignment, roleId: "unknown-role" }
+          : assignment
+      ),
+    }, unknown.context)).rejects.toMatchObject({
+      code: "invalid_input",
+    });
+    await expect(unknown.runs.load("company-run-id-1")).rejects
+      .toMatchObject({ code: "not_found" });
+
+    const inactive = await fixture();
+    const inactiveWorker = inactive.roles["Research Worker"]!;
+    const inactiveBlueprint = {
+      ...inactive.blueprint,
+      activation: {
+        defaultActiveRoleIds:
+          inactive.blueprint.activation.defaultActiveRoleIds.filter(
+            (roleId) => roleId !== inactiveWorker.id,
+          ),
+      },
+    };
+    await expect(inactive.createSupervisor({
+      blueprints: { async load() { return inactiveBlueprint; } },
+    }).start(goal(inactive), inactive.context)).rejects.toMatchObject({
+      code: "invalid_input",
+      message: expect.stringContaining("not active"),
+    });
+    await expect(inactive.runs.load("company-run-id-1")).rejects
+      .toMatchObject({ code: "not_found" });
+    expect(inactive.prompts).toEqual([]);
+    expect(inactive.teamCalls).toEqual([]);
+    expect(inactive.events).toEqual([]);
+  });
+
+  it("requires mandatory review and rejects unsupported active profiles at authority", async () => {
+    const missingReview = await fixture();
+    const input = goal(missingReview);
+    await expect(missingReview.supervisor.start({
+      ...input,
+      assignments: input.assignments.filter((assignment) =>
+        assignment.id !== "review-assignment"
+      ),
+    }, missingReview.context)).rejects.toMatchObject({
+      code: "invalid_input",
+      message: expect.stringContaining("Every default-active role"),
+    });
+
+    const unsupported = await fixture();
+    const lead = unsupported.roles["Planning Lead"]!;
+    const unsupportedBlueprint = {
+      ...unsupported.blueprint,
+      roles: unsupported.blueprint.roles.map((role) => role.id === lead.id
+        ? {
+            ...role,
+            executionProfileId: "implement_v1" as const,
+            modelRoute: "implement" as const,
+          }
+        : role),
+    };
+    await expect(unsupported.createSupervisor({
+      blueprints: { async load() { return unsupportedBlueprint; } },
+    }).start(goal(unsupported), unsupported.context)).rejects.toMatchObject({
+      code: "permission_denied",
+      message: expect.stringContaining("execution profile"),
+    });
+    await expect(unsupported.runs.load("company-run-id-1")).rejects
+      .toMatchObject({ code: "not_found" });
+    expect(unsupported.prompts).toEqual([]);
+    expect(unsupported.teamCalls).toEqual([]);
+    expect(unsupported.events).toEqual([]);
+  });
+
+  it("revalidates a historical inactive-role plan before resume side effects", async () => {
+    const setup = await fixture();
+    await seedRecoverableChild(setup);
+    const lead = setup.roles["Planning Lead"]!;
+    const worker = setup.roles["Research Worker"]!;
+    const historicalBlueprint = {
+      ...setup.blueprint,
+      activation: {
+        defaultActiveRoleIds: setup.blueprint.activation.defaultActiveRoleIds
+          .filter((roleId) => roleId !== lead.id && roleId !== worker.id),
+      },
+    };
+    const before = await setup.runs.load("recovery-run");
+    const prompts = setup.prompts.length;
+    const events = setup.events.length;
+    const teamCalls = [...setup.teamCalls];
+    const childLoads: string[] = [];
+    const sessions = {
+      async loadState(sessionId: string, signal?: AbortSignal) {
+        childLoads.push(sessionId);
+        return await setup.sessions.loadState(sessionId, signal);
+      },
+    };
+
+    await expect(setup.createSupervisor({
+      sessions,
+      blueprints: { async load() { return historicalBlueprint; } },
+    }).resume("recovery-run", setup.context)).rejects.toMatchObject({
+      code: "permission_denied",
+      message: expect.stringContaining("not active"),
+    });
+
+    expect(childLoads).toEqual([setup.parent.id]);
+    expect(setup.prompts).toHaveLength(prompts);
+    expect(setup.events).toHaveLength(events);
+    expect(setup.teamCalls).toEqual(teamCalls);
+    await expect(setup.runs.load("recovery-run")).resolves.toMatchObject({
+      sequence: before.sequence,
+      state: {
+        status: "running",
+        budget: before.state.budget,
+      },
+    });
+  });
+
+  it("never binds inactive repair capacity into a company team", async () => {
+    const setup = await fixture({ implementation: true });
+    const root = setup.blueprint.roles.find((role) =>
+      role.id === setup.blueprint.authorityAnchors.rootRoleId
+    )!;
+    const worker = setup.roles["Implementation Worker"]!;
+    const inactiveRepair = {
+      ...worker,
+      id: "inactive-repair-role",
+      displayName: "Inactive Repair Specialist",
+      reportsTo: root.id,
+      delegatesTo: [],
+      capabilities: ["repair" as const],
+      executionProfileId: "repair_v1" as const,
+      modelRoute: "repair" as const,
+      activation: "on_demand" as const,
+    };
+    const noAssignedRepair = {
+      ...setup.blueprint,
+      roles: [
+        ...setup.blueprint.roles.map((role) => role.id === root.id
+          ? { ...role, delegatesTo: [...role.delegatesTo, inactiveRepair.id] }
+          : role.id === worker.id
+            ? {
+                ...role,
+                capabilities: role.capabilities.filter((capability) =>
+                  capability !== "repair"
+                ),
+              }
+            : role),
+        inactiveRepair,
+      ],
+    };
+
+    await expect(setup.createSupervisor({
+      blueprints: { async load() { return noAssignedRepair; } },
+    }).start(goal(setup), setup.context)).resolves.toMatchObject({
+      metadata: { status: "completed" },
+    });
+    expect([...setup.teamCorrelations.values()][0]?.repair).toBeNull();
+  });
+
+  it("runs the Economy builder and reviewer as sequential team phases", async () => {
+    const setup = await fixture({
+      implementation: true,
+      operatingModeId: "economy_v6",
+    });
+    const builder = setup.roles["Implementation Worker"]!;
+    const reviewer = setup.roles["Independent Reviewer"]!;
+    const input: DelegateCompanyGoalInput = {
+      objective: "Deliver one bounded Economy implementation with review.",
+      assignments: [{
+        id: "economy-implementation",
+        roleId: builder.id,
+        parentAssignmentId: null,
+        dependsOn: [],
+        description: "Implement the Economy slice",
+        prompt: "Implement and verify the bounded slice.",
+        acceptance: ["Return a verified patch."],
+      }, {
+        id: "economy-review",
+        roleId: reviewer.id,
+        parentAssignmentId: null,
+        dependsOn: ["economy-implementation"],
+        description: "Review the Economy slice",
+        prompt: "Independently review the complete patch.",
+        acceptance: ["Approve or return findings."],
+      }],
+    };
+
+    const result = await setup.supervisor.start(input, setup.context);
+    expect(result.output).not.toContain("terminal failure");
+    expect(result).toMatchObject({ metadata: { status: "completed" } });
+    expect(setup.teamCalls).toEqual(["reserve", "start"]);
+    const run = await setup.runs.load("company-run-id-1");
+    expect(run.state).toMatchObject({
+      status: "completed",
+      budget: {
+        assignmentsStarted: 2,
+        maxConcurrentAssignments: 1,
+      },
+    });
+  });
+
   it("allows exactly one durable start across two supervisor instances", async () => {
     const setup = await fixture({ implementation: true });
     const second = setup.createSupervisor();
@@ -1547,10 +1792,10 @@ describe("CompanyGoalSupervisor", () => {
     expect(recovered.state).toMatchObject({
       status: "completed",
       budget: {
-        assignmentsStarted: 2,
-        requestsReserved: 20,
-        requestsUsed: 2,
-        reportedCostUsd: 0.03,
+        assignmentsStarted: 3,
+        requestsReserved: 30,
+        requestsUsed: 3,
+        reportedCostUsd: 0.04,
       },
     });
   });
@@ -1583,10 +1828,11 @@ describe("CompanyGoalSupervisor", () => {
       await expect(setup.runs.load("recovery-run")).resolves.toMatchObject({
         state: {
           status: "interrupted",
-          budget: { requestsUsed: 0, reportedCostUsd: 0 },
+          budget: { requestsUsed: 1, reportedCostUsd: 0.01 },
           plan: {
             assignments: [
               { status: "running", result: null },
+              { status: "completed", result: expect.any(Object) },
               { status: "pending", result: null },
             ],
           },
@@ -1664,10 +1910,11 @@ describe("CompanyGoalSupervisor", () => {
     await expect(setup.runs.load("recovery-run")).resolves.toMatchObject({
       state: {
         status: "running",
-        budget: { requestsUsed: 0, reportedCostUsd: 0 },
+        budget: { requestsUsed: 1, reportedCostUsd: 0.01 },
         plan: {
           assignments: [
             { status: "running", result: null },
+            { status: "completed", result: expect.any(Object) },
             { status: "pending", result: null },
           ],
         },

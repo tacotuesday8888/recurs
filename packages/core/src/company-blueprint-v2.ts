@@ -212,7 +212,7 @@ function coreRoles(
     responsibility: "Implement one bounded approved workstream.",
     instructions: "Change only assigned scope and return concrete evidence.",
     reportsToKey: maximumDepth >= 2 ? "implementation_lead" : "orchestrator",
-    capabilities: ["implement"],
+    capabilities: ["implement", "repair"],
     executionProfileId: "implement_v2",
     toolBundles: ["project_context_v1", "implementation_v1"],
     expectedEvidence: ["Changed paths and verification evidence."],
@@ -240,7 +240,7 @@ function coreRoles(
     instructions: "Do not claim deployment or release without explicit authority.",
     reportsToKey: "orchestrator",
     capabilities: ["review", "release"],
-    executionProfileId: "review_v2",
+    executionProfileId: "review_v1",
     permissionMode: "ask_always",
     toolBundles: ["security_v1", "release_v1"],
     expectedEvidence: ["Security findings and release-readiness evidence."],
@@ -257,18 +257,64 @@ function stableOrganization(
     ...coreRoles(input.project, input.permissionMode, maximumDepth),
     ...(input.specialists ?? []),
   ];
-  const preferredActive = [
-    "orchestrator", "implementation_lead", "qa_reviewer",
-    "product_planner", "architect", "tool_curator",
-    "security_release_reviewer", "scoped_builder",
-  ];
+  const defaultActiveRoleKeys = maximumDepth === 1
+    ? ["orchestrator", "scoped_builder", "qa_reviewer"]
+    : [
+        "orchestrator",
+        "implementation_lead",
+        "scoped_builder",
+        "qa_reviewer",
+      ];
+  if (defaultActiveRoleKeys.length > maximumActiveRoles) {
+    throw new TypeError("Company mode cannot fit the stable execution spine");
+  }
   return {
     departments: coreDepartments(),
     roles,
     rootRoleKey: "orchestrator",
     independentReviewRoleKeys: ["qa_reviewer"],
-    defaultActiveRoleKeys: preferredActive.slice(0, maximumActiveRoles),
+    defaultActiveRoleKeys,
   };
+}
+
+export function validateCompanyBlueprintV2ExecutionPolicy(
+  blueprint: CompanyBlueprintV2,
+): void {
+  const roles = new Map(blueprint.roles.map((role) => [role.id, role] as const));
+  const activeRoleIds = new Set(blueprint.activation.defaultActiveRoleIds);
+  const independentReviewRoleIds = new Set(
+    blueprint.authorityAnchors.independentReviewRoleIds,
+  );
+  for (const roleId of activeRoleIds) {
+    const role = roles.get(roleId);
+    if (role === undefined) {
+      throw new TypeError("Company execution policy references an unknown active role");
+    }
+    let current = role;
+    while (current.reportsTo !== null) {
+      if (!activeRoleIds.has(current.reportsTo)) {
+        throw new TypeError(
+          "Company active role reporting ancestry must remain active",
+        );
+      }
+      current = roles.get(current.reportsTo)!;
+    }
+    if (role.id === blueprint.authorityAnchors.rootRoleId) continue;
+    if (role.executionProfileId === "review_v2" &&
+      !independentReviewRoleIds.has(role.id)) {
+      throw new TypeError(
+        "Only independent-review authority may use the review_v2 execution profile",
+      );
+    }
+    if (role.executionProfileId !== "explore_v1" &&
+      role.executionProfileId !== "review_v1" &&
+      role.executionProfileId !== "implement_v2" &&
+      role.executionProfileId !== "review_v2") {
+      throw new TypeError(
+        "Company default-active role has an unsupported execution profile",
+      );
+    }
+  }
 }
 
 function compileOrganization(
@@ -387,7 +433,7 @@ export function compileCompanyBlueprintV2(
     "project_context_v1",
     "source_control_v1",
   ]);
-  return parseCompanyBlueprintV2({
+  const blueprint = parseCompanyBlueprintV2({
     id: input.id,
     companyId: input.companyId,
     version: 2,
@@ -435,6 +481,8 @@ export function compileCompanyBlueprintV2(
       generatedBy: input.generatedBy,
     },
   });
+  validateCompanyBlueprintV2ExecutionPolicy(blueprint);
+  return blueprint;
 }
 
 export function approveCompanyBlueprintV2(
@@ -445,6 +493,7 @@ export function approveCompanyBlueprintV2(
   if (proposed.state !== "proposed") {
     throw new TypeError("Only a proposed V2 company blueprint can be approved");
   }
+  validateCompanyBlueprintV2ExecutionPolicy(proposed);
   return parseCompanyBlueprintV2({
     ...proposed,
     state: "approved",
@@ -458,18 +507,25 @@ export function companyContextInstructionsV2(
   if (blueprint.state !== "approved") {
     throw new TypeError("Only an approved V2 company blueprint can enter model context");
   }
+  validateCompanyBlueprintV2ExecutionPolicy(blueprint);
+  const activeRoleIds = new Set(blueprint.activation.defaultActiveRoleIds);
   const executable = blueprint.roles
-    .filter((role) => role.executionProfileId !== null)
+    .filter((role) =>
+      activeRoleIds.has(role.id) && role.executionProfileId !== null
+    )
     .map((role) =>
       `${role.id} (${role.displayName}; profile ${role.executionProfileId}; route ${role.modelRoute})`
     )
     .join(", ");
   const executableIds = new Set(
     blueprint.roles
-      .filter((role) => role.executionProfileId !== null)
+      .filter((role) =>
+        activeRoleIds.has(role.id) && role.executionProfileId !== null
+      )
       .map((role) => role.id),
   );
   const delegationEdges = blueprint.roles
+    .filter((role) => activeRoleIds.has(role.id))
     .map((role) => {
       const children = role.delegatesTo.filter((roleId) =>
         executableIds.has(roleId)
@@ -480,12 +536,20 @@ export function companyContextInstructionsV2(
     })
     .filter((line): line is string => line !== null)
     .join("; ");
+  const inactive = blueprint.roles
+    .filter((role) => !activeRoleIds.has(role.id))
+    .map((role) =>
+      `${role.id} (${role.displayName}; profile ${
+        role.executionProfileId ?? "none"
+      })`
+    )
+    .join(", ");
   const root = compileCompanyRoleCharter(
     blueprint,
     blueprint.authorityAnchors.rootRoleId,
   );
   const implementationRole = blueprint.roles.find((role) =>
-    role.executionProfileId === "implement_v2"
+    activeRoleIds.has(role.id) && role.executionProfileId === "implement_v2"
   );
   const implementationParent = implementationRole?.reportsTo === null
     ? undefined
@@ -501,10 +565,11 @@ export function companyContextInstructionsV2(
     root.presentation,
     root.operatingContext,
     root.authorityBoundary,
-    `Executable approved roles: ${executable || "none"}.`,
-    `Approved delegation edges: ${delegationEdges || "none"}.`,
+    `Executable default-active roles: ${executable || "none"}.`,
+    `Inactive roster capacity (not executable): ${inactive || "none"}.`,
+    `Approved active delegation edges: ${delegationEdges || "none"}.`,
     `Independent-review role IDs: ${blueprint.authorityAnchors.independentReviewRoleIds.join(", ")}.`,
-    "Use delegate_company_goal for one goal-scoped assignment DAG. Every assignment role must be executable. A top-level assignment must use a role directly delegated by the root; a nested assignment's parent role must delegate to its role.",
+    "Use delegate_company_goal for one goal-scoped assignment DAG. Every assignment role must be executable and default-active, and every non-root default-active role must have an assignment. A top-level assignment must use a role directly delegated by the root; a nested assignment's parent role must delegate to its role.",
     "Every independent-review role must have a top-level assignment. At least one final independent-review assignment must depend on every non-review assignment, and every implementation assignment must be one of its dependencies.",
     ...(implementationRole === undefined || implementationReviewer === undefined
       ? []

@@ -535,13 +535,14 @@ function exactCompanyGoal(
       exactCompanyRoleBinding(binding, descriptor.parentPermissionMode) &&
       binding.modelRoute === "review" &&
       binding.toolBundles.includes("quality_v1")
-    ) || (team.maxRepairRounds === 0
-      ? value.repair !== null
-      : !exactCompanyRoleBinding(value.repair, descriptor.parentPermissionMode) ||
+    ) || (value.repair !== null && (
+      team.maxRepairRounds === 0 ||
+      !exactCompanyRoleBinding(value.repair, descriptor.parentPermissionMode) ||
         (value.repair.modelRoute !== "implement" &&
           value.repair.modelRoute !== "repair" &&
           value.repair.modelRoute !== "parent") ||
-        !value.repair.toolBundles.includes("implementation_v1"))) {
+        !value.repair.toolBundles.includes("implementation_v1")
+    ))) {
     return false;
   }
   const correlation = value as unknown as TeamRunCompanyGoalCorrelation;
@@ -556,8 +557,9 @@ function exactCompanyGoal(
       )) {
     return false;
   }
+  const repairRounds = correlation.repair === null ? 0 : team.maxRepairRounds;
   const requiredChildren = descriptor.request.tasks.length +
-    team.maxReviewers * (team.maxRepairRounds + 1) + team.maxRepairRounds;
+    team.maxReviewers * (repairRounds + 1) + repairRounds;
   const allocation = descriptor.allocation;
   return allocation.maxChildren === requiredChildren &&
     integer(allocation.requestAllowance, 1) &&
@@ -1023,7 +1025,9 @@ export function reduceTeamRunRecord(
       } else if (record.phase === "repair") {
         ensurePhase(current, "review");
         const review = currentClaimReview(current);
-        const maximum = current.descriptor.policy.workflow.team.maxRepairRounds;
+        const maximum = current.descriptor.companyGoal?.repair === null
+          ? 0
+          : current.descriptor.policy.workflow.team.maxRepairRounds;
         if (review?.verdict !== "changes_requested" ||
           record.round !== review.round + 1 || record.round > maximum) {
           invalid("Repair requires a bounded valid change request");
@@ -1275,9 +1279,12 @@ export function reduceTeamRunRecord(
       if (record.status === "unverified" && review?.verdict !== "unverified") {
         invalid("Unverified terminal state requires an unverified review");
       }
+      const maximumRepairRounds = state.descriptor.companyGoal?.repair === null
+        ? 0
+        : state.descriptor.policy.workflow.team.maxRepairRounds;
       if (record.status === "changes_requested" && (
         review?.verdict !== "changes_requested" ||
-        review.round < state.descriptor.policy.workflow.team.maxRepairRounds
+        review.round < maximumRepairRounds
       )) {
         invalid("Changes requested is terminal only after repair exhaustion");
       }
