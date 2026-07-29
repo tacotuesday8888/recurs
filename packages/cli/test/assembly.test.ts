@@ -56,6 +56,7 @@ import {
   createStandaloneRuntime,
   writeLocalConnection,
 } from "../src/index.js";
+import { companyBenchmarkApprovalHandler } from "../src/company-benchmark-execution.js";
 
 const directories: string[] = [];
 const execFileAsync = promisify(execFile);
@@ -2552,6 +2553,63 @@ describe("standalone assembly without a provider", () => {
       expect(provider.requests[1]?.messages.findLast(
         (message) => message.role === "tool",
       )?.content).toContain("terminal-output");
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  it("denies a benchmark look-alike command before the process runner starts", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-benchmark-denial-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const spawnPty = vi.fn(() => {
+      throw new Error("denied commands must not spawn a process");
+    });
+    const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "denied-command-call",
+            name: "run_command",
+            arguments: {
+              command: "node --test",
+              tty: true,
+              timeoutMs: 5_000,
+              yieldTimeMs: 1_000,
+            },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "The denied command was not run." },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const events: RecursEvent[] = [];
+    const runtime = await createStandaloneRuntime(
+      { async emit(event) { events.push(event); } },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        skillHomeDirectory: path.join(root, "home"),
+        provider,
+        permissionMode: "approved_for_me",
+        approvalHandler: companyBenchmarkApprovalHandler,
+        ptyDriver: { spawn: spawnPty },
+      },
+    );
+    try {
+      await expect(runtime.submit("attempt a denied benchmark command")).resolves
+        .toMatchObject({ finalText: "The denied command was not run." });
+      expect(events).toContainEqual(expect.objectContaining({
+        type: "permission_resolved",
+        decision: "deny",
+        intent: { category: "shell", resource: "node --test", risk: "elevated" },
+      }));
+      expect(spawnPty).not.toHaveBeenCalled();
     } finally {
       await runtime.close();
     }

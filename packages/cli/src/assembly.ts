@@ -112,6 +112,7 @@ import {
   type PermissionMode,
   type ExecutionMode,
   type PtyDriver,
+  type ApprovalHandler,
   type ToolSecurityProfile,
 } from "@recurs/tools";
 
@@ -164,6 +165,7 @@ export interface StandaloneRuntimeOptions {
   companyBlueprint?: CompanyBlueprint;
   skillHomeDirectory?: string;
   ptyDriver?: PtyDriver;
+  approvalHandler?: ApprovalHandler;
 }
 
 function injectedBackendPin(
@@ -1545,11 +1547,11 @@ export async function createStandaloneRuntime(
     }
     return await runtime.requestUserInput(request, signal);
   }));
-  const approvals = {
-    async request(intent: {
-      readonly category: string;
-      readonly resource: string;
-    }) {
+  const approvals: ApprovalHandler = {
+    async request(intent) {
+      if (options.approvalHandler !== undefined) {
+        return await options.approvalHandler.request(intent);
+      }
       const allowed =
         (await runtimeReference.current?.confirm(
           `Allow ${intent.category} access to ${intent.resource}?`,

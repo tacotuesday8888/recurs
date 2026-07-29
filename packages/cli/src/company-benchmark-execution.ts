@@ -35,7 +35,11 @@ import {
   type RecursEvent,
 } from "@recurs/core";
 import type { ModelProvider } from "@recurs/providers";
-import type { runProcess } from "@recurs/tools";
+import type {
+  ApprovalHandler,
+  PermissionIntent,
+  runProcess,
+} from "@recurs/tools";
 
 import { createStandaloneRuntime } from "./assembly.js";
 import { createCodexAgentRuntime } from "./codex-connection.js";
@@ -48,17 +52,29 @@ const LAUNCH_INVOCATION = createHostInvocation({
   scripted: false,
   embedding: "cli",
 });
-const BENCHMARK_PRECONSENTED_CONFIRMATIONS = new Set([
-  "Allow write access to team candidate apply?",
-  "Allow shell access to fixed Git worktree orchestration?",
-]);
+const BENCHMARK_PREAPPROVED_INTENTS = [
+  { category: "write", resource: "team candidate apply", risk: "elevated" },
+  {
+    category: "shell",
+    resource: "fixed Git worktree orchestration",
+    risk: "normal",
+  },
+  { category: "shell", resource: "npm test", risk: "normal" },
+] as const satisfies readonly PermissionIntent[];
 
-export function isCompanyBenchmarkPreconsentedConfirmation(
-  message: string,
-): boolean {
-  return BENCHMARK_PRECONSENTED_CONFIRMATIONS.has(message) ||
-    message.startsWith("Allow shell access to ") && message.endsWith("?");
+function isBenchmarkPreapprovedIntent(intent: PermissionIntent): boolean {
+  return BENCHMARK_PREAPPROVED_INTENTS.some((candidate) =>
+    candidate.category === intent.category &&
+    candidate.resource === intent.resource &&
+    candidate.risk === intent.risk
+  );
 }
+
+export const companyBenchmarkApprovalHandler: ApprovalHandler = {
+  async request(intent) {
+    return isBenchmarkPreapprovedIntent(intent) ? "allow_once" : "deny";
+  },
+};
 
 export function companyBenchmarkBlueprintDigest(
   blueprint: CompanyBlueprintV2,
@@ -368,10 +384,8 @@ export class RuntimeCompanyBenchmarkAdapter
         ...(this.#options.environment === undefined
           ? {}
           : { environment: this.#options.environment }),
+        approvalHandler: companyBenchmarkApprovalHandler,
       });
-      runtime.setConfirmHandler(async (message) =>
-        isCompanyBenchmarkPreconsentedConfirmation(message)
-      );
       recorder.registerParent(runtime.session.id, startedAtMs);
       try {
         if (arm.kind === "single_agent") {

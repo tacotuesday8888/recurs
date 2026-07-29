@@ -23,14 +23,14 @@ import {
   getCompanyBenchmarkScenario,
 } from "@recurs/core";
 import type { ModelProvider } from "@recurs/providers";
-import { runProcess } from "@recurs/tools";
+import { runProcess, type PermissionIntent } from "@recurs/tools";
 
 import {
   RuntimeCompanyBenchmarkAdapter,
   assertCompanyBenchmarkScenarioAuthority,
+  companyBenchmarkApprovalHandler,
   companyBenchmarkBlueprintDigest,
   companyBenchmarkExecutionFailureCode,
-  isCompanyBenchmarkPreconsentedConfirmation,
 } from "../src/company-benchmark-execution.js";
 import { RuntimeError } from "../src/runtime.js";
 
@@ -384,33 +384,29 @@ describe("RuntimeCompanyBenchmarkAdapter", () => {
     ).toThrow("scenario does not match campaign authority");
   });
 
-  it("preconsents only sandboxed benchmark shell checks and fixed orchestration", () => {
-    expect(isCompanyBenchmarkPreconsentedConfirmation(
-      "Allow shell access to npm test?",
-    )).toBe(true);
-    expect(isCompanyBenchmarkPreconsentedConfirmation(
-      "Allow shell access to node --test?",
-    )).toBe(true);
-    expect(isCompanyBenchmarkPreconsentedConfirmation(
-      "Allow write access to team candidate apply?",
-    )).toBe(true);
-    expect(isCompanyBenchmarkPreconsentedConfirmation(
-      "Allow shell access to fixed Git worktree orchestration?",
-    )).toBe(true);
-
-    expect(isCompanyBenchmarkPreconsentedConfirmation(
-      "Allow network access to https://example.com?",
-    )).toBe(false);
-    expect(isCompanyBenchmarkPreconsentedConfirmation(
-      "Allow credential access to OPENAI_API_KEY?",
-    )).toBe(false);
-    expect(isCompanyBenchmarkPreconsentedConfirmation(
-      "Allow external_path access to /Users/example?",
-    )).toBe(false);
-    expect(isCompanyBenchmarkPreconsentedConfirmation(
-      "Allow shell access to npm test",
-    )).toBe(false);
-  });
+  it.each([
+    [{ category: "write", resource: "team candidate apply", risk: "elevated" }, "allow_once"],
+    [{ category: "shell", resource: "fixed Git worktree orchestration", risk: "normal" }, "allow_once"],
+    [{ category: "shell", resource: "npm test", risk: "normal" }, "allow_once"],
+    [{ category: "read", resource: "src/alias-path.js", risk: "normal" }, "deny"],
+    [{ category: "shell", resource: "npm test > results.txt", risk: "normal" }, "deny"],
+    [{ category: "shell", resource: "npm test $(whoami)", risk: "destructive" }, "deny"],
+    [{ category: "shell", resource: "sh -c npm test", risk: "destructive" }, "deny"],
+    [{ category: "shell", resource: "git reset --hard", risk: "destructive" }, "deny"],
+    [{ category: "shell", resource: "rm -rf .", risk: "destructive" }, "deny"],
+    [{ category: "credential", resource: "env", risk: "elevated" }, "deny"],
+    [{ category: "network", resource: "npm install", risk: "elevated" }, "deny"],
+    [{ category: "network", resource: "https://example.com", risk: "elevated" }, "deny"],
+    [{ category: "external_path", resource: "/Users/example", risk: "elevated" }, "deny"],
+    [{ category: "shell", resource: "node --test", risk: "normal" }, "deny"],
+    [{ category: "shell", resource: "npm test -- --watch", risk: "normal" }, "deny"],
+    [{ category: "shell", resource: "Allow shell access to npm test?", risk: "normal" }, "deny"],
+  ] satisfies readonly [PermissionIntent, "allow_once" | "deny"][])(
+    "admits only the exact immutable benchmark intent %#",
+    async (intent, expected) => {
+      expect(await companyBenchmarkApprovalHandler.request(intent)).toBe(expected);
+    },
+  );
 
   it("runs byte-identical single and company arms through review, repair, synthesis, and hidden verification", async () => {
     const root = await realpath(
