@@ -8,7 +8,11 @@ import {
   type DelegatedConnectionRecord,
 } from "@recurs/app";
 import { CODEX_APP_SERVER_PROFILE_REVISION } from "@recurs/runtimes";
-import { createCompanyBenchmarkSummary } from "@recurs/core";
+import {
+  createCompanyBenchmarkBlueprint,
+  createCompanyBenchmarkSummary,
+  getCompanyBenchmarkScenario,
+} from "@recurs/core";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -16,6 +20,7 @@ import {
   parseCompanyBenchmarkCommand,
   renderCompanyBenchmarkScenarios,
 } from "../src/company-benchmark-command.js";
+import { companyBenchmarkBlueprintDigest } from "../src/company-benchmark-execution.js";
 import { runCli } from "../src/process-host.js";
 
 const AT = "2026-07-24T00:00:00.000Z";
@@ -169,6 +174,11 @@ describe("company benchmark command", () => {
       "single-strong",
     ]);
     expect(campaign.scenario.id).toBe("layered_config");
+    expect(campaign.blueprint.sha256).toBe(companyBenchmarkBlueprintDigest(
+      createCompanyBenchmarkBlueprint(
+        getCompanyBenchmarkScenario("layered_config", 1),
+      ),
+    ));
     expect(campaign.baseline.configuredRoutes).toEqual([
       expect.objectContaining({
         role: "parent",

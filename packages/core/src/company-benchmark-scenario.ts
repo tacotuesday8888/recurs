@@ -185,7 +185,7 @@ const aliasRegistryScenario = Object.freeze({
   version: 1,
   taskClass: "general_coding",
   difficulty: "medium",
-  verifierId: "alias_registry_hidden_v1",
+  verifierId: "alias_registry_hidden_v2",
   fixtureSha256: digestFixture(aliasRegistryFiles),
   objectiveRevision: "alias_registry_objective_v1",
   objective: [
@@ -701,7 +701,7 @@ const ALIAS_HIDDEN_VERIFIER_SOURCE = hiddenVerifierProgram(`
     ["hidden_alias_normalization", async () => {
       const { normalizeAliasPath: n } = await load("src/alias-path.js");
       equal(n("@docs//guide/./api"), "@docs/guide/api");
-      equal(n("@a-b_2"), "@a-b_2");
+      equal(n("@a_b2"), "@a_b2");
       throws(() => n("@Docs/file"), TypeError);
       throws(() => n("@1docs/file"), TypeError);
       throws(() => n("@${"a".repeat(33)}/file"), TypeError);
@@ -715,7 +715,7 @@ const ALIAS_HIDDEN_VERIFIER_SOURCE = hiddenVerifierProgram(`
       ]);
       equal(registry.resolve("@pkg/ui/button"), "src/ui/button");
       equal(registry.resolve("@pkg/util"), "src/pkg/util");
-      equal(registry.resolve("@pkg-extra/file"), null);
+      equal(registry.resolve("@package/file"), null);
       equal(registry.resolve("@missing"), null);
       throws(() => create([
         { alias: "@pkg/ui", target: "a" },

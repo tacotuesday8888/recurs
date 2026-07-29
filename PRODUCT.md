@@ -115,15 +115,15 @@ before Recurs can claim a lightweight install.
 
 ## Next priorities
 
-1. **Compare the company experience, not just prove it can run.** One
-   authorized Codex subscription dogfood completed formation, decomposition,
-   isolated implementation, independent review, synthesis, and Auto
-   activation. It used 216,879 input and 3,274 output tokens; 161,024 input
-   tokens were cached and dollar cost was unavailable. Repeat representative
-   goals against a strong single-agent baseline and alternative lineups, then
-   improve delegation, context reuse, review value, latency, and cost from the
-   measured differences. The successful live run did not require Repair;
-   deterministic integration tests remain the evidence for that branch.
+1. **Compare the company experience, not just prove it can run.** The initial
+   formation-to-apply dogfood and a later three-scenario comparison now prove
+   real Codex execution. The company passed all three hidden verifiers while
+   the Sol baseline passed two, but it used more input tokens on both shared
+   successes and was not consistently faster. Repeat each scenario at least
+   three times, include an alternative team, then improve activation, context
+   reuse, review value, latency, and cost from the measured differences. No
+   live run required Repair; deterministic integration tests remain the
+   evidence for that branch.
 2. **Ship a portable alpha.** Complete the one-time npm bootstrap and release
    the already verified npm, checksum-bound curl, and generated Homebrew
    artifacts only after the public repository protections and release

@@ -376,6 +376,13 @@ function boundedTeamEvidence(values: readonly string[]): string[] {
     .map((value) => truncateUtf8(value.trim(), MAX_SAFE_TEXT));
 }
 
+function boundedReviewExecutionEvidence(values: readonly string[]): string[] {
+  return uniqueSorted(values)
+    .filter((value) => value.trim().length > 0)
+    .slice(0, 32)
+    .map((value) => truncateUtf8(value.trim(), 512));
+}
+
 function reviewEvidence(review: AgentReviewPanelResultV2): string[] {
   const evidence = [...review.evidence];
   for (const record of review.reviews) {
@@ -1529,6 +1536,7 @@ export class TeamRunSupervisor {
     let parentAbortObserved = context.signal.aborted;
     const childrenAbort = new AbortController();
     const evidence: string[] = [];
+    const executionEvidence: string[] = [];
     const requestCancellation = (reason: string): Promise<void> => {
       parentAbortObserved = true;
       if (journal === undefined) return Promise.resolve();
@@ -1716,6 +1724,7 @@ export class TeamRunSupervisor {
         }
         completedWorkers.push({ settled, child });
         evidence.push(...child.evidence);
+        executionEvidence.push(...child.evidence);
       }
       if (journal.state.cancellation !== null) {
         return await this.#terminal(
@@ -1813,6 +1822,7 @@ export class TeamRunSupervisor {
           description: input.description,
           instructions: input.review.instructions,
           changedFiles,
+          executionEvidence: boundedReviewExecutionEvidence(executionEvidence),
         }, { ...context, signal: childrenAbort.signal }, {
           contract: "v2",
           policy: {
@@ -1909,6 +1919,7 @@ export class TeamRunSupervisor {
         reviewedSnapshot = repairedSnapshot;
         changedFiles = [...reviewedSnapshot.paths];
         evidence.push(...repair.metadata.evidence);
+        executionEvidence.push(...repair.metadata.evidence);
       }
 
       await cancellationBoundary();

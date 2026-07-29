@@ -113,7 +113,7 @@ implemented, bounded, prepared-only, and absent capabilities.
 
 ## 📊 Alpha evidence
 
-One real Codex subscription dogfood on 2026-07-23 completed Quick company
+A real Codex subscription dogfood on 2026-07-23 completed Quick company
 formation and a reviewed Balanced coding goal:
 
 - Sol (`gpt-5.6-sol`, high) led and synthesized the run;
@@ -125,10 +125,16 @@ formation and a reviewed Balanced coding goal:
 
 The first candidate passed review, so no Repair role activated. Deterministic
 integration tests cover request-changes, bounded repair, and re-review. This is
-proof that the full path can run, not proof that this lineup is cheaper or
-better than a strong single agent or another team. The
-[evaluation record](docs/COMPANY_EVALUATION.md) gives the role-level evidence
-and the next comparison work.
+proof that the full path can run.
+
+On 2026-07-29, one fresh comparison pair ran on each of three immutable coding
+fixtures. The Sol/Terra/Luna company passed all three hidden verifiers; the Sol
+single-agent baseline passed two. On the two shared successes the company used
+more input tokens, was slower once, and slightly faster once. This supports
+selective team activation for quality insurance—not a claim that more agents
+are always cheaper, faster, or better. The
+[evaluation record](docs/COMPANY_EVALUATION.md) gives the exact results and
+remaining evidence bar.
 
 ## ⌨️ Everyday commands
 
@@ -150,18 +156,19 @@ session, and JSON/JSONL option.
 
 - **Usable now:** source checkout on Node.js 22.22+ with npm, Git, and ripgrep;
   macOS and Linux are the supported subprocess platforms.
-- **Proven once:** company formation, isolated implementation, independent
-  review, synthesis, explicit apply, and evidence-backed Auto activation
-  through a real Codex subscription.
+- **Proven live:** company formation, isolated implementation, independent
+  review, synthesis, explicit apply, evidence-backed Auto activation, and one
+  single-versus-company pair on every built-in proof fixture through a real
+  Codex subscription.
 - **Not distributed:** package metadata is `0.1.0-alpha.1`, but there is no
   public npm package, GitHub release, curl installer, or Homebrew tap. The
   prepared Bun global-install path cannot work until the npm package exists and
   still launches Recurs with Node.js.
-- **Prepared to prove:** three immutable hidden-verifier fixtures, repeatable
+- **Prepared to repeat:** three immutable hidden-verifier fixtures, repeatable
   single-agent versus recommended team campaigns, an explicit all-strong
   comparison option, and distinct Quick/Guided/Deep formation evaluations are
-  implemented. Repeated configured quality, latency, token, and cost evidence
-  still needs authorized model runs.
+  implemented. At least three pairs per fixture, alternative teams, and
+  provider-reported cost still need authorized model runs.
 - **Not implemented:** Windows subprocess containment and a desktop app.
 
 ## 📚 Documentation

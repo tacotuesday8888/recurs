@@ -253,8 +253,8 @@ export function createConfiguredCompanyBenchmarkCampaign(input: {
   readonly campaignId: string;
   readonly createdAt: string;
 }): CompanyBenchmarkCampaignV1 {
-  const blueprint = createCompanyBenchmarkBlueprint();
   const scenario = getCompanyBenchmarkScenario(input.scenarioId, 1);
+  const blueprint = createCompanyBenchmarkBlueprint(scenario);
   const parent = requireCodexConnection(input.document, input.connectionId);
   const roles = (["implement", "review", "repair"] as const).map((role) => {
     const configured = input.document.agentRoutes[role];
@@ -419,7 +419,12 @@ export async function runCompanyBenchmarkCommand(
     totalSlots: campaign.armOrder.length,
     message: `Company proof ${campaign.id}: ${completed}/${campaign.armOrder.length} durable trials complete.`,
   });
-  const blueprint = createCompanyBenchmarkBlueprint();
+  const blueprint = createCompanyBenchmarkBlueprint(
+    getCompanyBenchmarkScenario(
+      campaign.scenario.id,
+      campaign.scenario.version,
+    ),
+  );
   const adapter = dependencies.createAdapter?.(campaign) ??
     new RuntimeCompanyBenchmarkAdapter({
       blueprint,

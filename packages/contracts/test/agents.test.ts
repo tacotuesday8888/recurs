@@ -109,13 +109,13 @@ describe("agent profile contracts", () => {
     }
   });
 
-  it("defines no-process v4 team profiles without changing public aliases", () => {
+  it("gives mutating team profiles bounded verification without arbitrary commands", () => {
     expect(getAgentProfilePolicy("implement_v2" as never)).toMatchObject({
       version: 2,
       executionMode: "act",
       tools: {
         readOnly: false,
-        allowedCategories: ["read", "write"],
+        allowedCategories: ["read", "write", "shell"],
         maxRisk: "normal",
       },
     });
@@ -126,6 +126,7 @@ describe("agent profile contracts", () => {
         "search_text",
         "code_outline",
         "apply_patch",
+        "run_verification",
         "git_status",
         "git_diff",
       ]);
@@ -139,10 +140,12 @@ describe("agent profile contracts", () => {
       executionMode: "act",
       tools: {
         readOnly: false,
-        allowedCategories: ["read", "write"],
+        allowedCategories: ["read", "write", "shell"],
         maxRisk: "normal",
       },
     });
+    expect(getAgentProfilePolicy("repair_v1" as never).tools.allowedNames)
+      .toContain("run_verification");
     expect(parseAgentProfileId("implement")).toBe("implement_v1");
     expect(parseAgentProfileId("review")).toBe("review_v1");
     expect(parseAgentProfileId("implement_v2")).toBe("implement_v2");

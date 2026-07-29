@@ -4,7 +4,7 @@ import {
   approveCompanyBlueprintV2,
   compileCompanyBlueprintV2,
 } from "./company-blueprint-v2.js";
-import { getCompanyBenchmarkScenario } from "./company-benchmark-scenario.js";
+import type { CompanyBenchmarkScenario } from "./company-benchmark-scenario.js";
 
 const CREATED_AT = "2026-07-24T00:00:00.000Z";
 const APPROVED_AT = "2026-07-24T00:00:01.000Z";
@@ -14,28 +14,42 @@ const APPROVED_AT = "2026-07-24T00:00:01.000Z";
  * this authority deterministic makes repeated arms comparable and prevents
  * a model-written organization from changing the experiment.
  */
-export function createCompanyBenchmarkBlueprint(): CompanyBlueprintV2 {
-  const scenario = getCompanyBenchmarkScenario("alias_registry", 1);
+export function createCompanyBenchmarkBlueprint(
+  scenario: CompanyBenchmarkScenario,
+): CompanyBlueprintV2 {
+  const legacyAlias = scenario.id === "alias_registry" &&
+    scenario.version === 1;
+  const authorityId = `company-benchmark-${scenario.id}-v${scenario.version}`;
   return approveCompanyBlueprintV2(compileCompanyBlueprintV2({
-    id: "company-benchmark-blueprint-v1",
-    companyId: "company-benchmark-v1",
+    id: legacyAlias
+      ? "company-benchmark-blueprint-v1"
+      : `${authorityId}-blueprint`,
+    companyId: legacyAlias ? "company-benchmark-v1" : authorityId,
     revision: 1,
     previousBlueprintId: null,
     createdAt: CREATED_AT,
-    onboardingRunId: "company-benchmark-onboarding-v1",
+    onboardingRunId: legacyAlias
+      ? "company-benchmark-onboarding-v1"
+      : `${authorityId}-onboarding`,
     onboardingDepth: "guided",
     generatedBy: "deterministic",
     designMode: "guardrailed_dynamic",
     project: {
       type: "existing_project",
       stage: "active",
-      purpose: "Implement the bounded alias-registry benchmark.",
+      purpose: legacyAlias
+        ? "Implement the bounded alias-registry benchmark."
+        : scenario.objective,
       users: ["Maintainers"],
       successCriteria: [
         "The hidden verifier passes after independent review.",
       ],
-      constraints: ["Change only the two approved source files."],
-      risks: ["Traversal or alias-boundary behavior may be incomplete."],
+      constraints: legacyAlias
+        ? ["Change only the two approved source files."]
+        : [`Change only: ${scenario.allowedChangedPaths.join(", ")}.`],
+      risks: legacyAlias
+        ? ["Traversal or alias-boundary behavior may be incomplete."]
+        : ["Cross-file contract behavior may be incomplete."],
       architecturePreferences: ["Remain dependency-free."],
       deploymentTargets: ["CLI"],
       repository: {
@@ -43,7 +57,9 @@ export function createCompanyBenchmarkBlueprint(): CompanyBlueprintV2 {
         markers: ["package.json"],
         evidence: [{
           path: "package.json",
-          finding: "The benchmark is a dependency-free Node.js fixture.",
+          finding: legacyAlias
+            ? "The benchmark is a dependency-free Node.js fixture."
+            : `The ${scenario.id} benchmark is a dependency-free Node.js fixture.`,
         }],
       },
     },

@@ -1,12 +1,51 @@
 # Base Engine Comparison
 
-This review compares Recurs with the current open-source engines behind Kilo Code, OpenCode, and Codex. The goal is not feature parity. It identifies the smallest engine guarantees that must remain solid beneath Recurs's owned company and sub-agent architecture.
+This review compares Recurs with leading open-source coding-agent and adjacent
+agent engines. The goal is not feature parity. It identifies the smallest
+engine guarantees that must remain solid beneath Recurs's owned company and
+sub-agent architecture.
 
 Reviewed on 2026-07-10 through the GitHub connector:
 
 - [Kilo Code](https://github.com/Kilo-Org/kilocode/tree/8324cf7ddc6539993f7d1743175716ae2705d195)
 - [OpenCode](https://github.com/anomalyco/opencode/tree/8a03fc265b6d73c2e15881fcc702c9cb3027dd0e)
 - [Codex](https://github.com/openai/codex/tree/dc5ae378967cff0de2cfb30b98c52047ab978e3d)
+
+An additional source-level pass on 2026-07-29 covered:
+
+- [Gemini CLI subagents](https://github.com/google-gemini/gemini-cli/blob/main/docs/core/subagents.md):
+  isolated context/tool registries, model and turn/time limits, local/remote
+  specialists, and explicit recursion prevention;
+- [Qwen Code commands and teams](https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/commands.md):
+  goal persistence, background tasks, workflows, custom agents, hooks, skills,
+  and multi-agent review;
+- [Open Interpreter's current Rust harness](https://github.com/openinterpreter/openinterpreter):
+  Codex protocol compatibility and provider-specific harness emulation for
+  lower-cost models;
+- [Oh My OpenAgent](https://github.com/code-yeongyu/oh-my-openagent/blob/dev/docs/guide/overview.md):
+  an orchestration layer over existing coding harnesses with specialized
+  roles and interview-led planning;
+- [OpenClaw](https://github.com/openclaw/openclaw/blob/main/docs/tools/index.md):
+  a broader persistent agent runtime with tools, skills, plugins, channels, and
+  subagent sessions;
+- [Hermes Agent](https://github.com/NousResearch/hermes-agent):
+  persistent memory, reusable skills, gateways, scheduled work, and native
+  subagent delegation;
+- [Cline](https://github.com/cline/cline):
+  editor-first approval and human-in-the-loop task ergonomics; and
+- [Open Interpreter's original Python lineage](https://github.com/openinterpreter/open-interpreter):
+  a concise streamed model/code-execution loop with explicit confirmation.
+
+The additional pass did not justify replacing Recurs's engine or expanding the
+CLI into an IDE/general assistant. It reinforced five boundaries already in
+the implementation: specialist profiles need isolated tools and explicit
+limits; background work must state whether it survives process loss; model
+lineups should be evaluated per task rather than branded as universally best;
+memory must carry provenance; and approval policy must remain separate from OS
+containment. The live Company Proof work then exposed concrete Recurs gaps in
+worker verification, review-evidence handoff, benchmark approval handling, and
+scenario-bound authority; those gaps were fixed rather than adding decorative
+commands.
 
 Parallel scheduling was rechecked on 2026-07-19 against current [Codex](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/core/src/tools/parallel.rs), which uses an explicit per-tool capability behind a shared/exclusive execution gate, and [Gemini CLI](https://github.com/google-gemini/gemini-cli/blob/acae7124bdd849e554eaa5e090199a0cf08cd782/packages/core/src/scheduler/scheduler.ts), which batches contiguous calls with an explicit ordering barrier.
 

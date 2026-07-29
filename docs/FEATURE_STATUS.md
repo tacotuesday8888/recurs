@@ -1,6 +1,6 @@
 # Recurs Feature Status
 
-**Audited:** 2026-07-23 against the source, exported package surfaces, CLI
+**Audited:** 2026-07-29 against the source, exported package surfaces, CLI
 assembly, durable contracts/stores, provider manifests, and automated tests on
 `main`.
 
@@ -26,7 +26,7 @@ context, not a product commitment.
 | Company execution | Validated assignment DAGs, orchestrator/lead/worker planning handoffs, dependency-ordered implementation stages, independent review, bounded repair, parent apply, and synthesis |
 | Company authority | Immutable blueprints, root orchestrator and independent-review anchors, permission monotonicity, active-role/depth/concurrency/request/retry/reported-cost limits, cancellation, and truthful events |
 | Company adaptation | Tailored role charters, attributable project knowledge, historical blueprint pinning, exact Skill/MCP bundle bindings, and approval-gated amendments |
-| Evaluation | Discoverable versioned scenarios; deterministic offline formation; exact-connection, explicit-network configured formation including Codex app-server; read-only exact-run company-goal scoring; sanitized reports and bounded human progress |
+| Evaluation | Discoverable versioned scenarios; deterministic offline formation; exact-connection, explicit-network configured formation including Codex app-server; three hidden-verifier Company Proof fixtures; read-only exact-run company-goal scoring; sanitized reports and bounded human progress |
 | Model teams | `/model auto` records exact completed company-goal evidence and selects a four-role Parent/Implement/Review/Repair lineup only when decomposition, evidence, and synthesis passed; selected routes apply to future sessions and remain inspectable |
 | Providers | Reviewed saved environment BYOK, literal-loopback Ollama/LM Studio, and local user-present Codex subscription discovery/execution through the official app-server |
 | Host safety | Permanent credential-path denial, clean child environments, bounded failures, macOS Seatbelt, Linux Bubblewrap, Git worktree isolation, and tamper-evident private state |
@@ -67,8 +67,8 @@ compatibility and exact app-server behavior in tests.
 ## Not implemented
 
 - a full-screen company operating UI or desktop client;
-- enough repeated real-model evidence to publish a default Sol/Terra/Luna
-  winner;
+- enough repeated and statistically useful real-model evidence to publish a
+  default Sol/Terra/Luna winner;
 - a persistent daemon, cloud worker, scheduler, or work that survives CLI exit;
 - child-created unbounded recursion, autonomous organization rewrites, or
   automatic role/tool authority expansion;
@@ -90,20 +90,21 @@ explicit configured-provider dogfooding, and provider-free scoring of one
 durable goal. Codex subscriptions can now execute restricted pre-approval
 company formation and foreground parent/company assignments through
 Recurs-scoped tools. `Models: Auto` is implemented as an evidence gate rather
-than a brand ranking. One safe real Codex subscription dogfood completed Quick
+than a brand ranking. One safe formation-to-apply Codex dogfood completed Quick
 formation, approval, a reviewed coding goal, parent synthesis, and
 evidence-backed Auto activation with Sol as parent, Terra as Implement/Repair,
-and Luna as Review. The terminal now reports only activated agents, their exact
-model/effort, and bounded usage. That run reported 216,879 input tokens
-(161,024 cached), 3,274 output tokens, and unknown dollar cost. The largest
-remaining product risk is comparative: one run is not enough to prove this
-lineup consistently beats alternatives or a strong single-agent run.
+and Luna as Review. A later fresh three-scenario comparison ran that lineup
+against the same Sol parent: the company passed all three hidden verifiers and
+the single-agent baseline passed two. On the two shared successes the company
+used more input tokens, was slower once, and slightly faster once. Dollar cost
+remained unknown. The terminal reports only activated agents, their exact
+model/effort, and bounded usage.
 
-The controlled comparison surface now includes three hidden-verifier coding
+The controlled comparison surface includes three hidden-verifier coding
 fixtures, distinct Quick/Guided/Deep formation scenarios, and campaigns that
 compare the same strong parent against a saved recommended team, with an
 explicit option for an additional all-strong bounded team. The remaining
-milestone is to execute those configured campaigns with explicit billing
-authority, tune only from their durable evidence, and then use the already
-prepared alpha distribution path. A new orchestration foundation is not the
-next step.
+evidence milestone is repetition: run at least three pairs per scenario,
+include alternative teams where authorized, and tune activation, context,
+latency, and review value only from durable results. A new orchestration
+foundation is not the next step.

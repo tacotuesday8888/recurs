@@ -8,7 +8,9 @@ Current documents:
 - [CLI guide](CLI.md) — local and Codex setup, provider/account commands, permissions, storage, output, and limits.
 - [Security policy](../SECURITY.md) — current support boundary, private reporting expectations, and credential-canary rules.
 - [Release runbook](RELEASING.md) — verified artifact boundary, one-time npm bootstrap, trusted publishing, and later preview releases.
-- [Base engine comparison](BASE_ENGINE_COMPARISON.md) — evidence from Kilo Code, OpenCode, and Codex and the resulting hardening decisions.
+- [Base engine comparison](BASE_ENGINE_COMPARISON.md) — source evidence from
+  leading coding-agent and adjacent agent engines and the resulting hardening
+  decisions.
 - [Sub-agent harness comparison](research/SUBAGENT_HARNESS_COMPARISON.md) — commit-pinned primary-source execution patterns from Codex, OpenCode, Kimi Code, Kilo Code, Roo Code, Pi, Goose, and Grok Build, plus the exact Recurs boundary derived from them.
 - [Agent company onboarding](AGENT_COMPANY_ONBOARDING.md) — canonical product target for turning project intent into a tailored, durable agent company, including the implemented foundation and remaining gaps.
 - [Company evaluation](COMPANY_EVALUATION.md) — deterministic offline and explicit configured-provider checks for the restricted formation path.

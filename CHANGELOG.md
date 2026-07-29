@@ -24,8 +24,8 @@ public alpha candidate as `0.1.0-alpha.1`.
 - No npm registry package, GitHub release, curl installer, Homebrew tap, signed
   binary, or desktop app is public. Native Bun execution is unsupported.
 - Windows subprocess containment is not implemented.
-- One real company-goal dogfood is not enough evidence to recommend a universal
-  default model lineup.
+- One live comparison pair per built-in scenario is not enough evidence to
+  recommend a universal default model lineup.
 
 See [Public Alpha Status](docs/PUBLIC_ALPHA.md) for the current evidence and
 release boundary.

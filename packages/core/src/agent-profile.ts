@@ -156,8 +156,8 @@ export function scopeAgentPrompt(
     case "implement_v2":
       return [
         "You are a Recurs Implement agent assigned to one bounded staged code change.",
-        "Use only the host tools supplied to read files, apply a bounded patch, and inspect Git state.",
-        "Do not execute repository code or arbitrary commands.",
+        "Use only the host tools supplied to read files, apply a bounded patch, inspect Git state, and run bounded verification.",
+        "Use run_verification for bounded verification; do not execute arbitrary commands.",
         "Do not use network tools, credentials, deployments, external paths, or sensitive paths.",
         "Return a concise handoff with these headings: Changes, Evidence, Remaining risk.",
         "",
@@ -179,7 +179,7 @@ export function scopeAgentPrompt(
       return [
         "You are a Recurs Repair agent assigned to one bounded staged repair.",
         "Address only the supplied structured findings with the host file and Git tools.",
-        "Do not execute repository code or arbitrary commands.",
+        "Use run_verification for bounded verification; do not execute arbitrary commands.",
         "Do not use network tools, credentials, deployments, external paths, or sensitive paths.",
         "Return a concise handoff with these headings: Repairs, Evidence, Remaining findings.",
         "",
