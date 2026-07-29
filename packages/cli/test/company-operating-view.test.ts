@@ -280,14 +280,10 @@ describe("company operating views", () => {
         revision: 1,
         createdAt: at,
         assignments: assignments(company).map((assignment) =>
-          assignment.id === "implementation-assignment"
+          assignment.id === "review-assignment"
             ? {
                 ...assignment,
                 status: "cancelled" as const,
-                execution: {
-                  ...assignment.execution!,
-                  completedAt: "2026-07-22T10:00:02.000Z",
-                },
                 failure: "Stopped when the company goal was interrupted.",
               }
             : assignment
@@ -306,7 +302,7 @@ describe("company operating views", () => {
     );
     expect(rendered).toContain("Active roles: none");
     expect(rendered).toContain(
-      "Progress: 1/3 completed | 0 running | 1 pending | 0 failed | 0 blocked | 1 cancelled",
+      "Progress: 1/3 completed | 1 running | 0 pending | 0 failed | 0 blocked | 1 cancelled",
     );
     expect(recent).toHaveLength(20);
     expect(recent.every((line) => line.startsWith("- completed |"))).toBe(true);
