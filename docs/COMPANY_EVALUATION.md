@@ -1,16 +1,17 @@
 # Company Evaluation
 
-Recurs includes one versioned company-formation scenario that exercises the
-real restricted onboarding coordinator. It evaluates adaptive interviewing,
-blueprint tailoring, role decomposition, repository evidence, and request/cost
-efficiency. Goal-result synthesis remains covered by deterministic runtime
-integration tests and is marked `not_applicable` in this formation-only
-scenario.
+Recurs includes distinct versioned Quick, Guided, and Deep company-formation
+scenarios that exercise the real restricted onboarding coordinator. They
+evaluate adaptive interviewing, blueprint tailoring, role decomposition,
+repository evidence, and request/cost efficiency. The historical
+`company_formation_v1` ID remains loadable as a Guided compatibility alias.
+Goal-result synthesis remains covered by deterministic runtime integration
+tests and is marked `not_applicable` in formation-only scenarios.
 
 Run the deterministic offline baseline:
 
 ```sh
-npm run eval:company -- --scenario company_formation_v1
+npm run eval:company -- --scenario company_formation_guided_v1
 ```
 
 Add `--json` for the strict `CompanyEvaluationReportV1` representation. The
@@ -23,7 +24,7 @@ the evaluation network request:
 
 ```sh
 npm run eval:company -- \
-  --scenario company_formation_v1 \
+  --scenario company_formation_guided_v1 \
   --configured --allow-network --json
 ```
 
@@ -42,9 +43,30 @@ model output, environment values, and repository contents. Configured-provider
 cost is marked unknown until the onboarding accounting seam can distinguish a
 provider-reported zero from absent cost data.
 
-Ordinary `npm test` and `npm run check` execute only the offline scenario. A
-real provider is useful for qualitative comparisons between models, but is not
-required to verify Recurs's contracts or authority boundaries.
+`npm run check` executes all three depth-specific offline formation scenarios.
+A real provider is useful for qualitative comparisons between models, but is
+not required to verify Recurs's contracts or authority boundaries.
+
+## Company Proof campaigns
+
+`recurs benchmark company --list` exposes three immutable coding fixtures:
+`alias_registry`, the cross-file `layered_config`, and the review-sensitive
+`retry_after`. Each configured campaign runs byte-identical fresh workspaces
+through a strong single-agent baseline and the saved recommended company.
+When saved worker routes differ from the parent,
+`--compare-all-strong` explicitly adds an all-strong bounded lineup.
+
+```sh
+recurs benchmark company --configured --allow-network \
+  --scenario layered_config --repetitions 3 \
+  --compare-all-strong --json
+```
+
+The hidden verifier, not model prose, determines correctness. Durable trials
+record activated routes, role attempts and latency, review findings, Repair
+rounds, usage and cache coverage, reported cost when available, changed-file
+overlap, evidence, and unattended intervention counts. V1 reports never choose
+a winner.
 
 ## Auto Team Alpha dogfood
 
@@ -72,7 +94,9 @@ needed. The request-changes → bounded Repair → independent re-review path
 remains proved by the deterministic `team-run-supervisor` integration suite.
 This is one representative run, not evidence that the named lineup is a
 universal winner or that the team was more efficient than one strong agent.
-The next evidence set must compare the same bounded tasks across a strong
-single-agent run, this lineup, and at least one alternative team. Record
-quality, review findings, repair rounds, elapsed time, total and cached tokens,
-and reported cost when available; do not treat cache-heavy input as free.
+The next configured evidence set must run the three depth-specific formation
+scenarios and repeated Company Proof campaigns across all three fixtures.
+Possible prepaid-credit fallback requires explicit user authorization; catalog
+inspection alone does not authorize model turns. Record quality, review
+findings, repair rounds, elapsed time, total and cached tokens, and reported
+cost when available; do not treat cache-heavy input as free.

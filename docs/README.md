@@ -58,11 +58,12 @@ then verifies that the `recurs` entry point runs through Node.js and fails when
 Node is unavailable. This is package-manager compatibility, not a native Bun
 runtime claim.
 
-The CLI artifact is gated below 2.1 MB unpacked, but dependencies dominate the
-installed footprint. The audited Apple-silicon source checkout used about
-390 MiB for dependencies, including about 297 MiB for the Codex platform
-package. See [Public alpha status](PUBLIC_ALPHA.md) for the current support and
-evidence boundary.
+The CLI artifact is gated below 2.1 MB unpacked. The 2026-07-26 exact local
+alpha measured 414 KiB compressed / 1.79 MiB unpacked and about 38.7 MiB in a
+clean Apple-silicon production prefix, without Codex. The larger source tree
+retains exact Codex compatibility fixtures for tests. See
+[Public alpha status](PUBLIC_ALPHA.md) for the current support and evidence
+boundary.
 
 The repository and `0.1.0-alpha.1` preview package are Apache-2.0 licensed and release-metadata ready. The one-time npm bootstrap, trusted-publisher relationship, exact release tag, and manual protected workflow remain owner-controlled; no registry package or GitHub release exists yet.
 

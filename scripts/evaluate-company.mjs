@@ -16,7 +16,7 @@ import {
 function usage() {
   return [
     "Usage: npm run eval:company -- --list [--json]",
-    "       [--scenario company_formation_v1] [--json]",
+    "       [--scenario company_formation_<quick|guided|deep>_v1] [--json]",
     "       [--configured --allow-network] [--connection <id>] [--json]",
     "       --scenario company_goal_execution_v1 --run <id> [--json]",
     "       [--project <path>] [--recurs-home <path>]",

@@ -56,12 +56,13 @@ No npm package, curl release, Homebrew tap/formula, native Bun runtime, signed
 binary, or desktop app is public today. Bun's verified boundary is package
 installation, not Recurs execution.
 
-The package gate keeps the unpacked Recurs artifact below 2.1 MB. A normal
-installed-product smoke proves that optional Codex compatibility packages are
-not downloaded with Recurs. Codex subscription users supply the exact reviewed
-official CLI separately, so an existing Codex installation is shared rather
-than duplicated. Source development still installs the pinned Codex packages
-to exercise legacy compatibility and exact app-server behavior in tests.
+The package gate keeps the unpacked Recurs artifact below 2.1 MB. The
+2026-07-26 Apple-silicon production-prefix measurement was about 38.7 MiB and
+proves that optional Codex compatibility packages are not downloaded with
+Recurs. Codex subscription users supply the exact reviewed official CLI
+separately, so an existing Codex installation is shared rather than duplicated.
+Source development still installs the pinned Codex packages to exercise legacy
+compatibility and exact app-server behavior in tests.
 
 ## Not implemented
 
@@ -98,7 +99,11 @@ model/effort, and bounded usage. That run reported 216,879 input tokens
 remaining product risk is comparative: one run is not enough to prove this
 lineup consistently beats alternatives or a strong single-agent run.
 
-The next product milestone should therefore be repeated controlled
-real-provider comparisons and context/cost tuning, followed by the already
+The controlled comparison surface now includes three hidden-verifier coding
+fixtures, distinct Quick/Guided/Deep formation scenarios, and campaigns that
+compare the same strong parent against a saved recommended team, with an
+explicit option for an additional all-strong bounded team. The remaining
+milestone is to execute those configured campaigns with explicit billing
+authority, tune only from their durable evidence, and then use the already
 prepared alpha distribution path. A new orchestration foundation is not the
 next step.

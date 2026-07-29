@@ -25,11 +25,13 @@ from a new temporary prefix.
 
 The portable npm artifact contains the same TypeScript runtime verified in CI.
 Its package gate caps the unpacked artifact at 2.1 MB; that is not the installed
-footprint. npm resolves runtime dependencies separately, including the
-platform-specific Codex package. The audited Apple-silicon source checkout
-used about 390 MiB for dependencies, about 297 MiB of which was that Codex
-package. Record a clean installed-prefix measurement for every release
-candidate and disclose it in release notes.
+footprint. npm resolves runtime dependencies separately, but Codex is not a
+default runtime dependency. The 2026-07-26 local alpha measured 414 KiB
+compressed / 1.79 MiB unpacked and about 38.7 MiB in a clean Apple-silicon
+production prefix. The source-development tree was about 402 MiB because it
+retains roughly 307 MiB of pinned Codex compatibility fixtures. Record a clean
+installed-prefix measurement for every release candidate and disclose it in
+release notes.
 
 The Bun compatibility gate is similarly narrow: the pinned Linux lane globally
 installs this npm tarball, preserves its Node shebang, launches it through

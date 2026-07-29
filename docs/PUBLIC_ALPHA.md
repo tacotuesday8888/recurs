@@ -15,10 +15,12 @@ checkout, but no package or release has been published.
 | Bun runtime | Unsupported | No `bun run`, native Bun execution, broader Bun-version, or broad platform-compatibility claim |
 | Signed binary / desktop | Not implemented | There is no standalone download or desktop application |
 
-The package gate caps the unpacked Recurs artifact at 2.1 MB. Dependencies are
-installed separately and dominate disk use: the audited Apple-silicon source
-checkout used about 390 MiB for dependencies, including about 297 MiB for the
-pinned Codex platform package. Exact size varies by platform and npm version.
+The package gate caps the unpacked Recurs artifact at 2.1 MB. On 2026-07-26 the
+exact local alpha archive measured 414 KiB compressed / 1.79 MiB unpacked, and
+a clean Apple-silicon production prefix measured about 38.7 MiB. It did not
+install Codex. The full source-development dependency tree measured about
+402 MiB because it retains roughly 307 MiB of pinned Codex compatibility
+fixtures. Exact size varies by platform and npm version.
 
 ## What is proven
 
@@ -53,6 +55,12 @@ repeated, same-task comparisons that record:
 - elapsed time and failure rate;
 - total and cached tokens; and
 - provider-reported dollar cost when available.
+
+The source now contains the repeatable comparison machinery: three immutable
+hidden-verifier fixtures, alternating campaign order, distinct
+Quick/Guided/Deep formation evaluations, a recommended bounded team, and an
+explicit all-strong comparison option. These capabilities make the evidence
+collectable; they do not substitute for authorized repeated configured runs.
 
 Other current limits include Windows subprocess containment, a persistent
 worker daemon, a company operating UI, automatic plugin installation, remote

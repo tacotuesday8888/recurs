@@ -30,10 +30,11 @@ to install yet. Recurs still launches through `#!/usr/bin/env node` and requires
 Node.js 22.22+; Bun is not a supported runtime and `bun run` is not claimed.
 
 The packaged Recurs artifact is gated below 2.1 MB unpacked, but its runtime
-dependencies are installed separately. On the audited Apple-silicon source
-checkout, dependencies used about 390 MiB, including about 297 MiB for the
-pinned Codex platform package. Treat these as directional measurements because
-platform packages and npm versions differ.
+dependencies are installed separately. The 2026-07-26 exact local alpha
+measured 414 KiB compressed / 1.79 MiB unpacked and about 38.7 MiB in a clean
+Apple-silicon production prefix, without Codex. The source-development tree is
+larger because it retains exact Codex compatibility fixtures. Treat these as
+directional measurements because platform packages and npm versions differ.
 
 ## First run
 
@@ -228,18 +229,39 @@ Offline evaluation is deterministic:
 
 ```bash
 recurs eval company --list [--json]
-recurs eval company [--scenario company_formation_v1] [--json]
+recurs eval company \
+  [--scenario company_formation_<quick|guided|deep>_v1] [--json]
 recurs eval company --configured --allow-network \
+  [--scenario company_formation_<quick|guided|deep>_v1] \
   [--connection <id>] [--json]
 recurs eval company --scenario company_goal_execution_v1 \
   --run <id> [--json]
 ```
 
 Configured evaluation requires an explicit network opt-in.
+`company_formation_v1` remains a compatibility alias for Guided.
 Codex app-server connections use the same restricted pre-approval formation
 boundary: decision turns receive no project tools, while bounded Explore
 research receives only the reviewed read-only file, outline, search, and Git
 inspection tools.
+
+Company Proof compares the same immutable fixture through a strong single agent
+and bounded teams:
+
+```bash
+recurs benchmark company --list [--json]
+recurs benchmark company --configured --allow-network \
+  [--scenario <id>] [--connection <id>] \
+  [--repetitions 1|2|3] [--compare-all-strong] [--json]
+recurs benchmark company --resume <campaign-id> --allow-network [--json]
+```
+
+Campaigns are resumable and alternate arm order. The default compares the
+strong single agent with the recommended route snapshot. When saved worker
+routes differ from the parent, `--compare-all-strong` explicitly adds an
+all-strong bounded team and derives the larger ceilings from that selection.
+Hidden verification decides correctness; reports preserve unknown token or
+cost coverage rather than inventing zeroes or a winner.
 
 ## ACP
 
