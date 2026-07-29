@@ -82,7 +82,7 @@ describe("built-in company benchmark scenarios", () => {
       version: 1,
       taskClass: "general_coding",
       difficulty: "medium",
-      verifierId: "alias_registry_hidden_v1",
+      verifierId: "alias_registry_hidden_v2",
     });
     expect(COMPANY_BENCHMARK_SCENARIOS.map((candidate) => [
       candidate.id,
@@ -443,7 +443,7 @@ describe("built-in company benchmark scenarios", () => {
 
 async function installReferenceImplementation(root: string): Promise<void> {
   await writeFile(path.join(root, "src/alias-path.js"), `
-const NAME = /^[a-z][a-z0-9_-]{0,31}$/u;
+const NAME = /^[a-z][a-z0-9_]{0,31}$/u;
 
 export function normalizeAliasPath(value) {
   if (typeof value !== "string" || value.includes("\\\\") ||

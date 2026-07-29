@@ -122,9 +122,10 @@ export const agentProfilePolicies: readonly AgentProfilePolicy[] = Object.freeze
     false,
     [
       "read_file", "list_files", "search_text", "code_outline", "apply_patch",
+      "run_verification",
       "git_status", "git_diff",
     ],
-    ["read", "write"],
+    ["read", "write", "shell"],
     "normal",
   ),
   profile(
@@ -145,9 +146,10 @@ export const agentProfilePolicies: readonly AgentProfilePolicy[] = Object.freeze
     false,
     [
       "read_file", "list_files", "search_text", "code_outline", "apply_patch",
+      "run_verification",
       "git_status", "git_diff",
     ],
-    ["read", "write"],
+    ["read", "write", "shell"],
     "normal",
   ),
 ]);

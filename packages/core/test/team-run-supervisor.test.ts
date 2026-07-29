@@ -1733,6 +1733,15 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
       [0, "changes_requested"],
       [1, "approved"],
     ]);
+    expect(test.reviewPrompts.slice(0, 2).every((prompt) =>
+      prompt.includes("implement evidence 1") &&
+      prompt.includes("implement evidence 2")
+    )).toBe(true);
+    expect(test.reviewPrompts.slice(2).every((prompt) =>
+      prompt.includes("implement evidence 1") &&
+      prompt.includes("implement evidence 2") &&
+      prompt.includes("repair evidence 1")
+    )).toBe(true);
     const repair = state.children.find((child) =>
       child.reservation.role === "repair"
     );

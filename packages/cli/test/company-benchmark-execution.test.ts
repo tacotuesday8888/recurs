@@ -17,6 +17,8 @@ import {
   FileCompanyBenchmarkSlotSettlementStore,
   FileCompanyBenchmarkSummaryStore,
   FileCompanyBenchmarkTrialStore,
+  AgentLoopError,
+  CoordinatedRunError,
   createCompanyBenchmarkBlueprint,
   getCompanyBenchmarkScenario,
 } from "@recurs/core";
@@ -25,8 +27,12 @@ import { runProcess } from "@recurs/tools";
 
 import {
   RuntimeCompanyBenchmarkAdapter,
+  assertCompanyBenchmarkScenarioAuthority,
   companyBenchmarkBlueprintDigest,
+  companyBenchmarkExecutionFailureCode,
+  isCompanyBenchmarkPreconsentedConfirmation,
 } from "../src/company-benchmark-execution.js";
+import { RuntimeError } from "../src/runtime.js";
 
 const roots: string[] = [];
 
@@ -328,13 +334,91 @@ function route(
 }
 
 describe("RuntimeCompanyBenchmarkAdapter", () => {
+  it("classifies only typed execution failures without retaining messages", () => {
+    const secret = "do-not-retain";
+    expect(companyBenchmarkExecutionFailureCode(
+      new RuntimeError("busy", secret),
+    )).toBe("runtime_busy");
+    expect(companyBenchmarkExecutionFailureCode(
+      new AgentLoopError("provider_failed", secret),
+    )).toBe("agent_provider_failed");
+    expect(companyBenchmarkExecutionFailureCode(
+      new CoordinatedRunError({
+        domain: "provider",
+        phase: "started",
+        code: "rate_limited",
+        safeMessage: secret,
+        diagnosticId: secret,
+        retryable: true,
+      }),
+    )).toBe("coordinated_rate_limited");
+    expect(companyBenchmarkExecutionFailureCode(new Error(secret))).toBeNull();
+  });
+
+  it("fails closed when a saved campaign no longer matches scenario authority", () => {
+    const scenario = getCompanyBenchmarkScenario("alias_registry", 1);
+    const reference = {
+      id: scenario.id,
+      version: scenario.version,
+      taskClass: scenario.taskClass,
+      difficulty: scenario.difficulty,
+      fixtureSha256: scenario.fixtureSha256,
+      verifierId: scenario.verifierId,
+      objectiveRevision: scenario.objectiveRevision,
+    };
+
+    expect(() =>
+      assertCompanyBenchmarkScenarioAuthority(scenario, reference)
+    ).not.toThrow();
+    expect(() =>
+      assertCompanyBenchmarkScenarioAuthority(scenario, {
+        ...reference,
+        verifierId: "alias_registry_hidden_v1",
+      })
+    ).toThrow("scenario does not match campaign authority");
+    expect(() =>
+      assertCompanyBenchmarkScenarioAuthority(scenario, {
+        ...reference,
+        fixtureSha256: "0".repeat(64),
+      })
+    ).toThrow("scenario does not match campaign authority");
+  });
+
+  it("preconsents only sandboxed benchmark shell checks and fixed orchestration", () => {
+    expect(isCompanyBenchmarkPreconsentedConfirmation(
+      "Allow shell access to npm test?",
+    )).toBe(true);
+    expect(isCompanyBenchmarkPreconsentedConfirmation(
+      "Allow shell access to node --test?",
+    )).toBe(true);
+    expect(isCompanyBenchmarkPreconsentedConfirmation(
+      "Allow write access to team candidate apply?",
+    )).toBe(true);
+    expect(isCompanyBenchmarkPreconsentedConfirmation(
+      "Allow shell access to fixed Git worktree orchestration?",
+    )).toBe(true);
+
+    expect(isCompanyBenchmarkPreconsentedConfirmation(
+      "Allow network access to https://example.com?",
+    )).toBe(false);
+    expect(isCompanyBenchmarkPreconsentedConfirmation(
+      "Allow credential access to OPENAI_API_KEY?",
+    )).toBe(false);
+    expect(isCompanyBenchmarkPreconsentedConfirmation(
+      "Allow external_path access to /Users/example?",
+    )).toBe(false);
+    expect(isCompanyBenchmarkPreconsentedConfirmation(
+      "Allow shell access to npm test",
+    )).toBe(false);
+  });
+
   it("runs byte-identical single and company arms through review, repair, synthesis, and hidden verification", async () => {
     const root = await realpath(
       await mkdtemp(path.join(tmpdir(), "recurs-company-benchmark-e2e-")),
     );
     roots.push(root);
-    const blueprint = createCompanyBenchmarkBlueprint();
     const scenario = getCompanyBenchmarkScenario("alias_registry", 1);
+    const blueprint = createCompanyBenchmarkBlueprint(scenario);
     const campaign = parseCompanyBenchmarkCampaign({
       id: "campaign-e2e",
       version: 1,

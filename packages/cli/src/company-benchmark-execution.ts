@@ -12,14 +12,17 @@ import {
   createHostInvocation,
   type AgentRuntime,
   type CompanyBenchmarkArmV1,
+  type CompanyBenchmarkScenarioRefV1,
   type CompanyBenchmarkTrialV1,
   type CompanyBlueprintV2,
   type RunResult,
   type RuntimeContinuationStore,
 } from "@recurs/contracts";
 import {
+  AgentLoopError,
   CompanyBenchmarkAllowanceError,
   CompanyBenchmarkExecutionRecorder,
+  CoordinatedRunError,
   JsonlTeamRunStore,
   getCompanyBenchmarkScenario,
   initializeCompanyBenchmarkWorkspace,
@@ -27,6 +30,7 @@ import {
   verifyCompanyBenchmarkWorkspace,
   type CompanyBenchmarkExecutionAdapter,
   type CompanyBenchmarkExecutionInput,
+  type CompanyBenchmarkScenario,
   type CompanyBenchmarkWorkspaceVerification,
   type RecursEvent,
 } from "@recurs/core";
@@ -35,6 +39,7 @@ import type { runProcess } from "@recurs/tools";
 
 import { createStandaloneRuntime } from "./assembly.js";
 import { createCodexAgentRuntime } from "./codex-connection.js";
+import { RuntimeError } from "./runtime.js";
 
 const LAUNCH_INVOCATION = createHostInvocation({
   invocation: "goal",
@@ -48,12 +53,53 @@ const BENCHMARK_PRECONSENTED_CONFIRMATIONS = new Set([
   "Allow shell access to fixed Git worktree orchestration?",
 ]);
 
+export function isCompanyBenchmarkPreconsentedConfirmation(
+  message: string,
+): boolean {
+  return BENCHMARK_PRECONSENTED_CONFIRMATIONS.has(message) ||
+    message.startsWith("Allow shell access to ") && message.endsWith("?");
+}
+
 export function companyBenchmarkBlueprintDigest(
   blueprint: CompanyBlueprintV2,
 ): string {
   return createHash("sha256")
     .update(JSON.stringify(blueprint))
     .digest("hex");
+}
+
+export function assertCompanyBenchmarkScenarioAuthority(
+  scenario: CompanyBenchmarkScenario,
+  reference: CompanyBenchmarkScenarioRefV1,
+): void {
+  if (
+    scenario.id !== reference.id ||
+    scenario.version !== reference.version ||
+    scenario.taskClass !== reference.taskClass ||
+    scenario.difficulty !== reference.difficulty ||
+    scenario.fixtureSha256 !== reference.fixtureSha256 ||
+    scenario.verifierId !== reference.verifierId ||
+    scenario.objectiveRevision !== reference.objectiveRevision
+  ) {
+    throw new TypeError(
+      "Company benchmark scenario does not match campaign authority",
+    );
+  }
+}
+
+export function companyBenchmarkExecutionFailureCode(
+  error: unknown,
+): string | null {
+  if (error instanceof RuntimeError) {
+    return `runtime_${error.code}`;
+  }
+  if (error instanceof AgentLoopError) {
+    return `agent_${error.code}`;
+  }
+  if (error instanceof CoordinatedRunError) {
+    return `coordinated_${error.failure.code}`;
+  }
+  return null;
 }
 
 function projectDirectory(dataDirectory: string, workspace: string): string {
@@ -215,6 +261,14 @@ export class RuntimeCompanyBenchmarkAdapter
     if (arm === undefined) {
       throw new TypeError("Company benchmark arm is unavailable");
     }
+    const scenario = getCompanyBenchmarkScenario(
+      input.campaign.scenario.id,
+      input.campaign.scenario.version,
+    );
+    assertCompanyBenchmarkScenarioAuthority(
+      scenario,
+      input.campaign.scenario,
+    );
 
     const nowMs = this.#options.nowMs ?? Date.now;
     const workspace = await realpath(
@@ -224,10 +278,6 @@ export class RuntimeCompanyBenchmarkAdapter
       await mkdtemp(path.join(tmpdir(), "recurs-company-benchmark-home-")),
     );
     const startedAtMs = nowMs();
-    const scenario = getCompanyBenchmarkScenario(
-      input.campaign.scenario.id,
-      input.campaign.scenario.version,
-    );
     let runtime: Awaited<ReturnType<typeof createStandaloneRuntime>> | null =
       null;
     let recorder: CompanyBenchmarkExecutionRecorder | null = null;
@@ -240,6 +290,7 @@ export class RuntimeCompanyBenchmarkAdapter
       | "interrupted";
     let finalEvidence: readonly string[] = [];
     let failureStage: "setup" | "execution" | null = null;
+    let executionFailureCode: string | null = null;
     const companyState: {
       terminal:
         | "completed"
@@ -319,7 +370,7 @@ export class RuntimeCompanyBenchmarkAdapter
           : { environment: this.#options.environment }),
       });
       runtime.setConfirmHandler(async (message) =>
-        BENCHMARK_PRECONSENTED_CONFIRMATIONS.has(message)
+        isCompanyBenchmarkPreconsentedConfirmation(message)
       );
       recorder.registerParent(runtime.session.id, startedAtMs);
       try {
@@ -363,6 +414,7 @@ export class RuntimeCompanyBenchmarkAdapter
         executionStatus = isCancellation(error, input.signal)
           ? "cancelled"
           : "failed";
+        executionFailureCode = companyBenchmarkExecutionFailureCode(error);
         recorder.finishParent({
           completedAtMs: nowMs(),
           status: executionStatus,
@@ -412,13 +464,16 @@ export class RuntimeCompanyBenchmarkAdapter
                 stage: failureStage,
                 code: executionStatus === "cancelled"
                   ? "execution_cancelled"
-                  : executionStatus === "interrupted"
-                    ? "company_goal_interrupted"
-                    : arm.kind === "company"
-                      ? companyState.terminal === null
-                        ? "company_goal_not_executed"
-                        : "company_goal_failed"
-                  : "runtime_execution_failed",
+                  : executionFailureCode ??
+                    (
+                      executionStatus === "interrupted"
+                        ? "company_goal_interrupted"
+                        : arm.kind === "company"
+                          ? companyState.terminal === null
+                            ? "company_goal_not_executed"
+                            : "company_goal_failed"
+                          : "runtime_execution_failed"
+                    ),
               }],
             }),
       });

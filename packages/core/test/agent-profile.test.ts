@@ -41,7 +41,7 @@ describe("v4 team profile prompts", () => {
     ["implement_v2", "Implement", "Changes"],
     ["review_v2", "Review", "Findings"],
     ["repair_v1", "Repair", "Repairs"],
-  ] as const)("scopes %s to host tools with no process or network execution", (
+  ] as const)("scopes %s to bounded host tools without arbitrary commands", (
     profileId,
     role,
     heading,
@@ -49,10 +49,18 @@ describe("v4 team profile prompts", () => {
     const prompt = scopeAgentPrompt(child(profileId), "Perform the bounded task");
 
     expect(prompt).toContain(`Recurs ${role} agent`);
-    expect(prompt).toContain("Do not execute repository code or arbitrary commands.");
     expect(prompt).toContain("Do not use network tools, credentials, deployments, external paths, or sensitive paths.");
     expect(prompt).toContain(heading);
     expect(prompt).toContain("Perform the bounded task");
+    if (profileId === "review_v2") {
+      expect(prompt).toContain(
+        "Do not execute repository code or arbitrary commands.",
+      );
+    } else {
+      expect(prompt).toContain(
+        "Use run_verification for bounded verification; do not execute arbitrary commands.",
+      );
+    }
   });
 });
 
