@@ -506,7 +506,9 @@ describe("company slash command", () => {
 
     await expect(registry.execute("/company", active)).resolves.toMatchObject({
       type: "message",
-      text: expect.stringContaining("Company: company-cli"),
+      text: expect.stringMatching(
+        /Company: company-cli[\s\S]*Goal runs: 1 total, 1 unresolved/u,
+      ),
     });
     await expect(registry.execute("/company blueprint", active)).resolves
       .toMatchObject({ text: expect.stringContaining("version: 2") });

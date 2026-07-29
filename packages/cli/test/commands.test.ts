@@ -260,6 +260,11 @@ describe("foundation slash commands", () => {
     expect(await registry.execute("/help", context)).toMatchObject({
       text: expect.stringMatching(/\/goal[\s\S]*\/agents \[profiles\|mode name\]/u),
     });
+    expect(await registry.execute("/help", context)).toMatchObject({
+      text: expect.stringMatching(
+        /\/company status[\s\S]*\/company operations[\s\S]*\/company run <run-id>[\s\S]*\/company resume <run-id>/u,
+      ),
+    });
     expect(await registry.execute("/cancel", context)).toMatchObject({ level: "info" });
     expect(cancel).toHaveBeenCalledOnce();
     expect(await registry.execute("/exit", context)).toEqual({ type: "quit" });

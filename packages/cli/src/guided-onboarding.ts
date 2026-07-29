@@ -1443,7 +1443,7 @@ async function runGuidedOnboardingSteps(
   await writeOutput(ports.stdout, [
     `\n${renderRecursHeader(theme, "Welcome to Recurs")}`,
     "",
-    "Build a working agent company: connect its parent model, set its safety boundary, choose its operating mode, route specialists, and review a project-tailored roster.",
+    "Set up Recurs: connect the parent model, set its safety boundary, choose its operating mode, and route specialists. Company formation is optional.",
     theme.muted("Credentials stay with the vendor runtime or a named process environment—never this generic prompt."),
     "",
   ].join("\n"));
@@ -1586,7 +1586,7 @@ async function runGuidedOnboardingSteps(
     `Roster: ${company.blueprintV2 !== undefined
       ? `Recommended · ${company.blueprintV2.departments.length} department(s) · ${company.blueprintV2.roles.length} approved role(s)`
       : company.blueprint === undefined
-        ? "not activated"
+        ? "not activated · Run recurs setup to form a company later."
         : `Recommended · ${company.blueprint.roles.length} approved role(s) · ${company.blueprint.developmentStyle.replaceAll("_", " ")}`}`,
     `Authority: ${permissionLabel(permissionMode)}`,
     "Models Auto becomes available after eligible real company-goal evidence is recorded.",

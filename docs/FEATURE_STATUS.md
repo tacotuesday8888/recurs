@@ -27,7 +27,7 @@ context, not a product commitment.
 | Company authority | Immutable blueprints, root orchestrator and independent-review anchors, permission monotonicity, active-role/depth/concurrency/request/retry/reported-cost limits, cancellation, and truthful events |
 | Company adaptation | Tailored role charters, attributable project knowledge, historical blueprint pinning, exact Skill/MCP bundle bindings, and approval-gated amendments |
 | Evaluation | Discoverable versioned scenarios; deterministic offline formation; exact-connection, explicit-network configured formation including Codex app-server; three hidden-verifier Company Proof fixtures; read-only exact-run company-goal scoring; sanitized reports and bounded human progress |
-| Model teams | `/model auto` records exact completed company-goal evidence and selects a four-role Parent/Implement/Review/Repair lineup only when decomposition, evidence, and synthesis passed; selected routes apply to future sessions and remain inspectable |
+| Model teams | `/model auto` records exact completed company-goal evidence and selects the most-supported eligible recorded configured Parent/Implement/Review/Repair lineup only when decomposition, evidence, and synthesis passed; selected routes apply to future sessions and remain inspectable, while Repair remains a fallback that may not activate |
 | Providers | Reviewed saved environment BYOK, literal-loopback Ollama/LM Studio, and local user-present Codex subscription discovery/execution through the official app-server |
 | Host safety | Permanent credential-path denial, clean child environments, bounded failures, macOS Seatbelt, Linux Bubblewrap, Git worktree isolation, and tamper-evident private state |
 
@@ -102,9 +102,9 @@ model/effort, and bounded usage.
 
 The controlled comparison surface includes three hidden-verifier coding
 fixtures, distinct Quick/Guided/Deep formation scenarios, and campaigns that
-compare the same strong parent against a saved recommended team, with an
-explicit option for an additional all-strong bounded team. The remaining
-evidence milestone is repetition: run at least three pairs per scenario,
-include alternative teams where authorized, and tune activation, context,
-latency, and review value only from durable results. A new orchestration
-foundation is not the next step.
+compare the selected parent-only baseline against the currently configured
+saved role-route snapshot, with an explicit option for an additional all-strong
+bounded team. The remaining evidence milestone is repetition: run at least
+three pairs per scenario, include alternative teams where authorized, and tune
+activation, context, latency, and review value only from durable results. A new
+orchestration foundation is not the next step.

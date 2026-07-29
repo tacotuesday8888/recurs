@@ -165,7 +165,7 @@ describe("company operating views", () => {
     expect(renderCompanyOperations(company, [])).toBe([
       "Company operations",
       "Company: company-operations | Blueprint: blueprint-operations r1",
-      "Goals: 0 total | 0 active | 0 completed | 0 failed | 0 cancelled",
+      "Goals: 0 total | 0 unresolved | 0 completed | 0 failed | 0 cancelled",
       "Active roles: none",
       "No company goal runs exist for this session and blueprint.",
     ].join("\n"));
@@ -214,7 +214,7 @@ describe("company operating views", () => {
     const rendered = renderCompanyOperations(company, [completed, running]);
 
     expect(rendered).toContain(
-      "Goals: 2 total | 1 active | 1 completed | 0 failed | 0 cancelled",
+      "Goals: 2 total | 1 unresolved | 1 completed | 0 failed | 0 cancelled",
     );
     expect(rendered).toContain("Current: running | run-operations");
     expect(rendered).toContain("Progress: 1/3 completed | 1 running | 1 pending");
@@ -226,6 +226,91 @@ describe("company operating views", () => {
     expect(rendered).not.toContain(
       `Active roles: ${company.roles.find((role) => role.executionProfileId === "review_v2")!.displayName}`,
     );
+  });
+
+  it("uses all 21 runs for unresolved current state while capping only recent goals", () => {
+    const company = blueprint();
+    const completedAssignments = assignments(company).map((assignment) => ({
+      ...assignment,
+      status: "completed" as const,
+      execution: assignment.execution === undefined
+        ? {
+            attempt: 1 as const,
+            childAgentId: `child-${assignment.id}`,
+            childSessionId: `session-${assignment.id}`,
+            taskId: `task-${assignment.id}`,
+            startedAt: at,
+            completedAt: "2026-07-22T10:30:00.000Z",
+          }
+        : {
+            ...assignment.execution,
+            completedAt: "2026-07-22T10:30:00.000Z",
+          },
+      result: {
+        summary: `Completed ${assignment.id}.`,
+        evidence: [`evidence:${assignment.id}`],
+        usage: null,
+        usageSource: "unknown" as const,
+      },
+      failure: null,
+    }));
+    const completed = Array.from({ length: 20 }, (_, index) => run(company, {
+      id: `run-completed-${String(index).padStart(2, "0")}`,
+      goalId: `goal-completed-${String(index).padStart(2, "0")}`,
+      objective: `Complete recent company goal ${index}.`,
+      status: "completed",
+      updatedAt: `2026-07-22T11:${String(index).padStart(2, "0")}:00.000Z`,
+      plan: {
+        revision: 1,
+        createdAt: at,
+        assignments: completedAssignments,
+      },
+      result: {
+        summary: `Completed recent company goal ${index}.`,
+        evidence: [`evidence:goal:${index}`],
+      },
+    }));
+    const interrupted = run(company, {
+      id: "run-interrupted-older",
+      goalId: "goal-interrupted-older",
+      objective: "Recover the older interrupted company goal.",
+      status: "interrupted",
+      updatedAt: "2026-07-22T10:00:02.000Z",
+      plan: {
+        revision: 1,
+        createdAt: at,
+        assignments: assignments(company).map((assignment) =>
+          assignment.id === "implementation-assignment"
+            ? {
+                ...assignment,
+                status: "cancelled" as const,
+                execution: {
+                  ...assignment.execution!,
+                  completedAt: "2026-07-22T10:00:02.000Z",
+                },
+                failure: "Stopped when the company goal was interrupted.",
+              }
+            : assignment
+        ),
+      },
+    });
+
+    const rendered = renderCompanyOperations(company, [...completed, interrupted]);
+    const recent = rendered.split("Recent goals:\n")[1]!.split("\n");
+
+    expect(rendered).toContain(
+      "Goals: 21 total | 1 unresolved | 20 completed | 0 failed | 0 cancelled",
+    );
+    expect(rendered).toContain(
+      "Current: interrupted | run-interrupted-older | Recover the older interrupted company goal.",
+    );
+    expect(rendered).toContain("Active roles: none");
+    expect(rendered).toContain(
+      "Progress: 1/3 completed | 0 running | 1 pending | 0 failed | 0 blocked | 1 cancelled",
+    );
+    expect(recent).toHaveLength(20);
+    expect(recent.every((line) => line.startsWith("- completed |"))).toBe(true);
+    expect(recent.join("\n")).not.toContain("run-interrupted-older");
   });
 
   it("renders exact assignment correlation, dependencies, evidence, and next state", () => {

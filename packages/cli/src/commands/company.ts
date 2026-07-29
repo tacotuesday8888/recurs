@@ -41,7 +41,7 @@ import {
 } from "./types.js";
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
-const USAGE = "/company [blueprint|readiness|capabilities|bind <bundle> <skill|mcp> <id>|unbind <binding-id>|operations|run <run-id>|resume <run-id>|activity|knowledge|amendments|amendment <id>|approve-amendment <id>|reject-amendment <id>]";
+const USAGE = "/company [status|blueprint|readiness|capabilities|bind <bundle> <skill|mcp> <id>|unbind <binding-id>|operations|run <run-id>|resume <run-id>|activity|knowledge|amendments|amendment <id>|approve-amendment <id>|reject-amendment <id>]";
 
 class CompanyCommandPolicyError extends Error {}
 
@@ -100,7 +100,7 @@ function statusText(
   runs: readonly CompanyGoalRunV1[],
   readiness = companyToolReadinessCounts(blueprint),
 ): string {
-  const active = runs.filter((run) =>
+  const unresolved = runs.filter((run) =>
     run.status === "created" || run.status === "running" ||
     run.status === "waiting_for_approval" || run.status === "interrupted"
   ).length;
@@ -113,7 +113,7 @@ function statusText(
     `Departments: ${blueprint.departments.length}`,
     `Roles: ${blueprint.roles.length}`,
     `Tool bundles: ${readiness.ready} ready, ${readiness.missing} missing`,
-    `Goal runs: ${runs.length} total, ${active} active or interrupted`,
+    `Goal runs: ${runs.length} total, ${unresolved} unresolved`,
   ].join("\n");
 }
 

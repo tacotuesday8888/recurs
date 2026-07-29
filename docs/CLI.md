@@ -128,7 +128,10 @@ Common slash commands:
 /permissions
 /agents
 /goal
-/checkpoint
+/company status
+/company operations
+/company run <run-id>
+/company resume <run-id>
 /process
 /image
 /undo
@@ -136,7 +139,7 @@ Common slash commands:
 /quit
 ```
 
-Use `/help <command>` inside the CLI for the exact current syntax.
+Use `/help` inside the CLI for the exact current command list.
 
 ### Models Auto
 
@@ -151,13 +154,15 @@ uses exact immutable backend routes from completed company goals:
 
 `evaluate` records a configured goal only after its decomposition, evidence,
 and synthesis can be inspected. `/model auto` then confirmation-gates the
-strongest eligible recorded four-role lineup and applies it to future
-Parent/Implement/Review/Repair sessions. Changed or missing connections fail
-closed. The command shows the selected models, reasoning effort, evidence
-count, and rationale. It does not change the current session. During a company
-goal, the terminal also shows only agents that actually activate, their exact
-assigned model and reasoning effort, and bounded request/token/reported-cost
-usage as it becomes available.
+most-supported eligible recorded configured four-role lineup and applies it to
+future Parent/Implement/Review/Repair sessions. This is a structural selection,
+not a comparative winner. Repair remains a configured fallback and may not
+activate in a recorded run. Changed or missing connections fail closed. The
+command shows the selected models, reasoning effort, evidence count, and
+rationale. It does not change the current session. During a company goal, the
+terminal also shows only agents that actually activate, their exact assigned
+model and reasoning effort, and bounded request/token/reported-cost usage as it
+becomes available.
 
 ## Headless runs
 
@@ -221,9 +226,11 @@ allow explicit resume, inspection, and apply after interruption.
 
 ## Company commands
 
-Company onboarding proposes a project-specific roster and authority graph
-before activation. The CLI supports status, activity, knowledge, amendments,
-goals, and exact-run inspection through the interactive command surface.
+Company formation is optional. When used, onboarding proposes a
+project-specific roster and authority graph before activation; run
+`recurs setup` to return to it later. The CLI supports status, operations,
+activity, knowledge, amendments, goals, and exact-run inspection through the
+interactive command surface.
 
 Offline evaluation is deterministic:
 
@@ -245,8 +252,8 @@ boundary: decision turns receive no project tools, while bounded Explore
 research receives only the reviewed read-only file, outline, search, and Git
 inspection tools.
 
-Company Proof compares the same immutable fixture through a strong single agent
-and bounded teams:
+Company Proof runs the same immutable fixture through the selected parent-only
+baseline and the currently configured saved role-route snapshot:
 
 ```bash
 recurs benchmark company --list [--json]
@@ -257,11 +264,12 @@ recurs benchmark company --resume <campaign-id> --allow-network [--json]
 ```
 
 Campaigns are resumable and alternate arm order. The default compares the
-strong single agent with the recommended route snapshot. When saved worker
-routes differ from the parent, `--compare-all-strong` explicitly adds an
-all-strong bounded team and derives the larger ceilings from that selection.
-Hidden verification decides correctness; reports preserve unknown token or
-cost coverage rather than inventing zeroes or a winner.
+selected parent-only baseline with the currently configured saved role-route
+snapshot. When saved worker routes differ from the parent,
+`--compare-all-strong` explicitly adds an all-strong bounded team and derives
+the larger ceilings from that selection. Hidden verification decides
+correctness; reports preserve unknown token or cost coverage rather than
+inventing zeroes or a winner.
 
 ## ACP
 

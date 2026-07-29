@@ -4,7 +4,7 @@ import type {
   CompanyGoalRunV1,
 } from "@recurs/contracts";
 
-const ACTIVE_GOAL_STATUSES = new Set<CompanyGoalRunV1["status"]>([
+const UNRESOLVED_GOAL_STATUSES = new Set<CompanyGoalRunV1["status"]>([
   "created",
   "running",
   "waiting_for_approval",
@@ -33,12 +33,13 @@ function progress(run: CompanyGoalRunV1): string {
   const total = run.plan.assignments.length;
   const count = (status: CompanyGoalAssignmentV1["status"]): number =>
     run.plan.assignments.filter((assignment) => assignment.status === status).length;
-  const stopped = count("failed") + count("cancelled") + count("blocked");
   return [
     `Progress: ${count("completed")}/${total} completed`,
     `${count("running")} running`,
     `${count("pending")} pending`,
-    `${stopped} failed/blocked`,
+    `${count("failed")} failed`,
+    `${count("blocked")} blocked`,
+    `${count("cancelled")} cancelled`,
   ].join(" | ");
 }
 
@@ -158,7 +159,7 @@ function nextState(run: CompanyGoalRunV1): string {
 function sortedRuns(runs: readonly CompanyGoalRunV1[]): readonly CompanyGoalRunV1[] {
   return [...runs].sort((left, right) =>
     right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id)
-  ).slice(0, 20);
+  );
 }
 
 function activeRoleNames(
@@ -167,7 +168,7 @@ function activeRoleNames(
 ): readonly string[] {
   const names = roles(blueprint);
   return [...new Set(runs.flatMap((run) =>
-    ACTIVE_GOAL_STATUSES.has(run.status)
+    run.status === "running"
       ? run.plan.assignments.filter((assignment) =>
           assignment.status === "running"
         ).map((assignment) => roleName(names, assignment.roleId))
@@ -182,26 +183,30 @@ export function renderCompanyOperations(
   const runs = sortedRuns(values);
   const count = (status: CompanyGoalRunV1["status"]): number =>
     runs.filter((run) => run.status === status).length;
-  const active = runs.filter((run) => ACTIVE_GOAL_STATUSES.has(run.status)).length;
+  const unresolved = runs.filter((run) =>
+    UNRESOLVED_GOAL_STATUSES.has(run.status)
+  ).length;
   const activeRoles = activeRoleNames(blueprint, runs);
   const lines = [
     "Company operations",
     `Company: ${oneLine(blueprint.companyId, 128)} | Blueprint: ${oneLine(blueprint.id, 128)} r${blueprint.revision}`,
-    `Goals: ${runs.length} total | ${active} active | ${count("completed")} completed | ${count("failed")} failed | ${count("cancelled")} cancelled`,
+    `Goals: ${runs.length} total | ${unresolved} unresolved | ${count("completed")} completed | ${count("failed")} failed | ${count("cancelled")} cancelled`,
     `Active roles: ${activeRoles.length === 0 ? "none" : activeRoles.join(", ")}`,
   ];
   if (runs.length === 0) {
     lines.push("No company goal runs exist for this session and blueprint.");
     return lines.join("\n");
   }
-  const current = runs.find((run) => ACTIVE_GOAL_STATUSES.has(run.status)) ?? runs[0]!;
+  const current = runs.find((run) =>
+    UNRESOLVED_GOAL_STATUSES.has(run.status)
+  ) ?? runs[0]!;
   lines.push(
     `Current: ${current.status} | ${current.id} | ${oneLine(current.objective, 300)} | ${current.updatedAt}`,
     progress(current),
     ...accounting(current),
     `Next: ${nextState(current)}`,
     "Recent goals:",
-    ...runs.map((run) =>
+    ...runs.slice(0, 20).map((run) =>
       `- ${run.status} | ${run.id} | ${oneLine(run.objective, 180)} | ${run.updatedAt}`
     ),
   );

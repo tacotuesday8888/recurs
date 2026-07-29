@@ -18,8 +18,9 @@ Permissions   Approved for Me
 ```
 
 The user chooses how much sub-agent capacity is available. Recurs activates
-only the roles the task needs and, when supported by evidence, assigns the best
-evaluated model lineup for that kind of work.
+only the roles the task needs and, when supported by evidence, assigns the
+most-supported eligible recorded configured lineup. That selection is not a
+comparative winner.
 
 The product metaphor is an agent company. The technical mechanism is a bounded
 team of sub-agents.
@@ -39,8 +40,8 @@ These products are useful internal references, not required public positioning:
 
 The corresponding Recurs direction is:
 
-> Cursor Router chooses one model. Recurs Auto chooses the evaluated lineup of
-> models that powers a bounded sub-agent team.
+> Cursor Router chooses one model. Recurs Auto chooses the most-supported
+> eligible recorded configured lineup that powers a bounded sub-agent team.
 
 ## One primary intensity control
 
@@ -125,7 +126,7 @@ Model selection should have one simple default and one escape hatch:
 
 ```text
 Models
-› Auto       Use the best current evaluated lineup for this task
+› Auto       Use the most-supported eligible recorded configured lineup
   Custom     Choose the parent and role routes manually
 ```
 
@@ -139,18 +140,21 @@ Auto does not redesign the company. The current alpha:
 5. applies the selected routes to future sessions and goals; and
 6. displays the selected models, efforts, evidence count, and rationale.
 
+Repair is one route in the configured snapshot. It remains a fallback and may
+not activate in the recorded goal that supplies the evidence.
+
 An illustrative result:
 
 ```text
 Auto selected a model team
 
-Lead           frontier reasoning model
-Research       fast long-context model
-Implement      strong coding model
-Review         independent review model
+Parent         configured parent model
+Implement      configured implementation model
+Review         configured independent review model
+Repair         configured fallback; may not activate
 
-Selected for   large cross-package implementation
-Optimized for  balanced quality and cost
+Selection      most-supported eligible recorded configured lineup
+Evidence       exact completed goals and visible rationale
 ```
 
 Actual model names and claims must come from current evaluation results, never
@@ -172,7 +176,7 @@ Evaluation should record:
 - latency, tokens, reported cost, and relevant cache effects; and
 - scenario version, evaluation date, sample size, and harness version.
 
-Auto may recommend a lineup only when its evidence satisfies a declared quality
+Auto may select a lineup only when its evidence satisfies a declared quality
 floor and is current for the selected models and harness. Missing, stale, or
 ineligible evidence must fall back to explicit saved routing or the parent
 model.
@@ -205,11 +209,12 @@ activation for review value. It is not enough evidence for a universal
 recommendation.
 
 The repeatable Company Proof surface now supplies three immutable tasks. Its
-default compares the recommended route snapshot with the exact same strong
-parent; when saved worker routes differ, `--compare-all-strong` explicitly adds
-an all-strong bounded team. Distinct Quick, Guided, and Deep formation
-scenarios make onboarding cost and quality separately observable. No configured
-result is claimed until the corresponding durable trials actually exist.
+default compares the selected parent-only baseline with the currently
+configured saved role-route snapshot; when saved worker routes differ,
+`--compare-all-strong` explicitly adds an all-strong bounded team. Distinct
+Quick, Guided, and Deep formation scenarios make onboarding cost and quality
+separately observable. No configured result is claimed until the corresponding
+durable trials actually exist.
 
 ## Delivery sequence
 

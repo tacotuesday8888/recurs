@@ -4,10 +4,11 @@
 
 # Recurs
 
-**A coding-agent company that stays inside the lines.**
+**A coding-agent harness that can form a company—and stays inside the lines.**
 
-Give Recurs a goal. It forms a project-specific team, keeps implementation in
-isolated worktrees, and returns reviewed work for your approval.
+Recurs can form and run a project-specific company, keep implementation in
+isolated worktrees, and return reviewed work for your approval. Company
+formation is optional; you can also use Recurs as a bounded parent coding agent.
 
 [![CI](https://github.com/tacotuesday8888/recurs/actions/workflows/ci.yml/badge.svg)](https://github.com/tacotuesday8888/recurs/actions/workflows/ci.yml)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-d29922.svg)](#project-status)
@@ -40,9 +41,9 @@ recurs
 ```
 
 On first launch, Recurs guides you through model access, safety boundaries,
-operating mode, specialist routing, company review, and project context.
-Credentials remain with the vendor runtime or a named process environment.
-Recurs never persists BYOK values.
+operating mode, specialist routing, optional company review, and project
+context. Credentials remain with the vendor runtime or a named process
+environment. Recurs never persists BYOK values.
 
 The exact local alpha archive measured 414 KiB compressed and 1.79 MiB
 unpacked; a clean Apple-silicon production install measured about 38.7 MiB on
@@ -106,7 +107,8 @@ automatic installation or trust of Skills and MCP servers.
   durable-goal scoring.
 - **Evidence-backed model teams:** `/model auto` records exact configured goal
   results, shows the selected Parent/Implement/Review/Repair models and
-  rationale, and applies only a validated lineup to future work.
+  rationale, and applies the most-supported eligible recorded configured lineup
+  to future work.
 
 The [feature status](docs/FEATURE_STATUS.md) is the code-backed inventory of
 implemented, bounded, prepared-only, and absent capabilities.
@@ -123,9 +125,9 @@ formation and a reviewed Balanced coding goal:
 - provider-reported usage totaled 216,879 input tokens, including 161,024
   cached input tokens, and 3,274 output tokens. Dollar cost was unavailable.
 
-The first candidate passed review, so no Repair role activated. Deterministic
-integration tests cover request-changes, bounded repair, and re-review. This is
-proof that the full path can run.
+The first candidate passed review, so the configured Repair fallback did not
+activate. Deterministic integration tests cover request-changes, bounded
+repair, and re-review. This is proof that the full path can run.
 
 On 2026-07-29, one fresh comparison pair ran on each of three immutable coding
 fixtures. The Sol/Terra/Luna company passed all three hidden verifiers; the Sol
@@ -165,10 +167,11 @@ session, and JSON/JSONL option.
   prepared Bun global-install path cannot work until the npm package exists and
   still launches Recurs with Node.js.
 - **Prepared to repeat:** three immutable hidden-verifier fixtures, repeatable
-  single-agent versus recommended team campaigns, an explicit all-strong
-  comparison option, and distinct Quick/Guided/Deep formation evaluations are
-  implemented. At least three pairs per fixture, alternative teams, and
-  provider-reported cost still need authorized model runs.
+  selected-parent-only versus currently configured saved role-route campaigns,
+  an explicit all-strong comparison option, and distinct Quick/Guided/Deep
+  formation evaluations are implemented. At least three pairs per fixture,
+  alternative teams, and provider-reported cost still need authorized model
+  runs.
 - **Not implemented:** Windows subprocess containment and a desktop app.
 
 ## 📚 Documentation

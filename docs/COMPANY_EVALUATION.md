@@ -52,8 +52,8 @@ not required to verify Recurs's contracts or authority boundaries.
 `recurs benchmark company --list` exposes three immutable coding fixtures:
 `alias_registry`, the cross-file `layered_config`, and the review-sensitive
 `retry_after`. Each configured campaign runs byte-identical fresh workspaces
-through a strong single-agent baseline and the saved recommended company.
-When saved worker routes differ from the parent,
+through the selected parent-only baseline and the currently configured saved
+role-route snapshot. When saved worker routes differ from the parent,
 `--compare-all-strong` explicitly adds an all-strong bounded lineup.
 
 ```sh
@@ -118,9 +118,10 @@ subscription connections without copying credentials:
   cost coverage was unknown; decomposition, evidence, and synthesis passed.
   `/model auto` then selected that exact four-route snapshot.
 
-The successful live review approved the first patch, so no repair agent was
-needed. The request-changes → bounded Repair → independent re-review path
-remains proved by the deterministic `team-run-supervisor` integration suite.
+The successful live review approved the first patch, so the configured Repair
+fallback did not activate. The request-changes → bounded Repair → independent
+re-review path remains proved by the deterministic `team-run-supervisor`
+integration suite.
 This formation-to-apply run plus the later three-scenario comparison proves the
 lineup and comparison machinery execute end to end. It still does not show that
 the named lineup is a universal winner or always more efficient than one
