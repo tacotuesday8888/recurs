@@ -20,8 +20,9 @@ Current documents:
 
 Reviewed specifications and implementation plans follow. These dated files are
 design and delivery records; unchecked historical steps are not a live backlog.
-Use [Feature status](FEATURE_STATUS.md), the CLI guide, and the architecture for
-current product truth.
+The [design and delivery archive guide](superpowers/README.md) defines their
+authority. Use [Feature status](FEATURE_STATUS.md), the CLI guide, and the
+architecture for current product truth.
 
 - [Core v0 design](superpowers/specs/2026-07-10-recurs-core-v0-design.md) — implemented single-agent foundation.
 - [Provider, authentication, and onboarding design](superpowers/specs/2026-07-10-recurs-provider-auth-design.md) — historical umbrella design. The current portable TypeScript implementation retains the non-secret registry, local setup, environment BYOK, and official Codex delegated path; the obsolete private native provider engine was removed.
