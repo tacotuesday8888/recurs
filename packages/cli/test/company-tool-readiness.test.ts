@@ -121,9 +121,9 @@ describe("company tool readiness", () => {
     }, bindings);
 
     expect(unavailable).toContain("unavailable | capability-release-check");
-    expect(unavailable).toContain("Tool bundles: 1 ready, 1 missing");
+    expect(unavailable).toContain("Tool bundles: 2 ready, 1 missing");
     expect(ready).toContain("ready | capability-release-check");
-    expect(ready).toContain("Tool bundles: 2 ready, 0 missing");
+    expect(ready).toContain("Tool bundles: 3 ready, 0 missing");
     expect(ready).not.toContain("Private description");
     expect(ready).not.toContain("/private/");
   });

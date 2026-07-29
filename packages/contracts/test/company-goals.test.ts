@@ -19,11 +19,23 @@ function planFixture(): CompanyGoalPlanV1 {
       id: "review-assignment",
       roleId: "quality_reviewer",
       parentAssignmentId: null,
-      dependsOn: [],
+      dependsOn: ["implementation-assignment"],
       description: "Review the company goal plan.",
       prompt: "Inspect the plan against the approved blueprint.",
       acceptance: ["Report concrete findings or approval."],
       expectedEvidence: ["Citations to the reviewed plan."],
+      status: "pending",
+      result: null,
+      failure: null,
+    }, {
+      id: "implementation-assignment",
+      roleId: "scoped_builder",
+      parentAssignmentId: null,
+      dependsOn: [],
+      description: "Implement the bounded company goal.",
+      prompt: "Implement the approved scope and return concrete evidence.",
+      acceptance: ["Return a verified bounded implementation."],
+      expectedEvidence: ["Changed paths and verification evidence."],
       status: "pending",
       result: null,
       failure: null,
@@ -167,6 +179,7 @@ describe("company goal contracts", () => {
         ...planFixture().assignments[0]!,
         id: "historical-assignment",
         roleId: reserve.id,
+        dependsOn: [],
       }],
     };
 
@@ -200,6 +213,7 @@ describe("company goal contracts", () => {
       ...planFixture(),
       assignments: [{
         ...assignment,
+        dependsOn: [],
         status: "running",
         execution: {
           attempt: 1,
@@ -219,6 +233,7 @@ describe("company goal contracts", () => {
       ...planFixture(),
       assignments: [{
         ...assignment,
+        dependsOn: [],
         status: "running",
         execution: {
           attempt: 1,
@@ -239,6 +254,7 @@ describe("company goal contracts", () => {
       ...planFixture(),
       assignments: [{
         ...assignment,
+        dependsOn: [],
         status: "running",
         execution: {
           attempt: 1,

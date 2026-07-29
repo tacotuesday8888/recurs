@@ -67,6 +67,7 @@ import {
   writeLocalConnection,
 } from "../src/index.js";
 import { companyBenchmarkApprovalHandler } from "../src/company-benchmark-execution.js";
+import { companyBlueprintV2Fixture } from "../../contracts/test/company-v2-fixture.js";
 
 const directories: string[] = [];
 const execFileAsync = promisify(execFile);
@@ -694,6 +695,46 @@ describe("standalone assembly without a provider", () => {
       blueprintRevision: 2,
     });
     expect(runtime.session.id).not.toBe(historicalSessionId);
+  });
+
+  it("rejects an approved V2 company with an invalid execution policy before provider use", async () => {
+    const temporary = await mkdtemp(
+      path.join(tmpdir(), "recurs-company-invalid-policy-"),
+    );
+    directories.push(temporary);
+    const root = await realpath(temporary);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const blueprint = companyBlueprintV2Fixture();
+    const implementer = blueprint.roles.find((role) =>
+      role.executionProfileId === "implement_v2"
+    )!;
+    const invalid = {
+      ...blueprint,
+      activation: {
+        defaultActiveRoleIds: blueprint.activation.defaultActiveRoleIds.filter(
+          (roleId) => roleId !== implementer.id,
+        ),
+      },
+    };
+    const provider = new ScriptedProvider([]);
+
+    await expect(createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        provider,
+        permissionMode: "approved_for_me",
+        operatingModeId: "balanced_v6",
+        reuseExistingSession: false,
+        companyBlueprint: invalid,
+      },
+    )).rejects.toMatchObject({
+      code: "invalid_input",
+      message: expect.stringMatching(/review_v2.*implement_v2/iu),
+    });
+    expect(provider.requests).toHaveLength(0);
   });
 
   it("resumes durable completed company child and team work without replaying execution", async () => {

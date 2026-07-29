@@ -15,6 +15,7 @@ import type {
   RuntimeContinuationStore,
   SessionBackendPin,
   CompanyBlueprint,
+  CompanyBlueprintV2,
 } from "@recurs/contracts";
 import {
   parseCompanyBlueprint,
@@ -70,6 +71,7 @@ import {
   createTeamRunTools,
   isPinnedSessionState,
   recoverDurableTeamChild,
+  validateCompanyBlueprintV2ExecutionPolicy,
   type AgentBackendCandidate,
   type EventSink,
   type PinnedSessionState,
@@ -143,6 +145,22 @@ import {
   providerDiscoveryOverview,
   providerOverviewText,
 } from "./provider-discovery.js";
+
+function validateCompanyExecutionPolicy(
+  blueprint: CompanyBlueprintV2,
+): void {
+  try {
+    validateCompanyBlueprintV2ExecutionPolicy(blueprint);
+  } catch (error) {
+    const detail = error instanceof Error
+      ? error.message
+      : "The execution policy could not be validated";
+    throw new RuntimeError(
+      "invalid_input",
+      `The approved company execution policy is invalid: ${detail}`,
+    );
+  }
+}
 
 export interface StandaloneRuntimeOptions {
   cwd?: string;
@@ -969,6 +987,9 @@ export async function createStandaloneRuntime(
       "Only an explicitly approved company blueprint can be activated",
     );
   }
+  if (requestedCompany?.version === 2) {
+    validateCompanyExecutionPolicy(requestedCompany);
+  }
   if (requestedCompany !== null && options.resumeSessionId !== undefined) {
     throw new RuntimeError(
       "invalid_input",
@@ -1366,6 +1387,9 @@ export async function createStandaloneRuntime(
       state.agent.company?.blueprintVersion === 2
     ? await companyBlueprintsV2.load(state.agent.company.blueprintId)
     : null;
+  if (activeCompanyBlueprint !== null) {
+    validateCompanyExecutionPolicy(activeCompanyBlueprint);
+  }
   await companyCapabilityAuthority.activate(activeCompanyBlueprint);
 
   const coordinatorReference: { current?: BackendRunCoordinator } = {};
