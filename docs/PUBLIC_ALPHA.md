@@ -43,12 +43,19 @@ Dollar cost was unavailable. Review approved the first candidate, so Repair did
 not activate in that live run; deterministic integration tests cover the
 request-changes, repair, and re-review branch.
 
+On 2026-07-29 a fresh Company Proof pair was also run for each of the three
+hidden-verifier fixtures. The Sol/Terra/Luna company passed all three; the Sol
+single-agent baseline passed two. The company was not uniformly cheaper or
+faster: it used three requests and more input tokens on both shared successes,
+was slower on one, and slightly faster on one. See
+[Company evaluation](COMPANY_EVALUATION.md) for the exact results and limits.
+
 ## What is not proven
 
-One successful run does not establish that the Sol/Terra/Luna lineup is a
-universal winner, that a large team is cost-effective, or that it beats a
-strong single agent. Before publishing a default recommendation, Recurs needs
-repeated, same-task comparisons that record:
+One run per scenario does not establish that the Sol/Terra/Luna lineup is a
+universal winner, that a large team is cost-effective, or that it reliably
+beats a strong single agent. Before publishing a default recommendation,
+Recurs needs repeated, same-task comparisons that record:
 
 - final quality and test results;
 - review findings and repair rounds;
@@ -56,11 +63,11 @@ repeated, same-task comparisons that record:
 - total and cached tokens; and
 - provider-reported dollar cost when available.
 
-The source now contains the repeatable comparison machinery: three immutable
+The source contains the repeatable comparison machinery: three immutable
 hidden-verifier fixtures, alternating campaign order, distinct
 Quick/Guided/Deep formation evaluations, a recommended bounded team, and an
-explicit all-strong comparison option. These capabilities make the evidence
-collectable; they do not substitute for authorized repeated configured runs.
+explicit all-strong comparison option. The first full task-catalog pass is
+recorded, but it does not substitute for repeated runs or alternative teams.
 
 Other current limits include Windows subprocess containment, a persistent
 worker daemon, a company operating UI, automatic plugin installation, remote

@@ -197,6 +197,13 @@ optimize price automatically. The first completed Codex dogfood reported
 216,879 input tokens (161,024 cached), 3,274 output tokens, and unknown dollar
 cost. It proved execution and evidence capture, not team efficiency.
 
+A later one-pair-per-scenario comparison covered all three immutable coding
+tasks. The Sol/Terra/Luna company passed all three hidden verifiers; the Sol
+baseline passed two. On the two shared successes, the company used more input
+tokens and was neither consistently faster nor slower. This supports selective
+activation for review value. It is not enough evidence for a universal
+recommendation.
+
 The repeatable Company Proof surface now supplies three immutable tasks. Its
 default compares the recommended route snapshot with the exact same strong
 parent; when saved worker routes differ, `--compare-all-strong` explicitly adds
@@ -206,8 +213,9 @@ result is claimed until the corresponding durable trials actually exist.
 
 ## Delivery sequence
 
-1. Run the same representative goals with a strong single agent, the recorded
-   Sol/Terra/Luna lineup, and at least one alternative team.
+1. Repeat each representative goal at least three times with a strong single
+   agent, the recorded Sol/Terra/Luna lineup, and at least one alternative
+   team.
 2. Record every eligible run with `/model auto evaluate <run-id>` and compare
    quality, review value, latency, total/cached tokens, and reported cost.
 3. Add a small versioned task taxonomy and evidence freshness policy.
