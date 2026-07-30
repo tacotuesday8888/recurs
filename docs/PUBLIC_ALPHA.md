@@ -2,7 +2,7 @@
 
 **Status:** `0.1.0-alpha.4` public alpha. Recurs is available as one verified
 npm artifact through npm, Bun-as-installer, a checksum-verifying curl asset,
-and a release Homebrew formula.
+and the official Homebrew tap.
 
 ## Installation reality
 
@@ -11,7 +11,7 @@ and a release Homebrew formula.
 | Source checkout with npm | Supported alpha path | Clone the repository, run `npm ci`, build, and `npm link` on Node.js 22.22+ |
 | npm registry | Published alpha path | `npm install --global recurs@0.1.0-alpha.4` installs the reviewed artifact |
 | GitHub release / curl | Published alpha path | The release carries the exact archive and a checksum-verifying user-local installer |
-| Homebrew | Published formula asset | The release formula installs the same npm archive; there is no tap |
+| Homebrew | Published tap path | `brew install tacotuesday8888/recurs/recurs` installs the same npm archive through the official tap |
 | Bun global install | Verified installer path | `bun install --global recurs@0.1.0-alpha.4` installs the package; Node.js 22.22+ still executes it |
 | Bun runtime | Unsupported | No `bun run`, native Bun execution, broader Bun-version, or broad platform-compatibility claim |
 | Signed binary / desktop | Not implemented | There is no standalone download or desktop application |

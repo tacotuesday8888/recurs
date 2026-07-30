@@ -39,7 +39,10 @@ test("renders one exact checksummed npm artifact for curl and Homebrew", () => {
   assert.match(installer, /trap 'exit 1' HUP INT TERM/u);
   assert.doesNotMatch(installer, /sudo/u);
   assert.match(formula, /url "https:\/\/registry\.npmjs\.org\/recurs\/-\/recurs-1\.2\.3\.tgz"/u);
+  assert.match(formula, /version "1\.2\.3"/u);
   assert.match(formula, /depends_on "node"/u);
+  assert.match(formula, /depends_on "ripgrep"/u);
+  assert.match(formula, /on_linux do\s+depends_on "bubblewrap"\s+end/u);
   assert.match(formula, /system "npm", "install", \*std_npm_args/u);
   assert.match(formula, /bin\.install_symlink libexec\.glob\("bin\/\*"\)/u);
   assert.equal(renderChecksums(fixture), `${"a".repeat(64)}  recurs-1.2.3.tgz\n`);

@@ -100,10 +100,16 @@ export function renderHomebrewFormula(input) {
   desc "Coding-agent harness with durable, bounded team orchestration"
   homepage "https://github.com/${repository}"
   url "${values.npmUrl}"
+  version ${rubyString(values.version)}
   sha256 "${values.sha256}"
   license ${rubyString(values.license)}
 
   depends_on "node"
+  depends_on "ripgrep"
+
+  on_linux do
+    depends_on "bubblewrap"
+  end
 
   def install
     system "npm", "install", *std_npm_args

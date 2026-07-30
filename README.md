@@ -23,7 +23,7 @@ formation is optional; you can also use Recurs as a bounded parent coding agent.
 ## 🚀 Install
 
 > [!IMPORTANT]
-> Recurs is alpha software. npm, Bun, curl, and the release Homebrew formula
+> Recurs is alpha software. npm, Bun, curl, and the official Homebrew tap
 > all install the same npm artifact and require Node.js; they are not four
 > independent runtimes. Bun is a verified installer, not a supported Recurs
 > runtime. There is no signed standalone binary, Windows subprocess
@@ -40,13 +40,16 @@ bun install --global recurs@0.1.0-alpha.4
 
 # checksummed user-local installer
 curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.4/install.sh | sh
+
+# Homebrew
+brew install tacotuesday8888/recurs/recurs
 ```
 
-The release also includes `recurs.rb`, a standalone Homebrew formula for the
-same npm archive. Download it from the
-[`v0.1.0-alpha.4` release](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.4)
-and run `brew install --formula ./recurs.rb`. A dedicated tap does not exist
-yet.
+The Homebrew formula installs the same npm archive published through the
+[`v0.1.0-alpha.4` release](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.4).
+Homebrew automatically adds the small
+[`tacotuesday8888/homebrew-recurs`](https://github.com/tacotuesday8888/homebrew-recurs)
+tap when you use the fully qualified install command.
 
 To run from source instead:
 
@@ -189,7 +192,7 @@ repeated-run proposals; approval is explicit and affects future goals only.
 ## Project status
 
 - **Usable now:** `0.1.0-alpha.4` through npm, Bun-as-installer, the
-  checksum-verifying curl asset, the release Homebrew formula, or a source
+  checksum-verifying curl asset, the official Homebrew tap, or a source
   checkout; macOS and Linux are the supported subprocess platforms.
 - **Proven live:** company formation, isolated implementation, independent
   review, synthesis, explicit apply, evidence-backed Auto activation, and one
@@ -197,7 +200,7 @@ repeated-run proposals; approval is explicit and affects future goals only.
   Codex subscription.
 - **Distribution boundary:** every published install path resolves to the
   exact `0.1.0-alpha.4` npm archive and still launches Recurs with Node.js.
-  There is no Homebrew tap, native Bun runtime, signed binary, or desktop app.
+  There is no native Bun runtime, signed binary, or desktop app.
 - **Prepared to repeat:** three immutable hidden-verifier fixtures, repeatable
   selected-parent-only versus currently configured saved role-route campaigns,
   an explicit all-strong comparison option, and distinct Quick/Guided/Deep

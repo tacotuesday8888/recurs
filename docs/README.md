@@ -54,8 +54,9 @@ workflow. That workflow derives a checksum-verifying user-local installer and
 Homebrew formula from the exact npm tarball, drafts and attests the GitHub
 assets, verifies npm SRI on recovery, and publishes the release only after
 package publication succeeds. The GitHub release carries the exact archive,
-checksum-verifying curl installer, and standalone Homebrew formula. There is no
-native Bun runtime, Homebrew tap, signed binary, or desktop app.
+checksum-verifying curl installer, and generated formula source. The official
+Homebrew tap publishes a reviewed formula for that same archive. There is no
+native Bun runtime, signed binary, or desktop app.
 
 A pinned Linux CI smoke lets Bun globally install the prepared npm tarball,
 then verifies that the `recurs` entry point runs through Node.js and fails when
