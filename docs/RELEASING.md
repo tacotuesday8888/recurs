@@ -47,8 +47,8 @@ execution, `bun run` support, or untested version/platform coverage.
 The prepared npm, curl, and Homebrew installation surfaces are not independent
 distribution paths yet. The curl installer invokes npm, and the generated
 Homebrew formula installs the same npm tarball with Node as a runtime
-dependency. This is acceptable while Recurs remains unreleased, but it must not
-be presented as three distinct delivery architectures.
+dependency. This is acceptable during the alpha, but it must not be presented
+as three distinct delivery architectures.
 
 For each public release, recheck this dependency chain and keep only
 distribution surfaces that add real value beyond the npm artifact.
@@ -110,7 +110,12 @@ from `main`, a private repository, the wrong workflow identity, disabled
 provenance, or any long-lived npm token.
 
 The workflow creates the npm tarball once, derives the checksummed user-local
-installer and standalone Homebrew formula from it, drafts and attests all
-assets, publishes or verifies the same npm bytes, and makes the GitHub release
-public only after npm succeeds. A dedicated Homebrew tap remains a separate
-post-release step.
+installer and Homebrew formula from it, drafts and attests all assets,
+publishes or verifies the same npm bytes, and makes the GitHub release public
+only after npm succeeds. After publication, update
+`tacotuesday8888/homebrew-recurs/Formula/recurs.rb` so its package URL and
+SHA-256 exactly match the attested release formula, review any platform
+dependency metadata separately, open a tap pull request, and merge it only
+after its formula install and test workflow passes. The tap is intentionally a
+separate repository so `brew install tacotuesday8888/recurs/recurs` does not
+clone the full Recurs source history.

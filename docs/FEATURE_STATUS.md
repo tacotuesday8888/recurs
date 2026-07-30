@@ -48,14 +48,14 @@ context, not a product commitment.
 
 - `0.1.0-alpha.4` npm package, minimal bundle, empty-prefix installation smoke,
   and protected publication workflow;
-- checksum-verifying curl installer and release Homebrew formula derived from
-  that exact npm archive; and
+- checksum-verifying curl installer and official Homebrew tap formula derived
+  from that exact npm archive; and
 - a pinned Linux Bun smoke that globally installs the npm archive, preserves
   the Node shebang, runs it through Node.js, and proves it fails without Node.
 
-There is no Homebrew tap, native Bun runtime, signed binary, Windows subprocess
-containment, or desktop app. Bun's verified boundary is package installation,
-not Recurs execution.
+There is no native Bun runtime, signed binary, Windows subprocess containment,
+or desktop app. Bun's verified boundary is package installation, not Recurs
+execution.
 
 The package gate keeps the unpacked Recurs artifact below 2.1 MB. The exact
 `0.1.0-alpha.4` archive was 433 KiB compressed / 1.87 MiB unpacked, and its
