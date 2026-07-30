@@ -109,7 +109,9 @@ jobs:
             echo "The first recurs package must follow docs/RELEASING.md before trusted publishing can be configured." >&2
             exit 1
           else
-            npm publish "release/${{ steps.package.outputs.filename }}" --access public
+            npm publish "./release/${{ steps.package.outputs.filename }}" \
+              --access public \
+              --tag alpha
           fi
       - name: Publish the verified GitHub release
         env:

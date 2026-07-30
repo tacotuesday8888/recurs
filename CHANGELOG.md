@@ -2,13 +2,15 @@
 
 Notable user-facing changes are recorded here when they ship.
 
-## 0.1.0-alpha.3 - 2026-07-30
+## 0.1.0-alpha.4 - 2026-07-30
 
 ### Fixed
 
 - Release recovery now accepts the exact scalar JSON emitted by npm 11 and the
   one-element array emitted by npm 12 while rejecting ambiguous registry
   responses.
+- Trusted publication uses an explicit filesystem package path so npm 12
+  cannot interpret the release directory as a Git dependency shorthand.
 
 ### Security
 

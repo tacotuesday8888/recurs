@@ -123,4 +123,9 @@ test("the release workflow uses the reviewed npm 11 and npm 12 pack parser", () 
   assert.match(releaseText, /npm@12\.0\.1/u);
   assert.match(releaseText, /parseSingleNpmPackReport/u);
   assert.match(releaseText, /parseSingleNpmViewString/u);
+  assert.match(
+    releaseText,
+    /npm publish "\.\/release\/\$\{\{ steps\.package\.outputs\.filename \}\}"/u,
+  );
+  assert.match(releaseText, /--tag alpha/u);
 });

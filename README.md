@@ -33,18 +33,18 @@ You need Node.js 22.22+, Git 2.45+, and ripgrep.
 
 ```bash
 # npm
-npm install --global recurs@0.1.0-alpha.3
+npm install --global recurs@0.1.0-alpha.4
 
 # Bun may install the package; Node still runs it
-bun install --global recurs@0.1.0-alpha.3
+bun install --global recurs@0.1.0-alpha.4
 
 # checksummed user-local installer
-curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.3/install.sh | sh
+curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.4/install.sh | sh
 ```
 
 The release also includes `recurs.rb`, a standalone Homebrew formula for the
 same npm archive. Download it from the
-[`v0.1.0-alpha.3` release](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.3)
+[`v0.1.0-alpha.4` release](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.4)
 and run `brew install --formula ./recurs.rb`. A dedicated tap does not exist
 yet.
 
@@ -64,7 +64,7 @@ operating mode, specialist routing, optional company review, and project
 context. Credentials remain with the vendor runtime or a named process
 environment. Recurs never persists BYOK values.
 
-The exact `0.1.0-alpha.3` archive measured 433 KiB compressed and 1.87 MiB
+The exact `0.1.0-alpha.4` archive measured 433 KiB compressed and 1.87 MiB
 unpacked; a clean Apple-silicon production install measured about 38.8 MiB on
 2026-07-30 and did not install Codex. Subscription users share a separately
 installed exact official Codex CLI. The full development checkout remains
@@ -188,7 +188,7 @@ repeated-run proposals; approval is explicit and affects future goals only.
 
 ## Project status
 
-- **Usable now:** `0.1.0-alpha.3` through npm, Bun-as-installer, the
+- **Usable now:** `0.1.0-alpha.4` through npm, Bun-as-installer, the
   checksum-verifying curl asset, the release Homebrew formula, or a source
   checkout; macOS and Linux are the supported subprocess platforms.
 - **Proven live:** company formation, isolated implementation, independent
@@ -196,7 +196,7 @@ repeated-run proposals; approval is explicit and affects future goals only.
   single-versus-company pair on every built-in proof fixture through a real
   Codex subscription.
 - **Distribution boundary:** every published install path resolves to the
-  exact `0.1.0-alpha.3` npm archive and still launches Recurs with Node.js.
+  exact `0.1.0-alpha.4` npm archive and still launches Recurs with Node.js.
   There is no Homebrew tap, native Bun runtime, signed binary, or desktop app.
 - **Prepared to repeat:** three immutable hidden-verifier fixtures, repeatable
   selected-parent-only versus currently configured saved role-route campaigns,
