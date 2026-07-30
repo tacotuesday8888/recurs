@@ -111,6 +111,36 @@ found and drove fixes for benchmark approval handling, bounded worker
 verification, review evidence handoff, scenario-bound company authority, and
 hidden-verifier versioning.
 
+### 2026-07-30 Guided formation and three-way Codex proof
+
+A fresh Guided formation run through the official Codex subscription initially
+failed because the model added a field outside the strict onboarding-decision
+schema. Recurs now makes at most one bounded repair request when request budget
+remains. The repair prompt contains the validated schema error and original
+decision context, but never echoes the invalid model output. A repeated live
+run then completed in 190.0 seconds with six requests, two bounded repository
+research assignments, three repository evidence items, six departments, eight
+roles, and one independent-review role. Reported dollar cost remained
+unavailable.
+
+A fresh `alias_registry` campaign then compared all three supported
+configurations on the byte-identical fixture:
+
+| Arm | Verifier | Time | Requests | Input (cached) | Output | Review / Repair |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| Sol baseline | passed 7/7 | 124.8s | 1 | 109,851 (74,496) | 4,040 | none |
+| Sol/Terra/Luna company | passed 7/7 | 162.1s | 3 | 164,431 (99,328) | 4,525 | approved / 0 |
+| all-Sol company | passed 7/7 | 454.7s | 6 | 389,060 (276,480) | 12,280 | changes requested, approved after 1 repair |
+
+This single three-way campaign is evidence that the recommended mixed lineup
+can execute the full bounded implementation and independent-review path. In
+this run it preserved correctness with less latency and fewer tokens than the
+all-strong company, while the single strong agent remained faster and cheaper
+than either company. It is not enough evidence to rank a universal winner, and
+the durable campaign correctly remains `insufficient_evidence`. The current
+recommended lineup therefore remains a transparent candidate rather than an
+automatic claim of superiority.
+
 ## Auto Team Alpha dogfood
 
 On 2026-07-23, the safe configured dogfood path used the official saved Codex
