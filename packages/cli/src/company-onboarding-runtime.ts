@@ -7,6 +7,7 @@ import {
   createRootAgentDescriptor,
   AgentLoop,
   isPinnedSessionState,
+  parseCompanyOnboardingDecision,
   scopeAgentPrompt,
   type JsonlSessionStore,
   type RecursEvent,
@@ -166,6 +167,16 @@ function parseJson(text: string): unknown {
   return JSON.parse(text) as unknown;
 }
 
+function safeDecisionSchemaIssue(error: unknown): string {
+  const message = error instanceof Error && error.message.trim().length > 0
+    ? error.message
+    : "The decision did not match the strict schema";
+  return [...message].map((character) => {
+    const code = character.codePointAt(0) ?? 0;
+    return code <= 31 || code === 127 ? " " : character;
+  }).join("").replace(/\s+/gu, " ").trim().slice(0, 500);
+}
+
 function safeResearchHandoff(text: string): string {
   const trimmed = text.trim();
   if (trimmed.length === 0) {
@@ -214,20 +225,46 @@ export class CompanyOnboardingAgentRuntime
     signal: AbortSignal,
   ) {
     this.#assertBackend(input.run);
-    const result = await this.#run({
-      sessionId: decisionSessionId(input.run),
-      run: input.run,
-      prompt: decisionPrompt(input.run),
-      maxRequests: input.maxRequests,
-      signal,
-      profile: null,
-      instructions: decisionInstructions,
-    });
-    return {
-      decision: parseJson(result.finalText),
-      requestsUsed: result.steps ?? 1,
-      reportedCostUsd: result.usage?.costUsd ?? 0,
-    };
+    let requestsUsed = 0;
+    let reportedCostUsd = 0;
+    let schemaIssue: string | null = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const remaining = input.maxRequests - requestsUsed;
+      if (remaining < 1) break;
+      const result = await this.#run({
+        sessionId: attempt === 0
+          ? decisionSessionId(input.run)
+          : `${decisionSessionId(input.run)}-repair-${attempt}`,
+        run: input.run,
+        prompt: [
+          decisionPrompt(input.run),
+          ...(schemaIssue === null
+            ? []
+            : [
+                `The previous output was rejected by the strict Recurs schema: ${schemaIssue}`,
+                "Return one corrected decision. Do not add explanatory or undocumented fields.",
+              ]),
+        ].join("\n"),
+        maxRequests: remaining,
+        signal,
+        profile: null,
+        instructions: decisionInstructions,
+      });
+      requestsUsed += result.steps ?? 1;
+      reportedCostUsd += result.usage?.costUsd ?? 0;
+      try {
+        return {
+          decision: parseCompanyOnboardingDecision(parseJson(result.finalText)),
+          requestsUsed,
+          reportedCostUsd,
+        };
+      } catch (error) {
+        schemaIssue = safeDecisionSchemaIssue(error);
+      }
+    }
+    throw new TypeError(
+      `The onboarding decision was invalid: ${schemaIssue ?? "request budget exhausted"}`,
+    );
   }
 
   async revise(

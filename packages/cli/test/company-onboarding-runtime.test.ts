@@ -238,6 +238,72 @@ describe("company onboarding runtime", () => {
     });
   });
 
+  it("repairs one schema-invalid decision within the same request budget", async () => {
+    const invalid = JSON.stringify({
+      kind: "question",
+      id: "desired_outcome",
+      question: "What outcome matters most?",
+      explanation: "This extra field is not allowed.",
+    });
+    const corrected = JSON.stringify({
+      kind: "question",
+      id: "desired_outcome",
+      question: "What outcome matters most?",
+    });
+    const provider = new ScriptedProvider([
+      [
+        { type: "text_delta", text: invalid },
+        { type: "usage", inputTokens: 20, outputTokens: 10, costUsd: 0.01 },
+        { type: "done", stopReason: "complete" },
+      ],
+      [
+        { type: "text_delta", text: corrected },
+        { type: "usage", inputTokens: 22, outputTokens: 8, costUsd: 0.02 },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const setup = await fixture(provider);
+
+    await expect(setup.runtime.decide({
+      run: run(companyOnboardingBackendFingerprint(setup.backend)),
+      allowedTools: toolNames as never,
+      maxRequests: 2,
+    }, new AbortController().signal)).resolves.toEqual({
+      decision: JSON.parse(corrected),
+      requestsUsed: 2,
+      reportedCostUsd: 0.03,
+    });
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[1]!.messages.at(-1)?.content).toContain(
+      "Company question decision has unknown or missing fields",
+    );
+  });
+
+  it("never exceeds the request budget while repairing a decision", async () => {
+    const provider = new ScriptedProvider([[
+      {
+        type: "text_delta",
+        text: JSON.stringify({
+          kind: "question",
+          id: "desired_outcome",
+          question: "What outcome matters most?",
+          extra: true,
+        }),
+      },
+      { type: "done", stopReason: "complete" },
+    ]]);
+    const setup = await fixture(provider);
+
+    await expect(setup.runtime.decide({
+      run: run(companyOnboardingBackendFingerprint(setup.backend)),
+      allowedTools: toolNames as never,
+      maxRequests: 1,
+    }, new AbortController().signal)).rejects.toThrow(
+      /company question decision has unknown or missing fields/iu,
+    );
+    expect(provider.requests).toHaveLength(1);
+  });
+
   it.each([
     ["quick", "Research assignments remaining: 0.", "A research action is forbidden"],
     ["guided", "Research assignments remaining: 3.", "at most 2 new assignments"],
