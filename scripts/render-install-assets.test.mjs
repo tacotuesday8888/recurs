@@ -94,7 +94,11 @@ test("release workflow drafts and attests assets before publishing", async () =>
   assert.match(workflow, /--verify-published-integrity/u);
   assert.match(workflow, /npm view recurs name --json/u);
   assert.match(workflow, /docs\/RELEASING\.md/u);
-  assert.match(workflow, /--draft=false --latest/u);
+  assert.match(
+    workflow,
+    /--draft[\s\\]+--generate-notes[\s\\]+--prerelease[\s\\]+--latest=false/u,
+  );
+  assert.match(workflow, /--draft=false --prerelease --latest=false/u);
 });
 
 test("installer verifies the archive and uses a user-owned npm prefix", async () => {

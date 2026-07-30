@@ -112,7 +112,10 @@ provenance, or any long-lived npm token.
 The workflow creates the npm tarball once, derives the checksummed user-local
 installer and Homebrew formula from it, drafts and attests all assets,
 publishes or verifies the same npm bytes, and makes the GitHub release public
-only after npm succeeds. After publication, update
+only after npm succeeds. While Recurs uses prerelease versions, the workflow
+marks the GitHub release as a prerelease and explicitly leaves the `latest`
+label unset; promoting a stable version requires an intentional policy change.
+After publication, update
 `tacotuesday8888/homebrew-recurs/Formula/recurs.rb` so its package URL and
 SHA-256 exactly match the attested release formula, review any platform
 dependency metadata separately, open a tap pull request, and merge it only
