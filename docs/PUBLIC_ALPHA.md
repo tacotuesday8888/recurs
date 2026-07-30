@@ -1,6 +1,6 @@
 # Public Alpha Status
 
-**Status:** `0.1.0-alpha.3` public alpha. Recurs is available as one verified
+**Status:** `0.1.0-alpha.4` public alpha. Recurs is available as one verified
 npm artifact through npm, Bun-as-installer, a checksum-verifying curl asset,
 and a release Homebrew formula.
 
@@ -9,15 +9,15 @@ and a release Homebrew formula.
 | Path | Status | What that means |
 | --- | --- | --- |
 | Source checkout with npm | Supported alpha path | Clone the repository, run `npm ci`, build, and `npm link` on Node.js 22.22+ |
-| npm registry | Published alpha path | `npm install --global recurs@0.1.0-alpha.3` installs the reviewed artifact |
+| npm registry | Published alpha path | `npm install --global recurs@0.1.0-alpha.4` installs the reviewed artifact |
 | GitHub release / curl | Published alpha path | The release carries the exact archive and a checksum-verifying user-local installer |
 | Homebrew | Published formula asset | The release formula installs the same npm archive; there is no tap |
-| Bun global install | Verified installer path | `bun install --global recurs@0.1.0-alpha.3` installs the package; Node.js 22.22+ still executes it |
+| Bun global install | Verified installer path | `bun install --global recurs@0.1.0-alpha.4` installs the package; Node.js 22.22+ still executes it |
 | Bun runtime | Unsupported | No `bun run`, native Bun execution, broader Bun-version, or broad platform-compatibility claim |
 | Signed binary / desktop | Not implemented | There is no standalone download or desktop application |
 
 The package gate caps the unpacked Recurs artifact at 2.1 MB. On 2026-07-30 the
-exact `0.1.0-alpha.3` archive measured 433 KiB compressed / 1.87 MiB unpacked,
+exact `0.1.0-alpha.4` archive measured 433 KiB compressed / 1.87 MiB unpacked,
 and a clean Apple-silicon production prefix measured about 38.8 MiB. It did not
 install Codex. The full source-development dependency tree measured about
 402 MiB because it retains roughly 307 MiB of pinned Codex compatibility

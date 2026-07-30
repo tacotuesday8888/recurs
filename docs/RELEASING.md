@@ -3,9 +3,10 @@
 Recurs is Apache-2.0 licensed. `0.1.0-alpha.2` is the first portable npm
 artifact prepared for public release after the original `alpha.1` workflow
 failed closed before packaging. It completed the one-time package bootstrap;
-`0.1.0-alpha.3` is the first subsequent release through the trusted publisher.
-Publishing is an owner-controlled operation, not a normal development or CI
-side effect.
+`0.1.0-alpha.3` then failed closed after attestation when npm 12 interpreted a
+relative package path as a Git shorthand. `0.1.0-alpha.4` is the first
+subsequent trusted-publisher release. Publishing is an owner-controlled
+operation, not a normal development or CI side effect.
 
 ## Verified artifact
 
