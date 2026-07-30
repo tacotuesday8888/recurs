@@ -47,6 +47,7 @@ import {
   childRequestAllowance,
   delegationWorkflowUsage,
   isDelegationBudgetForAgent,
+  isDelegationBudgetWithinAgent,
   scopeAgentPrompt,
 } from "./agent-profile.js";
 import type {
@@ -788,7 +789,9 @@ export class ChildAgentManager {
       throw new ToolError("tool_unavailable", "Trusted delegation budget is unavailable");
     }
     const validBudget = teamAllocation === undefined
-      ? isDelegationBudgetForAgent(budget, budgetAgent)
+      ? options?.companyGoal === undefined
+        ? isDelegationBudgetForAgent(budget, budgetAgent)
+        : isDelegationBudgetWithinAgent(budget, budgetAgent)
       : budget.maxChildren === teamAllocation.maxChildren &&
         budget.maxRequests === teamAllocation.maxRequests &&
         budget.maxReportedCostUsd === teamAllocation.maxReportedCostUsd &&

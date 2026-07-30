@@ -68,6 +68,13 @@ The slider grants capacity; it does not require Recurs to use every available
 role. A small task under Balanced may need only an Implement sub-agent and an
 independent Review sub-agent.
 
+The current CLI also exposes an advanced project overlay. A user can choose
+`recommended`, `focused`, `parallel`, `hierarchical`, `research_heavy`, or
+`review_heavy` and narrow active-agent, concurrency, depth, escalation,
+review, repair, request, and reported-cost limits. Recurs intersects that
+selection with the slider's hard ceiling and the approved roster, then freezes
+both the selected and effective policy into the goal.
+
 In a graphical surface the control may be draggable. In the terminal it should
 be a keyboard-accessible segmented choice. Advanced details may expose exact
 limits without making them part of the normal path.
@@ -192,6 +199,13 @@ Today Recurs already has:
 - explicit saved Implement, Review, and Repair routes;
 - permissions, request limits, cost ceilings, recovery, and evaluation
   infrastructure.
+- local, confirmation-gated team-control editing; structured
+  manager/root escalation; and repeated-run recommendations that can only
+  narrow future limits.
+
+The last item is bounded adaptation, not autonomous self-rewriting. It requires
+at least two compatible completed goals, stores exact run metrics, makes no
+comparative quality claim, and changes nothing until a user approves it.
 
 Today Recurs does select an evaluated model lineup through `/model auto`, but
 only after eligible real completed-goal evidence exists. It does not have

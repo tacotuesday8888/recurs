@@ -7,7 +7,7 @@ import {
   parseCompanyKnowledge,
   parseCompanyKnowledgeEntry,
   type CompanyBlueprintV2,
-  type CompanyGoalRunV1,
+  type CompanyGoalRun,
   type CompanyKnowledgeEntryV1,
   type CompanyKnowledgeV1,
 } from "@recurs/contracts";
@@ -381,7 +381,7 @@ export class CompanyLearningService {
 
   async recordCompletedGoal(input: {
     readonly blueprint: CompanyBlueprintV2;
-    readonly run: CompanyGoalRunV1;
+    readonly run: CompanyGoalRun;
     readonly at: string;
     readonly signal?: AbortSignal;
   }): Promise<CompanyGoalLearningResult> {

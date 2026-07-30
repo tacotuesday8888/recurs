@@ -1,6 +1,10 @@
 import { isDeepStrictEqual } from "node:util";
 
-import { parseCompanyGoalRun, type CompanyGoalRunV1 } from "@recurs/contracts";
+import {
+  parseCompanyGoalRun,
+  type CompanyGoalRun,
+  type CompanyGoalRunV1,
+} from "@recurs/contracts";
 
 import {
   CompanyStateStoreError,
@@ -62,7 +66,7 @@ function executionChanged(
       );
 }
 
-function validateTransition(previous: CompanyGoalRunV1, next: CompanyGoalRunV1): void {
+function validateTransition(previous: CompanyGoalRun, next: CompanyGoalRun): void {
   if (terminal.has(previous.status) || !allowed[previous.status].has(next.status)) {
     throw new CompanyStateStoreError(
       "conflict",
@@ -74,6 +78,8 @@ function validateTransition(previous: CompanyGoalRunV1, next: CompanyGoalRunV1):
     previous.goalId !== next.goalId || previous.objective !== next.objective ||
     previous.createdAt !== next.createdAt ||
     !isDeepStrictEqual(previous.company, next.company) ||
+    (previous.version === 2 && next.version === 2 &&
+      !isDeepStrictEqual(previous.teamControl, next.teamControl)) ||
     new Date(next.updatedAt).valueOf() < new Date(previous.updatedAt).valueOf() ||
     next.plan.revision < previous.plan.revision ||
     next.budget.maxAssignments !== previous.budget.maxAssignments ||
@@ -119,53 +125,55 @@ function validateTransition(previous: CompanyGoalRunV1, next: CompanyGoalRunV1):
   }
 }
 
-export class JsonlCompanyGoalStore {
-  readonly #store: PrivateJsonlStateStore<CompanyGoalRunV1>;
+export class JsonlCompanyGoalStore<
+  T extends CompanyGoalRun = CompanyGoalRunV1,
+> {
+  readonly #store: PrivateJsonlStateStore<T>;
 
   constructor(readonly directory: string) {
     this.#store = new PrivateJsonlStateStore(directory, {
       label: "Company goal run",
       maximumBytes: MAX_BYTES,
       maximumRecords: MAX_RUNS,
-      parse: parseCompanyGoalRun,
+      parse: (value) => parseCompanyGoalRun(value) as T,
       idOf: (run) => run.id,
       validateTransition,
     });
   }
 
   create(
-    run: CompanyGoalRunV1,
+    run: T,
     signal?: AbortSignal,
-  ): Promise<SequencedCompanyState<CompanyGoalRunV1>> {
+  ): Promise<SequencedCompanyState<T>> {
     return this.#store.create(run, signal);
   }
 
   append(
     id: string,
     expectedSequence: number,
-    run: CompanyGoalRunV1,
+    run: T,
     signal?: AbortSignal,
-  ): Promise<SequencedCompanyState<CompanyGoalRunV1>> {
+  ): Promise<SequencedCompanyState<T>> {
     return this.#store.append(id, expectedSequence, run, signal);
   }
 
   load(
     id: string,
     signal?: AbortSignal,
-  ): Promise<SequencedCompanyState<CompanyGoalRunV1>> {
+  ): Promise<SequencedCompanyState<T>> {
     return this.#store.load(id, signal);
   }
 
   loadReadOnly(
     id: string,
     signal?: AbortSignal,
-  ): Promise<SequencedCompanyState<CompanyGoalRunV1>> {
+  ): Promise<SequencedCompanyState<T>> {
     return this.#store.loadReadOnly(id, signal);
   }
 
   list(
     signal?: AbortSignal,
-  ): Promise<readonly SequencedCompanyState<CompanyGoalRunV1>[]> {
+  ): Promise<readonly SequencedCompanyState<T>[]> {
     return this.#store.list(signal);
   }
 }

@@ -19,3 +19,4 @@ export * from "./model-image.js";
 export * from "./provider-activation-profiles.js";
 export * from "./runtime.js";
 export * from "./team-runs.js";
+export * from "./team-controls.js";

@@ -16,6 +16,7 @@ import type {
   SessionBackendPin,
   CompanyBlueprint,
   CompanyBlueprintV2,
+  CompanyGoalRun,
 } from "@recurs/contracts";
 import {
   parseCompanyBlueprint,
@@ -41,6 +42,7 @@ import {
   CompanyAmendmentService,
   CompanyGoalSupervisor,
   CompanyLearningService,
+  TeamControlAdaptationService,
   DelegatedAgentExecutor,
   FileGitPatchArtifactStore,
   FileCompanyBlueprintStore,
@@ -51,6 +53,8 @@ import {
   FileCompanyOnboardingStore,
   FileModelTeamEvaluationStore,
   FileModelTeamSelectionStore,
+  FileTeamControlPolicyStore,
+  FileTeamControlRecommendationStore,
   JsonlSessionStore,
   JsonlCompanyGoalStore,
   JsonlTeamRunStore,
@@ -139,6 +143,7 @@ import {
 import { CompanyProposalEditor } from "./company-proposal-editor.js";
 import { CompanyCapabilityAuthority } from "./company-capability-authority.js";
 import { ModelTeamService } from "./model-team-service.js";
+import { TeamControlService } from "./team-control-service.js";
 import type { CompanyCapabilityCatalogs } from "./company-tool-readiness.js";
 import { RecursRuntime, RuntimeError } from "./runtime.js";
 import {
@@ -959,9 +964,21 @@ export async function createStandaloneRuntime(
   const companyBlueprintsV2 = new FileCompanyBlueprintV2Store(
     path.join(projectData, "company-blueprints-v2"),
   );
-  const companyGoals = new JsonlCompanyGoalStore(
+  const companyGoals = new JsonlCompanyGoalStore<CompanyGoalRun>(
     path.join(projectData, "company-goals"),
   );
+  const teamControls = new FileTeamControlPolicyStore(
+    path.join(projectData, "team-controls"),
+  );
+  const teamControlService = new TeamControlService(teamControls);
+  const teamControlRecommendations = new FileTeamControlRecommendationStore(
+    path.join(projectData, "team-control-recommendations"),
+  );
+  const teamControlAdaptation = new TeamControlAdaptationService({
+    policies: teamControls,
+    recommendations: teamControlRecommendations,
+    runs: companyGoals,
+  });
   const companyKnowledge = new FileCompanyKnowledgeStore(
     path.join(projectData, "company-knowledge"),
   );
@@ -1555,17 +1572,20 @@ export async function createStandaloneRuntime(
     companyGoalsSupervisor = new CompanyGoalSupervisor({
       sessions,
       blueprints: companyBlueprintsV2,
+      teamControls,
       runs: companyGoals,
       owners: companyGoalOwners,
       children: childAgents,
       team: teamSupervisor,
       learning: companyLearning,
+      adaptation: teamControlAdaptation,
       emit(event) {
         return events.emit(event);
       },
     });
     tools.register(companyGoalsSupervisor.createTool());
     tools.register(companyGoalsSupervisor.createHandoffTool());
+    tools.register(companyGoalsSupervisor.createEscalationTool());
   }
 
   const runtimeReference: { current?: RecursRuntime } = {};
@@ -1992,6 +2012,8 @@ export async function createStandaloneRuntime(
       knowledge: companyKnowledge,
       amendments: companyAmendments,
       decisions: companyAmendmentDecisions,
+      recommendations: teamControlRecommendations,
+      recommendationDecisions: teamControlAdaptation,
       capabilities: companyCapabilityAuthority,
       ...(companyGoalsSupervisor === undefined
         ? {}
@@ -2001,6 +2023,7 @@ export async function createStandaloneRuntime(
     mcp,
     ...(modelSessions === undefined ? {} : { models: modelSessions }),
     ...(modelSessions === undefined ? {} : { modelTeams }),
+    teamControls: teamControlService,
     signal: () =>
       runtimeReference.current?.currentSignal() ?? new AbortController().signal,
   });

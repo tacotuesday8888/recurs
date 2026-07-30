@@ -1,10 +1,10 @@
 import type {
   CompanyBlueprintV2,
   CompanyGoalAssignmentV1,
-  CompanyGoalRunV1,
+  CompanyGoalRun,
 } from "@recurs/contracts";
 
-const UNRESOLVED_GOAL_STATUSES = new Set<CompanyGoalRunV1["status"]>([
+const UNRESOLVED_GOAL_STATUSES = new Set<CompanyGoalRun["status"]>([
   "created",
   "running",
   "waiting_for_approval",
@@ -29,7 +29,7 @@ function roleName(names: ReadonlyMap<string, string>, roleId: string): string {
   return names.get(roleId) ?? `Unknown role (${oneLine(roleId, 128)})`;
 }
 
-function progress(run: CompanyGoalRunV1): string {
+function progress(run: CompanyGoalRun): string {
   const total = run.plan.assignments.length;
   const count = (status: CompanyGoalAssignmentV1["status"]): number =>
     run.plan.assignments.filter((assignment) => assignment.status === status).length;
@@ -43,7 +43,7 @@ function progress(run: CompanyGoalRunV1): string {
   ].join(" | ");
 }
 
-function accounting(run: CompanyGoalRunV1): readonly string[] {
+function accounting(run: CompanyGoalRun): readonly string[] {
   const unknownUsage = run.plan.assignments.filter((assignment) =>
     assignment.result?.usageSource === "unknown"
   ).length;
@@ -51,6 +51,16 @@ function accounting(run: CompanyGoalRunV1): readonly string[] {
     `Budget: assignments ${run.budget.assignmentsStarted}/${run.budget.maxAssignments} | concurrency ${run.budget.maxConcurrentAssignments} max`,
     `Requests: ${run.budget.requestsUsed} used | ${run.budget.requestsReserved} reserved | ${run.budget.maxRequests} max`,
     `Reported cost: $${run.budget.reportedCostUsd.toFixed(4)} / $${run.budget.maxReportedCostUsd.toFixed(4)}${unknownUsage === 0 ? "" : ` | ${unknownUsage} completed assignment(s) with unknown usage`}`,
+  ];
+}
+
+function teamControls(run: CompanyGoalRun): readonly string[] {
+  if (run.version !== 2) return [];
+  const controls = run.teamControl.effective;
+  return [
+    `Team controls: ${controls.topology} | source revision ${controls.sourceRevision}`,
+    `Team limits: ${controls.maxActiveAgents} active | ${controls.maxConcurrentAgents} concurrent | depth ${controls.maxDelegationDepth} | ${controls.maxRepairRounds} repair round${controls.maxRepairRounds === 1 ? "" : "s"}`,
+    `Escalation: ${controls.escalation.replace("_", " ")} | Independent review: ${controls.independentReview.replace("_", " ")}`,
   ];
 }
 
@@ -114,7 +124,7 @@ function dependenciesSatisfied(
   );
 }
 
-function nextState(run: CompanyGoalRunV1): string {
+function nextState(run: CompanyGoalRun): string {
   if (run.status === "completed") {
     return `The goal completed with ${run.result?.evidence.length ?? 0} final evidence item(s).`;
   }
@@ -159,7 +169,7 @@ function nextState(run: CompanyGoalRunV1): string {
     : `${ready.length} pending assignment(s) have satisfied dependencies; this view does not prove a process is live, so use /company resume ${run.id} after interruption.`;
 }
 
-function sortedRuns(runs: readonly CompanyGoalRunV1[]): readonly CompanyGoalRunV1[] {
+function sortedRuns(runs: readonly CompanyGoalRun[]): readonly CompanyGoalRun[] {
   return [...runs].sort((left, right) =>
     right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id)
   );
@@ -167,7 +177,7 @@ function sortedRuns(runs: readonly CompanyGoalRunV1[]): readonly CompanyGoalRunV
 
 function recordedRunningRoleNames(
   blueprint: CompanyBlueprintV2,
-  runs: readonly CompanyGoalRunV1[],
+  runs: readonly CompanyGoalRun[],
 ): readonly string[] {
   const names = roles(blueprint);
   return [...new Set(runs.flatMap((run) =>
@@ -181,10 +191,10 @@ function recordedRunningRoleNames(
 
 export function renderCompanyOperations(
   blueprint: CompanyBlueprintV2,
-  values: readonly CompanyGoalRunV1[],
+  values: readonly CompanyGoalRun[],
 ): string {
   const runs = sortedRuns(values);
-  const count = (status: CompanyGoalRunV1["status"]): number =>
+  const count = (status: CompanyGoalRun["status"]): number =>
     runs.filter((run) => run.status === status).length;
   const unresolved = runs.filter((run) =>
     UNRESOLVED_GOAL_STATUSES.has(run.status)
@@ -207,6 +217,7 @@ export function renderCompanyOperations(
     `Current: ${current.status} | ${current.id} | ${oneLine(current.objective, 300)} | ${current.updatedAt}`,
     progress(current),
     ...accounting(current),
+    ...teamControls(current),
     `Next: ${nextState(current)}`,
     "Recent goals:",
     ...runs.slice(0, 20).map((run) =>
@@ -218,7 +229,7 @@ export function renderCompanyOperations(
 
 export function renderCompanyGoalRun(
   blueprint: CompanyBlueprintV2,
-  run: CompanyGoalRunV1,
+  run: CompanyGoalRun,
 ): string {
   const names = roles(blueprint);
   const lines = [
@@ -228,6 +239,7 @@ export function renderCompanyGoalRun(
     `Created: ${run.createdAt} | Updated: ${run.updatedAt}`,
     progress(run),
     ...accounting(run),
+    ...teamControls(run),
     "Assignments:",
     ...run.plan.assignments.flatMap((assignment) =>
       assignmentLines(assignment, names)

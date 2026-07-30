@@ -50,6 +50,55 @@ describe("TextEventRenderer agent activity", () => {
       blueprintRevision: 1,
       operatingModeId: "balanced_v6",
       assignmentCount: 3,
+      topology: "recommended",
+      maxActiveAgents: 5,
+      maxConcurrentAgents: 3,
+      maxDelegationDepth: 2,
+      maxRepairRounds: 1,
+      maxRequests: 80,
+      maxReportedCostUsd: 3,
+    });
+    await renderer.emit({
+      type: "company_escalation_requested",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      goalRunId: "goal-run-1",
+      assignmentId: "plan-1",
+      departmentId: "delivery",
+      fromRoleId: "planner",
+      fromRoleName: "Planning Lead",
+      toRoleId: "orchestrator",
+      toRoleName: "Orchestrator",
+      childAgentId: "planner-agent",
+      childSessionId: "planner-session",
+      modelId: "gpt-5.6-terra",
+      summary: "The architecture boundary needs a decision.",
+      evidence: ["src/runtime.ts"],
+    });
+    await renderer.emit({
+      type: "company_team_control_recommended",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      goalRunId: "goal-run-1",
+      recommendationId: "recommendation-1",
+      supportingRunIds: ["goal-run-0", "goal-run-1"],
+      proposedPolicy: {
+        version: 1,
+        revision: 2,
+        operatingModeId: "balanced_v6",
+        operatingModeVersion: 6,
+        topology: "recommended",
+        maxActiveAgents: 4,
+        maxConcurrentAgents: 3,
+        maxDelegationDepth: 2,
+        escalation: "manager_only",
+        independentReview: "required",
+        maxRepairRounds: 1,
+        maxRequests: 30,
+        maxReportedCostUsd: 2,
+      },
     });
     await renderer.emit({
       type: "agent_team_activity",
@@ -321,7 +370,13 @@ describe("TextEventRenderer agent activity", () => {
       "Company activated: 3 departments · 6 approved roles",
     );
     expect(output).toContain(
-      "⇶ Company goal goal-run-1: 3 assignments · balanced_v6",
+      "⇶ Company goal goal-run-1: 3 assignments · recommended · 3 concurrent",
+    );
+    expect(output).toContain(
+      "↑ Planning Lead escalated to Orchestrator: The architecture boundary needs a decision.",
+    );
+    expect(output).toContain(
+      "◇ Team-control recommendation recommendation-1 · 2 runs",
     );
     expect(output).toContain(
       "↳ Activated implement 1 · gpt-5.6-terra · medium",

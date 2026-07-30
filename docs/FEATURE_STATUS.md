@@ -24,8 +24,8 @@ context, not a product commitment.
 | Backend routing | Explicit saved Implement/Review/Repair routes with revalidation, immutable per-run decisions, policy eligibility, and parent fallback |
 | Company onboarding | Resumable Quick, Guided, and Deep interviews; Stable Core + Specialists or Guardrailed Dynamic designs; consented read-only research; conversational/YAML revisions; explicit approval |
 | Company execution | Validated assignment DAGs, orchestrator/lead/worker planning handoffs, dependency-ordered implementation stages, independent review, bounded repair, parent apply, and synthesis |
-| Company authority | Immutable blueprints, root orchestrator and independent-review anchors, permission monotonicity, active-role/depth/concurrency/request/retry/reported-cost limits, cancellation, and truthful events |
-| Company adaptation | Tailored role charters, attributable project knowledge, historical blueprint pinning, exact Skill/MCP bundle bindings, and approval-gated amendments |
+| Company authority | Immutable blueprints; root and independent-review anchors; user-selected topology; frozen active-agent, depth, concurrency, escalation, review, repair, request, and reported-cost limits; claim-time revalidation; structured manager/root escalation; cancellation; truthful events |
+| Company adaptation | Tailored role charters, attributable project knowledge, historical authority snapshots, exact Skill/MCP bundle bindings, approval-gated blueprint amendments, and repeated-run recommendations that can only narrow future team limits |
 | Evaluation | Discoverable versioned scenarios; deterministic offline formation; exact-connection, explicit-network configured formation including Codex app-server; three hidden-verifier Company Proof fixtures; read-only exact-run company-goal scoring; sanitized reports and bounded human progress |
 | Model teams | `/model auto` records exact completed company-goal evidence and selects the most-supported eligible recorded configured Parent/Implement/Review/Repair lineup only when decomposition, evidence, and synthesis passed; selected routes apply to future sessions and remain inspectable, while Repair remains a fallback that may not activate |
 | Providers | Reviewed saved environment BYOK, literal-loopback Ollama/LM Studio, and local user-present Codex subscription discovery/execution through the official app-server |
@@ -36,6 +36,7 @@ context, not a product commitment.
 | Area | Boundary |
 | --- | --- |
 | Company hierarchy | Up to the selected operating mode's fixed depth and active-role ceiling; children do not freely create an unbounded recursive swarm |
+| Team adaptation | Requires at least two compatible completed goals, records exact usage rather than a quality winner, proposes only narrower future limits, and remains inactive until a local user approves |
 | Background work | Durable and resumable while the Recurs process owns it; no daemon survives CLI exit |
 | Cost enforcement | Uses provider-reported cost when available; unknown cost remains unknown, and already-running siblings may finish after a ceiling is crossed |
 | Model selection | Users may choose explicit routes or activate evidence-backed Auto for the current `general_coding` task class; Recurs does not infer a winner without eligible completed-goal evidence or perform broad price/capability ranking |

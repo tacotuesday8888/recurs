@@ -14,6 +14,8 @@ import type {
   TeamRunPhase,
   TeamRunRole,
   TeamRunStatus,
+  TeamControlPolicyV1,
+  TeamTopologyV1,
 } from "@recurs/contracts";
 import type {
   ApprovalResponse,
@@ -173,6 +175,13 @@ export type RecursEvent =
       blueprintRevision: number;
       operatingModeId: OperatingModeId;
       assignmentCount: number;
+      topology: TeamTopologyV1;
+      maxActiveAgents: number;
+      maxConcurrentAgents: number;
+      maxDelegationDepth: number;
+      maxRepairRounds: number;
+      maxRequests: number;
+      maxReportedCostUsd: number;
     })
   | (EventBase & {
       type: "company_assignment_started";
@@ -202,6 +211,22 @@ export type RecursEvent =
       workflow: AgentWorkflowUsage;
     })
   | (EventBase & {
+      type: "company_escalation_requested";
+      parentAgentId: string;
+      goalRunId: string;
+      assignmentId: string;
+      departmentId: string;
+      fromRoleId: string;
+      fromRoleName: string;
+      toRoleId: string;
+      toRoleName: string;
+      childAgentId: string;
+      childSessionId: string;
+      modelId: string;
+      summary: string;
+      evidence: string[];
+    })
+  | (EventBase & {
       type: "company_handoff_failed" | "company_handoff_cancelled";
       parentAgentId: string;
       goalRunId: string;
@@ -229,6 +254,14 @@ export type RecursEvent =
       evidence: string[];
       reason?: string;
       workflow: AgentWorkflowUsage;
+    })
+  | (EventBase & {
+      type: "company_team_control_recommended";
+      parentAgentId: string;
+      goalRunId: string;
+      recommendationId: string;
+      supportingRunIds: string[];
+      proposedPolicy: TeamControlPolicyV1;
     })
   | (EventBase & {
       type: "agent_team_activity";

@@ -156,7 +156,7 @@ export class TextEventRenderer implements EventSink {
       case "company_goal_started":
         await this.#status(
           this.#theme.accent(
-            `⇶ Company goal ${event.goalRunId}: ${event.assignmentCount} assignment${event.assignmentCount === 1 ? "" : "s"} · ${event.operatingModeId}`,
+            `⇶ Company goal ${event.goalRunId}: ${event.assignmentCount} assignment${event.assignmentCount === 1 ? "" : "s"} · ${event.topology} · ${event.maxConcurrentAgents} concurrent`,
           ),
         );
         break;
@@ -174,6 +174,13 @@ export class TextEventRenderer implements EventSink {
           ),
         );
         break;
+      case "company_escalation_requested":
+        await this.#status(
+          this.#theme.warning(
+            `↑ ${event.fromRoleName} escalated to ${event.toRoleName}: ${event.summary}`,
+          ),
+        );
+        break;
       case "company_handoff_failed":
       case "company_handoff_cancelled":
         await this.#status(
@@ -186,6 +193,13 @@ export class TextEventRenderer implements EventSink {
         await this.#status(
           this.#theme.success(
             `✓ Company goal completed · ${event.workflow.requestsUsed}/${event.workflow.maxRequests} requests · $${event.workflow.reportedCostUsd.toFixed(4)}/$${event.workflow.maxReportedCostUsd.toFixed(4)} reported`,
+          ),
+        );
+        break;
+      case "company_team_control_recommended":
+        await this.#status(
+          this.#theme.warning(
+            `◇ Team-control recommendation ${event.recommendationId} · ${event.supportingRunIds.length} runs · inspect with /company recommendations`,
           ),
         );
         break;

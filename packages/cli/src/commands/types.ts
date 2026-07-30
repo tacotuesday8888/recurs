@@ -2,6 +2,7 @@ import type {
   FileCompanyAmendmentStore,
   FileCompanyBlueprintV2Store,
   FileCompanyKnowledgeStore,
+  FileTeamControlRecommendationStore,
   JsonlSessionStore,
   JsonlCompanyGoalStore,
   CompanyGoalSupervisor,
@@ -22,6 +23,8 @@ import type {
   ModelTeamEvaluationV1,
   ModelTeamSelectionV1,
   ModelReasoningEffort,
+  CompanyGoalRun,
+  TeamControlRecommendationV1,
 } from "@recurs/contracts";
 import type { ModelProvider } from "@recurs/providers";
 import type {
@@ -34,6 +37,7 @@ import type { AgentSkillCatalog } from "../agent-skills.js";
 import type { McpServerCatalog } from "../mcp-client.js";
 import type { CompanyCapabilityAuthority } from "../company-capability-authority.js";
 import type { ModelTeamStatus } from "../model-team-service.js";
+import type { TeamControlService } from "../team-control-service.js";
 
 export interface ParsedCommand {
   name: string;
@@ -96,6 +100,7 @@ export interface CommandDependencies {
   mcp?: McpServerCatalog;
   models?: ModelSessionService;
   modelTeams?: ModelTeamCommandService;
+  teamControls?: Pick<TeamControlService, "inspect" | "configure" | "reset">;
   company?: CompanyCommandDependencies;
 }
 
@@ -130,12 +135,36 @@ export interface CompanyAmendmentDecisionService {
   }>;
 }
 
+export interface TeamControlRecommendationDecisionService {
+  approve(input: {
+    readonly workspace: string;
+    readonly recommendationId: string;
+    readonly company: CompanyBlueprintBindingV2;
+    readonly at: string;
+    readonly decisionReason: string;
+    readonly signal: AbortSignal;
+  }): Promise<TeamControlRecommendationV1>;
+  reject(input: {
+    readonly workspace: string;
+    readonly recommendationId: string;
+    readonly company: CompanyBlueprintBindingV2;
+    readonly at: string;
+    readonly decisionReason: string;
+    readonly signal: AbortSignal;
+  }): Promise<TeamControlRecommendationV1>;
+}
+
 export interface CompanyCommandDependencies {
   readonly blueprints: Pick<FileCompanyBlueprintV2Store, "load">;
-  readonly goals: Pick<JsonlCompanyGoalStore, "list">;
+  readonly goals: Pick<JsonlCompanyGoalStore<CompanyGoalRun>, "list">;
   readonly knowledge: Pick<FileCompanyKnowledgeStore, "latest">;
   readonly amendments: Pick<FileCompanyAmendmentStore, "list">;
   readonly decisions?: CompanyAmendmentDecisionService;
+  readonly recommendations?: Pick<
+    FileTeamControlRecommendationStore,
+    "list"
+  >;
+  readonly recommendationDecisions?: TeamControlRecommendationDecisionService;
   readonly capabilities?: Pick<
     CompanyCapabilityAuthority,
     "bindings" | "bind" | "unbind" | "policyForAgent"

@@ -109,6 +109,19 @@ Child depth, concurrency, requests, retries, cost reports, and tool profiles
 are frozen before execution. A child cannot widen the parent’s permission
 boundary or create unbounded recursion.
 
+A project-scoped team-control overlay selects a topology and narrower limits.
+At goal creation it is intersected with the versioned operating mode and the
+approved company blueprint. The selected and effective policies are stored in
+the goal journal and revalidated again when work is claimed. Structured
+handoffs follow blueprint delegation edges; structured escalations follow the
+direct reporting edge unless the frozen policy permits root escalation.
+
+Completed compatible goals may produce a private recommendation containing
+their exact IDs and usage metrics. The recommendation service can only lower
+future limits. Its immutable proposal and decision records are separate from
+the policy revision store, and policy publication requires explicit local
+approval. Existing goal journals retain their prior snapshots.
+
 ## Tools and containment
 
 Tool registration is capability-based. The runtime supplies only the tools
@@ -131,7 +144,8 @@ State is stored below the Recurs data directory:
 - append-only session events;
 - checkpoints and patch artifacts;
 - team-run journals and leases;
-- company blueprints, amendments, knowledge, and goals; and
+- company blueprints, amendments, knowledge, goals, project team-control
+  revisions, and team-control recommendations; and
 - immutable model-team evaluations and selections.
 
 Writes use private directories, bounded documents, canonical parsing, atomic

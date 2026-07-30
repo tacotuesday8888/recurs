@@ -191,6 +191,100 @@ describe("guided onboarding policy", () => {
     expect(guidedOperatingModeId("balanced_v4")).toBeNull();
   });
 
+  it("keeps recommended team controls one choice away and supports bounded advanced limits", async () => {
+    const selections = [
+      "account:saved-1",
+      "approved_for_me",
+      "balanced_v6",
+      "customize",
+      "parallel",
+    ];
+    const configured: unknown[] = [];
+    let output = "";
+    const sink = new Writable({
+      write(chunk, _encoding, done) {
+        output += String(chunk);
+        done();
+      },
+    });
+
+    const outcome = await runGuidedOnboarding({
+      stdout: sink,
+      stderr: sink,
+      interactive: true,
+      automation: false,
+      async listAccounts() { return [account]; },
+      async detectProviders() { return []; },
+      async listProviders() { return []; },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText(message, suggestion) {
+        expect(message).toMatch(/maximum (active|concurrent)|delegation depth/iu);
+        return suggestion ?? null;
+      },
+      async confirm() { return true; },
+      async configureTeamControls(input) {
+        configured.push(input);
+      },
+      async executeCommand() { return 0; },
+    });
+
+    expect(outcome).toEqual({
+      state: "configured",
+      permissionMode: "approved_for_me",
+      operatingModeId: "balanced_v6",
+    });
+    expect(configured).toEqual([{
+      operatingModeId: "balanced_v6",
+      changes: {
+        topology: "parallel",
+        maxActiveAgents: 8,
+        maxConcurrentAgents: 3,
+        maxDelegationDepth: 2,
+      },
+      signal: undefined,
+    }]);
+    expect(output).toContain("Team controls: parallel");
+  });
+
+  it("persists recommended controls without asking for advanced values", async () => {
+    const selections = [
+      "account:saved-1",
+      "approved_for_me",
+      "balanced_v6",
+      "recommended",
+    ];
+    const ensured: string[] = [];
+    const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
+
+    await runGuidedOnboarding({
+      stdout: sink,
+      stderr: sink,
+      interactive: true,
+      automation: false,
+      async listAccounts() { return [account]; },
+      async detectProviders() { return []; },
+      async listProviders() { return []; },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText() {
+        throw new Error("recommended controls need no advanced value prompts");
+      },
+      async ensureTeamControls(operatingModeId) {
+        ensured.push(operatingModeId);
+      },
+      async executeCommand() { return 0; },
+    });
+
+    expect(ensured).toEqual(["balanced_v6"]);
+  });
+
   it("retains public-catalog model selection when authenticated discovery is not reviewed", async () => {
     const selections = [
       "more-providers",

@@ -40,3 +40,4 @@ export * from "./agent-skills.js";
 export * from "./mcp-client.js";
 export * from "./model-team-service.js";
 export * from "./project-instructions.js";
+export * from "./team-control-service.js";

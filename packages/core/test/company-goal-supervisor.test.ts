@@ -5,6 +5,8 @@ import path from "node:path";
 import {
   createHostInvocation,
   deriveTrustedRunContext,
+  parseTeamControlRecommendationV1,
+  recommendedTeamControlPolicy,
   type OperatingModeId,
   type CoordinatedRunInput,
   type RunCoordinator,
@@ -27,6 +29,7 @@ import {
   createRootAgentDescriptor,
   FileCompanyBlueprintV2Store,
   FileCompanyKnowledgeStore,
+  FileTeamControlPolicyStore,
   JsonlCompanyGoalStore,
   JsonlSessionStore,
   TEAM_APPLY_PERMISSION,
@@ -185,6 +188,8 @@ async function fixture(options: {
   readonly teamReviewResult?:
     "success" | "failure" | "cancelled" | "cost" | "unknown";
   readonly nestedHandoffIds?: readonly string[];
+  readonly escalationRoleName?: string;
+  readonly escalationTarget?: "manager" | "root";
   readonly implementation?: boolean;
   readonly teamStatus?: "approved" | "failed" | "cancelled" | "interrupted";
   readonly teamStatuses?: readonly (
@@ -202,6 +207,9 @@ async function fixture(options: {
   const sessions = new JsonlSessionStore(path.join(root, "sessions"));
   const blueprints = new FileCompanyBlueprintV2Store(path.join(root, "blueprints"));
   const runs = new JsonlCompanyGoalStore(path.join(root, "goals"));
+  const teamControls = new FileTeamControlPolicyStore(
+    path.join(root, "team-controls"),
+  );
   const owners = new TeamRunOwnerLeaseManager({
     rootDirectory: path.join(root, "company-goal-owners"),
   });
@@ -318,6 +326,35 @@ async function fixture(options: {
         ));
         const failure = results.find((result) => result.status === "rejected");
         if (failure?.status === "rejected") throw failure.reason;
+      }
+      const roleName = blueprint.roles.find((role) => role.id === roleId)
+        ?.displayName;
+      if (roleName === options.escalationRoleName) {
+        await (supervisorReference.current as unknown as {
+          requestEscalation(input: {
+            readonly runId: string;
+            readonly assignmentId: string;
+            readonly target: "manager" | "root";
+            readonly summary: string;
+            readonly evidence: readonly string[];
+          }, context: ToolContext): Promise<ToolResult>;
+        }).requestEscalation({
+          runId: "company-run-id-1",
+          assignmentId: roleName === "Planning Lead"
+            ? "lead-assignment"
+            : "worker-assignment",
+          target: options.escalationTarget ?? "manager",
+          summary: "A bounded architecture decision needs authority.",
+          evidence: ["packages/core/src/company-goal-supervisor.ts"],
+        }, {
+          sessionId: child.id,
+          cwd: child.cwd,
+          executionMode: child.executionMode,
+          signal: input.signal,
+          readRevisions: new Map(),
+          runContext: trusted,
+          delegationBudget: createDelegationBudget(child.agent),
+        });
       }
       const result = {
         finalText: `completed ${String(roleId)}`,
@@ -555,6 +592,7 @@ async function fixture(options: {
     sessions,
     blueprints,
     runs,
+    teamControls,
     owners,
     children,
     team,
@@ -580,6 +618,7 @@ async function fixture(options: {
     sessions,
     blueprints,
     runs,
+    teamControls,
     knowledge,
     learning,
     blueprint,
@@ -1066,6 +1105,251 @@ const childCorrelationCorruptions = [
 ] as const;
 
 describe("CompanyGoalSupervisor", () => {
+  it("surfaces only an attributable future-policy recommendation after completion", async () => {
+    const setup = await fixture();
+    const calls: string[] = [];
+    const supervisor = setup.createSupervisor({
+      adaptation: {
+        async recommendCompletedGoal(input) {
+          calls.push(input.run.id);
+          const selected = input.run.version === 2
+            ? input.run.teamControl.selected
+            : recommendedTeamControlPolicy("balanced_v6");
+          return parseTeamControlRecommendationV1({
+            id: "recommendation-supervisor",
+            version: 1,
+            state: "proposed",
+            operatingModeId: selected.operatingModeId,
+            operatingModeVersion: selected.operatingModeVersion,
+            blueprintId: input.run.company.blueprintId,
+            blueprintRevision: input.run.company.blueprintRevision,
+            basePolicyRevision: selected.revision,
+            createdAt: input.at,
+            decidedAt: null,
+            reason:
+              "Observed usage only across two compatible completed goals.",
+            supportingRuns: [{
+              runId: "prior-run",
+              completedAt: "2026-07-09T00:00:00.000Z",
+              assignmentsStarted: 2,
+              requestsUsed: 10,
+              reportedCostUsd: 0.1,
+            }, {
+              runId: input.run.id,
+              completedAt: input.run.updatedAt,
+              assignmentsStarted: input.run.budget.assignmentsStarted,
+              requestsUsed: input.run.budget.requestsUsed,
+              reportedCostUsd: input.run.budget.reportedCostUsd,
+            }],
+            proposedPolicy: {
+              ...selected,
+              revision: selected.revision + 1,
+              maxRequests: selected.maxRequests - 1,
+            },
+            appliedPolicyRevision: null,
+            decisionReason: null,
+          });
+        },
+      },
+    });
+
+    await supervisor.start(goal(setup), setup.context);
+
+    expect(calls).toEqual(["company-run-id-1"]);
+    expect(setup.events).toContainEqual(expect.objectContaining({
+      type: "company_team_control_recommended",
+      goalRunId: "company-run-id-1",
+      recommendationId: "recommendation-supervisor",
+      supportingRunIds: ["prior-run", "company-run-id-1"],
+    }));
+    expect((await setup.runs.load("company-run-id-1")).state).toMatchObject({
+      status: "completed",
+      teamControl: {
+        selected: { maxRequests: expect.any(Number) },
+      },
+    });
+  });
+
+  it("records a manager escalation with role and model provenance", async () => {
+    const setup = await fixture({
+      escalationRoleName: "Planning Lead",
+      escalationTarget: "manager",
+    });
+
+    await setup.supervisor.start(goal(setup), setup.context);
+
+    expect(setup.events.find((event) =>
+      event.type === "company_escalation_requested"
+    )).toMatchObject({
+      goalRunId: "company-run-id-1",
+      assignmentId: "lead-assignment",
+      fromRoleId: setup.roles["Planning Lead"]!.id,
+      toRoleId: setup.blueprint.authorityAnchors.rootRoleId,
+      modelId: setup.parent.backend.pin.modelId,
+      summary: "A bounded architecture decision needs authority.",
+      evidence: ["packages/core/src/company-goal-supervisor.ts"],
+    });
+    expect((await setup.runs.load("company-run-id-1")).state.plan.assignments[0]
+      ?.result?.evidence).toContain(
+        "Escalated to Orchestrator: A bounded architecture decision needs authority.",
+      );
+    expect((await setup.runs.load("company-run-id-1")).state.plan.assignments[0]
+      ?.result?.evidence).toContain(
+        "packages/core/src/company-goal-supervisor.ts",
+      );
+  });
+
+  it("blocks a grandchild root escalation under manager-only controls", async () => {
+    const setup = await fixture({
+      nestedHandoffIds: ["worker-assignment"],
+      escalationRoleName: "Research Worker",
+      escalationTarget: "root",
+    });
+
+    await expect(setup.supervisor.start(goal(setup), setup.context)).resolves
+      .toMatchObject({
+        metadata: { status: "failed" },
+        output: expect.stringMatching(/failure[\s\S]*escalation path/iu),
+      });
+    expect(setup.events.some((event) =>
+      event.type === "company_escalation_requested"
+    )).toBe(false);
+  });
+
+  it("revalidates frozen controls at claim time before starting an executor", async () => {
+    const setup = await fixture();
+    const supervisor = setup.createSupervisor({
+      runs: {
+        create: setup.runs.create.bind(setup.runs),
+        load: setup.runs.load.bind(setup.runs),
+        list: setup.runs.list.bind(setup.runs),
+        async append(id, sequence, next, signal) {
+          const stored = await setup.runs.append(id, sequence, next, signal);
+          if (stored.state.version !== 2 || stored.state.status !== "running") {
+            return stored;
+          }
+          return {
+            ...stored,
+            state: {
+              ...stored.state,
+              teamControl: {
+                ...stored.state.teamControl,
+                effective: {
+                  ...stored.state.teamControl.effective,
+                  maxActiveAgents: 1,
+                },
+              },
+            },
+          };
+        },
+      },
+    });
+
+    await expect(supervisor.start(goal(setup), setup.context)).rejects
+      .toThrow(/concurrent agents cannot exceed active agents/iu);
+    expect(setup.prompts).toEqual([]);
+    expect(setup.teamCalls).toEqual([]);
+  });
+
+  it("freezes effective project team controls into every new goal", async () => {
+    const setup = await fixture();
+    const selected = {
+      ...recommendedTeamControlPolicy("balanced_v6"),
+      maxConcurrentAgents: 1,
+      maxRequests: 20,
+      maxReportedCostUsd: 1,
+    };
+    await setup.teamControls.publish(setup.root, selected, null);
+
+    await setup.supervisor.start(goal(setup), setup.context);
+
+    const run = (await setup.runs.load("company-run-id-1")).state;
+    expect(run).toMatchObject({
+      version: 2,
+      teamControl: {
+        selected,
+        effective: {
+          sourceRevision: 1,
+          operatingModeId: "balanced_v6",
+          blueprintId: setup.blueprint.id,
+          blueprintRevision: setup.blueprint.revision,
+          maxConcurrentAgents: 1,
+          maxRequests: 20,
+          maxReportedCostUsd: 1,
+        },
+      },
+      budget: {
+        maxConcurrentAssignments: 1,
+        maxRequests: 20,
+        maxReportedCostUsd: 1,
+      },
+    });
+    expect(setup.events.find((event) => event.type === "company_goal_started"))
+      .toMatchObject({
+        topology: "recommended",
+        maxActiveAgents: 8,
+        maxConcurrentAgents: 1,
+        maxDelegationDepth: 2,
+        maxRepairRounds: 1,
+        maxRequests: 20,
+        maxReportedCostUsd: 1,
+      });
+  });
+
+  it("rejects stored team controls for another operating mode before starting work", async () => {
+    const setup = await fixture();
+    await setup.teamControls.publish(
+      setup.root,
+      recommendedTeamControlPolicy("economy_v6"),
+      null,
+    );
+
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({
+        code: "permission_denied",
+        message: expect.stringContaining("another operating mode"),
+      });
+    expect(await setup.runs.list()).toEqual([]);
+    expect(setup.prompts).toEqual([]);
+  });
+
+  it("resumes with the frozen team controls instead of newer project preferences", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatus: "interrupted",
+    });
+    const original = {
+      ...recommendedTeamControlPolicy("balanced_v6"),
+      maxConcurrentAgents: 2,
+    };
+    await setup.teamControls.publish(setup.root, original, null);
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({ code: "checkpoint_conflict" });
+    await setup.teamControls.publish(setup.root, {
+      ...original,
+      revision: 2,
+      maxConcurrentAgents: 1,
+    }, 1);
+    setup.setTeamStatus("approved");
+
+    await setup.supervisor.resume("company-run-id-1", setup.context);
+
+    expect((await setup.runs.load("company-run-id-1")).state).toMatchObject({
+      version: 2,
+      teamControl: {
+        selected: {
+          revision: 1,
+          maxConcurrentAgents: 2,
+        },
+        effective: {
+          sourceRevision: 1,
+          maxConcurrentAgents: 2,
+        },
+      },
+      budget: { maxConcurrentAssignments: 2 },
+    });
+  });
+
   it("rejects missing, unknown, and non-default assignment roles before durable work", async () => {
     const missing = await fixture();
     const missingInput = goal(missing);

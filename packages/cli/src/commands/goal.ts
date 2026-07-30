@@ -7,7 +7,7 @@ import {
   type Goal,
   type SessionRecord,
 } from "@recurs/core";
-import type { CompanyGoalRunV1 } from "@recurs/contracts";
+import type { CompanyGoalRun } from "@recurs/contracts";
 
 import {
   message,
@@ -17,7 +17,7 @@ import {
   type CommandResult,
 } from "./types.js";
 
-const unresolvedCompanyStatuses = new Set<CompanyGoalRunV1["status"]>([
+const unresolvedCompanyStatuses = new Set<CompanyGoalRun["status"]>([
   "created",
   "running",
   "waiting_for_approval",
