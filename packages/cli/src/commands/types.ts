@@ -35,6 +35,7 @@ import type { AgentSkillCatalog } from "../agent-skills.js";
 import type { McpServerCatalog } from "../mcp-client.js";
 import type { CompanyCapabilityAuthority } from "../company-capability-authority.js";
 import type { ModelTeamStatus } from "../model-team-service.js";
+import type { TeamControlService } from "../team-control-service.js";
 
 export interface ParsedCommand {
   name: string;
@@ -97,6 +98,7 @@ export interface CommandDependencies {
   mcp?: McpServerCatalog;
   models?: ModelSessionService;
   modelTeams?: ModelTeamCommandService;
+  teamControls?: Pick<TeamControlService, "inspect" | "configure" | "reset">;
   company?: CompanyCommandDependencies;
 }
 

@@ -54,6 +54,16 @@ function accounting(run: CompanyGoalRun): readonly string[] {
   ];
 }
 
+function teamControls(run: CompanyGoalRun): readonly string[] {
+  if (run.version !== 2) return [];
+  const controls = run.teamControl.effective;
+  return [
+    `Team controls: ${controls.topology} | source revision ${controls.sourceRevision}`,
+    `Team limits: ${controls.maxActiveAgents} active | ${controls.maxConcurrentAgents} concurrent | depth ${controls.maxDelegationDepth} | ${controls.maxRepairRounds} repair round${controls.maxRepairRounds === 1 ? "" : "s"}`,
+    `Escalation: ${controls.escalation.replace("_", " ")} | Independent review: ${controls.independentReview.replace("_", " ")}`,
+  ];
+}
+
 function execution(assignment: CompanyGoalAssignmentV1): string {
   const value = assignment.execution;
   if (value === undefined) return "not started";
@@ -207,6 +217,7 @@ export function renderCompanyOperations(
     `Current: ${current.status} | ${current.id} | ${oneLine(current.objective, 300)} | ${current.updatedAt}`,
     progress(current),
     ...accounting(current),
+    ...teamControls(current),
     `Next: ${nextState(current)}`,
     "Recent goals:",
     ...runs.slice(0, 20).map((run) =>
@@ -228,6 +239,7 @@ export function renderCompanyGoalRun(
     `Created: ${run.createdAt} | Updated: ${run.updatedAt}`,
     progress(run),
     ...accounting(run),
+    ...teamControls(run),
     "Assignments:",
     ...run.plan.assignments.flatMap((assignment) =>
       assignmentLines(assignment, names)

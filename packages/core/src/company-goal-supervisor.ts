@@ -23,7 +23,6 @@ import {
   type CompanyGoalRun,
   type CompanyGoalRunV2,
   type CompanyToolBundleId,
-  type EffectiveTeamControlPolicyV1,
   type TeamRunCompanyGoalCorrelation,
   type TeamRunCompanyRoleBinding,
 } from "@recurs/contracts";

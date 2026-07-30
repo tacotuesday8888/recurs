@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -43,7 +43,11 @@ import {
   type ConnectionVerification,
   type EnvironmentConnectionConfiguration,
 } from "@recurs/app";
-import { CoordinatedRunError, type EventSink } from "@recurs/core";
+import {
+  CoordinatedRunError,
+  FileTeamControlPolicyStore,
+  type EventSink,
+} from "@recurs/core";
 
 import {
   createStandaloneCompanyOnboarding,
@@ -111,6 +115,10 @@ import {
   discoverProjectInstructions,
 } from "./project-instructions.js";
 import {
+  TeamControlService,
+  type TeamControlChanges,
+} from "./team-control-service.js";
+import {
   LocalConnectionError,
   setupLocalConnection,
   type LocalConnectionConfiguration,
@@ -153,6 +161,17 @@ export interface CliDependencies {
     readonly repositoryConsent: boolean;
     readonly cwd: string;
   }): ReturnType<typeof createStandaloneCompanyOnboarding>;
+  ensureTeamControls?(input: {
+    readonly cwd: string;
+    readonly operatingModeId: OperatingModeId;
+    readonly signal?: AbortSignal;
+  }): Promise<void>;
+  configureTeamControls?(input: {
+    readonly cwd: string;
+    readonly operatingModeId: OperatingModeId;
+    readonly changes: TeamControlChanges;
+    readonly signal?: AbortSignal;
+  }): Promise<void>;
   evaluateCompany?(input: CompanyEvaluationRunOptions & {
     readonly cwd: string;
     readonly signal?: AbortSignal;
@@ -1020,11 +1039,50 @@ async function runGuidedOnboarding(
               cwd: dependencies.cwd ?? process.cwd(),
             }),
         }),
+    ...(dependencies.ensureTeamControls === undefined
+      ? {}
+      : {
+          ensureTeamControls: (operatingModeId, signal) =>
+            dependencies.ensureTeamControls!({
+              cwd: dependencies.cwd ?? process.cwd(),
+              operatingModeId,
+              ...(signal === undefined ? {} : { signal }),
+            }),
+        }),
+    ...(dependencies.configureTeamControls === undefined
+      ? {}
+      : {
+          configureTeamControls: ({ operatingModeId, changes, signal }) =>
+            dependencies.configureTeamControls!({
+              cwd: dependencies.cwd ?? process.cwd(),
+              operatingModeId,
+              changes,
+              ...(signal === undefined ? {} : { signal }),
+            }),
+        }),
     createProjectInstructions: (input) => createProjectInstructions(
       dependencies.cwd ?? process.cwd(),
       input,
     ),
   });
+}
+
+async function projectTeamControlService(
+  cwd: string,
+  dataDirectory: string,
+): Promise<{
+  readonly service: TeamControlService;
+  readonly workspace: string;
+}> {
+  const workspace = await realpath(cwd);
+  const projectId = createHash("sha256").update(workspace).digest("hex")
+    .slice(0, 24);
+  return {
+    workspace,
+    service: new TeamControlService(new FileTeamControlPolicyStore(
+      path.join(dataDirectory, "projects", projectId, "team-controls"),
+    )),
+  };
 }
 
 async function startInteractiveRepl(
@@ -2054,6 +2112,28 @@ export async function runCliProcess(
           environment: process.env,
         },
       ),
+      ensureTeamControls: async ({ cwd, operatingModeId, signal }) => {
+        const controls = await projectTeamControlService(cwd, dataDirectory);
+        await controls.service.ensureRecommended(
+          controls.workspace,
+          operatingModeId,
+          signal,
+        );
+      },
+      configureTeamControls: async ({
+        cwd,
+        operatingModeId,
+        changes,
+        signal,
+      }) => {
+        const controls = await projectTeamControlService(cwd, dataDirectory);
+        await controls.service.configure({
+          workspace: controls.workspace,
+          operatingModeId,
+          changes,
+          ...(signal === undefined ? {} : { signal }),
+        });
+      },
       evaluateCompany: ({ cwd, signal, onProgress, ...options }) =>
         runCompanyEvaluationCommand(options, {
           projectRoot: cwd,

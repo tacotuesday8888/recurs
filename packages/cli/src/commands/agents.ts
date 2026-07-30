@@ -5,6 +5,8 @@ import {
   parseOperatingModeId,
   deriveTrustedRunContext,
   type AgentProfilePolicy,
+  type CompanyBlueprintV2,
+  type TeamControlPolicyV1,
 } from "@recurs/contracts";
 import {
   AgentActivityService,
@@ -24,6 +26,7 @@ import {
   type CommandDependencies,
   type CommandResult,
 } from "./types.js";
+import type { TeamControlChanges, TeamControlSnapshot } from "../team-control-service.js";
 
 function summary(id: Parameters<typeof getOperatingModePolicy>[0]): string {
   const policy = getOperatingModePolicy(id);
@@ -226,6 +229,149 @@ function controlError(error: unknown): CommandResult {
   throw error;
 }
 
+function controlValues(policy: TeamControlPolicyV1): string {
+  return [
+    policy.topology,
+    `${policy.maxActiveAgents} active`,
+    `${policy.maxConcurrentAgents} concurrent`,
+    `depth ${policy.maxDelegationDepth}`,
+    policy.escalation.replace("_", " "),
+    `independent review ${policy.independentReview.replace("_", " ")}`,
+    `${policy.maxRepairRounds} repair round${policy.maxRepairRounds === 1 ? "" : "s"}`,
+    `${policy.maxRequests} requests`,
+    `$${policy.maxReportedCostUsd.toFixed(2)} reported cost`,
+  ].join(" · ");
+}
+
+function renderControls(snapshot: TeamControlSnapshot): string {
+  const lines = [
+    `Team controls: ${snapshot.source}${
+      snapshot.compatible ? "" : " (incompatible with the current mode)"
+    }`,
+    `Selected: ${controlValues(snapshot.selected)}`,
+    `Hard ceiling: ${controlValues(snapshot.hardCeiling)}`,
+  ];
+  if (snapshot.effective !== null) {
+    lines.push(`Effective: ${controlValues({
+      ...snapshot.selected,
+      ...snapshot.effective,
+      revision: snapshot.effective.sourceRevision,
+    })}`);
+  } else {
+    lines.push(snapshot.compatible
+      ? "Effective: available after an approved company is active"
+      : "Effective: blocked until controls are reset or explicitly reconfigured");
+  }
+  return lines.join("\n");
+}
+
+function parsePositiveInteger(value: string, label: string): number {
+  if (!/^[1-9]\d*$/u.test(value)) {
+    throw new TypeError(`${label} must be a positive integer`);
+  }
+  return Number(value);
+}
+
+function parseNonNegativeInteger(value: string, label: string): number {
+  if (!/^(0|[1-9]\d*)$/u.test(value)) {
+    throw new TypeError(`${label} must be a non-negative integer`);
+  }
+  return Number(value);
+}
+
+function parseControlChanges(value: string): TeamControlChanges {
+  const tokens = value.trim().split(/\s+/u).filter(Boolean);
+  if (tokens.length === 0) {
+    throw new TypeError(
+      "Use /agents configure key=value with topology, active, concurrent, depth, escalation, review, repair, requests, or cost",
+    );
+  }
+  const changes: Record<string, unknown> = {};
+  for (const token of tokens) {
+    const match = /^([a-z]+)=(\S+)$/u.exec(token);
+    if (match === null || Object.hasOwn(changes, match[1]!)) {
+      throw new TypeError(`Invalid or repeated team-control setting: ${oneLine(token)}`);
+    }
+    const key = match[1]!;
+    const raw = match[2]!;
+    switch (key) {
+      case "topology":
+        if (!new Set([
+          "recommended", "focused", "parallel", "hierarchical",
+          "research_heavy", "review_heavy",
+        ]).has(raw)) throw new TypeError("Unknown team topology");
+        changes.topology = raw;
+        break;
+      case "active":
+        changes.maxActiveAgents = parsePositiveInteger(raw, "Active agents");
+        break;
+      case "concurrent":
+        changes.maxConcurrentAgents = parsePositiveInteger(raw, "Concurrency");
+        break;
+      case "depth":
+        changes.maxDelegationDepth = parsePositiveInteger(raw, "Delegation depth");
+        break;
+      case "escalation":
+        if (raw !== "manager_only" && raw !== "root_allowed") {
+          throw new TypeError("Escalation must be manager_only or root_allowed");
+        }
+        changes.escalation = raw;
+        break;
+      case "review":
+        if (raw !== "required" && raw !== "when_planned") {
+          throw new TypeError("Review must be required or when_planned");
+        }
+        changes.independentReview = raw;
+        break;
+      case "repair":
+        changes.maxRepairRounds = parseNonNegativeInteger(raw, "Repair rounds");
+        break;
+      case "requests":
+        changes.maxRequests = parsePositiveInteger(raw, "Requests");
+        break;
+      case "cost": {
+        const cost = Number(raw);
+        if (!Number.isFinite(cost) || cost <= 0) {
+          throw new TypeError("Reported cost must be a positive number");
+        }
+        changes.maxReportedCostUsd = cost;
+        break;
+      }
+      default:
+        throw new TypeError(`Unknown team-control setting: ${key}`);
+    }
+  }
+  return changes as TeamControlChanges;
+}
+
+function localManual(context: CommandContext): boolean {
+  const invocation = deriveTrustedRunContext(context.invocation);
+  return invocation.invocation === "repl" && invocation.presence === "present" &&
+    invocation.location === "local" && invocation.automation === "manual" &&
+    invocation.embedding === "cli";
+}
+
+async function activeBlueprint(
+  dependencies: CommandDependencies,
+  context: CommandContext,
+  signal: AbortSignal,
+): Promise<CompanyBlueprintV2 | null> {
+  const binding = isPinnedSessionState(context.session)
+    ? context.session.agent.company
+    : undefined;
+  if (binding?.blueprintVersion !== 2 || dependencies.company === undefined) {
+    return null;
+  }
+  const blueprint = await dependencies.company.blueprints.load(
+    binding.blueprintId,
+    signal,
+  );
+  return blueprint.state === "approved" &&
+      blueprint.revision === binding.blueprintRevision
+    ? blueprint
+    : null;
+}
+
 export function createAgentsCommand(
   dependencies: CommandDependencies = {},
 ): Command {
@@ -236,7 +382,7 @@ export function createAgentsCommand(
     name: "agents",
     aliases: ["agent"],
     description: "Inspect child-agent modes, activity, and durable team runs",
-    usage: "/agents [profiles|activity [exact-id]|teams|team <id>|wait <id>|cancel <id>|resume <id>|apply <id>|mode economy|standard|balanced|performance|max]",
+    usage: "/agents [profiles|controls|configure key=value...|reset|activity [exact-id]|teams|team <id>|wait <id>|cancel <id>|resume <id>|apply <id>|mode economy|standard|balanced|performance|max]",
     async execute(args, context) {
       const trimmed = args.trim();
       if (trimmed.toLowerCase() === "profiles") {
@@ -244,6 +390,70 @@ export function createAgentsCommand(
       }
       if (!isPinnedSessionState(context.session)) {
         return message("Agent modes become available after a model connection creates a session", "warning");
+      }
+      if (trimmed.toLowerCase() === "controls" ||
+        trimmed.toLowerCase() === "reset" ||
+        /^configure(?:\s|$)/iu.test(trimmed)) {
+        const service = dependencies.teamControls;
+        if (service === undefined) {
+          return message("Project team controls are unavailable", "error");
+        }
+        const signal = dependencies.signal?.() ?? new AbortController().signal;
+        try {
+          if (trimmed.toLowerCase() === "controls") {
+            return message(renderControls(await service.inspect({
+              workspace: context.session.cwd,
+              operatingModeId: context.session.agent.operatingMode.id,
+              blueprint: await activeBlueprint(dependencies, context, signal),
+              signal,
+            })));
+          }
+          if (!localManual(context)) {
+            return message(
+              "Changing team controls requires a local, user-present, manual terminal",
+              "error",
+            );
+          }
+          if (trimmed.toLowerCase() === "reset") {
+            if (!await context.confirm(
+              "Reset this project to the recommended team controls for the current mode?",
+            )) {
+              return message("Team-control reset was not approved", "warning");
+            }
+            const policy = await service.reset(
+              context.session.cwd,
+              context.session.agent.operatingMode.id,
+              signal,
+            );
+            return message(
+              `Saved recommended team controls at revision ${policy.revision}\nSelected: ${controlValues(policy)}`,
+            );
+          }
+          const changes = parseControlChanges(
+            trimmed.replace(/^configure(?:\s+|$)/iu, ""),
+          );
+          if (!await context.confirm(
+            `Save project team controls: ${JSON.stringify(changes)}?`,
+          )) {
+            return message("Team-control changes were not approved", "warning");
+          }
+          const policy = await service.configure({
+            workspace: context.session.cwd,
+            operatingModeId: context.session.agent.operatingMode.id,
+            changes,
+            signal,
+          });
+          return message(
+            `Saved team controls at revision ${policy.revision}\nSelected: ${controlValues(policy)}`,
+          );
+        } catch (error) {
+          return message(
+            error instanceof Error
+              ? oneLine(error.message, 500)
+              : "Team controls could not be updated",
+            "error",
+          );
+        }
       }
       const teamMatch = /^(teams|team|wait|cancel|resume|apply)(?:\s+(\S+))?$/iu
         .exec(trimmed);
@@ -351,7 +561,7 @@ export function createAgentsCommand(
       const id = match?.[1] === undefined ? null : parseOperatingModeId(match[1]);
       if (id === null) {
         return message(
-          "Choose /agents mode economy, standard, balanced, performance, or max; use /agents profiles, /agents activity, or /agents teams",
+          "Choose /agents mode economy, standard, balanced, performance, or max; use /agents profiles, /agents controls, /agents activity, or /agents teams",
           "error",
         );
       }

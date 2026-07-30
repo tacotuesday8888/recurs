@@ -13,6 +13,7 @@ import { ProviderError, ScriptedProvider } from "@recurs/providers";
 import {
   getOperatingModePolicy,
   createHostInvocation,
+  recommendedTeamControlPolicy,
   type AgentSessionDescriptor,
   type ModelTeamSelectionV1,
   type ModelProvider,
@@ -303,6 +304,114 @@ describe("session commands", () => {
       .toMatchObject({
         text: expect.stringMatching(/Balanced \(balanced_v6\)[\s\S]*Policy version: 6/u),
       });
+  });
+
+  it("inspects, confirms, configures, and resets project team controls", async () => {
+    const blueprint = companyBlueprintV2Fixture();
+    const backend = testBackendPin();
+    const original = await sessions.createPinnedSession({
+      id: "governed-team-controls",
+      at,
+      cwd,
+      backend,
+      agent: createRootAgentDescriptor(
+        "governed-team-controls",
+        backend,
+        blueprint.authority.operatingModeId,
+        blueprint.authority.permissionMode,
+        "act",
+        {
+          blueprintId: blueprint.id,
+          blueprintVersion: 2,
+          blueprintRevision: blueprint.revision,
+          roleId: blueprint.authorityAnchors.rootRoleId,
+          roleVersion: 1,
+        },
+      ),
+    });
+    const selected = recommendedTeamControlPolicy("balanced_v6");
+    const inspect = vi.fn(async () => ({
+      source: "recommended" as const,
+      compatible: true,
+      selected,
+      hardCeiling: selected,
+      effective: {
+        ...selected,
+        sourceRevision: selected.revision,
+        blueprintId: blueprint.id,
+        blueprintRevision: blueprint.revision,
+      },
+    }));
+    const configure = vi.fn(async () => ({
+      ...selected,
+      topology: "parallel" as const,
+      maxConcurrentAgents: 2,
+    }));
+    const reset = vi.fn(async () => selected);
+    const commands = createCommandRegistry({
+      sessions,
+      teamControls: { inspect, configure, reset },
+      company: {
+        blueprints: { async load() { return blueprint; } },
+        goals: { async list() { return []; } },
+        knowledge: { async latest() { return null; } },
+        amendments: { async list() { return []; } },
+      },
+    } as CommandDependencies);
+    const confirm = vi.fn(async () => true);
+    const commandContext = context(original, confirm);
+
+    await expect(commands.execute("/agents controls", commandContext))
+      .resolves.toMatchObject({
+        text: expect.stringMatching(
+          /Team controls: recommended[\s\S]*Selected:[\s\S]*Hard ceiling:[\s\S]*Effective:[\s\S]*manager only[\s\S]*independent review required/iu,
+        ),
+      });
+    await expect(commands.execute(
+      "/agents configure topology=parallel concurrent=2 requests=40 cost=1.5",
+      commandContext,
+    )).resolves.toMatchObject({
+      text: expect.stringMatching(/saved team controls at revision 1[\s\S]*parallel/iu),
+    });
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining(
+      "Save project team controls",
+    ));
+    expect(configure).toHaveBeenCalledWith(expect.objectContaining({
+      workspace: cwd,
+      operatingModeId: "balanced_v6",
+      changes: {
+        topology: "parallel",
+        maxConcurrentAgents: 2,
+        maxRequests: 40,
+        maxReportedCostUsd: 1.5,
+      },
+    }));
+
+    await expect(commands.execute("/agents reset", commandContext))
+      .resolves.toMatchObject({
+        text: expect.stringContaining("recommended team controls"),
+      });
+    expect(reset).toHaveBeenCalledWith(
+      cwd,
+      "balanced_v6",
+      expect.any(AbortSignal),
+    );
+
+    commandContext.invocation = createHostInvocation({
+      invocation: "one_shot",
+      userPresent: false,
+      remote: false,
+      scripted: true,
+      embedding: "cli",
+    });
+    await expect(commands.execute(
+      "/agents configure topology=focused",
+      commandContext,
+    )).resolves.toMatchObject({
+      level: "error",
+      text: expect.stringContaining("local, user-present, manual terminal"),
+    });
+    expect(configure).toHaveBeenCalledTimes(1);
   });
 
   it("lists and inspects parent-scoped durable child activity without private paths", async () => {

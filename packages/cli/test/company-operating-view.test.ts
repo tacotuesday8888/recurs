@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  effectiveTeamControlPolicy,
   parseCompanyGoalRun,
+  recommendedTeamControlPolicy,
   type CompanyBlueprintV2,
   type CompanyGoalAssignmentV1,
+  type CompanyGoalRun,
   type CompanyGoalRunV1,
 } from "@recurs/contracts";
 import {
@@ -55,6 +58,19 @@ function blueprint(): CompanyBlueprintV2 {
     initialGoal: "Deliver one bounded and independently reviewed change.",
     roadmap: ["Inspect company operations."],
   }), at);
+}
+
+function governedRun(company: CompanyBlueprintV2): CompanyGoalRun {
+  const legacy = run(company);
+  const selected = recommendedTeamControlPolicy("balanced_v6");
+  return parseCompanyGoalRun({
+    ...legacy,
+    version: 2,
+    teamControl: {
+      selected,
+      effective: effectiveTeamControlPolicy(selected, company),
+    },
+  });
 }
 
 function assignments(company: CompanyBlueprintV2): readonly CompanyGoalAssignmentV1[] {
@@ -159,6 +175,26 @@ function run(
 }
 
 describe("company operating views", () => {
+  it("renders the exact frozen team controls for governed goals", () => {
+    const company = blueprint();
+    const governed = governedRun(company);
+
+    const detail = renderCompanyGoalRun(company, governed);
+    const operations = renderCompanyOperations(company, [governed]);
+
+    for (const rendered of [detail, operations]) {
+      expect(rendered).toContain(
+        "Team controls: recommended | source revision 1",
+      );
+      expect(rendered).toContain(
+        "Team limits: 8 active | 3 concurrent | depth 2 | 1 repair round",
+      );
+      expect(rendered).toContain(
+        "Escalation: manager only | Independent review: required",
+      );
+    }
+  });
+
   it("renders an empty company snapshot without depicting idle roles as active", () => {
     const company = blueprint();
 

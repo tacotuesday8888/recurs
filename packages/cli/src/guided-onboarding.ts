@@ -19,6 +19,7 @@ import {
   type CompanyRepositoryMarker,
   type ModelReasoningEffort,
   type OperatingModeId,
+  type TeamTopologyV1,
   type TeamRunRole,
 } from "@recurs/contracts";
 import {
@@ -55,6 +56,7 @@ import {
   renderCompanyToolReadiness,
   type CompanyCapabilityCatalogs,
 } from "./company-tool-readiness.js";
+import type { TeamControlChanges } from "./team-control-service.js";
 import { writeOutput } from "./render.js";
 import {
   createTerminalTheme,
@@ -346,6 +348,15 @@ export interface GuidedOnboardingPorts {
     readonly role: TeamRunRole;
     readonly connectionId: string | null;
   }[]>;
+  ensureTeamControls?(
+    operatingModeId: OperatingModeId,
+    signal: AbortSignal | undefined,
+  ): Promise<void>;
+  configureTeamControls?(input: {
+    readonly operatingModeId: OperatingModeId;
+    readonly changes: TeamControlChanges;
+    readonly signal: AbortSignal | undefined;
+  }): Promise<void>;
   executeCommand(argv: readonly string[]): Promise<number>;
 }
 
@@ -661,6 +672,145 @@ async function selectOperatingMode(
   return selected === null
     ? DEFAULT_OPERATING_MODE_ID
     : guidedOperatingModeId(selected) ?? DEFAULT_OPERATING_MODE_ID;
+}
+
+const TEAM_TOPOLOGY_CHOICES: readonly GuidedChoice[] = Object.freeze([
+  Object.freeze({
+    id: "recommended",
+    label: "Recommended",
+    detail: "let Recurs choose the bounded team shape",
+  }),
+  Object.freeze({
+    id: "focused",
+    label: "Focused",
+    detail: "one implementation branch at a time",
+  }),
+  Object.freeze({
+    id: "parallel",
+    label: "Parallel",
+    detail: "independent approved branches may run together",
+  }),
+  Object.freeze({
+    id: "hierarchical",
+    label: "Hierarchical",
+    detail: "handoffs follow the approved reporting chain",
+  }),
+  Object.freeze({
+    id: "research_heavy",
+    label: "Research-heavy",
+    detail: "research evidence must precede implementation",
+  }),
+  Object.freeze({
+    id: "review_heavy",
+    label: "Review-heavy",
+    detail: "independent review covers every implementation",
+  }),
+]);
+
+function guidedPositiveInteger(
+  value: string | null,
+  fallback: number,
+): number | null {
+  if (value === null) return fallback;
+  return /^[1-9]\d*$/u.test(value) ? Number(value) : null;
+}
+
+async function setupTeamControls(
+  ports: GuidedOnboardingPorts,
+  operatingModeId: OperatingModeId,
+): Promise<string | null> {
+  if (ports.ensureTeamControls === undefined &&
+    ports.configureTeamControls === undefined) {
+    return "Recommended";
+  }
+  const setup = await ports.selectChoice(
+    "Choose the team-control detail",
+    Object.freeze([
+      Object.freeze({
+        id: "recommended",
+        label: "Keep saved or recommended",
+        detail: "preserve an existing project choice, otherwise save the mode's bounded defaults",
+      }),
+      Object.freeze({
+        id: "customize",
+        label: "Customize advanced limits",
+        detail: "choose topology, active agents, concurrency, and delegation depth",
+      }),
+    ]),
+  );
+  if (setup !== "customize") {
+    await ports.ensureTeamControls?.(operatingModeId, ports.signal);
+    return "Saved or Recommended";
+  }
+  if (ports.configureTeamControls === undefined) {
+    await writeOutput(
+      ports.stderr,
+      "Advanced team controls are unavailable in this setup host.\n",
+    );
+    return null;
+  }
+  const mode = getOperatingModePolicy(operatingModeId);
+  if (mode.company === undefined) {
+    await writeOutput(
+      ports.stderr,
+      "Advanced team controls require a current company operating mode.\n",
+    );
+    return null;
+  }
+  const topology = await ports.selectChoice(
+    "Choose the team topology",
+    TEAM_TOPOLOGY_CHOICES,
+  ) as TeamTopologyV1 | null;
+  if (topology === null) {
+    await ports.ensureTeamControls?.(operatingModeId, ports.signal);
+    return "Saved or Recommended";
+  }
+  const active = guidedPositiveInteger(
+    await ports.promptText(
+      "Maximum active agents for one goal",
+      String(mode.company.maxActiveRoles),
+    ),
+    mode.company.maxActiveRoles,
+  );
+  const concurrent = guidedPositiveInteger(
+    await ports.promptText(
+      "Maximum concurrent agents",
+      String(mode.company.maxConcurrentAssignments),
+    ),
+    mode.company.maxConcurrentAssignments,
+  );
+  const depth = guidedPositiveInteger(
+    await ports.promptText(
+      "Maximum delegation depth",
+      String(mode.company.maxDepth),
+    ),
+    mode.company.maxDepth,
+  );
+  if (active === null || concurrent === null || depth === null) {
+    await writeOutput(
+      ports.stderr,
+      "Advanced team limits must be positive whole numbers.\n",
+    );
+    return null;
+  }
+  const changes = {
+    topology,
+    maxActiveAgents: active,
+    maxConcurrentAgents: concurrent,
+    maxDelegationDepth: depth,
+  } satisfies TeamControlChanges;
+  if (ports.confirm !== undefined && !await ports.confirm(
+    `Save ${topology.replaceAll("_", " ")} team controls with ${active} active, ${concurrent} concurrent, and depth ${depth}?`,
+  )) {
+    await ports.ensureTeamControls?.(operatingModeId, ports.signal);
+    return "Saved or Recommended";
+  }
+  await ports.configureTeamControls({
+    operatingModeId,
+    changes,
+    signal: ports.signal,
+  });
+  return `${topology.replaceAll("_", " ")} · ${active} active · ${concurrent} concurrent · depth ${depth}`;
 }
 
 const TEAM_ROLES: readonly TeamRunRole[] = Object.freeze([
@@ -1545,6 +1695,8 @@ async function runGuidedOnboardingSteps(
     `\n${theme.accent(`3 / ${stepCount} · Team`)}\n`,
   );
   const operatingModeId = await selectOperatingMode(ports);
+  const teamControls = await setupTeamControls(ports, operatingModeId);
+  if (teamControls === null) return { state: "failed", exitCode: 2 };
   await writeOutput(
     ports.stdout,
     `\n${theme.accent(`4 / ${stepCount} · Models`)}\n`,
@@ -1582,6 +1734,7 @@ async function runGuidedOnboardingSteps(
     theme.success("Onboarding complete"),
     `Connection: ${primary === undefined ? "ready" : `${primary.label} · ${primary.modelId}`}`,
     `Team: ${operatingMode.displayName}`,
+    `Team controls: ${teamControls}`,
     `Models: ${routeSummary(accountsAfterRouting)}`,
     `Roster: ${company.blueprintV2 !== undefined
       ? `Recommended · ${company.blueprintV2.departments.length} department(s) · ${company.blueprintV2.roles.length} approved role(s)`

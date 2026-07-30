@@ -141,6 +141,7 @@ import {
 import { CompanyProposalEditor } from "./company-proposal-editor.js";
 import { CompanyCapabilityAuthority } from "./company-capability-authority.js";
 import { ModelTeamService } from "./model-team-service.js";
+import { TeamControlService } from "./team-control-service.js";
 import type { CompanyCapabilityCatalogs } from "./company-tool-readiness.js";
 import { RecursRuntime, RuntimeError } from "./runtime.js";
 import {
@@ -967,6 +968,7 @@ export async function createStandaloneRuntime(
   const teamControls = new FileTeamControlPolicyStore(
     path.join(projectData, "team-controls"),
   );
+  const teamControlService = new TeamControlService(teamControls);
   const companyKnowledge = new FileCompanyKnowledgeStore(
     path.join(projectData, "company-knowledge"),
   );
@@ -2007,6 +2009,7 @@ export async function createStandaloneRuntime(
     mcp,
     ...(modelSessions === undefined ? {} : { models: modelSessions }),
     ...(modelSessions === undefined ? {} : { modelTeams }),
+    teamControls: teamControlService,
     signal: () =>
       runtimeReference.current?.currentSignal() ?? new AbortController().signal,
   });
