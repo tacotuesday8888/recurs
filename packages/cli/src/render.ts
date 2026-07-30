@@ -196,6 +196,13 @@ export class TextEventRenderer implements EventSink {
           ),
         );
         break;
+      case "company_team_control_recommended":
+        await this.#status(
+          this.#theme.warning(
+            `◇ Team-control recommendation ${event.recommendationId} · ${event.supportingRunIds.length} runs · inspect with /company recommendations`,
+          ),
+        );
+        break;
       case "company_goal_failed":
       case "company_goal_cancelled":
       case "company_goal_interrupted":

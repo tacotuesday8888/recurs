@@ -18,6 +18,7 @@ import type {
   CompanyBlueprintV2,
   CompanyGoalRun,
   CompanyToolBundleId,
+  TeamControlRecommendationV1,
 } from "@recurs/contracts";
 
 import {
@@ -41,7 +42,7 @@ import {
 } from "./types.js";
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
-const USAGE = "/company [status|blueprint|readiness|capabilities|bind <bundle> <skill|mcp> <id>|unbind <binding-id>|operations|run <run-id>|resume <run-id>|activity|knowledge|amendments|amendment <id>|approve-amendment <id>|reject-amendment <id>]";
+const USAGE = "/company [status|blueprint|readiness|capabilities|bind <bundle> <skill|mcp> <id>|unbind <binding-id>|operations|run <run-id>|resume <run-id>|activity|knowledge|recommendations|recommendation <id>|approve-recommendation <id>|reject-recommendation <id>|amendments|amendment <id>|approve-amendment <id>|reject-amendment <id>]";
 
 class CompanyCommandPolicyError extends Error {}
 
@@ -143,6 +144,44 @@ function amendmentsText(amendments: readonly CompanyAmendmentV1[]): string {
   ].join(" | ")).join("\n");
 }
 
+function recommendationsText(
+  recommendations: readonly TeamControlRecommendationV1[],
+): string {
+  if (recommendations.length === 0) {
+    return "No team-control recommendations exist";
+  }
+  return [...recommendations].sort((left, right) =>
+    right.createdAt.localeCompare(left.createdAt)
+  ).slice(0, 50).map((item) => [
+    item.state,
+    item.id,
+    item.basePolicyRevision === null
+      ? "recommended base"
+      : `base r${item.basePolicyRevision}`,
+    `${item.supportingRuns.length} runs`,
+    oneLine(item.reason),
+  ].join(" | ")).join("\n");
+}
+
+function recommendationText(
+  recommendation: TeamControlRecommendationV1,
+): string {
+  const policy = recommendation.proposedPolicy;
+  return [
+    `Team-control recommendation: ${recommendation.id}`,
+    `State: ${recommendation.state}`,
+    `Evidence: ${recommendation.supportingRuns.map((run) =>
+      `${run.runId} (${run.assignmentsStarted} agents, ${run.requestsUsed} requests, ${run.reportedCostUsd === null ? "cost unknown" : `$${run.reportedCostUsd.toFixed(4)}`})`
+    ).join("; ")}`,
+    `Reason: ${oneLine(recommendation.reason, 1_000)}`,
+    `Proposed future policy: ${policy.topology} · ${policy.maxActiveAgents} active · ${policy.maxConcurrentAgents} concurrent · depth ${policy.maxDelegationDepth} · ${policy.maxRequests} requests · $${policy.maxReportedCostUsd.toFixed(4)} reported`,
+    "No historical goal changes. Approval affects only future goals.",
+    ...(recommendation.decisionReason === null
+      ? []
+      : [`Decision: ${oneLine(recommendation.decisionReason, 500)}`]),
+  ].join("\n");
+}
+
 function exactDecision(args: string): {
   readonly action: "approve" | "reject";
   readonly amendmentId: string;
@@ -158,6 +197,24 @@ function exactDecision(args: string): {
 function exactAmendment(args: string): string | null {
   const match = /^amendment\s+(\S+)$/u.exec(args);
   return match !== null && SAFE_ID.test(match[1]!) ? match[1]! : null;
+}
+
+function exactRecommendation(args: string): string | null {
+  const match = /^recommendation\s+(\S+)$/u.exec(args);
+  return match !== null && SAFE_ID.test(match[1]!) ? match[1]! : null;
+}
+
+function exactRecommendationDecision(args: string): {
+  readonly action: "approve" | "reject";
+  readonly recommendationId: string;
+} | null {
+  const match =
+    /^(approve-recommendation|reject-recommendation)\s+(\S+)$/u.exec(args);
+  if (match === null || !SAFE_ID.test(match[2]!)) return null;
+  return {
+    action: match[1] === "approve-recommendation" ? "approve" : "reject",
+    recommendationId: match[2]!,
+  };
 }
 
 function exactRun(args: string): string | null {
@@ -424,6 +481,33 @@ export function createCompanyCommand(dependencies: CommandDependencies): Command
               `${entry.source.type}:${entry.source.id}`,
             ].join(" | ")).join("\n"));
       }
+      if (action === "recommendations") {
+        if (company.recommendations === undefined) {
+          return message("Team-control recommendations are unavailable", "error");
+        }
+        return message(recommendationsText(
+          await company.recommendations.list(
+            active.session.cwd,
+            currentSignal,
+          ),
+        ));
+      }
+      const recommendationId = exactRecommendation(action);
+      if (recommendationId !== null) {
+        if (company.recommendations === undefined) {
+          return message("Team-control recommendations are unavailable", "error");
+        }
+        const recommendation = (await company.recommendations.list(
+          active.session.cwd,
+          currentSignal,
+        )).find((candidate) => candidate.id === recommendationId);
+        return recommendation === undefined
+          ? message(
+              `Team-control recommendation not found: ${recommendationId}`,
+              "error",
+            )
+          : message(recommendationText(recommendation));
+      }
       if (action === "amendments") {
         return message(amendmentsText(await company.amendments.list(
           active.blueprint.companyId,
@@ -495,6 +579,67 @@ export function createCompanyCommand(dependencies: CommandDependencies): Command
           }
           throw error;
         }
+      }
+      const recommendationDecision = exactRecommendationDecision(action);
+      if (recommendationDecision !== null) {
+        if (company.recommendations === undefined ||
+          company.recommendationDecisions === undefined) {
+          return message("Team-control recommendation decisions are unavailable", "error");
+        }
+        if (!localManual(context)) {
+          return message(
+            "Team-control recommendation decisions require a local, manual, user-present CLI session",
+            "error",
+          );
+        }
+        const recommendation = (await company.recommendations.list(
+          active.session.cwd,
+          currentSignal,
+        )).find((candidate) =>
+          candidate.id === recommendationDecision.recommendationId
+        );
+        if (recommendation === undefined) {
+          return message(
+            `Team-control recommendation not found: ${recommendationDecision.recommendationId}`,
+            "error",
+          );
+        }
+        if (recommendation.blueprintId !== active.binding.blueprintId ||
+          recommendation.blueprintRevision !==
+            active.binding.blueprintRevision) {
+          return message(
+            "The recommendation does not target this session's immutable company revision",
+            "error",
+          );
+        }
+        if (!await context.confirm(
+          `${recommendationDecision.action === "approve" ? "Approve" : "Reject"} team-control recommendation ${recommendation.id} for future goals? ${oneLine(recommendation.reason, 500)}`,
+        )) {
+          return message(
+            "Team-control recommendation was left unchanged",
+            "warning",
+          );
+        }
+        const decide = recommendationDecision.action === "approve"
+          ? company.recommendationDecisions.approve.bind(
+              company.recommendationDecisions,
+            )
+          : company.recommendationDecisions.reject.bind(
+              company.recommendationDecisions,
+            );
+        const result = await decide({
+          workspace: active.session.cwd,
+          recommendationId: recommendation.id,
+          company: active.binding,
+          at: context.now(),
+          decisionReason: recommendationDecision.action === "approve"
+            ? "Approved through the local /company command"
+            : "Rejected through the local /company command",
+          signal: currentSignal,
+        });
+        return message(recommendationDecision.action === "approve"
+          ? `Approved ${result.id}; team-control policy revision ${result.appliedPolicyRevision} applies to future goals`
+          : `Rejected ${result.id}; team controls are unchanged`);
       }
       const decision = exactDecision(action);
       if (decision === null) return message(`Usage: ${USAGE}`, "error");

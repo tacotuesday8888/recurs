@@ -77,6 +77,30 @@ describe("TextEventRenderer agent activity", () => {
       evidence: ["src/runtime.ts"],
     });
     await renderer.emit({
+      type: "company_team_control_recommended",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      goalRunId: "goal-run-1",
+      recommendationId: "recommendation-1",
+      supportingRunIds: ["goal-run-0", "goal-run-1"],
+      proposedPolicy: {
+        version: 1,
+        revision: 2,
+        operatingModeId: "balanced_v6",
+        operatingModeVersion: 6,
+        topology: "recommended",
+        maxActiveAgents: 4,
+        maxConcurrentAgents: 3,
+        maxDelegationDepth: 2,
+        escalation: "manager_only",
+        independentReview: "required",
+        maxRepairRounds: 1,
+        maxRequests: 30,
+        maxReportedCostUsd: 2,
+      },
+    });
+    await renderer.emit({
       type: "agent_team_activity",
       sessionId: "parent-session",
       at: "2026-07-17T00:00:00.000Z",
@@ -350,6 +374,9 @@ describe("TextEventRenderer agent activity", () => {
     );
     expect(output).toContain(
       "↑ Planning Lead escalated to Orchestrator: The architecture boundary needs a decision.",
+    );
+    expect(output).toContain(
+      "◇ Team-control recommendation recommendation-1 · 2 runs",
     );
     expect(output).toContain(
       "↳ Activated implement 1 · gpt-5.6-terra · medium",

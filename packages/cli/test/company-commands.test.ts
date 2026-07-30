@@ -4,9 +4,12 @@ import {
   createHostInvocation,
   parseCompanyGoalRun,
   parseCompanyKnowledge,
+  parseTeamControlRecommendationV1,
+  recommendedTeamControlPolicy,
   type CompanyAmendmentV1,
   type CompanyBlueprintV2,
   type CompanyGoalRunV1,
+  type TeamControlRecommendationV1,
 } from "@recurs/contracts";
 import {
   approveCompanyBlueprintV2,
@@ -72,6 +75,45 @@ function approvedBlueprint(): CompanyBlueprintV2 {
     compileBlueprint({ id: "blueprint-cli-r1", revision: 1, previousBlueprintId: null }),
     at,
   );
+}
+
+function teamRecommendation(
+  state: TeamControlRecommendationV1["state"] = "proposed",
+): TeamControlRecommendationV1 {
+  const proposed = {
+    ...recommendedTeamControlPolicy("balanced_v6"),
+    maxActiveAgents: 4,
+    maxRequests: 30,
+  };
+  return parseTeamControlRecommendationV1({
+    id: "recommendation-cli",
+    version: 1,
+    state,
+    operatingModeId: "balanced_v6",
+    operatingModeVersion: 6,
+    blueprintId: "blueprint-cli-r1",
+    blueprintRevision: 1,
+    basePolicyRevision: null,
+    createdAt: "2026-07-22T04:00:00.000Z",
+    decidedAt: state === "proposed" ? null : at,
+    reason: "Observed usage only across two compatible completed goals.",
+    supportingRuns: [{
+      runId: "run-evidence-1",
+      completedAt: "2026-07-22T03:00:00.000Z",
+      assignmentsStarted: 3,
+      requestsUsed: 20,
+      reportedCostUsd: 0.4,
+    }, {
+      runId: "run-evidence-2",
+      completedAt: "2026-07-22T03:30:00.000Z",
+      assignmentsStarted: 4,
+      requestsUsed: 24,
+      reportedCostUsd: null,
+    }],
+    proposedPolicy: proposed,
+    appliedPolicyRevision: state === "approved" ? proposed.revision : null,
+    decisionReason: state === "proposed" ? null : `${state} in test`,
+  });
 }
 
 function context(blueprint: CompanyBlueprintV2): CommandContext & {
@@ -671,6 +713,69 @@ describe("company slash command", () => {
       unattended,
     )).resolves.toMatchObject({ level: "error", text: expect.stringContaining("local") });
     expect(approved.decisions.reject).not.toHaveBeenCalled();
+  });
+
+  it("shows evidence and requires local confirmation for future team controls", async () => {
+    const blueprint = approvedBlueprint();
+    const recommendation = teamRecommendation();
+    const recommendations = {
+      list: vi.fn(async () => [recommendation]),
+    };
+    const recommendationDecisions = {
+      approve: vi.fn(async () => teamRecommendation("approved")),
+      reject: vi.fn(async () => teamRecommendation("rejected")),
+    };
+    const registry = createCommandRegistry({
+      company: dependencies(blueprint, {
+        recommendations,
+        recommendationDecisions,
+      }),
+    });
+    const active = context(blueprint);
+
+    await expect(registry.execute("/company recommendations", active))
+      .resolves.toMatchObject({
+        text: expect.stringMatching(
+          /recommendation-cli[\s\S]*2 runs[\s\S]*Observed usage only/iu,
+        ),
+      });
+    await expect(registry.execute(
+      "/company recommendation recommendation-cli",
+      active,
+    )).resolves.toMatchObject({
+      text: expect.stringMatching(
+        /run-evidence-1[\s\S]*cost unknown[\s\S]*future goals/iu,
+      ),
+    });
+    await expect(registry.execute(
+      "/company approve-recommendation recommendation-cli",
+      active,
+    )).resolves.toMatchObject({
+      text: expect.stringContaining("policy revision 1"),
+    });
+    expect(recommendationDecisions.approve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspace: "/workspace",
+        recommendationId: "recommendation-cli",
+      }),
+    );
+
+    const unattended = context(blueprint);
+    unattended.invocation = createHostInvocation({
+      invocation: "one_shot",
+      userPresent: false,
+      remote: false,
+      scripted: true,
+      embedding: "cli",
+    });
+    await expect(registry.execute(
+      "/company reject-recommendation recommendation-cli",
+      unattended,
+    )).resolves.toMatchObject({
+      level: "error",
+      text: expect.stringContaining("local"),
+    });
+    expect(recommendationDecisions.reject).not.toHaveBeenCalled();
   });
 
   it("requires local confirmation for exact capability bind and unbind commands", async () => {

@@ -23,6 +23,7 @@ import {
   type CompanyGoalRun,
   type CompanyGoalRunV2,
   type CompanyToolBundleId,
+  type TeamControlRecommendationV1,
   type TeamRunCompanyGoalCorrelation,
   type TeamRunCompanyRoleBinding,
 } from "@recurs/contracts";
@@ -164,6 +165,14 @@ export interface CompanyGoalSupervisorDependencies {
       readonly at: string;
       readonly signal?: AbortSignal;
     }): Promise<CompanyGoalLearningResult>;
+  };
+  readonly adaptation?: {
+    recommendCompletedGoal(input: {
+      readonly workspace: string;
+      readonly run: CompanyGoalRun;
+      readonly at: string;
+      readonly signal?: AbortSignal;
+    }): Promise<TeamControlRecommendationV1 | null>;
   };
   emit(event: RecursEvent): Promise<void>;
   readonly createId?: () => string;
@@ -869,6 +878,47 @@ export class CompanyGoalSupervisor {
         at: this.#now(),
         code: "company_learning_failed",
         message: "Company goal completed, but project learning could not be updated",
+      });
+      return null;
+    }
+  }
+
+  async #adapt(
+    runtime: ActiveCompanyGoal,
+    run: CompanyGoalRun,
+  ): Promise<TeamControlRecommendationV1 | null> {
+    if (this.dependencies.adaptation === undefined) return null;
+    try {
+      const recommendation =
+        await this.dependencies.adaptation.recommendCompletedGoal({
+          workspace: runtime.root.cwd,
+          run,
+          at: run.updatedAt,
+          signal: runtime.rootContext.signal,
+        });
+      if (recommendation !== null) {
+        await this.#emit({
+          type: "company_team_control_recommended",
+          sessionId: runtime.root.id,
+          at: this.#now(),
+          parentAgentId: runtime.root.agent.id,
+          goalRunId: run.id,
+          recommendationId: recommendation.id,
+          supportingRunIds: recommendation.supportingRuns.map((item) =>
+            item.runId
+          ),
+          proposedPolicy: recommendation.proposedPolicy,
+        });
+      }
+      return recommendation;
+    } catch {
+      await this.#emit({
+        type: "warning",
+        sessionId: runtime.root.id,
+        at: this.#now(),
+        code: "company_adaptation_failed",
+        message:
+          "Company goal completed, but a future team-control recommendation could not be evaluated",
       });
       return null;
     }
@@ -2139,6 +2189,7 @@ export class CompanyGoalSupervisor {
       budget: withBudget(run, runtime.budget),
     }), recoverySignal);
     const learning = await this.#learn(runtime, completed.state);
+    await this.#adapt(runtime, completed.state);
     await this.#emit({
       type: "company_goal_completed",
       sessionId: runtime.root.id,
@@ -2656,6 +2707,7 @@ export class CompanyGoalSupervisor {
         escalationEvidence: new Map(),
       };
       const learning = await this.#learn(runtime, loaded.state);
+      await this.#adapt(runtime, loaded.state);
       return {
         output: loaded.state.result!.summary,
         metadata: {

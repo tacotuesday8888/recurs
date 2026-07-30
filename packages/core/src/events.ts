@@ -14,6 +14,7 @@ import type {
   TeamRunPhase,
   TeamRunRole,
   TeamRunStatus,
+  TeamControlPolicyV1,
   TeamTopologyV1,
 } from "@recurs/contracts";
 import type {
@@ -253,6 +254,14 @@ export type RecursEvent =
       evidence: string[];
       reason?: string;
       workflow: AgentWorkflowUsage;
+    })
+  | (EventBase & {
+      type: "company_team_control_recommended";
+      parentAgentId: string;
+      goalRunId: string;
+      recommendationId: string;
+      supportingRunIds: string[];
+      proposedPolicy: TeamControlPolicyV1;
     })
   | (EventBase & {
       type: "agent_team_activity";

@@ -12,7 +12,10 @@ import {
   contractId,
   contractInteger,
   contractNumber,
+  contractOptionalText,
   contractRecord,
+  contractText,
+  contractTimestamp,
 } from "./company-contract-utils.js";
 import {
   parseCompanyBlueprintV2,
@@ -58,6 +61,32 @@ export interface EffectiveTeamControlPolicyV1 extends TeamControlValuesV1 {
   readonly operatingModeVersion: OperatingModeVersion;
   readonly blueprintId: string;
   readonly blueprintRevision: number;
+}
+
+export interface TeamControlRecommendationRunV1 {
+  readonly runId: string;
+  readonly completedAt: string;
+  readonly assignmentsStarted: number;
+  readonly requestsUsed: number;
+  readonly reportedCostUsd: number | null;
+}
+
+export interface TeamControlRecommendationV1 {
+  readonly id: string;
+  readonly version: 1;
+  readonly state: "proposed" | "approved" | "rejected";
+  readonly operatingModeId: OperatingModeId;
+  readonly operatingModeVersion: OperatingModeVersion;
+  readonly blueprintId: string;
+  readonly blueprintRevision: number;
+  readonly basePolicyRevision: number | null;
+  readonly createdAt: string;
+  readonly decidedAt: string | null;
+  readonly reason: string;
+  readonly supportingRuns: readonly TeamControlRecommendationRunV1[];
+  readonly proposedPolicy: TeamControlPolicyV1;
+  readonly appliedPolicyRevision: number | null;
+  readonly decisionReason: string | null;
 }
 
 const operatingModeIds = new Set<string>(
@@ -364,4 +393,160 @@ export function parseEffectiveTeamControlPolicyV1(
     ),
     ...values,
   }) as EffectiveTeamControlPolicyV1;
+}
+
+function parseRecommendationRun(
+  value: unknown,
+): TeamControlRecommendationRunV1 {
+  const record = contractRecord(value, "Team-control recommendation run");
+  contractExact(record, [
+    "runId",
+    "completedAt",
+    "assignmentsStarted",
+    "requestsUsed",
+    "reportedCostUsd",
+  ], "Team-control recommendation run");
+  return {
+    runId: contractId(record.runId, "Recommendation run id"),
+    completedAt: contractTimestamp(
+      record.completedAt,
+      "Recommendation run completion",
+    ),
+    assignmentsStarted: contractInteger(
+      record.assignmentsStarted,
+      "Recommendation assignments started",
+      1,
+      64,
+    ),
+    requestsUsed: contractInteger(
+      record.requestsUsed,
+      "Recommendation requests used",
+      0,
+      10_000,
+    ),
+    reportedCostUsd: record.reportedCostUsd === null
+      ? null
+      : contractNumber(
+          record.reportedCostUsd,
+          "Recommendation reported cost",
+          0,
+          1_000_000,
+        ),
+  };
+}
+
+export function parseTeamControlRecommendationV1(
+  value: unknown,
+): TeamControlRecommendationV1 {
+  const record = contractRecord(value, "Team-control recommendation");
+  contractExact(record, [
+    "id",
+    "version",
+    "state",
+    "operatingModeId",
+    "operatingModeVersion",
+    "blueprintId",
+    "blueprintRevision",
+    "basePolicyRevision",
+    "createdAt",
+    "decidedAt",
+    "reason",
+    "supportingRuns",
+    "proposedPolicy",
+    "appliedPolicyRevision",
+    "decisionReason",
+  ], "Team-control recommendation");
+  if (record.version !== 1 || !Array.isArray(record.supportingRuns) ||
+    record.supportingRuns.length < 2 || record.supportingRuns.length > 8) {
+    throw new TypeError("Team-control recommendation version or evidence is invalid");
+  }
+  const mode = parseModeBinding(record);
+  const basePolicyRevision = record.basePolicyRevision === null
+    ? null
+    : contractInteger(
+        record.basePolicyRevision,
+        "Recommendation base policy revision",
+        1,
+      );
+  const proposedPolicy = parseTeamControlPolicyV1(record.proposedPolicy);
+  if (proposedPolicy.operatingModeId !== mode.id ||
+    proposedPolicy.operatingModeVersion !== mode.version ||
+    proposedPolicy.revision !== (basePolicyRevision ?? 0) + 1) {
+    throw new TypeError("Team-control recommendation policy lineage is invalid");
+  }
+  const supportingRuns = record.supportingRuns.map(parseRecommendationRun);
+  if (new Set(supportingRuns.map((run) => run.runId)).size !==
+    supportingRuns.length) {
+    throw new TypeError("Team-control recommendation runs must be unique");
+  }
+  const createdAt = contractTimestamp(
+    record.createdAt,
+    "Team-control recommendation creation",
+  );
+  if (supportingRuns.some((run) =>
+    Date.parse(run.completedAt) > Date.parse(createdAt)
+  )) {
+    throw new TypeError("Recommendation evidence cannot postdate its proposal");
+  }
+  const state = contractEnum<TeamControlRecommendationV1["state"]>(
+    record.state,
+    new Set(["proposed", "approved", "rejected"]),
+    "Team-control recommendation state",
+  );
+  const decidedAt = record.decidedAt === null
+    ? null
+    : contractTimestamp(
+        record.decidedAt,
+        "Team-control recommendation decision",
+      );
+  if (decidedAt !== null && Date.parse(decidedAt) < Date.parse(createdAt)) {
+    throw new TypeError("Recommendation decision predates its proposal");
+  }
+  const appliedPolicyRevision = record.appliedPolicyRevision === null
+    ? null
+    : contractInteger(
+        record.appliedPolicyRevision,
+        "Applied team-control policy revision",
+        1,
+      );
+  const decisionReason = contractOptionalText(
+    record.decisionReason,
+    "Team-control recommendation decision reason",
+    2_000,
+  );
+  if ((state === "proposed") !== (decidedAt === null) ||
+    (state === "proposed") !== (decisionReason === null) ||
+    (state === "approved") !== (appliedPolicyRevision !== null) ||
+    (appliedPolicyRevision !== null &&
+      appliedPolicyRevision !== proposedPolicy.revision)) {
+    throw new TypeError("Team-control recommendation decision is inconsistent");
+  }
+  return contractDeepFreeze(structuredClone({
+    id: contractId(record.id, "Team-control recommendation id"),
+    version: 1,
+    state,
+    operatingModeId: mode.id,
+    operatingModeVersion: mode.version,
+    blueprintId: contractId(
+      record.blueprintId,
+      "Recommendation blueprint id",
+    ),
+    blueprintRevision: contractInteger(
+      record.blueprintRevision,
+      "Recommendation blueprint revision",
+      1,
+    ),
+    basePolicyRevision,
+    createdAt,
+    decidedAt,
+    reason: contractText(
+      record.reason,
+      "Team-control recommendation reason",
+      4_000,
+    ),
+    supportingRuns,
+    proposedPolicy,
+    appliedPolicyRevision,
+    decisionReason,
+  })) as TeamControlRecommendationV1;
 }

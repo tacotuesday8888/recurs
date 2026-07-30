@@ -18,6 +18,7 @@ type TeamControlApi = {
     policy: unknown,
     blueprint: unknown,
   ) => unknown;
+  readonly parseTeamControlRecommendationV1: (value: unknown) => unknown;
 };
 
 const api = contracts as unknown as TeamControlApi;
@@ -37,6 +38,46 @@ function balancedPolicy(overrides: Record<string, unknown> = {}): unknown {
     maxRepairRounds: 1,
     maxRequests: 64,
     maxReportedCostUsd: 2.5,
+    ...overrides,
+  };
+}
+
+function recommendation(overrides: Record<string, unknown> = {}): unknown {
+  return {
+    id: "recommendation-1",
+    version: 1,
+    state: "proposed",
+    operatingModeId: "balanced_v6",
+    operatingModeVersion: 6,
+    blueprintId: "blueprint-1",
+    blueprintRevision: 1,
+    basePolicyRevision: 3,
+    createdAt: "2026-07-30T00:00:00.000Z",
+    decidedAt: null,
+    reason: "Two completed goals used less than the configured request ceiling.",
+    supportingRuns: [
+      {
+        runId: "goal-run-1",
+        completedAt: "2026-07-29T00:00:00.000Z",
+        assignmentsStarted: 3,
+        requestsUsed: 20,
+        reportedCostUsd: 0.5,
+      },
+      {
+        runId: "goal-run-2",
+        completedAt: "2026-07-30T00:00:00.000Z",
+        assignmentsStarted: 4,
+        requestsUsed: 24,
+        reportedCostUsd: null,
+      },
+    ],
+    proposedPolicy: balancedPolicy({
+      revision: 4,
+      maxActiveAgents: 5,
+      maxRequests: 30,
+    }),
+    appliedPolicyRevision: null,
+    decisionReason: null,
     ...overrides,
   };
 }
@@ -179,5 +220,53 @@ describe("team-control contracts", () => {
       ...effective,
       blueprintRevision: 0,
     })).toThrow(TypeError);
+  });
+
+  it("parses durable evidence-backed team recommendations", () => {
+    const parsed = api.parseTeamControlRecommendationV1(recommendation());
+
+    expect(parsed).toEqual(recommendation());
+    expect(Object.isFrozen(parsed)).toBe(true);
+  });
+
+  it("rejects weak, inconsistent, or malformed recommendation authority", () => {
+    const invalid = [
+      recommendation({ version: 2 }),
+      recommendation({ supportingRuns: [
+        (recommendation() as {
+          supportingRuns: unknown[];
+        }).supportingRuns[0],
+      ] }),
+      recommendation({ supportingRuns: [
+        ...(recommendation() as {
+          supportingRuns: unknown[];
+        }).supportingRuns,
+        (recommendation() as {
+          supportingRuns: unknown[];
+        }).supportingRuns[0],
+      ] }),
+      recommendation({
+        proposedPolicy: balancedPolicy({ revision: 5 }),
+      }),
+      recommendation({
+        state: "approved",
+        decidedAt: null,
+        appliedPolicyRevision: 4,
+        decisionReason: "Approved.",
+      }),
+      recommendation({
+        state: "rejected",
+        decidedAt: "2026-07-30T01:00:00.000Z",
+        appliedPolicyRevision: 4,
+        decisionReason: "Rejected.",
+      }),
+      recommendation({ extra: true }),
+    ];
+
+    for (const value of invalid) {
+      expect(() => api.parseTeamControlRecommendationV1(value)).toThrow(
+        TypeError,
+      );
+    }
   });
 });

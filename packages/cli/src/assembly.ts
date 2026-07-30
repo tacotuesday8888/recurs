@@ -42,6 +42,7 @@ import {
   CompanyAmendmentService,
   CompanyGoalSupervisor,
   CompanyLearningService,
+  TeamControlAdaptationService,
   DelegatedAgentExecutor,
   FileGitPatchArtifactStore,
   FileCompanyBlueprintStore,
@@ -53,6 +54,7 @@ import {
   FileModelTeamEvaluationStore,
   FileModelTeamSelectionStore,
   FileTeamControlPolicyStore,
+  FileTeamControlRecommendationStore,
   JsonlSessionStore,
   JsonlCompanyGoalStore,
   JsonlTeamRunStore,
@@ -969,6 +971,14 @@ export async function createStandaloneRuntime(
     path.join(projectData, "team-controls"),
   );
   const teamControlService = new TeamControlService(teamControls);
+  const teamControlRecommendations = new FileTeamControlRecommendationStore(
+    path.join(projectData, "team-control-recommendations"),
+  );
+  const teamControlAdaptation = new TeamControlAdaptationService({
+    policies: teamControls,
+    recommendations: teamControlRecommendations,
+    runs: companyGoals,
+  });
   const companyKnowledge = new FileCompanyKnowledgeStore(
     path.join(projectData, "company-knowledge"),
   );
@@ -1568,6 +1578,7 @@ export async function createStandaloneRuntime(
       children: childAgents,
       team: teamSupervisor,
       learning: companyLearning,
+      adaptation: teamControlAdaptation,
       emit(event) {
         return events.emit(event);
       },
@@ -2001,6 +2012,8 @@ export async function createStandaloneRuntime(
       knowledge: companyKnowledge,
       amendments: companyAmendments,
       decisions: companyAmendmentDecisions,
+      recommendations: teamControlRecommendations,
+      recommendationDecisions: teamControlAdaptation,
       capabilities: companyCapabilityAuthority,
       ...(companyGoalsSupervisor === undefined
         ? {}

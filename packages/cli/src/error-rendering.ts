@@ -5,6 +5,7 @@ import {
   CompanyAmendmentError,
   CompanyLearningError,
   CoordinatedRunError,
+  TeamControlAdaptationError,
   safeAgentLoopErrorMessage,
   unexpectedFailureMessage as coreUnexpectedFailureMessage,
 } from "@recurs/core";
@@ -48,6 +49,7 @@ export function safeCliErrorMessage(
     error instanceof CompanyEvaluationStoreError ||
     error instanceof CompanyAmendmentError ||
     error instanceof CompanyLearningError ||
+    error instanceof TeamControlAdaptationError ||
     error instanceof ImageInputError ||
     error instanceof LocalConnectionError ||
     error instanceof CodexOnboardingError ||

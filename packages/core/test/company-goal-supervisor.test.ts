@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   createHostInvocation,
   deriveTrustedRunContext,
+  parseTeamControlRecommendationV1,
   recommendedTeamControlPolicy,
   type OperatingModeId,
   type CoordinatedRunInput,
@@ -1104,6 +1105,71 @@ const childCorrelationCorruptions = [
 ] as const;
 
 describe("CompanyGoalSupervisor", () => {
+  it("surfaces only an attributable future-policy recommendation after completion", async () => {
+    const setup = await fixture();
+    const calls: string[] = [];
+    const supervisor = setup.createSupervisor({
+      adaptation: {
+        async recommendCompletedGoal(input) {
+          calls.push(input.run.id);
+          const selected = input.run.version === 2
+            ? input.run.teamControl.selected
+            : recommendedTeamControlPolicy("balanced_v6");
+          return parseTeamControlRecommendationV1({
+            id: "recommendation-supervisor",
+            version: 1,
+            state: "proposed",
+            operatingModeId: selected.operatingModeId,
+            operatingModeVersion: selected.operatingModeVersion,
+            blueprintId: input.run.company.blueprintId,
+            blueprintRevision: input.run.company.blueprintRevision,
+            basePolicyRevision: selected.revision,
+            createdAt: input.at,
+            decidedAt: null,
+            reason:
+              "Observed usage only across two compatible completed goals.",
+            supportingRuns: [{
+              runId: "prior-run",
+              completedAt: "2026-07-09T00:00:00.000Z",
+              assignmentsStarted: 2,
+              requestsUsed: 10,
+              reportedCostUsd: 0.1,
+            }, {
+              runId: input.run.id,
+              completedAt: input.run.updatedAt,
+              assignmentsStarted: input.run.budget.assignmentsStarted,
+              requestsUsed: input.run.budget.requestsUsed,
+              reportedCostUsd: input.run.budget.reportedCostUsd,
+            }],
+            proposedPolicy: {
+              ...selected,
+              revision: selected.revision + 1,
+              maxRequests: selected.maxRequests - 1,
+            },
+            appliedPolicyRevision: null,
+            decisionReason: null,
+          });
+        },
+      },
+    });
+
+    await supervisor.start(goal(setup), setup.context);
+
+    expect(calls).toEqual(["company-run-id-1"]);
+    expect(setup.events).toContainEqual(expect.objectContaining({
+      type: "company_team_control_recommended",
+      goalRunId: "company-run-id-1",
+      recommendationId: "recommendation-supervisor",
+      supportingRunIds: ["prior-run", "company-run-id-1"],
+    }));
+    expect((await setup.runs.load("company-run-id-1")).state).toMatchObject({
+      status: "completed",
+      teamControl: {
+        selected: { maxRequests: expect.any(Number) },
+      },
+    });
+  });
+
   it("records a manager escalation with role and model provenance", async () => {
     const setup = await fixture({
       escalationRoleName: "Planning Lead",
