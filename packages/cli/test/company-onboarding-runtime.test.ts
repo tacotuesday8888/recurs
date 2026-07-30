@@ -277,6 +277,9 @@ describe("company onboarding runtime", () => {
     expect(provider.requests[1]!.messages.at(-1)?.content).toContain(
       "Company question decision has unknown or missing fields",
     );
+    expect(provider.requests[1]!.messages.at(-1)?.content).not.toContain(
+      "This extra field is not allowed.",
+    );
   });
 
   it("never exceeds the request budget while repairing a decision", async () => {
