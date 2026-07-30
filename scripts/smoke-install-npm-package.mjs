@@ -20,6 +20,8 @@ import { clearTimeout, setTimeout } from "node:timers";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
+import { parseSingleNpmPackReport } from "./npm-pack-report.mjs";
+
 const execFileAsync = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "recurs-install-smoke-"));
@@ -517,9 +519,9 @@ try {
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
   });
-  const packReport = JSON.parse(packOutput);
-  const filename = packReport[0]?.filename;
-  const packageVersion = packReport[0]?.version;
+  const packReport = parseSingleNpmPackReport(packOutput);
+  const filename = packReport.filename;
+  const packageVersion = packReport.version;
   assert(typeof filename === "string", "npm pack did not report an artifact filename.");
   assert(typeof packageVersion === "string", "npm pack did not report the package version.");
   const archive = path.join(packageDirectory, filename);

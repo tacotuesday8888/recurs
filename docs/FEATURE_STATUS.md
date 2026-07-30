@@ -44,26 +44,27 @@ context, not a product commitment.
 | Codex subscription | Exact reviewed user-installed Codex CLI, official app-server login/discovery/execution, local/manual/user-present foreground execution, Recurs-scoped host tools, and optional Sol/Terra/Luna parent/role routing; no remaining-quota claim, background work, or vendor continuation in V1 |
 | Code intelligence | Strong lexical multi-language outlines and TypeScript project diagnostics; no general LSP or semantic reference engine |
 
-## Prepared, not shipped
+## Distribution
 
-- npm package metadata, minimal bundle, empty-prefix installation smoke, and
-  protected publication workflow;
-- checksum-verifying curl installer and generated Homebrew formula derived from
+- `0.1.0-alpha.2` npm package, minimal bundle, empty-prefix installation smoke,
+  and protected publication workflow;
+- checksum-verifying curl installer and release Homebrew formula derived from
   that exact npm archive; and
 - a pinned Linux Bun smoke that globally installs the npm archive, preserves
   the Node shebang, runs it through Node.js, and proves it fails without Node.
 
-No npm package, curl release, Homebrew tap/formula, native Bun runtime, signed
-binary, or desktop app is public today. Bun's verified boundary is package
-installation, not Recurs execution.
+There is no Homebrew tap, native Bun runtime, signed binary, Windows subprocess
+containment, or desktop app. Bun's verified boundary is package installation,
+not Recurs execution.
 
-The package gate keeps the unpacked Recurs artifact below 2.1 MB. The
-2026-07-26 Apple-silicon production-prefix measurement was about 38.7 MiB and
-proves that optional Codex compatibility packages are not downloaded with
-Recurs. Codex subscription users supply the exact reviewed official CLI
-separately, so an existing Codex installation is shared rather than duplicated.
-Source development still installs the pinned Codex packages to exercise legacy
-compatibility and exact app-server behavior in tests.
+The package gate keeps the unpacked Recurs artifact below 2.1 MB. The exact
+`0.1.0-alpha.2` archive was 433 KiB compressed / 1.87 MiB unpacked, and its
+2026-07-30 Apple-silicon production prefix was about 38.8 MiB. Optional Codex
+compatibility packages are not downloaded with Recurs. Codex subscription
+users supply the exact reviewed official CLI separately, so an existing Codex
+installation is shared rather than duplicated. Source development still
+installs the pinned Codex packages to exercise legacy compatibility and exact
+app-server behavior in tests.
 
 ## Not implemented
 

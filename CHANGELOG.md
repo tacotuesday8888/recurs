@@ -1,10 +1,8 @@
 # Changelog
 
-Notable user-facing changes will be recorded here when they are shipped.
-Recurs has no published release yet; package metadata currently identifies the
-public alpha candidate as `0.1.0-alpha.1`.
+Notable user-facing changes are recorded here when they ship.
 
-## Unreleased
+## 0.1.0-alpha.2 - 2026-07-30
 
 ### Added
 
@@ -21,9 +19,8 @@ public alpha candidate as `0.1.0-alpha.1`.
 
 ### Known limitations
 
-- No npm registry package, GitHub release, curl installer, Homebrew tap, signed
-  binary, or desktop app is public. Native Bun execution is unsupported.
-- Windows subprocess containment is not implemented.
+- There is no Homebrew tap, signed binary, native Bun runtime, Windows
+  subprocess containment, or desktop app.
 - One live comparison pair per built-in scenario is not enough evidence to
   recommend a universal default model lineup.
 

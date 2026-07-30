@@ -1,7 +1,7 @@
 # Security policy
 
-Recurs is pre-release software at `0.1.0-alpha.1`. Only the current `main`
-branch is considered for security fixes until a public version is tagged.
+Recurs is alpha software at `0.1.0-alpha.2`. Security fixes target the current
+`main` branch and the latest public alpha.
 
 Recurs reduces accidental disclosure and unsafe tool execution. It is not a
 credential-safe sandbox, a hardened multi-tenant service, or a substitute for

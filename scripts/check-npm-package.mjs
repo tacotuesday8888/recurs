@@ -10,6 +10,7 @@ import {
   publicationStateForFailures,
   releaseMetadataFailures,
 } from "./check-npm-release.mjs";
+import { parseSingleNpmPackReport } from "./npm-pack-report.mjs";
 
 const execFileAsync = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -132,14 +133,13 @@ try {
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
   });
-  const report = JSON.parse(stdout);
-  assert(Array.isArray(report) && report.length === 1, "npm pack must return one package report.");
-  const packedFiles = report[0]?.files?.map((file) => file.path).sort();
+  const report = parseSingleNpmPackReport(stdout);
+  const packedFiles = report.files?.map((file) => file.path).sort();
   assert(
     JSON.stringify(packedFiles) === JSON.stringify(expectedFiles),
     `Unexpected npm package contents: ${JSON.stringify(packedFiles)}`,
   );
-  assert(report[0]?.unpackedSize < 2_100_000, "The npm package unexpectedly exceeds its unpacked size budget.");
+  assert(report.unpackedSize < 2_100_000, "The npm package unexpectedly exceeds its unpacked size budget.");
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
 }

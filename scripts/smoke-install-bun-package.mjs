@@ -13,6 +13,8 @@ import process from "node:process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
+import { parseSingleNpmPackReport } from "./npm-pack-report.mjs";
+
 const execFileAsync = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJson = JSON.parse(
@@ -97,8 +99,8 @@ try {
     encoding: "utf8",
     maxBuffer: 10 * 1024 * 1024,
   });
-  const packReport = JSON.parse(packOutput);
-  const filename = packReport[0]?.filename;
+  const packReport = parseSingleNpmPackReport(packOutput);
+  const filename = packReport.filename;
   assert(
     typeof filename === "string",
     "npm pack did not report the Bun smoke artifact.",

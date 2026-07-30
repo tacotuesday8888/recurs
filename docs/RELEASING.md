@@ -1,8 +1,8 @@
 # Releasing Recurs
 
-Recurs is Apache-2.0 licensed and its `0.1.0-alpha.1` portable npm artifact is
-release-metadata ready. No npm package, GitHub release, curl installer, or
-Homebrew formula is public yet. Publishing is an owner-controlled operation,
+Recurs is Apache-2.0 licensed. `0.1.0-alpha.2` is the first portable npm
+artifact prepared for public release after the original `alpha.1` workflow
+failed closed before packaging. Publishing is an owner-controlled operation,
 not a normal development or CI side effect.
 
 ## Verified artifact
@@ -26,9 +26,9 @@ from a new temporary prefix.
 The portable npm artifact contains the same TypeScript runtime verified in CI.
 Its package gate caps the unpacked artifact at 2.1 MB; that is not the installed
 footprint. npm resolves runtime dependencies separately, but Codex is not a
-default runtime dependency. The 2026-07-26 local alpha measured 414 KiB
-compressed / 1.79 MiB unpacked and about 38.7 MiB in a clean Apple-silicon
-production prefix. The source-development tree was about 402 MiB because it
+default runtime dependency. The exact `0.1.0-alpha.2` artifact measured 433 KiB
+compressed / 1.87 MiB unpacked and about 38.8 MiB in a clean Apple-silicon
+production prefix on 2026-07-30. The source-development tree was about 402 MiB because it
 retains roughly 307 MiB of pinned Codex compatibility fixtures. Record a clean
 installed-prefix measurement for every release candidate and disclose it in
 release notes.
@@ -57,20 +57,20 @@ Therefore the first `recurs` publication cannot use the final tokenless OIDC
 relationship. Keep this exception narrow:
 
 1. Configure a protected GitHub environment named `npm`, with required manual
-   approval, and protect the intended `v0.1.0-alpha.1` tag.
+   approval, and protect the intended `v0.1.0-alpha.2` tag.
 2. Tag the reviewed commit and manually dispatch
    `.github/workflows/publish-npm.yml` from that exact tag. On the first run,
    verification, packaging, the draft GitHub release, and GitHub attestations
    complete before the workflow stops with its explicit first-package bootstrap
    requirement. Do not publish the draft release.
-3. Download the exact `recurs-0.1.0-alpha.1.tgz` draft asset and verify its
+3. Download the exact `recurs-0.1.0-alpha.2.tgz` draft asset and verify its
    GitHub attestation and `SHA256SUMS` entry. Use an interactive npm account
    session with 2FA to publish that exact archive once. Because a local shell
    cannot produce npm CI provenance, explicitly override the package setting
    only for this bootstrap command:
 
    ```bash
-   npm publish ./recurs-0.1.0-alpha.1.tgz --access public --provenance=false
+   npm publish ./recurs-0.1.0-alpha.2.tgz --access public --provenance=false
    ```
 
 4. Immediately configure the package's GitHub Actions trusted publisher for
