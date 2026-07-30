@@ -45,7 +45,7 @@ architecture for current product truth.
 
 ## Release status
 
-Recurs is currently source-installable with npm and runs on Node.js. The
+Recurs `0.1.0-alpha.2` is distributed as one npm artifact and runs on Node.js. The
 repository builds and verifies a minimal npm artifact, includes reviewed
 direct-runtime dependency notices, installs it into an empty temporary prefix
 in CI, and proves the installed binary's redacted readiness report can launch
@@ -53,21 +53,24 @@ the real OS sandbox. It also carries a manual fail-closed OIDC release
 workflow. That workflow derives a checksum-verifying user-local installer and
 Homebrew formula from the exact npm tarball, drafts and attests the GitHub
 assets, verifies npm SRI on recovery, and publishes the release only after
-package publication succeeds. No npm package, Bun runtime, Homebrew
-tap/formula, curl installer, or signed binary has been published yet.
+package publication succeeds. The GitHub release carries the exact archive,
+checksum-verifying curl installer, and standalone Homebrew formula. There is no
+native Bun runtime, Homebrew tap, signed binary, or desktop app.
 
 A pinned Linux CI smoke lets Bun globally install the prepared npm tarball,
 then verifies that the `recurs` entry point runs through Node.js and fails when
 Node is unavailable. This is package-manager compatibility, not a native Bun
 runtime claim.
 
-The CLI artifact is gated below 2.1 MB unpacked. The 2026-07-26 exact local
-alpha measured 414 KiB compressed / 1.79 MiB unpacked and about 38.7 MiB in a
-clean Apple-silicon production prefix, without Codex. The larger source tree
-retains exact Codex compatibility fixtures for tests. See
+The CLI artifact is gated below 2.1 MB unpacked. The exact `0.1.0-alpha.2`
+archive measured 433 KiB compressed / 1.87 MiB unpacked and about 38.8 MiB in
+a clean Apple-silicon production prefix on 2026-07-30, without Codex. The
+larger source tree retains exact Codex compatibility fixtures for tests. See
 [Public alpha status](PUBLIC_ALPHA.md) for the current support and evidence
 boundary.
 
-The repository and `0.1.0-alpha.1` preview package are Apache-2.0 licensed and release-metadata ready. The one-time npm bootstrap, trusted-publisher relationship, exact release tag, and manual protected workflow remain owner-controlled; no registry package or GitHub release exists yet.
+The repository and `0.1.0-alpha.2` preview package are Apache-2.0 licensed.
+The one-time npm bootstrap, trusted-publisher relationship, exact release tag,
+and manual protected workflow remain owner-controlled.
 
 Earlier exploration is preserved in [historical research](research/README.md). It may use the old “Subagents IDE” working name or describe options that are not current commitments.

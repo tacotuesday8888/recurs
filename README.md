@@ -20,16 +20,35 @@ formation is optional; you can also use Recurs as a bounded parent coding agent.
   <img src="./docs/assets/terminal-preview.svg" alt="An actual Recurs alpha company run showing the activated Parent, Implement, and Review roles, their models, results, and usage" width="760">
 </p>
 
-## 🚀 Start locally
+## 🚀 Install
 
 > [!IMPORTANT]
-> Recurs is a source-only public alpha candidate. The npm registry package,
-> GitHub release and curl installer, Homebrew formula, signed binary, and
-> desktop app are not published. Bun can install the prepared npm tarball in a
-> pinned compatibility smoke, but Recurs remains a Node.js CLI; Bun is not a
-> supported runtime.
+> Recurs is alpha software. npm, Bun, curl, and the release Homebrew formula
+> all install the same npm artifact and require Node.js; they are not four
+> independent runtimes. Bun is a verified installer, not a supported Recurs
+> runtime. There is no signed standalone binary, Windows subprocess
+> containment, or desktop app.
 
 You need Node.js 22.22+, Git 2.45+, and ripgrep.
+
+```bash
+# npm
+npm install --global recurs@0.1.0-alpha.2
+
+# Bun may install the package; Node still runs it
+bun install --global recurs@0.1.0-alpha.2
+
+# checksummed user-local installer
+curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.2/install.sh | sh
+```
+
+The release also includes `recurs.rb`, a standalone Homebrew formula for the
+same npm archive. Download it from the
+[`v0.1.0-alpha.2` release](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.2)
+and run `brew install --formula ./recurs.rb`. A dedicated tap does not exist
+yet.
+
+To run from source instead:
 
 ```bash
 git clone https://github.com/tacotuesday8888/recurs.git
@@ -45,9 +64,9 @@ operating mode, specialist routing, optional company review, and project
 context. Credentials remain with the vendor runtime or a named process
 environment. Recurs never persists BYOK values.
 
-The exact local alpha archive measured 414 KiB compressed and 1.79 MiB
-unpacked; a clean Apple-silicon production install measured about 38.7 MiB on
-2026-07-26 and did not install Codex. Subscription users share a separately
+The exact `0.1.0-alpha.2` archive measured 433 KiB compressed and 1.87 MiB
+unpacked; a clean Apple-silicon production install measured about 38.8 MiB on
+2026-07-30 and did not install Codex. Subscription users share a separately
 installed exact official Codex CLI. The full development checkout remains
 larger—about 402 MiB in this measurement, including about 307 MiB of pinned
 Codex test fixtures. Exact size varies by platform and npm version.
@@ -169,16 +188,16 @@ repeated-run proposals; approval is explicit and affects future goals only.
 
 ## Project status
 
-- **Usable now:** source checkout on Node.js 22.22+ with npm, Git, and ripgrep;
-  macOS and Linux are the supported subprocess platforms.
+- **Usable now:** `0.1.0-alpha.2` through npm, Bun-as-installer, the
+  checksum-verifying curl asset, the release Homebrew formula, or a source
+  checkout; macOS and Linux are the supported subprocess platforms.
 - **Proven live:** company formation, isolated implementation, independent
   review, synthesis, explicit apply, evidence-backed Auto activation, and one
   single-versus-company pair on every built-in proof fixture through a real
   Codex subscription.
-- **Not distributed:** package metadata is `0.1.0-alpha.1`, but there is no
-  public npm package, GitHub release, curl installer, or Homebrew tap. The
-  prepared Bun global-install path cannot work until the npm package exists and
-  still launches Recurs with Node.js.
+- **Distribution boundary:** every published install path resolves to the
+  exact `0.1.0-alpha.2` npm archive and still launches Recurs with Node.js.
+  There is no Homebrew tap, native Bun runtime, signed binary, or desktop app.
 - **Prepared to repeat:** three immutable hidden-verifier fixtures, repeatable
   selected-parent-only versus currently configured saved role-route campaigns,
   an explicit all-strong comparison option, and distinct Quick/Guided/Deep

@@ -54,7 +54,7 @@ jobs:
         run: |
           mkdir -p release
           npm pack --json --ignore-scripts --pack-destination release > "$RUNNER_TEMP/recurs-pack.json"
-          filename=$(node -e 'const report = require(process.argv[1]); const filename = report[0]?.filename; if (typeof filename !== "string") process.exit(1); process.stdout.write(filename)' "$RUNNER_TEMP/recurs-pack.json")
+          filename=$(node --input-type=module -e 'import { readFile } from "node:fs/promises"; import { parseSingleNpmPackReport } from "./scripts/npm-pack-report.mjs"; const report = parseSingleNpmPackReport(await readFile(process.argv[1], "utf8")); if (typeof report.filename !== "string") process.exit(1); process.stdout.write(report.filename)' "$RUNNER_TEMP/recurs-pack.json")
           echo "filename=$filename" >> "$GITHUB_OUTPUT"
           node scripts/render-install-assets.mjs \
             --tag "$GITHUB_REF_NAME" \

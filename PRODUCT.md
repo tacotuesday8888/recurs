@@ -119,16 +119,15 @@ The CLI now has a validated 26-path catalog, a non-secret saved-connection lifec
 
 On macOS and Linux, `workspace_sandboxed` gives command and verification children canonical workspace-only host writes, hides host credential/runtime state, and binds network access to approved command intent. Linux uses system Bubblewrap namespaces and deliberately does not claim a Recurs seccomp policy. Windows still selects `local_guarded` but rejects subprocess execution as unsupported; an explicit guarded profile on macOS/Linux retains host authority. `tools_disabled` avoids model tools but is not a usable coding profile and does not replace the private credential boundary.
 
-The repository is open source under Apache-2.0, with release-ready
-`0.1.0-alpha.1` package metadata. It is source-installable with npm only; no
-npm registry package, Homebrew tap, curl release, or binary has been published.
-The exact npm tarball also has a pinned Linux smoke proving that Bun can install
-it globally while preserving Node as the required runtime; this is not native
-Bun-runtime support. The guarded release path feeds the tarball to trusted npm
-publishing, a checksum-verifying user-local installer, a generated Homebrew
-formula, GitHub release assets, and provenance attestations. Publication
-remains owner-controlled through a documented one-time npm bootstrap, the
-later trusted-publisher relationship, and exact manually dispatched tags.
+The repository and `0.1.0-alpha.2` package are open source under Apache-2.0.
+The exact npm tarball is also the authority for the checksum-verifying curl
+installer and release Homebrew formula. A pinned Linux smoke proves that Bun
+can install it globally while preserving Node as the required runtime; this is
+not native Bun-runtime support. The guarded release path feeds one tarball to
+trusted npm publishing, GitHub release assets, checksums, and provenance
+attestations. Publication remains owner-controlled through the documented
+one-time npm bootstrap, later trusted publishing, and exact manually
+dispatched tags.
 
 The CLI artifact is small, but the current install is not. In the audited
 Apple-silicon source checkout, dependencies occupied about 390 MiB and the

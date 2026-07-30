@@ -1,23 +1,24 @@
 # Public Alpha Status
 
-**Status:** source-only public alpha candidate. Recurs is usable from a
-checkout, but no package or release has been published.
+**Status:** `0.1.0-alpha.2` public alpha. Recurs is available as one verified
+npm artifact through npm, Bun-as-installer, a checksum-verifying curl asset,
+and a release Homebrew formula.
 
 ## Installation reality
 
 | Path | Status | What that means |
 | --- | --- | --- |
 | Source checkout with npm | Supported alpha path | Clone the repository, run `npm ci`, build, and `npm link` on Node.js 22.22+ |
-| npm registry | Prepared, not published | Package metadata, verification, and installed-prefix smoke exist; `npm install -g recurs` does not work yet |
-| GitHub release / curl | Prepared, not published | The release workflow can derive a checksum-verifying installer from the exact npm archive |
-| Homebrew | Prepared, not published | A formula can be generated from that same archive; there is no tap |
-| Bun global install | Prepared, not published | Bun 1.3.14 on Linux CI installs the exact npm tarball; Recurs still executes with Node.js 22.22+ |
+| npm registry | Published alpha path | `npm install --global recurs@0.1.0-alpha.2` installs the reviewed artifact |
+| GitHub release / curl | Published alpha path | The release carries the exact archive and a checksum-verifying user-local installer |
+| Homebrew | Published formula asset | The release formula installs the same npm archive; there is no tap |
+| Bun global install | Verified installer path | `bun install --global recurs@0.1.0-alpha.2` installs the package; Node.js 22.22+ still executes it |
 | Bun runtime | Unsupported | No `bun run`, native Bun execution, broader Bun-version, or broad platform-compatibility claim |
 | Signed binary / desktop | Not implemented | There is no standalone download or desktop application |
 
-The package gate caps the unpacked Recurs artifact at 2.1 MB. On 2026-07-26 the
-exact local alpha archive measured 414 KiB compressed / 1.79 MiB unpacked, and
-a clean Apple-silicon production prefix measured about 38.7 MiB. It did not
+The package gate caps the unpacked Recurs artifact at 2.1 MB. On 2026-07-30 the
+exact `0.1.0-alpha.2` archive measured 433 KiB compressed / 1.87 MiB unpacked,
+and a clean Apple-silicon production prefix measured about 38.8 MiB. It did not
 install Codex. The full source-development dependency tree measured about
 402 MiB because it retains roughly 307 MiB of pinned Codex compatibility
 fixtures. Exact size varies by platform and npm version.
@@ -74,9 +75,9 @@ Other current limits include Windows subprocess containment, a persistent
 worker daemon, a company operating UI, automatic plugin installation, remote
 MCP/OAuth, and unattended commit, push, deployment, or messaging.
 
-## Alpha release bar
+## Alpha release guarantees
 
-A first public package should ship only after:
+The first public package ships only after:
 
 - repository branch, tag, security, and release-environment protections are in
   place;
