@@ -12,6 +12,7 @@ import {
   validateCompanyGoalPlanAgainstBlueprint,
   type AgentBackendSelection,
   type AgentProfileId,
+  type CompanyBlueprintBindingV2,
   type CompanyBlueprintV2,
   type CompanyGoalAssignmentV1,
   type CompanyGoalChildExecutionV1,
@@ -2079,13 +2080,13 @@ export class CompanyGoalSupervisor {
       );
       const mode = getOperatingModePolicy(root.agent.operatingMode.id);
       const companyPolicy = mode.company!;
-      const run = parseCompanyGoalRun({
+      const run = parseCompanyGoalRun<CompanyGoalRunV1>({
         id: runId,
-        version: 1,
+        version: 1 as const,
         parentSessionId: root.id,
         goalId: this.#createId(),
         objective: input.objective,
-        company: root.agent.company,
+        company: root.agent.company as CompanyBlueprintBindingV2,
         status: "created",
         createdAt: at,
         updatedAt: at,

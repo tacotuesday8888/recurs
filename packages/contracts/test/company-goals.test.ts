@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  effectiveTeamControlPolicy,
   parseCompanyGoalBudget,
   parseCompanyGoalPlan,
   parseCompanyGoalRun,
+  recommendedTeamControlPolicy,
   reserveCompanyGoalBudget,
   validateCompanyGoalPlanAgainstBlueprint,
   type CompanyGoalPlanV1,
@@ -73,6 +75,30 @@ function runFixture(): CompanyGoalRunV1 {
     },
     result: null,
     failure: null,
+  };
+}
+
+function runV2Fixture(): unknown {
+  const blueprint = companyBlueprintV2Fixture();
+  const selected = {
+    ...recommendedTeamControlPolicy("balanced_v6"),
+    topology: "hierarchical" as const,
+    maxActiveAgents: 6,
+    maxRequests: 64,
+    maxReportedCostUsd: 2.5,
+  };
+  const effective = effectiveTeamControlPolicy(selected, blueprint);
+  return {
+    ...runFixture(),
+    version: 2,
+    teamControl: { selected, effective },
+    budget: {
+      ...runFixture().budget,
+      maxAssignments: effective.maxActiveAgents,
+      maxConcurrentAssignments: effective.maxConcurrentAgents,
+      maxRequests: effective.maxRequests,
+      maxReportedCostUsd: effective.maxReportedCostUsd,
+    },
   };
 }
 
@@ -303,5 +329,87 @@ describe("company goal contracts", () => {
       status: "failed",
       failure: "Worker failed.",
     })).not.toThrow();
+  });
+
+  it("keeps V1 exact while parsing immutable V2 team authority", () => {
+    const historical = parseCompanyGoalRun(runFixture());
+    const governed = parseCompanyGoalRun(runV2Fixture());
+
+    expect(historical).toEqual(runFixture());
+    expect(historical.version).toBe(1);
+    expect(governed).toEqual(runV2Fixture());
+    expect(governed.version).toBe(2);
+    expect(Object.isFrozen(governed)).toBe(true);
+    expect(Object.isFrozen(
+      (governed as { teamControl: unknown }).teamControl,
+    )).toBe(true);
+  });
+
+  it("requires exact matching selected and effective V2 authority", () => {
+    const run = runV2Fixture() as {
+      readonly teamControl: {
+        readonly selected: Record<string, unknown>;
+        readonly effective: Record<string, unknown>;
+      };
+    } & Record<string, unknown>;
+    const attempts = [
+      { ...run, teamControl: undefined },
+      {
+        ...run,
+        teamControl: {
+          ...run.teamControl,
+          selected: recommendedTeamControlPolicy("economy_v6"),
+        },
+      },
+      {
+        ...run,
+        teamControl: {
+          ...run.teamControl,
+          effective: {
+            ...run.teamControl.effective,
+            sourceRevision: 2,
+          },
+        },
+      },
+      {
+        ...run,
+        teamControl: {
+          ...run.teamControl,
+          effective: {
+            ...run.teamControl.effective,
+            blueprintId: "another-blueprint",
+          },
+        },
+      },
+      {
+        ...run,
+        teamControl: {
+          ...run.teamControl,
+          effective: {
+            ...run.teamControl.effective,
+            maxActiveAgents: 7,
+          },
+        },
+      },
+      {
+        ...run,
+        budget: {
+          ...(run.budget as Record<string, unknown>),
+          maxRequests: 65,
+        },
+      },
+      { ...run, extra: true },
+    ];
+
+    for (const attempt of attempts) {
+      expect(() => parseCompanyGoalRun(attempt)).toThrow(TypeError);
+    }
+  });
+
+  it("rejects unknown future goal-run versions", () => {
+    expect(() => parseCompanyGoalRun({
+      ...runV2Fixture() as Record<string, unknown>,
+      version: 3,
+    })).toThrow(/version/iu);
   });
 });

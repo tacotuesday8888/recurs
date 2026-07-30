@@ -5,6 +5,12 @@ import {
   type CompanyBlueprintV2,
 } from "./company-v2.js";
 import {
+  parseEffectiveTeamControlPolicyV1,
+  parseTeamControlPolicyV1,
+  type EffectiveTeamControlPolicyV1,
+  type TeamControlPolicyV1,
+} from "./team-controls.js";
+import {
   contractDeepFreeze,
   contractEnum,
   contractExact,
@@ -116,6 +122,16 @@ export interface CompanyGoalRunV1 {
   } | null;
   readonly failure: string | null;
 }
+
+export interface CompanyGoalRunV2 extends Omit<CompanyGoalRunV1, "version"> {
+  readonly version: 2;
+  readonly teamControl: {
+    readonly selected: TeamControlPolicyV1;
+    readonly effective: EffectiveTeamControlPolicyV1;
+  };
+}
+
+export type CompanyGoalRun = CompanyGoalRunV1 | CompanyGoalRunV2;
 
 const assignmentStatuses = new Set<string>([
   "pending", "running", "completed", "failed", "cancelled", "blocked",
@@ -478,19 +494,63 @@ export function reserveCompanyGoalBudget(
   });
 }
 
-export function parseCompanyGoalRun(value: unknown): CompanyGoalRunV1 {
+function parseTeamControlAuthority(
+  value: unknown,
+  company: CompanyBlueprintBindingV2,
+  budget: CompanyGoalBudgetV1,
+): CompanyGoalRunV2["teamControl"] {
+  const authority = contractRecord(value, "Company goal team-control authority");
+  contractExact(authority, ["selected", "effective"],
+    "Company goal team-control authority");
+  const selected = parseTeamControlPolicyV1(authority.selected);
+  const effective = parseEffectiveTeamControlPolicyV1(authority.effective);
+  const numericKeys = [
+    "maxActiveAgents",
+    "maxConcurrentAgents",
+    "maxDelegationDepth",
+    "maxRepairRounds",
+    "maxRequests",
+    "maxReportedCostUsd",
+  ] as const;
+  if (effective.sourceRevision !== selected.revision ||
+    effective.operatingModeId !== selected.operatingModeId ||
+    effective.operatingModeVersion !== selected.operatingModeVersion ||
+    effective.blueprintId !== company.blueprintId ||
+    effective.blueprintRevision !== company.blueprintRevision ||
+    effective.topology !== selected.topology ||
+    effective.escalation !== selected.escalation ||
+    numericKeys.some((key) => effective[key] > selected[key]) ||
+    (selected.independentReview === "required" &&
+      effective.independentReview !== "required") ||
+    budget.maxAssignments > effective.maxActiveAgents ||
+    budget.maxConcurrentAssignments > effective.maxConcurrentAgents ||
+    budget.maxRequests > effective.maxRequests ||
+    budget.maxReportedCostUsd > effective.maxReportedCostUsd) {
+    throw new TypeError("Company goal team-control authority is inconsistent");
+  }
+  return contractDeepFreeze({ selected, effective }) as
+    CompanyGoalRunV2["teamControl"];
+}
+
+export function parseCompanyGoalRun<T extends CompanyGoalRun>(value: T): T;
+export function parseCompanyGoalRun(value: unknown): CompanyGoalRun;
+export function parseCompanyGoalRun(value: unknown): CompanyGoalRun {
   const run = contractRecord(value, "Company goal run");
+  if (run.version !== 1 && run.version !== 2) {
+    throw new TypeError("Company goal run version is invalid");
+  }
   contractExact(run, [
     "id", "version", "parentSessionId", "goalId", "objective", "company",
-    "status", "createdAt", "updatedAt", "plan", "budget", "result", "failure",
+    "status", "createdAt", "updatedAt", "plan", "budget",
+    ...(run.version === 2 ? ["teamControl"] : []),
+    "result", "failure",
   ], "Company goal run");
-  if (run.version !== 1) throw new TypeError("Company goal run version is invalid");
   const status = contractEnum<CompanyGoalStatus>(
     run.status,
     goalStatuses,
     "Company goal status",
   );
-  let result: CompanyGoalRunV1["result"] = null;
+  let result: CompanyGoalRun["result"] = null;
   if (run.result !== null) {
     const record = contractRecord(run.result, "Company goal result");
     contractExact(record, ["summary", "evidence"], "Company goal result");
@@ -510,20 +570,32 @@ export function parseCompanyGoalRun(value: unknown): CompanyGoalRunV1 {
   if ((status === "completed") !== (result !== null) || failed !== (failure !== null)) {
     throw new TypeError("Company goal terminal state is inconsistent");
   }
-  const parsed: CompanyGoalRunV1 = {
+  const company = parseCompanyBlueprintBindingV2(run.company);
+  const budget = parseCompanyGoalBudget(run.budget);
+  const common = {
     id: contractId(run.id, "Company goal run id"),
-    version: 1,
     parentSessionId: contractId(run.parentSessionId, "Parent session id"),
     goalId: contractId(run.goalId, "Goal id"),
     objective: contractText(run.objective, "Company goal objective", 4_000),
-    company: parseCompanyBlueprintBindingV2(run.company),
+    company,
     status,
     createdAt: contractTimestamp(run.createdAt, "Company goal created timestamp"),
     updatedAt: contractTimestamp(run.updatedAt, "Company goal updated timestamp"),
     plan: parseCompanyGoalPlan(run.plan),
-    budget: parseCompanyGoalBudget(run.budget),
+    budget,
     result,
     failure,
   };
-  return contractDeepFreeze(structuredClone(parsed)) as CompanyGoalRunV1;
+  const parsed: CompanyGoalRun = run.version === 1
+    ? { version: 1, ...common }
+    : {
+        version: 2,
+        ...common,
+        teamControl: parseTeamControlAuthority(
+          run.teamControl,
+          company,
+          budget,
+        ),
+      };
+  return contractDeepFreeze(structuredClone(parsed)) as CompanyGoalRun;
 }
