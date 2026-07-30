@@ -48,6 +48,7 @@ export * from "./jsonl-team-run-store.js";
 export * from "./loop-detector.js";
 export * from "./model-team-evaluation.js";
 export * from "./file-model-team-store.js";
+export * from "./file-team-control-policy-store.js";
 export * from "./run-coordinator.js";
 export * from "./runtime.js";
 export * from "./runtime-continuation-store.js";
