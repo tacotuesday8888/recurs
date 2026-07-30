@@ -55,6 +55,7 @@ export * from "./runtime-continuation-store.js";
 export * from "./session.js";
 export * from "./session-v2.js";
 export * from "./team-agent-manager.js";
+export * from "./team-control-policy.js";
 export * from "./team-child-binding.js";
 export * from "./team-child-recovery.js";
 export * from "./team-run-owner-lease.js";
