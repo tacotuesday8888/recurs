@@ -2,6 +2,19 @@
 
 Notable user-facing changes are recorded here when they ship.
 
+## 0.1.0-alpha.3 - 2026-07-30
+
+### Fixed
+
+- Release recovery now accepts the exact scalar JSON emitted by npm 11 and the
+  one-element array emitted by npm 12 while rejecting ambiguous registry
+  responses.
+
+### Security
+
+- Subsequent npm releases use the repository-bound trusted publisher with
+  provenance. Traditional token publishing is disabled for the package.
+
 ## 0.1.0-alpha.2 - 2026-07-30
 
 ### Added
