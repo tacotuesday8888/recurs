@@ -156,7 +156,7 @@ export class TextEventRenderer implements EventSink {
       case "company_goal_started":
         await this.#status(
           this.#theme.accent(
-            `⇶ Company goal ${event.goalRunId}: ${event.assignmentCount} assignment${event.assignmentCount === 1 ? "" : "s"} · ${event.operatingModeId}`,
+            `⇶ Company goal ${event.goalRunId}: ${event.assignmentCount} assignment${event.assignmentCount === 1 ? "" : "s"} · ${event.topology} · ${event.maxConcurrentAgents} concurrent`,
           ),
         );
         break;

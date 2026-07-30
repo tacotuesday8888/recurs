@@ -14,6 +14,7 @@ import type {
   TeamRunPhase,
   TeamRunRole,
   TeamRunStatus,
+  TeamTopologyV1,
 } from "@recurs/contracts";
 import type {
   ApprovalResponse,
@@ -173,6 +174,13 @@ export type RecursEvent =
       blueprintRevision: number;
       operatingModeId: OperatingModeId;
       assignmentCount: number;
+      topology: TeamTopologyV1;
+      maxActiveAgents: number;
+      maxConcurrentAgents: number;
+      maxDelegationDepth: number;
+      maxRepairRounds: number;
+      maxRequests: number;
+      maxReportedCostUsd: number;
     })
   | (EventBase & {
       type: "company_assignment_started";

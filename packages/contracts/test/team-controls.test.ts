@@ -152,7 +152,7 @@ describe("team-control contracts", () => {
       blueprintId: "company-v2-fixture",
       blueprintRevision: 1,
       topology: "hierarchical",
-      maxActiveAgents: 3,
+      maxActiveAgents: 6,
       maxConcurrentAgents: 3,
       maxDelegationDepth: 1,
       escalation: "manager_only",

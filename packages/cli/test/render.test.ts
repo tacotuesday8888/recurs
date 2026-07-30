@@ -50,6 +50,13 @@ describe("TextEventRenderer agent activity", () => {
       blueprintRevision: 1,
       operatingModeId: "balanced_v6",
       assignmentCount: 3,
+      topology: "recommended",
+      maxActiveAgents: 5,
+      maxConcurrentAgents: 3,
+      maxDelegationDepth: 2,
+      maxRepairRounds: 1,
+      maxRequests: 80,
+      maxReportedCostUsd: 3,
     });
     await renderer.emit({
       type: "agent_team_activity",
@@ -321,7 +328,7 @@ describe("TextEventRenderer agent activity", () => {
       "Company activated: 3 departments · 6 approved roles",
     );
     expect(output).toContain(
-      "⇶ Company goal goal-run-1: 3 assignments · balanced_v6",
+      "⇶ Company goal goal-run-1: 3 assignments · recommended · 3 concurrent",
     );
     expect(output).toContain(
       "↳ Activated implement 1 · gpt-5.6-terra · medium",

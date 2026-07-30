@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type {
   CompanyBlueprintV2,
   CompanyEvaluationReportV1,
-  CompanyGoalRunV1,
+  CompanyGoalRun,
   CompanyOnboardingDepth,
   CompanyOnboardingRunV1,
 } from "@recurs/contracts";
@@ -136,7 +136,7 @@ type EvaluationRubric = Parameters<
 >[0]["rubric"];
 
 export interface CompanyGoalExecutionEvaluationInput {
-  readonly run: CompanyGoalRunV1;
+  readonly run: CompanyGoalRun;
   readonly blueprint: CompanyBlueprintV2;
   readonly mode: "offline" | "configured";
   readonly backend: { readonly providerId: string; readonly modelId: string };
@@ -173,7 +173,7 @@ function failedExecutionReport(
   input: CompanyGoalExecutionEvaluationInput,
   code: string,
   message: string,
-  run: CompanyGoalRunV1 | null,
+  run: CompanyGoalRun | null,
 ): CompanyEvaluationReportV1 {
   const reportedCostUsd = run !== null && run.plan.assignments.every(
       (assignment) => assignment.result !== null &&
@@ -199,7 +199,7 @@ function failedExecutionReport(
 }
 
 function completedExecutionRubric(
-  run: CompanyGoalRunV1,
+  run: CompanyGoalRun,
   blueprint: CompanyBlueprintV2,
   costKnown: boolean,
 ): EvaluationRubric {
@@ -268,7 +268,7 @@ function completedExecutionRubric(
 export function evaluateCompanyGoalExecution(
   input: CompanyGoalExecutionEvaluationInput,
 ): CompanyEvaluationReportV1 {
-  let run: CompanyGoalRunV1 | null = null;
+  let run: CompanyGoalRun | null = null;
   let blueprint: CompanyBlueprintV2;
   try {
     run = parseCompanyGoalRun(structuredClone(input.run));

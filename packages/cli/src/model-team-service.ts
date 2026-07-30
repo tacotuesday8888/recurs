@@ -10,6 +10,7 @@ import {
   type ModelTeamEvaluationV1,
   type ModelTeamRouteV1,
   type ModelTeamSelectionV1,
+  type CompanyGoalRun,
   type SessionBackendPin,
   type TeamRunRole,
 } from "@recurs/contracts";
@@ -166,7 +167,7 @@ export class ModelTeamService {
   constructor(readonly dependencies: {
     readonly registry: FileConnectionRegistry;
     readonly sessions: JsonlSessionStore;
-    readonly goals: JsonlCompanyGoalStore;
+    readonly goals: JsonlCompanyGoalStore<CompanyGoalRun>;
     readonly teams: JsonlTeamRunStore;
     readonly blueprints: FileCompanyBlueprintV2Store;
     readonly evaluations: FileModelTeamEvaluationStore;

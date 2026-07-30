@@ -22,6 +22,7 @@ import type {
   ModelTeamEvaluationV1,
   ModelTeamSelectionV1,
   ModelReasoningEffort,
+  CompanyGoalRun,
 } from "@recurs/contracts";
 import type { ModelProvider } from "@recurs/providers";
 import type {
@@ -132,7 +133,7 @@ export interface CompanyAmendmentDecisionService {
 
 export interface CompanyCommandDependencies {
   readonly blueprints: Pick<FileCompanyBlueprintV2Store, "load">;
-  readonly goals: Pick<JsonlCompanyGoalStore, "list">;
+  readonly goals: Pick<JsonlCompanyGoalStore<CompanyGoalRun>, "list">;
   readonly knowledge: Pick<FileCompanyKnowledgeStore, "latest">;
   readonly amendments: Pick<FileCompanyAmendmentStore, "list">;
   readonly decisions?: CompanyAmendmentDecisionService;

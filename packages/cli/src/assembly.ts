@@ -16,6 +16,7 @@ import type {
   SessionBackendPin,
   CompanyBlueprint,
   CompanyBlueprintV2,
+  CompanyGoalRun,
 } from "@recurs/contracts";
 import {
   parseCompanyBlueprint,
@@ -51,6 +52,7 @@ import {
   FileCompanyOnboardingStore,
   FileModelTeamEvaluationStore,
   FileModelTeamSelectionStore,
+  FileTeamControlPolicyStore,
   JsonlSessionStore,
   JsonlCompanyGoalStore,
   JsonlTeamRunStore,
@@ -959,8 +961,11 @@ export async function createStandaloneRuntime(
   const companyBlueprintsV2 = new FileCompanyBlueprintV2Store(
     path.join(projectData, "company-blueprints-v2"),
   );
-  const companyGoals = new JsonlCompanyGoalStore(
+  const companyGoals = new JsonlCompanyGoalStore<CompanyGoalRun>(
     path.join(projectData, "company-goals"),
+  );
+  const teamControls = new FileTeamControlPolicyStore(
+    path.join(projectData, "team-controls"),
   );
   const companyKnowledge = new FileCompanyKnowledgeStore(
     path.join(projectData, "company-knowledge"),
@@ -1555,6 +1560,7 @@ export async function createStandaloneRuntime(
     companyGoalsSupervisor = new CompanyGoalSupervisor({
       sessions,
       blueprints: companyBlueprintsV2,
+      teamControls,
       runs: companyGoals,
       owners: companyGoalOwners,
       children: childAgents,

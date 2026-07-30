@@ -2,14 +2,17 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
 import {
+  effectiveTeamControlPolicy,
   getAgentProfilePolicy,
   getOperatingModePolicy,
   narrowAgentPermissionMode,
   parseCompanyBlueprintBindingV2,
   parseCompanyGoalPlan,
   parseCompanyGoalRun,
+  recommendedTeamControlPolicy,
   reserveCompanyGoalBudget,
   validateCompanyGoalPlanAgainstBlueprint,
+  validateTeamControlPolicyAgainstMode,
   type AgentBackendSelection,
   type AgentProfileId,
   type CompanyBlueprintBindingV2,
@@ -17,8 +20,10 @@ import {
   type CompanyGoalAssignmentV1,
   type CompanyGoalChildExecutionV1,
   type CompanyGoalPlanV1,
-  type CompanyGoalRunV1,
+  type CompanyGoalRun,
+  type CompanyGoalRunV2,
   type CompanyToolBundleId,
+  type EffectiveTeamControlPolicyV1,
   type TeamRunCompanyGoalCorrelation,
   type TeamRunCompanyRoleBinding,
 } from "@recurs/contracts";
@@ -43,6 +48,7 @@ import type {
   ChildIdentityReservation,
 } from "./child-agent-manager.js";
 import type { FileCompanyBlueprintV2Store } from "./file-company-blueprint-v2-store.js";
+import type { FileTeamControlPolicyStore } from "./file-team-control-policy-store.js";
 import type {
   CompanyGoalLearningResult,
   CompanyKnowledgeSelection,
@@ -57,6 +63,7 @@ import type {
   TeamRunOwnerLeaseManager,
 } from "./team-run-owner-lease.js";
 import type { DelegateTeamInput } from "./team-agent-manager.js";
+import { validateCompanyGoalPlanAgainstTeamControls } from "./team-control-policy.js";
 import {
   TEAM_APPLY_PERMISSION,
   type CompanyTeamRunBudgetLimits,
@@ -68,7 +75,7 @@ import {
 const MAX_DESCRIPTION_BYTES = 256;
 const MAX_PROMPT_BYTES = 32_768;
 const encoder = new TextEncoder();
-const unresolvedStatuses = new Set<CompanyGoalRunV1["status"]>([
+const unresolvedStatuses = new Set<CompanyGoalRun["status"]>([
   "created",
   "running",
   "waiting_for_approval",
@@ -122,8 +129,9 @@ export interface CompanyGoalSupervisorDependencies {
     ): ReturnType<JsonlSessionStore["loadState"]>;
   };
   readonly blueprints: Pick<FileCompanyBlueprintV2Store, "load">;
+  readonly teamControls?: Pick<FileTeamControlPolicyStore, "latest">;
   readonly runs: Pick<
-    JsonlCompanyGoalStore,
+    JsonlCompanyGoalStore<CompanyGoalRun>,
     "create" | "append" | "load" | "list"
   >;
   readonly owners: Pick<TeamRunOwnerLeaseManager, "tryAcquire">;
@@ -142,7 +150,7 @@ export interface CompanyGoalSupervisorDependencies {
     }): Promise<CompanyKnowledgeSelection>;
     recordCompletedGoal(input: {
       readonly blueprint: CompanyBlueprintV2;
-      readonly run: CompanyGoalRunV1;
+      readonly run: CompanyGoalRun;
       readonly at: string;
       readonly signal?: AbortSignal;
     }): Promise<CompanyGoalLearningResult>;
@@ -152,7 +160,7 @@ export interface CompanyGoalSupervisorDependencies {
   readonly now?: () => string;
 }
 
-type RunState = SequencedCompanyState<CompanyGoalRunV1>;
+type RunState = SequencedCompanyState<CompanyGoalRun>;
 
 function exactRecord(
   value: unknown,
@@ -309,7 +317,7 @@ function sortedToolBundles(
   return Object.freeze([...new Set(bundles)].sort());
 }
 
-function mutableBudget(run: CompanyGoalRunV1): DelegationBudget {
+function mutableBudget(run: CompanyGoalRun): DelegationBudget {
   return {
     maxChildren: run.budget.maxAssignments,
     childrenStarted: run.budget.assignmentsStarted,
@@ -322,9 +330,9 @@ function mutableBudget(run: CompanyGoalRunV1): DelegationBudget {
 }
 
 function withBudget(
-  run: CompanyGoalRunV1,
+  run: CompanyGoalRun,
   budget: DelegationBudget,
-): CompanyGoalRunV1["budget"] {
+): CompanyGoalRun["budget"] {
   return {
     maxAssignments: budget.maxChildren,
     assignmentsStarted: budget.childrenStarted,
@@ -495,7 +503,7 @@ function validatePlanPolicy(
 }
 
 function rolePrompt(
-  run: CompanyGoalRunV1,
+  run: CompanyGoalRun,
   blueprint: CompanyBlueprintV2,
   assignment: CompanyGoalAssignmentV1,
   knowledgeContext: string,
@@ -521,12 +529,12 @@ class GoalJournal {
   #tail: Promise<void> = Promise.resolve();
 
   constructor(
-    private readonly runs: Pick<JsonlCompanyGoalStore, "append">,
+    private readonly runs: Pick<JsonlCompanyGoalStore<CompanyGoalRun>, "append">,
     public current: RunState,
   ) {}
 
   update(
-    transform: (run: CompanyGoalRunV1) => CompanyGoalRunV1,
+    transform: (run: CompanyGoalRun) => CompanyGoalRun,
     signal?: AbortSignal,
   ): Promise<RunState> {
     const operation = this.#tail.then(async () => {
@@ -572,6 +580,56 @@ export class CompanyGoalSupervisor {
   constructor(private readonly dependencies: CompanyGoalSupervisorDependencies) {
     this.#createId = dependencies.createId ?? randomUUID;
     this.#now = dependencies.now ?? (() => new Date().toISOString());
+  }
+
+  async #teamControlAuthority(
+    root: PinnedSessionState,
+    blueprint: CompanyBlueprintV2,
+    signal: AbortSignal,
+  ): Promise<CompanyGoalRunV2["teamControl"]> {
+    let selected;
+    try {
+      selected = await this.dependencies.teamControls?.latest(root.cwd, signal) ??
+        recommendedTeamControlPolicy(root.agent.operatingMode.id);
+    } catch {
+      throw new ToolError(
+        "execution_failed",
+        "Project team controls are unavailable",
+      );
+    }
+    try {
+      validateTeamControlPolicyAgainstMode(
+        selected,
+        root.agent.operatingMode.id,
+      );
+      return Object.freeze({
+        selected,
+        effective: effectiveTeamControlPolicy(selected, blueprint),
+      });
+    } catch (error) {
+      throw new ToolError(
+        "permission_denied",
+        safeMessage(error, "Project team controls are invalid"),
+      );
+    }
+  }
+
+  #assertFrozenTeamControls(runtime: ActiveCompanyGoal): void {
+    const run = runtime.journal.current.state;
+    if (run.version !== 2) return;
+    try {
+      parseCompanyGoalRun<CompanyGoalRunV2>(run);
+      validateCompanyGoalPlanAgainstTeamControls(
+        run.plan,
+        runtime.blueprint,
+        run.teamControl.effective,
+      );
+    } catch (error) {
+      throw new ToolError(
+        "permission_denied",
+        safeMessage(error, "Stored company goal team controls are invalid"),
+      );
+    }
   }
 
   createTool(): Tool<DelegateCompanyGoalInput> {
@@ -726,7 +784,7 @@ export class CompanyGoalSupervisor {
 
   async #learn(
     runtime: ActiveCompanyGoal,
-    run: CompanyGoalRunV1,
+    run: CompanyGoalRun,
   ): Promise<CompanyGoalLearningResult | null> {
     if (this.dependencies.learning === undefined) return null;
     try {
@@ -839,7 +897,7 @@ export class CompanyGoalSupervisor {
     root: PinnedSessionState,
     blueprint: CompanyBlueprintV2,
     signal: AbortSignal,
-  ): Promise<readonly CompanyGoalRunV1[]> {
+  ): Promise<readonly CompanyGoalRun[]> {
     return (await this.dependencies.runs.list(signal))
       .map((entry) => entry.state)
       .filter((run) =>
@@ -854,7 +912,7 @@ export class CompanyGoalSupervisor {
       );
   }
 
-  #rejectExistingRun(run: CompanyGoalRunV1): never {
+  #rejectExistingRun(run: CompanyGoalRun): never {
     throw new ToolError(
       "permission_denied",
       [
@@ -899,6 +957,7 @@ export class CompanyGoalSupervisor {
   }
 
   #claim(runtime: ActiveCompanyGoal, assignmentId: string): () => void {
+    this.#assertFrozenTeamControls(runtime);
     if (runtime.activeAssignments.has(assignmentId)) {
       throw new ToolError("permission_denied", "Company assignment is already running");
     }
@@ -918,6 +977,7 @@ export class CompanyGoalSupervisor {
     assignments: readonly CompanyGoalAssignmentV1[],
     reservation: CompanyTeamRunReservation,
   ): () => void {
+    this.#assertFrozenTeamControls(runtime);
     if (assignments.some((assignment) =>
       runtime.activeAssignments.has(assignment.id)
     )) {
@@ -1084,7 +1144,11 @@ export class CompanyGoalSupervisor {
       return role.capabilities.includes("repair") &&
         role.toolBundles.includes("implementation_v1");
     });
-    const repair = policy.maxRepairRounds === 0 || repairAssignment === undefined
+    const modeRepairRounds = policy.maxRepairRounds ?? 0;
+    const maxRepairRounds = run.version === 2
+      ? Math.min(modeRepairRounds, run.teamControl.effective.maxRepairRounds)
+      : modeRepairRounds;
+    const repair = maxRepairRounds === 0 || repairAssignment === undefined
       ? null
       : this.#teamBinding(runtime, repairAssignment, "implementation_v1");
     const correlation: TeamRunCompanyGoalCorrelation = Object.freeze({
@@ -1303,9 +1367,9 @@ export class CompanyGoalSupervisor {
   }
 
   #nextTeamBudget(
-    run: CompanyGoalRunV1,
+    run: CompanyGoalRun,
     result: TeamRunResult,
-  ): CompanyGoalRunV1["budget"] {
+  ): CompanyGoalRun["budget"] {
     const requestsUsed = run.budget.requestsUsed +
       result.metadata.accounting.requestsUsed;
     const reportedCostUsd = run.budget.reportedCostUsd +
@@ -1500,6 +1564,7 @@ export class CompanyGoalSupervisor {
     runtime: ActiveCompanyGoal,
     team: PreparedCompanyTeam,
   ): Promise<void> {
+    this.#assertFrozenTeamControls(runtime);
     const executor = this.dependencies.team;
     if (executor === undefined) {
       throw new ToolError(
@@ -2060,7 +2125,25 @@ export class CompanyGoalSupervisor {
     if (context.signal.aborted) throw new ToolError("cancelled", "Goal was cancelled");
     const { root, blueprint } = await this.#authority(context);
     const at = this.#now();
+    const mode = getOperatingModePolicy(root.agent.operatingMode.id);
     const plan = buildPlan(input, blueprint, at);
+    const teamControl = await this.#teamControlAuthority(
+      root,
+      blueprint,
+      context.signal,
+    );
+    try {
+      validateCompanyGoalPlanAgainstTeamControls(
+        plan,
+        blueprint,
+        teamControl.effective,
+      );
+    } catch (error) {
+      throw new ToolError(
+        "permission_denied",
+        safeMessage(error, "Company goal plan exceeds its team controls"),
+      );
+    }
     const runId = this.#createId();
     const owner = await this.#acquireOwner(runId, root.id, "start");
     try {
@@ -2078,11 +2161,9 @@ export class CompanyGoalSupervisor {
         at,
         context.signal,
       );
-      const mode = getOperatingModePolicy(root.agent.operatingMode.id);
-      const companyPolicy = mode.company!;
-      const run = parseCompanyGoalRun<CompanyGoalRunV1>({
+      const run = parseCompanyGoalRun<CompanyGoalRunV2>({
         id: runId,
-        version: 1 as const,
+        version: 2 as const,
         parentSessionId: root.id,
         goalId: this.#createId(),
         objective: input.objective,
@@ -2091,14 +2172,15 @@ export class CompanyGoalSupervisor {
         createdAt: at,
         updatedAt: at,
         plan,
+        teamControl,
         budget: {
-          maxAssignments: companyPolicy.maxActiveRoles,
+          maxAssignments: teamControl.effective.maxActiveAgents,
           assignmentsStarted: 0,
-          maxConcurrentAssignments: companyPolicy.maxConcurrentAssignments,
-          maxRequests: companyPolicy.maxGoalRequests,
+          maxConcurrentAssignments: teamControl.effective.maxConcurrentAgents,
+          maxRequests: teamControl.effective.maxRequests,
           requestsReserved: 0,
           requestsUsed: 0,
-          maxReportedCostUsd: companyPolicy.maxReportedCostUsd,
+          maxReportedCostUsd: teamControl.effective.maxReportedCostUsd,
           reportedCostUsd: 0,
         },
         result: null,
@@ -2133,6 +2215,13 @@ export class CompanyGoalSupervisor {
         blueprintRevision: blueprint.revision,
         operatingModeId: mode.id,
         assignmentCount: plan.assignments.length,
+        topology: teamControl.effective.topology,
+        maxActiveAgents: teamControl.effective.maxActiveAgents,
+        maxConcurrentAgents: teamControl.effective.maxConcurrentAgents,
+        maxDelegationDepth: teamControl.effective.maxDelegationDepth,
+        maxRepairRounds: teamControl.effective.maxRepairRounds,
+        maxRequests: teamControl.effective.maxRequests,
+        maxReportedCostUsd: teamControl.effective.maxReportedCostUsd,
       });
       try {
         return await this.#finish(runtime);
@@ -2352,6 +2441,13 @@ export class CompanyGoalSupervisor {
     try {
       validateCompanyGoalPlanAgainstBlueprint(loaded.state.plan, blueprint);
       validatePlanPolicy(loaded.state.plan, blueprint);
+      if (loaded.state.version === 2) {
+        validateCompanyGoalPlanAgainstTeamControls(
+          loaded.state.plan,
+          blueprint,
+          loaded.state.teamControl.effective,
+        );
+      }
     } catch (error) {
       if (error instanceof ToolError) throw error;
       throw new ToolError(

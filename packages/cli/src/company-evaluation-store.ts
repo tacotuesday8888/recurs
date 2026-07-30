@@ -10,7 +10,7 @@ import {
 } from "@recurs/core";
 import type {
   CompanyEvaluationReportV1,
-  CompanyGoalRunV1,
+  CompanyGoalRun,
 } from "@recurs/contracts";
 
 import { evaluateCompanyGoalExecution } from "./company-evaluation.js";
@@ -40,7 +40,7 @@ function interrupted(signal: AbortSignal | undefined, error: unknown): boolean {
 }
 
 function evaluationCompletion(
-  run: CompanyGoalRunV1,
+  run: CompanyGoalRun,
   now: () => string,
 ): string {
   return completedAt(
@@ -76,7 +76,7 @@ export async function evaluateStoredCompanyGoal(input: {
       phase: "preparing",
       message: "Preparing company_goal_execution_v1.",
     });
-    const run = (await new JsonlCompanyGoalStore(
+    const run = (await new JsonlCompanyGoalStore<CompanyGoalRun>(
       path.join(projectData, "company-goals"),
     ).loadReadOnly(input.runId, input.signal)).state;
     const blueprint = await new FileCompanyBlueprintV2Store(

@@ -62,8 +62,17 @@ export function isDelegationBudgetForAgent(
   return budget.maxChildren === limits.maxChildren &&
     budget.maxRequests === limits.maxRequests &&
     budget.maxReportedCostUsd === limits.maxReportedCostUsd &&
+    validDelegationBudgetUsage(budget);
+}
+
+function validDelegationBudgetUsage(budget: DelegationBudget): boolean {
+  return Number.isSafeInteger(budget.maxChildren) && budget.maxChildren >= 1 &&
+    Number.isSafeInteger(budget.maxRequests) && budget.maxRequests >= 1 &&
+    Number.isFinite(budget.maxReportedCostUsd) &&
+    budget.maxReportedCostUsd > 0 &&
     Number.isSafeInteger(budget.childrenStarted) &&
     budget.childrenStarted >= 0 &&
+    budget.childrenStarted <= budget.maxChildren &&
     Number.isSafeInteger(budget.requestsReserved) &&
     budget.requestsReserved >= 0 &&
     budget.requestsReserved <= budget.maxRequests &&
@@ -72,6 +81,17 @@ export function isDelegationBudgetForAgent(
     budget.requestsUsed <= budget.requestsReserved &&
     Number.isFinite(budget.reportedCostUsd) &&
     budget.reportedCostUsd >= 0;
+}
+
+export function isDelegationBudgetWithinAgent(
+  budget: DelegationBudget,
+  agent: AgentSessionDescriptor,
+): boolean {
+  const limits = delegationLimits(agent);
+  return budget.maxChildren <= limits.maxChildren &&
+    budget.maxRequests <= limits.maxRequests &&
+    budget.maxReportedCostUsd <= limits.maxReportedCostUsd &&
+    validDelegationBudgetUsage(budget);
 }
 
 export function delegationWorkflowUsage(

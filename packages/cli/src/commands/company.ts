@@ -16,7 +16,7 @@ import type {
   CompanyAmendmentV1,
   CompanyBlueprintBindingV2,
   CompanyBlueprintV2,
-  CompanyGoalRunV1,
+  CompanyGoalRun,
   CompanyToolBundleId,
 } from "@recurs/contracts";
 
@@ -84,10 +84,10 @@ async function authority(
 }
 
 function companyRuns(
-  values: readonly SequencedCompanyState<CompanyGoalRunV1>[],
+  values: readonly SequencedCompanyState<CompanyGoalRun>[],
   session: PinnedSessionState,
   blueprint: CompanyBlueprintV2,
-): readonly CompanyGoalRunV1[] {
+): readonly CompanyGoalRun[] {
   return values.map((value) => value.state).filter((run) =>
     run.parentSessionId === session.id &&
     run.company.blueprintId === blueprint.id &&
@@ -97,7 +97,7 @@ function companyRuns(
 
 function statusText(
   blueprint: CompanyBlueprintV2,
-  runs: readonly CompanyGoalRunV1[],
+  runs: readonly CompanyGoalRun[],
   readiness = companyToolReadinessCounts(blueprint),
 ): string {
   const unresolved = runs.filter((run) =>
@@ -119,7 +119,7 @@ function statusText(
 
 function activityText(
   blueprint: CompanyBlueprintV2,
-  runs: readonly CompanyGoalRunV1[],
+  runs: readonly CompanyGoalRun[],
 ): string {
   if (runs.length === 0) return "No company goal activity exists for this session";
   const roles = new Map(blueprint.roles.map((role) => [role.id, role.displayName]));

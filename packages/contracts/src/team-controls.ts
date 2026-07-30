@@ -297,12 +297,10 @@ export function effectiveTeamControlPolicy(
     maxActiveAgents: Math.min(
       selected.maxActiveAgents,
       mode.company!.maxActiveRoles,
-      blueprint.roles.length,
     ),
     maxConcurrentAgents: Math.min(
       selected.maxConcurrentAgents,
       mode.company!.maxConcurrentAssignments,
-      blueprint.roles.length,
     ),
     maxDelegationDepth: Math.min(
       selected.maxDelegationDepth,

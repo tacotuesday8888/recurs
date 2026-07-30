@@ -5,6 +5,7 @@ import path from "node:path";
 import {
   createHostInvocation,
   deriveTrustedRunContext,
+  recommendedTeamControlPolicy,
   type OperatingModeId,
   type CoordinatedRunInput,
   type RunCoordinator,
@@ -27,6 +28,7 @@ import {
   createRootAgentDescriptor,
   FileCompanyBlueprintV2Store,
   FileCompanyKnowledgeStore,
+  FileTeamControlPolicyStore,
   JsonlCompanyGoalStore,
   JsonlSessionStore,
   TEAM_APPLY_PERMISSION,
@@ -202,6 +204,9 @@ async function fixture(options: {
   const sessions = new JsonlSessionStore(path.join(root, "sessions"));
   const blueprints = new FileCompanyBlueprintV2Store(path.join(root, "blueprints"));
   const runs = new JsonlCompanyGoalStore(path.join(root, "goals"));
+  const teamControls = new FileTeamControlPolicyStore(
+    path.join(root, "team-controls"),
+  );
   const owners = new TeamRunOwnerLeaseManager({
     rootDirectory: path.join(root, "company-goal-owners"),
   });
@@ -555,6 +560,7 @@ async function fixture(options: {
     sessions,
     blueprints,
     runs,
+    teamControls,
     owners,
     children,
     team,
@@ -580,6 +586,7 @@ async function fixture(options: {
     sessions,
     blueprints,
     runs,
+    teamControls,
     knowledge,
     learning,
     blueprint,
@@ -1066,6 +1073,105 @@ const childCorrelationCorruptions = [
 ] as const;
 
 describe("CompanyGoalSupervisor", () => {
+  it("freezes effective project team controls into every new goal", async () => {
+    const setup = await fixture();
+    const selected = {
+      ...recommendedTeamControlPolicy("balanced_v6"),
+      maxConcurrentAgents: 1,
+      maxRequests: 20,
+      maxReportedCostUsd: 1,
+    };
+    await setup.teamControls.publish(setup.root, selected, null);
+
+    await setup.supervisor.start(goal(setup), setup.context);
+
+    const run = (await setup.runs.load("company-run-id-1")).state;
+    expect(run).toMatchObject({
+      version: 2,
+      teamControl: {
+        selected,
+        effective: {
+          sourceRevision: 1,
+          operatingModeId: "balanced_v6",
+          blueprintId: setup.blueprint.id,
+          blueprintRevision: setup.blueprint.revision,
+          maxConcurrentAgents: 1,
+          maxRequests: 20,
+          maxReportedCostUsd: 1,
+        },
+      },
+      budget: {
+        maxConcurrentAssignments: 1,
+        maxRequests: 20,
+        maxReportedCostUsd: 1,
+      },
+    });
+    expect(setup.events.find((event) => event.type === "company_goal_started"))
+      .toMatchObject({
+        topology: "recommended",
+        maxActiveAgents: 8,
+        maxConcurrentAgents: 1,
+        maxDelegationDepth: 2,
+        maxRepairRounds: 1,
+        maxRequests: 20,
+        maxReportedCostUsd: 1,
+      });
+  });
+
+  it("rejects stored team controls for another operating mode before starting work", async () => {
+    const setup = await fixture();
+    await setup.teamControls.publish(
+      setup.root,
+      recommendedTeamControlPolicy("economy_v6"),
+      null,
+    );
+
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({
+        code: "permission_denied",
+        message: expect.stringContaining("another operating mode"),
+      });
+    expect(await setup.runs.list()).toEqual([]);
+    expect(setup.prompts).toEqual([]);
+  });
+
+  it("resumes with the frozen team controls instead of newer project preferences", async () => {
+    const setup = await fixture({
+      implementation: true,
+      teamStatus: "interrupted",
+    });
+    const original = {
+      ...recommendedTeamControlPolicy("balanced_v6"),
+      maxConcurrentAgents: 2,
+    };
+    await setup.teamControls.publish(setup.root, original, null);
+    await expect(setup.supervisor.start(goal(setup), setup.context)).rejects
+      .toMatchObject({ code: "checkpoint_conflict" });
+    await setup.teamControls.publish(setup.root, {
+      ...original,
+      revision: 2,
+      maxConcurrentAgents: 1,
+    }, 1);
+    setup.setTeamStatus("approved");
+
+    await setup.supervisor.resume("company-run-id-1", setup.context);
+
+    expect((await setup.runs.load("company-run-id-1")).state).toMatchObject({
+      version: 2,
+      teamControl: {
+        selected: {
+          revision: 1,
+          maxConcurrentAgents: 2,
+        },
+        effective: {
+          sourceRevision: 1,
+          maxConcurrentAgents: 2,
+        },
+      },
+      budget: { maxConcurrentAssignments: 2 },
+    });
+  });
+
   it("rejects missing, unknown, and non-default assignment roles before durable work", async () => {
     const missing = await fixture();
     const missingInput = goal(missing);
