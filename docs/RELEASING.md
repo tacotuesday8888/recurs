@@ -2,8 +2,10 @@
 
 Recurs is Apache-2.0 licensed. `0.1.0-alpha.2` is the first portable npm
 artifact prepared for public release after the original `alpha.1` workflow
-failed closed before packaging. Publishing is an owner-controlled operation,
-not a normal development or CI side effect.
+failed closed before packaging. It completed the one-time package bootstrap;
+`0.1.0-alpha.3` is the first subsequent release through the trusted publisher.
+Publishing is an owner-controlled operation, not a normal development or CI
+side effect.
 
 ## Verified artifact
 
@@ -47,14 +49,14 @@ Homebrew formula installs the same npm tarball with Node as a runtime
 dependency. This is acceptable while Recurs remains unreleased, but it must not
 be presented as three distinct delivery architectures.
 
-Before a public release, revisit the intended installation experience and keep
-only distribution surfaces that add real value beyond the npm artifact.
+For each public release, recheck this dependency chain and keep only
+distribution surfaces that add real value beyond the npm artifact.
 
-## One-time npm bootstrap
+## Completed one-time npm bootstrap
 
 npm requires a package to exist before a trusted publisher can be configured.
-Therefore the first `recurs` publication cannot use the final tokenless OIDC
-relationship. Keep this exception narrow:
+The first `recurs` publication therefore used the narrow sequence below; later
+versions must not repeat the interactive publishing exception:
 
 1. Configure a protected GitHub environment named `npm`, with required manual
    approval, and protect the intended `v0.1.0-alpha.2` tag.

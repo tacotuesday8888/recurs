@@ -46,7 +46,7 @@ context, not a product commitment.
 
 ## Distribution
 
-- `0.1.0-alpha.2` npm package, minimal bundle, empty-prefix installation smoke,
+- `0.1.0-alpha.3` npm package, minimal bundle, empty-prefix installation smoke,
   and protected publication workflow;
 - checksum-verifying curl installer and release Homebrew formula derived from
   that exact npm archive; and
@@ -58,7 +58,7 @@ containment, or desktop app. Bun's verified boundary is package installation,
 not Recurs execution.
 
 The package gate keeps the unpacked Recurs artifact below 2.1 MB. The exact
-`0.1.0-alpha.2` archive was 433 KiB compressed / 1.87 MiB unpacked, and its
+`0.1.0-alpha.3` archive was 433 KiB compressed / 1.87 MiB unpacked, and its
 2026-07-30 Apple-silicon production prefix was about 38.8 MiB. Optional Codex
 compatibility packages are not downloaded with Recurs. Codex subscription
 users supply the exact reviewed official CLI separately, so an existing Codex
