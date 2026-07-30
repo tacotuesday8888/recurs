@@ -37,6 +37,14 @@ a comparative winner. Model names and selection rationale come from versioned
 configured-goal evidence. Broader task classification, evidence freshness, and
 price/capability routing remain later work.
 
+Users may leave team orchestration on `recommended` or explicitly choose
+focused, parallel, hierarchical, research-heavy, or review-heavy operation.
+The advanced policy also controls active agents, concurrency, delegation
+depth, manager-only versus root escalation, independent review, repair,
+requests, and reported cost. The selected policy is intersected with the
+operating mode and approved blueprint, then frozen into each goal. Later
+preference edits never rewrite historical authority.
+
 See [Auto Model Teams and Simple Controls](docs/AUTO_MODEL_TEAMS.md) for the
 current product direction and the exact implemented boundary.
 
@@ -79,6 +87,15 @@ events, `/agents` controls, and model control tools make lifecycle and evidence
 inspectable. Child-created unbounded recursion, speculative model ranking, a
 persistent daemon, dirty-parent snapshots, and auto-commit/push/deploy remain
 intentionally absent.
+
+Agents can request a structured escalation only to their direct manager, or to
+the root when the frozen policy explicitly allows it. The runtime records the
+source role, target role, model, child session, summary, and evidence. After at
+least two compatible completed goals, Recurs may privately propose narrower
+future active-agent, request, or reported-cost limits from exact run metrics.
+It makes no comparative quality claim and never widens permissions, tools,
+model eligibility, blueprint delegation, escalation, or review authority. A
+local user must approve the proposal; rejection changes nothing.
 
 Repair is a configured fallback in a saved four-route snapshot and activates
 only when valid review findings and the selected policy require it.

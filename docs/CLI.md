@@ -127,11 +127,17 @@ Common slash commands:
 /model
 /permissions
 /agents
+/agents controls
+/agents configure topology=hierarchical active=6 concurrent=3
 /goal
 /company status
 /company operations
 /company run <run-id>
 /company resume <run-id>
+/company recommendations
+/company recommendation <id>
+/company approve-recommendation <id>
+/company reject-recommendation <id>
 /process
 /image
 /undo
@@ -214,6 +220,13 @@ Operating modes freeze team width, role routing, model eligibility, request
 budgets, review/repair policy, and reported-cost limits before execution.
 Children cannot widen their parent’s permissions.
 
+`/agents controls` distinguishes the saved preference, operating-mode ceiling,
+and effective company policy. `/agents configure key=value …` and
+`/agents reset` require an interactive local user and confirmation. Supported
+advanced keys are topology, active agents, concurrency, depth, escalation,
+independent review, repair rounds, requests, and reported cost. Changes apply
+to future goals; every started goal keeps its immutable snapshot.
+
 ## Agent teams
 
 Recurs can run bounded Explore, Implement, Review, and Repair specialists.
@@ -224,6 +237,11 @@ retains apply authority.
 Background team work is process-lifetime work, not a daemon. Durable journals
 allow explicit resume, inspection, and apply after interruption.
 
+Company children may request a bounded handoff only for an assignment already
+present in the approved DAG. They may escalate attributable evidence to their
+direct manager; root escalation additionally requires the frozen
+`root_allowed` policy.
+
 ## Company commands
 
 Company formation is optional. When used, onboarding proposes a
@@ -231,6 +249,13 @@ project-specific roster and authority graph before activation; run
 `recurs setup` to return to it later. The CLI supports status, operations,
 activity, knowledge, amendments, goals, and exact-run inspection through the
 interactive command surface.
+
+After at least two compatible completed goals, Recurs may store one
+evidence-backed recommendation that lowers future team limits. Inspect it with
+`/company recommendations` and `/company recommendation <id>`. Approval or
+rejection requires a local, manual, user-present CLI confirmation. Approval
+publishes the next project policy revision; rejection and inspection do not
+change execution.
 
 Offline evaluation is deterministic:
 

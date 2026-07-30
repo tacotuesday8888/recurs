@@ -60,6 +60,10 @@ Codex test fixtures. Exact size varies by platform and npm version.
 
 - 🏢 **Company-shaped work.** Review the proposed roles, reporting lines,
   tools, gates, and first goal before activation.
+- 🎛️ **You control the team.** Choose the topology, active-agent and
+  concurrency ceilings, delegation depth, escalation path, review policy,
+  repair rounds, requests, and reported-cost limit. Recurs freezes the
+  effective policy into each goal.
 - 🛡️ **Limits before execution.** Permission, concurrency, request, cost,
   review, retry, and cancellation boundaries are frozen before work begins.
 - 🔎 **Evidence before apply.** Mutating work stays in isolated Git worktrees
@@ -94,7 +98,8 @@ automatic installation or trust of Skills and MCP servers.
 ## ✅ Built today
 
 - **Company design:** resumable onboarding, versioned rosters, proposal
-  revision, explicit activation, and multi-stage role DAGs.
+  revision, explicit activation, multi-stage role DAGs, and optional advanced
+  team controls.
 - **Agent execution:** streaming tools, parallel Explore and Review work,
   isolated Implement teams, repair, apply, cancellation, compaction, steering,
   forks, undo, and restart recovery.
@@ -103,8 +108,8 @@ automatic installation or trust of Skills and MCP servers.
 - **Host controls:** permission profiles, credential-path denial, clean child
   environments, sanitized failures, and supported macOS/Linux containment.
 - **Operations:** company status, activity, knowledge, readiness, amendments,
-  exact-run inspection, deterministic formation, provider dogfooding, and
-  durable-goal scoring.
+  evidence-backed team-control recommendations, exact-run inspection,
+  deterministic formation, provider dogfooding, and durable-goal scoring.
 - **Evidence-backed model teams:** `/model auto` records exact configured goal
   results, shows the selected Parent/Implement/Review/Repair models and
   rationale, and applies the most-supported eligible recorded configured lineup
@@ -156,6 +161,11 @@ recurs benchmark company --list --json      # discover immutable proof fixtures
 Use `-C /path/to/project` with interactive, run, or review commands. The
 [CLI guide](docs/CLI.md) covers every command, provider, permission, image,
 session, and JSON/JSONL option.
+
+Inside an interactive session, `/agents controls` shows the exact saved,
+operating-mode, and effective company limits. `/agents configure …` changes a
+future preference after confirmation. `/company recommendations` shows
+repeated-run proposals; approval is explicit and affects future goals only.
 
 ## Project status
 
