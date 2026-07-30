@@ -174,6 +174,13 @@ export class TextEventRenderer implements EventSink {
           ),
         );
         break;
+      case "company_escalation_requested":
+        await this.#status(
+          this.#theme.warning(
+            `↑ ${event.fromRoleName} escalated to ${event.toRoleName}: ${event.summary}`,
+          ),
+        );
+        break;
       case "company_handoff_failed":
       case "company_handoff_cancelled":
         await this.#status(

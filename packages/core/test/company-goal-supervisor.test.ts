@@ -187,6 +187,8 @@ async function fixture(options: {
   readonly teamReviewResult?:
     "success" | "failure" | "cancelled" | "cost" | "unknown";
   readonly nestedHandoffIds?: readonly string[];
+  readonly escalationRoleName?: string;
+  readonly escalationTarget?: "manager" | "root";
   readonly implementation?: boolean;
   readonly teamStatus?: "approved" | "failed" | "cancelled" | "interrupted";
   readonly teamStatuses?: readonly (
@@ -323,6 +325,35 @@ async function fixture(options: {
         ));
         const failure = results.find((result) => result.status === "rejected");
         if (failure?.status === "rejected") throw failure.reason;
+      }
+      const roleName = blueprint.roles.find((role) => role.id === roleId)
+        ?.displayName;
+      if (roleName === options.escalationRoleName) {
+        await (supervisorReference.current as unknown as {
+          requestEscalation(input: {
+            readonly runId: string;
+            readonly assignmentId: string;
+            readonly target: "manager" | "root";
+            readonly summary: string;
+            readonly evidence: readonly string[];
+          }, context: ToolContext): Promise<ToolResult>;
+        }).requestEscalation({
+          runId: "company-run-id-1",
+          assignmentId: roleName === "Planning Lead"
+            ? "lead-assignment"
+            : "worker-assignment",
+          target: options.escalationTarget ?? "manager",
+          summary: "A bounded architecture decision needs authority.",
+          evidence: ["packages/core/src/company-goal-supervisor.ts"],
+        }, {
+          sessionId: child.id,
+          cwd: child.cwd,
+          executionMode: child.executionMode,
+          signal: input.signal,
+          readRevisions: new Map(),
+          runContext: trusted,
+          delegationBudget: createDelegationBudget(child.agent),
+        });
       }
       const result = {
         finalText: `completed ${String(roleId)}`,
@@ -1073,6 +1104,87 @@ const childCorrelationCorruptions = [
 ] as const;
 
 describe("CompanyGoalSupervisor", () => {
+  it("records a manager escalation with role and model provenance", async () => {
+    const setup = await fixture({
+      escalationRoleName: "Planning Lead",
+      escalationTarget: "manager",
+    });
+
+    await setup.supervisor.start(goal(setup), setup.context);
+
+    expect(setup.events.find((event) =>
+      event.type === "company_escalation_requested"
+    )).toMatchObject({
+      goalRunId: "company-run-id-1",
+      assignmentId: "lead-assignment",
+      fromRoleId: setup.roles["Planning Lead"]!.id,
+      toRoleId: setup.blueprint.authorityAnchors.rootRoleId,
+      modelId: setup.parent.backend.pin.modelId,
+      summary: "A bounded architecture decision needs authority.",
+      evidence: ["packages/core/src/company-goal-supervisor.ts"],
+    });
+    expect((await setup.runs.load("company-run-id-1")).state.plan.assignments[0]
+      ?.result?.evidence).toContain(
+        "Escalated to Orchestrator: A bounded architecture decision needs authority.",
+      );
+    expect((await setup.runs.load("company-run-id-1")).state.plan.assignments[0]
+      ?.result?.evidence).toContain(
+        "packages/core/src/company-goal-supervisor.ts",
+      );
+  });
+
+  it("blocks a grandchild root escalation under manager-only controls", async () => {
+    const setup = await fixture({
+      nestedHandoffIds: ["worker-assignment"],
+      escalationRoleName: "Research Worker",
+      escalationTarget: "root",
+    });
+
+    await expect(setup.supervisor.start(goal(setup), setup.context)).resolves
+      .toMatchObject({
+        metadata: { status: "failed" },
+        output: expect.stringMatching(/failure[\s\S]*escalation path/iu),
+      });
+    expect(setup.events.some((event) =>
+      event.type === "company_escalation_requested"
+    )).toBe(false);
+  });
+
+  it("revalidates frozen controls at claim time before starting an executor", async () => {
+    const setup = await fixture();
+    const supervisor = setup.createSupervisor({
+      runs: {
+        create: setup.runs.create.bind(setup.runs),
+        load: setup.runs.load.bind(setup.runs),
+        list: setup.runs.list.bind(setup.runs),
+        async append(id, sequence, next, signal) {
+          const stored = await setup.runs.append(id, sequence, next, signal);
+          if (stored.state.version !== 2 || stored.state.status !== "running") {
+            return stored;
+          }
+          return {
+            ...stored,
+            state: {
+              ...stored.state,
+              teamControl: {
+                ...stored.state.teamControl,
+                effective: {
+                  ...stored.state.teamControl.effective,
+                  maxActiveAgents: 1,
+                },
+              },
+            },
+          };
+        },
+      },
+    });
+
+    await expect(supervisor.start(goal(setup), setup.context)).rejects
+      .toThrow(/concurrent agents cannot exceed active agents/iu);
+    expect(setup.prompts).toEqual([]);
+    expect(setup.teamCalls).toEqual([]);
+  });
+
   it("freezes effective project team controls into every new goal", async () => {
     const setup = await fixture();
     const selected = {

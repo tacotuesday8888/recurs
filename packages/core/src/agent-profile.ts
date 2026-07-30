@@ -117,6 +117,9 @@ export function applyAgentToolPolicy(
   }
   const profile = getAgentProfilePolicy(agent.profile.id);
   const capabilityTools = [
+    ...(agent.companyGoal === undefined
+      ? []
+      : ["request_company_handoff", "request_company_escalation"]),
     ...((context.companyCapabilities?.agentSkillNames.length ?? 0) > 0
       ? ["activate_skill"]
       : []),

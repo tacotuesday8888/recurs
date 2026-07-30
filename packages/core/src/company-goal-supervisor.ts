@@ -62,7 +62,10 @@ import type {
   TeamRunOwnerLeaseManager,
 } from "./team-run-owner-lease.js";
 import type { DelegateTeamInput } from "./team-agent-manager.js";
-import { validateCompanyGoalPlanAgainstTeamControls } from "./team-control-policy.js";
+import {
+  validateCompanyGoalPlanAgainstTeamControls,
+  validateTeamEscalation,
+} from "./team-control-policy.js";
 import {
   TEAM_APPLY_PERMISSION,
   type CompanyTeamRunBudgetLimits,
@@ -105,6 +108,14 @@ export interface DelegateCompanyGoalInput {
 export interface RequestCompanyHandoffInput {
   readonly runId: string;
   readonly assignmentId: string;
+}
+
+export interface RequestCompanyEscalationInput {
+  readonly runId: string;
+  readonly assignmentId: string;
+  readonly target: "manager" | "root";
+  readonly summary: string;
+  readonly evidence: readonly string[];
 }
 
 export interface CompanyGoalAssignmentExecutor {
@@ -271,6 +282,36 @@ function parseHandoffInput(value: unknown): RequestCompanyHandoffInput {
       record.assignmentId,
       128,
       "Company assignment id is invalid",
+    ),
+  };
+}
+
+function parseEscalationInput(value: unknown): RequestCompanyEscalationInput {
+  const record = exactRecord(
+    value,
+    ["runId", "assignmentId", "target", "summary", "evidence"],
+    "request_company_escalation requires exactly the documented fields",
+  );
+  if ((record.target !== "manager" && record.target !== "root") ||
+    !Array.isArray(record.evidence) ||
+    record.evidence.some((item) => typeof item !== "string")) {
+    throw new ToolError("invalid_input", "Company escalation fields are invalid");
+  }
+  return {
+    runId: boundedText(record.runId, 128, "Company goal run id is invalid"),
+    assignmentId: boundedText(
+      record.assignmentId,
+      128,
+      "Company assignment id is invalid",
+    ),
+    target: record.target,
+    summary: boundedText(
+      record.summary,
+      2_000,
+      "Company escalation summary is invalid",
+    ),
+    evidence: (record.evidence as string[]).map((item) =>
+      boundedText(item, 2_000, "Company escalation evidence is invalid")
     ),
   };
 }
@@ -559,6 +600,7 @@ interface ActiveCompanyGoal {
   readonly knowledgeRevision: number | null;
   readonly budget: DelegationBudget;
   readonly activeAssignments: Set<string>;
+  readonly escalationEvidence: Map<string, string[]>;
 }
 
 interface PreparedCompanyTeam {
@@ -703,6 +745,33 @@ export class CompanyGoalSupervisor {
       parse: parseHandoffInput,
       permissions() { return []; },
       execute: (input, context) => this.requestHandoff(input, context),
+    };
+  }
+
+  createEscalationTool(): Tool<RequestCompanyEscalationInput> {
+    return {
+      definition: {
+        name: "request_company_escalation",
+        description: "Escalate one attributable blocker through the approved company reporting path.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            runId: { type: "string" },
+            assignmentId: { type: "string" },
+            target: { type: "string", enum: ["manager", "root"] },
+            summary: { type: "string" },
+            evidence: { type: "array", items: { type: "string" } },
+          },
+          required: ["runId", "assignmentId", "target", "summary", "evidence"],
+          additionalProperties: false,
+        },
+      },
+      executionClass: "in_process",
+      mutating: false,
+      available: (context) => this.#assignmentBySession.has(context.sessionId),
+      parse: parseEscalationInput,
+      permissions() { return []; },
+      execute: (input, context) => this.requestEscalation(input, context),
     };
   }
 
@@ -1323,7 +1392,10 @@ export class CompanyGoalSupervisor {
     result: ChildDelegationResult,
     signal?: AbortSignal,
   ): Promise<void> {
-    const evidence = boundedEvidence(result.metadata.evidence);
+    const evidence = boundedEvidence([
+      ...result.metadata.evidence,
+      ...(runtime.escalationEvidence.get(assignment.id) ?? []),
+    ]);
     if (evidence.length === 0 || result.metadata.costLimitExceeded) {
       throw new ToolError(
         "execution_failed",
@@ -2201,6 +2273,7 @@ export class CompanyGoalSupervisor {
         knowledgeRevision: knowledge.revision,
         budget: mutableBudget(run),
         activeAssignments: new Set(),
+        escalationEvidence: new Map(),
       };
       this.#activeRuns.set(run.id, runtime);
       await this.#emit({
@@ -2250,6 +2323,101 @@ export class CompanyGoalSupervisor {
       );
     }
     return await this.#executeAssignment(runtime, assignment.id, context);
+  }
+
+  async requestEscalation(
+    input: RequestCompanyEscalationInput,
+    context: ToolContext,
+  ): Promise<ToolResult> {
+    const caller = this.#assignmentBySession.get(context.sessionId);
+    const runtime = this.#activeRuns.get(input.runId);
+    const run = runtime?.journal.current.state;
+    const assignment = run?.plan.assignments.find((candidate) =>
+      candidate.id === input.assignmentId
+    );
+    if (caller === undefined || runtime === undefined || run === undefined ||
+      run.version !== 2 || assignment === undefined ||
+      caller.runId !== input.runId ||
+      caller.assignmentId !== input.assignmentId) {
+      throw new ToolError(
+        "permission_denied",
+        "The requested escalation does not belong to this live assignment",
+      );
+    }
+    const child = await this.dependencies.sessions.loadState(
+      context.sessionId,
+      context.signal,
+    );
+    const source = runtime.blueprint.roles.find((role) =>
+      role.id === assignment.roleId
+    )!;
+    if (!isPinnedSessionState(child) ||
+      child.agent.companyGoal?.runId !== run.id ||
+      child.agent.companyGoal.assignmentId !== assignment.id ||
+      child.agent.company?.blueprintVersion !== 2 ||
+      child.agent.company.roleId !== source.id) {
+      throw new ToolError(
+        "permission_denied",
+        "The escalation caller does not match its durable company assignment",
+      );
+    }
+    const targetId = input.target === "root"
+      ? runtime.blueprint.authorityAnchors.rootRoleId
+      : source.reportsTo;
+    const target = targetId === null
+      ? undefined
+      : runtime.blueprint.roles.find((role) => role.id === targetId);
+    try {
+      if (target === undefined) {
+        throw new TypeError("Team escalation target is unavailable");
+      }
+      validateTeamEscalation({
+        assignmentId: assignment.id,
+        fromRoleId: source.id,
+        toRoleId: target.id,
+        summary: input.summary,
+        evidence: input.evidence,
+      }, runtime.blueprint, run.teamControl.effective);
+    } catch (error) {
+      throw new ToolError(
+        "permission_denied",
+        safeMessage(error, "Company escalation path is not approved"),
+      );
+    }
+    const durableEvidence =
+      `Escalated to ${target.displayName}: ${input.summary}`;
+    const evidence = runtime.escalationEvidence.get(assignment.id) ?? [];
+    runtime.escalationEvidence.set(
+      assignment.id,
+      boundedEvidence([...evidence, durableEvidence, ...input.evidence]),
+    );
+    await this.#emit({
+      type: "company_escalation_requested",
+      sessionId: runtime.root.id,
+      at: this.#now(),
+      parentAgentId: runtime.root.agent.id,
+      goalRunId: run.id,
+      assignmentId: assignment.id,
+      departmentId: source.departmentId,
+      fromRoleId: source.id,
+      fromRoleName: source.displayName,
+      toRoleId: target.id,
+      toRoleName: target.displayName,
+      childAgentId: child.agent.id,
+      childSessionId: child.id,
+      modelId: child.backend.pin.modelId,
+      summary: input.summary,
+      evidence: [...input.evidence],
+    });
+    return {
+      output: `Escalation recorded for ${target.displayName}`,
+      metadata: {
+        goalRunId: run.id,
+        assignmentId: assignment.id,
+        toRoleId: target.id,
+        evidence: [durableEvidence, ...input.evidence],
+      },
+    };
   }
 
   async #matchesRecoveredChild(
@@ -2485,6 +2653,7 @@ export class CompanyGoalSupervisor {
         knowledgeRevision: null,
         budget: mutableBudget(loaded.state),
         activeAssignments: new Set(),
+        escalationEvidence: new Map(),
       };
       const learning = await this.#learn(runtime, loaded.state);
       return {
@@ -2529,6 +2698,7 @@ export class CompanyGoalSupervisor {
       knowledgeRevision: knowledge.revision,
       budget: mutableBudget(journal.current.state),
       activeAssignments: new Set(),
+      escalationEvidence: new Map(),
     };
     const recoveredChildren = await this.#preflightRecoveredChildren(
       runtime,

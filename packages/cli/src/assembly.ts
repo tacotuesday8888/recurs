@@ -1574,6 +1574,7 @@ export async function createStandaloneRuntime(
     });
     tools.register(companyGoalsSupervisor.createTool());
     tools.register(companyGoalsSupervisor.createHandoffTool());
+    tools.register(companyGoalsSupervisor.createEscalationTool());
   }
 
   const runtimeReference: { current?: RecursRuntime } = {};

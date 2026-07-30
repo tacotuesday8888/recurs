@@ -59,6 +59,24 @@ describe("TextEventRenderer agent activity", () => {
       maxReportedCostUsd: 3,
     });
     await renderer.emit({
+      type: "company_escalation_requested",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      goalRunId: "goal-run-1",
+      assignmentId: "plan-1",
+      departmentId: "delivery",
+      fromRoleId: "planner",
+      fromRoleName: "Planning Lead",
+      toRoleId: "orchestrator",
+      toRoleName: "Orchestrator",
+      childAgentId: "planner-agent",
+      childSessionId: "planner-session",
+      modelId: "gpt-5.6-terra",
+      summary: "The architecture boundary needs a decision.",
+      evidence: ["src/runtime.ts"],
+    });
+    await renderer.emit({
       type: "agent_team_activity",
       sessionId: "parent-session",
       at: "2026-07-17T00:00:00.000Z",
@@ -329,6 +347,9 @@ describe("TextEventRenderer agent activity", () => {
     );
     expect(output).toContain(
       "⇶ Company goal goal-run-1: 3 assignments · recommended · 3 concurrent",
+    );
+    expect(output).toContain(
+      "↑ Planning Lead escalated to Orchestrator: The architecture boundary needs a decision.",
     );
     expect(output).toContain(
       "↳ Activated implement 1 · gpt-5.6-terra · medium",

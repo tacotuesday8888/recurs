@@ -210,6 +210,22 @@ export type RecursEvent =
       workflow: AgentWorkflowUsage;
     })
   | (EventBase & {
+      type: "company_escalation_requested";
+      parentAgentId: string;
+      goalRunId: string;
+      assignmentId: string;
+      departmentId: string;
+      fromRoleId: string;
+      fromRoleName: string;
+      toRoleId: string;
+      toRoleName: string;
+      childAgentId: string;
+      childSessionId: string;
+      modelId: string;
+      summary: string;
+      evidence: string[];
+    })
+  | (EventBase & {
       type: "company_handoff_failed" | "company_handoff_cancelled";
       parentAgentId: string;
       goalRunId: string;
