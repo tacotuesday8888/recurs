@@ -81,6 +81,9 @@ authorities and a concise CLI surface for inspecting and changing that policy.
 
 Add a strict, versioned `TeamControlPolicyV1` contract with:
 
+- `version`: `1`;
+- `revision`;
+- `operatingModeId` and `operatingModeVersion`;
 - `topology`: `recommended | focused | parallel | hierarchical |
   research_heavy | review_heavy`;
 - `maxActiveAgents`;
@@ -94,7 +97,13 @@ Add a strict, versioned `TeamControlPolicyV1` contract with:
 
 Stable identifiers are storage values. Display labels remain replaceable.
 Unknown fields, invalid numbers, unsafe widening, and unsupported versions fail
-closed.
+closed. The operating-mode binding prevents a preference from being silently
+reinterpreted after the user changes intensity.
+
+Add a separate immutable `EffectiveTeamControlPolicyV1` snapshot containing
+the source preference revision, operating-mode binding, approved blueprint
+binding, and final intersected limits. It is run authority, not an editable
+preference.
 
 The policy is a user preference for future work, not retroactive authority.
 Every company goal freezes:
