@@ -122,4 +122,5 @@ test("Dependabot covers npm packages and immutable GitHub Action pins", () => {
 test("the release workflow uses the reviewed npm 11 and npm 12 pack parser", () => {
   assert.match(releaseText, /npm@12\.0\.1/u);
   assert.match(releaseText, /parseSingleNpmPackReport/u);
+  assert.match(releaseText, /parseSingleNpmViewString/u);
 });

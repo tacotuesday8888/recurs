@@ -101,7 +101,7 @@ jobs:
         run: |
           version=$(node -p 'require("./package.json").version')
           if published_json=$(npm view "recurs@$version" dist.integrity --json 2>/dev/null); then
-            published_integrity=$(node -e 'const value = JSON.parse(process.argv[1]); if (typeof value !== "string") process.exit(1); process.stdout.write(value)' "$published_json")
+            published_integrity=$(node --input-type=module -e 'import { parseSingleNpmViewString } from "./scripts/npm-view-value.mjs"; process.stdout.write(parseSingleNpmViewString(process.argv[1]))' "$published_json")
             node scripts/render-install-assets.mjs \
               --verify-published-integrity "release/${{ steps.package.outputs.filename }}" \
               --integrity "$published_integrity"
