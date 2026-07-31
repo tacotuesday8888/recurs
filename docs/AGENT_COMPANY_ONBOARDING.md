@@ -199,15 +199,14 @@ Coding Plan, MiniMax Token Plan, Z.ai GLM Coding Plan, and cloud-identity paths
 whose reviewed runtime is absent.
 
 The release pipeline builds one minimal npm tarball, installs it into an empty
-prefix, derives checksum-bound curl and Homebrew assets from that exact archive,
-and supports an owner-controlled attested release. These are verified release
-foundations, not published products: no npm package, Homebrew formula, curl
-release, signed binary, or desktop app has shipped. Bun is verified only as an
-npm-compatible installer for the prepared tarball on a pinned Linux CI lane;
-Recurs still requires Node.js at runtime. The removed private native credential
-authority is not a product path: current remote execution uses the documented
-portable TypeScript adapters or an official delegated vendor runtime. No
-speculative provider or installer surface was added by this audit.
+prefix, and derives checksum-bound curl and Homebrew assets from those exact
+bytes. The public `0.1.0-alpha.4` artifact has shipped through npm, Bun as an
+installer, the GitHub release installer, and the official Homebrew tap. Every
+path still requires Node.js at runtime; there is no signed binary or desktop
+app. The removed private native credential authority is not a product path:
+current remote execution uses the documented portable TypeScript adapters or
+an official delegated vendor runtime. No speculative provider surface was
+added by this audit.
 
 In plain language: onboarding now creates and launches a real personalized
 company policy. The parent can run a validated company goal across bounded

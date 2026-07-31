@@ -412,7 +412,7 @@ describe("runCli", () => {
     expect(stdout.value).toContain("Onboarding complete");
     expect(stdout.value).toContain("Starting a fresh durable session");
     expect(stdout.value).toContain("Full Access was not enabled");
-    expect(stdout.value).toContain("Recurs — local harness mode");
+    expect(stdout.value).toContain("The best coding model is a team.");
     expect(stderr.value).toBe("");
   });
 
@@ -2820,7 +2820,7 @@ describe("runCli", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(stdout.value).toContain("Recurs — local harness mode");
+    expect(stdout.value).toContain("The best coding model is a team.");
     expect(stderr.value).toBe("");
   });
 
@@ -2846,7 +2846,7 @@ describe("runCli", () => {
     })).toBe(0);
 
     expect(runtimeOptions).toEqual({ cwd: await realpath(workspace) });
-    expect(stdout.value).toContain("Recurs — local harness mode");
+    expect(stdout.value).toContain("The best coding model is a team.");
     expect(stderr.value).toBe("");
   });
 

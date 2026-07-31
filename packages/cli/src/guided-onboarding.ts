@@ -60,7 +60,9 @@ import type { TeamControlChanges } from "./team-control-service.js";
 import { writeOutput } from "./render.js";
 import {
   createTerminalTheme,
+  renderOperatingMode,
   renderRecursHeader,
+  renderSetupStep,
 } from "./terminal-style.js";
 
 export interface GuidedChoice {
@@ -1593,7 +1595,9 @@ async function runGuidedOnboardingSteps(
   await writeOutput(ports.stdout, [
     `\n${renderRecursHeader(theme, "Welcome to Recurs")}`,
     "",
-    "Set up Recurs: connect the parent model, set its safety boundary, choose its operating mode, and route specialists. Company formation is optional.",
+    theme.strong("The best coding model is a team. You control the team."),
+    "Connect a parent, set its boundaries, then choose how the team works.",
+    "Company formation is optional.",
     theme.muted("Credentials stay with the vendor runtime or a named process environment—never this generic prompt."),
     "",
   ].join("\n"));
@@ -1623,7 +1627,7 @@ async function runGuidedOnboardingSteps(
   const stepCount = companyOnboarding ? 6 : 5;
   await writeOutput(
     ports.stdout,
-    `${theme.accent(`1 / ${stepCount} · Parent model`)}\n`,
+    `${renderSetupStep(theme, 1, stepCount, "Parent model")}\n`,
   );
   let selected: GuidedConnectionChoice | null = null;
   while (true) {
@@ -1687,19 +1691,19 @@ async function runGuidedOnboardingSteps(
   }
   await writeOutput(
     ports.stdout,
-    `\n${theme.accent(`2 / ${stepCount} · Authority`)}\n`,
+    `\n${renderSetupStep(theme, 2, stepCount, "Authority")}\n`,
   );
   const permissionMode = await selectPermission(ports);
   await writeOutput(
     ports.stdout,
-    `\n${theme.accent(`3 / ${stepCount} · Team`)}\n`,
+    `\n${renderSetupStep(theme, 3, stepCount, "Team")}\n`,
   );
   const operatingModeId = await selectOperatingMode(ports);
   const teamControls = await setupTeamControls(ports, operatingModeId);
   if (teamControls === null) return { state: "failed", exitCode: 2 };
   await writeOutput(
     ports.stdout,
-    `\n${theme.accent(`4 / ${stepCount} · Models`)}\n`,
+    `\n${renderSetupStep(theme, 4, stepCount, "Models")}\n`,
   );
   const accountsAfterConnection = await ports.listAccounts?.() ?? [];
   const routed = await configureTeamRoutes(
@@ -1712,7 +1716,7 @@ async function runGuidedOnboardingSteps(
   if (companyOnboarding) {
     await writeOutput(
       ports.stdout,
-      `\n${theme.accent("5 / 6 · Roster")}\n`,
+      `\n${renderSetupStep(theme, 5, 6, "Roster")}\n`,
     );
     company = await setupCompanyBlueprint(
       ports,
@@ -1722,7 +1726,12 @@ async function runGuidedOnboardingSteps(
   }
   await writeOutput(
     ports.stdout,
-    `\n${theme.accent(`${companyOnboarding ? 6 : 5} / ${stepCount} · Project context`)}\n`,
+    `\n${renderSetupStep(
+      theme,
+      companyOnboarding ? 6 : 5,
+      stepCount,
+      "Project context",
+    )}\n`,
   );
   await setupProjectContext(ports, company.brief);
   throwIfOnboardingAborted(ports.signal);
@@ -1733,7 +1742,11 @@ async function runGuidedOnboardingSteps(
   await writeOutput(ports.stdout, [
     theme.success("Onboarding complete"),
     `Connection: ${primary === undefined ? "ready" : `${primary.label} · ${primary.modelId}`}`,
-    `Team: ${operatingMode.displayName}`,
+    `Team: ${renderOperatingMode(
+      theme,
+      operatingMode.id,
+      operatingMode.displayName,
+    )}`,
     `Team controls: ${teamControls}`,
     `Models: ${routeSummary(accountsAfterRouting)}`,
     `Roster: ${company.blueprintV2 !== undefined

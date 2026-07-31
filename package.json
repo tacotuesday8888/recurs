@@ -1,7 +1,7 @@
 {
   "name": "recurs",
   "version": "0.1.0-alpha.4",
-  "description": "A coding-agent harness with durable, bounded team orchestration",
+  "description": "Open-source coding-agent teams you control, from model routes to delegation depth",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -29,9 +29,12 @@
   },
   "keywords": [
     "agent",
+    "agent-orchestration",
     "cli",
     "coding-agent",
+    "developer-tools",
     "llm",
+    "multi-agent",
     "subagents"
   ],
   "workspaces": [

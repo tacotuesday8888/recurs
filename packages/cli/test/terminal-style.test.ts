@@ -4,8 +4,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   createTerminalTheme,
+  renderChoiceList,
+  renderOperatingMode,
   renderRecursHeader,
   renderRecursWordmark,
+  renderSetupStep,
+  wrapTerminalText,
 } from "../src/terminal-style.js";
 
 class TerminalOutput extends Writable {
@@ -21,6 +25,10 @@ class TerminalOutput extends Writable {
 }
 
 const colorEnvironment = Object.freeze({ TERM: "xterm-256color" });
+const ansi256Pattern = new RegExp(
+  String.raw`\u001B\[38;5;(\d+)m`,
+  "gu",
+);
 
 describe("terminal presentation", () => {
   it("renders the loop-and-return silhouette for a color-capable TTY", () => {
@@ -72,5 +80,67 @@ describe("terminal presentation", () => {
     expect(header.split("\n")).toHaveLength(5);
     expect(header.split("\n")[4]).toContain("Welcome to Recurs");
     expect(header).toContain("Welcome to Recurs");
+  });
+
+  it("gives Max an explicit seven-color identity without making color the label", () => {
+    const theme = createTerminalTheme(new TerminalOutput(), {
+      environment: colorEnvironment,
+    });
+
+    const rendered = renderOperatingMode(theme, "max_v6", "Max");
+
+    expect(rendered).toContain("M");
+    expect(rendered).toContain("A");
+    expect(rendered).toContain("X");
+    expect(new Set(
+      [...rendered.matchAll(ansi256Pattern)]
+        .map((match) => match[1]),
+    ).size).toBeGreaterThanOrEqual(3);
+  });
+
+  it("keeps Max and setup progress readable without color", () => {
+    const theme = createTerminalTheme(new TerminalOutput(), {
+      environment: { TERM: "xterm-256color", NO_COLOR: "1" },
+    });
+
+    expect(renderOperatingMode(theme, "max_v6", "Max")).toBe("MAX");
+    expect(renderSetupStep(theme, 1, 6, "Parent model"))
+      .toBe("01/06  PARENT MODEL");
+  });
+
+  it("wraps copy to a narrow terminal without breaking words", () => {
+    expect(
+      wrapTerminalText(
+        "The best coding model is a team. You control the team.",
+        23,
+      ),
+    ).toEqual([
+      "The best coding model",
+      "is a team. You control",
+      "the team.",
+    ]);
+  });
+
+  it("bounds long model identifiers that cannot wrap at spaces", () => {
+    const lines = wrapTerminalText("PARENT model-with-a-very-long-id", 12);
+
+    expect(lines.every((line) => Array.from(line).length <= 12)).toBe(true);
+    expect(lines.join("")).toContain("model-with-a-very-long-id");
+  });
+
+  it("renders setup choices with scannable numeric anchors", () => {
+    const theme = createTerminalTheme(new TerminalOutput(), {
+      environment: { TERM: "xterm-256color", NO_COLOR: "1" },
+    });
+
+    expect(renderChoiceList(theme, [
+      { label: "Approved for Me", detail: "ask before consequential actions" },
+      { label: "Ask Always", detail: "confirm every command" },
+    ])).toBe([
+      "  01  Approved for Me",
+      "      ask before consequential actions",
+      "  02  Ask Always",
+      "      confirm every command",
+    ].join("\n"));
   });
 });

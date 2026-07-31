@@ -82,6 +82,7 @@ function createStatusCommand(): Command {
       ].filter((value): value is string => value !== null);
       return message(
         [
+          "SESSION",
           `Session: ${context.session.id}`,
           ...(context.session.forkedFrom === null ? [] : [
             `Forked from: ${context.session.forkedFrom.sessionId} at sequence ${context.session.forkedFrom.sequence}`,
@@ -92,10 +93,14 @@ function createStatusCommand(): Command {
             ? context.session.backend.pin.reasoningEffortAtCreation ??
               "provider default"
             : "provider default"}`,
+          "",
+          "AGENT",
           `Execution: ${context.session.executionMode === "plan" ? "Plan" : "Act"}`,
           `Permissions: ${permissionLabel(context.session.permissionMode)}`,
           `Agent mode: ${agentMode}`,
           `Goal: ${goal}`,
+          "",
+          "USAGE",
           `Usage: ${context.session.usage.inputTokens} input / ${context.session.usage.outputTokens} output tokens`,
           ...(usageDetail.length === 0
             ? []

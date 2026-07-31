@@ -3,7 +3,7 @@
 Recurs is a TypeScript coding-agent harness for interactive work, bounded
 headless runs, repository review, and durable agent teams.
 
-## Install from source
+## Install
 
 Requirements:
 
@@ -11,6 +11,29 @@ Requirements:
 - Git 2.45 or newer
 - ripgrep
 - Bubblewrap on Linux for subprocess tools
+
+The shortest supported path is npm:
+
+```bash
+npm install --global recurs@alpha
+recurs
+```
+
+`--global` only makes the `recurs` command available from any directory.
+
+The same reviewed npm artifact is also available through Bun-as-installer, the
+checksummed GitHub release installer, and Homebrew:
+
+```bash
+bun install --global recurs@alpha
+curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.4/install.sh | sh
+brew install tacotuesday8888/recurs/recurs
+```
+
+All four paths require Node.js. Bun installs the package but is not a supported
+Recurs runtime. There is no signed standalone binary or desktop release.
+
+To run from source:
 
 ```bash
 git clone https://github.com/tacotuesday8888/recurs.git
@@ -21,17 +44,9 @@ npm link
 recurs
 ```
 
-Recurs is an unpublished alpha. The commands above use npm to install from a
-source checkout; `npm install -g recurs` does not work because the registry
-package is not published. No Homebrew tap, curl release, signed binary, or
-desktop release is available. A pinned Linux smoke verifies that Bun can
-globally install the prepared npm tarball, but there is nothing public for it
-to install yet. Recurs still launches through `#!/usr/bin/env node` and requires
-Node.js 22.22+; Bun is not a supported runtime and `bun run` is not claimed.
-
 The packaged Recurs artifact is gated below 2.1 MB unpacked, but its runtime
-dependencies are installed separately. The 2026-07-26 exact local alpha
-measured 414 KiB compressed / 1.79 MiB unpacked and about 38.7 MiB in a clean
+dependencies are installed separately. The `0.1.0-alpha.4` artifact measured
+433 KiB compressed / 1.87 MiB unpacked and about 38.8 MiB in a clean
 Apple-silicon production prefix, without Codex. The source-development tree is
 larger because it retains exact Codex compatibility fixtures. Treat these as
 directional measurements because platform packages and npm versions differ.
