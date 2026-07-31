@@ -15,6 +15,15 @@ export const RECURS_BRAND = Object.freeze({
     "▜█▀▜▙ ",
     "◀▀  ▝▀",
   ]),
+  terminalWordmarkRows: Object.freeze([
+    "████   █████   ████  █   █  ████   ████",
+    "█   █  █      █      █   █  █   █  █    ",
+    "█   █  █      █      █   █  █   █  █    ",
+    "████   ████   █      █   █  ████    ███ ",
+    "█ █    █      █      █   █  █ █        █",
+    "█  █   █      █      █   █  █  █       █",
+    "█   █  █████   ████   ███   █   █  ████ ",
+  ]),
   terminalPreview: Object.freeze({
     evidenceLabel: "ACTUAL ALPHA RUN · 2026-07-23",
     rows: Object.freeze([

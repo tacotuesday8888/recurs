@@ -3,6 +3,7 @@ import type { Writable } from "node:stream";
 import {
   RECURS_MARK_ANSI_256,
   RECURS_TERMINAL_ROWS,
+  RECURS_TERMINAL_WORDMARK_ROWS,
 } from "./generated/recurs-brand.js";
 
 type TerminalEnvironment = Readonly<Record<string, string | undefined>>;
@@ -90,10 +91,19 @@ function isMaxMode(modeId: string | undefined): boolean {
 
 export function renderRecursWordmark(
   theme: TerminalTheme,
-  options: { readonly modeId?: string } = {},
+  options: {
+    readonly columns?: number;
+    readonly modeId?: string;
+  } = {},
 ): string {
   if (!theme.colorEnabled) return "";
-  return RECURS_TERMINAL_ROWS.map((row, rowIndex) =>
+  const wordmarkWidth = Math.max(
+    ...RECURS_TERMINAL_WORDMARK_ROWS.map((row) => Array.from(row).length),
+  );
+  const rows = (options.columns ?? wordmarkWidth) >= wordmarkWidth
+    ? RECURS_TERMINAL_WORDMARK_ROWS
+    : RECURS_TERMINAL_ROWS;
+  return rows.map((row, rowIndex) =>
     Array.from(row, (glyph, glyphIndex) =>
       glyph === " "
         ? glyph
@@ -117,7 +127,10 @@ export function renderRecursWordmark(
 export function renderRecursHeader(
   theme: TerminalTheme,
   fallback: string,
-  options: { readonly modeId?: string } = {},
+  options: {
+    readonly columns?: number;
+    readonly modeId?: string;
+  } = {},
 ): string {
   const wordmark = renderRecursWordmark(theme, options);
   if (wordmark.length === 0) return fallback;

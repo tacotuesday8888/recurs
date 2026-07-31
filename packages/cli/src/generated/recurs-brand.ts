@@ -2,4 +2,6 @@
 
 export const RECURS_TERMINAL_ROWS = Object.freeze(["▗█▀▀█▖","█▌ ▗█▘","▜█▀▜▙ ","◀▀  ▝▀"]);
 
+export const RECURS_TERMINAL_WORDMARK_ROWS = Object.freeze(["████   █████   ████  █   █  ████   ████","█   █  █      █      █   █  █   █  █    ","█   █  █      █      █   █  █   █  █    ","████   ████   █      █   █  ████    ███ ","█ █    █      █      █   █  █ █        █","█  █   █      █      █   █  █  █       █","█   █  █████   ████   ███   █   █  ████ "]);
+
 export const RECURS_MARK_ANSI_256 = Object.freeze([33,39,45,51,49,83,118]);
