@@ -20,6 +20,16 @@ class TextOutput extends Writable {
   }
 }
 
+const ansiPattern = new RegExp(String.raw`\u001B\[[0-9;]*m`, "gu");
+const ansi256Pattern = new RegExp(
+  String.raw`\u001B\[38;5;(\d+)m`,
+  "gu",
+);
+
+function withoutAnsi(value: string): string {
+  return value.replaceAll(ansiPattern, "");
+}
+
 function failingRuntime(error: Error): RecursRuntime {
   let submissions = 0;
   return {
@@ -38,7 +48,7 @@ function failingRuntime(error: Error): RecursRuntime {
 }
 
 describe("startRepl", () => {
-  it("renders the compact gradient signature only for a color-capable terminal", async () => {
+  it("renders the compact pixel signature only for a color-capable terminal", async () => {
     const output = new TextOutput();
     const runtime = {
       state: { type: "session" },
@@ -57,8 +67,8 @@ describe("startRepl", () => {
 
     expect(output.value).toContain("\u001b[38;5;33m");
     expect(output.value).toContain("◀");
-    expect(output.value).toContain("Recurs — local harness mode");
-    expect(output.value).toContain("\u001b[96mrecurs> \u001b[0m");
+    expect(output.value).toContain("The best coding model is a team.");
+    expect(output.value).toContain("\u001b[96mrecurs › \u001b[0m");
   });
 
   it("keeps non-terminal output plain and compact", async () => {
@@ -78,9 +88,116 @@ describe("startRepl", () => {
       environment: { TERM: "xterm-256color" },
     });
 
-    expect(output.value).toContain("Recurs — local harness mode");
+    expect(output.value).toContain("RECURS");
+    expect(output.value).toContain("The best coding model is a team.");
     expect(output.value).not.toContain("\u001b[");
     expect(output.value).not.toContain("█");
+  });
+
+  it("shows a truthful rainbow Max session snapshot and prompt", async () => {
+    const output = new TextOutput();
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          version: 2,
+          lastSequence: 0,
+          backend: { type: "pinned" },
+          model: "gpt-5.6-sol",
+          executionMode: "act",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "max_v6" } },
+        },
+      },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async close() {},
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+
+    await startRepl(runtime, {
+      input: Readable.from(["/quit\n"]),
+      output,
+      terminal: true,
+      environment: { TERM: "xterm-256color" },
+    });
+
+    expect(withoutAnsi(output.value)).toContain("MAX TEAM");
+    expect(withoutAnsi(output.value)).toContain("PARENT · gpt-5.6-sol");
+    expect(withoutAnsi(output.value)).toContain("ACT · APPROVED FOR ME");
+    expect(new Set(
+      [...output.value.matchAll(ansi256Pattern)]
+        .map((match) => match[1]),
+    ).size).toBeGreaterThanOrEqual(7);
+  });
+
+  it("keeps the startup presentation inside a narrow terminal", async () => {
+    const output = new TextOutput();
+    const runtime = {
+      state: { type: "session" },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async close() {},
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+
+    await startRepl(runtime, {
+      input: Readable.from(["/quit\n"]),
+      output,
+      terminal: true,
+      columns: 32,
+      environment: { TERM: "xterm-256color" },
+    });
+
+    for (const line of withoutAnsi(output.value).split("\n")) {
+      expect(Array.from(line).length).toBeLessThanOrEqual(32);
+    }
+  });
+
+  it("updates the prompt after the operating mode changes", async () => {
+    const output = new TextOutput();
+    const input = new PassThrough();
+    let operatingModeId = "balanced_v6";
+    const runtime = {
+      get state() {
+        return {
+          type: "session",
+          session: {
+            version: 2,
+            lastSequence: 0,
+            backend: { type: "pinned" },
+            model: "parent-model",
+            executionMode: "act",
+            permissionMode: "approved_for_me",
+            agent: { operatingMode: { id: operatingModeId } },
+          },
+        };
+      },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async close() {},
+      async submit(input: string) {
+        if (input === "/agents mode max") {
+          operatingModeId = "max_v6";
+          return { type: "message" as const, level: "info" as const, text: "Mode updated" };
+        }
+        return { type: "quit" as const };
+      },
+    } as unknown as RecursRuntime;
+
+    const repl = startRepl(runtime, {
+      input,
+      output,
+      terminal: true,
+      environment: { TERM: "xterm-256color" },
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    input.write("/agents mode max\n");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    input.write("/quit\n");
+    await repl;
+
+    expect(withoutAnsi(output.value)).toContain("MAX recurs › ");
   });
 
   it("stages path-free images for exactly the next ordinary prompt", async () => {

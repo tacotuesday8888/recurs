@@ -135,6 +135,10 @@ import {
   isCancellation,
   type RecursRuntime,
 } from "./runtime.js";
+import {
+  createTerminalTheme,
+  renderChoiceList,
+} from "./terminal-style.js";
 
 const help = CLI_HELP;
 
@@ -2071,11 +2075,12 @@ export async function runCliProcess(
     message: string,
     choices: readonly GuidedChoice[],
   ): Promise<string | null> => {
-    const rendered = choices.map((choice, index) =>
-      `  ${index + 1}. ${choice.label}\n     ${choice.detail}`
-    ).join("\n");
+    const rendered = renderChoiceList(
+      createTerminalTheme(processStdout),
+      choices,
+    );
     const answer = await promptText(
-      `${message}:\n${rendered}\nEnter a number or exact ID`,
+      `${message}:\n${rendered}\nChoose by number or exact ID`,
     );
     if (answer === null) return null;
     if (/^[1-9][0-9]*$/u.test(answer)) {

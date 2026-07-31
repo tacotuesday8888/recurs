@@ -4,12 +4,14 @@ import type { Readable, Writable } from "node:stream";
 
 import {
   createHostInvocation,
+  getOperatingModePolicy,
   MAX_MODEL_IMAGES,
   MAX_MODEL_IMAGE_TOTAL_BYTES,
   modelImagesByteLength,
   type HostInvocation,
   type ModelImageInput,
 } from "@recurs/contracts";
+import { isPinnedSessionState, type SessionState } from "@recurs/core";
 
 import { parseCommand } from "./commands/parser.js";
 import type { CommandResult } from "./commands/types.js";
@@ -18,8 +20,11 @@ import { ImageInputError, loadImageInputs } from "./image-input.js";
 import { renderCommandResult, writeOutput } from "./render.js";
 import {
   createTerminalTheme,
+  renderOperatingMode,
   renderRecursHeader,
+  wrapTerminalText,
 } from "./terminal-style.js";
+import { permissionLabel } from "./commands/permissions.js";
 import { isCancellation, type RecursRuntime } from "./runtime.js";
 import {
   attachOwnedTerminalProcess,
@@ -39,6 +44,91 @@ export interface ReplOptions {
     cwd: string,
   ) => Promise<readonly ModelImageInput[]>;
   environment?: Readonly<Record<string, string | undefined>>;
+  columns?: number;
+}
+
+const RECURS_PROMISE = "The best coding model is a team. You control the team.";
+
+function terminalColumns(output: Writable, requested?: number): number {
+  const detected = (output as Writable & { readonly columns?: number }).columns;
+  const columns = requested ?? detected ?? 80;
+  return Number.isSafeInteger(columns) && columns >= 20 ? columns : 80;
+}
+
+function sessionFromRuntime(
+  runtime: RecursRuntime,
+): SessionState | undefined {
+  const state = runtime.state as
+    | { readonly type: "workspace" }
+    | { readonly type: "session"; readonly session?: SessionState }
+    | undefined;
+  return state?.type === "session" ? state.session : undefined;
+}
+
+function currentOperatingModeId(runtime: RecursRuntime): string | undefined {
+  const session = sessionFromRuntime(runtime);
+  return session !== undefined && isPinnedSessionState(session)
+    ? session.agent.operatingMode.id
+    : undefined;
+}
+
+function renderReplPrompt(
+  runtime: RecursRuntime,
+  theme: ReturnType<typeof createTerminalTheme>,
+): string {
+  return currentOperatingModeId(runtime)?.startsWith("max_") === true
+    ? `${theme.rainbow("MAX")} ${theme.accent("recurs › ")}`
+    : theme.accent("recurs › ");
+}
+
+function renderReplBanner(
+  runtime: RecursRuntime,
+  theme: ReturnType<typeof createTerminalTheme>,
+  columns: number,
+): string {
+  const session = sessionFromRuntime(runtime);
+  const pinned = session !== undefined && isPinnedSessionState(session)
+    ? session
+    : undefined;
+  const mode = pinned === undefined
+    ? undefined
+    : getOperatingModePolicy(pinned.agent.operatingMode.id);
+  const modeId = mode?.id;
+  const lines = [
+    renderRecursHeader(
+      theme,
+      "RECURS",
+      modeId === undefined ? {} : { modeId },
+    ),
+    ...wrapTerminalText(RECURS_PROMISE, columns).map(theme.muted),
+  ];
+  if (session === undefined) {
+    lines.push(theme.warning("SETUP · CONNECT A PARENT MODEL"));
+  } else {
+    if (mode === undefined) {
+      lines.push(theme.strong("SINGLE AGENT"));
+    } else {
+      lines.push(
+        `${
+          renderOperatingMode(
+            theme,
+            mode.id,
+            mode.displayName.toUpperCase(),
+          )
+        } TEAM`,
+      );
+    }
+    lines.push(
+      `${session.executionMode.toUpperCase()} · ${
+        permissionLabel(session.permissionMode).toUpperCase()
+      }`,
+    );
+    for (const line of wrapTerminalText(`PARENT · ${session.model}`, columns)) {
+      lines.push(theme.muted(line));
+    }
+  }
+  lines.push(theme.muted("Type /help for commands."));
+  return `${lines.join("\n")}\n`;
 }
 
 function stagedImagesText(images: readonly ModelImageInput[]): string {
@@ -144,6 +234,11 @@ export async function startRepl(
       ? {}
       : { environment: options.environment }),
   });
+  const presentation = renderReplBanner(
+    runtime,
+    theme,
+    terminalColumns(output, options.columns),
+  );
   const createReadline = () => createInterface({
     input,
     output,
@@ -198,7 +293,7 @@ export async function startRepl(
 
   await writeOutput(
     output,
-    `${renderRecursHeader(theme, "Recurs — local harness mode")}\n${theme.muted("Type /help for commands.")}\n`,
+    presentation,
   );
   if (runtime.state?.type === "workspace") {
     await writeOutput(
@@ -309,7 +404,7 @@ export async function startRepl(
       pendingMainQuestion = mainQuestion;
       try {
         inputLine = await question(
-          theme.accent("recurs> "),
+          renderReplPrompt(runtime, theme),
           mainQuestion.controller.signal,
         );
       } catch {

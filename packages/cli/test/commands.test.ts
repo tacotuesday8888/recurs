@@ -254,7 +254,7 @@ describe("foundation slash commands", () => {
 
     expect(await registry.execute("/status", context)).toMatchObject({
       text: expect.stringMatching(
-        /Reasoning effort: provider default[\s\S]*Ask Always[\s\S]*Usage detail: 12 cached input \/ 2 cache-write input \/ 4 reasoning tokens \(provider-reported\)[\s\S]*Context limits: unknown/u,
+        /SESSION[\s\S]*Reasoning effort: provider default[\s\S]*AGENT[\s\S]*Ask Always[\s\S]*USAGE[\s\S]*Usage detail: 12 cached input \/ 2 cache-write input \/ 4 reasoning tokens \(provider-reported\)[\s\S]*Context limits: unknown/u,
       ),
     });
     expect(await registry.execute("/help", context)).toMatchObject({

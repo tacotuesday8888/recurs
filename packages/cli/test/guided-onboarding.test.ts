@@ -1070,7 +1070,7 @@ describe("guided onboarding policy", () => {
     expect(confirmations[1]).toContain("Approve and activate");
     expect(confirmations[2]).toContain("never overwrite");
     expect(output.join("")).toMatch(
-      /2 \/ 6 · Authority[\s\S]*3 \/ 6 · Team[\s\S]*4 \/ 6 · Models[\s\S]*5 \/ 6 · Roster[\s\S]*6 \/ 6 · Project context/u,
+      /02\/06 {2}AUTHORITY[\s\S]*03\/06 {2}TEAM[\s\S]*04\/06 {2}MODELS[\s\S]*05\/06 {2}ROSTER[\s\S]*06\/06 {2}PROJECT CONTEXT/u,
     );
     expect(output.join("")).toMatch(
       /Team: Balanced[\s\S]*Models: implement:[\s\S]*Roster: Recommended[\s\S]*Authority: Approved for Me[\s\S]*Models Auto becomes available after eligible real company-goal evidence/u,
