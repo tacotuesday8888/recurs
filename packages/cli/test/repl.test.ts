@@ -48,7 +48,7 @@ function failingRuntime(error: Error): RecursRuntime {
 }
 
 describe("startRepl", () => {
-  it("renders the compact pixel signature only for a color-capable terminal", async () => {
+  it("renders the full pixel wordmark only for a wide color-capable terminal", async () => {
     const output = new TextOutput();
     const runtime = {
       state: { type: "session" },
@@ -66,7 +66,9 @@ describe("startRepl", () => {
     });
 
     expect(output.value).toContain("\u001b[38;5;33m");
-    expect(output.value).toContain("◀");
+    expect(withoutAnsi(output.value)).toContain(
+      "████   █████   ████  █   █  ████   ████",
+    );
     expect(output.value).toContain("The best coding model is a team.");
     expect(output.value).toContain("\u001b[96mrecurs › \u001b[0m");
   });

@@ -1592,8 +1592,10 @@ async function runGuidedOnboardingSteps(
     return { state: "failed", exitCode: 2 };
   }
   const theme = createTerminalTheme(ports.stdout);
+  const columns = (ports.stdout as Writable & { readonly columns?: number })
+    .columns ?? 80;
   await writeOutput(ports.stdout, [
-    `\n${renderRecursHeader(theme, "Welcome to Recurs")}`,
+    `\n${renderRecursHeader(theme, "Welcome to Recurs", { columns })}`,
     "",
     theme.strong("The best coding model is a team. You control the team."),
     "Connect a parent, set its boundaries, then choose how the team works.",

@@ -31,17 +31,39 @@ const ansi256Pattern = new RegExp(
 );
 
 describe("terminal presentation", () => {
-  it("renders the loop-and-return silhouette for a color-capable TTY", () => {
+  it("renders the full pixel wordmark for a wide color-capable TTY", () => {
     const theme = createTerminalTheme(new TerminalOutput(), {
       environment: colorEnvironment,
     });
 
-    const wordmark = renderRecursWordmark(theme);
+    const wordmark = renderRecursWordmark(theme, { columns: 80 });
+    const plain = wordmark.replaceAll(ansi256Pattern, "").replaceAll(
+      "\u001b[0m",
+      "",
+    );
 
     expect(theme.colorEnabled).toBe(true);
-    expect(wordmark.split("\n")).toHaveLength(4);
+    expect(plain.split("\n")).toEqual([
+      "████   █████   ████  █   █  ████   ████",
+      "█   █  █      █      █   █  █   █  █    ",
+      "█   █  █      █      █   █  █   █  █    ",
+      "████   ████   █      █   █  ████    ███ ",
+      "█ █    █      █      █   █  █ █        █",
+      "█  █   █      █      █   █  █  █       █",
+      "█   █  █████   ████   ███   █   █  ████ ",
+    ]);
     expect(wordmark).toContain("\u001b[38;5;33m");
     expect(wordmark).toContain("\u001b[38;5;118m");
+  });
+
+  it("keeps the returning-loop mark when the terminal is narrow", () => {
+    const theme = createTerminalTheme(new TerminalOutput(), {
+      environment: colorEnvironment,
+    });
+
+    const wordmark = renderRecursWordmark(theme, { columns: 32 });
+
+    expect(wordmark.split("\n")).toHaveLength(4);
     expect(wordmark).toContain("◀");
     expect(wordmark.match(/█/g)?.length).toBeGreaterThan(4);
     expect(wordmark.match(/▀/g)?.length).toBeGreaterThan(3);
@@ -75,10 +97,12 @@ describe("terminal presentation", () => {
       environment: colorEnvironment,
     });
 
-    const header = renderRecursHeader(theme, "Welcome to Recurs");
+    const header = renderRecursHeader(theme, "Welcome to Recurs", {
+      columns: 80,
+    });
 
-    expect(header.split("\n")).toHaveLength(5);
-    expect(header.split("\n")[4]).toContain("Welcome to Recurs");
+    expect(header.split("\n")).toHaveLength(8);
+    expect(header.split("\n")[7]).toContain("Welcome to Recurs");
     expect(header).toContain("Welcome to Recurs");
   });
 

@@ -98,7 +98,7 @@ function renderReplBanner(
     renderRecursHeader(
       theme,
       "RECURS",
-      modeId === undefined ? {} : { modeId },
+      modeId === undefined ? { columns } : { columns, modeId },
     ),
     ...wrapTerminalText(RECURS_PROMISE, columns).map(theme.muted),
   ];
