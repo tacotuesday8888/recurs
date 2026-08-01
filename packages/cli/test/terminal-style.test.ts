@@ -43,14 +43,18 @@ describe("terminal presentation", () => {
     );
 
     expect(theme.colorEnabled).toBe(true);
-    expect(plain.split("\n")).toEqual([
+    const rows = plain.split("\n");
+    expect(rows.map((row) => row.trim())).toEqual([
       "████   █████   ████  █   █  ████   ████",
-      "█   █  █      █      █   █  █   █  █    ",
-      "█   █  █      █      █   █  █   █  █    ",
-      "████   ████   █      █   █  ████    ███ ",
+      "█   █  █      █      █   █  █   █  █",
+      "█   █  █      █      █   █  █   █  █",
+      "████   ████   █      █   █  ████    ███",
       "█ █    █      █      █   █  █ █        █",
       "█  █   █      █      █   █  █  █       █",
-      "█   █  █████   ████   ███   █   █  ████ ",
+      "█   █  █████   ████   ███   █   █  ████",
+    ]);
+    expect(rows.map((row) => row.indexOf("█"))).toEqual([
+      23, 22, 21, 20, 19, 18, 17,
     ]);
     expect(wordmark).toContain("\u001b[38;5;33m");
     expect(wordmark).toContain("\u001b[38;5;118m");
@@ -67,6 +71,12 @@ describe("terminal presentation", () => {
     expect(wordmark).toContain("◀");
     expect(wordmark.match(/█/g)?.length).toBeGreaterThan(4);
     expect(wordmark.match(/▀/g)?.length).toBeGreaterThan(3);
+    const plain = wordmark.replaceAll(ansi256Pattern, "").replaceAll(
+      "\u001b[0m",
+      "",
+    );
+    expect(plain.split("\n").map((row) => row.search(/[▗█▜◀]/u)))
+      .toEqual([14, 13, 12, 11]);
   });
 
   it.each([

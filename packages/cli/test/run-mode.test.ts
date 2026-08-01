@@ -2664,6 +2664,7 @@ describe("runCli", () => {
     ["provider", "Inspect available provider paths", "provider models"],
     ["account", "Manage saved non-secret", "account set-primary"],
     ["doctor", "Check Recurs installation", "recurs doctor [--json]"],
+    ["data", "Locate Recurs durable local data", "recurs data path"],
     [
       "benchmark",
       "Run the bounded single-agent versus company proof",
@@ -2769,6 +2770,47 @@ describe("runCli", () => {
     }
     expect(receivedCwd).toBe("/ready-workspace");
     expect(runtimeCreated).toBe(false);
+  });
+
+  it("reports the durable data path without reading it or starting a runtime", async () => {
+    for (const [argv, expected] of [
+      [["data", "path"], 'Recurs data directory: "/private/recurs"\n'],
+      [["data", "path", "--json"], {
+        version: 1,
+        type: "data_path",
+        path: "/private/recurs",
+      }],
+    ] as const) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      expect(await runCli(argv, {
+        stdout,
+        stderr,
+        dataDirectory: "/private/recurs",
+        async createRuntime() {
+          throw new Error("runtime must not start");
+        },
+      })).toBe(0);
+      expect(
+        typeof expected === "string" ? stdout.value : JSON.parse(stdout.value),
+      ).toEqual(expected);
+      expect(stderr.value).toBe("");
+    }
+  });
+
+  it("rejects invalid data commands without exposing a path", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    expect(await runCli(["data", "delete"], {
+      stdout,
+      stderr,
+      dataDirectory: "/private/recurs",
+      async createRuntime() {
+        throw new Error("runtime must not start");
+      },
+    })).toBe(2);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).not.toContain("/private/recurs");
   });
 
   it("returns one for failed readiness and 130 for cancellation", async () => {

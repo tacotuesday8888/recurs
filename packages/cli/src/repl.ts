@@ -19,6 +19,7 @@ import { safeCliErrorMessage } from "./error-rendering.js";
 import { ImageInputError, loadImageInputs } from "./image-input.js";
 import { renderCommandResult, writeOutput } from "./render.js";
 import {
+  centerTerminalText,
   createTerminalTheme,
   renderOperatingMode,
   renderRecursHeader,
@@ -47,7 +48,20 @@ export interface ReplOptions {
   columns?: number;
 }
 
+export type ReplCompletion = [string[], string];
+
 const RECURS_PROMISE = "The best coding model is a team. You control the team.";
+
+export function completeReplInput(
+  line: string,
+  commandNames: readonly string[],
+): ReplCompletion {
+  if (!line.startsWith("/") || /\s/u.test(line)) return [[], line];
+  const commands = [...new Set([...commandNames, "image"])]
+    .map((name) => `/${name}`)
+    .sort((left, right) => left.localeCompare(right));
+  return [commands.filter((command) => command.startsWith(line)), line];
+}
 
 function terminalColumns(output: Writable, requested?: number): number {
   const detected = (output as Writable & { readonly columns?: number }).columns;
@@ -100,7 +114,9 @@ function renderReplBanner(
       "RECURS",
       modeId === undefined ? { columns } : { columns, modeId },
     ),
-    ...wrapTerminalText(RECURS_PROMISE, columns).map(theme.muted),
+    ...wrapTerminalText(RECURS_PROMISE, columns).map((line) =>
+      theme.muted(centerTerminalText(line, columns))
+    ),
   ];
   if (session === undefined) {
     lines.push(theme.warning("SETUP · CONNECT A PARENT MODEL"));
@@ -239,10 +255,14 @@ export async function startRepl(
     theme,
     terminalColumns(output, options.columns),
   );
+  const commandNames = typeof runtime.commandNames === "function"
+    ? runtime.commandNames()
+    : Object.freeze([]);
   const createReadline = () => createInterface({
     input,
     output,
     terminal,
+    completer: (line) => completeReplInput(line, commandNames),
   });
   let readline = createReadline();
   let questionTail = Promise.resolve();

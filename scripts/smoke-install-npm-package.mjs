@@ -589,6 +589,24 @@ try {
     "The installed CLI version did not match the exact packed artifact.",
   );
   assert(versionError === "", "The installed CLI wrote version diagnostics.");
+  const { stdout: dataPathOutput, stderr: dataPathError } = await execFileAsync(
+    executable,
+    ["data", "path", "--json"],
+    {
+      cwd: installDirectory,
+      encoding: "utf8",
+      env: environment,
+    },
+  );
+  assert(
+    JSON.stringify(JSON.parse(dataPathOutput)) === JSON.stringify({
+      version: 1,
+      type: "data_path",
+      path: environment.RECURS_HOME,
+    }),
+    "The installed CLI did not report its exact durable-data path.",
+  );
+  assert(dataPathError === "", "The installed CLI wrote data-path diagnostics.");
   const { stdout: runHelp, stderr: runHelpError } = await execFileAsync(
     executable,
     ["run", "--help"],

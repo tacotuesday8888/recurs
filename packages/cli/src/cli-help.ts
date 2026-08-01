@@ -24,6 +24,7 @@ Usage:
   recurs account verify <id>
   recurs account disconnect <id>
   recurs doctor [--json]         Check installation and execution readiness
+  recurs data path [--json]      Show the durable local-data directory
   recurs eval company [--json]   Run a bounded company-formation evaluation
   recurs benchmark company --configured --allow-network [--scenario <id>] [--repetitions 1|2|3] [--compare-all-strong] [--json]
   recurs help <command>          Show scoped command help
@@ -116,6 +117,15 @@ Usage:
 The default report checks Node.js, Git, ripgrep, the current Git worktree, saved
 provider metadata, and a real network-denied OS-sandbox launch. It is read-only,
 does not contact a provider, and never reveals paths, account values, or secrets.
+`,
+  data: `Locate Recurs durable local data
+
+Usage:
+  recurs data path [--json]
+
+The directory contains private sessions, prompts, tool records, checkpoints,
+provider-routing metadata, and company state. This command only reports its
+location; it never reads or deletes the directory.
 `,
   eval: `Evaluate the bounded company foundation
 
