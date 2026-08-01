@@ -1601,11 +1601,7 @@ export async function createStandaloneRuntime(
       if (options.approvalHandler !== undefined) {
         return await options.approvalHandler.request(intent);
       }
-      const allowed =
-        (await runtimeReference.current?.confirm(
-          `Allow ${intent.category} access to ${intent.resource}?`,
-        )) ?? false;
-      return allowed ? "allow_once" as const : "deny" as const;
+      return await runtimeReference.current?.requestApproval(intent) ?? "deny";
     },
   };
   const runtimeContextInstructions = async (session: SessionState) => {

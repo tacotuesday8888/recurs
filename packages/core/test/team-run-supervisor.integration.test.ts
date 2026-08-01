@@ -753,7 +753,7 @@ describe("TeamRunSupervisor Git integration", () => {
     }, context);
     expect(result.output).toContain("Company goal completed");
     expect(observedRoles).toEqual([
-      "lead", "implement", "implement", "review", "review", "repair", "review",
+      "lead", "implement", "implement", "review", "repair", "review",
     ]);
     expect(await readFile(path.join(repository, "alpha.txt"), "utf8"))
       .toBe("alpha implemented with boundary\n");
@@ -765,10 +765,10 @@ describe("TeamRunSupervisor Git integration", () => {
       budget: {
         assignmentsStarted: 4,
         requestsReserved: 66,
-        requestsUsed: 7,
-        reportedCostUsd: 0.07,
+        requestsUsed: 6,
       },
     });
+    expect(goal.state.budget.reportedCostUsd).toBeCloseTo(0.06);
     expect(goal.state.plan.assignments.map((assignment) => assignment.status))
       .toEqual(["completed", "completed", "completed", "completed"]);
     expect(goal.state.plan.assignments.slice(1).every((assignment) =>

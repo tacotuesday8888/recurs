@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   completeReplInput,
+  replApprovalResponse,
   startRepl,
   type RecursRuntime,
 } from "../src/index.js";
@@ -33,6 +34,16 @@ const ansi256Pattern = new RegExp(
 function withoutAnsi(value: string): string {
   return value.replaceAll(ansiPattern, "");
 }
+
+describe("replApprovalResponse", () => {
+  it("distinguishes one-time, session, and denied approvals", () => {
+    expect(replApprovalResponse("yes")).toBe("allow_once");
+    expect(replApprovalResponse("a")).toBe("allow_session");
+    expect(replApprovalResponse("session")).toBe("allow_session");
+    expect(replApprovalResponse("no")).toBe("deny");
+    expect(replApprovalResponse("")).toBe("deny");
+  });
+});
 
 function failingRuntime(error: Error): RecursRuntime {
   let submissions = 0;

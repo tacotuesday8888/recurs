@@ -281,6 +281,10 @@ export type RecursEvent =
       routeReason?: TeamRunBackendRoute["reason"];
       modelId?: string;
       reasoningEffort?: ModelReasoningEffort | null;
+      childStatus?: "completed" | "failed" | "cancelled";
+      reviewVerdict?: "approved" | "changes_requested" | "unverified";
+      findingCount?: number;
+      changedFileCount?: number;
       goalRunId?: string;
       assignmentId?: string;
       companyRoleId?: string;
@@ -547,6 +551,19 @@ export function projectTeamRunActivityEvent(
       modelId: route.pin.modelId,
       reasoningEffort: route.pin.reasoningEffortAtCreation ?? null,
     }),
+    ...(record.type === "child_finished"
+      ? {
+          childStatus: record.child.status,
+          changedFileCount: record.child.changedFiles.length,
+        }
+      : record.type === "review_recorded"
+        ? {
+            reviewVerdict: record.review.verdict,
+            findingCount: record.review.findings.length,
+          }
+        : record.type === "candidate_ready" || record.type === "apply_committed"
+          ? { changedFileCount: record.changedFiles.length }
+          : {}),
     ...(companyBinding === undefined || state.descriptor.companyGoal === undefined
       ? {}
       : {

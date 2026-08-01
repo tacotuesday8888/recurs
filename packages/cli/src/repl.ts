@@ -12,6 +12,7 @@ import {
   type ModelImageInput,
 } from "@recurs/contracts";
 import { isPinnedSessionState, type SessionState } from "@recurs/core";
+import type { ApprovalResponse } from "@recurs/tools";
 
 import { parseCommand } from "./commands/parser.js";
 import type { CommandResult } from "./commands/types.js";
@@ -49,6 +50,14 @@ export interface ReplOptions {
 }
 
 export type ReplCompletion = [string[], string];
+
+export function replApprovalResponse(input: string): ApprovalResponse {
+  const answer = input.trim().toLowerCase();
+  if (answer === "a" || answer === "always" || answer === "session") {
+    return "allow_session";
+  }
+  return answer === "y" || answer === "yes" ? "allow_once" : "deny";
+}
 
 const RECURS_PROMISE = "The best coding model is a team. You control the team.";
 
@@ -297,6 +306,13 @@ export async function startRepl(
       runtime.currentSignal(),
     );
     return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
+  });
+  runtime.setApprovalHandler?.(async (intent) => {
+    const answer = await prioritizedQuestion(
+      `Allow ${intent.category} access to ${intent.resource}? [y] once / [a] session / [N] deny `,
+      runtime.currentSignal(),
+    );
+    return replApprovalResponse(answer);
   });
   runtime.setUserInputHandler?.(async (request, signal) => {
     const answer = await prioritizedQuestion(userInputPrompt(request), signal);

@@ -91,6 +91,23 @@ async function runtimeWith(
 }
 
 describe("RecursRuntime", () => {
+  it("supports exact session approval without exposing terminal controls", async () => {
+    const runtime = await runtimeWith(new ScriptedProvider([]));
+    let resource = "";
+    runtime.setApprovalHandler(async (intent) => {
+      resource = intent.resource;
+      return "allow_session";
+    });
+
+    await expect(runtime.requestApproval({
+      category: "write",
+      resource: "src/index.ts\n\u001b]0;spoofed\u0007\u202etxt",
+      risk: "elevated",
+    })).resolves.toBe("allow_session");
+    expect(resource).toContain("src/index.ts");
+    expect(resource).not.toMatch(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u);
+  });
+
   it("disposes owned resources exactly once and rejects later submissions", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "recurs-runtime-close-"));
     directories.push(directory);

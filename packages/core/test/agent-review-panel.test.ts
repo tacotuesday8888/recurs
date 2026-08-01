@@ -440,7 +440,7 @@ describe("AgentReviewPanel", () => {
     expect(setup.calls).toHaveLength(0);
   });
 
-  it("aggregates bounded structured findings only when every required review is valid", async () => {
+  it("does not spend another reviewer after a valid structured change request", async () => {
     const setup = await harness("standard_v4", []);
     const outputs = [
       v2ChildResult(JSON.stringify({
@@ -473,7 +473,7 @@ describe("AgentReviewPanel", () => {
     expect(result).toMatchObject({
       contract: "v2",
       verdict: "changes_requested",
-      escalated: true,
+      escalated: false,
       findings: [{
         path: "src/cache.ts",
         acceptance: "Reject or isolate empty namespaces.",
@@ -482,9 +482,8 @@ describe("AgentReviewPanel", () => {
     expect(result.evidence).toEqual([
       "src/cache.ts:42",
       "host evidence 1",
-      "test/cache.test.ts covers non-empty namespaces",
-      "host evidence 2",
     ]);
+    expect(cursor).toBe(1);
   });
 
   it("fails structured review closed on invalid output or missing host evidence", async () => {

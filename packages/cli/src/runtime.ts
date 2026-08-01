@@ -30,9 +30,11 @@ import {
   type RunResult,
 } from "@recurs/contracts";
 import type {
+  ApprovalResponse,
   InteractWithOwnedProcessInput,
   OwnedProcessManager,
   OwnedProcessSnapshot,
+  PermissionIntent,
 } from "@recurs/tools";
 
 import { parseCommand } from "./commands/parser.js";
@@ -118,6 +120,7 @@ export class RecursRuntime {
   #activeSteering: TurnSteeringQueue | null = null;
   #activeQueuedTurns: QueuedTurnAdmissionQueue | null = null;
   #confirm: (message: string) => Promise<boolean>;
+  #approve: ((intent: PermissionIntent) => Promise<ApprovalResponse>) | null = null;
   #userInput: UserInputHandler | null = null;
   #session: SessionState | null;
   #workspace: WorkspaceShellState | null;
@@ -189,8 +192,32 @@ export class RecursRuntime {
     this.#confirm = confirm;
   }
 
+  setApprovalHandler(
+    approve: (intent: PermissionIntent) => Promise<ApprovalResponse>,
+  ): void {
+    this.#approve = approve;
+  }
+
   confirm(message: string): Promise<boolean> {
     return this.#confirm(terminalSafeConfirmationText(message));
+  }
+
+  async requestApproval(intent: PermissionIntent): Promise<ApprovalResponse> {
+    const safeIntent = {
+      ...intent,
+      resource: terminalSafeConfirmationText(intent.resource),
+    };
+    if (this.#approve === null) {
+      const allowed = await this.confirm(
+        `Allow ${safeIntent.category} access to ${safeIntent.resource}?`,
+      );
+      return allowed ? "allow_once" : "deny";
+    }
+    const decision = await this.#approve(safeIntent);
+    return decision === "allow_once" || decision === "allow_session" ||
+        decision === "deny"
+      ? decision
+      : "deny";
   }
 
   setUserInputHandler(handler: UserInputHandler): void {

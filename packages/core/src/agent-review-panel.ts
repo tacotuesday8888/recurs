@@ -660,7 +660,12 @@ export class AgentReviewPanel {
       reviews.every((review) =>
         review.status === "completed" && review.verdict === "approve"
       );
-    const escalated = !initialApproved &&
+    const hasActionableStructuredFinding = v2 && reviews.some((review) =>
+      review.status === "completed" &&
+      review.verdict === "request_changes" &&
+      (review.findings?.length ?? 0) > 0
+    );
+    const escalated = !initialApproved && !hasActionableStructuredFinding &&
       reviewPolicy.maxReviewers > reviewPolicy.initialReviewers;
     if (escalated) {
       for (

@@ -559,11 +559,6 @@ describe("Recurs end-to-end coding harness", () => {
         { type: "text_delta", text: requestChanges },
         { type: "done", stopReason: "complete" },
       ],
-      toolTurn("review-two-diff", "git_diff", {}),
-      [
-        { type: "text_delta", text: approve },
-        { type: "done", stopReason: "complete" },
-      ],
       toolTurn("repair-read", "read_file", { path: "src/value.ts" }),
       toolTurn("repair-patch", "apply_patch", {
         patch: repairPatch,
@@ -646,7 +641,7 @@ describe("Recurs end-to-end coding harness", () => {
       if (!isPinnedSessionState(child)) throw new Error("Expected pinned child");
       children.push(child);
     }
-    expect(children).toHaveLength(5);
+    expect(children).toHaveLength(4);
     expect(children.every((child) =>
       child.agent.depth === 1 &&
       child.agent.parentAgentId === parent.agent.id &&
@@ -659,7 +654,6 @@ describe("Recurs end-to-end coding harness", () => {
     ).sort()).toEqual([
       "implement:0",
       "repair:1",
-      "review:0",
       "review:0",
       "review:1",
     ]);
