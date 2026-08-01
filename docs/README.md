@@ -7,6 +7,7 @@ Current documents:
 - [Feature status](FEATURE_STATUS.md) — concise code-backed inventory of what is implemented, bounded, prepared-only, and absent.
 - [CLI guide](CLI.md) — local and Codex setup, provider/account commands, permissions, storage, output, and limits.
 - [Security policy](../SECURITY.md) — current support boundary, private reporting expectations, and credential-canary rules.
+- [Privacy and local data](../PRIVACY.md) — provider data flow, local storage, telemetry boundary, retention, and deletion.
 - [Release runbook](RELEASING.md) — verified artifact boundary, one-time npm bootstrap, trusted publishing, and later preview releases.
 - [Base engine comparison](BASE_ENGINE_COMPARISON.md) — source evidence from
   leading coding-agent and adjacent agent engines and the resulting hardening
@@ -45,7 +46,7 @@ architecture for current product truth.
 
 ## Release status
 
-Recurs `0.1.0-alpha.4` is distributed as one npm artifact and runs on Node.js. The
+Recurs `0.1.0-alpha.5` is distributed as one npm artifact and runs on Node.js. The
 repository builds and verifies a minimal npm artifact, includes reviewed
 direct-runtime dependency notices, installs it into an empty temporary prefix
 in CI, and proves the installed binary's redacted readiness report can launch
@@ -63,14 +64,14 @@ then verifies that the `recurs` entry point runs through Node.js and fails when
 Node is unavailable. This is package-manager compatibility, not a native Bun
 runtime claim.
 
-The CLI artifact is gated below 2.1 MB unpacked. The exact `0.1.0-alpha.4`
-archive measured 433 KiB compressed / 1.87 MiB unpacked and about 38.8 MiB in
-a clean Apple-silicon production prefix on 2026-07-30, without Codex. The
+The CLI artifact is gated below 2.1 MB unpacked. The exact `0.1.0-alpha.5`
+archive measured 433 KiB compressed / 1.87 MiB unpacked and 39.3 MiB in a clean
+Apple-silicon production prefix on 2026-08-01, without Codex. The
 larger source tree retains exact Codex compatibility fixtures for tests. See
 [Public alpha status](PUBLIC_ALPHA.md) for the current support and evidence
 boundary.
 
-The repository and `0.1.0-alpha.4` preview package are Apache-2.0 licensed.
+The repository and `0.1.0-alpha.5` preview package are Apache-2.0 licensed.
 The one-time npm bootstrap, trusted-publisher relationship, exact release tag,
 and manual protected workflow remain owner-controlled.
 

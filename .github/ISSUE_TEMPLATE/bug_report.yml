@@ -13,7 +13,7 @@ body:
     attributes:
       label: Recurs version or commit
       description: Use `recurs --version` or `git rev-parse --short HEAD`.
-      placeholder: 0.1.0-alpha.1 or abc1234
+      placeholder: 0.1.0-alpha.x or abc1234
     validations:
       required: true
   - type: textarea

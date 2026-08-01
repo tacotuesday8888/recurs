@@ -200,7 +200,7 @@ whose reviewed runtime is absent.
 
 The release pipeline builds one minimal npm tarball, installs it into an empty
 prefix, and derives checksum-bound curl and Homebrew assets from those exact
-bytes. The public `0.1.0-alpha.4` artifact has shipped through npm, Bun as an
+bytes. The public `0.1.0-alpha.5` artifact ships through npm, Bun as an
 installer, the GitHub release installer, and the official Homebrew tap. Every
 path still requires Node.js at runtime; there is no signed binary or desktop
 app. The removed private native credential authority is not a product path:

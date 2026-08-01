@@ -1,12 +1,10 @@
 # Releasing Recurs
 
-Recurs is Apache-2.0 licensed. `0.1.0-alpha.2` is the first portable npm
-artifact prepared for public release after the original `alpha.1` workflow
-failed closed before packaging. It completed the one-time package bootstrap;
-`0.1.0-alpha.3` then failed closed after attestation when npm 12 interpreted a
-relative package path as a Git shorthand. `0.1.0-alpha.4` is the first
-subsequent trusted-publisher release. Publishing is an owner-controlled
-operation, not a normal development or CI side effect.
+Recurs is Apache-2.0 licensed. Public previews use a protected, manually
+dispatched trusted-publisher workflow. Publishing is an owner-controlled
+operation, not a normal development or CI side effect. Historical bootstrap
+and recovery details remain below for auditability; later previews follow the
+short path in [Later previews](#later-previews).
 
 ## Verified artifact
 
@@ -19,22 +17,22 @@ npm run package:smoke-install
 ```
 
 The package gate permits exactly `dist/cli/main.js`, `package.json`, `LICENSE`,
-`README.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md`. It pins the official
-Apache-2.0 license bytes, exact runtime dependencies, public npm registry,
-provenance setting, package size, executable mode, and absence of workspace or
-build-machine paths. The installed-artifact smoke runs the real CLI, local
-provider loop, OS workspace sandbox, Agent Skills, stdio MCP, and ACP server
-from a new temporary prefix.
+`README.md`, `PRIVACY.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md`. It pins
+the official Apache-2.0 license bytes, exact runtime dependencies, public npm
+registry, provenance setting, package size, executable mode, and absence of
+workspace or build-machine paths. The installed-artifact smoke runs the real
+CLI, local provider loop, OS workspace sandbox, Agent Skills, stdio MCP, and
+ACP server from a new temporary prefix.
 
 The portable npm artifact contains the same TypeScript runtime verified in CI.
 Its package gate caps the unpacked artifact at 2.1 MB; that is not the installed
 footprint. npm resolves runtime dependencies separately, but Codex is not a
-default runtime dependency. The exact `0.1.0-alpha.2` artifact measured 433 KiB
-compressed / 1.87 MiB unpacked and about 38.8 MiB in a clean Apple-silicon
-production prefix on 2026-07-30. The source-development tree was about 402 MiB because it
-retains roughly 307 MiB of pinned Codex compatibility fixtures. Record a clean
-installed-prefix measurement for every release candidate and disclose it in
-release notes.
+default runtime dependency. The exact `0.1.0-alpha.5` artifact measured 433 KiB
+compressed / 1.87 MiB unpacked and 39.3 MiB in a clean Apple-silicon production
+prefix on 2026-08-01. The source-development tree was about 402 MiB
+because it retains roughly 307 MiB of pinned Codex compatibility fixtures.
+Record a clean installed-prefix measurement for every release candidate and
+disclose it in release notes.
 
 The Bun compatibility gate is similarly narrow: the pinned Linux lane globally
 installs this npm tarball, preserves its Node shebang, launches it through

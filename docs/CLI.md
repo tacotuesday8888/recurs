@@ -26,12 +26,40 @@ checksummed GitHub release installer, and Homebrew:
 
 ```bash
 bun install --global recurs@alpha
-curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.4/install.sh | sh
+curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.5/install.sh | sh
 brew install tacotuesday8888/recurs/recurs
 ```
 
 All four paths require Node.js. Bun installs the package but is not a supported
 Recurs runtime. There is no signed standalone binary or desktop release.
+
+### Upgrade or uninstall
+
+Use the same channel you installed from:
+
+```bash
+npm install --global recurs@alpha       # npm upgrade
+bun install --global recurs@alpha       # Bun upgrade; Node still runs Recurs
+brew update && brew upgrade recurs      # Homebrew upgrade
+```
+
+Rerun the checksum-verifying release installer to upgrade a curl installation.
+To uninstall, use `npm uninstall --global recurs`,
+`bun remove --global recurs`, or `brew uninstall recurs`. A curl installation
+uses `${RECURS_INSTALL_PREFIX:-$HOME/.local}`; remove its `bin/recurs` and
+`lib/node_modules/recurs` entries after checking that prefix.
+
+Uninstalling the executable does not delete sessions or project state. Locate
+that private directory before deciding whether to retain or remove it:
+
+```bash
+recurs data path
+recurs data path --json
+```
+
+Stop Recurs, inspect the reported path, and delete it only when you no longer
+need its sessions, checkpoints, provider-routing metadata, or company state.
+See [Privacy and local data](../PRIVACY.md) for the complete boundary.
 
 To run from source:
 
@@ -45,11 +73,12 @@ recurs
 ```
 
 The packaged Recurs artifact is gated below 2.1 MB unpacked, but its runtime
-dependencies are installed separately. The `0.1.0-alpha.4` artifact measured
-433 KiB compressed / 1.87 MiB unpacked and about 38.8 MiB in a clean
-Apple-silicon production prefix, without Codex. The source-development tree is
-larger because it retains exact Codex compatibility fixtures. Treat these as
-directional measurements because platform packages and npm versions differ.
+dependencies are installed separately. The `0.1.0-alpha.5` artifact measured
+433 KiB compressed / 1.87 MiB unpacked and 39.3 MiB in a clean Apple-silicon
+production prefix, without Codex. The
+source-development tree is larger because it retains exact Codex compatibility
+fixtures. Treat these as directional measurements because platform packages
+and npm versions differ.
 
 ## First run
 
@@ -358,7 +387,8 @@ boundary.
 
 ## Current limits
 
-- Recurs is source-only alpha software.
+- Recurs is public alpha software; its npm, release-installer, Homebrew, and
+  Bun-installer paths all execute the same Node.js package.
 - Windows subprocess containment is not implemented.
 - There is no desktop app, cloud worker, persistent daemon, scheduler, or
   unattended deployment system.
