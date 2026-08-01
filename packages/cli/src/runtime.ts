@@ -231,6 +231,10 @@ export class RecursRuntime {
     return this.#activeSteering?.turnId ?? null;
   }
 
+  commandNames(): readonly string[] {
+    return this.dependencies.commands.names();
+  }
+
   cancel(): boolean {
     if (this.#activeController === null) {
       return false;

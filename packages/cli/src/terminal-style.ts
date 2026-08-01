@@ -89,6 +89,16 @@ function isMaxMode(modeId: string | undefined): boolean {
   return modeId?.startsWith("max_") === true;
 }
 
+function centeredPadding(text: string, columns: number | undefined): string {
+  if (columns === undefined) return "";
+  const width = Array.from(text).length;
+  return " ".repeat(Math.max(0, Math.floor((columns - width) / 2)));
+}
+
+export function centerTerminalText(text: string, columns: number): string {
+  return `${centeredPadding(text, columns)}${text}`;
+}
+
 export function renderRecursWordmark(
   theme: TerminalTheme,
   options: {
@@ -103,8 +113,12 @@ export function renderRecursWordmark(
   const rows = (options.columns ?? wordmarkWidth) >= wordmarkWidth
     ? RECURS_TERMINAL_WORDMARK_ROWS
     : RECURS_TERMINAL_ROWS;
-  return rows.map((row, rowIndex) =>
-    Array.from(row, (glyph, glyphIndex) =>
+  const blockWidth = Math.max(...rows.map((row) =>
+    Array.from(row.trimEnd()).length
+  ));
+  const padding = centeredPadding(" ".repeat(blockWidth), options.columns);
+  return rows.map((row, rowIndex) => {
+    return padding + Array.from(row.trimEnd(), (glyph, glyphIndex) =>
       glyph === " "
         ? glyph
         : isMaxMode(options.modeId)
@@ -120,8 +134,8 @@ export function renderRecursWordmark(
               RECURS_MARK_ANSI_256.length - 1,
             ),
           )
-    ).join("")
-  ).join("\n");
+    ).join("");
+  }).join("\n");
 }
 
 export function renderRecursHeader(
@@ -134,7 +148,7 @@ export function renderRecursHeader(
 ): string {
   const wordmark = renderRecursWordmark(theme, options);
   if (wordmark.length === 0) return fallback;
-  return `${wordmark}\n${theme.strong(fallback)}`;
+  return `${wordmark}\n${centeredPadding(fallback, options.columns)}${theme.strong(fallback)}`;
 }
 
 export function renderOperatingMode(

@@ -63,6 +63,7 @@ assert(
 );
 const expectedFiles = [
   ...(publicationState === "ready" ? ["LICENSE"] : []),
+  "PRIVACY.md",
   "README.md",
   "SECURITY.md",
   "THIRD_PARTY_NOTICES.md",

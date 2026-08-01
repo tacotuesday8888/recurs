@@ -39,6 +39,12 @@ export class CommandRegistry {
     );
   }
 
+  names(): readonly string[] {
+    return Object.freeze([...this.#commands.keys()].sort((left, right) =>
+      left.localeCompare(right)
+    ));
+  }
+
   async execute(
     input: string | ParsedCommand,
     context: CommandContext,

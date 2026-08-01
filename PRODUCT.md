@@ -119,7 +119,7 @@ The CLI now has a validated 26-path catalog, a non-secret saved-connection lifec
 
 On macOS and Linux, `workspace_sandboxed` gives command and verification children canonical workspace-only host writes, hides host credential/runtime state, and binds network access to approved command intent. Linux uses system Bubblewrap namespaces and deliberately does not claim a Recurs seccomp policy. Windows still selects `local_guarded` but rejects subprocess execution as unsupported; an explicit guarded profile on macOS/Linux retains host authority. `tools_disabled` avoids model tools but is not a usable coding profile and does not replace the private credential boundary.
 
-The repository and `0.1.0-alpha.2` package are open source under Apache-2.0.
+The repository and public alpha package are open source under Apache-2.0.
 The exact npm tarball is also the authority for the checksum-verifying curl
 installer and release Homebrew formula. A pinned Linux smoke proves that Bun
 can install it globally while preserving Node as the required runtime; this is
@@ -147,13 +147,10 @@ before Recurs can claim a lightweight install.
    reuse, review value, latency, and cost from the measured differences. No
    live run required Repair; deterministic integration tests remain the
    evidence for that branch.
-2. **Ship a portable alpha.** Complete the one-time npm bootstrap and release
-   the already verified npm, checksum-bound curl, and generated Homebrew
-   artifacts only after the public repository protections and release
-   environment are in place. Keep Bun's claim limited to npm-compatible global
-   installation on the verified version/platform; Recurs still requires
-   Node.js. Treat the shared npm dependency graph and install footprint as one
-   distribution path, not several independent products.
+2. **Keep distribution reproducible.** Every public alpha must ship one exact
+   npm archive through npm, the checksum-bound installer, and Homebrew only
+   after package, install, security, and release gates pass. Keep Bun's claim
+   limited to npm-compatible installation; Recurs still requires Node.js.
 3. **Tune from visible operations.** Use the implemented read-only company
    snapshots and durable evaluation reports to find waste, weak handoffs, and
    poor review coverage before expanding orchestration complexity.

@@ -18,8 +18,9 @@ Never post credentials, private source code, prompts from a private repository,
 full Recurs data directories, or unredacted logs. Security vulnerabilities
 follow [SECURITY.md](SECURITY.md), not public support issues.
 
-The current supported alpha path is a source checkout with npm on Node.js
-22.22+. The prepared package can be globally installed by the pinned Bun
-compatibility lane, but it still requires Node and cannot be obtained from the
-registry yet. Native Bun execution, Windows subprocess tools, signed binaries,
-and the desktop experience are outside today's support boundary.
+The recommended alpha path is `npm install --global recurs@alpha` on Node.js
+22.22+. The same reviewed package is available through the checksum-verifying
+release installer and official Homebrew tap. Bun may install it globally, but
+Node remains the runtime. Source checkout is also supported. Native Bun
+execution, Windows subprocess tools, signed binaries, and the desktop
+experience are outside today's support boundary.

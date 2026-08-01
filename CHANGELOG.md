@@ -2,6 +2,25 @@
 
 Notable user-facing changes are recorded here when they ship.
 
+## 0.1.0-alpha.5 - 2026-08-01
+
+### Added
+
+- `recurs data path` reports the active durable-data directory without reading
+  or deleting it, with a stable JSON form for scripts.
+- Interactive slash-command completion includes canonical commands, aliases,
+  and the local image-staging command.
+- A concise privacy and local-data policy plus channel-specific upgrade,
+  uninstall, retention, and deletion guidance.
+
+### Changed
+
+- The GitHub and terminal wordmarks now share a centered, forward-slanted
+  pixel identity while operational output remains left-aligned.
+- Public documentation reflects the shipped npm, curl-installer, Homebrew, and
+  Bun-as-installer paths and distinguishes all of them from the Node runtime.
+- Release checks now reject stale current-version and distribution claims.
+
 ## 0.1.0-alpha.4 - 2026-07-30
 
 ### Fixed

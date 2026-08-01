@@ -2,8 +2,6 @@
   <img src="./docs/assets/recurs-wordmark.png" alt="Recurs" width="820">
 </p>
 
-<h1 align="center">Recurs</h1>
-
 <p align="center">
   <strong>The best coding model is a team. You control the team.</strong>
 </p>
@@ -87,6 +85,7 @@ Inside Recurs:
 - [Company onboarding](docs/AGENT_COMPANY_ONBOARDING.md)
 - [Architecture](ARCHITECTURE.md)
 - [Security](SECURITY.md)
+- [Privacy and local data](PRIVACY.md)
 - [Contributing](CONTRIBUTING.md)
 
 Recurs is public alpha software. See the

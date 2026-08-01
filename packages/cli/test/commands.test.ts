@@ -82,6 +82,18 @@ describe("parseCommand", () => {
 });
 
 describe("foundation slash commands", () => {
+  it("lists canonical command names and aliases for terminal completion", () => {
+    const registry = new CommandRegistry([{
+      name: "quit",
+      aliases: ["exit"],
+      description: "Quit",
+      usage: "/quit",
+      async execute() { return { type: "quit" }; },
+    }]);
+
+    expect(registry.names()).toEqual(["exit", "quit"]);
+  });
+
   it("sanitizes unknown slash-command exceptions with a diagnostic id", async () => {
     const registry = new CommandRegistry([
       {

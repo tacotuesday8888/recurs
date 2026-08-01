@@ -149,6 +149,7 @@ export interface CliDependencies {
   cwd?: string;
   interactive?: boolean;
   automation?: boolean;
+  dataDirectory?: string;
   signal?: AbortSignal;
   confirm?(message: string): Promise<boolean>;
   selectChoice?(
@@ -1133,6 +1134,29 @@ export async function runCli(
     await writeOutput(dependencies.stdout, `recurs ${RECURS_VERSION}\n`);
     return 0;
   }
+  if (argv[0] === "data") {
+    const json = argv.length === 3 && argv[1] === "path" && argv[2] === "--json";
+    if (
+      (argv.length !== 2 && !json) ||
+      argv[1] !== "path" ||
+      dependencies.dataDirectory === undefined
+    ) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    const report = Object.freeze({
+      version: 1 as const,
+      type: "data_path" as const,
+      path: dependencies.dataDirectory,
+    });
+    await writeOutput(
+      dependencies.stdout,
+      json
+        ? `${JSON.stringify(report)}\n`
+        : `Recurs data directory: ${JSON.stringify(report.path)}\n`,
+    );
+    return 0;
+  }
   if (workingRoot.requested !== undefined) {
     if (argv[0] === "acp") {
       await writeOutput(dependencies.stderr, help);
@@ -2095,6 +2119,7 @@ export async function runCliProcess(
       stdout: processStdout,
       stderr: processStderr,
       cwd: process.cwd(),
+      dataDirectory,
       interactive: processStdin.isTTY === true && processStdout.isTTY === true,
       automation: isAutomationEnvironment(process.env),
       ...(interactiveOperationController === undefined

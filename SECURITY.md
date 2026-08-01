@@ -1,7 +1,7 @@
 # Security policy
 
-Recurs is alpha software at `0.1.0-alpha.2`. Security fixes target the current
-`main` branch and the latest public alpha.
+Recurs is public alpha software. Security fixes target the current `main`
+branch and the latest public alpha.
 
 Recurs reduces accidental disclosure and unsafe tool execution. It is not a
 credential-safe sandbox, a hardened multi-tenant service, or a substitute for
@@ -117,7 +117,9 @@ and atomic replacement. Recovery validates ownership and identity before
 touching stale worktrees or resuming an interrupted apply.
 
 Back up, retain, and delete the Recurs data directory according to the
-sensitivity of the repositories used with it.
+sensitivity of the repositories used with it. Run `recurs data path` to locate
+the active directory. See [PRIVACY.md](PRIVACY.md) for data flow, retention,
+and deletion guidance.
 
 ## Credentials and canaries
 
@@ -132,10 +134,11 @@ a Git commit, issue, log, or checkpoint does not invalidate a copied secret.
 
 ## Release boundary
 
-The npm candidate contains the bundled CLI, package metadata, license, README,
-this policy, and third-party notices. Package checks reject workspace imports,
-build-machine paths, unexpected files, missing executable mode, and size drift.
+The public alpha package contains the bundled CLI, package metadata, license,
+README, privacy policy, this policy, and third-party notices. Package checks
+reject workspace imports, build-machine paths, unexpected files, missing
+executable mode, and size drift.
 
-The release workflow remains owner-controlled and unpublished. Packaging and
-installation smoke tests are evidence about the artifact, not a claim that a
-stable release exists.
+The release workflow remains owner-controlled and publishes only reviewed,
+tagged previews after its verification and provenance gates pass. A public
+alpha is not a claim that a stable release exists.

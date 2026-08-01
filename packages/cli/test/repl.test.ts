@@ -4,7 +4,11 @@ import { AgentLoopError } from "@recurs/core";
 import type { HostInvocation, ModelImageInput } from "@recurs/contracts";
 import { describe, expect, it } from "vitest";
 
-import { startRepl, type RecursRuntime } from "../src/index.js";
+import {
+  completeReplInput,
+  startRepl,
+  type RecursRuntime,
+} from "../src/index.js";
 import { ImageInputError } from "../src/image-input.js";
 
 class TextOutput extends Writable {
@@ -48,6 +52,17 @@ function failingRuntime(error: Error): RecursRuntime {
 }
 
 describe("startRepl", () => {
+  it("completes slash commands and the local image command only", () => {
+    expect(completeReplInput("/ag", ["agents", "goal", "quit"]))
+      .toEqual([["/agents"], "/ag"]);
+    expect(completeReplInput("/i", ["agents"]))
+      .toEqual([["/image"], "/i"]);
+    expect(completeReplInput("/goal ", ["goal"]))
+      .toEqual([[], "/goal "]);
+    expect(completeReplInput("write code", ["goal"]))
+      .toEqual([[], "write code"]);
+  });
+
   it("renders the full pixel wordmark only for a wide color-capable terminal", async () => {
     const output = new TextOutput();
     const runtime = {
