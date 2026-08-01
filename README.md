@@ -42,10 +42,6 @@ controls:
 Start with one agent or form a project-specific company through guided
 onboarding.
 
-<p align="center">
-  <img src="./docs/assets/terminal-preview.svg" alt="A real Recurs company goal with parent, implementation, and review roles" width="760">
-</p>
-
 ## How it works
 
 ```text
