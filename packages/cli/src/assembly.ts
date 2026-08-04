@@ -116,6 +116,7 @@ import {
   createTypeScriptDiagnosticsTool,
   createWebFetchTool,
   type PermissionMode,
+  type PermissionRule,
   type ExecutionMode,
   type PtyDriver,
   type ApprovalHandler,
@@ -131,6 +132,7 @@ import type {
 import { AgentSkillCatalog } from "./agent-skills.js";
 import { McpServerCatalog } from "./mcp-client.js";
 import { projectContextInstructions } from "./project-instructions.js";
+import { loadWorkspacePermissionRules } from "./permission-rules.js";
 import type { LocalConnectionConfiguration } from "./local-connection.js";
 import { createCodexAgentRuntime } from "./codex-connection.js";
 import {
@@ -189,6 +191,8 @@ export interface StandaloneRuntimeOptions {
   skillHomeDirectory?: string;
   ptyDriver?: PtyDriver;
   approvalHandler?: ApprovalHandler;
+  permissionRules?: readonly PermissionRule[];
+  lifecycleHookClose?: () => Promise<void>;
 }
 
 function injectedBackendPin(
@@ -947,6 +951,8 @@ export async function createStandaloneRuntime(
     process.env.RECURS_HOME ??
     path.join(homedir(), ".recurs");
   const projectData = path.join(root, "projects", projectId);
+  const permissionRules = options.permissionRules ??
+    await loadWorkspacePermissionRules(root, cwd);
   const skills = await AgentSkillCatalog.discover({
     cwd,
     dataDirectory: root,
@@ -1633,6 +1639,7 @@ export async function createStandaloneRuntime(
     continuationAuthority: continuations.authority,
     tools,
     approvals,
+    permissionRules,
     runtimeApprovals: {
       async request(request) {
         const reject = exactRuntimeOption(request, "reject_once");
@@ -1693,6 +1700,7 @@ export async function createStandaloneRuntime(
   const direct = new AgentLoopDirectExecutor({
     tools,
     approvals,
+    permissionRules,
     sessions,
     emit(event) {
       return events.emit(event);
@@ -2034,6 +2042,9 @@ export async function createStandaloneRuntime(
         const settled = await Promise.allSettled([
           processes.close(),
           mcp.close(),
+          ...(options.lifecycleHookClose === undefined
+            ? []
+            : [options.lifecycleHookClose()]),
         ]);
         if (settled.some((result) => result.status === "rejected")) {
           throw new ToolError(

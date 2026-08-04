@@ -86,4 +86,30 @@ describe("PermissionEngine", () => {
       engine.evaluate({ ...intents.write, resource: "src/other.ts" }),
     ).toBe("ask");
   });
+
+  it("applies ordered exact workspace rules before presets and session grants", () => {
+    const engine = new PermissionEngine("ask_always", [
+      { id: "deny-test", decision: "deny", intent: intents.safeShell },
+      { id: "allow-docs", decision: "allow", intent: intents.network },
+      { id: "ask-file", decision: "ask", intent: intents.write },
+    ]);
+    engine.grantForSession(intents.write);
+
+    expect(engine.evaluate(intents.safeShell)).toBe("deny");
+    expect(engine.evaluate(intents.network)).toBe("allow");
+    expect(engine.evaluate(intents.write)).toBe("ask");
+    expect(engine.evaluate({ ...intents.network, resource: "other.example" }))
+      .toBe("ask");
+    expect(engine.evaluate({ ...intents.network, risk: "normal" })).toBe("ask");
+  });
+
+  it("keeps credential denial above configured rules", () => {
+    const engine = new PermissionEngine("full_access", [{
+      id: "unsafe",
+      decision: "allow",
+      intent: intents.credential,
+    }]);
+
+    expect(engine.evaluate(intents.credential)).toBe("deny");
+  });
 });

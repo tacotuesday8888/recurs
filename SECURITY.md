@@ -92,6 +92,30 @@ An explicitly selected guarded host profile retains broad host authority.
 Application-level command classification, approvals, timeouts, process groups,
 and output bounds are defense in depth, not containment.
 
+User lifecycle hooks are executable local configuration, never repository
+configuration. Recurs accepts them only from a private, owned, single-link file
+under its data directory. Hooks receive sanitized lifecycle envelopes and run
+with a read-only workspace, a private filtered environment, denied network,
+bounded output, and hard per-hook and aggregate event time limits. Each command
+must be one private, owned, single-link executable outside the workspace; Recurs
+binds its file identity at startup and revalidates it before every launch. Hooks
+run from a bounded asynchronous queue, so they cannot block or mutate the parent
+event, prompt, tool call/result, permission, or agent authority. Bounded
+shutdown drains completed work and cancels unfinished owned hook processes.
+Hook failures are normalized and do not change the agent result. Treat any
+configured executable as user-authorized code
+despite these limits.
+
+Persistent permission rules also come only from a private, owned, single-link
+user file. They match one canonical workspace, category, resource, and risk
+exactly; repository files and wildcard patterns grant nothing. Credential
+access is always denied, destructive intents cannot be persistently allowed,
+and Plan mode, role tool policy, parent ceilings, path guards, and subprocess
+containment remain authoritative. Persistent allow rules apply only to the root
+agent; child agents retain ask/deny rules but must earn authority through their
+narrowed parent and profile policy. Rules are a convenience layer, not a
+sandbox.
+
 ## Worktree and team boundary
 
 Parallel agent work starts only from a clean canonical Git root at committed

@@ -8,6 +8,12 @@ export function permissionIntentKey(intent: PermissionIntent): string {
   return `${intent.category}\0${intent.resource}`;
 }
 
+export interface PermissionRule {
+  readonly id: string;
+  readonly decision: PermissionDecision;
+  readonly intent: PermissionIntent;
+}
+
 function isNormalWorkspaceAction(intent: PermissionIntent): boolean {
   return (
     intent.risk === "normal" &&
@@ -19,12 +25,28 @@ function isNormalWorkspaceAction(intent: PermissionIntent): boolean {
 export class PermissionEngine {
   readonly integrityGuardsEnabled = true;
   readonly #sessionGrants = new Set<string>();
+  readonly #rules: readonly PermissionRule[];
 
-  constructor(public mode: PermissionMode) {}
+  constructor(
+    public mode: PermissionMode,
+    rules: readonly PermissionRule[] = [],
+  ) {
+    this.#rules = Object.freeze(rules.map((rule) => Object.freeze({
+      ...rule,
+      intent: Object.freeze({ ...rule.intent }),
+    })));
+  }
 
   evaluate(intent: PermissionIntent): PermissionDecision {
     if (intent.category === "credential") {
       return "deny";
+    }
+    const configured = this.#rules.find((rule) =>
+      permissionIntentKey(rule.intent) === permissionIntentKey(intent) &&
+      rule.intent.risk === intent.risk
+    );
+    if (configured !== undefined) {
+      return configured.decision;
     }
     if (this.#sessionGrants.has(permissionIntentKey(intent))) {
       return "allow";

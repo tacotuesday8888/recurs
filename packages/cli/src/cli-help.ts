@@ -25,6 +25,8 @@ Usage:
   recurs account disconnect <id>
   recurs doctor [--json]         Check installation and execution readiness
   recurs data path [--json]      Show the durable local-data directory
+  recurs hooks [--json]          Inspect bounded user lifecycle hooks
+  recurs permissions [--json]    Inspect exact workspace permission rules
   recurs eval company [--json]   Run a bounded company-formation evaluation
   recurs benchmark company --configured --allow-network [--scenario <id>] [--repetitions 1|2|3] [--compare-all-strong] [--json]
   recurs help <command>          Show scoped command help
@@ -126,6 +128,29 @@ Usage:
 The directory contains private sessions, prompts, tool records, checkpoints,
 provider-routing metadata, and company state. This command only reports its
 location; it never reads or deletes the directory.
+`,
+  hooks: `Inspect bounded user lifecycle hooks
+
+Usage:
+  recurs hooks [--json]
+
+Hooks are configured in $RECURS_HOME/config/hooks.json. They receive sanitized
+JSON lifecycle envelopes and run from a bounded asynchronous queue in
+deterministic order. Commands are identity-bound owned executables outside the
+workspace and can observe a read-only workspace without network or credential
+access. Hooks cannot modify prompts, tools, results, permissions, or agent
+authority. Project repositories cannot register executable hooks.
+`,
+  permissions: `Inspect exact workspace permission rules
+
+Usage:
+  recurs permissions [--json] [-C <dir>]
+
+Rules come only from the private user-owned
+$RECURS_HOME/config/permissions.json file. Matching is exact across the
+canonical workspace, category, resource, and risk. Credential access remains
+denied, destructive actions cannot be persistently allowed, and agent profile,
+Plan mode, parent-ceiling, and OS-containment checks remain authoritative.
 `,
   eval: `Evaluate the bounded company foundation
 

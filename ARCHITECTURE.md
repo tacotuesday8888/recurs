@@ -46,6 +46,7 @@ terminal / ACP client
      CLI host
         │
         ├── connection selection
+        ├── sanitized observe-only lifecycle hooks
         ├── agent runtime
         ├── provider adapter or delegated runtime
         └── bounded tools
@@ -91,8 +92,24 @@ A new run:
 7. records bounded events and normalized provider usage; and
 8. closes owned processes and state handles.
 
+The CLI host may project selected normalized events into user-configured
+lifecycle hooks. That projection is deliberately outside the agent loop and
+provider adapters: hooks receive no prompt/tool/result bodies, cannot influence
+execution, and run from a bounded asynchronous queue as identity-bound,
+read-only, network-denied subprocesses. Project repositories cannot register
+executable hooks. The Alpha hook host is a local CLI boundary; ACP does not
+launch user lifecycle hooks.
+
 Resumed sessions retain their original backend pin. Changing the primary
 connection affects future sessions, not historical ones.
+
+At runtime creation, the CLI may load a private user-owned permission-rule
+snapshot for the exact canonical workspace. These rules can allow, ask, or deny
+one exact category/resource/risk tuple. They do not alter tool registration,
+Plan mode, agent profile policy, parent ceilings, path guards, or OS
+containment, and repository content cannot define them.
+Persistent allow decisions remain root-only; narrowed children inherit only
+ask and deny rules.
 
 ## Agent teams
 

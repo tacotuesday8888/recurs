@@ -31,6 +31,7 @@ import {
   ToolError,
   type ApprovalHandler,
   type ExecutionMode,
+  type PermissionRule,
   type ToolContext,
   type ToolRegistry,
   type ToolResult,
@@ -107,6 +108,7 @@ import {
 import {
   applyAgentToolPolicy,
   createDelegationBudget,
+  permissionRulesForAgent,
 } from "./agent-profile.js";
 
 export interface RunInput {
@@ -144,6 +146,7 @@ export interface AgentLoopDependencies {
     context?: TrustedRunContext,
   ): ToolContext;
   authorization?: RunAuthorization;
+  permissionRules?: readonly PermissionRule[];
   contextInstructions?(
     state: SessionState,
   ): readonly string[] | Promise<readonly string[]>;
@@ -745,6 +748,7 @@ function permissionEngineFor(
   sessions: JsonlSessionStore,
   sessionId: string,
   mode: PermissionEngine["mode"],
+  rules: readonly PermissionRule[],
 ): PermissionEngine {
   let bySession = permissionEngines.get(sessions);
   if (bySession === undefined) {
@@ -753,7 +757,7 @@ function permissionEngineFor(
   }
   let engine = bySession.get(sessionId);
   if (engine === undefined) {
-    engine = new PermissionEngine(mode);
+    engine = new PermissionEngine(mode, rules);
     bySession.set(sessionId, engine);
   } else {
     engine.mode = mode;
@@ -821,6 +825,7 @@ async function runAgentLoopUnlocked(
     deps.sessions,
     input.sessionId,
     state.permissionMode,
+    permissionRulesForAgent(state.agent, deps.permissionRules ?? []),
   );
   const executionMode = input.executionMode ?? state.executionMode;
   const executionState = (): SessionState =>

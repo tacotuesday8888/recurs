@@ -1,6 +1,6 @@
 # Recurs Feature Status
 
-**Audited:** 2026-08-01 against the source, exported package surfaces, CLI
+**Audited:** 2026-08-04 against the source, exported package surfaces, CLI
 assembly, durable contracts/stores, provider manifests, and automated tests in
 this release candidate.
 
@@ -16,9 +16,9 @@ context, not a product commitment.
 | Base loop | Provider-neutral streamed turns, strict event reduction, bounded retries/steps/output, tool calls, cancellation, loop detection, steering, and queued follow-ups |
 | Sessions | Durable version-2 sessions, exact backend pins, mutation leases, resume/fork, compaction, recovery, goals, checkpoints, and conflict-safe undo |
 | CLI | Interactive chat with slash completion; headless text, JSON, and JSONL; images; `review`; ACP v1; scoped help; offline `doctor`; explicit local-data location; project `AGENTS.md` loading |
-| Permissions | Ask Always, Approved for Me, Full Access, enforced Plan mode, read-only Review mode, parent ceilings, explicit apply, and exact session-scoped interactive grants |
+| Permissions | Ask Always, Approved for Me, Full Access, enforced Plan mode, read-only Review mode, parent ceilings, explicit apply, exact session-scoped interactive grants, and private exact-workspace allow/ask/deny rules |
 | Tools | Bounded file reads/list/search, code outline, TypeScript diagnostics, Git inspection, public web fetch, patching, verification, commands, and owned process sessions |
-| Interoperability | Bounded Agent Skills, user-configured or explicitly project-trusted stdio MCP, and a Recurs-owned ACP server |
+| Interoperability | Bounded Agent Skills, user-configured or explicitly project-trusted stdio MCP, a Recurs-owned ACP server, and observe-only user lifecycle hooks |
 | General sub-agents | One Explore/Implement/Review child, bounded parallel Explore/Review batches, durable Implement teams, independent Review, finding-driven Repair, staging, recovery, explicit apply, and normalized live phase/status/review activity |
 | Operating modes | Stable version-6 Economy, Standard, Balanced, Performance, and Max policies with historical V1-V5 loading |
 | Backend routing | Explicit saved Implement/Review/Repair routes with revalidation, immutable per-run decisions, policy eligibility, and parent fallback |
@@ -43,6 +43,8 @@ context, not a product commitment.
 | MCP and Skills | Exact enabled/trusted IDs can be bound to approved company bundles; Recurs does not install, trust, or infer a binding automatically |
 | Codex subscription | Exact reviewed user-installed Codex CLI, official app-server login/discovery/execution, local/manual/user-present foreground execution, Recurs-scoped host tools, and optional Sol/Terra/Luna parent/role routing; no remaining-quota claim, background work, or vendor continuation in V1 |
 | Code intelligence | Strong lexical multi-language outlines and TypeScript project diagnostics; no general LSP or semantic reference engine |
+| Lifecycle hooks | The local CLI runs user-private, identity-bound executable hooks from a bounded asynchronous queue. They receive sanitized session/turn/tool/permission/agent/team envelopes in deterministic order and are observe-only, time/output bounded, read-only, network-denied, and unavailable to project configuration. Hook outcomes appear in text/JSONL; ACP and aggregate JSON do not claim live hook projection. |
+| Permission rules | User-private rules match one canonical workspace, category, resource, and risk exactly, with redacted resource digests and no repository configuration or wildcard expansion. Persistent allows are root-only; credential denial, destructive-allow rejection, Plan mode, profile/tool policy, parent ceilings, path guards, and OS containment remain above the rule layer. |
 
 ## Distribution
 
@@ -74,7 +76,8 @@ app-server behavior in tests.
 - a persistent daemon, cloud worker, scheduler, or work that survives CLI exit;
 - child-created unbounded recursion, autonomous organization rewrites, or
   automatic role/tool authority expansion;
-- automatic plugin/MCP installation, a plugin marketplace, remote MCP/OAuth,
+- arbitrary in-process plugins, blocking/mutating hooks, automatic plugin/MCP
+  installation, a plugin marketplace, remote MCP/OAuth,
   MCP prompts/resources, or broad connector support;
 - automatic task classification, evidence-expiry policy, or general
   capability/price-aware role routing;

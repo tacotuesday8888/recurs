@@ -2665,6 +2665,8 @@ describe("runCli", () => {
     ["account", "Manage saved non-secret", "account set-primary"],
     ["doctor", "Check Recurs installation", "recurs doctor [--json]"],
     ["data", "Locate Recurs durable local data", "recurs data path"],
+    ["hooks", "Inspect bounded user lifecycle hooks", "observe a read-only workspace"],
+    ["permissions", "Inspect exact workspace permission rules", "Credential access remains"],
     [
       "benchmark",
       "Run the bounded single-agent versus company proof",
@@ -2811,6 +2813,82 @@ describe("runCli", () => {
     })).toBe(2);
     expect(stdout.value).toBe("");
     expect(stderr.value).not.toContain("/private/recurs");
+  });
+
+  it("inspects lifecycle hooks without starting a runtime or exposing executable paths", async () => {
+    const report = {
+      version: 1 as const,
+      type: "lifecycle_hooks" as const,
+      configured: true,
+      configFile: "$RECURS_HOME/config/hooks.json" as const,
+      hooks: [{
+        id: "audit",
+        events: ["turn.stop" as const],
+        executable: "audit-recurs",
+        timeoutMs: 500,
+      }],
+    };
+    for (const [argv, json] of [
+      [["hooks"], false],
+      [["hooks", "--json"], true],
+    ] as const) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      expect(await runCli(argv, {
+        stdout,
+        stderr,
+        inspectLifecycleHooks: async () => report,
+        async createRuntime() {
+          throw new Error("runtime must not start");
+        },
+      })).toBe(0);
+      expect(json ? JSON.parse(stdout.value) : stdout.value).toEqual(
+        json ? report : expect.stringContaining("audit · turn.stop · audit-recurs · 500ms"),
+      );
+      expect(stdout.value).not.toContain("/private/");
+      expect(stderr.value).toBe("");
+    }
+  });
+
+  it("inspects exact workspace permission rules without starting a runtime", async () => {
+    const report = {
+      version: 1 as const,
+      type: "permission_rules" as const,
+      configured: true,
+      configFile: "$RECURS_HOME/config/permissions.json" as const,
+      rules: [{
+        id: "tests",
+        decision: "allow" as const,
+        category: "shell" as const,
+        risk: "normal" as const,
+        resourceSha256: "a".repeat(64),
+      }],
+    };
+    let receivedCwd = "";
+    for (const [argv, json] of [
+      [["permissions"], false],
+      [["permissions", "--json"], true],
+    ] as const) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      expect(await runCli(argv, {
+        stdout,
+        stderr,
+        cwd: "/workspace",
+        inspectPermissionRules: async (cwd) => {
+          receivedCwd = cwd;
+          return report;
+        },
+        async createRuntime() {
+          throw new Error("runtime must not start");
+        },
+      })).toBe(0);
+      expect(json ? JSON.parse(stdout.value) : stdout.value).toEqual(
+        json ? report : expect.stringContaining("tests · allow · shell · normal"),
+      );
+      expect(stderr.value).toBe("");
+    }
+    expect(receivedCwd).toBe("/workspace");
   });
 
   it("returns one for failed readiness and 130 for cancellation", async () => {

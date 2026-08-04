@@ -544,3 +544,37 @@ describe("TextEventRenderer presentation", () => {
     expect(output).toContain("\u001b[32mVerified: focused tests passed\u001b[0m");
   });
 });
+
+describe("TextEventRenderer lifecycle hooks", () => {
+  it("keeps successful hooks quiet and renders safe failures", async () => {
+    let output = "";
+    const stream = new Writable({
+      write(chunk, _encoding, callback) {
+        output += chunk.toString();
+        callback();
+      },
+    });
+    const renderer = new TextEventRenderer(stream);
+    await renderer.emit({
+      type: "lifecycle_hook_finished",
+      sessionId: "session-1",
+      at: "2026-08-04T00:00:00.000Z",
+      hookId: "audit",
+      lifecycleEvent: "turn.start",
+      outcome: "completed",
+    });
+    await renderer.emit({
+      type: "lifecycle_hook_finished",
+      sessionId: "session-1",
+      at: "2026-08-04T00:00:01.000Z",
+      hookId: "audit",
+      lifecycleEvent: "turn.stop",
+      outcome: "timed_out",
+      errorCode: "execution_failed",
+    });
+
+    expect(output).toBe(
+      "Lifecycle hook audit timed out after turn.stop\n",
+    );
+  });
+});

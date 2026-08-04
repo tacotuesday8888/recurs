@@ -105,6 +105,15 @@ export class TextEventRenderer implements EventSink {
           ),
         );
         break;
+      case "lifecycle_hook_finished":
+        if (event.outcome !== "completed") {
+          await this.#status(
+            this.#theme.warning(
+              `Lifecycle hook ${event.hookId} ${event.outcome.replace("_", " ")} after ${event.lifecycleEvent}`,
+            ),
+          );
+        }
+        break;
       case "provider_transport_fallback":
         await this.#status(
           this.#theme.warning(

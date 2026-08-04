@@ -82,9 +82,20 @@ import {
   type DoctorReport,
 } from "./doctor.js";
 import { parsePermissionMode } from "./commands/permissions.js";
+import {
+  inspectPermissionRules,
+  renderPermissionRuleStatus,
+  type PermissionRuleStatus,
+} from "./permission-rules.js";
 import type { CommandResult } from "./commands/types.js";
 import { safeCliErrorMessage } from "./error-rendering.js";
 import { ImageInputError, loadImageInputs } from "./image-input.js";
+import {
+  createLifecycleHookHost,
+  inspectLifecycleHooks,
+  renderLifecycleHookStatus,
+  type LifecycleHookStatus,
+} from "./lifecycle-hooks.js";
 import {
   listAccountSummaries,
   listProviderSummaries,
@@ -150,6 +161,8 @@ export interface CliDependencies {
   interactive?: boolean;
   automation?: boolean;
   dataDirectory?: string;
+  inspectLifecycleHooks?(): Promise<LifecycleHookStatus>;
+  inspectPermissionRules?(cwd: string): Promise<PermissionRuleStatus>;
   signal?: AbortSignal;
   confirm?(message: string): Promise<boolean>;
   selectChoice?(
@@ -1157,6 +1170,32 @@ export async function runCli(
     );
     return 0;
   }
+  if (argv[0] === "hooks") {
+    const json = argv.length === 2 && argv[1] === "--json";
+    if (
+      (argv.length !== 1 && !json) ||
+      dependencies.inspectLifecycleHooks === undefined
+    ) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    try {
+      const status = await dependencies.inspectLifecycleHooks();
+      await writeOutput(
+        dependencies.stdout,
+        json
+          ? `${JSON.stringify(status)}\n`
+          : `${renderLifecycleHookStatus(status)}\n`,
+      );
+      return 0;
+    } catch (error) {
+      await writeOutput(
+        dependencies.stderr,
+        `Error: ${safeCliErrorMessage(error)}\n`,
+      );
+      return 1;
+    }
+  }
   if (workingRoot.requested !== undefined) {
     if (argv[0] === "acp") {
       await writeOutput(dependencies.stderr, help);
@@ -1205,6 +1244,34 @@ export async function runCli(
         cwd: options?.cwd ?? cwd,
       }),
     };
+  }
+  if (argv[0] === "permissions") {
+    const json = argv.length === 2 && argv[1] === "--json";
+    if (
+      (argv.length !== 1 && !json) ||
+      dependencies.inspectPermissionRules === undefined
+    ) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    try {
+      const status = await dependencies.inspectPermissionRules(
+        dependencies.cwd ?? process.cwd(),
+      );
+      await writeOutput(
+        dependencies.stdout,
+        json
+          ? `${JSON.stringify(status)}\n`
+          : `${renderPermissionRuleStatus(status)}\n`,
+      );
+      return 0;
+    } catch (error) {
+      await writeOutput(
+        dependencies.stderr,
+        `Error: ${safeCliErrorMessage(error)}\n`,
+      );
+      return 1;
+    }
   }
   if (argv[0] === "benchmark") {
     let command: CompanyBenchmarkCommandOptions;
@@ -2120,6 +2187,11 @@ export async function runCliProcess(
       stderr: processStderr,
       cwd: process.cwd(),
       dataDirectory,
+      inspectLifecycleHooks: () => inspectLifecycleHooks(dataDirectory),
+      inspectPermissionRules: async (cwd) => inspectPermissionRules(
+        dataDirectory,
+        await realpath(cwd),
+      ),
       interactive: processStdin.isTTY === true && processStdout.isTTY === true,
       automation: isAutomationEnvironment(process.env),
       ...(interactiveOperationController === undefined
@@ -2178,46 +2250,59 @@ export async function runCliProcess(
           ...(signal === undefined ? {} : { signal }),
           ...(onProgress === undefined ? {} : { onProgress }),
         }),
-      createRuntime: (events, options) => createStandaloneRuntime(
-        events,
-        {
-          ...(processOptions.ptyDriver === undefined
-            ? {}
-            : { ptyDriver: processOptions.ptyDriver }),
-          ...(options?.permissionMode === undefined
-            ? {}
-            : { permissionMode: options.permissionMode }),
-          ...(options?.executionMode === undefined
-            ? {}
-            : { executionMode: options.executionMode }),
-          ...(options?.operatingModeId === undefined
-            ? {}
-            : { operatingModeId: options.operatingModeId }),
-          ...(options?.connectionId === undefined
-            ? {}
-            : { connectionId: options.connectionId }),
-          ...(options?.cwd === undefined ? {} : { cwd: options.cwd }),
-          ...(options?.reuseExistingSession === undefined
-            ? {}
-            : { reuseExistingSession: options.reuseExistingSession }),
-          ...(options?.resumeSessionId === undefined
-            ? {}
-            : { resumeSessionId: options.resumeSessionId }),
-          ...(options?.companyBlueprint === undefined
-            ? {}
-            : { companyBlueprint: options.companyBlueprint }),
-        },
-      ),
-      runAcp: () => serveRecursAcpStdio(
-        {
-          createRuntime: (cwd, events) => createStandaloneRuntime(events, {
-            cwd,
-            dataDirectory,
-            reuseExistingSession: false,
+      createRuntime: async (events, options) => {
+        const hooks = await createLifecycleHookHost({
+          dataDirectory,
+          workspace: options?.cwd ?? process.cwd(),
+          downstream: events,
+        });
+        try {
+          return await createStandaloneRuntime(hooks.events, {
             ...(processOptions.ptyDriver === undefined
               ? {}
               : { ptyDriver: processOptions.ptyDriver }),
-          }),
+            ...(options?.permissionMode === undefined
+              ? {}
+              : { permissionMode: options.permissionMode }),
+            ...(options?.executionMode === undefined
+              ? {}
+              : { executionMode: options.executionMode }),
+            ...(options?.operatingModeId === undefined
+              ? {}
+              : { operatingModeId: options.operatingModeId }),
+            ...(options?.connectionId === undefined
+              ? {}
+              : { connectionId: options.connectionId }),
+            ...(options?.cwd === undefined ? {} : { cwd: options.cwd }),
+            ...(options?.reuseExistingSession === undefined
+              ? {}
+              : { reuseExistingSession: options.reuseExistingSession }),
+            ...(options?.resumeSessionId === undefined
+              ? {}
+              : { resumeSessionId: options.resumeSessionId }),
+            ...(options?.companyBlueprint === undefined
+              ? {}
+              : { companyBlueprint: options.companyBlueprint }),
+            lifecycleHookClose: hooks.close,
+          });
+        } catch (error) {
+          await hooks.close();
+          throw error;
+        }
+      },
+      runAcp: () => serveRecursAcpStdio(
+        {
+          createRuntime: async (cwd, events) => createStandaloneRuntime(
+            events,
+            {
+              cwd,
+              dataDirectory,
+              reuseExistingSession: false,
+              ...(processOptions.ptyDriver === undefined
+                ? {}
+                : { ptyDriver: processOptions.ptyDriver }),
+            },
+          ),
         },
         processStdin,
         processStdout,

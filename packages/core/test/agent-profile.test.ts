@@ -4,9 +4,14 @@ import {
   type AgentProfileId,
   type AgentSessionDescriptor,
 } from "@recurs/contracts";
+import type { PermissionRule } from "@recurs/tools";
 import { describe, expect, it } from "vitest";
 
-import { applyAgentToolPolicy, scopeAgentPrompt } from "../src/index.js";
+import {
+  applyAgentToolPolicy,
+  permissionRulesForAgent,
+  scopeAgentPrompt,
+} from "../src/index.js";
 
 function child(profileId: AgentProfileId): AgentSessionDescriptor {
   const profile = getAgentProfilePolicy(profileId);
@@ -96,5 +101,27 @@ describe("company capability profile intersection", () => {
 
     expect(context.toolPolicy?.allowedNames).not.toContain("activate_skill");
     expect(context.toolPolicy?.allowedNames).not.toContain("mcp");
+  });
+});
+
+describe("persistent permission rule inheritance", () => {
+  it("keeps root rules but removes persistent allows from child agents", () => {
+    const rules = [
+      {
+        id: "allowed-test",
+        decision: "allow",
+        intent: { category: "shell", resource: "npm test", risk: "normal" },
+      },
+      {
+        id: "blocked-network",
+        decision: "deny",
+        intent: { category: "network", resource: "example.com", risk: "elevated" },
+      },
+    ] as const satisfies readonly PermissionRule[];
+    const childAgent = child("implement_v2");
+    const parentAgent = { ...childAgent, role: "parent" } as AgentSessionDescriptor;
+
+    expect(permissionRulesForAgent(parentAgent, rules)).toBe(rules);
+    expect(permissionRulesForAgent(childAgent, rules)).toEqual([rules[1]]);
   });
 });

@@ -5,11 +5,21 @@ import {
 } from "@recurs/contracts";
 import type {
   DelegationBudget,
+  PermissionRule,
   ToolContext,
   ToolPolicy,
 } from "@recurs/tools";
 
 import type { AgentWorkflowUsage } from "./events.js";
+
+export function permissionRulesForAgent(
+  agent: AgentSessionDescriptor,
+  rules: readonly PermissionRule[],
+): readonly PermissionRule[] {
+  return agent.role === "parent"
+    ? rules
+    : rules.filter((rule) => rule.decision !== "allow");
+}
 
 function delegationLimits(agent: AgentSessionDescriptor): {
   readonly maxChildren: number;

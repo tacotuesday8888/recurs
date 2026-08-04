@@ -23,6 +23,8 @@ import {
 import { RuntimeError } from "./runtime.js";
 import { ImageInputError } from "./image-input.js";
 import { LocalConnectionError } from "./local-connection.js";
+import { LifecycleHookConfigurationError } from "./lifecycle-hooks.js";
+import { PermissionRuleConfigurationError } from "./permission-rules.js";
 import { CompanyEvaluationStoreError } from "./company-evaluation-store.js";
 
 export function unexpectedFailureMessage(
@@ -52,6 +54,8 @@ export function safeCliErrorMessage(
     error instanceof TeamControlAdaptationError ||
     error instanceof ImageInputError ||
     error instanceof LocalConnectionError ||
+    error instanceof LifecycleHookConfigurationError ||
+    error instanceof PermissionRuleConfigurationError ||
     error instanceof CodexOnboardingError ||
     error instanceof EnvironmentConnectionError ||
     error instanceof ConnectionLifecycleError ||

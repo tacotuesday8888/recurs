@@ -2729,6 +2729,61 @@ describe("standalone assembly without a provider", () => {
     )?.content).toContain('"answer":"CLI"');
   });
 
+  it("applies exact workspace permission rules before prompting or executing", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-permission-rule-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const provider = new ScriptedProvider([
+      [
+        {
+          type: "tool_call",
+          call: {
+            id: "blocked-web",
+            name: "web_fetch",
+            arguments: { url: "https://example.com/private" },
+          },
+        },
+        { type: "done", stopReason: "tool_calls" },
+      ],
+      [
+        { type: "text_delta", text: "The exact workspace rule blocked the request." },
+        { type: "done", stopReason: "complete" },
+      ],
+    ]);
+    const approval = vi.fn(async () => "allow_once" as const);
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory: path.join(root, "data"),
+        skillHomeDirectory: path.join(root, "home"),
+        provider,
+        permissionMode: "full_access",
+        approvalHandler: { request: approval },
+        permissionRules: [{
+          id: "deny-private-web",
+          decision: "deny",
+          intent: {
+            category: "network",
+            resource: "https://example.com/private",
+            risk: "elevated",
+          },
+        }],
+      },
+    );
+
+    await expect(runtime.submit("fetch the page")).resolves.toMatchObject({
+      finalText: "The exact workspace rule blocked the request.",
+    });
+    expect(approval).not.toHaveBeenCalled();
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[1]?.messages.at(-1)).toMatchObject({
+      role: "tool",
+      content: expect.stringContaining("Permission denied"),
+    });
+  });
+
   it("returns bounded TypeScript diagnostics to a model in Plan mode", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-ts-diagnostics-assembly-"));
     directories.push(root);

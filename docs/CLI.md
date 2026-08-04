@@ -260,6 +260,49 @@ Permission profiles:
 Plan mode remains read-only regardless of the permission profile. Act mode may
 use mutating tools according to the active profile.
 
+`recurs permissions` shows the exact rules active for the canonical workspace;
+`recurs permissions --json` returns the same redacted status. The raw resource
+is not displayed; a stable SHA-256 digest lets users correlate status with
+their private configuration. Rules are loaded only from the private user file
+`$RECURS_HOME/config/permissions.json`:
+
+```json
+{
+  "version": 1,
+  "workspaces": [
+    {
+      "workspace": "/canonical/path/to/project",
+      "rules": [
+        {
+          "id": "tests",
+          "decision": "allow",
+          "category": "shell",
+          "resource": "npm test",
+          "risk": "normal"
+        },
+        {
+          "id": "no-production",
+          "decision": "deny",
+          "category": "deploy",
+          "resource": "production",
+          "risk": "elevated"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Matching is exact across workspace, category, resource, and risk; there are no
+wildcards. Configured rules are evaluated before reusable session grants and
+the selected preset. Credential intents remain denied, destructive intents
+cannot be persistently allowed, and Plan mode, role tool policies, parent
+ceilings, path guards, and OS containment remain authoritative. Existing
+sessions retain their loaded rule snapshot until a new runtime is created.
+Persistent allows apply only to the root agent. Child agents retain exact ask
+and deny rules while their inherited permission and profile ceilings remain in
+force.
+
 Operating modes freeze team width, role routing, model eligibility, request
 budgets, review/repair policy, and reported-cost limits before execution.
 Children cannot widen their parent’s permissions.
@@ -357,6 +400,50 @@ execute arbitrary code merely by being installed.
 Approved stdio MCP servers are launched with a filtered environment, bounded
 messages, digest-bound configuration, explicit tool names, and the active
 permission policy. Server metadata and results are untrusted data.
+
+## Lifecycle hooks
+
+`recurs hooks` inspects user-owned lifecycle hooks without starting a model or
+agent runtime. `recurs hooks --json` returns the same redacted status as a
+versioned object. Configuration lives at `$RECURS_HOME/config/hooks.json` and
+must be a private `0600`, owned, single-link regular file:
+
+```json
+{
+  "version": 1,
+  "hooks": [
+    {
+      "id": "audit",
+      "events": ["turn.stop", "agent.stop", "team.stop"],
+      "command": "/absolute/path/to/recurs-audit",
+      "timeoutMs": 1000
+    }
+  ]
+}
+```
+
+The stable Alpha events are `session.start`, `turn.start`, `turn.stop`,
+`tool.start`, `tool.stop`, `permission.request`, `permission.result`,
+`agent.start`, `agent.stop`, `team.start`, and `team.stop`. Each exact command
+receives one JSON envelope on standard input. Payloads omit prompts, tool
+arguments/results, permission resources, file paths, evidence, provider text,
+and raw error messages. Safe opaque turn, tool-call, agent, team, and company-goal
+identifiers are retained when the normalized source event provides them so
+concurrent activity can be correlated.
+
+Hooks are observe-only. Each command is one private, owned, single-link
+executable outside the workspace; use an owned wrapper executable when custom
+arguments are needed. Recurs binds its identity at startup and revalidates it
+before every launch. Hooks run in declaration order from a bounded asynchronous
+queue with strict schema, count, output, per-hook timeout, and aggregate
+per-event timeout limits. Their subprocess sees a read-only workspace, a
+private synthetic home, a filtered environment without host credentials, and
+no network. Bounded shutdown drains completed work and cancels unfinished hook
+work. Failures are visible in text and JSONL
+event modes but do not change the agent result; aggregate JSON remains a
+terminal-result format. Hooks run only in the local CLI host in Alpha, not ACP.
+A project cannot register a hook, and hooks cannot deny or mutate prompts,
+tools, results, permissions, or agent authority.
 
 ## Tools and subprocesses
 
