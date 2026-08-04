@@ -1163,7 +1163,7 @@ export function reduceTeamRunRecord(
       const enoughReviewers = record.review.verdict === "approved"
         ? reviewers.length >= team.initialReviewers && allCompleted(reviewers)
         : record.review.verdict === "changes_requested"
-          ? reviewers.length === team.maxReviewers && allCompleted(reviewers)
+          ? reviewers.length >= team.initialReviewers && allCompleted(reviewers)
           : allFinished(reviewers);
       if (record.review.round !== current.round || priorInClaim ||
         !enoughReviewers) {

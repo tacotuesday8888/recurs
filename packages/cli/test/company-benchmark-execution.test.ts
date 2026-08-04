@@ -537,7 +537,7 @@ describe("RuntimeCompanyBenchmarkAdapter", () => {
       findings: 1,
     });
     expect(company.roles.find((role) => role.role === "review")?.attempts).toBe(
-      3,
+      2,
     );
     expect(company.repairRounds).toBe(1);
     expect(company.activatedRoutes.map((item) => item.role)).toEqual([

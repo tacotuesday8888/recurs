@@ -2,6 +2,18 @@
 
 Notable user-facing changes are recorded here when they ship.
 
+## Unreleased
+
+### Changed
+
+- Interactive tool approvals now distinguish one-time access from an exact
+  session-scoped grant while continuing to deny by default.
+- Live team activity reports failed and cancelled children truthfully and
+  surfaces review verdicts, findings counts, phase changes, and candidate
+  readiness without exposing raw evidence.
+- A valid structured change request proceeds directly to Repair instead of
+  spending another reviewer on a decision that cannot reverse the outcome.
+
 ## 0.1.0-alpha.5 - 2026-08-01
 
 ### Added

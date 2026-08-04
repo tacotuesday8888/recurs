@@ -227,11 +227,44 @@ export class TextEventRenderer implements EventSink {
           event.activity === "child_finished" &&
           event.role !== undefined
         ) {
+          const label = `${event.role}${event.index === undefined ? "" : ` ${event.index}`}`;
+          const counts = `${event.counts.requestsUsed}/${event.counts.requestsReserved} requests`;
+          const files = event.changedFileCount === undefined
+            ? ""
+            : ` · ${event.changedFileCount} changed file${event.changedFileCount === 1 ? "" : "s"}`;
+          if (event.childStatus === "failed" || event.childStatus === "cancelled") {
+            await this.#status(this.#theme.failure(
+              `✗ ${label} ${event.childStatus} · ${counts}${files}`,
+            ));
+          } else {
+            await this.#status(this.#theme.success(
+              `✓ ${label} finished · ${counts}${files}`,
+            ));
+          }
+        } else if (
+          event.activity === "review_recorded" &&
+          event.reviewVerdict !== undefined
+        ) {
+          const findings = event.findingCount === undefined
+            ? ""
+            : ` · ${event.findingCount} finding${event.findingCount === 1 ? "" : "s"}`;
+          const text = `Review ${event.reviewVerdict.replaceAll("_", " ")}${findings}`;
           await this.#status(
-            this.#theme.success(
-              `✓ ${event.role}${event.index === undefined ? "" : ` ${event.index}`} finished · ${event.counts.requestsUsed}/${event.counts.requestsReserved} requests`,
-            ),
+            event.reviewVerdict === "approved"
+              ? this.#theme.success(`✓ ${text}`)
+              : event.reviewVerdict === "changes_requested"
+                ? this.#theme.warning(`◇ ${text}`)
+                : this.#theme.failure(`✗ ${text}`),
           );
+        } else if (event.activity === "phase_started" && event.phase !== null) {
+          await this.#status(this.#theme.accent(
+            `◇ Team ${event.phase} phase · round ${event.round}`,
+          ));
+        } else if (event.activity === "candidate_ready") {
+          const files = event.changedFileCount === undefined
+            ? ""
+            : ` · ${event.changedFileCount} changed file${event.changedFileCount === 1 ? "" : "s"}`;
+          await this.#status(this.#theme.success(`✓ Reviewed candidate ready${files}`));
         }
         break;
       case "agent_started":

@@ -796,6 +796,48 @@ describe("team run state", () => {
     });
   });
 
+  it("records a structured change request after the required reviewers finish", () => {
+    const oneTask = descriptor({
+      request: {
+        description: "One task",
+        tasks: [{ description: "Only task", prompt: "Change src/a.ts" }],
+        review: { instructions: "Review it" },
+      },
+    });
+    const state = reduceTeamRunRecords([
+      created(oneTask),
+      claim(),
+      phase(2, "implement"),
+      reservation(3, "implement-1", "implement", 1),
+      finished(4, "implement-1", { changedFiles: ["src/a.ts"] }),
+      artifact(5, "worker", "patch-a", "implement-1", ["src/a.ts"]),
+      phase(6, "stage"),
+      phase(7, "review"),
+      reservation(8, "review-1", "review", 1),
+      finished(9, "review-1"),
+      record(10, {
+        type: "review_recorded",
+        review: {
+          round: 0,
+          verdict: "changes_requested",
+          findings: [{
+            path: "src/a.ts",
+            problem: "The boundary is missing.",
+            acceptance: "Handle the boundary.",
+            evidence: ["src/a.ts:1"],
+          }],
+          evidence: ["review evidence"],
+        },
+        at: at(10),
+      }),
+    ]);
+
+    expect(state.reviews).toMatchObject([{
+      verdict: "changes_requested",
+      claimEpoch: 1,
+    }]);
+  });
+
   it("allows an explicitly unverified verdict after a failed required reviewer", () => {
     const economy = descriptorForMode("economy_v4", {
       request: {

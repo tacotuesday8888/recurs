@@ -223,6 +223,8 @@ describe("durable team activity events", () => {
       routeReason: "eligible_role_candidate",
       modelId: "model-secret",
       reasoningEffort: null,
+      childStatus: "completed",
+      changedFileCount: 1,
     });
 
     const serialized = JSON.stringify(event);

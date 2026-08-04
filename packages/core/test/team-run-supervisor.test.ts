@@ -972,9 +972,9 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
       status: "changes_requested",
       repairRounds: 0,
       accounting: {
-        childrenReserved: 4,
-        requestsReserved: 32,
-        requestsUsed: 4,
+        childrenReserved: 3,
+        requestsReserved: 24,
+        requestsUsed: 3,
       },
     });
     expect(state.status).toBe("changes_requested");
@@ -1999,15 +1999,13 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
       [0, "changes_requested"],
       [1, "approved"],
     ]);
-    expect(test.reviewPrompts.slice(0, 2).every((prompt) =>
-      prompt.includes("implement evidence 1") &&
-      prompt.includes("implement evidence 2")
-    )).toBe(true);
-    expect(test.reviewPrompts.slice(2).every((prompt) =>
-      prompt.includes("implement evidence 1") &&
-      prompt.includes("implement evidence 2") &&
-      prompt.includes("repair evidence 1")
-    )).toBe(true);
+    expect(test.reviewPrompts).toHaveLength(2);
+    expect(test.reviewPrompts[0]).toContain("implement evidence 1");
+    expect(test.reviewPrompts[0]).toContain("implement evidence 2");
+    expect(test.reviewPrompts[0]).not.toContain("repair evidence 1");
+    expect(test.reviewPrompts[1]).toContain("implement evidence 1");
+    expect(test.reviewPrompts[1]).toContain("implement evidence 2");
+    expect(test.reviewPrompts[1]).toContain("repair evidence 1");
     const repair = state.children.find((child) =>
       child.reservation.role === "repair"
     );
@@ -2042,7 +2040,7 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
       status: "approved",
       changedFiles: ["file-1.ts", "file-2.ts", "repair-extra.ts"],
     });
-    expect(test.reviewPrompts).toHaveLength(3);
+    expect(test.reviewPrompts).toHaveLength(2);
     expect(test.reviewPrompts.slice(0, -1).every((prompt) =>
       !prompt.includes("repair-extra.ts")
     )).toBe(true);

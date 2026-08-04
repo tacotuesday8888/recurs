@@ -129,6 +129,109 @@ describe("TextEventRenderer agent activity", () => {
       modelId: "gpt-5.6-terra",
       reasoningEffort: "medium",
     });
+    await renderer.emit({
+      type: "agent_team_activity",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      teamId: "durable-team-1",
+      sequence: 3,
+      status: "running",
+      phase: "review",
+      round: 1,
+      operatingModeId: "balanced_v6",
+      execution: "foreground",
+      activity: "phase_started",
+      counts: {
+        childrenReserved: 1,
+        childrenFinished: 1,
+        requestsReserved: 12,
+        requestsUsed: 4,
+        costReportedChildren: 0,
+        costMissingChildren: 1,
+        costCoverage: "none",
+      },
+      role: "review",
+      modelId: "gpt-5.6-luna",
+      reasoningEffort: "medium",
+    });
+    await renderer.emit({
+      type: "agent_team_activity",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      teamId: "durable-team-1",
+      sequence: 4,
+      status: "running",
+      phase: "review",
+      round: 1,
+      operatingModeId: "balanced_v6",
+      execution: "foreground",
+      activity: "child_finished",
+      counts: {
+        childrenReserved: 2,
+        childrenFinished: 2,
+        requestsReserved: 20,
+        requestsUsed: 7,
+        costReportedChildren: 0,
+        costMissingChildren: 2,
+        costCoverage: "none",
+      },
+      role: "review",
+      index: 1,
+      childStatus: "failed",
+      changedFileCount: 0,
+    });
+    await renderer.emit({
+      type: "agent_team_activity",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      teamId: "durable-team-1",
+      sequence: 5,
+      status: "running",
+      phase: "review",
+      round: 1,
+      operatingModeId: "balanced_v6",
+      execution: "foreground",
+      activity: "review_recorded",
+      counts: {
+        childrenReserved: 2,
+        childrenFinished: 2,
+        requestsReserved: 20,
+        requestsUsed: 7,
+        costReportedChildren: 0,
+        costMissingChildren: 2,
+        costCoverage: "none",
+      },
+      role: "review",
+      reviewVerdict: "changes_requested",
+      findingCount: 2,
+    });
+    await renderer.emit({
+      type: "agent_team_activity",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      teamId: "durable-team-1",
+      sequence: 6,
+      status: "ready_to_apply",
+      phase: "apply",
+      round: 1,
+      operatingModeId: "balanced_v6",
+      execution: "foreground",
+      activity: "candidate_ready",
+      counts: {
+        childrenReserved: 2,
+        childrenFinished: 2,
+        requestsReserved: 20,
+        requestsUsed: 7,
+        costReportedChildren: 0,
+        costMissingChildren: 2,
+        costCoverage: "none",
+      },
+      changedFileCount: 2,
+    });
 
     await renderer.emit({
       type: "agent_started",
@@ -381,6 +484,10 @@ describe("TextEventRenderer agent activity", () => {
     expect(output).toContain(
       "↳ Activated implement 1 · gpt-5.6-terra · medium",
     );
+    expect(output).toContain("◇ Team review phase · round 1");
+    expect(output).toContain("✗ review 1 failed · 7/20 requests · 0 changed files");
+    expect(output).toContain("◇ Review changes requested · 2 findings");
+    expect(output).toContain("✓ Reviewed candidate ready · 2 changed files");
     expect(output).toContain(
       "↳ Explore child · gpt-explore · medium: Inspect cache key",
     );

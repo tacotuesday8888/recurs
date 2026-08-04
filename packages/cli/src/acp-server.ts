@@ -318,6 +318,10 @@ class AcpEventBridge implements EventSink {
             round: event.round,
             activity: event.activity,
             counts: event.counts,
+            childStatus: event.childStatus,
+            reviewVerdict: event.reviewVerdict,
+            findingCount: event.findingCount,
+            changedFileCount: event.changedFileCount,
           },
         });
         return;
