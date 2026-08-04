@@ -13,6 +13,7 @@ import { createInterface } from "node:readline/promises";
 
 import {
   createHostInvocation,
+  deriveTrustedRunContext,
   MAX_MODEL_IMAGES,
   parseOperatingModeId,
   RECURS_VERSION,
@@ -42,6 +43,7 @@ import {
   type AgentRouteAssignment,
   type ConnectionVerification,
   type EnvironmentConnectionConfiguration,
+  type ProviderPolicyClaim,
 } from "@recurs/app";
 import {
   CoordinatedRunError,
@@ -104,6 +106,7 @@ import {
   setAccountAgentRoutes,
   setPrimaryAccount,
   verifyAccount,
+  providerSummaryGroup,
   type AccountSummary,
   type ProviderSummary,
 } from "./provider-account.js";
@@ -246,6 +249,7 @@ export interface CliDependencies {
     credentialEnvironmentVariable: string;
     billingSelection: "strict_primary_only" | "allow_declared_additional";
     reasoningEffort?: ModelReasoningEffort;
+    policyClaims?: readonly ProviderPolicyClaim[];
   }, signal?: AbortSignal): Promise<EnvironmentConnectionConfiguration>;
   listProviders?(input: {
     includeBlocked: boolean;
@@ -812,7 +816,7 @@ function parseAccountCommand(args: readonly string[]): AccountCommand | null {
 
 function providerText(providers: readonly ProviderSummary[]): string {
   if (providers.length === 0) return "No provider paths are available.\n";
-  return `${providers.map((provider) => {
+  const render = (provider: ProviderSummary) => {
     const sources = [
       provider.billing.primarySource,
       ...provider.billing.possibleAdditionalSources,
@@ -827,6 +831,19 @@ function providerText(providers: readonly ProviderSummary[]): string {
         (restriction) => `  Restriction: ${restriction}`,
       ),
     ].join("\n");
+  };
+  const sections = [
+    ["Subscriptions and coding plans", "plans"],
+    ["API keys and cloud gateways", "api"],
+    ["Local runtimes", "local"],
+  ] as const;
+  return `${sections.flatMap(([label, group]) => {
+    const entries = providers.filter((provider) =>
+      providerSummaryGroup(provider) === group
+    );
+    return entries.length === 0
+      ? []
+      : [`${label}\n${entries.map(render).join("\n\n")}`];
   }).join("\n\n")}\n`;
 }
 
@@ -1807,9 +1824,34 @@ export async function runCli(
         );
         return 2;
       }
+      const providerSummaries = await dependencies.listProviders?.({
+        includeBlocked: true,
+      });
+      const summary = providerSummaries?.find(
+        (provider) => provider.id === byokCommand.providerId,
+      );
+      const policyClaims: ProviderPolicyClaim[] = [];
+      for (const claimId of summary?.requiredPolicyClaims ?? []) {
+        const confirmed = await dependencies.confirm(
+          claimId === "alibaba.coding_plan_active"
+            ? "Confirm that this credential belongs to your currently active Alibaba Coding Plan. Recurs will save this attestation for future local, manual, user-present CLI sessions until the connection or provider policy changes."
+            : `Confirm the current provider entitlement required by ${claimId}.`,
+        );
+        if (!confirmed) {
+          await writeOutput(
+            dependencies.stderr,
+            "Error: Required coding-plan entitlement was not confirmed\n",
+          );
+          return 2;
+        }
+        policyClaims.push({ id: claimId, value: true });
+      }
       try {
         const connection = await dependencies.setupEnvironment(
-          byokCommand,
+          {
+            ...byokCommand,
+            ...(policyClaims.length === 0 ? {} : { policyClaims }),
+          },
           dependencies.signal,
         );
         await writeOutput(
@@ -2212,6 +2254,13 @@ export async function runCliProcess(
           cwd,
           dataDirectory,
           environment: process.env,
+          runContext: deriveTrustedRunContext(createHostInvocation({
+            invocation: "repl",
+            userPresent: true,
+            remote: false,
+            scripted: false,
+            embedding: "cli",
+          })),
         },
       ),
       ensureTeamControls: async ({ cwd, operatingModeId, signal }) => {
@@ -2310,7 +2359,17 @@ export async function runCliProcess(
       setupLocal: (input) => setupLocalConnection(dataDirectory, input),
       setupEnvironment: (input, signal) => setupEnvironmentConnection(
         dataDirectory,
-        { ...input, environment: process.env },
+        {
+          ...input,
+          environment: process.env,
+          policyContext: deriveTrustedRunContext(createHostInvocation({
+            invocation: "repl",
+            userPresent: true,
+            remote: false,
+            scripted: false,
+            embedding: "cli",
+          })),
+        },
         signal === undefined ? {} : { signal },
       ),
       setupCodex: (input) => setupCodexSubscription(dataDirectory, input, {

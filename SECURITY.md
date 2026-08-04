@@ -41,6 +41,12 @@ and a one-way credential fingerprint. It does not persist the credential value.
 The exact named value must be present and match the saved fingerprint before a
 provider request begins.
 
+Conditional coding plans also store a bounded, non-secret policy binding such
+as an entitlement confirmation or billing selection. Recurs re-evaluates that
+binding against the trusted invocation context before every run. A plan limited
+to foreground interactive use therefore fails closed in scripted, unattended,
+remote, or SDK contexts even when its credential is present.
+
 Environment BYOK is deliberately weaker than vendor-owned authentication. The
 credential exists in the parent Node.js process and may be observable by
 same-user host authority, debuggers, injected code, or a compromised runtime.

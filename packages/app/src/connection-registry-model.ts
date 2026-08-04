@@ -14,6 +14,10 @@ import {
   looksLikeSecretValue,
 } from "./non-secret-policy.js";
 import { openAIResponsesReasoningEfforts } from "./openai-model-capabilities.js";
+import type {
+  ProviderPolicyBindingV1,
+  ProviderPolicyClaimValue,
+} from "./provider-usage-policy.js";
 
 export const REGISTRY_INVALID = "Connection registry is invalid";
 export const STORAGE_UNSAFE = "Connection registry storage is unsafe";
@@ -108,11 +112,52 @@ export interface EnvironmentModelProviderConnectionRecord {
   credentialEnvironmentVariable: string;
   credentialIdentityFingerprint: string;
   policyRevision: string;
+  policyBinding?: ProviderPolicyBindingV1;
   billingPolicy: BillingPolicy;
   billingSelection: BillingSelection;
   configuredAt: string;
   createdAt: string;
   updatedAt: string;
+}
+
+function parseProviderPolicyClaimValue(value: unknown): ProviderPolicyClaimValue {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number" && Number.isSafeInteger(value)) return value;
+  if (typeof value === "string") {
+    return boundedUtf8String(value, 256, { trim: false });
+  }
+  throw invalidRegistry();
+}
+
+function parseProviderPolicyBinding(value: unknown): ProviderPolicyBindingV1 {
+  if (!isRecord(value)) throw invalidRegistry();
+  exactKeys(value, ["schemaVersion", "claims", "acknowledgedAt"]);
+  if (
+    value.schemaVersion !== 1 || !Array.isArray(value.claims) ||
+    value.claims.length > 32
+  ) {
+    throw invalidRegistry();
+  }
+  const claims = value.claims.map((claim) => {
+    if (!isRecord(claim)) throw invalidRegistry();
+    exactKeys(claim, ["id", "value"]);
+    return {
+      id: boundedString(claim.id, 128, { trim: true, pattern: ID_PATTERN }),
+      value: parseProviderPolicyClaimValue(claim.value),
+    };
+  });
+  if (
+    new Set(claims.map((claim) => claim.id)).size !== claims.length ||
+    claims.some((claim, index) => index > 0 &&
+      (claims[index - 1]?.id ?? "").localeCompare(claim.id) >= 0)
+  ) {
+    throw invalidRegistry();
+  }
+  return {
+    schemaVersion: 1,
+    claims,
+    acknowledgedAt: timestamp(value.acknowledgedAt),
+  };
 }
 
 export type ConnectionRecord =
@@ -722,6 +767,7 @@ export function parseEnvironmentModelProviderConnectionRecord(
     "credentialEnvironmentVariable",
     "credentialIdentityFingerprint",
     "policyRevision",
+    ...(value.policyBinding === undefined ? [] : ["policyBinding"]),
     "billingPolicy",
     "billingSelection",
     "configuredAt",
@@ -770,6 +816,9 @@ export function parseEnvironmentModelProviderConnectionRecord(
     value.billingSelection,
     billingPolicy,
   );
+  const policyBinding = value.policyBinding === undefined
+    ? undefined
+    : parseProviderPolicyBinding(value.policyBinding);
   let modelLimits: VerifiedModelLimits | undefined;
   if (value.modelLimits !== undefined) {
     if (!isRecord(value.modelLimits)) throw invalidRegistry();
@@ -804,6 +853,11 @@ export function parseEnvironmentModelProviderConnectionRecord(
     configuredAt > updatedAt ||
     billingSelection.acknowledgedAt < createdAt ||
     billingSelection.acknowledgedAt > updatedAt ||
+    (policyBinding !== undefined &&
+      (policyBinding.acknowledgedAt < createdAt ||
+        policyBinding.acknowledgedAt > updatedAt ||
+        policyBinding.acknowledgedAt !==
+          billingSelection.acknowledgedAt)) ||
     (modelLimits !== undefined &&
       (modelLimits.verifiedAt < createdAt || modelLimits.verifiedAt > updatedAt))
   ) {
@@ -827,6 +881,7 @@ export function parseEnvironmentModelProviderConnectionRecord(
       { trim: true, pattern: SHA256_FINGERPRINT_PATTERN },
     ),
     policyRevision: boundedString(value.policyRevision, 256, { trim: true }),
+    ...(policyBinding === undefined ? {} : { policyBinding }),
     billingPolicy,
     billingSelection,
     configuredAt,

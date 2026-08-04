@@ -244,6 +244,28 @@ describe("remote Anthropic Messages provider", () => {
     expect(JSON.stringify(provider)).not.toContain(key);
   });
 
+  it("uses the exact reviewed MiniMax Token Plan Anthropic endpoint", async () => {
+    let url = "";
+    const provider = new RemoteAnthropicMessagesProvider({
+      providerId: "minimax-token-plan",
+      connectionId: "minimax-plan",
+      apiKey: "minimax-plan-key",
+      fetch: async (input) => {
+        url = String(input);
+        return response([toolStream()]);
+      },
+    });
+
+    for await (const _event of provider.stream({
+      model: "MiniMax-M2.7",
+      messages: [{ id: "user", role: "user", content: "Inspect." }],
+      tools: [],
+      signal: new AbortController().signal,
+    })) void _event;
+
+    expect(url).toBe("https://api.minimax.io/anthropic/v1/messages");
+  });
+
   it("rejects arbitrary origins and non-Anthropic provider profiles", () => {
     for (const providerId of [
       "https://attacker.invalid/v1",

@@ -11,8 +11,11 @@ import type {
 } from "@recurs/contracts";
 import {
   ProviderManifestRegistry,
+  isEnvironmentCredentialManifest,
   isEnvironmentByokManifest,
 } from "@recurs/providers";
+
+import { requiredProviderPolicyClaimIds } from "./provider-usage-policy.js";
 
 export type OnboardingStatus =
   | "runnable"
@@ -35,6 +38,7 @@ export interface OnboardingCatalogEntry {
   billing: BillingPolicy;
   restrictions: readonly string[];
   policy: ProviderUsagePolicy;
+  requiredPolicyClaims: readonly string[];
 }
 
 export interface OnboardingCatalogOptions {
@@ -85,6 +89,7 @@ function statusFor(
   }
   if (manifest.runnable && RUNNABLE_IDS.has(manifest.id)) return "runnable";
   if (isEnvironmentByokManifest(manifest)) return "runnable_byok";
+  if (isEnvironmentCredentialManifest(manifest)) return "runnable_byok";
   return "blocked";
 }
 
@@ -131,7 +136,7 @@ function entryFor(
     protocol: manifest.protocol,
     status,
     supportStatus: manifest.supportStatus,
-    connectionOwner: isEnvironmentByokManifest(manifest)
+    connectionOwner: isEnvironmentCredentialManifest(manifest)
       ? "process_environment"
       : manifest.credentialOwner,
     endpoints: structuredClone(manifest.endpoints),
@@ -139,6 +144,9 @@ function entryFor(
     billing: structuredClone(manifest.billingPolicy),
     restrictions: restrictionsFor(manifest, status, now),
     policy: structuredClone(manifest.usagePolicy),
+    requiredPolicyClaims: requiredProviderPolicyClaimIds(
+      manifest.usagePolicy,
+    ),
   });
 }
 

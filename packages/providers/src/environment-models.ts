@@ -1,7 +1,7 @@
 import { RECURS_VERSION } from "@recurs/contracts";
 
 import { CredentialEchoGuard } from "./credential-echo-guard.js";
-import { environmentByokManifest } from "./environment-provider-policy.js";
+import { environmentCredentialManifest } from "./environment-provider-policy.js";
 import { ProviderError } from "./types.js";
 
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -61,8 +61,10 @@ function validCredential(value: string): boolean {
 }
 
 function discoveryProfile(providerId: string): ModelDiscoveryProfile | null {
-  const manifest = environmentByokManifest(providerId);
-  const origin = manifest?.endpoints.find((endpoint) => endpoint.kind === "origin");
+  const manifest = environmentCredentialManifest(providerId);
+  const origin = manifest?.endpoints.find((endpoint) =>
+    endpoint.kind === "origin"
+  );
   if (
     manifest?.protocol === "gemini_generate_content" &&
     manifest.id === "google-gemini-api" &&
@@ -77,11 +79,22 @@ function discoveryProfile(providerId: string): ModelDiscoveryProfile | null {
   ) {
     return { kind: "xai", origin: origin.value };
   }
-  if (
-    manifest?.protocol === "anthropic_messages" &&
-    origin?.value === "https://api.anthropic.com/v1"
-  ) {
-    return { kind: "anthropic", origin: origin.value };
+  if (manifest?.protocol === "anthropic_messages") {
+    const reviewedOrigin = manifest.endpoints.find((endpoint) =>
+      endpoint.kind === "origin" &&
+      ((manifest.id === "anthropic-api" &&
+        endpoint.value === "https://api.anthropic.com/v1") ||
+        (manifest.id === "minimax-token-plan" &&
+          endpoint.value === "https://api.minimax.io/anthropic"))
+    );
+    if (reviewedOrigin !== undefined) {
+      return {
+        kind: "anthropic",
+        origin: manifest.id === "minimax-token-plan"
+          ? `${reviewedOrigin.value}/v1`
+          : reviewedOrigin.value,
+      };
+    }
   }
   const reviewedOrigin = OPENAI_MODEL_DISCOVERY_ORIGINS[providerId];
   return (manifest?.protocol === "openai_chat" ||

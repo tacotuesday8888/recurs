@@ -6,6 +6,7 @@ import {
   BUNDLED_PROVIDER_MANIFESTS,
   environmentByokProviderIds,
   environmentCredentialFingerprint,
+  isEnvironmentCredentialManifest,
   isEnvironmentByokManifest,
   resolveEnvironmentProvider,
 } from "../src/index.js";
@@ -96,6 +97,17 @@ describe("environment provider resolution", () => {
     expect(environmentByokProviderIds()).not.toContain("zai-glm-coding-plan");
     expect(environmentByokProviderIds()).not.toContain("alibaba-coding-plan");
 
+    const alibabaManifest = BUNDLED_PROVIDER_MANIFESTS.find(
+      (manifest) => manifest.id === "alibaba-coding-plan",
+    );
+    const minimaxManifest = BUNDLED_PROVIDER_MANIFESTS.find(
+      (manifest) => manifest.id === "minimax-token-plan",
+    );
+    expect(alibabaManifest && isEnvironmentCredentialManifest(alibabaManifest))
+      .toBe(true);
+    expect(minimaxManifest && isEnvironmentCredentialManifest(minimaxManifest))
+      .toBe(true);
+
     const openai = await createEnvironmentProviderConfiguration({
       providerId: "openai-api",
       modelId: "gpt-test",
@@ -146,6 +158,15 @@ describe("environment provider resolution", () => {
       providerId: "google-gemini-api",
       connectionId: "saved-gemini",
       provider: { adapterId: "gemini-generate-content" },
+    });
+
+    await expect(resolveEnvironmentProvider({
+      RECURS_PROVIDER: "alibaba-coding-plan",
+      RECURS_MODEL: "qwen3-coder-plus",
+      RECURS_API_KEY: "conditional-private-value",
+    })).rejects.toMatchObject({
+      code: "unsupported",
+      message: "Conditional providers require reviewed interactive setup",
     });
   });
 

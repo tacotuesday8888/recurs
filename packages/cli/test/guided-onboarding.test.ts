@@ -45,8 +45,10 @@ const providers: readonly ProviderSummary[] = [
       primarySource: "included_subscription",
       possibleAdditionalSources: ["prepaid_credits"],
       providerFallback: "automatic",
+      availableSelections: ["allow_declared_additional"],
     },
     restrictions: [],
+    requiredPolicyClaims: [],
   },
   {
     id: "openrouter-api",
@@ -61,8 +63,10 @@ const providers: readonly ProviderSummary[] = [
       primarySource: "prepaid_credits",
       possibleAdditionalSources: [],
       providerFallback: "none",
+      availableSelections: ["strict_primary_only"],
     },
     restrictions: [],
+    requiredPolicyClaims: [],
   },
   {
     id: "xai-api",
@@ -77,8 +81,10 @@ const providers: readonly ProviderSummary[] = [
       primarySource: "metered_api",
       possibleAdditionalSources: [],
       providerFallback: "none",
+      availableSelections: ["strict_primary_only"],
     },
     restrictions: [],
+    requiredPolicyClaims: [],
   },
   {
     id: "openai-api",
@@ -93,8 +99,10 @@ const providers: readonly ProviderSummary[] = [
       primarySource: "metered_api",
       possibleAdditionalSources: [],
       providerFallback: "none",
+      availableSelections: ["strict_primary_only"],
     },
     restrictions: [],
+    requiredPolicyClaims: [],
   },
 ];
 
@@ -177,6 +185,12 @@ describe("guided onboarding policy", () => {
       .toBe("KILO_API_KEY");
     expect(credentialEnvironmentSuggestion("google-gemini-api"))
       .toBe("GEMINI_API_KEY");
+    expect(credentialEnvironmentSuggestion("alibaba-coding-plan"))
+      .toBe("DASHSCOPE_API_KEY");
+    expect(credentialEnvironmentSuggestion("kimi-code"))
+      .toBe("KIMI_API_KEY");
+    expect(credentialEnvironmentSuggestion("minimax-token-plan"))
+      .toBe("MINIMAX_API_KEY");
   });
 
   it("offers only current stable operating-mode policies", () => {
@@ -447,6 +461,7 @@ describe("guided onboarding policy", () => {
         primarySource: "metered_api",
         possibleAdditionalSources: [],
         providerFallback: "none",
+        availableSelections: ["strict_primary_only"],
       },
     };
     const outcome = await runGuidedOnboarding({
@@ -493,6 +508,84 @@ describe("guided onboarding policy", () => {
       "--provider", "google-gemini-api",
       "--model", "gemini-test",
       "--key-env", "GEMINI_API_KEY",
+    ]]);
+  });
+
+  it("uses the reviewed MiniMax Token Plan billing choice in guided setup", async () => {
+    const selections = [
+      "more-providers",
+      "byok:minimax-token-plan",
+      "MiniMax-M2.7",
+      "ask_always",
+      "balanced_v6",
+    ];
+    const commands: string[][] = [];
+    const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
+    const minimax: ProviderSummary = {
+      ...providers[1]!,
+      id: "minimax-token-plan",
+      displayName: "MiniMax Token Plan",
+      supportStatus: "conditional",
+      accessKind: "coding_plan",
+      protocol: "anthropic_messages",
+      billing: {
+        primarySource: "included_subscription",
+        possibleAdditionalSources: ["prepaid_credits"],
+        providerFallback: "automatic",
+        availableSelections: ["allow_declared_additional"],
+      },
+    };
+    const outcome = await runGuidedOnboarding({
+      stdout: sink,
+      stderr: sink,
+      interactive: true,
+      automation: false,
+      async listAccounts() { return []; },
+      async detectProviders() { return []; },
+      async listProviders() { return [minimax]; },
+      async discoverProviders(query) {
+        expect(query).toBe("minimax-coding-plan");
+        return {
+          source: "https://models.dev/api.json",
+          providers: [{
+            id: "minimax-coding-plan",
+            name: "MiniMax Coding Plan",
+            wire: "anthropic-compatible",
+            modelCount: 1,
+            modelIds: ["MiniMax-M2.7"],
+          }],
+        };
+      },
+      async selectChoice(message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        if (selected === "byok:minimax-token-plan") {
+          expect(choices.find((choice) => choice.id === selected)?.detail)
+            .toContain("coding plan key");
+        }
+        return selected;
+      },
+      async promptText(_message, suggestion) {
+        expect(suggestion).toBe("MINIMAX_API_KEY");
+        return suggestion ?? null;
+      },
+      async executeCommand(argv) {
+        commands.push([...argv]);
+        return 0;
+      },
+    });
+
+    expect(outcome).toEqual({
+      state: "configured",
+      permissionMode: "ask_always",
+      operatingModeId: "balanced_v6",
+    });
+    expect(commands).toEqual([[
+      "setup", "byok",
+      "--provider", "minimax-token-plan",
+      "--model", "MiniMax-M2.7",
+      "--key-env", "MINIMAX_API_KEY",
+      "--billing", "allow-additional",
     ]]);
   });
 

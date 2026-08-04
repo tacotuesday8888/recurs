@@ -9,12 +9,20 @@ import {
   FileConnectionRegistry,
   OnboardingCatalog,
   connectionRegistryPath,
+  discoverEnvironmentConnectionModels,
   setupEnvironmentConnection,
   verifyEnvironmentConnection,
 } from "../src/index.js";
 
 const roots: string[] = [];
 const AT = "2026-07-21T12:00:00.000Z";
+const INTERACTIVE_CONTEXT = Object.freeze({
+  invocation: "repl" as const,
+  presence: "present" as const,
+  location: "local" as const,
+  automation: "manual" as const,
+  embedding: "cli" as const,
+});
 
 function anthropicModels(...ids: string[]): Response {
   return new Response(JSON.stringify({
@@ -291,6 +299,98 @@ describe("saved environment BYOK connections", () => {
     await expect(service.disconnect(configured.id)).resolves.toMatchObject({
       connectionId: configured.id,
       primaryCleared: true,
+    });
+  });
+
+  it("activates Alibaba Coding Plan only with an exact entitlement attestation", async () => {
+    const directory = await root();
+    const base = {
+      providerId: "alibaba-coding-plan",
+      modelId: "qwen3-coder-plus",
+      credentialEnvironmentVariable: "DASHSCOPE_API_KEY",
+      billingSelection: "strict_primary_only" as const,
+      environment: { DASHSCOPE_API_KEY: "alibaba-private-value" },
+      policyContext: INTERACTIVE_CONTEXT,
+      now: AT,
+    };
+    await expect(setupEnvironmentConnection(directory, base)).rejects
+      .toMatchObject({ code: "billing_policy_blocked" });
+    await expect(setupEnvironmentConnection(directory, {
+      ...base,
+      policyClaims: [{ id: "alibaba.coding_plan_active", value: true }],
+      policyContext: { ...INTERACTIVE_CONTEXT, automation: "scripted" },
+    })).rejects.toMatchObject({ code: "billing_policy_blocked" });
+
+    const configured = await setupEnvironmentConnection(directory, {
+      ...base,
+      policyClaims: [{ id: "alibaba.coding_plan_active", value: true }],
+    });
+    expect(configured).toMatchObject({
+      providerId: "alibaba-coding-plan",
+      label: "Alibaba Coding Plan",
+      billingSelection: "strict_primary_only",
+    });
+    const text = await readFile(connectionRegistryPath(directory), "utf8");
+    expect(text).not.toContain("alibaba-private-value");
+    expect((await new FileConnectionRegistry(directory).read()).connections[0])
+      .toMatchObject({
+        kind: "environment_model_provider",
+        policyBinding: {
+          schemaVersion: 1,
+          claims: [{ id: "alibaba.coding_plan_active", value: true }],
+          acknowledgedAt: AT,
+        },
+      });
+
+    const filename = connectionRegistryPath(directory);
+    const document = JSON.parse(await readFile(filename, "utf8")) as {
+      connections: Array<{
+        policyBinding?: { acknowledgedAt: string };
+      }>;
+    };
+    document.connections[0]!.policyBinding!.acknowledgedAt =
+      "2026-07-21T12:00:01.000Z";
+    await writeFile(filename, `${JSON.stringify(document)}\n`, "utf8");
+    await expect(new FileConnectionRegistry(directory).read()).rejects
+      .toMatchObject({ code: "registry_invalid" });
+  });
+
+  it("activates MiniMax Token Plan only with its declared additional billing source", async () => {
+    const directory = await root();
+    let discoveryRequests = 0;
+    const base = {
+      providerId: "minimax-token-plan",
+      modelId: "MiniMax-M2.7",
+      credentialEnvironmentVariable: "MINIMAX_API_KEY",
+      environment: { MINIMAX_API_KEY: "minimax-private-value" },
+      policyContext: INTERACTIVE_CONTEXT,
+      now: AT,
+    };
+    await expect(discoverEnvironmentConnectionModels({
+      providerId: base.providerId,
+      credentialEnvironmentVariable: base.credentialEnvironmentVariable,
+      environment: base.environment,
+    }, {
+      fetch: async () => {
+        discoveryRequests += 1;
+        return anthropicModels("MiniMax-M2.7");
+      },
+    })).rejects.toMatchObject({ code: "billing_policy_blocked" });
+    expect(discoveryRequests).toBe(0);
+    await expect(setupEnvironmentConnection(directory, {
+      ...base,
+      billingSelection: "strict_primary_only",
+    })).rejects.toMatchObject({ code: "billing_policy_blocked" });
+    const configured = await setupEnvironmentConnection(directory, {
+      ...base,
+      billingSelection: "allow_declared_additional",
+    }, {
+      fetch: async () => anthropicModels("MiniMax-M2.7"),
+    });
+    expect(configured).toMatchObject({
+      providerId: "minimax-token-plan",
+      label: "MiniMax Token Plan",
+      billingSelection: "allow_declared_additional",
     });
   });
 

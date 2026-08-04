@@ -7,6 +7,7 @@ import { RemoteOpenAIResponsesProvider } from "./openai-responses.js";
 import {
   environmentByokAdapterId,
   environmentByokManifest,
+  environmentCredentialManifest,
 } from "./environment-provider-policy.js";
 
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/u;
@@ -64,7 +65,7 @@ export async function createEnvironmentProviderConfiguration(
   }
   let provider: ConnectionBoundModelProvider;
   try {
-    const manifest = environmentByokManifest(input.providerId);
+    const manifest = environmentCredentialManifest(input.providerId);
     const adapterId = manifest === null
       ? null
       : environmentByokAdapterId(manifest);
@@ -131,6 +132,12 @@ async function resolve(
     throw new EnvironmentProviderError(
       "invalid",
       "Environment provider selection is invalid",
+    );
+  }
+  if (environmentByokManifest(providerId) === null) {
+    throw new EnvironmentProviderError(
+      "unsupported",
+      "Conditional providers require reviewed interactive setup",
     );
   }
   return await createEnvironmentProviderConfiguration({

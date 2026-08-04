@@ -47,6 +47,9 @@ describe("provider discovery presentation", () => {
     expect(text).toContain(
       "recurs setup byok --provider <id> --model <id> --key-env <ENV>",
     );
+    expect(text).toContain("Subscriptions and coding plans");
+    expect(text).toContain("API keys and cloud gateways");
+    expect(text).toContain("Local runtimes");
     expect(text).not.toContain("recurs setup openai");
     expect(text).not.toContain("recurs setup anthropic");
     expect(text).not.toContain("recurs setup kimi");

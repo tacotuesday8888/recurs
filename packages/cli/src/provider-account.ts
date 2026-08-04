@@ -38,11 +38,32 @@ export interface ProviderSummary {
     readonly primarySource: BillingSource;
     readonly possibleAdditionalSources: readonly BillingSource[];
     readonly providerFallback: "none" | "user_configured" | "automatic" | "unknown";
+    readonly availableSelections: readonly (
+      | "provider_default"
+      | "strict_primary_only"
+      | "allow_declared_additional"
+    )[];
   };
   readonly restrictions: readonly string[];
+  readonly requiredPolicyClaims: readonly string[];
 }
 
 export type AccountSummary = ConnectionSummary;
+
+export type ProviderSummaryGroup = "plans" | "api" | "local";
+
+export function providerSummaryGroup(
+  provider: Pick<ProviderSummary, "accessKind">,
+): ProviderSummaryGroup {
+  if (provider.accessKind === "local") return "local";
+  if (
+    provider.accessKind === "subscription" ||
+    provider.accessKind === "coding_plan"
+  ) {
+    return "plans";
+  }
+  return "api";
+}
 
 function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
@@ -71,8 +92,10 @@ export function listProviderSummaries(
         ...entry.billing.possibleAdditionalSources,
       ],
       providerFallback: entry.billing.providerFallback,
+      availableSelections: [...entry.billing.availableSelections],
     },
     restrictions: [...entry.restrictions],
+    requiredPolicyClaims: [...entry.requiredPolicyClaims],
   })));
 }
 

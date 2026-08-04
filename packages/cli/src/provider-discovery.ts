@@ -12,6 +12,7 @@ import {
 import {
   listAccountSummaries,
   listProviderSummaries,
+  providerSummaryGroup,
   type AccountSummary,
 } from "./provider-account.js";
 
@@ -156,9 +157,25 @@ export function providerOverviewText(
     : [`  ${overview.catalog.unavailable}`];
   const available = listProviderSummaries().filter((provider) =>
     provider.status === "runnable" || provider.status === "runnable_byok"
-  ).slice(0, 8).map((provider) =>
-    `  ${provider.displayName} · ${provider.status.replaceAll("_", " ")}`
   );
+  const setupPaths = [
+    ["Subscriptions and coding plans", "plans"],
+    ["API keys and cloud gateways", "api"],
+    ["Local runtimes", "local"],
+  ] as const satisfies readonly (readonly [string, ReturnType<typeof providerSummaryGroup>])[];
+  const availableText = setupPaths.flatMap(([label, group]) => {
+    const entries = available.filter((provider) =>
+      providerSummaryGroup(provider) === group
+    );
+    return entries.length === 0
+      ? []
+      : [
+          `  ${label}`,
+          ...entries.map((provider) =>
+            `    ${provider.displayName} · ${provider.status.replaceAll("_", " ")}`
+          ),
+        ];
+  });
 
   return [
     "Providers",
@@ -173,7 +190,7 @@ export function providerOverviewText(
     ...catalog,
     "",
     "Recurs setup paths",
-    ...available,
+    ...availableText,
     "",
     "Next: recurs setup for guided setup, or recurs setup codex.",
     "BYOK: recurs setup byok --provider <id> --model <id> --key-env <ENV>.",

@@ -8,7 +8,7 @@ import type {
 
 import { ProviderError } from "./types.js";
 import { COMPATIBLE_TOOL_USE_PROFILE } from "./harness-profile.js";
-import { environmentByokManifest } from "./environment-provider-policy.js";
+import { environmentCredentialManifest } from "./environment-provider-policy.js";
 import { CredentialEchoGuard } from "./credential-echo-guard.js";
 import { retryAfterOptions } from "./retry-after.js";
 import {
@@ -471,9 +471,12 @@ export interface RemoteOpenAICompatibleProviderOptions {
 }
 
 function reviewedChatEndpoint(providerId: string): string {
-  const manifest = environmentByokManifest(providerId);
+  const manifest = environmentCredentialManifest(providerId);
   const endpoint = manifest?.endpoints.find(
-    (candidate) => candidate.kind === "origin",
+    (candidate) => candidate.kind === "origin" &&
+      (providerId !== "alibaba-coding-plan" ||
+        candidate.value ===
+          "https://coding-intl.dashscope.aliyuncs.com/v1"),
   );
   if (
     manifest === null ||

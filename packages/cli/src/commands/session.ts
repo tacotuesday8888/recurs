@@ -237,7 +237,11 @@ function createCompactCommand(dependencies: CommandDependencies): Command {
       const signal = dependencies.signal?.() ?? new AbortController().signal;
       const provider = dependencies.resolveProvider === undefined
         ? dependencies.provider
-        : await dependencies.resolveProvider(context.session, signal);
+        : await dependencies.resolveProvider(
+            context.session,
+            signal,
+            context.invocation,
+          );
       if (provider === undefined || provider === null) {
         return message("No provider is available for compaction", "error");
       }

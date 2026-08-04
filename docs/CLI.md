@@ -112,6 +112,17 @@ recurs setup byok \
   --model gpt-5.6-sol \
   --key-env OPENAI_API_KEY
 
+recurs setup byok \
+  --provider alibaba-coding-plan \
+  --model qwen3-coder-plus \
+  --key-env DASHSCOPE_API_KEY
+
+recurs setup byok \
+  --provider minimax-token-plan \
+  --model MiniMax-M2.7 \
+  --key-env MINIMAX_API_KEY \
+  --billing allow-additional
+
 recurs setup codex
 ```
 
@@ -126,8 +137,19 @@ BYOK stores provider/model metadata, the environment-variable name, and a
 one-way credential fingerprint. It never stores the key value. The same named
 value must be present and match the fingerprint when a run starts.
 
+Coding-plan setup also preserves the reviewed policy acknowledgement. Alibaba
+requires a separate confirmation of an active Coding Plan and runs only from a
+local, manual, user-present CLI session. That saved confirmation applies to
+future eligible sessions until the connection or reviewed policy changes.
+MiniMax Token Plan requires the
+documented prepaid-credit fallback to be accepted. These conditions are
+rechecked before every run; saved credentials do not bypass them.
+
 Supported fixed-origin adapters include reviewed OpenAI Responses, Anthropic
-Messages, Gemini GenerateContent, and OpenAI Chat-compatible providers.
+Messages, Gemini GenerateContent, and OpenAI Chat-compatible providers. The
+guided provider screen groups subscriptions/coding plans, API keys/cloud
+gateways, and local runtimes rather than treating public catalog metadata as a
+detected local account.
 Provider manifests that lack an implemented adapter remain blocked.
 
 Inspect provider state without configuring it:

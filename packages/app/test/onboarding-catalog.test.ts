@@ -31,9 +31,11 @@ describe("OnboardingCatalog", () => {
       "opencode-go",
       "kilo-gateway",
       "alibaba-model-studio-api",
+      "alibaba-coding-plan",
       "kimi-platform-api",
       "kimi-code",
       "minimax-api",
+      "minimax-token-plan",
       "zai-api",
       "deepseek-api",
       "google-gemini-api",
@@ -41,8 +43,6 @@ describe("OnboardingCatalog", () => {
       "github-copilot-subscription",
       "opencode-zen",
       "nous-portal",
-      "alibaba-coding-plan",
-      "minimax-token-plan",
       "zai-glm-coding-plan",
       "aws-bedrock",
       "google-vertex-ai",
@@ -65,11 +65,11 @@ describe("OnboardingCatalog", () => {
       "kilo-gateway": "runnable_byok",
       "nous-portal": "blocked",
       "alibaba-model-studio-api": "runnable_byok",
-      "alibaba-coding-plan": "blocked",
+      "alibaba-coding-plan": "runnable_byok",
       "kimi-platform-api": "runnable_byok",
       "kimi-code": "runnable_byok",
       "minimax-api": "runnable_byok",
-      "minimax-token-plan": "blocked",
+      "minimax-token-plan": "runnable_byok",
       "zai-api": "runnable_byok",
       "zai-glm-coding-plan": "blocked",
       "deepseek-api": "runnable_byok",
@@ -215,6 +215,10 @@ describe("OnboardingCatalog", () => {
         }),
       }),
     ]));
+    expect(alibaba?.requiredPolicyClaims).toEqual([
+      "alibaba.coding_plan_active",
+    ]);
+    expect(minimax?.requiredPolicyClaims).toEqual([]);
 
     const codex = entries.find((entry) => entry.id === "openai-codex-chatgpt");
     expect(codex?.billing).toEqual({

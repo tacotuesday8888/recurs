@@ -67,6 +67,7 @@ export interface CommandDependencies {
   resolveProvider?(
     session: SessionState,
     signal: AbortSignal,
+    invocation: HostInvocation,
   ): Promise<ModelProvider | null>;
   checkpoints?: CheckpointStore;
   processes?: Pick<OwnedProcessManager, "interact" | "list">;

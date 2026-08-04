@@ -203,6 +203,32 @@ describe("environment provider model discovery", () => {
     });
   });
 
+  it("discovers MiniMax Token Plan models from the exact Anthropic endpoint", async () => {
+    const key = "minimax-plan-model-key-canary";
+    let url = "";
+    let headers = new Headers();
+    const models = await listEnvironmentProviderModels({
+      providerId: "minimax-token-plan",
+      apiKey: key,
+      fetch: async (input, init) => {
+        url = String(input);
+        headers = new Headers(init?.headers);
+        return page(["MiniMax-M2.7", "MiniMax-M2.7-highspeed"], false);
+      },
+    });
+
+    expect(url).toBe(
+      "https://api.minimax.io/anthropic/v1/models?limit=100",
+    );
+    expect(headers.get("x-api-key")).toBe(key);
+    expect(models.map((model) => model.id)).toEqual([
+      "MiniMax-M2.7",
+      "MiniMax-M2.7-highspeed",
+    ]);
+    expect(hasEnvironmentProviderModelDiscovery("minimax-token-plan"))
+      .toBe(true);
+  });
+
   it.each([
     ["openai-api", "https://api.openai.com/v1/models"],
     ["openrouter-api", "https://openrouter.ai/api/v1/models"],
