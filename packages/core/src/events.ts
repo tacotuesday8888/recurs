@@ -76,6 +76,19 @@ export interface DurableTeamActivityCounts {
   costCoverage: TeamRunState["accounting"]["costCoverage"];
 }
 
+export type LifecycleHookEvent =
+  | "session.start"
+  | "turn.start"
+  | "turn.stop"
+  | "tool.start"
+  | "tool.stop"
+  | "permission.request"
+  | "permission.result"
+  | "agent.start"
+  | "agent.stop"
+  | "team.start"
+  | "team.stop";
+
 export type AgentTeamStatus =
   | "approved"
   | "changes_requested"
@@ -141,6 +154,13 @@ export type RecursEvent =
   | (EventBase & { type: "verification_recorded"; evidence: string[] })
   | (EventBase & { type: "turn_completed"; usage: Usage | null; evidence: string[] })
   | (EventBase & { type: "turn_failed"; error: SerializableError })
+  | (EventBase & {
+      type: "lifecycle_hook_finished";
+      hookId: string;
+      lifecycleEvent: LifecycleHookEvent;
+      outcome: "completed" | "failed" | "timed_out";
+      errorCode?: "cancelled" | "execution_failed";
+    })
   | (EventBase & {
       type: "agent_policy_updated";
       operatingModeId: OperatingModeId;

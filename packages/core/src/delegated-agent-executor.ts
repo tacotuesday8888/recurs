@@ -24,6 +24,7 @@ import {
   PermissionEngine,
   ToolError,
   type ApprovalHandler,
+  type PermissionRule,
   type ToolContext,
   type ToolRegistry,
   type ToolResult,
@@ -77,6 +78,7 @@ import type { SessionState } from "./session.js";
 import {
   applyAgentToolPolicy,
   createDelegationBudget,
+  permissionRulesForAgent,
 } from "./agent-profile.js";
 
 export type { RuntimeApprovalHandlerResult } from "./delegated-agent-approval.js";
@@ -91,6 +93,7 @@ export interface DelegatedAgentExecutorDependencies {
   readonly tools: ToolRegistry;
   readonly approvals: ApprovalHandler;
   readonly runtimeApprovals: ExactRuntimeApprovalHandler;
+  readonly permissionRules?: readonly PermissionRule[];
   emit(event: RecursEvent): Promise<void>;
   createToolContext(
     state: SessionState,
@@ -287,7 +290,13 @@ export class DelegatedAgentExecutor implements DelegatedRunExecutor {
 
       let permissionEngine = this.#permissions.get(input.session.id);
       if (permissionEngine === undefined) {
-        permissionEngine = new PermissionEngine(input.session.permissionMode);
+        permissionEngine = new PermissionEngine(
+          input.session.permissionMode,
+          permissionRulesForAgent(
+            input.session.agent,
+            this.dependencies.permissionRules ?? [],
+          ),
+        );
         this.#permissions.set(input.session.id, permissionEngine);
       } else {
         permissionEngine.mode = input.session.permissionMode;
