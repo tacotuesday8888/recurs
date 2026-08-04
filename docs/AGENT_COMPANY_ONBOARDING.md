@@ -183,20 +183,22 @@ automatically.
 | Controlled organizational amendments | Implemented as immutable proposals and explicit decisions; no automatic organization rewrite |
 | Company operating UI | Intentionally deferred |
 
-### Provider and delivery audit (2026-07-22)
+### Provider and delivery audit (2026-08-04)
 
-The source CLI can run saved environment BYOK connections for 13 reviewed
-fixed-origin providers: OpenAI API, Anthropic API, OpenRouter, xAI, OpenCode Go,
-Kilo Gateway, Alibaba Model Studio, Kimi Platform, Kimi Code, MiniMax API, Z.ai
-API, DeepSeek API, and Gemini API. It also supports literal-loopback Ollama and
-LM Studio plus the official Codex app-server path under its local,
-user-present, foreground subscription policy. The app-server discovers the
-authenticated model/effort catalog and exposes only Recurs-owned host tools;
-historical ACP records remain Plan-only. Catalog entries marked conditional or
-blocked, and paths without a reviewed runnable adapter, are not silently
-treated as runnable; this includes Claude subscription reuse, Copilot, Alibaba
-Coding Plan, MiniMax Token Plan, Z.ai GLM Coding Plan, and cloud-identity paths
-whose reviewed runtime is absent.
+The source CLI can run reviewed fixed-origin environment credentials for
+OpenAI API, Anthropic API, OpenRouter, xAI, Kilo Gateway, Alibaba Model Studio,
+Kimi Platform, MiniMax API, Z.ai API, DeepSeek API, and Gemini API. Four coding
+plans are also runnable through reviewed fixed endpoints: OpenCode Go, Kimi
+Code, Alibaba Coding Plan, and MiniMax Token Plan. Alibaba additionally binds a
+current-plan attestation and rechecks local, manual, user-present CLI context;
+MiniMax binds the documented prepaid-credit fallback acknowledgement. Recurs
+also supports literal-loopback Ollama and LM Studio plus the official Codex
+app-server path under its local, user-present, foreground subscription policy.
+The app-server discovers the authenticated model/effort catalog and exposes
+only Recurs-owned host tools; historical ACP records remain Plan-only. Catalog
+entries without a reviewed runnable adapter are not silently treated as
+runnable; this includes Claude subscription reuse, Copilot, Z.ai GLM Coding
+Plan, and cloud-identity paths whose reviewed runtime is absent.
 
 The release pipeline builds one minimal npm tarball, installs it into an empty
 prefix, and derives checksum-bound curl and Homebrew assets from those exact

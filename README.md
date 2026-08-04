@@ -67,6 +67,7 @@ Inside Recurs:
 
 ```text
 /goal <objective>    start a durable goal
+/goal launch         launch the active approved company goal
 /agents controls     inspect team limits
 /company status      inspect the active company
 /model auto          select an evaluated model team

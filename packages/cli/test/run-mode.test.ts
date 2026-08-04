@@ -14,7 +14,10 @@ import {
   AgentLoop,
   AgentLoopError,
   BackendRunCoordinator,
+  CompanyOnboardingCoordinator,
   CoordinatedRunError,
+  FileCompanyBlueprintV2Store,
+  FileCompanyOnboardingStore,
   JsonlSessionStore,
   bindRunAuthorization,
   createCompanyEvaluationReport,
@@ -658,6 +661,252 @@ describe("runCli", () => {
     expect(selections).toEqual([]);
     expect(prompts).toEqual([]);
     expect(stdout.value).toContain("Company blueprint approved: 3 role(s)");
+    expect(stderr.value).toBe("");
+  });
+
+  it("forms a fresh V2 company and activates its first goal in the new parent session", async () => {
+    const root = await realpath(
+      await mkdtemp(path.join(tmpdir(), "recurs-guided-company-v2-run-")),
+    );
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await mkdir(workspace);
+    const dataDirectory = path.join(root, "data");
+    const decisions: unknown[] = [{
+      kind: "question",
+      id: "desired_outcome",
+      question: "What outcome should this company own?",
+    }, {
+      kind: "propose",
+      project: {
+        type: "existing_project",
+        stage: "active",
+        purpose: "Ship a dependable onboarding-to-company transition.",
+        users: ["Maintainers"],
+        successCriteria: ["The approved first goal is ready to launch."],
+        constraints: ["Never widen child authority."],
+        risks: ["Starting work before approval"],
+        architecturePreferences: ["Reuse the durable company runtime."],
+        deploymentTargets: ["CLI"],
+        repository: { inspected: false, markers: [], evidence: [] },
+      },
+      initialGoal: "Launch the first reviewed company goal.",
+      roadmap: ["Run the approved first goal."],
+    }];
+    const coordinator = new CompanyOnboardingCoordinator({
+      runs: new FileCompanyOnboardingStore(
+        path.join(dataDirectory, "company-onboarding-runs"),
+      ),
+      blueprints: new FileCompanyBlueprintV2Store(
+        path.join(dataDirectory, "company-blueprints"),
+      ),
+      model: {
+        async decide() {
+          return {
+            decision: decisions.shift(),
+            requestsUsed: 1,
+            reportedCostUsd: 0,
+          };
+        },
+      },
+    });
+    const parentAccount = {
+      id: "parent",
+      label: "Parent model",
+      providerId: "openrouter-api",
+      adapterId: "openai-chat-completions" as const,
+      kind: "environment_model_provider" as const,
+      modelId: "provider/model",
+      primary: true,
+      account: "environment credential (value not stored)",
+      execution: "Act + Plan" as const,
+      billingSources: ["prepaid_credits" as const],
+      agentRoles: [],
+    };
+    const selections = [
+      "account:parent",
+      "approved_for_me",
+      "balanced_v6",
+      "create",
+      "quick",
+      "stable_core_specialists",
+      "skip",
+    ];
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let runtime: RecursRuntime | undefined;
+
+    const exitCode = await runCli(["setup"], {
+      cwd: workspace,
+      stdin: Readable.from(["/quit\n"]),
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      async listAccounts() { return [parentAccount]; },
+      async listProviders() { return []; },
+      async detectProviders() { return []; },
+      async verifyAccount() {
+        return { verified: true, connection: parentAccount };
+      },
+      async setPrimaryAccount() { return parentAccount; },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText(message) {
+        expect(message).toBe("What outcome should this company own?");
+        return "A trustworthy onboarding flow.";
+      },
+      async confirm() { return true; },
+      async createCompanyOnboarding(input) {
+        expect(input).toMatchObject({
+          permissionMode: "approved_for_me",
+          operatingModeId: "balanced_v6",
+          repositoryConsent: true,
+        });
+        return {
+          coordinator,
+          projectRoot: workspace,
+          backendFingerprint: "onboarding-backend-fixture",
+        };
+      },
+      async createRuntime(events, options) {
+        runtime = await createStandaloneRuntime(events, {
+          cwd: workspace,
+          dataDirectory,
+          provider: new ScriptedProvider([]),
+          reuseExistingSession: false,
+          ...(options?.permissionMode === undefined
+            ? {}
+            : { permissionMode: options.permissionMode }),
+          ...(options?.operatingModeId === undefined
+            ? {}
+            : { operatingModeId: options.operatingModeId }),
+          ...(options?.companyBlueprint === undefined
+            ? {}
+            : { companyBlueprint: options.companyBlueprint }),
+        });
+        return runtime;
+      },
+    });
+
+    expect(stdout.value).toContain("Onboarding complete");
+    expect(selections).toEqual([]);
+    expect(decisions).toEqual([]);
+    expect(stderr.value).toBe("");
+    expect(exitCode).toBe(0);
+    expect(runtime?.session).toMatchObject({
+      goal: {
+        objective: "Launch the first reviewed company goal.",
+        status: "active",
+      },
+      agent: {
+        role: "parent",
+        company: {
+          blueprintVersion: 2,
+          blueprintRevision: 1,
+        },
+      },
+    });
+    expect(stdout.value).toContain(
+      "First goal: Launch the first reviewed company goal.",
+    );
+    expect(stdout.value).toContain("Next: /goal launch");
+  });
+
+  it("stops setup without creating a session when V2 company formation is saved", async () => {
+    const root = await realpath(
+      await mkdtemp(path.join(tmpdir(), "recurs-guided-company-v2-saved-")),
+    );
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await mkdir(workspace);
+    const coordinator = new CompanyOnboardingCoordinator({
+      runs: new FileCompanyOnboardingStore(path.join(root, "runs")),
+      blueprints: new FileCompanyBlueprintV2Store(
+        path.join(root, "blueprints"),
+      ),
+      model: {
+        async decide() {
+          return {
+            decision: {
+              kind: "question",
+              id: "desired_outcome",
+              question: "What outcome should this company own?",
+            },
+            requestsUsed: 1,
+            reportedCostUsd: 0,
+          };
+        },
+      },
+    });
+    const parentAccount = {
+      id: "parent",
+      label: "Parent model",
+      providerId: "openrouter-api",
+      adapterId: "openai-chat-completions" as const,
+      kind: "environment_model_provider" as const,
+      modelId: "provider/model",
+      primary: true,
+      account: "environment credential (value not stored)",
+      execution: "Act + Plan" as const,
+      billingSources: ["prepaid_credits" as const],
+      agentRoles: [],
+    };
+    const selections = [
+      "account:parent",
+      "approved_for_me",
+      "balanced_v6",
+      "create",
+      "quick",
+      "stable_core_specialists",
+    ];
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let runtimeCreated = false;
+
+    expect(await runCli(["setup"], {
+      cwd: workspace,
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      async listAccounts() { return [parentAccount]; },
+      async listProviders() { return []; },
+      async detectProviders() { return []; },
+      async verifyAccount() {
+        return { verified: true, connection: parentAccount };
+      },
+      async setPrimaryAccount() { return parentAccount; },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText() { return null; },
+      async confirm() { return true; },
+      async createCompanyOnboarding() {
+        return {
+          coordinator,
+          projectRoot: workspace,
+          backendFingerprint: "onboarding-backend-fixture",
+        };
+      },
+      async createRuntime() {
+        runtimeCreated = true;
+        throw new Error("saved setup must not create a session");
+      },
+    })).toBe(0);
+
+    expect(runtimeCreated).toBe(false);
+    expect(selections).toEqual([]);
+    expect(stdout.value).toContain(
+      "Setup stopped with the company interview saved.",
+    );
+    expect(stdout.value).not.toContain("Onboarding complete");
+    expect(stdout.value).not.toContain("PROJECT CONTEXT");
     expect(stderr.value).toBe("");
   });
 
