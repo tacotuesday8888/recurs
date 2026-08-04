@@ -979,6 +979,10 @@ export class ChildAgentManager {
         profileId: profile.id,
         modelId: childBackend.modelId,
         reasoningEffort: childBackend.reasoningEffortAtCreation ?? null,
+        backendStrategy: backend.strategy,
+        ...(backend.strategy === "policy_route"
+          ? { backendReason: backend.reason }
+          : {}),
         ...(company === undefined ? {} : { company }),
         ...(options?.batch === undefined
           ? {}

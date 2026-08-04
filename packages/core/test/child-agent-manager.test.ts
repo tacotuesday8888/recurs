@@ -782,6 +782,11 @@ describe("ChildAgentManager", () => {
       "agent_started",
       "agent_completed",
     ]);
+    expect(events[0]).toMatchObject({
+      type: "agent_started",
+      modelId: pin.modelId,
+      backendStrategy: "inherit_parent",
+    });
     expect(events[1]).toMatchObject({
       type: "agent_completed",
       profileId: "explore_v1",
@@ -1167,13 +1172,17 @@ describe("ChildAgentManager", () => {
       attemptId: "attempt-1",
     };
     let observed: Awaited<ReturnType<JsonlSessionStore["loadState"]>> | undefined;
+    const events: RecursEvent[] = [];
     const manager = new ChildAgentManager({
       sessions,
       backendRouter: router,
       getCoordinator: () => successfulCoordinator(async (input) => {
         observed = await sessions.loadState(input.sessionId);
       }),
-      async emit() { throw new Error("presentation sink unavailable"); },
+      async emit(event) {
+        events.push(event);
+        throw new Error("presentation sink unavailable");
+      },
       createId: (() => {
         const ids = ["routed-session", "routed-agent", "routed-task"];
         return () => ids.shift()!;
@@ -1220,6 +1229,12 @@ describe("ChildAgentManager", () => {
         permissions: { permissionMode: "approved_for_me" },
         depth: 1,
       },
+    });
+    expect(events[0]).toMatchObject({
+      type: "agent_started",
+      modelId: decision.pin.modelId,
+      backendStrategy: "policy_route",
+      backendReason: "eligible_role_candidate",
     });
     expect(result.output).toBe("completed");
   });

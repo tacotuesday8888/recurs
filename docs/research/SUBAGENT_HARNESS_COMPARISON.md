@@ -33,7 +33,7 @@ Codex really does define `ReasoningEffort::Ultra`. In the pinned source, Ultra s
 ## Current Recurs vertical
 
 The source rows above are research findings. The implementation below was
-rechecked against Recurs `main` on 2026-07-22 and is independently built against
+rechecked against Recurs `main` on 2026-08-04 and is independently built against
 Recurs interfaces; no third-party source was pasted into it.
 
 - `delegate_task` creates one exact-profile child; `delegate_tasks` runs a bounded ordered Explore/Review batch; `delegate_team` runs explicit Implement tasks, strict Review, and bounded finding-driven Repair. `delegate_company_goal` adds a validated goal-scoped assignment DAG over those same execution seams.
@@ -45,7 +45,7 @@ Recurs interfaces; no third-party source was pasted into it.
 - Foreground applies an approved cumulative candidate through a two-phase checkpoint transaction. Process-lifetime background stops at `ready_to_apply` and exposes scoped list/status/wait/cancel/resume/apply controls to the parent.
 - A private sequenced team journal, cross-process parent/run owner leases, exact task/workspace/assignment binding, durable artifacts, startup orphan reconciliation, and conservative apply recovery make interruption truthful. A dead process does not pretend its compute continued.
 - The role router is provider-neutral and records eligibility/fallback decisions. Production supplies the immutable parent plus explicitly assigned eligible saved direct-model or Codex app-server connections for Implement, Review, and Repair. Routes are revalidated, selected pins and evidence are frozen per run, historical Plan-only runtimes are excluded, and the parent remains the fallback.
-- Usage, cost coverage, review/repair rounds, lifecycle, evidence, and safe failures are normalized into durable state and parent-visible events. Unknown cost remains unknown. The private team journal and child session logs persist assigned prompts and tool calls; `/agents` projections and `agent_team_activity` omit prompts, patch bodies, credentials, account data, and private paths, while the general JSONL transcript can include prompts and tool arguments.
+- Usage, cost coverage, review/repair rounds, lifecycle, evidence, and safe failures are normalized into durable state and parent-visible events. Unknown cost remains unknown. Live activation shows the selected model, effort, and bounded routing rationale without duplicating the same company/team child. The private team journal and child session logs persist assigned prompts and tool calls; `/agents` projections and `agent_team_activity` omit prompts, patch bodies, credentials, account data, and private paths, while the general JSONL transcript can include prompts and tool arguments.
 - The assembled E2E path proves parent delegation, isolated implementation, two reviewers, one repair, re-review approval, parent synthesis/apply, five completed depth-one children, durable activity, and complete worktree cleanup.
 
 ## Intentionally absent

@@ -238,8 +238,9 @@ activate in a recorded run. Changed or missing connections fail closed. The
 command shows the selected models, reasoning effort, evidence count, and
 rationale. It does not change the current session. During a company goal, the
 terminal also shows only agents that actually activate, their exact assigned
-model and reasoning effort, and bounded request/token/reported-cost usage as it
-becomes available.
+model and reasoning effort, the bounded route reason (role route, parent
+fallback, or inherited parent model), and request/token/reported-cost usage as
+it becomes available. One company/team child produces one activation line.
 
 ## Headless runs
 
