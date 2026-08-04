@@ -23,31 +23,61 @@ export function environmentByokAdapterId(
 export function isEnvironmentByokManifest(
   manifest: ProviderManifest,
 ): boolean {
+  return isEnvironmentCredentialManifest(manifest) &&
+    manifest.supportStatus === "supported" &&
+    manifest.usagePolicy.defaultDecision === "allowed" &&
+    manifest.usagePolicy.rules.length === 0;
+}
+
+/**
+ * Returns whether Recurs has a fixed, reviewed transport for a credential
+ * supplied through the process environment. Conditional manifests still need
+ * application-layer policy evaluation before setup and every run.
+ */
+export function isEnvironmentCredentialManifest(
+  manifest: ProviderManifest,
+): boolean {
   const adapterId = environmentByokAdapterId(manifest);
   const hasReviewedEndpoint = manifest.endpoints.some(
     (endpoint) => endpoint.kind === "origin" &&
       (adapterId === "openai-chat-completions"
-        ? endpoint.value.startsWith("https://")
+        ? manifest.id === "alibaba-coding-plan"
+          ? endpoint.value ===
+            "https://coding-intl.dashscope.aliyuncs.com/v1"
+          : endpoint.value.startsWith("https://")
         : adapterId === "openai-responses"
         ? manifest.id === "openai-api" &&
           endpoint.value === "https://api.openai.com/v1"
         : adapterId === "gemini-generate-content"
         ? manifest.id === "google-gemini-api" &&
           endpoint.value === "https://generativelanguage.googleapis.com/v1beta"
-        : manifest.id === "anthropic-api" &&
-          endpoint.value === "https://api.anthropic.com/v1"),
+        : (manifest.id === "anthropic-api" &&
+            endpoint.value === "https://api.anthropic.com/v1") ||
+          (manifest.id === "minimax-token-plan" &&
+            endpoint.value === "https://api.minimax.io/anthropic")),
   );
   return manifest.adapterKind === "model_provider" &&
     adapterId !== null &&
     manifest.credentialOwner === "recurs_broker" &&
-    manifest.supportStatus === "supported" &&
-    manifest.usagePolicy.defaultDecision === "allowed" &&
-    manifest.usagePolicy.rules.length === 0 &&
+    (manifest.supportStatus === "supported" ||
+      manifest.supportStatus === "conditional") &&
+    manifest.usagePolicy.defaultDecision !== "unknown" &&
     manifest.billingPolicy.providerFallback !== "unknown" &&
     manifest.authKinds.some(
       (kind) => kind === "api_key" || kind === "coding_plan_key",
     ) &&
     hasReviewedEndpoint;
+}
+
+export function environmentCredentialManifest(
+  providerId: string,
+): ProviderManifest | null {
+  const manifest = BUNDLED_PROVIDER_MANIFESTS.find(
+    (candidate) => candidate.id === providerId,
+  );
+  return manifest !== undefined && isEnvironmentCredentialManifest(manifest)
+    ? manifest
+    : null;
 }
 
 export function environmentByokManifest(

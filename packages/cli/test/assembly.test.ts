@@ -1756,6 +1756,95 @@ describe("standalone assembly without a provider", () => {
     });
   });
 
+  it("confines an Alibaba Coding Plan connection to its approved interactive context", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-alibaba-plan-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    const key = "alibaba-plan-key-canary";
+    await setupEnvironmentConnection(dataDirectory, {
+      providerId: "alibaba-coding-plan",
+      modelId: "qwen3-coder-plus",
+      credentialEnvironmentVariable: "DASHSCOPE_API_KEY",
+      billingSelection: "strict_primary_only",
+      environment: { DASHSCOPE_API_KEY: key },
+      policyClaims: [{ id: "alibaba.coding_plan_active", value: true }],
+      policyContext: {
+        invocation: "repl",
+        presence: "present",
+        location: "local",
+        automation: "manual",
+        embedding: "cli",
+      },
+      now: "2026-07-21T00:00:00.000Z",
+    }, {
+      fetch: async () => new Response(JSON.stringify({
+        object: "list",
+        data: [{ id: "qwen3-coder-plus", object: "model" }],
+      })),
+    });
+
+    let requests = 0;
+    const options = {
+      cwd: workspace,
+      dataDirectory,
+      environment: { DASHSCOPE_API_KEY: key },
+      environmentFetch: async () => {
+        requests += 1;
+        return new Response([
+          'data: {"choices":[{"delta":{"content":"plan ready"},"finish_reason":"stop"}]}',
+          'data: {"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":2}}',
+          "data: [DONE]",
+          "",
+        ].join("\n\n"), { status: 200 });
+      },
+    };
+    const interactive = await createStandaloneRuntime(
+      { async emit() {} },
+      options,
+    );
+    await expect(interactive.submit(
+      "Respond when ready",
+      localManualInvocation(),
+    )).resolves
+      .toMatchObject({ finalText: "plan ready" });
+    expect(requests).toBe(1);
+
+    const scripted = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        ...options,
+        reuseExistingSession: false,
+      },
+    );
+    const scriptedInvocation = createHostInvocation({
+      invocation: "one_shot",
+      userPresent: true,
+      remote: false,
+      scripted: true,
+      embedding: "cli",
+    });
+    await expect(scripted.submit("must not run", scriptedInvocation))
+      .rejects.toMatchObject({
+      failure: {
+        code: "policy_stale",
+        safeMessage: expect.stringContaining(
+          "not authorized for the current run context",
+        ),
+      },
+    });
+    await expect(scripted.submit("/compact", scriptedInvocation)).resolves
+      .toMatchObject({
+        type: "message",
+        level: "error",
+        text: expect.stringContaining(
+          "not authorized for the current command context",
+        ),
+      });
+    expect(requests).toBe(1);
+  });
+
   it("pins and reports a saved OpenAI reasoning effort without changing the credential boundary", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-saved-effort-"));
     directories.push(root);

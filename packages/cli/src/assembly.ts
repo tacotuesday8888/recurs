@@ -9,22 +9,27 @@ import type {
   BackendResolver,
   ConnectionBoundModelProvider,
   IntegrationFailure,
+  HostInvocation,
   OperatingModeId,
   RuntimeApprovalRequest,
   RunAuthorization,
   RuntimeContinuationStore,
   SessionBackendPin,
+  TrustedRunContext,
   CompanyBlueprint,
   CompanyBlueprintV2,
   CompanyGoalRun,
 } from "@recurs/contracts";
 import {
+  deriveTrustedRunContext,
   parseCompanyBlueprint,
   parseCompanyBlueprintV2,
 } from "@recurs/contracts";
 import {
   FileConnectionRegistry,
   OnboardingCatalog,
+  providerUsagePolicyAllows,
+  requiredProviderPolicyClaimIds,
   type ConnectionRecord,
   type DelegatedConnectionRecord,
   type EnvironmentModelProviderConnectionRecord,
@@ -86,6 +91,7 @@ import {
   BUNDLED_PROVIDER_MANIFESTS,
   createEnvironmentProviderConfiguration,
   environmentByokAdapterId,
+  environmentCredentialManifest,
   environmentCredentialFingerprint,
   LocalOpenAICompatibleProvider,
   resolveEnvironmentProvider,
@@ -193,6 +199,7 @@ export interface StandaloneRuntimeOptions {
   approvalHandler?: ApprovalHandler;
   permissionRules?: readonly PermissionRule[];
   lifecycleHookClose?: () => Promise<void>;
+  runContext?: TrustedRunContext;
 }
 
 function injectedBackendPin(
@@ -293,6 +300,7 @@ function environmentBackendPin(
 
 interface DirectRuntimeBackend {
   readonly kind: "direct";
+  readonly connection?: EnvironmentModelProviderConnectionRecord;
   pin(at: string): SessionBackendPin;
   commandProvider: ModelProvider;
   createProvider(): ConnectionBoundModelProvider;
@@ -550,12 +558,17 @@ function assertEnvironmentProviderPolicy(
   const entry = new OnboardingCatalog().list({ includeBlocked: true }).find(
     (candidate) => candidate.id === connection.providerId,
   );
-  const manifest = BUNDLED_PROVIDER_MANIFESTS.find(
-    (candidate) => candidate.id === connection.providerId,
-  );
+  const manifest = environmentCredentialManifest(connection.providerId);
+  const requiredClaims = manifest === null
+    ? []
+    : requiredProviderPolicyClaimIds(manifest.usagePolicy);
+  const boundClaims = connection.policyBinding?.claims.map(
+    (claim) => claim.id,
+  ) ?? [];
+  const requiresBinding = (manifest?.usagePolicy.rules.length ?? 0) > 0;
   if (
     entry === undefined ||
-    manifest === undefined ||
+    manifest === null ||
     entry.status !== "runnable_byok" ||
     entry.connectionOwner !== "process_environment" ||
     environmentByokAdapterId(manifest) !== connection.adapterId ||
@@ -566,11 +579,40 @@ function assertEnvironmentProviderPolicy(
       entry.billing.disclosureRevision ||
     !entry.billing.availableSelections.includes(
       connection.billingSelection.mode,
-    )
+    ) ||
+    requiredClaims.length !== boundClaims.length ||
+    requiredClaims.some((claim, index) => claim !== boundClaims[index]) ||
+    requiresBinding !== (connection.policyBinding !== undefined) ||
+    (connection.policyBinding !== undefined &&
+      connection.policyBinding.acknowledgedAt !==
+        connection.billingSelection.acknowledgedAt)
   ) {
     throw policyBlocked(
       diagnosticId,
       "The BYOK connection no longer matches the reviewed provider policy",
+      "policy_stale",
+    );
+  }
+}
+
+function assertEnvironmentProviderRunPolicy(
+  connection: EnvironmentModelProviderConnectionRecord,
+  context: TrustedRunContext,
+  diagnosticId: string,
+): void {
+  const manifest = environmentCredentialManifest(connection.providerId);
+  if (
+    manifest === null ||
+    !providerUsagePolicyAllows(
+      manifest.usagePolicy,
+      connection.policyBinding,
+      connection.billingSelection.mode,
+      context,
+    )
+  ) {
+    throw policyBlocked(
+      diagnosticId,
+      "This coding-plan connection is not authorized for the current run context",
       "policy_stale",
     );
   }
@@ -623,6 +665,7 @@ async function backendForConnection(
     }
     return {
       kind: "direct",
+      connection,
       pin: () => savedEnvironmentBackendPin(connection),
       commandProvider: bound.provider,
       createProvider: () => bound.provider,
@@ -853,6 +896,22 @@ export async function createStandaloneCompanyOnboarding(
   const projectData = path.join(root, "projects", projectId);
   const resolved = await companyOnboardingBackend(root, options);
   const backend = resolved.backend;
+  if (
+    backend.kind === "direct" &&
+    backend.connection?.policyBinding !== undefined
+  ) {
+    if (options.runContext === undefined) {
+      throw new RuntimeError(
+        "invalid_input",
+        "A trusted run context is required for conditional provider onboarding",
+      );
+    }
+    assertEnvironmentProviderRunPolicy(
+      backend.connection,
+      options.runContext,
+      randomUUID(),
+    );
+  }
   let capabilityCatalogs: CompanyCapabilityCatalogs | undefined;
   if (input.repositoryConsent === true) {
     const [skills, mcp] = await Promise.allSettled([
@@ -1776,6 +1835,13 @@ export async function createStandaloneRuntime(
       if (!isDeepStrictEqual(input.pin, expectedPin)) {
         throw connectionInvalid(input.operationId);
       }
+      if (selected.kind === "direct" && selected.connection !== undefined) {
+        assertEnvironmentProviderRunPolicy(
+          selected.connection,
+          input.context,
+          input.operationId,
+        );
+      }
       if (selected.kind === "delegated") {
         if (
           input.context.presence !== "present" ||
@@ -1842,6 +1908,7 @@ export async function createStandaloneRuntime(
   const resolveCommandProvider = async (
     session: SessionState,
     signal: AbortSignal,
+    invocation: HostInvocation,
   ): Promise<ModelProvider | null> => {
     if (
       signal.aborted ||
@@ -1878,10 +1945,27 @@ export async function createStandaloneRuntime(
     const expected = selected.pin(
       session.backend.pin.billingSelectionAtCreation.acknowledgedAt,
     );
-    return selected.kind === "direct" &&
-        isDeepStrictEqual(expected, session.backend.pin)
-      ? selected.createProvider()
-      : null;
+    if (
+      selected.kind !== "direct" ||
+      !isDeepStrictEqual(expected, session.backend.pin)
+    ) {
+      return null;
+    }
+    if (selected.connection !== undefined) {
+      try {
+        assertEnvironmentProviderRunPolicy(
+          selected.connection,
+          deriveTrustedRunContext(invocation),
+          randomUUID(),
+        );
+      } catch {
+        throw new RuntimeError(
+          "provider_not_configured",
+          "This coding-plan connection is not authorized for the current command context",
+        );
+      }
+    }
+    return selected.createProvider();
   };
   const modelSessions: ModelSessionService | undefined =
     injected !== undefined || environmentConnection !== null

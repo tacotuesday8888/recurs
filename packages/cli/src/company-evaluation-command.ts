@@ -367,6 +367,13 @@ export async function runCompanyEvaluationCommand(
       dataDirectory: evaluationHome,
       skillHomeDirectory: evaluationHome,
       environment,
+      runContext: {
+        invocation: "goal",
+        presence: "unattended",
+        location: "local",
+        automation: "scripted",
+        embedding: "cli",
+      },
       ...(options.connectionId === null
         ? {}
         : { connectionId: options.connectionId }),

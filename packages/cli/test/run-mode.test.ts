@@ -491,8 +491,10 @@ describe("runCli", () => {
             primarySource: "prepaid_credits" as const,
             possibleAdditionalSources: [],
             providerFallback: "none" as const,
+            availableSelections: ["strict_primary_only" as const],
           },
           restrictions: [],
+          requiredPolicyClaims: [],
         }];
       },
       async detectProviders() { return []; },
@@ -728,8 +730,10 @@ describe("runCli", () => {
             primarySource: "metered_api" as const,
             possibleAdditionalSources: [],
             providerFallback: "none" as const,
+            availableSelections: ["strict_primary_only" as const],
           },
           restrictions: [],
+          requiredPolicyClaims: [],
         }];
       },
       async detectProviders() { return []; },
@@ -928,6 +932,81 @@ describe("runCli", () => {
     expect(interactiveErr.value).toBe("");
   });
 
+  it("requires an explicit Alibaba Coding Plan entitlement confirmation", async () => {
+    const args = [
+      "setup", "byok",
+      "--provider", "alibaba-coding-plan",
+      "--model", "qwen3-coder-plus",
+      "--key-env", "DASHSCOPE_API_KEY",
+    ];
+    const provider = {
+      id: "alibaba-coding-plan",
+      displayName: "Alibaba Coding Plan",
+      status: "runnable_byok" as const,
+      supportStatus: "conditional" as const,
+      adapterKind: "model_provider" as const,
+      accessKind: "coding_plan" as const,
+      protocol: "openai_chat" as const,
+      connectionOwner: "process_environment" as const,
+      billing: {
+        primarySource: "included_subscription" as const,
+        possibleAdditionalSources: [],
+        providerFallback: "none" as const,
+        availableSelections: ["strict_primary_only" as const],
+      },
+      restrictions: ["Foreground interactive programming tools only."],
+      requiredPolicyClaims: ["alibaba.coding_plan_active"],
+    };
+    let configured = false;
+    const declinedErr = new TextOutput();
+    expect(await runCli(args, {
+      stdout: new TextOutput(),
+      stderr: declinedErr,
+      interactive: true,
+      automation: false,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async listProviders() { return [provider]; },
+      async confirm(message) {
+        return !message.includes("currently active Alibaba Coding Plan");
+      },
+      async setupEnvironment() {
+        configured = true;
+        throw new Error("setup must not start");
+      },
+    })).toBe(2);
+    expect(configured).toBe(false);
+    expect(declinedErr.value).toContain(
+      "Required coding-plan entitlement was not confirmed",
+    );
+
+    let received: unknown;
+    expect(await runCli(args, {
+      stdout: new TextOutput(),
+      stderr: new TextOutput(),
+      interactive: true,
+      automation: false,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async listProviders() { return [provider]; },
+      async confirm() { return true; },
+      async setupEnvironment(input) {
+        received = input;
+        return {
+          id: "byok:alibaba-coding-plan:stable",
+          label: "Alibaba Coding Plan",
+          providerId: input.providerId,
+          modelId: input.modelId,
+          credentialEnvironmentVariable: input.credentialEnvironmentVariable,
+          primary: true,
+          billingSelection: input.billingSelection,
+        };
+      },
+    })).toBe(0);
+    expect(received).toMatchObject({
+      providerId: "alibaba-coding-plan",
+      policyClaims: [{ id: "alibaba.coding_plan_active", value: true }],
+    });
+  });
+
   it("rejects duplicate or unsafe BYOK flags before rendering a disclosure", async () => {
     for (const args of [
       [
@@ -1086,8 +1165,10 @@ describe("runCli", () => {
         primarySource: "included_subscription" as const,
         possibleAdditionalSources: ["prepaid_credits" as const],
         providerFallback: "automatic" as const,
+        availableSelections: ["allow_declared_additional" as const],
       },
       restrictions: ["Local, user-present use only."],
+      requiredPolicyClaims: [],
     };
     const account = {
       id: "codex-1",

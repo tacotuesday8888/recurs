@@ -168,7 +168,11 @@ export function guidedConnectionChoices(
     choices.push({
       id: `byok:${provider.id}`,
       label: `Connect ${provider.displayName}`,
-      detail: "environment key · reviewed fixed origin · Act + Plan",
+      detail: `${provider.accessKind === "coding_plan"
+        ? "coding plan key"
+        : provider.accessKind === "subscription"
+        ? "subscription key"
+        : "environment key"} · reviewed fixed origin · Act + Plan`,
       action: { kind: "byok", providerId: provider.id },
     });
   }
@@ -262,6 +266,14 @@ export function filterCatalogModels(
 }
 
 export function credentialEnvironmentSuggestion(providerId: string): string {
+  const exact: Readonly<Record<string, string>> = Object.freeze({
+    "alibaba-coding-plan": "DASHSCOPE_API_KEY",
+    "kimi-code": "KIMI_API_KEY",
+    "minimax-token-plan": "MINIMAX_API_KEY",
+    "opencode-go": "OPENCODE_GO_API_KEY",
+  });
+  const configured = exact[providerId];
+  if (configured !== undefined) return configured;
   if (providerId === "google-gemini-api") return "GEMINI_API_KEY";
   const stem = providerId
     .replace(/-(api|gateway)$/u, "")
@@ -610,7 +622,8 @@ async function executeConnectionAction(
       );
       return 2;
     }
-    const modelId = hasEnvironmentProviderModelDiscovery(action.providerId)
+    const modelId = summary?.supportStatus !== "conditional" &&
+        hasEnvironmentProviderModelDiscovery(action.providerId)
       ? await selectEnvironmentModel(
           action.providerId,
           label,
@@ -622,6 +635,12 @@ async function executeConnectionAction(
     const reasoningEffort = action.providerId === "openai-api"
       ? await selectReasoningEffort(modelId, ports)
       : undefined;
+    const availableBilling = summary?.billing.availableSelections ?? [
+      "strict_primary_only",
+    ];
+    const billingSelection = availableBilling.length === 1
+      ? availableBilling[0]
+      : "strict_primary_only";
     return await ports.executeCommand([
       "setup",
       "byok",
@@ -631,6 +650,9 @@ async function executeConnectionAction(
       modelId,
       "--key-env",
       environmentVariable,
+      ...(billingSelection === "allow_declared_additional"
+        ? ["--billing", "allow-additional"]
+        : []),
       ...(reasoningEffort === undefined
         ? []
         : ["--reasoning-effort", reasoningEffort]),

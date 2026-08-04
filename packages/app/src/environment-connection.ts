@@ -4,9 +4,11 @@ import type {
   BillingSelection,
   BillingSelectionMode,
   ModelReasoningEffort,
+  TrustedRunContext,
 } from "@recurs/contracts";
 import {
   createEnvironmentProviderConfiguration,
+  environmentCredentialManifest,
   environmentCredentialFingerprint,
   hasEnvironmentProviderModelDiscovery,
   listEnvironmentProviderModels,
@@ -27,6 +29,10 @@ import {
   compatibleOpenAIResponsesModelIds,
   openAIResponsesReasoningEfforts,
 } from "./openai-model-capabilities.js";
+import {
+  createProviderPolicyBinding,
+  type ProviderPolicyClaim,
+} from "./provider-usage-policy.js";
 
 const ENVIRONMENT_VARIABLE = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/u;
@@ -64,6 +70,8 @@ export interface SetupEnvironmentConnectionInput {
   readonly credentialEnvironmentVariable: string;
   readonly billingSelection: BillingSelectionMode;
   readonly reasoningEffort?: ModelReasoningEffort;
+  readonly policyClaims?: readonly ProviderPolicyClaim[];
+  readonly policyContext?: TrustedRunContext;
   readonly environment: Readonly<Record<string, string | undefined>>;
   readonly now?: string;
 }
@@ -88,7 +96,11 @@ export interface EnvironmentConnectionDependencies {
 export interface DiscoverEnvironmentConnectionModelsInput {
   readonly providerId: string;
   readonly credentialEnvironmentVariable: string;
+  readonly billingSelection?: BillingSelectionMode;
+  readonly policyClaims?: readonly ProviderPolicyClaim[];
+  readonly policyContext?: TrustedRunContext;
   readonly environment: Readonly<Record<string, string | undefined>>;
+  readonly now?: string;
 }
 
 export type EnvironmentConnectionVerification =
@@ -219,6 +231,33 @@ export async function discoverEnvironmentConnectionModels(
       "BYOK credential environment-variable name is invalid",
     );
   }
+  const manifest = environmentCredentialManifest(input.providerId);
+  if (manifest === null) {
+    throw new EnvironmentConnectionError(
+      "provider_unsupported",
+      "Provider does not have reviewed model discovery",
+    );
+  }
+  if (manifest.usagePolicy.rules.length > 0) {
+    try {
+      if (input.billingSelection === undefined) {
+        throw new TypeError("A billing selection is required");
+      }
+      createProviderPolicyBinding(
+        manifest,
+        input.policyClaims ?? [],
+        input.billingSelection,
+        input.policyContext,
+        input.now ?? new Date().toISOString(),
+      );
+    } catch (error) {
+      throw new EnvironmentConnectionError(
+        "billing_policy_blocked",
+        "Provider model discovery requires an accepted usage policy",
+        { cause: error },
+      );
+    }
+  }
   const apiKey = input.environment[input.credentialEnvironmentVariable];
   if (apiKey === undefined || apiKey.length === 0) {
     throw new EnvironmentConnectionError(
@@ -282,11 +321,36 @@ export async function setupEnvironmentConnection(
       "Provider is not a reviewed public BYOK path",
     );
   }
+  const manifest = environmentCredentialManifest(input.providerId);
+  if (manifest === null) {
+    throw new EnvironmentConnectionError(
+      "provider_unsupported",
+      "Provider does not have a reviewed environment-credential transport",
+    );
+  }
   const apiKey = input.environment[input.credentialEnvironmentVariable];
   if (apiKey === undefined || apiKey.length === 0) {
     throw new EnvironmentConnectionError(
       "credential_unavailable",
       `Credential environment variable ${input.credentialEnvironmentVariable} is not set`,
+    );
+  }
+  const now = input.now ?? new Date().toISOString();
+  const billingSelection = selection(input.billingSelection, entry, now);
+  let policyBinding;
+  try {
+    policyBinding = createProviderPolicyBinding(
+      manifest,
+      input.policyClaims ?? [],
+      input.billingSelection,
+      input.policyContext,
+      now,
+    );
+  } catch (error) {
+    throw new EnvironmentConnectionError(
+      "billing_policy_blocked",
+      "The provider usage policy was not explicitly satisfied",
+      { cause: error },
     );
   }
   let bound;
@@ -318,13 +382,20 @@ export async function setupEnvironmentConnection(
       "Reasoning effort requires the reviewed OpenAI Responses adapter",
     );
   }
-  const now = input.now ?? new Date().toISOString();
   let modelLimits: EnvironmentModelProviderConnectionRecord["modelLimits"];
   if (hasEnvironmentProviderModelDiscovery(input.providerId)) {
     const models = await discoverEnvironmentConnectionModels({
       providerId: input.providerId,
       credentialEnvironmentVariable: input.credentialEnvironmentVariable,
+      billingSelection: input.billingSelection,
+      ...(input.policyClaims === undefined
+        ? {}
+        : { policyClaims: input.policyClaims }),
+      ...(input.policyContext === undefined
+        ? {}
+        : { policyContext: input.policyContext }),
       environment: input.environment,
+      now,
     }, dependencies);
     const selectedModel = models.find((model) => model.id === input.modelId);
     if (selectedModel === undefined) {
@@ -346,7 +417,6 @@ export async function setupEnvironmentConnection(
       };
     }
   }
-  const billingSelection = selection(input.billingSelection, entry, now);
   const stableSuffix = createHash("sha256")
     .update(
       `recurs:environment-connection-id:v1\0${input.providerId}\0${input.credentialEnvironmentVariable}`,
@@ -380,7 +450,9 @@ export async function setupEnvironmentConnection(
         id: previous?.id ?? proposedId,
         providerId: input.providerId,
         adapterId: bound.provider.adapterId,
-        label: `${entry.displayName} BYOK`,
+        label: entry.accessKind === "coding_plan"
+          ? entry.displayName
+          : `${entry.displayName} BYOK`,
         modelId: input.modelId,
         ...(input.reasoningEffort === undefined
           ? {}
@@ -389,6 +461,7 @@ export async function setupEnvironmentConnection(
         credentialEnvironmentVariable: input.credentialEnvironmentVariable,
         credentialIdentityFingerprint: bound.credentialFingerprint,
         policyRevision: entry.policy.revision,
+        ...(policyBinding === undefined ? {} : { policyBinding }),
         billingPolicy: structuredClone(entry.billing),
         billingSelection,
         configuredAt: now,

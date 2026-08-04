@@ -141,6 +141,30 @@ describe("remote OpenAI-compatible provider", () => {
     expect(JSON.stringify(provider)).not.toContain(key);
   });
 
+  it("routes Alibaba Coding Plan through its exact OpenAI-compatible origin", async () => {
+    let url = "";
+    const provider = new RemoteOpenAICompatibleProvider({
+      providerId: "alibaba-coding-plan",
+      connectionId: "alibaba-plan",
+      apiKey: "alibaba-plan-key",
+      fetch: async (input) => {
+        url = String(input);
+        return completion();
+      },
+    });
+
+    for await (const _event of provider.stream({
+      model: "qwen3-coder-plus",
+      messages: [{ id: "user", role: "user", content: "work" }],
+      tools: [],
+      signal: new AbortController().signal,
+    })) void _event;
+
+    expect(url).toBe(
+      "https://coding-intl.dashscope.aliyuncs.com/v1/chat/completions",
+    );
+  });
+
   it("rejects arbitrary endpoints and unsupported provider profiles", () => {
     for (const providerId of [
       "https://attacker.invalid/v1",

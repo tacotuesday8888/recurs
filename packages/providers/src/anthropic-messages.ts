@@ -7,7 +7,7 @@ import type {
 } from "@recurs/contracts";
 
 import { NATIVE_TOOL_USE_PROFILE } from "./harness-profile.js";
-import { environmentByokManifest } from "./environment-provider-policy.js";
+import { environmentCredentialManifest } from "./environment-provider-policy.js";
 import { CredentialEchoGuard } from "./credential-echo-guard.js";
 import { retryAfterOptions } from "./retry-after.js";
 import { ProviderError } from "./types.js";
@@ -86,16 +86,27 @@ function validCredential(value: string): boolean {
 }
 
 function endpoint(providerId: string): string {
-  const manifest = environmentByokManifest(providerId);
-  const origin = manifest?.endpoints.find((candidate) => candidate.kind === "origin");
-  if (
-    manifest?.protocol !== "anthropic_messages" ||
-    origin === undefined ||
-    origin.value !== "https://api.anthropic.com/v1"
-  ) {
+  const manifest = environmentCredentialManifest(providerId);
+  if (manifest?.protocol !== "anthropic_messages") {
     throw new TypeError("Remote provider does not have a reviewed Anthropic Messages endpoint");
   }
-  return `${origin.value}/messages`;
+  const reviewed = providerId === "anthropic-api"
+    ? manifest.endpoints.find((candidate) =>
+        candidate.kind === "origin" &&
+        candidate.value === "https://api.anthropic.com/v1"
+      )?.value
+    : providerId === "minimax-token-plan"
+    ? manifest.endpoints.find((candidate) =>
+        candidate.kind === "origin" &&
+        candidate.value === "https://api.minimax.io/anthropic"
+      )?.value
+    : undefined;
+  if (reviewed === undefined) {
+    throw new TypeError("Remote provider does not have a reviewed Anthropic Messages endpoint");
+  }
+  return providerId === "minimax-token-plan"
+    ? `${reviewed}/v1/messages`
+    : `${reviewed}/messages`;
 }
 
 function appendBlock(

@@ -5,4 +5,5 @@ export * from "./codex-onboarding.js";
 export * from "./codex-app-server-onboarding.js";
 export * from "./local-connection.js";
 export * from "./onboarding-catalog.js";
+export * from "./provider-usage-policy.js";
 export * from "./openai-model-capabilities.js";
