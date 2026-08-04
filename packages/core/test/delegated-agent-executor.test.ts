@@ -2645,13 +2645,17 @@ describe("DelegatedAgentExecutor", () => {
   it("cancels a never-settling exact approval UI without leaking its late rejection", async () => {
     const controller = new AbortController();
     let rejectLate: ((reason: unknown) => void) | undefined;
+    let markApprovalStarted!: () => void;
+    const approvalStarted = new Promise<void>((resolve) => {
+      markApprovalStarted = resolve;
+    });
     let decision: unknown;
     const { sessions, session, executor } = await fixture({
       runtimeApprovals: {
         async request() {
-          queueMicrotask(() => controller.abort());
           return await new Promise((_resolve, reject) => {
             rejectLate = reject;
+            markApprovalStarted();
           });
         },
       },
@@ -2673,6 +2677,8 @@ describe("DelegatedAgentExecutor", () => {
         signal: controller.signal,
       })
     );
+    await approvalStarted;
+    controller.abort();
     await expect(settleWithin(run)).rejects.toMatchObject({
       code: "cancelled",
       phase: "started",
