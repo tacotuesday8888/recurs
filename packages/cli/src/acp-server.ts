@@ -239,6 +239,8 @@ class AcpEventBridge implements EventSink {
             taskId: event.taskId,
             modelId: event.modelId,
             reasoningEffort: event.reasoningEffort,
+            backendStrategy: event.backendStrategy,
+            backendReason: event.backendReason,
           },
         });
         return;
@@ -322,6 +324,10 @@ class AcpEventBridge implements EventSink {
             reviewVerdict: event.reviewVerdict,
             findingCount: event.findingCount,
             changedFileCount: event.changedFileCount,
+            routeStrategy: event.routeStrategy,
+            routeReason: event.routeReason,
+            modelId: event.modelId,
+            reasoningEffort: event.reasoningEffort,
           },
         });
         return;

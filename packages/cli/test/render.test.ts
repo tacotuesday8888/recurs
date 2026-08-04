@@ -59,6 +59,43 @@ describe("TextEventRenderer agent activity", () => {
       maxReportedCostUsd: 3,
     });
     await renderer.emit({
+      type: "company_assignment_started",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      goalRunId: "goal-run-1",
+      assignmentId: "plan-1",
+      parentAssignmentId: null,
+      departmentId: "delivery",
+      roleId: "planning-lead",
+      roleName: "Planning Lead",
+      profileId: "explore_v1",
+      childAgentId: "planning-agent",
+      childSessionId: "planning-session",
+    });
+    await renderer.emit({
+      type: "agent_started",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      childAgentId: "planning-agent",
+      childSessionId: "planning-session",
+      taskId: "planning-task",
+      description: "Map the delivery sequence",
+      operatingModeId: "balanced_v6",
+      profileId: "explore_v1",
+      modelId: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      backendStrategy: "inherit_parent",
+      company: {
+        blueprintId: "company-2",
+        blueprintVersion: 2,
+        blueprintRevision: 1,
+        roleId: "planning-lead",
+        roleVersion: 1,
+      },
+    });
+    await renderer.emit({
       type: "company_escalation_requested",
       sessionId: "parent-session",
       at: "2026-07-17T00:00:00.000Z",
@@ -128,6 +165,24 @@ describe("TextEventRenderer agent activity", () => {
       routeReason: "eligible_role_candidate",
       modelId: "gpt-5.6-terra",
       reasoningEffort: "medium",
+    });
+    await renderer.emit({
+      type: "agent_started",
+      sessionId: "parent-session",
+      at: "2026-07-17T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      childAgentId: "implement-agent-1",
+      childSessionId: "implement-session-1",
+      taskId: "implement-task-1",
+      description: "Implement the bounded candidate",
+      operatingModeId: "balanced_v6",
+      profileId: "implement_v2",
+      modelId: "gpt-5.6-terra",
+      reasoningEffort: "medium",
+      backendStrategy: "policy_route",
+      backendReason: "eligible_role_candidate",
+      teamId: "durable-team-1",
+      teamIndex: 1,
     });
     await renderer.emit({
       type: "agent_team_activity",
@@ -246,6 +301,7 @@ describe("TextEventRenderer agent activity", () => {
       profileId: "explore_v1",
       modelId: "gpt-explore",
       reasoningEffort: "medium",
+      backendStrategy: "inherit_parent",
     });
     await renderer.emit({
       type: "agent_completed",
@@ -476,20 +532,24 @@ describe("TextEventRenderer agent activity", () => {
       "⇶ Company goal goal-run-1: 3 assignments · recommended · 3 concurrent",
     );
     expect(output).toContain(
+      "↳ Activated Planning Lead · gpt-5.6-sol · high · parent model",
+    );
+    expect(output).toContain(
       "↑ Planning Lead escalated to Orchestrator: The architecture boundary needs a decision.",
     );
     expect(output).toContain(
       "◇ Team-control recommendation recommendation-1 · 2 runs",
     );
     expect(output).toContain(
-      "↳ Activated implement 1 · gpt-5.6-terra · medium",
+      "↳ Activated implement 1 · gpt-5.6-terra · medium · role route",
     );
+    expect(output.match(/Activated implement 1/gu)).toHaveLength(1);
     expect(output).toContain("◇ Team review phase · round 1");
     expect(output).toContain("✗ review 1 failed · 7/20 requests · 0 changed files");
     expect(output).toContain("◇ Review changes requested · 2 findings");
     expect(output).toContain("✓ Reviewed candidate ready · 2 changed files");
     expect(output).toContain(
-      "↳ Explore child · gpt-explore · medium: Inspect cache key",
+      "↳ Explore child · gpt-explore · medium · parent model: Inspect cache key",
     );
     expect(output).toContain(
       "✓ Explore child completed: child-agent · 10 in / 4 out (1/4 this run)",

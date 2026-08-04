@@ -142,6 +142,8 @@ describe("Recurs ACP agent", () => {
               profileId: "review_v2",
               modelId: "gpt-review",
               reasoningEffort: "high",
+              backendStrategy: "policy_route",
+              backendReason: "eligible_role_candidate",
             });
             await sink.emit({
               ...base,
@@ -247,6 +249,15 @@ describe("Recurs ACP agent", () => {
     expect(updates[0]?.update).toMatchObject({
       toolCallId: "tool-1",
       locations: [{ path: path.join(cwd, "src/index.ts") }],
+    });
+    expect(updates[3]?.update).toMatchObject({
+      toolCallId: "recurs-agent:child-1",
+      rawInput: {
+        modelId: "gpt-review",
+        reasoningEffort: "high",
+        backendStrategy: "policy_route",
+        backendReason: "eligible_role_candidate",
+      },
     });
   });
 

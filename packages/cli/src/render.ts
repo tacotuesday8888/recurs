@@ -39,6 +39,42 @@ function modelLabel(
   return effort === null ? modelId : `${modelId} · ${effort}`;
 }
 
+function routeRationale(
+  strategy:
+    | "session_pin"
+    | "inherit_parent"
+    | "policy_route"
+    | "role_candidate"
+    | undefined,
+  reason: "parent_fallback" | "eligible_role_candidate" | undefined,
+): string | null {
+  if (reason === "eligible_role_candidate") return "role route";
+  if (reason === "parent_fallback") return "parent fallback";
+  if (strategy === "inherit_parent") return "parent model";
+  if (strategy === "session_pin") return "session pin";
+  if (strategy === "policy_route" || strategy === "role_candidate") {
+    return "role route";
+  }
+  return null;
+}
+
+function routedModelLabel(
+  modelId: string,
+  effort: ModelReasoningEffort | null,
+  strategy:
+    | "session_pin"
+    | "inherit_parent"
+    | "policy_route"
+    | "role_candidate"
+    | undefined,
+  reason: "parent_fallback" | "eligible_role_candidate" | undefined,
+): string {
+  const rationale = routeRationale(strategy, reason);
+  return `${modelLabel(modelId, effort)}${
+    rationale === null ? "" : ` · ${rationale}`
+  }`;
+}
+
 function usageLabel(usage: ProviderUsage | null): string {
   if (usage === null) return "usage unavailable";
   const details = [
@@ -59,6 +95,8 @@ function usageLabel(usage: ProviderUsage | null): string {
 
 export class TextEventRenderer implements EventSink {
   #textLineOpen = false;
+  readonly #companyAssignments = new Map<string, string>();
+  readonly #teamReservations = new Set<string>();
   readonly #theme: TerminalTheme;
 
   constructor(
@@ -170,13 +208,10 @@ export class TextEventRenderer implements EventSink {
         );
         break;
       case "company_assignment_started":
-        await this.#status(
-          this.#theme.accent(
-            `↳ Activated ${event.roleName} · ${getAgentProfilePolicy(event.profileId).displayName}`,
-          ),
-        );
+        this.#companyAssignments.set(event.childAgentId, event.roleName);
         break;
       case "company_handoff_completed":
+        this.#companyAssignments.delete(event.childAgentId);
         await this.#status(
           this.#theme.success(
             `✓ Company handoff ${event.assignmentId} · ${usageLabel(event.usage)}`,
@@ -192,6 +227,7 @@ export class TextEventRenderer implements EventSink {
         break;
       case "company_handoff_failed":
       case "company_handoff_cancelled":
+        this.#companyAssignments.delete(event.childAgentId);
         await this.#status(
           this.#theme.failure(
             `✗ Company handoff ${event.assignmentId} ${event.status}: ${event.reason}`,
@@ -227,9 +263,12 @@ export class TextEventRenderer implements EventSink {
           event.role !== undefined &&
           event.modelId !== undefined
         ) {
+          if (event.index !== undefined) {
+            this.#teamReservations.add(`${event.teamId}\0${event.index}`);
+          }
           await this.#status(
             this.#theme.accent(
-              `↳ Activated ${event.role}${event.index === undefined ? "" : ` ${event.index}`} · ${modelLabel(event.modelId, event.reasoningEffort ?? null)}`,
+              `↳ Activated ${event.role}${event.index === undefined ? "" : ` ${event.index}`} · ${routedModelLabel(event.modelId, event.reasoningEffort ?? null, event.routeStrategy, event.routeReason)}`,
             ),
           );
         } else if (
@@ -276,13 +315,30 @@ export class TextEventRenderer implements EventSink {
           await this.#status(this.#theme.success(`✓ Reviewed candidate ready${files}`));
         }
         break;
-      case "agent_started":
+      case "agent_started": {
+        const companyRole = this.#companyAssignments.get(event.childAgentId);
+        if (companyRole !== undefined) {
+          this.#companyAssignments.delete(event.childAgentId);
+          await this.#status(
+            this.#theme.accent(
+              `↳ Activated ${companyRole} · ${routedModelLabel(event.modelId, event.reasoningEffort, event.backendStrategy, event.backendReason)}`,
+            ),
+          );
+          break;
+        }
+        if (
+          event.teamId !== undefined && event.teamIndex !== undefined &&
+          this.#teamReservations.delete(`${event.teamId}\0${event.teamIndex}`)
+        ) {
+          break;
+        }
         await this.#status(
           this.#theme.accent(
-            `↳ ${getAgentProfilePolicy(event.profileId).displayName} child · ${modelLabel(event.modelId, event.reasoningEffort)}: ${event.description}`,
+            `↳ ${getAgentProfilePolicy(event.profileId).displayName} child · ${routedModelLabel(event.modelId, event.reasoningEffort, event.backendStrategy, event.backendReason)}: ${event.description}`,
           ),
         );
         break;
+      }
       case "agent_batch_started":
         await this.#status(
           this.#theme.accent(

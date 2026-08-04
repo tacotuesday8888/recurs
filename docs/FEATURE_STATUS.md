@@ -99,18 +99,23 @@ Recurs-scoped tools. `Models: Auto` is implemented as an evidence gate rather
 than a brand ranking. One safe formation-to-apply Codex dogfood completed Quick
 formation, approval, a reviewed coding goal, parent synthesis, and
 evidence-backed Auto activation with Sol as parent, Terra as Implement/Repair,
-and Luna as Review. A later fresh three-scenario comparison ran that lineup
-against the same Sol parent: the company passed all three hidden verifiers and
-the single-agent baseline passed two. On the two shared successes the company
-used more input tokens, was slower once, and slightly faster once. Dollar cost
-remained unknown. The terminal reports only activated agents, their exact
-model/effort, and bounded usage.
+and Luna as Review. The larger frozen evaluation now covers 11 campaigns and
+30 trials: raw hidden-verifier passes were 9/13 for the Sol baseline, 7/13 for
+mixed Auto, and 1/4 for the all-Sol company. Two repetitions were correlated
+upstream parent/provider failures across every arm; excluding only those shared
+outages leaves 9/11, 7/11, and 1/2, which still does not establish a winning
+roster. Terra Implement completed 10/10 attempts, seven final Luna approvals
+all passed the verifier, and Terra Repair completed 0/2 attempts. Dollar cost
+remained unknown. See the [versioned evidence report](research/2026-08-04-RECURS-MODEL-TEAM-EVALUATION-V1.md).
+The terminal reports only activated agents, their exact model/effort and route
+rationale, and bounded usage.
 
 The controlled comparison surface includes three hidden-verifier coding
 fixtures, distinct Quick/Guided/Deep formation scenarios, and campaigns that
 compare the selected parent-only baseline against the currently configured
 saved role-route snapshot, with an explicit option for an additional all-strong
-bounded team. The remaining evidence milestone is repetition: run at least
-three pairs per scenario, include alternative teams where authorized, and tune
-activation, context, latency, and review value only from durable results. A new
+bounded team. The next evidence milestone is a healthy-provider alpha.5 run
+with at least three repetitions per fixture, wider role/effort crosses, repair
+diagnosis, and real cost coverage. Activation, context, latency, and review
+value must continue to be tuned only from durable results. A new
 orchestration foundation is not the next step.

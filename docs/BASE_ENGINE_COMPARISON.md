@@ -1,51 +1,54 @@
 # Base Engine Comparison
 
-This review compares Recurs with leading open-source coding-agent and adjacent
-agent engines. The goal is not feature parity. It identifies the smallest
-engine guarantees that must remain solid beneath Recurs's owned company and
-sub-agent architecture.
+This review compares Recurs with popular open-source coding CLIs. It is a
+source-level engineering comparison, not a request for identical feature
+counts. The objective is a small, trustworthy engine beneath Recurs's owned
+company and sub-agent architecture.
 
-Reviewed on 2026-07-10 through the GitHub connector:
+The strict CLI corpus was refreshed on 2026-08-04:
 
-- [Kilo Code](https://github.com/Kilo-Org/kilocode/tree/8324cf7ddc6539993f7d1743175716ae2705d195)
-- [OpenCode](https://github.com/anomalyco/opencode/tree/8a03fc265b6d73c2e15881fcc702c9cb3027dd0e)
-- [Codex](https://github.com/openai/codex/tree/dc5ae378967cff0de2cfb30b98c52047ab978e3d)
+- primary general-purpose baselines: [Codex](https://github.com/openai/codex),
+  [OpenCode](https://github.com/anomalyco/opencode),
+  [Gemini CLI](https://github.com/google-gemini/gemini-cli),
+  [Cline CLI](https://github.com/cline/cline),
+  [Goose](https://github.com/aaif-goose/goose),
+  [Aider](https://github.com/Aider-AI/aider),
+  [Qwen Code](https://github.com/QwenLM/qwen-code),
+  [Kimi Code](https://github.com/MoonshotAI/kimi-code), and
+  [Grok Build](https://github.com/xai-org/grok-build);
+- useful independent architecture references:
+  [Crush](https://github.com/charmbracelet/crush),
+  [Mistral Vibe](https://github.com/mistralai/mistral-vibe),
+  [OpenHands CLI](https://github.com/OpenHands/OpenHands-CLI),
+  [mini-SWE-agent](https://github.com/SWE-agent/mini-swe-agent),
+  [Plandex](https://github.com/plandex-ai/plandex),
+  [Forge](https://github.com/tailcallhq/forgecode),
+  [gptme](https://github.com/gptme/gptme), and
+  [Pi](https://github.com/earendil-works/pi); and
+- [Kilo Code](https://github.com/Kilo-Org/kilocode) as an OpenCode-derived
+  distribution and UX/provider comparator, not a separate core-engine lineage.
 
-An additional source-level pass on 2026-07-29 covered:
+Broad personal assistants and orchestration add-ons, IDE-only surfaces, model
+repositories, leaked-source archives, and repositories without their current
+CLI source are excluded. Specialized tools such as Continue's AI checks are
+useful references but are not full interactive-harness parity targets.
 
-- [Gemini CLI subagents](https://github.com/google-gemini/gemini-cli/blob/main/docs/core/subagents.md):
-  isolated context/tool registries, model and turn/time limits, local/remote
-  specialists, and explicit recursion prevention;
-- [Qwen Code commands and teams](https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/commands.md):
-  goal persistence, background tasks, workflows, custom agents, hooks, skills,
-  and multi-agent review;
-- [Open Interpreter's current Rust harness](https://github.com/openinterpreter/openinterpreter):
-  Codex protocol compatibility and provider-specific harness emulation for
-  lower-cost models;
-- [Oh My OpenAgent](https://github.com/code-yeongyu/oh-my-openagent/blob/dev/docs/guide/overview.md):
-  an orchestration layer over existing coding harnesses with specialized
-  roles and interview-led planning;
-- [OpenClaw](https://github.com/openclaw/openclaw/blob/main/docs/tools/index.md):
-  a broader persistent agent runtime with tools, skills, plugins, channels, and
-  subagent sessions;
-- [Hermes Agent](https://github.com/NousResearch/hermes-agent):
-  persistent memory, reusable skills, gateways, scheduled work, and native
-  subagent delegation;
-- [Cline](https://github.com/cline/cline):
-  editor-first approval and human-in-the-loop task ergonomics; and
-- [Open Interpreter's original Python lineage](https://github.com/openinterpreter/open-interpreter):
-  a concise streamed model/code-execution loop with explicit confirmation.
+The expanded pass did not justify replacing Recurs's engine or changing its
+TypeScript-first architecture. Mature CLIs span Rust, TypeScript, Go, and
+Python; their transferable strengths are contracts, lifecycle handling,
+containment, recovery, and clear operator feedback rather than language alone.
+Recurs is already strong in the first four. The remaining concise runtime gap
+was operator visibility: routed child events carried the selected model but the
+terminal and ACP did not consistently show why it was selected and could print
+duplicate activation lines. Recurs now projects the authenticated backend
+strategy and reason, renders one company/team activation with its model and
+effort, and keeps usage visible at completion.
 
-The additional pass did not justify replacing Recurs's engine or expanding the
-CLI into an IDE/general assistant. It reinforced five boundaries already in
-the implementation: specialist profiles need isolated tools and explicit
-limits; background work must state whether it survives process loss; model
-lineups should be evaluated per task rather than branded as universally best;
-memory must carry provenance; and approval policy must remain separate from OS
-containment. The live Company Proof work then exposed concrete Recurs gaps in
-worker verification, review-evidence handoff, benchmark approval handling, and
-scenario-bound authority; those gaps were fixed rather than adding decorative
-commands.
+The comparison continues to preserve five boundaries: specialist profiles
+need isolated tools and explicit limits; background work must state whether it
+survives process loss; model lineups must be evaluated per task instead of
+marketed as universally best; memory must carry provenance; and approval policy
+must remain separate from OS containment.
 
 Parallel scheduling was rechecked on 2026-07-19 against current [Codex](https://github.com/openai/codex/blob/0fb559f0f6e231a88ac02ea002d3ecd248e2b515/codex-rs/core/src/tools/parallel.rs), which uses an explicit per-tool capability behind a shared/exclusive execution gate, and [Gemini CLI](https://github.com/google-gemini/gemini-cli/blob/acae7124bdd849e554eaa5e090199a0cf08cd782/packages/core/src/scheduler/scheduler.ts), which batches contiguous calls with an explicit ordering barrier.
 
@@ -124,6 +127,23 @@ The current code is a real harness, not a placeholder. Beyond the original provi
 Its useful difference is size. Recurs keeps the single-agent engine
 understandable while containing company complexity in explicit provider and
 orchestration layers.
+
+Against the refreshed corpus, the current position is:
+
+- stronger than the common baseline in complete child≤parent authority,
+  explicit depth/concurrency/request/retry/reported-cost ceilings, durable
+  reviewed-candidate recovery, and truthful process-loss handling;
+- at the mature baseline for streamed tool loops, session resume/fork/compact,
+  Plan/Act separation, exact permission rules, OS containment on macOS/Linux,
+  headless structured output, ACP, MCP, Skills, provider onboarding, and
+  bounded background-team controls;
+- intentionally smaller in full-screen terminal navigation, general in-process
+  plugins, persistent LSP services, remote MCP/OAuth, daemon scheduling, and
+  Windows containment; and
+- not yet evidence-backed for automatic “best team” ranking. The current
+  company benchmark therefore reports comparative evidence without claiming
+  that a multi-model roster is faster, cheaper, or better than a strong single
+  agent.
 
 The original four hardening requirements are now implemented:
 

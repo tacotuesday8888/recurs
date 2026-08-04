@@ -1,5 +1,6 @@
 import type { ModelMessage, StopReason, ToolCall } from "@recurs/providers";
 import type {
+  AgentBackendSelection,
   IntegrationFailure,
   AgentProfileId,
   CompanyAgentBinding,
@@ -427,6 +428,11 @@ export type RecursEvent =
       profileId: AgentProfileId;
       modelId: string;
       reasoningEffort: ModelReasoningEffort | null;
+      backendStrategy?: AgentBackendSelection["strategy"];
+      backendReason?: Extract<
+        AgentBackendSelection,
+        { strategy: "policy_route" }
+      >["reason"];
       company?: CompanyAgentBinding;
       batchId?: string;
       batchIndex?: number;
