@@ -10,7 +10,7 @@ const helpText = [
   "/provider [search]            Discover, detect, and connect providers",
   "/connect                      Alias for /provider",
   "/model [connection-id]        List saved models or start a fresh session",
-  "/goal [objective|action]      Manage the durable goal",
+  "/goal [objective|action]      Manage or launch the durable goal",
   "/company status               Inspect the approved company status",
   "/company operations           Inspect durable company goal operations",
   "/company run <run-id>         Inspect one exact company goal run",

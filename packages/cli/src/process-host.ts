@@ -1474,6 +1474,7 @@ export async function runCli(
       ) {
         const onboarding = await runGuidedOnboarding(dependencies);
         if (onboarding.state === "failed") return onboarding.exitCode;
+        if (onboarding.state === "saved") return 0;
         if (onboarding.state === "configured") {
           if (dependencies.signal?.aborted === true) {
             throw new DOMException("Guided setup was cancelled", "AbortError");
@@ -1514,7 +1515,9 @@ export async function runCli(
     try {
       const onboarding = await runGuidedOnboarding(dependencies);
       if (onboarding.state === "failed") return onboarding.exitCode;
-      if (onboarding.state === "skipped") return 0;
+      if (onboarding.state === "skipped" || onboarding.state === "saved") {
+        return 0;
+      }
       if (dependencies.signal?.aborted === true) {
         throw new DOMException("Guided setup was cancelled", "AbortError");
       }

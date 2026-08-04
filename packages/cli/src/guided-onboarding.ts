@@ -304,6 +304,11 @@ export type GuidedOnboardingOutcome =
     readonly companyBlueprint?: CompanyBlueprintV1;
     readonly companyBlueprintV2?: CompanyBlueprintV2;
   }
+  | {
+    readonly state: "saved";
+    readonly companyOnboardingRunId: string | null;
+    readonly stage: "formation" | "interview" | "proposal";
+  }
   | { readonly state: "skipped" }
   | { readonly state: "failed"; readonly exitCode: number };
 
@@ -880,6 +885,22 @@ function permissionLabel(mode: PermissionMode): string {
   return "Full Access";
 }
 
+function companyDesignLabel(mode: CompanyDesignMode): string {
+  return mode === "stable_core_specialists"
+    ? "Stable core + specialists"
+    : "Guardrailed dynamic";
+}
+
+function companyDepthLabel(depth: CompanyOnboardingDepth): string {
+  return `${depth[0]?.toUpperCase() ?? ""}${depth.slice(1)}`;
+}
+
+function companyDevelopmentStyleLabel(style: CompanyDevelopmentStyle): string {
+  if (style === "layered_company") return "Layered company";
+  if (style === "orchestrator") return "Lean team";
+  return "Single agent";
+}
+
 async function configureTeamRoutes(
   accounts: readonly AccountSummary[],
   operatingModeId: OperatingModeId,
@@ -958,6 +979,10 @@ interface CompanyOnboardingResult {
   readonly blueprint?: CompanyBlueprintV1;
   readonly blueprintV2?: CompanyBlueprintV2;
   readonly brief?: CapturedProjectBrief;
+  readonly pending?: {
+    readonly runId: string | null;
+    readonly stage: "formation" | "interview" | "proposal";
+  };
 }
 
 const COMPANY_ONBOARDING_DEPTH_CHOICES: readonly GuidedChoice[] = Object.freeze([
@@ -1309,7 +1334,9 @@ async function setupCompanyBlueprintV2(
         }),
       ]),
     );
-    if (choice !== "new") return {};
+    if (choice !== "new") {
+      return { pending: { runId: null, stage: "formation" } };
+    }
     run = null;
   }
   if (run !== null) {
@@ -1333,7 +1360,14 @@ async function setupCompanyBlueprintV2(
         }),
       ]),
     );
-    if (choice === "stop" || choice === null) return {};
+    if (choice === "stop" || choice === null) {
+      return {
+        pending: {
+          runId: run.state.id,
+          stage: run.state.status === "proposed" ? "proposal" : "interview",
+        },
+      };
+    }
     if (choice === "new") run = null;
   }
   if (run === null) run = await service.coordinator.start(start);
@@ -1362,7 +1396,9 @@ async function setupCompanyBlueprintV2(
           ports.stdout,
           `Company interview saved. Resume run ${run.state.id} during setup.\n`,
         );
-        return {};
+        return {
+          pending: { runId: run.state.id, stage: "interview" },
+        };
       }
       run = await service.coordinator.answer(
         run.state.id,
@@ -1422,7 +1458,10 @@ async function setupCompanyBlueprintV2(
             ports.stdout,
             `Company proposal saved. Resume run ${run.state.id} during setup.\n`,
           );
-          return { brief: { purpose: blueprint.project.purpose } };
+          return {
+            brief: { purpose: blueprint.project.purpose },
+            pending: { runId: run.state.id, stage: "proposal" },
+          };
         }
         if (action === "approve") break;
         let edited: CompanyProposalEditResult;
@@ -1747,6 +1786,19 @@ async function runGuidedOnboardingSteps(
       permissionMode,
       operatingModeId,
     );
+    if (company.pending !== undefined) {
+      await writeOutput(
+        ports.stdout,
+        company.pending.runId === null
+          ? "Setup stopped with the earlier company formation unchanged. Restore its model and authority settings, then run recurs setup to resume.\n"
+          : `Setup stopped with the company ${company.pending.stage} saved. Run recurs setup to resume run ${company.pending.runId}.\n`,
+      );
+      return {
+        state: "saved",
+        companyOnboardingRunId: company.pending.runId,
+        stage: company.pending.stage,
+      };
+    }
   }
   await writeOutput(
     ports.stdout,
@@ -1763,6 +1815,18 @@ async function runGuidedOnboardingSteps(
   throwIfOnboardingAborted(ports.signal);
   const primary = accountsAfterRouting.find((account) => account.primary);
   const operatingMode = getOperatingModePolicy(operatingModeId);
+  const approvedBlueprint = company.blueprintV2 ?? company.blueprint;
+  const roster = company.blueprintV2 !== undefined
+    ? `Recommended · ${companyDesignLabel(company.blueprintV2.designMode)} · ${companyDepthLabel(company.blueprintV2.provenance.depth)} · ${company.blueprintV2.departments.length} department(s) · ${company.blueprintV2.roles.length} approved role(s)`
+    : company.blueprint !== undefined
+      ? `Recommended · ${company.blueprint.roles.length} approved role(s) · ${companyDevelopmentStyleLabel(company.blueprint.developmentStyle)}`
+      : "not activated · Run recurs setup to form a company later.";
+  const next = approvedBlueprint !== undefined
+    ? [
+        `First goal: ${approvedBlueprint.initialGoal}`,
+        "Next: /goal launch",
+      ]
+    : ["Next: describe a coding task, or use /goal <objective> for multi-step work."];
   await writeOutput(ports.stdout, [
     theme.success("Onboarding complete"),
     `Connection: ${primary === undefined ? "ready" : `${primary.label} · ${primary.modelId}`}`,
@@ -1773,13 +1837,10 @@ async function runGuidedOnboardingSteps(
     )}`,
     `Team controls: ${teamControls}`,
     `Models: ${routeSummary(accountsAfterRouting)}`,
-    `Roster: ${company.blueprintV2 !== undefined
-      ? `Recommended · ${company.blueprintV2.departments.length} department(s) · ${company.blueprintV2.roles.length} approved role(s)`
-      : company.blueprint === undefined
-        ? "not activated · Run recurs setup to form a company later."
-        : `Recommended · ${company.blueprint.roles.length} approved role(s) · ${company.blueprint.developmentStyle.replaceAll("_", " ")}`}`,
+    `Roster: ${roster}`,
     `Authority: ${permissionLabel(permissionMode)}`,
     "Models Auto becomes available after eligible real company-goal evidence is recorded.",
+    ...next,
     "Starting a fresh durable session. Change these later with /provider, /model, /permissions, or /agents mode.",
     "",
   ].join("\n"));

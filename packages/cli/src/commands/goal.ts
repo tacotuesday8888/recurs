@@ -130,8 +130,8 @@ export function createGoalCommand(
 ): Command {
   return {
     name: "goal",
-    description: "Create, inspect, pause, resume, complete, or clear the durable goal",
-    usage: "/goal [objective|pause|resume|complete|clear]",
+    description: "Create, launch, inspect, pause, resume, complete, or clear the durable goal",
+    usage: "/goal [objective|launch|pause|resume|complete|clear]",
     async execute(args, context) {
       const action = args.trim();
       if (action.length === 0) {
@@ -190,6 +190,27 @@ export function createGoalCommand(
         }
         await context.applyRecord(goalRecord(context, null));
         return message("Goal cleared");
+      }
+
+      if (action === "launch") {
+        const goal = context.session.goal;
+        if (
+          goal?.status !== "active" ||
+          !isPinnedSessionState(context.session) ||
+          context.session.agent.role !== "parent" ||
+          context.session.agent.company?.blueprintVersion !== 2
+        ) {
+          return message(
+            "No active approved company goal is ready to launch",
+            "error",
+          );
+        }
+        const existing = await existingCompanyRun(context, dependencies);
+        if (existing !== null) return existing;
+        return {
+          type: "submit_prompt",
+          prompt: companyLaunchPrompt(goal.objective),
+        };
       }
 
       const existing = await existingCompanyRun(context, dependencies);

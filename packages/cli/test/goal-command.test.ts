@@ -268,6 +268,51 @@ describe("goal command company launch", () => {
     });
   });
 
+  it("launches the active approved company goal without retyping it", async () => {
+    const initial = context({
+      ...companySession(),
+      goal: {
+        objective: "Launch safely.",
+        status: "active",
+        progress: "",
+        blockers: [],
+        evidence: [],
+        createdAt: at,
+        updatedAt: at,
+      },
+    });
+
+    const result = await createCommandRegistry().execute(
+      "/goal launch",
+      initial,
+    );
+
+    expect(initial.confirm).not.toHaveBeenCalled();
+    expect(initial.records).toHaveLength(0);
+    expect(result).toMatchObject({
+      type: "submit_prompt",
+      prompt: expect.stringContaining(JSON.stringify("Launch safely.")),
+    });
+  });
+
+  it("does not treat launch as an ordinary goal without an approved company", async () => {
+    const ordinary = context(createSessionState({
+      id: "ordinary-launch-session",
+      cwd: "/workspace",
+      model: "scripted",
+    }));
+
+    await expect(createCommandRegistry().execute(
+      "/goal launch",
+      ordinary,
+    )).resolves.toMatchObject({
+      type: "message",
+      level: "error",
+      text: "No active approved company goal is ready to launch",
+    });
+    expect(ordinary.records).toHaveLength(0);
+  });
+
   it("retains ordinary goal behavior outside an approved V2 company", async () => {
     const ordinary = context(createSessionState({
       id: "ordinary-goal-session",

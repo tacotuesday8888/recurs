@@ -1317,6 +1317,282 @@ describe("guided onboarding policy", () => {
         .toContain("Company capability readiness");
       expect(output.join(""))
         .toContain("Agent Skills: not inspected");
+      expect(output.join(""))
+        .toContain("Roster: Recommended · Stable core + specialists · Guided");
+      expect(output.join(""))
+        .toContain("First goal: Deliver the first independently reviewed company goal.");
+      expect(output.join(""))
+        .toContain("Next: /goal launch");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a saved company interview distinct from an inactive roster", async () => {
+    const root = await realpath(
+      await mkdtemp(path.join(tmpdir(), "recurs-guided-company-saved-")),
+    );
+    const coordinator = new CompanyOnboardingCoordinator({
+      runs: new FileCompanyOnboardingStore(path.join(root, "runs")),
+      blueprints: new FileCompanyBlueprintV2Store(
+        path.join(root, "blueprints"),
+      ),
+      model: {
+        async decide() {
+          return {
+            decision: {
+              kind: "question",
+              id: "desired_outcome",
+              question: "What outcome should this company own?",
+            },
+            requestsUsed: 1,
+            reportedCostUsd: 0,
+          };
+        },
+      },
+    });
+    const selections = [
+      "account:saved-1",
+      "approved_for_me",
+      "balanced_v6",
+      "create",
+      "quick",
+      "stable_core_specialists",
+    ];
+    const output: string[] = [];
+    const sink = new Writable({
+      write(chunk, _encoding, done) {
+        output.push(String(chunk));
+        done();
+      },
+    });
+    try {
+      const outcome = await runGuidedOnboarding({
+        stdout: sink,
+        stderr: sink,
+        interactive: true,
+        automation: false,
+        async listAccounts() { return [account]; },
+        async detectProviders() { return []; },
+        async listProviders() { return []; },
+        async selectChoice(_message, choices) {
+          const selected = selections.shift() ?? null;
+          expect(choices.some((choice) => choice.id === selected)).toBe(true);
+          return selected;
+        },
+        async promptText() { return null; },
+        async confirm() { return true; },
+        async executeCommand() { return 0; },
+        async createCompanyOnboarding() {
+          return {
+            coordinator,
+            projectRoot: root,
+            backendFingerprint: "backend-fixture",
+          };
+        },
+      });
+
+      expect(outcome).toMatchObject({
+        state: "saved",
+        stage: "interview",
+        companyOnboardingRunId: expect.any(String),
+      });
+      expect(selections).toEqual([]);
+      expect(output.join(""))
+        .toContain("Company interview saved. Resume run ");
+      expect(output.join(""))
+        .toContain("Setup stopped with the company interview saved.");
+      expect(output.join("")).not.toContain("Onboarding complete");
+      expect(output.join("")).not.toContain("Roster:");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a saved company proposal visible and resumable", async () => {
+    const root = await realpath(
+      await mkdtemp(path.join(tmpdir(), "recurs-guided-company-proposal-")),
+    );
+    const coordinator = new CompanyOnboardingCoordinator({
+      runs: new FileCompanyOnboardingStore(path.join(root, "runs")),
+      blueprints: new FileCompanyBlueprintV2Store(
+        path.join(root, "blueprints"),
+      ),
+      model: {
+        async decide() {
+          return {
+            decision: {
+              kind: "propose",
+              project: {
+                type: "existing_project",
+                stage: "active",
+                purpose: "Keep a reviewed company proposal resumable.",
+                users: ["Maintainers"],
+                successCriteria: ["The proposal remains inspectable."],
+                constraints: ["Do not activate before approval."],
+                risks: [],
+                architecturePreferences: ["Reuse durable onboarding state."],
+                deploymentTargets: ["CLI"],
+                repository: { inspected: false, markers: [], evidence: [] },
+              },
+              initialGoal: "Approve and launch one reviewed goal.",
+              roadmap: ["Review the saved proposal."],
+            },
+            requestsUsed: 1,
+            reportedCostUsd: 0,
+          };
+        },
+      },
+    });
+    const selections = [
+      "account:saved-1",
+      "approved_for_me",
+      "balanced_v6",
+      "create",
+      "guided",
+      "stable_core_specialists",
+      "save_exit",
+    ];
+    const output: string[] = [];
+    const sink = new Writable({
+      write(chunk, _encoding, done) {
+        output.push(String(chunk));
+        done();
+      },
+    });
+    try {
+      const outcome = await runGuidedOnboarding({
+        stdout: sink,
+        stderr: sink,
+        interactive: true,
+        automation: false,
+        async listAccounts() { return [account]; },
+        async detectProviders() { return []; },
+        async listProviders() { return []; },
+        async selectChoice(_message, choices) {
+          const selected = selections.shift() ?? null;
+          expect(choices.some((choice) => choice.id === selected)).toBe(true);
+          return selected;
+        },
+        async promptText() {
+          throw new Error("the proposal path does not need another answer");
+        },
+        async confirm() { return true; },
+        async executeCommand() { return 0; },
+        async createCompanyOnboarding() {
+          return {
+            coordinator,
+            proposalEditor: new CompanyProposalEditor({
+              coordinator,
+              model: {
+                async revise() {
+                  throw new Error("proposal revision was not requested");
+                },
+              },
+              environment: {},
+            }),
+            projectRoot: root,
+            backendFingerprint: "backend-fixture",
+          };
+        },
+      });
+
+      expect(outcome).toMatchObject({
+        state: "saved",
+        stage: "proposal",
+        companyOnboardingRunId: expect.any(String),
+      });
+      expect(selections).toEqual([]);
+      expect(output.join(""))
+        .toContain("Company proposal saved. Resume run ");
+      expect(output.join(""))
+        .toContain("Setup stopped with the company proposal saved.");
+      expect(output.join("")).not.toContain("Onboarding complete");
+      expect(output.join("")).not.toContain("Roster:");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("stops cleanly when an unfinished company uses different authority", async () => {
+    const root = await realpath(
+      await mkdtemp(path.join(tmpdir(), "recurs-guided-company-mismatch-")),
+    );
+    const coordinator = new CompanyOnboardingCoordinator({
+      runs: new FileCompanyOnboardingStore(path.join(root, "runs")),
+      blueprints: new FileCompanyBlueprintV2Store(
+        path.join(root, "blueprints"),
+      ),
+      model: {
+        async decide() {
+          throw new Error("the mismatched run must not contact the model");
+        },
+      },
+    });
+    await coordinator.start({
+      projectRoot: root,
+      depth: "guided",
+      designMode: "stable_core_specialists",
+      permissionMode: "ask_always",
+      operatingModeId: "balanced_v6",
+      backendFingerprint: "backend-fixture",
+      repositoryConsent: true,
+    });
+    const selections = [
+      "account:saved-1",
+      "approved_for_me",
+      "balanced_v6",
+      "create",
+      "guided",
+      "stable_core_specialists",
+      "stop",
+    ];
+    const output: string[] = [];
+    const sink = new Writable({
+      write(chunk, _encoding, done) {
+        output.push(String(chunk));
+        done();
+      },
+    });
+    try {
+      const outcome = await runGuidedOnboarding({
+        stdout: sink,
+        stderr: sink,
+        interactive: true,
+        automation: false,
+        async listAccounts() { return [account]; },
+        async detectProviders() { return []; },
+        async listProviders() { return []; },
+        async selectChoice(_message, choices) {
+          const selected = selections.shift() ?? null;
+          expect(choices.some((choice) => choice.id === selected)).toBe(true);
+          return selected;
+        },
+        async promptText() {
+          throw new Error("the mismatched run must not ask a model question");
+        },
+        async confirm() { return true; },
+        async executeCommand() { return 0; },
+        async createCompanyOnboarding() {
+          return {
+            coordinator,
+            projectRoot: root,
+            backendFingerprint: "backend-fixture",
+          };
+        },
+      });
+
+      expect(outcome).toEqual({
+        state: "saved",
+        stage: "formation",
+        companyOnboardingRunId: null,
+      });
+      expect(selections).toEqual([]);
+      expect(output.join(""))
+        .toContain("earlier company formation unchanged");
+      expect(output.join(""))
+        .toContain("Restore its model and authority settings");
+      expect(output.join("")).not.toContain("Onboarding complete");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

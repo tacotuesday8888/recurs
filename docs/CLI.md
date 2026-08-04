@@ -92,7 +92,11 @@ Run `recurs` or `recurs setup` in a local terminal. Guided setup:
 6. reads or creates project context.
 
 Setup is local and user-present. Automation environments cannot drive the
-interactive flow.
+interactive flow. An approved company starts a fresh parent session with its
+first goal active; run `/goal launch` to begin the bounded company workflow
+without retyping that objective. Saved interviews and proposals remain
+distinct from inactive rosters, stop setup without creating a new session, and
+resume through `recurs setup`.
 
 ## Provider access
 
@@ -196,6 +200,7 @@ Common slash commands:
 /agents controls
 /agents configure topology=hierarchical active=6 concurrent=3
 /goal
+/goal launch
 /company status
 /company operations
 /company run <run-id>
