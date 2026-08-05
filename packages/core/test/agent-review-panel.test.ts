@@ -334,7 +334,13 @@ describe("repairPrompt", () => {
     expect(prompt).toContain("Repair round 1 of 2");
     expect(prompt).toContain(JSON.stringify(findings));
     expect(prompt).toContain("change only the staged candidate");
-    expect(prompt).toContain("Do not delegate, execute processes, use network resources");
+    expect(prompt).toContain(
+      "Use run_verification for the narrowest relevant verification before returning",
+    );
+    expect(prompt).toContain(
+      "Do not delegate, execute arbitrary processes, use network resources",
+    );
+    expect(prompt).not.toContain("Use only the bounded host file and Git-inspection tools");
     expect(Buffer.byteLength(prompt, "utf8")).toBeLessThanOrEqual(32_768);
     expect(repairPrompt({
       objective: "Keep cache namespaces isolated.",
