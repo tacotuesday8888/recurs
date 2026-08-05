@@ -56,7 +56,9 @@ describe("doctor readiness", () => {
     });
     const serialized = JSON.stringify(report);
     expect(serialized).not.toMatch(/SECRET_WORKSPACE|SECRET_RECURS_HOME|SECRET_CONNECTION/u);
-    expect(renderDoctorReport(report)).toContain("7 ok · 0 warning · 0 fail · ok");
+    const rendered = renderDoctorReport(report);
+    expect(rendered).toContain("7 ok · 0 warning · 0 fail · ok");
+    expect(rendered).toContain("Next: ready to start with `recurs`");
   });
 
   it("distinguishes actionable failures from optional setup warnings", async () => {
@@ -86,6 +88,7 @@ describe("doctor readiness", () => {
       expect.objectContaining({ id: "sandbox.command", status: "fail" }),
     ]));
     expect(JSON.stringify(report)).not.toContain("SECRET_PROCESS_FAILURE");
+    expect(renderDoctorReport(report)).toContain("Next: resolve failed checks, then rerun `recurs doctor`");
   });
 
   it("fails closed on corrupt provider state and preserves cancellation", async () => {

@@ -30,8 +30,13 @@ permissions, and configures your team.
 
 ## Why Recurs?
 
-Most heavy-agent modes hide the team behind one switch. Recurs gives you the
-controls:
+Recurs is for teams that want an inspectable alternative to opaque intensive
+agent workflows: the team, routes, limits, approvals, and durable results stay
+visible in the terminal. It is not affiliated with, endorsed by, or a claim of
+superiority over any model provider or coding tool. Recurs is a conversational
+CLI, not an IDE.
+
+It gives you controls to:
 
 - choose team size and delegation depth
 - route each role to a different model
@@ -73,7 +78,11 @@ Inside Recurs:
 /model auto          select an evaluated model team
 /permissions         change the authority profile
 /status              show the current session and usage
+/company operations  find durable company work and its next action
 ```
+
+If a run is interrupted, use `recurs doctor`, then `recurs help recovery` for
+the exact inspect-before-resume path.
 
 ## Learn more
 

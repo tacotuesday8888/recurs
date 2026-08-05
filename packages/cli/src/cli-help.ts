@@ -152,6 +152,25 @@ canonical workspace, category, resource, and risk. Credential access remains
 denied, destructive actions cannot be persistently allowed, and agent profile,
 Plan mode, parent-ceiling, and OS-containment checks remain authoritative.
 `,
+  recovery: `Recover an interrupted session or company goal
+
+Start with:
+  recurs doctor
+  recurs help recovery
+
+Inside an interactive session:
+  /status                         Inspect the active session, goal, and limits
+  /resume [session-id]            List durable sessions or resume one exact session
+  /company operations             Find unresolved company goals
+  /company run <run-id>           Inspect recorded work, evidence, and failure
+  /company resume <run-id>        Resume one exact interrupted company goal
+
+Recovery is explicit and user-present. Inspect a run before resuming it.
+Company recovery reconciles the durable record and does not restart settled work.
+If a provider connection is missing or unhealthy, use \`recurs provider detect\`,
+\`recurs account list\`, or \`recurs setup\`; Recurs never imports, displays, or
+reuses provider credentials outside an authorized official flow.
+`,
   eval: `Evaluate the bounded company foundation
 
 Usage:

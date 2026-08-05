@@ -52,6 +52,27 @@ export function permissionLabel(mode: PermissionMode): string {
   return labels[mode];
 }
 
+function permissionSummary(mode: PermissionMode): string {
+  const boundary = "Child agents inherit a ceiling from the parent, their profile, Plan mode, and OS containment; they cannot widen it.";
+  switch (mode) {
+    case "ask_always":
+      return [
+        "Ask Always: Recurs asks before workspace changes, commands, network access, and deployment.",
+        boundary,
+      ].join("\n");
+    case "approved_for_me":
+      return [
+        "Approved for Me: routine workspace work is approved; consequential, sensitive, external, and credential-related actions still ask.",
+        boundary,
+      ].join("\n");
+    case "full_access":
+      return [
+        "Full Access: routine prompts are skipped inside Recurs's active execution boundary; direct credential access and protected paths remain blocked.",
+        boundary,
+      ].join("\n");
+  }
+}
+
 export function createPermissionsCommand(): Command {
   return {
     name: "permissions",
@@ -60,7 +81,12 @@ export function createPermissionsCommand(): Command {
     usage: "/permissions [ask|approved|full]",
     async execute(args, context) {
       if (args.trim().length === 0) {
-        return message(`Permission mode: ${permissionLabel(context.session.permissionMode)}`);
+        const mode = context.session.permissionMode;
+        return message([
+          `Permission mode: ${permissionLabel(mode)}`,
+          permissionSummary(mode),
+          "Use /permissions ask, /permissions approved, or /permissions full to change this session.",
+        ].join("\n"));
       }
       const mode = parsePermissionMode(args);
       if (mode === null) {

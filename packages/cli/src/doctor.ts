@@ -351,6 +351,11 @@ export function renderDoctorReport(report: DoctorReport): string {
   lines.push(
     "",
     `${counts.ok} ok · ${counts.warning} warning · ${counts.fail} fail · ${report.overallStatus}`,
+    report.overallStatus === "ok"
+      ? "Next: ready to start with `recurs`"
+      : report.overallStatus === "warning"
+        ? "Next: review warnings, then run `recurs setup` or start with `recurs`"
+        : "Next: resolve failed checks, then rerun `recurs doctor`",
     "",
   );
   return lines.join("\n");
