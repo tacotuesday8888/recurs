@@ -44,19 +44,24 @@ Dollar cost was unavailable. Review approved the first candidate, so the
 configured Repair fallback did not activate in that live run; deterministic
 integration tests cover the request-changes, repair, and re-review branch.
 
-On 2026-07-29 a fresh Company Proof pair was also run for each of the three
-hidden-verifier fixtures. The Sol/Terra/Luna company passed all three; the Sol
-single-agent baseline passed two. The company was not uniformly cheaper or
-faster: it used three requests and more input tokens on both shared successes,
-was slower on one, and slightly faster on one. See
-[Company evaluation](COMPANY_EVALUATION.md) for the exact results and limits.
+The frozen evaluation now covers 11 campaigns and 30 trials across three
+harness revisions. Raw hidden-verifier passes were 9/13 for the Sol baseline,
+7/13 for mixed Auto, and 1/4 for the all-Sol company. Two repetitions were
+correlated upstream parent/provider failures across all three arms; excluding
+only those six roster-non-informative trials leaves 9/11, 7/11, and 1/2. The
+mixed company used three times as many requests and 1.82 times as many input
+tokens on the six matched pairs where both it and the baseline passed. Dollar
+cost remained unknown for all 30 trials. See the
+[versioned evidence report](research/2026-08-04-RECURS-MODEL-TEAM-EVALUATION-V1.md)
+for the complete results and limitations.
 
 ## What is not proven
 
-One run per scenario does not establish that the Sol/Terra/Luna lineup is a
+The current evidence does not establish that the Sol/Terra/Luna lineup is a
 universal winner, that a large team is cost-effective, or that it reliably
-beats a strong single agent. Before publishing a default recommendation,
-Recurs needs repeated, same-task comparisons that record:
+beats a strong single agent. Current alpha.5 coverage is also missing a
+`layered_config` campaign. Before publishing a default recommendation, Recurs
+needs repeated current-harness comparisons that record:
 
 - final quality and test results;
 - review findings and repair rounds;
@@ -68,8 +73,10 @@ The source contains the repeatable comparison machinery: three immutable
 hidden-verifier fixtures, alternating campaign order, distinct
 Quick/Guided/Deep formation evaluations, the selected parent-only baseline,
 the currently configured saved role-route snapshot, and an explicit all-strong
-comparison option. The first full task-catalog pass is recorded, but it does
-not substitute for repeated runs or alternative teams.
+comparison option. Terra Implement completed all 10 observed attempts and seven
+final Luna approvals all passed the verifier, but Terra Repair recovered 0/2
+candidates. Those role-confounded samples do not substitute for model/effort
+crosses, repeated current-harness runs, or real price coverage.
 
 Other current limits include Windows subprocess containment, a persistent
 worker daemon, a company operating UI, automatic plugin installation, remote

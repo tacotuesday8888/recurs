@@ -4,6 +4,7 @@ import {
   AgentLoopError,
   CompanyAmendmentError,
   CompanyLearningError,
+  CompanyStateStoreError,
   CoordinatedRunError,
   TeamControlAdaptationError,
   safeAgentLoopErrorMessage,
@@ -45,6 +46,18 @@ export function safeCliErrorMessage(
   }
   if (error instanceof AgentLoopError) {
     return safeAgentLoopErrorMessage(error);
+  }
+  if (error instanceof CompanyStateStoreError) {
+    if (error.code === "invalid_id") {
+      return "Private Recurs state uses an invalid identifier.";
+    }
+    if (error.code === "not_found") {
+      return "Private Recurs state was not found.";
+    }
+    if (error.code === "conflict" || error.code === "sequence_conflict") {
+      return "Private Recurs state changed concurrently. Reload and retry.";
+    }
+    return "Private Recurs state is unsafe or corrupt. Check RECURS_HOME safety and integrity before retrying.";
   }
   if (
     error instanceof RuntimeError ||

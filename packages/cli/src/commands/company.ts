@@ -113,7 +113,7 @@ function statusText(
     `Mode: ${blueprint.authority.operatingModeId}`,
     `Departments: ${blueprint.departments.length}`,
     `Roles: ${blueprint.roles.length}`,
-    `Tool bundles: ${readiness.ready} ready, ${readiness.missing} missing`,
+    `Tool bundles: ${readiness.ready} ready, ${readiness.missing} not ready`,
     `Goal runs: ${runs.length} total, ${unresolved} unresolved`,
   ].join("\n");
 }

@@ -68,6 +68,30 @@ rounds, usage and cache coverage, reported cost when available, changed-file
 overlap, evidence, and unattended intervention counts. V1 reports never choose
 a winner.
 
+### Current frozen evidence (2026-08-04)
+
+The current decision record contains 11 campaigns and 30 trials across three
+harness revisions. Raw hidden-verifier passes were 9/13 for the Sol baseline,
+7/13 for mixed Auto, and 1/4 for the all-Sol company. Two repetitions were
+shared upstream Sol-parent/provider failures before any worker activated;
+excluding only those six trials from roster comparison leaves 9/11, 7/11, and
+1/2. They remain included in end-to-end reliability.
+
+On the six matched successes, baseline versus mixed Auto used 6 versus 18
+requests and 704,396 versus 1,282,356 input tokens. Auto was faster in 2/6 and
+used fewer input tokens in 0/6. Terra Implement completed 10/10 observed
+attempts. Seven final Luna approvals all passed the hidden verifier, while two
+change-request outcomes did not recover: Terra Repair completed both requests
+but recovered 0/2 candidates. Reported dollar cost is unknown for all 30
+trials.
+
+The decision remains **insufficient evidence for an Auto ranking**. The full
+method, compatibility caveats, outage attribution, role evidence, and
+reproduction notes are preserved in the
+[versioned report](research/2026-08-04-RECURS-MODEL-TEAM-EVALUATION-V1.md).
+The dated sections below remain useful historical run records, but they do not
+supersede the frozen aggregate decision.
+
 ### 2026-07-29 three-scenario Codex comparison
 
 A fresh configured campaign was run once for each built-in scenario through

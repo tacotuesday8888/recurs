@@ -323,7 +323,12 @@ describe("compileCompanyBlueprintV2", () => {
     expect(blueprint.roles.every((role) => role.permissionMode !== "full_access"))
       .toBe(true);
     expect(blueprint.toolPlan.find((tool) => tool.id === "implementation_v1"))
-      .toMatchObject({ status: "required" });
+      .toMatchObject({
+        status: "required",
+        reason: "An assigned role has no approved extension binding for this capability.",
+      });
+    expect(blueprint.toolPlan.find((tool) => tool.id === "implementation_v1")
+      ?.reason).not.toContain("before it can execute");
   });
 
   it("rejects missing mode-specific organization input and unknown references", () => {

@@ -1373,6 +1373,14 @@ async function setupCompanyBlueprintV2(
   if (run === null) run = await service.coordinator.start(start);
 
   for (;;) {
+    const formationStage = run.state.research.length > 0 ||
+        run.state.interview.answers.length > 0
+      ? "Company formation · refining the proposal…"
+      : "Company formation · understanding the project…";
+    await writeOutput(
+      ports.stdout,
+      `${theme.muted(formationStage)}\n`,
+    );
     const advanced = await service.coordinator.advance(run.state.id, ports.signal);
     run = advanced.run;
     if (advanced.kind === "researched") {
@@ -1445,7 +1453,12 @@ async function setupCompanyBlueprintV2(
         `Initial goal: ${blueprint.initialGoal}`,
         "No implementation starts until an approved /goal is launched.",
         "",
-        renderCompanyToolReadiness(blueprint, service.capabilityCatalogs),
+        renderCompanyToolReadiness(
+          blueprint,
+          service.capabilityCatalogs,
+          null,
+          { detail: "summary" },
+        ),
         "",
       ].join("\n"));
       for (;;) {
