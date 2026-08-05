@@ -183,6 +183,7 @@ interface HarnessOptions {
   readonly secondaryCandidate?: AgentBackendCandidate;
   readonly omitParentCandidate?: boolean;
   readonly companyV2?: boolean;
+  readonly missingImplementArtifact?: number;
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -504,10 +505,16 @@ async function harness(options: HarnessOptions = {}) {
       log.push("patch:preflight");
       return { repositoryRoot: root, revision };
     },
-    async capture(lease: GitWorktreeLease): Promise<GitPatchArtifactHandle> {
+    async capture(
+      lease: GitWorktreeLease,
+    ): Promise<GitPatchArtifactHandle | null> {
       log.push(`patch:capture:${lease.id}`);
       const numericId = Number.parseInt(lease.id.slice("lease-".length), 10);
       const implementationIndex = implementationLeaseIndexById.get(lease.id);
+      if (options.missingImplementArtifact !== undefined &&
+        implementationIndex === options.missingImplementArtifact) {
+        return null;
+      }
       const existing = implementationIndex === undefined
         ? undefined
         : workerArtifacts.get(lease.id);
@@ -2096,6 +2103,30 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
     expect(test.createdLeases.map((lease) => lease.id).sort()).toEqual(
       test.releasedLeases.map((lease) => lease.id).sort(),
     );
+  });
+
+  it("records a stable code when a completed Implement worker has no patch", async () => {
+    const test = await harness({ missingImplementArtifact: 1 });
+
+    const result = await test.supervisor.startForeground(
+      test.input,
+      test.context,
+    );
+    const state = await test.state(result.metadata.teamId);
+
+    expect(result.metadata).toMatchObject({
+      status: "failed",
+      failure: { code: "patch_artifact_missing" },
+    });
+    expect(state.outcome?.failure).toMatchObject({
+      code: "patch_artifact_missing",
+      message: expect.stringContaining("without a patch artifact"),
+    });
+    expect(state.children.filter((child) =>
+      child.reservation.role === "implement" &&
+      child.result?.status === "completed"
+    )).toHaveLength(2);
+    expect(test.parentMutationCount()).toBe(0);
   });
 
   it("rejects returned child metadata that disagrees with the durable child session", async () => {

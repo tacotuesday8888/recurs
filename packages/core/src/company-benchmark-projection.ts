@@ -197,7 +197,10 @@ function aggregateUsage(
   };
 }
 
-type BenchmarkReviewRun = Pick<TeamRunState, "reviews"> & {
+type BenchmarkReviewRun = Pick<
+  TeamRunState,
+  "outcome" | "reviews"
+> & {
   readonly descriptor: {
     readonly routes: readonly {
       readonly role: "implement" | "review" | "repair";
@@ -250,6 +253,16 @@ function reviewObservation(teamRuns: readonly BenchmarkReviewRun[]) {
       0,
     ),
   };
+}
+
+function teamFailureCodes(
+  teamRuns: readonly BenchmarkReviewRun[],
+): readonly string[] {
+  return [...new Set(teamRuns.flatMap((run) =>
+    run.outcome?.failure === null || run.outcome?.failure === undefined
+      ? []
+      : [run.outcome.failure.code]
+  ))].sort();
 }
 
 function sameRoute(
@@ -410,6 +423,13 @@ export function projectCompanyBenchmarkTrial(input: {
     roles.flatMap((role) => role.changedFiles),
   )].sort();
   const failures = [...(input.failures ?? [])];
+  for (const code of teamFailureCodes(input.teamRuns)) {
+    if (!failures.some((failure) =>
+      failure.stage === "execution" && failure.code === code
+    )) {
+      failures.push({ stage: "execution", code });
+    }
+  }
   if (input.verification.status === "failed" &&
     !failures.some((failure) => failure.stage === "verification")) {
     failures.push({ stage: "verification", code: "scenario_verification_failed" });

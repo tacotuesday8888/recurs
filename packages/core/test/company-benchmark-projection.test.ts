@@ -163,6 +163,7 @@ describe("projectCompanyBenchmarkTrial", () => {
         ],
       },
       teamRuns: [{
+        outcome: null,
         descriptor: {
           routes: authority.companyArms[0]!.configuredRoutes
             .filter((candidate) => candidate.role !== "parent")
@@ -245,6 +246,66 @@ describe("projectCompanyBenchmarkTrial", () => {
       status: "passed",
       workspaceIntegrity: "passed",
     });
+  });
+
+  it("preserves stable team failure diagnostics without raw failure prose", () => {
+    const authority = campaign();
+    const trial = projectCompanyBenchmarkTrial({
+      campaign: authority,
+      slot: authority.armOrder[1]!,
+      startedAtMs: START,
+      completedAtMs: START + 1_000,
+      recorder: {
+        ...snapshot(),
+        attempts: snapshot().attempts.filter((attempt) =>
+          attempt.role === "parent" || attempt.role === "implement"
+        ),
+        requests: snapshot().requests.filter((request) =>
+          request.role === "parent" || request.role === "implement"
+        ),
+      },
+      verification: {
+        status: "failed",
+        checks: [{ id: "workspace_inventory", status: "failed" }],
+      },
+      teamRuns: [{
+        descriptor: {
+          routes: authority.companyArms[0]!.configuredRoutes
+            .filter((candidate) => candidate.role !== "parent")
+            .map((candidate) => ({
+              role: candidate.role as "implement" | "review" | "repair",
+              pin: {
+                providerId: candidate.providerId,
+                adapterId: candidate.adapterId,
+                connectionId: candidate.connectionId,
+                modelId: candidate.modelId,
+                ...(candidate.reasoningEffort === null
+                  ? {}
+                  : { reasoningEffortAtCreation: candidate.reasoningEffort }),
+              },
+            })),
+        },
+        reviews: [],
+        outcome: {
+          changedFiles: [],
+          evidence: [],
+          failure: {
+            code: "patch_artifact_missing",
+            message: "Implement worker 1 returned without a patch artifact at /private/tmp/secret",
+          },
+        },
+      }],
+      executionStatus: "failed",
+      finalEvidence: [],
+      failures: [{ stage: "execution", code: "company_goal_failed" }],
+    });
+
+    expect(trial.failures).toEqual([
+      { stage: "execution", code: "company_goal_failed" },
+      { stage: "execution", code: "patch_artifact_missing" },
+      { stage: "verification", code: "scenario_verification_failed" },
+    ]);
+    expect(JSON.stringify(trial)).not.toContain("/private/tmp/secret");
   });
 
   it("rejects request evidence that cannot be attributed to an activated attempt", () => {

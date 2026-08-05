@@ -510,7 +510,7 @@ export class TeamAgentManager {
         undefined;
       if (artifact === undefined) {
         throw new ToolError(
-          "execution_failed",
+          "patch_artifact_missing",
           "An Implement worker returned without a patch artifact",
         );
       }
