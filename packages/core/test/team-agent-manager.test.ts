@@ -681,7 +681,10 @@ describe("TeamAgentManager", () => {
       status: "failed",
       implementations: [{
         status: "failed",
-        failure: { message: expect.stringContaining("without a patch artifact") },
+        failure: {
+          code: "patch_artifact_missing",
+          message: expect.stringContaining("without a patch artifact"),
+        },
       }],
     });
     expect(empty.integrated).toHaveLength(0);

@@ -134,6 +134,7 @@ export type ToolErrorCode =
   | "command_timeout"
   | "unread_file"
   | "stale_file"
+  | "patch_artifact_missing"
   | "patch_files_mismatch"
   | "patch_failed"
   | "checkpoint_storage"

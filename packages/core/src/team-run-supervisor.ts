@@ -1786,7 +1786,7 @@ export class TeamRunSupervisor {
         );
         if (artifact === null) {
           throw new ToolError(
-            "execution_failed",
+            "patch_artifact_missing",
             `Implement worker ${settled.index} returned without a patch artifact`,
           );
         }
