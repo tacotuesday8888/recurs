@@ -251,6 +251,18 @@ describe("foundation slash commands", () => {
     );
   });
 
+  it("explains the active permission boundary and child-agent ceiling", async () => {
+    const registry = createCommandRegistry();
+    const context = commandContext({ permissionMode: "approved_for_me" });
+
+    expect(await registry.execute("/permissions", context)).toMatchObject({
+      text: expect.stringContaining("Approved for Me: routine workspace work is approved"),
+    });
+    expect(await registry.execute("/permissions", context)).toMatchObject({
+      text: expect.stringContaining("Child agents inherit a ceiling"),
+    });
+  });
+
   it("reports status, cancellation, help, aliases, and unknown commands", async () => {
     const registry = createCommandRegistry();
     const cancel = vi.fn(async () => true);

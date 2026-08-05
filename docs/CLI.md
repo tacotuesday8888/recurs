@@ -218,6 +218,25 @@ Common slash commands:
 
 Use `/help` inside the CLI for the exact current command list.
 
+### Recovering without guessing
+
+Recurs records sessions and company goals durably, but it never assumes a
+stopped terminal means remote work is still live. Start recovery with:
+
+```bash
+recurs doctor
+recurs help recovery
+```
+
+Then inspect before changing state: `/status` and `/resume` cover an ordinary
+session; `/company operations` lists unresolved company goals; and `/company
+run <run-id>` shows assignment evidence, usage availability, failures, and the
+next safe action. Only `/company resume <run-id>` resumes an exact interrupted
+company goal. It reconciles the durable record and does not restart settled
+work. If the connection needs attention, use `recurs provider detect`,
+`recurs account list`, or `recurs setup`; Recurs does not display, import, or
+reuse provider credentials outside the official, user-present connection flow.
+
 ### Models Auto
 
 Explicit `/model <connection-id>` selection remains available. The Auto alpha
@@ -287,6 +306,10 @@ Permission profiles:
 
 Plan mode remains read-only regardless of the permission profile. Act mode may
 use mutating tools according to the active profile.
+
+`/permissions` explains the active session boundary. A child agent can only
+operate within its parent’s authority, its role profile, Plan-mode restrictions,
+and OS containment; no child can widen those limits.
 
 `recurs permissions` shows the exact rules active for the canonical workspace;
 `recurs permissions --json` returns the same redacted status. The raw resource
