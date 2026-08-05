@@ -59,10 +59,14 @@ for the complete results and limitations.
 
 The current evidence does not establish that the Sol/Terra/Luna lineup is a
 universal winner, that a large team is cost-effective, or that it reliably
-beats a strong single agent. The frozen evidence covers harness revisions
-through alpha.5 and includes no `layered_config` campaign; alpha.6 therefore
-has no complete current-harness campaign set. Before publishing a default
-recommendation, Recurs needs repeated current-harness comparisons that record:
+beats a strong single agent. The frozen multi-campaign report covers harness
+revisions through alpha.5, but its alpha.5 subset includes no `layered_config`
+campaign. One post-tag, alpha.6-labeled current-source `alias_registry` pair
+now passes both arms, but the company was 32.6% slower and used 3.37 times as
+many input tokens. That remains below the three-pair comparability floor. See
+the [pinned current-source live proof](research/2026-08-05-RECURS-ALPHA6-LIVE-COMPANY-PROOF.md).
+Before publishing a default recommendation, Recurs needs repeated
+current-harness comparisons that record:
 
 - final quality and test results;
 - review findings and repair rounds;
