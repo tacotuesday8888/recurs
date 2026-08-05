@@ -6,5 +6,6 @@ These documents preserve the product and coding-agent research that led to Recur
 - [Harness research](HARNESS_RESEARCH.md)
 - [Earlier harness approach](HARNESS_APPROACH.md)
 - [Early product questions](PRODUCT_QUESTIONS.md)
+- [Company Efficiency Alpha Auto evidence gate](2026-08-05-RECURS-COMPANY-EFFICIENCY-ALPHA.md)
 
 Use the root [product direction](../../PRODUCT.md), root [architecture](../../ARCHITECTURE.md), [CLI guide](../CLI.md), and reviewed specs for current decisions.
