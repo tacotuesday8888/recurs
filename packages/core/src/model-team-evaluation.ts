@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
 
 import {
-  parseModelTeamSelection,
-  type ModelTeamEvaluationV1,
+  parseModelTeamSelectionV2,
+  type ModelTeamEvaluation,
+  type ModelTeamEvaluationV2,
   type ModelTeamRouteV1,
-  type ModelTeamSelectionV1,
+  type ModelTeamSelectionV2,
   type ModelTeamTaskClass,
 } from "@recurs/contracts";
+
+export const MODEL_TEAM_MINIMUM_OBSERVED_EVALUATIONS = 3;
 
 const requiredDimensions = new Set([
   "decomposition",
@@ -33,8 +36,16 @@ function lineupKey(lineup: readonly ModelTeamRouteV1[]): string {
 }
 
 export function eligibleModelTeamEvaluation(
-  evaluation: ModelTeamEvaluationV1,
-): boolean {
+  evaluation: ModelTeamEvaluation,
+): evaluation is ModelTeamEvaluationV2 {
+  if (
+    evaluation.version !== 2 ||
+    !["parent", "implement", "review"].every((role) =>
+      evaluation.activatedRoles.includes(role as ModelTeamEvaluationV2["activatedRoles"][number])
+    )
+  ) {
+    return false;
+  }
   if (
     evaluation.report.status !== "passed" &&
     evaluation.report.status !== "partial"
@@ -48,23 +59,17 @@ export function eligibleModelTeamEvaluation(
   );
 }
 
-function qualityScore(evaluation: ModelTeamEvaluationV1): number {
-  return evaluation.report.rubric.reduce((score, item) =>
-    score + (item.status === "passed" ? 1 : 0), 0);
-}
-
 interface Candidate {
   readonly lineup: readonly ModelTeamRouteV1[];
-  readonly evaluations: ModelTeamEvaluationV1[];
-  score: number;
+  readonly evaluations: ModelTeamEvaluationV2[];
   latestAt: number;
 }
 
 export function selectEvaluatedModelTeam(input: {
-  readonly evaluations: readonly ModelTeamEvaluationV1[];
+  readonly evaluations: readonly ModelTeamEvaluation[];
   readonly taskClass?: ModelTeamTaskClass;
   readonly selectedAt: string;
-}): ModelTeamSelectionV1 | null {
+}): ModelTeamSelectionV2 | null {
   const taskClass = input.taskClass ?? "general_coding";
   const selectedAt = new Date(input.selectedAt);
   if (!Number.isFinite(selectedAt.valueOf())) {
@@ -82,11 +87,9 @@ export function selectEvaluatedModelTeam(input: {
     const candidate = candidates.get(key) ?? {
       lineup: canonicalLineup(evaluation.lineup),
       evaluations: [],
-      score: 0,
       latestAt: 0,
     };
     candidate.evaluations.push(evaluation);
-    candidate.score += qualityScore(evaluation);
     candidate.latestAt = Math.max(
       candidate.latestAt,
       new Date(evaluation.evaluatedAt).valueOf(),
@@ -94,13 +97,15 @@ export function selectEvaluatedModelTeam(input: {
     candidates.set(key, candidate);
   }
   const ranked = [...candidates.values()].sort((left, right) =>
-    right.score - left.score ||
     right.evaluations.length - left.evaluations.length ||
     right.latestAt - left.latestAt ||
     lineupKey(left.lineup).localeCompare(lineupKey(right.lineup))
   );
   const winner = ranked[0];
-  if (winner === undefined) return null;
+  if (
+    winner === undefined ||
+    winner.evaluations.length < MODEL_TEAM_MINIMUM_OBSERVED_EVALUATIONS
+  ) return null;
   const evidenceIds = winner.evaluations
     .sort((left, right) =>
       left.evaluatedAt.localeCompare(right.evaluatedAt) ||
@@ -112,17 +117,18 @@ export function selectEvaluatedModelTeam(input: {
     lineup: winner.lineup,
     evidenceIds,
   })).digest("hex").slice(0, 32);
-  return parseModelTeamSelection({
+  return parseModelTeamSelectionV2({
     id: `model-team-selection-${digest}`,
-    version: 1,
+    version: 2,
     taskClass,
     selectedAt: selectedAt.toISOString(),
     lineup: winner.lineup,
+    evaluatedRoles: ["parent", "implement", "review"],
     evidenceIds,
     rationale: [
       `${winner.evaluations.length} eligible recorded configured company-goal evaluation`,
       winner.evaluations.length === 1 ? " supports " : "s support ",
-      "this lineup; decomposition, evidence, and synthesis passed.",
+      "this configured lineup; Parent, Implement, and Review were observed. Repair remains a fallback unless separately observed.",
     ].join(""),
   });
 }

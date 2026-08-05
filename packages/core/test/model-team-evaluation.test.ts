@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   COMPANY_EVALUATION_DIMENSIONS,
-  parseModelTeamEvaluation,
+  parseModelTeamEvidence,
   type CompanyEvaluationRubricStatus,
   type ModelTeamRole,
 } from "@recurs/contracts";
@@ -16,6 +16,7 @@ function evaluation(input: {
   id: string;
   lineup: string;
   evaluatedAt?: string;
+  activatedRoles?: readonly ModelTeamRole[];
   statuses?: Partial<Record<
     (typeof COMPANY_EVALUATION_DIMENSIONS)[number],
     CompanyEvaluationRubricStatus
@@ -32,9 +33,9 @@ function evaluation(input: {
     "review",
     "repair",
   ];
-  return parseModelTeamEvaluation({
+  return parseModelTeamEvidence({
     id: input.id,
-    version: 1,
+    version: 2,
     taskClass: "general_coding",
     companyGoalRunId: `goal-${input.id}`,
     evaluatedAt: input.evaluatedAt ?? "2026-07-23T00:00:02.000Z",
@@ -46,6 +47,7 @@ function evaluation(input: {
       modelId: `${input.lineup}-${role}-model`,
       reasoningEffort: role === "parent" ? "high" : "medium",
     })),
+    activatedRoles: input.activatedRoles ?? ["parent", "implement", "review"],
     report: {
       id: `report-${input.id}`,
       version: 1,
@@ -91,7 +93,28 @@ describe("evidence-backed model-team selection", () => {
     }))).toBe(false);
   });
 
-  it("ranks quality, repeated evidence, recency, then a stable key", () => {
+  it("does not select Auto from fewer than three observed runs", () => {
+    expect(selectEvaluatedModelTeam({
+      evaluations: [
+        evaluation({ id: "balanced-1", lineup: "balanced" }),
+        evaluation({ id: "balanced-2", lineup: "balanced" }),
+      ],
+      selectedAt: "2026-07-23T00:00:05.000Z",
+    })).toBeNull();
+  });
+
+  it("does not select a configured Repair fallback as evaluated evidence", () => {
+    expect(selectEvaluatedModelTeam({
+      evaluations: [1, 2, 3].map((index) => evaluation({
+        id: `missing-review-${index}`,
+        lineup: "balanced",
+        activatedRoles: ["parent", "implement"],
+      })),
+      selectedAt: "2026-07-23T00:00:05.000Z",
+    })).toBeNull();
+  });
+
+  it("selects only three observed Parent, Implement, and Review runs", () => {
     const weaker = evaluation({
       id: "weaker",
       lineup: "weaker",
@@ -108,14 +131,25 @@ describe("evidence-backed model-team selection", () => {
       evaluatedAt: "2026-07-23T00:00:04.000Z",
     });
 
+    const balancedThree = evaluation({
+      id: "balanced-3",
+      lineup: "balanced",
+      evaluatedAt: "2026-07-23T00:00:05.000Z",
+    });
+
     const selected = selectEvaluatedModelTeam({
-      evaluations: [weaker, balancedTwo, balancedOne],
+      evaluations: [weaker, balancedThree, balancedTwo, balancedOne],
       selectedAt: "2026-07-23T00:00:05.000Z",
     });
 
     expect(selected?.lineup[0]?.connectionId).toBe("balanced-parent");
-    expect(selected?.evidenceIds).toEqual(["balanced-1", "balanced-2"]);
-    expect(selected?.rationale).toContain("2 eligible");
+    expect(selected?.evidenceIds).toEqual([
+      "balanced-1",
+      "balanced-2",
+      "balanced-3",
+    ]);
+    expect(selected?.evaluatedRoles).toEqual(["parent", "implement", "review"]);
+    expect(selected?.rationale).toContain("3 eligible");
   });
 
   it("returns no selection when no real configured goal is eligible", () => {
