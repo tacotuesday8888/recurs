@@ -4,6 +4,7 @@ export * from "./company.js";
 export * from "./company-capabilities.js";
 export * from "./company-evaluation.js";
 export * from "./company-benchmarks.js";
+export * from "./company-benchmark-attribution.js";
 export * from "./company-benchmark-attempts.js";
 export * from "./company-v2.js";
 export * from "./company-onboarding.js";

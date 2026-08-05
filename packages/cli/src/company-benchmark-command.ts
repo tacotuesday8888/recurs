@@ -9,10 +9,12 @@ import {
 import {
   RECURS_VERSION,
   companyBenchmarkTrialSlotId,
+  deriveCompanyBenchmarkFailureAttribution,
   getOperatingModePolicy,
   parseCompanyBenchmarkCampaign,
   type CompanyBenchmarkCampaignSummaryV1,
   type CompanyBenchmarkCampaignV1,
+  type CompanyBenchmarkFailureAttributionV1,
   type CompanyBenchmarkRouteV1,
   type CompanyBenchmarkTrialV1,
 } from "@recurs/contracts";
@@ -62,10 +64,11 @@ export type CompanyBenchmarkCommandOptions =
     };
 
 export interface CompanyBenchmarkCommandReport {
-  readonly version: 1;
+  readonly version: 2;
   readonly campaign: CompanyBenchmarkCampaignV1;
   readonly summary: CompanyBenchmarkCampaignSummaryV1;
   readonly trials: readonly CompanyBenchmarkTrialV1[];
+  readonly attribution: CompanyBenchmarkFailureAttributionV1;
 }
 
 export interface CompanyBenchmarkProgress {
@@ -466,10 +469,11 @@ export async function runCompanyBenchmarkCommand(
       campaign.armOrder.findIndex((slot) => slot.slotId === right.slotId)
     );
   return Object.freeze({
-    version: 1,
+    version: 2,
     campaign,
     summary,
     trials: Object.freeze(trials),
+    attribution: deriveCompanyBenchmarkFailureAttribution(campaign, trials),
   });
 }
 
@@ -499,6 +503,9 @@ export function renderCompanyBenchmarkReport(
   return [
     `Company proof — ${report.campaign.id}`,
     `${report.summary.completedTrialIds.length}/${report.campaign.armOrder.length} trials recorded · correctness ${report.summary.correctnessEligibility} · efficiency ${report.summary.efficiencyEligibility}`,
+    `Attribution: ${report.attribution.trialCounts.reliability} reliability · ${report.attribution.trialCounts.rosterInformative} roster-informative · ${report.attribution.trialCounts.sharedParentBoundaryFailure} shared-parent-boundary-failure trial(s)`,
+    `Review: ${report.attribution.review.activatedTrials}/${report.attribution.review.companyTrials} company trial(s) activated · ${report.attribution.review.finalApprovals} approved · ${report.attribution.review.finalChangesRequested} changes requested · ${report.attribution.review.finalUnverified} unverified`,
+    `Repair: ${report.attribution.repair.completedAttempts}/${report.attribution.repair.attempts} attempt(s) completed · ${report.attribution.repair.recoveredTrials}/${report.attribution.repair.attemptedTrials} trial(s) recovered`,
     ...routeLines,
     ...trialLines,
     `Rationale: ${report.summary.rationale.join(", ") || "none"}`,

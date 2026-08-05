@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   companyBenchmarkTrialSlotId,
+  deriveCompanyBenchmarkFailureAttribution,
   deriveCompanyBenchmarkSummaryEvidence,
   parseCompanyBenchmarkCampaign,
   parseCompanyBenchmarkCampaignSummary,
@@ -204,6 +205,104 @@ function trialValue(
     },
     failures: [],
   };
+}
+
+function parentFailureTrial(
+  campaign: ReturnType<typeof campaignValue>,
+  armId: string,
+  repetition: number,
+  code = "coordinated_runtime_failed",
+): CompanyBenchmarkTrialV1 {
+  const raw = trialValue(campaign, armId, repetition);
+  const parentRoute = raw.configuredRoutes.find((candidate) =>
+    candidate.role === "parent"
+  )!;
+  raw.activatedRoutes = [parentRoute];
+  raw.executionStatus = "failed";
+  raw.roles = [{
+    role: "parent",
+    attempts: 1,
+    completedAttempts: 0,
+    failedAttempts: 1,
+    cancelledAttempts: 0,
+    wallClockMs: 2_000,
+    attemptLatenciesMs: [2_000],
+    usage: {
+      ...completeUsage(1),
+      usageReports: 0,
+      costReports: 0,
+      tokenCoverage: "none",
+      costCoverage: "none",
+      inputTokens: null,
+      outputTokens: null,
+      cachedInputTokens: null,
+      reportedCostUsd: null,
+    },
+    evidenceItems: 0,
+    changedFiles: [],
+  }];
+  raw.usage = raw.roles[0]!.usage;
+  raw.verification = {
+    status: "not_run",
+    workspaceIntegrity: "not_run",
+    checks: [],
+  };
+  raw.review = {
+    attempts: 0,
+    approved: 0,
+    changesRequested: 0,
+    unverified: 0,
+    finalVerdict: null,
+    findings: 0,
+    affectedPaths: [],
+    evidenceItems: 0,
+  };
+  raw.evidence = { roleItems: 0, finalItems: 0 };
+  raw.changedFiles = [];
+  raw.failures = [{ stage: "execution", code }];
+  return parseCompanyBenchmarkTrial(raw);
+}
+
+function repairTrial(
+  campaign: ReturnType<typeof campaignValue>,
+  outcome: "completed" | "failed" | "cancelled",
+  changesRequested = true,
+): CompanyBenchmarkTrialV1 {
+  const raw = trialValue(campaign, "company-balanced", 1);
+  raw.activatedRoutes = raw.configuredRoutes;
+  const reviewRole = raw.roles.find((role) => role.role === "review")!;
+  reviewRole.attempts = changesRequested ? 2 : 1;
+  reviewRole.completedAttempts = reviewRole.attempts;
+  reviewRole.attemptLatenciesMs = Array(reviewRole.attempts).fill(500);
+  reviewRole.usage = completeUsage(reviewRole.attempts);
+  reviewRole.evidenceItems = reviewRole.attempts;
+  raw.roles.push({
+    role: "repair",
+    attempts: 1,
+    completedAttempts: outcome === "completed" ? 1 : 0,
+    failedAttempts: outcome === "failed" ? 1 : 0,
+    cancelledAttempts: outcome === "cancelled" ? 1 : 0,
+    wallClockMs: 500,
+    attemptLatenciesMs: [500],
+    usage: completeUsage(1),
+    evidenceItems: 1,
+    changedFiles: ["src/normalize-path.ts"],
+  });
+  raw.usage = completeUsage(3 + reviewRole.attempts);
+  raw.review = {
+    attempts: reviewRole.attempts,
+    approved: 1,
+    changesRequested: changesRequested ? 1 : 0,
+    unverified: 0,
+    finalVerdict: "approved",
+    findings: changesRequested ? 1 : 0,
+    affectedPaths: changesRequested ? ["src/normalize-path.ts"] : [],
+    evidenceItems: reviewRole.attempts,
+  };
+  raw.repairRounds = 1;
+  raw.evidence.roleItems = 3 + reviewRole.attempts;
+  raw.overlap.repairTouchedImplementationPaths = ["src/normalize-path.ts"];
+  return parseCompanyBenchmarkTrial(raw);
 }
 
 describe("company benchmark campaign contracts", () => {
@@ -447,6 +546,162 @@ describe("company benchmark trial contracts", () => {
 });
 
 describe("company benchmark summary contracts", () => {
+  it("separates shared parent-boundary failures without hiding reliability failures", () => {
+    const campaign = parseCompanyBenchmarkCampaign(campaignValue());
+    const outage = [campaign.baseline.id, ...campaign.companyArms.map((arm) =>
+      arm.id
+    )].map((armId) => parentFailureTrial(campaignValue(), armId, 1));
+    const incomplete = parseCompanyBenchmarkTrial(
+      trialValue(campaignValue(), campaign.baseline.id, 2),
+    );
+    const informative = [
+      campaign.baseline.id,
+      ...campaign.companyArms.map((arm) => arm.id),
+    ].map((armId) => parseCompanyBenchmarkTrial(
+      trialValue(campaignValue(), armId, 3),
+    ));
+
+    const attribution = deriveCompanyBenchmarkFailureAttribution(
+      campaign,
+      [...outage, incomplete, ...informative],
+    );
+
+    expect(attribution).toMatchObject({
+      version: 1,
+      trialCounts: {
+        reliability: 7,
+        rosterInformative: 3,
+        sharedParentBoundaryFailure: 3,
+      },
+      review: {
+        companyTrials: 4,
+        activatedTrials: 2,
+        finalApprovals: 2,
+        finalChangesRequested: 0,
+        finalUnverified: 0,
+      },
+      repair: {
+        attemptedTrials: 0,
+        attempts: 0,
+        completedAttempts: 0,
+        recoveredTrials: 0,
+      },
+      repetitions: [{
+        repetition: 1,
+        classification: "shared_parent_boundary_failure",
+        commonFailureCode: "coordinated_runtime_failed",
+      }, {
+        repetition: 2,
+        classification: "incomplete",
+        commonFailureCode: null,
+      }, {
+        repetition: 3,
+        classification: "roster_informative",
+        commonFailureCode: null,
+      }],
+    });
+    expect(attribution.reliabilityTrialIds).toHaveLength(7);
+    expect(attribution.rosterInformativeTrialIds).toEqual(
+      informative.map((trial) => trial.id),
+    );
+    expect(Object.isFrozen(attribution)).toBe(true);
+  });
+
+  it("keeps near-miss parent failures in roster evidence", () => {
+    const campaign = parseCompanyBenchmarkCampaign(campaignValue());
+    const trials = [campaign.baseline.id, ...campaign.companyArms.map((arm) =>
+      arm.id
+    )].map((armId, index) => parentFailureTrial(
+      campaignValue(),
+      armId,
+      1,
+      index === 2 ? "different_runtime_failure" : undefined,
+    ));
+
+    const attribution = deriveCompanyBenchmarkFailureAttribution(
+      campaign,
+      trials,
+    );
+
+    expect(attribution.trialCounts).toEqual({
+      reliability: 3,
+      rosterInformative: 3,
+      sharedParentBoundaryFailure: 0,
+    });
+    expect(attribution.repetitions[0]).toMatchObject({
+      repetition: 1,
+      classification: "roster_informative",
+      commonFailureCode: null,
+    });
+  });
+
+  it("reports completed Repair attempts separately from recovered trials", () => {
+    const campaign = parseCompanyBenchmarkCampaign(campaignValue());
+    const repaired = repairTrial(campaignValue(), "completed");
+
+    expect(deriveCompanyBenchmarkFailureAttribution(campaign, [repaired]))
+      .toMatchObject({
+        repair: {
+          attemptedTrials: 1,
+          attempts: 1,
+          completedAttempts: 1,
+          recoveredTrials: 1,
+        },
+      });
+  });
+
+  it("does not call failed, cancelled, or unprompted Repair a recovery", () => {
+    const campaign = parseCompanyBenchmarkCampaign(campaignValue());
+    const trials = [
+      repairTrial(campaignValue(), "failed"),
+      repairTrial(campaignValue(), "cancelled"),
+      repairTrial(campaignValue(), "completed", false),
+    ];
+
+    for (const trial of trials) {
+      expect(deriveCompanyBenchmarkFailureAttribution(campaign, [trial]))
+        .toMatchObject({
+          repair: {
+            attemptedTrials: 1,
+            attempts: 1,
+            recoveredTrials: 0,
+          },
+        });
+    }
+  });
+
+  it("counts Review route activation even when no review record was produced", () => {
+    const campaign = parseCompanyBenchmarkCampaign(campaignValue());
+    const raw = trialValue(campaignValue(), "company-balanced", 1);
+    const review = raw.roles.find((role) => role.role === "review")!;
+    review.completedAttempts = 0;
+    review.failedAttempts = 1;
+    review.evidenceItems = 0;
+    raw.executionStatus = "failed";
+    raw.review = {
+      attempts: 0,
+      approved: 0,
+      changesRequested: 0,
+      unverified: 0,
+      finalVerdict: null,
+      findings: 0,
+      affectedPaths: [],
+      evidenceItems: 0,
+    };
+    raw.evidence.roleItems = 2;
+    raw.failures = [{ stage: "execution", code: "review_runtime_failed" }];
+    const trial = parseCompanyBenchmarkTrial(raw);
+
+    expect(deriveCompanyBenchmarkFailureAttribution(campaign, [trial]).review)
+      .toEqual({
+        companyTrials: 1,
+        activatedTrials: 1,
+        finalApprovals: 0,
+        finalChangesRequested: 0,
+        finalUnverified: 0,
+      });
+  });
+
   it("accepts three exact comparable pairs per company arm without choosing a winner", () => {
     const campaign = parseCompanyBenchmarkCampaign(campaignValue());
     const trials: CompanyBenchmarkTrialV1[] = [];

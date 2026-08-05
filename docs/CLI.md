@@ -409,7 +409,13 @@ snapshot. When saved worker routes differ from the parent,
 `--compare-all-strong` explicitly adds an all-strong bounded team and derives
 the larger ceilings from that selection. Hidden verification decides
 correctness; reports preserve unknown token or cost coverage rather than
-inventing zeroes or a winner.
+inventing zeroes or a winner. Version-2 command reports derive a separate
+version-1 attribution block from immutable V1 trials. All recorded trials remain
+in reliability. A repetition is excluded from roster evidence only when every
+arm recorded the same parent-boundary failure code on the same parent route
+before any worker activated and no usage report was available. Review
+activation, final verdicts, Repair attempts, completed Repair attempts, and
+recovered trials are reported separately.
 
 ## ACP
 
