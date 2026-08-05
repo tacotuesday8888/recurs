@@ -27,9 +27,9 @@ ACP server from a new temporary prefix.
 The portable npm artifact contains the same TypeScript runtime verified in CI.
 Its package gate caps the unpacked artifact at 2.1 MB; that is not the installed
 footprint. npm resolves runtime dependencies separately, but Codex is not a
-default runtime dependency. The exact `0.1.0-alpha.5` artifact measured 433 KiB
-compressed / 1.87 MiB unpacked and 39.3 MiB in a clean Apple-silicon production
-prefix on 2026-08-01. The source-development tree was about 402 MiB
+default runtime dependency. The exact `0.1.0-alpha.6` artifact measured 445 KiB
+compressed / 1.92 MiB unpacked and 38.9 MiB in a clean Apple-silicon production
+prefix on 2026-08-05. The source-development tree was about 402 MiB
 because it retains roughly 307 MiB of pinned Codex compatibility fixtures.
 Record a clean installed-prefix measurement for every release candidate and
 disclose it in release notes.
