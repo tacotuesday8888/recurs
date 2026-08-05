@@ -8,6 +8,7 @@ import {
   type DelegatedConnectionRecord,
 } from "@recurs/app";
 import { CODEX_APP_SERVER_PROFILE_REVISION } from "@recurs/runtimes";
+import { deriveCompanyBenchmarkFailureAttribution } from "@recurs/contracts";
 import {
   createCompanyBenchmarkBlueprint,
   createCompanyBenchmarkSummary,
@@ -18,6 +19,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   createConfiguredCompanyBenchmarkCampaign,
   parseCompanyBenchmarkCommand,
+  renderCompanyBenchmarkReport,
   renderCompanyBenchmarkScenarios,
 } from "../src/company-benchmark-command.js";
 import { companyBenchmarkBlueprintDigest } from "../src/company-benchmark-execution.js";
@@ -249,10 +251,11 @@ describe("company benchmark command", () => {
       createdAt: AT,
     });
     const report = {
-      version: 1 as const,
+      version: 2 as const,
       campaign,
       summary: createCompanyBenchmarkSummary(campaign, []),
       trials: [],
+      attribution: deriveCompanyBenchmarkFailureAttribution(campaign, []),
     };
     const stdout = new TextOutput();
     const stderr = new TextOutput();
@@ -288,10 +291,21 @@ describe("company benchmark command", () => {
     expect(code).toBe(1);
     expect(requested).toBe(true);
     expect(JSON.parse(stdout.value)).toMatchObject({
-      version: 1,
+      version: 2,
       campaign: { id: campaign.id },
+      attribution: {
+        version: 1,
+        trialCounts: {
+          reliability: 0,
+          rosterInformative: 0,
+          sharedParentBoundaryFailure: 0,
+        },
+      },
       trials: [],
     });
+    expect(renderCompanyBenchmarkReport(report)).toContain(
+      "Attribution: 0 reliability · 0 roster-informative · 0 shared-parent-boundary-failure trial(s)",
+    );
     expect(stderr.value).toBe("");
   });
 });

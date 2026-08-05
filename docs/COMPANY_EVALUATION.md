@@ -65,8 +65,13 @@ recurs benchmark company --configured --allow-network \
 The hidden verifier, not model prose, determines correctness. Durable trials
 record activated routes, role attempts and latency, review findings, Repair
 rounds, usage and cache coverage, reported cost when available, changed-file
-overlap, evidence, and unattended intervention counts. V1 reports never choose
-a winner.
+overlap, evidence, and unattended intervention counts. Immutable V1 campaign,
+trial, reservation, settlement, and summary records remain unchanged. The
+version-2 command report adds a derived attribution block: shared
+parent-boundary failures stay in reliability but are separated from roster
+evidence only when every arm satisfies the same strict pre-worker failure
+conditions. Review and Repair completion/recovery counts are also derived
+explicitly. Reports never choose a winner.
 
 ### Current frozen evidence (2026-08-04)
 

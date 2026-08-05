@@ -185,10 +185,13 @@ snapshot share the exact parent route. Add --compare-all-strong to explicitly
 schedule an additional all-strong company when saved worker routes differ.
 External hidden verification—not model prose—determines correctness.
 Normalized reports include activated roles, review, Repair, latency, usage,
-cache and cost coverage, overlap, and intervention counts without prompts,
-credentials, private paths, or continuation identifiers. Configured execution
-requires explicit network consent; interrupted campaigns are immutable and
-resumable without replaying settled slots.
+cache and cost coverage, overlap, intervention counts, and conservative failure
+attribution without prompts, credentials, private paths, or continuation
+identifiers. A shared parent-boundary failure remains a reliability failure and
+is excluded only from roster evidence when every arm fails at the same parent
+boundary before workers activate. Configured execution requires explicit
+network consent; interrupted campaigns are immutable and resumable without
+replaying settled slots.
 `,
   acp: `Serve Recurs as an ACP agent over standard input and output
 
