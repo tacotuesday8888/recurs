@@ -215,15 +215,21 @@ optimize price automatically. The first completed Codex dogfood reported
 216,879 input tokens (161,024 cached), 3,274 output tokens, and unknown dollar
 cost. It proved execution and evidence capture, not team efficiency.
 
-A later one-pair-per-scenario comparison covered all three immutable coding
-tasks. The Sol/Terra/Luna company passed all three hidden verifiers; the Sol
-baseline passed two. On the two shared successes, the company used more input
-tokens and was neither consistently faster nor slower. A same-day
-`alias_registry` replication had both arms pass all seven checks; the company
-used three requests, more input tokens, and more elapsed time. Together the
-runs demonstrate that the machinery, routing, independent review, hidden
-verification, and comparability execute correctly. They do not establish a
-quality or efficiency advantage; repeated trials are still required.
+The frozen evaluation now contains 11 campaigns and 30 trials. Raw
+hidden-verifier passes were 9/13 for the Sol baseline, 7/13 for mixed Auto, and
+1/4 for the all-Sol company. Two repetitions were correlated upstream
+parent/provider failures before workers activated; removing only those six
+trials from roster comparison leaves 9/11, 7/11, and 1/2. This still does not
+establish a winner. On the six matched successes, mixed Auto used three times
+as many requests and 1.82 times as many input tokens. Dollar cost was unknown
+for every trial. See the
+[versioned evidence report](research/2026-08-04-RECURS-MODEL-TEAM-EVALUATION-V1.md).
+
+The runs demonstrate that the machinery, routing, independent review, hidden
+verification, and comparable-arm recording execute correctly. Terra Implement
+completed 10/10 observed attempts and seven final Luna approvals all passed the
+verifier, but Terra Repair recovered 0/2 candidates. These role-confounded
+samples do not establish a quality or efficiency advantage.
 
 The repeatable Company Proof surface now supplies three immutable tasks. Its
 default compares the selected parent-only baseline with the currently
@@ -235,15 +241,18 @@ durable trials actually exist.
 
 ## Delivery sequence
 
-1. Repeat each representative goal at least three times with a strong single
-   agent, the recorded Sol/Terra/Luna lineup, and at least one alternative
-   team.
+1. Complete at least three current-harness repetitions of every immutable
+   fixture with a strong single agent, the recorded Sol/Terra/Luna lineup, and
+   at least one alternative team.
 2. Record every eligible run with `/model auto evaluate <run-id>` and compare
    quality, review value, latency, total/cached tokens, and reported cost.
-3. Add a small versioned task taxonomy and evidence freshness policy.
-4. Repeat enough comparable goals to establish reliability before publishing a
-   default recommendation.
-5. Preserve Custom routing and advanced policy inspection.
+3. Cross Sol/Terra/Luna and supported efforts by role, including Repair,
+   planning/synthesis, and exploration.
+4. Separate shared upstream availability from roster scoring while retaining
+   those failures in reliability.
+5. Add price coverage, a small versioned task taxonomy, and evidence freshness
+   before publishing a default recommendation.
+6. Preserve Custom routing and advanced policy inspection.
 
 Until repeated evidence exists, public copy must describe evidence-backed Auto
 without claiming that any named lineup is universally best.

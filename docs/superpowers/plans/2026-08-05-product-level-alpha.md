@@ -71,8 +71,9 @@ role cannot execute.
 
 Add `summary | full` rendering with `full` as the compatibility default. Use
 `summary` during onboarding. Render unresolved optional extensions as
-`unbound`, retain exact approval language, and correct new-blueprint reason
-copy without changing the V2 schema.
+`unbound` separately from `unavailable`, aggregate both as `not ready`, retain
+exact approval language, and correct new-blueprint reason copy without changing
+the V2 schema.
 
 ### Task 4: Truthful alpha documents
 

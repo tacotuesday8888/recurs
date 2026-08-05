@@ -138,15 +138,14 @@ before Recurs can claim a lightweight install.
 
 ## Next priorities
 
-1. **Compare the company experience, not just prove it can run.** The initial
-   formation-to-apply dogfood and a later three-scenario comparison now prove
-   real Codex execution. The company passed all three hidden verifiers while
-   the Sol baseline passed two, but it used more input tokens on both shared
-   successes and was not consistently faster. Repeat each scenario at least
-   three times, include an alternative team, then improve activation, context
-   reuse, review value, latency, and cost from the measured differences. No
-   live run required Repair; deterministic integration tests remain the
-   evidence for that branch.
+1. **Improve the company experience from current evidence.** The frozen record
+   now covers 11 campaigns and 30 trials: raw hidden-verifier passes were 9/13
+   for the Sol baseline, 7/13 for mixed Auto, and 1/4 for the all-Sol company.
+   Shared upstream outages explain six trials but do not create an Auto winner.
+   Terra Repair completed two requests but recovered neither candidate. Finish
+   current-harness fixture coverage, cross models by role, and improve repair,
+   review availability, context reuse, latency, and usage only from reproduced
+   failures. Dollar cost remains unknown.
 2. **Keep distribution reproducible.** Every public alpha must ship one exact
    npm archive through npm, the checksum-bound installer, and Homebrew only
    after package, install, security, and release gates pass. Keep Bun's claim

@@ -18,6 +18,10 @@ export interface CompanyToolReadinessCounts {
   readonly missing: number;
 }
 
+export interface CompanyToolReadinessRenderOptions {
+  readonly detail?: "summary" | "full";
+}
+
 export interface CompanyCapabilityResolution {
   readonly bundleId: CompanyToolBundleId;
   readonly ready: boolean;
@@ -85,6 +89,7 @@ export function renderCompanyToolReadiness(
   blueprint: CompanyBlueprintV2,
   catalogs: CompanyCapabilityCatalogs = {},
   set: CompanyCapabilityBindingSetV1 | null = null,
+  options: CompanyToolReadinessRenderOptions = {},
 ): string {
   const resolved = resolveCompanyCapabilities(blueprint, catalogs, set);
   const counts = companyToolReadinessCounts(blueprint, catalogs, set);
@@ -96,13 +101,43 @@ export function renderCompanyToolReadiness(
   const enabledServers = servers.filter((server) => server.enabled)
     .map((server) => server.id);
   const disabledServers = servers.length - enabledServers.length;
+  const builtInReady = blueprint.toolPlan.filter((tool) =>
+    tool.status === "available"
+  ).length;
+  const extensionEnabled = resolved.filter((tool) =>
+    tool.ready && blueprint.toolPlan.find((candidate) =>
+      candidate.id === tool.bundleId
+    )?.status === "required"
+  ).length;
+
+  if (options.detail === "summary") {
+    const skillCatalog = catalogs.skills === undefined
+      ? "Skills not inspected"
+      : `${enabledSkills.length} enabled Skill${enabledSkills.length === 1 ? "" : "s"}`;
+    const mcpCatalog = catalogs.mcp === undefined
+      ? "MCP servers not inspected"
+      : `${enabledServers.length} enabled MCP server${enabledServers.length === 1 ? "" : "s"}`;
+    return [
+      "Company extensions",
+      `Role bundles: ${builtInReady} built-in ready · ${counts.missing} not ready · ${extensionEnabled} extension-enabled`,
+      set === null
+        ? "Approved bindings: none"
+        : `Approved bindings: ${set.bindings.length}`,
+      `Catalog: ${skillCatalog} · ${mcpCatalog}`,
+      "Core company execution remains available. Optional Skill/MCP access requires explicit /company bind approval.",
+    ].join("\n");
+  }
 
   return [
     "Company capability readiness",
     `Blueprint: ${blueprint.id} (revision ${blueprint.revision})`,
-    `Tool bundles: ${counts.ready} ready, ${counts.missing} missing`,
+    `Tool bundles: ${counts.ready} ready, ${counts.missing} not ready`,
     ...resolved.flatMap((tool) => [
-      `  ${tool.ready ? "ready" : "missing"} | ${tool.bundleId}`,
+      `  ${tool.ready
+        ? "ready"
+        : tool.bindings.length === 0
+        ? "unbound"
+        : "unavailable"} | ${tool.bundleId}`,
       ...tool.bindings.map((binding) =>
         `    ${binding.available ? "ready" : "unavailable"} | ${binding.id} | ${binding.source}:${binding.sourceId}`
       ),

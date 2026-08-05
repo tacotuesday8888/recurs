@@ -105,8 +105,9 @@ mixed Auto, and 1/4 for the all-Sol company. Two repetitions were correlated
 upstream parent/provider failures across every arm; excluding only those shared
 outages leaves 9/11, 7/11, and 1/2, which still does not establish a winning
 roster. Terra Implement completed 10/10 attempts, seven final Luna approvals
-all passed the verifier, and Terra Repair completed 0/2 attempts. Dollar cost
-remained unknown. See the [versioned evidence report](research/2026-08-04-RECURS-MODEL-TEAM-EVALUATION-V1.md).
+all passed the verifier, and Terra Repair completed 2/2 requests but recovered
+0/2 candidates. Dollar cost remained unknown. See the
+[versioned evidence report](research/2026-08-04-RECURS-MODEL-TEAM-EVALUATION-V1.md).
 The terminal reports only activated agents, their exact model/effort and route
 rationale, and bounded usage.
 

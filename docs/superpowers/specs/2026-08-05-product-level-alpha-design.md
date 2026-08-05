@@ -93,15 +93,16 @@ Skill or enabled MCP server to an approved bundle, but discovery never binds,
 installs, trusts, authenticates, or widens a role automatically.
 
 For backward compatibility, Company Blueprint V2 retains the stored
-`available | required` tool-plan status. User-facing rendering interprets a
-`required` entry without a live approved binding as **unbound**, not as a claim
-that the company runtime is unusable. New blueprints describe the requirement
-as an extension opportunity rather than a precondition for execution.
+`available | required` tool-plan status. User-facing rendering distinguishes an
+**unbound** entry from one whose approved extension source is currently
+**unavailable**, and aggregates both as **not ready** rather than claiming that
+the company runtime is unusable. New blueprints describe the requirement as an
+extension opportunity rather than a precondition for execution.
 
 Onboarding renders a summary only:
 
 - built-in-ready bundle count;
-- unbound optional-extension count;
+- not-ready optional-extension count;
 - approved binding count;
 - enabled Skill and MCP catalog counts, or `not inspected`; and
 - the explicit approval boundary.

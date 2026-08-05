@@ -1213,11 +1213,14 @@ describe("guided onboarding policy", () => {
       initialGoal: "Deliver the first independently reviewed company goal.",
       roadmap: ["Understand the project.", "Deliver a reviewed slice."],
     }];
+    const output: string[] = [];
+    const formationSnapshots: string[] = [];
     const coordinator = new CompanyOnboardingCoordinator({
       runs,
       blueprints,
       model: {
         async decide() {
+          formationSnapshots.push(output.join(""));
           return {
             decision: decisions.shift(),
             requestsUsed: 1,
@@ -1244,7 +1247,6 @@ describe("guided onboarding policy", () => {
       "stable_core_specialists",
       "approve",
     ];
-    const output: string[] = [];
     const sink = new Writable({
       write(chunk, _encoding, done) {
         output.push(String(chunk));
@@ -1305,6 +1307,8 @@ describe("guided onboarding policy", () => {
       ).toHaveLength(8);
       expect(selections).toEqual([]);
       expect(decisions).toEqual([]);
+      expect(formationSnapshots[0])
+        .toContain("Company formation · understanding the project");
       expect(output.join(""))
         .toContain("Company interview · question 1");
       expect(output.join(""))
@@ -1314,9 +1318,9 @@ describe("guided onboarding policy", () => {
       expect(output.join(""))
         .toContain("Company approved · 6 department(s), 8 role(s)");
       expect(output.join(""))
-        .toContain("Company capability readiness");
+        .toContain("Company extensions");
       expect(output.join(""))
-        .toContain("Agent Skills: not inspected");
+        .toContain("Catalog: Skills not inspected · MCP servers not inspected");
       expect(output.join(""))
         .toContain("Roster: Recommended · Stable core + specialists · Guided");
       expect(output.join(""))

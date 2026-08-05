@@ -472,7 +472,7 @@ export function compileCompanyBlueprintV2(
       status: available.has(id) ? "available" : "required",
       reason: available.has(id)
         ? "This approved capability is available to assigned roles."
-        : "An assigned role requires this capability before it can execute.",
+        : "An assigned role has no approved extension binding for this capability.",
     })),
     quality: {
       standard: mode.workflow.team.qualityStandard,

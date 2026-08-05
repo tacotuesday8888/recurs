@@ -58,9 +58,9 @@ describe("company tool readiness", () => {
       },
     });
 
-    expect(output).toMatch(/Tool bundles: 1 ready, 1 missing/u);
+    expect(output).toMatch(/Tool bundles: 1 ready, 1 not ready/u);
     expect(output).toContain("ready | project_context_v1");
-    expect(output).toContain("missing | quality_v1");
+    expect(output).toContain("unbound | quality_v1");
     expect(output).toContain("Enabled Agent Skills: release-check");
     expect(output).toContain("Agent Skills found but disabled: 1");
     expect(output).toContain("Enabled MCP servers: issue-tracker");
@@ -75,6 +75,56 @@ describe("company tool readiness", () => {
 
     expect(output).toContain("Agent Skills: not inspected");
     expect(output).toContain("MCP servers: not inspected");
+  });
+
+  it("summarizes onboarding readiness without dumping catalog or blueprint identifiers", () => {
+    const blueprint = companyBlueprintV2Fixture();
+    const unbound = {
+      ...blueprint,
+      toolPlan: blueprint.toolPlan.map((tool) =>
+        tool.id === "quality_v1"
+          ? { ...tool, status: "required" as const }
+          : tool
+      ),
+    };
+    const output = renderCompanyToolReadiness(unbound, {
+      skills: {
+        projectSkillsEnabled: false,
+        warnings: [],
+        skills: [{
+          name: "private-release-check",
+          description: "private description",
+          source: "user",
+          location: "/private/skills/release-check",
+          enabled: true,
+        }],
+      },
+      mcp: {
+        configPath: "/private/mcp.json",
+        projectConfigPath: null,
+        projectTrust: "trusted",
+        warnings: [],
+        servers: [{
+          id: "private-issue-tracker",
+          description: "private description",
+          command: "/private/bin/server",
+          args: [],
+          network: "deny",
+          source: "user",
+          enabled: true,
+          state: "idle",
+        }],
+      },
+    }, null, { detail: "summary" });
+
+    expect(output).toContain("Company extensions");
+    expect(output).toMatch(/Role bundles: \d+ built-in ready · \d+ not ready/u);
+    expect(output).toContain("Approved bindings: none");
+    expect(output).toContain("Catalog: 1 enabled Skill · 1 enabled MCP server");
+    expect(output).toContain("Core company execution remains available");
+    expect(output).not.toMatch(
+      /blueprint-v2|quality_v1|private-release-check|private-issue-tracker|\/private/u,
+    );
   });
 
   it("satisfies a required bundle only through an exact available binding", () => {
@@ -121,9 +171,10 @@ describe("company tool readiness", () => {
     }, bindings);
 
     expect(unavailable).toContain("unavailable | capability-release-check");
-    expect(unavailable).toContain("Tool bundles: 2 ready, 1 missing");
+    expect(unavailable).toContain("unavailable | quality_v1");
+    expect(unavailable).toContain("Tool bundles: 2 ready, 1 not ready");
     expect(ready).toContain("ready | capability-release-check");
-    expect(ready).toContain("Tool bundles: 3 ready, 0 missing");
+    expect(ready).toContain("Tool bundles: 3 ready, 0 not ready");
     expect(ready).not.toContain("Private description");
     expect(ready).not.toContain("/private/");
   });
