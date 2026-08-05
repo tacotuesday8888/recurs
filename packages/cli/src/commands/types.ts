@@ -20,8 +20,8 @@ import type {
   CompanyBlueprintBindingV2,
   CompanyBlueprintV2,
   HostInvocation,
-  ModelTeamEvaluationV1,
-  ModelTeamSelectionV1,
+  ModelTeamEvaluationV2,
+  ModelTeamSelectionV2,
   ModelReasoningEffort,
   CompanyGoalRun,
   TeamControlRecommendationV1,
@@ -110,8 +110,8 @@ export interface ModelTeamCommandService {
   evaluate(
     runId: string,
     signal?: AbortSignal,
-  ): Promise<ModelTeamEvaluationV1>;
-  select(signal?: AbortSignal): Promise<ModelTeamSelectionV1>;
+  ): Promise<ModelTeamEvaluationV2>;
+  select(signal?: AbortSignal): Promise<ModelTeamSelectionV2>;
 }
 
 export interface CompanyAmendmentDecisionInput {

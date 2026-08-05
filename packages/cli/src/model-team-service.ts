@@ -6,10 +6,12 @@ import type {
   ConnectionRecord,
 } from "@recurs/app";
 import {
-  parseModelTeamEvaluation,
-  type ModelTeamEvaluationV1,
+  parseModelTeamEvaluationV2,
+  type ModelTeamEvaluation,
+  type ModelTeamEvaluationV2,
   type ModelTeamRouteV1,
-  type ModelTeamSelectionV1,
+  type ModelTeamSelection,
+  type ModelTeamSelectionV2,
   type CompanyGoalRun,
   type SessionBackendPin,
   type TeamRunRole,
@@ -46,7 +48,7 @@ export class ModelTeamServiceError extends Error {
 
 export interface ModelTeamStatus {
   readonly mode: "auto" | "custom";
-  readonly selection: ModelTeamSelectionV1 | null;
+  readonly selection: ModelTeamSelection | null;
 }
 
 function routeFromPin(
@@ -78,7 +80,7 @@ function connectionMatches(
 }
 
 function routeMap(
-  selection: ModelTeamSelectionV1,
+  selection: ModelTeamSelection,
 ): Readonly<Record<ModelTeamRouteV1["role"], ModelTeamRouteV1>> {
   return Object.fromEntries(selection.lineup.map((route) => [
     route.role,
@@ -89,9 +91,10 @@ function routeMap(
 }
 
 function routesMatch(
-  selection: ModelTeamSelectionV1,
+  selection: ModelTeamSelection,
   document: Awaited<ReturnType<FileConnectionRegistry["read"]>>,
 ): boolean {
+  if (selection.version !== 2) return false;
   const routes = routeMap(selection);
   if (document.primaryConnectionId !== routes.parent.connectionId) return false;
   if (selection.lineup.some((route) => {
@@ -115,6 +118,7 @@ function evaluationId(
   lineup: readonly ModelTeamRouteV1[],
 ): string {
   return `model-team-evaluation-${createHash("sha256").update(JSON.stringify({
+    version: 2,
     runId,
     lineup,
   })).digest("hex").slice(0, 32)}`;
@@ -146,12 +150,12 @@ function exactLineup(
 }
 
 export function findRecordedModelTeamEvaluation(
-  evaluations: readonly ModelTeamEvaluationV1[],
+  evaluations: readonly ModelTeamEvaluation[],
   runId: string,
   lineup: readonly ModelTeamRouteV1[],
-): ModelTeamEvaluationV1 | null {
-  const existing = evaluations.find((evaluation) =>
-    evaluation.companyGoalRunId === runId
+): ModelTeamEvaluationV2 | null {
+  const existing = evaluations.find((evaluation): evaluation is ModelTeamEvaluationV2 =>
+    evaluation.version === 2 && evaluation.companyGoalRunId === runId
   );
   if (existing === undefined) return null;
   if (!isDeepStrictEqual(existing.lineup, lineup)) {
@@ -161,6 +165,22 @@ export function findRecordedModelTeamEvaluation(
     );
   }
   return existing;
+}
+
+function observedRoles(
+  states: readonly Awaited<ReturnType<JsonlTeamRunStore["load"]>>[],
+): readonly ModelTeamEvaluationV2["activatedRoles"][number][] {
+  const activated = new Set<ModelTeamEvaluationV2["activatedRoles"][number]>([
+    "parent",
+  ]);
+  for (const state of states) {
+    for (const child of state.children) {
+      if (child.result !== null) activated.add(child.reservation.role);
+    }
+  }
+  return (["parent", "implement", "review", "repair"] as const).filter(
+    (role) => activated.has(role),
+  );
 }
 
 export class ModelTeamService {
@@ -192,7 +212,7 @@ export class ModelTeamService {
   async evaluate(
     runId: string,
     signal?: AbortSignal,
-  ): Promise<ModelTeamEvaluationV1> {
+  ): Promise<ModelTeamEvaluationV2> {
     signal?.throwIfAborted();
     try {
       const run = (await this.dependencies.goals.loadReadOnly(
@@ -246,13 +266,14 @@ export class ModelTeamService {
         startedAt: run.createdAt,
         completedAt: evaluatedAt,
       });
-      const evaluation = parseModelTeamEvaluation({
+      const evaluation = parseModelTeamEvaluationV2({
         id: evaluationId(run.id, lineup),
-        version: 1,
+        version: 2,
         taskClass: "general_coding",
         companyGoalRunId: run.id,
         evaluatedAt,
         lineup,
+        activatedRoles: observedRoles(teamStates),
         report,
       });
       await this.dependencies.evaluations.create(evaluation, signal);
@@ -267,7 +288,7 @@ export class ModelTeamService {
     }
   }
 
-  async select(signal?: AbortSignal): Promise<ModelTeamSelectionV1> {
+  async select(signal?: AbortSignal): Promise<ModelTeamSelectionV2> {
     signal?.throwIfAborted();
     const proposed = selectEvaluatedModelTeam({
       evaluations: await this.dependencies.evaluations.list(signal),
@@ -276,11 +297,11 @@ export class ModelTeamService {
     if (proposed === null) {
       throw new ModelTeamServiceError(
         "no_evidence",
-        "Models Auto needs a completed company goal whose decomposition, evidence, and synthesis evaluation passed",
+        "Models Auto needs three matching configured company goals with observed Parent, Implement, and Review activity plus passed decomposition, evidence, and synthesis evaluation",
       );
     }
     const previous = await this.dependencies.selections.latest(signal);
-    const selection = previous !== null &&
+    const selection = previous !== null && previous.version === 2 &&
         previous.taskClass === proposed.taskClass &&
         isDeepStrictEqual(previous.lineup, proposed.lineup) &&
         isDeepStrictEqual(previous.evidenceIds, proposed.evidenceIds)

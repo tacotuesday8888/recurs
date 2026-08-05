@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   COMPANY_EVALUATION_DIMENSIONS,
   parseModelTeamEvaluation,
+  parseModelTeamEvaluationV2,
+  parseModelTeamSelectionV2,
   parseModelTeamSelection,
 } from "../src/index.js";
 
@@ -83,6 +85,28 @@ describe("model-team contracts", () => {
     ]);
     expect(Object.isFrozen(parsed)).toBe(true);
     expect(Object.isFrozen(selection)).toBe(true);
+  });
+
+  it("keeps activated-role coverage separate from configured fallback routes", () => {
+    const observed = parseModelTeamEvaluationV2({
+      ...evaluation(),
+      id: "model-team-evaluation-v2",
+      version: 2,
+      activatedRoles: ["parent", "implement", "review"],
+    });
+    const selection = parseModelTeamSelectionV2({
+      id: "model-team-selection-v2",
+      version: 2,
+      taskClass: "general_coding",
+      selectedAt: "2026-07-23T00:00:03.000Z",
+      lineup,
+      evaluatedRoles: ["parent", "implement", "review"],
+      evidenceIds: [observed.id],
+      rationale: "Repeated observed core-role evidence supports this configured lineup.",
+    });
+
+    expect(observed.activatedRoles).toEqual(["parent", "implement", "review"]);
+    expect(selection.evaluatedRoles).not.toContain("repair");
   });
 
   it.each([

@@ -8,7 +8,8 @@ import {
 } from "@recurs/app";
 import {
   COMPANY_EVALUATION_DIMENSIONS,
-  parseModelTeamEvaluation,
+  parseModelTeamEvaluationV2,
+  parseModelTeamSelection,
   type ModelTeamRole,
 } from "@recurs/contracts";
 import {
@@ -56,12 +57,12 @@ function local(role: ModelTeamRole): LocalConnectionRecord {
   };
 }
 
-function evaluation() {
-  return parseModelTeamEvaluation({
-    id: "evaluation-balanced-1",
-    version: 1,
+function evaluation(index = 1) {
+  return parseModelTeamEvaluationV2({
+    id: `evaluation-balanced-${index}`,
+    version: 2,
     taskClass: "general_coding",
-    companyGoalRunId: "company-goal-1",
+    companyGoalRunId: `company-goal-${index}`,
     evaluatedAt: "2026-07-23T00:00:02.000Z",
     lineup: roles.map((role) => ({
       role,
@@ -71,8 +72,9 @@ function evaluation() {
       modelId: `model-${role}`,
       reasoningEffort: null,
     })),
+    activatedRoles: ["parent", "implement", "review"],
     report: {
-      id: "report-balanced-1",
+      id: `report-balanced-${index}`,
       version: 1,
       scenarioId: "company_goal_execution_v1",
       scenarioVersion: 1,
@@ -122,7 +124,7 @@ async function fixture() {
     selections,
     now: () => "2026-07-23T00:00:03.000Z",
   });
-  return { service, registry, evaluations };
+  return { service, registry, evaluations, selections };
 }
 
 describe("ModelTeamService", () => {
@@ -144,15 +146,21 @@ describe("ModelTeamService", () => {
     )).toThrow("different route snapshot");
   });
 
-  it("selects only recorded eligible evidence and atomically applies future routes", async () => {
+  it("applies Auto only after three observed eligible runs", async () => {
     const { service, registry, evaluations } = await fixture();
     expect(await service.status()).toEqual({ mode: "custom", selection: null });
-    await evaluations.create(evaluation());
+    await evaluations.create(evaluation(1));
+    await evaluations.create(evaluation(2));
+    await evaluations.create(evaluation(3));
 
     const selected = await service.select();
-    expect(selected.evidenceIds).toEqual(["evaluation-balanced-1"]);
+    expect(selected.evidenceIds).toEqual([
+      "evaluation-balanced-1",
+      "evaluation-balanced-2",
+      "evaluation-balanced-3",
+    ]);
     expect(selected.rationale).toBe(
-      "1 eligible recorded configured company-goal evaluation supports this lineup; decomposition, evidence, and synthesis passed.",
+      "3 eligible recorded configured company-goal evaluations support this configured lineup; Parent, Implement, and Review were observed. Repair remains a fallback unless separately observed.",
     );
     await expect(service.status()).resolves.toMatchObject({
       mode: "auto",
@@ -173,7 +181,9 @@ describe("ModelTeamService", () => {
     await expect(service.select()).rejects.toMatchObject<
       Partial<ModelTeamServiceError>
     >({ code: "no_evidence" });
-    await evaluations.create(evaluation());
+    await evaluations.create(evaluation(1));
+    await evaluations.create(evaluation(2));
+    await evaluations.create(evaluation(3));
     await service.select();
     const current = await registry.read();
     await registry.commit(current.revision, (draft) => {
@@ -185,5 +195,30 @@ describe("ModelTeamService", () => {
       id: expect.stringContaining("model-team-selection-"),
     });
     await expect(service.status()).resolves.toMatchObject({ mode: "auto" });
+  });
+
+  it("keeps a legacy Auto selection readable but inactive", async () => {
+    const { service, selections } = await fixture();
+    await selections.create(parseModelTeamSelection({
+      id: "legacy-selection",
+      version: 1,
+      taskClass: "general_coding",
+      selectedAt: "2026-07-23T00:00:03.000Z",
+      lineup: roles.map((role) => ({
+        role,
+        providerId: "local-openai-compatible",
+        adapterId: "openai-chat-completions",
+        connectionId: `connection-${role}`,
+        modelId: `model-${role}`,
+        reasoningEffort: null,
+      })),
+      evidenceIds: ["legacy-evaluation"],
+      rationale: "Legacy configured route evidence.",
+    }));
+
+    await expect(service.status()).resolves.toMatchObject({
+      mode: "custom",
+      selection: { id: "legacy-selection", version: 1 },
+    });
   });
 });

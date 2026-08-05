@@ -18,9 +18,9 @@ Permissions   Approved for Me
 ```
 
 The user chooses how much sub-agent capacity is available. Recurs activates
-only the roles the task needs and, when supported by evidence, assigns the
-most-supported eligible recorded configured lineup. That selection is not a
-comparative winner.
+only the roles the task needs and, when supported by repeated observed evidence,
+assigns a configured lineup. That selection is an evidence gate, not a
+comparative winner or a universal ranking.
 
 The product metaphor is an agent company. The technical mechanism is a bounded
 team of sub-agents.
@@ -40,8 +40,8 @@ These products are useful internal references, not required public positioning:
 
 The corresponding Recurs direction is:
 
-> Cursor Router chooses one model. Recurs Auto chooses the most-supported
-> eligible recorded configured lineup that powers a bounded sub-agent team.
+> Cursor Router chooses one model. Recurs Auto admits only a repeatedly
+> observed configured lineup that powers a bounded sub-agent team.
 
 ## One primary intensity control
 
@@ -133,22 +133,25 @@ Model selection should have one simple default and one escape hatch:
 
 ```text
 Models
-› Auto       Use the most-supported eligible recorded configured lineup
+› Auto       Use a repeatedly observed configured lineup
   Custom     Choose the parent and role routes manually
 ```
 
 Auto does not redesign the company. The current alpha:
 
-1. records an exact completed `general_coding` company goal;
-2. requires passed decomposition, evidence, and synthesis;
-3. groups and ranks exact Parent/Implement/Review/Repair lineups by passed
-   rubric dimensions, eligible sample count, recency, and a deterministic key;
+1. records an exact V2 completed `general_coding` company goal with configured
+   routes and actual activated roles kept distinct;
+2. requires passed decomposition, evidence, and synthesis plus observed Parent,
+   Implement, and independent Review activity;
+3. requires at least three exact eligible runs for one configured lineup;
 4. revalidates every saved connection before confirmation-gated activation;
 5. applies the selected routes to future sessions and goals; and
-6. displays the selected models, efforts, evidence count, and rationale.
+6. displays the selected models, observed-role coverage, evidence count, and
+   rationale.
 
-Repair is one route in the configured snapshot. It remains a fallback and may
-not activate in the recorded goal that supplies the evidence.
+Repair is one route in the configured snapshot. It remains an explicit fallback
+unless it was separately observed; Auto does not describe that fallback as
+evaluated.
 
 An illustrative result:
 
@@ -160,8 +163,8 @@ Implement      configured implementation model
 Review         configured independent review model
 Repair         configured fallback; may not activate
 
-Selection      most-supported eligible recorded configured lineup
-Evidence       exact completed goals and visible rationale
+Selection      repeated observed configured lineup
+Evidence       three exact completed goals and visible role coverage
 ```
 
 Actual model names and claims must come from current evaluation results, never
@@ -207,8 +210,10 @@ The last item is bounded adaptation, not autonomous self-rewriting. It requires
 at least two compatible completed goals, stores exact run metrics, makes no
 comparative quality claim, and changes nothing until a user approves it.
 
-Today Recurs does select an evaluated model lineup through `/model auto`, but
-only after eligible real completed-goal evidence exists. It does not have
+Today Recurs selects a configured model lineup through `/model auto` only after
+three eligible V2 completed-goal records each observed Parent, Implement, and
+Review activity. Legacy V1 evidence remains readable but cannot activate Auto,
+because it did not capture route activation. It does not have
 enough repeated authorized real-provider evidence to claim a default
 Sol/Terra/Luna winner, classify arbitrary tasks, expire stale benchmarks, or
 optimize price automatically. The first completed Codex dogfood reported
