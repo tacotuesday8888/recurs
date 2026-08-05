@@ -1,6 +1,6 @@
 # Recurs Feature Status
 
-**Audited:** 2026-08-04 against the source, exported package surfaces, CLI
+**Audited:** 2026-08-05 against the source, exported package surfaces, CLI
 assembly, durable contracts/stores, provider manifests, and automated tests in
 this release candidate.
 
@@ -49,7 +49,7 @@ context, not a product commitment.
 
 ## Distribution
 
-- `0.1.0-alpha.5` npm package, minimal bundle, empty-prefix installation smoke,
+- `0.1.0-alpha.6` npm package, minimal bundle, empty-prefix installation smoke,
   and protected publication workflow;
 - checksum-verifying curl installer and official Homebrew tap formula derived
   from that exact npm archive; and
@@ -61,8 +61,8 @@ or desktop app. Bun's verified boundary is package installation, not Recurs
 execution.
 
 The package gate keeps the unpacked Recurs artifact below 2.1 MB. The exact
-`0.1.0-alpha.5` archive measured 433 KiB compressed / 1.87 MiB
-unpacked. Its 2026-08-01 Apple-silicon production prefix was 39.3 MiB. Optional Codex
+`0.1.0-alpha.6` archive measured 445 KiB compressed / 1.92 MiB
+unpacked. Its 2026-08-05 Apple-silicon production prefix was 38.9 MiB. Optional Codex
 compatibility packages are not downloaded with Recurs. Codex subscription
 users supply the exact reviewed official CLI separately, so an existing Codex
 installation is shared rather than duplicated. Source development still
@@ -115,8 +115,8 @@ The controlled comparison surface includes three hidden-verifier coding
 fixtures, distinct Quick/Guided/Deep formation scenarios, and campaigns that
 compare the selected parent-only baseline against the currently configured
 saved role-route snapshot, with an explicit option for an additional all-strong
-bounded team. The next evidence milestone is a healthy-provider alpha.5 run
-with at least three repetitions per fixture, wider role/effort crosses, repair
-diagnosis, and real cost coverage. Activation, context, latency, and review
-value must continue to be tuned only from durable results. A new
+bounded team. The next evidence milestone is a healthy-provider current-harness
+run with at least three repetitions per fixture, wider role/effort crosses,
+repair diagnosis, and real cost coverage. Activation, context, latency, and
+review value must continue to be tuned only from durable results. A new
 orchestration foundation is not the next step.

@@ -4,6 +4,20 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+## 0.1.0-alpha.6 - 2026-08-05
+
+### Added
+
+- Private exact-workspace permission rules and observe-only lifecycle hooks
+  provide auditable local policy and integration seams without expanding
+  project or agent authority.
+- Coding-plan onboarding now covers the reviewed Kimi Code, OpenCode Go,
+  Alibaba Coding Plan, and MiniMax Token Plan policies alongside existing
+  local, BYOK, and Codex subscription paths.
+- Durable Company Proof reports now separate shared parent-boundary failures
+  from roster evidence and expose Review outcomes and Repair recovery without
+  claiming a model winner.
+
 ### Changed
 
 - Interactive tool approvals now distinguish one-time access from an exact
@@ -13,6 +27,16 @@ Notable user-facing changes are recorded here when they ship.
   readiness without exposing raw evidence.
 - A valid structured change request proceeds directly to Repair instead of
   spending another reviewer on a decision that cannot reverse the outcome.
+- Approved onboarding hands its first goal to `/goal launch`, reports real
+  model/tool readiness, and keeps unavailable capabilities visibly blocked.
+- Routed child activity shows the activated model, effort, route rationale,
+  usage, and one truthful terminal outcome without duplicate activation lines.
+
+### Fixed
+
+- Repair instructions now preserve the bounded `run_verification` tool while
+  continuing to prohibit arbitrary process execution, network access,
+  credentials, and deployment.
 
 ## 0.1.0-alpha.5 - 2026-08-01
 

@@ -1,6 +1,6 @@
 # Public Alpha Status
 
-**Status:** `0.1.0-alpha.5` public alpha. Recurs is available as one verified
+**Status:** `0.1.0-alpha.6` public alpha. Recurs is available as one verified
 npm artifact through npm, Bun-as-installer, a checksum-verifying curl asset,
 and the official Homebrew tap.
 
@@ -12,13 +12,13 @@ and the official Homebrew tap.
 | npm registry | Recommended path | `npm install --global recurs@alpha` installs the current reviewed alpha |
 | GitHub release / curl | Published alpha path | The release carries the exact archive and a checksum-verifying user-local installer |
 | Homebrew | Published tap path | `brew install tacotuesday8888/recurs/recurs` installs the same npm archive through the official tap |
-| Bun global install | Verified installer path | `bun install --global recurs@0.1.0-alpha.5` installs the package; Node.js 22.22+ still executes it |
+| Bun global install | Verified installer path | `bun install --global recurs@0.1.0-alpha.6` installs the package; Node.js 22.22+ still executes it |
 | Bun runtime | Unsupported | No `bun run`, native Bun execution, broader Bun-version, or broad platform-compatibility claim |
 | Signed binary / desktop | Not implemented | There is no standalone download or desktop application |
 
-The package gate caps the unpacked Recurs artifact at 2.1 MB. On 2026-08-01 the
-exact `0.1.0-alpha.5` archive measured 433 KiB compressed / 1.87 MiB unpacked.
-Its clean Apple-silicon production prefix measured 39.3 MiB. It did not install
+The package gate caps the unpacked Recurs artifact at 2.1 MB. On 2026-08-05 the
+exact `0.1.0-alpha.6` archive measured 445 KiB compressed / 1.92 MiB unpacked.
+Its clean Apple-silicon production prefix measured 38.9 MiB. It did not install
 Codex. The full source-development dependency tree measured about
 402 MiB because it retains roughly 307 MiB of pinned Codex compatibility
 fixtures. Exact size varies by platform and npm version.
@@ -59,9 +59,10 @@ for the complete results and limitations.
 
 The current evidence does not establish that the Sol/Terra/Luna lineup is a
 universal winner, that a large team is cost-effective, or that it reliably
-beats a strong single agent. Current alpha.5 coverage is also missing a
-`layered_config` campaign. Before publishing a default recommendation, Recurs
-needs repeated current-harness comparisons that record:
+beats a strong single agent. The frozen evidence covers harness revisions
+through alpha.5 and includes no `layered_config` campaign; alpha.6 therefore
+has no complete current-harness campaign set. Before publishing a default
+recommendation, Recurs needs repeated current-harness comparisons that record:
 
 - final quality and test results;
 - review findings and repair rounds;
