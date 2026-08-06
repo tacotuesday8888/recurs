@@ -4,6 +4,28 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+## 0.1.0-alpha.7 - 2026-08-06
+
+### Added
+
+- Interactive first run now stays inside the same terminal surface used for
+  company activity and chat.
+- The packed-package release gate now proves an empty-home journey from Quick
+  company formation through layered implementation, independent review,
+  finding-driven Repair, synthesis, approved apply, and external verification.
+
+### Changed
+
+- Company activity presents only agents that actually activate, with durable
+  role, route, state, and usage evidence carried into the terminal view.
+- Current product documentation distinguishes deterministic installed proof
+  from real-provider model-quality evidence.
+
+### Fixed
+
+- A completed Repair that makes no material change now stops truthfully as
+  stalled instead of paying for a redundant review of identical content.
+
 ## 0.1.0-alpha.6 - 2026-08-05
 
 ### Added

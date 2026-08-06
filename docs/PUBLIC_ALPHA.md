@@ -1,6 +1,6 @@
 # Public Alpha Status
 
-**Status:** `0.1.0-alpha.6` public alpha. Recurs is available as one verified
+**Status:** `0.1.0-alpha.7` public alpha. Recurs is available as one verified
 npm artifact through npm, Bun-as-installer, a checksum-verifying curl asset,
 and the official Homebrew tap.
 
@@ -12,13 +12,13 @@ and the official Homebrew tap.
 | npm registry | Recommended path | `npm install --global recurs@alpha` installs the current reviewed alpha |
 | GitHub release / curl | Published alpha path | The release carries the exact archive and a checksum-verifying user-local installer |
 | Homebrew | Published tap path | `brew install tacotuesday8888/recurs/recurs` installs the same npm archive through the official tap |
-| Bun global install | Verified installer path | `bun install --global recurs@0.1.0-alpha.6` installs the package; Node.js 22.22+ still executes it |
+| Bun global install | Verified installer path | `bun install --global recurs@0.1.0-alpha.7` installs the package; Node.js 22.22+ still executes it |
 | Bun runtime | Unsupported | No `bun run`, native Bun execution, broader Bun-version, or broad platform-compatibility claim |
 | Signed binary / desktop | Not implemented | There is no standalone download or desktop application |
 
-The package gate caps the unpacked Recurs artifact at 2.1 MB. On 2026-08-05 the
-exact `0.1.0-alpha.6` archive measured 445 KiB compressed / 1.92 MiB unpacked.
-Its clean Apple-silicon production prefix measured 38.9 MiB. It did not install
+The package gate caps the unpacked Recurs artifact at 2.1 MB. On 2026-08-06 the
+exact `0.1.0-alpha.7` archive measured 453 KiB compressed / 1.96 MiB unpacked.
+Its clean Apple-silicon production prefix measured 41.3 MiB. It did not install
 Codex. The full source-development dependency tree measured about
 402 MiB because it retains roughly 307 MiB of pinned Codex compatibility
 fixtures. Exact size varies by platform and npm version.
@@ -27,7 +27,15 @@ fixtures. Exact size varies by platform and npm version.
 
 The base harness, bounded company runtime, provider routes, permissions,
 worktree isolation, independent review, repair state machine, recovery, and
-explicit apply path are covered by automated tests.
+explicit apply path are covered by automated tests. The installed-package gate
+also drives the exact packed npm artifact from an empty private home through
+Quick setup and company formation, approval, a layered lead/Implement/Review
+goal, a failing first candidate, finding-driven Repair, independent re-review,
+parent synthesis, approved application, and an external passing fixture test.
+The deterministic local provider makes this proof reproducible without an API
+key or network request. Ordinary session resume and normalized provider failure
+remain covered by the same installed-artifact smoke; company interruption and
+recovery remain covered by focused runtime integration tests.
 
 One real Codex subscription dogfood on 2026-07-23 also completed:
 

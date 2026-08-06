@@ -22,15 +22,21 @@ the official Apache-2.0 license bytes, exact runtime dependencies, public npm
 registry, provenance setting, package size, executable mode, and absence of
 workspace or build-machine paths. The installed-artifact smoke runs the real
 CLI, local provider loop, OS workspace sandbox, Agent Skills, stdio MCP, and
-ACP server from a new temporary prefix.
+ACP server from a new temporary prefix. It also starts with an empty private
+home and drives Quick company formation through a layered lead/Implement/Review
+goal, a rejected candidate, Repair, re-review, parent synthesis, approved
+application, and an independent passing fixture test. The path is deterministic
+and credential-free; it is the release gate for the complete first-use company
+journey, not a prose-only capability claim.
 
 The portable npm artifact contains the same TypeScript runtime verified in CI.
 Its package gate caps the unpacked artifact at 2.1 MB; that is not the installed
 footprint. npm resolves runtime dependencies separately, but Codex is not a
-default runtime dependency. The exact `0.1.0-alpha.6` artifact measured 445 KiB
-compressed / 1.92 MiB unpacked and 38.9 MiB in a clean Apple-silicon production
-prefix on 2026-08-05. The source-development tree was about 402 MiB
-because it retains roughly 307 MiB of pinned Codex compatibility fixtures.
+default runtime dependency. The exact `0.1.0-alpha.7` artifact measured
+453 KiB compressed / 1.96 MiB unpacked and 41.3 MiB in a clean
+Apple-silicon production prefix on 2026-08-06. The source-development tree was
+about 402 MiB because it retains roughly 307 MiB of pinned Codex compatibility
+fixtures.
 Record a clean installed-prefix measurement for every release candidate and
 disclose it in release notes.
 

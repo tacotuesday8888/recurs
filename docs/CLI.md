@@ -26,7 +26,7 @@ checksummed GitHub release installer, and Homebrew:
 
 ```bash
 bun install --global recurs@alpha
-curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.6/install.sh | sh
+curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.7/install.sh | sh
 brew install tacotuesday8888/recurs/recurs
 ```
 
@@ -73,9 +73,9 @@ recurs
 ```
 
 The packaged Recurs artifact is gated below 2.1 MB unpacked, but its runtime
-dependencies are installed separately. The `0.1.0-alpha.6` artifact measured
-445 KiB compressed / 1.92 MiB unpacked and 38.9 MiB in a clean Apple-silicon
-production prefix, without Codex. The
+dependencies are installed separately. The `0.1.0-alpha.7` artifact measured
+453 KiB compressed / 1.96 MiB unpacked and 41.3 MiB in a clean
+Apple-silicon production prefix, without Codex. The
 source-development tree is larger because it retains exact Codex compatibility
 fixtures. Treat these as directional measurements because platform packages
 and npm versions differ.
@@ -97,6 +97,14 @@ first goal active; run `/goal launch` to begin the bounded company workflow
 without retyping that objective. Saved interviews and proposals remain
 distinct from inactive rosters, stop setup without creating a new session, and
 resume through `recurs setup`.
+
+Recurs's release gate drives this exact first-run path through an installed npm
+artifact with an empty private home and a deterministic local provider. The
+proof includes layered implementation, independent change requests, Repair,
+re-review, synthesis, approved application, and an external fixture test. It
+requires no API key. When a company-owned goal receives exact apply authority,
+the engine applies the reviewed candidate before returning; an `approved` team
+shown by `/agents teams` is already applied.
 
 ### Terminal interface
 
