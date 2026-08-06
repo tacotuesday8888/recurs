@@ -45,6 +45,10 @@ import {
   runCli,
   runCliProcess,
 } from "../src/process-host.js";
+import {
+  RecursInteractiveShell,
+  type InteractiveTerminal,
+} from "../src/terminal-ui.js";
 import { testAt, testBackendPin } from "../../../tests/support/backend.js";
 
 class TextOutput extends Writable {
@@ -58,6 +62,26 @@ class TextOutput extends Writable {
     this.value += chunk.toString();
     callback();
   }
+}
+
+class SetupTestTerminal implements InteractiveTerminal {
+  readonly columns = 80;
+  readonly rows = 30;
+  readonly kittyProtocolActive = false;
+  input: ((data: string) => void) | null = null;
+
+  start(onInput: (data: string) => void): void { this.input = onInput; }
+  stop(): void { this.input = null; }
+  async drainInput(): Promise<void> {}
+  write(): void {}
+  moveBy(): void {}
+  hideCursor(): void {}
+  showCursor(): void {}
+  clearLine(): void {}
+  clearFromCursor(): void {}
+  clearScreen(): void {}
+  setTitle(): void {}
+  setProgress(): void {}
 }
 
 const directories: string[] = [];
@@ -418,6 +442,51 @@ describe("runCli", () => {
     expect(exitCode).toBe(2);
     expect(shellCreated).toBe(false);
     expect(stderr.value).toContain("user-present local terminal");
+  });
+
+  it("cancels blocked TUI setup work before creating a session", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const terminal = new SetupTestTerminal();
+    let runtimeCreated = false;
+    const running = runCli(["setup"], {
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      terminalUi: true,
+      createInteractiveShell(cwd) {
+        return new RecursInteractiveShell({
+          terminal,
+          cwd,
+          animate: false,
+          colorEnabled: false,
+        });
+      },
+      async listAccounts() { return []; },
+      async listProviders() { return []; },
+      async detectProviders(signal) {
+        if (signal === undefined) throw new Error("missing onboarding signal");
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        });
+        return [];
+      },
+      async createRuntime() {
+        runtimeCreated = true;
+        throw new Error("runtime must not start");
+      },
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\u0003");
+
+    expect(await running).toBe(130);
+    expect(runtimeCreated).toBe(false);
+    expect(terminal.input).toBeNull();
+    expect(stderr.value).toBe("");
   });
 
   it("guides explicit local setup and falls back safely when Full Access is declined", async () => {

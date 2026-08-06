@@ -632,8 +632,25 @@ export class RecursInteractiveShell {
   }
 
   async onboard<T>(
-    run: (ui: InteractiveOnboardingUi) => Promise<T>,
+    run: (
+      ui: InteractiveOnboardingUi,
+      signal?: AbortSignal,
+    ) => Promise<T>,
+    signal?: AbortSignal,
   ): Promise<T> {
+    const controller = new AbortController();
+    const cancel = (): void => {
+      if (!controller.signal.aborted) {
+        controller.abort(onboardingAbortError());
+      }
+    };
+    const onExternalAbort = (): void => {
+      if (!controller.signal.aborted) {
+        controller.abort(signal?.reason ?? onboardingAbortError());
+      }
+    };
+    signal?.addEventListener("abort", onExternalAbort, { once: true });
+    if (signal?.aborted === true) onExternalAbort();
     const buffer = new TranscriptBuffer();
     const output = new Writable({
       write: (chunk, _encoding, callback) => {
@@ -688,7 +705,9 @@ export class RecursInteractiveShell {
         matchesKey(data, Key.escape) ||
         matchesKey(data, Key.ctrl("c"))
       ) {
-        if (component.cancel()) return { consume: true };
+        component.cancel();
+        cancel();
+        return { consume: true };
       }
       return undefined;
     });
@@ -696,8 +715,9 @@ export class RecursInteractiveShell {
     tui.start();
     tui.requestRender(true);
     try {
-      return await run(ui);
+      return await run(ui, controller.signal);
     } finally {
+      signal?.removeEventListener("abort", onExternalAbort);
       removeCancellationListener();
       tui.stop();
     }

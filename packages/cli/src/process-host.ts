@@ -293,7 +293,13 @@ export interface CliDependencies {
 
 export interface InteractiveShell {
   readonly events: EventSink;
-  onboard?<T>(run: (ui: InteractiveOnboardingUi) => Promise<T>): Promise<T>;
+  onboard?<T>(
+    run: (
+      ui: InteractiveOnboardingUi,
+      signal?: AbortSignal,
+    ) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T>;
   start(runtime: RecursRuntime): Promise<void>;
 }
 
@@ -1164,7 +1170,13 @@ async function runInteractiveOnboarding(
 ): Promise<GuidedOnboardingOutcome> {
   return shell?.onboard === undefined
     ? await runGuidedOnboarding(dependencies)
-    : await shell.onboard((ui) => runGuidedOnboarding(dependencies, ui));
+    : await shell.onboard(
+        (ui, signal) => runGuidedOnboarding(
+          signal === undefined ? dependencies : { ...dependencies, signal },
+          ui,
+        ),
+        dependencies.signal,
+      );
 }
 
 async function projectTeamControlService(

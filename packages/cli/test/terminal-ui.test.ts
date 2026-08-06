@@ -185,6 +185,34 @@ describe("TerminalSafeAutocompleteProvider", () => {
 });
 
 describe("RecursInteractiveShell", () => {
+  it("cancels an onboarding operation while the surface is working", async () => {
+    const terminal = new TestTerminal();
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+      colorEnabled: false,
+    });
+    const onboarding = shell.onboard(async (_ui, signal) => {
+      if (signal === undefined) throw new Error("missing onboarding signal");
+      await new Promise<void>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      });
+      return "unreachable";
+    });
+    const rejected = expect(onboarding).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\u0003");
+
+    await rejected;
+    expect(terminal.input).toBeNull();
+  });
+
   it.each([
     ["choice", "\u001b"],
     ["text", "\u0003"],
