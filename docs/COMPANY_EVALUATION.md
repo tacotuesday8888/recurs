@@ -73,6 +73,23 @@ evidence only when every arm satisfies the same strict pre-worker failure
 conditions. Review and Repair completion/recovery counts are also derived
 explicitly. Reports never choose a winner.
 
+### 2026-08-06 installed active-use probe
+
+An exact locally packed `0.1.0-alpha.6`-versioned artifact ran a configured
+Quick formation followed by one installed `retry_after` comparison. The Sol
+baseline passed all seven verifier checks in 114.090 seconds with one request.
+The Sol/Terra/Luna company failed five checks in 361.380 seconds with five
+requests. Terra Repair completed but made no material change, and the rejected
+candidate was not applied.
+
+That run drove a focused harness correction: a completed no-op repair is now
+recorded durably and stops as `changes_requested` without paying for another
+review of identical content. The full artifact provenance, metrics,
+limitations, and correction boundary are in the
+[installed active-use proof](research/2026-08-06-RECURS-INSTALLED-ACTIVE-USE-PROOF.md).
+The run is additional evidence, not an amendment to the frozen 2026-08-04
+aggregate decision below.
+
 ### Current frozen evidence (2026-08-04)
 
 The current decision record contains 11 campaigns and 30 trials across three

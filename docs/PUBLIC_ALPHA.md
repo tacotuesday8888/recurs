@@ -63,8 +63,12 @@ beats a strong single agent. The frozen multi-campaign report covers harness
 revisions through alpha.5, but its alpha.5 subset includes no `layered_config`
 campaign. One post-tag, alpha.6-labeled current-source `alias_registry` pair
 now passes both arms, but the company was 32.6% slower and used 3.37 times as
-many input tokens. That remains below the three-pair comparability floor. See
-the [pinned current-source live proof](research/2026-08-05-RECURS-ALPHA6-LIVE-COMPANY-PROOF.md).
+many input tokens. A later exact installed current-source `retry_after` pair
+passed only the Sol baseline; the company used five requests, failed the
+verifier, and exposed a no-op Repair request that Recurs now stops before a
+redundant re-review. Both remain below the three-pair comparability floor. See
+the [pinned current-source live proof](research/2026-08-05-RECURS-ALPHA6-LIVE-COMPANY-PROOF.md)
+and [installed active-use proof](research/2026-08-06-RECURS-INSTALLED-ACTIVE-USE-PROOF.md).
 Before publishing a default recommendation, Recurs needs repeated
 current-harness comparisons that record:
 

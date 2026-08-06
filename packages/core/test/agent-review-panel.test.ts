@@ -337,6 +337,9 @@ describe("repairPrompt", () => {
     expect(prompt).toContain(
       "Use run_verification for requested test, lint, build, or type-check evidence",
     );
+    expect(prompt).toContain("Inspect the current staged diff and every finding path");
+    expect(prompt).toContain("a no-op is not a completed repair");
+    expect(prompt).toContain("Inspect the final staged diff before returning");
     expect(prompt).toContain(
       "Do not delegate, execute arbitrary processes, use network resources",
     );

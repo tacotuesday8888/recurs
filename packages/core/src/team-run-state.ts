@@ -140,6 +140,13 @@ export type TeamRunRecordInput =
       readonly at: string;
     }
   | {
+      readonly type: "repair_stalled";
+      readonly round: number;
+      readonly before: GitPatchArtifactHandle;
+      readonly after: GitPatchArtifactHandle;
+      readonly at: string;
+    }
+  | {
       readonly type: "candidate_ready";
       readonly artifact: GitPatchArtifactHandle;
       readonly changedFiles: readonly string[];
@@ -723,6 +730,11 @@ export function parseTeamRunRecord(
     case "review_recorded":
       valid = value.sequence > 0 && keys(value, ["review"]) && exactReview(value.review);
       break;
+    case "repair_stalled":
+      valid = value.sequence > 0 &&
+        keys(value, ["round", "before", "after"]) && integer(value.round, 1) &&
+        exactArtifact(value.before) && exactArtifact(value.after);
+      break;
     case "candidate_ready":
       valid = value.sequence > 0 && keys(value, ["artifact", "changedFiles"]) &&
         exactArtifact(value.artifact) && boundedPaths(value.changedFiles, false) &&
@@ -1176,6 +1188,24 @@ export function reduceTeamRunRecord(
       state.reviews = reviews;
       break;
     }
+    case "repair_stalled": {
+      ensurePhase(current, "repair");
+      const review = currentClaimReview(current);
+      const repairs = latestChildrenFor(current, "repair", record.round);
+      const unchanged = record.before.id !== record.after.id &&
+        record.before.leaseId === record.after.leaseId &&
+        record.before.baseRevision === current.descriptor.baseRevision &&
+        record.after.baseRevision === current.descriptor.baseRevision &&
+        record.before.sha256 === record.after.sha256 &&
+        record.before.byteLength === record.after.byteLength &&
+        samePaths(record.before.paths, record.after.paths);
+      if (review?.verdict !== "changes_requested" ||
+        record.round !== current.round || record.round !== review.round + 1 ||
+        !allCompleted(repairs) || !unchanged) {
+        invalid("A stalled repair requires one completed, unchanged repair round");
+      }
+      break;
+    }
     case "candidate_ready": {
       ensurePhase(current, "review");
       const linked = artifacts.find((artifact) =>
@@ -1282,11 +1312,14 @@ export function reduceTeamRunRecord(
       const maximumRepairRounds = state.descriptor.companyGoal?.repair === null
         ? 0
         : state.descriptor.policy.workflow.team.maxRepairRounds;
+      const latest = state.records.at(-1);
+      const repairStalled = state.phase === "repair" &&
+        latest?.type === "repair_stalled" && latest.round === state.round;
       if (record.status === "changes_requested" && (
         review?.verdict !== "changes_requested" ||
-        review.round < maximumRepairRounds
+        (review.round < maximumRepairRounds && !repairStalled)
       )) {
-        invalid("Changes requested is terminal only after repair exhaustion");
+        invalid("Changes requested requires repair exhaustion or a stalled repair");
       }
       state.status = record.status;
       state.outcome = record.outcome;
