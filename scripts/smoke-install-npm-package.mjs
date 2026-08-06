@@ -21,15 +21,31 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
 import { parseSingleNpmPackReport } from "./npm-pack-report.mjs";
+import {
+  COMPANY_APPLIED_MARKER,
+  COMPANY_CORRECT_SOURCE,
+  COMPANY_INITIAL_SOURCE,
+  COMPANY_SYNTHESIS_MARKER,
+  createInstalledCompanyResponder,
+  isInstalledCompanyRequest,
+  runInstalledCompanyJourney,
+} from "./installed-company-smoke.mjs";
 
 const execFileAsync = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "recurs-install-smoke-"));
+const temporaryDirectory = await realpath(
+  await mkdtemp(path.join(os.tmpdir(), "recurs-install-smoke-")),
+);
 const packageDirectory = path.join(temporaryDirectory, "package");
 const installDirectory = path.join(temporaryDirectory, "install");
 const homeDirectory = path.join(temporaryDirectory, "home");
 const npmCacheDirectory = path.join(temporaryDirectory, "npm-cache");
 const workspaceDirectory = path.join(temporaryDirectory, "workspace");
+const companyWorkspaceDirectory = path.join(
+  temporaryDirectory,
+  "company-workspace",
+);
+const companyHomeDirectory = path.join(temporaryDirectory, "company-home");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const modelId = "recurs-install-smoke";
 const skillName = "installed-release-check";
@@ -115,6 +131,7 @@ function streamToolCall(response, id, name, arguments_) {
 
 async function startLocalModelServer() {
   const chatRequests = [];
+  const companyResponder = createInstalledCompanyResponder();
   const server = createServer((request, response) => {
     void (async () => {
       if (request.method === "GET" && request.url === "/v1/models") {
@@ -131,6 +148,26 @@ async function startLocalModelServer() {
       if (request.method === "POST" && request.url === "/v1/chat/completions") {
         const body = await requestJson(request);
         chatRequests.push(body);
+        if (isInstalledCompanyRequest(body)) {
+          const company = companyResponder.respond(body);
+          if (company.kind === "tool") {
+            streamToolCall(
+              response,
+              company.id,
+              company.name,
+              company.arguments,
+            );
+          } else {
+            streamResponse(response, {
+              choices: [{
+                delta: { content: company.text },
+                finish_reason: "stop",
+              }],
+              usage: { prompt_tokens: 12, completion_tokens: 4 },
+            });
+          }
+          return;
+        }
         const messages = JSON.stringify(body.messages);
         if (messages.includes(acpPrompt)) {
           streamResponse(response, {
@@ -500,10 +537,16 @@ try {
     mkdir(packageDirectory, { recursive: true }),
     mkdir(installDirectory, { recursive: true }),
     mkdir(homeDirectory, { recursive: true }),
+    mkdir(companyHomeDirectory, { recursive: true, mode: 0o700 }),
     mkdir(workspaceDirectory, { recursive: true }),
+    mkdir(companyWorkspaceDirectory, { recursive: true }),
   ]);
   await execFileAsync("git", ["init", "--quiet"], {
     cwd: workspaceDirectory,
+    encoding: "utf8",
+  });
+  await execFileAsync("git", ["init", "--quiet"], {
+    cwd: companyWorkspaceDirectory,
     encoding: "utf8",
   });
   const { stdout: packOutput } = await execFileAsync(npm, [
@@ -1287,6 +1330,155 @@ try {
   assert(
     localModelServer.chatRequests.length === 14,
     "The installed diagnostics prompt did not use exactly one tool round.",
+  );
+
+  await Promise.all([
+    mkdir(path.join(companyWorkspaceDirectory, "src"), { recursive: true }),
+    mkdir(path.join(companyWorkspaceDirectory, "test"), { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(
+      path.join(companyWorkspaceDirectory, "package.json"),
+      `${JSON.stringify({
+        name: "recurs-installed-company",
+        type: "module",
+        scripts: { test: "node --test" },
+      }, null, 2)}\n`,
+    ),
+    writeFile(
+      path.join(companyWorkspaceDirectory, "src/clamp.js"),
+      COMPANY_INITIAL_SOURCE,
+    ),
+    writeFile(
+      path.join(companyWorkspaceDirectory, "test/clamp.test.js"),
+      [
+        'import assert from "node:assert/strict";',
+        'import { test } from "node:test";',
+        'import { clamp } from "../src/clamp.js";',
+        "",
+        'test("clamps values to both bounds", () => {',
+        "  assert.equal(clamp(-1, 0, 10), 0);",
+        "  assert.equal(clamp(5, 0, 10), 5);",
+        "  assert.equal(clamp(99, 0, 10), 10);",
+        "});",
+        "",
+      ].join("\n"),
+    ),
+  ]);
+  await execFileAsync("git", ["add", "."], {
+    cwd: companyWorkspaceDirectory,
+    encoding: "utf8",
+  });
+  await execFileAsync("git", [
+    "-c",
+    "user.name=Recurs Install Smoke",
+    "-c",
+    "user.email=smoke@recurs.invalid",
+    "commit",
+    "--quiet",
+    "-m",
+    "fixture",
+  ], {
+    cwd: companyWorkspaceDirectory,
+    encoding: "utf8",
+  });
+  const companyEnvironment = {
+    ...environment,
+    HOME: companyHomeDirectory,
+    RECURS_HOME: path.join(companyHomeDirectory, ".recurs"),
+    USERPROFILE: companyHomeDirectory,
+  };
+  const { stderr: companySetupError } = await execFileAsync(
+    executable,
+    [
+      "setup",
+      "local",
+      "--url",
+      localModelServer.baseUrl,
+      "--model",
+      modelId,
+    ],
+    {
+      cwd: companyWorkspaceDirectory,
+      encoding: "utf8",
+      env: companyEnvironment,
+    },
+  );
+  assert(
+    companySetupError === "",
+    "The isolated installed company home could not configure its parent model.",
+  );
+  const { stdout: companyAccounts } = await execFileAsync(
+    executable,
+    ["account", "list", "--json"],
+    {
+      cwd: companyWorkspaceDirectory,
+      encoding: "utf8",
+      env: companyEnvironment,
+    },
+  );
+  const companyConnectionId = JSON.parse(companyAccounts).accounts?.find(
+    (account) => account.primary === true,
+  )?.id;
+  assert(
+    typeof companyConnectionId === "string" && companyConnectionId.length > 0,
+    "The isolated installed company home did not expose its parent connection.",
+  );
+  const companyRequestOffset = localModelServer.chatRequests.length;
+  if (process.env.RECURS_SMOKE_DEBUG === "1") {
+    process.stdout.write("starting installed company journey\n");
+  }
+  const companyJourney = await runInstalledCompanyJourney({
+    executable,
+    environment: companyEnvironment,
+    workspaceDirectory: companyWorkspaceDirectory,
+    connectionId: `account:${companyConnectionId}`,
+  });
+  assert(
+    companyJourney.companyGoalLaunched &&
+      companyJourney.applied &&
+      typeof companyJourney.teamRunId === "string",
+    `The installed company journey did not launch and explicitly apply: ${JSON.stringify(companyJourney)}`,
+  );
+  assert(
+    companyJourney.transcript.includes("Company approved") &&
+      companyJourney.transcript.includes(COMPANY_SYNTHESIS_MARKER) &&
+      companyJourney.transcript.includes(COMPANY_APPLIED_MARKER),
+    "The installed company journey did not expose approval, synthesis, and apply states.",
+  );
+  const companyRequests = localModelServer.chatRequests.slice(
+    companyRequestOffset,
+  );
+  const companyRequestContext = companyRequests.map((request) =>
+    JSON.stringify(request.messages)
+  ).join("\n");
+  assert(
+    companyRequestContext.includes("Recurs company-formation interviewer") &&
+      companyRequestContext.includes("delegate_company_goal") &&
+      companyRequestContext.includes("bounded staged code change") &&
+      companyRequestContext.includes("bounded staged-change review") &&
+      companyRequestContext.includes("bounded staged repair"),
+    "The installed company journey did not activate formation, parent, Implement, Review, and Repair model paths.",
+  );
+  assert(
+    await readFile(
+      path.join(companyWorkspaceDirectory, "src/clamp.js"),
+      "utf8",
+    ) === COMPANY_CORRECT_SOURCE,
+    "The installed company journey did not apply the reviewed repair.",
+  );
+  const { stderr: companyTestError } = await execFileAsync(
+    process.execPath,
+    ["--test"],
+    {
+      cwd: companyWorkspaceDirectory,
+      encoding: "utf8",
+      env: companyEnvironment,
+    },
+  );
+  assert(
+    companyTestError === "",
+    "The explicitly applied installed company candidate did not pass its fixture.",
   );
 } finally {
   if (localModelServer !== undefined) {

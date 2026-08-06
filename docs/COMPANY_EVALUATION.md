@@ -47,6 +47,16 @@ provider-reported zero from absent cost data.
 A real provider is useful for qualitative comparisons between models, but is
 not required to verify Recurs's contracts or authority boundaries.
 
+`npm run package:smoke-install` goes beyond formation-only evaluation. It packs
+and installs the actual npm artifact into an empty private home, completes
+Quick onboarding, approves a generated company, and launches a layered coding
+goal through lead, Implement, Review, finding-driven Repair, re-review, parent
+synthesis, and approved application. A separate fixture test verifies the
+applied repository. The smoke uses a deterministic loopback provider and does
+not need credentials or public network access. A company-owned apply finishes
+inside the accepted goal after its exact approval; the resulting durable team
+status is `approved` and must not be applied a second time.
+
 ## Company Proof campaigns
 
 `recurs benchmark company --list` exposes three immutable coding fixtures:

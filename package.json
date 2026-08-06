@@ -1,6 +1,6 @@
 {
   "name": "recurs",
-  "version": "0.1.0-alpha.6",
+  "version": "0.1.0-alpha.7",
   "description": "Open-source coding-agent teams you control, from model routes to delegation depth",
   "license": "Apache-2.0",
   "type": "module",
@@ -56,7 +56,7 @@
     "typecheck:contract-tests": "tsc -p packages/contracts/tsconfig.type-tests.json --pretty false",
     "lint": "eslint .",
     "package:build": "node scripts/build-npm-package.mjs",
-    "package:check": "node --test scripts/check-ci-contract.test.mjs scripts/check-current-docs.test.mjs scripts/check-npm-release.test.mjs scripts/npm-pack-report.test.mjs scripts/evaluate-company.test.mjs scripts/render-install-assets.test.mjs && node scripts/check-npm-release.mjs --check-state && node scripts/check-npm-package.mjs",
+    "package:check": "node --test scripts/check-ci-contract.test.mjs scripts/check-current-docs.test.mjs scripts/check-npm-release.test.mjs scripts/npm-pack-report.test.mjs scripts/evaluate-company.test.mjs scripts/installed-company-smoke.test.mjs scripts/render-install-assets.test.mjs && node scripts/check-npm-release.mjs --check-state && node scripts/check-npm-package.mjs",
     "package:smoke-install": "node scripts/smoke-install-npm-package.mjs",
     "package:smoke-install-bun": "node scripts/smoke-install-bun-package.mjs",
     "prepack": "npm run package:build && npm run package:check",

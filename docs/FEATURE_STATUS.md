@@ -23,7 +23,7 @@ context, not a product commitment.
 | Operating modes | Stable version-6 Economy, Standard, Balanced, Performance, and Max policies with historical V1-V5 loading |
 | Backend routing | Explicit saved Implement/Review/Repair routes with revalidation, immutable per-run decisions, policy eligibility, and parent fallback |
 | Company onboarding | Resumable Quick, Guided, and Deep interviews; Stable Core + Specialists or Guardrailed Dynamic designs; consented read-only research; conversational/YAML revisions; explicit approval |
-| Company execution | Validated assignment DAGs, orchestrator/lead/worker planning handoffs, dependency-ordered implementation stages, independent review, bounded repair, parent apply, and synthesis |
+| Company execution | Validated assignment DAGs, orchestrator/lead/worker planning handoffs, dependency-ordered implementation stages, independent review, bounded repair, parent apply, and synthesis; the packed-install gate proves the complete formation-to-repaired-apply journey |
 | Company authority | Immutable blueprints; root and independent-review anchors; user-selected topology; frozen active-agent, depth, concurrency, escalation, review, repair, request, and reported-cost limits; claim-time revalidation; structured manager/root escalation; cancellation; truthful events |
 | Company adaptation | Tailored role charters, attributable project knowledge, historical authority snapshots, exact Skill/MCP bundle bindings, approval-gated blueprint amendments, and repeated-run recommendations that can only narrow future team limits |
 | Evaluation | Discoverable versioned scenarios; deterministic offline formation; exact-connection, explicit-network configured formation including Codex app-server; three hidden-verifier Company Proof fixtures; read-only exact-run company-goal scoring; sanitized reports, strict shared-parent-boundary versus roster attribution, separate Review/Repair recovery diagnostics, and bounded human progress |
@@ -49,7 +49,7 @@ context, not a product commitment.
 
 ## Distribution
 
-- `0.1.0-alpha.6` npm package, minimal bundle, empty-prefix installation smoke,
+- `0.1.0-alpha.7` npm package, minimal bundle, empty-prefix installation smoke,
   and protected publication workflow;
 - checksum-verifying curl installer and official Homebrew tap formula derived
   from that exact npm archive; and
@@ -61,8 +61,8 @@ or desktop app. Bun's verified boundary is package installation, not Recurs
 execution.
 
 The package gate keeps the unpacked Recurs artifact below 2.1 MB. The exact
-`0.1.0-alpha.6` archive measured 445 KiB compressed / 1.92 MiB
-unpacked. Its 2026-08-05 Apple-silicon production prefix was 38.9 MiB. Optional Codex
+`0.1.0-alpha.7` archive measured 453 KiB compressed / 1.96 MiB unpacked. Its
+2026-08-06 Apple-silicon production prefix was 41.3 MiB. Optional Codex
 compatibility packages are not downloaded with Recurs. Codex subscription
 users supply the exact reviewed official CLI separately, so an existing Codex
 installation is shared rather than duplicated. Source development still
@@ -93,9 +93,12 @@ app-server behavior in tests.
 The base harness and bounded heavy-company architecture are implemented. The
 CLI now exposes read-only operating snapshots, deterministic formation,
 explicit configured-provider dogfooding, and provider-free scoring of one
-durable goal. Codex subscriptions can now execute restricted pre-approval
-company formation and foreground parent/company assignments through
-Recurs-scoped tools. `Models: Auto` is implemented as an evidence gate rather
+durable goal. The exact packed artifact is also tested from an empty private
+home through Quick formation, a layered lead/Implement/Review flow, a rejected
+first candidate, Repair, re-review, parent synthesis, approved apply, and an
+external passing fixture test. Codex subscriptions can execute restricted
+pre-approval company formation and foreground parent/company assignments
+through Recurs-scoped tools. `Models: Auto` is implemented as an evidence gate rather
 than a brand ranking. One safe formation-to-apply Codex dogfood completed Quick
 formation, approval, a reviewed coding goal, parent synthesis, and
 evidence-backed Auto activation with Sol as parent, Terra as Implement/Repair,
