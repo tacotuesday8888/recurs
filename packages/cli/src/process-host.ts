@@ -166,7 +166,7 @@ export interface CliDependencies {
   automation?: boolean;
   terminalUi?: boolean;
   dataDirectory?: string;
-  createInteractiveShell?(): InteractiveShell;
+  createInteractiveShell?(cwd: string): InteractiveShell;
   inspectLifecycleHooks?(): Promise<LifecycleHookStatus>;
   inspectPermissionRules?(cwd: string): Promise<PermissionRuleStatus>;
   signal?: AbortSignal;
@@ -1477,7 +1477,9 @@ export async function runCli(
       return 2;
     }
     const shell = dependencies.terminalUi === true
-      ? dependencies.createInteractiveShell?.()
+      ? dependencies.createInteractiveShell?.(
+          dependencies.cwd ?? process.cwd(),
+        )
       : undefined;
     const renderer = shell?.events ?? new TextEventRenderer(dependencies.stdout);
     let runtime: RecursRuntime | undefined;
@@ -1538,7 +1540,9 @@ export async function runCli(
         throw new DOMException("Guided setup was cancelled", "AbortError");
       }
       const shell = dependencies.terminalUi === true
-        ? dependencies.createInteractiveShell?.()
+        ? dependencies.createInteractiveShell?.(
+            dependencies.cwd ?? process.cwd(),
+          )
         : undefined;
       const renderer = shell?.events ?? new TextEventRenderer(dependencies.stdout);
       const runtime = await dependencies.createRuntime(renderer, {
@@ -2262,8 +2266,8 @@ export async function runCliProcess(
       terminalUi,
       ...(terminalUi
         ? {
-            createInteractiveShell: () => createRecursInteractiveShell({
-              cwd: process.cwd(),
+            createInteractiveShell: (cwd) => createRecursInteractiveShell({
+              cwd,
               colorEnabled: process.env.NO_COLOR === undefined,
             }),
           }

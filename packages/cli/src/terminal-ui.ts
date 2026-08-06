@@ -7,6 +7,9 @@ import {
   Text,
   TUI,
   matchesKey,
+  type AutocompleteItem,
+  type AutocompleteProvider,
+  type AutocompleteSuggestions,
   type Component,
   type EditorTheme,
   type Terminal,
@@ -139,6 +142,69 @@ function terminalTitle(cwd: string): string {
   return `Recurs · ${safeCwd.slice(0, 160)}`;
 }
 
+function terminalSafeAutocompleteItem(item: AutocompleteItem): boolean {
+  return sanitizeTerminalText(item.value, { multiline: false }) === item.value &&
+    sanitizeTerminalText(item.label, { multiline: false }) === item.label &&
+    (item.description === undefined ||
+      sanitizeTerminalText(item.description, { multiline: false }) ===
+        item.description);
+}
+
+export class TerminalSafeAutocompleteProvider implements AutocompleteProvider {
+  readonly triggerCharacters?: string[];
+
+  constructor(private readonly delegate: AutocompleteProvider) {
+    if (delegate.triggerCharacters !== undefined) {
+      this.triggerCharacters = delegate.triggerCharacters;
+    }
+  }
+
+  async getSuggestions(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+    options: { readonly signal: AbortSignal; readonly force?: boolean },
+  ): Promise<AutocompleteSuggestions | null> {
+    const suggestions = await this.delegate.getSuggestions(
+      lines,
+      cursorLine,
+      cursorCol,
+      options,
+    );
+    if (suggestions === null) return null;
+    const items = suggestions.items.filter(terminalSafeAutocompleteItem);
+    return items.length === 0 ? null : { ...suggestions, items };
+  }
+
+  applyCompletion(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+    item: AutocompleteItem,
+    prefix: string,
+  ): { lines: string[]; cursorLine: number; cursorCol: number } {
+    return this.delegate.applyCompletion(
+      lines,
+      cursorLine,
+      cursorCol,
+      item,
+      prefix,
+    );
+  }
+
+  shouldTriggerFileCompletion(
+    lines: string[],
+    cursorLine: number,
+    cursorCol: number,
+  ): boolean {
+    return this.delegate.shouldTriggerFileCompletion?.(
+      lines,
+      cursorLine,
+      cursorCol,
+    ) ?? true;
+  }
+}
+
 function editorTheme(colorEnabled: boolean): EditorTheme {
   const accent = ansi("96", colorEnabled);
   const strong = ansi("1", colorEnabled);
@@ -178,7 +244,7 @@ class TranscriptBuffer {
 interface PendingQuestion {
   readonly text: string;
   readonly options: readonly string[];
-  readonly resolve: (answer: string | null) => void;
+  readonly settle: (answer: string | null) => void;
 }
 
 class ChatComponent extends Container {
@@ -209,16 +275,18 @@ class ChatComponent extends Container {
       0,
     );
     this.editor = new Editor(tui, editorTheme(colorEnabled), { paddingX: 1 });
-    this.editor.setAutocompleteProvider(new CombinedAutocompleteProvider(
-      commands.map((name) => ({ name })),
-      cwd,
+    this.editor.setAutocompleteProvider(new TerminalSafeAutocompleteProvider(
+      new CombinedAutocompleteProvider(
+        commands.map((name) => ({ name })),
+        cwd,
+      ),
     ));
     this.editor.onSubmit = (value) => {
       const expanded = value.trim();
       if (this.#pending !== null) {
         const pending = this.#pending;
         this.#pending = null;
-        pending.resolve(expanded.length === 0 ? null : expanded);
+        pending.settle(expanded.length === 0 ? null : expanded);
         this.#showNextQuestion();
         return;
       }
@@ -240,11 +308,45 @@ class ChatComponent extends Container {
     this.addChild(this.#footer);
   }
 
-  ask(text: string, options: readonly string[]): Promise<string | null> {
+  ask(
+    text: string,
+    options: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<string | null> {
+    if (signal?.aborted === true) return Promise.resolve(null);
     return new Promise((resolve) => {
-      this.#questionQueue.push({ text, options, resolve });
+      let settled = false;
+      const question: PendingQuestion = {
+        text,
+        options,
+        settle: (answer) => {
+          if (settled) return;
+          settled = true;
+          if (signal !== undefined) {
+            signal.removeEventListener("abort", onAbort);
+          }
+          resolve(answer);
+        },
+      };
+      const onAbort = (): void => this.#cancelQuestion(question);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      this.#questionQueue.push(question);
       this.#showNextQuestion();
+      if (signal?.aborted === true) onAbort();
     });
+  }
+
+  #cancelQuestion(question: PendingQuestion): void {
+    if (this.#pending === question) {
+      this.#pending = null;
+      question.settle(null);
+      this.#showNextQuestion();
+      return;
+    }
+    const index = this.#questionQueue.indexOf(question);
+    if (index < 0) return;
+    this.#questionQueue.splice(index, 1);
+    question.settle(null);
   }
 
   #showNextQuestion(): void {
@@ -269,9 +371,9 @@ class ChatComponent extends Container {
   }
 
   cancelQuestions(): void {
-    this.#pending?.resolve(null);
+    this.#pending?.settle(null);
     this.#pending = null;
-    for (const question of this.#questionQueue.splice(0)) question.resolve(null);
+    for (const question of this.#questionQueue.splice(0)) question.settle(null);
     this.#question.setText("");
   }
 
@@ -393,17 +495,18 @@ export class RecursInteractiveShell {
     const ask = async (
       question: string,
       options: readonly string[] = [],
+      signal?: AbortSignal,
     ): Promise<string | null> => {
       showChat();
       tui.setFocus(chat.editor);
-      const pending = chat.ask(question, options);
+      const pending = chat.ask(question, options, signal);
       tui.requestRender(true);
       const answer = await pending;
       tui.requestRender(true);
       return answer;
     };
     runtime.setConfirmHandler(async (message) => {
-      const answer = await ask(`${message} [y/N]`);
+      const answer = await ask(`${message} [y/N]`, [], runtime.currentSignal());
       return answer?.trim().toLowerCase() === "y" ||
         answer?.trim().toLowerCase() === "yes";
     });
@@ -411,6 +514,7 @@ export class RecursInteractiveShell {
       const answer = await ask(
         `Allow ${intent.category} access to ${intent.resource}?`,
         ["yes — once", "always — this session", "deny"],
+        runtime.currentSignal(),
       );
       if (answer === null) return "deny";
       if (/^[1-3]$/u.test(answer.trim())) {
@@ -420,9 +524,9 @@ export class RecursInteractiveShell {
       }
       return replApprovalResponse(answer);
     });
-    runtime.setUserInputHandler?.(async (request) =>
+    runtime.setUserInputHandler?.(async (request, signal) =>
       selectedAnswer(
-        await ask(request.question, request.options) ?? "",
+        await ask(request.question, request.options, signal) ?? "",
         request.options,
       )
     );
@@ -489,15 +593,18 @@ export class RecursInteractiveShell {
         }
         if (result.type === "attach_process") {
           tui.stop();
-          await this.#attachProcess(
-            runtime,
-            result.sessionId,
-            this.#input,
-            this.#output,
-          );
-          tui.start();
-          tui.setFocus(view === "chat" ? chat.editor : home);
-          tui.requestRender(true);
+          try {
+            await this.#attachProcess(
+              runtime,
+              result.sessionId,
+              this.#input,
+              this.#output,
+            );
+          } finally {
+            tui.start();
+            tui.setFocus(view === "chat" ? chat.editor : home);
+            tui.requestRender(true);
+          }
           return;
         }
         await renderCommandResult(

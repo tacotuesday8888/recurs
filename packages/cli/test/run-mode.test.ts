@@ -3319,6 +3319,7 @@ describe("runCli", () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
     let runtimeOptions: unknown;
+    let shellCwd: string | undefined;
 
     expect(await runCli(["-C", "workspace"], {
       cwd: root,
@@ -3326,6 +3327,14 @@ describe("runCli", () => {
       stdout,
       stderr,
       interactive: true,
+      terminalUi: true,
+      createInteractiveShell(cwd) {
+        shellCwd = cwd;
+        return {
+          events: { async emit() {} },
+          async start() {},
+        };
+      },
       async createRuntime(events, options) {
         runtimeOptions = options;
         return createRuntime(events);
@@ -3333,7 +3342,8 @@ describe("runCli", () => {
     })).toBe(0);
 
     expect(runtimeOptions).toEqual({ cwd: await realpath(workspace) });
-    expect(stdout.value).toContain("The best coding model is a team.");
+    expect(shellCwd).toBe(await realpath(workspace));
+    expect(stdout.value).toBe("");
     expect(stderr.value).toBe("");
   });
 

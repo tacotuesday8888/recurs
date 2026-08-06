@@ -1,10 +1,12 @@
 import type { RecursRuntime } from "../src/runtime.js";
 import type { HostInvocation, ModelImageInput } from "@recurs/contracts";
 import { describe, expect, it, vi } from "vitest";
+import type { AutocompleteProvider } from "@earendil-works/pi-tui";
 
 import {
   CompanyHomeComponent,
   RecursInteractiveShell,
+  TerminalSafeAutocompleteProvider,
   type InteractiveTerminal,
 } from "../src/terminal-ui.js";
 import { TerminalUiState } from "../src/terminal-ui-state.js";
@@ -95,6 +97,38 @@ describe("CompanyHomeComponent", () => {
       task: "Review the change",
       occurredAt: "2026-08-06T00:00:01.000Z",
     });
+    await state.emit({
+      type: "agent_started",
+      sessionId: "parent-session",
+      at: "2026-08-06T00:00:02.000Z",
+      parentAgentId: "parent-agent",
+      childAgentId: "child-1",
+      childSessionId: "session-1",
+      taskId: "task-1",
+      description: "Build the change",
+      operatingModeId: "balanced_v6",
+      profileId: "implement_v2",
+      modelId: "implement-model",
+      reasoningEffort: "medium",
+      backendStrategy: "role_candidate",
+      backendReason: "eligible_role_candidate",
+    });
+    await state.emit({
+      type: "agent_started",
+      sessionId: "parent-session",
+      at: "2026-08-06T00:00:03.000Z",
+      parentAgentId: "parent-agent",
+      childAgentId: "child-2",
+      childSessionId: "session-2",
+      taskId: "task-2",
+      description: "Review the change",
+      operatingModeId: "balanced_v6",
+      profileId: "review_v2",
+      modelId: "review-model",
+      reasoningEffort: "medium",
+      backendStrategy: "role_candidate",
+      backendReason: "eligible_role_candidate",
+    });
     const component = new CompanyHomeComponent(state, {
       openChat() {},
       quit() {},
@@ -110,6 +144,33 @@ describe("CompanyHomeComponent", () => {
     expect(moved).toContain("QUALITY · RUNNING");
     expect(moved).not.toContain("┌");
     expect(refresh).toHaveBeenCalledOnce();
+  });
+});
+
+describe("TerminalSafeAutocompleteProvider", () => {
+  it("drops suggestions whose rendered or inserted text contains terminal controls", async () => {
+    const delegate = {
+      async getSuggestions() {
+        return {
+          prefix: "@",
+          items: [
+            { value: "safe.ts", label: "safe.ts" },
+            { value: "unsafe\u001b.ts", label: "unsafe.ts" },
+            { value: "other.ts", label: "other\u0007.ts" },
+          ],
+        };
+      },
+      applyCompletion(lines: string[], cursorLine: number, cursorCol: number) {
+        return { lines, cursorLine, cursorCol };
+      },
+    } satisfies AutocompleteProvider;
+    const provider = new TerminalSafeAutocompleteProvider(delegate);
+
+    const result = await provider.getSuggestions(["@"], 0, 1, {
+      signal: new AbortController().signal,
+    });
+
+    expect(result?.items).toEqual([{ value: "safe.ts", label: "safe.ts" }]);
   });
 });
 
@@ -398,6 +459,53 @@ describe("RecursInteractiveShell", () => {
     expect(terminal.stops).toBe(2);
   });
 
+  it("restores terminal input when process attachment fails", async () => {
+    const terminal = new TestTerminal();
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["attach", "quit"]; },
+      async submit(input: string) {
+        return input === "/attach"
+          ? { type: "attach_process" as const, sessionId: "process-1" }
+          : { type: "quit" as const };
+      },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+      async attachProcess() {
+        throw new Error("attachment failed");
+      },
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\r");
+    terminal.input?.("\u001b[200~/attach\u001b[201~");
+    terminal.input?.("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(terminal.starts).toBe(2);
+    expect(terminal.input).not.toBeNull();
+    terminal.input?.("\u001b[200~/quit\u001b[201~");
+    terminal.input?.("\r");
+    await running;
+    expect(terminal.output).toContain("Error: Unexpected failure");
+  });
+
   it("renders runtime questions in chat and returns the entered decision", async () => {
     const terminal = new TestTerminal();
     let confirm: ((message: string) => Promise<boolean>) | null = null;
@@ -416,6 +524,7 @@ describe("RecursInteractiveShell", () => {
       },
       setApprovalHandler() {},
       setUserInputHandler() {},
+      currentSignal() { return new AbortController().signal; },
       cancel() { return false; },
       async close() {},
       commandNames() { return ["quit"]; },
@@ -521,6 +630,7 @@ describe("RecursInteractiveShell", () => {
       },
       setApprovalHandler() {},
       setUserInputHandler() {},
+      currentSignal() { return new AbortController().signal; },
       cancel() { return false; },
       async close() {},
       commandNames() { return ["quit"]; },
@@ -567,6 +677,54 @@ describe("RecursInteractiveShell", () => {
     expect(decisions).toEqual([true, false]);
   });
 
+  it("removes an unanswered runtime question when its turn is cancelled", async () => {
+    const terminal = new TestTerminal();
+    const controller = new AbortController();
+    let askUser:
+      | ((request: { question: string; options: readonly string[] }, signal: AbortSignal) => Promise<string | null>)
+      | null = null;
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler(handler: typeof askUser) { askUser = handler; },
+      cancel() {
+        controller.abort();
+        return true;
+      },
+      async close() {},
+      commandNames() { return ["quit"]; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const answer = askUser!(
+      { question: "Which path?", options: ["A", "B"] },
+      controller.signal,
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("Which path?");
+    terminal.input?.("\u0003");
+
+    await expect(answer).resolves.toBeNull();
+    terminal.input?.("\u0007");
+    terminal.input?.("q");
+    await running;
+  });
+
   it("restores an unfinished draft after a runtime question", async () => {
     const terminal = new TestTerminal();
     let confirm: ((message: string) => Promise<boolean>) | null = null;
@@ -584,6 +742,7 @@ describe("RecursInteractiveShell", () => {
       },
       setApprovalHandler() {},
       setUserInputHandler() {},
+      currentSignal() { return new AbortController().signal; },
       cancel() { return false; },
       async close() {},
       commandNames() { return ["quit"]; },

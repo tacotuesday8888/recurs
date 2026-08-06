@@ -65,6 +65,21 @@ describe("TerminalUiState", () => {
     await state.emit({
       type: "agent_started",
       sessionId: "parent-session",
+      at: "2026-08-06T00:00:02.500Z",
+      parentAgentId: "parent-agent",
+      childAgentId: "lead-agent",
+      childSessionId: "lead-session",
+      taskId: "task-0",
+      description: "Lead implementation",
+      operatingModeId: "balanced_v6",
+      profileId: "explore_v1",
+      modelId: "gpt-5.6-sol",
+      reasoningEffort: "high",
+      backendStrategy: "inherit_parent",
+    });
+    await state.emit({
+      type: "agent_started",
+      sessionId: "parent-session",
       at: "2026-08-06T00:00:03.000Z",
       parentAgentId: "parent-agent",
       childAgentId: "worker-agent",
@@ -136,6 +151,22 @@ describe("TerminalUiState", () => {
       childSessionId: "review-session",
     });
     await state.emit({
+      type: "agent_started",
+      sessionId: "parent-session",
+      at: "2026-08-06T00:00:00.500Z",
+      parentAgentId: "parent-agent",
+      childAgentId: "review-agent",
+      childSessionId: "review-session",
+      taskId: "task-1",
+      description: "Review the candidate",
+      operatingModeId: "performance_v6",
+      profileId: "review_v2",
+      modelId: "review-model",
+      reasoningEffort: "medium",
+      backendStrategy: "role_candidate",
+      backendReason: "eligible_role_candidate",
+    });
+    await state.emit({
       type: "company_handoff_failed",
       sessionId: "parent-session",
       at: "2026-08-06T00:00:01.000Z",
@@ -156,6 +187,48 @@ describe("TerminalUiState", () => {
       detail: "provider unavailable",
     });
     expect(state.snapshot().goal?.activeAgents ?? 0).toBe(0);
+  });
+
+  it("does not depict a reserved assignment before its child activates", async () => {
+    const state = new TerminalUiState({
+      model: "parent-model",
+      mode: "balanced_v6",
+      permission: "approved_for_me",
+    });
+    await state.emit({
+      type: "company_assignment_started",
+      sessionId: "parent-session",
+      at: "2026-08-06T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      goalRunId: "goal-1",
+      assignmentId: "implement-1",
+      parentAssignmentId: null,
+      departmentId: "engineering",
+      roleId: "implementer",
+      roleName: "Implement",
+      profileId: "implement_v2",
+      childAgentId: "implement-agent",
+      childSessionId: "implement-session",
+    });
+    await state.emit({
+      type: "company_handoff_failed",
+      sessionId: "parent-session",
+      at: "2026-08-06T00:00:01.000Z",
+      parentAgentId: "parent-agent",
+      goalRunId: "goal-1",
+      assignmentId: "implement-1",
+      parentAssignmentId: null,
+      departmentId: "engineering",
+      roleId: "implementer",
+      childAgentId: "implement-agent",
+      childSessionId: "implement-session",
+      status: "failed",
+      reason: "route unavailable",
+    });
+
+    expect(state.snapshot().agents).toEqual([]);
+    expect(renderCompanyHome(state.snapshot(), 80, 0).join("\n"))
+      .not.toContain("IMPLEMENT");
   });
 
   it("never renders beyond a narrow terminal width", () => {

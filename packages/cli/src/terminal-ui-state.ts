@@ -64,7 +64,8 @@ interface MutableGoal {
 
 export class TerminalUiState implements EventSink {
   readonly #session: TerminalUiSnapshot["session"];
-  readonly #agents = new Map<string, MutableAgent>();
+  readonly #assignments = new Map<string, MutableAgent>();
+  readonly #activatedAssignments = new Set<string>();
   #goal: MutableGoal | null = null;
   #onChange: (() => void) | null = null;
 
@@ -87,10 +88,12 @@ export class TerminalUiState implements EventSink {
           maxConcurrentAgents: event.maxConcurrentAgents,
           maxDelegationDepth: event.maxDelegationDepth,
         };
-        this.#agents.clear();
+        this.#assignments.clear();
+        this.#activatedAssignments.clear();
         break;
       case "company_assignment_started":
-        this.#agents.set(event.assignmentId, {
+        this.#activatedAssignments.delete(event.assignmentId);
+        this.#assignments.set(event.assignmentId, {
           assignmentId: event.assignmentId,
           parentAssignmentId: event.parentAssignmentId,
           childAgentId: event.childAgentId,
@@ -103,12 +106,13 @@ export class TerminalUiState implements EventSink {
         });
         break;
       case "agent_started": {
-        const agent = [...this.#agents.values()].find(
+        const agent = [...this.#assignments.values()].find(
           (candidate) => candidate.childAgentId === event.childAgentId,
         );
         if (agent !== undefined) {
           agent.model = event.modelId;
           agent.effort = event.reasoningEffort;
+          this.#activatedAssignments.add(agent.assignmentId);
         }
         break;
       }
@@ -140,7 +144,7 @@ export class TerminalUiState implements EventSink {
     status: Exclude<TerminalAgentStatus, "running">,
     detail: string | null,
   ): void {
-    const agent = this.#agents.get(assignmentId);
+    const agent = this.#assignments.get(assignmentId);
     if (agent === undefined) return;
     agent.status = status;
     agent.detail = detail;
@@ -154,14 +158,15 @@ export class TerminalUiState implements EventSink {
       while (current.parentAssignmentId !== null) {
         if (seen.has(current.parentAssignmentId)) break;
         seen.add(current.parentAssignmentId);
-        const parent = this.#agents.get(current.parentAssignmentId);
+        const parent = this.#assignments.get(current.parentAssignmentId);
         if (parent === undefined) break;
         current = parent;
         value += 1;
       }
       return value;
     };
-    const agents = [...this.#agents.values()]
+    const agents = [...this.#assignments.values()]
+      .filter((agent) => this.#activatedAssignments.has(agent.assignmentId))
       .map((agent): TerminalAgentView => Object.freeze({
         ...agent,
         depth: depth(agent),
