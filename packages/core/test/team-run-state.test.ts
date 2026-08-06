@@ -838,6 +838,99 @@ describe("team run state", () => {
     }]);
   });
 
+  it("terminalizes an unchanged completed repair without inventing another review", () => {
+    const oneTask = descriptor({
+      request: {
+        description: "One task",
+        tasks: [{ description: "Only task", prompt: "Change src/a.ts" }],
+        review: { instructions: "Review it" },
+      },
+    });
+    const snapshot = (id: string, sha256 = "c".repeat(64)) => ({
+      id,
+      leaseId: "stage-lease",
+      baseRevision,
+      sha256,
+      byteLength: 128,
+      paths: ["src/a.ts"],
+    });
+    const before = snapshot("candidate-before");
+    const after = snapshot("candidate-after");
+    const records: TeamRunRecord[] = [
+      created(oneTask),
+      claim(),
+      phase(2, "implement"),
+      reservation(3, "implement-1", "implement", 1),
+      finished(4, "implement-1", { changedFiles: ["src/a.ts"] }),
+      artifact(5, "worker", "patch-a", "implement-1", ["src/a.ts"]),
+      phase(6, "stage"),
+      phase(7, "review"),
+      reservation(8, "review-1", "review", 1),
+      finished(9, "review-1"),
+      record(10, {
+        type: "review_recorded",
+        review: {
+          round: 0,
+          verdict: "changes_requested",
+          findings: [{
+            path: "src/a.ts",
+            problem: "The boundary is missing.",
+            acceptance: "Handle the boundary.",
+            evidence: ["src/a.ts:1"],
+          }],
+          evidence: ["review evidence"],
+        },
+        at: at(10),
+      }),
+      phase(11, "repair", 1),
+      reservation(12, "repair-1", "repair", 1, 1),
+      finished(13, "repair-1", { changedFiles: ["src/a.ts"] }),
+      record(14, {
+        type: "repair_stalled",
+        round: 1,
+        before,
+        after,
+        at: at(14),
+      }),
+      record(15, {
+        type: "run_terminal",
+        status: "changes_requested",
+        outcome: {
+          changedFiles: [],
+          evidence: ["Repair made no material change."],
+          failure: null,
+        },
+        at: at(15),
+      }),
+    ];
+
+    expect(reduceTeamRunRecords(records)).toMatchObject({
+      status: "changes_requested",
+      phase: "repair",
+      round: 1,
+    });
+    const premature = [
+      ...records.slice(0, 14),
+      record(14, {
+        type: "run_terminal",
+        status: "changes_requested",
+        outcome: {
+          changedFiles: [],
+          evidence: ["Repair made no material change."],
+          failure: null,
+        },
+        at: at(14),
+      }),
+    ];
+    expect(() => reduceTeamRunRecords(premature))
+      .toThrow(/repair exhaustion or a stalled repair/u);
+    const changed = structuredClone(records);
+    const stalled = changed[14];
+    if (stalled?.type !== "repair_stalled") throw new Error("Expected repair record");
+    stalled.after.sha256 = "d".repeat(64);
+    expect(() => reduceTeamRunRecords(changed)).toThrow(/unchanged repair/u);
+  });
+
   it("allows an explicitly unverified verdict after a failed required reviewer", () => {
     const economy = descriptorForMode("economy_v4", {
       request: {

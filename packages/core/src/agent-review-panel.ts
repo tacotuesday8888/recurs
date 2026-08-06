@@ -332,8 +332,11 @@ export function repairPrompt(input: RepairPromptInput): string {
   const prompt = [
     `Repair round ${input.round} of ${input.maximumRounds}.`,
     "Work only in the supplied staging workspace and change only the staged candidate.",
+    "Inspect the current staged diff and every finding path before editing.",
     "Satisfy every acceptance condition; do not broaden the objective.",
+    "Apply the smallest material patch that satisfies the findings; a no-op is not a completed repair.",
     "Use run_verification for requested test, lint, build, or type-check evidence after edits.",
+    "Inspect the final staged diff before returning and report any remaining finding honestly.",
     "Do not delegate, execute arbitrary processes, use network resources, access credentials, or deploy.",
     "Use only the bounded host file, Git-inspection, and run_verification tools supplied by Recurs.",
     "Return a concise handoff with changed files and concrete evidence.",

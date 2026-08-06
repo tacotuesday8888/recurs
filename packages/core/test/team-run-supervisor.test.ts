@@ -174,6 +174,7 @@ interface HarnessOptions {
   readonly tamperReturnedChild?: boolean;
   readonly cancelAfterImplementStarts?: number;
   readonly repairActualPaths?: readonly string[];
+  readonly repairNoop?: boolean;
   readonly permissionMode?: "approved_for_me" | "full_access";
   readonly backgroundCandidate?: boolean;
   readonly pauseCandidateReady?: boolean;
@@ -535,7 +536,11 @@ async function harness(options: HarnessOptions = {}) {
           : `artifact-${lease.id}`,
         lease.id,
         paths,
-        ["a", "b", "c", "d"][numericId - 1] ?? "e",
+        implementationIndex === undefined &&
+            log.includes("child:repair:1:finish") &&
+            options.repairNoop !== true
+          ? "d"
+          : ["a", "b", "c", "d"][numericId - 1] ?? "e",
       );
       workerArtifacts.set(
         implementationIndex === undefined ? `${lease.id}:${captureIndex}` : lease.id,
@@ -2033,6 +2038,27 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
       });
     }
     expect(test.parentMutationCount()).toBe(1);
+  });
+
+  it("does not spend another review request after a no-op repair", async () => {
+    const test = await harness({
+      reviewByRound: () => "changes_requested",
+      repairNoop: true,
+    });
+
+    const result = await test.supervisor.startForeground(test.input, test.context);
+    const state = await test.state(result.metadata.teamId);
+
+    expect(result.metadata).toMatchObject({
+      status: "changes_requested",
+      repairRounds: 1,
+    });
+    expect(state.reviews.map((review) => review.round)).toEqual([0]);
+    expect(test.reviewPrompts).toHaveLength(1);
+    expect(result.metadata.evidence).toContain(
+      "Repair round 1 made no material change to the staged candidate.",
+    );
+    expect(test.parentMutationCount()).toBe(0);
   });
 
   it("recomputes the exact staging scope after repair before re-review", async () => {

@@ -581,8 +581,11 @@ function resultFromState(
       teamId: state.descriptor.id,
       status: state.status,
       operatingModeId: state.descriptor.operatingModeId,
-      repairRounds: state.reviews.reduce(
-        (maximum, review) => Math.max(maximum, review.round),
+      repairRounds: state.children.reduce(
+        (maximum, child) => child.reservation.role === "repair" &&
+            child.result?.status === "completed"
+          ? Math.max(maximum, child.reservation.round)
+          : maximum,
         0,
       ),
       accounting: state.accounting,
@@ -1955,10 +1958,28 @@ export class TeamRunSupervisor {
           );
         }
         reviewSnapshots.push(repairedSnapshot);
-        reviewedSnapshot = repairedSnapshot;
-        changedFiles = [...reviewedSnapshot.paths];
         evidence.push(...repair.metadata.evidence);
         executionEvidence.push(...repair.metadata.evidence);
+        if (sameCandidateContent(reviewedSnapshot, repairedSnapshot)) {
+          const noChange =
+            `Repair round ${round} made no material change to the staged candidate.`;
+          evidence.push(noChange);
+          await journal.append({
+            type: "repair_stalled",
+            round,
+            before: reviewedSnapshot,
+            after: repairedSnapshot,
+            at: this.#now(),
+          });
+          return await this.#terminal(
+            journal,
+            "changes_requested",
+            null,
+            evidence,
+          );
+        }
+        reviewedSnapshot = repairedSnapshot;
+        changedFiles = [...reviewedSnapshot.paths];
       }
 
       await cancellationBoundary();
