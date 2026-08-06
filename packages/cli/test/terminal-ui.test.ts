@@ -1,7 +1,10 @@
 import type { RecursRuntime } from "../src/runtime.js";
 import type { HostInvocation, ModelImageInput } from "@recurs/contracts";
 import { describe, expect, it, vi } from "vitest";
-import type { AutocompleteProvider } from "@earendil-works/pi-tui";
+import {
+  visibleWidth,
+  type AutocompleteProvider,
+} from "@earendil-works/pi-tui";
 
 import {
   CompanyHomeComponent,
@@ -12,14 +15,18 @@ import {
 import { TerminalUiState } from "../src/terminal-ui-state.js";
 
 class TestTerminal implements InteractiveTerminal {
-  readonly columns = 80;
-  readonly rows = 30;
   readonly kittyProtocolActive = false;
   input: ((data: string) => void) | null = null;
   output = "";
+  readonly writes: string[] = [];
   starts = 0;
   stops = 0;
   title = "";
+
+  constructor(
+    readonly columns = 80,
+    readonly rows = 30,
+  ) {}
 
   start(onInput: (data: string) => void): void {
     this.starts += 1;
@@ -30,7 +37,10 @@ class TestTerminal implements InteractiveTerminal {
     this.input = null;
   }
   async drainInput(): Promise<void> {}
-  write(data: string): void { this.output += data; }
+  write(data: string): void {
+    this.output += data;
+    this.writes.push(data);
+  }
   moveBy(): void {}
   hideCursor(): void {}
   showCursor(): void {}
@@ -175,6 +185,81 @@ describe("TerminalSafeAutocompleteProvider", () => {
 });
 
 describe("RecursInteractiveShell", () => {
+  it.each([
+    ["choice", "\u001b"],
+    ["text", "\u0003"],
+  ] as const)("cancels an onboarding %s prompt from the keyboard", async (
+    prompt,
+    key,
+  ) => {
+    const terminal = new TestTerminal();
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+      colorEnabled: false,
+    });
+    const onboarding = shell.onboard(async (ui) => {
+      const choice = await ui.selectChoice("Choose a provider", [{
+        id: "codex",
+        label: "Codex",
+        detail: "Use the saved subscription",
+      }]);
+      if (prompt === "choice") return choice;
+      return await ui.promptText("Name the company", "Platform");
+    });
+    const rejected = expect(onboarding).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    if (prompt === "text") {
+      terminal.input?.("\r");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(terminal.output).toContain("Name the company");
+    }
+    terminal.input?.(key);
+
+    await rejected;
+    expect(terminal.input).toBeNull();
+  });
+
+  it.each([36, 120])(
+    "keeps long onboarding content within a %d-column terminal",
+    async (columns) => {
+      const terminal = new TestTerminal(columns, 30);
+      const shell = new RecursInteractiveShell({
+        terminal,
+        cwd: "/workspace",
+        animate: false,
+        colorEnabled: false,
+      });
+      const long = "company formation context ".repeat(12);
+      const onboarding = shell.onboard(async (ui) => {
+        ui.stdout.write(`${long}\n`);
+        return await ui.selectChoice(`Choose ${long}`, [{
+          id: "recommended",
+          label: `Recommended ${long}`,
+          detail: `Why ${long}`,
+        }]);
+      });
+      const rejected = expect(onboarding).rejects.toMatchObject({
+        name: "AbortError",
+      });
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const widths = terminal.writes.flatMap((write) =>
+        write.split("\u001b[?2026h").join("")
+          .split("\u001b[?2026l").join("")
+          .split(/\r?\n/u)
+          .map((line) => visibleWidth(line))
+      );
+      expect(Math.max(...widths)).toBeLessThanOrEqual(columns);
+      terminal.input?.("\u001b");
+      await rejected;
+    },
+  );
+
   it("runs guided setup choices and text in the same terminal surface", async () => {
     const terminal = new TestTerminal();
     const shell = new RecursInteractiveShell({

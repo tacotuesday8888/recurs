@@ -395,6 +395,31 @@ describe("runCli", () => {
     expect(stderr.value).toBe("");
   });
 
+  it("does not take terminal ownership for unattended explicit setup", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let shellCreated = false;
+
+    const exitCode = await runCli(["setup"], {
+      stdout,
+      stderr,
+      interactive: true,
+      automation: true,
+      terminalUi: true,
+      createInteractiveShell() {
+        shellCreated = true;
+        throw new Error("automation must not create an interactive shell");
+      },
+      async createRuntime() {
+        throw new Error("runtime must not start");
+      },
+    });
+
+    expect(exitCode).toBe(2);
+    expect(shellCreated).toBe(false);
+    expect(stderr.value).toContain("user-present local terminal");
+  });
+
   it("guides explicit local setup and falls back safely when Full Access is declined", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();

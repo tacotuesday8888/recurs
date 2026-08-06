@@ -1588,7 +1588,8 @@ export async function runCli(
   }
 
   if (argv.length === 1 && argv[0] === "setup") {
-    const shell = dependencies.terminalUi === true
+    const shell = dependencies.terminalUi === true &&
+        dependencies.automation !== true
       ? dependencies.createInteractiveShell?.(
           dependencies.cwd ?? process.cwd(),
         )

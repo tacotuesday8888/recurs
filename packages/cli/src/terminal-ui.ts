@@ -270,6 +270,7 @@ class OnboardingComponent extends Container {
   readonly #footer: Text;
   readonly #editor: Editor;
   #input: Component | null = null;
+  #cancelActive: (() => void) | null = null;
 
   constructor(
     private readonly tui: TUI,
@@ -306,7 +307,10 @@ class OnboardingComponent extends Container {
     choices: readonly InteractiveOnboardingChoice[],
     signal?: AbortSignal,
   ): Promise<string | null> {
-    if (signal?.aborted === true || choices.length === 0) {
+    if (signal?.aborted === true) {
+      return Promise.reject(onboardingAbortError());
+    }
+    if (choices.length === 0) {
       return Promise.resolve(null);
     }
     const list = new SelectList(
@@ -318,20 +322,22 @@ class OnboardingComponent extends Container {
       Math.min(8, choices.length),
       editorTheme(this.colorEnabled).selectList,
     );
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       let settled = false;
-      const finish = (answer: string | null): void => {
+      const settle = (operation: () => void): void => {
         if (settled) return;
         settled = true;
         signal?.removeEventListener("abort", onAbort);
+        if (this.#cancelActive === onAbort) this.#cancelActive = null;
         this.#idle();
-        resolve(answer);
+        operation();
       };
-      const onAbort = (): void => finish(null);
-      list.onSelect = (item) => finish(item.value);
-      list.onCancel = () => finish(null);
+      const onAbort = (): void => settle(() => reject(onboardingAbortError()));
+      list.onSelect = (item) => settle(() => resolve(item.value));
+      list.onCancel = onAbort;
       this.#question.setText(sanitizeTerminalText(message));
       this.#replaceInput(list);
+      this.#cancelActive = onAbort;
       signal?.addEventListener("abort", onAbort, { once: true });
       if (signal?.aborted === true) onAbort();
     });
@@ -342,18 +348,21 @@ class OnboardingComponent extends Container {
     suggestion?: string,
     signal?: AbortSignal,
   ): Promise<string | null> {
-    if (signal?.aborted === true) return Promise.resolve(null);
-    return new Promise((resolve) => {
+    if (signal?.aborted === true) {
+      return Promise.reject(onboardingAbortError());
+    }
+    return new Promise((resolve, reject) => {
       let settled = false;
-      const finish = (answer: string | null): void => {
+      const settle = (operation: () => void): void => {
         if (settled) return;
         settled = true;
         signal?.removeEventListener("abort", onAbort);
+        if (this.#cancelActive === onAbort) this.#cancelActive = null;
         delete this.#editor.onSubmit;
         this.#idle();
-        resolve(answer);
+        operation();
       };
-      const onAbort = (): void => finish(null);
+      const onAbort = (): void => settle(() => reject(onboardingAbortError()));
       const safeSuggestion = suggestion === undefined
         ? undefined
         : sanitizeTerminalText(suggestion, { multiline: false });
@@ -364,12 +373,21 @@ class OnboardingComponent extends Container {
       this.#editor.setText(safeSuggestion ?? "");
       this.#editor.onSubmit = (value) => {
         const expanded = value.trim();
-        finish(expanded.length === 0 ? safeSuggestion ?? null : expanded);
+        settle(() =>
+          resolve(expanded.length === 0 ? safeSuggestion ?? null : expanded)
+        );
       };
       this.#replaceInput(this.#editor);
+      this.#cancelActive = onAbort;
       signal?.addEventListener("abort", onAbort, { once: true });
       if (signal?.aborted === true) onAbort();
     });
+  }
+
+  cancel(): boolean {
+    if (this.#cancelActive === null) return false;
+    this.#cancelActive();
+    return true;
   }
 
   focus(): void {
@@ -397,6 +415,10 @@ class OnboardingComponent extends Container {
     this.tui.setFocus(null);
     this.tui.requestRender(true);
   }
+}
+
+function onboardingAbortError(): DOMException {
+  return new DOMException("Guided setup was cancelled", "AbortError");
 }
 
 interface PendingQuestion {
@@ -661,12 +683,22 @@ export class RecursInteractiveShell {
       },
     };
     tui.addChild(component);
+    const removeCancellationListener = tui.addInputListener((data) => {
+      if (
+        matchesKey(data, Key.escape) ||
+        matchesKey(data, Key.ctrl("c"))
+      ) {
+        if (component.cancel()) return { consume: true };
+      }
+      return undefined;
+    });
     this.#terminal.setTitle(terminalTitle(this.#cwd));
     tui.start();
     tui.requestRender(true);
     try {
       return await run(ui);
     } finally {
+      removeCancellationListener();
       tui.stop();
     }
   }
