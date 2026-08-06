@@ -175,6 +175,67 @@ describe("TerminalSafeAutocompleteProvider", () => {
 });
 
 describe("RecursInteractiveShell", () => {
+  it("runs guided setup choices and text in the same terminal surface", async () => {
+    const terminal = new TestTerminal();
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+    });
+    let suspended = false;
+
+    const onboarding = shell.onboard(async (ui) => {
+      ui.stdout.write("Welcome to the guided company setup.\n");
+      const connection = await ui.selectChoice("Choose a parent model", [
+        {
+          id: "saved",
+          label: "Use saved Codex",
+          detail: "vendor-owned authentication\u001b]0;unsafe\u0007",
+        },
+        {
+          id: "local",
+          label: "Use local model",
+          detail: "local compute",
+        },
+      ]);
+      const team = await ui.promptText("Name this team", "Platform");
+      const confirmed = await ui.confirm("Approve this company?");
+      const external = await ui.runExternal(async () => {
+        suspended = terminal.input === null;
+        return "ready";
+      });
+      return { connection, team, confirmed, external };
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("RECURS / SETUP");
+    expect(terminal.output).toContain("Use saved Codex");
+    expect(terminal.output).toContain("vendor-owned authentication");
+    expect(terminal.output).not.toContain("\u001b]0;unsafe\u0007");
+    terminal.input?.("\r");
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("Name this team");
+    expect(terminal.output).toContain("Platform");
+    terminal.input?.("\r");
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("Approve this company?");
+    terminal.input?.("\u001b[B");
+    terminal.input?.("\r");
+
+    await expect(onboarding).resolves.toEqual({
+      connection: "saved",
+      team: "Platform",
+      confirmed: true,
+      external: "ready",
+    });
+    expect(suspended).toBe(true);
+    expect(terminal.starts).toBe(2);
+    expect(terminal.stops).toBe(2);
+    expect(terminal.input).toBeNull();
+  });
+
   it("starts on the company view and closes runtime truthfully", async () => {
     const terminal = new TestTerminal();
     let closed = 0;

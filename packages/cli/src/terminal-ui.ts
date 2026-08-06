@@ -4,6 +4,7 @@ import {
   Editor,
   Key,
   ProcessTerminal,
+  SelectList,
   Text,
   TUI,
   matchesKey,
@@ -51,6 +52,29 @@ import {
 } from "./terminal-ui-state.js";
 
 export type InteractiveTerminal = Terminal;
+
+export interface InteractiveOnboardingChoice {
+  readonly id: string;
+  readonly label: string;
+  readonly detail: string;
+}
+
+export interface InteractiveOnboardingUi {
+  readonly stdout: Writable;
+  readonly stderr: Writable;
+  selectChoice(
+    message: string,
+    choices: readonly InteractiveOnboardingChoice[],
+    signal?: AbortSignal,
+  ): Promise<string | null>;
+  promptText(
+    message: string,
+    suggestion?: string,
+    signal?: AbortSignal,
+  ): Promise<string | null>;
+  confirm(message: string, signal?: AbortSignal): Promise<boolean>;
+  runExternal<T>(operation: () => Promise<T>): Promise<T>;
+}
 
 export interface CompanyHomeActions {
   readonly openChat: () => void;
@@ -239,6 +263,140 @@ class TranscriptBuffer {
   }
 
   text(): string { return this.#text.trimEnd(); }
+}
+
+class OnboardingComponent extends Container {
+  readonly #question = new Text();
+  readonly #footer: Text;
+  readonly #editor: Editor;
+  #input: Component | null = null;
+
+  constructor(
+    private readonly tui: TUI,
+    buffer: TranscriptBuffer,
+    private readonly colorEnabled: boolean,
+  ) {
+    super();
+    const accent = ansi("96", colorEnabled);
+    const strong = ansi("1", colorEnabled);
+    const muted = ansi("2", colorEnabled);
+    this.#editor = new Editor(tui, editorTheme(colorEnabled), { paddingX: 1 });
+    this.#footer = new Text(
+      muted("↑↓ choose · Enter continue · Esc cancel · Ctrl+C cancel"),
+      1,
+      0,
+    );
+    const transcript = new Text();
+    buffer.onChange(() => {
+      transcript.setText(accent(buffer.text().replace(/^\n+/u, "")));
+      tui.requestRender();
+    });
+    this.addChild(new Text(
+      `${strong(accent("RECURS / SETUP"))}  ${muted("form your coding company")}`,
+      1,
+      0,
+    ));
+    this.addChild(transcript);
+    this.addChild(this.#question);
+    this.addChild(this.#footer);
+  }
+
+  askChoice(
+    message: string,
+    choices: readonly InteractiveOnboardingChoice[],
+    signal?: AbortSignal,
+  ): Promise<string | null> {
+    if (signal?.aborted === true || choices.length === 0) {
+      return Promise.resolve(null);
+    }
+    const list = new SelectList(
+      choices.map((choice) => ({
+        value: choice.id,
+        label: sanitizeTerminalText(choice.label, { multiline: false }),
+        description: sanitizeTerminalText(choice.detail, { multiline: false }),
+      })),
+      Math.min(8, choices.length),
+      editorTheme(this.colorEnabled).selectList,
+    );
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (answer: string | null): void => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        this.#idle();
+        resolve(answer);
+      };
+      const onAbort = (): void => finish(null);
+      list.onSelect = (item) => finish(item.value);
+      list.onCancel = () => finish(null);
+      this.#question.setText(sanitizeTerminalText(message));
+      this.#replaceInput(list);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted === true) onAbort();
+    });
+  }
+
+  askText(
+    message: string,
+    suggestion?: string,
+    signal?: AbortSignal,
+  ): Promise<string | null> {
+    if (signal?.aborted === true) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (answer: string | null): void => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        delete this.#editor.onSubmit;
+        this.#idle();
+        resolve(answer);
+      };
+      const onAbort = (): void => finish(null);
+      const safeSuggestion = suggestion === undefined
+        ? undefined
+        : sanitizeTerminalText(suggestion, { multiline: false });
+      this.#question.setText([
+        sanitizeTerminalText(message),
+        ...(safeSuggestion === undefined ? [] : [`Default: ${safeSuggestion}`]),
+      ].join("\n"));
+      this.#editor.setText(safeSuggestion ?? "");
+      this.#editor.onSubmit = (value) => {
+        const expanded = value.trim();
+        finish(expanded.length === 0 ? safeSuggestion ?? null : expanded);
+      };
+      this.#replaceInput(this.#editor);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted === true) onAbort();
+    });
+  }
+
+  focus(): void {
+    this.tui.setFocus(this.#input);
+  }
+
+  setWorking(): void {
+    this.#question.setText("Working…");
+    this.tui.requestRender();
+  }
+
+  #replaceInput(input: Component): void {
+    if (this.#input !== null) this.removeChild(this.#input);
+    this.#input = input;
+    const footerIndex = this.children.indexOf(this.#footer);
+    this.children.splice(Math.max(0, footerIndex), 0, input);
+    this.tui.setFocus(input);
+    this.tui.requestRender(true);
+  }
+
+  #idle(): void {
+    if (this.#input !== null) this.removeChild(this.#input);
+    this.#input = null;
+    this.#question.setText("Working…");
+    this.tui.setFocus(null);
+    this.tui.requestRender(true);
+  }
 }
 
 interface PendingQuestion {
@@ -449,6 +607,69 @@ export class RecursInteractiveShell {
     this.#textEvents = new TextEventRenderer(this.#transcriptOutput, {
       colorEnabled: this.#colorEnabled,
     });
+  }
+
+  async onboard<T>(
+    run: (ui: InteractiveOnboardingUi) => Promise<T>,
+  ): Promise<T> {
+    const buffer = new TranscriptBuffer();
+    const output = new Writable({
+      write: (chunk, _encoding, callback) => {
+        buffer.append(chunk.toString());
+        callback();
+      },
+    });
+    Object.defineProperties(output, {
+      columns: { get: () => this.#terminal.columns },
+      isTTY: { value: this.#colorEnabled },
+    });
+    const tui = new TUI(this.#terminal);
+    const component = new OnboardingComponent(
+      tui,
+      buffer,
+      this.#colorEnabled,
+    );
+    const ui: InteractiveOnboardingUi = {
+      stdout: output,
+      stderr: output,
+      selectChoice: (message, choices, signal) =>
+        component.askChoice(message, choices, signal),
+      promptText: (message, suggestion, signal) =>
+        component.askText(message, suggestion, signal),
+      confirm: async (message, signal) =>
+        await component.askChoice(message, Object.freeze([
+          Object.freeze({
+            id: "no",
+            label: "Not now",
+            detail: "leave this change unapproved",
+          }),
+          Object.freeze({
+            id: "yes",
+            label: "Continue",
+            detail: "approve this exact step",
+          }),
+        ]), signal) === "yes",
+      runExternal: async (operation) => {
+        component.setWorking();
+        tui.stop();
+        try {
+          return await operation();
+        } finally {
+          tui.start();
+          component.focus();
+          tui.requestRender(true);
+        }
+      },
+    };
+    tui.addChild(component);
+    this.#terminal.setTitle(terminalTitle(this.#cwd));
+    tui.start();
+    tui.requestRender(true);
+    try {
+      return await run(ui);
+    } finally {
+      tui.stop();
+    }
   }
 
   async start(runtime: RecursRuntime): Promise<void> {
