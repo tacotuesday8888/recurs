@@ -17,6 +17,7 @@ const temporaryFile = path.join(
 const externalPackages = new Set([
   "@agentclientprotocol/codex-acp",
   "@agentclientprotocol/sdk",
+  "@earendil-works/pi-tui",
   "@lydell/node-pty",
   "@openai/codex",
   "yaml",

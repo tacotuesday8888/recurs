@@ -144,6 +144,7 @@ import {
   writeOutput,
 } from "./render.js";
 import { startRepl } from "./repl.js";
+import { createRecursInteractiveShell } from "./terminal-ui.js";
 import {
   RuntimeError,
   isCancellation,
@@ -163,7 +164,9 @@ export interface CliDependencies {
   cwd?: string;
   interactive?: boolean;
   automation?: boolean;
+  terminalUi?: boolean;
   dataDirectory?: string;
+  createInteractiveShell?(): InteractiveShell;
   inspectLifecycleHooks?(): Promise<LifecycleHookStatus>;
   inspectPermissionRules?(cwd: string): Promise<PermissionRuleStatus>;
   signal?: AbortSignal;
@@ -283,6 +286,11 @@ export interface CliDependencies {
     signal?: AbortSignal,
   ): Promise<ConnectionVerification>;
   disconnectAccount?(id: string): Promise<ConnectionDisconnection>;
+}
+
+export interface InteractiveShell {
+  readonly events: EventSink;
+  start(runtime: RecursRuntime): Promise<void>;
 }
 
 interface RunArguments {
@@ -1123,7 +1131,12 @@ async function projectTeamControlService(
 async function startInteractiveRepl(
   runtime: RecursRuntime,
   dependencies: CliDependencies,
+  shell?: InteractiveShell,
 ): Promise<void> {
+  if (shell !== undefined) {
+    await shell.start(runtime);
+    return;
+  }
   await startRepl(runtime, {
     ...(dependencies.stdin === undefined ? {} : { input: dependencies.stdin }),
     output: dependencies.stdout,
@@ -1463,7 +1476,10 @@ export async function runCli(
       );
       return 2;
     }
-    const renderer = new TextEventRenderer(dependencies.stdout);
+    const shell = dependencies.terminalUi === true
+      ? dependencies.createInteractiveShell?.()
+      : undefined;
+    const renderer = shell?.events ?? new TextEventRenderer(dependencies.stdout);
     let runtime: RecursRuntime | undefined;
     try {
       runtime = await dependencies.createRuntime(renderer);
@@ -1494,7 +1510,7 @@ export async function runCli(
           });
         }
       }
-      await startInteractiveRepl(runtime, dependencies);
+      await startInteractiveRepl(runtime, dependencies, shell);
       return 0;
     } catch (error) {
       if (dependencies.signal?.aborted === true || isAbortError(error)) {
@@ -1521,7 +1537,10 @@ export async function runCli(
       if (dependencies.signal?.aborted === true) {
         throw new DOMException("Guided setup was cancelled", "AbortError");
       }
-      const renderer = new TextEventRenderer(dependencies.stdout);
+      const shell = dependencies.terminalUi === true
+        ? dependencies.createInteractiveShell?.()
+        : undefined;
+      const renderer = shell?.events ?? new TextEventRenderer(dependencies.stdout);
       const runtime = await dependencies.createRuntime(renderer, {
         operatingModeId: onboarding.operatingModeId,
         permissionMode: onboarding.permissionMode,
@@ -1534,7 +1553,7 @@ export async function runCli(
                 onboarding.companyBlueprintV2 ?? onboarding.companyBlueprint,
             }),
       });
-      await startInteractiveRepl(runtime, dependencies);
+      await startInteractiveRepl(runtime, dependencies, shell);
       return 0;
     } catch (error) {
       if (dependencies.signal?.aborted === true || isAbortError(error)) {
@@ -2225,6 +2244,8 @@ export async function runCliProcess(
     return choices.some((choice) => choice.id === answer) ? answer : null;
   };
   const dataDirectory = process.env.RECURS_HOME ?? path.join(homedir(), ".recurs");
+  const interactive = processStdin.isTTY === true && processStdout.isTTY === true;
+  const terminalUi = interactive && process.env.RECURS_NO_TUI !== "1";
   try {
     process.exitCode = await runCli(argv, {
       stdin: processStdin,
@@ -2237,7 +2258,16 @@ export async function runCliProcess(
         dataDirectory,
         await realpath(cwd),
       ),
-      interactive: processStdin.isTTY === true && processStdout.isTTY === true,
+      interactive,
+      terminalUi,
+      ...(terminalUi
+        ? {
+            createInteractiveShell: () => createRecursInteractiveShell({
+              cwd: process.cwd(),
+              colorEnabled: process.env.NO_COLOR === undefined,
+            }),
+          }
+        : {}),
       automation: isAutomationEnvironment(process.env),
       ...(interactiveOperationController === undefined
         ? {}

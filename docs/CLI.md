@@ -98,6 +98,21 @@ without retyping that objective. Saved interviews and proposals remain
 distinct from inactive rosters, stop setup without creating a new session, and
 resume through `recurs setup`.
 
+### Terminal interface
+
+In an interactive TTY, Recurs opens on a live company view. It shows the parent
+and only the agents that actually activate, arranged by delegation depth; model
+routes and completion states come from normalized runtime events rather than a
+decorative roster. Press `Enter` to open chat and `Ctrl+G` to move between chat
+and the company view. `Ctrl+C` cancels the active turn, while `q` or `Escape`
+quits from the company view.
+
+Chat keeps the existing slash commands, approvals, file completion, image
+staging, and owned-process attachment. Runtime questions are queued and an
+unfinished draft is restored after the user answers them. Non-TTY and
+structured-output modes are unchanged. Set `RECURS_NO_TUI=1` to use the legacy
+line-oriented interface in a local terminal.
+
 ## Provider access
 
 Recurs has three connection families:

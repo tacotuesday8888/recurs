@@ -735,6 +735,8 @@ describe("runCli", () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();
     let runtime: RecursRuntime | undefined;
+    let shellStarted = false;
+    const shellEvents = { async emit() {} };
 
     const exitCode = await runCli(["setup"], {
       cwd: workspace,
@@ -743,6 +745,13 @@ describe("runCli", () => {
       stderr,
       interactive: true,
       automation: false,
+      terminalUi: true,
+      createInteractiveShell() {
+        return {
+          events: shellEvents,
+          async start() { shellStarted = true; },
+        };
+      },
       async listAccounts() { return [parentAccount]; },
       async listProviders() { return []; },
       async detectProviders() { return []; },
@@ -773,6 +782,7 @@ describe("runCli", () => {
         };
       },
       async createRuntime(events, options) {
+        expect(events).toBe(shellEvents);
         runtime = await createStandaloneRuntime(events, {
           cwd: workspace,
           dataDirectory,
@@ -797,6 +807,7 @@ describe("runCli", () => {
     expect(decisions).toEqual([]);
     expect(stderr.value).toBe("");
     expect(exitCode).toBe(0);
+    expect(shellStarted).toBe(true);
     expect(runtime?.session).toMatchObject({
       goal: {
         objective: "Launch the first reviewed company goal.",
@@ -3271,6 +3282,32 @@ describe("runCli", () => {
 
     expect(exitCode).toBe(0);
     expect(stdout.value).toContain("The best coding model is a team.");
+    expect(stderr.value).toBe("");
+  });
+
+  it("uses the interactive terminal shell only when the host enables it", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let started = false;
+
+    const exitCode = await runCli([], {
+      stdin: Readable.from(["/quit\n"]),
+      stdout,
+      stderr,
+      interactive: true,
+      terminalUi: true,
+      createInteractiveShell() {
+        return {
+          events: { async emit() {} },
+          async start() { started = true; },
+        };
+      },
+      createRuntime,
+    });
+
+    expect(exitCode).toBe(0);
+    expect(started).toBe(true);
+    expect(stdout.value).toBe("");
     expect(stderr.value).toBe("");
   });
 

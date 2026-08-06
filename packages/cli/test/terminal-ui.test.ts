@@ -1,0 +1,617 @@
+import type { RecursRuntime } from "../src/runtime.js";
+import type { HostInvocation, ModelImageInput } from "@recurs/contracts";
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  CompanyHomeComponent,
+  RecursInteractiveShell,
+  type InteractiveTerminal,
+} from "../src/terminal-ui.js";
+import { TerminalUiState } from "../src/terminal-ui-state.js";
+
+class TestTerminal implements InteractiveTerminal {
+  readonly columns = 80;
+  readonly rows = 30;
+  readonly kittyProtocolActive = false;
+  input: ((data: string) => void) | null = null;
+  output = "";
+  starts = 0;
+  stops = 0;
+  title = "";
+
+  start(onInput: (data: string) => void): void {
+    this.starts += 1;
+    this.input = onInput;
+  }
+  stop(): void {
+    this.stops += 1;
+    this.input = null;
+  }
+  async drainInput(): Promise<void> {}
+  write(data: string): void { this.output += data; }
+  moveBy(): void {}
+  hideCursor(): void {}
+  showCursor(): void {}
+  clearLine(): void {}
+  clearFromCursor(): void {}
+  clearScreen(): void {}
+  setTitle(title: string): void { this.title = title; }
+  setProgress(): void {}
+}
+
+describe("CompanyHomeComponent", () => {
+  it("opens chat with Enter and quits with q without selection chrome", () => {
+    const openChat = vi.fn();
+    const quit = vi.fn();
+    const state = new TerminalUiState({
+      model: "parent-model",
+      mode: "balanced_v6",
+      permission: "approved_for_me",
+    });
+    const component = new CompanyHomeComponent(state, {
+      openChat,
+      quit,
+      frame: () => 0,
+    });
+
+    const view = component.render(80).join("\n");
+    expect(view).toContain("RECURS / COMPANY");
+    expect(view).not.toContain("┌");
+    component.handleInput("\r");
+    component.handleInput("q");
+
+    expect(openChat).toHaveBeenCalledOnce();
+    expect(quit).toHaveBeenCalledOnce();
+  });
+
+  it("moves a subtle inspector between activated agents", async () => {
+    const refresh = vi.fn();
+    const state = new TerminalUiState({
+      model: "parent-model",
+      mode: "balanced_v6",
+      permission: "approved_for_me",
+    });
+    await state.emit({
+      type: "company_assignment_started",
+      goalRunId: "goal-1",
+      assignmentId: "implement-1",
+      parentAssignmentId: null,
+      childAgentId: "child-1",
+      departmentId: "engineering",
+      roleId: "implement",
+      roleName: "Implement",
+      task: "Build the change",
+      occurredAt: "2026-08-06T00:00:00.000Z",
+    });
+    await state.emit({
+      type: "company_assignment_started",
+      goalRunId: "goal-1",
+      assignmentId: "review-1",
+      parentAssignmentId: null,
+      childAgentId: "child-2",
+      departmentId: "quality",
+      roleId: "review",
+      roleName: "Review",
+      task: "Review the change",
+      occurredAt: "2026-08-06T00:00:01.000Z",
+    });
+    const component = new CompanyHomeComponent(state, {
+      openChat() {},
+      quit() {},
+      refresh,
+      frame: () => 0,
+    });
+
+    expect(component.render(100).join("\n"))
+      .toContain("ENGINEERING · RUNNING");
+    component.handleInput("\u001b[B");
+    const moved = component.render(100).join("\n");
+
+    expect(moved).toContain("QUALITY · RUNNING");
+    expect(moved).not.toContain("┌");
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+});
+
+describe("RecursInteractiveShell", () => {
+  it("starts on the company view and closes runtime truthfully", async () => {
+    const terminal = new TestTerminal();
+    let closed = 0;
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async submit(input: string) {
+        return input === "/quit"
+          ? { type: "quit" as const }
+          : { type: "message" as const, level: "info" as const, text: "ok" };
+      },
+      async close() { closed += 1; },
+      commandNames() { return ["goal", "quit"]; },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("RECURS / COMPANY");
+    terminal.input?.("q");
+    await running;
+
+    expect(closed).toBe(1);
+    expect(terminal.input).toBeNull();
+  });
+
+  it("strips terminal control sequences from the workspace title", async () => {
+    const terminal = new TestTerminal();
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["quit"]; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace/unsafe\u0007\u001b]0;injected",
+      animate: false,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("q");
+    await running;
+
+    expect(terminal.title).toBe("Recurs · /workspace/unsafe]0;injected");
+    expect([...terminal.title].every((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint > 0x1f && (codePoint < 0x7f || codePoint > 0x9f);
+    })).toBe(true);
+  });
+
+  it("moves from company to chat and submits through the same runtime", async () => {
+    const terminal = new TestTerminal();
+    const submitted: string[] = [];
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["goal", "quit"]; },
+      async submit(input: string) {
+        submitted.push(input);
+        return input === "/quit"
+          ? { type: "quit" as const }
+          : { type: "message" as const, level: "info" as const, text: "ok" };
+      },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("RECURS / CHAT");
+    expect(terminal.output).toContain("recurs ›");
+
+    terminal.input?.("\u001b[200~/quit\u001b[201~");
+    terminal.input?.("\r");
+    await running;
+    expect(submitted).toEqual(["/quit"]);
+  });
+
+  it("removes terminal controls from rendered runtime text", async () => {
+    const terminal = new TestTerminal();
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["quit"]; },
+      async submit(input: string) {
+        return input === "/quit"
+          ? { type: "quit" as const }
+          : {
+              type: "message" as const,
+              level: "info" as const,
+              text: "safe\u001b]0;injected\u0007",
+            };
+      },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\r");
+    for (const line of ["render text", "/quit"]) {
+      terminal.input?.(`\u001b[200~${line}\u001b[201~`);
+      terminal.input?.("\r");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    await running;
+
+    expect(terminal.output).not.toContain("safe\u001b]0;injected\u0007");
+    expect(terminal.output).toContain("safe]0;injected");
+  });
+
+  it("stages images locally and attaches them to exactly the next prompt", async () => {
+    const terminal = new TestTerminal();
+    const submissions: Array<{
+      readonly input: string;
+      readonly images?: readonly ModelImageInput[];
+    }> = [];
+    const image = { mediaType: "image/png" as const, data: "iVBORw0KGgo=" };
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      hasActiveRun: false,
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["quit"]; },
+      async submit(
+        input: string,
+        _invocation: HostInvocation,
+        options: { readonly images?: readonly ModelImageInput[] } = {},
+      ) {
+        submissions.push({ input, ...options });
+        return input === "/quit"
+          ? { type: "quit" as const }
+          : { type: "message" as const, level: "info" as const, text: "ok" };
+      },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+      async loadImages(paths, cwd) {
+        expect(paths).toEqual(["screen.png"]);
+        expect(cwd).toBe("/workspace");
+        return [image];
+      },
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\r");
+    for (const line of [
+      "/image screen.png",
+      "Inspect this screen",
+      "Continue",
+      "/quit",
+    ]) {
+      terminal.input?.(`\u001b[200~${line}\u001b[201~`);
+      terminal.input?.("\r");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    await running;
+
+    expect(submissions).toEqual([
+      { input: "Inspect this screen", images: [image] },
+      { input: "Continue" },
+      { input: "/quit" },
+    ]);
+    expect(terminal.output).toContain("Images staged for the next prompt: 1/4");
+  });
+
+  it("restores the TUI around an owned process attachment", async () => {
+    const terminal = new TestTerminal();
+    const attachments: string[] = [];
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["attach", "quit"]; },
+      async submit(input: string) {
+        return input === "/attach"
+          ? { type: "attach_process" as const, sessionId: "process-1" }
+          : { type: "quit" as const };
+      },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+      async attachProcess(_runtime, sessionId) {
+        attachments.push(sessionId);
+      },
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\r");
+    terminal.input?.("\u001b[200~/attach\u001b[201~");
+    terminal.input?.("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\u001b[200~/quit\u001b[201~");
+    terminal.input?.("\r");
+    await running;
+
+    expect(attachments).toEqual(["process-1"]);
+    expect(terminal.starts).toBe(2);
+    expect(terminal.stops).toBe(2);
+  });
+
+  it("renders runtime questions in chat and returns the entered decision", async () => {
+    const terminal = new TestTerminal();
+    let confirm: ((message: string) => Promise<boolean>) | null = null;
+    let allowed: boolean | null = null;
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      setConfirmHandler(handler: (message: string) => Promise<boolean>) {
+        confirm = handler;
+      },
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["quit"]; },
+      async submit(input: string) {
+        if (input === "ask") {
+          allowed = await confirm!("Apply the reviewed change?");
+          return { type: "message" as const, level: "info" as const, text: "decided" };
+        }
+        return { type: "quit" as const };
+      },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\r");
+    terminal.input?.("\u001b[200~ask\u001b[201~");
+    terminal.input?.("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("Apply the reviewed change? [y/N]");
+    terminal.input?.("yes");
+    terminal.input?.("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\u001b[200~/quit\u001b[201~");
+    terminal.input?.("\r");
+    await running;
+
+    expect(allowed).toBe(true);
+  });
+
+  it("does not overlap turns when the runtime cannot accept live input", async () => {
+    const terminal = new TestTerminal();
+    const submitted: string[] = [];
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      canAcceptLiveInput: false,
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["quit"]; },
+      async submit(input: string) {
+        submitted.push(input);
+        if (input === "first") await blocked;
+        return input === "/quit"
+          ? { type: "quit" as const }
+          : { type: "message" as const, level: "info" as const, text: "ok" };
+      },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\r");
+    for (const line of ["first", "second"]) {
+      terminal.input?.(`\u001b[200~${line}\u001b[201~`);
+      terminal.input?.("\r");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    expect(submitted).toEqual(["first"]);
+    release();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\u001b[200~/quit\u001b[201~");
+    terminal.input?.("\r");
+    await running;
+
+    expect(terminal.output).toContain("Wait for the active turn");
+  });
+
+  it("queues concurrent runtime questions instead of dropping agent decisions", async () => {
+    const terminal = new TestTerminal();
+    let confirm: ((message: string) => Promise<boolean>) | null = null;
+    let decisions: readonly boolean[] | null = null;
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      setConfirmHandler(handler: (message: string) => Promise<boolean>) {
+        confirm = handler;
+      },
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["quit"]; },
+      async submit(input: string) {
+        if (input === "ask twice") {
+          decisions = await Promise.all([
+            confirm!("Approve implementation?"),
+            confirm!("Approve review?"),
+          ]);
+          return { type: "message" as const, level: "info" as const, text: "decided" };
+        }
+        return { type: "quit" as const };
+      },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\r");
+    terminal.input?.("\u001b[200~ask twice\u001b[201~");
+    terminal.input?.("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("yes");
+    terminal.input?.("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const showedSecond = terminal.output.includes("Approve review? [y/N]");
+    if (showedSecond) {
+      terminal.input?.("no");
+      terminal.input?.("\r");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      terminal.input?.("\u001b[200~/quit\u001b[201~");
+      terminal.input?.("\r");
+    } else {
+      terminal.input?.("\u0007");
+      terminal.input?.("q");
+    }
+    await running;
+
+    expect(showedSecond).toBe(true);
+    expect(decisions).toEqual([true, false]);
+  });
+
+  it("restores an unfinished draft after a runtime question", async () => {
+    const terminal = new TestTerminal();
+    let confirm: ((message: string) => Promise<boolean>) | null = null;
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      setConfirmHandler(handler: (message: string) => Promise<boolean>) {
+        confirm = handler;
+      },
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["quit"]; },
+      async submit() {
+        throw new Error("the draft must not be submitted");
+      },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\r");
+    terminal.input?.("unfinished draft");
+    const decision = confirm!("Apply the reviewed change?");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.output = "";
+    terminal.input?.("yes");
+    terminal.input?.("\r");
+    await expect(decision).resolves.toBe(true);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(terminal.output).toContain("unfinished draft");
+    terminal.input?.("\u0007");
+    terminal.input?.("q");
+    await running;
+  });
+});

@@ -156,7 +156,7 @@ function renderReplBanner(
   return `${lines.join("\n")}\n`;
 }
 
-function stagedImagesText(images: readonly ModelImageInput[]): string {
+export function stagedImagesText(images: readonly ModelImageInput[]): string {
   if (images.length === 0) {
     return "No images staged. Use /image <path> before the next prompt.\n";
   }
@@ -164,7 +164,7 @@ function stagedImagesText(images: readonly ModelImageInput[]): string {
   return `Images staged for the next prompt: ${images.length}/${MAX_MODEL_IMAGES}, ${bytes ?? 0}/${MAX_MODEL_IMAGE_TOTAL_BYTES} bytes.\n`;
 }
 
-function interactiveImagePath(args: string): string {
+export function interactiveImagePath(args: string): string {
   const quote = args[0];
   if (quote === "'" || quote === '"') {
     if (args.length < 2 || args.at(-1) !== quote) {

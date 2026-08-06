@@ -84,8 +84,9 @@ candidates. Those role-confounded samples do not substitute for model/effort
 crosses, repeated current-harness runs, or real price coverage.
 
 Other current limits include Windows subprocess containment, a persistent
-worker daemon, a company operating UI, automatic plugin installation, remote
-MCP/OAuth, and unattended commit, push, deployment, or messaging.
+worker daemon, a full company operations dashboard, automatic plugin
+installation, remote MCP/OAuth, and unattended commit, push, deployment, or
+messaging.
 
 ## Alpha release guarantees
 

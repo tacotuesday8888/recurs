@@ -1,6 +1,6 @@
 # Recurs Feature Status
 
-**Audited:** 2026-08-05 against the source, exported package surfaces, CLI
+**Audited:** 2026-08-06 against the source, exported package surfaces, CLI
 assembly, durable contracts/stores, provider manifests, and automated tests in
 this release candidate.
 
@@ -15,7 +15,7 @@ context, not a product commitment.
 | --- | --- |
 | Base loop | Provider-neutral streamed turns, strict event reduction, bounded retries/steps/output, tool calls, cancellation, loop detection, steering, and queued follow-ups |
 | Sessions | Durable version-2 sessions, exact backend pins, mutation leases, resume/fork, compaction, recovery, goals, checkpoints, and conflict-safe undo |
-| CLI | Interactive chat with slash completion; headless text, JSON, and JSONL; images; `review`; ACP v1; scoped help; offline `doctor`; explicit local-data location; project `AGENTS.md` loading |
+| CLI | Differential-rendered company map and interactive chat with slash/file completion, queued approvals, draft preservation, and images; headless text, JSON, and JSONL; `review`; ACP v1; scoped help; offline `doctor`; explicit local-data location; project `AGENTS.md` loading |
 | Permissions | Ask Always, Approved for Me, Full Access, enforced Plan mode, read-only Review mode, parent ceilings, explicit apply, exact session-scoped interactive grants, and private exact-workspace allow/ask/deny rules |
 | Tools | Bounded file reads/list/search, code outline, TypeScript diagnostics, Git inspection, public web fetch, patching, verification, commands, and owned process sessions |
 | Interoperability | Bounded Agent Skills, user-configured or explicitly project-trusted stdio MCP, a Recurs-owned ACP server, and observe-only user lifecycle hooks |
@@ -71,7 +71,7 @@ app-server behavior in tests.
 
 ## Not implemented
 
-- a full-screen company operating UI or desktop client;
+- a full-screen company operations dashboard or desktop client;
 - enough repeated and statistically useful real-model evidence to publish a
   default Sol/Terra/Luna winner;
 - a persistent daemon, cloud worker, scheduler, or work that survives CLI exit;
