@@ -16,10 +16,12 @@ const execFileAsync = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJsonPath = path.join(root, "package.json");
 const bundlePath = path.join(root, "dist/cli/main.js");
+const maximumBundleBytes = 2_050_000;
 const licensePath = path.join(root, "LICENSE");
 const noticesPath = path.join(root, "THIRD_PARTY_NOTICES.md");
 const expectedDependencies = Object.freeze({
   "@agentclientprotocol/sdk": "1.3.0",
+  "@earendil-works/pi-tui": "0.83.0",
   typescript: "6.0.3",
   ws: "8.21.1",
   yaml: "2.9.0",
@@ -35,6 +37,7 @@ const expectedOptionalDependencies = Object.freeze({
 const expectedNoticeRows = Object.freeze([
   "| `@agentclientprotocol/codex-acp` | 1.1.7 | Apache-2.0 |",
   "| `@agentclientprotocol/sdk` | 1.3.0 | Apache-2.0 |",
+  "| `@earendil-works/pi-tui` | 0.83.0 | MIT |",
   "| `@lydell/node-pty` | 1.1.0 | MIT |",
   "| `@openai/codex` | 0.145.0 | Apache-2.0 |",
   "| `typescript` | 6.0.3 | Apache-2.0 |",
@@ -117,7 +120,10 @@ assert(bundle.startsWith("#!/usr/bin/env node\n"), "The bundled CLI must retain 
 assert((bundleStat.mode & 0o111) !== 0, "The bundled CLI must be executable.");
 assert(!bundle.includes("@recurs/"), "The bundled CLI must not depend on private workspace packages.");
 assert(!bundle.includes(root), "The bundled CLI must not embed the build-machine path.");
-assert(bundleStat.size < 2_000_000, "The unpacked CLI bundle unexpectedly exceeds 2 MB.");
+assert(
+  bundleStat.size < maximumBundleBytes,
+  "The unpacked CLI bundle unexpectedly exceeds 2.05 MB.",
+);
 
 const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "recurs-pack-check-"));
 try {

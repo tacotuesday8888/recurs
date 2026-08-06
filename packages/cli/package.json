@@ -19,6 +19,7 @@
   ],
   "dependencies": {
     "@agentclientprotocol/sdk": "1.3.0",
+    "@earendil-works/pi-tui": "0.83.0",
     "@recurs/app": "0.0.0",
     "@recurs/contracts": "0.0.0",
     "@recurs/core": "0.0.0",
