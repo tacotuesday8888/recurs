@@ -144,7 +144,10 @@ import {
   writeOutput,
 } from "./render.js";
 import { startRepl } from "./repl.js";
-import { createRecursInteractiveShell } from "./terminal-ui.js";
+import {
+  createRecursInteractiveShell,
+  type InteractiveOnboardingUi,
+} from "./terminal-ui.js";
 import {
   RuntimeError,
   isCancellation,
@@ -290,6 +293,13 @@ export interface CliDependencies {
 
 export interface InteractiveShell {
   readonly events: EventSink;
+  onboard?<T>(
+    run: (
+      ui: InteractiveOnboardingUi,
+      signal?: AbortSignal,
+    ) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T>;
   start(runtime: RecursRuntime): Promise<void>;
 }
 
@@ -1017,10 +1027,40 @@ function runtimeSessionId(runtime: RecursRuntime | undefined): string | null {
 
 async function runGuidedOnboarding(
   dependencies: CliDependencies,
+  ui?: InteractiveOnboardingUi,
 ): Promise<GuidedOnboardingOutcome> {
+  const selectChoice = ui === undefined
+    ? dependencies.selectChoice
+    : async (message: string, choices: readonly GuidedChoice[]) => {
+        const answer = await ui.selectChoice(
+          message,
+          choices,
+          dependencies.signal,
+        );
+        dependencies.signal?.throwIfAborted();
+        return answer;
+      };
+  const promptText = ui === undefined
+    ? dependencies.promptText
+    : async (message: string, suggestion?: string) => {
+        const answer = await ui.promptText(
+          message,
+          suggestion,
+          dependencies.signal,
+        );
+        dependencies.signal?.throwIfAborted();
+        return answer;
+      };
+  const confirm = ui === undefined
+    ? dependencies.confirm
+    : async (message: string) => {
+        const answer = await ui.confirm(message, dependencies.signal);
+        dependencies.signal?.throwIfAborted();
+        return answer;
+      };
   if (
-    dependencies.selectChoice === undefined ||
-    dependencies.promptText === undefined
+    selectChoice === undefined ||
+    promptText === undefined
   ) {
     await writeOutput(
       dependencies.stderr,
@@ -1029,24 +1069,38 @@ async function runGuidedOnboarding(
     return { state: "failed", exitCode: 2 };
   }
   return await runGuidedOnboardingFlow({
-    stdout: dependencies.stdout,
-    stderr: dependencies.stderr,
+    stdout: ui?.stdout ?? dependencies.stdout,
+    stderr: ui?.stderr ?? dependencies.stderr,
     interactive: dependencies.interactive === true,
     automation: dependencies.automation === true,
-    selectChoice: dependencies.selectChoice,
-    promptText: dependencies.promptText,
+    selectChoice,
+    promptText,
     ...(dependencies.credentialEnvironmentAvailable === undefined
       ? {}
       : {
           credentialEnvironmentAvailable:
             dependencies.credentialEnvironmentAvailable,
         }),
-    executeCommand: (argv) => runCli(argv, dependencies),
+    executeCommand: (argv) => runCli(argv, {
+      ...dependencies,
+      stdout: ui?.stdout ?? dependencies.stdout,
+      stderr: ui?.stderr ?? dependencies.stderr,
+      selectChoice,
+      promptText,
+      ...(confirm === undefined ? {} : { confirm }),
+      ...(ui === undefined || dependencies.setupCodex === undefined
+        ? {}
+        : {
+            setupCodex: (input) => ui.runExternal(
+              () => dependencies.setupCodex!(input),
+            ),
+          }),
+    }),
     ...(dependencies.signal === undefined ? {} : { signal: dependencies.signal }),
     ...(dependencies.setAccountAgentRoutes === undefined
       ? {}
       : { setTeamRoutes: dependencies.setAccountAgentRoutes }),
-    ...(dependencies.confirm === undefined ? {} : { confirm: dependencies.confirm }),
+    ...(confirm === undefined ? {} : { confirm }),
     ...(dependencies.listAccounts === undefined
       ? {}
       : { listAccounts: dependencies.listAccounts }),
@@ -1108,6 +1162,21 @@ async function runGuidedOnboarding(
       input,
     ),
   });
+}
+
+async function runInteractiveOnboarding(
+  dependencies: CliDependencies,
+  shell: InteractiveShell | undefined,
+): Promise<GuidedOnboardingOutcome> {
+  return shell?.onboard === undefined
+    ? await runGuidedOnboarding(dependencies)
+    : await shell.onboard(
+        (ui, signal) => runGuidedOnboarding(
+          signal === undefined ? dependencies : { ...dependencies, signal },
+          ui,
+        ),
+        dependencies.signal,
+      );
 }
 
 async function projectTeamControlService(
@@ -1487,10 +1556,11 @@ export async function runCli(
       runtime = await dependencies.createRuntime(renderer);
       if (
         runtime.state?.type === "workspace" &&
-        dependencies.selectChoice !== undefined &&
-        dependencies.promptText !== undefined
+        (shell?.onboard !== undefined ||
+          (dependencies.selectChoice !== undefined &&
+            dependencies.promptText !== undefined))
       ) {
-        const onboarding = await runGuidedOnboarding(dependencies);
+        const onboarding = await runInteractiveOnboarding(dependencies, shell);
         if (onboarding.state === "failed") return onboarding.exitCode;
         if (onboarding.state === "saved") return 0;
         if (onboarding.state === "configured") {
@@ -1530,8 +1600,14 @@ export async function runCli(
   }
 
   if (argv.length === 1 && argv[0] === "setup") {
+    const shell = dependencies.terminalUi === true &&
+        dependencies.automation !== true
+      ? dependencies.createInteractiveShell?.(
+          dependencies.cwd ?? process.cwd(),
+        )
+      : undefined;
     try {
-      const onboarding = await runGuidedOnboarding(dependencies);
+      const onboarding = await runInteractiveOnboarding(dependencies, shell);
       if (onboarding.state === "failed") return onboarding.exitCode;
       if (onboarding.state === "skipped" || onboarding.state === "saved") {
         return 0;
@@ -1539,11 +1615,6 @@ export async function runCli(
       if (dependencies.signal?.aborted === true) {
         throw new DOMException("Guided setup was cancelled", "AbortError");
       }
-      const shell = dependencies.terminalUi === true
-        ? dependencies.createInteractiveShell?.(
-            dependencies.cwd ?? process.cwd(),
-          )
-        : undefined;
       const renderer = shell?.events ?? new TextEventRenderer(dependencies.stdout);
       const runtime = await dependencies.createRuntime(renderer, {
         operatingModeId: onboarding.operatingModeId,

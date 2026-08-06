@@ -37,6 +37,7 @@ import {
   RuntimeError,
   createCommandRegistry,
   createStandaloneRuntime,
+  type AccountSummary,
   type CliDependencies,
 } from "../src/index.js";
 import {
@@ -44,6 +45,10 @@ import {
   runCli,
   runCliProcess,
 } from "../src/process-host.js";
+import {
+  RecursInteractiveShell,
+  type InteractiveTerminal,
+} from "../src/terminal-ui.js";
 import { testAt, testBackendPin } from "../../../tests/support/backend.js";
 
 class TextOutput extends Writable {
@@ -57,6 +62,26 @@ class TextOutput extends Writable {
     this.value += chunk.toString();
     callback();
   }
+}
+
+class SetupTestTerminal implements InteractiveTerminal {
+  readonly columns = 80;
+  readonly rows = 30;
+  readonly kittyProtocolActive = false;
+  input: ((data: string) => void) | null = null;
+
+  start(onInput: (data: string) => void): void { this.input = onInput; }
+  stop(): void { this.input = null; }
+  async drainInput(): Promise<void> {}
+  write(): void {}
+  moveBy(): void {}
+  hideCursor(): void {}
+  showCursor(): void {}
+  clearLine(): void {}
+  clearFromCursor(): void {}
+  clearScreen(): void {}
+  setTitle(): void {}
+  setProgress(): void {}
 }
 
 const directories: string[] = [];
@@ -335,6 +360,132 @@ describe("runCli", () => {
     );
     expect(stdout.value).not.toContain("private provider cancellation detail");
     expect(stdout.value).not.toContain("Unexpected failure");
+    expect(stderr.value).toBe("");
+  });
+
+  it("cancels an active TUI onboarding prompt without creating a session", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const controller = new AbortController();
+    let runtimeCreated = false;
+
+    const exitCode = await runCli(["setup"], {
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      terminalUi: true,
+      signal: controller.signal,
+      createInteractiveShell() {
+        return {
+          events: { async emit() {} },
+          async onboard(run) {
+            return await run({
+              stdout,
+              stderr,
+              async selectChoice() {
+                controller.abort();
+                return null;
+              },
+              async promptText() { return null; },
+              async confirm() { return false; },
+              async runExternal(operation) { return await operation(); },
+            });
+          },
+          async start() { throw new Error("shell must not start"); },
+        };
+      },
+      async listAccounts() { return []; },
+      async listProviders() { return []; },
+      async detectProviders() {
+        return [{
+          id: "ollama",
+          name: "Ollama",
+          baseUrl: "http://127.0.0.1:11434/v1",
+          detected: true,
+        }];
+      },
+      async createRuntime() {
+        runtimeCreated = true;
+        throw new Error("runtime must not start");
+      },
+    });
+
+    expect(exitCode).toBe(130);
+    expect(runtimeCreated).toBe(false);
+    expect(stdout.value).toContain(
+      "Setup cancelled. No new session was created.",
+    );
+    expect(stderr.value).toBe("");
+  });
+
+  it("does not take terminal ownership for unattended explicit setup", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let shellCreated = false;
+
+    const exitCode = await runCli(["setup"], {
+      stdout,
+      stderr,
+      interactive: true,
+      automation: true,
+      terminalUi: true,
+      createInteractiveShell() {
+        shellCreated = true;
+        throw new Error("automation must not create an interactive shell");
+      },
+      async createRuntime() {
+        throw new Error("runtime must not start");
+      },
+    });
+
+    expect(exitCode).toBe(2);
+    expect(shellCreated).toBe(false);
+    expect(stderr.value).toContain("user-present local terminal");
+  });
+
+  it("cancels blocked TUI setup work before creating a session", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const terminal = new SetupTestTerminal();
+    let runtimeCreated = false;
+    const running = runCli(["setup"], {
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      terminalUi: true,
+      createInteractiveShell(cwd) {
+        return new RecursInteractiveShell({
+          terminal,
+          cwd,
+          animate: false,
+          colorEnabled: false,
+        });
+      },
+      async listAccounts() { return []; },
+      async listProviders() { return []; },
+      async detectProviders(signal) {
+        if (signal === undefined) throw new Error("missing onboarding signal");
+        await new Promise<void>((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        });
+        return [];
+      },
+      async createRuntime() {
+        runtimeCreated = true;
+        throw new Error("runtime must not start");
+      },
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\u0003");
+
+    expect(await running).toBe(130);
+    expect(runtimeCreated).toBe(false);
+    expect(terminal.input).toBeNull();
     expect(stderr.value).toBe("");
   });
 
@@ -736,6 +887,7 @@ describe("runCli", () => {
     const stderr = new TextOutput();
     let runtime: RecursRuntime | undefined;
     let shellStarted = false;
+    let shellOnboardingStarted = false;
     const shellEvents = { async emit() {} };
 
     const exitCode = await runCli(["setup"], {
@@ -749,6 +901,26 @@ describe("runCli", () => {
       createInteractiveShell() {
         return {
           events: shellEvents,
+          async onboard(run) {
+            shellOnboardingStarted = true;
+            return await run({
+              stdout,
+              stderr,
+              async selectChoice(_message, choices) {
+                const selected = selections.shift() ?? null;
+                expect(choices.some((choice) => choice.id === selected)).toBe(
+                  true,
+                );
+                return selected;
+              },
+              async promptText(message) {
+                expect(message).toBe("What outcome should this company own?");
+                return "A trustworthy onboarding flow.";
+              },
+              async confirm() { return true; },
+              async runExternal(operation) { return await operation(); },
+            });
+          },
           async start() { shellStarted = true; },
         };
       },
@@ -759,16 +931,6 @@ describe("runCli", () => {
         return { verified: true, connection: parentAccount };
       },
       async setPrimaryAccount() { return parentAccount; },
-      async selectChoice(_message, choices) {
-        const selected = selections.shift() ?? null;
-        expect(choices.some((choice) => choice.id === selected)).toBe(true);
-        return selected;
-      },
-      async promptText(message) {
-        expect(message).toBe("What outcome should this company own?");
-        return "A trustworthy onboarding flow.";
-      },
-      async confirm() { return true; },
       async createCompanyOnboarding(input) {
         expect(input).toMatchObject({
           permissionMode: "approved_for_me",
@@ -807,6 +969,7 @@ describe("runCli", () => {
     expect(decisions).toEqual([]);
     expect(stderr.value).toBe("");
     expect(exitCode).toBe(0);
+    expect(shellOnboardingStarted).toBe(true);
     expect(shellStarted).toBe(true);
     expect(runtime?.session).toMatchObject({
       goal: {
@@ -825,6 +988,128 @@ describe("runCli", () => {
       "First goal: Launch the first reviewed company goal.",
     );
     expect(stdout.value).toContain("Next: /goal launch");
+  });
+
+  it("keeps Codex disclosure in the setup TUI and suspends only vendor login", async () => {
+    const root = await realpath(
+      await mkdtemp(path.join(tmpdir(), "recurs-guided-codex-tui-")),
+    );
+    directories.push(root);
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const selections = [
+      "codex",
+      "approved_for_me",
+      "balanced_v6",
+      "skip",
+    ];
+    const accounts: AccountSummary[] = [];
+    let externalActive = false;
+    let externalCalls = 0;
+    let shellStarted = false;
+    const runtime = {
+      state: { type: "session" },
+      setConfirmHandler() {},
+      cancel() { return false; },
+      async close() {},
+    } as unknown as RecursRuntime;
+
+    const exitCode = await runCli(["setup"], {
+      cwd: root,
+      stdout,
+      stderr,
+      interactive: true,
+      automation: false,
+      terminalUi: true,
+      createInteractiveShell() {
+        return {
+          events: { async emit() {} },
+          async onboard(run) {
+            return await run({
+              stdout,
+              stderr,
+              async selectChoice(_message, choices) {
+                const selected = selections.shift() ?? null;
+                expect(choices.some((choice) => choice.id === selected)).toBe(
+                  true,
+                );
+                return selected;
+              },
+              async promptText() { return null; },
+              async confirm(message) {
+                expect(externalActive).toBe(false);
+                expect(message).toContain("included with eligible ChatGPT plans");
+                return true;
+              },
+              async runExternal(operation) {
+                externalCalls += 1;
+                externalActive = true;
+                try {
+                  return await operation();
+                } finally {
+                  externalActive = false;
+                }
+              },
+            });
+          },
+          async start() { shellStarted = true; },
+        };
+      },
+      async listProviders() {
+        return [{
+          id: "openai-codex-chatgpt",
+          displayName: "Codex with ChatGPT",
+          status: "runnable" as const,
+          supportStatus: "conditional" as const,
+          adapterKind: "agent_runtime" as const,
+          accessKind: "subscription" as const,
+          protocol: "app-server" as const,
+          connectionOwner: "vendor_runtime" as const,
+          billing: {
+            primarySource: "included_subscription" as const,
+            possibleAdditionalSources: ["prepaid_credits" as const],
+            providerFallback: "automatic" as const,
+            availableSelections: ["allow_declared_additional" as const],
+          },
+          restrictions: ["Local, user-present use only."],
+          requiredPolicyClaims: [],
+        }];
+      },
+      async listAccounts() { return accounts; },
+      async detectProviders() { return []; },
+      async setupCodex() {
+        expect(externalActive).toBe(true);
+        const account: AccountSummary = {
+          id: "codex-1",
+          label: "Codex with ChatGPT",
+          providerId: "openai-codex-chatgpt",
+          adapterId: "codex-app-server",
+          kind: "delegated_agent",
+          modelId: "gpt-5.6-sol",
+          primary: true,
+          account: "verified (identifier redacted)",
+          execution: "Act + Plan",
+          billingSources: ["included_subscription", "prepaid_credits"],
+          agentRoles: [],
+        };
+        accounts.push(account);
+        return {
+          id: account.id,
+          label: account.label,
+          modelId: account.modelId,
+          planOnly: false,
+          primary: true,
+        };
+      },
+      async createRuntime() { return runtime; },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(externalCalls).toBe(1);
+    expect(shellStarted).toBe(true);
+    expect(selections).toEqual([]);
+    expect(stdout.value).toContain("Ready — Codex with ChatGPT");
+    expect(stderr.value).toBe("");
   });
 
   it("stops setup without creating a session when V2 company formation is saved", async () => {

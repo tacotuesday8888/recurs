@@ -1,7 +1,10 @@
 import type { RecursRuntime } from "../src/runtime.js";
 import type { HostInvocation, ModelImageInput } from "@recurs/contracts";
 import { describe, expect, it, vi } from "vitest";
-import type { AutocompleteProvider } from "@earendil-works/pi-tui";
+import {
+  visibleWidth,
+  type AutocompleteProvider,
+} from "@earendil-works/pi-tui";
 
 import {
   CompanyHomeComponent,
@@ -12,14 +15,18 @@ import {
 import { TerminalUiState } from "../src/terminal-ui-state.js";
 
 class TestTerminal implements InteractiveTerminal {
-  readonly columns = 80;
-  readonly rows = 30;
   readonly kittyProtocolActive = false;
   input: ((data: string) => void) | null = null;
   output = "";
+  readonly writes: string[] = [];
   starts = 0;
   stops = 0;
   title = "";
+
+  constructor(
+    readonly columns = 80,
+    readonly rows = 30,
+  ) {}
 
   start(onInput: (data: string) => void): void {
     this.starts += 1;
@@ -30,7 +37,10 @@ class TestTerminal implements InteractiveTerminal {
     this.input = null;
   }
   async drainInput(): Promise<void> {}
-  write(data: string): void { this.output += data; }
+  write(data: string): void {
+    this.output += data;
+    this.writes.push(data);
+  }
   moveBy(): void {}
   hideCursor(): void {}
   showCursor(): void {}
@@ -175,6 +185,216 @@ describe("TerminalSafeAutocompleteProvider", () => {
 });
 
 describe("RecursInteractiveShell", () => {
+  it("cancels an onboarding operation while the surface is working", async () => {
+    const terminal = new TestTerminal();
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+      colorEnabled: false,
+    });
+    const onboarding = shell.onboard(async (_ui, signal) => {
+      if (signal === undefined) throw new Error("missing onboarding signal");
+      await new Promise<void>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), {
+          once: true,
+        });
+      });
+      return "unreachable";
+    });
+    const rejected = expect(onboarding).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\u0003");
+
+    await rejected;
+    expect(terminal.input).toBeNull();
+  });
+
+  it.each([
+    ["choice", "\u001b"],
+    ["text", "\u0003"],
+  ] as const)("cancels an onboarding %s prompt from the keyboard", async (
+    prompt,
+    key,
+  ) => {
+    const terminal = new TestTerminal();
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+      colorEnabled: false,
+    });
+    const onboarding = shell.onboard(async (ui) => {
+      const choice = await ui.selectChoice("Choose a provider", [{
+        id: "codex",
+        label: "Codex",
+        detail: "Use the saved subscription",
+      }]);
+      if (prompt === "choice") return choice;
+      return await ui.promptText("Name the company", "Platform");
+    });
+    const rejected = expect(onboarding).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    if (prompt === "text") {
+      terminal.input?.("\r");
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(terminal.output).toContain("Name the company");
+    }
+    terminal.input?.(key);
+
+    await rejected;
+    expect(terminal.input).toBeNull();
+  });
+
+  it.each([36, 120])(
+    "keeps long onboarding content within a %d-column terminal",
+    async (columns) => {
+      const terminal = new TestTerminal(columns, 30);
+      const shell = new RecursInteractiveShell({
+        terminal,
+        cwd: "/workspace",
+        animate: false,
+        colorEnabled: false,
+      });
+      const long = "company formation context ".repeat(12);
+      const onboarding = shell.onboard(async (ui) => {
+        ui.stdout.write(`${long}\n`);
+        return await ui.selectChoice(`Choose ${long}`, [{
+          id: "recommended",
+          label: `Recommended ${long}`,
+          detail: `Why ${long}`,
+        }]);
+      });
+      const rejected = expect(onboarding).rejects.toMatchObject({
+        name: "AbortError",
+      });
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const widths = terminal.writes.flatMap((write) =>
+        write.split("\u001b[?2026h").join("")
+          .split("\u001b[?2026l").join("")
+          .split(/\r?\n/u)
+          .map((line) => visibleWidth(line))
+      );
+      expect(Math.max(...widths)).toBeLessThanOrEqual(columns);
+      terminal.input?.("\u001b");
+      await rejected;
+    },
+  );
+
+  it("runs guided setup choices and text in the same terminal surface", async () => {
+    const terminal = new TestTerminal();
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+      colorEnabled: true,
+    });
+    let suspended = false;
+
+    const onboarding = shell.onboard(async (ui) => {
+      ui.stdout.write("Welcome to the guided company setup.\n");
+      const connection = await ui.selectChoice("Choose a parent model", [
+        {
+          id: "saved",
+          label: "Use saved Codex",
+          detail: "vendor-owned authentication\u001b]0;unsafe\u0007",
+        },
+        {
+          id: "local",
+          label: "Use local model",
+          detail: "local compute",
+        },
+      ]);
+      const team = await ui.promptText("Name this team", "Platform");
+      const confirmed = await ui.confirm("Approve this company?");
+      const external = await ui.runExternal(async () => {
+        suspended = terminal.input === null;
+        return "ready";
+      });
+      return { connection, team, confirmed, external };
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("RECURS / SETUP");
+    expect(terminal.output).toContain("Use saved Codex");
+    expect(terminal.output).toContain("vendor-owned authentication");
+    expect(terminal.output).not.toContain("\u001b]0;unsafe\u0007");
+    expect(terminal.output).not.toContain("[38;5;");
+    terminal.input?.("\r");
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("Name this team");
+    expect(terminal.output).toContain("Platform");
+    terminal.input?.("\r");
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("Approve this company?");
+    terminal.input?.("\u001b[B");
+    terminal.input?.("\r");
+
+    await expect(onboarding).resolves.toEqual({
+      connection: "saved",
+      team: "Platform",
+      confirmed: true,
+      external: "ready",
+    });
+    expect(suspended).toBe(true);
+    expect(terminal.starts).toBe(2);
+    expect(terminal.stops).toBe(2);
+    expect(terminal.input).toBeNull();
+  });
+
+  it("applies TUI color without exposing nested ANSI fragments", async () => {
+    const terminal = new TestTerminal();
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["quit"]; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+      colorEnabled: true,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\r");
+    await shell.events.emit({
+      type: "warning",
+      sessionId: "session-1",
+      at: "2026-08-06T00:00:00.000Z",
+      message: "Context is nearly full",
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("Warning: Context is nearly full");
+    expect(terminal.output).not.toContain("[33mWarning");
+
+    terminal.input?.("\u001b[200~/quit\u001b[201~");
+    terminal.input?.("\r");
+    await running;
+  });
+
   it("starts on the company view and closes runtime truthfully", async () => {
     const terminal = new TestTerminal();
     let closed = 0;
