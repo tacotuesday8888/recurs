@@ -605,7 +605,7 @@ export class RecursInteractiveShell {
       },
     });
     this.#textEvents = new TextEventRenderer(this.#transcriptOutput, {
-      colorEnabled: this.#colorEnabled,
+      colorEnabled: false,
     });
   }
 
@@ -621,7 +621,6 @@ export class RecursInteractiveShell {
     });
     Object.defineProperties(output, {
       columns: { get: () => this.#terminal.columns },
-      isTTY: { value: this.#colorEnabled },
     });
     const tui = new TUI(this.#terminal);
     const component = new OnboardingComponent(

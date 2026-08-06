@@ -181,6 +181,7 @@ describe("RecursInteractiveShell", () => {
       terminal,
       cwd: "/workspace",
       animate: false,
+      colorEnabled: true,
     });
     let suspended = false;
 
@@ -212,6 +213,7 @@ describe("RecursInteractiveShell", () => {
     expect(terminal.output).toContain("Use saved Codex");
     expect(terminal.output).toContain("vendor-owned authentication");
     expect(terminal.output).not.toContain("\u001b]0;unsafe\u0007");
+    expect(terminal.output).not.toContain("[38;5;");
     terminal.input?.("\r");
 
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -234,6 +236,50 @@ describe("RecursInteractiveShell", () => {
     expect(terminal.starts).toBe(2);
     expect(terminal.stops).toBe(2);
     expect(terminal.input).toBeNull();
+  });
+
+  it("applies TUI color without exposing nested ANSI fragments", async () => {
+    const terminal = new TestTerminal();
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["quit"]; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+      colorEnabled: true,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\r");
+    await shell.events.emit({
+      type: "warning",
+      sessionId: "session-1",
+      at: "2026-08-06T00:00:00.000Z",
+      message: "Context is nearly full",
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("Warning: Context is nearly full");
+    expect(terminal.output).not.toContain("[33mWarning");
+
+    terminal.input?.("\u001b[200~/quit\u001b[201~");
+    terminal.input?.("\r");
+    await running;
   });
 
   it("starts on the company view and closes runtime truthfully", async () => {
