@@ -9,6 +9,7 @@ const html = await readFile(join(root, "src/index.html"), "utf8");
 const css = await readFile(join(root, "src/styles.css"), "utf8");
 const js = await readFile(join(root, "src/app.ts"), "utf8");
 const dev = await readFile(join(root, "scripts/dev.mjs"), "utf8");
+const build = await readFile(join(root, "scripts/build.mjs"), "utf8");
 
 test("keeps all supported install choices above the product stage", () => {
   const stage = html.indexOf('class="product-stage"');
@@ -91,6 +92,13 @@ test("preview uses the guaranteed Node runtime and an explicit static allowlist"
   assert.match(dev, /server\.once\("error"/);
   assert.match(dev, /process\.exitCode = 1/);
   assert.doesNotMatch(dev, /python|spawn\(/i);
+});
+
+test("build settles compiler spawn failures with one sanitized message", () => {
+  assert.match(build, /compiler\.once\("error", \(\) => resolve\(\{ kind: "error" \}\)\)/);
+  assert.match(build, /compilerResult\.kind === "error"/);
+  assert.match(build, /console\.error\("Website build failed: TypeScript compiler could not start\."\)/);
+  assert.doesNotMatch(build, /console\.error\([^)]*error\.(?:message|stack)/);
 });
 
 test("programmatic terminal focus keeps the global visible indicator", () => {
