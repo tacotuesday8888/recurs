@@ -19,6 +19,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   disconnectAccount,
   listAccountSummaries,
+  listProviderCapabilities,
   listProviderSummaries,
   setPrimaryAccount,
   setupCodexSubscription,
@@ -163,6 +164,149 @@ afterEach(async () => {
 });
 
 describe("provider and account projections", () => {
+  it("classifies readiness from executable facts rather than manifest presence", () => {
+    const matrix = listProviderCapabilities({
+      now: new Date("2026-08-07T12:00:00.000Z"),
+    });
+
+    expect(matrix.find((entry) => entry.providerId === "openai-api"))
+      .toMatchObject({
+        category: "activatable",
+        missingCapabilities: [],
+        implementationCoverage: "complete",
+        liveVerification: { status: "not_run" },
+      });
+    expect(matrix.find((entry) => entry.providerId === "zai-api"))
+      .toMatchObject({
+        category: "cataloged",
+        missingCapabilities: ["model_discovery_readiness_probe"],
+        implementationCoverage: "partial",
+        liveVerification: { status: "not_run" },
+      });
+    expect(matrix.find((entry) => entry.providerId === "aws-bedrock"))
+      .toMatchObject({
+        category: "cataloged",
+        implementationCoverage: "none",
+        liveVerification: { status: "not_run" },
+      });
+    const activatable = matrix.find((entry) =>
+      entry.providerId === "openai-api"
+    );
+    expect(activatable).not.toHaveProperty("configured");
+    expect(activatable).not.toHaveProperty("authenticated");
+    expect(activatable).not.toHaveProperty("verification.scripted");
+  });
+
+  it("keeps conditional and approval-blocked policy ahead of implementation evidence", () => {
+    const matrix = listProviderCapabilities({
+      now: new Date("2026-08-07T12:00:00.000Z"),
+      liveVerification: [{
+        providerId: "openai-codex-chatgpt",
+        status: "passed",
+        checkedAt: "2026-08-07T11:30:00.000Z",
+      }],
+    });
+
+    expect(matrix.find((entry) =>
+      entry.providerId === "openai-codex-chatgpt"
+    )).toMatchObject({
+      category: "conditional",
+      missingCapabilities: [],
+      implementationCoverage: "complete",
+      liveVerification: {
+        status: "passed",
+        checkedAt: "2026-08-07T11:30:00.000Z",
+      },
+    });
+    expect(matrix.find((entry) =>
+      entry.providerId === "anthropic-claude-subscription"
+    )).toMatchObject({ category: "blocked" });
+    expect(matrix.find((entry) =>
+      entry.providerId === "zai-glm-coding-plan"
+    )).toMatchObject({ category: "blocked" });
+  });
+
+  it("requires current successful evidence before reporting live-tested", () => {
+    const now = new Date("2026-08-07T12:00:00.000Z");
+    const current = listProviderCapabilities({
+      now,
+      liveVerification: [{
+        providerId: "openai-api",
+        status: "passed",
+        checkedAt: "2026-08-07T11:30:00.000Z",
+      }],
+    });
+    const stale = listProviderCapabilities({
+      now,
+      liveVerification: [{
+        providerId: "openai-api",
+        status: "passed",
+        checkedAt: "2026-08-05T11:30:00.000Z",
+      }],
+    });
+    const failed = listProviderCapabilities({
+      now,
+      liveVerification: [{
+        providerId: "openai-api",
+        status: "failed",
+        checkedAt: "2026-08-07T11:30:00.000Z",
+      }],
+    });
+
+    expect(current.find((entry) => entry.providerId === "openai-api"))
+      .toMatchObject({
+        category: "live-tested",
+        liveVerification: { status: "passed" },
+      });
+    expect(stale.find((entry) => entry.providerId === "openai-api"))
+      .toMatchObject({
+        category: "activatable",
+        liveVerification: { status: "stale" },
+      });
+    expect(failed.find((entry) => entry.providerId === "openai-api"))
+      .toMatchObject({
+        category: "activatable",
+        liveVerification: { status: "failed" },
+      });
+  });
+
+  it("returns a redacted closed projection for requested unknown providers", () => {
+    const matrix = listProviderCapabilities({
+      providerIds: ["unknown-provider"],
+      now: new Date("2026-08-07T12:00:00.000Z"),
+    });
+
+    expect(matrix).toEqual([{
+      providerId: "unknown-provider",
+      displayName: "unknown-provider",
+      category: "unsupported",
+      adapterId: null,
+      missingCapabilities: [
+        "authentication",
+        "model_discovery_readiness_probe",
+        "streaming",
+        "tools",
+        "usage",
+        "errors",
+        "onboarding_backend",
+      ],
+      implementationCoverage: "none",
+      liveVerification: { status: "not_run" },
+    }]);
+    expect(Object.isFrozen(matrix)).toBe(true);
+    expect(Object.isFrozen(matrix[0])).toBe(true);
+    expect(JSON.stringify(matrix)).not.toContain("credential");
+    expect(() => listProviderCapabilities({
+      providerIds: ["unknown-provider"],
+      liveVerification: [{
+        providerId: "unknown-provider",
+        status: "passed",
+        checkedAt: "2026-08-07T11:30:00.000Z",
+      }],
+      now: new Date("2026-08-07T12:00:00.000Z"),
+    })).toThrow("Provider live verification evidence is invalid");
+  });
+
   it("sets up Sol, Terra, and Luna from one existing Codex login", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "recurs-codex-setup-"));
     directories.push(directory);
