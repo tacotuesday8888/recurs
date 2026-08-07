@@ -301,11 +301,153 @@ describe("projectCompanyBenchmarkTrial", () => {
     });
 
     expect(trial.failures).toEqual([
-      { stage: "execution", code: "company_goal_failed" },
-      { stage: "execution", code: "patch_artifact_missing" },
-      { stage: "verification", code: "scenario_verification_failed" },
+      {
+        stage: "execution",
+        code: "company_goal_failed",
+        scope: "roster_execution",
+      },
+      {
+        stage: "execution",
+        code: "patch_artifact_missing",
+        scope: "roster_execution",
+      },
+      {
+        stage: "verification",
+        code: "scenario_verification_failed",
+        scope: "verification",
+        terminalStage: "verification",
+      },
     ]);
     expect(JSON.stringify(trial)).not.toContain("/private/tmp/secret");
+  });
+
+  it("classifies a typed parent runtime outage separately from roster quality", () => {
+    const authority = campaign();
+    const parent = snapshot().attempts[0]!;
+    const trial = projectCompanyBenchmarkTrial({
+      campaign: authority,
+      slot: authority.armOrder[1]!,
+      startedAtMs: START,
+      completedAtMs: START + 1_000,
+      recorder: {
+        attempts: [{ ...parent, status: "failed", evidence: [] }],
+        requests: snapshot().requests
+          .filter((request) => request.role === "parent")
+          .map((request) => ({ ...request, status: "failed", usage: null })),
+        interventions: {
+          externalConfirmationRequests: 0,
+          userInputRequests: 0,
+          automaticApprovals: 0,
+          automaticDenials: 0,
+        },
+      },
+      verification: { status: "not_run", checks: [] },
+      teamRuns: [],
+      executionStatus: "failed",
+      finalEvidence: [],
+      failures: [{ stage: "execution", code: "coordinated_rate_limited" }],
+    });
+
+    expect(trial.failures).toEqual([{
+      stage: "execution",
+      code: "coordinated_rate_limited",
+      scope: "runtime_execution",
+      terminalStage: "parent",
+    }]);
+    expect(trial.activatedRoutes.map((item) => item.role)).toEqual(["parent"]);
+    expect(trial.verification).toEqual({
+      status: "not_run",
+      workspaceIntegrity: "not_run",
+      checks: [],
+    });
+  });
+
+  it("preserves explicit synthesis evidence and omits an ambiguous parent stage", () => {
+    const authority = campaign();
+    const project = (terminalStage?: "synthesis") =>
+      projectCompanyBenchmarkTrial({
+        campaign: authority,
+        slot: authority.armOrder[1]!,
+        startedAtMs: START,
+        completedAtMs: START + 1_000,
+        recorder: snapshot(),
+        verification: {
+          status: "passed",
+          checks: [
+            { id: "workspace_inventory", status: "passed" },
+            { id: "git_state", status: "passed" },
+            { id: "allowed_changes", status: "passed" },
+          ],
+        },
+        teamRuns: [{
+          descriptor: {
+            routes: authority.companyArms[0]!.configuredRoutes
+              .filter((candidate) => candidate.role !== "parent")
+              .map((candidate) => ({
+                role: candidate.role as "implement" | "review" | "repair",
+                pin: {
+                  providerId: candidate.providerId,
+                  adapterId: candidate.adapterId,
+                  connectionId: candidate.connectionId,
+                  modelId: candidate.modelId,
+                  ...(candidate.reasoningEffort === null
+                    ? {}
+                    : { reasoningEffortAtCreation: candidate.reasoningEffort }),
+                },
+              })),
+          },
+          reviews: [],
+          outcome: null,
+        }],
+        executionStatus: "failed",
+        finalEvidence: [],
+        failures: [{
+          stage: "execution",
+          code: "agent_provider_failed",
+          ...(terminalStage === undefined ? {} : { terminalStage }),
+        }],
+      });
+
+    expect(project().failures).toEqual([{
+      stage: "execution",
+      code: "agent_provider_failed",
+      scope: "runtime_execution",
+    }]);
+    expect(project("synthesis").failures).toEqual([{
+      stage: "execution",
+      code: "agent_provider_failed",
+      scope: "runtime_execution",
+      terminalStage: "synthesis",
+    }]);
+    const runtimeBusy = projectCompanyBenchmarkTrial({
+      campaign: authority,
+      slot: authority.armOrder[0]!,
+      startedAtMs: START,
+      completedAtMs: START + 1_000,
+      recorder: {
+        attempts: [{ ...snapshot().attempts[0]!, status: "failed" }],
+        requests: snapshot().requests.filter((request) =>
+          request.role === "parent"
+        ),
+        interventions: snapshot().interventions,
+      },
+      verification: {
+        status: "passed",
+        checks: [
+          { id: "workspace_inventory", status: "passed" },
+          { id: "git_state", status: "passed" },
+          { id: "allowed_changes", status: "passed" },
+        ],
+      },
+      teamRuns: [],
+      executionStatus: "failed",
+      finalEvidence: [],
+      failures: [{ stage: "execution", code: "runtime_busy" }],
+    });
+    expect(runtimeBusy.failures[0]).toMatchObject({
+      scope: "runtime_execution",
+      terminalStage: "parent",
+    });
   });
 
   it("rejects request evidence that cannot be attributed to an activated attempt", () => {

@@ -204,6 +204,22 @@ export interface CompanyBenchmarkFailureV1 {
     | "cleanup";
   /** Stable bounded code only; raw model or tool prose is forbidden. */
   readonly code: string;
+  /** Absent on records written before classified failure diagnostics. */
+  readonly scope?:
+    | "runtime_execution"
+    | "roster_execution"
+    | "verification"
+    | "harness";
+  /** Absent on records written before classified failure diagnostics. */
+  readonly terminalStage?:
+    | "setup"
+    | "parent"
+    | "implement"
+    | "review"
+    | "repair"
+    | "synthesis"
+    | "verification"
+    | "cleanup";
 }
 
 export interface CompanyBenchmarkTrialV1 {
@@ -325,6 +341,22 @@ const FAILURE_STAGES = new Set<string>([
   "execution",
   "verification",
   "projection",
+  "cleanup",
+]);
+const FAILURE_SCOPES = new Set<string>([
+  "runtime_execution",
+  "roster_execution",
+  "verification",
+  "harness",
+]);
+const TERMINAL_STAGES = new Set<string>([
+  "setup",
+  "parent",
+  "implement",
+  "review",
+  "repair",
+  "synthesis",
+  "verification",
   "cleanup",
 ]);
 
@@ -1279,7 +1311,22 @@ function parseOverlap(value: unknown): CompanyBenchmarkOverlapV1 {
 }
 
 function parseFailure(value: unknown): CompanyBenchmarkFailureV1 {
-  const item = exact(value, "Company benchmark failure", ["stage", "code"]);
+  const record = contractRecord(value, "Company benchmark failure");
+  const classified = Object.hasOwn(record, "scope");
+  const hasTerminalStage = Object.hasOwn(record, "terminalStage");
+  contractExact(
+    record,
+    classified
+      ? [
+          "stage",
+          "code",
+          "scope",
+          ...(hasTerminalStage ? ["terminalStage"] : []),
+        ]
+      : ["stage", "code"],
+    "Company benchmark failure",
+  );
+  const item = record;
   return {
     stage: enumField(
       item,
@@ -1288,6 +1335,26 @@ function parseFailure(value: unknown): CompanyBenchmarkFailureV1 {
       "Company benchmark failure stage",
     ),
     code: idField(item, "code", "Company benchmark failure code"),
+    ...(classified
+      ? {
+          scope: enumField(
+            item,
+            "scope",
+            FAILURE_SCOPES,
+            "Company benchmark failure scope",
+          ),
+          ...(hasTerminalStage
+            ? {
+                terminalStage: enumField(
+                  item,
+                  "terminalStage",
+                  TERMINAL_STAGES,
+                  "Company benchmark terminal stage",
+                ),
+              }
+            : {}),
+        }
+      : {}),
   };
 }
 

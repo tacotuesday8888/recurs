@@ -923,7 +923,7 @@ describe("team run state", () => {
       }),
     ];
     expect(() => reduceTeamRunRecords(premature))
-      .toThrow(/repair exhaustion or a stalled repair/u);
+      .toThrow(/repair exhaustion or a terminal Repair outcome/u);
     const changed = structuredClone(records);
     const stalled = changed[14];
     if (stalled?.type !== "repair_stalled") throw new Error("Expected repair record");
