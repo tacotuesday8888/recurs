@@ -98,12 +98,16 @@ export class TextEventRenderer implements EventSink {
   readonly #companyAssignments = new Map<string, string>();
   readonly #teamReservations = new Set<string>();
   readonly #theme: TerminalTheme;
+  readonly #interactionOutcomes: boolean;
 
   constructor(
     private readonly output: Writable,
-    options: TerminalThemeOptions = {},
+    options: TerminalThemeOptions & {
+      readonly interactionOutcomes?: boolean;
+    } = {},
   ) {
     this.#theme = createTerminalTheme(output, options);
+    this.#interactionOutcomes = options.interactionOutcomes ?? false;
   }
 
   async #status(text: string): Promise<void> {
@@ -169,9 +173,16 @@ export class TextEventRenderer implements EventSink {
         await this.#status("Queued turns cleared");
         break;
       case "turn_completed":
-      case "turn_cancelled":
       case "turn_failed":
         if (this.#textLineOpen) {
+          this.#textLineOpen = false;
+          await writeOutput(this.output, "\n");
+        }
+        break;
+      case "turn_cancelled":
+        if (this.#interactionOutcomes) {
+          await this.#status(this.#theme.warning("Turn cancelled"));
+        } else if (this.#textLineOpen) {
           this.#textLineOpen = false;
           await writeOutput(this.output, "\n");
         }
@@ -446,11 +457,26 @@ export class TextEventRenderer implements EventSink {
       case "tool_requested":
       case "tool_completed":
       case "tool_denied":
-      case "permission_resolved":
       case "goal_updated":
       case "mode_updated":
       case "agent_policy_updated":
         break;
+      case "permission_resolved": {
+        if (!this.#interactionOutcomes) break;
+        const label = `${event.intent.category} ${event.intent.resource}`;
+        if (event.decision === "deny") {
+          await this.#status(this.#theme.warning(`Denied: ${label}`));
+        } else if (event.decision === "allow_once") {
+          await this.#status(this.#theme.success(`Allowed once: ${label}`));
+        } else if (event.decision === "allow_session") {
+          await this.#status(
+            this.#theme.success(`Allowed for this session: ${label}`),
+          );
+        } else {
+          await this.#status(this.#theme.muted(`Allowed by policy: ${label}`));
+        }
+        break;
+      }
     }
   };
 }

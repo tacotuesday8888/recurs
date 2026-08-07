@@ -107,12 +107,7 @@ export function renderRecursWordmark(
   } = {},
 ): string {
   if (!theme.colorEnabled) return "";
-  const wordmarkWidth = Math.max(
-    ...RECURS_TERMINAL_WORDMARK_ROWS.map((row) => Array.from(row).length),
-  );
-  const rows = (options.columns ?? wordmarkWidth) >= wordmarkWidth
-    ? RECURS_TERMINAL_WORDMARK_ROWS
-    : RECURS_TERMINAL_ROWS;
+  const rows = renderRecursBrandRows(options.columns);
   const blockWidth = Math.max(...rows.map((row) =>
     Array.from(row.trimEnd()).length
   ));
@@ -136,6 +131,15 @@ export function renderRecursWordmark(
           )
     ).join("");
   }).join("\n");
+}
+
+export function renderRecursBrandRows(columns?: number): readonly string[] {
+  const wordmarkWidth = Math.max(
+    ...RECURS_TERMINAL_WORDMARK_ROWS.map((row) => Array.from(row).length),
+  );
+  return (columns ?? wordmarkWidth) >= wordmarkWidth
+    ? RECURS_TERMINAL_WORDMARK_ROWS
+    : RECURS_TERMINAL_ROWS;
 }
 
 export function renderRecursHeader(

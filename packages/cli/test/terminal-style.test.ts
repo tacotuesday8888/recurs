@@ -6,6 +6,7 @@ import {
   createTerminalTheme,
   renderChoiceList,
   renderOperatingMode,
+  renderRecursBrandRows,
   renderRecursHeader,
   renderRecursWordmark,
   renderSetupStep,
@@ -77,6 +78,17 @@ describe("terminal presentation", () => {
     );
     expect(plain.split("\n").map((row) => row.search(/[▗█▜◀]/u)))
       .toEqual([14, 13, 12, 11]);
+  });
+
+  it("selects generated brand rows independently of color support", () => {
+    expect(renderRecursBrandRows(80)).toHaveLength(7);
+    expect(renderRecursBrandRows(80).join("\n")).toContain("████   █████");
+    expect(renderRecursBrandRows(24)).toEqual([
+      "   ▗█▀▀█▖",
+      "  █▌ ▗█▘",
+      " ▜█▀▜▙ ",
+      "◀▀  ▝▀",
+    ]);
   });
 
   it.each([
