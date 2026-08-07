@@ -46,7 +46,7 @@
   },
   "scripts": {
     "build": "tsc -b && npm run package:build",
-    "check": "npm run check:generated && npm run lint && npm run typecheck && npm test && npm run build && npm run package:check",
+    "check": "npm run check:generated && npm run lint && npm run typecheck && npm test && npm run build && npm run package:check && npm --prefix website run check",
     "check:generated": "node scripts/generate-non-secret-policy.mjs --check && node scripts/generate-provider-activation-profiles.mjs --check && node scripts/generate-recurs-brand.mjs --check",
     "generate:non-secret-policy": "node scripts/generate-non-secret-policy.mjs",
     "generate:provider-activation-profiles": "node scripts/generate-provider-activation-profiles.mjs",

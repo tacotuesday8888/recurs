@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#000000">
+    <meta name="color-scheme" content="dark">
+    <meta name="description" content="Recurs is an open-source coding harness for agent teams you control—from routes and depth to authority and budgets.">
+    <meta property="og:title" content="Recurs — You control the team">
+    <meta property="og:description" content="An open-source coding harness for visible, bounded agent teams.">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary">
+    <link rel="icon" href="assets/recurs-mark.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+    <title>Recurs — You control the team</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Recurs home">
+        <img src="assets/recurs-mark.svg" alt="" width="28" height="28">
+        <span>RECURS</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#control">Control</a>
+        <a href="#inside">Inside</a>
+        <a href="https://github.com/tacotuesday8888/recurs">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <h1 id="hero-title" class="pixel-wordmark" aria-label="Recurs">
+            <span aria-hidden="true">RECURS</span>
+          </h1>
+          <p class="hero-line">Turn coding models into a team.<br><strong>You control the team.</strong></p>
+          <p class="hero-detail">An open-source coding harness for sub-agent-heavy work—team size, routes, depth, communication, authority, and budgets stay yours.</p>
+
+          <div class="installs" aria-labelledby="install-title">
+            <div class="install-heading">
+              <h2 id="install-title">Install the public alpha</h2>
+              <span>Node.js 22.22+</span>
+            </div>
+            <div class="install-list">
+              <div class="install-row">
+                <span class="method">npm</span>
+                <code>npm install --global recurs@alpha</code>
+                <button class="copy-button" type="button" data-copy="npm install --global recurs@alpha" aria-label="Copy npm install command">Copy</button>
+              </div>
+              <div class="install-row">
+                <span class="method">curl</span>
+                <code>curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.7/install.sh | sh</code>
+                <button class="copy-button" type="button" data-copy="curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.7/install.sh | sh" aria-label="Copy curl install command">Copy</button>
+              </div>
+              <div class="install-row">
+                <span class="method">brew</span>
+                <code>brew install tacotuesday8888/recurs/recurs</code>
+                <button class="copy-button" type="button" data-copy="brew install tacotuesday8888/recurs/recurs" aria-label="Copy Homebrew install command">Copy</button>
+              </div>
+              <div class="install-row">
+                <span class="method">Bun</span>
+                <code>bun install --global recurs@alpha</code>
+                <button class="copy-button" type="button" data-copy="bun install --global recurs@alpha" aria-label="Copy Bun install command">Copy</button>
+              </div>
+            </div>
+            <p class="runtime-note">Bun installs the package. Node.js is the current runtime.</p>
+            <p class="copy-status" aria-live="polite"></p>
+          </div>
+        </div>
+
+        <div class="product-stage" id="company" data-product-stage>
+          <div class="stage-topline">
+            <span>your-project / company</span>
+            <button class="view-toggle" type="button" data-enter-company>Enter company <span aria-hidden="true">↗</span></button>
+          </div>
+
+          <div class="company-view" data-company-view>
+            <svg class="connectors" viewBox="0 0 720 560" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M360 80 C360 140 206 122 190 212"></path>
+              <path d="M360 80 C360 140 514 122 530 212"></path>
+              <path d="M190 270 C190 346 106 330 92 422"></path>
+              <path d="M190 270 C190 346 272 330 286 422"></path>
+              <path d="M530 270 C530 346 448 330 434 422"></path>
+              <path d="M530 270 C530 346 614 330 628 422"></path>
+            </svg>
+
+            <button class="agent agent-parent is-selected" type="button" data-agent="Parent" data-role="Orchestrates the goal, boundaries, and final synthesis." aria-pressed="true">
+              <span class="mascot mascot-parent is-working" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span><strong>Parent</strong><small>orchestrator · working</small></span>
+            </button>
+            <button class="agent agent-lead agent-lead-a" type="button" data-agent="Systems lead" data-role="Routes implementation and keeps dependencies ordered." aria-pressed="false">
+              <span class="mascot mascot-lead is-working" aria-hidden="true"><i></i><i></i></span>
+              <span><strong>Systems lead</strong><small>routing · working</small></span>
+            </button>
+            <button class="agent agent-lead agent-lead-b" type="button" data-agent="Review lead" data-role="Keeps independent review separate from implementation." aria-pressed="false">
+              <span class="mascot mascot-lead" aria-hidden="true"><i></i><i></i></span>
+              <span><strong>Review lead</strong><small>approval · queued</small></span>
+            </button>
+            <button class="agent agent-worker agent-worker-a" type="button" data-agent="API specialist" data-role="Implements one isolated slice with bounded authority." aria-pressed="false">
+              <span class="mascot mascot-worker is-working" aria-hidden="true"><i></i></span>
+              <span><strong>API</strong><small>implementing</small></span>
+            </button>
+            <button class="agent agent-worker agent-worker-b" type="button" data-agent="Test specialist" data-role="Builds focused verification for the candidate change." aria-pressed="false">
+              <span class="mascot mascot-worker is-working" aria-hidden="true"><i></i></span>
+              <span><strong>Tests</strong><small>verifying</small></span>
+            </button>
+            <button class="agent agent-worker agent-worker-c" type="button" data-agent="Security specialist" data-role="Reviews capability boundaries before approval." aria-pressed="false">
+              <span class="mascot mascot-worker" aria-hidden="true"><i></i></span>
+              <span><strong>Security</strong><small>waiting</small></span>
+            </button>
+            <button class="agent agent-worker agent-worker-d" type="button" data-agent="Docs specialist" data-role="Keeps user-facing behavior clear and truthful." aria-pressed="false">
+              <span class="mascot mascot-worker is-working" aria-hidden="true"><i></i></span>
+              <span><strong>Docs</strong><small>writing</small></span>
+            </button>
+
+            <p class="agent-caption"><strong data-selected-name>Parent</strong> <span data-selected-role>Orchestrates the goal, boundaries, and final synthesis.</span></p>
+          </div>
+
+          <div class="terminal-view" data-terminal-view role="region" aria-label="Recurs CLI conversation" tabindex="-1" hidden>
+            <div class="terminal-bar"><span>recurs · your-project</span><span>company / active</span></div>
+            <div class="terminal-body" aria-label="Example Recurs CLI conversation">
+              <p class="terminal-prompt"><span>you</span> Ship the API change, verify it, and keep permissions narrow.</p>
+              <div class="terminal-response">
+                <p><span class="signal">⇶</span> Company goal goal_8f3 · 4 assignments · layered · 2 concurrent</p>
+                <p class="indent"><span class="working-dot"></span> Activated Systems lead · route: implement</p>
+                <p class="indent muted">↳ API specialist changed 3 files</p>
+                <p class="indent"><span class="working-dot"></span> Test specialist running focused checks</p>
+                <p class="indent muted">↳ Review lead remains independent</p>
+                <p class="success">✓ Candidate ready for your approval</p>
+              </div>
+              <div class="terminal-meta"><span>2 active · depth 2 · 3 requests / 12 · reported cost unknown</span><span>Ctrl+G company</span></div>
+              <div class="terminal-input"><span>recurs ›</span><span class="cursor" aria-hidden="true"></span></div>
+            </div>
+            <button class="back-to-map" type="button" data-back-to-map><span aria-hidden="true">←</span> Back to company map</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="control-section" id="control" aria-labelledby="control-title" data-reveal>
+        <div>
+          <p class="section-index">01 / CONTROL</p>
+          <h2 id="control-title">Direct the shape<br>of the work.</h2>
+        </div>
+        <dl class="control-list">
+          <div><dt>Size</dt><dd>Choose how many agents can activate and work concurrently.</dd></div>
+          <div><dt>Routes</dt><dd>Assign models by role, or keep a deliberate parent route.</dd></div>
+          <div><dt>Depth</dt><dd>Bound delegation and keep every child inside parent authority.</dd></div>
+          <div><dt>Communication</dt><dd>Inspect handoffs, escalation, evidence, and review.</dd></div>
+          <div><dt>Authority</dt><dd>Approve the capability profile before candidate work can apply.</dd></div>
+          <div><dt>Budgets</dt><dd>Cap requests, retries, repair rounds, concurrency, and reported cost.</dd></div>
+        </dl>
+      </section>
+
+      <section class="inside-section" id="inside" aria-labelledby="inside-title" data-reveal>
+        <div class="inside-copy">
+          <p class="section-index">02 / INSIDE</p>
+          <h2 id="inside-title">A company view.<br>A normal coding CLI.</h2>
+          <p>Recurs manages the agents doing the work. Keep your editor. Talk to the active coding agent, inspect company activity, review the candidate, and decide what applies.</p>
+          <a class="text-link" href="https://github.com/tacotuesday8888/recurs#readme">Read the alpha docs <span aria-hidden="true">↗</span></a>
+        </div>
+        <div class="flow" aria-label="Company goal workflow">
+          <span>goal</span><i aria-hidden="true"></i><span>plan</span><i aria-hidden="true"></i><span>workers</span><i aria-hidden="true"></i><span>review</span><i aria-hidden="true"></i><span>repair</span><i aria-hidden="true"></i><span>approval</span>
+        </div>
+      </section>
+
+      <section class="truth-section" aria-labelledby="truth-title" data-reveal>
+        <p class="section-index">03 / OPEN SOURCE</p>
+        <h2 id="truth-title">Visible roles.<br>Bounded authority.<br>Your call.</h2>
+        <div class="truth-copy">
+          <p>Recurs is public alpha software for macOS and Linux. Company runs are inspectable, candidate work stays staged until policy permits application, and failed work is reported as failed.</p>
+          <p>No magic score. No claim that more agents always win. Just a controllable harness, versioned evidence, and an Apache-2.0 repository you can inspect.</p>
+        </div>
+      </section>
+
+      <section class="final-cta" aria-labelledby="cta-title" data-reveal>
+        <h2 id="cta-title">Form the team.</h2>
+        <code>npm install --global recurs@alpha</code>
+        <button class="copy-button copy-button-large" type="button" data-copy="npm install --global recurs@alpha">Copy install command</button>
+      </section>
+    </main>
+
+    <footer>
+      <a class="brand footer-brand" href="#top"><img src="assets/recurs-mark.svg" alt="" width="24" height="24"><span>RECURS</span></a>
+      <p>Open source · Apache-2.0 · Public alpha</p>
+      <div><a href="https://github.com/tacotuesday8888/recurs">GitHub</a><a href="https://www.npmjs.com/package/recurs">npm</a></div>
+    </footer>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
