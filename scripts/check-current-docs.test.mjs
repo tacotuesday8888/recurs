@@ -16,6 +16,7 @@ async function text(relativePath) {
 test("current release documents match the package version", async () => {
   const documents = await Promise.all([
     "CHANGELOG.md",
+    "README.md",
     "docs/CLI.md",
     "docs/FEATURE_STATUS.md",
     "docs/PUBLIC_ALPHA.md",
@@ -27,6 +28,16 @@ test("current release documents match the package version", async () => {
   );
 
   for (const document of documents) assert.match(document, version);
+});
+
+test("the repository front page exposes every shipped install channel", async () => {
+  const readme = await text("README.md");
+
+  assert.match(readme, /npm install --global recurs@alpha/u);
+  assert.match(readme, /brew install tacotuesday8888\/recurs\/recurs/u);
+  assert.match(readme, /releases\/download\/v[0-9A-Za-z.-]+\/install\.sh/u);
+  assert.match(readme, /bun install --global recurs@alpha/u);
+  assert.match(readme, /Bun can install Recurs; Node\.js\s+runs it\./u);
 });
 
 test("current support surfaces do not regress to pre-publication claims", async () => {
