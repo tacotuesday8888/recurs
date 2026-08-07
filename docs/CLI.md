@@ -241,6 +241,33 @@ Common slash commands:
 
 Use `/help` inside the CLI for the exact current command list.
 
+### Terminal presentation
+
+The interactive CLI opens on the company surface and uses the same terminal
+surface for first-run setup and normal chat. Wide terminals show the generated
+Recurs pixel wordmark; narrow terminals use the compact returning-loop mark.
+`NO_COLOR`, `CLICOLOR=0`, and dumb or non-TTY terminals keep semantic labels
+and remove presentation color.
+
+The company surface is a projection of normalized runtime events. It shows only
+agents that actually activated, including their hierarchy, role, selected model,
+reasoning effort, and terminal state. Review and repair phase, request counts,
+handoff outcomes, evidence counts, and failures remain visible. Usage observed
+only on completed handoffs is labeled `USAGE PARTIAL`; missing reports remain
+`USAGE UNKNOWN` and are never promoted to an aggregate provider total.
+
+Representative captures from the built CLI and deterministic production
+renderer:
+
+- [wide first launch](assets/cli-captures/2026-08-07-first-launch-wide.txt)
+- [32-column first launch without color](assets/cli-captures/2026-08-07-first-launch-narrow-no-color.txt)
+- [active company review state](assets/cli-captures/2026-08-07-company-activity-wide.txt)
+
+The first two captures were recorded through a real pseudo-terminal; terminal
+control sequences and local workspace paths were removed before commit. The
+company activity capture comes from the same pure renderer covered by the CLI
+state tests.
+
 ### Recovering without guessing
 
 Recurs records sessions and company goals durably, but it never assumes a

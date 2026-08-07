@@ -603,6 +603,95 @@ describe("TextEventRenderer presentation", () => {
     expect(output).toContain("\u001b[33mWarning: Context is nearly full\u001b[0m");
     expect(output).toContain("\u001b[32mVerified: focused tests passed\u001b[0m");
   });
+
+  it("keeps approval, denial, and cancellation outcomes explicit", async () => {
+    let output = "";
+    const stream = new Writable({
+      write(chunk, _encoding, callback) {
+        output += chunk.toString();
+        callback();
+      },
+    });
+    const renderer = new TextEventRenderer(stream, {
+      interactionOutcomes: true,
+    });
+    const intent = {
+      category: "shell" as const,
+      resource: "npm test",
+      risk: "normal" as const,
+    };
+
+    await renderer.emit({
+      type: "permission_requested",
+      sessionId: "session-1",
+      at: "2026-08-07T00:00:00.000Z",
+      intent,
+    });
+    await renderer.emit({
+      type: "permission_resolved",
+      sessionId: "session-1",
+      at: "2026-08-07T00:00:01.000Z",
+      intent,
+      decision: "allow_once",
+    });
+    await renderer.emit({
+      type: "permission_resolved",
+      sessionId: "session-1",
+      at: "2026-08-07T00:00:02.000Z",
+      intent: { ...intent, resource: "git push" },
+      decision: "deny",
+    });
+    await renderer.emit({
+      type: "turn_cancelled",
+      sessionId: "session-1",
+      at: "2026-08-07T00:00:03.000Z",
+      turnId: "turn-1",
+    });
+
+    expect(output).toContain("Permission requested: shell npm test");
+    expect(output).toContain("Allowed once: shell npm test");
+    expect(output).toContain("Denied: shell git push");
+    expect(output).toContain("Turn cancelled");
+  });
+
+  it("preserves the existing quiet headless interaction outcomes by default", async () => {
+    let output = "";
+    const stream = new Writable({
+      write(chunk, _encoding, callback) {
+        output += chunk.toString();
+        callback();
+      },
+    });
+    const renderer = new TextEventRenderer(stream);
+    const intent = {
+      category: "shell" as const,
+      resource: "npm test",
+      risk: "normal" as const,
+    };
+
+    await renderer.emit({
+      type: "model_text_delta",
+      sessionId: "session-1",
+      at: "2026-08-07T00:00:00.000Z",
+      turnId: "turn-1",
+      text: "partial response",
+    });
+    await renderer.emit({
+      type: "permission_resolved",
+      sessionId: "session-1",
+      at: "2026-08-07T00:00:00.000Z",
+      intent,
+      decision: "deny",
+    });
+    await renderer.emit({
+      type: "turn_cancelled",
+      sessionId: "session-1",
+      at: "2026-08-07T00:00:01.000Z",
+      turnId: "turn-1",
+    });
+
+    expect(output).toBe("partial response\n");
+  });
 });
 
 describe("TextEventRenderer lifecycle hooks", () => {

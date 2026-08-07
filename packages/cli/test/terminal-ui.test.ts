@@ -185,6 +185,43 @@ describe("TerminalSafeAutocompleteProvider", () => {
 });
 
 describe("RecursInteractiveShell", () => {
+  it.each([
+    [80, 30, true, "████   █████   ████", true],
+    [80, 30, false, "████   █████   ████", false],
+    [24, 16, true, "▗█▀▀█▖", true],
+    [24, 16, false, "▗█▀▀█▖", false],
+  ] as const)(
+    "renders the first-launch brand at %d columns and %d rows with color=%s",
+    async (columns, rows, colorEnabled, expected, hasColor) => {
+      const terminal = new TestTerminal(columns, rows);
+      const shell = new RecursInteractiveShell({
+        terminal,
+        cwd: "/workspace",
+        animate: false,
+        colorEnabled,
+      });
+      const onboarding = shell.onboard(async (ui) =>
+        await ui.selectChoice("Choose a provider", [{
+          id: "saved",
+          label: "Use saved account",
+          detail: "vendor-owned authentication",
+        }])
+      );
+      const rejected = expect(onboarding).rejects.toMatchObject({
+        name: "AbortError",
+      });
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      const finalFrame = terminal.writes.at(-1) ?? "";
+      expect(finalFrame).toContain(expected);
+      expect(finalFrame).toContain("Use saved account");
+      expect(finalFrame).toContain("Esc cancel");
+      expect(terminal.output.includes("\u001b[96m")).toBe(hasColor);
+      terminal.input?.("\u001b");
+      await rejected;
+    },
+  );
+
   it("cancels an onboarding operation while the surface is working", async () => {
     const terminal = new TestTerminal();
     const shell = new RecursInteractiveShell({

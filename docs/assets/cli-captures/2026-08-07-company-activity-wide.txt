@@ -1,0 +1,21 @@
+                       ████   █████   ████  █   █  ████   ████
+                        █   █  █      █      █   █  █   █  █
+                        █   █  █      █      █   █  █   █  █
+                      ████   ████   █      █   █  ████    ███
+                     █ █    █      █      █   █  █ █        █
+                    █  █   █      █      █   █  █  █       █
+                    █   █  █████   ████   ███   █   █  ████
+                                RECURS / COMPANY
+             THE BEST CODING MODEL IS A TEAM · YOU CONTROL THE TEAM
+
+                         ▚▟██▙▞  ◆ PARENT  gpt-5.6-sol
+                                ╭······┴······╮
+             › ▚▟█▙▚  ◆ IMPLEMENTATION LEAD  gpt-5.6-terra · medium
+                             ENGINEERING · RUNNING
+
+                 RUNNING · 1/4 ACTIVE · Ship the CLI milestone
+                             REVIEW · REQUESTS 2/30
+                      REVIEW CHANGES REQUESTED · 1 FINDING
+                          HANDOFFS 0 DONE · EVIDENCE 0
+                                 USAGE PENDING
+                        ENTER CHAT   ↑↓ INSPECT   Q QUIT

@@ -47,6 +47,10 @@ import {
 } from "./terminal-attach.js";
 import { sanitizeTerminalText } from "./terminal-text.js";
 import {
+  createTerminalTheme,
+  renderRecursBrandRows,
+} from "./terminal-style.js";
+import {
   TerminalUiState,
   renderCompanyHome,
 } from "./terminal-ui-state.js";
@@ -265,6 +269,26 @@ class TranscriptBuffer {
   text(): string { return this.#text.trimEnd(); }
 }
 
+class RecursBrandComponent implements Component {
+  constructor(private readonly colorEnabled: boolean) {}
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const accent = ansi("96", this.colorEnabled);
+    return renderRecursBrandRows(width).map((row) => {
+      const value = row.trimEnd();
+      const padding = " ".repeat(Math.max(
+        0,
+        Math.floor((width - Array.from(value).length) / 2),
+      ));
+      return `${padding}${accent(value)}`;
+    });
+  }
+
+  handleInput(): void {}
+}
+
 class OnboardingComponent extends Container {
   readonly #question = new Text();
   readonly #footer: Text;
@@ -292,6 +316,7 @@ class OnboardingComponent extends Container {
       transcript.setText(accent(buffer.text().replace(/^\n+/u, "")));
       tui.requestRender();
     });
+    this.addChild(new RecursBrandComponent(colorEnabled));
     this.addChild(new Text(
       `${strong(accent("RECURS / SETUP"))}  ${muted("form your coding company")}`,
       1,
@@ -614,12 +639,14 @@ export class RecursInteractiveShell {
     this.#terminal = options.terminal ?? new ProcessTerminal();
     this.#cwd = options.cwd;
     this.#animate = options.animate ?? true;
-    this.#colorEnabled = options.colorEnabled ??
-      options.terminal === undefined;
     this.#loadImages = options.loadImages ?? loadImageInputs;
     this.#attachProcess = options.attachProcess ?? attachOwnedTerminalProcess;
     this.#input = options.input ?? processStdin;
     this.#output = options.output ?? processStdout;
+    this.#colorEnabled = options.colorEnabled ?? createTerminalTheme(
+      this.#output,
+      options.terminal === undefined ? {} : { terminal: false },
+    ).colorEnabled;
     this.#transcriptOutput = new Writable({
       write: (chunk, _encoding, callback) => {
         this.#transcript.append(chunk.toString());
@@ -628,6 +655,7 @@ export class RecursInteractiveShell {
     });
     this.#textEvents = new TextEventRenderer(this.#transcriptOutput, {
       colorEnabled: false,
+      interactionOutcomes: true,
     });
   }
 

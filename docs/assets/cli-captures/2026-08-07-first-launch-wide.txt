@@ -1,0 +1,26 @@
+                       ████   █████   ████  █   █  ████   ████
+                        █   █  █      █      █   █  █   █  █
+                        █   █  █      █      █   █  █   █  █
+                      ████   ████   █      █   █  ████    ███
+                     █ █    █      █      █   █  █ █        █
+                    █  █   █      █      █   █  █  █       █
+                    █   █  █████   ████   ███   █   █  ████
+ RECURS / SETUP  form your coding company
+
+ Welcome to Recurs
+
+ The best coding model is a team. You control the team.
+ Connect a parent, set its boundaries, then choose how the team works.
+ Company formation is optional.
+ Credentials stay with the vendor runtime or a named process environment—never
+ this generic prompt.
+ 01/06  PARENT MODEL
+
+ Choose a saved, detected, or recommended model connection
+
+→ Connect Codex with ChatGPT      official Codex runtime · Act + Plan · vendor…
+  Connect OpenAI API              environment key · reviewed fixed origin · Act…
+  Connect Anthropic API           environment key · reviewed fixed origin · Act…
+  Connect OpenRouter API          environment key · reviewed fixed origin · Act…
+  More providers                  12 other reviewed connection paths
+ ↑↓ choose · Enter continue · Esc cancel · Ctrl+C cancel
