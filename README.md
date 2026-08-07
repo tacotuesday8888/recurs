@@ -7,59 +7,61 @@
 </p>
 
 <p align="center">
-  An open-source coding-agent harness for running controlled teams in your terminal.
+  Open-source coding-agent teams with visible roles, routes, limits, review, and results.
 </p>
 
 <p align="center">
   <a href="https://github.com/tacotuesday8888/recurs/actions/workflows/ci.yml"><img src="https://github.com/tacotuesday8888/recurs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/recurs"><img src="https://img.shields.io/npm/v/recurs/alpha?label=npm&color=4285f4" alt="npm alpha"></a>
+  <a href="https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.7"><img src="https://img.shields.io/github/v/release/tacotuesday8888/recurs?include_prereleases&label=release&color=54d68a" alt="GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-4c8eda.svg" alt="Apache 2.0"></a>
 </p>
 
 ## Install
 
+macOS and Linux · Node.js 22.22+
+
+| Method | Command |
+| --- | --- |
+| npm | `npm install --global recurs@alpha` |
+| Homebrew | `brew install tacotuesday8888/recurs/recurs` |
+| curl | `curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.7/install.sh \| sh` |
+| Bun | `bun install --global recurs@alpha` |
+
+Then launch Recurs inside a project:
+
 ```bash
-npm install -g recurs@alpha
+cd your-project
 recurs
 ```
 
-Recurs supports macOS and Linux. The first run connects a model, sets
-permissions, and configures your team.
+Every path installs the same reviewed package. Bun can install Recurs; Node.js
+runs it. See [installation, upgrades, and source setup](docs/CLI.md#install).
 
-[Bun, curl, Homebrew, and source installs →](docs/PUBLIC_ALPHA.md#installation-reality)
-
-## Why Recurs?
-
-Recurs is for teams that want an inspectable alternative to opaque intensive
-agent workflows: the team, routes, limits, approvals, and durable results stay
-visible in the terminal. It is not affiliated with, endorsed by, or a claim of
-superiority over any model provider or coding tool. Recurs is a conversational
-CLI, not an IDE.
-
-It gives you controls to:
-
-- choose team size and delegation depth
-- route each role to a different model
-- set permissions, retries, requests, and spend limits
-- require independent review and bounded repair
-- see every active agent, handoff, result, and usage record
-
-Start with one agent or form a project-specific company through guided
-onboarding.
-
-## How it works
+## One goal. A controlled company.
 
 ```text
 goal → plan → workers → review → repair → synthesis → approval
 ```
 
-Workers inherit narrower authority than their parent. Mutating work happens in
-isolated Git worktrees and is only applied through the active approval policy.
+Recurs turns a coding goal into bounded, inspectable work. You choose the team
+size, delegation depth, model route, authority, and budget. Recurs records the
+agents that actually ran, their handoffs, evidence, usage, and final result.
 
-Recurs works with API keys, local models, and user-present vendor runtimes,
-including an existing Codex subscription.
+- **Bring your models.** Use API keys, coding plans, local models, or a
+  user-present vendor runtime such as Codex with ChatGPT.
+- **Control the team.** Route roles independently and cap depth, concurrency,
+  retries, requests, and spend.
+- **Keep authority narrow.** Children cannot exceed parent permissions;
+  repository changes stay isolated until the active policy allows application.
+- **Require evidence.** Independent review, bounded repair, durable recovery,
+  and truthful failure reporting are part of the runtime.
 
-## Use it
+## Quick start
+
+The first run discovers available model connections, asks for an authority
+level, and offers to form a project-specific company. Start with the recommended
+defaults or inspect every route and limit before approval.
 
 ```bash
 recurs                                  # interactive session
@@ -68,34 +70,32 @@ recurs review                           # review local changes
 recurs doctor                           # check host readiness
 ```
 
-Inside Recurs:
+Useful commands inside Recurs:
 
 ```text
-/goal <objective>    start a durable goal
-/goal launch         launch the active approved company goal
+/goal <objective>    create a durable goal
+/goal launch         launch the approved company goal
 /agents controls     inspect team limits
 /company status      inspect the active company
-/model auto          select an evaluated model team
+/model auto          select an evidence-gated model team
 /permissions         change the authority profile
-/status              show the current session and usage
-/company operations  find durable company work and its next action
+/status              show the session and usage
 ```
 
-If a run is interrupted, use `recurs doctor`, then `recurs help recovery` for
-the exact inspect-before-resume path.
+## Current status
 
-## Learn more
+Recurs is public alpha software for macOS and Linux. The base agent loop,
+provider routes, permissions, worktree isolation, durable company execution,
+review, repair, recovery, and explicit apply path are implemented and tested.
+Team configurations remain evidence-gated: Recurs does not claim that a larger
+team always beats a strong single agent.
 
 - [Five-minute CLI guide](docs/CLI.md)
 - [Feature status](docs/FEATURE_STATUS.md)
 - [Company onboarding](docs/AGENT_COMPANY_ONBOARDING.md)
 - [Architecture](ARCHITECTURE.md)
-- [Security](SECURITY.md)
-- [Privacy and local data](PRIVACY.md)
+- [Security](SECURITY.md) and [privacy](PRIVACY.md)
+- [Public alpha boundaries](docs/PUBLIC_ALPHA.md)
 - [Contributing](CONTRIBUTING.md)
-
-Recurs is public alpha software. See the
-[current release boundaries](docs/PUBLIC_ALPHA.md) before using it on
-sensitive or production work.
 
 Apache-2.0 © Recurs contributors
