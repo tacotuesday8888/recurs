@@ -167,6 +167,7 @@ interface HarnessOptions {
   readonly implementFailure?: ReadonlyMap<number, {
     readonly message: string;
   }>;
+  readonly repairFailure?: { readonly message: string };
   readonly implementFinishOrder?: readonly number[];
   readonly applyFailure?: Error;
   readonly prepareFailures?: number;
@@ -336,20 +337,22 @@ async function harness(options: HarnessOptions = {}) {
         parentAbort.abort();
       }
 
-      const implementationFailure = correlation.role === "implement"
+      const childFailure = correlation.role === "implement"
         ? options.implementFailure?.get(correlation.taskIndex)
-        : undefined;
+        : correlation.role === "repair"
+          ? options.repairFailure
+          : undefined;
       if (correlation.role === "implement") {
         const finishTurn = implementFinishWaits.get(correlation.taskIndex);
         if (finishTurn !== undefined) await finishTurn;
       }
 
-      if (implementationFailure !== undefined) {
+      if (childFailure !== undefined) {
         const failure: IntegrationFailure = {
           domain: "runtime",
           phase: "started",
           code: "runtime_failed",
-          safeMessage: implementationFailure.message,
+          safeMessage: childFailure.message,
           diagnosticId: `failure-${correlation.taskIndex}`,
           retryable: false,
         };
@@ -2058,6 +2061,35 @@ describe("TeamRunSupervisor durable foreground pipeline", () => {
     expect(result.metadata.evidence).toContain(
       "Repair round 1 made no material change to the staged candidate.",
     );
+    expect(test.parentMutationCount()).toBe(0);
+  });
+
+  it("preserves a rejected candidate and the reliability failure when Repair fails", async () => {
+    const test = await harness({
+      reviewByRound: () => "changes_requested",
+      repairFailure: { message: "Repair runtime became unavailable" },
+    });
+
+    const result = await test.supervisor.startForeground(test.input, test.context);
+    const state = await test.state(result.metadata.teamId);
+
+    expect(result.metadata).toMatchObject({
+      status: "changes_requested",
+      failure: {
+        code: "runtime_failed",
+        message: "Repair runtime became unavailable",
+      },
+    });
+    expect(state.children.find((child) => child.reservation.role === "repair"))
+      .toMatchObject({
+        result: {
+          status: "failed",
+          failure: { code: "runtime_failed" },
+        },
+      });
+    expect(state.reviews.map((review) => review.round)).toEqual([0]);
+    expect(test.reviewPrompts).toHaveLength(1);
+    expect(test.log).not.toContain("patch:apply");
     expect(test.parentMutationCount()).toBe(0);
   });
 

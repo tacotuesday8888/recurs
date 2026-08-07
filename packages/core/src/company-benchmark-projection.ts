@@ -348,7 +348,8 @@ function overlapObservation(
 
 function workspaceIntegrity(
   verification: CompanyBenchmarkWorkspaceVerification,
-): "passed" | "failed" {
+): "passed" | "failed" | "not_run" {
+  if (verification.status === "not_run") return "not_run";
   const integrity = new Set([
     "workspace_inventory",
     "git_state",
@@ -359,6 +360,64 @@ function workspaceIntegrity(
       .every((check) => check.status === "passed")
     ? "passed"
     : "failed";
+}
+
+const RUNTIME_EXECUTION_FAILURE_CODES = new Set([
+  "execution_cancelled",
+  "company_goal_interrupted",
+  "agent_cancelled",
+  "agent_context_overflow",
+  "agent_invalid_provider_response",
+  "agent_provider_failed",
+  "runtime_cancelled",
+  "runtime_provider_not_configured",
+]);
+
+function executionTerminalStage(
+  roles: readonly CompanyBenchmarkRoleObservationV1[],
+): "parent" | "implement" | "review" | "repair" | undefined {
+  const terminal = [...roles].reverse().find((role) =>
+    role.role !== "parent" &&
+    (role.failedAttempts > 0 || role.cancelledAttempts > 0)
+  );
+  if (terminal !== undefined && terminal.role !== "parent") return terminal.role;
+  const parent = roles.find((role) => role.role === "parent");
+  return roles.length === 1 && parent !== undefined &&
+      (parent.failedAttempts > 0 || parent.cancelledAttempts > 0)
+    ? "parent"
+    : undefined;
+}
+
+function classifyFailure(
+  failure: CompanyBenchmarkFailureV1,
+  roles: readonly CompanyBenchmarkRoleObservationV1[],
+): CompanyBenchmarkFailureV1 {
+  if (failure.stage === "verification") {
+    return {
+      ...failure,
+      scope: "verification",
+      terminalStage: "verification",
+    };
+  }
+  if (failure.stage === "setup") {
+    return { ...failure, scope: "harness", terminalStage: "setup" };
+  }
+  if (failure.stage === "cleanup") {
+    return { ...failure, scope: "harness", terminalStage: "cleanup" };
+  }
+  if (failure.stage === "projection") {
+    return { ...failure, scope: "harness" };
+  }
+  const runtimeExecution = failure.code.startsWith("coordinated_") ||
+    failure.code.startsWith("runtime_") ||
+    RUNTIME_EXECUTION_FAILURE_CODES.has(failure.code);
+  const terminalStage = failure.terminalStage ?? executionTerminalStage(roles);
+  return {
+    ...failure,
+    scope: failure.scope ??
+      (runtimeExecution ? "runtime_execution" : "roster_execution"),
+    ...(terminalStage === undefined ? {} : { terminalStage }),
+  };
 }
 
 export function projectCompanyBenchmarkTrial(input: {
@@ -472,6 +531,6 @@ export function projectCompanyBenchmarkTrial(input: {
     },
     changedFiles,
     overlap: overlapObservation(input.recorder.attempts),
-    failures,
+    failures: failures.map((failure) => classifyFailure(failure, roles)),
   });
 }

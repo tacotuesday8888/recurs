@@ -1924,29 +1924,49 @@ export class TeamRunSupervisor {
           round,
           at: this.#now(),
         });
-        const repair = await this.#delegateJournaled(
-          journal,
-          "repair",
-          1,
-          round,
-          {
-            profile: "repair_v1",
-            description: `Repair staged findings (round ${round})`,
-            prompt: repairPrompt({
-              objective: input.description,
-              changedFiles,
-              findings: review.findings,
-              round,
-              maximumRounds: descriptor.policy.workflow.team.maxRepairRounds,
-            }),
-          },
-          stageLease,
-          decisions.get("repair")!,
-          context,
-          childrenAbort.signal,
-          parent.agent.depth,
-          runAuthority,
-        );
+        let repair: ChildDelegationResult;
+        try {
+          repair = await this.#delegateJournaled(
+            journal,
+            "repair",
+            1,
+            round,
+            {
+              profile: "repair_v1",
+              description: `Repair staged findings (round ${round})`,
+              prompt: repairPrompt({
+                objective: input.description,
+                changedFiles,
+                findings: review.findings,
+                round,
+                maximumRounds: descriptor.policy.workflow.team.maxRepairRounds,
+              }),
+            },
+            stageLease,
+            decisions.get("repair")!,
+            context,
+            childrenAbort.signal,
+            parent.agent.depth,
+            runAuthority,
+          );
+        } catch (error) {
+          if (journal.state.cancellation !== null) throw error;
+          const failedRepair = journal.state.children.findLast((child) =>
+            child.reservation.role === "repair" &&
+            child.reservation.round === round &&
+            child.result?.status === "failed"
+          );
+          if (failedRepair?.result?.failure === undefined ||
+            failedRepair.result.failure === null) {
+            throw error;
+          }
+          return await this.#terminal(
+            journal,
+            "changes_requested",
+            failedRepair.result.failure,
+            evidence,
+          );
+        }
         const repairedSnapshot = await this.dependencies.patches.capture(
           stageLease,
           childrenAbort.signal,

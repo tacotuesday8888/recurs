@@ -211,12 +211,14 @@ describe("code_outline", () => {
   it("ranks central declarations by distinct cross-file references", async () => {
     await writeFile(path.join(cwd, "src", "core.ts"), "export class Coordinator {}\n");
     await writeFile(path.join(cwd, "src", "first.ts"), [
+      'import { Coordinator } from "./core";',
       "export function first() {",
       "  return new Coordinator();",
       "}",
       "",
     ].join("\n"));
     await writeFile(path.join(cwd, "src", "second.ts"), [
+      'import { Coordinator } from "./core";',
       "export function second() {",
       "  return Coordinator;",
       "}",
@@ -256,6 +258,7 @@ describe("code_outline", () => {
       "",
     ].join("\n"));
     await writeFile(path.join(cwd, "src", "consumer.ts"), [
+      'import { Runner } from "./types";',
       "export function consume() {",
       "  return [Runner, Runner];",
       "}",
@@ -268,6 +271,106 @@ describe("code_outline", () => {
     expect(result.output).toContain("class Run (referenced by 0 files)");
   });
 
+  it("resolves imported aliases without counting unused imports or local shadows", async () => {
+    await writeFile(
+      path.join(cwd, "src", "worker.ts"),
+      "export class Worker {}\n",
+    );
+    await writeFile(path.join(cwd, "src", "active.ts"), [
+      'import { Worker as ActiveWorker } from "./worker";',
+      "export function active() { return new ActiveWorker(); }",
+      "",
+    ].join("\n"));
+    await writeFile(path.join(cwd, "src", "unused.ts"), [
+      'import { Worker as UnusedWorker } from "./worker";',
+      "export function unused() { return 1; }",
+      "",
+    ].join("\n"));
+    await writeFile(path.join(cwd, "src", "shadow.ts"), [
+      'import { Worker } from "./worker";',
+      "export function shadow(Worker: string) { return Worker; }",
+      "",
+    ].join("\n"));
+
+    const result = await invoke({
+      path: "src",
+      ranking: "references",
+      maxSymbols: 4,
+    });
+
+    expect(result.output).toContain("class Worker (referenced by 1 file)");
+    expect(result.metadata).toMatchObject({
+      referenceAnalysis: "typescript_semantic_v1",
+    });
+  });
+
+  it("attributes a reference to the imported declaration when modules reuse a name", async () => {
+    await writeFile(path.join(cwd, "src", "first.ts"), "export class Shared {}\n");
+    await writeFile(path.join(cwd, "src", "second.ts"), "export class Shared {}\n");
+    await writeFile(path.join(cwd, "src", "consumer.ts"), [
+      'import { Shared } from "./second";',
+      "export const value = new Shared();",
+      "",
+    ].join("\n"));
+
+    const result = await invoke({
+      path: "src",
+      ranking: "references",
+      maxSymbols: 5,
+    });
+
+    expect(result.output).toContain([
+      "src/first.ts [TypeScript/JavaScript] (referenced by 0 files)",
+      "  1  class Shared (referenced by 0 files)",
+    ].join("\n"));
+    expect(result.output).toContain([
+      "src/second.ts [TypeScript/JavaScript] (referenced by 1 file)",
+      "  1  class Shared (referenced by 1 file)",
+    ].join("\n"));
+  });
+
+  it("does not guess a target for an unresolved duplicate TypeScript name", async () => {
+    await writeFile(path.join(cwd, "src", "first.ts"), "export class Shared {}\n");
+    await writeFile(path.join(cwd, "src", "second.ts"), "export class Shared {}\n");
+    await writeFile(
+      path.join(cwd, "src", "consumer.ts"),
+      "export const unresolved = Shared;\n",
+    );
+
+    const result = await invoke({
+      path: "src",
+      ranking: "references",
+      maxSymbols: 5,
+    });
+
+    expect(result.output.match(/class Shared \(referenced by 0 files\)/gu))
+      .toHaveLength(2);
+    expect(result.metadata).toMatchObject({
+      referenceAnalysis: "typescript_semantic_v1",
+      referenceEdges: 0,
+    });
+  });
+
+  it("keeps distinct accepted TypeScript paths distinct in the semantic index", async () => {
+    await writeFile(path.join(cwd, "src", "a:b.ts"), "export class Colon {}\n");
+    await writeFile(path.join(cwd, "src", "a_b.ts"), "export class Underline {}\n");
+    await writeFile(path.join(cwd, "src", "colon-user.ts"), [
+      'import { Colon } from "./a:b";',
+      "export const colon = new Colon();",
+      "",
+    ].join("\n"));
+    await writeFile(path.join(cwd, "src", "underline-user.ts"), [
+      'import { Underline } from "./a_b";',
+      "export const underline = new Underline();",
+      "",
+    ].join("\n"));
+
+    const result = await invoke({ path: "src", ranking: "references" });
+
+    expect(result.output).toContain("class Colon (referenced by 1 file)");
+    expect(result.output).toContain("class Underline (referenced by 1 file)");
+  });
+
   it("downranks noisy short identifiers below specific graph symbols", async () => {
     await writeFile(path.join(cwd, "src", "specific.ts"),
       "export class ImportantCoordinator {}\n");
@@ -275,6 +378,8 @@ describe("code_outline", () => {
       "export const id = () => 1;\n");
     for (let index = 0; index < 5; index += 1) {
       await writeFile(path.join(cwd, "src", `consumer-${index}.ts`), [
+        'import { id } from "./generic";',
+        'import { ImportantCoordinator } from "./specific";',
         `export function consumer${index}() {`,
         index < 2
           ? "  return [id(), ImportantCoordinator];"
@@ -299,9 +404,10 @@ describe("code_outline", () => {
 
   it("caps an adversarial duplicate-symbol graph deterministically", async () => {
     await Promise.all(Array.from({ length: 450 }, async (_, index) => {
-      await writeFile(path.join(cwd, "src", `duplicate-${index}.ts`), [
-        "export class SharedSymbol {}",
-        "const reference = SharedSymbol;",
+      await writeFile(path.join(cwd, "src", `duplicate-${index}.py`), [
+        "class SharedSymbol:",
+        "    pass",
+        "reference = SharedSymbol",
         "",
       ].join("\n"));
     }));

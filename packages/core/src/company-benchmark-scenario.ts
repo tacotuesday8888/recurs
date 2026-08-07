@@ -71,7 +71,7 @@ export interface CompanyBenchmarkCheck {
 }
 
 export interface CompanyBenchmarkWorkspaceVerification {
-  readonly status: "passed" | "failed";
+  readonly status: "passed" | "failed" | "not_run";
   readonly checks: readonly CompanyBenchmarkCheck[];
 }
 

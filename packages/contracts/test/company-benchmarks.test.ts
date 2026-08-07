@@ -259,7 +259,12 @@ function parentFailureTrial(
   };
   raw.evidence = { roleItems: 0, finalItems: 0 };
   raw.changedFiles = [];
-  raw.failures = [{ stage: "execution", code }];
+  raw.failures = [{
+    stage: "execution",
+    code,
+    scope: "runtime_execution",
+    terminalStage: "parent",
+  }];
   return parseCompanyBenchmarkTrial(raw);
 }
 
@@ -385,6 +390,70 @@ describe("company benchmark campaign contracts", () => {
 });
 
 describe("company benchmark trial contracts", () => {
+  it("accepts bounded failure diagnostics while preserving legacy records", () => {
+    const legacy = trialValue(campaignValue(), "baseline-sol", 1);
+    legacy.executionStatus = "failed";
+    legacy.failures = [{ stage: "execution", code: "runtime_execution_failed" }];
+    expect(parseCompanyBenchmarkTrial(legacy).failures).toEqual([
+      { stage: "execution", code: "runtime_execution_failed" },
+    ]);
+
+    const classified = structuredClone(legacy) as Record<string, unknown>;
+    classified.failures = [{
+      stage: "execution",
+      code: "coordinated_rate_limited",
+      scope: "runtime_execution",
+      terminalStage: "parent",
+    }];
+    expect(parseCompanyBenchmarkTrial(classified).failures).toEqual([
+      {
+        stage: "execution",
+        code: "coordinated_rate_limited",
+        scope: "runtime_execution",
+        terminalStage: "parent",
+      },
+    ]);
+
+    const ambiguous = structuredClone(legacy) as Record<string, unknown>;
+    ambiguous.failures = [{
+      stage: "execution",
+      code: "agent_provider_failed",
+      scope: "runtime_execution",
+    }];
+    expect(parseCompanyBenchmarkTrial(ambiguous).failures).toEqual([{
+      stage: "execution",
+      code: "agent_provider_failed",
+      scope: "runtime_execution",
+    }]);
+
+    const invalid = structuredClone(classified) as Record<string, unknown>;
+    invalid.failures = [{
+      stage: "execution",
+      code: "coordinated_rate_limited",
+      scope: "provider_brand_outage",
+      terminalStage: "parent",
+    }];
+    expect(() => parseCompanyBenchmarkTrial(invalid)).toThrow(/failure scope/u);
+
+    const extra = structuredClone(classified) as Record<string, unknown>;
+    extra.failures = [{
+      stage: "execution",
+      code: "coordinated_rate_limited",
+      scope: "runtime_execution",
+      terminalStage: "parent",
+      message: "private failure prose",
+    }];
+    expect(() => parseCompanyBenchmarkTrial(extra)).toThrow(/exactly/u);
+
+    const missingScope = structuredClone(legacy) as Record<string, unknown>;
+    missingScope.failures = [{
+      stage: "execution",
+      code: "agent_provider_failed",
+      terminalStage: "parent",
+    }];
+    expect(() => parseCompanyBenchmarkTrial(missingScope)).toThrow(/exactly/u);
+  });
+
   it("keeps configured and activated routes distinct and preserves unknown cost", () => {
     const campaign = parseCompanyBenchmarkCampaign(campaignValue());
     const raw = trialValue(campaignValue(), "company-balanced", 1);

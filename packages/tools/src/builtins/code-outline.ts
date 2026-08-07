@@ -13,7 +13,10 @@ import {
   type ResolvedWorkspacePath,
 } from "../path-policy.js";
 import { runProcess } from "../process.js";
-import { parseTypeScriptOutline } from "../typescript-outline.js";
+import {
+  indexTypeScriptOutlineReferences,
+  parseTypeScriptOutline,
+} from "../typescript-outline.js";
 import { ToolError, type Tool } from "../types.js";
 
 const DEFAULT_MAX_FILES = 200;
@@ -420,6 +423,7 @@ interface RankedIndex {
   readonly referenceEdges: number;
   readonly weightedReferenceEdges: number;
   readonly graphTruncated: boolean;
+  readonly referenceAnalysis: "typescript_semantic_v1" | "typescript_semantic_and_lexical_v1" | "lexical_v1";
 }
 
 interface IndexedDefinition {
@@ -509,6 +513,24 @@ function rankReferenceIndex(
     }
   }
 
+  const typescriptFiles = files.filter((file) =>
+    file.language === TYPESCRIPT.name
+  );
+  const semantic = indexTypeScriptOutlineReferences(typescriptFiles.map((file) => ({
+    path: file.path,
+    content: file.content,
+    declarations: file.declarations,
+  })));
+  const semanticReferences = new Map<string, Map<string, number>>();
+  for (const reference of semantic.references) {
+    const key = `${reference.targetPath}\0${reference.targetName}`;
+    const sources = semanticReferences.get(key) ?? new Map<string, number>();
+    sources.set(
+      reference.sourcePath,
+      (sources.get(reference.sourcePath) ?? 0) + 1,
+    );
+    semanticReferences.set(key, sources);
+  }
   const references = new Map<string, Map<string, number>>();
   let graphTruncated = false;
   for (const source of files) {
@@ -531,37 +553,42 @@ function rankReferenceIndex(
   const weightedReferences: WeightedReference[] = [];
   const identifierWeights = new Map<string, number>();
   const definitionReferenceCounts = new Map<string, number>();
-  const targetFilesByName = new Map<string, Set<string>>();
+  const definitionTargets: Array<{
+    readonly name: string;
+    readonly target: IndexedDefinition;
+    readonly sources: ReadonlyMap<string, number>;
+  }> = [];
   for (const [name, targets] of definitions) {
     const targetFiles = new Set(targets.map((target) => target.file.path));
-    targetFilesByName.set(name, targetFiles);
     const weight = identifierWeight(name, targetFiles.size);
     identifierWeights.set(name, weight);
-    const sources = references.get(name) ?? new Map<string, number>();
-    for (const target of targetFiles) {
+    for (const target of targets) {
+      const sources = semantic.analyzedPaths.has(target.file.path)
+        ? semanticReferences.get(
+            `${target.file.path}\0${target.declaration.name}`,
+          ) ?? new Map<string, number>()
+        : references.get(name) ?? new Map<string, number>();
       definitionReferenceCounts.set(
-        `${target}\0${name}`,
-        sources.size - (sources.has(target) ? 1 : 0),
+        `${target.file.path}\0${name}`,
+        sources.size - (sources.has(target.file.path) ? 1 : 0),
       );
+      definitionTargets.push({ name, target, sources });
     }
   }
-  buildGraph: for (const [name, targetFiles] of targetFilesByName) {
+  buildGraph: for (const { name, target, sources } of definitionTargets) {
     const weight = identifierWeights.get(name) ?? 1;
-    const sources = references.get(name) ?? new Map<string, number>();
     for (const [source, occurrences] of sources) {
-      for (const target of targetFiles) {
-        if (source === target) continue;
-        if (weightedReferences.length >= MAX_REFERENCE_EDGES) {
-          graphTruncated = true;
-          break buildGraph;
-        }
-        weightedReferences.push({
-          source,
-          target,
-          name,
-          weight: weight * Math.sqrt(occurrences),
-        });
+      if (source === target.file.path) continue;
+      if (weightedReferences.length >= MAX_REFERENCE_EDGES) {
+        graphTruncated = true;
+        break buildGraph;
       }
+      weightedReferences.push({
+        source,
+        target: target.file.path,
+        name,
+        weight: weight * Math.sqrt(occurrences),
+      });
     }
   }
   const fileReferrers = new Map<string, Set<string>>();
@@ -652,6 +679,11 @@ function rankReferenceIndex(
     referenceEdges: edges.size,
     weightedReferenceEdges: weightedReferences.length,
     graphTruncated,
+    referenceAnalysis: typescriptFiles.length === 0
+      ? "lexical_v1"
+      : typescriptFiles.length === files.length
+        ? "typescript_semantic_v1"
+        : "typescript_semantic_and_lexical_v1",
   };
 }
 
@@ -849,6 +881,7 @@ export function createCodeOutlineTool(
             referenceEdges: rankedIndex.referenceEdges,
             weightedReferenceEdges: rankedIndex.weightedReferenceEdges,
             graphTruncated: rankedIndex.graphTruncated,
+            referenceAnalysis: rankedIndex.referenceAnalysis,
             rankingAlgorithm: "weighted_file_graph_v1",
           }),
           truncated,

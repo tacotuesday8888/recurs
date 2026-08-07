@@ -1315,11 +1315,17 @@ export function reduceTeamRunRecord(
       const latest = state.records.at(-1);
       const repairStalled = state.phase === "repair" &&
         latest?.type === "repair_stalled" && latest.round === state.round;
+      const repairFailed = state.phase === "repair" &&
+        latestChildrenFor(state, "repair", state.round).some((child) =>
+          child.result?.status === "failed"
+        );
       if (record.status === "changes_requested" && (
         review?.verdict !== "changes_requested" ||
-        (review.round < maximumRepairRounds && !repairStalled)
+        (review.round < maximumRepairRounds && !repairStalled && !repairFailed)
       )) {
-        invalid("Changes requested requires repair exhaustion or a stalled repair");
+        invalid(
+          "Changes requested requires repair exhaustion or a terminal Repair outcome",
+        );
       }
       state.status = record.status;
       state.outcome = record.outcome;
