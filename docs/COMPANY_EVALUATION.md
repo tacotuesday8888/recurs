@@ -97,32 +97,41 @@ recorded durably and stops as `changes_requested` without paying for another
 review of identical content. The full artifact provenance, metrics,
 limitations, and correction boundary are in the
 [installed active-use proof](research/2026-08-06-RECURS-INSTALLED-ACTIVE-USE-PROOF.md).
-The run is additional evidence, not an amendment to the frozen 2026-08-04
-aggregate decision below.
+That run is additional historical evidence. Round 2 below is the current
+aggregate decision.
 
-### Current frozen evidence (2026-08-04)
+### Current Round 2 evidence (2026-08-08)
 
-The current decision record contains 11 campaigns and 30 trials across three
-harness revisions. Raw hidden-verifier passes were 9/13 for the Sol baseline,
-7/13 for mixed Auto, and 1/4 for the all-Sol company. Two repetitions were
-shared upstream Sol-parent/provider failures before any worker activated;
-excluding only those six trials from roster comparison leaves 9/11, 7/11, and
-1/2. They remain included in end-to-end reliability.
+Round 2 added reproducible current-harness campaigns and a strict
+parent-matched/unmatched design. Settlement-backed raw completion was 11/12
+baseline slots and 16/18 company slots. Complete campaigns produced 12
+informative pairs but only six parent-matched pairs. In matched evidence the
+baseline-only count was two and the company-only count was zero.
 
-On the six matched successes, baseline versus mixed Auto used 6 versus 18
-requests and 704,396 versus 1,282,356 input tokens. Auto was faster in 2/6 and
-used fewer input tokens in 0/6. Terra Implement completed 10/10 observed
-attempts. Seven final Luna approvals all passed the hidden verifier, while two
-change-request outcomes did not recover: Terra Repair completed both requests
-but recovered 0/2 candidates. Reported dollar cost is unknown for all 30
-trials.
+One Luna approval failed the hidden verifier. Complete campaigns supplied
+three Repair attempts and only one recovery. The representative-fixture,
+durable-completeness, matched-pair, non-inferiority, Repair-recovery,
+zero-false-approval, and dollar-cost gates did not all pass. Token coverage was
+complete for the selected complete campaigns; provider-reported dollar cost
+was unknown.
 
-The decision remains **insufficient evidence for an Auto ranking**. The full
-method, compatibility caveats, outage attribution, role evidence, and
-reproduction notes are preserved in the
-[versioned report](research/2026-08-04-RECURS-MODEL-TEAM-EVALUATION-V1.md).
-The dated sections below remain useful historical run records, but they do not
-supersede the frozen aggregate decision.
+The decision remains **insufficient evidence for an Auto or worker-route
+promotion**. The full experimental design, per-campaign measurements,
+limitations, and exact gates are in the
+[Round 2 report](research/2026-08-07-RECURS-MODEL-TEAM-EVALUATION-V2.md).
+Round 1 remains preserved as historical evidence rather than being rewritten.
+
+### 2026-08-08 release-candidate dogfood
+
+The existing official authenticated Codex 0.145.0 runtime completed Quick
+formation in 41.563 seconds with two requests. A one-repetition frozen
+`alias_registry` comparison then passed all seven checks for the Sol baseline.
+The Sol/Terra/Luna company completed with three requests and Luna approval but
+failed the hidden registry-boundary check; Repair did not activate. Token
+coverage was complete and dollar cost was unknown. This independently repeats
+the false-approval failure class without estimating its general frequency.
+See the [active-use RC evidence](ACTIVE_USE_RELEASE_CANDIDATE.md) for exact
+routes, latency, usage, and campaign identifiers.
 
 ### 2026-07-29 three-scenario Codex comparison
 

@@ -23,6 +23,11 @@ Codex. The full source-development dependency tree measured about
 402 MiB because it retains roughly 307 MiB of pinned Codex compatibility
 fixtures. Exact size varies by platform and npm version.
 
+npm's `alpha` dist-tag selects `0.1.0-alpha.7`; unqualified `latest` still
+selects `0.1.0-alpha.2`. The public alpha.7 archive is immutable tag output.
+Post-tag current-source capabilities, including GitHub Copilot, are for a later
+deliberately tagged preview and are not retroactively part of these bytes.
+
 ## What is proven
 
 The base harness, bounded company runtime, provider routes, permissions,
@@ -37,48 +42,32 @@ key or network request. Ordinary session resume and normalized provider failure
 remain covered by the same installed-artifact smoke; company interruption and
 recovery remain covered by focused runtime integration tests.
 
-One real Codex subscription dogfood on 2026-07-23 also completed:
+Round 2 added reproducible current-harness and parent-matched Codex evidence.
+It did not establish an Auto or worker-route winner. Complete campaigns
+provided 12 informative pairs but only six parent-matched pairs. In matched
+evidence the baseline-only count was two and the company-only count was zero.
+One Luna approval failed the hidden verifier. Complete campaigns supplied
+three Repair attempts and only one recovery. Provider-reported dollar cost was
+unknown. See the [Round 2 evidence report](research/2026-08-07-RECURS-MODEL-TEAM-EVALUATION-V2.md).
 
-1. Quick company formation and approval;
-2. a Balanced three-assignment coding goal;
-3. isolated Terra implementation;
-4. independent Luna review;
-5. Sol synthesis and explicit apply; and
-6. evidence-backed Auto lineup activation.
-
-The run changed two files and passed four fixture tests. It reported 216,879
-input tokens, including 161,024 cached input tokens, and 3,274 output tokens.
-Dollar cost was unavailable. Review approved the first candidate, so the
-configured Repair fallback did not activate in that live run; deterministic
-integration tests cover the request-changes, repair, and re-review branch.
-
-The frozen evaluation now covers 11 campaigns and 30 trials across three
-harness revisions. Raw hidden-verifier passes were 9/13 for the Sol baseline,
-7/13 for mixed Auto, and 1/4 for the all-Sol company. Two repetitions were
-correlated upstream parent/provider failures across all three arms; excluding
-only those six roster-non-informative trials leaves 9/11, 7/11, and 1/2. The
-mixed company used three times as many requests and 1.82 times as many input
-tokens on the six matched pairs where both it and the baseline passed. Dollar
-cost remained unknown for all 30 trials. See the
-[versioned evidence report](research/2026-08-04-RECURS-MODEL-TEAM-EVALUATION-V1.md)
-for the complete results and limitations.
+The 2026-08-08 RC dogfood used the existing official Codex login without
+copying credentials. Quick formation passed its substantive rubrics in 41.563
+seconds with two requests and unknown cost. A frozen `alias_registry`
+repetition then passed all seven checks for the Sol baseline, while the
+Sol/Terra/Luna company used three requests, received Luna approval, and failed
+the hidden registry-boundary check. Repair did not activate. This is another
+single observed false approval, not a general rate estimate. Exact routes,
+usage, latency, and campaign identifiers are in the
+[active-use RC evidence](ACTIVE_USE_RELEASE_CANDIDATE.md).
 
 ## What is not proven
 
-The current evidence does not establish that the Sol/Terra/Luna lineup is a
-universal winner, that a large team is cost-effective, or that it reliably
-beats a strong single agent. The frozen multi-campaign report covers harness
-revisions through alpha.5, but its alpha.5 subset includes no `layered_config`
-campaign. One post-tag, alpha.6-labeled current-source `alias_registry` pair
-now passes both arms, but the company was 32.6% slower and used 3.37 times as
-many input tokens. A later exact installed current-source `retry_after` pair
-passed only the Sol baseline; the company used five requests, failed the
-verifier, and exposed a no-op Repair request that Recurs now stops before a
-redundant re-review. Both remain below the three-pair comparability floor. See
-the [pinned current-source live proof](research/2026-08-05-RECURS-ALPHA6-LIVE-COMPANY-PROOF.md)
-and [installed active-use proof](research/2026-08-06-RECURS-INSTALLED-ACTIVE-USE-PROOF.md).
-Before publishing a default recommendation, Recurs needs repeated
-current-harness comparisons that record:
+The evidence does not establish that Sol/Terra/Luna is a universal winner,
+that a larger team is cost-effective, or that it reliably beats a strong
+single agent. Round 2 failed the representative-fixture, durable-completeness,
+matched-pair, non-inferiority, Repair-recovery, zero-false-approval, and
+dollar-cost gates. Before publishing a default recommendation, Recurs still
+needs repeated current-harness comparisons that record:
 
 - final quality and test results;
 - review findings and repair rounds;
@@ -90,10 +79,9 @@ The source contains the repeatable comparison machinery: three immutable
 hidden-verifier fixtures, alternating campaign order, distinct
 Quick/Guided/Deep formation evaluations, the selected parent-only baseline,
 the currently configured saved role-route snapshot, and an explicit all-strong
-comparison option. Terra Implement completed all 10 observed attempts and seven
-final Luna approvals all passed the verifier, but Terra Repair recovered 0/2
-candidates. Those role-confounded samples do not substitute for model/effort
-crosses, repeated current-harness runs, or real price coverage.
+comparison option. Availability observations do not substitute for
+model/effort crosses, repeated parent-matched runs, safe review evidence, or
+real price coverage.
 
 Other current limits include Windows subprocess containment, a persistent
 worker daemon, a full company operations dashboard, automatic plugin

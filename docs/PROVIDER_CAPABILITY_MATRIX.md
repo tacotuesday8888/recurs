@@ -1,6 +1,9 @@
 # Provider Capability Matrix
 
-Snapshot: 2026-08-07T12:00:00.000Z, generated from the executable provider and CLI readiness projections. No live verification evidence was supplied for this snapshot.
+Snapshot: 2026-08-08T09:00:00.000Z, generated from the executable provider and
+CLI readiness projections. User-present live verification passed for the three
+saved Codex app-server routes; no live evidence was supplied for other
+providers.
 
 This matrix deliberately keeps four questions separate:
 
@@ -13,7 +16,7 @@ Categories are closed: `cataloged`, `activatable`, `live-tested`, `conditional`,
 
 | Provider | Category | Adapter | Implementation coverage | Live | Missing activation capability |
 | --- | --- | --- | --- | --- | --- |
-| Codex with ChatGPT | conditional | `codex-app-server` | complete | not run | — |
+| Codex with ChatGPT | conditional | `codex-app-server` | complete | passed 2026-08-08 | — |
 | Ollama Local | activatable | `openai-chat-completions` | complete | not run | — |
 | LM Studio Local | activatable | `openai-chat-completions` | complete | not run | — |
 | OpenAI API | activatable | `openai-responses` | complete | not run | — |
@@ -41,6 +44,18 @@ Categories are closed: `cataloged`, `activatable`, `live-tested`, `conditional`,
 | Azure OpenAI | cataloged | — | none | not run | authentication, model discovery/readiness probe, streaming, tools, usage, errors, onboarding backend |
 
 The executable source is `listProviderCapabilities()` in `packages/cli/src/provider-account.ts`. Unknown requested IDs produce `unsupported` with no adapter or verification claim.
+
+A fixed-endpoint adapter can be executable without satisfying this matrix's
+full activation definition. OpenCode Go, Kimi Code, Alibaba Coding Plan, and
+other fixed-origin Chat-compatible paths accept an explicit model and
+environment credential through their wired adapters, but remain
+`cataloged`/`conditional` here until a provider-specific model discovery or
+readiness probe exists. A saved account and a successful live turn are separate
+facts again; neither changes a blocked provider policy.
+
+The official GitHub Copilot path is a post-alpha.7-tag current-source addition.
+It is not present in the immutable public alpha.7 archive and will ship only in
+a later deliberately tagged preview.
 
 ## Current primary-source findings
 

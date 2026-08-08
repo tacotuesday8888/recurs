@@ -4,6 +4,9 @@ Current documents:
 
 - [Public alpha status](PUBLIC_ALPHA.md) — one-page installation,
   distribution, evidence, and remaining-risk summary.
+- [Active-use release candidate](ACTIVE_USE_RELEASE_CANDIDATE.md) — current
+  artifact journey, live Codex dogfood, provider, dependency, and distribution
+  verification evidence.
 - [Feature status](FEATURE_STATUS.md) — concise code-backed inventory of what is implemented, bounded, prepared-only, and absent.
 - [CLI guide](CLI.md) — local and Codex setup, provider/account commands, permissions, storage, output, and limits.
 - [Security policy](../SECURITY.md) — current support boundary, private reporting expectations, and credential-canary rules.
@@ -74,5 +77,11 @@ boundary.
 The repository and `0.1.0-alpha.7` preview package are Apache-2.0 licensed.
 The one-time npm bootstrap, trusted-publisher relationship, exact release tag,
 and manual protected workflow remain owner-controlled.
+
+The public alpha.7 archive is the immutable tagged artifact. Post-tag changes
+on `main`, including the official Copilot path, are current-source capabilities
+for a later deliberate preview and are not retroactively part of the published
+alpha.7 bytes. npm's `alpha` tag selects alpha.7; unqualified `latest` still
+selects alpha.2.
 
 Earlier exploration is preserved in [historical research](research/README.md). It may use the old “Subagents IDE” working name or describe options that are not current commitments.

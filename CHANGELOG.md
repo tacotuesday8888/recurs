@@ -4,6 +4,27 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+### Added
+
+- The official GitHub Copilot SDK path, provider capability/readiness
+  projections, and the preserved website-direction brief landed after the
+  immutable alpha.7 tag and are not retroactively claimed as published
+  alpha.7 bytes.
+- Active-use release-candidate evidence now records the exact packed-artifact
+  journey, current provider boundaries, public distribution integrity, and a
+  bounded live Codex company run.
+
+### Changed
+
+- Current product documentation now uses Round 2 model-team evidence. Models:
+  Auto remains insufficiently proven after one Round 2 false approval, limited
+  Repair recovery, and unknown dollar cost.
+
+### Fixed
+
+- Process cleanup and cancellation ordering now settles owned subprocesses
+  before teardown without weakening the OS sandbox or adding retries.
+
 ## 0.1.0-alpha.7 - 2026-08-06
 
 ### Added

@@ -1,6 +1,6 @@
 # Recurs Feature Status
 
-**Audited:** 2026-08-06 against the source, exported package surfaces, CLI
+**Audited:** 2026-08-08 against the source, exported package surfaces, CLI
 assembly, durable contracts/stores, provider manifests, and automated tests in
 this release candidate.
 
@@ -28,7 +28,7 @@ context, not a product commitment.
 | Company adaptation | Tailored role charters, attributable project knowledge, historical authority snapshots, exact Skill/MCP bundle bindings, approval-gated blueprint amendments, and repeated-run recommendations that can only narrow future team limits |
 | Evaluation | Discoverable versioned scenarios; deterministic offline formation; exact-connection, explicit-network configured formation including Codex app-server; three hidden-verifier Company Proof fixtures; read-only exact-run company-goal scoring; sanitized reports, additive per-trial runtime/roster/verification/harness failure scope with optional evidenced terminal stages, aggregate-only shared-parent-boundary attribution, separate Review/Repair recovery diagnostics, and bounded human progress |
 | Model teams | `/model auto` records immutable V2 company-goal evidence that separates configured routes from actual activation. It requires three exact eligible runs with observed Parent/Implement/Review activity and passed decomposition, evidence, and synthesis; legacy V1 records remain readable but cannot activate Auto, and Repair remains an explicit fallback unless separately observed |
-| Providers | Reviewed saved environment credentials for API keys and coding plans, explicit billing/entitlement bindings, literal-loopback Ollama/LM Studio, and local user-present Codex subscription discovery/execution through the official app-server |
+| Providers | Reviewed saved environment credentials for API keys and coding plans, explicit billing/entitlement bindings, literal-loopback Ollama/LM Studio, local user-present Codex subscription discovery/execution through the official app-server, and an opt-in official GitHub Copilot SDK path for `github.com` |
 | Host safety | Permanent credential-path denial, clean child environments, bounded failures, macOS Seatbelt, Linux Bubblewrap, Git worktree isolation, and tamper-evident private state |
 
 ## Real but bounded
@@ -69,6 +69,12 @@ installation is shared rather than duplicated. Source development still
 installs the pinned Codex packages to exercise legacy compatibility and exact
 app-server behavior in tests.
 
+The published alpha.7 archive is the immutable tagged artifact. Current source
+contains post-tag additions, including the Copilot path, for a later deliberate
+preview; those additions are not retroactively claimed as published alpha.7
+bytes. npm's `alpha` tag selects alpha.7, while unqualified `latest` still
+selects alpha.2.
+
 ## Not implemented
 
 - a full-screen company operations dashboard or desktop client;
@@ -90,36 +96,33 @@ app-server behavior in tests.
 
 ## Readiness assessment
 
-The base harness and bounded heavy-company architecture are implemented. The
-CLI now exposes read-only operating snapshots, deterministic formation,
-explicit configured-provider dogfooding, and provider-free scoring of one
-durable goal. The exact packed artifact is also tested from an empty private
-home through Quick formation, a layered lead/Implement/Review flow, a rejected
-first candidate, Repair, re-review, parent synthesis, approved apply, and an
-external passing fixture test. Codex subscriptions can execute restricted
-pre-approval company formation and foreground parent/company assignments
-through Recurs-scoped tools. `Models: Auto` is implemented as an evidence gate rather
-than a brand ranking. One safe formation-to-apply Codex dogfood completed Quick
-formation, approval, a reviewed coding goal, parent synthesis, and
-evidence-backed Auto activation with Sol as parent, Terra as Implement/Repair,
-and Luna as Review. The larger frozen evaluation now covers 11 campaigns and
-30 trials: raw hidden-verifier passes were 9/13 for the Sol baseline, 7/13 for
-mixed Auto, and 1/4 for the all-Sol company. Two repetitions were correlated
-upstream parent/provider failures across every arm; excluding only those shared
-outages leaves 9/11, 7/11, and 1/2, which still does not establish a winning
-roster. Terra Implement completed 10/10 attempts, seven final Luna approvals
-all passed the verifier, and Terra Repair completed 2/2 requests but recovered
-0/2 candidates. Dollar cost remained unknown. See the
-[versioned evidence report](research/2026-08-04-RECURS-MODEL-TEAM-EVALUATION-V1.md).
-The terminal reports only activated agents, their exact model/effort and route
-rationale, and bounded usage.
+The base harness and bounded company architecture are implemented. The exact
+packed artifact passes an empty-home journey through Quick formation, layered
+lead/Implement/Review, a rejected candidate, Repair, re-review, synthesis,
+explicit apply, and an external fixture test. Codex subscriptions can run
+restricted formation and foreground reviewed goals through Recurs-scoped host
+tools. The terminal reports only activated agents, exact model/effort routes,
+bounded usage, and truthful unknown cost.
 
-The controlled comparison surface includes three hidden-verifier coding
-fixtures, distinct Quick/Guided/Deep formation scenarios, and campaigns that
-compare the selected parent-only baseline against the currently configured
-saved role-route snapshot, with an explicit option for an additional all-strong
-bounded team. The next evidence milestone is a healthy-provider current-harness
-run with at least three repetitions per fixture, wider role/effort crosses,
-repair diagnosis, and real cost coverage. Activation, context, latency, and
-review value must continue to be tuned only from durable results. A new
+`Models: Auto` remains an evidence gate, not a brand ranking. Round 2 added
+current-harness and matched-parent evidence but did not pass the representative
+fixture, durable completeness, matched-pair, non-inferiority, Repair recovery,
+false-approval, or cost-coverage gates. Complete campaigns yielded 12
+informative pairs but only six parent-matched pairs; in matched evidence the
+baseline-only count was two and the company-only count was zero. One Luna
+approval failed the hidden verifier. Complete campaigns supplied three Repair
+attempts and only one recovery. Dollar cost remained unknown. See the
+[Round 2 evidence report](research/2026-08-07-RECURS-MODEL-TEAM-EVALUATION-V2.md).
+
+The 2026-08-08 RC dogfood independently repeated the false-approval failure
+class: Sol/Terra/Luna completed with three requests and Luna approval, but the
+hidden registry-boundary verifier failed; Repair did not activate. This single
+run does not estimate a general error rate, and it strengthens no lineup claim.
+The exact metrics and distribution checks are in the
+[active-use RC evidence](ACTIVE_USE_RELEASE_CANDIDATE.md).
+
+The next evidence milestone remains complete current-harness coverage of all
+three frozen fixtures with at least three repetitions, at least nine matched
+informative pairs, wider role/effort crosses, two or more demonstrated Repair
+recoveries, zero false approvals, and real dollar-cost coverage. A new
 orchestration foundation is not the next step.

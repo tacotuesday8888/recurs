@@ -138,14 +138,13 @@ before Recurs can claim a lightweight install.
 
 ## Next priorities
 
-1. **Improve the company experience from current evidence.** The frozen record
-   now covers 11 campaigns and 30 trials: raw hidden-verifier passes were 9/13
-   for the Sol baseline, 7/13 for mixed Auto, and 1/4 for the all-Sol company.
-   Shared upstream outages explain six trials but do not create an Auto winner.
-   Terra Repair completed two requests but recovered neither candidate. Finish
-   current-harness fixture coverage, cross models by role, and improve repair,
-   review availability, context reuse, latency, and usage only from reproduced
-   failures. Dollar cost remains unknown.
+1. **Improve the company experience from current evidence.** Round 2 produced
+   12 informative pairs but only six parent-matched pairs; matched evidence had
+   two baseline-only passes and zero company-only passes. One false approval
+   was observed, complete campaigns recovered only one of three Repair
+   attempts, and dollar cost remained unknown. Finish current-harness fixture
+   coverage, cross models by role, and improve Repair, review safety, context
+   reuse, latency, and usage only from reproduced failures.
 2. **Keep distribution reproducible.** Every public alpha must ship one exact
    npm archive through npm, the checksum-bound installer, and Homebrew only
    after package, install, security, and release gates pass. Keep Bun's claim
