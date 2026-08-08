@@ -311,6 +311,55 @@ function repairTrial(
 }
 
 describe("company benchmark campaign contracts", () => {
+  it("preserves legacy campaign serialization without materializing a design", () => {
+    const legacy = campaignValue();
+    const parsed = parseCompanyBenchmarkCampaign(legacy);
+
+    expect(parsed).toEqual(legacy);
+    expect(Object.hasOwn(parsed, "comparisonDesign")).toBe(false);
+    expect(JSON.parse(JSON.stringify(parsed))).toEqual(legacy);
+  });
+
+  it("allows a different company parent only for an explicit independent design", () => {
+    const mismatched = structuredClone(campaignValue());
+    mismatched.companyArms[0]!.configuredRoutes[0] =
+      route("parent", "different-parent");
+
+    expect(() => parseCompanyBenchmarkCampaign(mismatched)).toThrow(
+      "Every company benchmark arm must use the baseline parent route",
+    );
+    expect(() => parseCompanyBenchmarkCampaign({
+      ...mismatched,
+      comparisonDesign: "shared_parent_v1",
+    })).toThrow(
+      "Every company benchmark arm must use the baseline parent route",
+    );
+
+    const parsed = parseCompanyBenchmarkCampaign({
+      ...mismatched,
+      comparisonDesign: "independent_company_parent_v1",
+    });
+    expect(parsed.comparisonDesign).toBe("independent_company_parent_v1");
+    expect(Object.isFrozen(parsed)).toBe(true);
+  });
+
+  it("rejects malformed comparison designs without changing campaign schema bounds", () => {
+    const campaign = campaignValue();
+    expect(() => parseCompanyBenchmarkCampaign({
+      ...campaign,
+      comparisonDesign: undefined,
+    })).toThrow(/comparison design/u);
+    expect(() => parseCompanyBenchmarkCampaign({
+      ...campaign,
+      comparisonDesign: "causal_winner_v1",
+    })).toThrow(/comparison design/u);
+    expect(() => parseCompanyBenchmarkCampaign({
+      ...campaign,
+      comparisonDesign: "shared_parent_v1",
+      causalIsolation: true,
+    })).toThrow(/exactly/u);
+  });
+
   it("parses and freezes one baseline with bounded canonical company arms", () => {
     const parsed = parseCompanyBenchmarkCampaign(campaignValue());
 
@@ -721,6 +770,37 @@ describe("company benchmark summary contracts", () => {
       classification: "roster_informative",
       commonFailureCode: null,
     });
+  });
+
+  it("never calls different company parents a shared outage", () => {
+    const independent = {
+      ...structuredClone(campaignValue()),
+      comparisonDesign: "independent_company_parent_v1" as const,
+    };
+    independent.companyArms.forEach((arm, index) => {
+      arm.configuredRoutes[0] = route(
+        "parent",
+        `independent-parent-${index + 1}`,
+      );
+    });
+    const campaign = parseCompanyBenchmarkCampaign(independent);
+    const trials = [campaign.baseline.id, ...campaign.companyArms.map((arm) =>
+      arm.id
+    )].map((armId) => parentFailureTrial(independent, armId, 1));
+
+    const attribution = deriveCompanyBenchmarkFailureAttribution(
+      campaign,
+      trials,
+    );
+
+    expect(attribution.trialCounts).toEqual({
+      reliability: 3,
+      rosterInformative: 3,
+      sharedParentBoundaryFailure: 0,
+    });
+    expect(attribution.repetitions[0]?.classification).toBe(
+      "roster_informative",
+    );
   });
 
   it("reports completed Repair attempts separately from recovered trials", () => {

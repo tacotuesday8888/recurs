@@ -43,7 +43,7 @@ const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 
 export const COMPANY_BENCHMARK_USAGE = [
   "Usage: recurs benchmark company --list [--json]",
-  "       recurs benchmark company --configured --allow-network [--scenario <id>] [--connection <id>] [--repetitions 1|2|3] [--compare-all-strong] [--json]",
+  "       recurs benchmark company --configured --allow-network [--scenario <id>] [--connection <id>] [--parent-connection <id>] [--implement-connection <id>] [--review-connection <id>] [--repair-connection <id>] [--repetitions 1|2|3] [--compare-all-strong] [--json]",
   "       recurs benchmark company --resume <campaign-id> --allow-network [--json]",
 ].join("\n");
 
@@ -53,6 +53,9 @@ export type CompanyBenchmarkCommandOptions =
       readonly action: "run";
       readonly scenarioId: string;
       readonly connectionId: string | null;
+      readonly roleConnectionIds: Readonly<
+        Partial<Record<CompanyBenchmarkRouteV1["role"], string>>
+      >;
       readonly repetitions: 1 | 2 | 3;
       readonly compareAllStrong: boolean;
       readonly json: boolean;
@@ -105,6 +108,9 @@ export function parseCompanyBenchmarkCommand(
   let allowNetwork = false;
   let json = false;
   let connectionId: string | null = null;
+  const roleConnectionIds: Partial<
+    Record<CompanyBenchmarkRouteV1["role"], string>
+  > = {};
   let scenarioId = "alias_registry";
   let repetitions: 1 | 2 | 3 = 3;
   let compareAllStrong = false;
@@ -128,6 +134,16 @@ export function parseCompanyBenchmarkCommand(
     else if (argument === "--connection") {
       connectionId = argumentValue(argv, index);
       index += 1;
+    } else if (
+      argument === "--parent-connection" ||
+      argument === "--implement-connection" ||
+      argument === "--review-connection" ||
+      argument === "--repair-connection"
+    ) {
+      const role = argument.slice(2, -"-connection".length) as
+        CompanyBenchmarkRouteV1["role"];
+      roleConnectionIds[role] = argumentValue(argv, index);
+      index += 1;
     } else if (argument === "--resume") {
       resume = argumentValue(argv, index);
       index += 1;
@@ -148,6 +164,7 @@ export function parseCompanyBenchmarkCommand(
   }
   if (list) {
     if (configured || allowNetwork || connectionId !== null ||
+      Object.keys(roleConnectionIds).length > 0 ||
       resume !== null || repetitions !== 3 || scenarioId !== "alias_registry" ||
       compareAllStrong) {
       throw new CompanyBenchmarkArgumentError(
@@ -163,7 +180,8 @@ export function parseCompanyBenchmarkCommand(
   }
   if (resume !== null) {
     if (
-      configured || connectionId !== null || repetitions !== 3 ||
+      configured || connectionId !== null ||
+      Object.keys(roleConnectionIds).length > 0 || repetitions !== 3 ||
       scenarioId !== "alias_registry" || compareAllStrong
     ) {
       throw new CompanyBenchmarkArgumentError(
@@ -188,6 +206,7 @@ export function parseCompanyBenchmarkCommand(
     action: "run",
     scenarioId,
     connectionId,
+    roleConnectionIds,
     repetitions,
     compareAllStrong,
     json,
@@ -251,6 +270,9 @@ export function createConfiguredCompanyBenchmarkCampaign(input: {
   readonly document: ConnectionRegistryDocument;
   readonly scenarioId: string;
   readonly connectionId: string | null;
+  readonly roleConnectionIds?: Readonly<
+    Partial<Record<CompanyBenchmarkRouteV1["role"], string>>
+  >;
   readonly repetitions: 1 | 2 | 3;
   readonly compareAllStrong: boolean;
   readonly campaignId: string;
@@ -258,20 +280,30 @@ export function createConfiguredCompanyBenchmarkCampaign(input: {
 }): CompanyBenchmarkCampaignV1 {
   const scenario = getCompanyBenchmarkScenario(input.scenarioId, 1);
   const blueprint = createCompanyBenchmarkBlueprint(scenario);
-  const parent = requireCodexConnection(input.document, input.connectionId);
+  const baselineParent = requireCodexConnection(
+    input.document,
+    input.connectionId,
+  );
+  const companyParent = requireCodexConnection(
+    input.document,
+    input.roleConnectionIds?.parent ?? baselineParent.id,
+  );
   const roles = (["implement", "review", "repair"] as const).map((role) => {
     const configured = input.document.agentRoutes[role];
     return route(
       role,
-      requireCodexConnection(input.document, configured ?? parent.id),
+      requireCodexConnection(
+        input.document,
+        input.roleConnectionIds?.[role] ?? configured ?? companyParent.id,
+      ),
     );
   });
-  const autoRoutes = [route("parent", parent), ...roles] as const;
+  const autoRoutes = [route("parent", companyParent), ...roles] as const;
   const strongRoutes = [
-    route("parent", parent),
-    route("implement", parent),
-    route("review", parent),
-    route("repair", parent),
+    route("parent", baselineParent),
+    route("implement", baselineParent),
+    route("review", baselineParent),
+    route("repair", baselineParent),
   ] as const;
   const autoDiffers = autoRoutes.some((candidate, index) => {
     const strong = strongRoutes[index]!;
@@ -326,6 +358,9 @@ export function createConfiguredCompanyBenchmarkCampaign(input: {
     operatingModeId: MODE_ID,
     operatingModeVersion: policy.version,
     permissionMode: "approved_for_me",
+    ...(companyParent.id === baselineParent.id
+      ? {}
+      : { comparisonDesign: "independent_company_parent_v1" as const }),
     repetitions: input.repetitions,
     ceilings: {
       maxTrialSlots: armOrder.length,
@@ -341,7 +376,7 @@ export function createConfiguredCompanyBenchmarkCampaign(input: {
     baseline: {
       id: "single-strong",
       kind: "single_agent",
-      configuredRoutes: [route("parent", parent)],
+      configuredRoutes: [route("parent", baselineParent)],
     },
     companyArms,
     armOrder,
@@ -403,6 +438,7 @@ export async function runCompanyBenchmarkCommand(
       document,
       scenarioId: options.scenarioId,
       connectionId: options.connectionId,
+      roleConnectionIds: options.roleConnectionIds,
       repetitions: options.repetitions,
       compareAllStrong: options.compareAllStrong,
       campaignId: `company-proof-${(dependencies.createId ?? randomUUID)()}`,
