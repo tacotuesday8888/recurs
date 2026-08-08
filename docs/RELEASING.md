@@ -14,6 +14,7 @@ Run these gates from a clean checkout of the exact commit that will be tagged:
 npm ci
 npm run check
 npm run package:smoke-install
+npm run package:smoke-install-bun
 ```
 
 The package gate permits exactly `dist/cli/main.js`, `package.json`, `LICENSE`,
@@ -119,6 +120,10 @@ publishes or verifies the same npm bytes, and makes the GitHub release public
 only after npm succeeds. While Recurs uses prerelease versions, the workflow
 marks the GitHub release as a prerelease and explicitly leaves the `latest`
 label unset; promoting a stable version requires an intentional policy change.
+As of 2026-08-08, npm's `alpha` tag points to `0.1.0-alpha.7` while
+unqualified `latest` still points to `0.1.0-alpha.2`. Keep public commands on
+`recurs@alpha` until a deliberate dist-tag decision is reviewed; never move an
+alpha onto `latest` as incidental release cleanup.
 After publication, update
 `tacotuesday8888/homebrew-recurs/Formula/recurs.rb` so its package URL and
 SHA-256 exactly match the attested release formula, review any platform

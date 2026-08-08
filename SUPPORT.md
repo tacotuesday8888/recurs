@@ -24,3 +24,17 @@ release installer and official Homebrew tap. Bun may install it globally, but
 Node remains the runtime. Source checkout is also supported. Native Bun
 execution, Windows subprocess tools, signed binaries, and the desktop
 experience are outside today's support boundary.
+
+## Common local verification blockers
+
+- A Recurs subprocess exiting 71, TypeScript diagnostics disappearing behind
+  exit 71, or loopback `listen EPERM` only inside another sandboxed desktop
+  host usually means Recurs's Seatbelt/Bubblewrap boundary is nested beneath a
+  stricter outer sandbox. Reproduce the exact command in a normal terminal;
+  do not add sleeps, retries, or disable Recurs containment.
+- `UNKNOWN_CERTIFICATE_VERIFICATION_ERROR` from Bun, or TLS failures fetching
+  Homebrew bottles, means the package manager could not validate this host's
+  registry chain. Do not disable TLS verification. Use the CI installer lane
+  or correct the host trust store/proxy configuration.
+- `recurs account verify` intentionally requires a user-present local terminal.
+  Run it interactively; headless refusal is not an account failure.

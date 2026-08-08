@@ -220,21 +220,21 @@ optimize price automatically. The first completed Codex dogfood reported
 216,879 input tokens (161,024 cached), 3,274 output tokens, and unknown dollar
 cost. It proved execution and evidence capture, not team efficiency.
 
-The frozen evaluation now contains 11 campaigns and 30 trials. Raw
-hidden-verifier passes were 9/13 for the Sol baseline, 7/13 for mixed Auto, and
-1/4 for the all-Sol company. Two repetitions were correlated upstream
-parent/provider failures before workers activated; removing only those six
-trials from roster comparison leaves 9/11, 7/11, and 1/2. This still does not
-establish a winner. On the six matched successes, mixed Auto used three times
-as many requests and 1.82 times as many input tokens. Dollar cost was unknown
-for every trial. See the
-[versioned evidence report](research/2026-08-04-RECURS-MODEL-TEAM-EVALUATION-V1.md).
+Round 2 added reproducible current-harness and parent-matched evidence but did
+not establish a winner. Complete campaigns produced 12 informative pairs and
+only six parent-matched pairs; matched evidence recorded two baseline-only
+passes and zero company-only passes. One Luna approval failed the hidden
+verifier. Complete campaigns supplied three Repair attempts and only one
+recovery. Dollar cost was unknown. See the
+[Round 2 evidence report](research/2026-08-07-RECURS-MODEL-TEAM-EVALUATION-V2.md).
 
-The runs demonstrate that the machinery, routing, independent review, hidden
-verification, and comparable-arm recording execute correctly. Terra Implement
-completed 10/10 observed attempts and seven final Luna approvals all passed the
-verifier, but Terra Repair recovered 0/2 candidates. These role-confounded
-samples do not establish a quality or efficiency advantage.
+The runs demonstrate that machinery, routing, independent review, hidden
+verification, and comparable-arm recording execute. They do not satisfy the
+representative-fixture, completeness, matched-pair, non-inferiority,
+Repair-recovery, zero-false-approval, or dollar-cost gates. A 2026-08-08 RC
+dogfood independently produced another Luna approval followed by a hidden
+verifier failure; this strengthens no lineup claim. See the
+[active-use RC evidence](ACTIVE_USE_RELEASE_CANDIDATE.md).
 
 The repeatable Company Proof surface now supplies three immutable tasks. Its
 default compares the selected parent-only baseline with the currently

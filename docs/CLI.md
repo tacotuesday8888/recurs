@@ -20,6 +20,10 @@ recurs
 ```
 
 `--global` only makes the `recurs` command available from any directory.
+Use the `@alpha` tag explicitly: npm's unqualified `latest` tag still points to
+`0.1.0-alpha.2`, while `alpha` points to `0.1.0-alpha.7`. The published
+alpha.7 archive is immutable. Capabilities added on `main` after that tag are
+current-source preview behavior until a later prerelease is published.
 
 The same reviewed npm artifact is also available through Bun-as-installer, the
 checksummed GitHub release installer, and Homebrew:
@@ -152,6 +156,13 @@ recurs setup byok \
 
 recurs setup codex
 ```
+
+Current source also includes `recurs setup copilot`, backed by GitHub's
+official Copilot SDK. That path was added after the immutable public alpha.7
+artifact. Recurs keeps catalog presence, SDK availability, a configured
+account, and a verified live account as separate states; it does not treat a
+catalog entry or an installed SDK as proof that Copilot is ready. GitHub
+Enterprise and unofficial credential discovery remain unsupported.
 
 Codex subscription setup uses the separately installed official Codex CLI
 `0.145.0` and its app-server. Recurs discovers that exact version on `PATH`;

@@ -37,6 +37,8 @@ recurs
 
 Every path installs the same reviewed package. Bun can install Recurs; Node.js
 runs it. See [installation, upgrades, and source setup](docs/CLI.md#install).
+Use the explicit `@alpha` tag: npm's unqualified `latest` tag still points to
+`0.1.0-alpha.2`, while `alpha` points to `0.1.0-alpha.7`.
 
 ## One goal. A controlled company.
 
@@ -90,12 +92,20 @@ review, repair, recovery, and explicit apply path are implemented and tested.
 Team configurations remain evidence-gated: Recurs does not claim that a larger
 team always beats a strong single agent.
 
+The published alpha.7 archive is immutable. Current `main` contains post-tag
+hardening and provider work that will ship only in a later deliberately tagged
+preview; the repository does not retroactively describe those bytes as the
+public alpha.7 artifact. Current model-team evidence remains insufficient for
+an Auto promotion, includes a false approval, has limited Repair evidence, and
+has no provider-reported dollar cost.
+
 - [Five-minute CLI guide](docs/CLI.md)
 - [Feature status](docs/FEATURE_STATUS.md)
 - [Company onboarding](docs/AGENT_COMPANY_ONBOARDING.md)
 - [Architecture](ARCHITECTURE.md)
 - [Security](SECURITY.md) and [privacy](PRIVACY.md)
 - [Public alpha boundaries](docs/PUBLIC_ALPHA.md)
+- [Active-use release-candidate evidence](docs/ACTIVE_USE_RELEASE_CANDIDATE.md)
 - [Contributing](CONTRIBUTING.md)
 
 Apache-2.0 © Recurs contributors
