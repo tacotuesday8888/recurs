@@ -840,6 +840,53 @@ describe("run_command", () => {
     }
   });
 
+  it("lets a normally exiting process drain its same-group output before cleanup", async () => {
+    const stateFile = path.join(cwd, "drain-state");
+    const terminatedFile = path.join(cwd, "drain-terminated");
+    const descendantCode = [
+      'const { writeFileSync } = require("node:fs");',
+      `const parentPid = process.ppid;`,
+      'process.on("SIGHUP", () => {});',
+      `process.on("SIGTERM", () => writeFileSync(${JSON.stringify(terminatedFile)}, "terminated"));`,
+      'process.on("SIGUSR1", () => process.stdout.write("drained\\n", () => process.exit(0)));',
+      `writeFileSync(${JSON.stringify(stateFile)}, "initialized");`,
+      "setInterval(() => {}, 60_000);",
+      "function waitForParentExit() {",
+      "  try {",
+      "    process.kill(parentPid, 0);",
+      "    setImmediate(waitForParentExit);",
+      "  } catch (error) {",
+      '    if (error?.code !== "ESRCH") throw error;',
+      `    writeFileSync(${JSON.stringify(stateFile)}, String(process.pid));`,
+      "  }",
+      "}",
+      "waitForParentExit();",
+    ].join("\n");
+    const script = [
+      "exec 3>&1;",
+      `${shellQuote(process.execPath)} -e ${shellQuote(descendantCode)} >&3 2>&3 &`,
+      `while [ ! -e ${shellQuote(stateFile)} ]; do :; done;`,
+      "exit 0",
+    ].join(" ");
+    const running = toolExports.runProcess("/bin/sh", ["-c", script], {
+      cwd,
+    });
+    let descendantPid: number | undefined;
+    try {
+      await vi.waitFor(async () => {
+        expect(await readFile(stateFile, "utf8")).toMatch(/^[1-9][0-9]*$/u);
+      });
+      descendantPid = Number.parseInt(await readFile(stateFile, "utf8"), 10);
+      process.kill(descendantPid, "SIGUSR1");
+
+      await expect(running).resolves.toMatchObject({ stdout: "drained\n" });
+      await expect(access(terminatedFile)).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      forceKillForTest(descendantPid);
+      await running.then(() => {}, () => {});
+    }
+  });
+
   it("bounds settlement when an escaped descendant retains the output pipes", async () => {
     const stateFile = path.join(cwd, "escaped-descendant.json");
     const escapedCode = "setInterval(() => {}, 1000);";
