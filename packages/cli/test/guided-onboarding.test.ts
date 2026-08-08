@@ -169,6 +169,26 @@ describe("guided onboarding policy", () => {
     expect(filterCatalogModels(["c", "a", "b"], "", 2)).toEqual(["c", "a"]);
   });
 
+  it("offers the reviewed Copilot path and delegates setup through the existing CLI seam", async () => {
+    const copilot = {
+      ...providers[0]!,
+      id: "github-copilot-subscription",
+      displayName: "GitHub Copilot Subscription",
+      status: "runnable" as const,
+      adapterKind: "agent_runtime" as const,
+      accessKind: "subscription" as const,
+      connectionOwner: "vendor_runtime" as const,
+    };
+    expect(guidedConnectionChoices({
+      accounts: [],
+      localRuntimes: [],
+      providers: [copilot],
+    })).toContainEqual(expect.objectContaining({
+      id: "copilot",
+      action: { kind: "copilot" },
+    }));
+  });
+
   it("uses stable permission identifiers and safe credential suggestions", () => {
     expect(GUIDED_PERMISSION_CHOICES.map((choice) => choice.id)).toEqual([
       "approved_for_me",

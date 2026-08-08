@@ -32,7 +32,7 @@ Categories are closed: `cataloged`, `activatable`, `live-tested`, `conditional`,
 | DeepSeek API | activatable | `openai-chat-completions` | complete | not run | — |
 | Google Gemini API | activatable | `gemini-generate-content` | complete | not run | — |
 | Claude Subscription | blocked | — | none | not run | authentication, model discovery/readiness probe, streaming, tools, usage, errors, onboarding backend |
-| GitHub Copilot Subscription | conditional | — | none | not run | authentication, model discovery/readiness probe, streaming, tools, usage, errors, onboarding backend |
+| GitHub Copilot Subscription | conditional | `github-copilot-sdk` | complete | not run | — |
 | OpenCode Zen | cataloged | — | none | not run | authentication, model discovery/readiness probe, streaming, tools, usage, errors, onboarding backend |
 | Nous Portal | conditional | — | none | not run | authentication, model discovery/readiness probe, streaming, tools, usage, errors, onboarding backend |
 | Z.ai GLM Coding Plan | blocked | — | none | not run | authentication, model discovery/readiness probe, streaming, tools, usage, errors, onboarding backend |
@@ -44,7 +44,7 @@ The executable source is `listProviderCapabilities()` in `packages/cli/src/provi
 
 ## Current primary-source findings
 
-- GitHub documents an official TypeScript Copilot SDK, logged-in-user/device-flow authentication, streaming events, and custom tools. Recurs does not yet contain that adapter or onboarding backend, so the manifest remains conditional rather than activatable: [authentication](https://docs.github.com/en/copilot/how-tos/copilot-sdk/auth/authenticate), [SDK tutorial](https://docs.github.com/en/copilot/how-tos/copilot-sdk/getting-started).
+- GitHub documents an official TypeScript Copilot SDK, vendor-owned logged-in-user authentication, streaming events, and custom tools. Recurs provides an opt-in official SDK adapter for `github.com`; GitHub Enterprise hosts remain unsupported in this alpha. SDK installation, saved-account readiness, and live-turn evidence stay separate. The path remains policy-conditional because included allowance can continue through provider-configured Additional usage: [authentication](https://docs.github.com/en/copilot/how-tos/copilot-sdk/auth/authenticate), [SDK tutorial](https://docs.github.com/en/copilot/how-tos/copilot-sdk/getting-started), [usage limits](https://docs.github.com/en/copilot/concepts/usage-limits).
 - AWS documents `ConverseStream`, tool use, model identifiers, and a permission requirement, but Recurs has no SigV4/workload-identity adapter or regional discovery backend: [ConverseStream](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ConverseStream.html).
 - Google documents bearer-token authentication, regional Vertex endpoints, function calling, and streaming function-call arguments, but Recurs has no ADC/workload-identity adapter or project/location discovery backend: [Vertex function calling](https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/function-calling), [REST authentication](https://cloud.google.com/docs/authentication/rest).
 - Microsoft documents Azure OpenAI v1 Responses endpoints, API-key or OAuth authentication, and function tools, but Recurs has no resource/deployment discovery or Azure identity backend: [Azure OpenAI Responses](https://learn.microsoft.com/en-us/rest/api/microsoft-foundry/azureopenai/responses).

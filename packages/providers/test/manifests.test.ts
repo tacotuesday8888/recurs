@@ -74,6 +74,11 @@ const REGION_AND_BILLING_MATRIX = [
     billingPolicy: expectedBillingPolicy(
       "github-copilot-subscription",
       "included_subscription",
+      {
+        possibleAdditionalSources: ["metered_api"],
+        providerFallback: "user_configured",
+        availableSelections: ["allow_declared_additional"],
+      },
     ),
   },
   {
@@ -644,6 +649,35 @@ describe("bundled provider manifests", () => {
         ),
       },
     ]);
+  });
+
+  it("discloses Copilot allowance and user-configured additional usage", () => {
+    const copilot = bundled("github-copilot-subscription");
+    expect(copilot.billingPolicy).toEqual(expectedBillingPolicy(
+      "github-copilot-subscription",
+      "included_subscription",
+      {
+        possibleAdditionalSources: ["metered_api"],
+        providerFallback: "user_configured",
+        availableSelections: ["allow_declared_additional"],
+      },
+    ));
+    expect(copilot.usagePolicy.sourceUrls).toEqual(expect.arrayContaining([
+      "https://docs.github.com/en/copilot/concepts/usage-limits",
+      "https://docs.github.com/en/copilot/reference/copilot-billing/request-based-billing-legacy/copilot-requests",
+    ]));
+    expect(copilot.usagePolicy.evidenceSummary).toMatch(
+      /included AI credit allowance.*provider-configured Additional usage.*legacy annual plans.*token counts.*not dollar cost/iu,
+    );
+    expect(copilot.usagePolicy.evidenceSummary).toMatch(
+      /github\.com.*GitHub Enterprise hosts are not supported/iu,
+    );
+    expect(copilot.usagePolicy.rules[0]?.condition).toMatchObject({
+      type: "all",
+      conditions: expect.arrayContaining([
+        { type: "billing_selection", allowedModes: ["allow_declared_additional"] },
+      ]),
+    });
   });
 
   it("uses only legal credential-owner, lane, access, and auth combinations", () => {
@@ -1255,11 +1289,12 @@ describe("ProviderManifestRegistry", () => {
       .toEqual(CANONICAL_MATRIX.map((entry) => entry.id));
   });
 
-  it("reports only implemented local and official Codex paths as runnable", () => {
+  it("reports only implemented local and reviewed official delegated paths as runnable", () => {
     const registry = new ProviderManifestRegistry();
 
     expect(registry.runnable().map((manifest) => manifest.id)).toEqual([
       "openai-codex-chatgpt",
+      "github-copilot-subscription",
       "ollama-local",
       "lm-studio-local",
     ]);

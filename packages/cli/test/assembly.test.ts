@@ -34,6 +34,7 @@ import {
   ConnectionLifecycleService,
   FileConnectionRegistry,
   setupEnvironmentConnection,
+  setupGitHubCopilotConnection,
   type DelegatedConnectionRecord,
 } from "@recurs/app";
 import {
@@ -325,6 +326,112 @@ describe("standalone assembly without a provider", () => {
       .toBeInstanceOf(CoordinatedRunError);
     expect(runtimeRuns).toBe(0);
     expect(runtime.session.messages).toEqual([]);
+  });
+
+  it("routes a freshly persisted reviewed Copilot record into Act + Plan", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-copilot-assembly-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    const connection = await setupGitHubCopilotConnection(dataDirectory, {
+      accountSubjectFingerprint: `sha256:${"a".repeat(64)}`,
+      accountDisplayLabel: "GitHub Copilot account",
+      model: {
+        id: "gpt-test",
+        displayName: "GPT Test",
+        supportsReasoningEffort: false,
+        supportedReasoningEfforts: [],
+      },
+      billingSelection: "allow_declared_additional",
+      now: "2026-08-08T00:00:00.000Z",
+    });
+    let received: DelegatedConnectionRecord | undefined;
+    let executionMode: string | undefined;
+    const runtime = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory,
+        delegatedRuntimeFactory(record) {
+          received = structuredClone(record);
+          return {
+            adapterId: "github-copilot-sdk",
+            connectionId: record.id,
+            capabilityProfileRevision:
+              "github-copilot-sdk-1.0.8-host-tools-v1",
+            capabilities: {
+              resume: false,
+              cancellation: "protocol",
+              fileEvents: false,
+              usageEvents: true,
+              supportedPermissionModes: [
+                "ask_always",
+                "approved_for_me",
+                "full_access",
+              ],
+              approvalControl: "host",
+              planMode: "enforced",
+              toolExecution: "host_tools",
+              checkpointing: "host_tools",
+            },
+            async *run(request) {
+              executionMode = request.executionMode;
+              yield { type: "done", finalText: "Copilot routed", stopReason: "complete" };
+            },
+            async reconcile() { return "gone"; },
+          };
+        },
+      },
+    );
+
+    expect(runtime.session.executionMode).toBe("act");
+    await expect(runtime.submit("Run reviewed Copilot", localManualInvocation()))
+      .resolves.toMatchObject({ finalText: "Copilot routed" });
+    expect(received).toEqual(connection);
+    expect(executionMode).toBe("act");
+  });
+
+  it("rejects stale Copilot billing metadata before runtime construction", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-copilot-stale-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const dataDirectory = path.join(root, "data");
+    const connection = await setupGitHubCopilotConnection(dataDirectory, {
+      accountSubjectFingerprint: `sha256:${"b".repeat(64)}`,
+      accountDisplayLabel: "GitHub Copilot account",
+      model: {
+        id: "gpt-test",
+        displayName: "GPT Test",
+        supportsReasoningEffort: false,
+        supportedReasoningEfforts: [],
+      },
+      billingSelection: "allow_declared_additional",
+      now: "2026-08-08T00:00:00.000Z",
+    });
+    const registry = new FileConnectionRegistry(dataDirectory);
+    await registry.commit(1, (draft) => {
+      const index = draft.connections.findIndex((item) => item.id === connection.id);
+      draft.connections[index] = {
+        ...connection,
+        policyRevision: "github-copilot-subscription-2026-01-01",
+      };
+    });
+    let factoryCalls = 0;
+
+    await expect(createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: workspace,
+        dataDirectory,
+        delegatedRuntimeFactory() {
+          factoryCalls += 1;
+          throw new Error("must not construct");
+        },
+      },
+    )).rejects.toMatchObject({ domain: "policy", code: "policy_stale" });
+    expect(factoryCalls).toBe(0);
   });
 
   it("loads a configured local connection into an exact pinned session", async () => {

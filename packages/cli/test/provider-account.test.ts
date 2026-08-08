@@ -183,6 +183,15 @@ describe("provider and account projections", () => {
         implementationCoverage: "partial",
         liveVerification: { status: "not_run" },
       });
+    expect(matrix.find((entry) =>
+      entry.providerId === "github-copilot-subscription"
+    )).toMatchObject({
+      category: "conditional",
+      adapterId: "github-copilot-sdk",
+      missingCapabilities: [],
+      implementationCoverage: "complete",
+      liveVerification: { status: "not_run" },
+    });
     expect(matrix.find((entry) => entry.providerId === "aws-bedrock"))
       .toMatchObject({
         category: "cataloged",

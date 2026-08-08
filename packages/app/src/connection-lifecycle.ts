@@ -4,13 +4,14 @@ import {
   ConnectionRegistryError,
   type FileConnectionRegistry,
 } from "./connection-registry.js";
-import type {
-  ConnectionRecord,
-  ConnectionRegistryDocument,
-  ConnectionRegistryMutation,
-  DelegatedConnectionRecord,
-  EnvironmentModelProviderConnectionRecord,
-  LocalConnectionRecord,
+import {
+  isActPlanDelegatedAdapter,
+  type ConnectionRecord,
+  type ConnectionRegistryDocument,
+  type ConnectionRegistryMutation,
+  type DelegatedConnectionRecord,
+  type EnvironmentModelProviderConnectionRecord,
+  type LocalConnectionRecord,
 } from "./connection-registry-model.js";
 
 const CONNECTION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
@@ -190,7 +191,7 @@ function summary(
     primary: primaryConnectionId === connection.id,
     account: "verified (identifier redacted)" as const,
     execution: connection.kind === "delegated_agent" &&
-        connection.adapterId !== "codex-app-server"
+        !isActPlanDelegatedAdapter(connection.providerId, connection.adapterId)
       ? "Plan-only" as const
       : "Act + Plan" as const,
     billingSources: [...connection.billingSelection.allowedSources],
@@ -464,7 +465,7 @@ export class ConnectionLifecycleService {
         const record = exactRecord(current, id);
         if (
           record.kind === "delegated_agent" &&
-          record.adapterId !== "codex-app-server"
+          !isActPlanDelegatedAdapter(record.providerId, record.adapterId)
         ) {
           throw new ConnectionLifecycleError(
             "operation_unavailable",
@@ -493,7 +494,7 @@ export class ConnectionLifecycleService {
               const record = exactRecord(draft, id);
               if (
                 record.kind === "delegated_agent" &&
-                record.adapterId !== "codex-app-server"
+                !isActPlanDelegatedAdapter(record.providerId, record.adapterId)
               ) {
                 throw new ConnectionLifecycleError(
                   "operation_unavailable",
