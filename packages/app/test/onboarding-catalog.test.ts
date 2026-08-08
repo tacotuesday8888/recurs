@@ -22,6 +22,7 @@ describe("OnboardingCatalog", () => {
     expect(entries).toHaveLength(26);
     expect(entries.map((entry) => entry.id)).toEqual([
       "openai-codex-chatgpt",
+      "github-copilot-subscription",
       "ollama-local",
       "lm-studio-local",
       "openai-api",
@@ -40,7 +41,6 @@ describe("OnboardingCatalog", () => {
       "deepseek-api",
       "google-gemini-api",
       "anthropic-claude-subscription",
-      "github-copilot-subscription",
       "opencode-zen",
       "nous-portal",
       "zai-glm-coding-plan",
@@ -57,7 +57,7 @@ describe("OnboardingCatalog", () => {
       "openai-codex-chatgpt": "runnable",
       "anthropic-api": "runnable_byok",
       "anthropic-claude-subscription": "blocked",
-      "github-copilot-subscription": "blocked",
+      "github-copilot-subscription": "runnable",
       "openrouter-api": "runnable_byok",
       "xai-api": "runnable_byok",
       "opencode-zen": "blocked",
@@ -82,6 +82,7 @@ describe("OnboardingCatalog", () => {
     });
     expect(entries.filter((entry) => entry.status === "runnable").map((entry) => entry.id)).toEqual([
       "openai-codex-chatgpt",
+      "github-copilot-subscription",
       "ollama-local",
       "lm-studio-local",
     ]);

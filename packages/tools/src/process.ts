@@ -1282,7 +1282,7 @@ export async function runProcess(
       });
       child.on("exit", (code) => {
         exitCode = code ?? -1;
-        beginFinalization();
+        void waitForPipeDrain().then(beginFinalization);
       });
       child.on("error", () => {
         spawnFailed = true;

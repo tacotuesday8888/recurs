@@ -2,14 +2,13 @@ import { BUNDLED_PROVIDER_MANIFESTS } from "./bundled-manifests.js";
 import {
   environmentByokAdapterId,
   environmentCredentialManifest,
-  type EnvironmentByokAdapterId,
 } from "./environment-provider-policy.js";
 import { hasEnvironmentProviderModelDiscovery } from "./environment-models.js";
 
 export interface ProviderTransportCapability {
   readonly providerId: string;
   readonly cataloged: boolean;
-  readonly adapterId: EnvironmentByokAdapterId | null;
+  readonly adapterId: string | null;
   readonly authentication: boolean;
   readonly modelDiscoveryReadinessProbe: boolean;
   readonly streaming: boolean;
@@ -25,12 +24,15 @@ export function providerTransportCapability(
     (manifest) => manifest.id === providerId,
   );
   const manifest = environmentCredentialManifest(providerId);
-  const adapterId = manifest === null
+  const delegatedCopilot = providerId === "github-copilot-subscription";
+  const adapterId = delegatedCopilot
+    ? "github-copilot-sdk"
+    : manifest === null
     ? null
     : environmentByokAdapterId(manifest);
   const implemented = adapterId !== null;
-  const modelDiscoveryReadinessProbe = implemented &&
-    hasEnvironmentProviderModelDiscovery(providerId);
+  const modelDiscoveryReadinessProbe = delegatedCopilot ||
+    (implemented && hasEnvironmentProviderModelDiscovery(providerId));
   return Object.freeze({
     providerId,
     cataloged,

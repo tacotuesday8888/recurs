@@ -52,6 +52,7 @@ export interface OnboardingCatalogListOptions {
 
 const RUNNABLE_IDS = new Set([
   "openai-codex-chatgpt",
+  "github-copilot-subscription",
   "ollama-local",
   "lm-studio-local",
 ]);

@@ -196,9 +196,13 @@ also supports literal-loopback Ollama and LM Studio plus the official Codex
 app-server path under its local, user-present, foreground subscription policy.
 The app-server discovers the authenticated model/effort catalog and exposes
 only Recurs-owned host tools; historical ACP records remain Plan-only. Catalog
+setup also offers an opt-in official GitHub Copilot SDK path for `github.com`,
+conditional on fresh account/model verification and acknowledgement that included
+allowance can continue through provider-configured Additional usage; no live model
+turn has been run. Catalog
 entries without a reviewed runnable adapter are not silently treated as
-runnable; this includes Claude subscription reuse, Copilot, Z.ai GLM Coding
-Plan, and cloud-identity paths whose reviewed runtime is absent.
+runnable; this includes Claude subscription reuse, Z.ai GLM Coding Plan, and
+cloud-identity paths whose reviewed runtime is absent.
 
 The release pipeline builds one minimal npm tarball, installs it into an empty
 prefix, and derives checksum-bound curl and Homebrew assets from those exact
