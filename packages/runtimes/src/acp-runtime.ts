@@ -463,28 +463,31 @@ async function requestSessionOperation<T>(
   const onAbort = (): void => finishAbort?.();
   signal.addEventListener("abort", onAbort, { once: true });
   if (signal.aborted) onAbort();
+  const settleCancellation = async (): Promise<never> => {
+    requestCancellation.abort(new Error("ACP session operation cancelled"));
+    await withTimeout(
+      Promise.all([
+        operation,
+        sendSessionCancellation(
+          context,
+          process,
+          sessionId,
+          cancelSettlementTimeoutMs,
+        ),
+      ]),
+      cancelSettlementTimeoutMs,
+      "cancel",
+    ).catch(() => undefined);
+    throw new RuntimeCancelledError();
+  };
   try {
     const outcome = await Promise.race([operation, aborted]);
     if (signal.aborted) {
-      requestCancellation.abort(new Error("ACP session operation cancelled"));
-      await sendSessionCancellation(
-        context,
-        process,
-        sessionId,
-        cancelSettlementTimeoutMs,
-      );
-      throw new RuntimeCancelledError();
+      return await settleCancellation();
     }
     if (outcome.kind === "value") return outcome.value;
     if (outcome.kind === "error") throw outcome.error;
-    requestCancellation.abort(new Error("ACP session operation cancelled"));
-    await sendSessionCancellation(
-      context,
-      process,
-      sessionId,
-      cancelSettlementTimeoutMs,
-    );
-    throw new RuntimeCancelledError();
+    return await settleCancellation();
   } finally {
     signal.removeEventListener("abort", onAbort);
     finishAbort = null;

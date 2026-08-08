@@ -310,7 +310,7 @@ describe("ManagedAcpRuntime", () => {
     ["configuration", "config-hang", "session/set_mode", true],
   ] as const)(
     "cancels during %s without waiting for the operation timeout",
-    async (_phase, scenario, awaitedMethod, expectsSessionCancel) => {
+    async (phase, scenario, awaitedMethod, expectsSessionCancel) => {
       const { eventsFile } = await eventFixture();
       const runtime = new ManagedAcpRuntime(profile(scenario, {
         startupTimeoutMs: 600,
@@ -328,8 +328,11 @@ describe("ManagedAcpRuntime", () => {
 
       expect(Date.now() - startedAt).toBeLessThan(300);
       expect(events.at(-1)).toMatchObject({ type: "cancelled" });
-      expect((await recordedMethods(eventsFile)).includes("session/cancel"))
+      const methods = await recordedMethods(eventsFile);
+      expect(methods.includes("session/cancel"))
         .toBe(expectsSessionCancel);
+      expect(methods.includes("configuration/cancelled"))
+        .toBe(phase === "configuration");
     },
   );
 
