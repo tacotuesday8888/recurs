@@ -22,6 +22,7 @@ let authenticated = false;
 let promptId = null;
 let promptSessionId = null;
 let permissionRequestId = null;
+let configurationRequestId = null;
 let currentModel = "wrong-model";
 let currentMode = "unsafe";
 let currentApproval = "wrong-approval";
@@ -587,7 +588,10 @@ rl.on("line", (line) => {
     return;
   }
   if (message.method === "session/set_mode") {
-    if (scenario === "config-hang") return;
+    if (scenario === "config-hang") {
+      configurationRequestId = message.id;
+      return;
+    }
     if (!["reviewed-act", "reviewed-plan"].includes(message.params?.modeId)) {
       error(message.id, -32602, "unreviewed mode");
       return;
@@ -619,6 +623,12 @@ rl.on("line", (line) => {
     return;
   }
   if (message.method === "session/cancel") {
+    if (configurationRequestId !== null) {
+      record("configuration/cancelled");
+      error(configurationRequestId, -32800, "request cancelled");
+      configurationRequestId = null;
+      return;
+    }
     if (scenario === "prompt-hang" || scenario === "cancel-hang") return;
     if (message.params?.sessionId === promptSessionId && promptId !== null) {
       if (scenario === "cancel-error") {
