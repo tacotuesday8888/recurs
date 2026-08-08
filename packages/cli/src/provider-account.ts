@@ -24,7 +24,7 @@ import {
   providerTransportCapability,
 } from "@recurs/providers";
 
-import { verifyCodexSubscriptionConnection } from "./codex-connection.js";
+import { verifyReviewedDelegatedConnection } from "./delegated-connection.js";
 
 export interface ProviderSummary {
   readonly id: string;
@@ -155,6 +155,19 @@ function executableFacts(
       tools: true,
       usage: true,
       errors: true,
+      onboardingBackend: onboardingStatus === "runnable",
+    };
+  }
+  if (providerId === "github-copilot-subscription") {
+    const transport = providerTransportCapability(providerId);
+    return {
+      adapterId: transport.adapterId,
+      authentication: transport.authentication,
+      modelDiscoveryReadinessProbe: transport.modelDiscoveryReadinessProbe,
+      streaming: transport.streaming,
+      tools: transport.tools,
+      usage: transport.usage,
+      errors: transport.errors,
       onboardingBackend: onboardingStatus === "runnable",
     };
   }
@@ -401,12 +414,15 @@ export async function disconnectAccount(
 
 export function createConnectionVerifier(
   cwd: string,
+  dataDirectory: string,
   environment: Readonly<Record<string, string | undefined>> = process.env,
 ): ConnectionVerifier {
   return {
     verifyLocal: (record, signal) => verifyLocalConnection(record, { signal }),
-    verifyDelegated: (record, signal) =>
-      verifyCodexSubscriptionConnection(record, cwd, signal),
+    verifyDelegated: (record, signal) => verifyReviewedDelegatedConnection(
+      record,
+      { cwd, dataDirectory, environment, signal },
+    ),
     async verifyEnvironment(record, signal) {
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
       return verifyEnvironmentConnection(record, environment);
@@ -432,6 +448,7 @@ export async function verifyAccount(
     id,
     dependencies.verifier ?? createConnectionVerifier(
       cwd,
+      dataDirectory,
       dependencies.environment ?? process.env,
     ),
     signal === undefined ? {} : { signal },

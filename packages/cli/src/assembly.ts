@@ -28,6 +28,8 @@ import {
 import {
   FileConnectionRegistry,
   OnboardingCatalog,
+  matchesCurrentGitHubCopilotPolicy,
+  GITHUB_COPILOT_ONBOARDING_ADAPTER_ID,
   providerUsagePolicyAllows,
   requiredProviderPolicyClaimIds,
   type ConnectionRecord,
@@ -140,7 +142,7 @@ import { McpServerCatalog } from "./mcp-client.js";
 import { projectContextInstructions } from "./project-instructions.js";
 import { loadWorkspacePermissionRules } from "./permission-rules.js";
 import type { LocalConnectionConfiguration } from "./local-connection.js";
-import { createCodexAgentRuntime } from "./codex-connection.js";
+import { createReviewedDelegatedRuntime } from "./delegated-connection.js";
 import {
   COMPANY_ONBOARDING_RESEARCH_TOOL_CALL_LIMIT,
   CompanyOnboardingAgentRuntime,
@@ -551,6 +553,26 @@ function assertCodexPolicy(
   }
 }
 
+function assertDelegatedPolicy(
+  connection: DelegatedConnectionRecord,
+  diagnosticId: string,
+): void {
+  if (
+    connection.providerId === "github-copilot-subscription" &&
+    connection.adapterId === GITHUB_COPILOT_ONBOARDING_ADAPTER_ID
+  ) {
+    if (!matchesCurrentGitHubCopilotPolicy(connection)) {
+      throw policyBlocked(
+        diagnosticId,
+        "The GitHub Copilot connection no longer matches the reviewed policy",
+        "policy_stale",
+      );
+    }
+    return;
+  }
+  assertCodexPolicy(connection, diagnosticId);
+}
+
 function assertEnvironmentProviderPolicy(
   connection: EnvironmentModelProviderConnectionRecord,
   diagnosticId: string,
@@ -671,7 +693,7 @@ async function backendForConnection(
       createProvider: () => bound.provider,
     };
   }
-  assertCodexPolicy(connection, diagnosticId);
+  assertDelegatedPolicy(connection, diagnosticId);
   return {
     kind: "delegated",
     connection,
@@ -746,7 +768,11 @@ async function companyOnboardingBackend(
         ? undefined
         : await backendForConnection(
             connection,
-            options.delegatedRuntimeFactory ?? createCodexAgentRuntime,
+            options.delegatedRuntimeFactory ?? ((record, store) =>
+              createReviewedDelegatedRuntime(record, store, {
+                dataDirectory: root,
+                environment: runtimeEnvironment,
+              })),
             randomUUID(),
             runtimeEnvironment,
             options.environmentFetch,
@@ -1178,7 +1204,10 @@ export async function createStandaloneRuntime(
     );
   }
   const delegatedRuntimeFactory = options.delegatedRuntimeFactory ??
-    createCodexAgentRuntime;
+    ((record, store) => createReviewedDelegatedRuntime(record, store, {
+      dataDirectory: root,
+      environment: runtimeEnvironment,
+    }));
   let initialBackend: RuntimeBackend | undefined = injected !== undefined
     ? {
         kind: "direct",

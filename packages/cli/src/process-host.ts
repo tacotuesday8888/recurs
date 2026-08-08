@@ -50,6 +50,10 @@ import {
   FileTeamControlPolicyStore,
   type EventSink,
 } from "@recurs/core";
+import {
+  GITHUB_COPILOT_SDK_VERSION,
+  resolveGitHubCopilotSdk,
+} from "@recurs/runtimes";
 
 import {
   createStandaloneCompanyOnboarding,
@@ -57,6 +61,11 @@ import {
 } from "./assembly.js";
 import { serveRecursAcpStdio } from "./acp-server.js";
 import { setupCodexSubscription } from "./codex-connection.js";
+import {
+  GitHubCopilotConnectionError,
+  discoverGitHubCopilotSubscriptionModels,
+  setupGitHubCopilotSubscription,
+} from "./github-copilot-connection.js";
 import { CLI_HELP, parseCliHelpRequest } from "./cli-help.js";
 import {
   CompanyBenchmarkArgumentError,
@@ -249,6 +258,24 @@ export interface CliDependencies {
     readonly primary: boolean;
     readonly configuredModels?: readonly string[];
   }>;
+  setupCopilot?(input: {
+    modelId: string;
+    reasoningEffort?: ModelReasoningEffort;
+    billingSelection: "allow_declared_additional";
+    signal?: AbortSignal;
+  }): Promise<{
+    readonly id: string;
+    readonly label: string;
+    readonly modelId: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
+  }>;
+  discoverCopilotModels?(signal: AbortSignal): Promise<readonly {
+    readonly id: string;
+    readonly displayName: string;
+    readonly supportsReasoningEffort: boolean;
+    readonly reasoningEfforts: readonly string[];
+    readonly defaultReasoningEffort?: string;
+  }[]>;
   setupEnvironment?(input: {
     providerId: string;
     modelId: string;
@@ -272,6 +299,23 @@ export interface CliDependencies {
   detectProviders?(
     signal?: AbortSignal,
   ): Promise<readonly LocalRuntimeDetection[]>;
+  inspectProviderRuntime?(providerId: "github-copilot-subscription"): Promise<
+    | {
+        readonly providerId: "github-copilot-subscription";
+        readonly sdkVersion: typeof GITHUB_COPILOT_SDK_VERSION;
+        readonly status: "available";
+        readonly source: "peer" | "recurs_addon";
+      }
+    | {
+        readonly providerId: "github-copilot-subscription";
+        readonly sdkVersion: typeof GITHUB_COPILOT_SDK_VERSION;
+        readonly status: "unavailable";
+        readonly install: {
+          readonly command: "npm";
+          readonly arguments: readonly string[];
+        };
+      }
+  >;
   listAccounts?(): Promise<readonly AccountSummary[]>;
   setPrimaryAccount?(id: string, signal?: AbortSignal): Promise<AccountSummary>;
   setAccountAgentRoute?(
@@ -376,6 +420,23 @@ function isAbortError(error: unknown): boolean {
     error !== null &&
     "name" in error &&
     error.name === "AbortError";
+}
+
+function posixShellArgument(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function githubCopilotActionText(error: GitHubCopilotConnectionError): string | null {
+  if (error.action === undefined) return null;
+  const environment = error.action.environment === undefined
+    ? ""
+    : `COPILOT_DISABLE_KEYTAR=${posixShellArgument(error.action.environment.COPILOT_DISABLE_KEYTAR)} ` +
+      `COPILOT_HOME=${posixShellArgument(error.action.environment.COPILOT_HOME)} `;
+  const command = environment + [error.action.command, ...error.action.arguments]
+    .map(posixShellArgument).join(" ");
+  return `Error: ${error.message}\nNext: ${command}${error.action.thenEnter === undefined
+    ? ""
+    : `\nThen enter ${error.action.thenEnter} in the official Copilot CLI.`}\n`;
 }
 
 function parseAgentArguments(
@@ -641,6 +702,33 @@ function parseLocalSetupArguments(
     : { baseUrl, modelId };
 }
 
+function parseCopilotSetupArguments(
+  args: readonly string[],
+): { readonly modelId?: string; readonly reasoningEffort?: ModelReasoningEffort } | null {
+  if (args[0] !== "copilot") return null;
+  let modelId: string | undefined;
+  let reasoningEffort: ModelReasoningEffort | undefined;
+  for (let index = 1; index < args.length; index += 2) {
+    const flag = args[index];
+    const value = args[index + 1];
+    if (value === undefined || value.startsWith("--")) return null;
+    if (flag === "--model" && modelId === undefined) modelId = value;
+    else if (
+      flag === "--reasoning-effort" &&
+      reasoningEffort === undefined &&
+      ["low", "medium", "high", "xhigh"].includes(value)
+    ) reasoningEffort = value as ModelReasoningEffort;
+    else return null;
+  }
+  return (modelId !== undefined && !isSafeModelId(modelId)) ||
+      (modelId === undefined && reasoningEffort !== undefined)
+    ? null
+    : {
+        ...(modelId === undefined ? {} : { modelId }),
+        ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+      };
+}
+
 interface ByokSetupArguments {
   readonly providerId: string;
   readonly modelId: string;
@@ -734,6 +822,11 @@ type ProviderCommand =
   | { readonly kind: "catalog"; readonly json: boolean; readonly query: string }
   | { readonly kind: "detect"; readonly json: boolean }
   | {
+    readonly kind: "runtime";
+    readonly json: boolean;
+    readonly providerId: "github-copilot-subscription";
+  }
+  | {
     readonly kind: "models";
     readonly json: boolean;
     readonly providerId: string;
@@ -749,6 +842,19 @@ function parseProviderCommand(args: readonly string[]): ProviderCommand | null {
       return { kind: "detect", json: true };
     }
     return null;
+  }
+  if (args[0] === "runtime") {
+    const json = args.includes("--json");
+    const expected = [
+      "runtime",
+      "--provider",
+      "github-copilot-subscription",
+      ...(json ? ["--json"] : []),
+    ];
+    return args.length === expected.length &&
+        args.every((argument, index) => argument === expected[index])
+      ? { kind: "runtime", json, providerId: "github-copilot-subscription" }
+      : null;
   }
   if (args[0] === "models") {
     let providerId: string | undefined;
@@ -1093,6 +1199,20 @@ async function runGuidedOnboarding(
         : {
             setupCodex: (input) => ui.runExternal(
               () => dependencies.setupCodex!(input),
+            ),
+          }),
+      ...(ui === undefined || dependencies.setupCopilot === undefined
+        ? {}
+        : {
+            setupCopilot: (input) => ui.runExternal(
+              () => dependencies.setupCopilot!(input),
+            ),
+          }),
+      ...(ui === undefined || dependencies.discoverCopilotModels === undefined
+        ? {}
+        : {
+            discoverCopilotModels: (signal) => ui.runExternal(
+              () => dependencies.discoverCopilotModels!(signal),
             ),
           }),
     }),
@@ -1708,6 +1828,23 @@ export async function runCli(
             ? `${JSON.stringify({ version: 1, providers })}\n`
             : localRuntimeText(providers),
         );
+      } else if (parsed.kind === "runtime") {
+        if (dependencies.inspectProviderRuntime === undefined) {
+          await writeOutput(dependencies.stderr, help);
+          return 2;
+        }
+        const report = await dependencies.inspectProviderRuntime(parsed.providerId);
+        const text = report.status === "available"
+          ? `GitHub Copilot SDK ${report.sdkVersion} is available (${report.source}).\n`
+          : [
+              `GitHub Copilot SDK ${report.sdkVersion} is not installed.`,
+              `Install the reviewed opt-in runtime with: ${report.install.command} ${report.install.arguments.map(posixShellArgument).join(" ")}`,
+              "",
+            ].join("\n");
+        await writeOutput(
+          dependencies.stdout,
+          parsed.json ? `${JSON.stringify({ version: 1, ...report })}\n` : text,
+        );
       } else {
         if (dependencies.discoverEnvironmentModels === undefined) {
           await writeOutput(dependencies.stderr, help);
@@ -1888,6 +2025,138 @@ export async function runCli(
   }
 
   if (argv[0] === "setup") {
+    const copilotCommand = parseCopilotSetupArguments(argv.slice(1));
+    if (copilotCommand !== null) {
+      if (
+        dependencies.interactive !== true ||
+        dependencies.automation === true ||
+        dependencies.confirm === undefined ||
+        dependencies.setupCopilot === undefined
+      ) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: GitHub Copilot setup requires an interactive local terminal\n",
+        );
+        return 2;
+      }
+      let selected = copilotCommand;
+      if (selected.modelId === undefined) {
+        if (
+          dependencies.selectChoice === undefined ||
+          dependencies.discoverCopilotModels === undefined
+        ) {
+          await writeOutput(
+            dependencies.stderr,
+            "Error: Interactive GitHub Copilot model selection is unavailable\n",
+          );
+          return 2;
+        }
+        try {
+          const signal = dependencies.signal ?? new AbortController().signal;
+          const models = await dependencies.discoverCopilotModels(signal);
+          if (models.length === 0) {
+            await writeOutput(
+              dependencies.stderr,
+              "Error: GitHub Copilot reported no enabled entitled models\n",
+            );
+            return 2;
+          }
+          const modelId = await dependencies.selectChoice(
+            "Choose an enabled GitHub Copilot model",
+            models.map((model) => ({
+              id: model.id,
+              label: model.displayName,
+              detail: model.id,
+            })),
+          );
+          const model = models.find((candidate) => candidate.id === modelId);
+          if (model === undefined) return 2;
+          let reasoningEffort: ModelReasoningEffort | undefined;
+          if (model.supportsReasoningEffort) {
+            const effort = await dependencies.selectChoice(
+              "Choose GitHub Copilot reasoning effort",
+              model.reasoningEfforts.map((candidate) => ({
+                id: candidate,
+                label: candidate === model.defaultReasoningEffort
+                  ? `${candidate} (default)`
+                  : candidate,
+                detail: "pinned for this connection",
+              })),
+            );
+            if (effort === null || !model.reasoningEfforts.includes(effort)) return 2;
+            reasoningEffort = effort as ModelReasoningEffort;
+          }
+          selected = {
+            modelId: model.id,
+            ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+          };
+        } catch (error) {
+          if (error instanceof GitHubCopilotConnectionError) {
+            const actionText = githubCopilotActionText(error);
+            if (actionText !== null) {
+            await writeOutput(
+              dependencies.stderr,
+              actionText,
+            );
+            return 2;
+            }
+          }
+          const exitCode = exitCodeFor(error, dependencies.signal);
+          if (exitCode === 130) return exitCode;
+          await writeOutput(
+            dependencies.stderr,
+            `Error: ${safeCliErrorMessage(error)}\n`,
+          );
+          return exitCode;
+        }
+      }
+      const selectedModelId = selected.modelId;
+      if (selectedModelId === undefined) return 2;
+      const accepted = await dependencies.confirm([
+        `Connect the entitled GitHub Copilot model ${selectedModelId}.`,
+        "GitHub plans include an AI credit allowance and can continue through provider-configured Additional usage or budgets.",
+        "Legacy annual plans may still apply premium-request multipliers.",
+        "Recurs cannot enforce subscription-only billing; SDK token and request counts are not dollar cost.",
+        "Authentication remains in the official Copilot runtime; Recurs stores only a one-way account fingerprint and model metadata.",
+      ].join("\n"));
+      if (!accepted) {
+        await writeOutput(
+          dependencies.stderr,
+          "Error: GitHub Copilot billing disclosure was not accepted\n",
+        );
+        return 2;
+      }
+      try {
+        const connection = await dependencies.setupCopilot({
+          modelId: selectedModelId,
+          ...(selected.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: selected.reasoningEffort }),
+          billingSelection: "allow_declared_additional",
+          ...(dependencies.signal === undefined ? {} : { signal: dependencies.signal }),
+        });
+        await writeOutput(
+          dependencies.stdout,
+          `Ready — ${connection.label} · ${connection.modelId}\nMode: Act + Plan through Recurs permissions\nReasoning effort: ${connection.reasoningEffort ?? "not supported by this model"}\nAccount: verified by the official GitHub runtime; credentials remain vendor-owned\n`,
+        );
+        return 0;
+      } catch (error) {
+        if (error instanceof GitHubCopilotConnectionError) {
+          const actionText = githubCopilotActionText(error);
+          if (actionText !== null) {
+            await writeOutput(dependencies.stderr, actionText);
+            return 2;
+          }
+        }
+        const exitCode = exitCodeFor(error, dependencies.signal);
+        if (exitCode === 130) return exitCode;
+        await writeOutput(
+          dependencies.stderr,
+          `Error: ${safeCliErrorMessage(error)}\n`,
+        );
+        return exitCode;
+      }
+    }
     const byokCommand = parseByokSetupArguments(argv.slice(1));
     if (byokCommand !== null) {
       if (
@@ -2486,6 +2755,17 @@ export async function runCliProcess(
           `Open this one-time Codex login URL in your browser:\n${prompt.authUrl}\nWaiting for Codex to confirm the login…\n`,
         ),
       }),
+      setupCopilot: (input) => setupGitHubCopilotSubscription(
+        dataDirectory,
+        input,
+        { environment: process.env },
+      ),
+      discoverCopilotModels: (signal) =>
+        discoverGitHubCopilotSubscriptionModels(
+          dataDirectory,
+          signal,
+          { environment: process.env },
+        ),
       credentialEnvironmentAvailable: (name) => {
         const value = process.env[name];
         return value !== undefined && value.length > 0;
@@ -2505,6 +2785,25 @@ export async function runCliProcess(
       }, signal === undefined ? {} : { signal }),
       detectProviders: (signal) =>
         detectLocalRuntimes(signal === undefined ? {} : { signal }),
+      inspectProviderRuntime: async () => {
+        const resolution = await resolveGitHubCopilotSdk({ dataDirectory });
+        return resolution.status === "available"
+          ? {
+              providerId: "github-copilot-subscription",
+              sdkVersion: GITHUB_COPILOT_SDK_VERSION,
+              status: "available",
+              source: resolution.source,
+            }
+          : {
+              providerId: "github-copilot-subscription",
+              sdkVersion: GITHUB_COPILOT_SDK_VERSION,
+              status: "unavailable",
+              install: {
+                command: "npm",
+                arguments: resolution.installArguments,
+              },
+            };
+      },
       listAccounts: () => listAccountSummaries(dataDirectory),
       setPrimaryAccount: (id, signal) => setPrimaryAccount(
         dataDirectory,

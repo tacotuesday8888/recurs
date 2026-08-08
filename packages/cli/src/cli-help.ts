@@ -14,9 +14,11 @@ Usage:
   recurs setup local --url <loopback-url> --model <model-id>
   recurs setup byok --provider <id> --model <id> --key-env <ENV> [--billing strict|allow-additional] [--reasoning-effort none|low|medium|high|xhigh|max]
   recurs setup codex             Connect an existing ChatGPT Codex subscription
+  recurs setup copilot [--model <id> [--reasoning-effort low|medium|high|xhigh]]
   recurs provider list [--all] [--json]
   recurs provider catalog [query] [--json]
   recurs provider detect [--json]
+  recurs provider runtime --provider github-copilot-subscription [--json]
   recurs provider models --provider <id> --key-env <ENV> [--json]
   recurs account list [--json]
   recurs account set-primary <id>
@@ -39,6 +41,7 @@ Local setup supports credential-free OpenAI-compatible servers on literal loopba
 Cross-platform BYOK saves provider/model metadata and an environment-variable name, never the key.
 Ephemeral override remains available with RECURS_PROVIDER, RECURS_MODEL, and RECURS_API_KEY together.
 Codex setup is interactive and exposes only Recurs-scoped tools. It never imports or stores vendor credentials.
+Copilot setup uses the optional official SDK, an explicit official CLI /login in Recurs's dedicated Copilot home, and an Additional-usage acknowledgement.
 `;
 
 const HELP_BY_TOPIC = Object.freeze({
@@ -84,9 +87,10 @@ Usage:
                      [--billing strict|allow-additional]
                      [--reasoning-effort none|low|medium|high|xhigh|max]
   recurs setup codex
+  recurs setup copilot [--model <id> [--reasoning-effort low|medium|high|xhigh]]
 
 Setup is local and user-present. BYOK stores only the environment-variable name
-and a one-way binding. Codex credentials remain owned by the official runtime.
+and a one-way binding. Codex and Copilot credentials remain owned by their official runtimes.
 `,
   provider: `Inspect available provider paths and model catalogs
 
@@ -97,6 +101,7 @@ Usage:
   recurs provider models --provider <id> --key-env <ENV> [--json]
 
 Catalog lists reviewed integrations. Detect reports safe local runtime evidence.
+Runtime checks the optional official GitHub Copilot SDK without authenticating.
 Models authenticates one reviewed provider endpoint without storing the key.
 `,
   account: `Manage saved non-secret connection metadata

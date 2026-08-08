@@ -3,6 +3,7 @@ export * from "./environment-connection.js";
 export * from "./connection-registry.js";
 export * from "./codex-onboarding.js";
 export * from "./codex-app-server-onboarding.js";
+export * from "./github-copilot-onboarding.js";
 export * from "./local-connection.js";
 export * from "./onboarding-catalog.js";
 export * from "./provider-usage-policy.js";

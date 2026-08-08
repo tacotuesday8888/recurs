@@ -31,6 +31,17 @@ export const MAX_LEGACY_BYTES = 64 * 1024;
 export const MAX_REVISION = Number.MAX_SAFE_INTEGER - 1;
 
 const MAX_CONNECTIONS = 256;
+const ACT_PLAN_DELEGATED_PAIRS = new Set([
+  "openai-codex-chatgpt\0codex-app-server",
+  "github-copilot-subscription\0github-copilot-sdk",
+]);
+
+export function isActPlanDelegatedAdapter(
+  providerId: string,
+  adapterId: string,
+): boolean {
+  return ACT_PLAN_DELEGATED_PAIRS.has(`${providerId}\0${adapterId}`);
+}
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u;
 const SHA256_FINGERPRINT_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const ENVIRONMENT_VARIABLE_PATTERN = /^[A-Z][A-Z0-9_]{0,127}$/u;
@@ -969,7 +980,7 @@ export function parseRegistryDocument(
       if (
         connection === undefined ||
         (connection.kind === "delegated_agent" &&
-          connection.adapterId !== "codex-app-server")
+          !isActPlanDelegatedAdapter(connection.providerId, connection.adapterId))
       ) {
         throw invalidRegistry();
       }

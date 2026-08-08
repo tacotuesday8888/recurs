@@ -79,6 +79,7 @@ export type GuidedConnectionAction =
     readonly baseUrl: string;
   }
   | { readonly kind: "codex" }
+  | { readonly kind: "copilot" }
   | { readonly kind: "byok"; readonly providerId: string };
 
 export interface GuidedConnectionChoice extends GuidedChoice {
@@ -161,6 +162,18 @@ export function guidedConnectionChoices(
       label: "Connect Codex with ChatGPT",
       detail: "official Codex runtime · Act + Plan · vendor-owned login",
       action: { kind: "codex" },
+    });
+  }
+  const copilot = providerById(
+    inventory.providers,
+    "github-copilot-subscription",
+  );
+  if (copilot?.status === "runnable") {
+    choices.push({
+      id: "copilot",
+      label: "Connect GitHub Copilot",
+      detail: "optional official SDK · Act + Plan · vendor-owned login",
+      action: { kind: "copilot" },
     });
   }
   for (const provider of inventory.providers) {
@@ -604,6 +617,9 @@ async function executeConnectionAction(
   }
   if (action.kind === "codex") {
     return await ports.executeCommand(["setup", "codex"]);
+  }
+  if (action.kind === "copilot") {
+    return await ports.executeCommand(["setup", "copilot"]);
   }
   if (action.kind === "byok") {
     const summary = providers.find((provider) => provider.id === action.providerId);

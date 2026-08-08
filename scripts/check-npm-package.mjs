@@ -29,6 +29,7 @@ const expectedDependencies = Object.freeze({
 });
 const expectedOptionalPeerDependencies = Object.freeze({
   "@agentclientprotocol/codex-acp": "1.1.7",
+  "@github/copilot-sdk": "1.0.8",
   "@openai/codex": "0.145.0",
 });
 const expectedOptionalDependencies = Object.freeze({
@@ -38,6 +39,7 @@ const expectedNoticeRows = Object.freeze([
   "| `@agentclientprotocol/codex-acp` | 1.1.7 | Apache-2.0 |",
   "| `@agentclientprotocol/sdk` | 1.3.0 | Apache-2.0 |",
   "| `@earendil-works/pi-tui` | 0.83.0 | MIT |",
+  "| `@github/copilot-sdk` | 1.0.8 | MIT |",
   "| `@lydell/node-pty` | 1.1.0 | MIT |",
   "| `@openai/codex` | 0.145.0 | Apache-2.0 |",
   "| `typescript` | 6.0.3 | Apache-2.0 |",
@@ -57,6 +59,12 @@ const licenseText = await readFile(licensePath, "utf8").catch((error) => {
   throw error;
 });
 const notices = await readFile(noticesPath, "utf8");
+assert(
+  notices.includes("Codex remains a development dependency and") &&
+    notices.includes("The GitHub Copilot SDK is an exact optional peer") &&
+    notices.includes("installed only through explicit user opt-in"),
+  "Third-party notices must distinguish Codex development use from Copilot opt-in distribution.",
+);
 const publicationState = publicationStateForFailures(
   releaseMetadataFailures({ packageJson, licenseText, noticesText: notices }),
 );
@@ -100,12 +108,16 @@ assert(
   "Optional runtime dependencies must remain exact and reviewed.",
 );
 assert(
+  packageJson.devDependencies?.["@github/copilot-sdk"] === undefined,
+  "The opt-in GitHub Copilot SDK must not bloat contributor installs.",
+);
+assert(
   JSON.stringify(packageJson.peerDependencies) ===
     JSON.stringify(expectedOptionalPeerDependencies) &&
     Object.keys(expectedOptionalPeerDependencies).every((dependency) =>
       packageJson.peerDependenciesMeta?.[dependency]?.optional === true
     ),
-  "Codex compatibility peers must remain exact, reviewed, and optional.",
+  "Delegated-runtime compatibility peers must remain exact, reviewed, and optional.",
 );
 for (const row of expectedNoticeRows) {
   assert(
@@ -120,6 +132,14 @@ assert(bundle.startsWith("#!/usr/bin/env node\n"), "The bundled CLI must retain 
 assert((bundleStat.mode & 0o111) !== 0, "The bundled CLI must be executable.");
 assert(!bundle.includes("@recurs/"), "The bundled CLI must not depend on private workspace packages.");
 assert(!bundle.includes(root), "The bundled CLI must not embed the build-machine path.");
+assert(
+  !bundle.includes("@github/copilot-darwin-") &&
+    !bundle.includes("@github/copilot-linux-") &&
+    !bundle.includes("@github/copilot-win32-") &&
+    !bundle.includes("koffi/build/") &&
+    !bundle.includes(".node\""),
+  "The Recurs bundle must not contain Copilot CLI or native platform payloads.",
+);
 assert(
   bundleStat.size < maximumBundleBytes,
   "The unpacked CLI bundle unexpectedly exceeds 2.05 MB.",

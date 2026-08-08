@@ -596,8 +596,20 @@ try {
         "node_modules",
         "@agentclientprotocol",
         "codex-acp",
+      ))) &&
+      !(await pathExists(path.join(
+        installDirectory,
+        "node_modules",
+        "@github",
+        "copilot-sdk",
+      ))) &&
+      !(await pathExists(path.join(
+        installDirectory,
+        "node_modules",
+        "@github",
+        "copilot",
       ))),
-    "A normal Recurs install must not download optional Codex runtimes.",
+    "A normal Recurs install must not download optional delegated runtimes.",
   );
 
   const executable = process.platform === "win32"
@@ -687,6 +699,101 @@ try {
   assert(
     providerListError === "",
     "The installed CLI wrote unexpected provider-list diagnostics.",
+  );
+
+  const copilotRuntimeArguments = [
+    "provider",
+    "runtime",
+    "--provider",
+    "github-copilot-subscription",
+    "--json",
+  ];
+  const { stdout: absentCopilotRuntime, stderr: absentCopilotRuntimeError } =
+    await execFileAsync(executable, copilotRuntimeArguments, {
+      cwd: installDirectory,
+      encoding: "utf8",
+      env: environment,
+    });
+  const absentCopilot = JSON.parse(absentCopilotRuntime);
+  const copilotAddonPrefix = path.join(
+    environment.RECURS_HOME,
+    "runtimes",
+    "github-copilot-sdk",
+  );
+  assert(
+    absentCopilot.status === "unavailable" &&
+      JSON.stringify(absentCopilot.install) === JSON.stringify({
+        command: "npm",
+        arguments: [
+          "--prefix",
+          copilotAddonPrefix,
+          "install",
+          "--save-exact",
+          "--ignore-scripts",
+          "--no-audit",
+          "--no-fund",
+          "@github/copilot-sdk@1.0.8",
+        ],
+      }),
+    "The installed CLI did not report the deterministic Copilot add-on command.",
+  );
+  assert(
+    absentCopilotRuntimeError === "",
+    "The absent optional Copilot runtime wrote diagnostics.",
+  );
+  const copilotFixtureRoot = path.join(
+    copilotAddonPrefix,
+    "node_modules",
+    "@github",
+    "copilot-sdk",
+  );
+  const copilotFixtureExecutable = path.join(
+    copilotAddonPrefix,
+    "node_modules",
+    ".bin",
+    process.platform === "win32" ? "copilot.cmd" : "copilot",
+  );
+  await Promise.all([
+    mkdir(copilotFixtureRoot, { recursive: true }),
+    mkdir(path.dirname(copilotFixtureExecutable), { recursive: true }),
+  ]);
+  await Promise.all([
+    writeFile(path.join(copilotFixtureRoot, "package.json"), JSON.stringify({
+      name: "@github/copilot-sdk",
+      version: "1.0.8",
+      type: "module",
+      exports: "./index.js",
+    })),
+    writeFile(
+      path.join(copilotFixtureRoot, "index.js"),
+      "export class CopilotClient {}\n",
+    ),
+    writeFile(
+      copilotFixtureExecutable,
+      process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n",
+      { mode: 0o700 },
+    ),
+  ]);
+  if (process.platform !== "win32") await chmod(copilotFixtureExecutable, 0o700);
+  const { stdout: fixtureCopilotRuntime, stderr: fixtureCopilotRuntimeError } =
+    await execFileAsync(executable, copilotRuntimeArguments, {
+      cwd: installDirectory,
+      encoding: "utf8",
+      env: environment,
+    });
+  assert(
+    JSON.stringify(JSON.parse(fixtureCopilotRuntime)) === JSON.stringify({
+      version: 1,
+      providerId: "github-copilot-subscription",
+      sdkVersion: "1.0.8",
+      status: "available",
+      source: "recurs_addon",
+    }),
+    "The packed CLI did not resolve the fixed-prefix Copilot fixture.",
+  );
+  assert(
+    fixtureCopilotRuntimeError === "",
+    "The fixed-prefix Copilot fixture wrote diagnostics.",
   );
 
   const { stdout: accounts, stderr: accountError } = await execFileAsync(
