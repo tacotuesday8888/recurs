@@ -91,6 +91,19 @@ function codexAppServer(): DelegatedConnectionRecord {
   };
 }
 
+function copilot(): DelegatedConnectionRecord {
+  return {
+    ...codexAppServer(),
+    id: "copilot",
+    providerId: "github-copilot-subscription",
+    adapterId: "github-copilot-sdk",
+    label: "GPT Test · GitHub Copilot",
+    modelId: "gpt-test",
+    runtimeCapabilityProfileRevision:
+      "github-copilot-sdk-1.0.8-host-tools-v1",
+  };
+}
+
 async function seededRegistry(): Promise<{
   root: string;
   registry: FileConnectionRegistry;
@@ -256,6 +269,37 @@ describe("connection lifecycle service", () => {
       connectionId: null,
     });
     expect((await registry.read()).agentRoutes.implement).toBeNull();
+  });
+
+  it("admits only reviewed Act+Plan delegated adapters for team roles", async () => {
+    const { registry } = await seededRegistry();
+    await registry.commit(1, (draft) => {
+      draft.connections.push(copilot(), {
+        ...copilot(),
+        id: "arbitrary",
+        adapterId: "arbitrary-runtime",
+      }, {
+        ...copilot(),
+        id: "forged-provider",
+        providerId: "arbitrary-provider",
+      });
+    });
+    const service = new ConnectionLifecycleService(registry);
+    await expect(service.setAgentRoute("implement", "copilot")).resolves.toEqual({
+      role: "implement",
+      connectionId: "copilot",
+    });
+    await expect(service.setAgentRoute("review", "codex-secondary"))
+      .rejects.toMatchObject({ code: "operation_unavailable" });
+    await expect(service.setAgentRoute("repair", "arbitrary"))
+      .rejects.toMatchObject({ code: "operation_unavailable" });
+    await expect(service.setAgentRoute("repair", "forged-provider"))
+      .rejects.toMatchObject({ code: "operation_unavailable" });
+    const summaries = await service.list();
+    expect(summaries.find((item) => item.id === "copilot")?.execution)
+      .toBe("Act + Plan");
+    expect(summaries.find((item) => item.id === "codex-secondary")?.execution)
+      .toBe("Plan-only");
   });
 
   it("commits multiple team routes atomically", async () => {

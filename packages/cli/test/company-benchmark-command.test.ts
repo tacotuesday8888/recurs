@@ -96,6 +96,7 @@ describe("company benchmark command", () => {
       action: "run",
       scenarioId: "alias_registry",
       connectionId: null,
+      roleConnectionIds: {},
       repetitions: 2,
       compareAllStrong: false,
       json: false,
@@ -141,6 +142,37 @@ describe("company benchmark command", () => {
       "company", "--configured", "--allow-network",
       "--scenario", "missing",
     ])).toThrow("Unknown company benchmark scenario");
+  });
+
+  it("keeps the strong baseline fixed while selecting each company role independently", () => {
+    expect(parseCompanyBenchmarkCommand([
+      "company",
+      "--configured",
+      "--allow-network",
+      "--connection",
+      "sol-high",
+      "--parent-connection",
+      "terra-high",
+      "--implement-connection",
+      "terra-medium",
+      "--review-connection",
+      "luna-high",
+      "--repair-connection",
+      "sol-medium",
+    ])).toEqual({
+      action: "run",
+      scenarioId: "alias_registry",
+      connectionId: "sol-high",
+      roleConnectionIds: {
+        parent: "terra-high",
+        implement: "terra-medium",
+        review: "luna-high",
+        repair: "sol-medium",
+      },
+      repetitions: 3,
+      compareAllStrong: false,
+      json: false,
+    });
   });
 
   it("builds a canonical alternating campaign from exact saved role routes", async () => {
@@ -189,6 +221,7 @@ describe("company benchmark command", () => {
       }),
     ]);
     expect(campaign.companyArms.map((arm) => arm.id)).toEqual(["company-auto"]);
+    expect(Object.hasOwn(campaign, "comparisonDesign")).toBe(false);
     expect(campaign.companyArms[0]?.configuredRoutes.map((route) => [
       route.role,
       route.connectionId,
@@ -230,6 +263,52 @@ describe("company benchmark command", () => {
       maxRequests: 576,
       maxReportedCostUsd: 18,
     });
+  });
+
+  it("freezes an independently selected company parent without changing the baseline", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-benchmark-command-"));
+    roots.push(root);
+    const baseline = connection("sol-high", "gpt-5.6-sol", "high");
+    const companyParent = connection("terra-high", "gpt-5.6-terra", "high");
+    const worker = connection("luna-medium", "gpt-5.6-luna", "medium");
+    const registry = new FileConnectionRegistry(root);
+    await registry.commit(0, (draft) => {
+      draft.connections.push(baseline, companyParent, worker);
+      draft.primaryConnectionId = baseline.id;
+    });
+
+    const campaign = createConfiguredCompanyBenchmarkCampaign({
+      document: await registry.inspect(),
+      scenarioId: "layered_config",
+      connectionId: baseline.id,
+      roleConnectionIds: {
+        parent: companyParent.id,
+        implement: worker.id,
+        review: worker.id,
+        repair: companyParent.id,
+      },
+      repetitions: 3,
+      compareAllStrong: false,
+      campaignId: "company-proof-independent-parent",
+      createdAt: AT,
+    });
+
+    expect(campaign.baseline.configuredRoutes[0]).toMatchObject({
+      connectionId: baseline.id,
+      modelId: baseline.modelId,
+    });
+    expect(campaign.comparisonDesign).toBe(
+      "independent_company_parent_v1",
+    );
+    expect(campaign.companyArms[0]?.configuredRoutes.map((item) => [
+      item.role,
+      item.connectionId,
+    ])).toEqual([
+      ["parent", companyParent.id],
+      ["implement", worker.id],
+      ["review", worker.id],
+      ["repair", companyParent.id],
+    ]);
   });
 
   it("routes the public JSON command without creating an ordinary runtime", async () => {

@@ -18,6 +18,7 @@ export * from "./company-benchmark-runner.js";
 export * from "./company-benchmark-recorder.js";
 export * from "./company-benchmark-projection.js";
 export * from "./company-benchmark-blueprint.js";
+export * from "./company-benchmark-analysis.js";
 export * from "./file-company-benchmark-store.js";
 export * from "./company-amendments.js";
 export * from "./company-onboarding-coordinator.js";

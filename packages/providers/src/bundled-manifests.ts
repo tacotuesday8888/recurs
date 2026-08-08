@@ -281,25 +281,47 @@ const bundled = [
     protocol: "sdk",
     endpoints: [],
     endpointEvidence:
-      "The official Copilot SDK owns its network endpoints and authentication flow.",
+      "The official Copilot SDK owns its network endpoints and authentication flow; this alpha binds signed-in accounts to github.com and rejects GitHub Enterprise hosts.",
     regionAvailability: { kind: "global" },
     billingPolicy: billingPolicy(
       "github-copilot-subscription",
       "included_subscription",
+      {
+        possibleAdditionalSources: ["metered_api"],
+        providerFallback: "user_configured",
+        availableSelections: ["allow_declared_additional"],
+      },
     ),
     supportStatus: "conditional",
-    runnable: false,
+    runnable: true,
     sourceUrls: [
       "https://docs.github.com/en/copilot/how-tos/copilot-sdk/auth/authenticate",
       "https://github.blog/changelog/2026-06-02-copilot-sdk-is-now-generally-available/",
+      "https://docs.github.com/en/copilot/concepts/usage-limits",
+      "https://docs.github.com/en/copilot/reference/copilot-billing/request-based-billing-legacy/copilot-requests",
     ],
     evidenceSummary:
-      "The official Copilot SDK supports delegated use, conditional on Recurs verifying its permission, tool, and runtime isolation capabilities.",
+      "The official Copilot SDK supports delegated use on github.com, conditional on Recurs verifying its permission, tool, and runtime isolation capabilities; GitHub Enterprise hosts are not supported in this alpha. Current plans provide an included AI credit allowance and can continue through provider-configured Additional usage; legacy annual plans can still use premium-request multipliers. SDK token counts and usage events are not dollar cost and do not provide an enforceable no-overage control.",
     rules: [
-      claimRule(
-        "github.copilot.runtime_capabilities_verified",
-        "The delegated runtime capability gate must pass before Copilot is activated.",
-      ),
+      {
+        when: {},
+        decision: "conditional",
+        condition: {
+          type: "all",
+          conditions: [
+            {
+              type: "entitlement_claim",
+              claimId: "github.copilot.runtime_capabilities_verified",
+              allowedValues: [true],
+            },
+            {
+              type: "billing_selection",
+              allowedModes: ["allow_declared_additional"],
+            },
+          ],
+        },
+        reason: "The delegated runtime capability gate and explicit acknowledgement of included allowance plus provider-configured Additional usage must pass before Copilot is activated.",
+      },
     ],
   }),
   manifest({

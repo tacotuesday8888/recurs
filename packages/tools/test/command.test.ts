@@ -13,6 +13,7 @@ import {
 import { createServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +35,9 @@ import {
 } from "../src/index.js";
 
 const execFileAsync = promisify(execFile);
+const processDrainFixture = fileURLToPath(
+  new URL("./fixtures/process-drain.mjs", import.meta.url),
+);
 let cwd: string;
 
 beforeEach(async () => {
@@ -837,6 +841,32 @@ describe("run_command", () => {
       expect(processExists(descendantPid)).toBe(false);
     } finally {
       forceKillForTest(descendantPid);
+    }
+  });
+
+  it("lets a normally exiting process drain its same-group output before cleanup", async () => {
+    const stateFile = path.join(cwd, "drain-state");
+    const terminatedFile = path.join(cwd, "drain-terminated");
+    const running = toolExports.runProcess(
+      process.execPath,
+      [processDrainFixture, stateFile, terminatedFile],
+      { cwd },
+    );
+    let descendantPid: number | undefined;
+    try {
+      await vi.waitFor(async () => {
+        expect(await readFile(stateFile, "utf8")).toMatch(/^[1-9][0-9]*$/u);
+      });
+      descendantPid = Number.parseInt(await readFile(stateFile, "utf8"), 10);
+      process.kill(descendantPid, "SIGUSR1");
+
+      await expect(running).resolves.toMatchObject({ stdout: "drained\n" });
+      await expect(access(terminatedFile)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    } finally {
+      forceKillForTest(descendantPid);
+      await running.then(() => {}, () => {});
     }
   });
 

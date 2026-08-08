@@ -29,6 +29,8 @@ export * from "./error-rendering.js";
 export * from "./local-connection.js";
 export * from "./provider-account.js";
 export * from "./provider-discovery.js";
+export * from "./github-copilot-connection.js";
+export * from "./delegated-connection.js";
 export * from "./process-host.js";
 export * from "./render.js";
 export * from "./repl.js";

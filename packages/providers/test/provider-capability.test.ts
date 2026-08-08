@@ -3,6 +3,20 @@ import { describe, expect, it } from "vitest";
 import { providerTransportCapability } from "../src/index.js";
 
 describe("provider transport capability", () => {
+  it("projects the implemented Copilot delegated-runtime facts without live-turn evidence", () => {
+    expect(providerTransportCapability("github-copilot-subscription")).toEqual({
+      providerId: "github-copilot-subscription",
+      cataloged: true,
+      adapterId: "github-copilot-sdk",
+      authentication: true,
+      modelDiscoveryReadinessProbe: true,
+      streaming: true,
+      tools: true,
+      usage: true,
+      errors: true,
+    });
+  });
+
   it("reports complete executable facts for the OpenAI Responses path", () => {
     expect(providerTransportCapability("openai-api")).toEqual({
       providerId: "openai-api",

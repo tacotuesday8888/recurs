@@ -35,6 +35,9 @@ export type CompanyBenchmarkTaskClass = "general_coding";
 export type CompanyBenchmarkDifficulty = "small" | "medium" | "large";
 export type CompanyBenchmarkArmKind = "single_agent" | "company";
 export type CompanyBenchmarkRole = "parent" | "implement" | "review" | "repair";
+export type CompanyBenchmarkComparisonDesign =
+  | "shared_parent_v1"
+  | "independent_company_parent_v1";
 export type CompanyBenchmarkCoverage = "none" | "partial" | "complete";
 export type CompanyBenchmarkExecutionStatus =
   | "completed"
@@ -109,6 +112,7 @@ export interface CompanyBenchmarkCampaignV1 {
   readonly operatingModeId: OperatingModeId;
   readonly operatingModeVersion: OperatingModeVersion;
   readonly permissionMode: AgentPermissionMode;
+  readonly comparisonDesign?: CompanyBenchmarkComparisonDesign;
   readonly repetitions: number;
   readonly ceilings: CompanyBenchmarkCampaignCeilingsV1;
   readonly blueprint: CompanyBenchmarkBlueprintRefV1;
@@ -358,6 +362,10 @@ const TERMINAL_STAGES = new Set<string>([
   "synthesis",
   "verification",
   "cleanup",
+]);
+const COMPARISON_DESIGNS = new Set<CompanyBenchmarkComparisonDesign>([
+  "shared_parent_v1",
+  "independent_company_parent_v1",
 ]);
 
 function exact(
@@ -749,12 +757,30 @@ function parseTrialSlot(value: unknown): CompanyBenchmarkTrialSlotV1 {
 export function parseCompanyBenchmarkCampaign(
   value: unknown,
 ): CompanyBenchmarkCampaignV1 {
-  const item = exact(value, "Company benchmark campaign", [
+  const campaignKeys = [
     "id", "version", "createdAt", "scenario", "harnessRevision",
     "launchProtocolRevision", "operatingModeId", "operatingModeVersion",
     "permissionMode", "repetitions", "ceilings", "blueprint", "baseline",
     "companyArms", "armOrder",
-  ]);
+  ] as const;
+  const record = contractRecord(value, "Company benchmark campaign");
+  const hasComparisonDesign = Object.hasOwn(record, "comparisonDesign");
+  contractExact(
+    record,
+    hasComparisonDesign
+      ? [...campaignKeys, "comparisonDesign"]
+      : campaignKeys,
+    "Company benchmark campaign",
+  );
+  const item = record;
+  const comparisonDesign = hasComparisonDesign
+    ? enumField<CompanyBenchmarkComparisonDesign>(
+        item,
+        "comparisonDesign",
+        COMPARISON_DESIGNS,
+        "Company benchmark comparison design",
+      )
+    : "shared_parent_v1";
   if (item.version !== 1) {
     throw new TypeError("Company benchmark campaign version is unsupported");
   }
@@ -775,7 +801,7 @@ export function parseCompanyBenchmarkCampaign(
     companyArms.map((arm) => arm.id),
     "Company benchmark company arms",
   );
-  if (companyArms.some((arm) =>
+  if (comparisonDesign === "shared_parent_v1" && companyArms.some((arm) =>
     !sameRoute(arm.configuredRoutes[0]!, baseline.configuredRoutes[0]!)
   )) {
     throw new TypeError(
@@ -895,6 +921,7 @@ export function parseCompanyBenchmarkCampaign(
       PERMISSION_MODES,
       "Company benchmark permission mode",
     ),
+    ...(hasComparisonDesign ? { comparisonDesign } : {}),
     repetitions,
     ceilings,
     blueprint: parseBlueprint(item.blueprint),

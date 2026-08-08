@@ -87,10 +87,14 @@
   },
   "peerDependencies": {
     "@agentclientprotocol/codex-acp": "1.1.7",
+    "@github/copilot-sdk": "1.0.8",
     "@openai/codex": "0.145.0"
   },
   "peerDependenciesMeta": {
     "@agentclientprotocol/codex-acp": {
+      "optional": true
+    },
+    "@github/copilot-sdk": {
       "optional": true
     },
     "@openai/codex": {

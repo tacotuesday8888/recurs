@@ -23,6 +23,7 @@ import {
   createCompanyEvaluationReport,
 } from "@recurs/core";
 import { ProviderError, ScriptedProvider } from "@recurs/providers";
+import { GitHubCopilotRuntimeError } from "@recurs/runtimes";
 import {
   ToolRegistry,
 } from "@recurs/tools";
@@ -33,6 +34,7 @@ import path from "node:path";
 
 import {
   RecursRuntime,
+  GitHubCopilotConnectionError,
   LocalConnectionError,
   RuntimeError,
   createCommandRegistry,
@@ -1696,6 +1698,253 @@ describe("runCli", () => {
     }
   });
 
+  it("runs Copilot setup only after current Additional-usage disclosure", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    let received: unknown;
+    const exitCode = await runCli([
+      "setup", "copilot", "--model", "gpt-test",
+    ], {
+      stdout,
+      stderr,
+      interactive: true,
+      async confirm(message) {
+        expect(message).toContain("AI credit allowance");
+        expect(message).toContain("Additional usage");
+        expect(message).toContain("cannot enforce subscription-only billing");
+        return true;
+      },
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async setupCopilot(input) {
+        received = input;
+        return {
+          id: "copilot-1",
+          label: "GPT Test · GitHub Copilot",
+          modelId: "gpt-test",
+        };
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(received).toEqual({
+      modelId: "gpt-test",
+      billingSelection: "allow_declared_additional",
+    });
+    expect(stdout.value).toContain("Act + Plan through Recurs permissions");
+    expect(stdout.value).toContain("not supported by this model");
+    expect(stderr.value).toBe("");
+  });
+
+  it("discovers entitled Copilot models and asks effort only when supported", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const prompts: string[] = [];
+    let setupInput: unknown;
+    const exitCode = await runCli(["setup", "copilot"], {
+      stdout,
+      stderr,
+      interactive: true,
+      async selectChoice(message, choices) {
+        prompts.push(message);
+        expect(choices.every((choice) => choice.label.length > 0)).toBe(true);
+        return message.includes("model") ? "reasoning-model" : "high";
+      },
+      async discoverCopilotModels() {
+        return [{
+          id: "reasoning-model",
+          displayName: "Reasoning Model",
+          supportsReasoningEffort: true,
+          reasoningEfforts: ["low", "high"],
+          defaultReasoningEffort: "low",
+        }, {
+          id: "plain-model",
+          displayName: "Plain Model",
+          supportsReasoningEffort: false,
+          reasoningEfforts: [],
+        }];
+      },
+      async confirm() { return true; },
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async setupCopilot(input) {
+        setupInput = input;
+        return {
+          id: "copilot-1",
+          label: "Reasoning Model · GitHub Copilot",
+          modelId: input.modelId,
+          reasoningEffort: input.reasoningEffort,
+        };
+      },
+    });
+    expect(exitCode).toBe(0);
+    expect(prompts).toEqual([
+      "Choose an enabled GitHub Copilot model",
+      "Choose GitHub Copilot reasoning effort",
+    ]);
+    expect(setupInput).toMatchObject({
+      modelId: "reasoning-model",
+      reasoningEffort: "high",
+      billingSelection: "allow_declared_additional",
+    });
+  });
+
+  it("fails closed for empty or cancelled Copilot discovery", async () => {
+    for (const scenario of ["empty", "cancel"] as const) {
+      let setupCalls = 0;
+      let confirmationCalls = 0;
+      const stderr = new TextOutput();
+      const exitCode = await runCli(["setup", "copilot"], {
+        stdout: new TextOutput(),
+        stderr,
+        interactive: true,
+        async selectChoice() { return null; },
+        async discoverCopilotModels() {
+          return scenario === "empty" ? [] : [{
+            id: "plain-model",
+            displayName: "Plain Model",
+            supportsReasoningEffort: false,
+            reasoningEfforts: [],
+          }];
+        },
+        async confirm() { confirmationCalls += 1; return true; },
+        async createRuntime() { throw new Error("runtime must not start"); },
+        async setupCopilot() {
+          setupCalls += 1;
+          throw new Error("must not setup");
+        },
+      });
+      expect(exitCode).toBe(2);
+      expect(setupCalls).toBe(0);
+      expect(confirmationCalls).toBe(0);
+      if (scenario === "empty") expect(stderr.value).toContain("no enabled entitled models");
+    }
+  });
+
+  it("renders absent SDK guidance during explicit Copilot discovery", async () => {
+    const stderr = new TextOutput();
+    const exitCode = await runCli(["setup", "copilot"], {
+      stdout: new TextOutput(),
+      stderr,
+      interactive: true,
+      async selectChoice() { return null; },
+      async confirm() { return true; },
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async discoverCopilotModels() {
+        throw new GitHubCopilotConnectionError(
+          "adapter_unavailable",
+          "GitHub Copilot support is not installed",
+          { command: "npm", arguments: ["--prefix", "/tmp/recurs add-on", "install"] },
+        );
+      },
+      async setupCopilot() { throw new Error("must not setup"); },
+    });
+    expect(exitCode).toBe(2);
+    expect(stderr.value).toContain("'npm' '--prefix' '/tmp/recurs add-on' 'install'");
+  });
+
+  it("returns 130 without diagnostics when explicit Copilot discovery is aborted", async () => {
+    const controller = new AbortController();
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const result = runCli(["setup", "copilot"], {
+      stdout,
+      stderr,
+      signal: controller.signal,
+      interactive: true,
+      async selectChoice() { return null; },
+      async confirm() { return true; },
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async discoverCopilotModels() {
+        controller.abort();
+        throw new GitHubCopilotConnectionError(
+          "cancelled",
+          "GitHub Copilot inspection was cancelled",
+        );
+      },
+      async setupCopilot() { throw new Error("must not setup"); },
+    });
+    await expect(result).resolves.toBe(130);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toBe("");
+  });
+
+  it("bounds a non-action Copilot discovery failure at the CLI boundary", async () => {
+    const stderr = new TextOutput();
+    await expect(runCli(["setup", "copilot"], {
+      stdout: new TextOutput(),
+      stderr,
+      interactive: true,
+      async selectChoice() { return null; },
+      async confirm() { return true; },
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async discoverCopilotModels() {
+        throw new GitHubCopilotRuntimeError(
+          "invalid_response",
+          "GitHub returned an invalid model catalog",
+        );
+      },
+      async setupCopilot() { throw new Error("must not setup"); },
+    })).resolves.toBe(1);
+    expect(stderr.value).toMatch(
+      /^Error: Unexpected failure \(diagnostic [0-9a-f-]+\)\n$/u,
+    );
+    expect(stderr.value).not.toContain("invalid model catalog");
+  });
+
+  it("rejects unsupported explicit Copilot effort before discovery or setup", async () => {
+    let calls = 0;
+    const exitCode = await runCli([
+      "setup", "copilot", "--model", "gpt-test", "--reasoning-effort", "max",
+    ], {
+      stdout: new TextOutput(),
+      stderr: new TextOutput(),
+      interactive: true,
+      async confirm() { calls += 1; return true; },
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async discoverCopilotModels() { calls += 1; return []; },
+      async setupCopilot() { calls += 1; throw new Error("must not setup"); },
+    });
+    expect(exitCode).toBe(2);
+    expect(calls).toBe(0);
+  });
+
+  it("renders the exact official Copilot login action with POSIX-safe arguments", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const exitCode = await runCli([
+      "setup", "copilot", "--model", "gpt-test", "--reasoning-effort", "high",
+    ], {
+      stdout,
+      stderr,
+      interactive: true,
+      async confirm() { return true; },
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async setupCopilot() {
+        throw new GitHubCopilotConnectionError(
+          "authentication_required",
+          "GitHub Copilot is signed out",
+          {
+            command: "/tmp/a $HOME/'quoted'/copilot",
+            arguments: [],
+            environment: {
+              COPILOT_DISABLE_KEYTAR: "1",
+              COPILOT_HOME: "/tmp/home $HOME/'state'\nnext",
+            },
+            thenEnter: "/login",
+          },
+        );
+      },
+    });
+
+    expect(exitCode).toBe(2);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toContain("'/tmp/a $HOME/'\"'\"'quoted'\"'\"'/copilot'");
+    expect(stderr.value).toContain(
+      "COPILOT_DISABLE_KEYTAR='1' COPILOT_HOME='/tmp/home $HOME/'\"'\"'state'\"'\"'\nnext'",
+    );
+    expect(stderr.value).toContain("Then enter /login");
+    expect(stderr.value).not.toContain("`quoted`");
+  });
+
   it("renders provider catalog text/JSON and redacted account JSON", async () => {
     const provider = {
       id: "openai-codex-chatgpt",
@@ -1820,6 +2069,76 @@ describe("runCli", () => {
     })).toBe(0);
     expect(localOut.value).toContain("Ollama — detected");
     expect(localErr.value).toBe("");
+  });
+
+  it("reports the optional GitHub Copilot SDK without authenticating or starting it", async () => {
+    for (const status of ["unavailable", "available"] as const) {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+      expect(await runCli(["provider", "runtime", "--provider", "github-copilot-subscription", "--json"], {
+        stdout,
+        stderr,
+        async createRuntime() { throw new Error("runtime must not start"); },
+        async inspectProviderRuntime() {
+          return status === "available"
+            ? {
+                providerId: "github-copilot-subscription" as const,
+                sdkVersion: "1.0.8" as const,
+                status,
+                source: "recurs_addon" as const,
+              }
+            : {
+                providerId: "github-copilot-subscription" as const,
+                sdkVersion: "1.0.8" as const,
+                status,
+                install: {
+                  command: "npm",
+                  arguments: [
+                    "--prefix", "/safe/addon", "install", "--save-exact",
+                    "--ignore-scripts", "--no-audit", "--no-fund",
+                    "@github/copilot-sdk@1.0.8",
+                  ],
+                },
+              };
+        },
+      })).toBe(0);
+      expect(stderr.value).toBe("");
+      expect(JSON.parse(stdout.value)).toMatchObject({
+        version: 1,
+        providerId: "github-copilot-subscription",
+        sdkVersion: "1.0.8",
+        status,
+      });
+    }
+  });
+
+  it("single-quotes adversarial Copilot add-on paths in text output", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const adversarial = "/safe/$HOME/`id`/'quote'\nnext";
+    expect(await runCli([
+      "provider", "runtime", "--provider", "github-copilot-subscription",
+    ], {
+      stdout,
+      stderr,
+      async createRuntime() { throw new Error("runtime must not start"); },
+      async inspectProviderRuntime() {
+        return {
+          providerId: "github-copilot-subscription",
+          sdkVersion: "1.0.8",
+          status: "unavailable",
+          install: {
+            command: "npm",
+            arguments: ["--prefix", adversarial, "install"],
+          },
+        };
+      },
+    })).toBe(0);
+    expect(stderr.value).toBe("");
+    expect(stdout.value).toContain(
+      "npm '--prefix' '/safe/$HOME/`id`/'\"'\"'quote'\"'\"'\nnext' 'install'",
+    );
+    expect(stdout.value).not.toContain("npm --prefix /safe/");
   });
 
   it("renders credential-visible provider models in text and JSON", async () => {
