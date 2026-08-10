@@ -24,6 +24,8 @@ Use the `@alpha` tag explicitly: npm's unqualified `latest` tag still points to
 `0.1.0-alpha.2`, while `alpha` points to `0.1.0-alpha.7`. The published
 alpha.7 archive is immutable. Capabilities added on `main` after that tag are
 current-source preview behavior until a later prerelease is published.
+The source tree is prepared as the unpublished `0.1.0-alpha.8` release
+candidate; the commands below still install alpha.7 until publication.
 
 The same reviewed npm artifact is also available through Bun-as-installer, the
 checksummed GitHub release installer, and Homebrew:
@@ -91,7 +93,7 @@ Run `recurs` or `recurs setup` in a local terminal. Guided setup:
 1. discovers saved accounts and local runtimes;
 2. offers reviewed provider paths;
 3. selects permissions and an operating mode;
-4. proposes specialist routing;
+4. offers explicit specialist routing;
 5. optionally forms a project-specific company; and
 6. reads or creates project context.
 
@@ -170,6 +172,12 @@ Codex subscription setup uses the separately installed official Codex CLI
 already connected, Recurs presents the official one-time login URL and waits
 for Codex to confirm it. Recurs does not receive or persist the vendor
 credential.
+
+Fresh setup saves the discovered Sol, Terra, and Luna connections and selects
+the preferred parent. It does not assign Implement, Review, or Repair from
+model names. Those routes continue to inherit the parent until the user runs
+`recurs account route ...` or confirms an eligible Models Auto selection.
+Refreshing setup preserves routes the user already chose.
 
 BYOK stores provider/model metadata, the environment-variable name, and a
 one-way credential fingerprint. It never stores the key value. The same named

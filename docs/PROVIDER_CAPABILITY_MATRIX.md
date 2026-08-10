@@ -1,6 +1,6 @@
 # Provider Capability Matrix
 
-Snapshot: 2026-08-08T09:00:00.000Z, generated from the executable provider and
+Snapshot: 2026-08-10, checked against the executable provider and
 CLI readiness projections. User-present live verification passed for the three
 saved Codex app-server routes; no live evidence was supplied for other
 providers.
@@ -16,7 +16,7 @@ Categories are closed: `cataloged`, `activatable`, `live-tested`, `conditional`,
 
 | Provider | Category | Adapter | Implementation coverage | Live | Missing activation capability |
 | --- | --- | --- | --- | --- | --- |
-| Codex with ChatGPT | conditional | `codex-app-server` | complete | passed 2026-08-08 | — |
+| Codex with ChatGPT | conditional | `codex-app-server` | complete | passed 2026-08-10 | — |
 | Ollama Local | activatable | `openai-chat-completions` | complete | not run | — |
 | LM Studio Local | activatable | `openai-chat-completions` | complete | not run | — |
 | OpenAI API | activatable | `openai-responses` | complete | not run | — |
@@ -54,8 +54,9 @@ readiness probe exists. A saved account and a successful live turn are separate
 facts again; neither changes a blocked provider policy.
 
 The official GitHub Copilot path is a post-alpha.7-tag current-source addition.
-It is not present in the immutable public alpha.7 archive and will ship only in
-a later deliberately tagged preview.
+It is not present in the immutable public alpha.7 archive. It is included in
+the unpublished alpha.8 candidate but will ship only if that preview is
+deliberately tagged and published.
 
 ## Current primary-source findings
 

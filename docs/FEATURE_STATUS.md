@@ -1,6 +1,6 @@
 # Recurs Feature Status
 
-**Audited:** 2026-08-08 against the source, exported package surfaces, CLI
+**Audited:** 2026-08-10 against the source, exported package surfaces, CLI
 assembly, durable contracts/stores, provider manifests, and automated tests in
 this release candidate.
 
@@ -21,7 +21,7 @@ context, not a product commitment.
 | Interoperability | Bounded Agent Skills, user-configured or explicitly project-trusted stdio MCP, a Recurs-owned ACP server, and observe-only user lifecycle hooks |
 | General sub-agents | One Explore/Implement/Review child, bounded parallel Explore/Review batches, durable Implement teams, independent Review, finding-driven Repair, staging, recovery, explicit apply, and normalized live phase/status/review activity |
 | Operating modes | Stable version-6 Economy, Standard, Balanced, Performance, and Max policies with historical V1-V5 loading |
-| Backend routing | Explicit saved Implement/Review/Repair routes with revalidation, immutable per-run decisions, policy eligibility, and parent fallback |
+| Backend routing | Explicit saved Implement/Review/Repair routes with revalidation, immutable per-run decisions, policy eligibility, and parent fallback; provider discovery does not silently assign specialist routes |
 | Company onboarding | Resumable Quick, Guided, and Deep interviews; Stable Core + Specialists or Guardrailed Dynamic designs; consented read-only research; conversational/YAML revisions; explicit approval |
 | Company execution | Validated assignment DAGs, orchestrator/lead/worker planning handoffs, dependency-ordered implementation stages, independent review, bounded repair, parent apply, and synthesis; the packed-install gate proves the complete formation-to-repaired-apply journey |
 | Company authority | Immutable blueprints; root and independent-review anchors; user-selected topology; frozen active-agent, depth, concurrency, escalation, review, repair, request, and reported-cost limits; claim-time revalidation; structured manager/root escalation; cancellation; truthful events |
@@ -49,6 +49,8 @@ context, not a product commitment.
 
 ## Distribution
 
+- current source is prepared as the unpublished `0.1.0-alpha.8` release
+  candidate;
 - `0.1.0-alpha.7` npm package, minimal bundle, empty-prefix installation smoke,
   and protected publication workflow;
 - checksum-verifying curl installer and official Homebrew tap formula derived
@@ -120,6 +122,17 @@ hidden registry-boundary verifier failed; Repair did not activate. This single
 run does not estimate a general error rate, and it strengthens no lineup claim.
 The exact metrics and distribution checks are in the
 [active-use RC evidence](ACTIVE_USE_RELEASE_CANDIDATE.md).
+
+The alpha.8 review traced that failure and the earlier Round 2 false approval
+through their durable reviewer sessions. Both reviewers had the objective,
+boundary-specific acceptance criteria, staged diff access, visible test
+evidence, and the known alias-boundary risk. No missing context or authority
+defect was demonstrated. The concrete product defect was first-run Codex setup
+silently assigning the same unevaluated specialist lineup. Fresh setup now
+leaves role routes on the selected parent, preserves explicit existing routes,
+and keeps Models Auto evidence-gated. One fresh parent-fallback comparison
+passed both arms but remains insufficient evidence. See the
+[alpha.8 review-integrity report](research/2026-08-10-RECURS-REVIEW-INTEGRITY-ALPHA8.md).
 
 The next evidence milestone remains complete current-harness coverage of all
 three frozen fixtures with at least three repetitions, at least nine matched

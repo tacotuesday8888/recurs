@@ -2,7 +2,7 @@
 
 Notable user-facing changes are recorded here when they ship.
 
-## Unreleased
+## 0.1.0-alpha.8 - Unreleased
 
 ### Added
 
@@ -19,11 +19,16 @@ Notable user-facing changes are recorded here when they ship.
 - Current product documentation now uses Round 2 model-team evidence. Models:
   Auto remains insufficiently proven after one Round 2 false approval, limited
   Repair recovery, and unknown dollar cost.
+- Fresh Codex setup saves the discovered Sol, Terra, and Luna alternatives but
+  leaves specialist routes on the parent unless the user selects them or
+  evidence-gated Models Auto applies them.
 
 ### Fixed
 
 - Process cleanup and cancellation ordering now settles owned subprocesses
   before teardown without weakening the OS sandbox or adding retries.
+- Codex onboarding no longer turns an unevaluated model-name heuristic into a
+  default Implement, Review, and Repair lineup.
 
 ## 0.1.0-alpha.7 - 2026-08-06
 

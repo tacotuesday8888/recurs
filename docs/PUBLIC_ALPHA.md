@@ -27,6 +27,9 @@ npm's `alpha` dist-tag selects `0.1.0-alpha.7`; unqualified `latest` still
 selects `0.1.0-alpha.2`. The public alpha.7 archive is immutable tag output.
 Post-tag current-source capabilities, including GitHub Copilot, are for a later
 deliberately tagged preview and are not retroactively part of these bytes.
+Current source is prepared as the unpublished `0.1.0-alpha.8` release
+candidate; no npm dist-tag, release asset, tag, or Homebrew formula points to
+it yet.
 
 ## What is proven
 
@@ -59,6 +62,16 @@ the hidden registry-boundary check. Repair did not activate. This is another
 single observed false approval, not a general rate estimate. Exact routes,
 usage, latency, and campaign identifiers are in the
 [active-use RC evidence](ACTIVE_USE_RELEASE_CANDIDATE.md).
+
+The alpha.8 review found no evidence that those reviewers lacked the objective,
+staged change, boundary criteria, or known risk. It did find one actionable
+policy error: fresh Codex setup silently assigned an unproven specialist
+lineup. Current source now saves the alternatives but leaves specialist routes
+on the parent until an explicit user choice or eligible Models Auto decision.
+A fresh one-repetition parent-fallback comparison passed both arms, used three
+requests for the company versus one for the baseline, and still had no dollar
+cost coverage. It is a routing proof, not a model-quality winner. See the
+[alpha.8 review-integrity evidence](research/2026-08-10-RECURS-REVIEW-INTEGRITY-ALPHA8.md).
 
 ## What is not proven
 

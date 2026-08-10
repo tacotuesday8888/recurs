@@ -206,6 +206,12 @@ entries without a reviewed runnable adapter are not silently treated as
 runnable; this includes Claude subscription reuse, Z.ai GLM Coding Plan, and
 cloud-identity paths whose reviewed runtime is absent.
 
+Codex discovery saves Sol, Terra, and Luna as available connections but does
+not infer Implement, Review, or Repair assignments from their names. Fresh
+companies inherit the selected parent unless the user explicitly routes a role
+or confirms an eligible Models Auto proposal. Re-running setup preserves
+existing explicit routes.
+
 The release pipeline builds one minimal npm tarball, installs it into an empty
 prefix, and derives checksum-bound curl and Homebrew assets from those exact
 bytes. The public `0.1.0-alpha.7` artifact ships through npm, Bun as an

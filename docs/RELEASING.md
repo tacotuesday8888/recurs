@@ -124,6 +124,17 @@ As of 2026-08-08, npm's `alpha` tag points to `0.1.0-alpha.7` while
 unqualified `latest` still points to `0.1.0-alpha.2`. Keep public commands on
 `recurs@alpha` until a deliberate dist-tag decision is reviewed; never move an
 alpha onto `latest` as incidental release cleanup.
+
+The source `0.1.0-alpha.8` release candidate is not a public release. Before
+tagging it, record fresh package and installed-prefix measurements, verify the
+final commit through every gate above, and obtain explicit publication
+authorization. Preparing package metadata does not authorize a tag, npm
+publish, GitHub release, or tap update.
+
+The 2026-08-10 alpha.8 candidate measured 474,004 bytes compressed,
+2,075,530 bytes unpacked, and 42,380 KiB in a clean Apple-silicon production
+prefix. The packed archive contained exactly the seven allowed files and no
+bundled dependency tree. Recompute these values after any packed-file change.
 After publication, update
 `tacotuesday8888/homebrew-recurs/Formula/recurs.rb` so its package URL and
 SHA-256 exactly match the attested release formula, review any platform
