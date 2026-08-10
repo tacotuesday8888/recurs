@@ -1656,8 +1656,10 @@ describe("runCli", () => {
     expect(stdout.value).toContain("Codex with ChatGPT · gpt-5.6-sol");
     expect(stdout.value).toContain("Act + Plan through Recurs permissions");
     expect(stdout.value).toContain(
-      "Company routes: gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna",
+      "Saved models: gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna",
     );
+    expect(stdout.value).toContain("Team routes remain an explicit choice");
+    expect(stdout.value).toContain("recurs account route");
     expect(stdout.value).toContain("Saved as secondary");
     expect(stdout.value).toContain("account set-primary");
     expect(stdout.value).not.toContain("owner@example.com");

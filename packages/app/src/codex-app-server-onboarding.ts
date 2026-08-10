@@ -60,7 +60,6 @@ function desiredModels(
 ): readonly {
   readonly model: CodexAppServerOnboardingModel;
   readonly effort: ModelReasoningEffort;
-  readonly roles: readonly TeamRunRole[];
   readonly parent: boolean;
 }[] {
   const byId = new Map(models.map((model) => [model.id, model]));
@@ -68,36 +67,32 @@ function desiredModels(
   if (sol === undefined) return [];
   const terra = byId.get("gpt-5.6-terra") ?? sol;
   const luna = byId.get("gpt-5.6-luna") ?? terra;
+  // Discovery may save useful alternatives, but role routing remains an
+  // explicit user choice or an evidence-gated Models Auto decision.
   const selected = new Map<string, {
     model: CodexAppServerOnboardingModel;
     effort: ModelReasoningEffort;
-    roles: TeamRunRole[];
     parent: boolean;
   }>();
   const add = (
     model: CodexAppServerOnboardingModel,
     effort: ModelReasoningEffort,
-    role: TeamRunRole | null,
     parent: boolean,
   ): void => {
     const current = selected.get(model.id) ?? {
       model,
       effort,
-      roles: [],
       parent: false,
     };
-    if (role !== null && !current.roles.includes(role)) current.roles.push(role);
     current.parent ||= parent;
     selected.set(model.id, current);
   };
-  add(sol, preferredEffort(sol, "high"), null, true);
-  add(terra, preferredEffort(terra, "medium"), "implement", false);
-  add(terra, preferredEffort(terra, "medium"), "repair", false);
-  add(luna, preferredEffort(luna, "medium"), "review", false);
-  return Object.freeze([...selected.values()].map((entry) => Object.freeze({
-    ...entry,
-    roles: Object.freeze(entry.roles),
-  })));
+  add(sol, preferredEffort(sol, "high"), true);
+  add(terra, preferredEffort(terra, "medium"), false);
+  add(luna, preferredEffort(luna, "medium"), false);
+  return Object.freeze([...selected.values()].map((entry) =>
+    Object.freeze({ ...entry })
+  ));
 }
 
 function validTimestamp(value: string): boolean {
@@ -221,14 +216,6 @@ export async function setupCodexAppServerConnections(
               input.accountSubjectFingerprint)
         ) {
           draft.primaryConnectionId = parent.id;
-        }
-        for (const entry of desired) {
-          const record = byModel.get(entry.model.id)!;
-          for (const role of entry.roles) {
-            if (draft.agentRoutes[role] === null) {
-              draft.agentRoutes = { ...draft.agentRoutes, [role]: record.id };
-            }
-          }
         }
       }, { signal });
       return deepFreeze({
