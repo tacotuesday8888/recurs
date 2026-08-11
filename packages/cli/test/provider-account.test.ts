@@ -316,7 +316,7 @@ describe("provider and account projections", () => {
     })).toThrow("Provider live verification evidence is invalid");
   });
 
-  it("sets up Sol, Terra, and Luna from one existing Codex login", async () => {
+  it("saves Sol, Terra, and Luna without guessing specialist routes", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "recurs-codex-setup-"));
     directories.push(directory);
     const codexHome = path.join(directory, "codex-home");
@@ -354,9 +354,9 @@ describe("provider and account projections", () => {
     expect(inspections).toBe(2);
     const document = await new FileConnectionRegistry(directory).read();
     expect(document.agentRoutes).toEqual({
-      implement: expect.any(String),
-      review: expect.any(String),
-      repair: expect.any(String),
+      implement: null,
+      review: null,
+      repair: null,
     });
     expect(document.connections).toHaveLength(3);
   });

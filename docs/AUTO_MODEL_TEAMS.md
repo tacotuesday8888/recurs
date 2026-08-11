@@ -220,6 +220,11 @@ optimize price automatically. The first completed Codex dogfood reported
 216,879 input tokens (161,024 cached), 3,274 output tokens, and unknown dollar
 cost. It proved execution and evidence capture, not team efficiency.
 
+Provider discovery is not another selection mechanism. Fresh Codex setup saves
+the reviewed alternatives and selects one parent connection, but it leaves
+Implement, Review, and Repair on parent fallback. Only an explicit route choice
+or a confirmation-gated eligible Auto decision may change those routes.
+
 Round 2 added reproducible current-harness and parent-matched evidence but did
 not establish a winner. Complete campaigns produced 12 informative pairs and
 only six parent-matched pairs; matched evidence recorded two baseline-only
@@ -235,6 +240,13 @@ Repair-recovery, zero-false-approval, or dollar-cost gates. A 2026-08-08 RC
 dogfood independently produced another Luna approval followed by a hidden
 verifier failure; this strengthens no lineup claim. See the
 [active-use RC evidence](ACTIVE_USE_RELEASE_CANDIDATE.md).
+
+The alpha.8 investigation found that both false-approval reviewers had the
+relevant boundary criteria and staged evidence. It therefore removed the
+static onboarding lineup instead of adding another review layer or claiming a
+reviewer guarantee. A fresh parent-fallback pair passed both arms, but one pair
+with unknown dollar cost remains insufficient for Auto. See the
+[review-integrity report](research/2026-08-10-RECURS-REVIEW-INTEGRITY-ALPHA8.md).
 
 The repeatable Company Proof surface now supplies three immutable tasks. Its
 default compares the selected parent-only baseline with the currently

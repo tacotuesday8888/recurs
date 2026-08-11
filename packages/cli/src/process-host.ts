@@ -2269,7 +2269,7 @@ export async function runCli(
         });
         await writeOutput(
           dependencies.stdout,
-          `Ready — ${connection.label} · ${connection.modelId}\nMode: ${connection.planOnly ? "Plan-only" : "Act + Plan through Recurs permissions"}\nAccount: verified by the vendor runtime; credentials remain vendor-owned\n${connection.configuredModels === undefined ? "" : `Company routes: ${connection.configuredModels.join(", ")}\n`}${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}`,
+          `Ready — ${connection.label} · ${connection.modelId}\nMode: ${connection.planOnly ? "Plan-only" : "Act + Plan through Recurs permissions"}\nAccount: verified by the vendor runtime; credentials remain vendor-owned\n${connection.configuredModels === undefined ? "" : `Saved models: ${connection.configuredModels.join(", ")}\nTeam routes remain an explicit choice; use recurs account route <implement|review|repair> <connection-id|parent>.\n`}${connection.primary ? "Primary connection\n" : `Saved as secondary; use recurs account set-primary ${connection.id} to select it\n`}`,
         );
         return 0;
       } catch (error) {

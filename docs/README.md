@@ -7,6 +7,8 @@ Current documents:
 - [Active-use release candidate](ACTIVE_USE_RELEASE_CANDIDATE.md) — current
   artifact journey, live Codex dogfood, provider, dependency, and distribution
   verification evidence.
+- [Alpha.8 review integrity](research/2026-08-10-RECURS-REVIEW-INTEGRITY-ALPHA8.md)
+  — root-cause evidence, explicit routing change, and bounded live proof.
 - [Feature status](FEATURE_STATUS.md) — concise code-backed inventory of what is implemented, bounded, prepared-only, and absent.
 - [CLI guide](CLI.md) — local and Codex setup, provider/account commands, permissions, storage, output, and limits.
 - [Security policy](../SECURITY.md) — current support boundary, private reporting expectations, and credential-canary rules.
@@ -83,5 +85,9 @@ on `main`, including the official Copilot path, are current-source capabilities
 for a later deliberate preview and are not retroactively part of the published
 alpha.7 bytes. npm's `alpha` tag selects alpha.7; unqualified `latest` still
 selects alpha.2.
+
+Current source is prepared as the unpublished `0.1.0-alpha.8` release
+candidate. It does not change the public alpha.7 install boundary until the
+owner authorizes the protected release workflow.
 
 Earlier exploration is preserved in [historical research](research/README.md). It may use the old “Subagents IDE” working name or describe options that are not current commitments.

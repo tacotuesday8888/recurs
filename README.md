@@ -99,6 +99,12 @@ public alpha.7 artifact. Current model-team evidence remains insufficient for
 an Auto promotion, includes a false approval, has limited Repair evidence, and
 has no provider-reported dollar cost.
 
+Current source is prepared as the unpublished `0.1.0-alpha.8` release
+candidate. Fresh Codex setup saves discovered models without silently assigning
+specialist routes; users may choose routes explicitly or use Models Auto after
+its evidence gate passes. Public install commands continue to resolve to the
+immutable alpha.7 release until an authorized alpha.8 publication.
+
 - [Five-minute CLI guide](docs/CLI.md)
 - [Feature status](docs/FEATURE_STATUS.md)
 - [Company onboarding](docs/AGENT_COMPANY_ONBOARDING.md)
@@ -106,6 +112,7 @@ has no provider-reported dollar cost.
 - [Security](SECURITY.md) and [privacy](PRIVACY.md)
 - [Public alpha boundaries](docs/PUBLIC_ALPHA.md)
 - [Active-use release-candidate evidence](docs/ACTIVE_USE_RELEASE_CANDIDATE.md)
+- [Alpha.8 review-integrity evidence](docs/research/2026-08-10-RECURS-REVIEW-INTEGRITY-ALPHA8.md)
 - [Contributing](CONTRIBUTING.md)
 
 Apache-2.0 © Recurs contributors

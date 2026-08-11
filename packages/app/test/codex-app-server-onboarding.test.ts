@@ -46,7 +46,7 @@ const models = [
 ];
 
 describe("Codex app-server onboarding", () => {
-  it("creates a Sol parent with Terra implementation and Luna review routes", async () => {
+  it("saves the discovered Codex models without guessing specialist routes", async () => {
     const directory = await root();
     let nextId = 0;
     const result = await setupCodexAppServerConnections(directory, {
@@ -67,9 +67,9 @@ describe("Codex app-server onboarding", () => {
         "codex-app-server-0.145.0-host-tools-v2",
     });
     expect(result.agentRoutes).toEqual({
-      implement: byModel.get("gpt-5.6-terra")!.id,
-      review: byModel.get("gpt-5.6-luna")!.id,
-      repair: byModel.get("gpt-5.6-terra")!.id,
+      implement: null,
+      review: null,
+      repair: null,
     });
   });
 
@@ -98,5 +98,44 @@ describe("Codex app-server onboarding", () => {
     );
     expect((await new FileConnectionRegistry(directory).read()).connections)
       .toHaveLength(3);
+  });
+
+  it("preserves specialist routes the user already selected", async () => {
+    const directory = await root();
+    let nextId = 0;
+    const input = {
+      accountSubjectFingerprint: `sha256:${"c".repeat(64)}`,
+      accountDisplayLabel: "ChatGPT Pro subscription",
+      models,
+      billingSelection: "allow_declared_additional" as const,
+      now,
+    };
+    const first = await setupCodexAppServerConnections(
+      directory,
+      input,
+      { createId: () => `id-${++nextId}` },
+    );
+    const byModel = new Map(first.connections.map((record) => [record.modelId, record]));
+    const registry = new FileConnectionRegistry(directory);
+    const current = await registry.read();
+    await registry.commit(current.revision, (draft) => {
+      draft.agentRoutes = {
+        implement: byModel.get("gpt-5.6-terra")!.id,
+        review: byModel.get("gpt-5.6-luna")!.id,
+        repair: byModel.get("gpt-5.6-terra")!.id,
+      };
+    });
+
+    const second = await setupCodexAppServerConnections(
+      directory,
+      { ...input, now: "2026-07-24T00:01:00.000Z" },
+      { createId: () => `unexpected-${++nextId}` },
+    );
+
+    expect(second.agentRoutes).toEqual({
+      implement: byModel.get("gpt-5.6-terra")!.id,
+      review: byModel.get("gpt-5.6-luna")!.id,
+      repair: byModel.get("gpt-5.6-terra")!.id,
+    });
   });
 });

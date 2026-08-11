@@ -9,6 +9,11 @@ archive. Website implementation was excluded. The already merged
 [website-direction brief](product/WEBSITE_DIRECTION.md) was preserved, and both
 paused website worktrees were left untouched.
 
+This alpha.7 evidence remains immutable context. The follow-up
+[alpha.8 review-integrity report](research/2026-08-10-RECURS-REVIEW-INTEGRITY-ALPHA8.md)
+records the false-approval root cause, explicit-routing correction, and fresh
+bounded live proof.
+
 ## Interrupted local check
 
 The four reported files reproduced exactly six failures inside the Codex
