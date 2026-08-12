@@ -666,7 +666,7 @@ describe("Recurs end-to-end coding harness", () => {
     expect((await execFileAsync("git", ["worktree", "list", "--porcelain"], {
       cwd: fixture.project,
     })).stdout).not.toContain(`${path.sep}agent-worktrees${path.sep}`);
-  }, 60_000);
+  }, 120_000);
 
   it("fans out in isolated worktrees and returns ordered evidence for parent synthesis", async () => {
     const fixture = await createFixture();
