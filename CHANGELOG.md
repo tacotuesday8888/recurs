@@ -2,14 +2,12 @@
 
 Notable user-facing changes are recorded here when they ship.
 
-## 0.1.0-alpha.8 - Unreleased
+## 0.1.0-alpha.8 - 2026-08-13
 
 ### Added
 
-- The official GitHub Copilot SDK path, provider capability/readiness
-  projections, and the preserved website-direction brief landed after the
-  immutable alpha.7 tag and are not retroactively claimed as published
-  alpha.7 bytes.
+- The opt-in official GitHub Copilot SDK path and executable provider
+  capability/readiness projections.
 - Active-use release-candidate evidence now records the exact packed-artifact
   journey, current provider boundaries, public distribution integrity, and a
   bounded live Codex company run.

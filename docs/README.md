@@ -4,9 +4,9 @@ Current documents:
 
 - [Public alpha status](PUBLIC_ALPHA.md) — one-page installation,
   distribution, evidence, and remaining-risk summary.
-- [Active-use release candidate](ACTIVE_USE_RELEASE_CANDIDATE.md) — current
-  artifact journey, live Codex dogfood, provider, dependency, and distribution
-  verification evidence.
+- [Alpha.7 active-use release candidate](ACTIVE_USE_RELEASE_CANDIDATE.md) —
+  preserved artifact journey, live Codex dogfood, provider, dependency, and
+  distribution verification evidence.
 - [Alpha.8 review integrity](research/2026-08-10-RECURS-REVIEW-INTEGRITY-ALPHA8.md)
   — root-cause evidence, explicit routing change, and bounded live proof.
 - [Feature status](FEATURE_STATUS.md) — concise code-backed inventory of what is implemented, bounded, prepared-only, and absent.
@@ -51,7 +51,7 @@ architecture for current product truth.
 
 ## Release status
 
-Recurs `0.1.0-alpha.7` is distributed as one npm artifact and runs on Node.js. The
+Recurs `0.1.0-alpha.8` is distributed as one npm artifact and runs on Node.js. The
 repository builds and verifies a minimal npm artifact, includes reviewed
 direct-runtime dependency notices, installs it into an empty temporary prefix
 in CI, and proves the installed binary's redacted readiness report can launch
@@ -69,25 +69,19 @@ then verifies that the `recurs` entry point runs through Node.js and fails when
 Node is unavailable. This is package-manager compatibility, not a native Bun
 runtime claim.
 
-The CLI artifact is gated below 2.1 MB unpacked. The exact `0.1.0-alpha.7`
-archive measured 453 KiB compressed / 1.96 MiB unpacked and 41.3 MiB in a
-clean Apple-silicon production prefix on 2026-08-06, without Codex. The
+The CLI artifact is gated below 2.1 MB unpacked. The exact `0.1.0-alpha.8`
+archive measured 463 KiB compressed / 1.98 MiB unpacked and 42.7 MiB in a
+clean Apple-silicon production prefix on 2026-08-13, without Codex. The
 larger source tree retains exact Codex compatibility fixtures for tests. See
 [Public alpha status](PUBLIC_ALPHA.md) for the current support and evidence
 boundary.
 
-The repository and `0.1.0-alpha.7` preview package are Apache-2.0 licensed.
+The repository and `0.1.0-alpha.8` preview package are Apache-2.0 licensed.
 The one-time npm bootstrap, trusted-publisher relationship, exact release tag,
 and manual protected workflow remain owner-controlled.
 
-The public alpha.7 archive is the immutable tagged artifact. Post-tag changes
-on `main`, including the official Copilot path, are current-source capabilities
-for a later deliberate preview and are not retroactively part of the published
-alpha.7 bytes. npm's `alpha` tag selects alpha.7; unqualified `latest` still
-selects alpha.2.
-
-Current source is prepared as the unpublished `0.1.0-alpha.8` release
-candidate. It does not change the public alpha.7 install boundary until the
-owner authorizes the protected release workflow.
+The public alpha.8 archive is the immutable tagged artifact. Later changes on
+`main` are current-source capabilities until another deliberate preview. npm's
+`alpha` tag selects alpha.8; unqualified `latest` still selects alpha.2.
 
 Earlier exploration is preserved in [historical research](research/README.md). It may use the old “Subagents IDE” working name or describe options that are not current commitments.

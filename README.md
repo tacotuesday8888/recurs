@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://github.com/tacotuesday8888/recurs/actions/workflows/ci.yml"><img src="https://github.com/tacotuesday8888/recurs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://www.npmjs.com/package/recurs"><img src="https://img.shields.io/npm/v/recurs/alpha?label=npm&color=4285f4" alt="npm alpha"></a>
-  <a href="https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.7"><img src="https://img.shields.io/github/v/release/tacotuesday8888/recurs?include_prereleases&label=release&color=54d68a" alt="GitHub release"></a>
+  <a href="https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.8"><img src="https://img.shields.io/github/v/release/tacotuesday8888/recurs?include_prereleases&label=release&color=54d68a" alt="GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-4c8eda.svg" alt="Apache 2.0"></a>
 </p>
 
@@ -25,7 +25,7 @@ macOS and Linux · Node.js 22.22+
 | --- | --- |
 | npm | `npm install --global recurs@alpha` |
 | Homebrew | `brew install tacotuesday8888/recurs/recurs` |
-| curl | `curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.7/install.sh \| sh` |
+| curl | `curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.8/install.sh \| sh` |
 | Bun | `bun install --global recurs@alpha` |
 
 Then launch Recurs inside a project:
@@ -38,7 +38,7 @@ recurs
 Every path installs the same reviewed package. Bun can install Recurs; Node.js
 runs it. See [installation, upgrades, and source setup](docs/CLI.md#install).
 Use the explicit `@alpha` tag: npm's unqualified `latest` tag still points to
-`0.1.0-alpha.2`, while `alpha` points to `0.1.0-alpha.7`.
+`0.1.0-alpha.2`, while `alpha` points to `0.1.0-alpha.8`.
 
 ## One goal. A controlled company.
 
@@ -92,18 +92,15 @@ review, repair, recovery, and explicit apply path are implemented and tested.
 Team configurations remain evidence-gated: Recurs does not claim that a larger
 team always beats a strong single agent.
 
-The published alpha.7 archive is immutable. Current `main` contains post-tag
-hardening and provider work that will ship only in a later deliberately tagged
-preview; the repository does not retroactively describe those bytes as the
-public alpha.7 artifact. Current model-team evidence remains insufficient for
-an Auto promotion, includes a false approval, has limited Repair evidence, and
-has no provider-reported dollar cost.
+`0.1.0-alpha.8` is the current reviewed public alpha. It adds the opt-in
+official GitHub Copilot SDK path and keeps fresh Codex setup from silently
+assigning unevaluated specialist routes. Users may choose routes explicitly or
+use Models Auto only after its evidence gate passes.
 
-Current source is prepared as the unpublished `0.1.0-alpha.8` release
-candidate. Fresh Codex setup saves discovered models without silently assigning
-specialist routes; users may choose routes explicitly or use Models Auto after
-its evidence gate passes. Public install commands continue to resolve to the
-immutable alpha.7 release until an authorized alpha.8 publication.
+Current model-team evidence remains insufficient for an Auto promotion: it
+includes a false approval, limited Repair evidence, and no provider-reported
+dollar cost. Recurs therefore makes no claim that a larger team always beats a
+strong single agent.
 
 - [Five-minute CLI guide](docs/CLI.md)
 - [Feature status](docs/FEATURE_STATUS.md)

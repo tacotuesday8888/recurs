@@ -21,18 +21,16 @@ recurs
 
 `--global` only makes the `recurs` command available from any directory.
 Use the `@alpha` tag explicitly: npm's unqualified `latest` tag still points to
-`0.1.0-alpha.2`, while `alpha` points to `0.1.0-alpha.7`. The published
-alpha.7 archive is immutable. Capabilities added on `main` after that tag are
-current-source preview behavior until a later prerelease is published.
-The source tree is prepared as the unpublished `0.1.0-alpha.8` release
-candidate; the commands below still install alpha.7 until publication.
+`0.1.0-alpha.2`, while `alpha` points to `0.1.0-alpha.8`. The published
+alpha.8 archive is immutable; later changes on `main` are current-source
+behavior until another deliberately tagged prerelease is published.
 
 The same reviewed npm artifact is also available through Bun-as-installer, the
 checksummed GitHub release installer, and Homebrew:
 
 ```bash
 bun install --global recurs@alpha
-curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.7/install.sh | sh
+curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.8/install.sh | sh
 brew install tacotuesday8888/recurs/recurs
 ```
 
@@ -79,9 +77,9 @@ recurs
 ```
 
 The packaged Recurs artifact is gated below 2.1 MB unpacked, but its runtime
-dependencies are installed separately. The `0.1.0-alpha.7` artifact measured
-453 KiB compressed / 1.96 MiB unpacked and 41.3 MiB in a clean
-Apple-silicon production prefix, without Codex. The
+dependencies are installed separately. The `0.1.0-alpha.8` artifact measured
+463 KiB compressed / 1.98 MiB unpacked and 42.7 MiB in a clean Apple-silicon
+production prefix, without Codex. The
 source-development tree is larger because it retains exact Codex compatibility
 fixtures. Treat these as directional measurements because platform packages
 and npm versions differ.
@@ -159,9 +157,8 @@ recurs setup byok \
 recurs setup codex
 ```
 
-Current source also includes `recurs setup copilot`, backed by GitHub's
-official Copilot SDK. That path was added after the immutable public alpha.7
-artifact. Recurs keeps catalog presence, SDK availability, a configured
+Alpha.8 also includes `recurs setup copilot`, backed by GitHub's official
+Copilot SDK. Recurs keeps catalog presence, SDK availability, a configured
 account, and a verified live account as separate states; it does not treat a
 catalog entry or an installed SDK as proof that Copilot is ready. GitHub
 Enterprise and unofficial credential discovery remain unsupported.

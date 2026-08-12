@@ -183,7 +183,7 @@ automatically.
 | Controlled organizational amendments | Implemented as immutable proposals and explicit decisions; no automatic organization rewrite |
 | Company operating UI | Intentionally deferred |
 
-### Provider and delivery audit (2026-08-08)
+### Provider and delivery audit (2026-08-13)
 
 The source CLI can run reviewed fixed-origin environment credentials for
 OpenAI API, Anthropic API, OpenRouter, xAI, Kilo Gateway, Alibaba Model Studio,
@@ -200,8 +200,7 @@ setup in current source also offers an opt-in official GitHub Copilot SDK path
 for `github.com`, conditional on fresh account/model verification and
 acknowledgement that included allowance can continue through
 provider-configured Additional usage; no live model turn has been run. This
-Copilot path was added after the immutable public alpha.7 artifact and is
-preview behavior until a later prerelease. Catalog
+Copilot path ships in alpha.8. Catalog
 entries without a reviewed runnable adapter are not silently treated as
 runnable; this includes Claude subscription reuse, Z.ai GLM Coding Plan, and
 cloud-identity paths whose reviewed runtime is absent.
@@ -214,7 +213,7 @@ existing explicit routes.
 
 The release pipeline builds one minimal npm tarball, installs it into an empty
 prefix, and derives checksum-bound curl and Homebrew assets from those exact
-bytes. The public `0.1.0-alpha.7` artifact ships through npm, Bun as an
+bytes. The public `0.1.0-alpha.8` artifact ships through npm, Bun as an
 installer, the GitHub release installer, and the official Homebrew tap. Every
 path still requires Node.js at runtime; there is no signed binary or desktop
 app. The removed private native credential authority is not a product path:
