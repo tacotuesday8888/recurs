@@ -33,9 +33,9 @@ journey, not a prose-only capability claim.
 The portable npm artifact contains the same TypeScript runtime verified in CI.
 Its package gate caps the unpacked artifact at 2.1 MB; that is not the installed
 footprint. npm resolves runtime dependencies separately, but Codex is not a
-default runtime dependency. The exact `0.1.0-alpha.7` artifact measured
-453 KiB compressed / 1.96 MiB unpacked and 41.3 MiB in a clean
-Apple-silicon production prefix on 2026-08-06. The source-development tree was
+default runtime dependency. The exact `0.1.0-alpha.8` artifact measured
+473,879 bytes compressed / 2,075,263 bytes unpacked and 43,676 KiB in a clean
+Apple-silicon production prefix on 2026-08-13. The source-development tree was
 about 402 MiB because it retains roughly 307 MiB of pinned Codex compatibility
 fixtures.
 Record a clean installed-prefix measurement for every release candidate and
@@ -120,22 +120,16 @@ publishes or verifies the same npm bytes, and makes the GitHub release public
 only after npm succeeds. While Recurs uses prerelease versions, the workflow
 marks the GitHub release as a prerelease and explicitly leaves the `latest`
 label unset; promoting a stable version requires an intentional policy change.
-As of 2026-08-08, npm's `alpha` tag points to `0.1.0-alpha.7` while
+As of 2026-08-13, npm's `alpha` tag points to `0.1.0-alpha.8` while
 unqualified `latest` still points to `0.1.0-alpha.2`. Keep public commands on
 `recurs@alpha` until a deliberate dist-tag decision is reviewed; never move an
 alpha onto `latest` as incidental release cleanup.
 
-The source `0.1.0-alpha.8` release candidate is not a public release. Before
-tagging it, record fresh package and installed-prefix measurements, verify the
-final commit through every gate above, and obtain explicit publication
-authorization. Preparing package metadata does not authorize a tag, npm
-publish, GitHub release, or tap update.
-
-The 2026-08-10 alpha.8 candidate measured 474,004 bytes compressed,
-2,075,530 bytes unpacked, and 42,380 KiB in a clean Apple-silicon production
-prefix. The packed archive contained exactly the seven allowed files and no
-bundled dependency tree. Recompute these values after any packed-file change.
-After publication, update
+The 2026-08-13 alpha.8 release measured 473,879 bytes compressed,
+2,075,263 bytes unpacked, and 43,676 KiB in a clean
+Apple-silicon production prefix. The packed archive contained exactly the seven
+allowed files and no bundled dependency tree. Recompute these values after any
+packed-file change. After publication, update
 `tacotuesday8888/homebrew-recurs/Formula/recurs.rb` so its package URL and
 SHA-256 exactly match the attested release formula, review any platform
 dependency metadata separately, open a tap pull request, and merge it only

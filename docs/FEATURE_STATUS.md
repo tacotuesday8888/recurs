@@ -1,8 +1,8 @@
 # Recurs Feature Status
 
-**Audited:** 2026-08-10 against the source, exported package surfaces, CLI
+**Audited:** 2026-08-13 against the source, exported package surfaces, CLI
 assembly, durable contracts/stores, provider manifests, and automated tests in
-this release candidate.
+this public alpha.
 
 This is the concise current capability inventory. Dated files under
 `docs/superpowers/` are design and delivery records; their historical
@@ -49,9 +49,7 @@ context, not a product commitment.
 
 ## Distribution
 
-- current source is prepared as the unpublished `0.1.0-alpha.8` release
-  candidate;
-- `0.1.0-alpha.7` npm package, minimal bundle, empty-prefix installation smoke,
+- `0.1.0-alpha.8` npm package, minimal bundle, empty-prefix installation smoke,
   and protected publication workflow;
 - checksum-verifying curl installer and official Homebrew tap formula derived
   from that exact npm archive; and
@@ -63,19 +61,17 @@ or desktop app. Bun's verified boundary is package installation, not Recurs
 execution.
 
 The package gate keeps the unpacked Recurs artifact below 2.1 MB. The exact
-`0.1.0-alpha.7` archive measured 453 KiB compressed / 1.96 MiB unpacked. Its
-2026-08-06 Apple-silicon production prefix was 41.3 MiB. Optional Codex
+`0.1.0-alpha.8` archive measured 463 KiB compressed / 1.98 MiB unpacked. Its
+2026-08-13 Apple-silicon production prefix was 42.7 MiB. Optional Codex
 compatibility packages are not downloaded with Recurs. Codex subscription
 users supply the exact reviewed official CLI separately, so an existing Codex
 installation is shared rather than duplicated. Source development still
 installs the pinned Codex packages to exercise legacy compatibility and exact
 app-server behavior in tests.
 
-The published alpha.7 archive is the immutable tagged artifact. Current source
-contains post-tag additions, including the Copilot path, for a later deliberate
-preview; those additions are not retroactively claimed as published alpha.7
-bytes. npm's `alpha` tag selects alpha.7, while unqualified `latest` still
-selects alpha.2.
+The published alpha.8 archive is the immutable tagged artifact. Later changes
+on `main` are current-source behavior until another deliberate preview. npm's
+`alpha` tag selects alpha.8, while unqualified `latest` still selects alpha.2.
 
 ## Not implemented
 

@@ -1,6 +1,6 @@
 # Public Alpha Status
 
-**Status:** `0.1.0-alpha.7` public alpha. Recurs is available as one verified
+**Status:** `0.1.0-alpha.8` public alpha. Recurs is available as one verified
 npm artifact through npm, Bun-as-installer, a checksum-verifying curl asset,
 and the official Homebrew tap.
 
@@ -12,24 +12,20 @@ and the official Homebrew tap.
 | npm registry | Recommended path | `npm install --global recurs@alpha` installs the current reviewed alpha |
 | GitHub release / curl | Published alpha path | The release carries the exact archive and a checksum-verifying user-local installer |
 | Homebrew | Published tap path | `brew install tacotuesday8888/recurs/recurs` installs the same npm archive through the official tap |
-| Bun global install | Verified installer path | `bun install --global recurs@0.1.0-alpha.7` installs the package; Node.js 22.22+ still executes it |
+| Bun global install | Verified installer path | `bun install --global recurs@0.1.0-alpha.8` installs the package; Node.js 22.22+ still executes it |
 | Bun runtime | Unsupported | No `bun run`, native Bun execution, broader Bun-version, or broad platform-compatibility claim |
 | Signed binary / desktop | Not implemented | There is no standalone download or desktop application |
 
-The package gate caps the unpacked Recurs artifact at 2.1 MB. On 2026-08-06 the
-exact `0.1.0-alpha.7` archive measured 453 KiB compressed / 1.96 MiB unpacked.
-Its clean Apple-silicon production prefix measured 41.3 MiB. It did not install
+The package gate caps the unpacked Recurs artifact at 2.1 MB. On 2026-08-13 the
+exact `0.1.0-alpha.8` archive measured 463 KiB compressed / 1.98 MiB unpacked.
+Its clean Apple-silicon production prefix measured 42.7 MiB. It did not install
 Codex. The full source-development dependency tree measured about
 402 MiB because it retains roughly 307 MiB of pinned Codex compatibility
 fixtures. Exact size varies by platform and npm version.
 
-npm's `alpha` dist-tag selects `0.1.0-alpha.7`; unqualified `latest` still
-selects `0.1.0-alpha.2`. The public alpha.7 archive is immutable tag output.
-Post-tag current-source capabilities, including GitHub Copilot, are for a later
-deliberately tagged preview and are not retroactively part of these bytes.
-Current source is prepared as the unpublished `0.1.0-alpha.8` release
-candidate; no npm dist-tag, release asset, tag, or Homebrew formula points to
-it yet.
+npm's `alpha` dist-tag selects `0.1.0-alpha.8`; unqualified `latest` still
+selects `0.1.0-alpha.2`. The public alpha.8 archive is immutable tag output;
+later changes on `main` require another deliberately tagged preview.
 
 ## What is proven
 

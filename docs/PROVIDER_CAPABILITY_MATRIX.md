@@ -1,6 +1,6 @@
 # Provider Capability Matrix
 
-Snapshot: 2026-08-10, checked against the executable provider and
+Snapshot: 2026-08-13, checked against the executable provider and
 CLI readiness projections. User-present live verification passed for the three
 saved Codex app-server routes; no live evidence was supplied for other
 providers.
@@ -53,10 +53,9 @@ environment credential through their wired adapters, but remain
 readiness probe exists. A saved account and a successful live turn are separate
 facts again; neither changes a blocked provider policy.
 
-The official GitHub Copilot path is a post-alpha.7-tag current-source addition.
-It is not present in the immutable public alpha.7 archive. It is included in
-the unpublished alpha.8 candidate but will ship only if that preview is
-deliberately tagged and published.
+The official GitHub Copilot path ships in alpha.8. Its implementation coverage
+is complete, but no live Copilot model turn has been supplied; SDK presence,
+saved-account readiness, and live evidence remain separate facts.
 
 ## Current primary-source findings
 
