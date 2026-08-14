@@ -412,8 +412,19 @@
           input.value = ''; return;
         }
         if (view === 'company') { openAgent('DIRECTOR'); }
-        transcript.insertAdjacentHTML('beforeend', `<div class="turn user-turn"></div><div class="turn assistant-turn"><span class="speaker">${document.querySelector('#chat-agent').textContent.toLowerCase()}</span> I’ll continue inside this assignment’s scope and return evidence through the company hierarchy.</div>`);
-        transcript.children[transcript.children.length - 2].textContent = value;
+        const userTurn = document.createElement('div');
+        userTurn.className = 'turn user-turn';
+        userTurn.textContent = value;
+        const assistantTurn = document.createElement('div');
+        assistantTurn.className = 'turn assistant-turn';
+        const speaker = document.createElement('span');
+        speaker.className = 'speaker';
+        speaker.textContent = document.querySelector('#chat-agent').textContent.toLowerCase();
+        assistantTurn.append(
+          speaker,
+          document.createTextNode(' I’ll continue inside this assignment’s scope and return evidence through the company hierarchy.'),
+        );
+        transcript.append(userTurn, assistantTurn);
         input.value = ''; transcript.scrollTop = transcript.scrollHeight;
       };
 
