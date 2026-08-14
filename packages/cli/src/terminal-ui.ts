@@ -50,7 +50,9 @@ import {
 import { sanitizeTerminalText } from "./terminal-text.js";
 import {
   createTerminalTheme,
+  formatTerminalLabel,
   renderTerminalCanvas,
+  wrapTerminalText,
   type TerminalTheme,
 } from "./terminal-style.js";
 import {
@@ -125,14 +127,17 @@ export class LaunchComponent implements Component {
       theme?.accent(line(`R↘ RECURS / ${workspace} / PROJECTS`)) ??
         line(`R↘ RECURS / ${workspace} / PROJECTS`),
       theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
-      theme?.strong(line(`YOUR CHATS · ${this.model.sessions.length}`)) ??
-        line(`YOUR CHATS · ${this.model.sessions.length}`),
+      theme?.strong(line(`Chats · ${this.model.sessions.length}`)) ??
+        line(`Chats · ${this.model.sessions.length}`),
     ];
     for (const [offset, session] of visible.entries()) {
       const index = windowStart + offset;
       const updated = session.updatedAt.replace("T", " ").slice(0, 16);
+      const label = session.id === this.model.currentSessionId
+        ? "Current chat"
+        : `Recent chat ${index + 1}`;
       rows.push(
-        line(`${index === this.#selectedIndex ? ">" : " "} ${session.id}`),
+        line(`${index === this.#selectedIndex ? ">" : " "} ${label}`),
         theme?.muted(line(`    ${session.model} · ${updated} UTC${
           session.id === this.model.currentSessionId ? " · CURRENT" : ""
         }`)) ?? line(`    ${session.model} · ${updated} UTC${
@@ -144,13 +149,13 @@ export class LaunchComponent implements Component {
     if (this.model.sessions.length === 0) rows.push(line("  No saved chats yet."));
     rows.push(
       "",
-      theme?.strong(line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} START NEW PROJECT`)) ??
-        line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} START NEW PROJECT`),
-      theme?.muted(line("    CONNECT A MODEL · CHOOSE AUTHORITY · FORM YOUR COMPANY")) ??
-        line("    CONNECT A MODEL · CHOOSE AUTHORITY · FORM YOUR COMPANY"),
+      theme?.strong(line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} Start new project`)) ??
+        line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} Start new project`),
+      theme?.muted(line("    Connect a model, choose authority, and form your company")) ??
+        line("    Connect a model, choose authority, and form your company"),
       theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
-      theme?.muted(line("ENTER OPEN   ARROWS SELECT   Q QUIT")) ??
-        line("ENTER OPEN   ARROWS SELECT   Q QUIT"),
+      theme?.muted(line("enter open   arrows select   q quit")) ??
+        line("enter open   arrows select   q quit"),
     );
     while (rows.length < terminalRows) rows.splice(rows.length - 2, 0, "");
     return rows;
@@ -204,6 +209,7 @@ export interface InteractiveOnboardingChoice {
   readonly id: string;
   readonly label: string;
   readonly detail: string;
+  readonly recommended?: boolean;
 }
 
 export interface InteractiveOnboardingUi {
@@ -363,10 +369,10 @@ export class TaskPanelComponent implements Component {
       theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
       theme?.strong(line(snapshot.goal === null
         ? "NO ACTIVE COMPANY GOAL"
-        : `${snapshot.goal.id} · ${snapshot.goal.objective}`.toUpperCase())) ??
+        : snapshot.goal.objective.toUpperCase())) ??
         line(snapshot.goal === null
           ? "NO ACTIVE COMPANY GOAL"
-          : `${snapshot.goal.id} · ${snapshot.goal.objective}`.toUpperCase()),
+          : snapshot.goal.objective.toUpperCase()),
       theme?.muted(line(`ACTIVATED ASSIGNMENTS · ${snapshot.agents.length}`)) ??
         line(`ACTIVATED ASSIGNMENTS · ${snapshot.agents.length}`),
       "",
@@ -391,7 +397,9 @@ export class TaskPanelComponent implements Component {
         ? "MODEL PENDING"
         : `${agent.model}${agent.effort === null ? "" : ` · ${agent.effort}`}`;
       const role = line(`${selected} ${agent.roleName.toUpperCase()}  ${status}`);
-      const detail = line(`    ${route} · ${agent.detail ?? agent.departmentId}`);
+      const detail = line(`    ${route} · ${
+        agent.detail ?? formatTerminalLabel(agent.departmentId)
+      }`);
       rows.push(
         theme?.companyLayer(Math.min(3, agent.depth) as 0 | 1 | 2 | 3, role) ?? role,
         theme?.muted(detail) ?? detail,
@@ -592,6 +600,61 @@ class TranscriptBuffer {
   text(): string { return this.#text.trimEnd(); }
 }
 
+class OnboardingChoiceList implements Component {
+  readonly #list: SelectList;
+  readonly #choices: readonly InteractiveOnboardingChoice[];
+  #selectedIndex: number;
+
+  onSelect?: (id: string) => void;
+  onCancel?: () => void;
+
+  constructor(
+    choices: readonly InteractiveOnboardingChoice[],
+    theme: EditorTheme["selectList"],
+  ) {
+    this.#choices = choices;
+    this.#selectedIndex = Math.max(0, choices.findIndex((choice) =>
+      choice.recommended === true || /\(recommended\)/iu.test(choice.label)
+    ));
+    this.#list = new SelectList(
+      choices.map((choice) => ({
+        value: choice.id,
+        label: sanitizeTerminalText(choice.label, { multiline: false }),
+      })),
+      Math.min(8, choices.length),
+      theme,
+    );
+    this.#list.setSelectedIndex(this.#selectedIndex);
+    this.#list.onSelectionChange = (item) => {
+      this.#selectedIndex = Math.max(
+        0,
+        this.#choices.findIndex((choice) => choice.id === item.value),
+      );
+    };
+    this.#list.onSelect = (item) => this.onSelect?.(item.value);
+    this.#list.onCancel = () => this.onCancel?.();
+  }
+
+  invalidate(): void { this.#list.invalidate(); }
+
+  render(width: number): string[] {
+    const lines = this.#list.render(width);
+    const selected = this.#choices[this.#selectedIndex];
+    if (selected === undefined) return lines;
+    const detailWidth = Math.max(1, width - 4);
+    return [
+      ...lines,
+      "",
+      ...wrapTerminalText(
+        sanitizeTerminalText(selected.detail, { multiline: false }),
+        detailWidth,
+      ).map((line) => `  ${line}`),
+    ];
+  }
+
+  handleInput(data: string): void { this.#list.handleInput(data); }
+}
+
 class OnboardingComponent extends Container {
   readonly #header: Text;
   readonly #transcript = new Text();
@@ -628,7 +691,7 @@ class OnboardingComponent extends Container {
     });
     this.#header = new Text(
       `${strong(accent(`R↘ RECURS / ${workspace.toUpperCase()} / SETUP`))}\n${
-        muted("CONNECT YOUR MODELS · FORM YOUR COMPANY · APPROVE BEFORE WORK STARTS")
+        muted("Connect a model, choose boundaries, then form your company.")
       }`,
       1,
       0,
@@ -663,13 +726,8 @@ class OnboardingComponent extends Container {
     if (choices.length === 0) {
       return Promise.resolve(null);
     }
-    const list = new SelectList(
-      choices.map((choice) => ({
-        value: choice.id,
-        label: sanitizeTerminalText(choice.label, { multiline: false }),
-        description: sanitizeTerminalText(choice.detail, { multiline: false }),
-      })),
-      Math.min(8, choices.length),
+    const list = new OnboardingChoiceList(
+      choices,
       editorTheme(this.colorEnabled).selectList,
     );
     return new Promise((resolve, reject) => {
@@ -683,7 +741,7 @@ class OnboardingComponent extends Container {
         operation();
       };
       const onAbort = (): void => settle(() => reject(onboardingAbortError()));
-      list.onSelect = (item) => settle(() => resolve(item.value));
+      list.onSelect = (id) => settle(() => resolve(id));
       list.onCancel = onAbort;
       this.#question.setText(sanitizeTerminalText(message));
       this.#replaceInput(list);
@@ -745,7 +803,7 @@ class OnboardingComponent extends Container {
   }
 
   setWorking(): void {
-    this.#question.setText("Working…");
+    this.#question.setText("Finishing this step…");
     this.tui.requestRender();
   }
 
@@ -761,7 +819,7 @@ class OnboardingComponent extends Container {
   #idle(): void {
     if (this.#input !== null) this.removeChild(this.#input);
     this.#input = null;
-    this.#question.setText("Working…");
+    this.#question.setText("Finishing this step…");
     this.tui.setFocus(null);
     this.tui.requestRender(true);
   }
@@ -775,11 +833,26 @@ function styleOnboardingTranscript(
   text: string,
   theme: TerminalTheme,
 ): string {
-  return text.split("\n").map((line) => {
-    if (/^\d{2}\/\d{2}\s{2}/u.test(line)) return theme.accent(line);
-    if (line === "Welcome to Recurs") return theme.strong(line);
-    return line;
-  }).join("\n");
+  const lines = text.split("\n");
+  const currentStep = lines.findLast((line) =>
+    /^\d{2}\/\d{2}\s{2}/u.test(line)
+  );
+  const latestNotice = lines.map((line): string | undefined => {
+    const verified = /^Verified — .* · ([^·]+)$/u.exec(line);
+    if (verified !== null) {
+      return `✓ Parent model connected · ${verified[1]!.trim()}`;
+    }
+    return /^(Error|Warning):/u.test(line) ||
+        /^(Setup|Company setup|Full Access)/u.test(line)
+      ? line
+      : undefined;
+  }).findLast((line) => line !== undefined);
+  const visible = [currentStep, latestNotice].filter(
+    (line): line is string => line !== undefined,
+  );
+  return visible.map((line) =>
+    /^\d{2}\/\d{2}\s{2}/u.test(line) ? theme.accent(line) : line
+  ).join("\n");
 }
 
 interface PendingQuestion {
@@ -846,7 +919,9 @@ class ChatComponent extends Container {
       `${accent(`R↘ RECURS / ${path.basename(cwd).toUpperCase()} / CHAT`)}\n${
         renderAttachedAgentHeader(
           "Parent",
-          `${session.model} · ${session.mode} · ${session.permission}`,
+          `${session.model} · ${formatTerminalLabel(session.mode)} · ${
+            formatTerminalLabel(session.permission)
+          }`,
           "ready",
           0,
           colorEnabled,

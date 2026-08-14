@@ -31,7 +31,6 @@ export interface TerminalTheme {
 const RESET = "\u001b[0m";
 const MAX_RAINBOW_ANSI_256 = Object.freeze([196, 208, 226, 46, 51, 39, 129]);
 const COMPANY_LAYER_ANSI_256 = Object.freeze([220, 75, 80, 113]);
-const BLACK_CANVAS = "\u001b[48;2;0;0;0m";
 
 function ansi(enabled: boolean, code: number, text: string): string {
   return enabled ? `\u001b[${code}m${text}${RESET}` : text;
@@ -103,9 +102,8 @@ export function renderTerminalCanvas(
   const visible = [...lines];
   while (visible.length < height) visible.push("");
   return Object.freeze(visible.map((line) => {
-    const painted = line.replaceAll(RESET, `${RESET}${BLACK_CANVAS}`);
     const padding = " ".repeat(Math.max(0, width - visibleWidth(line)));
-    return `${BLACK_CANVAS}${painted}${padding}${RESET}`;
+    return `${line}${padding}${RESET}`;
   }));
 }
 
@@ -121,6 +119,13 @@ function centeredPadding(text: string, columns: number | undefined): string {
 
 export function centerTerminalText(text: string, columns: number): string {
   return `${centeredPadding(text, columns)}${text}`;
+}
+
+export function formatTerminalLabel(value: string): string {
+  return value.replace(/_v\d+$/u, "").split("_").map((word, index) => {
+    if (index > 0 && ["for", "of", "the"].includes(word)) return word;
+    return `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`;
+  }).join(" ");
 }
 
 export function renderRecursWordmark(

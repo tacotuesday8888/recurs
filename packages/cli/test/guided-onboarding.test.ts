@@ -195,6 +195,8 @@ describe("guided onboarding policy", () => {
       "ask_always",
       "full_access",
     ]);
+    expect(GUIDED_PERMISSION_CHOICES.filter((choice) => choice.recommended)
+      .map((choice) => choice.id)).toEqual(["approved_for_me"]);
     expect(guidedPermissionMode("approved_for_me")).toBe("approved_for_me");
     expect(guidedPermissionMode("yolo")).toBeNull();
     expect(credentialEnvironmentSuggestion("openrouter-api"))
@@ -221,6 +223,8 @@ describe("guided onboarding policy", () => {
       "performance_v6",
       "max_v6",
     ]);
+    expect(GUIDED_OPERATING_MODE_CHOICES.filter((choice) => choice.recommended)
+      .map((choice) => choice.id)).toEqual(["balanced_v6"]);
     expect(guidedOperatingModeId("balanced_v6")).toBe("balanced_v6");
     expect(guidedOperatingModeId("balanced_v4")).toBeNull();
     expect(GUIDED_OPERATING_MODE_CHOICES.map((choice) => choice.detail))

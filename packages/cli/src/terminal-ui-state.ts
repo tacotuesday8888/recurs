@@ -2,6 +2,7 @@ import type { EventSink, RecursEvent } from "@recurs/core";
 import type { CompanyBlueprintV2 } from "@recurs/contracts";
 
 import { sanitizeTerminalText } from "./terminal-text.js";
+import { formatTerminalLabel } from "./terminal-style.js";
 
 export type TerminalAgentStatus =
   | "running"
@@ -447,11 +448,6 @@ function fit(text: string, width: number): string {
   return `${safeText.slice(0, width - 1)}…`;
 }
 
-function centered(text: string, width: number): string {
-  const value = fit(text, width);
-  return `${" ".repeat(Math.max(0, Math.floor((width - value.length) / 2)))}${value}`;
-}
-
 function statusMark(status: TerminalCompanyNodeStatus): string {
   switch (status) {
     case "running": return "◆";
@@ -557,7 +553,7 @@ function layerRows(
       ? [
           ...petRows,
           group.map((node) => centeredCell(
-            `${node.roleId === selectedRoleId ? "> " : ""}${node.roleName.toUpperCase()} · ${statusMark(node.status)} ${nodeMeta(node)}`,
+            `${node.roleId === selectedRoleId ? "> " : ""}${node.roleName.toUpperCase()}  ${statusMark(node.status)} ${nodeMeta(node)}`,
             cellWidth,
           )).join(""),
         ]
@@ -582,15 +578,56 @@ function layerRows(
   return Object.freeze(rows);
 }
 
-function connectorRows(width: number, depth: number, frame: number): readonly string[] {
+function connectorRows(
+  width: number,
+  depth: number,
+  frame: number,
+  parents: readonly TerminalCompanyNodeView[],
+  children: readonly TerminalCompanyNodeView[],
+): readonly string[] {
   const labelWidth = width >= 72 ? 12 : 10;
   const contentWidth = Math.max(1, width - labelWidth);
-  const run = Math.max(1, Math.min(42, Math.floor((contentWidth - 3) / 2)));
-  const moving = Array.from({ length: run }, (_, index) =>
-    index === (frame * 3 + depth * 5) % run ? "•" : "·"
-  ).join("");
+  const centers = (count: number): readonly number[] => Array.from(
+    { length: count },
+    (_, index) => Math.min(
+      contentWidth - 1,
+      Math.floor(((index + 0.5) * contentWidth) / Math.max(1, count)),
+    ),
+  );
+  const parentCenters = centers(parents.length);
+  const childCenters = centers(children.length);
+  const glyphs = Array.from({ length: contentWidth }, () => " ");
+  let edge = 0;
+  for (const [parentIndex, parent] of parents.entries()) {
+    const targets = children.map((child, index) => ({ child, index })).filter(
+      ({ child }) => child.reportsToRoleId === parent.roleId,
+    );
+    const parentCenter = parentCenters[parentIndex];
+    if (parentCenter === undefined || targets.length === 0) continue;
+    for (const { index } of targets) {
+      const childCenter = childCenters[index];
+      if (childCenter === undefined) continue;
+      if (childCenter === parentCenter) {
+        glyphs[parentCenter] = "│";
+        continue;
+      }
+      const from = Math.min(parentCenter, childCenter);
+      const to = Math.max(parentCenter, childCenter);
+      for (let column = from + 1; column < to; column += 1) {
+        if (glyphs[column] === " ") glyphs[column] = "·";
+      }
+      const span = Math.max(1, to - from - 1);
+      const pulse = from + 1 + ((frame * 3 + depth * 5 + edge) % span);
+      if (pulse < to) glyphs[pulse] = "•";
+      glyphs[from] = glyphs[from] === " " ? "╰" : "┼";
+      glyphs[to] = glyphs[to] === " " ? "╮" : "┼";
+      glyphs[parentCenter] = "┬";
+      edge += 1;
+    }
+  }
+  if (edge === 0 && !glyphs.includes("│")) return Object.freeze([]);
   return Object.freeze([
-    fit(`${"".padEnd(labelWidth)}${centered(`╰${moving}┬${moving}╮`, contentWidth)}`, width),
+    fit(`${"".padEnd(labelWidth)}${glyphs.join("")}`, width),
   ]);
 }
 
@@ -672,11 +709,11 @@ function compactCompanyHome(
     fit(
       selected === undefined
         ? "NO ROLE SELECTED"
-        : `✳ ${selected.roleName.toUpperCase()} · ${selected.departmentId.toUpperCase()} · ${selected.status.toUpperCase()}`,
+        : `✳ ${selected.roleName.toUpperCase()} · ${formatTerminalLabel(selected.departmentId).toUpperCase()} · ${selected.status.toUpperCase()}`,
       width,
     ),
     "─".repeat(width),
-    fit(`${snapshot.session.mode} · ${snapshot.session.permission}`, width),
+    fit(`${formatTerminalLabel(snapshot.session.mode)} · ${formatTerminalLabel(snapshot.session.permission)}`, width),
     fit("ENTER OPEN   ARROWS SELECT   CTRL+T TASKS   Q QUIT", width),
   );
   return Object.freeze(lines.slice(0, targetHeight));
@@ -696,7 +733,7 @@ export function renderCompanyHome(
   const leftHeader = width < 54
     ? "R↘ RECURS / COMPANY"
     : `R↘ RECURS / ${workspace} / COMPANY`;
-  const rightHeader = `${live ? "● LIVE" : "○ READY"} · ${snapshot.session.mode.toUpperCase()}`;
+  const rightHeader = `${live ? "● LIVE" : "○ READY"} · ${formatTerminalLabel(snapshot.session.mode).toUpperCase()}`;
   const headerGap = Math.max(1, width - Array.from(leftHeader).length -
     Array.from(rightHeader).length);
   const header = width < 54
@@ -711,8 +748,22 @@ export function renderCompanyHome(
         : `Company goal ${snapshot.goal.status}.`;
   const goalLabel = snapshot.goal === null
     ? "NO ACTIVE GOAL · START FROM CHAT"
-    : `GOAL ${snapshot.goal.id} · ${snapshot.goal.objective}`;
-  if (width < 40 || (requestedHeight !== undefined && requestedHeight < 22)) {
+    : `ACTIVE GOAL · ${snapshot.goal.objective}`;
+  const labelWidth = width >= 72 ? 12 : 10;
+  const layerTooDense = [...new Set(snapshot.company.map((node) => node.depth))]
+    .some((depth) => {
+      const minimumCellWidth = depth <= 1 ? 20 : 16;
+      const capacity = Math.max(
+        1,
+        Math.floor((width - labelWidth) / minimumCellWidth),
+      );
+      return snapshot.company.filter((node) => node.depth === depth).length >
+        capacity;
+    });
+  if (
+    width < 40 || layerTooDense ||
+    (requestedHeight !== undefined && requestedHeight < 22)
+  ) {
     return compactCompanyHome(
       snapshot,
       width,
@@ -733,16 +784,27 @@ export function renderCompanyHome(
   const depths = [...new Set(snapshot.company.map((node) => node.depth))]
     .sort((left, right) => left - right);
   const condensed = requestedHeight !== undefined && requestedHeight < 38;
+  let previousLayer: readonly TerminalCompanyNodeView[] = Object.freeze([]);
   for (const depth of depths) {
-    if (depth > 0) lines.push(...connectorRows(width, depth, frame));
+    const layer = snapshot.company.filter((node) => node.depth === depth);
+    if (depth > 0) {
+      lines.push(...connectorRows(
+        width,
+        depth,
+        frame,
+        previousLayer,
+        layer,
+      ));
+    }
     lines.push(...layerRows(
-      snapshot.company.filter((node) => node.depth === depth),
+      layer,
       depth,
       width,
       frame,
       selectedRoleId,
       condensed,
     ));
+    previousLayer = layer;
   }
   const selected = snapshot.company.find(
     (node) => node.roleId === selectedRoleId,
@@ -751,7 +813,7 @@ export function renderCompanyHome(
     lines.push(
       "",
       fit(
-        `✳ ${selected.roleName.toUpperCase()}  ${selected.departmentId.toUpperCase()} · ${selected.status.toUpperCase()} · ${selected.detail}  ENTER OPEN`,
+        `✳ ${selected.roleName.toUpperCase()}  ${formatTerminalLabel(selected.departmentId).toUpperCase()} · ${selected.status.toUpperCase()} · ${selected.detail}  ENTER OPEN`,
         width,
       ),
     );
@@ -761,7 +823,7 @@ export function renderCompanyHome(
     "─".repeat(width),
     fit(
       goal === null
-        ? `${snapshot.session.mode} · ${snapshot.session.permission}`
+        ? `${formatTerminalLabel(snapshot.session.mode)} · ${formatTerminalLabel(snapshot.session.permission)}`
         : `${goal.status.toUpperCase()} · ${goal.activeAgents}/${goal.maxActiveAgents} ACTIVE · ${goal.objective}`,
       width,
     ),
