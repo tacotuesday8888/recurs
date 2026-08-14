@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { Buffer } from "node:buffer";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -17,6 +18,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJsonPath = path.join(root, "package.json");
 const bundlePath = path.join(root, "dist/cli/main.js");
 const maximumBundleBytes = 2_100_000;
+const wordmarkPath = path.join(root, "dist/cli/recurs-wordmark.png");
 const licensePath = path.join(root, "LICENSE");
 const noticesPath = path.join(root, "THIRD_PARTY_NOTICES.md");
 const expectedDependencies = Object.freeze({
@@ -79,6 +81,7 @@ const expectedFiles = [
   "SECURITY.md",
   "THIRD_PARTY_NOTICES.md",
   "dist/cli/main.js",
+  "dist/cli/recurs-wordmark.png",
   "package.json",
 ];
 
@@ -128,6 +131,7 @@ for (const row of expectedNoticeRows) {
 
 const bundle = await readFile(bundlePath, "utf8");
 const bundleStat = await stat(bundlePath);
+const wordmark = await readFile(wordmarkPath);
 assert(bundle.startsWith("#!/usr/bin/env node\n"), "The bundled CLI must retain its Node shebang.");
 assert((bundleStat.mode & 0o111) !== 0, "The bundled CLI must be executable.");
 assert(!bundle.includes("@recurs/"), "The bundled CLI must not depend on private workspace packages.");
@@ -143,6 +147,14 @@ assert(
 assert(
   bundleStat.size < maximumBundleBytes,
   "The unpacked CLI bundle unexpectedly exceeds 2.10 MB.",
+);
+assert(
+  wordmark.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
+  "The packaged Recurs wordmark must remain a PNG asset.",
+);
+assert(
+  wordmark.byteLength < 150_000,
+  "The terminal wordmark must stay optimized for repeated interactive rendering.",
 );
 
 const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "recurs-pack-check-"));
@@ -166,7 +178,7 @@ try {
     JSON.stringify(packedFiles) === JSON.stringify(expectedFiles),
     `Unexpected npm package contents: ${JSON.stringify(packedFiles)}`,
   );
-  assert(report.unpackedSize < 2_100_000, "The npm package unexpectedly exceeds its unpacked size budget.");
+  assert(report.unpackedSize < 2_300_000, "The npm package unexpectedly exceeds its 2.30 MB unpacked size budget.");
 } finally {
   await rm(temporaryDirectory, { recursive: true, force: true });
 }

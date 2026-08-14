@@ -526,6 +526,32 @@ describe("TerminalUiState", () => {
     expect(rendered.join("\n")).toContain("03 WORK");
   });
 
+  it("keeps the V19 layered company floor at a normal 30-row height", () => {
+    const state = new TerminalUiState({
+      model: "parent-model",
+      mode: "max_v6",
+      permission: "approved_for_me",
+    }, fourLayerBlueprint());
+
+    const rendered = renderCompanyHome(
+      state.snapshot(),
+      100,
+      0,
+      "auth_worker",
+      30,
+    );
+    const frame = rendered.join("\n");
+
+    expect(rendered.length).toBeLessThanOrEqual(30);
+    expect(frame).toContain("00  DIRECT");
+    expect(frame).toContain("01  LEAD");
+    expect(frame).toContain("02  SENIOR");
+    expect(frame).toContain("03  WORK");
+    expect(frame).toContain("▄██▄");
+    expect(frame).toContain("╰");
+    expect(frame).toContain("AUTH WORKER");
+  });
+
   it("projects review, repair, handoff, evidence, request, and partial usage activity", async () => {
     const state = new TerminalUiState({
       model: "parent-model",

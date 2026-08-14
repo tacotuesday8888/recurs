@@ -50,9 +50,9 @@ import {
 import { sanitizeTerminalText } from "./terminal-text.js";
 import {
   createTerminalTheme,
-  renderRecursBrandRows,
   type TerminalTheme,
 } from "./terminal-style.js";
+import { RecursBrandComponent } from "./terminal-brand.js";
 import {
   TerminalUiState,
   renderCompanyHome,
@@ -81,6 +81,7 @@ export interface LaunchPresentation {
 
 export class LaunchComponent implements Component {
   #selectedIndex: number;
+  readonly #brand: RecursBrandComponent | null;
 
   constructor(
     private readonly model: LaunchViewModel,
@@ -91,9 +92,12 @@ export class LaunchComponent implements Component {
       entry.id === model.currentSessionId
     );
     this.#selectedIndex = current < 0 ? 0 : current;
+    this.#brand = presentation.theme === undefined
+      ? null
+      : new RecursBrandComponent(presentation.theme);
   }
 
-  invalidate(): void {}
+  invalidate(): void { this.#brand?.invalidate(); }
 
   render(width: number): string[] {
     const safeWidth = Math.max(1, width);
@@ -103,15 +107,8 @@ export class LaunchComponent implements Component {
       safeWidth,
     );
     const terminalRows = this.presentation.rows?.() ?? 30;
-    const brandRows = safeWidth >= 60 && terminalRows >= 24
-      ? renderRecursBrandRows(safeWidth).map((row, index) => {
-          const value = row.trimEnd();
-          const centered = `${" ".repeat(Math.max(
-            0,
-            Math.floor((safeWidth - Array.from(value).length) / 2),
-          ))}${value}`;
-          return theme?.brand(centered, index) ?? centered;
-        })
+    const brandRows = safeWidth >= 60 && terminalRows >= 24 && this.#brand !== null
+      ? this.#brand.render(safeWidth)
       : [];
     const fixedRows = brandRows.length + 9;
     const visibleSessions = Math.max(
@@ -221,6 +218,7 @@ export interface CompanyHomeActions {
   readonly frame: () => number;
   readonly rows?: () => number;
   readonly theme?: TerminalTheme;
+  readonly editor?: Editor;
 }
 
 export class CompanyHomeComponent implements Component {
@@ -231,7 +229,7 @@ export class CompanyHomeComponent implements Component {
     private readonly actions: CompanyHomeActions,
   ) {}
 
-  invalidate(): void {}
+  invalidate(): void { this.actions.editor?.invalidate(); }
 
   render(width: number): string[] {
     const snapshot = this.state.snapshot();
@@ -239,13 +237,22 @@ export class CompanyHomeComponent implements Component {
       this.#selectedRoleIndex,
       Math.max(0, snapshot.company.length - 1),
     );
-    const lines = renderCompanyHome(
+    const terminalRows = this.actions.rows?.();
+    const composerRows = this.actions.editor === undefined ? 0 : 4;
+    const lines = [...renderCompanyHome(
       snapshot,
       width,
       this.actions.frame(),
       snapshot.company[this.#selectedRoleIndex]?.roleId,
-      this.actions.rows?.(),
-    );
+      terminalRows === undefined ? undefined : Math.max(1, terminalRows - composerRows),
+    )];
+    if (this.actions.editor !== undefined) {
+      const controls = lines.pop();
+      lines.push(
+        ...this.actions.editor.render(width),
+        controls ?? "ENTER OPEN   ARROWS SELECT   CTRL+T TASKS   CTRL+Q QUIT",
+      );
+    }
     const theme = this.actions.theme;
     if (theme === undefined) return [...lines];
     let depth: 0 | 1 | 2 | 3 | null = null;
@@ -270,10 +277,21 @@ export class CompanyHomeComponent implements Component {
   }
 
   handleInput(data: string): void {
+    const editor = this.actions.editor;
+    const draft = editor?.getText() ?? "";
+    if (editor !== undefined && draft.length > 0) {
+      if (matchesKey(data, Key.escape)) {
+        editor.setText("");
+        this.actions.refresh?.();
+      } else {
+        editor.handleInput(data);
+      }
+      return;
+    }
     if (matchesKey(data, Key.enter)) {
       const node = this.state.snapshot().company[this.#selectedRoleIndex];
       if (node !== undefined) this.actions.openChat(node);
-    } else if (data === "q") {
+    } else if (data === "q" && editor === undefined) {
       this.actions.quit();
     } else if (matchesKey(data, Key.escape)) {
       (this.actions.back ?? this.actions.quit)();
@@ -289,6 +307,8 @@ export class CompanyHomeComponent implements Component {
         : 1;
       this.#selectedRoleIndex = (this.#selectedRoleIndex + offset + count) % count;
       this.actions.refresh?.();
+    } else if (editor !== undefined) {
+      editor.handleInput(data);
     }
   }
 }
@@ -542,26 +562,6 @@ class TranscriptBuffer {
   text(): string { return this.#text.trimEnd(); }
 }
 
-class RecursBrandComponent implements Component {
-  constructor(private readonly colorEnabled: boolean) {}
-
-  invalidate(): void {}
-
-  render(width: number): string[] {
-    const accent = ansi("96", this.colorEnabled);
-    return renderRecursBrandRows(width).map((row) => {
-      const value = row.trimEnd();
-      const padding = " ".repeat(Math.max(
-        0,
-        Math.floor((width - Array.from(value).length) / 2),
-      ));
-      return `${padding}${accent(value)}`;
-    });
-  }
-
-  handleInput(): void {}
-}
-
 class OnboardingComponent extends Container {
   readonly #question = new Text();
   readonly #footer: Text;
@@ -573,6 +573,7 @@ class OnboardingComponent extends Container {
     private readonly tui: TUI,
     buffer: TranscriptBuffer,
     private readonly colorEnabled: boolean,
+    theme: TerminalTheme,
     workspace: string,
   ) {
     super();
@@ -590,7 +591,7 @@ class OnboardingComponent extends Container {
       transcript.setText(accent(buffer.text().replace(/^\n+/u, "")));
       tui.requestRender();
     });
-    this.addChild(new RecursBrandComponent(colorEnabled));
+    this.addChild(new RecursBrandComponent(theme));
     this.addChild(new Text(
       `${strong(accent(`R↘ RECURS / ${workspace.toUpperCase()} / SETUP`))}\n${
         muted("FORM YOUR CODING COMPANY · ESC CANCELS WITHOUT STARTING WORK")
@@ -729,6 +730,36 @@ interface PendingQuestion {
   readonly settle: (answer: string | null) => void;
 }
 
+function chatMascot(depth: 0 | 1 | 2 | 3): readonly string[] {
+  if (depth === 0) {
+    return Object.freeze(["   ▄██▄", " ▄██████▄", "◀██▄██▄██", "  ▀████▀"]);
+  }
+  if (depth === 1) return Object.freeze(["  ▄██▄", "◀████▌", " ▀██▀", " ▀  ▀"]);
+  if (depth === 2) return Object.freeze([" ▄██▄", "◀███▌", "  ▀ ▀"]);
+  return Object.freeze(["▄██▄", "▀  ▀"]);
+}
+
+function renderAttachedAgentHeader(
+  roleName: string,
+  route: string,
+  status: string,
+  depth: 0 | 1 | 2 | 3,
+  colorEnabled: boolean,
+): string {
+  const accent = ansi("96", colorEnabled);
+  const strong = ansi("1", colorEnabled);
+  const muted = ansi("2", colorEnabled);
+  const pet = chatMascot(depth);
+  const details = [
+    strong(roleName.toUpperCase()),
+    muted(route),
+    muted(`${status.toUpperCase()} · ATTACHED · GOAL SCOPE PRESERVED`),
+  ];
+  return pet.map((row, index) =>
+    `${accent(row.padEnd(13))}${details[index] ?? ""}`
+  ).join("\n");
+}
+
 class ChatComponent extends Container {
   readonly editor: Editor;
   readonly #header: Text;
@@ -746,17 +777,21 @@ class ChatComponent extends Container {
     session: ReturnType<typeof runtimeSession>,
     commands: readonly string[],
     cwd: string,
-    colorEnabled: boolean,
+    private readonly colorEnabled: boolean,
   ) {
     super();
     const accent = ansi("96", colorEnabled);
-    const strong = ansi("1", colorEnabled);
     const muted = ansi("2", colorEnabled);
-    const workspace = path.basename(cwd).toUpperCase();
     this.#header = new Text(
-      `${accent(`R↘ RECURS / ${workspace} / CHAT`)}\n${
-        strong("PARENT")
-      }  ${muted(`${session.model} · ${session.mode} · ${session.permission}`)}`,
+      `${accent(`R↘ RECURS / ${path.basename(cwd).toUpperCase()} / CHAT`)}\n${
+        renderAttachedAgentHeader(
+          "Parent",
+          `${session.model} · ${session.mode} · ${session.permission}`,
+          "ready",
+          0,
+          colorEnabled,
+        )
+      }`,
       1,
       0,
     );
@@ -799,7 +834,15 @@ class ChatComponent extends Container {
       ? "model route not activated"
       : `${node.model}${node.effort === null ? "" : ` · ${node.effort}`}`;
     this.#header.setText(
-      `R↘ RECURS / CHAT / ${node.roleName.toUpperCase()}\n${route} · ${node.status.toUpperCase()} · MESSAGES ROUTE THROUGH PARENT`,
+      `R↘ RECURS / CHAT / ${node.roleName.toUpperCase()}\n${
+        renderAttachedAgentHeader(
+          node.roleName,
+          route,
+          node.status,
+          node.depth,
+          this.colorEnabled,
+        )
+      }`,
     );
   }
 
@@ -992,6 +1035,7 @@ export class RecursInteractiveShell {
       tui,
       buffer,
       this.#colorEnabled,
+      this.#theme,
       path.basename(this.#cwd),
     );
     const ui: InteractiveOnboardingUi = {
@@ -1075,6 +1119,15 @@ export class RecursInteractiveShell {
       this.#cwd,
       this.#colorEnabled,
     );
+    const companyEditor = new Editor(tui, editorTheme(this.#colorEnabled), {
+      paddingX: 1,
+    });
+    companyEditor.setAutocompleteProvider(new TerminalSafeAutocompleteProvider(
+      new CombinedAutocompleteProvider(
+        runtime.commandNames().map((name) => ({ name })),
+        this.#cwd,
+      ),
+    ));
     let view: "launch" | "company" | "chat" | "tasks" = "company";
     let viewBeforeTasks: "company" | "chat" = "company";
     const showChat = (node?: TerminalCompanyNodeView): void => {
@@ -1124,6 +1177,7 @@ export class RecursInteractiveShell {
       refresh: () => tui.requestRender(),
       theme: this.#theme,
       rows: () => this.#terminal.rows,
+      editor: companyEditor,
     });
     const tasks = new TaskPanelComponent(state, {
       openChat: showChat,
@@ -1302,7 +1356,19 @@ export class RecursInteractiveShell {
       submissionTasks.add(task);
       void task.finally(() => submissionTasks.delete(task));
     };
+    companyEditor.onSubmit = (input) => {
+      const value = input.trim();
+      if (value.length === 0) return;
+      showChat();
+      const task = submit(value);
+      submissionTasks.add(task);
+      void task.finally(() => submissionTasks.delete(task));
+    };
     tui.addInputListener((data) => {
+      if (matchesKey(data, Key.ctrl("q"))) {
+        finish({ type: "quit" });
+        return { consume: true };
+      }
       if (matchesKey(data, Key.ctrl("t"))) {
         if (view === "tasks") hideTasks();
         else showTasks();

@@ -9,6 +9,7 @@
   },
   "files": [
     "dist/cli/main.js",
+    "dist/cli/recurs-wordmark.png",
     "LICENSE",
     "README.md",
     "PRIVACY.md",
