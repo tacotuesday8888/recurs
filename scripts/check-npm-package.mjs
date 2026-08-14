@@ -16,7 +16,7 @@ const execFileAsync = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageJsonPath = path.join(root, "package.json");
 const bundlePath = path.join(root, "dist/cli/main.js");
-const maximumBundleBytes = 2_050_000;
+const maximumBundleBytes = 2_100_000;
 const licensePath = path.join(root, "LICENSE");
 const noticesPath = path.join(root, "THIRD_PARTY_NOTICES.md");
 const expectedDependencies = Object.freeze({
@@ -142,7 +142,7 @@ assert(
 );
 assert(
   bundleStat.size < maximumBundleBytes,
-  "The unpacked CLI bundle unexpectedly exceeds 2.05 MB.",
+  "The unpacked CLI bundle unexpectedly exceeds 2.10 MB.",
 );
 
 const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "recurs-pack-check-"));

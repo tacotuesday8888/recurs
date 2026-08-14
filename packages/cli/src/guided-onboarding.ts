@@ -244,7 +244,7 @@ export const GUIDED_OPERATING_MODE_CHOICES: readonly GuidedChoice[] =
       return Object.freeze({
         id: policy.id,
         label: `${policy.displayName}${policy.id === DEFAULT_OPERATING_MODE_ID ? " (recommended)" : ""}`,
-        detail: `${team?.maxImplementers ?? 1} implementer${team?.maxImplementers === 1 ? "" : "s"} · ${policy.orchestration.maxConcurrentChildren} concurrent · ${billing}`,
+        detail: `${team?.maxImplementers ?? 1} implementer${team?.maxImplementers === 1 ? "" : "s"} · up to ${(policy.company?.maxDepth ?? 0) + 1} layers · ${policy.orchestration.maxConcurrentChildren} concurrent · ${billing}`,
       });
     }));
 

@@ -223,6 +223,11 @@ describe("guided onboarding policy", () => {
     ]);
     expect(guidedOperatingModeId("balanced_v6")).toBe("balanced_v6");
     expect(guidedOperatingModeId("balanced_v4")).toBeNull();
+    expect(GUIDED_OPERATING_MODE_CHOICES.map((choice) => choice.detail))
+      .toEqual(expect.arrayContaining([
+        expect.stringContaining("up to 2 layers"),
+        expect.stringContaining("up to 4 layers"),
+      ]));
   });
 
   it("keeps recommended team controls one choice away and supports bounded advanced limits", async () => {

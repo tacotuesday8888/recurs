@@ -86,7 +86,9 @@ and npm versions differ.
 
 ## First run
 
-Run `recurs` or `recurs setup` in a local terminal. Guided setup:
+Run `recurs` in a local terminal to open the chats for the current project.
+Choose **Start New Project** to enter guided setup, or run `recurs setup`
+directly. Guided setup:
 
 1. discovers saved accounts and local runtimes;
 2. offers reviewed provider paths;
@@ -112,18 +114,29 @@ shown by `/agents teams` is already applied.
 
 ### Terminal interface
 
-In an interactive TTY, Recurs opens on a live company view. It shows the parent
-and only the agents that actually activate, arranged by delegation depth; model
-routes and completion states come from normalized runtime events rather than a
-decorative roster. Press `Enter` to open chat and `Ctrl+G` to move between chat
-and the company view. `Ctrl+C` cancels the active turn, while `q` or `Escape`
-quits from the company view.
+In an interactive TTY, Recurs opens on a project-scoped chat launcher. Opening
+a chat reveals its approved company blueprint as a one-to-four-layer company
+floor. The roster, reporting order, departments, and maximum depth come from
+onboarding and the selected operating mode; they are not a fixed demo company.
+Inactive approved roles remain visibly inactive, while assigned models,
+activity, completion, review, repair, usage, and failures come only from
+normalized runtime events.
 
-Chat keeps the existing slash commands, approvals, file completion, image
-staging, and owned-process attachment. Runtime questions are queued and an
-unfinished draft is restored after the user answers them. Non-TTY and
-structured-output modes are unchanged. Set `RECURS_NO_TUI=1` to use the legacy
-line-oriented interface in a local terminal.
+Use the arrow keys to select a role and `Enter` to open chat. `Ctrl+G` moves
+between chat and the company floor. `Ctrl+T` opens the live assignment panel,
+which lists only assignments that actually activated. `Ctrl+C` cancels the
+active turn. `Escape` returns from the company floor to the project chats,
+while `q` quits; `Escape` also closes the task panel. The launcher never mixes
+chats from another workspace.
+
+Chat keeps the existing slash commands, command and file completion, image
+staging, approvals, agent questions, and owned-process attachment. Permission
+and approval questions use the same terminal surface, are queued rather than
+dropped, and restore an unfinished draft afterward. Selecting an inactive or
+child role opens its truthful operating context; messages still route through
+the parent until direct child messaging exists. Non-TTY and structured-output
+modes are unchanged. Set `RECURS_NO_TUI=1` to use the legacy line-oriented
+interface in a local terminal.
 
 ## Provider access
 
@@ -259,18 +272,20 @@ Use `/help` inside the CLI for the exact current command list.
 
 ### Terminal presentation
 
-The interactive CLI opens on the company surface and uses the same terminal
-surface for first-run setup and normal chat. Wide terminals show the generated
-Recurs pixel wordmark; narrow terminals use the compact returning-loop mark.
+The interactive CLI opens on the current project's chats and uses the same
+terminal system for setup, the company floor, live tasks, approvals, and chat.
+Wide launch and setup screens show the generated Recurs pixel wordmark; narrow
+terminals use the compact returning-loop mark.
 `NO_COLOR`, `CLICOLOR=0`, and dumb or non-TTY terminals keep semantic labels
 and remove presentation color.
 
-The company surface is a projection of normalized runtime events. It shows only
-agents that actually activated, including their hierarchy, role, selected model,
-reasoning effort, and terminal state. Review and repair phase, request counts,
-handoff outcomes, evidence counts, and failures remain visible. Usage observed
-only on completed handoffs is labeled `USAGE PARTIAL`; missing reports remain
-`USAGE UNKNOWN` and are never promoted to an aggregate provider total.
+The company floor combines two truthful sources: the approved onboarding
+blueprint supplies its reporting layers and complete roster, and normalized
+runtime events supply activation, assigned models, effort, status, and
+activity. Review and repair phase, request counts, handoff outcomes, evidence
+counts, and failures remain visible. Usage observed only on completed handoffs
+is labeled `USAGE PARTIAL`; missing reports remain `USAGE UNKNOWN` and are
+never promoted to an aggregate provider total.
 
 Representative captures from the built CLI and deterministic production
 renderer:

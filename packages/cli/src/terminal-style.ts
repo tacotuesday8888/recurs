@@ -18,6 +18,7 @@ export interface TerminalTheme {
   readonly colorEnabled: boolean;
   accent(text: string): string;
   brand(text: string, index: number): string;
+  companyLayer(depth: 0 | 1 | 2 | 3, text: string): string;
   failure(text: string): string;
   muted(text: string): string;
   rainbow(text: string, offset?: number): string;
@@ -28,6 +29,7 @@ export interface TerminalTheme {
 
 const RESET = "\u001b[0m";
 const MAX_RAINBOW_ANSI_256 = Object.freeze([196, 208, 226, 46, 51, 39, 129]);
+const COMPANY_LAYER_ANSI_256 = Object.freeze([220, 75, 80, 113]);
 
 function ansi(enabled: boolean, code: number, text: string): string {
   return enabled ? `\u001b[${code}m${text}${RESET}` : text;
@@ -65,6 +67,8 @@ export function createTerminalTheme(
         RECURS_MARK_ANSI_256[index % RECURS_MARK_ANSI_256.length] ?? 51,
         text,
       ),
+    companyLayer: (depth: 0 | 1 | 2 | 3, text: string) =>
+      ansi256(colorEnabled, COMPANY_LAYER_ANSI_256[depth] ?? 80, text),
     failure: (text: string) => ansi(colorEnabled, 31, text),
     muted: (text: string) => ansi(colorEnabled, 2, text),
     rainbow: (text: string, offset = 0) =>
