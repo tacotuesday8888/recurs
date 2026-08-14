@@ -131,6 +131,37 @@ describe("RecursRuntime", () => {
     });
   });
 
+  it("lists only chats that belong to the active workspace", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-runtime-list-"));
+    directories.push(directory);
+    const other = path.join(directory, "other");
+    const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
+    await sessions.createPinnedSession({
+      id: "current-chat",
+      at: testAt,
+      cwd: directory,
+      backend: testBackendPin(),
+    });
+    await sessions.createPinnedSession({
+      id: "other-chat",
+      at: testAt,
+      cwd: other,
+      backend: testBackendPin(),
+    });
+    const runtime = new RecursRuntime(
+      {
+        commands: createCommandRegistry({ sessions }),
+        sessions,
+        confirm: async () => true,
+      },
+      createWorkspaceShell(directory),
+    );
+
+    await expect(runtime.listSessions()).resolves.toEqual([
+      expect.objectContaining({ id: "current-chat", cwd: directory }),
+    ]);
+  });
+
   it("threads the exact trusted host invocation into slash-command context", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "recurs-command-invocation-"));
     directories.push(directory);

@@ -889,6 +889,7 @@ describe("runCli", () => {
     const stderr = new TextOutput();
     let runtime: RecursRuntime | undefined;
     let shellStarted = false;
+    let shellStartOptions: unknown;
     let shellOnboardingStarted = false;
     const shellEvents = { async emit() {} };
 
@@ -923,7 +924,10 @@ describe("runCli", () => {
               async runExternal(operation) { return await operation(); },
             });
           },
-          async start() { shellStarted = true; },
+          async start(_runtime, options) {
+            shellStarted = true;
+            shellStartOptions = options;
+          },
         };
       },
       async listAccounts() { return [parentAccount]; },
@@ -973,6 +977,7 @@ describe("runCli", () => {
     expect(exitCode).toBe(0);
     expect(shellOnboardingStarted).toBe(true);
     expect(shellStarted).toBe(true);
+    expect(shellStartOptions).toEqual({ launch: false });
     expect(runtime?.session).toMatchObject({
       goal: {
         objective: "Launch the first reviewed company goal.",
@@ -3913,6 +3918,111 @@ describe("runCli", () => {
 
     expect(exitCode).toBe(0);
     expect(started).toBe(true);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toBe("");
+  });
+
+  it("rebinds the runtime when the terminal launcher opens another chat", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const runtimeOptions: unknown[] = [];
+    const startOptions: unknown[] = [];
+    let starts = 0;
+
+    const exitCode = await runCli([], {
+      stdout,
+      stderr,
+      interactive: true,
+      terminalUi: true,
+      createInteractiveShell() {
+        return {
+          events: { async emit() {} },
+          async start(_runtime, options) {
+            startOptions.push(options);
+            starts += 1;
+            return starts === 1
+              ? { type: "resume_session" as const, sessionId: "chat-2" }
+              : { type: "quit" as const };
+          },
+        };
+      },
+      async createRuntime(_events, options) {
+        runtimeOptions.push(options);
+        return {
+          state: {
+            type: "session",
+            session: {
+              id: options?.resumeSessionId ?? "chat-1",
+            },
+          },
+          async close() {},
+        } as unknown as RecursRuntime;
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(runtimeOptions).toEqual([
+      undefined,
+      { resumeSessionId: "chat-2" },
+    ]);
+    expect(startOptions).toEqual([
+      { launch: true },
+      { launch: false },
+    ]);
+    expect(stdout.value).toBe("");
+    expect(stderr.value).toBe("");
+  });
+
+  it("starts guided onboarding only after the launcher chooses a new project", async () => {
+    const stdout = new TextOutput();
+    const stderr = new TextOutput();
+    const runtimeOptions: unknown[] = [];
+    let starts = 0;
+    let onboardingRuns = 0;
+
+    const exitCode = await runCli([], {
+      stdout,
+      stderr,
+      interactive: true,
+      terminalUi: true,
+      createInteractiveShell() {
+        return {
+          events: { async emit() {} },
+          async onboard<T>() {
+            onboardingRuns += 1;
+            return {
+              state: "configured",
+              operatingModeId: "balanced_v6",
+              permissionMode: "approved_for_me",
+            } as T;
+          },
+          async start() {
+            starts += 1;
+            return starts === 1
+              ? { type: "new_project" as const }
+              : { type: "quit" as const };
+          },
+        };
+      },
+      async createRuntime(_events, options) {
+        runtimeOptions.push(options);
+        return {
+          state: { type: "workspace", permissionMode: "ask_always" },
+          async close() {},
+        } as unknown as RecursRuntime;
+      },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(onboardingRuns).toBe(1);
+    expect(runtimeOptions).toEqual([
+      undefined,
+      {
+        operatingModeId: "balanced_v6",
+        permissionMode: "approved_for_me",
+        reuseExistingSession: false,
+      },
+    ]);
     expect(stdout.value).toBe("");
     expect(stderr.value).toBe("");
   });

@@ -8,11 +8,14 @@ import {
 
 import {
   CompanyHomeComponent,
+  LaunchComponent,
   RecursInteractiveShell,
+  TaskPanelComponent,
   TerminalSafeAutocompleteProvider,
   type InteractiveTerminal,
 } from "../src/terminal-ui.js";
 import { TerminalUiState } from "../src/terminal-ui-state.js";
+import { companyBlueprintV2Fixture } from "../../contracts/test/company-v2-fixture.js";
 
 class TestTerminal implements InteractiveTerminal {
   readonly kittyProtocolActive = false;
@@ -52,8 +55,9 @@ class TestTerminal implements InteractiveTerminal {
 }
 
 describe("CompanyHomeComponent", () => {
-  it("opens chat with Enter and quits with q without selection chrome", () => {
+  it("opens chat, returns to projects with Escape, and quits with q", () => {
     const openChat = vi.fn();
+    const back = vi.fn();
     const quit = vi.fn();
     const state = new TerminalUiState({
       model: "parent-model",
@@ -62,17 +66,20 @@ describe("CompanyHomeComponent", () => {
     });
     const component = new CompanyHomeComponent(state, {
       openChat,
+      back,
       quit,
       frame: () => 0,
     });
 
     const view = component.render(80).join("\n");
-    expect(view).toContain("RECURS / COMPANY");
+    expect(view).toContain("RECURS / WORKSPACE / COMPANY");
     expect(view).not.toContain("┌");
     component.handleInput("\r");
+    component.handleInput("\u001b");
     component.handleInput("q");
 
     expect(openChat).toHaveBeenCalledOnce();
+    expect(back).toHaveBeenCalledOnce();
     expect(quit).toHaveBeenCalledOnce();
   });
 
@@ -147,13 +154,163 @@ describe("CompanyHomeComponent", () => {
     });
 
     expect(component.render(100).join("\n"))
+      .toContain("COMPANY · READY");
+    component.handleInput("\u001b[B");
+    expect(component.render(100).join("\n"))
       .toContain("ENGINEERING · RUNNING");
     component.handleInput("\u001b[B");
     const moved = component.render(100).join("\n");
 
     expect(moved).toContain("QUALITY · RUNNING");
     expect(moved).not.toContain("┌");
-    expect(refresh).toHaveBeenCalledOnce();
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("navigates the complete onboarding-defined roster and opens the selected role", () => {
+    const openChat = vi.fn();
+    const state = new TerminalUiState({
+      model: "parent-model",
+      mode: "balanced_v6",
+      permission: "approved_for_me",
+    }, companyBlueprintV2Fixture());
+    const component = new CompanyHomeComponent(state, {
+      openChat,
+      quit() {},
+      frame: () => 0,
+    });
+
+    expect(component.render(110).join("\n")).toContain("> ORCHESTRATOR");
+    component.handleInput("\u001b[B");
+    expect(component.render(110).join("\n")).toContain("> INDEPENDENT REVIEWER");
+    component.handleInput("\r");
+
+    expect(openChat).toHaveBeenCalledWith(expect.objectContaining({
+      roleId: "quality_reviewer",
+      roleName: "Independent Reviewer",
+      activated: false,
+    }));
+  });
+});
+
+describe("LaunchComponent", () => {
+  it("shows real recent chats plus a new-project onboarding action", () => {
+    const openSession = vi.fn();
+    const newProject = vi.fn();
+    const component = new LaunchComponent({
+      workspace: "auth-service",
+      currentSessionId: "session-current",
+      sessions: [{
+        id: "session-current",
+        cwd: "/workspace/auth-service",
+        model: "gpt-5.6-sol",
+        updatedAt: "2026-08-14T01:00:00.000Z",
+        version: 2,
+      }, {
+        id: "session-older",
+        cwd: "/workspace/auth-service",
+        model: "gpt-5.6-terra",
+        updatedAt: "2026-08-13T01:00:00.000Z",
+        version: 2,
+      }],
+    }, {
+      openSession,
+      newProject,
+      quit() {},
+      refresh() {},
+    });
+
+    const first = component.render(92).join("\n");
+    expect(first).toContain("R↘ RECURS / AUTH-SERVICE");
+    expect(first).toContain("YOUR CHATS");
+    expect(first).toContain("> session-current");
+    expect(first).toContain("gpt-5.6-sol");
+    expect(first).toContain("START NEW PROJECT");
+
+    component.handleInput("\u001b[B");
+    component.handleInput("\r");
+    expect(openSession).toHaveBeenCalledWith("session-older");
+
+    component.handleInput("\u001b[B");
+    component.handleInput("\r");
+    expect(newProject).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the new-project onboarding action available with no saved chats", () => {
+    const newProject = vi.fn();
+    const component = new LaunchComponent({
+      workspace: "new-project",
+      currentSessionId: null,
+      sessions: [],
+    }, {
+      openSession() {},
+      newProject,
+      quit() {},
+      refresh() {},
+    });
+
+    expect(component.render(34).join("\n")).toContain("> START NEW PROJECT");
+    component.handleInput("\r");
+    expect(newProject).toHaveBeenCalledOnce();
+  });
+});
+
+describe("TaskPanelComponent", () => {
+  it("shows only real assignments and opens the selected role", async () => {
+    const openChat = vi.fn();
+    const back = vi.fn();
+    const state = new TerminalUiState({
+      model: "parent-model",
+      mode: "balanced_v6",
+      permission: "approved_for_me",
+      workspace: "auth-service",
+    }, companyBlueprintV2Fixture());
+    await state.emit({
+      type: "company_goal_started",
+      goalRunId: "goal-1",
+      objective: "Ship secure authentication",
+      assignmentCount: 1,
+      maxActiveAgents: 4,
+      maxConcurrentAgents: 2,
+      maxDelegationDepth: 2,
+      maxRequests: 30,
+    });
+    await state.emit({
+      type: "company_assignment_started",
+      goalRunId: "goal-1",
+      assignmentId: "implement-1",
+      parentAssignmentId: null,
+      childAgentId: "agent-1",
+      departmentId: "engineering",
+      roleId: "scoped_builder",
+      roleName: "Scoped Builder",
+      task: "Implement authentication",
+    });
+    await state.emit({
+      type: "agent_started",
+      childAgentId: "agent-1",
+      childSessionId: "child-session",
+      modelId: "implement-model",
+      reasoningEffort: "medium",
+    });
+    const panel = new TaskPanelComponent(state, {
+      openChat,
+      back,
+      refresh() {},
+    });
+
+    const rendered = panel.render(88).join("\n");
+    expect(rendered).toContain("RECURS / AUTH-SERVICE / TASKS");
+    expect(rendered).toContain("SHIP SECURE AUTHENTICATION");
+    expect(rendered).toContain("SCOPED BUILDER");
+    expect(rendered).toContain("implement-model · medium");
+    expect(rendered).not.toContain("INDEPENDENT REVIEWER");
+    panel.handleInput("\r");
+    panel.handleInput("\u001b");
+
+    expect(openChat).toHaveBeenCalledWith(expect.objectContaining({
+      roleId: "scoped_builder",
+    }));
+    expect(back).toHaveBeenCalledOnce();
   });
 });
 
@@ -185,6 +342,85 @@ describe("TerminalSafeAutocompleteProvider", () => {
 });
 
 describe("RecursInteractiveShell", () => {
+  it("opens on the chat list and enters the current project without recreating it", async () => {
+    const terminal = new TestTerminal(92, 30);
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          id: "session-current",
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      async listSessions() {
+        return [{
+          id: "session-current",
+          cwd: "/workspace/auth-service",
+          model: "parent-model",
+          updatedAt: "2026-08-14T01:00:00.000Z",
+          version: 2 as const,
+        }];
+      },
+      companyBlueprint: companyBlueprintV2Fixture(),
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["quit"]; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace/auth-service",
+      animate: false,
+      colorEnabled: false,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("YOUR CHATS");
+    expect(terminal.output).toContain("> session-current");
+    terminal.input?.("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("INDEPENDENT REVIEWER");
+    terminal.input?.("\u001b");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.writes.at(-1)).toContain("YOUR CHATS");
+    terminal.input?.("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("q");
+    await expect(running).resolves.toEqual({ type: "quit" });
+  });
+
+  it("returns a new-project action from the launch screen", async () => {
+    const terminal = new TestTerminal(80, 24);
+    const runtime = {
+      state: { type: "workspace", permissionMode: "approved_for_me" },
+      async listSessions() { return []; },
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["quit"]; },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace/new-project",
+      animate: false,
+      colorEnabled: false,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("> START NEW PROJECT");
+    terminal.input?.("\r");
+    await expect(running).resolves.toEqual({ type: "new_project" });
+  });
+
   it.each([
     [80, 30, true, "████   █████   ████", true],
     [80, 30, false, "████   █████   ████", false],
@@ -359,7 +595,7 @@ describe("RecursInteractiveShell", () => {
     });
 
     await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(terminal.output).toContain("RECURS / SETUP");
+    expect(terminal.output).toContain("RECURS / WORKSPACE / SETUP");
     expect(terminal.output).toContain("Use saved Codex");
     expect(terminal.output).toContain("vendor-owned authentication");
     expect(terminal.output).not.toContain("\u001b]0;unsafe\u0007");
@@ -464,12 +700,115 @@ describe("RecursInteractiveShell", () => {
 
     const running = shell.start(runtime);
     await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(terminal.output).toContain("RECURS / COMPANY");
+    expect(terminal.output).toContain("RECURS / WORKSPACE / COMPANY");
     terminal.input?.("q");
     await running;
 
     expect(closed).toBe(1);
     expect(terminal.input).toBeNull();
+  });
+
+  it("loads the approved onboarding blueprint into the real company floor", async () => {
+    const terminal = new TestTerminal(110, 36);
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      companyBlueprint: companyBlueprintV2Fixture(),
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["quit"]; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace/auth-service",
+      animate: false,
+      colorEnabled: false,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("R↘ RECURS / AUTH-SERVICE / COMPANY");
+    expect(terminal.output).toContain("INDEPENDENT REVIEWER");
+    expect(terminal.output).toContain("SCOPED BUILDER");
+    expect(terminal.output).toContain("NOT ACTIVATED");
+    terminal.input?.("q");
+    await running;
+  });
+
+  it("opens a truthful live-task panel with Ctrl+T", async () => {
+    const terminal = new TestTerminal(100, 30);
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      companyBlueprint: companyBlueprintV2Fixture(),
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["quit"]; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace/auth-service",
+      animate: false,
+      colorEnabled: false,
+    });
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await shell.events.emit({
+      type: "company_goal_started",
+      goalRunId: "goal-1",
+      objective: "Ship secure authentication",
+      assignmentCount: 1,
+      maxActiveAgents: 4,
+      maxConcurrentAgents: 2,
+      maxDelegationDepth: 2,
+      maxRequests: 30,
+    });
+    await shell.events.emit({
+      type: "company_assignment_started",
+      goalRunId: "goal-1",
+      assignmentId: "implement-1",
+      parentAssignmentId: null,
+      childAgentId: "agent-1",
+      departmentId: "engineering",
+      roleId: "scoped_builder",
+      roleName: "Scoped Builder",
+      task: "Implement authentication",
+    });
+    await shell.events.emit({
+      type: "agent_started",
+      childAgentId: "agent-1",
+      childSessionId: "child-session",
+      modelId: "implement-model",
+      reasoningEffort: "medium",
+    });
+
+    terminal.input?.("\u0014");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("RECURS / AUTH-SERVICE / TASKS");
+    expect(terminal.output).toContain("SCOPED BUILDER");
+    terminal.input?.("\u001b");
+    terminal.input?.("q");
+    await running;
   });
 
   it("strips terminal control sequences from the workspace title", async () => {
@@ -805,6 +1144,7 @@ describe("RecursInteractiveShell", () => {
     terminal.input?.("\u001b[200~ask\u001b[201~");
     terminal.input?.("\r");
     await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("╭─ APPROVAL REQUIRED");
     expect(terminal.output).toContain("Apply the reviewed change? [y/N]");
     terminal.input?.("yes");
     terminal.input?.("\r");

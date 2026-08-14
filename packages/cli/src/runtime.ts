@@ -24,6 +24,7 @@ import {
   createHostInvocation,
   deriveTrustedRunContext,
   hostInvocationFromTrustedRunContext,
+  type CompanyBlueprintV2,
   type HostInvocation,
   type ModelImageInput,
   type RunCoordinator,
@@ -76,6 +77,7 @@ export interface RuntimeDependencies {
   providerGuide?(query: string, signal: AbortSignal): Promise<string>;
   processes?: Pick<OwnedProcessManager, "interact">;
   dispose?(): Promise<void>;
+  companyBlueprint?: CompanyBlueprintV2 | null;
 }
 
 export interface RuntimeSubmissionOptions {
@@ -186,6 +188,17 @@ export class RecursRuntime {
       );
     }
     return this.#session;
+  }
+
+  get companyBlueprint(): CompanyBlueprintV2 | null {
+    return this.dependencies.companyBlueprint ?? null;
+  }
+
+  async listSessions() {
+    const cwd = this.#workspace?.cwd ?? this.session.cwd;
+    return (await this.dependencies.sessions.list()).filter((entry) =>
+      entry.cwd === cwd
+    );
   }
 
   setConfirmHandler(confirm: (message: string) => Promise<boolean>): void {

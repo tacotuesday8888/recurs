@@ -8,6 +8,7 @@ import {
   Text,
   TUI,
   matchesKey,
+  truncateToWidth,
   type AutocompleteItem,
   type AutocompleteProvider,
   type AutocompleteSuggestions,
@@ -19,16 +20,17 @@ import {
   isPinnedSessionState,
   type EventSink,
   type RecursEvent,
+  type SessionListEntry,
 } from "@recurs/core";
 import {
   createHostInvocation,
   modelImagesByteLength,
   type ModelImageInput,
 } from "@recurs/contracts";
+import type { ApprovalResponse } from "@recurs/tools";
+import path from "node:path";
 import { stdin as processStdin, stdout as processStdout } from "node:process";
 import { Writable, type Readable } from "node:stream";
-
-import type { ApprovalResponse } from "@recurs/tools";
 
 import type { CommandResult } from "./commands/types.js";
 import { parseCommand } from "./commands/parser.js";
@@ -49,13 +51,144 @@ import { sanitizeTerminalText } from "./terminal-text.js";
 import {
   createTerminalTheme,
   renderRecursBrandRows,
+  type TerminalTheme,
 } from "./terminal-style.js";
 import {
   TerminalUiState,
   renderCompanyHome,
+  type TerminalCompanyNodeView,
 } from "./terminal-ui-state.js";
 
 export type InteractiveTerminal = Terminal;
+
+export interface LaunchViewModel {
+  readonly workspace: string;
+  readonly currentSessionId: string | null;
+  readonly sessions: readonly SessionListEntry[];
+}
+
+export interface LaunchActions {
+  readonly openSession: (sessionId: string) => void;
+  readonly newProject: () => void;
+  readonly quit: () => void;
+  readonly refresh: () => void;
+}
+
+export interface LaunchPresentation {
+  readonly rows?: () => number;
+  readonly theme?: TerminalTheme;
+}
+
+export class LaunchComponent implements Component {
+  #selectedIndex: number;
+
+  constructor(
+    private readonly model: LaunchViewModel,
+    private readonly actions: LaunchActions,
+    private readonly presentation: LaunchPresentation = {},
+  ) {
+    const current = model.sessions.findIndex((entry) =>
+      entry.id === model.currentSessionId
+    );
+    this.#selectedIndex = current < 0 ? 0 : current;
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    const theme = this.presentation.theme;
+    const line = (value: string): string => truncateToWidth(
+      sanitizeTerminalText(value, { multiline: false }),
+      safeWidth,
+    );
+    const terminalRows = this.presentation.rows?.() ?? 30;
+    const brandRows = safeWidth >= 60 && terminalRows >= 24
+      ? renderRecursBrandRows(safeWidth).map((row, index) => {
+          const value = row.trimEnd();
+          const centered = `${" ".repeat(Math.max(
+            0,
+            Math.floor((safeWidth - Array.from(value).length) / 2),
+          ))}${value}`;
+          return theme?.brand(centered, index) ?? centered;
+        })
+      : [];
+    const fixedRows = brandRows.length + 9;
+    const visibleSessions = Math.max(
+      1,
+      Math.floor((terminalRows - fixedRows) / 2),
+    );
+    const selection = Math.min(this.#selectedIndex, this.model.sessions.length);
+    const sessionSelection = Math.min(selection, Math.max(0, this.model.sessions.length - 1));
+    const windowStart = Math.min(
+      Math.max(0, sessionSelection - visibleSessions + 1),
+      Math.max(0, this.model.sessions.length - visibleSessions),
+    );
+    const visible = this.model.sessions.slice(
+      windowStart,
+      windowStart + visibleSessions,
+    );
+    const workspace = sanitizeTerminalText(this.model.workspace, {
+      multiline: false,
+    }).toUpperCase();
+    const rows = [
+      ...brandRows,
+      theme?.accent(line(`R↘ RECURS / ${workspace} / PROJECTS`)) ??
+        line(`R↘ RECURS / ${workspace} / PROJECTS`),
+      theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
+      theme?.strong(line(`YOUR CHATS · ${this.model.sessions.length}`)) ??
+        line(`YOUR CHATS · ${this.model.sessions.length}`),
+    ];
+    for (const [offset, session] of visible.entries()) {
+      const index = windowStart + offset;
+      const updated = session.updatedAt.replace("T", " ").slice(0, 16);
+      rows.push(
+        line(`${index === this.#selectedIndex ? ">" : " "} ${session.id}`),
+        theme?.muted(line(`    ${session.model} · ${updated} UTC${
+          session.id === this.model.currentSessionId ? " · CURRENT" : ""
+        }`)) ?? line(`    ${session.model} · ${updated} UTC${
+          session.id === this.model.currentSessionId ? " · CURRENT" : ""
+        }`),
+      );
+    }
+    const newProjectIndex = this.model.sessions.length;
+    if (this.model.sessions.length === 0) rows.push(line("  No saved chats yet."));
+    rows.push(
+      "",
+      theme?.strong(line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} START NEW PROJECT`)) ??
+        line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} START NEW PROJECT`),
+      theme?.muted(line("    Form a company through guided onboarding.")) ??
+        line("    Form a company through guided onboarding."),
+      theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
+      theme?.muted(line("ENTER OPEN   ARROWS SELECT   Q QUIT")) ??
+        line("ENTER OPEN   ARROWS SELECT   Q QUIT"),
+    );
+    return rows;
+  }
+
+  handleInput(data: string): void {
+    const count = this.model.sessions.length + 1;
+    if (matchesKey(data, Key.enter)) {
+      const session = this.model.sessions[this.#selectedIndex];
+      if (session === undefined) this.actions.newProject();
+      else this.actions.openSession(session.id);
+      return;
+    }
+    if (data === "q" || matchesKey(data, Key.escape)) {
+      this.actions.quit();
+      return;
+    }
+    if (
+      matchesKey(data, Key.up) || matchesKey(data, Key.left) ||
+      matchesKey(data, Key.down) || matchesKey(data, Key.right) ||
+      matchesKey(data, Key.tab)
+    ) {
+      const backwards = matchesKey(data, Key.up) || matchesKey(data, Key.left);
+      this.#selectedIndex = (this.#selectedIndex + (backwards ? -1 : 1) + count) % count;
+      this.actions.refresh();
+    }
+  }
+}
 
 export interface InteractiveOnboardingChoice {
   readonly id: string;
@@ -81,15 +214,17 @@ export interface InteractiveOnboardingUi {
 }
 
 export interface CompanyHomeActions {
-  readonly openChat: () => void;
+  readonly openChat: (node: TerminalCompanyNodeView) => void;
+  readonly back?: () => void;
   readonly quit: () => void;
   readonly refresh?: () => void;
   readonly frame: () => number;
-  readonly style?: (text: string) => string;
+  readonly rows?: () => number;
+  readonly theme?: TerminalTheme;
 }
 
 export class CompanyHomeComponent implements Component {
-  #selectedAgentIndex = 0;
+  #selectedRoleIndex = 0;
 
   constructor(
     private readonly state: TerminalUiState,
@@ -100,31 +235,160 @@ export class CompanyHomeComponent implements Component {
 
   render(width: number): string[] {
     const snapshot = this.state.snapshot();
-    this.#selectedAgentIndex = Math.min(
-      this.#selectedAgentIndex,
-      Math.max(0, snapshot.agents.length - 1),
+    this.#selectedRoleIndex = Math.min(
+      this.#selectedRoleIndex,
+      Math.max(0, snapshot.company.length - 1),
     );
     const lines = renderCompanyHome(
       snapshot,
       width,
       this.actions.frame(),
-      snapshot.agents[this.#selectedAgentIndex]?.assignmentId,
+      snapshot.company[this.#selectedRoleIndex]?.roleId,
+      this.actions.rows?.(),
     );
-    const style = this.actions.style ?? ((text: string) => text);
-    return lines.map((line) => line.length === 0 ? line : style(line));
+    const theme = this.actions.theme;
+    if (theme === undefined) return [...lines];
+    let depth: 0 | 1 | 2 | 3 | null = null;
+    return lines.map((line, index) => {
+      if (line.length === 0) return line;
+      if (index === 0) return theme.accent(line);
+      if (index === 1) return theme.muted(line);
+      if (index === 2) return theme.muted(line);
+      if (index === 3) return theme.strong(line);
+      const label = /^(0[0-3])\s/u.exec(line);
+      if (label !== null) depth = Number.parseInt(label[1]!, 10) as 0 | 1 | 2 | 3;
+      if (line.trimStart().startsWith("╰")) {
+        depth = Math.min(3, (depth ?? -1) + 1) as 0 | 1 | 2 | 3;
+      }
+      if (line.startsWith("✳")) depth = null;
+      if (line.startsWith("─")) {
+        depth = null;
+        return theme.muted(line);
+      }
+      return depth === null ? theme.accent(line) : theme.companyLayer(depth, line);
+    });
   }
 
   handleInput(data: string): void {
     if (matchesKey(data, Key.enter)) {
-      this.actions.openChat();
-    } else if (data === "q" || matchesKey(data, Key.escape)) {
+      const node = this.state.snapshot().company[this.#selectedRoleIndex];
+      if (node !== undefined) this.actions.openChat(node);
+    } else if (data === "q") {
       this.actions.quit();
-    } else if (matchesKey(data, Key.up) || matchesKey(data, Key.down)) {
-      const count = this.state.snapshot().agents.length;
+    } else if (matchesKey(data, Key.escape)) {
+      (this.actions.back ?? this.actions.quit)();
+    } else if (
+      matchesKey(data, Key.up) || matchesKey(data, Key.down) ||
+      matchesKey(data, Key.left) || matchesKey(data, Key.right) ||
+      matchesKey(data, Key.tab)
+    ) {
+      const count = this.state.snapshot().company.length;
       if (count === 0) return;
-      const offset = matchesKey(data, Key.up) ? -1 : 1;
-      this.#selectedAgentIndex = (this.#selectedAgentIndex + offset + count) % count;
+      const offset = matchesKey(data, Key.up) || matchesKey(data, Key.left)
+        ? -1
+        : 1;
+      this.#selectedRoleIndex = (this.#selectedRoleIndex + offset + count) % count;
       this.actions.refresh?.();
+    }
+  }
+}
+
+export interface TaskPanelActions {
+  readonly openChat: (node: TerminalCompanyNodeView) => void;
+  readonly back: () => void;
+  readonly refresh: () => void;
+  readonly theme?: TerminalTheme;
+}
+
+export class TaskPanelComponent implements Component {
+  #selectedIndex = 0;
+
+  constructor(
+    private readonly state: TerminalUiState,
+    private readonly actions: TaskPanelActions,
+  ) {}
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(1, width);
+    const snapshot = this.state.snapshot();
+    const theme = this.actions.theme;
+    const line = (value: string): string => truncateToWidth(
+      sanitizeTerminalText(value, { multiline: false }),
+      safeWidth,
+    );
+    this.#selectedIndex = Math.min(
+      this.#selectedIndex,
+      Math.max(0, snapshot.agents.length - 1),
+    );
+    const workspace = (snapshot.session.workspace ?? "workspace").toUpperCase();
+    const rows = [
+      theme?.accent(line(`R↘ RECURS / ${workspace} / TASKS`)) ??
+        line(`R↘ RECURS / ${workspace} / TASKS`),
+      theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
+      theme?.strong(line(snapshot.goal === null
+        ? "NO ACTIVE COMPANY GOAL"
+        : `${snapshot.goal.id} · ${snapshot.goal.objective}`.toUpperCase())) ??
+        line(snapshot.goal === null
+          ? "NO ACTIVE COMPANY GOAL"
+          : `${snapshot.goal.id} · ${snapshot.goal.objective}`.toUpperCase()),
+      theme?.muted(line(`ACTIVATED ASSIGNMENTS · ${snapshot.agents.length}`)) ??
+        line(`ACTIVATED ASSIGNMENTS · ${snapshot.agents.length}`),
+      "",
+    ];
+    for (const [index, agent] of snapshot.agents.entries()) {
+      const selected = index === this.#selectedIndex ? ">" : " ";
+      const status = agent.status.toUpperCase();
+      const route = agent.model === null
+        ? "MODEL PENDING"
+        : `${agent.model}${agent.effort === null ? "" : ` · ${agent.effort}`}`;
+      const role = line(`${selected} ${agent.roleName.toUpperCase()}  ${status}`);
+      const detail = line(`    ${route} · ${agent.detail ?? agent.departmentId}`);
+      rows.push(
+        theme?.companyLayer(Math.min(3, agent.depth) as 0 | 1 | 2 | 3, role) ?? role,
+        theme?.muted(detail) ?? detail,
+      );
+    }
+    if (snapshot.agents.length === 0) {
+      rows.push(line("  No assignments have activated for this goal."));
+    }
+    rows.push(
+      "",
+      theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
+      theme?.muted(line("ENTER OPEN   ARROWS SELECT   CTRL+T OR ESC BACK")) ??
+        line("ENTER OPEN   ARROWS SELECT   CTRL+T OR ESC BACK"),
+    );
+    return rows;
+  }
+
+  handleInput(data: string): void {
+    const snapshot = this.state.snapshot();
+    if (matchesKey(data, Key.enter)) {
+      const agent = snapshot.agents[this.#selectedIndex];
+      const node = agent === undefined
+        ? undefined
+        : snapshot.company.find((candidate) => candidate.roleId === agent.roleId);
+      if (node !== undefined) this.actions.openChat(node);
+      return;
+    }
+    if (
+      data === "q" || matchesKey(data, Key.escape) ||
+      matchesKey(data, Key.ctrl("t"))
+    ) {
+      this.actions.back();
+      return;
+    }
+    if (
+      matchesKey(data, Key.up) || matchesKey(data, Key.left) ||
+      matchesKey(data, Key.down) || matchesKey(data, Key.right) ||
+      matchesKey(data, Key.tab)
+    ) {
+      if (snapshot.agents.length === 0) return;
+      const backwards = matchesKey(data, Key.up) || matchesKey(data, Key.left);
+      this.#selectedIndex = (this.#selectedIndex +
+        (backwards ? -1 : 1) + snapshot.agents.length) % snapshot.agents.length;
+      this.actions.refresh();
     }
   }
 }
@@ -141,6 +405,15 @@ export interface RecursInteractiveShellOptions {
   readonly attachProcess?: ProcessAttachmentHost;
   readonly input?: Readable;
   readonly output?: Writable;
+}
+
+export type InteractiveShellExit =
+  | { readonly type: "quit" }
+  | { readonly type: "new_project" }
+  | { readonly type: "resume_session"; readonly sessionId: string };
+
+export interface InteractiveShellStartOptions {
+  readonly launch?: boolean;
 }
 
 function isCommandResult(value: unknown): value is CommandResult {
@@ -300,6 +573,7 @@ class OnboardingComponent extends Container {
     private readonly tui: TUI,
     buffer: TranscriptBuffer,
     private readonly colorEnabled: boolean,
+    workspace: string,
   ) {
     super();
     const accent = ansi("96", colorEnabled);
@@ -318,7 +592,9 @@ class OnboardingComponent extends Container {
     });
     this.addChild(new RecursBrandComponent(colorEnabled));
     this.addChild(new Text(
-      `${strong(accent("RECURS / SETUP"))}  ${muted("form your coding company")}`,
+      `${strong(accent(`R↘ RECURS / ${workspace.toUpperCase()} / SETUP`))}\n${
+        muted("FORM YOUR CODING COMPANY · ESC CANCELS WITHOUT STARTING WORK")
+      }`,
       1,
       0,
     ));
@@ -447,6 +723,7 @@ function onboardingAbortError(): DOMException {
 }
 
 interface PendingQuestion {
+  readonly label: string;
   readonly text: string;
   readonly options: readonly string[];
   readonly settle: (answer: string | null) => void;
@@ -473,9 +750,13 @@ class ChatComponent extends Container {
   ) {
     super();
     const accent = ansi("96", colorEnabled);
+    const strong = ansi("1", colorEnabled);
     const muted = ansi("2", colorEnabled);
+    const workspace = path.basename(cwd).toUpperCase();
     this.#header = new Text(
-      `${accent("RECURS / CHAT")}  ${muted(`${session.mode} · ${session.model} · ${session.permission}`)}`,
+      `${accent(`R↘ RECURS / ${workspace} / CHAT`)}\n${
+        strong("PARENT")
+      }  ${muted(`${session.model} · ${session.mode} · ${session.permission}`)}`,
       1,
       0,
     );
@@ -498,7 +779,7 @@ class ChatComponent extends Container {
       if (expanded.length > 0) this.onSubmit?.(expanded);
     };
     this.#footer = new Text(
-      muted("recurs ›  Enter send · Shift+Enter newline · Ctrl+G company · Ctrl+C cancel"),
+      muted("recurs ›  ENTER SEND · SHIFT+ENTER NEWLINE · CTRL+G COMPANY · CTRL+C CANCEL"),
       1,
       0,
     );
@@ -513,15 +794,26 @@ class ChatComponent extends Container {
     this.addChild(this.#footer);
   }
 
+  setCompanyFocus(node: TerminalCompanyNodeView): void {
+    const route = node.model === null
+      ? "model route not activated"
+      : `${node.model}${node.effort === null ? "" : ` · ${node.effort}`}`;
+    this.#header.setText(
+      `R↘ RECURS / CHAT / ${node.roleName.toUpperCase()}\n${route} · ${node.status.toUpperCase()} · MESSAGES ROUTE THROUGH PARENT`,
+    );
+  }
+
   ask(
     text: string,
     options: readonly string[],
     signal?: AbortSignal,
+    label = "INPUT REQUIRED",
   ): Promise<string | null> {
     if (signal?.aborted === true) return Promise.resolve(null);
     return new Promise((resolve) => {
       let settled = false;
       const question: PendingQuestion = {
+        label,
         text,
         options,
         settle: (answer) => {
@@ -564,11 +856,13 @@ class ChatComponent extends Container {
     } else {
       this.#draftBeforeQuestion ??= this.editor.getText();
       this.#question.setText([
+        `╭─ ${this.#pending.label}`,
         sanitizeTerminalText(this.#pending.text),
         ...this.#pending.options.map(
           (option, index) =>
             `  ${index + 1}. ${sanitizeTerminalText(option, { multiline: false })}`,
         ),
+        "╰─ ENTER TO CONTINUE",
       ].join("\n"));
       this.editor.setText("");
     }
@@ -613,6 +907,7 @@ export class RecursInteractiveShell {
   readonly #cwd: string;
   readonly #animate: boolean;
   readonly #colorEnabled: boolean;
+  readonly #theme: TerminalTheme;
   readonly #loadImages: NonNullable<RecursInteractiveShellOptions["loadImages"]>;
   readonly #attachProcess: ProcessAttachmentHost;
   readonly #input: Readable;
@@ -643,10 +938,13 @@ export class RecursInteractiveShell {
     this.#attachProcess = options.attachProcess ?? attachOwnedTerminalProcess;
     this.#input = options.input ?? processStdin;
     this.#output = options.output ?? processStdout;
-    this.#colorEnabled = options.colorEnabled ?? createTerminalTheme(
+    this.#theme = createTerminalTheme(
       this.#output,
-      options.terminal === undefined ? {} : { terminal: false },
-    ).colorEnabled;
+      options.colorEnabled === undefined
+        ? options.terminal === undefined ? {} : { terminal: false }
+        : { colorEnabled: options.colorEnabled },
+    );
+    this.#colorEnabled = this.#theme.colorEnabled;
     this.#transcriptOutput = new Writable({
       write: (chunk, _encoding, callback) => {
         this.#transcript.append(chunk.toString());
@@ -694,6 +992,7 @@ export class RecursInteractiveShell {
       tui,
       buffer,
       this.#colorEnabled,
+      path.basename(this.#cwd),
     );
     const ui: InteractiveOnboardingUi = {
       stdout: output,
@@ -751,14 +1050,22 @@ export class RecursInteractiveShell {
     }
   }
 
-  async start(runtime: RecursRuntime): Promise<void> {
-    const state = new TerminalUiState(runtimeSession(runtime));
+  async start(
+    runtime: RecursRuntime,
+    options: InteractiveShellStartOptions = {},
+  ): Promise<InteractiveShellExit> {
+    const state = new TerminalUiState({
+      ...runtimeSession(runtime),
+      workspace: path.basename(this.#cwd),
+    }, runtime.companyBlueprint);
     this.#state = state;
     for (const event of this.#pendingEvents.splice(0)) await state.emit(event);
 
     const tui = new TUI(this.#terminal);
-    let finish!: () => void;
-    const finished = new Promise<void>((resolve) => { finish = resolve; });
+    let finish!: (result: InteractiveShellExit) => void;
+    const finished = new Promise<InteractiveShellExit>((resolve) => {
+      finish = resolve;
+    });
     const session = runtimeSession(runtime);
     const chat = new ChatComponent(
       tui,
@@ -768,8 +1075,10 @@ export class RecursInteractiveShell {
       this.#cwd,
       this.#colorEnabled,
     );
-    let view: "company" | "chat" = "company";
-    const showChat = (): void => {
+    let view: "launch" | "company" | "chat" | "tasks" = "company";
+    let viewBeforeTasks: "company" | "chat" = "company";
+    const showChat = (node?: TerminalCompanyNodeView): void => {
+      if (node !== undefined) chat.setCompanyFocus(node);
       if (view === "chat") return;
       view = "chat";
       tui.clear();
@@ -785,28 +1094,87 @@ export class RecursInteractiveShell {
       tui.setFocus(home);
       tui.requestRender(true);
     };
+    const showLaunch = (): void => {
+      view = "launch";
+      tui.clear();
+      tui.addChild(launch);
+      tui.setFocus(launch);
+      tui.requestRender(true);
+    };
+    const showTasks = (): void => {
+      if (view === "launch") return;
+      if (view !== "tasks") {
+        viewBeforeTasks = view === "chat" ? "chat" : "company";
+      }
+      view = "tasks";
+      tui.clear();
+      tui.addChild(tasks);
+      tui.setFocus(tasks);
+      tui.requestRender(true);
+    };
+    const hideTasks = (): void => {
+      if (viewBeforeTasks === "chat") showChat();
+      else showCompany();
+    };
     const home = new CompanyHomeComponent(state, {
       frame: () => this.#frame,
       openChat: showChat,
-      quit: finish,
+      ...(options.launch === false ? {} : { back: showLaunch }),
+      quit: () => finish({ type: "quit" }),
       refresh: () => tui.requestRender(),
-      style: ansi("96", this.#colorEnabled),
+      theme: this.#theme,
+      rows: () => this.#terminal.rows,
+    });
+    const tasks = new TaskPanelComponent(state, {
+      openChat: showChat,
+      back: hideTasks,
+      refresh: () => tui.requestRender(),
+      theme: this.#theme,
+    });
+    const supportsLaunch = options.launch !== false &&
+      typeof runtime.listSessions === "function";
+    const sessions = supportsLaunch ? await runtime.listSessions() : [];
+    const runtimeState = runtime.state;
+    const currentSessionId = runtimeState.type === "session"
+      ? runtimeState.session.id
+      : null;
+    const launch = new LaunchComponent({
+      workspace: path.basename(this.#cwd),
+      currentSessionId,
+      sessions,
+    }, {
+      openSession: (sessionId) => {
+        if (sessionId === currentSessionId) showCompany();
+        else finish({ type: "resume_session", sessionId });
+      },
+      newProject: () => finish({ type: "new_project" }),
+      quit: () => finish({ type: "quit" }),
+      refresh: () => tui.requestRender(),
+    }, {
+      rows: () => this.#terminal.rows,
+      theme: this.#theme,
     });
     const ask = async (
       question: string,
       options: readonly string[] = [],
       signal?: AbortSignal,
+      label?: string,
     ): Promise<string | null> => {
       showChat();
       tui.setFocus(chat.editor);
-      const pending = chat.ask(question, options, signal);
+      const pending = chat.ask(question, options, signal, label);
       tui.requestRender(true);
       const answer = await pending;
       tui.requestRender(true);
       return answer;
     };
     runtime.setConfirmHandler(async (message) => {
-      const answer = await ask(`${message} [y/N]`, [], runtime.currentSignal());
+      const answer = await ask(
+        `${message} [y/N]`,
+        [],
+        runtime.currentSignal(),
+        "APPROVAL REQUIRED",
+      );
       return answer?.trim().toLowerCase() === "y" ||
         answer?.trim().toLowerCase() === "yes";
     });
@@ -815,6 +1183,7 @@ export class RecursInteractiveShell {
         `Allow ${intent.category} access to ${intent.resource}?`,
         ["yes — once", "always — this session", "deny"],
         runtime.currentSignal(),
+        "PERMISSION REQUIRED",
       );
       if (answer === null) return "deny";
       if (/^[1-3]$/u.test(answer.trim())) {
@@ -826,7 +1195,7 @@ export class RecursInteractiveShell {
     });
     runtime.setUserInputHandler?.(async (request, signal) =>
       selectedAnswer(
-        await ask(request.question, request.options, signal) ?? "",
+        await ask(request.question, request.options, signal, "AGENT QUESTION") ?? "",
         request.options,
       )
     );
@@ -888,7 +1257,7 @@ export class RecursInteractiveShell {
         }), images === undefined ? {} : { images });
         if (!isCommandResult(result)) return;
         if (result.type === "quit") {
-          finish();
+          finish({ type: "quit" });
           return;
         }
         if (result.type === "attach_process") {
@@ -902,7 +1271,13 @@ export class RecursInteractiveShell {
             );
           } finally {
             tui.start();
-            tui.setFocus(view === "chat" ? chat.editor : home);
+            tui.setFocus(
+              view === "chat"
+                ? chat.editor
+                : view === "launch"
+                  ? launch
+                  : view === "tasks" ? tasks : home,
+            );
             tui.requestRender(true);
           }
           return;
@@ -928,7 +1303,13 @@ export class RecursInteractiveShell {
       void task.finally(() => submissionTasks.delete(task));
     };
     tui.addInputListener((data) => {
+      if (matchesKey(data, Key.ctrl("t"))) {
+        if (view === "tasks") hideTasks();
+        else showTasks();
+        return { consume: true };
+      }
       if (matchesKey(data, Key.ctrl("g"))) {
+        if (view === "launch") return undefined;
         if (view === "company") showChat();
         else showCompany();
         return { consume: true };
@@ -938,8 +1319,14 @@ export class RecursInteractiveShell {
       }
       return undefined;
     });
-    tui.addChild(home);
-    tui.setFocus(home);
+    if (!supportsLaunch) {
+      tui.addChild(home);
+      tui.setFocus(home);
+    } else {
+      view = "launch";
+      tui.addChild(launch);
+      tui.setFocus(launch);
+    }
     state.onChange(() => tui.requestRender());
     this.#terminal.setTitle(terminalTitle(this.#cwd));
     tui.start();
@@ -951,7 +1338,7 @@ export class RecursInteractiveShell {
         }, 650)
       : undefined;
     try {
-      await finished;
+      return await finished;
     } finally {
       if (animation !== undefined) clearInterval(animation);
       state.onChange(null);

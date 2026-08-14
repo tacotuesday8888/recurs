@@ -2150,6 +2150,7 @@ export async function createStandaloneRuntime(
       coordinator,
       sessions,
       processes,
+      companyBlueprint: activeCompanyBlueprint,
       confirm: async () => false,
       dispose: async () => {
         const settled = await Promise.allSettled([

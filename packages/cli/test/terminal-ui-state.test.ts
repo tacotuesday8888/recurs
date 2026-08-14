@@ -1,11 +1,241 @@
 import { describe, expect, it } from "vitest";
 
+import type { CompanyBlueprintV2 } from "@recurs/contracts";
+import { companyBlueprintV2Fixture } from "../../contracts/test/company-v2-fixture.js";
+
 import {
   TerminalUiState,
   renderCompanyHome,
 } from "../src/terminal-ui-state.js";
 
+function fourLayerBlueprint(): CompanyBlueprintV2 {
+  const base = companyBlueprintV2Fixture();
+  const root = base.roles.find((role) => role.id === "root_orchestrator")!;
+  const reviewer = base.roles.find((role) => role.id === "quality_reviewer")!;
+  const builder = base.roles.find((role) => role.id === "scoped_builder")!;
+  return {
+    ...base,
+    id: "four-layer-company",
+    companyId: "four-layer-company",
+    departments: [{
+      id: "leadership",
+      version: 1,
+      displayName: "Leadership",
+      purpose: "Direct the approved goal.",
+    }, {
+      id: "engineering",
+      version: 1,
+      displayName: "Engineering",
+      purpose: "Deliver reviewed implementation evidence.",
+    }, {
+      id: "quality",
+      version: 1,
+      displayName: "Quality",
+      purpose: "Review independently.",
+    }],
+    roles: [{
+      ...root,
+      displayName: "Director",
+      delegatesTo: ["engineering_lead", "quality_lead"],
+    }, {
+      ...builder,
+      id: "engineering_lead",
+      displayName: "Engineering Lead",
+      kind: "lead",
+      reportsTo: root.id,
+      delegatesTo: ["implement"],
+      departmentId: "engineering",
+      activation: "always",
+    }, {
+      ...reviewer,
+      id: "quality_lead",
+      displayName: "Quality Lead",
+      kind: "reviewer",
+      reportsTo: root.id,
+      delegatesTo: [],
+      departmentId: "quality",
+      activation: "always",
+    }, {
+      ...builder,
+      id: "implement",
+      displayName: "Implement",
+      kind: "specialist",
+      reportsTo: "engineering_lead",
+      delegatesTo: ["auth_worker"],
+      departmentId: "engineering",
+    }, {
+      ...builder,
+      id: "auth_worker",
+      displayName: "Auth Worker",
+      kind: "worker",
+      reportsTo: "implement",
+      delegatesTo: [],
+      departmentId: "engineering",
+    }],
+    authorityAnchors: {
+      rootRoleId: root.id,
+      independentReviewRoleIds: ["quality_lead"],
+    },
+    activation: {
+      defaultActiveRoleIds: [root.id, "engineering_lead", "quality_lead"],
+    },
+  };
+}
+
 describe("TerminalUiState", () => {
+  it("renders the onboarding-defined company as a dynamic one-to-four-layer floor", () => {
+    const state = new TerminalUiState({
+      model: "gpt-5.6-sol",
+      mode: "max_v6",
+      permission: "approved_for_me",
+      workspace: "auth-service",
+    }, fourLayerBlueprint());
+
+    expect(state.snapshot().company.map((node) => [
+      node.roleId,
+      node.depth,
+      node.status,
+    ])).toEqual([
+      ["root_orchestrator", 0, "ready"],
+      ["engineering_lead", 1, "inactive"],
+      ["quality_lead", 1, "inactive"],
+      ["implement", 2, "inactive"],
+      ["auth_worker", 3, "inactive"],
+    ]);
+
+    const rendered = renderCompanyHome(state.snapshot(), 132, 0).join("\n");
+    expect(rendered).toContain("R↘ RECURS / AUTH-SERVICE / COMPANY");
+    expect(rendered).toContain("Your company is ready.");
+    expect(rendered).toContain("00  DIRECT");
+    expect(rendered).toContain("01  LEAD");
+    expect(rendered).toContain("02  SENIOR");
+    expect(rendered).toContain("03  WORK");
+    expect(rendered).toContain("DIRECTOR");
+    expect(rendered).toContain("ENGINEERING LEAD");
+    expect(rendered).toContain("AUTH WORKER");
+    expect(rendered).toContain("NOT ACTIVATED");
+    expect(rendered).not.toContain("SCOPED BUILDER");
+  });
+
+  it("keeps reporting groups in the onboarding-defined hierarchy order", () => {
+    const blueprint = fourLayerBlueprint();
+    const byId = new Map(blueprint.roles.map((role) => [role.id, role]));
+    const ordered = [
+      "root_orchestrator",
+      "quality_lead",
+      "engineering_lead",
+      "implement",
+      "auth_worker",
+    ].map((id) => byId.get(id)!);
+    const state = new TerminalUiState({
+      model: "parent-model",
+      mode: "max_v6",
+      permission: "approved_for_me",
+    }, { ...blueprint, roles: ordered });
+
+    expect(state.snapshot().company.map((node) => node.roleId)).toEqual([
+      "root_orchestrator",
+      "quality_lead",
+      "engineering_lead",
+      "implement",
+      "auth_worker",
+    ]);
+  });
+
+  it("activates only the matching blueprint role and keeps the rest visibly idle", async () => {
+    const state = new TerminalUiState({
+      model: "gpt-5.6-sol",
+      mode: "balanced_v6",
+      permission: "approved_for_me",
+    }, fourLayerBlueprint());
+    await state.emit({
+      type: "company_goal_started",
+      sessionId: "parent-session",
+      at: "2026-08-14T00:00:00.000Z",
+      parentAgentId: "parent-agent",
+      goalRunId: "goal-dynamic",
+      objective: "Implement token rotation",
+      blueprintId: "four-layer-company",
+      blueprintRevision: 1,
+      operatingModeId: "balanced_v6",
+      assignmentCount: 1,
+      topology: "hierarchical",
+      maxActiveAgents: 4,
+      maxConcurrentAgents: 2,
+      maxDelegationDepth: 3,
+      maxRepairRounds: 1,
+      maxRequests: 20,
+      maxReportedCostUsd: 2,
+    });
+    await state.emit({
+      type: "company_assignment_started",
+      sessionId: "parent-session",
+      at: "2026-08-14T00:00:01.000Z",
+      parentAgentId: "parent-agent",
+      goalRunId: "goal-dynamic",
+      assignmentId: "auth-assignment",
+      parentAssignmentId: null,
+      departmentId: "engineering",
+      roleId: "auth_worker",
+      roleName: "Auth Worker",
+      profileId: "implement_v2",
+      childAgentId: "auth-agent",
+      childSessionId: "auth-session",
+    });
+    await state.emit({
+      type: "agent_started",
+      sessionId: "parent-session",
+      at: "2026-08-14T00:00:02.000Z",
+      parentAgentId: "parent-agent",
+      childAgentId: "auth-agent",
+      childSessionId: "auth-session",
+      taskId: "token-rotation",
+      description: "Implement token rotation",
+      operatingModeId: "balanced_v6",
+      profileId: "implement_v2",
+      modelId: "gpt-5.6-terra",
+      reasoningEffort: "medium",
+      backendStrategy: "role_candidate",
+      backendReason: "eligible_role_candidate",
+    });
+
+    const snapshot = state.snapshot();
+    expect(snapshot.company.find((node) => node.roleId === "auth_worker"))
+      .toMatchObject({
+        status: "running",
+        activated: true,
+        model: "gpt-5.6-terra",
+        effort: "medium",
+      });
+    expect(snapshot.company.find((node) => node.roleId === "implement"))
+      .toMatchObject({ status: "inactive", activated: false });
+
+    const rendered = renderCompanyHome(
+      snapshot,
+      132,
+      1,
+      "auth_worker",
+    ).join("\n");
+    expect(rendered).toContain("Your company is working.");
+    expect(rendered).toContain("AUTH WORKER");
+    expect(rendered).toContain("gpt-5.6-terra · medium");
+    expect(rendered).toContain("ENGINEERING · RUNNING");
+  });
+
+  it("does not invent an onboarding roster when no blueprint is attached", () => {
+    const state = new TerminalUiState({
+      model: "parent-model",
+      mode: "balanced_v6",
+      permission: "approved_for_me",
+    });
+
+    const rendered = renderCompanyHome(state.snapshot(), 100, 0).join("\n");
+    expect(rendered).toContain("PARENT");
+    expect(rendered).not.toContain("ENGINEERING LEAD");
+    expect(rendered).not.toContain("QUALITY LEAD");
+    expect(rendered).not.toContain("AUTH WORKER");
+  });
+
   it("projects a truthful layered company from normalized runtime events", async () => {
     const state = new TerminalUiState({
       model: "gpt-5.6-sol",
@@ -243,7 +473,7 @@ describe("TerminalUiState", () => {
     }
   });
 
-  it("shows the generated wordmark at wide widths and the compact mark when narrow", () => {
+  it("keeps the compact V19 company header usable at wide and narrow widths", () => {
     const state = new TerminalUiState({
       model: "parent-model",
       mode: "balanced_v6",
@@ -253,34 +483,47 @@ describe("TerminalUiState", () => {
     const wide = renderCompanyHome(state.snapshot(), 80, 0);
     const narrow = renderCompanyHome(state.snapshot(), 24, 0);
 
+    expect(wide[0]).toContain("R↘ RECURS / WORKSPACE / COMPANY");
     expect(wide).toEqual(expect.arrayContaining([
-      expect.stringContaining("████   █████   ████"),
-      expect.stringContaining("█   █  █████   ████"),
+      expect.stringContaining("00  DIRECT"),
+      expect.stringContaining("PARENT"),
     ]));
-    expect(narrow).toEqual(expect.arrayContaining([
-      expect.stringContaining("▗█▀▀█▖"),
-      expect.stringContaining("◀▀  ▝▀"),
-    ]));
-    expect(narrow).not.toEqual(expect.arrayContaining([
-      expect.stringContaining("████   █████   ████"),
-    ]));
+    expect(narrow[0]).toBe("R↘ RECURS / COMPANY");
+    expect(narrow.every((line) => Array.from(line).length <= 24)).toBe(true);
     expect(narrow).toMatchInlineSnapshot(`
       [
-        "          ▗█▀▀█▖",
-        "          █▌ ▗█▘",
-        "          ▜█▀▜▙",
-        "         ◀▀  ▝▀",
-        "    RECURS / COMPANY",
-        "THE BEST CODING MODEL I…",
+        "R↘ RECURS / COMPANY",
+        "────────────────────────",
+        "NO ACTIVE GOAL · START …",
+        "Your company is ready.",
         "",
-        "▚▟██▙▞  ◆ PARENT  paren…",
-        "    ╭······┴······╮",
-        "READY · START A COMPANY…",
-        "",
+        "00 DIRECT    PARENT · ○…",
+        "✳ PARENT · COMPANY · RE…",
+        "────────────────────────",
         "balanced_v6 · approved_…",
-        "  ENTER CHAT   Q QUIT",
+        "ENTER OPEN   ARROWS SEL…",
       ]
     `);
+  });
+
+  it("keeps the selected role visible in a short terminal", () => {
+    const state = new TerminalUiState({
+      model: "parent-model",
+      mode: "max_v6",
+      permission: "approved_for_me",
+    }, fourLayerBlueprint());
+
+    const rendered = renderCompanyHome(
+      state.snapshot(),
+      80,
+      0,
+      "auth_worker",
+      16,
+    );
+
+    expect(rendered).toHaveLength(16);
+    expect(rendered.join("\n")).toContain("> AUTH WORKER");
+    expect(rendered.join("\n")).toContain("03 WORK");
   });
 
   it("projects review, repair, handoff, evidence, request, and partial usage activity", async () => {
@@ -502,7 +745,7 @@ describe("TerminalUiState", () => {
       model: "parent-model",
       mode: "balanced_v6",
       permission: "approved_for_me",
-    });
+    }, fourLayerBlueprint());
     const first = renderCompanyHome(state.snapshot(), 80, 0);
     const second = renderCompanyHome(state.snapshot(), 80, 1);
 

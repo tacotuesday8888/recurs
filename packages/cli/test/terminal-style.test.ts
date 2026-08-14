@@ -114,6 +114,21 @@ describe("terminal presentation", () => {
     expect(theme.failure("Error: unavailable")).toContain("Error: unavailable");
   });
 
+  it("gives each company layer a stable terminal color", () => {
+    const theme = createTerminalTheme(new TerminalOutput(), {
+      environment: colorEnvironment,
+    });
+
+    expect([0, 1, 2, 3].map((depth) =>
+      theme.companyLayer(depth as 0 | 1 | 2 | 3, "operator")
+    )).toEqual([
+      "\u001b[38;5;220moperator\u001b[0m",
+      "\u001b[38;5;75moperator\u001b[0m",
+      "\u001b[38;5;80moperator\u001b[0m",
+      "\u001b[38;5;113moperator\u001b[0m",
+    ]);
+  });
+
   it("stacks the readable title beneath the compact mark", () => {
     const theme = createTerminalTheme(new TerminalOutput(), {
       environment: colorEnvironment,

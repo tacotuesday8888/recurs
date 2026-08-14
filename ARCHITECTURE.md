@@ -56,6 +56,20 @@ There is no private second engine, platform broker, or platform-specific model
 client. macOS and Linux differences live at the subprocess containment edge.
 Windows subprocess tools currently fail closed.
 
+## Terminal presentation architecture
+
+The interactive CLI keeps product state separate from rendering. Normalized
+session, company, assignment, approval, and usage events are projected into a
+bounded TypeScript view model; components render that model through
+`@earendil-works/pi-tui`. The renderer provides differential and synchronized
+terminal updates, focus and input handling, overlays, scrolling, and virtual
+terminal tests without coupling the core engine to a UI framework.
+
+Company geometry is derived from the approved onboarding blueprint, with at
+most four reporting layers. Runtime events decide which roles are actually
+active and what may truthfully be shown. Non-interactive, structured-output,
+ACP, and no-color paths do not depend on the TUI.
+
 ## Multi-provider connection architecture
 
 One shared interface supports many model providers without coupling the runtime

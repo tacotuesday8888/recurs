@@ -1,6 +1,6 @@
 import type { EventSink, RecursEvent } from "@recurs/core";
+import type { CompanyBlueprintV2 } from "@recurs/contracts";
 
-import { renderRecursBrandRows } from "./terminal-style.js";
 import { sanitizeTerminalText } from "./terminal-text.js";
 
 export type TerminalAgentStatus =
@@ -12,6 +12,7 @@ export type TerminalAgentStatus =
 export interface TerminalAgentView {
   readonly assignmentId: string;
   readonly parentAssignmentId: string | null;
+  readonly roleId: string;
   readonly childAgentId: string;
   readonly departmentId: string;
   readonly roleName: string;
@@ -20,6 +21,25 @@ export interface TerminalAgentView {
   readonly effort: string | null;
   readonly status: TerminalAgentStatus;
   readonly detail: string | null;
+}
+
+export type TerminalCompanyNodeStatus =
+  | TerminalAgentStatus
+  | "inactive"
+  | "ready";
+
+export interface TerminalCompanyNodeView {
+  readonly roleId: string;
+  readonly reportsToRoleId: string | null;
+  readonly assignmentIds: readonly string[];
+  readonly departmentId: string;
+  readonly roleName: string;
+  readonly depth: 0 | 1 | 2 | 3;
+  readonly model: string | null;
+  readonly effort: string | null;
+  readonly status: TerminalCompanyNodeStatus;
+  readonly activated: boolean;
+  readonly detail: string;
 }
 
 export interface TerminalGoalView {
@@ -59,14 +79,17 @@ export interface TerminalUiSnapshot {
     readonly model: string;
     readonly mode: string;
     readonly permission: string;
+    readonly workspace?: string;
   };
   readonly goal: TerminalGoalView | null;
   readonly agents: readonly TerminalAgentView[];
+  readonly company: readonly TerminalCompanyNodeView[];
 }
 
 interface MutableAgent {
   assignmentId: string;
   parentAssignmentId: string | null;
+  roleId: string;
   childAgentId: string;
   departmentId: string;
   roleName: string;
@@ -105,13 +128,18 @@ interface MutableGoal {
 
 export class TerminalUiState implements EventSink {
   readonly #session: TerminalUiSnapshot["session"];
+  readonly #blueprint: CompanyBlueprintV2 | null;
   readonly #assignments = new Map<string, MutableAgent>();
   readonly #activatedAssignments = new Set<string>();
   #goal: MutableGoal | null = null;
   #onChange: (() => void) | null = null;
 
-  constructor(session: TerminalUiSnapshot["session"]) {
+  constructor(
+    session: TerminalUiSnapshot["session"],
+    blueprint: CompanyBlueprintV2 | null = null,
+  ) {
     this.#session = Object.freeze({ ...session });
+    this.#blueprint = blueprint;
   }
 
   onChange(listener: (() => void) | null): void {
@@ -155,6 +183,7 @@ export class TerminalUiState implements EventSink {
         this.#assignments.set(event.assignmentId, {
           assignmentId: event.assignmentId,
           parentAssignmentId: event.parentAssignmentId,
+          roleId: event.roleId,
           childAgentId: event.childAgentId,
           departmentId: event.departmentId,
           roleName: event.roleName,
@@ -279,11 +308,135 @@ export class TerminalUiState implements EventSink {
             activeAgents,
           });
         })();
+    const company = this.#companyView(agents, goal);
     return Object.freeze({
       session: this.#session,
       goal,
       agents: Object.freeze(agents),
+      company,
     });
+  }
+
+  #companyView(
+    agents: readonly TerminalAgentView[],
+    goal: TerminalGoalView | null,
+  ): readonly TerminalCompanyNodeView[] {
+    if (this.#blueprint === null) {
+      const parentStatus: TerminalCompanyNodeStatus = goal?.status === "running"
+        ? "running"
+        : goal?.status === "completed" || goal?.status === "failed" ||
+            goal?.status === "cancelled"
+          ? goal.status
+          : "ready";
+      return Object.freeze([Object.freeze({
+        roleId: "parent",
+        reportsToRoleId: null,
+        assignmentIds: Object.freeze([]),
+        departmentId: "company",
+        roleName: "Parent",
+        depth: 0,
+        model: this.#session.model,
+        effort: null,
+        status: parentStatus,
+        activated: true,
+        detail: goal?.phase ?? (goal === null ? "ready" : goal.status),
+      } satisfies TerminalCompanyNodeView), ...agents.map((agent) =>
+        Object.freeze({
+          roleId: agent.roleId,
+          reportsToRoleId: agent.parentAssignmentId === null
+            ? "parent"
+            : agents.find((candidate) =>
+                candidate.assignmentId === agent.parentAssignmentId
+              )?.roleId ?? "parent",
+          assignmentIds: Object.freeze([agent.assignmentId]),
+          departmentId: agent.departmentId,
+          roleName: agent.roleName,
+          depth: Math.min(3, agent.depth) as 1 | 2 | 3,
+          model: agent.model,
+          effort: agent.effort,
+          status: agent.status,
+          activated: true,
+          detail: agent.detail ?? agent.status,
+        } satisfies TerminalCompanyNodeView)
+      )]);
+    }
+
+    const byRole = new Map(this.#blueprint.roles.map((role) => [role.id, role]));
+    const rootRoleId = this.#blueprint.authorityAnchors.rootRoleId;
+    const depthOf = (roleId: string): 0 | 1 | 2 | 3 => {
+      let current = byRole.get(roleId);
+      let depth = 0;
+      const seen = new Set<string>();
+      while (current?.reportsTo !== null && current?.reportsTo !== undefined) {
+        if (seen.has(current.id)) break;
+        seen.add(current.id);
+        depth += 1;
+        current = byRole.get(current.reportsTo);
+      }
+      return Math.min(3, depth) as 0 | 1 | 2 | 3;
+    };
+    const statusFor = (
+      roleId: string,
+      matches: readonly TerminalAgentView[],
+    ): TerminalCompanyNodeStatus => {
+      if (roleId === rootRoleId) {
+        if (goal?.status === "running") return "running";
+        if (goal?.status === "completed" || goal?.status === "failed" ||
+          goal?.status === "cancelled") return goal.status;
+        return "ready";
+      }
+      if (matches.length === 0) return "inactive";
+      if (matches.some((agent) => agent.status === "running")) return "running";
+      if (matches.every((agent) => agent.status === "completed")) return "completed";
+      if (matches.some((agent) => agent.status === "failed")) return "failed";
+      return "cancelled";
+    };
+    const children = new Map<string, string[]>();
+    for (const role of this.#blueprint.roles) {
+      if (role.reportsTo === null) continue;
+      const siblings = children.get(role.reportsTo) ?? [];
+      siblings.push(role.id);
+      children.set(role.reportsTo, siblings);
+    }
+    const traversal: string[] = [];
+    const visit = (roleId: string): void => {
+      traversal.push(roleId);
+      for (const childId of children.get(roleId) ?? []) visit(childId);
+    };
+    visit(rootRoleId);
+    const traversalOrder = new Map(
+      traversal.map((roleId, index) => [roleId, index]),
+    );
+    return Object.freeze(this.#blueprint.roles.map((role) => {
+      const matches = agents.filter((agent) => agent.roleId === role.id);
+      const representative = matches.find((agent) => agent.status === "running") ??
+        matches.at(-1);
+      const status = statusFor(role.id, matches);
+      const isRoot = role.id === rootRoleId;
+      return Object.freeze({
+        roleId: role.id,
+        reportsToRoleId: role.reportsTo,
+        assignmentIds: Object.freeze(matches.map((agent) => agent.assignmentId)),
+        departmentId: role.departmentId,
+        roleName: role.displayName,
+        depth: depthOf(role.id),
+        model: isRoot ? this.#session.model : representative?.model ?? null,
+        effort: isRoot ? null : representative?.effort ?? null,
+        status,
+        activated: isRoot || matches.length > 0,
+        detail: isRoot
+          ? goal?.phase ?? (goal === null ? "ready" : goal.status)
+          : matches.length === 0
+            ? "not activated"
+            : representative?.detail ?? (matches.length === 1
+              ? status
+              : `${matches.length} assignments · ${status}`),
+      } satisfies TerminalCompanyNodeView);
+    }).sort((left, right) =>
+      left.depth - right.depth ||
+      (traversalOrder.get(left.roleId) ?? Number.MAX_SAFE_INTEGER) -
+        (traversalOrder.get(right.roleId) ?? Number.MAX_SAFE_INTEGER)
+    ));
   }
 }
 
@@ -299,46 +452,123 @@ function centered(text: string, width: number): string {
   return `${" ".repeat(Math.max(0, Math.floor((width - value.length) / 2)))}${value}`;
 }
 
-function brandRows(width: number): readonly string[] {
-  return renderRecursBrandRows(width).map((row) =>
-    centered(row.trimEnd(), width)
-  );
-}
-
-function statusMark(status: TerminalAgentStatus): string {
+function statusMark(status: TerminalCompanyNodeStatus): string {
   switch (status) {
     case "running": return "◆";
     case "completed": return "✓";
     case "failed": return "×";
     case "cancelled": return "−";
+    case "inactive": return "·";
+    case "ready": return "○";
   }
 }
 
-function mascot(depth: number, frame: number, active: boolean): string {
-  const step = active && frame % 2 === 1 ? "▞" : "▚";
-  if (depth <= 1) return `${step}▟█▙${step}`;
-  if (depth === 2) return `${step}▐◆▌${step}`;
-  return `${step}◆${step}`;
-}
+const LAYER_LABELS = Object.freeze(["DIRECT", "LEAD", "SENIOR", "WORK"]);
 
-function agentLabel(
-  agent: TerminalAgentView,
+function mascotRows(
+  depth: number,
   frame: number,
-  selected: boolean,
-): string {
-  const route = agent.model === null
-    ? "route pending"
-    : `${agent.model}${agent.effort === null ? "" : ` · ${agent.effort}`}`;
-  const branch = agent.depth <= 1 ? "" : `${"  ".repeat(agent.depth - 2)}└─ `;
-  return `${selected ? "›" : " "} ${branch}${mascot(agent.depth, frame, agent.status === "running")}  ${statusMark(agent.status)} ${agent.roleName.toUpperCase()}  ${route}`;
+  active: boolean,
+): readonly string[] {
+  const face = active && frame % 2 === 1 ? "▶" : "◀";
+  const feet = active && frame % 2 === 1 ? " ▀  ▀" : "▀  ▀ ";
+  if (depth === 0) {
+    return Object.freeze([
+      "   ▄██▄   ",
+      " ▄██████▄ ",
+      `${face}██▄██▄██ `,
+      "  ▀████▀  ",
+      ` ${feet} `,
+    ]);
+  }
+  if (depth === 1) {
+    return Object.freeze([
+      "  ▄██▄ ",
+      `${face}████▌ `,
+      " ▀██▀  ",
+      ` ${feet}`,
+    ]);
+  }
+  if (depth === 2) {
+    return Object.freeze([
+      " ▄██▄ ",
+      `${face}███▌ `,
+      "  ▀ ▀ ",
+    ]);
+  }
+  return Object.freeze(["▄██▄", active && frame % 2 === 1 ? " ▀▀ " : "▀  ▀"]);
 }
 
-function connector(width: number, depth: number, frame: number): string {
-  const dotted = frame % 2 === 0 ? "······" : "·•····";
-  return centered(
-    depth === 1 ? `╭${dotted}┴${dotted}╮` : `╰${dotted}┬${dotted}╯`,
-    width,
-  );
+function nodeMeta(node: TerminalCompanyNodeView): string {
+  if (!node.activated) return "NOT ACTIVATED";
+  const route = node.model === null
+    ? null
+    : `${node.model}${node.effort === null ? "" : ` · ${node.effort}`}`;
+  return route ?? node.detail.toUpperCase();
+}
+
+function centeredCell(text: string, width: number): string {
+  const value = fit(text, Math.max(1, width));
+  const used = Array.from(value).length;
+  const left = Math.max(0, Math.floor((width - used) / 2));
+  return `${" ".repeat(left)}${value}${" ".repeat(Math.max(0, width - used - left))}`;
+}
+
+function layerRows(
+  nodes: readonly TerminalCompanyNodeView[],
+  depth: number,
+  width: number,
+  frame: number,
+  selectedRoleId: string | undefined,
+): readonly string[] {
+  const labelWidth = width >= 72 ? 12 : 10;
+  const contentWidth = Math.max(1, width - labelWidth);
+  const minimumCellWidth = depth <= 1 ? 20 : 16;
+  const maximumColumns = Math.max(1, Math.floor(contentWidth / minimumCellWidth));
+  const rows: string[] = [];
+  for (let start = 0; start < nodes.length; start += maximumColumns) {
+    const group = nodes.slice(start, start + maximumColumns);
+    const cellWidth = Math.max(1, Math.floor(contentWidth / group.length));
+    const pets = group.map((node) => mascotRows(
+      depth,
+      frame,
+      node.status === "running",
+    ));
+    const petHeight = Math.max(...pets.map((pet) => pet.length));
+    const blockRows = [
+      ...Array.from({ length: petHeight }, (_, row) =>
+        group.map((_, index) => centeredCell(pets[index]?.[row] ?? "", cellWidth))
+          .join("")
+      ),
+      group.map((node) => centeredCell(
+        `${node.roleId === selectedRoleId ? "> " : ""}${node.roleName.toUpperCase()}`,
+        cellWidth,
+      )).join(""),
+      group.map((node) => centeredCell(
+        `${statusMark(node.status)} ${nodeMeta(node)}`,
+        cellWidth,
+      )).join(""),
+    ];
+    for (const [index, row] of blockRows.entries()) {
+      const label = start === 0 && index === 0
+        ? `${String(depth).padStart(2, "0")}  ${LAYER_LABELS[depth] ?? "WORK"}`
+        : "";
+      rows.push(fit(`${label.padEnd(labelWidth)}${row}`, width));
+    }
+  }
+  return Object.freeze(rows);
+}
+
+function connectorRows(width: number, depth: number, frame: number): readonly string[] {
+  const labelWidth = width >= 72 ? 12 : 10;
+  const contentWidth = Math.max(1, width - labelWidth);
+  const run = Math.max(1, Math.min(42, Math.floor((contentWidth - 3) / 2)));
+  const moving = Array.from({ length: run }, (_, index) =>
+    index === (frame * 3 + depth * 5) % run ? "•" : "·"
+  ).join("");
+  return Object.freeze([
+    fit(`${"".padEnd(labelWidth)}${centered(`╰${moving}┬${moving}╮`, contentWidth)}`, width),
+  ]);
 }
 
 function compactCount(value: number): string {
@@ -377,68 +607,143 @@ function usageSummary(goal: TerminalGoalView): string {
   } OUT · ${cost}`;
 }
 
+function compactCompanyHome(
+  snapshot: TerminalUiSnapshot,
+  width: number,
+  header: string,
+  goalLabel: string,
+  title: string,
+  selectedRoleId: string | undefined,
+  requestedHeight: number | undefined,
+): readonly string[] {
+  const targetHeight = Math.max(
+    1,
+    requestedHeight ?? snapshot.company.length + 9,
+  );
+  const selectedIndex = Math.max(
+    0,
+    snapshot.company.findIndex((node) => node.roleId === selectedRoleId),
+  );
+  const visibleCount = Math.max(1, targetHeight - 9);
+  const start = Math.min(
+    Math.max(0, selectedIndex - visibleCount + 1),
+    Math.max(0, snapshot.company.length - visibleCount),
+  );
+  const visible = snapshot.company.slice(start, start + visibleCount);
+  const selected = snapshot.company[selectedIndex] ?? snapshot.company[0];
+  const lines = [
+    fit(header, width),
+    "─".repeat(width),
+    fit(goalLabel.toUpperCase(), width),
+    fit(title, width),
+    "",
+    ...visible.map((node) => fit(
+      `${String(node.depth).padStart(2, "0")} ${LAYER_LABELS[node.depth] ?? "WORK"}  ${
+        node.roleId === selectedRoleId ? ">" : " "
+      } ${node.roleName.toUpperCase()} · ${statusMark(node.status)} ${nodeMeta(node)}`,
+      width,
+    )),
+  ];
+  while (lines.length < targetHeight - 4) lines.push("");
+  lines.push(
+    fit(
+      selected === undefined
+        ? "NO ROLE SELECTED"
+        : `✳ ${selected.roleName.toUpperCase()} · ${selected.departmentId.toUpperCase()} · ${selected.status.toUpperCase()}`,
+      width,
+    ),
+    "─".repeat(width),
+    fit(`${snapshot.session.mode} · ${snapshot.session.permission}`, width),
+    fit("ENTER OPEN   ARROWS SELECT   CTRL+T TASKS   Q QUIT", width),
+  );
+  return Object.freeze(lines.slice(0, targetHeight));
+}
+
 export function renderCompanyHome(
   snapshot: TerminalUiSnapshot,
   requestedWidth: number,
   frame: number,
-  selectedAssignmentId?: string,
+  selectedRoleId?: string,
+  requestedHeight?: number,
 ): readonly string[] {
   const width = Math.max(1, requestedWidth);
-  const lines = [
-    ...brandRows(width),
-    centered("RECURS / COMPANY", width),
-    centered("THE BEST CODING MODEL IS A TEAM · YOU CONTROL THE TEAM", width),
-    "",
-    centered(`▚▟██▙▞  ◆ PARENT  ${snapshot.session.model}`, width),
-  ];
-  if (snapshot.agents.length === 0) {
-    const empty = snapshot.goal === null
-      ? "READY · START A COMPANY GOAL FROM CHAT"
-      : snapshot.goal.status === "running"
-        ? "GOAL RUNNING · WAITING FOR AGENT ACTIVATION"
-        : `NO AGENTS ACTIVE · GOAL ${snapshot.goal.status.toUpperCase()}`;
-    lines.push(
-      connector(width, 1, frame),
-      centered(empty, width),
-    );
-  } else {
-    const maximumDepth = Math.max(...snapshot.agents.map((agent) => agent.depth));
-    for (let depth = 1; depth <= maximumDepth; depth += 1) {
-      const layer = snapshot.agents.filter((agent) => agent.depth === depth);
-      if (layer.length === 0) continue;
-      lines.push(connector(width, depth, frame));
-      for (const agent of layer) {
-        lines.push(centered(
-          agentLabel(agent, frame, agent.assignmentId === selectedAssignmentId),
-          width,
-        ));
-      }
-    }
-  }
-  const selected = snapshot.agents.find(
-    (agent) => agent.assignmentId === selectedAssignmentId,
-  );
-  if (selected !== undefined) {
-    lines.push(centered(
-      `${selected.departmentId.toUpperCase()} · ${selected.status.toUpperCase()}${
-        selected.detail === null ? "" : ` · ${selected.detail}`
-      }`,
+  const workspace = (snapshot.session.workspace ?? "workspace")
+    .replaceAll("_", "-").toUpperCase();
+  const live = snapshot.goal?.status === "running";
+  const leftHeader = width < 54
+    ? "R↘ RECURS / COMPANY"
+    : `R↘ RECURS / ${workspace} / COMPANY`;
+  const rightHeader = `${live ? "● LIVE" : "○ READY"} · ${snapshot.session.mode.toUpperCase()}`;
+  const headerGap = Math.max(1, width - Array.from(leftHeader).length -
+    Array.from(rightHeader).length);
+  const header = width < 54
+    ? leftHeader
+    : `${leftHeader}${" ".repeat(headerGap)}${rightHeader}`;
+  const title = snapshot.goal === null
+    ? "Your company is ready."
+    : snapshot.goal.status === "running"
+      ? "Your company is working."
+      : snapshot.goal.status === "completed"
+        ? "Your company finished."
+        : `Company goal ${snapshot.goal.status}.`;
+  const goalLabel = snapshot.goal === null
+    ? "NO ACTIVE GOAL · START FROM CHAT"
+    : `GOAL ${snapshot.goal.id} · ${snapshot.goal.objective}`;
+  if (width < 40 || (requestedHeight !== undefined && requestedHeight < 34)) {
+    return compactCompanyHome(
+      snapshot,
       width,
+      header,
+      goalLabel,
+      title,
+      selectedRoleId,
+      requestedHeight,
+    );
+  }
+  const lines = [
+    fit(header, width),
+    "─".repeat(width),
+    fit(goalLabel.toUpperCase(), width),
+    fit(title, width),
+    "",
+  ];
+  const depths = [...new Set(snapshot.company.map((node) => node.depth))]
+    .sort((left, right) => left - right);
+  for (const depth of depths) {
+    if (depth > 0) lines.push(...connectorRows(width, depth, frame));
+    lines.push(...layerRows(
+      snapshot.company.filter((node) => node.depth === depth),
+      depth,
+      width,
+      frame,
+      selectedRoleId,
     ));
+  }
+  const selected = snapshot.company.find(
+    (node) => node.roleId === selectedRoleId,
+  ) ?? snapshot.company[0];
+  if (selected !== undefined) {
+    lines.push(
+      "",
+      fit(
+        `✳ ${selected.roleName.toUpperCase()}  ${selected.departmentId.toUpperCase()} · ${selected.status.toUpperCase()} · ${selected.detail}  ENTER OPEN`,
+        width,
+      ),
+    );
   }
   const goal = snapshot.goal;
   lines.push(
-    "",
-    centered(
+    "─".repeat(width),
+    fit(
       goal === null
         ? `${snapshot.session.mode} · ${snapshot.session.permission}`
         : `${goal.status.toUpperCase()} · ${goal.activeAgents}/${goal.maxActiveAgents} ACTIVE · ${goal.objective}`,
-    width,
+      width,
     ),
     ...(goal === null
       ? []
       : [
-          centered(
+          fit(
             `${goal.phase === null ? "STARTING" : goal.phase.toUpperCase()}${
               goal.phase === "repair" ? ` ${goal.repairRound}` : ""
             } · REQUESTS ${goal.requestsUsed}/${goal.maxRequests}`,
@@ -446,17 +751,17 @@ export function renderCompanyHome(
           ),
           ...(reviewSummary(goal) === null
             ? []
-            : [centered(reviewSummary(goal)!, width)]),
-          centered(handoffSummary(goal), width),
-          centered(usageSummary(goal), width),
+            : [fit(reviewSummary(goal)!, width)]),
+          fit(handoffSummary(goal), width),
+          fit(usageSummary(goal), width),
           ...(goal.reason === null
             ? []
-            : [centered(`DETAIL · ${goal.reason}`, width)]),
+            : [fit(`DETAIL · ${goal.reason}`, width)]),
         ]),
-    centered(
-      snapshot.agents.length === 0
+    fit(
+      snapshot.company.length <= 1
         ? "ENTER CHAT   Q QUIT"
-        : "ENTER CHAT   ↑↓ INSPECT   Q QUIT",
+        : "ENTER OPEN   ARROWS SELECT   / COMMANDS   Q QUIT",
       width,
     ),
   );

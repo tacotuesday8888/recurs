@@ -155,6 +155,8 @@ import {
 import { startRepl } from "./repl.js";
 import {
   createRecursInteractiveShell,
+  type InteractiveShellExit,
+  type InteractiveShellStartOptions,
   type InteractiveOnboardingUi,
 } from "./terminal-ui.js";
 import {
@@ -344,7 +346,10 @@ export interface InteractiveShell {
     ) => Promise<T>,
     signal?: AbortSignal,
   ): Promise<T>;
-  start(runtime: RecursRuntime): Promise<void>;
+  start(
+    runtime: RecursRuntime,
+    options?: InteractiveShellStartOptions,
+  ): Promise<InteractiveShellExit | void>;
 }
 
 interface RunArguments {
@@ -1321,10 +1326,10 @@ async function startInteractiveRepl(
   runtime: RecursRuntime,
   dependencies: CliDependencies,
   shell?: InteractiveShell,
-): Promise<void> {
+  options?: InteractiveShellStartOptions,
+): Promise<InteractiveShellExit | void> {
   if (shell !== undefined) {
-    await shell.start(runtime);
-    return;
+    return await shell.start(runtime, options);
   }
   await startRepl(runtime, {
     ...(dependencies.stdin === undefined ? {} : { input: dependencies.stdin }),
@@ -1674,13 +1679,54 @@ export async function runCli(
     let runtime: RecursRuntime | undefined;
     try {
       runtime = await dependencies.createRuntime(renderer);
+      if (shell !== undefined) {
+        let startOptions: InteractiveShellStartOptions = { launch: true };
+        while (true) {
+          const exit = await startInteractiveRepl(
+            runtime,
+            dependencies,
+            shell,
+            startOptions,
+          );
+          if (exit === undefined || exit.type === "quit") return 0;
+          await runtime.close?.();
+          runtime = undefined;
+          if (exit.type === "resume_session") {
+            runtime = await dependencies.createRuntime(renderer, {
+              resumeSessionId: exit.sessionId,
+            });
+            startOptions = { launch: false };
+            continue;
+          }
+          const onboarding = await runInteractiveOnboarding(dependencies, shell);
+          if (onboarding.state === "failed") return onboarding.exitCode;
+          if (onboarding.state === "saved" || onboarding.state === "skipped") {
+            return 0;
+          }
+          if (dependencies.signal?.aborted === true) {
+            throw new DOMException("Guided setup was cancelled", "AbortError");
+          }
+          runtime = await dependencies.createRuntime(renderer, {
+            operatingModeId: onboarding.operatingModeId,
+            permissionMode: onboarding.permissionMode,
+            reuseExistingSession: false,
+            ...(onboarding.companyBlueprintV2 === undefined &&
+                onboarding.companyBlueprint === undefined
+              ? {}
+              : {
+                  companyBlueprint:
+                    onboarding.companyBlueprintV2 ?? onboarding.companyBlueprint,
+                }),
+          });
+          startOptions = { launch: false };
+        }
+      }
       if (
         runtime.state?.type === "workspace" &&
-        (shell?.onboard !== undefined ||
-          (dependencies.selectChoice !== undefined &&
-            dependencies.promptText !== undefined))
+        (dependencies.selectChoice !== undefined &&
+          dependencies.promptText !== undefined)
       ) {
-        const onboarding = await runInteractiveOnboarding(dependencies, shell);
+        const onboarding = await runInteractiveOnboarding(dependencies, undefined);
         if (onboarding.state === "failed") return onboarding.exitCode;
         if (onboarding.state === "saved") return 0;
         if (onboarding.state === "configured") {
@@ -1702,7 +1748,7 @@ export async function runCli(
           });
         }
       }
-      await startInteractiveRepl(runtime, dependencies, shell);
+      await startInteractiveRepl(runtime, dependencies);
       return 0;
     } catch (error) {
       if (dependencies.signal?.aborted === true || isAbortError(error)) {
@@ -1748,7 +1794,12 @@ export async function runCli(
                 onboarding.companyBlueprintV2 ?? onboarding.companyBlueprint,
             }),
       });
-      await startInteractiveRepl(runtime, dependencies, shell);
+      await startInteractiveRepl(
+        runtime,
+        dependencies,
+        shell,
+        shell === undefined ? undefined : { launch: false },
+      );
       return 0;
     } catch (error) {
       if (dependencies.signal?.aborted === true || isAbortError(error)) {
