@@ -221,12 +221,14 @@ describe("LaunchComponent", () => {
 
     const first = component.render(92).join("\n");
     expect(first).toContain("R↘ RECURS / AUTH-SERVICE");
-    expect(first).toContain("YOUR CHATS");
-    expect(first).toContain("CONNECT A MODEL");
+    expect(first).toContain("Chats · 2");
+    expect(first).toContain("Connect a model");
     expect(first).not.toContain("████   █████");
-    expect(first).toContain("> session-current");
+    expect(first).toContain("> Current chat");
     expect(first).toContain("gpt-5.6-sol");
-    expect(first).toContain("START NEW PROJECT");
+    expect(first).not.toContain("session-current");
+    expect(first).not.toContain("session-older");
+    expect(first).toContain("Start new project");
 
     component.handleInput("\u001b[B");
     component.handleInput("\r");
@@ -250,7 +252,7 @@ describe("LaunchComponent", () => {
       refresh() {},
     });
 
-    expect(component.render(34).join("\n")).toContain("> START NEW PROJECT");
+    expect(component.render(34).join("\n")).toContain("> Start new project");
     component.handleInput("\r");
     expect(newProject).toHaveBeenCalledOnce();
   });
@@ -307,6 +309,7 @@ describe("TaskPanelComponent", () => {
     expect(renderedRows.at(-1)).toContain("ENTER OPEN");
     expect(rendered).toContain("RECURS / AUTH-SERVICE / TASKS");
     expect(rendered).toContain("SHIP SECURE AUTHENTICATION");
+    expect(rendered).not.toContain("goal-1");
     expect(rendered).toContain("SCOPED BUILDER");
     expect(rendered).toContain("implement-model · medium");
     expect(rendered).not.toContain("INDEPENDENT REVIEWER");
@@ -387,14 +390,15 @@ describe("RecursInteractiveShell", () => {
 
     const running = shell.start(runtime);
     await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(terminal.output).toContain("YOUR CHATS");
-    expect(terminal.output).toContain("> session-current");
+    expect(terminal.output).toContain("Chats · 1");
+    expect(terminal.output).toContain("> Current chat");
+    expect(terminal.output).not.toContain("session-current");
     terminal.input?.("\r");
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(terminal.output).toContain("INDEPENDENT REVIEWER");
     terminal.input?.("\u001b");
     await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(terminal.writes.at(-1)).toContain("YOUR CHATS");
+    expect(terminal.writes.at(-1)).toContain("Chats · 1");
     terminal.input?.("\r");
     await new Promise<void>((resolve) => setImmediate(resolve));
     terminal.input?.("\u0011");
@@ -470,7 +474,7 @@ describe("RecursInteractiveShell", () => {
 
     const running = shell.start(runtime);
     await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(terminal.output).toContain("> START NEW PROJECT");
+    expect(terminal.output).toContain("> Start new project");
     terminal.input?.("\r");
     await expect(running).resolves.toEqual({ type: "new_project" });
   });
@@ -514,7 +518,7 @@ describe("RecursInteractiveShell", () => {
     },
   );
 
-  it("uses the exact black V19 canvas in a color-capable terminal", async () => {
+  it("uses the user's terminal background in a color-capable terminal", async () => {
     const terminal = new TestTerminal(80, 24);
     const shell = new RecursInteractiveShell({
       terminal,
@@ -534,7 +538,7 @@ describe("RecursInteractiveShell", () => {
     });
 
     await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(terminal.writes.at(-1)).toContain("\u001b[48;2;0;0;0m");
+    expect(terminal.writes.at(-1)).not.toContain("48;2;0;0;0");
     terminal.input?.("\u001b");
     await rejected;
   });
@@ -703,6 +707,90 @@ describe("RecursInteractiveShell", () => {
     expect(terminal.starts).toBe(2);
     expect(terminal.stops).toBe(2);
     expect(terminal.input).toBeNull();
+  });
+
+  it("starts each setup choice on its explicit recommended option", async () => {
+    const terminal = new TestTerminal(80, 24);
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+      colorEnabled: false,
+    });
+    const onboarding = shell.onboard(async (ui) =>
+      await ui.selectChoice("Choose teamwork", [{
+        id: "economy",
+        label: "Economy",
+        detail: "one agent",
+      }, {
+        id: "balanced",
+        label: "Balanced",
+        detail: "recommended bounded company",
+        recommended: true,
+      }])
+    );
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\r");
+
+    await expect(onboarding).resolves.toBe("balanced");
+  });
+
+  it("wraps the selected setup explanation instead of truncating it", async () => {
+    const terminal = new TestTerminal(52, 20);
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+      colorEnabled: false,
+    });
+    const onboarding = shell.onboard(async (ui) =>
+      await ui.selectChoice("Choose a model connection", [{
+        id: "saved",
+        label: "Use saved Codex",
+        detail: "Use vendor-owned authentication without losing the security boundary",
+      }])
+    );
+    const rejected = expect(onboarding).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.writes.at(-1)).toContain("security boundary");
+    terminal.input?.("\u001b");
+    await rejected;
+  });
+
+  it("shows only the current setup step and never exposes connection IDs", async () => {
+    const terminal = new TestTerminal(70, 20);
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+      colorEnabled: false,
+    });
+    const onboarding = shell.onboard(async (ui) => {
+      ui.stdout.write("01/06  PARENT MODEL\n");
+      ui.stdout.write("Verified — codex-d54998d3-9fc9 · gpt-5.6-sol\n");
+      ui.stdout.write("02/06  AUTHORITY\n");
+      return await ui.selectChoice("Choose authority", [{
+        id: "approved",
+        label: "Approved for Me",
+        detail: "ask before consequential work",
+      }]);
+    });
+    const rejected = expect(onboarding).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const frame = terminal.writes.at(-1) ?? "";
+    expect(frame).toContain("02/06  AUTHORITY");
+    expect(frame).toContain("Parent model connected · gpt-5.6-sol");
+    expect(frame).not.toContain("01/06  PARENT MODEL");
+    expect(frame).not.toContain("codex-d54998d3-9fc9");
+    terminal.input?.("\u001b");
+    await rejected;
   });
 
   it("applies TUI color without exposing nested ANSI fragments", async () => {

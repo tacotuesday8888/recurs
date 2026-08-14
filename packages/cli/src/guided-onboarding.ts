@@ -69,6 +69,7 @@ export interface GuidedChoice {
   readonly id: string;
   readonly label: string;
   readonly detail: string;
+  readonly recommended?: boolean;
 }
 
 export type GuidedConnectionAction =
@@ -216,6 +217,7 @@ export const GUIDED_PERMISSION_CHOICES: readonly GuidedChoice[] = Object.freeze(
     id: "approved_for_me",
     label: "Approved for Me (recommended)",
     detail: "automate routine workspace work; ask before consequential actions",
+    recommended: true,
   }),
   Object.freeze({
     id: "ask_always",
@@ -245,6 +247,7 @@ export const GUIDED_OPERATING_MODE_CHOICES: readonly GuidedChoice[] =
         id: policy.id,
         label: `${policy.displayName}${policy.id === DEFAULT_OPERATING_MODE_ID ? " (recommended)" : ""}`,
         detail: `${team?.maxImplementers ?? 1} implementer${team?.maxImplementers === 1 ? "" : "s"} · up to ${(policy.company?.maxDepth ?? 0) + 1} layers · ${policy.orchestration.maxConcurrentChildren} concurrent · ${billing}`,
+        recommended: policy.id === DEFAULT_OPERATING_MODE_ID,
       });
     }));
 
@@ -1011,6 +1014,7 @@ const COMPANY_ONBOARDING_DEPTH_CHOICES: readonly GuidedChoice[] = Object.freeze(
     id: "guided",
     label: "Guided (recommended)",
     detail: "adaptive questions and up to three bounded read-only investigations",
+    recommended: true,
   }),
   Object.freeze({
     id: "deep",

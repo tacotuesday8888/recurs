@@ -18,7 +18,8 @@ blueprint and normalized runtime events.
 
 ## Visual rules
 
-- The interactive color surface is a pure black terminal canvas.
+- The interactive surface respects the user's terminal background. V19 color is
+  expressed through foreground accents, never by repainting the whole viewport.
 - Navigation uses the compact `R↘ RECURS / PROJECT / VIEW` breadcrumb. The large
   repository wordmark is not repeated inside operational screens.
 - Company layers use the V19 order and palette: Direct, Lead, Senior, Work.

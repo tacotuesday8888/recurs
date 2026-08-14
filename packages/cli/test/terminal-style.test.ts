@@ -207,7 +207,7 @@ describe("terminal presentation", () => {
     ].join("\n"));
   });
 
-  it("paints an exact black viewport without losing foreground styles", () => {
+  it("respects the terminal background while preserving foreground styles", () => {
     const theme = createTerminalTheme(new TerminalOutput(), {
       environment: colorEnvironment,
     });
@@ -219,9 +219,8 @@ describe("terminal presentation", () => {
 
     expect(canvas).toHaveLength(4);
     expect(canvas.every((line) => visibleWidth(line) === 14)).toBe(true);
-    expect(canvas.every((line) => line.startsWith("\u001b[48;2;0;0;0m")))
-      .toBe(true);
-    expect(canvas[0]).toContain("\u001b[0m\u001b[48;2;0;0;0m");
+    expect(canvas.join("\n")).not.toContain("48;2;0;0;0");
+    expect(canvas[0]).toContain("\u001b[96mR↘ RECURS\u001b[0m");
   });
 
   it("keeps NO_COLOR output escape-free and unpadded", () => {

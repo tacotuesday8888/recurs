@@ -354,7 +354,10 @@ describe("TerminalUiState", () => {
     expect(rendered).toContain("IMPLEMENTATION LEAD");
     expect(rendered).toContain("BUILDER");
     expect(rendered).toContain("gpt-5.6-terra · medium");
-    expect(rendered).toContain("···");
+    expect(rendered).toContain("│");
+    expect(rendered).not.toContain("balanced_v6");
+    expect(rendered).not.toContain("approved_for_me");
+    expect(rendered).not.toContain("goal-1");
     expect(rendered).not.toContain("┌");
     expect(rendered).not.toContain("┐");
   });
@@ -488,6 +491,7 @@ describe("TerminalUiState", () => {
       expect.stringContaining("00  DIRECT"),
       expect.stringContaining("PARENT"),
     ]));
+    expect(wide.join("\n")).not.toContain("· · NOT ACTIVATED");
     expect(narrow[0]).toBe("R↘ RECURS / COMPANY");
     expect(narrow.every((line) => Array.from(line).length <= 24)).toBe(true);
     expect(narrow).toMatchInlineSnapshot(`
@@ -500,7 +504,7 @@ describe("TerminalUiState", () => {
         "00 DIRECT    PARENT · ○…",
         "✳ PARENT · COMPANY · RE…",
         "────────────────────────",
-        "balanced_v6 · approved_…",
+        "Balanced · Approved for…",
         "ENTER OPEN   ARROWS SEL…",
       ]
     `);
@@ -550,6 +554,7 @@ describe("TerminalUiState", () => {
     expect(frame).toContain("▄██▄");
     expect(frame).toContain("╰");
     expect(frame).toContain("AUTH WORKER");
+    expect(frame).not.toContain("· · NOT ACTIVATED");
   });
 
   it("projects review, repair, handoff, evidence, request, and partial usage activity", async () => {
