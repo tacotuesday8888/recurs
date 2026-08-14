@@ -790,7 +790,16 @@ export function renderCompanyHome(
       width,
     ),
   );
-  return Object.freeze(
-    requestedHeight === undefined ? lines : lines.slice(0, requestedHeight),
-  );
+  if (requestedHeight === undefined) return Object.freeze(lines);
+  const height = Math.max(1, requestedHeight);
+  if (lines.length < height) {
+    const footerRows = goal === null || condensed ? 3 : 7 +
+      (reviewSummary(goal) === null ? 0 : 1) + (goal.reason === null ? 0 : 1);
+    const insertion = Math.max(5, lines.length - footerRows);
+    lines.splice(insertion, 0, ...Array.from(
+      { length: height - lines.length },
+      () => "",
+    ));
+  }
+  return Object.freeze(lines.slice(0, height));
 }

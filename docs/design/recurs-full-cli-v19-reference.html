@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Recurs CLI — company to code</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#000;
+      --ink:#eef2ef;
+      --muted:#747c77;
+      --faint:#282e2a;
+      --panel:#0a0c0b;
+      --exec:#f2d36d;
+      --lead:#76a8ff;
+      --senior:#66e4c9;
+      --junior:#9de66f;
+      --danger:#ff786f;
+      --cell:4px;
+    }
+
+    * { box-sizing:border-box; }
+    html,body { width:100%;height:100%;margin:0;background:#000;overflow:hidden; }
+    body {
+      color:var(--ink);
+      font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;
+      -webkit-font-smoothing:none;
+      text-rendering:geometricPrecision;
+    }
+    button,input { font:inherit; }
+    button { color:inherit; }
+    [hidden] { display:none !important; }
+
+    .app {
+      position:relative;
+      display:grid;
+      grid-template-rows:auto minmax(0,1fr) auto;
+      width:100%;height:100%;
+      min-width:760px;
+      background:#000;
+    }
+
+    .topbar {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      align-items:center;
+      min-height:52px;
+      padding:10px 22px;
+      border-bottom:1px solid var(--faint);
+    }
+    .crumb { display:flex;align-items:center;gap:8px;min-width:0; }
+    .mark { color:var(--senior);font-weight:900;letter-spacing:-2px;transform:skew(-7deg); }
+    .crumb strong { font-size:13px;letter-spacing:.03em; }
+    .crumb .path { color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+    .run-state { display:flex;gap:18px;color:var(--muted);font-size:10px;letter-spacing:.05em; }
+    .run-state b { color:var(--junior);font-weight:700; }
+    .run-state .mode { color:var(--exec); }
+
+    .screen { position:relative;min-height:0;overflow:hidden; }
+    .view { position:absolute;inset:0; }
+
+    /* Company floor */
+    .company {
+      display:grid;
+      grid-template-rows:auto minmax(420px,1fr) auto;
+      width:min(1180px,100% - 56px);
+      margin:0 auto;
+      padding:22px 0 16px;
+    }
+    .company-title { display:flex;align-items:flex-end;justify-content:space-between;gap:24px; }
+    .eyebrow { color:var(--senior);font-size:10px;letter-spacing:.13em; }
+    h1 { margin:5px 0 0;font-size:22px;line-height:1;font-weight:900;letter-spacing:.015em; }
+    .company-summary { color:var(--muted);text-align:right;font-size:10px; }
+
+    .org { position:relative;min-height:440px;margin:12px 0 0 74px; }
+    .tier {
+      position:absolute;left:-74px;width:56px;
+      color:var(--muted);font-size:8px;letter-spacing:.1em;text-align:right;
+    }
+    .tier b { display:block;font-size:10px; }
+    .tier[data-tier="0"] { top:7%; }.tier[data-tier="0"] b { color:var(--exec); }
+    .tier[data-tier="1"] { top:31%; }.tier[data-tier="1"] b { color:var(--lead); }
+    .tier[data-tier="2"] { top:58%; }.tier[data-tier="2"] b { color:var(--senior); }
+    .tier[data-tier="3"] { top:85%; }.tier[data-tier="3"] b { color:var(--junior); }
+
+    .wires { position:absolute;inset:0;width:100%;height:100%;pointer-events:none; }
+    .wire { fill:none;stroke:var(--faint);stroke-width:1.2;stroke-dasharray:2 7;vector-effect:non-scaling-stroke; }
+    .wire.live { stroke:var(--senior);stroke-width:1.6;stroke-dasharray:3 8;animation:flow 1.25s linear infinite; }
+    .wire.review { stroke:color-mix(in srgb,var(--lead) 60%,transparent); }
+    .wire.idle { opacity:.42; }
+    @keyframes flow { to { stroke-dashoffset:-22; } }
+
+    .agent {
+      position:absolute;z-index:2;width:146px;
+      padding:0;border:0;background:transparent;
+      transform:translate(-50%,-50%);
+      text-align:center;cursor:pointer;
+    }
+    .agent:focus-visible { outline:none; }
+    .pet { display:block;width:max-content;margin:0 auto 5px;white-space:pre;font-weight:900;line-height:.68;letter-spacing:-1px; }
+    .agent[data-tier="0"] { color:var(--exec); }.agent[data-tier="0"] .pet { font-size:11px; }
+    .agent[data-tier="1"] { color:var(--lead); }.agent[data-tier="1"] .pet { font-size:10px; }
+    .agent[data-tier="2"] { color:var(--senior); }.agent[data-tier="2"] .pet { font-size:9px; }
+    .agent[data-tier="3"] { color:var(--junior); }.agent[data-tier="3"] .pet { font-size:8px; }
+    .agent .name { color:currentColor;font-size:9px;font-weight:900;letter-spacing:.06em; }
+    .agent .meta { margin-top:2px;color:var(--muted);font-size:8px;white-space:nowrap; }
+    .agent.inactive { opacity:.28; }
+    .agent.working .pet { animation:work 1.05s steps(2,end) infinite; }
+    @keyframes work { 0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-2px) rotate(-1deg)} }
+    .agent.selected .name { color:#fff; }
+    .agent.selected .name::before { content:">";margin-right:5px;color:currentColor; }
+    .agent.selected .pet { filter:brightness(1.3); }
+    .agent:hover .name { color:#fff; }
+
+    .director { left:50%;top:10%; }
+    .research { left:24%;top:34%; }.engineering { left:50%;top:34%; }.quality { left:76%;top:34%; }
+    .explore { left:13%;top:61%; }.architect { left:30%;top:61%; }.implement { left:43%;top:61%; }.test { left:57%;top:61%; }.review { left:73%;top:61%; }.security { left:88%;top:61%; }
+    .auth-worker { left:36%;top:88%; }.api-worker { left:49%;top:88%; }.verifier { left:61%;top:88%; }
+
+    .company-foot {
+      display:grid;grid-template-columns:18px 136px minmax(0,1fr) auto;gap:9px;
+      align-items:center;padding:9px 10px;border-left:2px solid var(--lead);
+      background:color-mix(in srgb,var(--lead) 6%,transparent);color:var(--muted);
+    }
+    .company-foot .pulse { color:var(--lead);animation:blink 1s steps(2,end) infinite; }
+    .company-foot b { color:var(--lead); }
+    .company-foot small { color:var(--muted); }
+    @keyframes blink { 50%{opacity:.25} }
+
+    /* Chat */
+    .chat {
+      display:grid;grid-template-rows:auto minmax(0,1fr);
+      width:min(1120px,100% - 56px);height:100%;margin:0 auto;padding-top:16px;
+    }
+    .agent-strip { display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:13px;align-items:center;padding:0 2px 13px;border-bottom:1px solid var(--faint); }
+    .mini-pet { margin:0;color:var(--lead);font-size:9px;font-weight:900;line-height:.68;white-space:pre; }
+    .agent-strip strong { color:var(--lead);font-size:11px;letter-spacing:.05em; }
+    .agent-strip small { display:block;margin-top:2px;color:var(--muted); }
+    .agent-strip .scope { color:var(--muted);font-size:9px;text-align:right; }
+
+    .transcript { min-height:0;overflow:auto;padding:15px 2px 22px;scrollbar-width:thin;scrollbar-color:var(--faint) #000; }
+    .turn { max-width:940px;margin:0 0 15px; }
+    .user-turn { padding:11px 14px;border-left:2px solid var(--lead);background:#0d100e;color:#fff; }
+    .assistant-turn { color:var(--ink); }
+    .speaker { color:var(--lead);font-weight:800; }
+    .thought { margin-bottom:8px;color:var(--muted);font-style:italic; }
+    .tool-list { margin:8px 0 0 14px;color:var(--muted); }
+    .tool { margin:3px 0; }
+    .tool .ok { color:var(--junior); }.tool .running { color:var(--senior); }
+    .patch { margin-top:10px;padding:10px 12px;border:1px solid var(--faint);background:#060706;color:var(--muted); }
+    .patch b { color:var(--ink); }.add { color:var(--junior); }.remove { color:var(--danger); }
+    .handoff { margin:12px 0;padding:8px 10px;border-left:2px solid var(--senior);color:var(--muted); }
+    .handoff b { color:var(--senior); }
+    .working-line { color:var(--muted); }
+    .working-line span { color:var(--senior);animation:blink 1s steps(2,end) infinite; }
+
+    /* Composer */
+    .composer-wrap { padding:10px 22px 12px;border-top:1px solid var(--faint);background:#000; }
+    .composer { display:flex;align-items:flex-start;gap:8px;width:min(1120px,100%);min-height:44px;margin:0 auto;padding:10px 12px;border:1px solid #414943;background:#070908; }
+    .composer:focus-within { border-color:var(--senior); }
+    .prompt { color:var(--senior);font-weight:900; }
+    .composer input { flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--ink);caret-color:var(--senior); }
+    .composer input::placeholder { color:#505753; }
+    .composer-meta { display:flex;justify-content:space-between;gap:20px;width:min(1120px,100%);margin:7px auto 0;color:var(--muted);font-size:9px; }
+    .composer-meta kbd { color:var(--ink);font:inherit; }.composer-meta .max { color:var(--exec);font-weight:800; }
+
+    /* Drawers and dialogs */
+    .drawer {
+      position:absolute;right:18px;bottom:76px;z-index:10;width:min(480px,calc(100% - 36px));
+      border:1px solid #414943;background:#050605;box-shadow:0 12px 40px #000;
+    }
+    .drawer-head { display:flex;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--faint); }
+    .drawer-head b { color:var(--senior); }.drawer-head span { color:var(--muted);font-size:9px; }
+    .task { display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:8px;padding:9px 12px;border-bottom:1px solid #151915; }
+    .task:last-child { border-bottom:0; }.task .done { color:var(--junior); }.task .now { color:var(--senior); }.task small { color:var(--muted); }
+
+    .palette { position:absolute;left:50%;bottom:82px;z-index:12;width:min(660px,calc(100% - 40px));transform:translateX(-50%);border:1px solid #414943;background:#050605;box-shadow:0 18px 50px #000; }
+    .palette-title { padding:9px 12px;color:var(--muted);border-bottom:1px solid var(--faint); }
+    .command { display:grid;grid-template-columns:125px minmax(0,1fr) auto;gap:12px;padding:9px 12px;border-bottom:1px solid #151915;cursor:pointer; }
+    .command.selected,.command:hover { background:#101410; }.command b { color:var(--senior); }.command span { color:var(--muted); }.command kbd { color:var(--ink);font:inherit; }
+
+    .shade { position:absolute;inset:0;z-index:20;display:grid;place-items:center;background:rgba(0,0,0,.74); }
+    .approval { width:min(720px,calc(100% - 48px));border:1px solid #59625c;background:#050605;box-shadow:0 18px 70px #000; }
+    .approval-head { padding:12px 14px;border-bottom:1px solid var(--faint);color:var(--exec);font-weight:800; }
+    .approval-body { padding:14px;color:var(--muted); }.approval-body b { color:var(--ink); }.approval-body code { display:block;margin:10px 0;padding:10px 12px;border-left:2px solid var(--exec);background:#0b0c0b;color:var(--ink); }
+    .choices { display:flex;gap:8px;padding:0 14px 14px; }
+    .choices button { padding:7px 10px;border:1px solid #414943;background:#090b09;cursor:pointer; }.choices button:hover,.choices button:focus { outline:none;border-color:var(--senior);color:#fff; }
+    .choices .primary { border-color:var(--senior);color:var(--senior); }
+
+    .toast { position:absolute;left:50%;top:64px;z-index:30;transform:translateX(-50%);padding:7px 11px;border:1px solid var(--faint);background:#060806;color:var(--junior); }
+
+    @media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation-duration:.001ms !important;animation-iteration-count:1 !important; } }
+    @media (max-width:900px) {
+      .company,.chat { width:calc(100% - 28px); }.org { margin-left:58px; }.tier { left:-58px; }
+      .run-state span:nth-child(2),.run-state span:nth-child(3),.company-summary { display:none; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app" aria-label="Recurs terminal prototype">
+    <header class="topbar">
+      <div class="crumb"><span class="mark" aria-hidden="true">R↘</span><strong>RECURS</strong><span class="path" id="breadcrumb">/ AUTH SERVICE / COMPANY</span></div>
+      <div class="run-state"><span><b>● LIVE</b></span><span>main · clean</span><span>context 18%</span><span class="mode">MAX</span></div>
+    </header>
+
+    <section class="screen">
+      <section class="view company" id="company-view" aria-label="Company floor">
+        <div class="company-title">
+          <div><div class="eyebrow">GOAL 017 · IMPLEMENT SECURE TOKEN ROTATION</div><h1>Your company is working.</h1></div>
+          <div class="company-summary">05 active · 01 waiting · 03 complete<br>7 requests · reported cost unavailable</div>
+        </div>
+
+        <div class="org" id="org">
+          <div class="tier" data-tier="0"><b>00</b>DIRECT</div><div class="tier" data-tier="1"><b>01</b>LEAD</div><div class="tier" data-tier="2"><b>02</b>SENIOR</div><div class="tier" data-tier="3"><b>03</b>WORK</div>
+          <svg class="wires" viewBox="0 0 1000 500" preserveAspectRatio="none" aria-hidden="true">
+            <path class="wire" d="M500 50 C500 105 240 95 240 170"/><path class="wire live" d="M500 50 C500 110 500 110 500 170"/><path class="wire review" d="M500 50 C500 105 760 95 760 170"/>
+            <path class="wire" d="M240 170 C240 225 130 225 130 305"/><path class="wire idle" d="M240 170 C240 225 300 225 300 305"/>
+            <path class="wire live" d="M500 170 C500 225 430 225 430 305"/><path class="wire live" d="M500 170 C500 225 570 225 570 305"/>
+            <path class="wire review" d="M760 170 C760 225 730 225 730 305"/><path class="wire review" d="M760 170 C760 225 880 225 880 305"/>
+            <path class="wire live" d="M430 305 C430 365 360 365 360 440"/><path class="wire idle" d="M430 305 C430 365 490 365 490 440"/><path class="wire" d="M570 305 C570 365 610 365 610 440"/>
+          </svg>
+
+          <button class="agent director working" data-agent="DIRECTOR" data-tier="0"><span class="pet">   ▄██▄
+ ▄██████▄
+◀██▄██▄██
+  ▀████▀
+ ▀ ▀  ▀ ▀</span><span class="name">DIRECTOR</span><span class="meta">sol · orchestrating</span></button>
+          <button class="agent research" data-agent="RESEARCH LEAD" data-tier="1"><span class="pet">  ▄██▄
+◀████▌
+ ▀██▀
+ ▀  ▀</span><span class="name">RESEARCH LEAD</span><span class="meta">scope mapped · done</span></button>
+          <button class="agent engineering working selected" data-agent="ENGINEERING LEAD" data-tier="1"><span class="pet">  ▄██▄
+◀████▌
+ ▀██▀
+ ▀  ▀</span><span class="name">ENGINEERING LEAD</span><span class="meta">3 assignments · active</span></button>
+          <button class="agent quality" data-agent="QUALITY LEAD" data-tier="1"><span class="pet">  ▄██▄
+◀████▌
+ ▀██▀
+ ▀  ▀</span><span class="name">QUALITY LEAD</span><span class="meta">independent · waiting</span></button>
+
+          <button class="agent explore" data-agent="EXPLORE" data-tier="2"><span class="pet"> ▄██▄
+◀███▌
+ ▀ ▀</span><span class="name">EXPLORE</span><span class="meta">14 callers</span></button>
+          <button class="agent architect inactive" data-agent="ARCHITECT" data-tier="2"><span class="pet"> ▄██▄
+◀███▌
+ ▀ ▀</span><span class="name">ARCHITECT</span><span class="meta">not activated</span></button>
+          <button class="agent implement working" data-agent="IMPLEMENT" data-tier="2"><span class="pet"> ▄██▄
+◀███▌
+ ▀ ▀</span><span class="name">IMPLEMENT</span><span class="meta">editing</span></button>
+          <button class="agent test" data-agent="TEST" data-tier="2"><span class="pet"> ▄██▄
+◀███▌
+ ▀ ▀</span><span class="name">TEST</span><span class="meta">11 passing</span></button>
+          <button class="agent review" data-agent="REVIEW" data-tier="2"><span class="pet"> ▄██▄
+◀███▌
+ ▀ ▀</span><span class="name">REVIEW</span><span class="meta">waiting</span></button>
+          <button class="agent security" data-agent="SECURITY" data-tier="2"><span class="pet"> ▄██▄
+◀███▌
+ ▀ ▀</span><span class="name">SECURITY</span><span class="meta">policy checked</span></button>
+
+          <button class="agent auth-worker working" data-agent="AUTH WORKER" data-tier="3"><span class="pet">▄██▄
+▀  ▀</span><span class="name">AUTH WORKER</span><span class="meta">terra · editing</span></button>
+          <button class="agent api-worker inactive" data-agent="API WORKER" data-tier="3"><span class="pet">▄██▄
+▀  ▀</span><span class="name">API WORKER</span><span class="meta">not activated</span></button>
+          <button class="agent verifier" data-agent="VERIFIER" data-tier="3"><span class="pet">▄██▄
+▀  ▀</span><span class="name">VERIFIER</span><span class="meta">evidence ready</span></button>
+        </div>
+
+        <div class="company-foot"><span class="pulse">✳</span><b id="focus-name">ENGINEERING LEAD</b><span id="focus-activity">Auth worker is editing token-store.ts in an isolated worktree.</span><small>enter to open</small></div>
+      </section>
+
+      <section class="view chat" id="chat-view" aria-label="Agent transcript" hidden>
+        <header class="agent-strip">
+          <pre class="mini-pet" aria-hidden="true">  ▄██▄
+◀████▌
+ ▀██▀
+ ▀  ▀</pre>
+          <div><strong id="chat-agent">ENGINEERING LEAD</strong><small id="chat-meta">terra · medium · inherited authority · 3 assignments</small></div>
+          <div class="scope">ATTACHED<br>goal scope preserved</div>
+        </header>
+        <div class="transcript" id="transcript">
+          <div class="turn user-turn">Implement secure token rotation without breaking existing callers. Keep the patch small and prove compatibility.</div>
+          <div class="turn assistant-turn"><div class="thought">I’m mapping the compatibility boundary before assigning implementation.</div><span class="speaker">engineering lead</span> I’ll keep the public token API stable, isolate the mutation, then send the candidate through independent review.</div>
+          <div class="turn tool-list"><div class="tool"><span class="ok">✓</span> Explore mapped 14 callers · 18.4s</div><div class="tool"><span class="ok">✓</span> Assigned Auth Worker · terra medium</div><div class="tool"><span class="running">◆</span> Auth Worker editing token-store.ts</div></div>
+          <div class="turn handoff"><b>HANDOFF 02 → 03</b><br>Scope: token-store.ts + focused tests · no publish · 2 request ceiling</div>
+          <div class="turn patch"><b>token-store.ts</b><br><span class="remove">- return this.tokens.get(id)</span><br><span class="add">+ return this.readActiveToken(id, now)</span><br><span class="add">+ await this.rotateExpiredToken(id, now)</span></div>
+          <div class="turn working-line"><span>✳</span> Worker is running focused tests…</div>
+        </div>
+      </section>
+
+      <aside class="drawer" id="tasks" aria-label="Goal tasks" hidden>
+        <div class="drawer-head"><b>GOAL TASKS</b><span>ctrl+t closes</span></div>
+        <div class="task"><span class="done">✓</span><span>Map public token callers</span><small>Explore</small></div>
+        <div class="task"><span class="now">◆</span><span>Implement bounded rotation</span><small>Auth Worker</small></div>
+        <div class="task"><span>·</span><span>Run compatibility suite</span><small>Test</small></div>
+        <div class="task"><span>·</span><span>Independent review</span><small>Quality Lead</small></div>
+        <div class="task"><span>·</span><span>Repair + synthesize</span><small>Director</small></div>
+      </aside>
+
+      <section class="palette" id="palette" aria-label="Command palette" hidden>
+        <div class="palette-title">COMMANDS · type to filter</div>
+        <div class="command selected" data-command="company"><b>/company</b><span>Return to the live company floor</span><kbd>g</kbd></div>
+        <div class="command" data-command="agents"><b>/agents</b><span>Jump to an activated agent</span><kbd>tab</kbd></div>
+        <div class="command" data-command="tasks"><b>/tasks</b><span>Toggle goal tasks</span><kbd>ctrl+t</kbd></div>
+        <div class="command" data-command="approval"><b>/approval-demo</b><span>Preview a permission decision</span><kbd>a</kbd></div>
+        <div class="command" data-command="model"><b>/model</b><span>Inspect role routes and rationale</span><kbd></kbd></div>
+      </section>
+
+      <section class="shade" id="approval" aria-label="Approval request" hidden>
+        <div class="approval" role="dialog" aria-modal="true" aria-labelledby="approval-title">
+          <div class="approval-head" id="approval-title">AUTH WORKER REQUESTS APPROVAL</div>
+          <div class="approval-body"><b>Run the focused compatibility test in the isolated worktree?</b><code>npm test -- token-store.test.ts</code>Authority: inherited from Engineering Lead · workspace only · no network · no publish</div>
+          <div class="choices"><button class="primary" data-decision="once">Allow once</button><button data-decision="goal">Allow for this goal</button><button data-decision="deny">Deny</button><button data-decision="cancel">Esc</button></div>
+        </div>
+      </section>
+      <div class="toast" id="toast" hidden></div>
+    </section>
+
+    <footer class="composer-wrap">
+      <div class="composer"><span class="prompt">›</span><input id="input" aria-label="Message or command" autocomplete="off" spellcheck="false" placeholder="Describe a goal, message this agent, or type / for commands"></div>
+      <div class="composer-meta"><span id="help"><kbd>enter</kbd> open · <kbd>arrows</kbd> select · <kbd>ctrl+t</kbd> tasks · <kbd>/</kbd> commands</span><span><span class="max">MAX</span> · Approved for Me · Models Auto</span></div>
+    </footer>
+  </main>
+
+  <script>
+    (() => {
+      const company = document.querySelector('#company-view');
+      const chat = document.querySelector('#chat-view');
+      const input = document.querySelector('#input');
+      const tasks = document.querySelector('#tasks');
+      const palette = document.querySelector('#palette');
+      const approval = document.querySelector('#approval');
+      const toast = document.querySelector('#toast');
+      const breadcrumb = document.querySelector('#breadcrumb');
+      const help = document.querySelector('#help');
+      const agents = [...document.querySelectorAll('.agent')];
+      const focusName = document.querySelector('#focus-name');
+      const focusActivity = document.querySelector('#focus-activity');
+      const transcript = document.querySelector('#transcript');
+      let selected = agents.findIndex((node) => node.classList.contains('selected'));
+      let view = 'company';
+
+      const detail = {
+        'DIRECTOR':'Supervising the approved goal and every authority boundary.',
+        'RESEARCH LEAD':'Explore returned the public API map with evidence.',
+        'ENGINEERING LEAD':'Auth worker is editing token-store.ts in an isolated worktree.',
+        'QUALITY LEAD':'Waiting for a candidate before independent review.',
+        'EXPLORE':'Mapped 14 compatibility-sensitive callers.',
+        'ARCHITECT':'Not activated because this goal does not require a new design.',
+        'IMPLEMENT':'Coordinating the bounded implementation candidate.',
+        'TEST':'Eleven focused checks are passing.',
+        'REVIEW':'Queued behind the implementation candidate.',
+        'SECURITY':'Confirmed workspace-only authority and no credential access.',
+        'AUTH WORKER':'Editing token-store.ts with a two-request ceiling.',
+        'API WORKER':'Not activated for this goal.',
+        'VERIFIER':'Prepared evidence for independent review.'
+      };
+
+      const select = (index) => {
+        agents[selected]?.classList.remove('selected');
+        selected = (index + agents.length) % agents.length;
+        const node = agents[selected];
+        node.classList.add('selected');
+        focusName.textContent = node.dataset.agent;
+        focusActivity.textContent = detail[node.dataset.agent];
+      };
+
+      const showToast = (message) => {
+        toast.textContent = message; toast.hidden = false;
+        clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.hidden = true, 1600);
+      };
+
+      const openAgent = (name = agents[selected].dataset.agent) => {
+        const index = agents.findIndex((node) => node.dataset.agent === name);
+        if (index >= 0) select(index);
+        view = 'chat'; company.hidden = true; chat.hidden = false; palette.hidden = true;
+        document.querySelector('#chat-agent').textContent = name;
+        document.querySelector('#chat-meta').textContent = name.includes('LEAD') ? 'terra · medium · inherited authority · bounded delegation' : 'luna · medium · scoped authority';
+        breadcrumb.textContent = `/ AUTH SERVICE / COMPANY / ${name}`;
+        help.innerHTML = '<kbd>enter</kbd> send · <kbd>esc</kbd> company · <kbd>ctrl+t</kbd> tasks · <kbd>/</kbd> commands';
+        input.placeholder = `Message ${name.toLowerCase()} or type / for commands`;
+        input.value = ''; input.focus(); transcript.scrollTop = transcript.scrollHeight;
+      };
+
+      const openCompany = () => {
+        view = 'company'; company.hidden = false; chat.hidden = true; palette.hidden = true;
+        breadcrumb.textContent = '/ AUTH SERVICE / COMPANY';
+        help.innerHTML = '<kbd>enter</kbd> open · <kbd>arrows</kbd> select · <kbd>ctrl+t</kbd> tasks · <kbd>/</kbd> commands';
+        input.placeholder = 'Describe a goal, open an agent, or type / for commands';
+        input.value = ''; input.focus();
+      };
+
+      const toggleTasks = () => { tasks.hidden = !tasks.hidden; palette.hidden = true; };
+      const openApproval = () => { approval.hidden = false; palette.hidden = true; approval.querySelector('button').focus(); };
+      const closeApproval = () => { approval.hidden = true; input.focus(); };
+      const togglePalette = (force) => { palette.hidden = force === undefined ? !palette.hidden : !force; tasks.hidden = true; };
+
+      const runCommand = (command) => {
+        if (command === 'company') openCompany();
+        if (command === 'agents') { openCompany(); showToast('Use arrows, then Enter to open an agent'); }
+        if (command === 'tasks') toggleTasks();
+        if (command === 'approval') openApproval();
+        if (command === 'model') showToast('Models Auto · route rationale is visible on each assignment');
+      };
+
+      const send = () => {
+        const value = input.value.trim();
+        if (!value) { if (view === 'company') openAgent(); return; }
+        if (value.startsWith('/')) {
+          const match = [...document.querySelectorAll('.command')].find((item) => item.querySelector('b').textContent.startsWith(value));
+          if (match) runCommand(match.dataset.command); else togglePalette();
+          input.value = ''; return;
+        }
+        if (view === 'company') { openAgent('DIRECTOR'); }
+        const userTurn = document.createElement('div');
+        userTurn.className = 'turn user-turn';
+        userTurn.textContent = value;
+        const assistantTurn = document.createElement('div');
+        assistantTurn.className = 'turn assistant-turn';
+        const speaker = document.createElement('span');
+        speaker.className = 'speaker';
+        speaker.textContent = document.querySelector('#chat-agent').textContent.toLowerCase();
+        assistantTurn.append(
+          speaker,
+          document.createTextNode(' I’ll continue inside this assignment’s scope and return evidence through the company hierarchy.'),
+        );
+        transcript.append(userTurn, assistantTurn);
+        input.value = ''; transcript.scrollTop = transcript.scrollHeight;
+      };
+
+      agents.forEach((node,index) => {
+        node.addEventListener('click', () => { select(index); openAgent(node.dataset.agent); });
+        node.addEventListener('focus', () => select(index));
+      });
+      document.querySelectorAll('.command').forEach((item) => item.addEventListener('click', () => runCommand(item.dataset.command)));
+      document.querySelectorAll('[data-decision]').forEach((button) => button.addEventListener('click', () => {
+        const decision = button.dataset.decision;
+        closeApproval();
+        if (decision !== 'cancel') showToast(decision === 'deny' ? 'Request denied · agent remains bounded' : 'Approved · focused test started');
+      }));
+
+      input.addEventListener('input', () => { if (input.value === '/') togglePalette(false); else if (!input.value.startsWith('/')) palette.hidden = true; });
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') { event.preventDefault(); send(); }
+        if (event.key === 'Escape') { event.preventDefault(); if (!approval.hidden) closeApproval(); else if (!palette.hidden) palette.hidden = true; else if (!tasks.hidden) tasks.hidden = true; else if (view === 'chat') openCompany(); else input.value = ''; }
+        if (view === 'company' && !input.value && ['ArrowUp','ArrowLeft'].includes(event.key)) { event.preventDefault(); select(selected - 1); }
+        if (view === 'company' && !input.value && ['ArrowDown','ArrowRight','Tab'].includes(event.key)) { event.preventDefault(); select(selected + 1); }
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.ctrlKey && event.key.toLowerCase() === 't') { event.preventDefault(); toggleTasks(); }
+        if (!approval.hidden && event.key === 'Escape') { event.preventDefault(); closeApproval(); }
+        if (event.key.toLowerCase() === 'g' && document.activeElement !== input) openCompany();
+        if (event.key.toLowerCase() === 'a' && document.activeElement !== input) openApproval();
+      });
+
+      select(selected); input.focus();
+    })();
+  </script>
+</body>
+</html>

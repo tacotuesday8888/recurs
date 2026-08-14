@@ -1,11 +1,13 @@
 import { Writable } from "node:stream";
 
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 
 import {
   createTerminalTheme,
   renderChoiceList,
   renderOperatingMode,
+  renderTerminalCanvas,
   renderRecursBrandRows,
   renderRecursHeader,
   renderRecursWordmark,
@@ -203,5 +205,30 @@ describe("terminal presentation", () => {
       "  02  Ask Always",
       "      confirm every command",
     ].join("\n"));
+  });
+
+  it("paints an exact black viewport without losing foreground styles", () => {
+    const theme = createTerminalTheme(new TerminalOutput(), {
+      environment: colorEnvironment,
+    });
+
+    const canvas = renderTerminalCanvas([
+      theme.accent("R↘ RECURS"),
+      "company",
+    ], 14, 4, theme);
+
+    expect(canvas).toHaveLength(4);
+    expect(canvas.every((line) => visibleWidth(line) === 14)).toBe(true);
+    expect(canvas.every((line) => line.startsWith("\u001b[48;2;0;0;0m")))
+      .toBe(true);
+    expect(canvas[0]).toContain("\u001b[0m\u001b[48;2;0;0;0m");
+  });
+
+  it("keeps NO_COLOR output escape-free and unpadded", () => {
+    const theme = createTerminalTheme(new TerminalOutput(), {
+      environment: { TERM: "xterm-256color", NO_COLOR: "1" },
+    });
+
+    expect(renderTerminalCanvas(["Recurs"], 80, 24, theme)).toEqual(["Recurs"]);
   });
 });

@@ -222,6 +222,8 @@ describe("LaunchComponent", () => {
     const first = component.render(92).join("\n");
     expect(first).toContain("R↘ RECURS / AUTH-SERVICE");
     expect(first).toContain("YOUR CHATS");
+    expect(first).toContain("CONNECT A MODEL");
+    expect(first).not.toContain("████   █████");
     expect(first).toContain("> session-current");
     expect(first).toContain("gpt-5.6-sol");
     expect(first).toContain("START NEW PROJECT");
@@ -296,9 +298,13 @@ describe("TaskPanelComponent", () => {
       openChat,
       back,
       refresh() {},
+      rows: () => 12,
     });
 
-    const rendered = panel.render(88).join("\n");
+    const renderedRows = panel.render(88);
+    const rendered = renderedRows.join("\n");
+    expect(renderedRows).toHaveLength(12);
+    expect(renderedRows.at(-1)).toContain("ENTER OPEN");
     expect(rendered).toContain("RECURS / AUTH-SERVICE / TASKS");
     expect(rendered).toContain("SHIP SECURE AUTHENTICATION");
     expect(rendered).toContain("SCOPED BUILDER");
@@ -395,6 +401,54 @@ describe("RecursInteractiveShell", () => {
     await expect(running).resolves.toEqual({ type: "quit" });
   });
 
+  it("opens a legacy session without a company directly in normal chat", async () => {
+    const terminal = new TestTerminal(92, 30);
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          id: "legacy-session",
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      async listSessions() {
+        return [{
+          id: "legacy-session",
+          cwd: "/workspace/auth-service",
+          model: "parent-model",
+          updatedAt: "2026-08-14T01:00:00.000Z",
+          version: 2 as const,
+        }];
+      },
+      companyBlueprint: null,
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["quit"]; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace/auth-service",
+      animate: false,
+      colorEnabled: false,
+    });
+
+    const running = shell.start(runtime);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    terminal.input?.("\r");
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(terminal.output).toContain("RECURS / AUTH-SERVICE / CHAT");
+    expect(terminal.output).not.toContain("Your company is ready");
+    terminal.input?.("\u0011");
+    await expect(running).resolves.toEqual({ type: "quit" });
+  });
+
   it("returns a new-project action from the launch screen", async () => {
     const terminal = new TestTerminal(80, 24);
     const runtime = {
@@ -427,7 +481,7 @@ describe("RecursInteractiveShell", () => {
     [24, 16, true, "▗█▀▀█▖", true],
     [24, 16, false, "▗█▀▀█▖", false],
   ] as const)(
-    "renders the first-launch brand at %d columns and %d rows with color=%s",
+    "renders the first-launch setup at %d columns and %d rows with color=%s",
     async (columns, rows, colorEnabled, expected, hasColor) => {
       const terminal = new TestTerminal(columns, rows);
       const shell = new RecursInteractiveShell({
@@ -449,7 +503,9 @@ describe("RecursInteractiveShell", () => {
 
       await new Promise<void>((resolve) => setImmediate(resolve));
       const finalFrame = terminal.writes.at(-1) ?? "";
-      expect(finalFrame).toContain(expected);
+      expect(finalFrame).not.toContain(expected);
+      expect(finalFrame).toContain("RECURS / WORKSPACE");
+      expect(finalFrame).toContain("/ SETUP");
       expect(finalFrame).toContain("Use saved account");
       expect(finalFrame).toContain("Esc cancel");
       expect(terminal.output.includes("\u001b[96m")).toBe(hasColor);
@@ -457,6 +513,31 @@ describe("RecursInteractiveShell", () => {
       await rejected;
     },
   );
+
+  it("uses the exact black V19 canvas in a color-capable terminal", async () => {
+    const terminal = new TestTerminal(80, 24);
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+      colorEnabled: true,
+    });
+    const onboarding = shell.onboard(async (ui) =>
+      await ui.selectChoice("Choose a provider", [{
+        id: "saved",
+        label: "Use saved account",
+        detail: "vendor-owned authentication",
+      }])
+    );
+    const rejected = expect(onboarding).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.writes.at(-1)).toContain("\u001b[48;2;0;0;0m");
+    terminal.input?.("\u001b");
+    await rejected;
+  });
 
   it("cancels an onboarding operation while the surface is working", async () => {
     const terminal = new TestTerminal();
@@ -599,7 +680,7 @@ describe("RecursInteractiveShell", () => {
     expect(terminal.output).toContain("Use saved Codex");
     expect(terminal.output).toContain("vendor-owned authentication");
     expect(terminal.output).not.toContain("\u001b]0;unsafe\u0007");
-    expect(terminal.output).toContain("[38;5;");
+    expect(terminal.output).toContain("[96m");
     terminal.input?.("\r");
 
     await new Promise<void>((resolve) => setImmediate(resolve));

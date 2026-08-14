@@ -115,9 +115,10 @@ shown by `/agents teams` is already applied.
 ### Terminal interface
 
 In an interactive TTY, Recurs opens on a project-scoped chat launcher. Opening
-a chat reveals its approved company blueprint as a one-to-four-layer company
-floor. The roster, reporting order, departments, and maximum depth come from
-onboarding and the selected operating mode; they are not a fixed demo company.
+a chat with an approved blueprint reveals its one-to-four-layer company floor;
+a legacy chat without one opens directly in the normal coding transcript. The
+roster, reporting order, departments, and maximum depth come from onboarding
+and the selected operating mode; they are not a fixed demo company.
 Inactive approved roles remain visibly inactive, while assigned models,
 activity, completion, review, repair, usage, and failures come only from
 normalized runtime events.
@@ -274,8 +275,10 @@ Use `/help` inside the CLI for the exact current command list.
 
 The interactive CLI opens on the current project's chats and uses the same
 terminal system for setup, the company floor, live tasks, approvals, and chat.
-Wide launch and setup screens show the generated Recurs pixel wordmark; narrow
-terminals use the compact returning-loop mark.
+Operational screens use the compact `R↘ RECURS / PROJECT / VIEW` breadcrumb so
+the large repository wordmark never crowds the work. Color-capable interactive
+terminals paint the full V19 canvas black; the composer and controls stay at the
+bottom while the active content uses the available viewport.
 `NO_COLOR`, `CLICOLOR=0`, and dumb or non-TTY terminals keep semantic labels
 and remove presentation color.
 
@@ -286,6 +289,10 @@ activity. Review and repair phase, request counts, handoff outcomes, evidence
 counts, and failures remain visible. Usage observed only on completed handoffs
 is labeled `USAGE PARTIAL`; missing reports remain `USAGE UNKNOWN` and are
 never promoted to an aggregate provider total.
+
+The recovered [V19 visual reference](design/recurs-full-cli-v19-reference.html)
+and [runtime design contract](design/CLI_V19_CONTRACT.md) define the selected
+experience. The reference's sample names and routes are illustrative only.
 
 Representative captures from the built CLI and deterministic production
 renderer:

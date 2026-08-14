@@ -50,9 +50,9 @@ import {
 import { sanitizeTerminalText } from "./terminal-text.js";
 import {
   createTerminalTheme,
+  renderTerminalCanvas,
   type TerminalTheme,
 } from "./terminal-style.js";
-import { RecursBrandComponent } from "./terminal-brand.js";
 import {
   TerminalUiState,
   renderCompanyHome,
@@ -81,7 +81,6 @@ export interface LaunchPresentation {
 
 export class LaunchComponent implements Component {
   #selectedIndex: number;
-  readonly #brand: RecursBrandComponent | null;
 
   constructor(
     private readonly model: LaunchViewModel,
@@ -92,12 +91,9 @@ export class LaunchComponent implements Component {
       entry.id === model.currentSessionId
     );
     this.#selectedIndex = current < 0 ? 0 : current;
-    this.#brand = presentation.theme === undefined
-      ? null
-      : new RecursBrandComponent(presentation.theme);
   }
 
-  invalidate(): void { this.#brand?.invalidate(); }
+  invalidate(): void {}
 
   render(width: number): string[] {
     const safeWidth = Math.max(1, width);
@@ -107,10 +103,7 @@ export class LaunchComponent implements Component {
       safeWidth,
     );
     const terminalRows = this.presentation.rows?.() ?? 30;
-    const brandRows = safeWidth >= 60 && terminalRows >= 24 && this.#brand !== null
-      ? this.#brand.render(safeWidth)
-      : [];
-    const fixedRows = brandRows.length + 9;
+    const fixedRows = 11;
     const visibleSessions = Math.max(
       1,
       Math.floor((terminalRows - fixedRows) / 2),
@@ -129,7 +122,6 @@ export class LaunchComponent implements Component {
       multiline: false,
     }).toUpperCase();
     const rows = [
-      ...brandRows,
       theme?.accent(line(`R↘ RECURS / ${workspace} / PROJECTS`)) ??
         line(`R↘ RECURS / ${workspace} / PROJECTS`),
       theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
@@ -154,12 +146,13 @@ export class LaunchComponent implements Component {
       "",
       theme?.strong(line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} START NEW PROJECT`)) ??
         line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} START NEW PROJECT`),
-      theme?.muted(line("    Form a company through guided onboarding.")) ??
-        line("    Form a company through guided onboarding."),
+      theme?.muted(line("    CONNECT A MODEL · CHOOSE AUTHORITY · FORM YOUR COMPANY")) ??
+        line("    CONNECT A MODEL · CHOOSE AUTHORITY · FORM YOUR COMPANY"),
       theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
       theme?.muted(line("ENTER OPEN   ARROWS SELECT   Q QUIT")) ??
         line("ENTER OPEN   ARROWS SELECT   Q QUIT"),
     );
+    while (rows.length < terminalRows) rows.splice(rows.length - 2, 0, "");
     return rows;
   }
 
@@ -184,6 +177,26 @@ export class LaunchComponent implements Component {
       this.#selectedIndex = (this.#selectedIndex + (backwards ? -1 : 1) + count) % count;
       this.actions.refresh();
     }
+  }
+}
+
+class TerminalCanvas extends Container {
+  constructor(
+    component: Component,
+    private readonly rows: () => number,
+    private readonly theme: TerminalTheme,
+  ) {
+    super();
+    this.addChild(component);
+  }
+
+  override render(width: number): string[] {
+    return [...renderTerminalCanvas(
+      super.render(width),
+      width,
+      this.rows(),
+      this.theme,
+    )];
   }
 }
 
@@ -318,6 +331,7 @@ export interface TaskPanelActions {
   readonly back: () => void;
   readonly refresh: () => void;
   readonly theme?: TerminalTheme;
+  readonly rows?: () => number;
 }
 
 export class TaskPanelComponent implements Component {
@@ -357,7 +371,20 @@ export class TaskPanelComponent implements Component {
         line(`ACTIVATED ASSIGNMENTS · ${snapshot.agents.length}`),
       "",
     ];
-    for (const [index, agent] of snapshot.agents.entries()) {
+    const terminalRows = this.actions.rows?.();
+    const visibleCount = terminalRows === undefined
+      ? snapshot.agents.length
+      : Math.max(1, Math.floor((terminalRows - 8) / 2));
+    const windowStart = Math.min(
+      Math.max(0, this.#selectedIndex - visibleCount + 1),
+      Math.max(0, snapshot.agents.length - visibleCount),
+    );
+    const visibleAgents = snapshot.agents.slice(
+      windowStart,
+      windowStart + visibleCount,
+    );
+    for (const [offset, agent] of visibleAgents.entries()) {
+      const index = windowStart + offset;
       const selected = index === this.#selectedIndex ? ">" : " ";
       const status = agent.status.toUpperCase();
       const route = agent.model === null
@@ -379,6 +406,9 @@ export class TaskPanelComponent implements Component {
       theme?.muted(line("ENTER OPEN   ARROWS SELECT   CTRL+T OR ESC BACK")) ??
         line("ENTER OPEN   ARROWS SELECT   CTRL+T OR ESC BACK"),
     );
+    if (terminalRows !== undefined) {
+      while (rows.length < terminalRows) rows.splice(rows.length - 2, 0, "");
+    }
     return rows;
   }
 
@@ -563,6 +593,8 @@ class TranscriptBuffer {
 }
 
 class OnboardingComponent extends Container {
+  readonly #header: Text;
+  readonly #transcript = new Text();
   readonly #question = new Text();
   readonly #footer: Text;
   readonly #editor: Editor;
@@ -573,7 +605,8 @@ class OnboardingComponent extends Container {
     private readonly tui: TUI,
     buffer: TranscriptBuffer,
     private readonly colorEnabled: boolean,
-    theme: TerminalTheme,
+    private readonly theme: TerminalTheme,
+    private readonly rows: () => number,
     workspace: string,
   ) {
     super();
@@ -586,22 +619,37 @@ class OnboardingComponent extends Container {
       1,
       0,
     );
-    const transcript = new Text();
     buffer.onChange(() => {
-      transcript.setText(accent(buffer.text().replace(/^\n+/u, "")));
+      this.#transcript.setText(styleOnboardingTranscript(
+        buffer.text().replace(/^\n+/u, ""),
+        this.theme,
+      ));
       tui.requestRender();
     });
-    this.addChild(new RecursBrandComponent(theme));
-    this.addChild(new Text(
+    this.#header = new Text(
       `${strong(accent(`R↘ RECURS / ${workspace.toUpperCase()} / SETUP`))}\n${
-        muted("FORM YOUR CODING COMPANY · ESC CANCELS WITHOUT STARTING WORK")
+        muted("CONNECT YOUR MODELS · FORM YOUR COMPANY · APPROVE BEFORE WORK STARTS")
       }`,
       1,
       0,
-    ));
-    this.addChild(transcript);
+    );
+    this.addChild(this.#header);
+    this.addChild(this.#transcript);
     this.addChild(this.#question);
     this.addChild(this.#footer);
+  }
+
+  override render(width: number): string[] {
+    const header = this.#header.render(width);
+    const transcript = this.#transcript.render(width);
+    const question = this.#question.render(width);
+    const input = this.#input?.render(width) ?? [];
+    const footer = this.#footer.render(width);
+    const fixed = header.length + question.length + input.length + footer.length;
+    const available = Math.max(0, this.rows() - fixed);
+    const body = available === 0 ? [] : transcript.slice(-available);
+    while (body.length < available) body.push("");
+    return [...header, ...body, ...question, ...input, ...footer];
   }
 
   askChoice(
@@ -723,6 +771,17 @@ function onboardingAbortError(): DOMException {
   return new DOMException("Guided setup was cancelled", "AbortError");
 }
 
+function styleOnboardingTranscript(
+  text: string,
+  theme: TerminalTheme,
+): string {
+  return text.split("\n").map((line) => {
+    if (/^\d{2}\/\d{2}\s{2}/u.test(line)) return theme.accent(line);
+    if (line === "Welcome to Recurs") return theme.strong(line);
+    return line;
+  }).join("\n");
+}
+
 interface PendingQuestion {
   readonly label: string;
   readonly text: string;
@@ -778,6 +837,7 @@ class ChatComponent extends Container {
     commands: readonly string[],
     cwd: string,
     private readonly colorEnabled: boolean,
+    private readonly rows: () => number,
   ) {
     super();
     const accent = ansi("96", colorEnabled);
@@ -827,6 +887,19 @@ class ChatComponent extends Container {
     this.addChild(this.#question);
     this.addChild(this.editor);
     this.addChild(this.#footer);
+  }
+
+  override render(width: number): string[] {
+    const header = this.#header.render(width);
+    const question = this.#question.render(width);
+    const editor = this.editor.render(width);
+    const footer = this.#footer.render(width);
+    const fixed = header.length + question.length + editor.length + footer.length;
+    const available = Math.max(0, this.rows() - fixed);
+    const transcript = this.#transcript.render(width);
+    const body = available === 0 ? [] : transcript.slice(-available);
+    while (body.length < available) body.push("");
+    return [...header, ...body, ...question, ...editor, ...footer];
   }
 
   setCompanyFocus(node: TerminalCompanyNodeView): void {
@@ -1036,6 +1109,7 @@ export class RecursInteractiveShell {
       buffer,
       this.#colorEnabled,
       this.#theme,
+      () => this.#terminal.rows,
       path.basename(this.#cwd),
     );
     const ui: InteractiveOnboardingUi = {
@@ -1070,7 +1144,11 @@ export class RecursInteractiveShell {
         }
       },
     };
-    tui.addChild(component);
+    tui.addChild(new TerminalCanvas(
+      component,
+      () => this.#terminal.rows,
+      this.#theme,
+    ));
     const removeCancellationListener = tui.addInputListener((data) => {
       if (
         matchesKey(data, Key.escape) ||
@@ -1106,6 +1184,17 @@ export class RecursInteractiveShell {
     for (const event of this.#pendingEvents.splice(0)) await state.emit(event);
 
     const tui = new TUI(this.#terminal);
+    const companyAvailable = runtime.companyBlueprint !== null;
+    const mount = (component: Component, focus: Component | null): void => {
+      tui.clear();
+      tui.addChild(new TerminalCanvas(
+        component,
+        () => this.#terminal.rows,
+        this.#theme,
+      ));
+      tui.setFocus(focus);
+      tui.requestRender(true);
+    };
     let finish!: (result: InteractiveShellExit) => void;
     const finished = new Promise<InteractiveShellExit>((resolve) => {
       finish = resolve;
@@ -1118,6 +1207,7 @@ export class RecursInteractiveShell {
       runtime.commandNames(),
       this.#cwd,
       this.#colorEnabled,
+      () => this.#terminal.rows,
     );
     const companyEditor = new Editor(tui, editorTheme(this.#colorEnabled), {
       paddingX: 1,
@@ -1134,25 +1224,20 @@ export class RecursInteractiveShell {
       if (node !== undefined) chat.setCompanyFocus(node);
       if (view === "chat") return;
       view = "chat";
-      tui.clear();
-      tui.addChild(chat);
-      tui.setFocus(chat.editor);
-      tui.requestRender(true);
+      mount(chat, chat.editor);
     };
     const showCompany = (): void => {
+      if (!companyAvailable) {
+        showChat();
+        return;
+      }
       if (view === "company") return;
       view = "company";
-      tui.clear();
-      tui.addChild(home);
-      tui.setFocus(home);
-      tui.requestRender(true);
+      mount(home, home);
     };
     const showLaunch = (): void => {
       view = "launch";
-      tui.clear();
-      tui.addChild(launch);
-      tui.setFocus(launch);
-      tui.requestRender(true);
+      mount(launch, launch);
     };
     const showTasks = (): void => {
       if (view === "launch") return;
@@ -1160,10 +1245,7 @@ export class RecursInteractiveShell {
         viewBeforeTasks = view === "chat" ? "chat" : "company";
       }
       view = "tasks";
-      tui.clear();
-      tui.addChild(tasks);
-      tui.setFocus(tasks);
-      tui.requestRender(true);
+      mount(tasks, tasks);
     };
     const hideTasks = (): void => {
       if (viewBeforeTasks === "chat") showChat();
@@ -1184,6 +1266,7 @@ export class RecursInteractiveShell {
       back: hideTasks,
       refresh: () => tui.requestRender(),
       theme: this.#theme,
+      rows: () => this.#terminal.rows,
     });
     const supportsLaunch = options.launch !== false &&
       typeof runtime.listSessions === "function";
@@ -1198,7 +1281,10 @@ export class RecursInteractiveShell {
       sessions,
     }, {
       openSession: (sessionId) => {
-        if (sessionId === currentSessionId) showCompany();
+        if (sessionId === currentSessionId) {
+          if (companyAvailable) showCompany();
+          else showChat();
+        }
         else finish({ type: "resume_session", sessionId });
       },
       newProject: () => finish({ type: "new_project" }),
@@ -1376,7 +1462,7 @@ export class RecursInteractiveShell {
       }
       if (matchesKey(data, Key.ctrl("g"))) {
         if (view === "launch") return undefined;
-        if (view === "company") showChat();
+        if (!companyAvailable || view === "company") showChat();
         else showCompany();
         return { consume: true };
       }
@@ -1386,12 +1472,14 @@ export class RecursInteractiveShell {
       return undefined;
     });
     if (!supportsLaunch) {
-      tui.addChild(home);
-      tui.setFocus(home);
+      if (companyAvailable) mount(home, home);
+      else {
+        view = "chat";
+        mount(chat, chat.editor);
+      }
     } else {
       view = "launch";
-      tui.addChild(launch);
-      tui.setFocus(launch);
+      mount(launch, launch);
     }
     state.onChange(() => tui.requestRender());
     this.#terminal.setTitle(terminalTitle(this.#cwd));
