@@ -391,7 +391,7 @@ describe("RecursInteractiveShell", () => {
     expect(terminal.writes.at(-1)).toContain("YOUR CHATS");
     terminal.input?.("\r");
     await new Promise<void>((resolve) => setImmediate(resolve));
-    terminal.input?.("q");
+    terminal.input?.("\u0011");
     await expect(running).resolves.toEqual({ type: "quit" });
   });
 
@@ -599,7 +599,7 @@ describe("RecursInteractiveShell", () => {
     expect(terminal.output).toContain("Use saved Codex");
     expect(terminal.output).toContain("vendor-owned authentication");
     expect(terminal.output).not.toContain("\u001b]0;unsafe\u0007");
-    expect(terminal.output).not.toContain("[38;5;");
+    expect(terminal.output).toContain("[38;5;");
     terminal.input?.("\r");
 
     await new Promise<void>((resolve) => setImmediate(resolve));
@@ -701,7 +701,7 @@ describe("RecursInteractiveShell", () => {
     const running = shell.start(runtime);
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(terminal.output).toContain("RECURS / WORKSPACE / COMPANY");
-    terminal.input?.("q");
+    terminal.input?.("\u0011");
     await running;
 
     expect(closed).toBe(1);
@@ -741,7 +741,7 @@ describe("RecursInteractiveShell", () => {
     expect(terminal.output).toContain("INDEPENDENT REVIEWER");
     expect(terminal.output).toContain("SCOPED BUILDER");
     expect(terminal.output).toContain("NOT ACTIVATED");
-    terminal.input?.("q");
+    terminal.input?.("\u0011");
     await running;
   });
 
@@ -802,12 +802,15 @@ describe("RecursInteractiveShell", () => {
       reasoningEffort: "medium",
     });
 
+    expect(terminal.output).toContain("▄██▄");
+    expect(terminal.output).toContain("CTRL+Q QUIT");
+
     terminal.input?.("\u0014");
     await new Promise<void>((resolve) => setImmediate(resolve));
     expect(terminal.output).toContain("RECURS / AUTH-SERVICE / TASKS");
     expect(terminal.output).toContain("SCOPED BUILDER");
     terminal.input?.("\u001b");
-    terminal.input?.("q");
+    terminal.input?.("\u0011");
     await running;
   });
 
@@ -838,7 +841,7 @@ describe("RecursInteractiveShell", () => {
 
     const running = shell.start(runtime);
     await new Promise<void>((resolve) => setImmediate(resolve));
-    terminal.input?.("q");
+    terminal.input?.("\u0011");
     await running;
 
     expect(terminal.title).toBe("Recurs · /workspace/unsafe]0;injected");
@@ -890,6 +893,46 @@ describe("RecursInteractiveShell", () => {
     terminal.input?.("\r");
     await running;
     expect(submitted).toEqual(["/quit"]);
+  });
+
+  it("submits a goal from the V19 company-floor composer", async () => {
+    const terminal = new TestTerminal(100, 30);
+    const submitted: string[] = [];
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      setConfirmHandler() {},
+      setApprovalHandler() {},
+      setUserInputHandler() {},
+      cancel() { return false; },
+      async close() {},
+      commandNames() { return ["goal", "quit"]; },
+      async submit(input: string) {
+        submitted.push(input);
+        return { type: "quit" as const };
+      },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({
+      terminal,
+      cwd: "/workspace",
+      animate: false,
+    });
+
+    const running = shell.start(runtime, { launch: false });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(terminal.output).toContain("Your company is ready.");
+    expect(terminal.output).toContain("CTRL+Q QUIT");
+    terminal.input?.("\u001b[200~/goal ship the release\u001b[201~");
+    terminal.input?.("\r");
+
+    await expect(running).resolves.toEqual({ type: "quit" });
+    expect(submitted).toEqual(["/goal ship the release"]);
   });
 
   it("removes terminal controls from rendered runtime text", async () => {
@@ -1266,7 +1309,7 @@ describe("RecursInteractiveShell", () => {
       terminal.input?.("\r");
     } else {
       terminal.input?.("\u0007");
-      terminal.input?.("q");
+      terminal.input?.("\u0011");
     }
     await running;
 
@@ -1318,7 +1361,7 @@ describe("RecursInteractiveShell", () => {
 
     await expect(answer).resolves.toBeNull();
     terminal.input?.("\u0007");
-    terminal.input?.("q");
+    terminal.input?.("\u0011");
     await running;
   });
 
@@ -1367,7 +1410,7 @@ describe("RecursInteractiveShell", () => {
 
     expect(terminal.output).toContain("unfinished draft");
     terminal.input?.("\u0007");
-    terminal.input?.("q");
+    terminal.input?.("\u0011");
     await running;
   });
 });

@@ -469,9 +469,21 @@ function mascotRows(
   depth: number,
   frame: number,
   active: boolean,
+  condensed = false,
 ): readonly string[] {
   const face = active && frame % 2 === 1 ? "▶" : "◀";
   const feet = active && frame % 2 === 1 ? " ▀  ▀" : "▀  ▀ ";
+  if (condensed) {
+    if (depth === 0) {
+      return Object.freeze([
+        " ▄████▄ ",
+        `${face}██▄██▌`,
+        ` ${feet}`,
+      ]);
+    }
+    if (depth === 1) return Object.freeze([" ▄██▄ ", `${face}████▌`]);
+    return Object.freeze([depth === 2 ? `${face}███▌` : "▄██▄"]);
+  }
   if (depth === 0) {
     return Object.freeze([
       "   ▄██▄   ",
@@ -520,6 +532,7 @@ function layerRows(
   width: number,
   frame: number,
   selectedRoleId: string | undefined,
+  condensed = false,
 ): readonly string[] {
   const labelWidth = width >= 72 ? 12 : 10;
   const contentWidth = Math.max(1, width - labelWidth);
@@ -533,22 +546,32 @@ function layerRows(
       depth,
       frame,
       node.status === "running",
+      condensed,
     ));
     const petHeight = Math.max(...pets.map((pet) => pet.length));
-    const blockRows = [
-      ...Array.from({ length: petHeight }, (_, row) =>
-        group.map((_, index) => centeredCell(pets[index]?.[row] ?? "", cellWidth))
-          .join("")
-      ),
-      group.map((node) => centeredCell(
-        `${node.roleId === selectedRoleId ? "> " : ""}${node.roleName.toUpperCase()}`,
-        cellWidth,
-      )).join(""),
-      group.map((node) => centeredCell(
-        `${statusMark(node.status)} ${nodeMeta(node)}`,
-        cellWidth,
-      )).join(""),
-    ];
+    const petRows = Array.from({ length: petHeight }, (_, row) =>
+      group.map((_, index) => centeredCell(pets[index]?.[row] ?? "", cellWidth))
+        .join("")
+    );
+    const blockRows = condensed
+      ? [
+          ...petRows,
+          group.map((node) => centeredCell(
+            `${node.roleId === selectedRoleId ? "> " : ""}${node.roleName.toUpperCase()} · ${statusMark(node.status)} ${nodeMeta(node)}`,
+            cellWidth,
+          )).join(""),
+        ]
+      : [
+          ...petRows,
+          group.map((node) => centeredCell(
+            `${node.roleId === selectedRoleId ? "> " : ""}${node.roleName.toUpperCase()}`,
+            cellWidth,
+          )).join(""),
+          group.map((node) => centeredCell(
+            `${statusMark(node.status)} ${nodeMeta(node)}`,
+            cellWidth,
+          )).join(""),
+        ];
     for (const [index, row] of blockRows.entries()) {
       const label = start === 0 && index === 0
         ? `${String(depth).padStart(2, "0")}  ${LAYER_LABELS[depth] ?? "WORK"}`
@@ -689,7 +712,7 @@ export function renderCompanyHome(
   const goalLabel = snapshot.goal === null
     ? "NO ACTIVE GOAL · START FROM CHAT"
     : `GOAL ${snapshot.goal.id} · ${snapshot.goal.objective}`;
-  if (width < 40 || (requestedHeight !== undefined && requestedHeight < 34)) {
+  if (width < 40 || (requestedHeight !== undefined && requestedHeight < 22)) {
     return compactCompanyHome(
       snapshot,
       width,
@@ -709,6 +732,7 @@ export function renderCompanyHome(
   ];
   const depths = [...new Set(snapshot.company.map((node) => node.depth))]
     .sort((left, right) => left - right);
+  const condensed = requestedHeight !== undefined && requestedHeight < 38;
   for (const depth of depths) {
     if (depth > 0) lines.push(...connectorRows(width, depth, frame));
     lines.push(...layerRows(
@@ -717,6 +741,7 @@ export function renderCompanyHome(
       width,
       frame,
       selectedRoleId,
+      condensed,
     ));
   }
   const selected = snapshot.company.find(
@@ -740,7 +765,7 @@ export function renderCompanyHome(
         : `${goal.status.toUpperCase()} · ${goal.activeAgents}/${goal.maxActiveAgents} ACTIVE · ${goal.objective}`,
       width,
     ),
-    ...(goal === null
+    ...(goal === null || condensed
       ? []
       : [
           fit(
@@ -760,10 +785,12 @@ export function renderCompanyHome(
         ]),
     fit(
       snapshot.company.length <= 1
-        ? "ENTER CHAT   Q QUIT"
-        : "ENTER OPEN   ARROWS SELECT   / COMMANDS   Q QUIT",
+        ? "ENTER CHAT   CTRL+Q QUIT"
+        : "ENTER OPEN   ARROWS SELECT   / COMMANDS   CTRL+Q QUIT",
       width,
     ),
   );
-  return Object.freeze(lines);
+  return Object.freeze(
+    requestedHeight === undefined ? lines : lines.slice(0, requestedHeight),
+  );
 }

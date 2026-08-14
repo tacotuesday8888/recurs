@@ -10,9 +10,18 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const entry = path.join(root, "packages/cli/src/main.ts");
 const outputDirectory = path.join(root, "dist/cli");
 const outputFile = path.join(outputDirectory, "main.js");
+const wordmarkSource = path.join(
+  root,
+  "docs/assets/recurs-wordmark-terminal.png",
+);
+const wordmarkOutput = path.join(outputDirectory, "recurs-wordmark.png");
 const temporaryFile = path.join(
   outputDirectory,
   `.main.js.${process.pid}.${randomUUID()}.tmp`,
+);
+const temporaryWordmark = path.join(
+  outputDirectory,
+  `.recurs-wordmark.png.${process.pid}.${randomUUID()}.tmp`,
 );
 const externalPackages = new Set([
   "@agentclientprotocol/codex-acp",
@@ -123,8 +132,18 @@ try {
     await handle.close();
   }
   await rename(temporaryFile, outputFile);
+  const wordmarkHandle = await open(temporaryWordmark, "wx", 0o600);
+  try {
+    await wordmarkHandle.writeFile(await readFile(wordmarkSource));
+    await wordmarkHandle.chmod(0o644);
+    await wordmarkHandle.sync();
+  } finally {
+    await wordmarkHandle.close();
+  }
+  await rename(temporaryWordmark, wordmarkOutput);
 } catch (error) {
   await unlink(temporaryFile).catch(() => {});
+  await unlink(temporaryWordmark).catch(() => {});
   throw error;
 } finally {
   await bundle?.close();
