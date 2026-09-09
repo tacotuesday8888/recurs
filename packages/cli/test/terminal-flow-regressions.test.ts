@@ -107,6 +107,35 @@ describe("terminal execution workflow regressions", () => {
     expect(terminal.output).toContain("Restored actual root prompt");
     expect(terminal.output).toContain("1 session log(s) could not be read.");
   });
+  it("opens an empty team floor and keeps unanswered approvals in view", async () => {
+    const terminal = new TestTerminal(100, 30);
+    let confirm: (message: string) => Promise<boolean> = async () => true;
+    const runtime = {
+      state: { type: "session", session: { id: "root", model: "model", permissionMode: "ask_always" } },
+      companyBlueprint: null, hasActiveRun: false,
+      setConfirmHandler(handler: typeof confirm) { confirm = handler; },
+      setApprovalHandler() {}, setUserInputHandler() {}, currentSignal() { return undefined; },
+      cancel() { return false; }, async close() {}, commandNames() { return []; },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({ terminal, cwd: "/workspace", animate: false, colorEnabled: false });
+    const running = shell.start(runtime, { launch: false });
+    try {
+      await vi.waitFor(() => expect(terminal.input).not.toBeNull());
+      terminal.input?.("\x07");
+      await vi.waitFor(() => expect(terminal.output).toContain("Team"));
+      const answer = confirm("Allow a test change?");
+      await vi.waitFor(() => expect(terminal.output).toContain("APPROVAL REQUIRED"));
+      terminal.output = "";
+      terminal.input?.("\x07"); terminal.input?.("\x14");
+      expect(terminal.output).not.toContain("TASKS");
+      terminal.input?.("\x1b");
+      await expect(answer).resolves.toBe(false);
+      await vi.waitFor(() => expect(terminal.output).toContain("Team"));
+      terminal.input?.("\x07");
+      await vi.waitFor(() => expect(terminal.output).toContain("/ CHAT"));
+    } finally { terminal.input?.("\x11"); await running; }
+  });
+
   it("does not carry one saved conversation into another when the shell is reused", async () => {
     const terminal = new TestTerminal(100, 20);
     const shell = new RecursInteractiveShell({ terminal, cwd: "/workspace", colorEnabled: false });

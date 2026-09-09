@@ -54,7 +54,7 @@ export function renderTerminalOpening(width: number, available: number, theme: T
     const depth = Array.from({ length: artHeight }, () => Array<number>(artWidth).fill(-Infinity));
     const scale = Math.min(artWidth / 9, artHeight / 4.3);
     const time = frame * .08;
-    const ay = time * .48 + .4, ax = .38 + Math.sin(time * .27) * .16;
+    const ay = time * 1.2 + .4, ax = .38 + Math.sin(time * .27) * .16;
     const cy = Math.cos(ay), sy = Math.sin(ay), cx = Math.cos(ax), sx = Math.sin(ax);
     const rotate = ([x, y, z]: Vector): Vector => {
       const a = x * cy + z * sy, b = -x * sy + z * cy;
