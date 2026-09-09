@@ -6,7 +6,7 @@ one continuing objective; milestones below are not claims of overall completion.
 Current release target: **0.1.0-alpha.10**. Alpha.9 was tagged but not published;
 its protected workflow stopped before uploads on an npm 12 pack-report parser
 mismatch in the terminal test. The tag is preserved without history rewriting.
-Alpha.10 reuses the shared parser and pins CI to the same npm 12.0.1 publisher.
+Alpha.10 reuses the shared parser and pins macOS CI to the same npm 12.0.1 publisher.
 
 ## Authority and starting state
 
@@ -192,7 +192,9 @@ is the remaining gate; tag creation alone is not publication.
 Alpha.9's protected run failed before draft assets or npm publication because
 `smoke-terminal.mjs` assumed npm pack always returned an array. The repository
 already has `parseSingleNpmPackReport`, covering both npm report shapes; the
-terminal gate now uses it. All CI lanes pin the same npm 12.0.1 client as the
-publisher, so this path is verified before the next tag. This is a harness
+terminal gate now uses it. The macOS lane pins the same npm 12.0.1 client as the
+publisher, so this path is verified before the next tag. Linux retains the
+exact supported minimum Node 22.22.0 and its bundled npm; npm 12 itself requires
+Node 22.22.2 or newer. This is a harness
 correction, not a skipped gate or rewritten release. Alpha.10 is the next
 candidate; existing alpha.9 source/platform evidence remains labeled above.

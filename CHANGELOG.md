@@ -6,7 +6,7 @@ Notable user-facing changes are recorded here when they ship.
 
 The unpublished alpha.9 tag is preserved. Its publication stopped on a
 terminal-smoke npm 12 pack-report parsing error; alpha.10 fixes the harness
-using the shared parser and pins CI to the publication client.
+using the shared parser and pins macOS CI to the publication client.
 
 - Start coding after model connection and permission selection; detailed Quick,
   Guided and Deep team onboarding remains available. Review full proposals in
