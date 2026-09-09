@@ -83,3 +83,11 @@ is pending the release CI rerun and is not implied by the local checks.
   Read-only inventory flags incomplete history without repairing or truncating
   the damaged file. Recorded-running work without an attached owner remains
   unknown until its containing run is inspected or recovered.
+
+Final platform closure: the exact-file hook mount, successful public read,
+credential denial and workspace write denial passed actual Linux execution in
+[CI 34305124016](https://github.com/tacotuesday8888/recurs/actions/runs/34305124016)
+(2,286 tests passed), with macOS passing its full and installed gates too.
+The remaining CodeQL annotation was separately established as an individual
+[public-client-ID false positive](../security/mcp-oauth-client-id-hash-review.md)
+with no query suppression or weakened cryptography.

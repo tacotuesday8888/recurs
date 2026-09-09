@@ -22,7 +22,7 @@ recurs
 `--global` only makes the `recurs` command available from any directory.
 Use the `@alpha` tag explicitly: npm's unqualified `latest` tag still points to
 `0.1.0-alpha.2`, while `alpha` was verified to point to `0.1.0-alpha.7` on
-September 9, 2026. Source version `0.1.0-alpha.9` is being prepared; see
+September 9, 2026. Source version `0.1.0-alpha.10` is being prepared; see
 [release readiness](RELEASE_READINESS.md) for artifact and publication evidence.
 
 The same reviewed npm artifact is also available through Bun-as-installer, the

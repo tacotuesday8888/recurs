@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { spawn } from "@lydell/node-pty";
 import xterm from "@xterm/headless";
+import { parseSingleNpmPackReport } from "./npm-pack-report.mjs";
 
 const exec = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -25,7 +26,7 @@ const prefix = path.join(temporary, "installed");
 await Promise.all([mkdir(home), mkdir(workspace)]);
 await writeFile(path.join(workspace, "parser.ts"), "export const parse = (input: string) => input.trim();\n");
 const environment = { HOME: home, USERPROFILE: home, RECURS_HOME: path.join(home, ".recurs"), PATH: process.env.PATH, LANG: "en_US.UTF-8", TERM: "xterm-256color", NO_COLOR: "1" };
-const packed = JSON.parse((await exec("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", temporary], { cwd: root })).stdout)[0];
+const packed = parseSingleNpmPackReport((await exec("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", temporary], { cwd: root })).stdout);
 await exec("npm", ["install", "--prefix", prefix, "--ignore-scripts", "--omit=dev", "--no-package-lock", "--no-audit", "--no-fund", "--cache", path.join(temporary, "cache"), path.join(temporary, packed.filename)], { env: environment, timeout: 120_000 });
 const executable = path.join(prefix, "node_modules", ".bin", "recurs");
 const startupMs = [];
