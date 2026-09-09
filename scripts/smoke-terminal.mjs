@@ -6,7 +6,7 @@ import process from "node:process";
 import console from "node:console";
 import { performance } from "node:perf_hooks";
 import { setTimeout } from "node:timers";
-import { execFile } from "node:child_process";
+import { execFile, spawn as spawnProcess } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdtemp, mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,6 +24,7 @@ const home = path.join(temporary, "home");
 const workspace = path.join(temporary, "parser-project");
 const prefix = path.join(temporary, "installed");
 await Promise.all([mkdir(home), mkdir(workspace)]);
+await exec("git", ["init", "--quiet", workspace]);
 await writeFile(path.join(workspace, "parser.ts"), "export const parse = (input: string) => input.trim();\n");
 const environment = { HOME: home, USERPROFILE: home, RECURS_HOME: path.join(home, ".recurs"), PATH: process.env.PATH, LANG: "en_US.UTF-8", TERM: "xterm-256color", NO_COLOR: "1" };
 const packed = parseSingleNpmPackReport((await exec("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", temporary], { cwd: root })).stdout);
@@ -51,6 +52,8 @@ const measurements = {
   node: process.version, platform: `${process.platform}-${process.arch}`,
 };
 let requests = 0;
+let releaseChild;
+const childGate = new Promise((resolve) => { releaseChild = resolve; });
 const server = createServer(async (request, response) => {
   if (request.method === "GET") { response.setHeader("content-type", "application/json"); response.end(JSON.stringify({ data: [{ id: "terminal-fixture" }] })); return; }
   let raw = "";
@@ -58,6 +61,35 @@ const server = createServer(async (request, response) => {
   const body = JSON.parse(raw);
   requests += 1;
   const prompt = [...body.messages].reverse().find((message) => message.role === "user")?.content ?? "";
+  const childPrompt = String(prompt).includes("Child terminal inspection");
+  const delegationPrompt = String(prompt).includes("Inspect with terminal child");
+  if (childPrompt || delegationPrompt) {
+    const lastUser = body.messages.findLastIndex((message) => message.role === "user");
+    const results = body.messages.slice(lastUser + 1).filter((message) => message.role === "tool");
+    if (results.length === 0) {
+      const call = childPrompt ? { name: "read_file", arguments: JSON.stringify({ path: "parser.ts" }) }
+        : { name: "delegate_task", arguments: JSON.stringify({ profile: "explore", description: "Inspect parser boundaries", prompt: "Child terminal inspection: read parser.ts and report the boundary behavior." }) };
+      response.writeHead(200, { "content-type": "text/event-stream", connection: "close" });
+      response.end(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: childPrompt ? "child-read" : "delegate-inspection", type: "function", function: call }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`);
+      return;
+    }
+    if (childPrompt) {
+      await childGate;
+      if (process.argv.includes("--interactive")) await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+  }
+  if (String(prompt).includes("Apply terminal fixture patch")) {
+    const lastUser = body.messages.findLastIndex((message) => message.role === "user");
+    const results = body.messages.slice(lastUser + 1).filter((message) => message.role === "tool");
+    if (results.length < 2) {
+      const call = results.length === 0
+        ? { name: "read_file", arguments: JSON.stringify({ path: "parser.ts" }) }
+        : { name: "apply_patch", arguments: JSON.stringify({ patch: "--- a/parser.ts\n+++ b/parser.ts\n@@ -1 +1,2 @@\n-export const parse = (input: string) => input.trim();\n+// Normalize whitespace at the parser boundary.\n+export const parse = (input: string) => input.trim();\n", files: [{ path: "parser.ts", expected_hash: "observed" }] }) };
+      response.writeHead(200, { "content-type": "text/event-stream", connection: "close" });
+      response.end(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: `fixture-${results.length}`, type: "function", function: call }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`);
+      return;
+    }
+  }
   const text = String(prompt).includes("long output")
     ? Array.from({ length: 65 }, (_, index) => `Inspection line ${index}: parser boundary checked.\n\n`).join("")
     : "## Parser review\n\nThe parser trims whitespace. Add cases for empty input and surrounding spaces.\n\n```ts\nexpect(parse('  hello  ')).toBe('hello');\nexpect(parse('   ')).toBe('');\n```\n\nTerminal fixture complete.";
@@ -71,6 +103,20 @@ const server = createServer(async (request, response) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
 await exec(executable, ["setup", "local", "--url", baseUrl, "--model", "terminal-fixture"], { cwd: workspace, env: environment });
+if (process.argv.includes("--interactive")) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("Run the UI walkthrough in an interactive terminal.");
+  const design = process.argv[process.argv.indexOf("--design") + 1];
+  const selectedDesign = process.argv.includes("--design") && design === "v19" ? "v19" : "r";
+  await writeFile(path.join(home, ".recurs/config/appearance.json"), JSON.stringify({ version: 1, theme: "orange", design: selectedDesign }), { mode: 0o600 });
+  releaseChild();
+  console.log("Recurs UI walkthrough · isolated fixture workspace · no API account needed");
+  console.log("Try: Apply terminal fixture patch · Inspect with terminal child · show long output");
+  console.log("F2: design/colors · Ctrl+G: team · Ctrl+T: executions · Ctrl+Q: exit");
+  const child = spawnProcess(executable, [], { cwd: workspace, env: Object.fromEntries(Object.entries({ ...environment, NO_COLOR: undefined }).filter(([, value]) => value !== undefined)), stdio: "inherit" });
+  const code = await new Promise((resolve, reject) => { child.once("error", reject); child.once("exit", (code) => resolve(code ?? 1)); });
+  await new Promise((resolve) => server.close(resolve));
+  process.exit(code);
+}
 const capture = [];
 let current;
 const captureStart = performance.now();
@@ -179,7 +225,7 @@ try {
   resumed.process.write("\u0011");
   await resumed.wait(() => resumed.exit() !== undefined, "resumed exit");
   resumed.terminal.dispose();
-  const colorful = await launch([], { NO_COLOR: undefined });
+  const colorful = await launch([], { NO_COLOR: undefined, RECURS_REDUCED_MOTION: "1" });
   await colorful.wait((screen) => screen.includes("Current chat"), "colored launcher");
   colorful.process.write("\r");
   await colorful.wait((screen) => screen.includes("/ CHAT"), "saved light theme reopen");
@@ -193,11 +239,61 @@ try {
   await colorful.wait((screen) => screen.includes("Appearance: dark (saved)"), "live dark theme");
   assert.equal(colorful.terminal.buffer.active.getLine(0).getCell(0).getBgColor(), 0x111827);
   await captureColorScreen(colorful, "dark");
+  colorful.process.write("/theme orange\r");
+  await colorful.wait((screen) => screen.includes("Appearance: orange (saved)"), "live orange theme");
+  assert.equal(colorful.terminal.buffer.active.getLine(0).getCell(0).getBgColor(), 0x191714);
+  await captureColorScreen(colorful, "orange");
   colorful.process.write("\u001b[12~");
   await colorful.wait((screen) => screen.includes("Appearance · preview"), "color palette preview");
   await captureColorScreen(colorful, "appearance");
   colorful.process.write("\u001b");
   await colorful.wait((screen) => screen.includes("/ CHAT"), "leave color palette");
+  colorful.process.write("/new\r");
+  await colorful.wait((screen) => screen.includes("One task. A team you control."), "native opening");
+  await captureColorScreen(colorful, "opening");
+  colorful.process.write("/permissions ask\r");
+  await colorful.wait((screen) => screen.includes("Permission mode: Ask Always"), "fixture ask permission");
+  colorful.process.write("Apply terminal fixture patch\r");
+  await colorful.wait((screen) => screen.includes("PERMISSION REQUIRED"), "real patch approval");
+  await captureColorScreen(colorful, "permission");
+  colorful.process.write("yes\r");
+  await colorful.wait((screen) => screen.includes("observed patch lines") && screen.includes("Parent · ready"), "applied patch activity");
+  assert((await readFile(path.join(workspace, "parser.ts"), "utf8")).startsWith("// Normalize whitespace"));
+  assert(colorful.screen().includes("+2") && colorful.screen().includes("−1"));
+  await captureColorScreen(colorful, "patch");
+  colorful.process.write("\u0014");
+  await colorful.wait((screen) => screen.includes("TASKS"), "orange execution list");
+  await captureColorScreen(colorful, "executions");
+  colorful.process.write("\u001b");
+  await colorful.wait((screen) => screen.includes("/ CHAT"), "return from orange execution list");
+  colorful.process.write("Inspect with terminal child\r");
+  await colorful.wait((screen) => screen.includes("explore") || screen.includes("delegate_task"), "child delegation starts");
+  colorful.process.write("\u0014");
+  await colorful.wait((screen) => screen.includes("explore") && screen.includes("RUNNING"), "live child execution");
+  await captureColorScreen(colorful, "agents-working");
+  colorful.process.write("\r");
+  await colorful.wait((screen) => screen.includes("read-only transcript"), "inspect active child");
+  await captureColorScreen(colorful, "inspector");
+  colorful.process.write("\u001b");
+  await colorful.wait((screen) => screen.includes("TASKS"), "inspector returns to tasks");
+  colorful.process.write("\u001b");
+  await colorful.wait((screen) => screen.includes("/ CHAT"), "tasks return to conversation");
+  colorful.process.write("\u0007");
+  await colorful.wait((screen) => screen.includes("Team") && screen.includes("explore"), "working agent floor");
+  await captureColorScreen(colorful, "v19-working");
+  releaseChild();
+  colorful.process.write("\u0007");
+  await colorful.wait((screen) => screen.includes("Parent · ready"), "child settled");
+  colorful.process.write("/theme design v19\r");
+  await colorful.wait((screen) => screen.includes("Team"), "select V19 design");
+  assert.equal(JSON.parse(await readFile(path.join(home, ".recurs/config/appearance.json"), "utf8")).design, "v19");
+  await captureColorScreen(colorful, "v19");
+  colorful.process.write("\u0007");
+  await colorful.wait((screen) => screen.includes("/ CHAT"), "V19 conversation");
+  colorful.process.write("/theme design r\r");
+  await colorful.wait((screen) => screen.includes("Appearance: orange (saved)"), "select R design");
+
+
   colorful.process.write("\u0011");
   await colorful.wait(() => colorful.exit() !== undefined, "colored exit");
   colorful.terminal.dispose();
@@ -206,8 +302,9 @@ try {
   await writeFile(path.join(temporary, "terminal-session.svg"), svg);
   if (process.argv.includes("--update-capture")) await writeFile(path.join(root, "docs/assets/terminal-session.svg"), svg);
   await writeFile(path.join(temporary, "terminal.cast"), [JSON.stringify({ version: 2, width: 100, height: 30, title: "Recurs installed terminal acceptance", env: { TERM: "xterm-256color" } }), ...capture.map((event) => JSON.stringify(event))].join("\n") + "\n");
-  console.log(JSON.stringify({ status: "passed", artifact: packed.filename, measurements, requests, checks: ["clean packed install", "saved connection", "first-run quick start", "bracketed paste", "streamed Markdown/code", "long output", "history scroll", "32x10 resize", "execution list", "clean exit", "durable reopen", "saved-model picker cancellation", "theme preview restores draft", "no-color preference save", "light theme persists", "live dark theme", "actual color captures"], capture: temporary }, null, 2));
+  console.log(JSON.stringify({ status: "passed", artifact: packed.filename, measurements, requests, checks: ["clean packed install", "saved connection", "first-run quick start", "bracketed paste", "streamed Markdown/code", "long output", "history scroll", "32x10 resize", "execution list", "clean exit", "durable reopen", "saved-model picker cancellation", "theme preview restores draft", "no-color preference save", "light theme persists", "live dark theme", "actual color captures", "native R opening", "orange preset", "file-write approval", "real applied patch and line counts", "working child and inspector", "V19 and R design selection"], capture: temporary }, null, 2));
 } finally {
+  releaseChild();
   try { current?.kill(); } catch { /* The child may already have exited. */ }
   server.closeAllConnections(); server.close();
 }

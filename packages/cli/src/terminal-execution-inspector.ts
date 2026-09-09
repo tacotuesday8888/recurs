@@ -1,7 +1,7 @@
 import { Key, Text, matchesKey, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import type { AgentExecutionDetail } from "@recurs/core";
 import { sanitizeTerminalText } from "./terminal-text.js";
-import { formatTerminalLabel } from "./terminal-style.js";
+import { type TerminalTheme, formatTerminalLabel } from "./terminal-style.js";
 
 /** Read-only child inspection never shares the parent's composer or transcript. */
 export class ExecutionInspector implements Component {
@@ -12,6 +12,7 @@ export class ExecutionInspector implements Component {
   #cancelling = false;
   #body = new Text();
   constructor(private readonly actions: {
+    theme?: TerminalTheme;
     rows(): number;
     back(): void;
     refresh(): void;
@@ -81,7 +82,8 @@ export class ExecutionInspector implements Component {
     this.#offset = Math.max(0, Math.min(this.#offset, body.length - available));
     const visible = body.slice(this.#offset, this.#offset + available);
     while (visible.length < available) visible.push("");
-    return [fit(header), fit(route), ...visible, notice, footer].slice(-height);
+    const theme = this.actions.theme;
+    return [theme?.accent(fit(header)) ?? fit(header), theme?.muted(fit(route)) ?? fit(route), ...visible, theme?.warning(notice) ?? notice, theme?.muted(footer) ?? footer].slice(-height);
   }
 
   handleInput(data: string): void {

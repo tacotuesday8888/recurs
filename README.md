@@ -81,7 +81,8 @@ recorded evaluation evidence. [Team evaluation →](docs/AUTO_MODEL_TEAMS.md) ·
 ## Make it yours
 
 Choose a saved model with `/model`. Press **F2** or enter `/theme` to preview
-system, dark, light, or high-contrast colors. Escape restores your previous
+orange (the default), system, dark, light, or high-contrast colors. Press **C**
+in the picker to edit individual colors. Escape restores your previous
 appearance and preserves your draft; Enter saves it across restarts.
 
 ```text
@@ -89,6 +90,9 @@ appearance and preserves your draft; Enter saves it across restarts.
 /theme light
 /theme color accent #67e8f9
 ```
+
+Press **D** in the appearance picker to choose the 3D R opening or V19 agent floor.
+Both designs share all tools, approvals, and execution controls.
 
 Eight semantic colors cover text, backgrounds, code, and status. `NO_COLOR`
 and terminal-default colors remain supported. [Appearance guide →](docs/APPEARANCE.md)

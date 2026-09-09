@@ -189,7 +189,7 @@ describe("CompanyHomeComponent", () => {
 
     expect(component.render(110).join("\n")).toContain("> Orchestrator");
     component.handleInput("\u001b[B");
-    expect(component.render(110).join("\n")).toContain("> ├─ Independent Reviewer");
+    expect(component.render(110).join("\n")).toContain("> Independent Reviewer");
     component.handleInput("\r");
 
     expect(openChat).toHaveBeenCalledWith(expect.objectContaining({
@@ -228,7 +228,7 @@ describe("LaunchComponent", () => {
     });
 
     const first = component.render(92).join("\n");
-    expect(first).toContain("R↘ RECURS / AUTH-SERVICE");
+    expect(first).toContain("RECURS / AUTH-SERVICE");
     expect(first).toContain("Chats · 2");
     expect(first).toContain("Keep this model and permissions");
     expect(first).not.toContain("████   █████");
@@ -647,7 +647,7 @@ describe("RecursInteractiveShell", () => {
       expect(finalFrame).toContain("/ SETUP");
       expect(finalFrame).toContain("Use saved account");
       expect(finalFrame).toContain("Esc cancel");
-      expect(terminal.output.includes("\u001b[96m")).toBe(hasColor);
+      expect(terminal.output.includes("\u001b[38;2;243;160;91m")).toBe(hasColor);
       terminal.input?.("\u001b");
       await rejected;
     },
@@ -815,11 +815,11 @@ describe("RecursInteractiveShell", () => {
     });
 
     await new Promise<void>((resolve) => setTimeout(resolve, 30));
-    expect(terminal.output).toContain("RECURS / WORKSPACE / SETUP");
+    expect(terminal.output).toContain("RECURS / WORKSPACE");
     expect(terminal.output).toContain("Use saved Codex");
     expect(terminal.output).toContain("vendor-owned authentication");
     expect(terminal.output).not.toContain("\u001b]0;unsafe\u0007");
-    expect(terminal.output).toContain("[96m");
+    expect(terminal.output).toContain("[38;2;243;160;91m");
     terminal.input?.("\r");
 
     await new Promise<void>((resolve) => setTimeout(resolve, 30));
