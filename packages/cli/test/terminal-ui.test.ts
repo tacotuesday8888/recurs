@@ -645,7 +645,7 @@ describe("RecursInteractiveShell", () => {
       const finalFrame = terminal.writes.at(-1) ?? "";
       expect(finalFrame).not.toContain(expected);
       expect(finalFrame).toContain("RECURS / WORKSPACE");
-      expect(finalFrame).toContain("/ SETUP");
+      expect(finalFrame).toContain("SETUP");
       expect(finalFrame).toContain("Use saved account");
       expect(finalFrame).toContain("Esc cancel");
       expect(terminal.output.includes("\u001b[38;2;243;160;91m")).toBe(hasColor);

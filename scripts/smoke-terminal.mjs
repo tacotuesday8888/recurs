@@ -187,6 +187,7 @@ async function captureColorScreen(ui, name) {
 
 try {
   const motion = await launch(["setup"], { NO_COLOR: undefined });
+  motion.process.resize(80, 24); motion.terminal.resize(80, 24);
   await motion.wait((screen) => screen.includes("model connection"), "animated onboarding connection selection");
   const firstFrame = motion.screen();
   await new Promise((resolve) => setTimeout(resolve, 640));

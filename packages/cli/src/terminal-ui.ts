@@ -699,9 +699,7 @@ class OnboardingComponent extends Container {
       tui.requestRender();
     });
     this.#header = new Text(
-      `${strong(accent(`RECURS / ${workspace.toUpperCase()}`))}\n${accent("/ SETUP")}\n${
-        muted("Connect a model, choose permissions, and start coding. Team setup is optional.")
-      }`,
+      strong(accent(`RECURS / ${workspace.toUpperCase()} / SETUP`)),
       1,
       0,
     );
