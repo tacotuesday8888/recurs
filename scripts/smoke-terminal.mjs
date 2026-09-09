@@ -120,7 +120,7 @@ if (interactive) {
   releaseChild();
   console.log("Recurs UI walkthrough · isolated fixture workspace · no API account needed");
   console.log("Try: Apply terminal fixture patch · Inspect with terminal child · show long output");
-  console.log("F2: design/colors · Ctrl+G: team · Ctrl+T: executions · Ctrl+Q: exit");
+  console.log("F2: colors · F3: permissions · Ctrl+G: team · Ctrl+T: executions · Ctrl+Q: exit");
   const child = spawnProcess(executable, process.argv.includes("--setup") ? ["setup"] : [], { cwd: workspace, env: Object.fromEntries(Object.entries({ ...environment, NO_COLOR: undefined }).filter(([, value]) => value !== undefined)), stdio: "inherit" });
   const code = await new Promise((resolve, reject) => { child.once("error", reject); child.once("exit", (code) => resolve(code ?? 1)); });
   await new Promise((resolve) => server.close(resolve));
@@ -202,6 +202,22 @@ try {
   await ui.wait((screen) => screen.includes("Esc cancel") && screen.includes("terminal-fixture"), "saved model picker");
   ui.process.write("\u001b");
   await ui.wait((screen) => screen.includes("/ CHAT"), "cancel model picker");
+  ui.process.write("/permissions ask\r");
+  await ui.wait((screen) => screen.includes("Permission mode: Ask Always"), "initial permission boundary");
+  ui.process.write("\u001b[13~");
+  await ui.wait((screen) => screen.includes("Permissions · this session"), "permission keyboard picker");
+  ui.process.write("\u001b[B\r");
+  await ui.wait((screen) => screen.includes("Permission mode: Approved for Me"), "permission selection applied");
+  ui.process.write("/permissions full\r");
+  await ui.wait((screen) => screen.includes("APPROVAL REQUIRED"), "full access confirmation");
+  ui.process.write("\u001b");
+  await ui.wait((screen) => screen.includes("Full Access was not enabled"), "escape denies full access");
+  ui.process.write("/permissions ask\r");
+  await ui.wait((screen) => screen.includes("Permission mode: Ask Always"), "restore permission boundary");
+  ui.process.write("\u0007");
+  await ui.wait((screen) => screen.includes("Team"), "team floor before children");
+  ui.process.write("\u0007");
+  await ui.wait((screen) => screen.includes("/ CHAT"), "team returns to conversation");
   ui.process.write("Draft stays here");
   ui.process.write("\u001b[12~");
   await ui.wait((screen) => screen.includes("Appearance"), "theme keyboard picker");
@@ -312,7 +328,7 @@ try {
   await writeFile(path.join(temporary, "terminal-session.svg"), svg);
   if (process.argv.includes("--update-capture")) await writeFile(path.join(root, "docs/assets/terminal-session.svg"), svg);
   await writeFile(path.join(temporary, "terminal.cast"), [JSON.stringify({ version: 2, width: 100, height: 30, title: "Recurs installed terminal acceptance", env: { TERM: "xterm-256color" } }), ...capture.map((event) => JSON.stringify(event))].join("\n") + "\n");
-  console.log(JSON.stringify({ status: "passed", artifact: packed.filename, measurements, requests, checks: ["clean packed install", "saved connection", "first-run quick start", "bracketed paste", "streamed Markdown/code", "long output", "history scroll", "32x10 resize", "execution list", "clean exit", "durable reopen", "saved-model picker cancellation", "theme preview restores draft", "no-color preference save", "light theme persists", "live dark theme", "actual color captures", "native R opening", "orange preset", "file-write approval", "real applied patch and line counts", "working child and inspector", "V19 and R design selection"], capture: temporary }, null, 2));
+  console.log(JSON.stringify({ status: "passed", artifact: packed.filename, measurements, requests, checks: ["clean packed install", "saved connection", "first-run quick start", "bracketed paste", "streamed Markdown/code", "long output", "history scroll", "32x10 resize", "execution list", "clean exit", "durable reopen", "saved-model picker cancellation", "theme preview restores draft", "no-color preference save", "light theme persists", "live dark theme", "actual color captures", "native R opening", "orange preset", "file-write approval", "real applied patch and line counts", "working child and inspector", "legacy view aliases", "permission picker and applied mode", "Escape cancels full access", "team navigation before children"], capture: temporary }, null, 2));
 } finally {
   releaseChild();
   try { current?.kill(); } catch { /* The child may already have exited. */ }

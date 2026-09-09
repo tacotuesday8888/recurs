@@ -91,8 +91,10 @@ appearance and preserves your draft; Enter saves it across restarts.
 /theme color accent #67e8f9
 ```
 
-Press **D** in the appearance picker to choose the 3D R opening or V19 agent floor.
-Both designs share all tools, approvals, and execution controls.
+The 3D R opening and V19 agent floor form one interface. **Ctrl+G** switches
+between conversation and the team hierarchy; **Ctrl+T** opens executions and
+**F3** changes permissions. From a checkout, `npm run ui:preview` starts real
+first-run onboarding; `npm run ui:demo` runs the scripted tool walkthrough.
 
 Eight semantic colors cover text, backgrounds, code, and status. `NO_COLOR`
 and terminal-default colors remain supported. [Appearance guide →](docs/APPEARANCE.md)

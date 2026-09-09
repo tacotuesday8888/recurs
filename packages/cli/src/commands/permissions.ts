@@ -1,3 +1,4 @@
+import { deriveTrustedRunContext } from "@recurs/contracts";
 import type { PermissionMode } from "@recurs/tools";
 import type { SessionRecord } from "@recurs/core";
 
@@ -80,6 +81,17 @@ export function createPermissionsCommand(): Command {
     description: "Inspect or change the active permission preset",
     usage: "/permissions [ask|approved|full]",
     async execute(args, context) {
+      const trusted = deriveTrustedRunContext(context.invocation);
+      if (args.trim().length === 0 && context.selectChoice !== undefined &&
+        trusted.presence === "present" && trusted.location === "local" && trusted.automation === "manual" &&
+        (trusted.embedding === "cli" || trusted.embedding === "desktop")) {
+        const selected = await context.selectChoice("Permissions · this session", (Object.keys(labels) as PermissionMode[]).map((mode) => ({
+          id: mode, label: labels[mode], current: mode === context.session.permissionMode, detail: permissionSummary(mode),
+        })));
+        if (selected === null) return message("Permissions unchanged");
+        if (!Object.hasOwn(labels, selected)) return message("Choose a listed permission preset", "error");
+        args = selected;
+      }
       if (args.trim().length === 0) {
         const mode = context.session.permissionMode;
         return message([

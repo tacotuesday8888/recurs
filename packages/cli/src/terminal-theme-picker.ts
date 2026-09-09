@@ -50,7 +50,7 @@ export class TerminalThemePicker implements Component {
       const text = line(`${index === this.#selected ? "›" : " "} ${item}${item === current.theme ? " · current" : ""}`);
       return index === this.#selected ? theme.accent(theme.strong(text)) : text;
     });
-    const footer = line(this.#saving ? "Saving…" : width < 64 ? "C colors · D design · Esc back" : "C colors · D design · Esc cancel · Enter save · ↑↓ preview");
+    const footer = line(this.#saving ? "Saving…" : width < 64 ? "C colors · Enter save · Esc back" : "C colors · Esc cancel · Enter save · ↑↓ preview");
     const error = this.#error === null ? [] : [theme.failure(line(this.#error))];
     if (height < 9) {
       const visible = Math.max(1, height - 2 - error.length);
@@ -58,7 +58,7 @@ export class TerminalThemePicker implements Component {
       return [header, ...choices.slice(start, start + visible), ...error, footer].slice(-height);
     }
     const lines = [header, theme.muted(line("Preview now; Enter saves. Esc restores your theme.")), "", ...choices,
-      "", theme.accent(line(`Design: ${this.#appearance().design === "v19" ? "V19 · agent floor" : "3D R · sculpted opening"} · D switches`)), theme.muted(line(DESCRIPTIONS[name])),
+      "", theme.accent(line("3D R opening · Ctrl+G opens the agent floor")), theme.muted(line(DESCRIPTIONS[name])),
       line(`${theme.accent("Accent")}  ${theme.code("Code")}  ${theme.success("Success")}  ${theme.warning("Warning")}  ${theme.failure("Error")}`),
       ...(!theme.colorEnabled ? [line("Color disabled by this terminal or NO_COLOR; preference still saves.")] : []),
     ];
@@ -79,11 +79,6 @@ export class TerminalThemePicker implements Component {
         } else this.#error = "Use exactly six hex digits.";
       } else if (/^[0-9a-f]+$/iu.test(data) && this.#hex.length + data.length <= 6) this.#hex += data;
       this.options.refresh(); return;
-    }
-    if (data.toLowerCase() === "d") {
-      const current = this.#appearance();
-      this.#draft = { ...current, design: current.design === "v19" ? "r" : "v19" };
-      this.options.preview(this.#draft); this.options.refresh(); return;
     }
     if (data.toLowerCase() === "c") { this.#editingRole = 0; this.#hex = ""; this.options.refresh(); return; }
     if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {

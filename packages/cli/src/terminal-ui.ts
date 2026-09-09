@@ -720,7 +720,7 @@ class OnboardingComponent extends Container {
     const available = Math.max(0, this.rows() - fixed);
     this.#scrollOffset = Math.min(this.#scrollOffset, Math.max(0, transcript.length - available));
     const end = transcript.length - this.#scrollOffset;
-    const opening = renderTerminalOpening(width, Math.min(this.theme.appearance.design === "v19" ? 5 : 100, Math.max(0, available - transcript.length)), this.theme);
+    const opening = renderTerminalOpening(width, Math.max(0, available - transcript.length), this.theme);
     const body = available === 0 ? [] : [...opening, ...transcript.slice(Math.max(0, end - (available - opening.length)), end)];
     while (body.length < available) body.push("");
     return [...header, ...body, ...question, ...input, ...footer].slice(-Math.max(1, this.rows()));
@@ -972,7 +972,7 @@ export class ChatComponent extends Container {
       if (expanded.length > 0) this.onSubmit?.(expanded);
     };
     this.#footer = new Text(
-      muted("Enter send · PgUp/PgDn scroll · Ctrl+T executions · F2 theme"),
+      muted("Enter send · Ctrl+G team · Ctrl+T tasks · F2 colors · F3 permissions · Esc home · Ctrl+Q quit"),
       1,
       0,
     );
@@ -993,8 +993,8 @@ export class ChatComponent extends Container {
   override render(width: number): string[] {
     this.#updateHeader();
     this.#footer.setText((this.theme?.muted ?? ((text: string) => text))(width < 64
-      ? "Enter send · /help · Ctrl+T agents"
-      : "Enter send · PgUp/PgDn scroll · Ctrl+T executions · F2 theme"));
+      ? "Ctrl+G team · /help · F3 permissions"
+      : "Enter send · Ctrl+G team · Ctrl+T tasks · F2 colors · F3 permissions · Esc home · Ctrl+Q quit"));
     const header = this.#header.render(width);
     const fullQuestion = this.#question.render(width);
     const editor = this.editor.render(width);
@@ -1111,11 +1111,15 @@ export class ChatComponent extends Container {
           (option, index) =>
             `  ${index + 1}. ${sanitizeTerminalText(option, { multiline: false })}`,
         ),
-        "╰─ ENTER TO CONTINUE",
+        "╰─ ENTER TO CONTINUE · ESC CANCEL",
       ].join("\n"));
       this.editor.setText("");
     }
     this.editor.invalidate();
+  }
+
+  cancelCurrentQuestion(): void {
+    if (this.#pending !== null) this.#cancelQuestion(this.#pending);
   }
 
   cancelQuestions(): void {
@@ -1354,7 +1358,6 @@ export class RecursInteractiveShell {
     for (const event of this.#pendingEvents.splice(0)) await state.emit(event);
 
     const tui = new TUI(this.#terminal);
-    const companyAvailable = (): boolean => runtime.companyBlueprint !== null || this.#theme.appearance.design === "v19" || state.snapshot().agents.length > 0;
     const mount = (component: Component, focus: Component | null): void => {
       tui.clear();
       tui.addChild(new TerminalCanvas(
@@ -1393,9 +1396,7 @@ export class RecursInteractiveShell {
       () => this.#terminal.rows,
       () => ({ ...runtimeSession(runtime), running: runtime.hasActiveRun }),
       this.#theme,
-      { activity: this.#activity, frame: () => this.#frame, welcome: (width, height) => this.#theme.appearance.design === "v19"
-        ? [...renderCompanyHome(state.snapshot(), width, this.#frame, undefined, height + 2, true)].slice(0, height).map((line) => this.#theme.accent(line))
-        : renderTerminalOpening(width, height, this.#theme, this.#frame) },
+      { activity: this.#activity, frame: () => this.#frame, welcome: (width, height) => renderTerminalOpening(width, height, this.#theme, this.#frame) },
     );
     const companyEditor = new Editor(tui, editorTheme(this.#colorEnabled, this.#theme), {
       paddingX: 1,
@@ -1415,10 +1416,6 @@ export class RecursInteractiveShell {
       mount(chat, chat.editor);
     };
     const showCompany = (): void => {
-      if (!companyAvailable()) {
-        showChat();
-        return;
-      }
       if (view === "company") return;
       view = "company";
       mount(home, home);
@@ -1489,7 +1486,7 @@ export class RecursInteractiveShell {
       running: () => runtime.hasActiveRun,
       frame: () => this.#frame,
       openChat: showRole,
-      ...(options.launch === false ? {} : { back: showLaunch }),
+      back: showChat,
       quit: () => finish({ type: "quit" }),
       refresh: () => tui.requestRender(),
       theme: this.#theme,
@@ -1546,12 +1543,14 @@ export class RecursInteractiveShell {
     };
     const showAppearance = (): void => {
       const current = this.#theme.appearance;
+      const previousView = view;
+      const returnToPrevious = () => previousView === "company" ? showCompany() : showChat();
       const restore = () => {
         this.#theme.setAppearance(current);
         chat.refreshAppearance();
         companyEditor.invalidate();
         themePreview.cancel = null;
-        showChat();
+        returnToPrevious();
       };
       themePreview.cancel = restore;
       const picker = new TerminalThemePicker({
@@ -1560,7 +1559,7 @@ export class RecursInteractiveShell {
         save: async (appearance) => {
           await persistAppearance(appearance);
           themePreview.cancel = null;
-          if (appearance.design === "v19" && current.design !== "v19") showCompany(); else showChat();
+          returnToPrevious();
         },
         cancel: restore,
         refresh: () => tui.requestRender(true),
@@ -1574,7 +1573,7 @@ export class RecursInteractiveShell {
       signal?: AbortSignal,
       label?: string,
     ): Promise<string | null> => {
-      const returnToFloor = view === "company" && this.#theme.appearance.design === "v19";
+      const returnToFloor = view === "company";
       showChat();
       tui.setFocus(chat.editor);
       const pending = chat.ask(question, options, signal, label);
@@ -1755,7 +1754,7 @@ export class RecursInteractiveShell {
           this.#transcript.append(`\n${fence}diff\n${result.text}\n${fence}\n`);
           return;
         }
-        if (parsed?.name === "help" && result.type === "message") this.#transcript.append("\n/theme [orange|system|dark|light|contrast]  Preview or save terminal appearance\n/theme color <role> #RRGGBB         Customize a semantic color\n/theme design r|v19               Choose the opening and working view\n");
+        if (parsed?.name === "help" && result.type === "message") this.#transcript.append("\n/theme [orange|system|dark|light|contrast]  Preview or save terminal appearance\n/theme color <role> #RRGGBB         Customize a semantic color\n/theme design r|v19               Open chat or the agent floor (legacy alias)\nCtrl+G team/chat · Ctrl+T executions · Enter inspect · Esc back\nF2 colors · F3 permissions · PgUp/PgDn history · Ctrl+C cancel work · Ctrl+Q quit\n");
         await renderCommandResult(
           result,
           this.#transcriptOutput,
@@ -1779,7 +1778,6 @@ export class RecursInteractiveShell {
     companyEditor.onSubmit = (input) => {
       const value = input.trim();
       if (value.length === 0) return;
-      if (this.#theme.appearance.design !== "v19") showChat();
       const task = submit(value).finally(() => { if (view === "company") showChat(); });
       submissionTasks.add(task);
       void task.finally(() => submissionTasks.delete(task));
@@ -1794,6 +1792,19 @@ export class RecursInteractiveShell {
         if (matchesKey(data, Key.ctrl("q"))) { themePreview.cancel?.(); finish({ type: "quit" }); return { consume: true }; }
         if (matchesKey(data, Key.ctrl("g")) || matchesKey(data, Key.ctrl("t"))) return { consume: true };
         return undefined;
+      }
+      if (chat.hasQuestion) {
+        if (matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("c"))) {
+          chat.cancelCurrentQuestion();
+          tui.requestRender(true);
+          return { consume: true };
+        }
+        if (matchesKey(data, Key.ctrl("g")) || matchesKey(data, Key.ctrl("t")) || matchesKey(data, Key.f2) || matchesKey(data, Key.f3)) return { consume: true };
+      }
+      if ((view === "chat" || view === "company") && matchesKey(data, Key.f3) && activeSubmissions === 0 && !runtime.hasActiveRun) {
+        showChat();
+        chat.onSubmit?.("/permissions");
+        return { consume: true };
       }
       if ((view === "chat" || view === "company") && matchesKey(data, Key.f2) && activeSubmissions === 0 && !runtime.hasActiveRun) { showAppearance(); return { consume: true }; }
       if (view === "chat" && supportsLaunch && matchesKey(data, Key.escape) && chat.editor.getText().length === 0) {
@@ -1815,7 +1826,7 @@ export class RecursInteractiveShell {
       }
       if (matchesKey(data, Key.ctrl("g"))) {
         if (view === "launch") return undefined;
-        if (!companyAvailable() || view === "company") showChat();
+        if (view === "company") showChat();
         else showCompany();
         return { consume: true };
       }
@@ -1824,10 +1835,7 @@ export class RecursInteractiveShell {
       }
       return undefined;
     });
-    if (this.#theme.appearance.design === "v19") {
-      view = "company";
-      mount(home, home);
-    } else if (!supportsLaunch) {
+    if (!supportsLaunch) {
       view = "chat";
       mount(chat, chat.editor);
     } else {

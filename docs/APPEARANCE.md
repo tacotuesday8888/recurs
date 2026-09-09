@@ -5,7 +5,7 @@ picker. Arrow keys preview colors immediately. **Enter** saves; **Escape**
 restores the appearance you opened with. Your unfinished message stays intact.
 **C** edits individual colors: **Tab** selects a role, six hex digits and **Enter** preview the color, then **Enter** saves the theme. **Ctrl+C** cancels the entire preview.
 
-**D** switches between the **3D R** and **V19 agent floor** designs. Both use the same sessions, tools, agent controls, approvals, and history. Design and colors save independently. You can also use `/theme design r` or `/theme design v19`; V19 opens directly on the team floor. **Ctrl+G** switches between the floor and conversation.
+The **3D R opening and V19 agent floor are one interface**. The R rotates 2.5 times faster than the original. **Ctrl+G** switches between conversation and the agent floor, even before the first child starts. **Ctrl+T** opens executions; **Enter** inspects one; **Escape** returns. **F3** opens permissions, **F2** colors, and **Ctrl+Q** exits. Pending approvals stay visible until answered or cancelled with Escape. Legacy `/theme design r|v19` commands still open the corresponding view; they no longer select separate interfaces.
 
 The current preset is marked, and selection remains visible in short terminals.
 
@@ -68,16 +68,24 @@ The opening uses a spinning, extruded R with inset detail, rendered in native te
 
 ![Actual applied patch with line counts](assets/terminal-patch.svg)
 
-## Run both designs locally
+## Run the complete first-run experience
 
-From a checkout, `npm run ui:preview -- --design r` or `npm run ui:preview -- --design v19`
-builds and opens the actual local CLI in a disposable workspace with a deterministic local
-provider. This walkthrough uses the production UI and real tool execution, while
-provider responses are scripted. It needs no API account and does not alter your
-saved Recurs settings. Try “Apply terminal fixture patch”, “Inspect with terminal
-child”, or “show long output”. F2 changes the design and colors; Ctrl+G opens the
-team; Ctrl+T opens executions; Enter inspects an execution; Ctrl+Q exits.
+```sh
+cd /path/to/recurs
+npm run ui:preview
+```
 
-Add `--setup` to either walkthrough command to start with the complete onboarding flow.
+This builds and runs the real onboarding with an empty private home and workspace.
+No model connection or conversation is preloaded. Sign in with a provider and
+continue through permissions and team setup. Connected requests use your actual
+provider account. The printed temporary directory retains the preview's private
+state for inspection; normal Recurs settings are untouched. For environment-key
+providers, pass `-- --use-env` to explicitly expose your existing `*_API_KEY` and
+`*_AUTH_TOKEN` environment variables to this isolated process.
 
-In your real project, use `/theme design r` or `/theme design v19`.
+For the deterministic, no-account tool walkthrough, use `npm run ui:demo`.
+Try “Apply terminal fixture patch”, “Inspect with terminal child”, or “show long
+output”. Responses are scripted; tools, approvals, file edits, and child execution
+are real. Add `-- --setup` to exercise onboarding with the fixture connection.
+
+For everyday use in your own project, run `recurs` (or the current local build).

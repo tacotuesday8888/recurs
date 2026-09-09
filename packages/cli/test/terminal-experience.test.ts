@@ -15,7 +15,7 @@ const plain = (rows: string[]) => stripVTControlCharacters(rows.join("\n"));
 const start = (activity: TerminalActivity, patch: string) => activity.emit({ ...base, type: "tool_started", call: { id: "patch", name: "apply_patch", arguments: { patch } } });
 
 describe("implemented terminal experience", () => {
-  it("keeps design selection independent from palette selection", () => {
+  it("preserves legacy preferences while presenting one combined interface", () => {
     const current = parseTerminalAppearance({ version: 1, theme: "orange", design: "v19" });
     expect(current.design).toBe("v19");
     expect(() => parseTerminalAppearance({ ...current, design: "unknown" })).toThrow();
@@ -25,7 +25,8 @@ describe("implemented terminal experience", () => {
     expect(local.appearance.design).toBe("v19");
     expect(local.appearance.theme).toBe("system");
     picker.handleInput("d");
-    expect(local.appearance.design).toBe("r");
+    expect(local.appearance.design).toBe("v19");
+    expect(plain(picker.render(100))).toContain("Ctrl+G opens the agent floor");
     expect(local.appearance.theme).toBe("system");
   });
   it("tracks tools and permission waits on the exact child execution", async () => {

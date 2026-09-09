@@ -251,6 +251,24 @@ describe("foundation slash commands", () => {
     );
   });
 
+  it("selects permissions interactively, cancels without changes, and confirms full access", async () => {
+    const registry = createCommandRegistry();
+    const context = commandContext();
+    context.selectChoice = vi.fn(async () => "approved_for_me");
+    await registry.execute("/permissions", context);
+    expect(context.session.permissionMode).toBe("approved_for_me");
+    context.selectChoice = vi.fn(async () => null);
+    await registry.execute("/permissions", context);
+    expect(context.records).toHaveLength(1);
+    context.selectChoice = vi.fn(async () => "full_access");
+    await registry.execute("/permissions", context);
+    expect(context.confirm).toHaveBeenCalledOnce();
+    expect(context.session.permissionMode).toBe("full_access");
+    context.selectChoice = vi.fn(async () => "invalid");
+    expect(await registry.execute("/permissions", context)).toMatchObject({ level: "error" });
+    expect(context.records).toHaveLength(2);
+  });
+
   it("explains the active permission boundary and child-agent ceiling", async () => {
     const registry = createCommandRegistry();
     const context = commandContext({ permissionMode: "approved_for_me" });
