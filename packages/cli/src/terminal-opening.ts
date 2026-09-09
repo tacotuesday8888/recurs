@@ -47,8 +47,9 @@ export function renderTerminalOpening(width: number, available: number, theme: T
     return " ".repeat(Math.max(0, Math.floor((width - visibleWidth(text)) / 2))) + text;
   };
   const rows: string[] = [];
-  if (available >= 12 && width >= 40 && theme.colorEnabled) {
-    const artHeight = Math.min(20, available - 6);
+  const compact = available < 12;
+  if (available >= 7 && width >= 40 && theme.colorEnabled) {
+    const artHeight = Math.min(20, available - (compact ? 2 : 6));
     const artWidth = Math.min(64, width);
     const cells = Array.from({ length: artHeight }, () => Array.from({ length: artWidth }, () => ({ ch: " ", light: 0 })));
     const depth = Array.from({ length: artHeight }, () => Array<number>(artWidth).fill(-Infinity));
@@ -82,6 +83,7 @@ export function renderTerminalOpening(width: number, available: number, theme: T
       }
       return center(result + style(run, role));
     }), "");
+    if (compact) return [...rows, theme.accent(center("RECURS"))].slice(0, available);
   }
   rows.push(...[
     "█▀▄ █▀▀ █▀▀ █ █ █▀▄ █▀▀",

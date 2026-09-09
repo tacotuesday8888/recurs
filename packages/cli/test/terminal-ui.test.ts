@@ -1,3 +1,4 @@
+import * as terminalOpening from "../src/terminal-opening.js";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -1010,6 +1011,22 @@ describe("RecursInteractiveShell", () => {
 
     expect(closed).toBe(1);
     expect(terminal.input).toBeNull();
+  });
+
+  it("advances onboarding animation frames and stops the timer when setup exits", async () => {
+    const render = vi.spyOn(terminalOpening, "renderTerminalOpening");
+    const terminal = new TestTerminal(100, 40);
+    const shell = new RecursInteractiveShell({ terminal, cwd: "/workspace", colorEnabled: true });
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    const onboarding = shell.onboard(async () => gate);
+    try {
+      await vi.waitFor(() => expect(render.mock.calls.some((call) => (call[3] ?? 0) > 1)).toBe(true));
+      finish(); await onboarding;
+      const count = render.mock.calls.length;
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      expect(render.mock.calls).toHaveLength(count);
+    } finally { finish(); await onboarding; render.mockRestore(); }
   });
 
   it("loads the approved onboarding blueprint into the team tree", async () => {

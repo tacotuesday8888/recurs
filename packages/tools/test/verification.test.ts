@@ -37,6 +37,8 @@ function verificationExports(): VerificationExports {
 
 describe("run_verification", () => {
   it.each([
+    ["node --test", "node", ["--test"]],
+    ["node --test slugify.test.mjs", "node", ["--test", "slugify.test.mjs"]],
     ["npm test", "npm", ["test"]],
     ["npm run typecheck", "npm", ["run", "typecheck"]],
     ["pnpm run lint", "pnpm", ["run", "lint"]],
@@ -57,6 +59,11 @@ describe("run_verification", () => {
   });
 
   it.each([
+    "node -e console.log(1)",
+    "node --test --eval console.log(1)",
+    "node --test --import hook.mjs",
+    "node --test --watch",
+    "node script.mjs",
     "npm install",
     "npm publish",
     "npm run start",

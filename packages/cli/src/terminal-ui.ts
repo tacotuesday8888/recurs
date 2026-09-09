@@ -679,6 +679,7 @@ class OnboardingComponent extends Container {
     private readonly theme: TerminalTheme,
     private readonly rows: () => number,
     workspace: string,
+    private readonly frame: () => number = () => 0,
   ) {
     super();
     const accent = theme.accent;
@@ -720,7 +721,7 @@ class OnboardingComponent extends Container {
     const available = Math.max(0, this.rows() - fixed);
     this.#scrollOffset = Math.min(this.#scrollOffset, Math.max(0, transcript.length - available));
     const end = transcript.length - this.#scrollOffset;
-    const opening = renderTerminalOpening(width, Math.max(0, available - transcript.length), this.theme);
+    const opening = renderTerminalOpening(width, Math.max(0, available - transcript.length), this.theme, this.frame());
     const body = available === 0 ? [] : [...opening, ...transcript.slice(Math.max(0, end - (available - opening.length)), end)];
     while (body.length < available) body.push("");
     return [...header, ...body, ...question, ...input, ...footer].slice(-Math.max(1, this.rows()));
@@ -1271,7 +1272,9 @@ export class RecursInteractiveShell {
       this.#theme,
       () => this.#terminal.rows,
       path.basename(this.#cwd),
+      () => this.#frame,
     );
+    let external = false;
     const ui: InteractiveOnboardingUi = {
       stdout: output,
       stderr: output,
@@ -1294,10 +1297,12 @@ export class RecursInteractiveShell {
         ]), signal) === "yes",
       runExternal: async (operation) => {
         component.setWorking();
+        external = true;
         tui.stop();
         try {
           return await operation();
         } finally {
+          external = false;
           tui.start();
           component.focus();
           tui.requestRender(true);
@@ -1324,9 +1329,16 @@ export class RecursInteractiveShell {
     this.#terminal.setTitle(terminalTitle(this.#cwd));
     tui.start();
     tui.requestRender(true);
+    const animation = !this.#animate ? undefined : setInterval(() => {
+      if (external) return;
+      this.#frame += 1;
+      tui.requestRender();
+    }, 80);
+    animation?.unref();
     try {
       return await run(ui, controller.signal);
     } finally {
+      clearInterval(animation);
       signal?.removeEventListener("abort", onExternalAbort);
       removeCancellationListener();
       tui.stop();

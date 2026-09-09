@@ -43,6 +43,7 @@ describe("implemented terminal experience", () => {
     expect(state.snapshot().agents[0]?.status).toBe("running");
   });
   it("animates native geometry and keeps every frame within terminal bounds", () => {
+    expect(renderTerminalOpening(80, 7, theme, 0)).not.toEqual(renderTerminalOpening(80, 7, theme, 12));
     expect(renderTerminalOpening(100, 20, theme, 0)).not.toEqual(renderTerminalOpening(100, 20, theme, 12));
     for (const width of [1, 24, 48, 80, 120]) for (const height of [1, 5, 16, 30]) for (const frame of [0, 10, 25]) {
       const rows = renderTerminalOpening(width, height, theme, frame);
