@@ -17,6 +17,7 @@ import {
   type AgentActivity,
   type SessionRecord,
   type TeamRunSnapshot,
+  type PinnedSessionState,
 } from "@recurs/core";
 import { permissionIntentKey, ToolError, type ToolContext } from "@recurs/tools";
 
@@ -62,6 +63,44 @@ function summary(id: Parameters<typeof getOperatingModePolicy>[0]): string {
     ...teamSummary,
     `Reported cost ceiling: $${policy.orchestration.maxReportedCostUsd.toFixed(2)} (enforced for new work after provider telemetry is known)`,
   ].join("\n");
+}
+
+async function routesSummary(
+  session: PinnedSessionState,
+  dependencies: CommandDependencies,
+): Promise<CommandResult> {
+  const policy = getOperatingModePolicy(session.agent.operatingMode.id);
+  const parent = session.backend.pin;
+  const lines = [
+    `Role models — ${policy.displayName} (${policy.id})`,
+    `Parent pinned: ${parent.providerId}/${parent.modelId} · effort ${parent.reasoningEffortAtCreation ?? "unspecified"} · ${parent.connectionId}`,
+    "Configured assignments below are a preview, not a live resolution. Eligibility, credentials, and billing authority are checked at the next child launch. Existing child pins do not change.",
+  ];
+  if (dependencies.modelRoutes === undefined) {
+    return message([...lines, "Saved role assignments are unavailable in this host; no route was inferred."].map((line) => sanitizeTerminalText(line)).join("\n"), "warning");
+  }
+  const snapshot = await dependencies.modelRoutes.inspect(
+    dependencies.signal?.() ?? new AbortController().signal,
+  );
+  for (const role of ["implement", "review", "repair"] as const) {
+    const id = snapshot.routes[role];
+    const candidate = snapshot.connections.find((connection) => connection.connectionId === id);
+    const configured = id === null
+      ? "inherit parent (no separate assignment)"
+      : candidate === undefined
+      ? `connection ${id} missing; cannot resolve its model or effort`
+      : `${candidate.label}: ${candidate.providerId}/${candidate.modelId} · effort ${candidate.reasoningEffort ?? "unspecified"} · ${id} · ${candidate.execution} · ${candidate.billingSources.join(" + ") || "billing unspecified"}`;
+    lines.push(`${role}: ${configured}`);
+    if (policy.model.selection === "inherit_parent") {
+      lines.push("  Mode requires parent inheritance; saved overrides are not used by this policy.");
+    } else if (id !== null) {
+      lines.push("  Candidate only; resolve at next launch or inherit the parent when ineligible or unavailable.");
+    }
+  }
+  lines.push(policy.model.selection === "inherit_parent"
+    ? "To specialize roles, choose a current mode with /agents mode, then run recurs setup to configure eligible connections."
+    : `Mode permits candidate billing sources: ${policy.model.eligibleBillingSources.join(", ")}. Run recurs setup to change role assignments; /agents inspect <session-id> shows a launched child's actual pinned model.`);
+  return message(lines.map((line) => sanitizeTerminalText(line)).join("\n"));
 }
 
 function workspaceEffects(profile: AgentProfilePolicy): string {
@@ -384,7 +423,7 @@ export function createAgentsCommand(
     name: "agents",
     aliases: ["agent"],
     description: "Inspect execution trees, child transcripts, controls, and durable team runs",
-    usage: "/agents [executions|inspect <session-id>|stop <session-id>|profiles|controls|configure key=value...|reset|activity [exact-id]|teams|team <id>|wait <id>|cancel <id>|resume <id>|apply <id>|mode economy|standard|balanced|performance|max]",
+    usage: "/agents [executions|inspect <session-id>|stop <session-id>|profiles|routes|controls|configure key=value...|reset|activity [exact-id]|teams|team <id>|wait <id>|cancel <id>|resume <id>|apply <id>|mode economy|standard|balanced|performance|max]",
     async execute(args, context) {
       const trimmed = args.trim();
       if (trimmed.toLowerCase() === "profiles") {
@@ -392,6 +431,13 @@ export function createAgentsCommand(
       }
       if (!isPinnedSessionState(context.session)) {
         return message("Agent modes become available after a model connection creates a session", "warning");
+      }
+      if (trimmed.toLowerCase() === "routes") {
+        try {
+          return await routesSummary(context.session, dependencies);
+        } catch {
+          return message("Saved role assignments could not be read; no route was inferred. Try /agents routes again after checking recurs doctor.", "error");
+        }
       }
       if (trimmed.toLowerCase() === "controls" ||
         trimmed.toLowerCase() === "reset" ||
@@ -613,7 +659,7 @@ export function createAgentsCommand(
       const id = match?.[1] === undefined ? null : parseOperatingModeId(match[1]);
       if (id === null) {
         return message(
-          "Choose /agents mode economy, standard, balanced, performance, or max; use /agents profiles, /agents controls, /agents activity, or /agents teams",
+          "Choose /agents mode economy, standard, balanced, performance, or max; use /agents profiles, /agents routes, /agents controls, /agents activity, or /agents teams",
           "error",
         );
       }

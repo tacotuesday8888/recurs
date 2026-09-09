@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
+import { recommendedTeamControlPolicy } from "@recurs/contracts";
 
 import {
   CompanyOnboardingCoordinator,
@@ -316,6 +317,46 @@ describe("guided onboarding policy", () => {
       signal: undefined,
     }]);
     expect(output).toContain("Team controls: parallel");
+  });
+
+  it("shows saved limits and retries invalid limits without resetting or exceeding them", async () => {
+    const selections = ["account:saved-1", "approved_for_me", "balanced_v6", "customize", "parallel"];
+    const answers = ["99", "2", "3", "", "999999999999999999", "1"];
+    const saved = { ...recommendedTeamControlPolicy("balanced_v6"), maxActiveAgents: 4, maxConcurrentAgents: 2, maxDelegationDepth: 1 };
+    let output = "";
+    const sink = new Writable({ write(chunk, _encoding, done) { output += String(chunk); done(); } });
+    const configure = vi.fn(async () => undefined);
+    await expect(runGuidedOnboarding({
+      stdout: sink, stderr: sink, interactive: true, automation: false,
+      async listAccounts() { return [account]; }, async executeCommand() { return 0; },
+      async inspectTeamControls() { return { source: "saved", compatible: true, selected: saved, hardCeiling: recommendedTeamControlPolicy("balanced_v6"), effective: null }; },
+      async selectChoice(message, choices) {
+        if (message === "Choose your team limits") expect(choices[0]?.detail).toContain("4 active · 2 at once · up to 2 layers");
+        return selections.shift() ?? null;
+      },
+      async promptText(message, suggestion) {
+        if (message.startsWith("Maximum active")) expect(suggestion).toBe("4");
+        if (message.startsWith("Maximum concurrent")) expect(message).toContain("1–2");
+        return answers.shift() ?? null;
+      },
+      configureTeamControls: configure,
+    })).resolves.toMatchObject({ state: "configured" });
+    expect(configure).toHaveBeenCalledWith(expect.objectContaining({ changes: { topology: "parallel", maxActiveAgents: 2, maxConcurrentAgents: 2, maxDelegationDepth: 1 } }));
+    expect(output.match(/Your team settings have not changed/g)).toHaveLength(3);
+    expect(answers).toEqual([]);
+  });
+
+  it("does not save partially entered team limits when a prompt is cancelled", async () => {
+    const selections = ["account:saved-1", "approved_for_me", "balanced_v6", "customize", "parallel"];
+    const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
+    const configure = vi.fn(async () => undefined);
+    await expect(runGuidedOnboarding({
+      stdout: sink, stderr: sink, interactive: true, automation: false,
+      async listAccounts() { return [account]; }, async executeCommand() { return 0; },
+      async selectChoice() { return selections.shift() ?? null; },
+      async promptText() { return null; }, configureTeamControls: configure,
+    })).resolves.toEqual({ state: "failed", exitCode: 130 });
+    expect(configure).not.toHaveBeenCalled();
   });
 
   it("persists recommended controls without asking for advanced values", async () => {
@@ -923,8 +964,34 @@ describe("guided onboarding policy", () => {
     expect(output).not.toContain("Onboarding complete");
   });
 
+  it("explains the actual billing constraint when only the parent can be selected", async () => {
+    const selections = ["account:saved-1", "approved_for_me", "economy_v6"];
+    let output = "";
+    const sink = new Writable({ write(chunk, _encoding, done) {
+      output += String(chunk); done();
+    } });
+    const setTeamRoutes = vi.fn();
+    const result = await runGuidedOnboarding({
+      stdout: sink, stderr: sink, interactive: true, automation: false,
+      async listAccounts() { return [account, { ...account, id: "other", primary: false }]; },
+      async detectProviders() { return []; }, async listProviders() { return []; },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift() ?? null;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText() { return null; }, async executeCommand() { return 0; },
+      setTeamRoutes,
+    });
+    expect(result).toMatchObject({ state: "configured", operatingModeId: "economy_v6" });
+    expect(output).toContain("no additional saved connection is eligible for selection in Economy");
+    expect(output).toContain("primary billing source is local compute");
+    expect(output).toContain("Use /agents routes to inspect saved assignments");
+    expect(setTeamRoutes).not.toHaveBeenCalled();
+  });
+
   it("configures eligible specialist routes without changing the parent", async () => {
-    let roles: readonly string[] = [];
+    let roles: readonly string[] = ["review"];
     const primary: AccountSummary = {
       ...account,
       id: "parent",
@@ -939,6 +1006,7 @@ describe("guided onboarding policy", () => {
       id: "specialist",
       label: "Specialist model",
       modelId: "specialist/model",
+      reasoningEffort: "high",
       primary: false,
       billingSources: ["metered_api"],
       agentRoles: roles as AccountSummary["agentRoles"],
@@ -966,7 +1034,17 @@ describe("guided onboarding policy", () => {
       async listAccounts() { return [primary, specialist()]; },
       async detectProviders() { return []; },
       async listProviders() { return []; },
-      async selectChoice(_message, choices) {
+      async selectChoice(message, choices) {
+        if (message === "Choose the review model") {
+          expect(choices.find((choice) => choice.id === "specialist")).toMatchObject({
+            label: "Specialist model (current)",
+            detail: expect.stringContaining("openrouter-api/specialist/model · effort high"),
+          });
+        }
+        if (message.startsWith("Choose whether to specialize")) {
+          expect(choices[0]?.detail).toContain("review: Specialist model · openrouter-api/specialist/model · effort high (configured candidate)");
+          expect(choices[0]?.detail).toContain("eligibility rechecked at next child launch");
+        }
         const selected = selections.shift() ?? null;
         expect(choices.some((choice) => choice.id === selected)).toBe(true);
         return selected;
@@ -996,7 +1074,6 @@ describe("guided onboarding policy", () => {
     ]);
     expect(routeBatches).toEqual([[
       { role: "implement", connectionId: "specialist" },
-      { role: "review", connectionId: "specialist" },
     ]]);
   });
 
@@ -1217,7 +1294,7 @@ describe("guided onboarding policy", () => {
     expect(confirmations[1]).toContain("Approve and activate");
     expect(confirmations[2]).toContain("never overwrite");
     expect(output.join("")).toMatch(
-      /02\/06 {2}AUTHORITY[\s\S]*03\/06 {2}TEAM[\s\S]*04\/06 {2}MODELS[\s\S]*05\/06 {2}ROSTER[\s\S]*06\/06 {2}PROJECT CONTEXT/u,
+      /02\/06 {2}PERMISSIONS[\s\S]*03\/06 {2}TEAM[\s\S]*04\/06 {2}MODELS[\s\S]*05\/06 {2}ROSTER[\s\S]*06\/06 {2}PROJECT CONTEXT/u,
     );
     expect(output.join("")).toMatch(
       /Team: Balanced[\s\S]*Models: implement:[\s\S]*Roster: Recommended[\s\S]*Authority: Approved for Me[\s\S]*Models Auto becomes available after eligible real company-goal evidence/u,

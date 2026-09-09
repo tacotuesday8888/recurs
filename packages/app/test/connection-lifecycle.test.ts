@@ -176,6 +176,19 @@ class AbortOnCommitRegistry implements ConnectionRegistryPort {
 }
 
 describe("connection lifecycle service", () => {
+  it("preserves explicitly saved reasoning effort in public model summaries", async () => {
+    const { registry } = await seededRegistry();
+    const before = await registry.read();
+    await registry.commit(before.revision, (draft) => {
+      draft.connections.push(codexAppServer());
+    });
+    const summaries = await new ConnectionLifecycleService(registry).list();
+    expect(summaries.find((entry) => entry.id === "codex-app-server"))
+      .toMatchObject({ modelId: "gpt-5.6-terra", reasoningEffort: "medium" });
+    expect(summaries.find((entry) => entry.id === "local-primary"))
+      .not.toHaveProperty("reasoningEffort");
+  });
+
   it("lists deeply frozen summaries without private account or endpoint data", async () => {
     const { registry } = await seededRegistry();
     const summaries = await new ConnectionLifecycleService(registry).list();

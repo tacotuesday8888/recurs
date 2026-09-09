@@ -178,7 +178,7 @@ describe("installed company prompt driver", () => {
       "Choose a saved, detected, or recommended model connection:",
       "Choose how much Recurs may do without asking:",
       "Choose how much agent teamwork Recurs should use:",
-      "Choose the team-control detail:",
+      "Choose your team limits:",
       "Tailor the first Recurs agent company to this project:",
       "How deeply should Recurs understand the project before proposing your company?:",
       "How should Recurs form the company?:",

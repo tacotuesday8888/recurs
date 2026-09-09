@@ -14,6 +14,7 @@ export interface AgentExecution {
   readonly model: string;
   readonly effort: string | null;
   readonly permissions: AgentSessionDescriptor["permissions"];
+  readonly limits: AgentSessionDescriptor["limits"];
   readonly status: AgentLifecycle["status"] | "unknown";
   readonly recordedStatus: AgentLifecycle["status"];
   readonly updatedAt: string;
@@ -60,6 +61,7 @@ export class AgentExecutionService {
       model: state.backend.pin.modelId,
       effort: state.backend.pin.reasoningEffortAtCreation ?? null,
       permissions: agent.permissions,
+      limits: agent.limits,
       status,
       recordedStatus: lifecycle.status,
       updatedAt,

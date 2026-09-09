@@ -8,9 +8,10 @@ import { ExecutionInspector } from "../src/terminal-execution-inspector.js";
 const detail: AgentExecutionDetail = {
   execution: {
     executionId: "child-exact", parentExecutionId: "root", agentId: "worker", roleId: "implement_v1",
-    roleName: "Implement", profileId: { id: "implement_v1", version: 1 }, description: "Fix the parser",
+    roleName: "Implement", profileId: "implement_v1", description: "Fix the parser",
     depth: 1, model: "selected-model", effort: "medium",
     permissions: { executionMode: "act", parentExecutionMode: "act", permissionMode: "ask_always", parentPermissionMode: "ask_always" },
+    limits: { maxDepth: 2, maxConcurrentChildren: 1, maxRetries: 0, maxRequests: 8, maxReportedCostUsd: 1 },
     status: "running", recordedStatus: "running", updatedAt: "2026-09-09T00:00:00Z", usage: null,
     changedFiles: ["parser.ts"], evidence: ["fixture passed"], detail: null, teamRunId: null, companyGoalRunId: null,
     capabilities: { cancel: true, send: false, reason: "Read-only. Cancel stops this execution and descendants." },
@@ -47,6 +48,23 @@ describe("terminal reading and intervention", () => {
     expect(cancel).not.toHaveBeenCalled();
     inspector.handleInput("\u0003");
     expect(cancel).toHaveBeenCalledWith("child-exact");
+    inspector.handleInput("\u0003");
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(inspector.render(100).join("\n")).toContain("Cancellation requested");
+  });
+
+  it("shows recorded limits, permission ceilings and exact recovery commands", () => {
+    const inspector = new ExecutionInspector({ rows: () => 40, back() {}, reload() {}, refresh() {}, cancel() {} });
+    inspector.show({ ...detail, execution: { ...detail.execution, companyGoalRunId: "goal-exact", status: "unknown", capabilities: { cancel: false, send: false, reason: "Owner unknown" } } });
+    const screen = inspector.render(110).join("\n");
+    expect(screen).toContain("Depth: 1 (parent conversation is depth 0)");
+    expect(screen).toContain("Parent ceiling: Act · Ask Always");
+    expect(screen).toContain("Limits: depth ≤ 2 · concurrent children ≤ 1");
+    expect(screen).toContain("Budget: 8 requests");
+    expect(screen).toContain("/company run goal-exact");
+    expect(screen).toContain("/company resume goal-exact");
+    expect(screen).not.toContain("Ctrl+C");
+    expect(inspector.render(20).at(-1)).toContain("Esc back");
   });
 
   it("does not offer cancellation for historical or unknown owners", () => {

@@ -1,5 +1,11 @@
 import type { Writable } from "node:stream";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import {
+  isTerminalThemeName,
+  type TerminalAppearance,
+  type TerminalColorRole,
+  type TerminalThemeName,
+} from "./terminal-appearance.js";
 
 import {
   RECURS_MARK_ANSI_256,
@@ -10,6 +16,7 @@ import {
 type TerminalEnvironment = Readonly<Record<string, string | undefined>>;
 
 export interface TerminalThemeOptions {
+  readonly appearance?: TerminalAppearance;
   readonly colorEnabled?: boolean;
   readonly environment?: TerminalEnvironment;
   readonly terminal?: boolean;
@@ -17,6 +24,10 @@ export interface TerminalThemeOptions {
 
 export interface TerminalTheme {
   readonly colorEnabled: boolean;
+  readonly appearance: TerminalAppearance;
+  setAppearance(appearance: TerminalAppearance): void;
+  frame(text: string): string;
+  code(text: string): string;
   accent(text: string): string;
   brand(text: string, index: number): string;
   companyLayer(depth: 0 | 1 | 2 | 3, text: string): string;
@@ -31,6 +42,16 @@ export interface TerminalTheme {
 const RESET = "\u001b[0m";
 const MAX_RAINBOW_ANSI_256 = Object.freeze([196, 208, 226, 46, 51, 39, 129]);
 const COMPANY_LAYER_ANSI_256 = Object.freeze([220, 75, 80, 113]);
+const PALETTES: Readonly<Record<Exclude<TerminalThemeName, "system">, Record<TerminalColorRole, string>>> = {
+  dark: { background: "#111827", foreground: "#e5e7eb", accent: "#67e8f9", muted: "#9ca3af", success: "#86efac", warning: "#fde68a", failure: "#fda4af", code: "#c4b5fd" },
+  light: { background: "#ffffff", foreground: "#172033", accent: "#075985", muted: "#475569", success: "#166534", warning: "#854d0e", failure: "#9f1239", code: "#6b21a8" },
+  contrast: { background: "#000000", foreground: "#ffffff", accent: "#00ffff", muted: "#ffffff", success: "#00ff00", warning: "#ffff00", failure: "#ff8080", code: "#ffffff" },
+};
+
+function rgbSequence(hex: string, background = false): string {
+  const rgb = [1, 3, 5].map((start) => Number.parseInt(hex.slice(start, start + 2), 16));
+  return `\u001b[${background ? 48 : 38};2;${rgb.join(";")}m`;
+}
 
 function ansi(enabled: boolean, code: number, text: string): string {
   return enabled ? `\u001b[${code}m${text}${RESET}` : text;
@@ -59,21 +80,40 @@ export function createTerminalTheme(
   options: TerminalThemeOptions = {},
 ): TerminalTheme {
   const colorEnabled = terminalSupportsColor(output, options);
+  const name = (options.environment ?? process.env).RECURS_THEME ?? "system";
+  let appearance: TerminalAppearance = options.appearance ?? { version: 1, theme: isTerminalThemeName(name) ? name : "system" };
+  const color = (role: TerminalColorRole): string | undefined => appearance.colors?.[role] ??
+    (appearance.theme === "system" ? undefined : PALETTES[appearance.theme][role]);
+  const style = (role: TerminalColorRole, fallback: number, text: string): string => {
+    const hex = color(role);
+    return hex === undefined ? ansi(colorEnabled, fallback, text) : colorEnabled ? `${rgbSequence(hex)}${text}${RESET}` : text;
+  };
   return Object.freeze({
     colorEnabled,
-    accent: (text: string) => ansi(colorEnabled, 96, text),
+    get appearance() { return appearance; },
+    setAppearance: (value: TerminalAppearance) => { appearance = value; },
+    frame: (text: string) => {
+      if (!colorEnabled) return text;
+      const background = color("background");
+      const foreground = color("foreground");
+      const base = `${background === undefined ? "" : rgbSequence(background, true)}${foreground === undefined ? "" : rgbSequence(foreground)}`;
+      return `${base}${text.replaceAll(RESET, `${RESET}${base}`)}${RESET}`;
+    },
+    code: (text: string) => style("code", 96, text),
+    accent: (text: string) => style("accent", 96, text),
     brand: (text: string, index: number) =>
-      ansi256(
+      appearance.theme !== "system" ? style("accent", 96, text) : ansi256(
         colorEnabled,
         RECURS_MARK_ANSI_256[index % RECURS_MARK_ANSI_256.length] ?? 51,
         text,
       ),
-    companyLayer: (depth: 0 | 1 | 2 | 3, text: string) =>
-      ansi256(colorEnabled, COMPANY_LAYER_ANSI_256[depth] ?? 80, text),
-    failure: (text: string) => ansi(colorEnabled, 31, text),
-    muted: (text: string) => ansi(colorEnabled, 2, text),
+    companyLayer: (depth: 0 | 1 | 2 | 3, text: string) => appearance.theme === "system"
+      ? ansi256(colorEnabled, COMPANY_LAYER_ANSI_256[depth] ?? 80, text)
+      : style(depth === 0 ? "accent" : depth === 1 ? "code" : depth === 2 ? "success" : "warning", 96, text),
+    failure: (text: string) => style("failure", 31, text),
+    muted: (text: string) => style("muted", 2, text),
     rainbow: (text: string, offset = 0) =>
-      Array.from(text, (glyph, index) =>
+      appearance.theme !== "system" ? style("accent", 96, text) : Array.from(text, (glyph, index) =>
         glyph === " "
           ? glyph
           : ansi256(
@@ -85,8 +125,8 @@ export function createTerminalTheme(
           )
       ).join(""),
     strong: (text: string) => ansi(colorEnabled, 1, text),
-    success: (text: string) => ansi(colorEnabled, 32, text),
-    warning: (text: string) => ansi(colorEnabled, 33, text),
+    success: (text: string) => style("success", 32, text),
+    warning: (text: string) => style("warning", 33, text),
   });
 }
 
@@ -94,7 +134,7 @@ export function renderTerminalCanvas(
   lines: readonly string[],
   requestedWidth: number,
   requestedHeight: number,
-  theme: Pick<TerminalTheme, "colorEnabled">,
+  theme: Pick<TerminalTheme, "colorEnabled"> & Partial<Pick<TerminalTheme, "frame">>,
 ): readonly string[] {
   if (!theme.colorEnabled) return Object.freeze([...lines]);
   const width = Math.max(1, Math.floor(requestedWidth));
@@ -103,7 +143,7 @@ export function renderTerminalCanvas(
   while (visible.length < height) visible.push("");
   return Object.freeze(visible.map((line) => {
     const padding = " ".repeat(Math.max(0, width - visibleWidth(line)));
-    return `${line}${padding}${RESET}`;
+    return theme.frame?.(`${line}${padding}`) ?? `${line}${padding}${RESET}`;
   }));
 }
 
@@ -225,31 +265,5 @@ export function wrapTerminalText(
   columns: number,
 ): readonly string[] {
   const width = Math.max(1, Math.floor(columns));
-  const lines: string[] = [];
-  let current = "";
-  for (const word of text.trim().split(/\s+/u)) {
-    const glyphs = Array.from(word);
-    if (glyphs.length > width) {
-      if (current.length > 0) {
-        lines.push(current);
-      }
-      while (glyphs.length > width) {
-        lines.push(glyphs.splice(0, width).join(""));
-      }
-      current = glyphs.join("");
-      continue;
-    }
-    if (current.length === 0) {
-      current = word;
-      continue;
-    }
-    if (Array.from(`${current} ${word}`).length <= width) {
-      current = `${current} ${word}`;
-      continue;
-    }
-    lines.push(current);
-    current = word;
-  }
-  if (current.length > 0) lines.push(current);
-  return Object.freeze(lines);
+  return Object.freeze(wrapTextWithAnsi(text.trim().replace(/\s+/gu, " "), width));
 }

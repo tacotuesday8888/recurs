@@ -1,5 +1,8 @@
 # Public alpha status
 
+**Current source: 0.1.0-alpha.11 (publication pending).** See the
+[product polish record](PRODUCT_POLISH.md) for its verification.
+
 **0.1.0-alpha.10 is published.** npm `alpha` selects `0.1.0-alpha.10`;
 `latest` remains `0.1.0-alpha.2` (verified September 9, 2026). The
 [GitHub prerelease](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.10)

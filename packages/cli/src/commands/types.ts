@@ -25,6 +25,7 @@ import type {
   ModelReasoningEffort,
   CompanyGoalRun,
   TeamControlRecommendationV1,
+  TeamRunRole,
 } from "@recurs/contracts";
 import type { ModelProvider } from "@recurs/providers";
 import type {
@@ -51,11 +52,24 @@ export type CommandResult =
   | { type: "submit_queued_prompt"; queuedInputId: string; prompt: string }
   | { type: "quit" };
 
+export interface CommandSelectionOption {
+  readonly current?: boolean;
+  readonly id: string;
+  readonly label: string;
+  readonly detail?: string;
+}
+
+export type CommandSelectionHandler = (
+  message: string,
+  options: readonly CommandSelectionOption[],
+) => Promise<string | null>;
+
 export interface CommandContext {
   session: SessionState;
   invocation: HostInvocation;
   now(): string;
   confirm(message: string): Promise<boolean>;
+  selectChoice?: CommandSelectionHandler;
   cancelActiveRun(): Promise<boolean>;
   manageQueuedTurns(args: string): Promise<CommandResult>;
   applyRecord(record: SessionRecord): Promise<void>;
@@ -104,6 +118,12 @@ export interface CommandDependencies {
   skills?: AgentSkillCatalog;
   mcp?: McpServerCatalog;
   models?: ModelSessionService;
+  modelRoutes?: {
+    inspect(signal: AbortSignal): Promise<{
+      readonly connections: readonly ModelSelectionOption[];
+      readonly routes: Readonly<Record<TeamRunRole, string | null>>;
+    }>;
+  };
   modelTeams?: ModelTeamCommandService;
   teamControls?: Pick<TeamControlService, "inspect" | "configure" | "reset">;
   company?: CompanyCommandDependencies;

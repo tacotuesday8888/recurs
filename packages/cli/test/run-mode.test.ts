@@ -3973,6 +3973,65 @@ describe("runCli", () => {
     expect(stderr.value).toBe("");
   });
 
+  it("starts a fresh chat with the current pinned connection and permissions without onboarding", async () => {
+    const stdout = new TextOutput(); const stderr = new TextOutput();
+    let starts = 0; let creations = 0;
+    let original: RecursRuntime["session"] | undefined;
+    const exit = await runCli([], {
+      stdout, stderr, interactive: true, terminalUi: true,
+      createInteractiveShell() { return {
+        events: { async emit() {} },
+        async onboard<T>(): Promise<T> { throw new Error("Configured chat must not repeat setup"); },
+        async start(runtime, options) {
+          starts += 1;
+          if (starts === 1) { original = runtime.session; return { type: "new_project" as const }; }
+          expect(options).toEqual({ launch: false });
+          expect(runtime.session.id).not.toBe(original!.id);
+          expect(runtime.session.backend).toEqual(original!.backend);
+          expect(runtime.session.permissionMode).toBe(original!.permissionMode);
+          expect(runtime.session.agent.operatingMode).toEqual(original!.agent.operatingMode);
+          return { type: "quit" as const };
+        },
+      }; },
+      async createRuntime(events) { creations += 1; return createRuntime(events); },
+    });
+    expect(exit).toBe(0); expect(creations).toBe(1); expect(starts).toBe(2);
+    expect(stderr.value).toBe("");
+  });
+
+  it("keeps the real shell runtime open across New chat and closes it on quit", async () => {
+    class NewChatTerminal extends SetupTestTerminal {
+      starts = 0;
+      override start(onInput: (data: string) => void): void { this.starts += 1; super.start(onInput); }
+    }
+    const terminal = new NewChatTerminal();
+    const stdout = new TextOutput(); const stderr = new TextOutput();
+    let runtime: RecursRuntime | undefined;
+    const running = runCli([], {
+      stdout, stderr, interactive: true, terminalUi: true,
+      createInteractiveShell() { return new RecursInteractiveShell({ cwd: process.cwd(), terminal, colorEnabled: false }); },
+      async createRuntime(events) { runtime = await createRuntime(events); return runtime; },
+    });
+    await vi.waitFor(() => expect(terminal.input).not.toBeNull());
+    const original = runtime!.session;
+    terminal.input!("\u001b[B");
+    terminal.input!("\r");
+    try {
+      await vi.waitFor(() => expect(terminal.starts).toBe(2));
+      expect(runtime!.session.id).not.toBe(original.id);
+      expect(runtime!.session.backend).toEqual(original.backend);
+      expect(runtime!.session.permissionMode).toBe(original.permissionMode);
+      terminal.input!("\u0011");
+      expect(await running).toBe(0);
+      await expect(runtime!.submit("/status")).rejects.toThrow("Runtime is closed");
+      expect(stderr.value).toBe("");
+    } finally {
+      terminal.input?.("\u0011");
+      await runtime?.close();
+      await running;
+    }
+  });
+
   it("starts guided onboarding only after the launcher chooses a new project", async () => {
     const stdout = new TextOutput();
     const stderr = new TextOutput();

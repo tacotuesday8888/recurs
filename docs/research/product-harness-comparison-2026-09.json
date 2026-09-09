@@ -1,0 +1,188 @@
+{
+  "kind": "deterministic operational comparison; not a model benchmark",
+  "node": "v22.22.3",
+  "platform": "darwin-arm64",
+  "requestCapPerCase": 8,
+  "processTimeoutMs": 20000,
+  "matchedFinalFiles": true,
+  "results": [
+    {
+      "harness": "recurs",
+      "case": "multifile-bug",
+      "version": "recurs 0.1.0-alpha.10",
+      "executableSha256": "cbaf5844435159fc6670c356cc94c8d4f3a08400f25639d2eb40c0fec428e44a",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "interrupted": null,
+      "requests": 6,
+      "durationMs": 3657,
+      "recoveredMarker": null,
+      "verifier": {
+        "passed": true,
+        "output": "VERIFIER_PASS"
+      },
+      "harnessVerifier": true,
+      "verifierUnchanged": true,
+      "finalFiles": {
+        "normalize.mjs": "243580a54dd942210321de4b7ae5e2b4b5054a1eeeaa196ec950bf3549e85d69",
+        "match.mjs": "7b751556fcfafdffec116c9fa6aa217858ecf365552a03bfd01b80cb5ae2c876",
+        "verify.mjs": "779df147f89e24659e490b8915775a5b6ce168c5e4295df5ea63ae842dba4ed1"
+      },
+      "fixtureErrors": [],
+      "finalResponse": true
+    },
+    {
+      "harness": "recurs",
+      "case": "interruption-recovery",
+      "version": "recurs 0.1.0-alpha.10",
+      "executableSha256": "cbaf5844435159fc6670c356cc94c8d4f3a08400f25639d2eb40c0fec428e44a",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "interrupted": {
+        "code": null,
+        "signal": "SIGINT",
+        "latencyMs": 4
+      },
+      "requests": 6,
+      "durationMs": 3041,
+      "recoveredMarker": true,
+      "verifier": {
+        "passed": true,
+        "output": "VERIFIER_PASS"
+      },
+      "harnessVerifier": true,
+      "verifierUnchanged": true,
+      "finalFiles": {
+        "twice.mjs": "c96df0b7e441fa7437fe5f7c9ebe1b64c68d62baa6c4dae70f9077890b3a3b40",
+        "verify.mjs": "b2fd911b66bab249c324c9620f353ebb8478bc9e7b3100f179b4bcd472c7ac47"
+      },
+      "fixtureErrors": [],
+      "finalResponse": true
+    },
+    {
+      "harness": "recurs",
+      "case": "review-repair",
+      "version": "recurs 0.1.0-alpha.10",
+      "executableSha256": "cbaf5844435159fc6670c356cc94c8d4f3a08400f25639d2eb40c0fec428e44a",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "interrupted": null,
+      "requests": 5,
+      "durationMs": 2629,
+      "recoveredMarker": null,
+      "verifier": {
+        "passed": true,
+        "output": "VERIFIER_PASS"
+      },
+      "harnessVerifier": true,
+      "verifierUnchanged": true,
+      "finalFiles": {
+        "total.mjs": "ece8ffaa392b97343c0941b3d6bb3fcd32c6ecef3962c5a5db92bd577621f0d9",
+        "REVIEW.md": "838ddf74bb82728514f94233051513fc2858d040471fe457d853f6cf13ea544b",
+        "verify.mjs": "c0c35d8eddd0420963f67d3d20b113ea59a78a215a853c5270bc3e106a57226f"
+      },
+      "fixtureErrors": [],
+      "finalResponse": true
+    },
+    {
+      "harness": "pi",
+      "case": "multifile-bug",
+      "version": "0.85.1",
+      "executableSha256": "e6d7fcf36a239cf3746e67ddf4222081ac01a601b85a3ee688bdfe9c161d754c",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "interrupted": null,
+      "requests": 6,
+      "durationMs": 343,
+      "recoveredMarker": null,
+      "verifier": {
+        "passed": true,
+        "output": "VERIFIER_PASS"
+      },
+      "harnessVerifier": true,
+      "verifierUnchanged": true,
+      "finalFiles": {
+        "normalize.mjs": "243580a54dd942210321de4b7ae5e2b4b5054a1eeeaa196ec950bf3549e85d69",
+        "match.mjs": "7b751556fcfafdffec116c9fa6aa217858ecf365552a03bfd01b80cb5ae2c876",
+        "verify.mjs": "779df147f89e24659e490b8915775a5b6ce168c5e4295df5ea63ae842dba4ed1"
+      },
+      "fixtureErrors": [],
+      "finalResponse": true
+    },
+    {
+      "harness": "pi",
+      "case": "interruption-recovery",
+      "version": "0.85.1",
+      "executableSha256": "e6d7fcf36a239cf3746e67ddf4222081ac01a601b85a3ee688bdfe9c161d754c",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "interrupted": {
+        "code": null,
+        "signal": "SIGINT",
+        "latencyMs": 3
+      },
+      "requests": 6,
+      "durationMs": 605,
+      "recoveredMarker": true,
+      "verifier": {
+        "passed": true,
+        "output": "VERIFIER_PASS"
+      },
+      "harnessVerifier": true,
+      "verifierUnchanged": true,
+      "finalFiles": {
+        "twice.mjs": "c96df0b7e441fa7437fe5f7c9ebe1b64c68d62baa6c4dae70f9077890b3a3b40",
+        "verify.mjs": "b2fd911b66bab249c324c9620f353ebb8478bc9e7b3100f179b4bcd472c7ac47"
+      },
+      "fixtureErrors": [],
+      "finalResponse": true
+    },
+    {
+      "harness": "pi",
+      "case": "review-repair",
+      "version": "0.85.1",
+      "executableSha256": "e6d7fcf36a239cf3746e67ddf4222081ac01a601b85a3ee688bdfe9c161d754c",
+      "exit": {
+        "code": 0,
+        "signal": null
+      },
+      "interrupted": null,
+      "requests": 5,
+      "durationMs": 341,
+      "recoveredMarker": null,
+      "verifier": {
+        "passed": true,
+        "output": "VERIFIER_PASS"
+      },
+      "harnessVerifier": true,
+      "verifierUnchanged": true,
+      "finalFiles": {
+        "total.mjs": "ece8ffaa392b97343c0941b3d6bb3fcd32c6ecef3962c5a5db92bd577621f0d9",
+        "REVIEW.md": "838ddf74bb82728514f94233051513fc2858d040471fe457d853f6cf13ea544b",
+        "verify.mjs": "c0c35d8eddd0420963f67d3d20b113ea59a78a215a853c5270bc3e106a57226f"
+      },
+      "fixtureErrors": [],
+      "finalResponse": true
+    }
+  ],
+  "recursCandidate": {
+    "kind": "unreleased working-tree Candidate A; version string is not a public release identifier",
+    "baseCommit": "a968cd3",
+    "archiveSha256": "5b0cbfd645173d1b2fd4865c86a474affe472c1400adc0fd65bf790367e6b865"
+  },
+  "piPackage": {
+    "name": "@earendil-works/pi-coding-agent",
+    "version": "0.85.1",
+    "integrity": "sha512-FGRN+OHbWaefBPGaTggAdLjrIHW+s2PzLyglz/5dfLzb9of7uuXMXYC0fJIeZTw+shS32o2cuQ9jF7YSDuL/oQ=="
+  }
+}

@@ -3,6 +3,9 @@
 Recurs is a TypeScript coding-agent harness for interactive work, bounded
 headless runs, repository review, and durable agent teams.
 
+This guide follows the `0.1.0-alpha.11` source candidate, pending publication.
+The published install commands below currently select `0.1.0-alpha.10`.
+
 ## Install
 
 Requirements:
@@ -30,7 +33,7 @@ checksummed GitHub release installer, and Homebrew:
 
 ```bash
 bun install --global recurs@alpha
-curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.10/install.sh | sh
+curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.11/install.sh | sh
 brew install tacotuesday8888/recurs/recurs
 ```
 
@@ -85,7 +88,7 @@ Codex compatibility fixtures that are absent from a normal Recurs install.
 ## First run
 
 Run `recurs` in a local terminal inside your project. Choose an existing
-session or **Start new project**. Setup discovers saved accounts and local
+session or **Start new chat**. Without a configured model, setup discovers saved accounts and local
 runtimes, connects your chosen model, and asks for a permission boundary.
 Choose **Start coding** to begin immediately with bounded defaults.
 
@@ -98,7 +101,15 @@ proposal with Page Up/Down before approving it. Approval saves configuration;
 
 Run `recurs setup` to revisit configuration or resume an interrupted interview.
 Existing sessions keep their original backend pins. Returning users can open
-their saved conversation without repeating setup.
+their saved conversation without repeating setup. **Start new chat** reuses the
+current model connection, permissions, and operating mode through `/new`.
+
+Team setup shows the saved limits before editing them. Numeric prompts show
+the allowed range; cancelling a limit prompt leaves the saved limits intact.
+Role choices show the provider, model, saved reasoning effort, and current
+assignment. Keep parent inheritance or explicitly choose an eligible specialist.
+When no specialist is eligible, setup explains the mode's billing requirement.
+Saved candidates are checked again when a child starts.
 
 Recurs's release gate drives this exact first-run path through an installed npm
 artifact with an empty private home and a deterministic local provider. The
@@ -118,9 +129,14 @@ to the latest output. Streaming output preserves your reading position.
 - **Ctrl+G** opens the configured team tree. Roles without executions are
   labeled inactive; configured roles are not counted as running agents.
 - **Ctrl+T** opens actual executions: ordinary children, batches, teams and
-  company goals, including completed and failed history.
+  company goals, including completed and failed history. The list groups each
+  child beneath its exact execution parent; arrow keys select and keep the
+  selected row visible. Counts describe recorded children, with the parent
+  conversation at depth 0.
 - **Enter** on an execution opens that exact session's durable transcript,
-  model, permission boundary, changed files and evidence.
+  model, permission boundary, changed files and evidence. The inspector also
+  shows its exact parent, depth, recorded limits, usage availability, and
+  containing team or company-goal recovery commands when available.
 - **Ctrl+C** in a child inspector cancels that execution and its descendants
   when this process owns it. The inspector has no parent composer. Return to
   the parent to send instructions; targeted child steering is unavailable.
@@ -131,7 +147,9 @@ to the latest output. Streaming output preserves your reading position.
 Approval and agent questions are queued, and your draft returns afterward.
 Vendor runtimes may expose only prompts and final responses; the inspector
 states when internal traces are unavailable. Reopened work whose owner cannot
-be established is marked unknown, with a recovery explanation.
+be established is marked unknown, with a recovery explanation. Unreadable
+session logs produce an incomplete-history notice. These views do not create
+new agents or grant additional authority.
 
 `NO_COLOR`, `CLICOLOR=0`, and `TERM=dumb` disable presentation color. Set
 `RECURS_NO_TUI=1` for the line-oriented interactive interface. Headless text,
@@ -248,6 +266,7 @@ Common slash commands:
 /model
 /permissions
 /agents
+/agents routes
 /agents controls
 /agents configure topology=hierarchical active=6 concurrent=3
 /goal
@@ -270,6 +289,12 @@ Common slash commands:
 Use `/help` inside the CLI for the exact current command list.
 
 ### Terminal presentation
+
+Press **F2** or enter `/theme` while idle to preview system, dark, light, or
+high-contrast colors. Enter saves; Escape restores the prior appearance and
+preserves the draft. `/theme color accent #67e8f9` changes a semantic color.
+See [appearance settings](APPEARANCE.md) for all roles, environment overrides,
+private persistence, and no-color behavior.
 
 Recurs uses pi-tui for differential rendering, input, bracketed paste and
 completion. The application presents a conventional conversation, configured
@@ -297,6 +322,31 @@ company goal. It reconciles the durable record and does not restart settled
 work. If the connection needs attention, use `recurs provider detect`,
 `recurs account list`, or `recurs setup`; Recurs does not display, import, or
 reuse provider credentials outside the official, user-present connection flow.
+
+### Choose a model or inspect role routes
+
+In the local interactive terminal, `/model` opens saved connections in a picker.
+Use Up/Down or Page Up/Down to browse, Enter to select, or Escape to cancel.
+Entries show provider/model, saved reasoning effort when present, the active
+connection, execution capability, and declared billing sources. Selection is
+followed by confirmation and connection revalidation. A successful change
+starts a fresh session; the previous conversation keeps its original pin and
+remains available to resume. The saved primary connection is unchanged.
+
+`/model <exact-connection-id>` takes the same confirmed path. Hosts without a
+picker retain the text list; injected or ephemeral connections may not support
+saved-model switching. Remote or automated invocations cannot switch models.
+
+Use `/agents routes` to compare the current parent pin with saved Implement,
+Review, and Repair assignments. It shows configured model/effort and exact
+connection IDs, including missing connections that cannot be resolved. A saved
+candidate is not a promise that a future child will use it: the operating mode,
+credentials, and billing authority are checked at launch, with parent fallback
+when required. Historical parent-only policies are identified explicitly.
+
+Run `recurs setup` to change role assignments. To inspect what a child actually
+used, open its execution or run `/agents inspect <session-id>`. Route changes do
+not rewrite existing child pins. `/agents routes` performs no model request.
 
 ### Models Auto
 

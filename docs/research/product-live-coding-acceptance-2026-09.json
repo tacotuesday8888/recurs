@@ -1,0 +1,286 @@
+{
+  "schemaVersion": 1,
+  "kind": "live-coding-acceptance",
+  "candidate": "historical unreleased Candidate A",
+  "archiveSha256": "5b0cbfd645173d1b2fd4865c86a474affe472c1400adc0fd65bf790367e6b865",
+  "executableSha256": "cbaf5844435159fc6670c356cc94c8d4f3a08400f25639d2eb40c0fec428e44a",
+  "outcome": "code_passes_turn_timed_out",
+  "startedAt": "2026-09-09T11:56:19.754Z",
+  "cancelledAt": "2026-09-09T12:04:36.942Z",
+  "overallElapsedMs": 497188,
+  "modelAlias": "gpt-5.6-sol",
+  "reasoningEffort": "high",
+  "runtimeVersion": "0.145.0",
+  "surface": "installed readline PTY",
+  "bounds": {
+    "parentPrompts": 2,
+    "optionalChildExecutions": 1,
+    "observedHostCalls": 60,
+    "resumedTurnMs": 480000,
+    "overallMs": 600000,
+    "internalModelRequests": "not observable"
+  },
+  "counts": {
+    "agent_policy_updated": 1,
+    "files_changed": 2,
+    "mode_updated": 1,
+    "session_created": 1,
+    "tool_completed": 27,
+    "tool_failed": 2,
+    "tool_started": 29,
+    "turn_cancelled": 2,
+    "turn_started": 2,
+    "verification_recorded": 2
+  },
+  "before": {
+    "passed": 3,
+    "total": 24,
+    "results": [
+      {
+        "name": "trim defaults dedupe",
+        "passed": false,
+        "error": "Expected values to be strictly deep-equal:\n+ actual - expected\n\n  [\n    {\n      deps: [\n+       ' b ',\n        'b'\n      ],\n+     id: ' a ',\n-     id: 'a',\n      priority: 0\n    }\n  ]\n"
+      },
+      {
+        "name": "deep input unchanged",
+        "passed": false,
+        "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ '[{\"id\":\" a \",\"deps\":[\" b \",\"c\"],\"priority\":-1}]'\n- '[{\"id\":\" a \",\"deps\":[\" b \"],\"priority\":-1}]'\n"
+      },
+      {
+        "name": "nonarray",
+        "passed": true
+      },
+      {
+        "name": "null task",
+        "passed": true
+      },
+      {
+        "name": "empty id",
+        "passed": false,
+        "error": "Missing expected exception."
+      },
+      {
+        "name": "duplicate id",
+        "passed": false,
+        "error": "Missing expected exception."
+      },
+      {
+        "name": "invalid deps",
+        "passed": false,
+        "error": "Missing expected exception."
+      },
+      {
+        "name": "empty dep",
+        "passed": false,
+        "error": "Missing expected exception."
+      },
+      {
+        "name": "fractional priority",
+        "passed": false,
+        "error": "Missing expected exception."
+      },
+      {
+        "name": "infinite priority",
+        "passed": false,
+        "error": "Missing expected exception."
+      },
+      {
+        "name": "empty graph",
+        "passed": false,
+        "error": "Expected values to be strictly deep-equal:\n+ actual - expected\n\n+ [\n+   []\n+ ]\n- []\n"
+      },
+      {
+        "name": "diamond stable layers",
+        "passed": false,
+        "error": "Expected values to be strictly deep-equal:\n+ actual - expected\n\n  [\n    [\n+     'd',\n+     'c',\n      'a',\n-   ],\n-   [\n      'b',\n-     'c'\n    ],\n-   [\n-     'd'\n-   ]\n  ]\n"
+      },
+      {
+        "name": "missing dep",
+        "passed": false,
+        "error": "Missing expected exception."
+      },
+      {
+        "name": "cycle",
+        "passed": false,
+        "error": "Missing expected exception."
+      },
+      {
+        "name": "self cycle",
+        "passed": false,
+        "error": "Missing expected exception."
+      },
+      {
+        "name": "priority tie and batch release",
+        "passed": false,
+        "error": "Expected values to be strictly deep-equal:\n+ actual - expected\n\n  {\n    batches: [\n      [\n+       'z'\n+     ],\n+     [\n        'a'\n      ],\n      [\n        'child'\n      ],\n      [\n-       'z'\n-     ],\n-     [\n        'b'\n      ]\n    ],\n    order: [\n+     'z',\n      'a',\n      'child',\n-     'z',\n      'b'\n    ]\n  }\n"
+      },
+      {
+        "name": "concurrency dependencies",
+        "passed": false,
+        "error": "Expected values to be strictly deep-equal:\n+ actual - expected\n\n  [\n    [\n+     'd',\n+     'c'\n-     'a',\n-     'b'\n    ],\n    [\n+     'b',\n+     'a'\n-     'c',\n-     'd'\n    ]\n  ]\n"
+      },
+      {
+        "name": "bad concurrency",
+        "passed": false,
+        "error": "Missing expected exception."
+      },
+      {
+        "name": "plan input unchanged",
+        "passed": true
+      },
+      {
+        "name": "CLI valid absolute path",
+        "passed": false,
+        "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ '{\"batches\":[[\"b\",\"a\"]],\"order\":[\"b\",\"a\"]}\\n'\n- '{\"batches\":[[\"a\"],[\"b\"]],\"order\":[\"a\",\"b\"]}\\n'\n"
+      },
+      {
+        "name": "CLI invalid JSON",
+        "passed": false,
+        "error": "The input did not match the regular expression /^Error:/. Input:\n\n'<anonymous_script>:1\\n' +\n  '{\\n' +\n  '\\n' +\n  \"SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)\\n\" +\n  '    at JSON.parse (<anonymous>)\\n' +\n  '    at file:///private/tmp/recurs-live-scheduler-9EXGEx/workspace/cli.mjs:4:38\\n' +\n  '    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\\n' +\n  '\\n' +\n  'Node.js v22.22.3\\n'\n"
+      },
+      {
+        "name": "CLI invalid flag",
+        "passed": false,
+        "error": "Expected values to be strictly equal:\n\n0 !== 1\n"
+      },
+      {
+        "name": "CLI missing flag value",
+        "passed": false,
+        "error": "Expected values to be strictly equal:\n\n0 !== 1\n"
+      },
+      {
+        "name": "CLI bad graph",
+        "passed": false,
+        "error": "Expected values to be strictly equal:\n\n0 !== 1\n"
+      }
+    ]
+  },
+  "after": {
+    "passed": 24,
+    "total": 24,
+    "results": [
+      {
+        "name": "trim defaults dedupe",
+        "passed": true
+      },
+      {
+        "name": "deep input unchanged",
+        "passed": true
+      },
+      {
+        "name": "nonarray",
+        "passed": true
+      },
+      {
+        "name": "null task",
+        "passed": true
+      },
+      {
+        "name": "empty id",
+        "passed": true
+      },
+      {
+        "name": "duplicate id",
+        "passed": true
+      },
+      {
+        "name": "invalid deps",
+        "passed": true
+      },
+      {
+        "name": "empty dep",
+        "passed": true
+      },
+      {
+        "name": "fractional priority",
+        "passed": true
+      },
+      {
+        "name": "infinite priority",
+        "passed": true
+      },
+      {
+        "name": "empty graph",
+        "passed": true
+      },
+      {
+        "name": "diamond stable layers",
+        "passed": true
+      },
+      {
+        "name": "missing dep",
+        "passed": true
+      },
+      {
+        "name": "cycle",
+        "passed": true
+      },
+      {
+        "name": "self cycle",
+        "passed": true
+      },
+      {
+        "name": "priority tie and batch release",
+        "passed": true
+      },
+      {
+        "name": "concurrency dependencies",
+        "passed": true
+      },
+      {
+        "name": "bad concurrency",
+        "passed": true
+      },
+      {
+        "name": "plan input unchanged",
+        "passed": true
+      },
+      {
+        "name": "CLI valid absolute path",
+        "passed": true
+      },
+      {
+        "name": "CLI invalid JSON",
+        "passed": true
+      },
+      {
+        "name": "CLI invalid flag",
+        "passed": true
+      },
+      {
+        "name": "CLI missing flag value",
+        "passed": true
+      },
+      {
+        "name": "CLI bad graph",
+        "passed": true
+      }
+    ]
+  },
+  "immutableFilesUnchanged": {
+    "AGENTS.md": true,
+    "SPEC.md": true,
+    "package.json": true,
+    "visible.test.mjs": true
+  },
+  "outputFileSha256": {
+    "normalize.mjs": "53d80a916608889384db58ed2f588df9c104b017b153a081f97be55d0ff2df02",
+    "graph.mjs": "b83ea392e48408126d21e76a6ba50e13fdec722e304b1d639c03c804b3d81c16",
+    "schedule.mjs": "cd8e6855e06a1fe703a79f36ed25d53cc7efc71e267058d7742456fc9e3e64d2",
+    "cli.mjs": "d559c36cee9102d0cdb4887ec07168c160131decbba4c4696d88daf723698258"
+  },
+  "verifierSha256": "dcf1f4c8e985c7de987f8256998f5d23a63da43872ee2fa5eec6354af7eac7ff",
+  "recovery": {
+    "durableReadThenCancel": true,
+    "cleanFirstProcessExit": true,
+    "exactSessionReopened": true,
+    "finalMarkerRecallProven": false
+  },
+  "retryCategories": [
+    "run_verification invalid_input",
+    "apply_patch stale_file"
+  ],
+  "childrenObserved": 0,
+  "monetaryCost": "not reported",
+  "runtimeReportedTokens": "unavailable because turn did not complete"
+}

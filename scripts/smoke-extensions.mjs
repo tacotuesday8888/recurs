@@ -114,7 +114,7 @@ function setupSteps(f, depth) {
     ["Choose a saved, detected, or recommended model connection:", f.connectionId],
     ["Choose how much Recurs may do without asking:", "ask_always"],
     ["Choose how much agent teamwork Recurs should use:", "balanced_v6"],
-    ["Choose the team-control detail:", "recommended"],
+    ["Choose your team limits:", "recommended"],
     ["Tailor the first Recurs agent company to this project:", "create"],
     ["How deeply should Recurs understand the project before proposing your company?:", depth],
     ["How should Recurs form the company?:", "stable_core_specialists"],

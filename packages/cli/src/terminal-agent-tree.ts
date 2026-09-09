@@ -31,11 +31,13 @@ export function renderCompanyHome(
   const selectedIndex = Math.max(0, ordered.findIndex((node) => node.roleId === selectedRoleId));
   const selected = ordered[selectedIndex];
   const active = snapshot.agents.filter((agent) => agent.status === "running").length;
+  const configured = snapshot.configuredCompany !== false;
   const header = fit(`Recurs · ${snapshot.session.workspace ?? "workspace"} · Team`);
   const status = fit(`${snapshot.session.model} · ${formatTerminalLabel(snapshot.session.mode)} · ${formatTerminalLabel(snapshot.session.permission)}`);
   const goal = snapshot.goal;
   const details = [
-    fit(`${ordered.length} configured roles · ${active} running · ${snapshot.agents.length} executions`),
+    fit(configured ? `${ordered.length} configured roles · ${active} running · ${snapshot.agents.length} executions in history` : `${snapshot.agents.length} actual child executions · ${active} running`),
+    ...(goal === null ? [] : [fit(`Goal limits: depth ${goal.maxDelegationDepth} · ${goal.maxActiveAgents} active roles · ${goal.maxConcurrentAgents} concurrent`)]),
     fit(goal === null ? "Start a coding task in chat, or launch an approved goal." : `${goal.status} · ${goal.objective}`),
   ];
   const goalDetails: string[] = [];
@@ -50,17 +52,23 @@ export function renderCompanyHome(
   }
   const footer = [
     fit(selected === undefined ? "No role selected" : `${selected.roleName} · ${selected.status} · ${selected.detail}`),
-    fit("Enter inspect · ↑↓ roles · Ctrl+T executions · Ctrl+G chat"),
+    fit("Ctrl+G chat · Enter inspect · ↑↓ roles · Ctrl+T executions"),
   ];
-  if (height < 7) return [header, status, ...footer].slice(0, height);
+  if (height < 5 + details.length) {
+    const compact = [header, status, ...details];
+    while (compact.length < height - footer.length) compact.push("");
+    return [...compact, ...footer].slice(-height);
+  }
   const summary = height >= 22 ? goalDetails.map(fit) : [];
-  const count = Math.max(1, height - 7 - summary.length);
+  const count = Math.max(0, height - 5 - details.length - summary.length);
   const start = Math.min(Math.max(0, selectedIndex - count + 1), Math.max(0, ordered.length - count));
   const rows = ordered.slice(start, start + count).map((node) => {
     const marker = node.roleId === selected?.roleId ? ">" : " ";
-    const tree = node.depth === 0 ? "" : `${"  ".repeat(Math.min(6, node.depth - 1))}└─ `;
+    const siblings = ordered.filter((candidate) => candidate.reportsToRoleId === node.reportsToRoleId);
+    const branch = siblings.at(-1)?.roleId === node.roleId ? "└─ " : "├─ ";
+    const tree = node.depth === 0 ? "" : `${"  ".repeat(Math.min(6, node.depth - 1))}${branch}`;
     const route = node.model === null ? "not activated" : node.model + (node.effort === null ? "" : ` / ${node.effort}`);
-    return fit(`${marker} ${tree}${node.roleName} · ${node.status} · ${route}`);
+    return fit(`${marker} ${tree}${node.roleName} · ${node.status} · ${route}${node.assignmentIds.length > 1 ? ` · ${node.assignmentIds.length} executions` : ""}`);
   });
   const lines = [header, status, "", ...details, ...rows, ...summary];
   while (lines.length < height - footer.length) lines.push("");

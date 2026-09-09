@@ -1,4 +1,12 @@
-import type { RecursRuntime } from "../src/runtime.js";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { RecursRuntime } from "../src/runtime.js";
+import { createCommandRegistry } from "../src/commands/create.js";
+import { AgentLoop, JsonlSessionStore, createRootAgentDescriptor, isPinnedSessionState } from "@recurs/core";
+import { ScriptedProvider } from "@recurs/providers";
+import { ToolRegistry } from "@recurs/tools";
+import { testAt, testBackendPin } from "../../../tests/support/backend.js";
 import type { HostInvocation, ModelImageInput } from "@recurs/contracts";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -181,7 +189,7 @@ describe("CompanyHomeComponent", () => {
 
     expect(component.render(110).join("\n")).toContain("> Orchestrator");
     component.handleInput("\u001b[B");
-    expect(component.render(110).join("\n")).toContain("> └─ Independent Reviewer");
+    expect(component.render(110).join("\n")).toContain("> ├─ Independent Reviewer");
     component.handleInput("\r");
 
     expect(openChat).toHaveBeenCalledWith(expect.objectContaining({
@@ -193,7 +201,7 @@ describe("CompanyHomeComponent", () => {
 });
 
 describe("LaunchComponent", () => {
-  it("shows real recent chats plus a new-project onboarding action", () => {
+  it("shows real recent chats plus a new chat that retains the current configuration", () => {
     const openSession = vi.fn();
     const newProject = vi.fn();
     const component = new LaunchComponent({
@@ -222,13 +230,13 @@ describe("LaunchComponent", () => {
     const first = component.render(92).join("\n");
     expect(first).toContain("R↘ RECURS / AUTH-SERVICE");
     expect(first).toContain("Chats · 2");
-    expect(first).toContain("Connect a model");
+    expect(first).toContain("Keep this model and permissions");
     expect(first).not.toContain("████   █████");
     expect(first).toContain("> Current chat");
     expect(first).toContain("gpt-5.6-sol");
     expect(first).not.toContain("session-current");
     expect(first).not.toContain("session-older");
-    expect(first).toContain("Start new project");
+    expect(first).toContain("Start new chat");
 
     component.handleInput("\u001b[B");
     component.handleInput("\r");
@@ -252,7 +260,7 @@ describe("LaunchComponent", () => {
       refresh() {},
     });
 
-    expect(component.render(34).join("\n")).toContain("> Start new project");
+    expect(component.render(34).join("\n")).toContain("> Start new chat");
     component.handleInput("\r");
     expect(newProject).toHaveBeenCalledOnce();
   });
@@ -306,9 +314,9 @@ describe("TaskPanelComponent", () => {
     const renderedRows = panel.render(88);
     const rendered = renderedRows.join("\n");
     expect(renderedRows).toHaveLength(12);
-    expect(renderedRows.at(-1)).toContain("ENTER OPEN");
+    expect(renderedRows.at(-1)).toContain("ENTER INSPECT");
     expect(rendered).toContain("RECURS / AUTH-SERVICE / TASKS");
-    expect(rendered).toContain("SHIP SECURE AUTHENTICATION");
+    expect(rendered).toContain("Actual execution history");
     expect(rendered).not.toContain("goal-1");
     expect(rendered).toContain("Scoped Builder");
     expect(rendered).toContain("implement-model · medium");
@@ -351,6 +359,133 @@ describe("TerminalSafeAutocompleteProvider", () => {
 });
 
 describe("RecursInteractiveShell", () => {
+  it("refreshes same-session mode limits without changing recorded child pins", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-shell-mode-"));
+    const terminal = new TestTerminal(120, 40);
+    let running: ReturnType<RecursInteractiveShell["start"]> | undefined;
+    let runtime: RecursRuntime | undefined;
+    try {
+      const sessions = new JsonlSessionStore(path.join(root, "sessions"));
+      const parentPin = testBackendPin("parent-model");
+      const parent = await sessions.createPinnedSession({
+        id: "mode-parent", cwd: root, at: testAt, backend: parentPin,
+        agent: createRootAgentDescriptor("mode-parent", parentPin, "balanced_v6", "ask_always", "act", {
+          blueprintId: "company", blueprintVersion: 2, blueprintRevision: 1, roleId: "orchestrator", roleVersion: 1,
+        }),
+      });
+      const childPin = testBackendPin("recorded-child-model", "child-connection");
+      const child = await sessions.createPinnedSession({
+        id: "mode-child", cwd: root, at: testAt, backend: childPin,
+        agent: {
+          ...createRootAgentDescriptor("mode-child", childPin),
+          role: "child", profile: { id: "implement_v1", version: 1 },
+          operatingMode: { id: "balanced_v3", version: 3 },
+          limits: { maxDepth: 1, maxConcurrentChildren: 3, maxRetries: 0, maxRequests: 8, maxReportedCostUsd: 3 },
+          parentAgentId: parent.agent.id, parentSessionId: parent.id, depth: 1,
+          task: { id: "child-task", description: "Recorded child", prompt: "Inspect files" },
+          backend: { strategy: "inherit_parent", adapterId: childPin.adapterId, connectionId: childPin.connectionId, modelId: childPin.modelId },
+        },
+      });
+      const provider = new ScriptedProvider([]);
+      const loop = new AgentLoop({
+        provider, tools: new ToolRegistry(), sessions,
+        approvals: { async request() { return "deny"; } },
+        async emit() {},
+        createToolContext(session, signal) {
+          return { sessionId: session.id, cwd: session.cwd, signal, executionMode: session.executionMode, readRevisions: new Map() };
+        },
+      });
+      runtime = new RecursRuntime({
+        commands: createCommandRegistry({ sessions, provider }), loop, sessions,
+        confirm: async () => true, now: () => testAt,
+      }, parent);
+      const shell = new RecursInteractiveShell({ terminal, cwd: root, animate: false, colorEnabled: false });
+      running = shell.start(runtime, { launch: false });
+      await vi.waitFor(() => expect(terminal.input).not.toBeNull());
+      terminal.input?.("\u0014");
+      await vi.waitFor(() => expect(terminal.output).toContain(`depth 1/${parent.agent.limits.maxDepth} max`));
+      terminal.input?.("\u001b");
+      terminal.input?.("\u001b[200~/agents mode max\u001b[201~");
+      terminal.input?.("\r");
+      await vi.waitFor(() => expect(runtime?.session).toMatchObject({
+        id: parent.id, agent: { operatingMode: { id: "max_v6" } },
+      }));
+      const updated = runtime.session;
+      if (!isPinnedSessionState(updated)) throw new Error("Expected pinned session");
+      expect(updated.agent.limits.maxDepth).not.toBe(parent.agent.limits.maxDepth);
+      const previousWrites = terminal.writes.length;
+      terminal.input?.("\u0014");
+      await vi.waitFor(() => {
+        const frame = terminal.writes.slice(previousWrites).join("");
+        expect(frame).toContain(`depth 1/${updated.agent.limits.maxDepth} max`);
+        expect(frame).toContain("recorded-child-model");
+      });
+      expect(updated.backend.pin).toEqual(parent.backend.pin);
+      const retainedChild = await sessions.loadState(child.id);
+      expect(retainedChild).toMatchObject({ backend: { pin: childPin }, agent: { limits: child.agent.limits } });
+      terminal.input?.("\u0011");
+      await expect(running).resolves.toEqual({ type: "quit" });
+    } finally {
+      terminal.input?.("\u0011");
+      await running;
+      await runtime?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  // An explicit RECURS_THEME override intentionally bypasses the saved file.
+  it.skipIf(process.env.RECURS_THEME !== undefined)("restores the conversation alongside an invalid appearance warning", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-shell-appearance-"));
+    const terminal = new TestTerminal(120, 40);
+    const inspectExecution = vi.fn(async () => ({
+      messages: [
+        { role: "user", content: "Restore this saved conversation marker." },
+        { role: "assistant", content: "The earlier answer is still available." },
+      ],
+    }));
+    const runtime = {
+      state: {
+        type: "session",
+        session: {
+          id: "saved-appearance-session",
+          model: "parent-model",
+          permissionMode: "approved_for_me",
+          agent: { operatingMode: { id: "balanced_v6" } },
+        },
+      },
+      inspectExecution,
+      companyBlueprint: null,
+      setConfirmHandler() {}, setApprovalHandler() {}, setUserInputHandler() {},
+      cancel() { return false; }, async close() {},
+      commandNames() { return ["quit"]; },
+      async submit() { return { type: "quit" as const }; },
+    } as unknown as RecursRuntime;
+    let running: ReturnType<RecursInteractiveShell["start"]> | undefined;
+    try {
+      await mkdir(path.join(root, "config"), { mode: 0o700 });
+      await writeFile(path.join(root, "config", "appearance.json"), "", { mode: 0o600 });
+      const shell = new RecursInteractiveShell({
+        terminal, cwd: root, dataDirectory: root, animate: false, colorEnabled: false,
+      });
+      running = shell.start(runtime, { launch: false });
+      await vi.waitFor(() => {
+        const frame = terminal.writes.find((write) =>
+          write.includes("Appearance could not be loaded") &&
+          write.includes("Restore this saved conversation marker.") &&
+          write.includes("The earlier answer is still available.")
+        );
+        expect(frame).toBeDefined();
+      });
+      expect(inspectExecution).toHaveBeenCalledExactlyOnceWith("saved-appearance-session");
+      terminal.input?.("\u0011");
+      await expect(running).resolves.toEqual({ type: "quit" });
+    } finally {
+      terminal.input?.("\u0011");
+      await running;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("opens on the chat list and enters the current project without recreating it", async () => {
     const terminal = new TestTerminal(92, 30);
     const runtime = {
@@ -474,7 +609,7 @@ describe("RecursInteractiveShell", () => {
 
     const running = shell.start(runtime);
     await new Promise<void>((resolve) => setTimeout(resolve, 30));
-    expect(terminal.output).toContain("> Start new project");
+    expect(terminal.output).toContain("> Start new chat");
     terminal.input?.("\r");
     await expect(running).resolves.toEqual({ type: "new_project" });
   });

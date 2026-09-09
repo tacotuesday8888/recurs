@@ -232,6 +232,55 @@ function teamRunControls(
 }
 
 describe("session commands", () => {
+  it("previews configured routes without resolving, mutating, or hiding missing connections", async () => {
+    const initial = await storeSession("route-preview");
+    const commandContext = context(initial);
+    const inspect = vi.fn(async () => ({
+      connections: [{
+        connectionId: "review-candidate", label: "Shared label", providerId: "provider",
+        modelId: "review-model", reasoningEffort: "high" as const, primary: false,
+        execution: "Act + Plan" as const, billingSources: ["metered_api" as const],
+      }],
+      routes: { implement: null, review: "review-candidate", repair: "missing-exact-id" },
+    }));
+    const commands = createCommandRegistry({ modelRoutes: { inspect } });
+    const result = await commands.execute("/agents routes", commandContext);
+    expect(result).toMatchObject({ type: "message", level: "info" });
+    if (result.type !== "message") throw new Error("Expected route preview");
+    expect(result.text).toContain("Parent pinned:");
+    expect(result.text).toContain("implement: inherit parent (no separate assignment)");
+    expect(result.text).toContain("review: Shared label: provider/review-model · effort high · review-candidate");
+    expect(result.text).toContain("repair: connection missing-exact-id missing; cannot resolve its model or effort");
+    expect(result.text).toContain("Candidate only; resolve at next launch");
+    expect(result.text).toContain("Existing child pins do not change");
+    expect(inspect).toHaveBeenCalledOnce();
+    expect(commandContext.session).toBe(initial);
+    expect(commandContext.confirm).not.toHaveBeenCalled();
+  });
+
+  it("explains parent-only historical policies despite saved role overrides", async () => {
+    const initial = await storeSession("historical-routes");
+    if (!isPinnedSessionState(initial)) throw new Error("Expected pinned session");
+    const state = { ...initial, agent: createRootAgentDescriptor(
+      initial.id, initial.backend.pin, "balanced_v1", initial.permissionMode,
+    ) };
+    const result = await createCommandRegistry({ modelRoutes: { async inspect() {
+      return { connections: [], routes: { implement: "missing", review: null, repair: null } };
+    } } }).execute("/agents routes", context(state));
+    expect(result).toMatchObject({ text: expect.stringContaining("Mode requires parent inheritance; saved overrides are not used by this policy") });
+    expect(result).toMatchObject({ text: expect.stringContaining("choose a current mode with /agents mode") });
+  });
+
+  it("reports unavailable route evidence instead of inventing inherited assignments", async () => {
+    const commandContext = context(await storeSession("unavailable-routes"));
+    expect(await createCommandRegistry().execute("/agents routes", commandContext))
+      .toMatchObject({ level: "warning", text: expect.stringContaining("no route was inferred") });
+    expect(await createCommandRegistry({ modelRoutes: { async inspect() {
+      throw new Error("private registry details");
+    } } }).execute("/agents routes", commandContext))
+      .toMatchObject({ level: "error", text: expect.not.stringContaining("private registry details") });
+  });
+
   it("persists an exact child-agent operating mode without changing the backend", async () => {
     const initial = await storeSession("agent-mode-session");
     const commands = createCommandRegistry({ sessions });
@@ -796,7 +845,7 @@ describe("session commands", () => {
     }));
   });
 
-  it("lists saved model connections and activates only one exact confirmed choice", async () => {
+  it.each(["explicit", "picker"])("lists saved models and activates one exact confirmed %s choice", async (method) => {
     const original = await storeSession("model-original");
     const nextBackend = {
       ...testBackendPin(),
@@ -847,13 +896,32 @@ describe("session commands", () => {
         /Current: scripted\/scripted[\s\S]*\[active, primary\][\s\S]*second-connection[\s\S]*Use \/model <exact-connection-id>/u,
       ),
     });
+    const selectChoice = vi.fn(async () => "second-connection");
+    if (method === "picker") commandContext.selectChoice = selectChoice;
     expect(await commands.execute(
-      "/model second-connection",
+      method === "picker" ? "/model" : "/model second-connection",
       commandContext,
     )).toMatchObject({
       text: expect.stringContaining("Started session model-switched"),
     });
     expect(commandContext.session.id).toBe("model-switched");
+    if (method === "picker") {
+      expect(selectChoice).toHaveBeenCalledWith(
+        "Choose a saved model for a fresh session",
+        [expect.objectContaining({
+          id: options[0]!.connectionId,
+          current: true,
+          label: "scripted/scripted · active",
+          detail: "Current model · Act + Plan · billing: metered_api · primary",
+        }), {
+          id: "second-connection",
+          current: false,
+          label: "second-provider/second-model · high",
+          detail: "Second model · Act + Plan · billing: metered_api",
+        }],
+      );
+    }
+
     expect(confirm).toHaveBeenCalledWith(expect.stringMatching(
       /second-provider\/second-model[\s\S]*Billing: metered_api[\s\S]*Reasoning effort: high[\s\S]*primary connection will remain unchanged/u,
     ));
@@ -862,6 +930,39 @@ describe("session commands", () => {
       current: original,
       at,
     }));
+  });
+
+  it.each([
+    [null, true, "cancelled", "Model unchanged", 0],
+    ["unknown", true, "cancelled", "Saved model connection not found", 0],
+    ["second-connection", false, "cancelled", "Model unchanged", 0],
+    ["second-connection", true, "changed", "changed while it was selected", 1],
+    ["second-connection", true, "unavailable", "not ready", 1],
+  ] as const)("keeps the session when picker selection %s is declined or unavailable", async (choice, approved, status, expected, creates) => {
+    const original = await storeSession("model-picker-safe");
+    const option = {
+      connectionId: "second-connection", label: "Second", providerId: "provider",
+      modelId: "model", primary: false, execution: "Plan-only" as const,
+      billingSources: ["local_compute" as const],
+    };
+    const models: NonNullable<CommandDependencies["models"]> = {
+      list: vi.fn(async () => [option]),
+      create: vi.fn(async () => ({ status })),
+    };
+    const commands = createCommandRegistry({ sessions, models });
+    const confirm = vi.fn(async () => approved);
+    const commandContext = context(original, confirm);
+    const selectChoice = vi.fn(async () => choice);
+    commandContext.selectChoice = selectChoice;
+    expect(await commands.execute("/model", commandContext)).toMatchObject({
+      text: expect.stringContaining(expected),
+    });
+    expect(selectChoice).toHaveBeenCalledWith(expect.any(String), [expect.objectContaining({
+      detail: "Second · Plan-only · billing: local_compute",
+    })]);
+    expect(commandContext.session).toBe(original);
+    expect(models.create).toHaveBeenCalledTimes(creates);
+    if (choice === null || choice === "unknown") expect(confirm).not.toHaveBeenCalled();
   });
 
   it("rejects model selection outside a local manual terminal", async () => {
@@ -888,6 +989,12 @@ describe("session commands", () => {
       embedding: "cli",
     });
 
+    const selectChoice = vi.fn(async () => "second-connection");
+    commandContext.selectChoice = selectChoice;
+    expect(await commands.execute("/model", commandContext)).toMatchObject({
+      text: expect.stringContaining("Saved model connections:"),
+    });
+    expect(selectChoice).not.toHaveBeenCalled();
     expect(await commands.execute(
       "/model second-connection",
       commandContext,

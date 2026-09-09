@@ -1,8 +1,10 @@
 # Recurs Feature Status
 
-**Published alpha:** `0.1.0-alpha.10`. **Audited:** 2026-09-09 against the source, exported package surfaces, CLI
-assembly, durable contracts/stores, provider manifests, and automated tests in
-this public alpha.
+**Source candidate:** `0.1.0-alpha.11`, pending publication. **Previous published
+alpha:** `0.1.0-alpha.10`. **Audited:** 2026-09-09 against current source, exported
+package surfaces, CLI assembly, durable contracts/stores, provider manifests,
+and automated tests. The capability inventory below follows the source
+candidate; distribution evidence remains tied to the exact published artifact.
 
 This is the concise current capability inventory. Dated files under
 `docs/superpowers/` are design and delivery records; their historical
@@ -16,14 +18,15 @@ context, not a product commitment.
 | Base loop | Provider-neutral streamed turns, strict event reduction, bounded retries/steps/output, tool calls, cancellation, loop detection, steering, and queued follow-ups |
 | Sessions | Durable version-2 sessions, exact backend pins, mutation leases, resume/fork, compaction, recovery, goals, checkpoints, and conflict-safe undo |
 | CLI | Conventional team tree, actual execution inspector and scrollable Markdown chat with slash/file completion, queued approvals, draft preservation, and images; headless text, JSON, and JSONL; `review`; ACP v1; scoped help; offline `doctor`; explicit local-data location; project `AGENTS.md` loading |
+| Appearance | Persistent system/dark/light/contrast palettes, strict custom semantic colors, F2 preview/save/cancel, draft preservation and no-color support; full-screen terminal only |
 | Permissions | Ask Always, Approved for Me, Full Access, enforced Plan mode, read-only Review mode, parent ceilings, explicit apply, exact session-scoped interactive grants, and private exact-workspace allow/ask/deny rules |
 | Tools | Bounded file reads/list/search, code outline, TypeScript diagnostics, Git inspection, public web fetch, patching, verification, commands, and owned process sessions |
 | Interoperability | Installable scoped Agent Skills with pinned GitHub bundles, user-configured or explicitly project-trusted stdio/HTTP MCP with OAuth, resources and prompts, a Recurs-owned ACP server, and observe-only user lifecycle hooks |
-| Execution visibility | Ordinary, batch, team and company children share a durable execution inventory with exact parent IDs, model/permissions, transcripts, artifacts, unknown-owner states and scoped cancellation |
+| Execution visibility | Ordinary, batch, team and company children share a durable execution inventory with exact parent IDs, model/effort, parent permission ceilings, recorded limits, transcripts, artifacts, usage availability, recovery commands, unknown-owner states and scoped cancellation |
 | General sub-agents | One Explore/Implement/Review child, bounded parallel Explore/Review batches, durable Implement teams, independent Review, finding-driven Repair, staging, recovery, explicit apply, and normalized live phase/status/review activity |
 | Operating modes | Stable version-6 Economy, Standard, Balanced, Performance, and Max policies with historical V1-V5 loading |
-| Backend routing | Explicit saved Implement/Review/Repair routes with revalidation, immutable per-run decisions, policy eligibility, and parent fallback; provider discovery does not silently assign specialist routes |
-| Company onboarding | Immediate coding after connection and authority, plus resumable Quick, Guided, and Deep interviews; Stable Core + Specialists or Guardrailed Dynamic designs; consented read-only research; conversational/YAML revisions; explicit approval |
+| Backend routing | Explicit saved Implement/Review/Repair routes with revalidation, immutable per-run decisions, policy eligibility, and parent fallback; `/agents routes` previews configured assignments without resolving a future child or editing past pins; provider discovery does not silently assign specialist routes |
+| Company onboarding | Immediate coding after connection and authority, returning New chat through `/new`, saved-limit editing and explicit model/effort role choices, plus resumable Quick, Guided, and Deep interviews; Stable Core + Specialists or Guardrailed Dynamic designs; consented read-only research; conversational/YAML revisions; explicit approval |
 | Company execution | Validated assignment DAGs, orchestrator/lead/worker planning handoffs, dependency-ordered implementation stages, independent review, bounded repair, parent apply, and synthesis; the packed-install gate proves the complete formation-to-repaired-apply journey |
 | Company authority | Immutable blueprints; root and independent-review anchors; user-selected topology; frozen active-agent, depth, concurrency, escalation, review, repair, request, and reported-cost limits; claim-time revalidation; structured manager/root escalation; cancellation; truthful events |
 | Company adaptation | Tailored role charters, attributable project knowledge, historical authority snapshots, exact Skill/MCP bundle bindings, approval-gated blueprint amendments, and repeated-run recommendations that can only narrow future team limits |
@@ -36,11 +39,11 @@ context, not a product commitment.
 
 | Area | Boundary |
 | --- | --- |
-| Company hierarchy | Up to the selected operating mode's fixed depth and active-role ceiling; children do not freely create an unbounded recursive swarm |
+| Company hierarchy | Exact execution-parent trees and read-only child inspection, within the selected mode's depth and active-role ceiling; cancellation requires a live owner. No unrestricted child steering or unbounded recursive swarm |
 | Team adaptation | Requires at least two compatible completed goals, records exact usage rather than a quality winner, proposes only narrower future limits, and remains inactive until a local user approves |
 | Background work | Durable and resumable while the Recurs process owns it; no daemon survives CLI exit |
 | Cost enforcement | Uses provider-reported cost when available; unknown cost remains unknown, and already-running siblings may finish after a ceiling is crossed |
-| Model selection | Users may choose explicit routes or activate evidence-backed Auto for the current `general_coding` task class; Recurs does not infer a winner without eligible completed-goal evidence or perform broad price/capability ranking |
+| Model selection | Local interactive `/model` offers a saved-connection picker with confirmation/revalidation and a fresh session; non-picker hosts retain a text list. Users may choose explicit routes or activate evidence-backed Auto for the current `general_coding` task class; Recurs does not infer a winner without eligible completed-goal evidence or perform broad price/capability ranking |
 | MCP and Skills | Exact enabled/trusted IDs can be bound to approved company bundles; Recurs does not install, trust, or infer a binding automatically |
 | Codex subscription | Exact reviewed user-installed Codex CLI, official app-server login/discovery/execution, local/manual/user-present foreground execution, Recurs-scoped host tools, and optional Sol/Terra/Luna parent/role routing; no remaining-quota claim, background work, or vendor continuation in V1 |
 | Coding plans | Kimi Code and OpenCode Go use their documented fixed coding endpoints; Alibaba Coding Plan additionally requires a current-plan attestation and is rechecked for local/manual/user-present CLI use on every run; MiniMax Token Plan requires explicit prepaid-credit fallback acknowledgement. Z.ai GLM Coding Plan remains blocked pending written provider approval. |

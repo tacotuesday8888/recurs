@@ -74,9 +74,10 @@ await exec(executable, ["setup", "local", "--url", baseUrl, "--model", "terminal
 const capture = [];
 let current;
 const captureStart = performance.now();
-async function launch(args) {
+async function launch(args, overrides = {}) {
   const terminal = new xterm.Terminal({ cols: 100, rows: 30, scrollback: 1000, allowProposedApi: true });
-  const process = spawn(executable, args, { name: "xterm-256color", cols: 100, rows: 30, cwd: workspace, env: environment });
+  const env = Object.fromEntries(Object.entries({ ...environment, ...overrides }).filter(([, value]) => value !== undefined));
+  const process = spawn(executable, args, { name: "xterm-256color", cols: 100, rows: 30, cwd: workspace, env });
   current = process;
   let exit;
   process.onExit((event) => { exit = event.exitCode; });
@@ -94,6 +95,41 @@ async function launch(args) {
   };
   return { process, terminal, screen, wait, exit: () => exit };
 }
+const escapeXml = (value) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+// Serialize terminal cell attributes; coalesce backgrounds to avoid raster seams.
+function cellColor(cell, foreground) {
+  const value = foreground ? cell.getFgColor() : cell.getBgColor();
+  if (foreground ? cell.isFgRGB() : cell.isBgRGB()) return `#${value.toString(16).padStart(6, "0")}`;
+  if (foreground ? cell.isFgPalette() : cell.isBgPalette()) {
+    const ansi = ["000000", "cd0000", "00cd00", "cdcd00", "0000ee", "cd00cd", "00cdcd", "e5e5e5", "7f7f7f", "ff0000", "00ff00", "ffff00", "5c5cff", "ff00ff", "00ffff", "ffffff"];
+    if (value < 16) return `#${ansi[value]}`;
+    const rgb = value < 232 ? [Math.floor((value - 16) / 36), Math.floor((value - 16) / 6) % 6, (value - 16) % 6].map((part) => part === 0 ? 0 : 55 + part * 40) : [0, 0, 0].map(() => 8 + (value - 232) * 10);
+    return `#${rgb.map((part) => part.toString(16).padStart(2, "0")).join("")}`;
+  }
+  return foreground ? "#e5e7eb" : "#111827";
+}
+async function captureColorScreen(ui, name) {
+  const backgrounds = []; const glyphs = [];
+  for (let row = 0; row < ui.terminal.rows; row++) {
+    const line = ui.terminal.buffer.active.getLine(ui.terminal.buffer.active.viewportY + row);
+    let start = 0; let lastBackground;
+    const y = 40 + row * 18;
+    for (let column = 0; column <= ui.terminal.cols; column++) {
+      const cell = column < ui.terminal.cols ? line?.getCell(column) : undefined;
+      const background = cell === undefined ? undefined : cellColor(cell, false);
+      if (background !== lastBackground) {
+        if (lastBackground !== undefined) backgrounds.push(`<rect x="${16 + start * 8}" y="${y - 14}" width="${(column - start) * 8}" height="18" fill="${lastBackground}"/>`);
+        start = column; lastBackground = background;
+      }
+      if (!cell || cell.getWidth() === 0 || !cell.getChars().trim()) continue;
+      glyphs.push(`<text x="${16 + column * 8}" y="${y}" fill="${cellColor(cell, true)}"${cell.isBold() ? ' font-weight="bold"' : ""}${cell.isDim() ? ' opacity="0.65"' : ""}>${escapeXml(cell.getChars())}</text>`);
+    }
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="832" height="586"><rect width="832" height="586" rx="10" fill="#111827"/><text x="16" y="18" fill="#9ca3af" font-family="monospace" font-size="11">Recurs · actual installed terminal · ${escapeXml(name)}</text><g shape-rendering="crispEdges">${backgrounds.join("")}</g><g font-family="monospace" font-size="13">${glyphs.join("")}</g></svg>`;
+  await writeFile(path.join(temporary, `terminal-${name}.svg`), svg);
+  if (process.argv.includes("--update-capture")) await writeFile(path.join(root, "docs/assets", `terminal-${name}.svg`), svg);
+}
+
 try {
   const ui = await launch(["setup"]);
   await ui.wait((screen) => screen.includes("model connection"), "connection selection");
@@ -107,6 +143,19 @@ try {
   await ui.wait((screen) => screen.includes("Terminal fixture complete."), "streamed Markdown");
   await ui.wait((screen) => screen.includes("Parent · ready"), "completed parent status");
   const transcript = ui.screen();
+  ui.process.write("/model\r");
+  await ui.wait((screen) => screen.includes("Esc cancel") && screen.includes("terminal-fixture"), "saved model picker");
+  ui.process.write("\u001b");
+  await ui.wait((screen) => screen.includes("/ CHAT"), "cancel model picker");
+  ui.process.write("Draft stays here");
+  ui.process.write("\u001b[12~");
+  await ui.wait((screen) => screen.includes("Appearance"), "theme keyboard picker");
+  ui.process.write("\u001b[B");
+  ui.process.write("\u001b");
+  await ui.wait((screen) => screen.includes("Draft stays here") && screen.includes("/ CHAT"), "theme cancellation preserves draft");
+  ui.process.write("\u0015/theme light\r");
+  await ui.wait((screen) => screen.includes("Appearance: light (saved)"), "theme saved without color");
+  assert.equal(JSON.parse(await readFile(path.join(home, ".recurs/config/appearance.json"), "utf8")).theme, "light");
   ui.process.write("\u001b[200~show long output\u001b[201~\r");
   await ui.wait((screen) => screen.includes("Inspection line 64"), "long output");
   ui.process.write("\u001b[5~");
@@ -130,12 +179,34 @@ try {
   resumed.process.write("\u0011");
   await resumed.wait(() => resumed.exit() !== undefined, "resumed exit");
   resumed.terminal.dispose();
+  const colorful = await launch([], { NO_COLOR: undefined });
+  await colorful.wait((screen) => screen.includes("Current chat"), "colored launcher");
+  colorful.process.write("\r");
+  await colorful.wait((screen) => screen.includes("/ CHAT"), "saved light theme reopen");
+  assert.equal(colorful.terminal.buffer.active.getLine(0).getCell(0).getBgColor(), 0xffffff);
+  colorful.process.write("/new\r");
+  await colorful.wait((screen) => screen.includes("/ CHAT") && !screen.includes("Inspection line 64"), "fresh colored conversation");
+  colorful.process.write("Review parser.ts\r");
+  await colorful.wait((screen) => screen.includes("Terminal fixture complete.") && screen.includes("Parent · ready"), "colored Markdown and code");
+  await captureColorScreen(colorful, "light");
+  colorful.process.write("/theme dark\r");
+  await colorful.wait((screen) => screen.includes("Appearance: dark (saved)"), "live dark theme");
+  assert.equal(colorful.terminal.buffer.active.getLine(0).getCell(0).getBgColor(), 0x111827);
+  await captureColorScreen(colorful, "dark");
+  colorful.process.write("\u001b[12~");
+  await colorful.wait((screen) => screen.includes("Appearance · preview"), "color palette preview");
+  await captureColorScreen(colorful, "appearance");
+  colorful.process.write("\u001b");
+  await colorful.wait((screen) => screen.includes("/ CHAT"), "leave color palette");
+  colorful.process.write("\u0011");
+  await colorful.wait(() => colorful.exit() !== undefined, "colored exit");
+  colorful.terminal.dispose();
   const escaped = (text) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="940" height="580" viewBox="0 0 940 580"><rect width="940" height="580" rx="12" fill="#11151b"/><text x="20" y="26" fill="#9ba8b8" font-family="monospace" font-size="12">Recurs · installed CLI · deterministic terminal fixture</text><g fill="#e0e6ee" font-family="monospace" font-size="13">${transcript.split("\n").map((line, index) => `<text x="20" y="${54 + index * 17}" xml:space="preserve" textLength="${line.length * 7.8}" lengthAdjust="spacingAndGlyphs">${escaped(line)}</text>`).join("")}</g></svg>`;
   await writeFile(path.join(temporary, "terminal-session.svg"), svg);
   if (process.argv.includes("--update-capture")) await writeFile(path.join(root, "docs/assets/terminal-session.svg"), svg);
   await writeFile(path.join(temporary, "terminal.cast"), [JSON.stringify({ version: 2, width: 100, height: 30, title: "Recurs installed terminal acceptance", env: { TERM: "xterm-256color" } }), ...capture.map((event) => JSON.stringify(event))].join("\n") + "\n");
-  console.log(JSON.stringify({ status: "passed", artifact: packed.filename, measurements, requests, checks: ["clean packed install", "saved connection", "first-run quick start", "bracketed paste", "streamed Markdown/code", "long output", "history scroll", "32x10 resize", "execution list", "clean exit", "durable reopen"], capture: temporary }, null, 2));
+  console.log(JSON.stringify({ status: "passed", artifact: packed.filename, measurements, requests, checks: ["clean packed install", "saved connection", "first-run quick start", "bracketed paste", "streamed Markdown/code", "long output", "history scroll", "32x10 resize", "execution list", "clean exit", "durable reopen", "saved-model picker cancellation", "theme preview restores draft", "no-color preference save", "light theme persists", "live dark theme", "actual color captures"], capture: temporary }, null, 2));
 } finally {
   try { current?.kill(); } catch { /* The child may already have exited. */ }
   server.closeAllConnections(); server.close();

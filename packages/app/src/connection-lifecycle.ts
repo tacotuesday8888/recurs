@@ -1,4 +1,4 @@
-import type { BillingSource, TeamRunRole } from "@recurs/contracts";
+import type { BillingSource, ModelReasoningEffort, TeamRunRole } from "@recurs/contracts";
 
 import {
   ConnectionRegistryError,
@@ -81,6 +81,7 @@ export interface ConnectionSummary {
     | "delegated_agent"
     | "environment_model_provider";
   readonly modelId: string;
+  readonly reasoningEffort?: ModelReasoningEffort;
   readonly primary: boolean;
   readonly account:
     | "verified (identifier redacted)"
@@ -174,6 +175,7 @@ function summary(
       adapterId: connection.adapterId,
       kind: connection.kind,
       modelId: connection.modelId,
+      ...(connection.reasoningEffort === undefined ? {} : { reasoningEffort: connection.reasoningEffort }),
       primary: primaryConnectionId === connection.id,
       account: "environment credential (value not stored)" as const,
       execution: "Act + Plan" as const,
@@ -188,6 +190,7 @@ function summary(
     adapterId: connection.adapterId,
     kind: connection.kind,
     modelId: connection.modelId,
+    ...(connection.reasoningEffort === undefined ? {} : { reasoningEffort: connection.reasoningEffort }),
     primary: primaryConnectionId === connection.id,
     account: "verified (identifier redacted)" as const,
     execution: connection.kind === "delegated_agent" &&
