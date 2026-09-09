@@ -1,6 +1,6 @@
 # Recurs Documentation
 
-Source `0.1.0-alpha.10` release candidate. Current documents:
+Current published alpha: `0.1.0-alpha.10`. Current documents:
 
 - [Release readiness](RELEASE_READINESS.md) — current implementation and verification record.
 - [MCP](MCP.md) — local and remote servers, trust, authentication and troubleshooting.
@@ -56,9 +56,11 @@ architecture for current product truth.
 
 ## Release status
 
-Source `0.1.0-alpha.10` is the current release candidate. At preflight, npm
-`alpha` selects alpha.7 and `latest` selects alpha.2. Publication requires the
-protected trusted-publisher workflow; see [current evidence](RELEASE_READINESS.md).
+`0.1.0-alpha.10` is published on npm's `alpha` tag and as a
+[GitHub prerelease](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.10).
+The `latest` tag remains `0.1.0-alpha.2`. Fresh npm and curl installations and
+matching attested archive bytes are verified. The matching Homebrew tap update
+passed its install/test gate and is merged. See the [release record](RELEASE_READINESS.md).
 
 Recurs runs on Node.js and distributes one npm artifact. The checksum-verifying
 curl installer and official Homebrew tap install that same artifact. Bun is

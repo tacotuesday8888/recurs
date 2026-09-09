@@ -2,7 +2,7 @@
 
 Notable user-facing changes are recorded here when they ship.
 
-## 0.1.0-alpha.10 - release candidate
+## 0.1.0-alpha.10 - 2026-09-09
 
 The unpublished alpha.9 tag is preserved. Its publication stopped on a
 terminal-smoke npm 12 pack-report parsing error; alpha.10 fixes the harness

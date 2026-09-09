@@ -1,6 +1,6 @@
 # Recurs Feature Status
 
-**Source:** `0.1.0-alpha.10` release candidate. **Audited:** 2026-09-09 against the source, exported package surfaces, CLI
+**Published alpha:** `0.1.0-alpha.10`. **Audited:** 2026-09-09 against the source, exported package surfaces, CLI
 assembly, durable contracts/stores, provider manifests, and automated tests in
 this public alpha.
 
@@ -50,14 +50,16 @@ context, not a product commitment.
 
 ## Distribution
 
-Source `0.1.0-alpha.10` is prepared through a single-package release pipeline.
+`0.1.0-alpha.10` is published after passing source and installed-package gates
+on Linux and macOS. Fresh public npm and curl installations are verified.
 The JavaScript bundle retains its 2.10 MB ceiling. npm, Bun-as-installer,
 checksum-verifying curl and Homebrew all use the same npm archive. There is no
 native Bun runtime, signed standalone binary or Windows subprocess sandbox.
 
-The registry check on September 9 found npm `alpha` at alpha.7 and `latest`
-at alpha.2. The earlier alpha.8 publication claim was incorrect. Exact new
-artifact, merged-source and publication status belong in the
+The September 9 publication check found npm `alpha` at `0.1.0-alpha.10` and
+`latest` at `0.1.0-alpha.2`. The registry archive matches the attested GitHub
+release bytes. The matching Homebrew tap update passed its install/test gate
+and is merged. Exact source, artifact, and verification evidence is in the
 [release record](RELEASE_READINESS.md).
 
 ## Not implemented

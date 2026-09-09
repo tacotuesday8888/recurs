@@ -20,17 +20,17 @@ recurs
 ```
 
 `--global` only makes the `recurs` command available from any directory.
-Use the `@alpha` tag explicitly: npm's unqualified `latest` tag still points to
-`0.1.0-alpha.2`, while `alpha` was verified to point to `0.1.0-alpha.7` on
-September 9, 2026. Source version `0.1.0-alpha.10` is being prepared; see
-[release readiness](RELEASE_READINESS.md) for artifact and publication evidence.
+Use the `@alpha` tag explicitly: npm `alpha` selects `0.1.0-alpha.10`, while
+unqualified `latest` remains `0.1.0-alpha.2` (verified September 9, 2026).
+The [release record](RELEASE_READINESS.md) includes the published artifact's
+integrity, provenance, and fresh installation checks.
 
 The same reviewed npm artifact is also available through Bun-as-installer, the
 checksummed GitHub release installer, and Homebrew:
 
 ```bash
 bun install --global recurs@alpha
-curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.7/install.sh | sh
+curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.10/install.sh | sh
 brew install tacotuesday8888/recurs/recurs
 ```
 

@@ -124,8 +124,10 @@ label unset; promoting a stable version requires an intentional policy change.
 The September 2026 preflight found npm's `alpha` tag at `0.1.0-alpha.7`,
 while `latest` still pointed to `0.1.0-alpha.2`; an older alpha.8 workflow had
 not completed publication. The alpha.9 tag was preserved after its publication harness failed before
-uploading assets. Alpha.10 uses the corrected shared npm report parser and its
-own protected run. Keep public commands on `recurs@alpha`; never move an alpha
+uploading assets. Alpha.10 used the corrected shared npm report parser and
+[published successfully](https://github.com/tacotuesday8888/recurs/actions/runs/34306661860)
+through its own protected run on September 9, 2026. npm `alpha` now selects
+`0.1.0-alpha.10`; `latest` remains `0.1.0-alpha.2`. Keep public commands on `recurs@alpha`; never move an alpha
 onto `latest` as incidental release cleanup. Verify registry tags after each
 publication and distinguish preparation from publication in public docs.
 

@@ -3,10 +3,12 @@
 Objective: complete the September 2026 Recurs release-readiness request. This is
 one continuing objective; milestones below are not claims of overall completion.
 
-Current release target: **0.1.0-alpha.10**. Alpha.9 was tagged but not published;
-its protected workflow stopped before uploads on an npm 12 pack-report parser
-mismatch in the terminal test. The tag is preserved without history rewriting.
-Alpha.10 reuses the shared parser and pins macOS CI to the same npm 12.0.1 publisher.
+Current release: **0.1.0-alpha.10, published September 9, 2026**. Merged source,
+platform CI, protected publication, attested assets, and fresh public npm/curl
+installations are verified. The matching Homebrew tap update passed its
+independent install/test gate and is merged.
+Alpha.9 was tagged but not published after an npm 12 terminal-harness parser
+failure; its tag and historical evidence are preserved without rewriting.
 
 ## Authority and starting state
 
@@ -37,10 +39,10 @@ Alpha.10 reuses the shared parser and pins macOS CI to the same npm 12.0.1 publi
 
 | Workstream | Owner | Status |
 | --- | --- | --- |
-| Terminal, onboarding, integration, release workflow | Primary | Implemented; release verification in progress |
+| Terminal, onboarding, integration, release workflow | Primary | Published, public installations verified, matching Homebrew tap merged |
 | Execution inventory, inspection, controls, recovery | Execution agent | Implemented and verified |
 | MCP transport/auth/capabilities/lifecycle | Extensions agent | Implemented and verified |
-| Ecosystem research, skills lifecycle | Ecosystem agent | Implemented; installed journey verification in progress |
+| Ecosystem research, skills lifecycle | Ecosystem agent | Implemented; installed skills and Guided/Deep journeys verified |
 
 ## Acceptance ledger
 
@@ -62,7 +64,8 @@ All entries require fresh evidence from the integrated artifact.
 - [x] Packaged installed CLI verification and measured performance
 - [x] Current README, real terminal capture, docs and contributor guidance
 - [x] Green PR merge, canonical synchronization and branch accounting
-- [ ] Exact release artifact, protected publication and installed published check
+- [x] Exact release artifact, protected publication and installed published check
+- [x] Homebrew tap update with its independent formula install/test gate
 
 ## Verification log
 
@@ -86,11 +89,12 @@ verification, not a model-quality result.
 Bundle measurement before variable mangling: 2,113,491 bytes. Enabling
 rolldown variable mangling while preserving function/class names reduced the
 bundle to 1,661,112 bytes; the original 2.10 MB ceiling is retained. Installed
-acceptance ran against the resulting bundle. Final release measurements pending.
+acceptance ran against the resulting bundle. Final alpha.10 measurements are
+recorded below.
 
-Registry verification found `alpha` points to alpha.7 and `latest` to alpha.2.
-The prior docs' alpha.8 publication claim was not supported; a historical
-publication workflow remains awaiting its protected environment review.
+Preflight registry verification found `alpha` at alpha.7 and `latest` at alpha.2.
+The prior docs' alpha.8 publication claim was not supported. Its obsolete
+publication workflow was later cancelled after alpha.10 published successfully.
 
 Security review reproduced and fixed an owned subprocess orphan on natural
 exit. New tests cover descendants with inherited and ignored output pipes.
@@ -184,8 +188,8 @@ excluding npm cache and optional vendor runtimes. These are platform-specific
 measurements, not universal size or speed guarantees.
 
 The protected [publication run](https://github.com/tacotuesday8888/recurs/actions/runs/34305523427)
-was approved by the authorized owner for this exact tag. Publication verification
-is the remaining gate; tag creation alone is not publication.
+was approved by the authorized owner for this exact tag, then failed before
+publication as recorded below. Alpha.9 remains an unpublished, preserved tag.
 
 ## Publication harness correction
 
@@ -196,5 +200,76 @@ terminal gate now uses it. The macOS lane pins the same npm 12.0.1 client as the
 publisher, so this path is verified before the next tag. Linux retains the
 exact supported minimum Node 22.22.0 and its bundled npm; npm 12 itself requires
 Node 22.22.2 or newer. This is a harness
-correction, not a skipped gate or rewritten release. Alpha.10 is the next
-candidate; existing alpha.9 source/platform evidence remains labeled above.
+correction, not a skipped gate or rewritten release. Existing alpha.9
+source/platform evidence remains labeled above.
+
+
+## Alpha.10 merged source and platform verification
+
+[PR #194](https://github.com/tacotuesday8888/recurs/pull/194) merged as
+`eeafaf651920f8a4cce2c8d662cadd4acd51d504`. The release harness correction is
+included in this source; alpha.9 history was preserved. The same merged source
+also passed [main-branch CI](https://github.com/tacotuesday8888/recurs/actions/runs/34306624979)
+and [main-branch CodeQL](https://github.com/tacotuesday8888/recurs/actions/runs/34306622760).
+
+[Alpha.10 CI](https://github.com/tacotuesday8888/recurs/actions/runs/34306302672)
+passed every required gate:
+
+| Gate | Verified result |
+| --- | --- |
+| Linux / Node 22.22.0 and bundled npm | 180 files, 2,286 tests passed; all three installed gates passed |
+| macOS / Node 24.18.0 and npm 12.0.1 | 180 files, 2,282 tests passed, four existing platform skips; all three installed gates passed |
+| Bun 1.3.14 / Linux | Install and Node entrypoint checks passed |
+| CodeQL | Both analyses and overall check passed |
+
+The installed-agent, terminal PTY, and extensions/onboarding gates all passed
+on both platforms. The terminal and extensions gates recorded matching archive
+SHA-256: `f6e0572f2539b0f8d4b94214816f2926af05f4f82c07a20f3ee07d187fdf3c67`.
+
+- Compressed archive: **565,501 bytes**.
+- Unpacked package: **1,834,091 bytes**.
+- Installed regular-file bytes: **47,725,855** on Linux and **47,788,890** on macOS,
+  excluding npm cache and optional vendor runtimes.
+- Archive integrity: `sha512-uSVU0zh1E/L0qV9oU6DzczH018wG4n2ll8/CfYswKT0Ogoe0VdEtZoKqOSDdiKPx3KROl6k/0kpDqwyq9PAZtw==`.
+
+These values identify the tested alpha.10 artifact; the earlier alpha.8 and
+alpha.9 live runs, measurements, and hashes retain their historical scope.
+No additional live model task was performed for the harness correction.
+
+## Alpha.10 public publication and installation
+
+The protected [publication run](https://github.com/tacotuesday8888/recurs/actions/runs/34306661860)
+succeeded. The [GitHub prerelease](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.10)
+was published at **2026-09-09 03:23:19 UTC** with curated release notes and five
+assets: the npm archive, `install.sh`, `recurs.rb`, `SHA256SUMS`, and
+`npm-integrity.txt`.
+
+All five downloaded assets matched their attested SHA-256 values. GitHub
+attestation verification selected the publication workflow as signer and
+confirmed `refs/tags/v0.1.0-alpha.10`, source commit
+`eeafaf651920f8a4cce2c8d662cadd4acd51d504`, and publication run `34306661860`.
+The package SHA-256 and SHA-512 integrity match the artifact recorded above.
+
+The public npm registry now serves `recurs@alpha` as `0.1.0-alpha.10`, while
+`latest` remains `0.1.0-alpha.2`. A direct registry archive download was
+byte-for-byte identical to the attested GitHub archive. A fresh isolated
+home/cache/prefix installed `recurs@alpha` with lifecycle scripts disabled;
+`recurs --version` returned `0.1.0-alpha.10` and `recurs --help` exited 0.
+
+The public checksum-verifying curl script also installed successfully into an
+isolated home/prefix. Its executable returned `0.1.0-alpha.10`; `doctor`
+reported six checks OK, one expected unconfigured-provider warning, and zero
+failures after a real macOS Seatbelt check outside the enclosing test sandbox.
+That public installation then passed the skills lifecycle, HTTP MCP discovery,
+and Guided/Deep save/reopen/approval journeys. Each formation depth used two
+local fixture responses; the complete public-installed extension check made
+zero live model requests.
+
+The [Homebrew tap update, PR #4](https://github.com/tacotuesday8888/homebrew-recurs/pull/4),
+passed its independent [formula install/test gate](https://github.com/tacotuesday8888/homebrew-recurs/actions/runs/34307090288)
+and merged as `44200e5e48aeb5f95e5f882d6d71e8e73c972e66`. The tap's formula
+matches the attested release formula exactly; local tap `main` matched
+`origin/main` at that exact commit and was clean. The separate
+[post-merge check](https://github.com/tacotuesday8888/homebrew-recurs/actions/runs/34307191091)
+also passed. Both the reviewed PR and merged tap state have green installation
+verification.
