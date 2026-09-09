@@ -40,7 +40,7 @@ Other install paths:
 | --- | --- |
 | Homebrew | `brew install tacotuesday8888/recurs/recurs` |
 | Bun | `bun install --global recurs@alpha` |
-| curl | `curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.7/install.sh \| sh` |
+| curl | `curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.9/install.sh \| sh` |
 
 Bun can install Recurs; Node.js runs it. Linux command isolation requires
 Bubblewrap. See [installation and troubleshooting](docs/CLI.md#install).
@@ -106,10 +106,11 @@ JSON, JSONL and ACP share the same execution core.
 
 ## Status and contributing
 
-Source version: `0.1.0-alpha.9` release candidate.
-The registry was verified on September 9, 2026: `alpha` selects alpha.7; alpha.8
-publication has not been verified. The [release work record](docs/RELEASE_READINESS.md)
-tracks the exact source, artifact, test and publication status.
+Source version: `0.1.0-alpha.9`. Published packages and checksummed install assets
+are listed in [GitHub Releases](https://github.com/tacotuesday8888/recurs/releases).
+Source changes can precede publication; the npm badge shows the published alpha.
+The [release work record](docs/RELEASE_READINESS.md) tracks exact source, artifact,
+test and publication status.
 
 Recurs supports macOS and Linux. There is no persistent background daemon or
 Windows process containment. Child inspectors are read-only apart from

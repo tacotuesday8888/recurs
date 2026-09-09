@@ -113,13 +113,13 @@ is historical and does not verify this new release.
 - See [MCP acceptance](research/release-mcp-acceptance-2026-09.md) and
   [security closure](research/release-security-closure-2026-09.md).
 
-Final source alpha.9 measurement (macOS arm64, Node 22.22.3): 565,375
+Pre-Linux-hook-fix alpha.9 measurement (macOS arm64, Node 22.22.3): 565,375
 bytes compressed, 1,833,516 unpacked, 47,788,312 installed regular-file bytes.
 Five `--version` process starts: 752, 461, 467, 465, 468 ms (median 467 ms).
 These are local observations, not cross-machine performance claims. The
 published workflow artifact receives its own final hash and measurements.
 
-Final installed PTY and extensions/onboarding gates tested the same archive:
+The pre-Linux-hook-fix installed PTY and extensions/onboarding gates tested the same archive:
 `081b872e5c6908e7fe743b73228ddda5de7ed710273c20da8f25e589e3faf9de`
 (SHA-256). Guided and Deep each used two local fixture requests, saved their
 proposal, exited, reopened and approved it without another model request.
@@ -138,3 +138,13 @@ removed after the conventional UI passed its acceptance checks.
 Final installed company smoke also passed explicit `--resume` execution listing,
 exact Implement transcript inspection, and an honest no-live-owner response when
 stopping historical work. A fresh `recurs run` intentionally starts a new session.
+
+The first PR CI run passed macOS (2,281 tests and four existing skips), all
+installed gates, Bun, and code analysis. Linux's positive-control hook test
+exposed a temporary executable hidden by the sandbox. The follow-up mounts only
+that approved file read-only; the full Linux rerun is required before merge.
+A local `--version` measurement on the earlier alpha.9 artifact recorded
+207,060,992 bytes maximum RSS / 157,835,648 bytes peak memory footprint and
+0.46 s elapsed on macOS arm64. This is startup evidence, not a workload memory
+benchmark. The npm README uses release-neutral status wording so immutable
+published packages do not retain a stale registry snapshot.
