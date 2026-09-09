@@ -108,7 +108,7 @@ const server = createServer(async (request, response) => {
   } catch (error) {
     active.errors.push(String(error));
     if (!response.headersSent) response.writeHead(400, { "content-type": "application/json" });
-    response.end(JSON.stringify({ error: { message: String(error) } }));
+    response.end(JSON.stringify({ error: { message: "Comparison fixture request failed" } }));
   }
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));

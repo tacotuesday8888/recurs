@@ -109,3 +109,13 @@ changed, and the exact interrupted session reopened successfully. The resumed
 turn hit its eight-minute deadline before final completion; marker recall and
 live child execution were not proven. This is partial live acceptance, not a
 clean completed-model-turn result. No more inference was launched after the bound.
+
+## Review finding corrected before merge
+
+The final-head CI and CodeQL jobs passed, but the required review-thread check
+correctly blocked merging on CodeQL alert 7 in the comparison fixture. Its local
+HTTP error response included raw exception details. The response now contains a
+fixed generic message; diagnostics remain in the local comparison report. No
+security rule was suppressed or branch policy bypassed. ESLint, syntax checking,
+and a fresh six-case Recurs/Pi run passed after the fix. This script is not part
+of the published package, so the final candidate archive bytes are unchanged.
