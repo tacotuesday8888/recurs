@@ -283,6 +283,10 @@ describe("McpServerCatalog", () => {
     expect(collision.snapshot().servers.find((server) => server.source === "project"))
       .toMatchObject({ enabled: false });
     await expect(collision.trustProject()).rejects.toThrow("not trustable");
+    await collision.untrustProject();
+    expect(collision.snapshot().projectTrust).toBe("invalid");
+    await expect(collision.trustProject()).rejects.toThrow("not trustable");
+    expect(collision.snapshot().servers.find((server) => server.source === "user")?.enabled).toBe(true);
     await collision.close();
 
     const unsafe = await root();
@@ -731,7 +735,7 @@ describe("McpServerCatalog", () => {
     const events: RecursEvent[] = [];
     const runtime = await createStandaloneRuntime(
       { async emit(event) { events.push(event); } },
-      { cwd: workspace, dataDirectory: data, provider },
+      { cwd: workspace, dataDirectory: data, provider, skillHomeDirectory: path.join(data, "empty-home") },
     );
     runtime.setConfirmHandler(async () => true);
 

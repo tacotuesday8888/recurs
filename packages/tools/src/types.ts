@@ -77,6 +77,7 @@ export interface ToolContext {
     readonly network: "allow" | "deny";
     readonly workspaceAccess?: "read_write" | "read_only";
     readonly readOnlyPaths?: readonly string[];
+    readonly deniedReadPaths?: readonly string[];
   };
 }
 

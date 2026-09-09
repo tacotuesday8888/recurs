@@ -10,6 +10,7 @@ import {
 } from "@recurs/contracts";
 import {
   AgentActivityService,
+  AgentExecutionService,
   TEAM_APPLY_PERMISSION,
   createDelegationBudget,
   isPinnedSessionState,
@@ -26,6 +27,7 @@ import {
   type CommandDependencies,
   type CommandResult,
 } from "./types.js";
+import { sanitizeTerminalText } from "../terminal-text.js";
 import type { TeamControlChanges, TeamControlSnapshot } from "../team-control-service.js";
 
 function summary(id: Parameters<typeof getOperatingModePolicy>[0]): string {
@@ -381,8 +383,8 @@ export function createAgentsCommand(
   return {
     name: "agents",
     aliases: ["agent"],
-    description: "Inspect child-agent modes, activity, and durable team runs",
-    usage: "/agents [profiles|controls|configure key=value...|reset|activity [exact-id]|teams|team <id>|wait <id>|cancel <id>|resume <id>|apply <id>|mode economy|standard|balanced|performance|max]",
+    description: "Inspect execution trees, child transcripts, controls, and durable team runs",
+    usage: "/agents [executions|inspect <session-id>|stop <session-id>|profiles|controls|configure key=value...|reset|activity [exact-id]|teams|team <id>|wait <id>|cancel <id>|resume <id>|apply <id>|mode economy|standard|balanced|performance|max]",
     async execute(args, context) {
       const trimmed = args.trim();
       if (trimmed.toLowerCase() === "profiles") {
@@ -454,6 +456,56 @@ export function createAgentsCommand(
             "error",
           );
         }
+      }
+      const executionMatch = /^(executions|inspect|stop)(?:\s+(\S+))?$/iu.exec(trimmed);
+      if (executionMatch !== null) {
+        if (dependencies.sessions === undefined) return message("Execution history is unavailable", "error");
+        const action = executionMatch[1]!.toLowerCase();
+        const id = executionMatch[2];
+        if ((action === "executions") !== (id === undefined)) {
+          return message(action === "executions" ? "Use /agents executions" : `Use /agents ${action} <exact-session-id>`, "error");
+        }
+        const executions = new AgentExecutionService(dependencies.sessions, (sessionId) =>
+          dependencies.executionControls?.isExecutionActive(sessionId) ?? false
+        );
+        if (action === "executions") {
+          const items = await executions.list(context.session.id);
+          return message(items.length === 0 ? "No recorded executions" : [
+            `${items.length} recorded execution${items.length === 1 ? "" : "s"} (including parent):`,
+            ...items.flatMap((item) => [
+              `${"  ".repeat(item.depth)}${item.status} | ${oneLine(item.roleName)} | ${oneLine(item.model)} | ${oneLine(item.description)} | ${item.executionId} | parent ${item.parentExecutionId ?? "none"}`,
+              ...(item.detail === null ? [] : [`${"  ".repeat(item.depth + 1)}${oneLine(item.detail, 500)}`]),
+            ]),
+            "Inspect: /agents inspect <session-id> · Cancel: /agents stop <session-id>",
+          ].join("\n"));
+        }
+        const detail = await executions.inspect(context.session.id, id!);
+        if (detail === null) return message("Execution not found in this session", "error");
+        if (action === "stop") {
+          const cancelled = id === context.session.id
+            ? await context.cancelActiveRun()
+            : dependencies.executionControls?.cancelExecution(id!) ?? false;
+          return message(cancelled ? `Cancellation requested for ${id} and its descendants` : "No live execution is attached here; recover the containing run if needed", cancelled ? "info" : "warning");
+        }
+        const item = detail.execution;
+        const transcript = detail.messages.map((entry) => [
+          `[${entry.role}] ${entry.content}`,
+          ...(entry.toolCalls ?? []).map((call) => `Tool ${call.name}: ${JSON.stringify(call.arguments)}`),
+        ].join("\n")).join("\n\n");
+        const maximum = 64_000;
+        return message(sanitizeTerminalText([
+          `Execution: ${item.executionId} | Parent: ${item.parentExecutionId ?? "none"}`,
+          `Role: ${item.roleName} | Model: ${item.model}${item.effort === null ? "" : ` (${item.effort})`} | Status: ${item.status}`,
+          `Permissions: ${item.permissions.executionMode} / ${item.permissions.permissionMode}`,
+          `Task: ${item.description}`,
+          `Changed files: ${item.changedFiles.join(", ") || "none recorded"}`,
+          `Evidence: ${item.evidence.join("; ") || "none recorded"}`,
+          item.detail ?? "",
+          detail.transcriptNotice ?? "",
+          item.capabilities.reason,
+          transcript.length > maximum ? "Earlier transcript text omitted; showing the last 64,000 characters." : "",
+          transcript.slice(-maximum) || "No durable messages yet.",
+        ].filter(Boolean).join("\n\n")));
       }
       const teamMatch = /^(teams|team|wait|cancel|resume|apply)(?:\s+(\S+))?$/iu
         .exec(trimmed);

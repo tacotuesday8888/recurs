@@ -1,6 +1,11 @@
 # Recurs Documentation
 
-Current documents:
+Source `0.1.0-alpha.9` release candidate. Current documents:
+
+- [Release readiness](RELEASE_READINESS.md) — current implementation and verification record.
+- [MCP](MCP.md) — local and remote servers, trust, authentication and troubleshooting.
+- [Agent Skills](SKILLS.md) — installation, explicit use, scope and permissions.
+- [Current ecosystem decisions](research/release-readiness-ecosystem-2026-09.md) — primary-source comparison and reuse decisions.
 
 - [Public alpha status](PUBLIC_ALPHA.md) — one-page installation,
   distribution, evidence, and remaining-risk summary.
@@ -51,37 +56,19 @@ architecture for current product truth.
 
 ## Release status
 
-Recurs `0.1.0-alpha.8` is distributed as one npm artifact and runs on Node.js. The
-repository builds and verifies a minimal npm artifact, includes reviewed
-direct-runtime dependency notices, installs it into an empty temporary prefix
-in CI, and proves the installed binary's redacted readiness report can launch
-the real OS sandbox. It also carries a manual fail-closed OIDC release
-workflow. That workflow derives a checksum-verifying user-local installer and
-Homebrew formula from the exact npm tarball, drafts and attests the GitHub
-assets, verifies npm SRI on recovery, and publishes the release only after
-package publication succeeds. The GitHub release carries the exact archive,
-checksum-verifying curl installer, and generated formula source. The official
-Homebrew tap publishes a reviewed formula for that same archive. There is no
-native Bun runtime, signed binary, or desktop app.
+Source `0.1.0-alpha.9` is the current release candidate. At preflight, npm
+`alpha` selects alpha.7 and `latest` selects alpha.2. Publication requires the
+protected trusted-publisher workflow; see [current evidence](RELEASE_READINESS.md).
 
-A pinned Linux CI smoke lets Bun globally install the prepared npm tarball,
-then verifies that the `recurs` entry point runs through Node.js and fails when
-Node is unavailable. This is package-manager compatibility, not a native Bun
-runtime claim.
+Recurs runs on Node.js and distributes one npm artifact. The checksum-verifying
+curl installer and official Homebrew tap install that same artifact. Bun is
+verified as an installer on the pinned Linux lane; it does not replace Node.js.
+There is no signed standalone binary or desktop application.
 
-The CLI artifact is gated below 2.1 MB unpacked. The exact `0.1.0-alpha.8`
-archive measured 463 KiB compressed / 1.98 MiB unpacked and 42.7 MiB in a
-clean Apple-silicon production prefix on 2026-08-13, without Codex. The
-larger source tree retains exact Codex compatibility fixtures for tests. See
-[Public alpha status](PUBLIC_ALPHA.md) for the current support and evidence
-boundary.
+The CLI artifact is gated below 2.1 MB unpacked. Final package size and installed
+footprint belong to the exact artifact in the release record, not the source
+tree containing Codex test fixtures. The repository is Apache-2.0 licensed;
+runtime dependency licenses are listed in the third-party notices.
 
-The repository and `0.1.0-alpha.8` preview package are Apache-2.0 licensed.
-The one-time npm bootstrap, trusted-publisher relationship, exact release tag,
-and manual protected workflow remain owner-controlled.
-
-The public alpha.8 archive is the immutable tagged artifact. Later changes on
-`main` are current-source capabilities until another deliberate preview. npm's
-`alpha` tag selects alpha.8; unqualified `latest` still selects alpha.2.
-
-Earlier exploration is preserved in [historical research](research/README.md). It may use the old “Subagents IDE” working name or describe options that are not current commitments.
+Earlier exploration is preserved in [historical research](research/README.md).
+It may use the old “Subagents IDE” name or describe superseded commitments.

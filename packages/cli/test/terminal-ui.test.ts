@@ -72,7 +72,7 @@ describe("CompanyHomeComponent", () => {
     });
 
     const view = component.render(80).join("\n");
-    expect(view).toContain("RECURS / WORKSPACE / COMPANY");
+    expect(view).toContain("Recurs · workspace · Team");
     expect(view).not.toContain("┌");
     component.handleInput("\r");
     component.handleInput("\u001b");
@@ -154,14 +154,14 @@ describe("CompanyHomeComponent", () => {
     });
 
     expect(component.render(100).join("\n"))
-      .toContain("COMPANY · READY");
+      .toContain("Parent · ready");
     component.handleInput("\u001b[B");
     expect(component.render(100).join("\n"))
-      .toContain("ENGINEERING · RUNNING");
+      .toContain("Implement · running");
     component.handleInput("\u001b[B");
     const moved = component.render(100).join("\n");
 
-    expect(moved).toContain("QUALITY · RUNNING");
+    expect(moved).toContain("Review · running");
     expect(moved).not.toContain("┌");
     expect(refresh).toHaveBeenCalledTimes(2);
   });
@@ -179,9 +179,9 @@ describe("CompanyHomeComponent", () => {
       frame: () => 0,
     });
 
-    expect(component.render(110).join("\n")).toContain("> ORCHESTRATOR");
+    expect(component.render(110).join("\n")).toContain("> Orchestrator");
     component.handleInput("\u001b[B");
-    expect(component.render(110).join("\n")).toContain("> INDEPENDENT REVIEWER");
+    expect(component.render(110).join("\n")).toContain("> └─ Independent Reviewer");
     component.handleInput("\r");
 
     expect(openChat).toHaveBeenCalledWith(expect.objectContaining({
@@ -310,9 +310,9 @@ describe("TaskPanelComponent", () => {
     expect(rendered).toContain("RECURS / AUTH-SERVICE / TASKS");
     expect(rendered).toContain("SHIP SECURE AUTHENTICATION");
     expect(rendered).not.toContain("goal-1");
-    expect(rendered).toContain("SCOPED BUILDER");
+    expect(rendered).toContain("Scoped Builder");
     expect(rendered).toContain("implement-model · medium");
-    expect(rendered).not.toContain("INDEPENDENT REVIEWER");
+    expect(rendered).not.toContain("Independent Reviewer");
     panel.handleInput("\r");
     panel.handleInput("\u001b");
 
@@ -389,18 +389,18 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     expect(terminal.output).toContain("Chats · 1");
     expect(terminal.output).toContain("> Current chat");
     expect(terminal.output).not.toContain("session-current");
     terminal.input?.("\r");
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(terminal.output).toContain("INDEPENDENT REVIEWER");
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
+    expect(terminal.output).toContain("RECURS / AUTH-SERVICE / CHAT");
     terminal.input?.("\u001b");
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     expect(terminal.writes.at(-1)).toContain("Chats · 1");
     terminal.input?.("\r");
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\u0011");
     await expect(running).resolves.toEqual({ type: "quit" });
   });
@@ -443,9 +443,9 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\r");
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
 
     expect(terminal.output).toContain("RECURS / AUTH-SERVICE / CHAT");
     expect(terminal.output).not.toContain("Your company is ready");
@@ -473,7 +473,7 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     expect(terminal.output).toContain("> Start new project");
     terminal.input?.("\r");
     await expect(running).resolves.toEqual({ type: "new_project" });
@@ -505,7 +505,7 @@ describe("RecursInteractiveShell", () => {
         name: "AbortError",
       });
 
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await new Promise<void>((resolve) => setTimeout(resolve, 30));
       const finalFrame = terminal.writes.at(-1) ?? "";
       expect(finalFrame).not.toContain(expected);
       expect(finalFrame).toContain("RECURS / WORKSPACE");
@@ -537,7 +537,7 @@ describe("RecursInteractiveShell", () => {
       name: "AbortError",
     });
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     expect(terminal.writes.at(-1)).not.toContain("48;2;0;0;0");
     terminal.input?.("\u001b");
     await rejected;
@@ -564,7 +564,7 @@ describe("RecursInteractiveShell", () => {
       name: "AbortError",
     });
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\u0003");
 
     await rejected;
@@ -598,10 +598,10 @@ describe("RecursInteractiveShell", () => {
       name: "AbortError",
     });
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     if (prompt === "text") {
       terminal.input?.("\r");
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await new Promise<void>((resolve) => setTimeout(resolve, 30));
       expect(terminal.output).toContain("Name the company");
     }
     terminal.input?.(key);
@@ -633,7 +633,7 @@ describe("RecursInteractiveShell", () => {
         name: "AbortError",
       });
 
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await new Promise<void>((resolve) => setTimeout(resolve, 30));
       const widths = terminal.writes.flatMap((write) =>
         write.split("\u001b[?2026h").join("")
           .split("\u001b[?2026l").join("")
@@ -679,7 +679,7 @@ describe("RecursInteractiveShell", () => {
       return { connection, team, confirmed, external };
     });
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     expect(terminal.output).toContain("RECURS / WORKSPACE / SETUP");
     expect(terminal.output).toContain("Use saved Codex");
     expect(terminal.output).toContain("vendor-owned authentication");
@@ -687,12 +687,12 @@ describe("RecursInteractiveShell", () => {
     expect(terminal.output).toContain("[96m");
     terminal.input?.("\r");
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     expect(terminal.output).toContain("Name this team");
     expect(terminal.output).toContain("Platform");
     terminal.input?.("\r");
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     expect(terminal.output).toContain("Approve this company?");
     terminal.input?.("\u001b[B");
     terminal.input?.("\r");
@@ -730,7 +730,7 @@ describe("RecursInteractiveShell", () => {
       }])
     );
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\r");
 
     await expect(onboarding).resolves.toBe("balanced");
@@ -755,7 +755,7 @@ describe("RecursInteractiveShell", () => {
       name: "AbortError",
     });
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     expect(terminal.writes.at(-1)).toContain("security boundary");
     terminal.input?.("\u001b");
     await rejected;
@@ -783,7 +783,7 @@ describe("RecursInteractiveShell", () => {
       name: "AbortError",
     });
 
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     const frame = terminal.writes.at(-1) ?? "";
     expect(frame).toContain("02/06  AUTHORITY");
     expect(frame).toContain("Parent model connected · gpt-5.6-sol");
@@ -820,7 +820,7 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\r");
     await shell.events.emit({
       type: "warning",
@@ -828,7 +828,7 @@ describe("RecursInteractiveShell", () => {
       at: "2026-08-06T00:00:00.000Z",
       message: "Context is nearly full",
     });
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     expect(terminal.output).toContain("Warning: Context is nearly full");
     expect(terminal.output).not.toContain("[33mWarning");
 
@@ -837,7 +837,7 @@ describe("RecursInteractiveShell", () => {
     await running;
   });
 
-  it("starts on the company view and closes runtime truthfully", async () => {
+  it("starts in the parent conversation and closes runtime truthfully", async () => {
     const terminal = new TestTerminal();
     let closed = 0;
     const runtime = {
@@ -868,8 +868,8 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(terminal.output).toContain("RECURS / WORKSPACE / COMPANY");
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
+    expect(terminal.output).toContain("RECURS / WORKSPACE / CHAT");
     terminal.input?.("\u0011");
     await running;
 
@@ -877,7 +877,7 @@ describe("RecursInteractiveShell", () => {
     expect(terminal.input).toBeNull();
   });
 
-  it("loads the approved onboarding blueprint into the real company floor", async () => {
+  it("loads the approved onboarding blueprint into the team tree", async () => {
     const terminal = new TestTerminal(110, 36);
     const runtime = {
       state: {
@@ -905,11 +905,13 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(terminal.output).toContain("R↘ RECURS / AUTH-SERVICE / COMPANY");
-    expect(terminal.output).toContain("INDEPENDENT REVIEWER");
-    expect(terminal.output).toContain("SCOPED BUILDER");
-    expect(terminal.output).toContain("NOT ACTIVATED");
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
+    terminal.input?.("\u0007");
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
+    expect(terminal.output).toContain("Recurs · auth-service · Team");
+    expect(terminal.output).toContain("Independent Reviewer");
+    expect(terminal.output).toContain("Scoped Builder");
+    expect(terminal.output).toContain("not activated");
     terminal.input?.("\u0011");
     await running;
   });
@@ -941,7 +943,7 @@ describe("RecursInteractiveShell", () => {
       colorEnabled: false,
     });
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     await shell.events.emit({
       type: "company_goal_started",
       goalRunId: "goal-1",
@@ -971,13 +973,13 @@ describe("RecursInteractiveShell", () => {
       reasoningEffort: "medium",
     });
 
-    expect(terminal.output).toContain("▄██▄");
-    expect(terminal.output).toContain("CTRL+Q QUIT");
+    expect(terminal.output).not.toContain("▄██▄");
+    expect(terminal.output).toContain("Enter send");
 
     terminal.input?.("\u0014");
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     expect(terminal.output).toContain("RECURS / AUTH-SERVICE / TASKS");
-    expect(terminal.output).toContain("SCOPED BUILDER");
+    expect(terminal.output).toContain("Scoped Builder");
     terminal.input?.("\u001b");
     terminal.input?.("\u0011");
     await running;
@@ -1009,7 +1011,7 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\u0011");
     await running;
 
@@ -1052,11 +1054,11 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\r");
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(terminal.output).toContain("RECURS / CHAT");
-    expect(terminal.output).toContain("recurs ›");
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
+    expect(terminal.output).toContain("RECURS / WORKSPACE / CHAT");
+    expect(terminal.output).toContain("Enter send");
 
     terminal.input?.("\u001b[200~/quit\u001b[201~");
     terminal.input?.("\r");
@@ -1064,7 +1066,7 @@ describe("RecursInteractiveShell", () => {
     expect(submitted).toEqual(["/quit"]);
   });
 
-  it("submits a goal from the V19 company-floor composer", async () => {
+  it("submits a goal from the parent conversation", async () => {
     const terminal = new TestTerminal(100, 30);
     const submitted: string[] = [];
     const runtime = {
@@ -1094,9 +1096,9 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime, { launch: false });
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(terminal.output).toContain("Your company is ready.");
-    expect(terminal.output).toContain("CTRL+Q QUIT");
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
+    expect(terminal.output).toContain("RECURS / WORKSPACE / CHAT");
+    expect(terminal.output).toContain("Enter send");
     terminal.input?.("\u001b[200~/goal ship the release\u001b[201~");
     terminal.input?.("\r");
 
@@ -1138,12 +1140,12 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\r");
     for (const line of ["render text", "/quit"]) {
       terminal.input?.(`\u001b[200~${line}\u001b[201~`);
       terminal.input?.("\r");
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await new Promise<void>((resolve) => setTimeout(resolve, 30));
     }
     await running;
 
@@ -1197,7 +1199,7 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\r");
     for (const line of [
       "/image screen.png",
@@ -1207,7 +1209,7 @@ describe("RecursInteractiveShell", () => {
     ]) {
       terminal.input?.(`\u001b[200~${line}\u001b[201~`);
       terminal.input?.("\r");
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await new Promise<void>((resolve) => setTimeout(resolve, 30));
     }
     await running;
 
@@ -1253,11 +1255,11 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\r");
     terminal.input?.("\u001b[200~/attach\u001b[201~");
     terminal.input?.("\r");
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\u001b[200~/quit\u001b[201~");
     terminal.input?.("\r");
     await running;
@@ -1300,11 +1302,11 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\r");
     terminal.input?.("\u001b[200~/attach\u001b[201~");
     terminal.input?.("\r");
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
 
     expect(terminal.starts).toBe(2);
     expect(terminal.input).not.toBeNull();
@@ -1351,16 +1353,16 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\r");
     terminal.input?.("\u001b[200~ask\u001b[201~");
     terminal.input?.("\r");
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     expect(terminal.output).toContain("╭─ APPROVAL REQUIRED");
     expect(terminal.output).toContain("Apply the reviewed change? [y/N]");
     terminal.input?.("yes");
     terminal.input?.("\r");
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\u001b[200~/quit\u001b[201~");
     terminal.input?.("\r");
     await running;
@@ -1404,16 +1406,16 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\r");
     for (const line of ["first", "second"]) {
       terminal.input?.(`\u001b[200~${line}\u001b[201~`);
       terminal.input?.("\r");
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await new Promise<void>((resolve) => setTimeout(resolve, 30));
     }
     expect(submitted).toEqual(["first"]);
     release();
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\u001b[200~/quit\u001b[201~");
     terminal.input?.("\r");
     await running;
@@ -1461,19 +1463,19 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\r");
     terminal.input?.("\u001b[200~ask twice\u001b[201~");
     terminal.input?.("\r");
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("yes");
     terminal.input?.("\r");
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     const showedSecond = terminal.output.includes("Approve review? [y/N]");
     if (showedSecond) {
       terminal.input?.("no");
       terminal.input?.("\r");
-      await new Promise<void>((resolve) => setImmediate(resolve));
+      await new Promise<void>((resolve) => setTimeout(resolve, 30));
       terminal.input?.("\u001b[200~/quit\u001b[201~");
       terminal.input?.("\r");
     } else {
@@ -1519,12 +1521,12 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     const answer = askUser!(
       { question: "Which path?", options: ["A", "B"] },
       controller.signal,
     );
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     expect(terminal.output).toContain("Which path?");
     terminal.input?.("\u0003");
 
@@ -1566,16 +1568,16 @@ describe("RecursInteractiveShell", () => {
     });
 
     const running = shell.start(runtime);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.input?.("\r");
     terminal.input?.("unfinished draft");
     const decision = confirm!("Apply the reviewed change?");
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
     terminal.output = "";
     terminal.input?.("yes");
     terminal.input?.("\r");
     await expect(decision).resolves.toBe(true);
-    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
 
     expect(terminal.output).toContain("unfinished draft");
     terminal.input?.("\u0007");

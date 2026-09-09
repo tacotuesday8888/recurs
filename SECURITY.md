@@ -30,15 +30,18 @@ Include:
 
 ## Credential boundary
 
-Recurs supports two credential ownership models:
+Recurs supports these credential ownership models:
 
 - A delegated vendor runtime owns its own login and tokens.
 - A direct BYOK connection reads one named environment variable in the Recurs
   process.
+- An explicitly authenticated MCP server stores its OAuth access and refresh
+  credentials in a private directory below `auth/mcp`. Logout deletes that
+  server's local credentials; it does not revoke grants at the issuer.
 
 Recurs stores provider/model routing metadata, the environment-variable name,
 and a one-way credential fingerprint. It does not persist the credential value.
-The exact named value must be present and match the saved fingerprint before a
+For BYOK, the exact named value must be present and match the saved fingerprint before a
 provider request begins.
 
 Conditional coding plans also store a bounded, non-secret policy binding such
@@ -55,6 +58,25 @@ Do not run Recurs with unrelated high-value credentials in its environment.
 Built-in tools receive a filtered child environment. Provider keys, tokens,
 cloud credentials, proxy settings, real home/config paths, and unrelated
 process variables are not forwarded.
+
+## MCP boundary
+
+Project servers remain inactive until the user trusts them for the current
+process. Server configuration supplies no permission override. Capability
+selection, agent role restrictions and ordinary tool approvals still apply.
+Remote connections use the maintained MCP SDK. OAuth discovery, metadata,
+token and refresh requests enforce HTTPS and public network destinations,
+reject redirects, and pin checked DNS results to prevent private-network
+access. Loopback is allowed only for explicitly local MCP development and
+the PKCE callback; it does not authorize arbitrary metadata destinations.
+Private LAN endpoints are currently unsupported.
+
+The actual MCP credential directory is denied to built-in file tools,
+Recurs-owned sandboxed subprocesses and lifecycle hooks, including custom
+`RECURS_HOME` locations. Private atomic token writes use protected paths.
+This does not isolate the parent process, same-user host authority or external
+vendor runtime internals. Never treat a third-party server as trusted merely
+because it implements MCP.
 
 ## Provider boundary
 

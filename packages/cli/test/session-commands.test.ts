@@ -1376,3 +1376,34 @@ describe("repository commands", () => {
     });
   });
 });
+
+describe("unified execution commands", () => {
+  it("lists and inspects exact descendants and prevents foreign cancellation", async () => {
+    const parent = await storeSession("execution-parent");
+    if (!isPinnedSessionState(parent)) throw new Error("expected pinned parent");
+    await storeSession("foreign-parent");
+    const child = await sessions.createPinnedSession({
+      id: "exact-child", cwd, backend: parent.backend.pin, at,
+      agent: {
+        ...parent.agent, id: "exact-child-agent", role: "child", profile: { id: "explore_v1", version: 1 },
+        parentAgentId: parent.agent.id, parentSessionId: parent.id, depth: 1,
+        task: { id: "exact-task", description: "Inspect the parser", prompt: "Read parser" },
+        backend: { ...parent.agent.backend, strategy: "inherit_parent" },
+        permissions: { ...parent.agent.permissions, executionMode: "plan" },
+      },
+    });
+    await sessions.withSessionMutation(child.id, child.lastSequence, async (lease) => {
+      await lease.append({ type: "turn_started", turnId: "exact-turn", prompt: "Only this child conversation", at });
+    });
+    const cancelExecution = vi.fn(() => true);
+    const commands = createCommandRegistry({ sessions, executionControls: { isExecutionActive: (id) => id === child.id, cancelExecution } });
+    const ctx = context(parent);
+    expect(await commands.execute("/agents executions", ctx)).toMatchObject({ text: expect.stringMatching(/2 recorded executions[\s\S]*exact-child/u) });
+    expect(await commands.execute("/agents inspect exact-child", ctx)).toMatchObject({ text: expect.stringMatching(/Model: scripted[\s\S]*Only this child conversation/u) });
+    expect(await commands.execute("/agents inspect foreign-parent", ctx)).toMatchObject({ level: "error" });
+    expect(await commands.execute("/agents stop foreign-parent", ctx)).toMatchObject({ level: "error" });
+    expect(cancelExecution).not.toHaveBeenCalled();
+    expect(await commands.execute("/agents stop exact-child", ctx)).toMatchObject({ text: "Cancellation requested for exact-child and its descendants" });
+    expect(cancelExecution).toHaveBeenCalledExactlyOnceWith("exact-child");
+  });
+});

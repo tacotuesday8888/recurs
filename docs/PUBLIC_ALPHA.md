@@ -1,116 +1,46 @@
-# Public Alpha Status
+# Public alpha status
 
-**Status:** `0.1.0-alpha.8` public alpha. Recurs is available as one verified
-npm artifact through npm, Bun-as-installer, a checksum-verifying curl asset,
-and the official Homebrew tap.
+Source version: **0.1.0-alpha.9 release candidate**. The September 9, 2026
+registry check found npm `alpha` at alpha.7 and `latest` at alpha.2. Prior docs
+calling alpha.8 public were incorrect. Consult the [release record](RELEASE_READINESS.md)
+for the exact source, packaged artifact, merged state and publication outcome.
 
-## Installation reality
+## Supported paths
 
-| Path | Status | What that means |
-| --- | --- | --- |
-| Source checkout with npm | Supported alpha path | Clone the repository, run `npm ci`, build, and `npm link` on Node.js 22.22+ |
-| npm registry | Recommended path | `npm install --global recurs@alpha` installs the current reviewed alpha |
-| GitHub release / curl | Published alpha path | The release carries the exact archive and a checksum-verifying user-local installer |
-| Homebrew | Published tap path | `brew install tacotuesday8888/recurs/recurs` installs the same npm archive through the official tap |
-| Bun global install | Verified installer path | `bun install --global recurs@0.1.0-alpha.8` installs the package; Node.js 22.22+ still executes it |
-| Bun runtime | Unsupported | No `bun run`, native Bun execution, broader Bun-version, or broad platform-compatibility claim |
-| Signed binary / desktop | Not implemented | There is no standalone download or desktop application |
+Use `npm install --global recurs@alpha` on macOS or Linux with Node.js 22.22+,
+Git and ripgrep. Linux subprocess isolation requires Bubblewrap. Bun can install
+the same npm archive but Node runs the CLI. The release pipeline also prepares
+a checksum-verifying curl installer and Homebrew formula from those exact bytes.
 
-The package gate caps the unpacked Recurs artifact at 2.1 MB. On 2026-08-13 the
-exact `0.1.0-alpha.8` archive measured 463 KiB compressed / 1.98 MiB unpacked.
-Its clean Apple-silicon production prefix measured 42.7 MiB. It did not install
-Codex. The full source-development dependency tree measured about
-402 MiB because it retains roughly 307 MiB of pinned Codex compatibility
-fixtures. Exact size varies by platform and npm version.
+A normal installation does not download Codex or Copilot. Their supported
+vendor runtimes are supplied separately. See the [provider matrix](PROVIDER_CAPABILITY_MATRIX.md)
+and [CLI guide](CLI.md).
 
-npm's `alpha` dist-tag selects `0.1.0-alpha.8`; unqualified `latest` still
-selects `0.1.0-alpha.2`. The public alpha.8 archive is immutable tag output;
-later changes on `main` require another deliberately tagged preview.
+## What this candidate changes
 
-## What is proven
+Quick coding startup, reviewable project onboarding, a conventional terminal,
+a durable execution inventory, exact agent inspection/cancellation, standard
+HTTP/OAuth MCP and practical skill installation. Core permission ceilings,
+versioned sessions, isolated implementation, review/repair and explicit apply
+remain in place. The [feature inventory](FEATURE_STATUS.md) describes precise
+capabilities and boundaries.
 
-The base harness, bounded company runtime, provider routes, permissions,
-worktree isolation, independent review, repair state machine, recovery, and
-explicit apply path are covered by automated tests. The installed-package gate
-also drives the exact packed npm artifact from an empty private home through
-Quick setup and company formation, approval, a layered lead/Implement/Review
-goal, a failing first candidate, finding-driven Repair, independent re-review,
-parent synthesis, approved application, and an external passing fixture test.
-The deterministic local provider makes this proof reproducible without an API
-key or network request. Ordinary session resume and normalized provider failure
-remain covered by the same installed-artifact smoke; company interruption and
-recovery remain covered by focused runtime integration tests.
+Validation includes independent tests, isolated local protocol fixtures and
+real PTY journeys against a packed installation. Deterministic fixtures prove
+harness behavior, not model quality. Live evaluation evidence and exact
+artifact measurements are linked from the release record.
 
-Round 2 added reproducible current-harness and parent-matched Codex evidence.
-It did not establish an Auto or worker-route winner. Complete campaigns
-provided 12 informative pairs but only six parent-matched pairs. In matched
-evidence the baseline-only count was two and the company-only count was zero.
-One Luna approval failed the hidden verifier. Complete campaigns supplied
-three Repair attempts and only one recovery. Provider-reported dollar cost was
-unknown. See the [Round 2 evidence report](research/2026-08-07-RECURS-MODEL-TEAM-EVALUATION-V2.md).
+## Boundaries
 
-The 2026-08-08 RC dogfood used the existing official Codex login without
-copying credentials. Quick formation passed its substantive rubrics in 41.563
-seconds with two requests and unknown cost. A frozen `alias_registry`
-repetition then passed all seven checks for the Sol baseline, while the
-Sol/Terra/Luna company used three requests, received Luna approval, and failed
-the hidden registry-boundary check. Repair did not activate. This is another
-single observed false approval, not a general rate estimate. Exact routes,
-usage, latency, and campaign identifiers are in the
-[active-use RC evidence](ACTIVE_USE_RELEASE_CANDIDATE.md).
+- Public alpha: expect changes; retain important source in Git.
+- No persistent daemon, hosted worker, autonomous deployment or Windows sandbox.
+- Vendor internals can be unavailable. The UI labels those gaps, unknown owners
+  and unreported cost explicitly.
+- Child transcripts support exact cancellation of owned work; targeted child
+  steering is unavailable. Send follow-up instructions to the parent.
+- MCP and skills use explicit scope/trust and permission boundaries. Compatibility
+  does not mean every third-party integration has been tested.
+- Larger teams and particular model lineups have no demonstrated universal
+  advantage. Auto selection stays evidence-gated.
 
-The alpha.8 review found no evidence that those reviewers lacked the objective,
-staged change, boundary criteria, or known risk. It did find one actionable
-policy error: fresh Codex setup silently assigned an unproven specialist
-lineup. Current source now saves the alternatives but leaves specialist routes
-on the parent until an explicit user choice or eligible Models Auto decision.
-A fresh one-repetition parent-fallback comparison passed both arms, used three
-requests for the company versus one for the baseline, and still had no dollar
-cost coverage. It is a routing proof, not a model-quality winner. See the
-[alpha.8 review-integrity evidence](research/2026-08-10-RECURS-REVIEW-INTEGRITY-ALPHA8.md).
-
-## What is not proven
-
-The evidence does not establish that Sol/Terra/Luna is a universal winner,
-that a larger team is cost-effective, or that it reliably beats a strong
-single agent. Round 2 failed the representative-fixture, durable-completeness,
-matched-pair, non-inferiority, Repair-recovery, zero-false-approval, and
-dollar-cost gates. Before publishing a default recommendation, Recurs still
-needs repeated current-harness comparisons that record:
-
-- final quality and test results;
-- review findings and repair rounds;
-- elapsed time and failure rate;
-- total and cached tokens; and
-- provider-reported dollar cost when available.
-
-The source contains the repeatable comparison machinery: three immutable
-hidden-verifier fixtures, alternating campaign order, distinct
-Quick/Guided/Deep formation evaluations, the selected parent-only baseline,
-the currently configured saved role-route snapshot, and an explicit all-strong
-comparison option. Availability observations do not substitute for
-model/effort crosses, repeated parent-matched runs, safe review evidence, or
-real price coverage.
-
-Other current limits include Windows subprocess containment, a persistent
-worker daemon, a full company operations dashboard, automatic plugin
-installation, remote MCP/OAuth, and unattended commit, push, deployment, or
-messaging.
-
-## Alpha release guarantees
-
-Each public alpha is published only after:
-
-- repository branch, tag, security, and release-environment protections are in
-  place;
-- Node minimum-version and supported-platform package smokes are green;
-- the source, npm, Bun-installer, curl, and Homebrew instructions describe one
-  truthful dependency chain with Node.js as the runtime;
-- installed size is measured and disclosed;
-- onboarding cancellation and provider guidance are polished; and
-- the tagged artifact, npm integrity, GitHub assets, checksums, and attestations
-  all identify the same bytes.
-
-See [Feature status](FEATURE_STATUS.md) for the complete capability inventory,
-[Company evaluation](COMPANY_EVALUATION.md) for the recorded dogfood evidence,
-and [Release runbook](RELEASING.md) for the owner-controlled publication path.
+[Security](../SECURITY.md) · [Privacy](../PRIVACY.md) · [Contributing](../CONTRIBUTING.md)

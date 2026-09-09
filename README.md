@@ -1,115 +1,124 @@
 <p align="center">
-  <img src="./docs/assets/recurs-wordmark.png" alt="Recurs" width="820">
+  <img src="./docs/assets/recurs-wordmark.png" alt="Recurs" width="560">
 </p>
 
-<p align="center">
-  <strong>The best coding model is a team. You control the team.</strong>
-</p>
-
-<p align="center">
-  Open-source coding-agent teams with visible roles, routes, limits, review, and results.
-</p>
+<p align="center"><strong>Coding agents. A team you can see and control.</strong></p>
 
 <p align="center">
   <a href="https://github.com/tacotuesday8888/recurs/actions/workflows/ci.yml"><img src="https://github.com/tacotuesday8888/recurs/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://www.npmjs.com/package/recurs"><img src="https://img.shields.io/npm/v/recurs/alpha?label=npm&color=4285f4" alt="npm alpha"></a>
-  <a href="https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.8"><img src="https://img.shields.io/github/v/release/tacotuesday8888/recurs?include_prereleases&label=release&color=54d68a" alt="GitHub release"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-4c8eda.svg" alt="Apache 2.0"></a>
+  <a href="https://www.npmjs.com/package/recurs"><img src="https://img.shields.io/npm/v/recurs/alpha?label=npm%20alpha" alt="npm alpha"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="Apache 2.0"></a>
 </p>
 
-## Install
+Recurs is an open-source coding CLI for working with a model or a bounded team
+of agents. Choose who does the work, which models they use, how far they can
+delegate, and what they may change. Inspect the agents that actually ran,
+their conversations, evidence, and results.
 
-macOS and Linux · Node.js 22.22+
+![Installed Recurs terminal running a deterministic parser-review fixture](docs/assets/terminal-session.svg)
 
-| Method | Command |
-| --- | --- |
-| npm | `npm install --global recurs@alpha` |
-| Homebrew | `brew install tacotuesday8888/recurs/recurs` |
-| curl | `curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.8/install.sh \| sh` |
-| Bun | `bun install --global recurs@alpha` |
+*Captured from the installed CLI through a real terminal. The local fixture
+provider tests the interface; it is not a model-quality benchmark.*
 
-Then launch Recurs inside a project:
+## Start coding
+
+**macOS or Linux · Node.js 22.22+ · Git · ripgrep**
 
 ```bash
+npm install --global recurs@alpha
 cd your-project
 recurs
 ```
 
-Every path installs the same reviewed package. Bun can install Recurs; Node.js
-runs it. See [installation, upgrades, and source setup](docs/CLI.md#install).
-Use the explicit `@alpha` tag: npm's unqualified `latest` tag still points to
-`0.1.0-alpha.2`, while `alpha` points to `0.1.0-alpha.8`.
+Connect a model, choose a permission level, and select **Start coding**.
+Bring an API key, a supported local model, or an existing supported vendor
+runtime. [Provider compatibility and setup →](docs/PROVIDER_CAPABILITY_MATRIX.md)
 
-## One goal. A controlled company.
+Other install paths:
+
+| Installer | Command |
+| --- | --- |
+| Homebrew | `brew install tacotuesday8888/recurs/recurs` |
+| Bun | `bun install --global recurs@alpha` |
+| curl | `curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.7/install.sh \| sh` |
+
+Bun can install Recurs; Node.js runs it. Linux command isolation requires
+Bubblewrap. See [installation and troubleshooting](docs/CLI.md#install).
+Use `@alpha`: unqualified npm `latest` still selects alpha.2.
+
+## Make delegation visible
+
+A configured role is a plan. An execution is an agent that actually ran.
+Recurs shows both, separately.
+
+- **Choose the team.** Set role models, delegation depth, active-agent and
+  concurrency limits. Start with defaults or complete Quick, Guided, or Deep
+  project onboarding with `recurs setup`.
+- **Follow the work.** Open the execution list with `Ctrl+T`. Inspect a specific
+  child's model, permission boundary, durable conversation and changed files.
+  Stop an owned execution and its descendants from its inspector.
+- **Keep changes reviewable.** Isolated implementation, independent review,
+  bounded repair and explicit application keep the parent in control.
+- **Resume with context.** Reopen a saved conversation and reconstruct its
+  execution history. Incomplete work and unavailable runtime details stay
+  visible; unknown usage and cost stay unknown.
 
 ```text
-goal → plan → workers → review → repair → synthesis → approval
+/agents controls       inspect effective team limits
+/agents executions     list actual executions
+/agents inspect <id>   read one execution's conversation and evidence
+/agents stop <id>      cancel an owned execution and its descendants
+/goal <objective>      create a durable project goal
+/goal launch           run the approved team workflow
 ```
 
-Recurs turns a coding goal into bounded, inspectable work. You choose the team
-size, delegation depth, model route, authority, and budget. Recurs records the
-agents that actually ran, their handoffs, evidence, usage, and final result.
+A larger team is not automatically better. Explicit configuration and reliable
+visibility are the product; automatic model-team selection remains gated on
+recorded evaluation evidence. [What the comparisons show →](docs/AUTO_MODEL_TEAMS.md)
 
-- **Bring your models.** Use API keys, coding plans, local models, or a
-  user-present vendor runtime such as Codex with ChatGPT.
-- **Control the team.** Route roles independently and cap depth, concurrency,
-  retries, requests, and spend.
-- **Keep authority narrow.** Children cannot exceed parent permissions;
-  repository changes stay isolated until the active policy allows application.
-- **Require evidence.** Independent review, bounded repair, durable recovery,
-  and truthful failure reporting are part of the runtime.
+## Extend your workflow
 
-## Quick start
-
-The first run discovers available model connections, asks for an authority
-level, and offers to form a project-specific company. Start with the recommended
-defaults or inspect every route and limit before approval.
+Manage local stdio and remote HTTP MCP servers, including OAuth, tools,
+resources and prompts. Install skills from local bundles or explicitly
+selected public sources. Project definitions require trust and cannot widen
+an agent's permissions.
 
 ```bash
-recurs                                  # interactive session
-recurs run "fix the failing tests"      # bounded headless run
-recurs review                           # review local changes
-recurs doctor                           # check host readiness
+recurs mcp list
+recurs skills list
+recurs doctor
 ```
 
-Useful commands inside Recurs:
+[Configure MCP](docs/MCP.md) · [Install and use skills](docs/SKILLS.md) ·
+[Permissions](docs/CLI.md#permissions-and-modes)
 
-```text
-/goal <objective>    create a durable goal
-/goal launch         launch the approved company goal
-/agents controls     inspect team limits
-/company status      inspect the active company
-/model auto          select an evidence-gated model team
-/permissions         change the authority profile
-/status              show the session and usage
+## Use it in a terminal or a script
+
+```bash
+recurs run "fix the failing parser tests"
+recurs run "explain the architecture" --plan --format json
+recurs review
 ```
 
-## Current status
+The terminal supports streamed Markdown, code blocks, file completion,
+bracketed paste, history scrolling, queued approvals and drafts. Headless text,
+JSON, JSONL and ACP share the same execution core.
 
-Recurs is public alpha software for macOS and Linux. The base agent loop,
-provider routes, permissions, worktree isolation, durable company execution,
-review, repair, recovery, and explicit apply path are implemented and tested.
-Team configurations remain evidence-gated: Recurs does not claim that a larger
-team always beats a strong single agent.
+## Status and contributing
 
-`0.1.0-alpha.8` is the current reviewed public alpha. It adds the opt-in
-official GitHub Copilot SDK path and keeps fresh Codex setup from silently
-assigning unevaluated specialist routes. Users may choose routes explicitly or
-use Models Auto only after its evidence gate passes.
+Source version: `0.1.0-alpha.9` release candidate.
+The registry was verified on September 9, 2026: `alpha` selects alpha.7; alpha.8
+publication has not been verified. The [release work record](docs/RELEASE_READINESS.md)
+tracks the exact source, artifact, test and publication status.
 
-Current model-team evidence remains insufficient for an Auto promotion: it
-includes a false approval, limited Repair evidence, and no provider-reported
-dollar cost. Recurs therefore makes no claim that a larger team always beats a
-strong single agent.
+Recurs supports macOS and Linux. There is no persistent background daemon or
+Windows process containment. Child inspectors are read-only apart from
+cancellation; send further instructions through the parent. Vendor runtimes
+may expose only prompts and final responses. Compatibility is documented per
+integration, not claimed for every server, skill or model.
 
-- [Five-minute CLI guide](docs/CLI.md)
-- [Feature status](docs/FEATURE_STATUS.md)
-- [Company onboarding](docs/AGENT_COMPANY_ONBOARDING.md)
-- [Architecture](ARCHITECTURE.md)
-- [Security](SECURITY.md) and [privacy](PRIVACY.md)
-- [Public alpha boundaries](docs/PUBLIC_ALPHA.md)
-- [Active-use release-candidate evidence](docs/ACTIVE_USE_RELEASE_CANDIDATE.md)
-- [Alpha.8 review-integrity evidence](docs/research/2026-08-10-RECURS-REVIEW-INTEGRITY-ALPHA8.md)
-- [Contributing](CONTRIBUTING.md)
+[CLI guide](docs/CLI.md) · [Feature status](docs/FEATURE_STATUS.md) ·
+[Architecture](ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) ·
+[Security](SECURITY.md) · [Privacy](PRIVACY.md)
 
 Apache-2.0 © Recurs contributors

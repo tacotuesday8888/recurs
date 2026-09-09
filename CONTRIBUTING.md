@@ -24,6 +24,8 @@ also require Bubblewrap.
 npm ci
 npm run check
 npm run package:smoke-install
+npm run package:smoke-terminal
+npm run package:smoke-extensions
 ```
 
 Keep changes focused and follow existing package boundaries. Behavioral changes

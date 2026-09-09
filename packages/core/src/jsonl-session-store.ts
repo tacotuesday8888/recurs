@@ -704,6 +704,36 @@ export class JsonlSessionStore {
     }
   }
 
+  /** Read-only inventory: a damaged unrelated log must not hide healthy sessions. */
+  async scanReadOnly(): Promise<{
+    sessions: { state: SessionState; updatedAt: string }[];
+    unavailableSessionIds: string[];
+  }> {
+    let files: string[];
+    try {
+      files = (await readdir(this.directory)).filter((file) => file.endsWith(".jsonl")).sort();
+    } catch (error) {
+      if (isObject(error) && error.code === "ENOENT") return { sessions: [], unavailableSessionIds: [] };
+      throw error;
+    }
+    const sessions: { state: SessionState; updatedAt: string }[] = [];
+    const unavailableSessionIds: string[] = [];
+    for (const file of files) {
+      const id = file.slice(0, -".jsonl".length);
+      try {
+        const loaded = await this.loadReadOnly(id);
+        const state = this.#restoreState(id, loaded);
+        const last = loaded.records.at(-1);
+        if (last === undefined) throw new SessionStoreError("corrupt_log", "Session history is empty");
+        sessions.push({ state, updatedAt: last.at });
+      } catch (error) {
+        if (!(error instanceof SessionStoreError)) throw error;
+        unavailableSessionIds.push(id);
+      }
+    }
+    return { sessions, unavailableSessionIds };
+  }
+
   async list(): Promise<SessionListEntry[]> {
     let files: string[];
     try {

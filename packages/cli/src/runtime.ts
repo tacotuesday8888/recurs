@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 
 import {
   AgentLoopError,
+  AgentExecutionService,
   CompatibilityRunCoordinator,
   CoordinatedRunError,
   CoordinatedRuntime,
@@ -78,6 +79,11 @@ export interface RuntimeDependencies {
   processes?: Pick<OwnedProcessManager, "interact">;
   dispose?(): Promise<void>;
   companyBlueprint?: CompanyBlueprintV2 | null;
+  mcp?: { waitAuthentication(id: string, signal?: AbortSignal): Promise<string> };
+  executions?: {
+    isExecutionActive(sessionId: string): boolean;
+    cancelExecution(sessionId: string): boolean;
+  };
 }
 
 export interface RuntimeSubmissionOptions {
@@ -192,6 +198,36 @@ export class RecursRuntime {
 
   get companyBlueprint(): CompanyBlueprintV2 | null {
     return this.dependencies.companyBlueprint ?? null;
+  }
+
+  async waitMcpAuthentication(id: string, signal?: AbortSignal): Promise<string> {
+    if (this.dependencies.mcp === undefined) {
+      throw new RuntimeError("invalid_input", "MCP authentication is unavailable");
+    }
+    return this.dependencies.mcp.waitAuthentication(id, signal);
+  }
+
+  #executionService(): AgentExecutionService {
+    return new AgentExecutionService(this.dependencies.sessions, (id) =>
+      (id === this.#session?.id && this.hasActiveRun) ||
+      (this.dependencies.executions?.isExecutionActive(id) ?? false)
+    );
+  }
+
+  async listExecutions() {
+    return this.#session === null ? [] : this.#executionService().list(this.#session.id);
+  }
+
+  async inspectExecution(executionId: string) {
+    return this.#session === null ? null : this.#executionService().inspect(this.#session.id, executionId);
+  }
+
+  async cancelExecution(executionId: string): Promise<boolean> {
+    // Verify ancestry from durable identities before addressing an in-memory owner.
+    if (!(await this.listExecutions()).some((execution) => execution.executionId === executionId)) return false;
+    return executionId === this.#session?.id
+      ? this.cancel()
+      : this.dependencies.executions?.cancelExecution(executionId) ?? false;
   }
 
   async listSessions() {
@@ -469,6 +505,13 @@ export class RecursRuntime {
     );
     if (context.session.id !== "workspace-shell") {
       this.#activateSession(context.session);
+    }
+    if (result.type === "submit_prompt") {
+      return {
+        type: "message",
+        level: "error",
+        text: "Connect a model before invoking an Agent Skill. Run recurs setup, then use /skills use NAME in the connected session.",
+      };
     }
     return result;
   }

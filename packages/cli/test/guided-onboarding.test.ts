@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   CompanyOnboardingCoordinator,
@@ -232,6 +232,31 @@ describe("guided onboarding policy", () => {
         expect.stringContaining("up to 2 layers"),
         expect.stringContaining("up to 4 layers"),
       ]));
+  });
+
+  it("starts coding after connection and authority without running project formation", async () => {
+    const selections = ["account:saved-1", "approved_for_me", "start_coding"];
+    const ensureTeamControls = vi.fn(async () => undefined);
+    const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
+    const result = await runGuidedOnboarding({
+      stdout: sink, stderr: sink, interactive: true, automation: false,
+      async listAccounts() { return [account]; },
+      async detectProviders() { return []; },
+      async listProviders() { return []; },
+      async selectChoice(_message, choices) {
+        const selected = selections.shift()!;
+        expect(choices.some((choice) => choice.id === selected)).toBe(true);
+        return selected;
+      },
+      async promptText() { throw new Error("Quick start must not ask for a project interview"); },
+      async createCompanyOnboarding() { throw new Error("Quick start must not run formation"); },
+      async confirm() { throw new Error("Quick start must not approve a blueprint"); },
+      ensureTeamControls,
+      async executeCommand() { return 0; },
+    });
+    expect(result).toMatchObject({ state: "configured", permissionMode: "approved_for_me" });
+    expect(ensureTeamControls).toHaveBeenCalledOnce();
+    expect(selections).toEqual([]);
   });
 
   it("keeps recommended team controls one choice away and supports bounded advanced limits", async () => {
@@ -1442,10 +1467,11 @@ describe("guided onboarding policy", () => {
     }
   });
 
-  it("keeps a saved company proposal visible and resumable", async () => {
+  it.each(["guided", "deep"])("reopens a saved %s proposal without another model request", async (depth) => {
     const root = await realpath(
       await mkdtemp(path.join(tmpdir(), "recurs-guided-company-proposal-")),
     );
+    let modelRequests = 0;
     const coordinator = new CompanyOnboardingCoordinator({
       runs: new FileCompanyOnboardingStore(path.join(root, "runs")),
       blueprints: new FileCompanyBlueprintV2Store(
@@ -1453,6 +1479,7 @@ describe("guided onboarding policy", () => {
       ),
       model: {
         async decide() {
+          modelRequests += 1;
           return {
             decision: {
               kind: "propose",
@@ -1482,7 +1509,7 @@ describe("guided onboarding policy", () => {
       "approved_for_me",
       "balanced_v6",
       "create",
-      "guided",
+      depth,
       "stable_core_specialists",
       "save_exit",
     ];
@@ -1494,7 +1521,7 @@ describe("guided onboarding policy", () => {
       },
     });
     try {
-      const outcome = await runGuidedOnboarding({
+      const ports: Parameters<typeof runGuidedOnboarding>[0] = {
         stdout: sink,
         stderr: sink,
         interactive: true,
@@ -1528,7 +1555,8 @@ describe("guided onboarding policy", () => {
             backendFingerprint: "backend-fixture",
           };
         },
-      });
+      };
+      const outcome = await runGuidedOnboarding(ports);
 
       expect(outcome).toMatchObject({
         state: "saved",
@@ -1542,6 +1570,12 @@ describe("guided onboarding policy", () => {
         .toContain("Setup stopped with the company proposal saved.");
       expect(output.join("")).not.toContain("Onboarding complete");
       expect(output.join("")).not.toContain("Roster:");
+      selections.push("account:saved-1", "approved_for_me", "balanced_v6", "create", depth, "stable_core_specialists", "resume", "approve");
+      const resumed = await runGuidedOnboarding(ports);
+      expect(resumed.state).toBe("configured");
+      expect(modelRequests).toBe(1);
+      expect(selections).toEqual([]);
+      expect(output.join("")).toContain("Company approved");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

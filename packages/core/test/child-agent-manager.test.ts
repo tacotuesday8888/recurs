@@ -1869,3 +1869,33 @@ describe("ChildAgentManager", () => {
     expect(await sessions.list()).toHaveLength(1);
   });
 });
+
+describe("execution cancellation", () => {
+  it("cancels only the selected owned child and preserves its sibling", async () => {
+    const { sessions, parent } = await storeFixture("balanced_v3");
+    const inputs: CoordinatedRunInput[] = [];
+    const releases: (() => void)[] = [];
+    const manager = new ChildAgentManager({
+      sessions,
+      getCoordinator: () => successfulCoordinator(async (input) => {
+        inputs.push(input);
+        await new Promise<void>((resolve) => releases.push(resolve));
+      }),
+      emit: async () => {},
+    });
+    const first = manager.delegate({ profile: "explore_v1", description: "first", prompt: "Inspect first" }, context(parent));
+    const second = manager.delegate({ profile: "explore_v1", description: "second", prompt: "Inspect second" }, context(parent));
+    await expect.poll(() => inputs.length).toBe(2);
+    try {
+      expect(manager.cancelExecution("unrelated-session")).toBe(false);
+      expect(manager.isExecutionActive(inputs[0]!.sessionId)).toBe(true);
+      expect(manager.cancelExecution(inputs[0]!.sessionId)).toBe(true);
+      expect(inputs[0]!.signal.aborted).toBe(true);
+      expect(inputs[1]!.signal.aborted).toBe(false);
+    } finally {
+      for (const release of releases) release();
+      await Promise.allSettled([first, second]);
+    }
+    expect(manager.isExecutionActive(inputs[0]!.sessionId)).toBe(false);
+  });
+});

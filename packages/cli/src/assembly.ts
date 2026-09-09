@@ -1510,6 +1510,7 @@ export async function createStandaloneRuntime(
   });
   const tools = new ToolRegistry([], {
     checkpoints,
+    deniedReadPaths: [path.join(root, "auth")],
     securityProfile: options.toolSecurityProfile
       ?? (process.platform === "win32" ? "local_guarded" : "workspace_sandboxed"),
   });
@@ -1527,8 +1528,8 @@ export async function createStandaloneRuntime(
   tools.register(createGitDiffTool());
   tools.register(createGitHistoryTool());
   tools.register(createGitShowTool());
-  if (skills.hasSkills) tools.register(skills.createTool());
-  if (mcp.hasServers) tools.register(mcp.createTool());
+  tools.register(skills.createTool());
+  tools.register(mcp.createTool());
   const backendRouter = new AgentBackendRouter();
   const childAgents = new ChildAgentManager({
     sessions,
@@ -2116,6 +2117,7 @@ export async function createStandaloneRuntime(
         };
   const commands = createCommandRegistry({
     sessions,
+    executionControls: childAgents,
     ...(initialBackend?.kind === "direct"
       ? { provider: initialBackend.commandProvider }
       : {}),
@@ -2149,6 +2151,8 @@ export async function createStandaloneRuntime(
       commands,
       coordinator,
       sessions,
+      executions: childAgents,
+      mcp,
       processes,
       companyBlueprint: activeCompanyBlueprint,
       confirm: async () => false,

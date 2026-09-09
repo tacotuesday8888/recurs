@@ -65,10 +65,12 @@ bounded TypeScript view model; components render that model through
 terminal updates, focus and input handling, overlays, scrolling, and virtual
 terminal tests without coupling the core engine to a UI framework.
 
-Company geometry is derived from the approved onboarding blueprint, with at
-most four reporting layers. Runtime events decide which roles are actually
-active and what may truthfully be shown. Non-interactive, structured-output,
-ACP, and no-color paths do not depend on the TUI.
+Configured roles render as a reporting tree. A separate execution projection
+uses actual durable child session identities for ordinary, batch, team and
+company work. The execution inspector loads the selected session's messages,
+artifacts and authority. Cancellation is addressed to an owned execution and
+inherits through its descendants. Unknown owners and unavailable vendor traces
+are explicit. Headless, structured-output and ACP paths share the same core.
 
 ## Multi-provider connection architecture
 
@@ -79,8 +81,9 @@ to one vendor. Recurs currently supports three explicit connection families:
 2. `environment_model_provider` for fixed-origin BYOK adapters.
 3. `delegated_agent` for vendor-owned runtimes such as Codex.
 
-Saved records contain routing and policy metadata, never reusable credential
-bytes. Environment BYOK stores the environment-variable name and a one-way
+Saved model connection records contain routing and policy metadata, never reusable credential
+bytes. MCP OAuth tokens are a separate private credential store used only for
+the explicitly configured MCP authorization flow. Environment BYOK stores the environment-variable name and a one-way
 credential fingerprint. At runtime, the named value must be present and match
 that fingerprint before a request can begin.
 

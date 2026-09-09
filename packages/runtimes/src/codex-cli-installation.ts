@@ -12,6 +12,8 @@ import path from "node:path";
 import { deepFreeze } from "./acp-profile.js";
 
 export const CODEX_CLI_VERSION = "0.145.0";
+/** Messages are fixed setup guidance and never include external process output. */
+export class CodexCliInstallationError extends TypeError {}
 export const CODEX_CLI_INTEGRITY =
   "sha512-/PSPSFujjjmiyVFvG2yu/grOFhsWdokTH8t2KGWhXSo/M5n/dIDsnbsnO82/7bLtIoDuzQf7ATBUMWqPWQINlQ==";
 
@@ -213,7 +215,7 @@ function externalCandidates(
       !path.isAbsolute(explicit) ||
       explicit.includes("\0")
     ) {
-      throw new TypeError(
+      throw new CodexCliInstallationError(
         "RECURS_CODEX_PATH must name an existing absolute Codex executable",
       );
     }
@@ -244,7 +246,7 @@ function resolveExternalExecutable(
       if (process.platform !== "win32") accessSync(executable, constants.X_OK);
     } catch {
       if (explicit) {
-        throw new TypeError(
+        throw new CodexCliInstallationError(
           "RECURS_CODEX_PATH must name an existing executable file",
         );
       }
@@ -252,7 +254,9 @@ function resolveExternalExecutable(
     }
     const result = spawnSync(executable, ["--version"], {
       encoding: "utf8",
-      env: {},
+      // npm's official launcher uses /usr/bin/env node. Preserve only the
+      // caller's search path, never credentials or unrelated environment.
+      env: environment.PATH === undefined ? {} : { PATH: environment.PATH },
       maxBuffer: 16 * 1_024,
       timeout: 5_000,
       windowsHide: true,
@@ -265,12 +269,12 @@ function resolveExternalExecutable(
       return executable;
     }
     if (explicit) {
-      throw new TypeError(
+      throw new CodexCliInstallationError(
         `RECURS_CODEX_PATH must point to Codex CLI ${CODEX_CLI_VERSION}`,
       );
     }
   }
-  throw new TypeError(
+  throw new CodexCliInstallationError(
     `Codex CLI ${CODEX_CLI_VERSION} is required for ChatGPT subscription access; install that exact official release or set RECURS_CODEX_PATH`,
   );
 }

@@ -26,6 +26,8 @@ Usage:
   recurs account verify <id>
   recurs account disconnect <id>
   recurs doctor [--json]         Check installation and execution readiness
+  recurs mcp [list|add|inspect|enable|disable|diagnose|auth|remove]  Manage MCP servers
+  recurs skills [list|inspect|add|install|enable|disable|remove]    Manage Agent Skills
   recurs data path [--json]      Show the durable local-data directory
   recurs hooks [--json]          Inspect bounded user lifecycle hooks
   recurs permissions [--json]    Inspect exact workspace permission rules

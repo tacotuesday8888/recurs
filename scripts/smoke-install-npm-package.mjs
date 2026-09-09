@@ -7,6 +7,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rm,
   writeFile,
@@ -1587,6 +1588,28 @@ try {
     companyTestError === "",
     "The explicitly applied installed company candidate did not pass its fixture.",
   );
+  const commandOptions = { cwd: companyWorkspaceDirectory, encoding: "utf8", env: companyEnvironment };
+  const companyProjectId = createHash("sha256").update(await realpath(companyWorkspaceDirectory)).digest("hex").slice(0, 24);
+  const companySessions = path.join(companyEnvironment.RECURS_HOME, "projects", companyProjectId, "sessions");
+  const roots = [];
+  for (const filename of await readdir(companySessions)) {
+    if (!filename.endsWith(".jsonl")) continue;
+    const first = JSON.parse((await readFile(path.join(companySessions, filename), "utf8")).split("\n", 1)[0]);
+    if (first.agent?.parentSessionId == null) roots.push(filename.slice(0, -6));
+  }
+  assert(roots.length === 1, "Installed company fixture must have one parent session.");
+  const resumeArgs = ["--resume", roots[0]];
+  const { stdout: executions } = await execFileAsync(executable, ["run", "/agents executions", ...resumeArgs], commandOptions);
+  assert(executions.includes("recorded executions (including parent)"), "Installed reopen did not reconstruct executions.");
+  const childLine = executions.split("\n").find((line) => /\| Implement \|/u.test(line));
+  assert(childLine, "Installed company execution inventory omitted Implement.");
+  const childFields = childLine.split(" | ");
+  const childId = childFields.at(-2)?.trim();
+  assert(childId && /^parent [a-z0-9_-]+$/iu.test(childFields.at(-1)?.trim() ?? ""), "Execution identity or ancestry was missing.");
+  const { stdout: inspection } = await execFileAsync(executable, ["run", `/agents inspect ${childId}`, ...resumeArgs], commandOptions);
+  assert(inspection.includes(`Execution: ${childId}`) && inspection.includes("Role: Implement") && inspection.includes("[user]") && inspection.includes("[assistant]"), "Installed inspector did not show the exact child's durable transcript.");
+  const { stdout: stopped } = await execFileAsync(executable, ["run", `/agents stop ${childId}`, ...resumeArgs], commandOptions);
+  assert(stopped.includes("No live execution is attached"), "Historical execution incorrectly claimed live cancellation.");
 } finally {
   if (localModelServer !== undefined) {
     await closeServer(localModelServer.server);
