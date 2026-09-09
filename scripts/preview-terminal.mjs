@@ -1,11 +1,12 @@
 // First-run preview: the real onboarding and provider login, with private isolated state.
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import console from "node:console";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 if (!process.stdin.isTTY || !process.stdout.isTTY) {
   console.error("Run npm run ui:preview in an interactive terminal.");
@@ -18,6 +19,7 @@ const workspace = path.join(preview, "project");
 const data = path.join(home, ".recurs");
 await mkdir(path.join(data, "config"), { recursive: true, mode: 0o700 });
 await mkdir(workspace);
+await promisify(execFile)("git", ["init", "--quiet", workspace]);
 await writeFile(path.join(data, "config", "appearance.json"), JSON.stringify({ version: 1, theme: "orange" }), { mode: 0o600 });
 // Saved model choices and provider credential paths stay isolated.
 // API keys may be explicitly supplied for the normal environment-key onboarding path.

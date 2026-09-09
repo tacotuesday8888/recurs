@@ -138,6 +138,8 @@ function isAllowedVerification(program: string, args: readonly string[]): boolea
     case "yarn":
     case "bun":
       return isPackageVerification(program, args);
+    case "node":
+      return args[0] === "--test" && args.slice(1).every((argument) => !argument.startsWith("-"));
     case "cargo":
       return args[0] === "test" || args[0] === "check";
     case "go":
@@ -201,7 +203,7 @@ export function createRunVerificationTool(): Tool<RunVerificationInput> {
   return {
     definition: {
       name: "run_verification",
-      description: "Run an allowlisted test, lint, build, or type-check command without a shell",
+      description: "Run an allowlisted test, lint, build, or type-check command without a shell. Supports node --test [files], package-manager test/lint/build/check scripts, pytest, cargo test/check, go test, and swift test",
       inputSchema: {
         type: "object",
         properties: {

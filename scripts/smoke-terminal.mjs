@@ -186,6 +186,16 @@ async function captureColorScreen(ui, name) {
 }
 
 try {
+  const motion = await launch(["setup"], { NO_COLOR: undefined });
+  motion.process.resize(80, 24); motion.terminal.resize(80, 24);
+  await motion.wait((screen) => screen.includes("model connection"), "animated onboarding connection selection");
+  const firstFrame = motion.screen();
+  await new Promise((resolve) => setTimeout(resolve, 640));
+  assert.notEqual(motion.screen(), firstFrame, "onboarding R must visibly rotate while waiting for input");
+  motion.process.write("\u001b");
+  await motion.wait(() => motion.exit() !== undefined, "animated onboarding cancellation");
+  assert.equal(motion.exit(), 130);
+  motion.terminal.dispose();
   const ui = await launch(["setup"]);
   await ui.wait((screen) => screen.includes("model connection"), "connection selection");
   ui.process.write("\r");

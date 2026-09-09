@@ -62,7 +62,7 @@ The screenshots come from the installed executable and a real terminal emulator
 using a deterministic local provider. They demonstrate rendering and interaction,
 not the quality of a model's code review.
 
-The opening uses a spinning, extruded R with inset detail, rendered in native terminal geometry, with no image protocol or downloaded assets. Set `RECURS_REDUCED_MOTION=1` to freeze animation. The team floor displays configured roles and their recorded status; crowded or small terminals use the navigable tree. Live activity shows tool outcomes and completed `apply_patch` additions/deletions. Counts describe observed patch lines in the current turn, not a repository-wide diff; oversized patches show file-change information instead.
+The opening animates during onboarding and the main welcome screen, with a compact R for shorter terminals. It uses a spinning, extruded R with inset detail, rendered in native terminal geometry, with no image protocol or downloaded assets. Set `RECURS_REDUCED_MOTION=1` to freeze animation. The team floor displays configured roles and their recorded status; crowded or small terminals use the navigable tree. Live activity shows tool outcomes and completed `apply_patch` additions/deletions. Counts describe observed patch lines in the current turn, not a repository-wide diff; oversized patches show file-change information instead.
 
 ![Installed orange opening](assets/terminal-opening.svg)
 
@@ -75,7 +75,7 @@ cd /path/to/recurs
 npm run ui:preview
 ```
 
-This builds and runs the real onboarding with an empty private home and workspace.
+This builds and runs the real onboarding with an empty private home and Git workspace, so edits and undo checkpoints work immediately.
 No model connection or conversation is preloaded. Sign in with a provider and
 continue through permissions and team setup. Connected requests use your actual
 provider account. The printed temporary directory retains the preview's private
