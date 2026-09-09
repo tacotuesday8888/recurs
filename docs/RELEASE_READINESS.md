@@ -273,3 +273,13 @@ matches the attested release formula exactly; local tap `main` matched
 [post-merge check](https://github.com/tacotuesday8888/homebrew-recurs/actions/runs/34307191091)
 also passed. Both the reviewed PR and merged tap state have green installation
 verification.
+
+
+## Subsequent alpha.11 product polish
+
+Alpha.11 shipped from PR #196 with persistent terminal appearance, a saved-model
+picker, specialist route previews, onboarding corrections, and more accurate
+execution/limit presentation. [Product polish and release evidence](PRODUCT_POLISH.md)
+is the authoritative record for its exact source, artifact, platform checks,
+public installations, comparative experiments, and live-test limitations.
+The alpha.10 and earlier evidence above remains historical and unchanged.

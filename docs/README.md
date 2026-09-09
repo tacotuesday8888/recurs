@@ -1,9 +1,9 @@
 # Recurs Documentation
 
-Current source: `0.1.0-alpha.11` (publication pending).
-[Product polish and comparison evidence](PRODUCT_POLISH.md).
+Current published alpha: `0.1.0-alpha.11`. Current documents:
 
-Current published alpha: `0.1.0-alpha.10`. Current documents:
+- [Product polish](PRODUCT_POLISH.md) — alpha.11 implementation, comparisons and verified publication.
+- [Appearance](APPEARANCE.md) — theme preview, semantic colors and persistence.
 
 - [Release readiness](RELEASE_READINESS.md) — current implementation and verification record.
 - [MCP](MCP.md) — local and remote servers, trust, authentication and troubleshooting.
@@ -59,11 +59,11 @@ architecture for current product truth.
 
 ## Release status
 
-`0.1.0-alpha.10` is published on npm's `alpha` tag and as a
-[GitHub prerelease](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.10).
+`0.1.0-alpha.11` is published on npm's `alpha` tag and as a
+[GitHub prerelease](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.11).
 The `latest` tag remains `0.1.0-alpha.2`. Fresh npm and curl installations and
 matching attested archive bytes are verified. The matching Homebrew tap update
-passed its install/test gate and is merged. See the [release record](RELEASE_READINESS.md).
+passed its install/test gate and is merged. See the [release record](PRODUCT_POLISH.md).
 
 Recurs runs on Node.js and distributes one npm artifact. The checksum-verifying
 curl installer and official Homebrew tap install that same artifact. Bun is

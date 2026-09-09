@@ -1,14 +1,12 @@
 # Public alpha status
 
-**Current source: 0.1.0-alpha.11 (publication pending).** See the
-[product polish record](PRODUCT_POLISH.md) for its verification.
-
-**0.1.0-alpha.10 is published.** npm `alpha` selects `0.1.0-alpha.10`;
+**0.1.0-alpha.11 is published.** npm `alpha` selects `0.1.0-alpha.11`;
 `latest` remains `0.1.0-alpha.2` (verified September 9, 2026). The
-[GitHub prerelease](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.10)
+[GitHub prerelease](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.11)
 contains the attested package, installer, formula, and checksums. See the
-[release record](RELEASE_READINESS.md) for exact source, integrity, and public
-installation evidence. Alpha.9's failed publication tag remains preserved.
+[product polish release record](PRODUCT_POLISH.md) for exact source, integrity,
+platform checks, comparisons and public installation evidence. Previous release
+evidence remains in [the historical release record](RELEASE_READINESS.md).
 
 ## Supported paths
 
@@ -24,12 +22,12 @@ and [CLI guide](CLI.md).
 
 ## What this release changes
 
-Quick coding startup, reviewable project onboarding, a conventional terminal,
-a durable execution inventory, exact agent inspection/cancellation, standard
-HTTP/OAuth MCP and practical skill installation. Core permission ceilings,
-versioned sessions, isolated implementation, review/repair and explicit apply
-remain in place. The [feature inventory](FEATURE_STATUS.md) describes precise
-capabilities and boundaries.
+Persistent terminal themes and custom colors, an interactive saved-model picker,
+explicit specialist route previews, clearer team-limit editing, new-chat model
+preservation, and accurate configured-versus-actual execution views. Existing
+HTTP/OAuth MCP, skills, permission ceilings, isolated implementation, review/repair
+and explicit apply remain in place. The [feature inventory](FEATURE_STATUS.md)
+describes precise capabilities and boundaries.
 
 Validation includes independent tests, isolated local protocol fixtures and
 real PTY journeys against a packed installation. Deterministic fixtures prove

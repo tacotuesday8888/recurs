@@ -1,10 +1,9 @@
 # Recurs Feature Status
 
-**Source candidate:** `0.1.0-alpha.11`, pending publication. **Previous published
-alpha:** `0.1.0-alpha.10`. **Audited:** 2026-09-09 against current source, exported
-package surfaces, CLI assembly, durable contracts/stores, provider manifests,
-and automated tests. The capability inventory below follows the source
-candidate; distribution evidence remains tied to the exact published artifact.
+**Published alpha:** `0.1.0-alpha.11`. **Audited:** 2026-09-09 against source,
+exported package surfaces, CLI assembly, durable contracts/stores, provider
+manifests, automated tests and the public installed artifact. Exact evidence is
+recorded in [Product polish](PRODUCT_POLISH.md).
 
 This is the concise current capability inventory. Dated files under
 `docs/superpowers/` are design and delivery records; their historical
@@ -53,17 +52,17 @@ context, not a product commitment.
 
 ## Distribution
 
-`0.1.0-alpha.10` is published after passing source and installed-package gates
+`0.1.0-alpha.11` is published after passing source and installed-package gates
 on Linux and macOS. Fresh public npm and curl installations are verified.
 The JavaScript bundle retains its 2.10 MB ceiling. npm, Bun-as-installer,
 checksum-verifying curl and Homebrew all use the same npm archive. There is no
 native Bun runtime, signed standalone binary or Windows subprocess sandbox.
 
-The September 9 publication check found npm `alpha` at `0.1.0-alpha.10` and
+The September 9 publication check found npm `alpha` at `0.1.0-alpha.11` and
 `latest` at `0.1.0-alpha.2`. The registry archive matches the attested GitHub
 release bytes. The matching Homebrew tap update passed its install/test gate
 and is merged. Exact source, artifact, and verification evidence is in the
-[release record](RELEASE_READINESS.md).
+[release record](PRODUCT_POLISH.md).
 
 ## Not implemented
 
