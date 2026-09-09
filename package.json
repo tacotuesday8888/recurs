@@ -64,7 +64,8 @@
     "test": "vitest run",
     "recurs": "node dist/cli/main.js",
     "package:smoke-terminal": "node scripts/smoke-terminal.mjs",
-    "package:smoke-extensions": "node scripts/smoke-extensions.mjs"
+    "package:smoke-extensions": "node scripts/smoke-extensions.mjs",
+    "ui:preview": "npm run build --silent && node scripts/smoke-terminal.mjs --interactive"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.3.0",

@@ -1,5 +1,5 @@
 import { stripVTControlCharacters } from "node:util";
-import { truncateToWidth } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TerminalCompanyNodeView, TerminalUiSnapshot } from "./terminal-ui-state.js";
 import { sanitizeTerminalText } from "./terminal-text.js";
 import { formatTerminalLabel } from "./terminal-style.js";
@@ -8,9 +8,10 @@ import { formatTerminalLabel } from "./terminal-style.js";
 export function renderCompanyHome(
   snapshot: TerminalUiSnapshot,
   requestedWidth: number,
-  _frame: number,
+  frame: number,
   selectedRoleId?: string,
   requestedHeight?: number,
+  floor = false,
 ): readonly string[] {
   const width = Math.max(1, Math.floor(requestedWidth));
   const height = Math.max(1, requestedHeight ?? 28);
@@ -51,7 +52,7 @@ export function renderCompanyHome(
     if (goal.reason !== null) goalDetails.push(goal.reason);
   }
   const footer = [
-    fit(selected === undefined ? "No role selected" : `${selected.roleName} · ${selected.status} · ${selected.detail}`),
+    fit(selected === undefined ? "No role selected" : `${selected.roleName} · ${selected.status} · ${selected.model ?? "model not activated"} · ${selected.detail}`),
     fit("Ctrl+G chat · Enter inspect · ↑↓ roles · Ctrl+T executions"),
   ];
   if (height < 5 + details.length) {
@@ -62,7 +63,7 @@ export function renderCompanyHome(
   const summary = height >= 22 ? goalDetails.map(fit) : [];
   const count = Math.max(0, height - 5 - details.length - summary.length);
   const start = Math.min(Math.max(0, selectedIndex - count + 1), Math.max(0, ordered.length - count));
-  const rows = ordered.slice(start, start + count).map((node) => {
+  let rows = ordered.slice(start, start + count).map((node) => {
     const marker = node.roleId === selected?.roleId ? ">" : " ";
     const siblings = ordered.filter((candidate) => candidate.reportsToRoleId === node.reportsToRoleId);
     const branch = siblings.at(-1)?.roleId === node.roleId ? "└─ " : "├─ ";
@@ -70,6 +71,37 @@ export function renderCompanyHome(
     const route = node.model === null ? "not activated" : node.model + (node.effort === null ? "" : ` / ${node.effort}`);
     return fit(`${marker} ${tree}${node.roleName} · ${node.status} · ${route}${node.assignmentIds.length > 1 ? ` · ${node.assignmentIds.length} executions` : ""}`);
   });
+  const levels = [...new Set(ordered.map((node) => node.depth))].sort((a, b) => a - b);
+  const widest = Math.max(1, ...levels.map((depth) => ordered.filter((node) => node.depth === depth).length));
+  if (floor && ordered.length > 0 && width >= widest * 20 && count >= levels.length * 4 - 1) {
+    rows = [];
+    for (const [index, depth] of levels.entries()) {
+      const nodes = ordered.filter((node) => node.depth === depth);
+      const cellWidth = Math.floor(width / nodes.length);
+      const cells = (label: (node: TerminalCompanyNodeView) => string): string => nodes.map((node) => {
+        const text = truncateToWidth(label(node), cellWidth - 2, "…", false);
+        const padding = Math.max(0, Math.floor((cellWidth - visibleWidth(text)) / 2));
+        return " ".repeat(padding) + text + " ".repeat(Math.max(0, cellWidth - padding - visibleWidth(text)));
+      }).join("");
+      rows.push(fit(cells((node) => node.status === "running" ? node.detail.startsWith("Waiting") ? "◇" : ["▟█▙", "▜█▛"][frame % 2]! : node.status === "completed" ? "✓" : node.status === "failed" ? "!" : "▗█▖")));
+      rows.push(fit(cells((node) => `${node.roleId === selected?.roleId ? "> " : ""}${node.roleName}`)));
+      rows.push(fit(cells((node) => node.model === null ? "not activated" : node.status)));
+      if (index < levels.length - 1) {
+        const children = ordered.filter((node) => node.depth === levels[index + 1]);
+        const childWidth = Math.floor(width / children.length);
+        const edges = Array<string>(width).fill(" ");
+        children.forEach((child, childIndex) => {
+          const parentIndex = nodes.findIndex((node) => node.roleId === child.reportsToRoleId);
+          if (parentIndex < 0) return;
+          const parentX = Math.floor((parentIndex + .5) * cellWidth);
+          const childX = Math.floor((childIndex + .5) * childWidth);
+          for (let x = Math.min(parentX, childX); x <= Math.max(parentX, childX); x++) edges[x] = "─";
+          edges[parentX] = "┴"; edges[childX] = parentX === childX ? "│" : "┬";
+        });
+        rows.push(fit(edges.join("")));
+      }
+    }
+  }
   const lines = [header, status, "", ...details, ...rows, ...summary];
   while (lines.length < height - footer.length) lines.push("");
   return Object.freeze([...lines, ...footer].slice(0, height));

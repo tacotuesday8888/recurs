@@ -143,6 +143,7 @@ export class TerminalUiState implements EventSink {
   #session: TerminalUiSnapshot["session"];
   readonly #blueprint: CompanyBlueprintV2 | null;
   readonly #assignments = new Map<string, MutableAgent>();
+  readonly #agentTools = new Map<string, Map<string, string>>();
   readonly #activatedAssignments = new Set<string>();
   #goal: MutableGoal | null = null;
   #onChange: (() => void) | null = null;
@@ -194,6 +195,36 @@ export class TerminalUiState implements EventSink {
 
   readonly emit = async (event: RecursEvent): Promise<void> => {
     switch (event.type) {
+      case "tool_started": {
+        const agent = this.#assignments.get(event.sessionId);
+        if (agent?.status !== "running") break;
+        const active = this.#agentTools.get(event.sessionId) ?? new Map<string, string>();
+        if (active.size < 32) active.set(event.call.id, event.call.name);
+        this.#agentTools.set(event.sessionId, active);
+        agent.detail = `Running ${event.call.name}${active.size > 1 ? ` · ${active.size} tools` : ""}`;
+        agent.updatedAt = event.at;
+        break;
+      }
+      case "tool_completed":
+      case "tool_failed":
+      case "tool_denied": {
+        const agent = this.#assignments.get(event.sessionId);
+        if (agent?.status !== "running") break;
+        const active = this.#agentTools.get(event.sessionId);
+        const name = active?.get(event.callId) ?? "Tool";
+        active?.delete(event.callId);
+        agent.detail = active !== undefined && active.size > 0 ? `Running ${[...active.values()].join(", ")}` : `${name} ${event.type === "tool_completed" ? "completed" : event.type === "tool_denied" ? "denied" : "failed"}`;
+        agent.updatedAt = event.at;
+        break;
+      }
+      case "permission_requested":
+      case "permission_resolved": {
+        const agent = this.#assignments.get(event.sessionId);
+        if (agent?.status !== "running") break;
+        agent.detail = event.type === "permission_requested" ? `Waiting for permission · ${event.intent.category} ${event.intent.resource}` : `Permission ${event.decision === "deny" ? "denied" : "resolved"}`;
+        agent.updatedAt = event.at;
+        break;
+      }
       case "company_goal_started":
         this.#goal = {
           id: event.goalRunId,
@@ -269,6 +300,7 @@ export class TerminalUiState implements EventSink {
       case "agent_completed":
       case "agent_failed":
       case "agent_cancelled": {
+        this.#agentTools.delete(event.childSessionId);
         const agent = this.#assignments.get(event.childSessionId);
         if (agent !== undefined) {
           agent.status = event.type === "agent_completed" ? "completed" : event.type === "agent_failed" ? "failed" : "cancelled";
@@ -342,6 +374,7 @@ export class TerminalUiState implements EventSink {
     const matches = [...this.#assignments.values()].filter((agent) => agent.assignmentId === assignmentId);
     const agent = matches.findLast((candidate) => candidate.status === "running") ?? matches.at(-1);
     if (agent === undefined) return;
+    this.#agentTools.delete(agent.executionId);
     agent.status = status;
     if (detail !== null) agent.detail = detail;
   }

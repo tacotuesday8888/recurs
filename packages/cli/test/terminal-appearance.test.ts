@@ -63,9 +63,9 @@ describe("terminal appearance", () => {
     let saves = 0;
     const picker = new TerminalThemePicker({ theme, current, rows: () => 5, refresh() {}, preview: (value) => theme.setAppearance(value), save: async () => { saves++; }, cancel: () => theme.setAppearance(current) });
     picker.handleInput("\u001b[A");
-    expect(theme.appearance.theme).toBe("contrast");
-    expect(picker.render(32).join("\n")).toContain("› contrast");
-    expect(picker.render(32).at(-1)).toContain("Esc cancel");
+    expect(theme.appearance.theme).toBe("orange");
+    expect(picker.render(32).join("\n")).toContain("› orange");
+    expect(picker.render(80).at(-1)).toContain("Esc cancel");
     expect(picker.render(32)).toHaveLength(5);
     picker.handleInput("\u001b");
     expect(theme.appearance).toEqual(current);

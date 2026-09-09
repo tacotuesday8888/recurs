@@ -3,7 +3,7 @@ import { lstat, mkdir, open, realpath, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import { readPrivateUserConfiguration } from "./private-user-config.js";
 
-export const TERMINAL_THEMES = ["system", "dark", "light", "contrast"] as const;
+export const TERMINAL_THEMES = ["system", "dark", "light", "contrast", "orange"] as const;
 export type TerminalThemeName = typeof TERMINAL_THEMES[number];
 export const TERMINAL_COLOR_ROLES = [
   "background", "foreground", "accent", "muted", "success", "warning", "failure", "code",
@@ -12,6 +12,7 @@ export type TerminalColorRole = typeof TERMINAL_COLOR_ROLES[number];
 export interface TerminalAppearance {
   readonly version: 1;
   readonly theme: TerminalThemeName;
+  readonly design?: "r" | "v19";
   readonly colors?: Partial<Readonly<Record<TerminalColorRole, string>>>;
 }
 
@@ -25,10 +26,12 @@ export function parseTerminalAppearance(value: unknown): TerminalAppearance {
   }
   const input = value as Record<string, unknown>;
   if (input.version !== 1 || typeof input.theme !== "string" || !isTerminalThemeName(input.theme) ||
-      Object.keys(input).some((key) => !["version", "theme", "colors"].includes(key))) {
-    throw new Error("Choose a theme: system, dark, light, or contrast.");
+      Object.keys(input).some((key) => !["version", "theme", "colors", "design"].includes(key))) {
+    throw new Error("Choose a theme: system, dark, light, contrast, or orange.");
   }
-  if (input.colors === undefined) return Object.freeze({ version: 1, theme: input.theme });
+  if (input.design !== undefined && input.design !== "r" && input.design !== "v19") throw new Error("Choose a design: r or v19.");
+  const base: TerminalAppearance = { version: 1 as const, theme: input.theme, ...(input.design === undefined ? {} : { design: input.design }) };
+  if (input.colors === undefined) return Object.freeze(base);
   if (typeof input.colors !== "object" || input.colors === null || Array.isArray(input.colors)) {
     throw new Error("Theme colors must map color roles to #RRGGBB values.");
   }
@@ -39,7 +42,7 @@ export function parseTerminalAppearance(value: unknown): TerminalAppearance {
     }
     colors[key as TerminalColorRole] = color.toLowerCase();
   }
-  return Object.freeze({ version: 1, theme: input.theme, colors: Object.freeze(colors) });
+  return Object.freeze({ ...base, colors: Object.freeze(colors) });
 }
 
 export async function loadTerminalAppearance(dataDirectory: string): Promise<TerminalAppearance | null> {

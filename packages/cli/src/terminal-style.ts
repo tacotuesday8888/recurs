@@ -43,6 +43,7 @@ const RESET = "\u001b[0m";
 const MAX_RAINBOW_ANSI_256 = Object.freeze([196, 208, 226, 46, 51, 39, 129]);
 const COMPANY_LAYER_ANSI_256 = Object.freeze([220, 75, 80, 113]);
 const PALETTES: Readonly<Record<Exclude<TerminalThemeName, "system">, Record<TerminalColorRole, string>>> = {
+  orange: { background: "#191714", foreground: "#f3ede5", accent: "#f3a05b", muted: "#b7ac9e", success: "#9bd4b0", warning: "#e5c58d", failure: "#f2a1b3", code: "#e7c29c" },
   dark: { background: "#111827", foreground: "#e5e7eb", accent: "#67e8f9", muted: "#9ca3af", success: "#86efac", warning: "#fde68a", failure: "#fda4af", code: "#c4b5fd" },
   light: { background: "#ffffff", foreground: "#172033", accent: "#075985", muted: "#475569", success: "#166534", warning: "#854d0e", failure: "#9f1239", code: "#6b21a8" },
   contrast: { background: "#000000", foreground: "#ffffff", accent: "#00ffff", muted: "#ffffff", success: "#00ff00", warning: "#ffff00", failure: "#ff8080", code: "#ffffff" },

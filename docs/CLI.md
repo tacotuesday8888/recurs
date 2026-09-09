@@ -290,7 +290,7 @@ Use `/help` inside the CLI for the exact current command list.
 ### Terminal presentation
 
 Press **F2** or enter `/theme` while idle to preview system, dark, light, or
-high-contrast colors. Enter saves; Escape restores the prior appearance and
+high-contrast colors, or the default orange preset. C edits individual colors. Enter saves; Escape restores the prior appearance and
 preserves the draft. `/theme color accent #67e8f9` changes a semantic color.
 See [appearance settings](APPEARANCE.md) for all roles, environment overrides,
 private persistence, and no-color behavior.
