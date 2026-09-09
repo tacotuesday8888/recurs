@@ -61,6 +61,19 @@ describe("Codex CLI installation resolution", () => {
     );
   });
 
+  it("supports npm's env-node launcher without forwarding credentials", async () => {
+    const candidate = await fakeCodex(CODEX_CLI_VERSION);
+    await writeFile(candidate.executable,
+      `#!/usr/bin/env node\nif (process.env.RECURS_TEST_SECRET) process.exit(42);\nconsole.log('codex-cli ${CODEX_CLI_VERSION}');\n`,
+    );
+    const installation = resolveCodexCliInstallation({
+      RECURS_CODEX_PATH: candidate.executable,
+      PATH: `${path.dirname(process.execPath)}${path.delimiter}/usr/bin`,
+      RECURS_TEST_SECRET: "CANARY-never-forward-to-version-probe",
+    });
+    expect(installation.codexExecutable).toBe(await realpath(candidate.executable));
+  });
+
   it("rejects an explicit executable with an unreviewed version", async () => {
     const candidate = await fakeCodex("0.144.1");
     expect(() => resolveCodexCliInstallation({

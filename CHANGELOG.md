@@ -2,6 +2,29 @@
 
 Notable user-facing changes are recorded here when they ship.
 
+## 0.1.0-alpha.9 - release candidate
+
+- Start coding after model connection and permission selection; detailed Quick,
+  Guided and Deep team onboarding remains available. Review full proposals in
+  the terminal before approving them.
+- Replace the company-floor display with a conventional team tree, Markdown
+  conversation and actual execution picker. Add history scrolling, readable
+  approvals, small-window layout and current model/permission status.
+- Reconstruct ordinary, batch, team and company executions from durable child
+  sessions. Inspect exact transcripts and artifacts; cancel an owned child and
+  descendants. Keep unknown owners and unavailable vendor traces explicit.
+- Add standard HTTP MCP, OAuth PKCE/refresh/logout, resources and prompts through
+  the official MCP SDK; manage server lifecycle in user and project scope.
+- Add skill installation from local, public HTTPS and commit-pinned GitHub
+  sources, bundle resources, inspection, explicit invocation and scope controls.
+- Fix process descendants surviving leader completion, OAuth credential
+  confinement, unsafe OAuth endpoint discovery, and transcript mixing across
+  reopened sessions. Preserve existing session/config formats and trust rules.
+- Add packaged PTY acceptance with an isolated local provider and real terminal
+  capture. Preserve the package size gate with name-preserving minification.
+- Update test tooling for the Vitest security patch and refresh documentation
+  with current ecosystem evidence and honest publication status.
+
 ## 0.1.0-alpha.8 - 2026-08-13
 
 ### Added

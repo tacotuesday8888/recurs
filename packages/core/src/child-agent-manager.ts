@@ -320,6 +320,18 @@ export class ChildAgentManager {
   readonly #createId: () => string;
   readonly #now: () => string;
   readonly #activeChildren = new Map<string, Set<string>>();
+  readonly #executionControllers = new Map<string, AbortController>();
+
+  isExecutionActive(sessionId: string): boolean {
+    return this.#executionControllers.has(sessionId);
+  }
+
+  cancelExecution(sessionId: string): boolean {
+    const controller = this.#executionControllers.get(sessionId);
+    if (controller === undefined) return false;
+    controller.abort();
+    return true;
+  }
   readonly #teamAuthorities = new WeakMap<object, {
     readonly input: TeamRunAuthorityInput;
     readonly parentSessionId: string;
@@ -926,6 +938,9 @@ export class ChildAgentManager {
       childSessionId,
       agentLimits.maxConcurrentChildren,
     );
+    const executionController = new AbortController();
+    this.#executionControllers.set(childSessionId, executionController);
+    const executionSignal = AbortSignal.any([context.signal, executionController.signal]);
     budget.childrenStarted += 1;
     budget.requestsReserved += childRequestLimit;
     try {
@@ -997,7 +1012,7 @@ export class ChildAgentManager {
         prompt: scopeAgentPrompt(child.agent, input.prompt),
         invocation: invocationFromContext(runContext),
         executionMode: profile.executionMode,
-        signal: context.signal,
+        signal: executionSignal,
       });
       const outcome = await run.outcome;
       if (!outcome.ok) {
@@ -1117,6 +1132,7 @@ export class ChildAgentManager {
         },
       };
     } finally {
+      this.#executionControllers.delete(childSessionId);
       release();
     }
   }

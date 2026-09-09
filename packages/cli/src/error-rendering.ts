@@ -22,6 +22,7 @@ import {
 } from "@recurs/app";
 
 import { RuntimeError } from "./runtime.js";
+import { CodexCliInstallationError } from "@recurs/runtimes";
 import { ImageInputError } from "./image-input.js";
 import { LocalConnectionError } from "./local-connection.js";
 import { LifecycleHookConfigurationError } from "./lifecycle-hooks.js";
@@ -61,6 +62,7 @@ export function safeCliErrorMessage(
   }
   if (
     error instanceof RuntimeError ||
+    error instanceof CodexCliInstallationError ||
     error instanceof CompanyEvaluationStoreError ||
     error instanceof CompanyAmendmentError ||
     error instanceof CompanyLearningError ||

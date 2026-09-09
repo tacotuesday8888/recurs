@@ -6,8 +6,17 @@ import {
 } from "@recurs/core";
 
 import { safeCliErrorMessage } from "../src/error-rendering.js";
+import { resolveCodexCliInstallation } from "@recurs/runtimes";
 
 describe("safeCliErrorMessage", () => {
+  it("shows actionable missing Codex setup guidance", () => {
+    try {
+      resolveCodexCliInstallation({ PATH: "" }, { resolveBundled: () => null });
+      expect.unreachable();
+    } catch (error) {
+      expect(safeCliErrorMessage(error)).toContain("Codex CLI 0.145.0 is required");
+    }
+  });
   it.each<readonly [CompanyStateStoreErrorCode, string]>([
     ["invalid_id", "Private Recurs state uses an invalid identifier."],
     ["not_found", "Private Recurs state was not found."],

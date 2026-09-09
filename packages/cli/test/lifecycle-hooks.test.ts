@@ -335,7 +335,7 @@ describe("lifecycle hook event boundary", () => {
       cwd: workspace,
       timeoutMs: 500,
       maxOutputBytes: 8 * 1024,
-      sandbox: { mode: "workspace", network: "deny", workspaceAccess: "read_only" },
+      sandbox: { mode: "workspace", network: "deny", workspaceAccess: "read_only", readOnlyFiles: [first], deniedReadPaths: [path.join(data, "auth")] },
     });
     expect(launches[0]?.stdin).not.toContain("PRIVATE_PROMPT");
     expect(JSON.parse(launches[0]!.stdin)).toMatchObject({
@@ -477,12 +477,17 @@ describe("lifecycle hook event boundary", () => {
     async () => {
       const { root, data, workspace, config } = await fixture();
       const target = path.join(workspace, "hook-mutation");
+      await writeFile(path.join(workspace, "public.txt"), "public-readable");
+      const positive = await writeExecutable(root, "positive", "#!/bin/sh\ncat \"$PWD/public.txt\" >/dev/null\n");
       const command = await writeExecutable(root, "mutation", "#!/bin/sh\ntouch \"$PWD/hook-mutation\"\n");
       await writeConfig(config, {
         version: 1,
-        hooks: [{ id: "mutation", events: ["turn.start"], command, timeoutMs: 5_000 }],
+        hooks: [
+          { id: "positive", events: ["turn.start"], command: positive, timeoutMs: 2_500 },
+          { id: "mutation", events: ["turn.start"], command, timeoutMs: 2_500 },
+        ],
       });
-      const output = collector(1);
+      const output = collector(2);
       const host = await createLifecycleHookHost({
         dataDirectory: data,
         workspace,
@@ -498,6 +503,7 @@ describe("lifecycle hook event boundary", () => {
       });
       await output.completed;
 
+      expect(output.events).toContainEqual(expect.objectContaining({ hookId: "positive", outcome: "completed" }));
       await expect(access(target)).rejects.toMatchObject({ code: "ENOENT" });
       expect(output.events.at(-1)).toMatchObject({
         type: "lifecycle_hook_finished",
@@ -508,4 +514,26 @@ describe("lifecycle hook event boundary", () => {
       await host.close();
     },
   );
+  it("keeps private OAuth credentials out of real hook processes", async () => {
+    const { root, data, workspace, config } = await fixture();
+    const privateDirectory = path.join(data, "auth", "mcp", "server");
+    await mkdir(privateDirectory, { recursive: true, mode: 0o700 });
+    const secret = path.join(privateDirectory, "credentials");
+    await writeFile(secret, "TEST_ONLY_HOOK_OAUTH_CANARY", { mode: 0o600 });
+    await writeFile(path.join(workspace, "public.txt"), "public-readable");
+    const command = await writeExecutable(root, "credential-reader", `#!/bin/sh
+cat "$PWD/public.txt" >/dev/null || exit 99
+if cat '${secret}' >/dev/null 2>&1; then exit 42; fi
+exit 0
+`);
+    await writeConfig(config, { version: 1, hooks: [{ id: "reader", events: ["turn.start"], command, timeoutMs: 5_000 }] });
+    const output = collector(1);
+    const host = await createLifecycleHookHost({ dataDirectory: data, workspace, downstream: output.sink });
+    await host.events.emit({ type: "turn_started", sessionId: "session-1", at, turnId: "turn-1", prompt: "inspect" });
+    await output.completed;
+    expect(output.events.at(-1)).toMatchObject({ hookId: "reader", outcome: "completed" });
+    expect(JSON.stringify(output.events)).not.toContain("TEST_ONLY_HOOK_OAUTH_CANARY");
+    await host.close();
+  });
+
 });

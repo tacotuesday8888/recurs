@@ -2358,6 +2358,38 @@ export async function runCli(
     }
   }
 
+  if (argv[0] === "mcp" || argv[0] === "skills") {
+    const renderer = new TextEventRenderer(dependencies.stdout);
+    let runtime: RecursRuntime | undefined;
+    try {
+      runtime = await dependencies.createRuntime(renderer);
+      runtime.setConfirmHandler(dependencies.confirm ?? (async () => false));
+      const args = argv.slice(1).map((arg) => argv[0] === "skills" ? JSON.stringify(arg) : arg).join(" ");
+      const result = await runtime.submit(`/${argv[0]} ${args}`, createHostInvocation({
+        invocation: "one_shot",
+        userPresent: dependencies.interactive === true && dependencies.automation !== true,
+        remote: false,
+        scripted: dependencies.automation === true || dependencies.interactive !== true,
+        embedding: "cli",
+      }));
+      if (isCommandResult(result)) {
+        await renderCommandResult(result, dependencies.stdout, dependencies.stderr);
+        if (result.type === "message" && result.level === "error") return 1;
+      }
+      if (argv[0] === "mcp" && argv[1] === "auth" && argv[2] !== undefined) {
+        const status = await runtime.waitMcpAuthentication(argv[2], dependencies.signal);
+        await writeOutput(dependencies.stdout, `MCP authentication: ${status}\n`);
+        return status === "authenticated" ? 0 : 1;
+      }
+      return 0;
+    } catch (error) {
+      await writeOutput(dependencies.stderr, `Error: ${safeCliErrorMessage(error)}\n`);
+      return exitCodeFor(error, dependencies.signal);
+    } finally {
+      await runtime?.close();
+    }
+  }
+
   if (argv[0] !== "run" && argv[0] !== "review") {
     await writeOutput(dependencies.stderr, help);
     return 2;
@@ -2659,7 +2691,6 @@ export async function runCliProcess(
         ? {
             createInteractiveShell: (cwd) => createRecursInteractiveShell({
               cwd,
-              colorEnabled: process.env.NO_COLOR === undefined,
             }),
           }
         : {}),

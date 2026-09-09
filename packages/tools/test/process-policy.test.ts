@@ -1,8 +1,9 @@
 import path from "node:path";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
-import { darwinSandboxLaunch } from "../src/process.js";
+import { darwinSandboxLaunch, linuxSandboxArguments } from "../src/process.js";
 
 const credentialPaths = [
   ["HOME_SSH", ".ssh", true],
@@ -23,6 +24,37 @@ const credentialPaths = [
 ] as const;
 
 describe("workspace process sandbox policy", () => {
+  it("exposes an exact temporary hook executable while keeping neighboring files hidden and credentials masked last", async () => {
+    const temporary = await mkdtemp("/tmp/recurs-linux-hook-policy-");
+    try {
+      const root = await realpath(temporary);
+      const workspaceRoot = path.join(root, "workspace");
+      const privateRoot = path.join(root, "private");
+      const hostHome = path.join(root, "home");
+      const auth = path.join(root, "auth");
+      await Promise.all([workspaceRoot, privateRoot, hostHome, auth].map((directory) => mkdir(directory, { mode: 0o700 })));
+      const command = path.join(root, "hook");
+      const credential = path.join(auth, "credentials");
+      await writeFile(command, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+      await writeFile(credential, "TEST_ONLY_CANARY", { mode: 0o600 });
+      const args = linuxSandboxArguments(command, [], {
+        mode: "workspace", network: "deny", readOnlyFiles: [command, credential], deniedReadPaths: [auth],
+      }, { workspaceRoot, privateRoot, hostHome });
+      const operations = args.join("\n");
+      const temporaryRoot = await realpath("/tmp");
+      const placeholder = operations.indexOf(`--ro-bind\n/dev/null\n${command}`);
+      const hideReadOnly = operations.indexOf(`--remount-ro\n${temporaryRoot}\n`);
+      const expose = operations.indexOf(`--ro-bind\n${command}\n${command}`);
+      const mask = operations.lastIndexOf(`--tmpfs\n${auth}\n--remount-ro\n${auth}`);
+      expect(placeholder).toBeGreaterThan(-1);
+      expect(hideReadOnly).toBeGreaterThan(placeholder);
+      expect(expose).toBeGreaterThan(hideReadOnly);
+      expect(mask).toBeGreaterThan(operations.indexOf(`--ro-bind\n${credential}\n${credential}`));
+      expect(operations).not.toContain(`--ro-bind\n${root}\n${root}`);
+      expect(operations).not.toContain(`--ro-bind\n${temporaryRoot}\n${temporaryRoot}`);
+    } finally { await rm(temporary, { recursive: true, force: true }); }
+  });
+
   it("binds every canonical credential path into the Darwin read-denial profile", () => {
     const hostHome = path.join(path.parse(process.cwd()).root, "Users", "fixture");
     const launch = darwinSandboxLaunch(

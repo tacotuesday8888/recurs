@@ -42,6 +42,8 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run package:smoke-install
+      - run: npm run package:smoke-terminal
+      - run: npm run package:smoke-extensions
 
   verify-macos:
     runs-on: macos-15
@@ -57,6 +59,8 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run package:smoke-install
+      - run: npm run package:smoke-terminal
+      - run: npm run package:smoke-extensions
 
   verify-bun-installer:
     runs-on: ubuntu-latest

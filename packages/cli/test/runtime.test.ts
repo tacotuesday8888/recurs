@@ -697,3 +697,33 @@ describe("RecursRuntime", () => {
     });
   });
 });
+
+describe("execution control ownership", () => {
+  it("addresses only a selected descendant of the active session", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-execution-control-"));
+    directories.push(directory);
+    const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
+    const parent = await sessions.createPinnedSession({ id: "root", cwd: directory, backend: testBackendPin(), at: testAt });
+    await sessions.createPinnedSession({ id: "foreign", cwd: directory, backend: testBackendPin(), at: testAt });
+    await sessions.createPinnedSession({
+      id: "child", cwd: directory, backend: testBackendPin(), at: testAt,
+      agent: {
+        ...parent.agent, id: "child-agent", role: "child", profile: { id: "explore_v1", version: 1 },
+        parentAgentId: parent.agent.id, parentSessionId: parent.id, depth: 1,
+        task: { id: "task", description: "Inspect files", prompt: "Inspect only" },
+        backend: { ...parent.agent.backend, strategy: "inherit_parent" },
+        permissions: { ...parent.agent.permissions, executionMode: "plan" },
+      },
+    });
+    const cancelled: string[] = [];
+    const runtime = new RecursRuntime({
+      commands: createCommandRegistry({ sessions }), sessions, confirm: async () => false,
+      executions: { isExecutionActive: () => true, cancelExecution(id) { cancelled.push(id); return true; } },
+    }, parent);
+    expect(await runtime.cancelExecution("foreign")).toBe(false);
+    expect(await runtime.inspectExecution("foreign")).toBeNull();
+    expect(cancelled).toEqual([]);
+    expect(await runtime.cancelExecution("child")).toBe(true);
+    expect(cancelled).toEqual(["child"]);
+  });
+});

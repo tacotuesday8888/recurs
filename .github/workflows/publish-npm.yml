@@ -47,6 +47,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run check
       - run: npm run package:smoke-install
+      - run: npm run package:smoke-terminal
+      - run: npm run package:smoke-extensions
       - name: Verify release authority and metadata
         run: node scripts/check-npm-release.mjs --tag "$GITHUB_REF_NAME"
       - name: Build the exact release package and install assets

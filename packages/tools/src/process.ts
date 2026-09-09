@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { realpathSync, statSync } from "node:fs";
+import { lstatSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { PassThrough, Writable, type Readable } from "node:stream";
 
@@ -94,6 +94,10 @@ export interface WorkspaceProcessSandbox {
   /** Existing command execution remains read-write unless explicitly narrowed. */
   readonly workspaceAccess?: "read_write" | "read_only";
   readonly readOnlyPaths?: readonly string[];
+  /** Explicit host executables that must remain visible under hidden temporary roots. */
+  readonly readOnlyFiles?: readonly string[];
+  /** Private credential directories hidden even when they fall inside the workspace. */
+  readonly deniedReadPaths?: readonly string[];
 }
 
 export interface RunProcessOptions {
@@ -232,6 +236,27 @@ function canonicalSandboxRoots(
   return { hostHome, workspaceRoot, privateRoot };
 }
 
+function canonicalDeniedReadPaths(options: WorkspaceProcessSandbox, roots: SandboxRoots): string[] {
+  const paths = [...new Set(options.deniedReadPaths ?? [])];
+  if (paths.length > 16) throw new ToolError("sandbox_unavailable", "Too many protected credential directories");
+  return paths.map((candidate) => {
+    try {
+      const before = lstatSync(candidate);
+      const canonical = realpathSync(candidate);
+      const after = statSync(canonical);
+      if (!path.isAbsolute(candidate) || before.isSymbolicLink() || !after.isDirectory() ||
+          before.ino !== after.ino || before.dev !== after.dev || (after.mode & 0o077) !== 0 ||
+          (process.getuid !== undefined && after.uid !== process.getuid()) ||
+          canonical === path.parse(canonical).root || isWithin(canonical, roots.workspaceRoot)) {
+        throw new Error("unsafe credential directory");
+      }
+      return canonical;
+    } catch (error) {
+      throw new ToolError("sandbox_unavailable", "A protected credential directory is missing or unsafe", { cause: error });
+    }
+  });
+}
+
 export function darwinSandboxLaunch(
   command: string,
   args: readonly string[],
@@ -242,10 +267,15 @@ export function darwinSandboxLaunch(
     ? ""
     : '\n(allow file-write* (subpath (param "WORKSPACE")))';
   const network = options.network === "deny" ? "" : "\n(allow network*)";
-  const profile = `${DARWIN_SANDBOX_PROFILE}${workspaceWrite}${network}`;
+  const deniedPaths = canonicalDeniedReadPaths(options, roots);
+  const deniedRules = deniedPaths.map((_, index) =>
+    `\n(deny file-read* file-write* (subpath (param "PRIVATE_CREDENTIAL_${index}")))`
+  ).join("");
+  const profile = `${DARWIN_SANDBOX_PROFILE}${workspaceWrite}${network}${deniedRules}`;
   const definitions = [
     ["WORKSPACE", roots.workspaceRoot],
     ["PRIVATE_ROOT", roots.privateRoot],
+    ...deniedPaths.map((directory, index) => [`PRIVATE_CREDENTIAL_${index}`, directory] as const),
     ...HOST_CREDENTIAL_PATHS.map(({ parameter, relative }) =>
       [parameter, path.join(roots.hostHome, relative)] as const
     ),
@@ -391,13 +421,12 @@ function appendLinuxCredentialMasks(
   }
 }
 
-function linuxSandboxLaunch(
+export function linuxSandboxArguments(
   command: string,
   args: readonly string[],
   options: NonNullable<RunProcessOptions["sandbox"]>,
   roots: SandboxRoots,
-): ProcessLaunch {
-  const launcher = trustedLinuxBubblewrap();
+): readonly string[] {
   if (roots.hostHome === path.parse(roots.hostHome).root) {
     throw new ToolError(
       "sandbox_unavailable",
@@ -427,15 +456,19 @@ function linuxSandboxLaunch(
   ].filter((value): value is string => value !== undefined);
   const uniqueHiddenRoots = [...new Set(hiddenRoots)]
     .filter((root) => root !== path.parse(root).root);
-  const readOnlyPaths = [...new Set(options.readOnlyPaths ?? [])].map(
-    (candidate) => {
+  const supportPaths = [
+    ...[...new Set(options.readOnlyPaths ?? [])].map((candidate) => ({ candidate, directory: true })),
+    ...[...new Set(options.readOnlyFiles ?? [])].map((candidate) => ({ candidate, directory: false })),
+  ].map(
+    ({ candidate, directory }) => {
       let canonical: string;
       try {
         canonical = realpathSync(candidate);
-        if (!statSync(canonical).isDirectory()) {
+        const details = statSync(canonical);
+        if (directory ? !details.isDirectory() : !details.isFile()) {
           throw new ToolError(
             "sandbox_unavailable",
-            "A Linux sandbox support path is not a directory",
+            "A Linux sandbox support path has the wrong file type",
           );
         }
       } catch (error) {
@@ -457,10 +490,10 @@ function linuxSandboxLaunch(
           "A Linux sandbox support path is not eligible for exposure",
         );
       }
-      return canonical;
+      return { canonical, directory };
     },
   );
-  if (readOnlyPaths.length > 8) {
+  if (supportPaths.length > 8) {
     throw new ToolError(
       "sandbox_unavailable",
       "The Linux sandbox has too many support paths",
@@ -486,10 +519,16 @@ function linuxSandboxLaunch(
   for (const requiredRoot of [
     roots.workspaceRoot,
     roots.privateRoot,
-    ...readOnlyPaths,
+    ...supportPaths.map(({ canonical, directory }) => directory ? canonical : path.dirname(canonical)),
   ]) {
     if (uniqueHiddenRoots.some((root) => isWithin(root, requiredRoot))) {
       bwrapArgs.push("--dir", requiredRoot);
+    }
+  }
+  for (const { canonical, directory } of supportPaths) {
+    if (!directory && uniqueHiddenRoots.some((root) => isWithin(root, canonical))) {
+      // Create the exact mount point before its temporary parent becomes read-only.
+      bwrapArgs.push("--ro-bind", "/dev/null", canonical);
     }
   }
   for (const root of uniqueHiddenRoots.toSorted(
@@ -505,10 +544,18 @@ function linuxSandboxLaunch(
     roots.privateRoot,
     roots.privateRoot,
   );
-  for (const readOnlyPath of readOnlyPaths) {
-    bwrapArgs.push("--ro-bind", readOnlyPath, readOnlyPath);
+  for (const { canonical } of supportPaths) {
+    bwrapArgs.push("--ro-bind", canonical, canonical);
   }
   appendLinuxCredentialMasks(bwrapArgs, roots.hostHome);
+  for (const denied of canonicalDeniedReadPaths(options, roots)) {
+    const hiddenByTemporaryRoot = uniqueHiddenRoots.some((root) => isWithin(root, denied));
+    const explicitlyExposed = [roots.workspaceRoot, roots.privateRoot, ...supportPaths.map(({ canonical }) => canonical)]
+      .some((root) => isWithin(root, denied) || isWithin(denied, root));
+    if (hiddenByTemporaryRoot && !explicitlyExposed) continue;
+    // Apply last so a workspace or support-path mount cannot expose credentials again.
+    bwrapArgs.push("--perms", "000", "--tmpfs", denied, "--remount-ro", denied);
+  }
   bwrapArgs.push(
     "--unshare-user",
     "--unshare-pid",
@@ -525,7 +572,16 @@ function linuxSandboxLaunch(
     command,
     ...args,
   );
-  return { command: launcher, args: bwrapArgs };
+  return bwrapArgs;
+}
+
+function linuxSandboxLaunch(
+  command: string,
+  args: readonly string[],
+  options: NonNullable<RunProcessOptions["sandbox"]>,
+  roots: SandboxRoots,
+): ProcessLaunch {
+  return { command: trustedLinuxBubblewrap(), args: linuxSandboxArguments(command, args, options, roots) };
 }
 
 function sandboxLaunch(
@@ -1011,9 +1067,36 @@ export async function startProcessSession(
   child.once("error", () => {
     setFailure(new ToolError("process_failed", `Failed to start ${command}`));
   });
-  child.once("close", (code) => {
-    void settle(code ?? -1);
-  });
+  let finalization: Promise<void> | undefined;
+  const finish = (exitCode: number): void => {
+    finalization ??= (async () => {
+      try {
+        // The session leader may exit while descendants still own its pipes.
+        // Finish the entire process group before reporting a terminal result.
+        await startTermination();
+      } catch {
+        cleanupFailed = true;
+        setFailure(new ToolError(
+          "process_failed",
+          "The child process group could not be cleaned up",
+        ));
+      }
+      if (!childStdout.closed || !childStderr.closed) {
+        await Promise.race([
+          new Promise<void>((resolve) => child.once("close", () => resolve())),
+          delay(PROCESS_PIPE_DRAIN_GRACE_MS),
+        ]);
+      }
+      childStdin.destroy();
+      childStdout.destroy();
+      childStderr.destroy();
+      sessionStdout.end();
+      sessionStderr.end();
+      await settle(exitCode);
+    })();
+  };
+  child.once("exit", (code) => finish(code ?? -1));
+  child.once("close", (code) => finish(code ?? -1));
 
   await new Promise<void>((resolve, reject) => {
     if (child.pid !== undefined) {

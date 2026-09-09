@@ -3,6 +3,7 @@ import {
   Container,
   Editor,
   Key,
+  Markdown,
   ProcessTerminal,
   SelectList,
   Text,
@@ -34,6 +35,7 @@ import { Writable, type Readable } from "node:stream";
 
 import type { CommandResult } from "./commands/types.js";
 import { parseCommand } from "./commands/parser.js";
+import { ExecutionInspector } from "./terminal-execution-inspector.js";
 import { safeCliErrorMessage } from "./error-rendering.js";
 import { loadImageInputs } from "./image-input.js";
 import { TextEventRenderer, renderCommandResult } from "./render.js";
@@ -59,6 +61,7 @@ import {
   TerminalUiState,
   renderCompanyHome,
   type TerminalCompanyNodeView,
+  type TerminalAgentView,
 } from "./terminal-ui-state.js";
 
 export type InteractiveTerminal = Terminal;
@@ -333,7 +336,7 @@ export class CompanyHomeComponent implements Component {
 }
 
 export interface TaskPanelActions {
-  readonly openChat: (node: TerminalCompanyNodeView) => void;
+  readonly openChat: (agent: TerminalAgentView) => void;
   readonly back: () => void;
   readonly refresh: () => void;
   readonly theme?: TerminalTheme;
@@ -341,7 +344,7 @@ export interface TaskPanelActions {
 }
 
 export class TaskPanelComponent implements Component {
-  #selectedIndex = 0;
+  #selectedExecutionId: string | null = null;
 
   constructor(
     private readonly state: TerminalUiState,
@@ -350,102 +353,84 @@ export class TaskPanelComponent implements Component {
 
   invalidate(): void {}
 
+  #ordered(): TerminalAgentView[] {
+    const agents = this.state.snapshot().agents;
+    const ids = new Set(agents.map((agent) => agent.executionId));
+    const children = new Map<string, TerminalAgentView[]>();
+    for (const agent of agents) {
+      if (agent.parentExecutionId !== null) {
+        const siblings = children.get(agent.parentExecutionId) ?? [];
+        siblings.push(agent);
+        children.set(agent.parentExecutionId, siblings);
+      }
+    }
+    const ordered: TerminalAgentView[] = [];
+    const visited = new Set<string>();
+    const visit = (agent: TerminalAgentView): void => {
+      if (visited.has(agent.executionId)) return;
+      visited.add(agent.executionId);
+      ordered.push(agent);
+      children.get(agent.executionId)?.forEach(visit);
+    };
+    agents.filter((agent) => agent.parentExecutionId === null || !ids.has(agent.parentExecutionId)).forEach(visit);
+    agents.forEach(visit);
+    if (!ordered.some((agent) => agent.executionId === this.#selectedExecutionId)) {
+      this.#selectedExecutionId = ordered[0]?.executionId ?? null;
+    }
+    return ordered;
+  }
+
   render(width: number): string[] {
     const safeWidth = Math.max(1, width);
     const snapshot = this.state.snapshot();
+    const agents = this.#ordered();
     const theme = this.actions.theme;
-    const line = (value: string): string => truncateToWidth(
-      sanitizeTerminalText(value, { multiline: false }),
-      safeWidth,
-    );
-    this.#selectedIndex = Math.min(
-      this.#selectedIndex,
-      Math.max(0, snapshot.agents.length - 1),
-    );
-    const workspace = (snapshot.session.workspace ?? "workspace").toUpperCase();
-    const rows = [
-      theme?.accent(line(`R↘ RECURS / ${workspace} / TASKS`)) ??
-        line(`R↘ RECURS / ${workspace} / TASKS`),
+    const line = (value: string): string => truncateToWidth(sanitizeTerminalText(value, { multiline: false }), safeWidth);
+    const title = line(`R↘ RECURS / ${(snapshot.session.workspace ?? "workspace").toUpperCase()} / TASKS`);
+    const count = line(`CHILD EXECUTIONS · ${agents.length}`);
+    const footer = line("ENTER OPEN   ARROWS SELECT   CTRL+T OR ESC BACK");
+    const height = Math.max(1, this.actions.rows?.() ?? agents.length * 2 + 8);
+    const compact = height < 10;
+    const header = compact ? [title, count] : [
+      theme?.accent(title) ?? title,
       theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
-      theme?.strong(line(snapshot.goal === null
-        ? "NO ACTIVE COMPANY GOAL"
-        : snapshot.goal.objective.toUpperCase())) ??
-        line(snapshot.goal === null
-          ? "NO ACTIVE COMPANY GOAL"
-          : snapshot.goal.objective.toUpperCase()),
-      theme?.muted(line(`ACTIVATED ASSIGNMENTS · ${snapshot.agents.length}`)) ??
-        line(`ACTIVATED ASSIGNMENTS · ${snapshot.agents.length}`),
-      "",
+      line(snapshot.goal?.objective.toUpperCase() ?? "Agent executions"), count, "",
     ];
-    const terminalRows = this.actions.rows?.();
-    const visibleCount = terminalRows === undefined
-      ? snapshot.agents.length
-      : Math.max(1, Math.floor((terminalRows - 8) / 2));
-    const windowStart = Math.min(
-      Math.max(0, this.#selectedIndex - visibleCount + 1),
-      Math.max(0, snapshot.agents.length - visibleCount),
-    );
-    const visibleAgents = snapshot.agents.slice(
-      windowStart,
-      windowStart + visibleCount,
-    );
-    for (const [offset, agent] of visibleAgents.entries()) {
-      const index = windowStart + offset;
-      const selected = index === this.#selectedIndex ? ">" : " ";
-      const status = agent.status.toUpperCase();
-      const route = agent.model === null
-        ? "MODEL PENDING"
-        : `${agent.model}${agent.effort === null ? "" : ` · ${agent.effort}`}`;
-      const role = line(`${selected} ${agent.roleName.toUpperCase()}  ${status}`);
-      const detail = line(`    ${route} · ${
-        agent.detail ?? formatTerminalLabel(agent.departmentId)
-      }`);
-      rows.push(
-        theme?.companyLayer(Math.min(3, agent.depth) as 0 | 1 | 2 | 3, role) ?? role,
-        theme?.muted(detail) ?? detail,
-      );
+    const tail = compact ? [footer] : ["", "─".repeat(safeWidth), footer];
+    const available = Math.max(0, height - header.length - tail.length);
+    const rowSize = compact ? 1 : 2;
+    const visibleCount = Math.floor(available / rowSize);
+    const selectedIndex = Math.max(0, agents.findIndex((agent) => agent.executionId === this.#selectedExecutionId));
+    const start = Math.min(Math.max(0, selectedIndex - visibleCount + 1), Math.max(0, agents.length - visibleCount));
+    const rows = [...header];
+    for (const agent of agents.slice(start, start + visibleCount)) {
+      const selected = agent.executionId === this.#selectedExecutionId ? ">" : " ";
+      const role = line(`${selected} ${"  ".repeat(Math.min(6, agent.depth))}${agent.roleName}  ${agent.status.toUpperCase()}`);
+      rows.push(theme?.companyLayer(Math.min(3, agent.depth) as 0 | 1 | 2 | 3, role) ?? role);
+      if (!compact) {
+        const route = agent.model === null ? "MODEL PENDING" : `${agent.model}${agent.effort === null ? "" : ` · ${agent.effort}`}`;
+        const detail = line(`    ${route} · ${agent.detail ?? formatTerminalLabel(agent.departmentId)}`);
+        rows.push(theme?.muted(detail) ?? detail);
+      }
     }
-    if (snapshot.agents.length === 0) {
-      rows.push(line("  No assignments have activated for this goal."));
-    }
-    rows.push(
-      "",
-      theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
-      theme?.muted(line("ENTER OPEN   ARROWS SELECT   CTRL+T OR ESC BACK")) ??
-        line("ENTER OPEN   ARROWS SELECT   CTRL+T OR ESC BACK"),
-    );
-    if (terminalRows !== undefined) {
-      while (rows.length < terminalRows) rows.splice(rows.length - 2, 0, "");
-    }
-    return rows;
+    if (agents.length === 0 && available > 0) rows.push(line("No child executions recorded in this session."));
+    while (rows.length < height - tail.length) rows.push("");
+    return [...rows, ...tail].slice(-height);
   }
 
   handleInput(data: string): void {
-    const snapshot = this.state.snapshot();
+    const agents = this.#ordered();
+    const selectedIndex = Math.max(0, agents.findIndex((agent) => agent.executionId === this.#selectedExecutionId));
     if (matchesKey(data, Key.enter)) {
-      const agent = snapshot.agents[this.#selectedIndex];
-      const node = agent === undefined
-        ? undefined
-        : snapshot.company.find((candidate) => candidate.roleId === agent.roleId);
-      if (node !== undefined) this.actions.openChat(node);
+      const agent = agents[selectedIndex];
+      if (agent !== undefined) this.actions.openChat(agent);
       return;
     }
-    if (
-      data === "q" || matchesKey(data, Key.escape) ||
-      matchesKey(data, Key.ctrl("t"))
-    ) {
-      this.actions.back();
-      return;
-    }
-    if (
-      matchesKey(data, Key.up) || matchesKey(data, Key.left) ||
-      matchesKey(data, Key.down) || matchesKey(data, Key.right) ||
-      matchesKey(data, Key.tab)
-    ) {
-      if (snapshot.agents.length === 0) return;
+    if (data === "q" || matchesKey(data, Key.escape) || matchesKey(data, Key.ctrl("t"))) { this.actions.back(); return; }
+    if (matchesKey(data, Key.up) || matchesKey(data, Key.left) || matchesKey(data, Key.down) || matchesKey(data, Key.right) || matchesKey(data, Key.tab)) {
+      if (agents.length === 0) return;
       const backwards = matchesKey(data, Key.up) || matchesKey(data, Key.left);
-      this.#selectedIndex = (this.#selectedIndex +
-        (backwards ? -1 : 1) + snapshot.agents.length) % snapshot.agents.length;
+      this.#selectedExecutionId = agents[(selectedIndex + (backwards ? -1 : 1) + agents.length) % agents.length]!.executionId;
       this.actions.refresh();
     }
   }
@@ -580,7 +565,7 @@ function editorTheme(colorEnabled: boolean): EditorTheme {
   };
 }
 
-class TranscriptBuffer {
+export class TranscriptBuffer {
   static readonly maximumCharacters = 256 * 1024;
   #text = "";
   #listener: (() => void) | null = null;
@@ -596,6 +581,8 @@ class TranscriptBuffer {
     }
     this.#listener?.();
   }
+
+  clear(): void { this.#text = ""; this.#listener?.(); }
 
   text(): string { return this.#text.trimEnd(); }
 }
@@ -656,6 +643,7 @@ class OnboardingChoiceList implements Component {
 }
 
 class OnboardingComponent extends Container {
+  #scrollOffset = 0;
   readonly #header: Text;
   readonly #transcript = new Text();
   readonly #question = new Text();
@@ -678,7 +666,7 @@ class OnboardingComponent extends Container {
     const muted = ansi("2", colorEnabled);
     this.#editor = new Editor(tui, editorTheme(colorEnabled), { paddingX: 1 });
     this.#footer = new Text(
-      muted("↑↓ choose · Enter continue · Esc cancel · Ctrl+C cancel"),
+      muted("↑↓ choose · Enter continue · PgUp/PgDn review · Esc cancel"),
       1,
       0,
     );
@@ -710,9 +698,19 @@ class OnboardingComponent extends Container {
     const footer = this.#footer.render(width);
     const fixed = header.length + question.length + input.length + footer.length;
     const available = Math.max(0, this.rows() - fixed);
-    const body = available === 0 ? [] : transcript.slice(-available);
+    this.#scrollOffset = Math.min(this.#scrollOffset, Math.max(0, transcript.length - available));
+    const end = transcript.length - this.#scrollOffset;
+    const body = available === 0 ? [] : transcript.slice(Math.max(0, end - available), end);
     while (body.length < available) body.push("");
-    return [...header, ...body, ...question, ...input, ...footer];
+    return [...header, ...body, ...question, ...input, ...footer].slice(-Math.max(1, this.rows()));
+  }
+
+  scroll(data: string): boolean {
+    if (matchesKey(data, Key.pageUp)) this.#scrollOffset += Math.max(1, this.rows() - 10);
+    else if (matchesKey(data, Key.pageDown)) this.#scrollOffset = Math.max(0, this.#scrollOffset - Math.max(1, this.rows() - 10));
+    else return false;
+    this.tui.requestRender();
+    return true;
   }
 
   askChoice(
@@ -726,6 +724,7 @@ class OnboardingComponent extends Container {
     if (choices.length === 0) {
       return Promise.resolve(null);
     }
+    this.#scrollOffset = 0;
     const list = new OnboardingChoiceList(
       choices,
       editorTheme(this.colorEnabled).selectList,
@@ -829,28 +828,15 @@ function onboardingAbortError(): DOMException {
   return new DOMException("Guided setup was cancelled", "AbortError");
 }
 
-function styleOnboardingTranscript(
-  text: string,
-  theme: TerminalTheme,
-): string {
+function styleOnboardingTranscript(text: string, theme: TerminalTheme): string {
+  // Keep the current step's complete evidence and proposal available for review.
+  // Filtering this to status notices hides the configuration the user approves.
   const lines = text.split("\n");
-  const currentStep = lines.findLast((line) =>
-    /^\d{2}\/\d{2}\s{2}/u.test(line)
-  );
-  const latestNotice = lines.map((line): string | undefined => {
-    const verified = /^Verified — .* · ([^·]+)$/u.exec(line);
-    if (verified !== null) {
-      return `✓ Parent model connected · ${verified[1]!.trim()}`;
-    }
-    return /^(Error|Warning):/u.test(line) ||
-        /^(Setup|Company setup|Full Access)/u.test(line)
-      ? line
-      : undefined;
-  }).findLast((line) => line !== undefined);
-  const visible = [currentStep, latestNotice].filter(
-    (line): line is string => line !== undefined,
-  );
-  return visible.map((line) =>
+  const stepIndex = lines.findLastIndex((line) => /^\d{2}\/\d{2}\s{2}/u.test(line));
+  const connection = lines.map((line) => /^Verified — .* · ([^·]+)$/u.exec(line)?.[1]?.trim()).findLast((line) => line !== undefined);
+  const current = lines.slice(Math.max(0, stepIndex)).filter((line) => !line.startsWith("Verified — "));
+  if (connection !== undefined) current.splice(1, 0, `✓ Parent model connected · ${connection}`);
+  return current.map((line) =>
     /^\d{2}\/\d{2}\s{2}/u.test(line) ? theme.accent(line) : line
   ).join("\n");
 }
@@ -862,42 +848,27 @@ interface PendingQuestion {
   readonly settle: (answer: string | null) => void;
 }
 
-function chatMascot(depth: 0 | 1 | 2 | 3): readonly string[] {
-  if (depth === 0) {
-    return Object.freeze(["   ▄██▄", " ▄██████▄", "◀██▄██▄██", "  ▀████▀"]);
-  }
-  if (depth === 1) return Object.freeze(["  ▄██▄", "◀████▌", " ▀██▀", " ▀  ▀"]);
-  if (depth === 2) return Object.freeze([" ▄██▄", "◀███▌", "  ▀ ▀"]);
-  return Object.freeze(["▄██▄", "▀  ▀"]);
-}
-
 function renderAttachedAgentHeader(
   roleName: string,
   route: string,
   status: string,
-  depth: 0 | 1 | 2 | 3,
+  _depth: 0 | 1 | 2 | 3,
   colorEnabled: boolean,
 ): string {
-  const accent = ansi("96", colorEnabled);
-  const strong = ansi("1", colorEnabled);
-  const muted = ansi("2", colorEnabled);
-  const pet = chatMascot(depth);
-  const details = [
-    strong(roleName.toUpperCase()),
-    muted(route),
-    muted(`${status.toUpperCase()} · ATTACHED · GOAL SCOPE PRESERVED`),
-  ];
-  return pet.map((row, index) =>
-    `${accent(row.padEnd(13))}${details[index] ?? ""}`
-  ).join("\n");
+  return `${ansi("1", colorEnabled)(roleName)} · ${status}\n${ansi("2", colorEnabled)(route)}`;
 }
 
-class ChatComponent extends Container {
+export class ChatComponent extends Container {
   readonly editor: Editor;
   readonly #header: Text;
-  readonly #transcript = new Text();
+  readonly #transcript: Markdown;
   readonly #question = new Text();
   readonly #footer: Text;
+  #scrollOffset = 0;
+  #questionOffset = 0;
+  #questionMaximumOffset = 0;
+  readonly #updateHeader: () => void;
+  #previousTranscriptRows = 0;
   #pending: PendingQuestion | null = null;
   readonly #questionQueue: PendingQuestion[] = [];
   #draftBeforeQuestion: string | null = null;
@@ -909,12 +880,21 @@ class ChatComponent extends Container {
     session: ReturnType<typeof runtimeSession>,
     commands: readonly string[],
     cwd: string,
-    private readonly colorEnabled: boolean,
+    colorEnabled: boolean,
     private readonly rows: () => number,
+    status?: () => ReturnType<typeof runtimeSession> & { running: boolean },
   ) {
     super();
     const accent = ansi("96", colorEnabled);
     const muted = ansi("2", colorEnabled);
+    const strong = ansi("1", colorEnabled);
+    this.#transcript = new Markdown("", 1, 0, {
+      heading: strong, link: accent, linkUrl: muted, code: accent,
+      codeBlock: (text) => text, codeBlockBorder: muted,
+      quote: muted, quoteBorder: muted, hr: muted, listBullet: accent,
+      bold: strong, italic: ansi("3", colorEnabled),
+      strikethrough: ansi("9", colorEnabled), underline: ansi("4", colorEnabled),
+    });
     this.#header = new Text(
       `${accent(`R↘ RECURS / ${path.basename(cwd).toUpperCase()} / CHAT`)}\n${
         renderAttachedAgentHeader(
@@ -930,6 +910,14 @@ class ChatComponent extends Container {
       1,
       0,
     );
+    this.#updateHeader = () => {
+      if (status === undefined) return;
+      const current = status();
+      this.#header.setText(`${accent(`R↘ RECURS / ${path.basename(cwd).toUpperCase()} / CHAT`)}\n${renderAttachedAgentHeader(
+        "Parent", `${current.model} · ${formatTerminalLabel(current.mode)} · ${formatTerminalLabel(current.permission)}`,
+        current.running ? "running" : "ready", 0, colorEnabled,
+      )}`);
+    };
     this.editor = new Editor(tui, editorTheme(colorEnabled), { paddingX: 1 });
     this.editor.setAutocompleteProvider(new TerminalSafeAutocompleteProvider(
       new CombinedAutocompleteProvider(
@@ -949,12 +937,13 @@ class ChatComponent extends Container {
       if (expanded.length > 0) this.onSubmit?.(expanded);
     };
     this.#footer = new Text(
-      muted("recurs ›  ENTER SEND · SHIFT+ENTER NEWLINE · CTRL+G COMPANY · CTRL+C CANCEL"),
+      muted("Enter send · Shift+Enter newline · PgUp/PgDn scroll · Ctrl+T agents · Ctrl+C cancel"),
       1,
       0,
     );
+    this.#transcript.setText(buffer.text());
     buffer.onChange(() => {
-      this.#transcript.setText(accent(buffer.text()));
+      this.#transcript.setText(buffer.text());
       tui.requestRender();
     });
     this.addChild(this.#header);
@@ -965,33 +954,51 @@ class ChatComponent extends Container {
   }
 
   override render(width: number): string[] {
+    this.#updateHeader();
     const header = this.#header.render(width);
-    const question = this.#question.render(width);
+    const fullQuestion = this.#question.render(width);
     const editor = this.editor.render(width);
     const footer = this.#footer.render(width);
-    const fixed = header.length + question.length + editor.length + footer.length;
+    const questionSpace = Math.max(1, this.rows() - editor.length - footer.length - 1);
+    this.#questionMaximumOffset = Math.max(0, fullQuestion.length - questionSpace);
+    this.#questionOffset = Math.min(this.#questionOffset, this.#questionMaximumOffset);
+    const question = this.#pending === null ? fullQuestion : fullQuestion.slice(this.#questionOffset, this.#questionOffset + questionSpace);
+    const visibleHeader = this.#pending === null ? header : header.slice(0, 1);
+    const fixed = visibleHeader.length + question.length + editor.length + footer.length;
     const available = Math.max(0, this.rows() - fixed);
     const transcript = this.#transcript.render(width);
-    const body = available === 0 ? [] : transcript.slice(-available);
+    if (this.#scrollOffset > 0) {
+      this.#scrollOffset += Math.max(0, transcript.length - this.#previousTranscriptRows);
+    }
+    this.#previousTranscriptRows = transcript.length;
+    this.#scrollOffset = Math.min(this.#scrollOffset, Math.max(0, transcript.length - available));
+    const end = Math.max(0, transcript.length - this.#scrollOffset);
+    const body = available === 0 ? [] : transcript.slice(Math.max(0, end - available), end);
     while (body.length < available) body.push("");
-    return [...header, ...body, ...question, ...editor, ...footer];
+    const statusFooter = this.#pending !== null && this.#questionMaximumOffset > 0 ? [
+      truncateToWidth(`Question ${this.#questionOffset + 1}-${this.#questionOffset + question.length}/${fullQuestion.length} · PgUp/PgDn review · Enter answer`, Math.max(1, width)),
+    ] : this.#scrollOffset === 0 ? footer : [
+      truncateToWidth(`↑ ${this.#scrollOffset} lines below · PgDn scroll · Ctrl+End latest`, Math.max(1, width)),
+    ];
+    // Keep input visible even when the terminal is shorter than the header.
+    const rendered = [...visibleHeader, ...body, ...question, ...editor, ...statusFooter];
+    while (rendered.length < this.rows()) rendered.splice(visibleHeader.length, 0, "");
+    return rendered.slice(-Math.max(1, this.rows()));
   }
 
-  setCompanyFocus(node: TerminalCompanyNodeView): void {
-    const route = node.model === null
-      ? "model route not activated"
-      : `${node.model}${node.effort === null ? "" : ` · ${node.effort}`}`;
-    this.#header.setText(
-      `R↘ RECURS / CHAT / ${node.roleName.toUpperCase()}\n${
-        renderAttachedAgentHeader(
-          node.roleName,
-          route,
-          node.status,
-          node.depth,
-          this.colorEnabled,
-        )
-      }`,
-    );
+  scroll(data: string): boolean {
+    if (this.#pending !== null) {
+      const page = Math.max(1, this.rows() - 5);
+      if (matchesKey(data, Key.pageUp)) this.#questionOffset = Math.max(0, this.#questionOffset - page);
+      else if (matchesKey(data, Key.pageDown)) this.#questionOffset = Math.min(this.#questionMaximumOffset, this.#questionOffset + page);
+      else return false;
+      return true;
+    }
+    if (matchesKey(data, Key.pageUp)) this.#scrollOffset += Math.max(1, this.rows() - 8);
+    else if (matchesKey(data, Key.pageDown)) this.#scrollOffset = Math.max(0, this.#scrollOffset - Math.max(1, this.rows() - 8));
+    else if (matchesKey(data, Key.ctrl("end"))) this.#scrollOffset = 0;
+    else return false;
+    return true;
   }
 
   ask(
@@ -1040,6 +1047,7 @@ class ChatComponent extends Container {
   #showNextQuestion(): void {
     if (this.#pending !== null) return;
     this.#pending = this.#questionQueue.shift() ?? null;
+    this.#questionOffset = 0;
     if (this.#pending === null) {
       this.#question.setText("");
       this.editor.setText(this.#draftBeforeQuestion ?? "");
@@ -1088,7 +1096,7 @@ function runtimeSession(runtime: RecursRuntime): {
     : "single_agent";
   return {
     model: session.model,
-    mode: operatingMode,
+    mode: session.executionMode === "plan" ? "plan" : operatingMode,
     permission: session.permissionMode,
   };
 }
@@ -1096,7 +1104,6 @@ function runtimeSession(runtime: RecursRuntime): {
 export class RecursInteractiveShell {
   readonly #terminal: InteractiveTerminal;
   readonly #cwd: string;
-  readonly #animate: boolean;
   readonly #colorEnabled: boolean;
   readonly #theme: TerminalTheme;
   readonly #loadImages: NonNullable<RecursInteractiveShellOptions["loadImages"]>;
@@ -1105,6 +1112,7 @@ export class RecursInteractiveShell {
   readonly #output: Writable;
   readonly #pendingEvents: RecursEvent[] = [];
   readonly #transcript = new TranscriptBuffer();
+  #transcriptSessionId: string | null = null;
   readonly #transcriptOutput: Writable;
   readonly #textEvents: TextEventRenderer;
   #state: TerminalUiState | null = null;
@@ -1124,7 +1132,6 @@ export class RecursInteractiveShell {
   constructor(options: RecursInteractiveShellOptions) {
     this.#terminal = options.terminal ?? new ProcessTerminal();
     this.#cwd = options.cwd;
-    this.#animate = options.animate ?? true;
     this.#loadImages = options.loadImages ?? loadImageInputs;
     this.#attachProcess = options.attachProcess ?? attachOwnedTerminalProcess;
     this.#input = options.input ?? processStdin;
@@ -1225,6 +1232,7 @@ export class RecursInteractiveShell {
       this.#theme,
     ));
     const removeCancellationListener = tui.addInputListener((data) => {
+      if (component.scroll(data)) return { consume: true };
       if (
         matchesKey(data, Key.escape) ||
         matchesKey(data, Key.ctrl("c"))
@@ -1251,11 +1259,22 @@ export class RecursInteractiveShell {
     runtime: RecursRuntime,
     options: InteractiveShellStartOptions = {},
   ): Promise<InteractiveShellExit> {
+    const openedSessionId = runtime.state.type === "session" ? runtime.state.session.id : null;
+    if (openedSessionId !== this.#transcriptSessionId) {
+      this.#transcript.clear();
+      this.#transcriptSessionId = openedSessionId;
+    }
     const state = new TerminalUiState({
       ...runtimeSession(runtime),
       workspace: path.basename(this.#cwd),
     }, runtime.companyBlueprint);
     this.#state = state;
+    let restoredRootNotice: string | null = null;
+    if (typeof runtime.listExecutions === "function") {
+      const executions = await runtime.listExecutions();
+      state.restoreExecutions(executions);
+      restoredRootNotice = executions.find((execution) => execution.parentExecutionId === null)?.detail ?? null;
+    }
     for (const event of this.#pendingEvents.splice(0)) await state.emit(event);
 
     const tui = new TUI(this.#terminal);
@@ -1275,6 +1294,15 @@ export class RecursInteractiveShell {
       finish = resolve;
     });
     const session = runtimeSession(runtime);
+    if (this.#transcript.text().length === 0 && runtime.state.type === "session" && typeof runtime.inspectExecution === "function") {
+      const detail = await runtime.inspectExecution(runtime.state.session.id);
+      if (detail !== null) {
+        for (const message of detail.messages) {
+          this.#transcript.append(`\n${message.role === "user" ? "›" : message.role + ":"} ${message.content}\n`);
+        }
+      }
+    }
+    if (restoredRootNotice !== null) this.#transcript.append(`\nExecution history: ${restoredRootNotice}\n`);
     const chat = new ChatComponent(
       tui,
       this.#transcript,
@@ -1283,6 +1311,7 @@ export class RecursInteractiveShell {
       this.#cwd,
       this.#colorEnabled,
       () => this.#terminal.rows,
+      () => ({ ...runtimeSession(runtime), running: runtime.hasActiveRun }),
     );
     const companyEditor = new Editor(tui, editorTheme(this.#colorEnabled), {
       paddingX: 1,
@@ -1293,10 +1322,9 @@ export class RecursInteractiveShell {
         this.#cwd,
       ),
     ));
-    let view: "launch" | "company" | "chat" | "tasks" = "company";
+    let view: "launch" | "company" | "chat" | "tasks" | "inspect" = "company";
     let viewBeforeTasks: "company" | "chat" = "company";
-    const showChat = (node?: TerminalCompanyNodeView): void => {
-      if (node !== undefined) chat.setCompanyFocus(node);
+    const showChat = (): void => {
       if (view === "chat") return;
       view = "chat";
       mount(chat, chat.editor);
@@ -1326,9 +1354,54 @@ export class RecursInteractiveShell {
       if (viewBeforeTasks === "chat") showChat();
       else showCompany();
     };
+    let selectedExecutionId: string | null = null;
+    let inspectionGeneration = 0;
+    const loadInspection = async (): Promise<void> => {
+      const id = selectedExecutionId;
+      if (id === null) return;
+      const generation = ++inspectionGeneration;
+      try {
+        const detail = await runtime.inspectExecution(id);
+        if (generation === inspectionGeneration && selectedExecutionId === id) inspector.show(detail);
+      } catch (error) {
+        if (generation === inspectionGeneration) inspector.show(null, safeCliErrorMessage(error));
+      }
+      tui.requestRender();
+    };
+    const inspector = new ExecutionInspector({
+      rows: () => this.#terminal.rows,
+      back: showTasks,
+      refresh: () => tui.requestRender(),
+      reload: () => { void loadInspection(); },
+      cancel: (id) => {
+        void runtime.cancelExecution(id).then(() => {
+          if (selectedExecutionId === id) return loadInspection();
+          return undefined;
+        }).catch((error: unknown) => {
+          if (selectedExecutionId === id) inspector.show(null, safeCliErrorMessage(error));
+          tui.requestRender();
+        });
+      },
+    });
+    const showExecution = (agent: TerminalAgentView): void => {
+      selectedExecutionId = agent.executionId;
+      inspector.show(null, "Loading execution…");
+      view = "inspect";
+      mount(inspector, inspector);
+      void loadInspection();
+    };
+    const showRole = (node: TerminalCompanyNodeView): void => {
+      if (node.reportsToRoleId === null) { showChat(); return; }
+      const agent = state.snapshot().agents.findLast((candidate) => candidate.roleId === node.roleId);
+      if (agent !== undefined) { showExecution(agent); return; }
+      selectedExecutionId = null;
+      inspector.show(null, `${node.roleName}: configured role; no execution has activated. Return to chat to give the parent instructions.`);
+      view = "inspect";
+      mount(inspector, inspector);
+    };
     const home = new CompanyHomeComponent(state, {
       frame: () => this.#frame,
-      openChat: showChat,
+      openChat: showRole,
       ...(options.launch === false ? {} : { back: showLaunch }),
       quit: () => finish({ type: "quit" }),
       refresh: () => tui.requestRender(),
@@ -1337,7 +1410,7 @@ export class RecursInteractiveShell {
       editor: companyEditor,
     });
     const tasks = new TaskPanelComponent(state, {
-      openChat: showChat,
+      openChat: showExecution,
       back: hideTasks,
       refresh: () => tui.requestRender(),
       theme: this.#theme,
@@ -1357,8 +1430,7 @@ export class RecursInteractiveShell {
     }, {
       openSession: (sessionId) => {
         if (sessionId === currentSessionId) {
-          if (companyAvailable) showCompany();
-          else showChat();
+          showChat();
         }
         else finish({ type: "resume_session", sessionId });
       },
@@ -1470,6 +1542,10 @@ export class RecursInteractiveShell {
           scripted: false,
           embedding: "cli",
         }), images === undefined ? {} : { images });
+        if (runtime.state.type === "session" && runtime.state.session.id !== currentSessionId) {
+          finish({ type: "resume_session", sessionId: runtime.state.session.id });
+          return;
+        }
         if (!isCommandResult(result)) return;
         if (result.type === "quit") {
           finish({ type: "quit" });
@@ -1491,7 +1567,7 @@ export class RecursInteractiveShell {
                 ? chat.editor
                 : view === "launch"
                   ? launch
-                  : view === "tasks" ? tasks : home,
+                  : view === "tasks" ? tasks : view === "inspect" ? inspector : home,
             );
             tui.requestRender(true);
           }
@@ -1526,6 +1602,14 @@ export class RecursInteractiveShell {
       void task.finally(() => submissionTasks.delete(task));
     };
     tui.addInputListener((data) => {
+      if (view === "chat" && supportsLaunch && matchesKey(data, Key.escape) && chat.editor.getText().length === 0) {
+        showLaunch();
+        return { consume: true };
+      }
+      if (view === "chat" && chat.scroll(data)) {
+        tui.requestRender();
+        return { consume: true };
+      }
       if (matchesKey(data, Key.ctrl("q"))) {
         finish({ type: "quit" });
         return { consume: true };
@@ -1541,17 +1625,14 @@ export class RecursInteractiveShell {
         else showCompany();
         return { consume: true };
       }
-      if (matchesKey(data, Key.ctrl("c")) && runtime.cancel()) {
+      if (view !== "inspect" && matchesKey(data, Key.ctrl("c")) && runtime.cancel()) {
         return { consume: true };
       }
       return undefined;
     });
     if (!supportsLaunch) {
-      if (companyAvailable) mount(home, home);
-      else {
-        view = "chat";
-        mount(chat, chat.editor);
-      }
+      view = "chat";
+      mount(chat, chat.editor);
     } else {
       view = "launch";
       mount(launch, launch);
@@ -1560,16 +1641,9 @@ export class RecursInteractiveShell {
     this.#terminal.setTitle(terminalTitle(this.#cwd));
     tui.start();
     tui.requestRender(true);
-    const animation = this.#animate
-      ? setInterval(() => {
-          this.#frame = (this.#frame + 1) % 2;
-          tui.requestRender();
-        }, 650)
-      : undefined;
     try {
       return await finished;
     } finally {
-      if (animation !== undefined) clearInterval(animation);
       state.onChange(null);
       chat.cancelQuestions();
       tui.stop();

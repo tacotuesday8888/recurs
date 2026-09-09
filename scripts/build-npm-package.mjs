@@ -27,6 +27,7 @@ const externalPackages = new Set([
   "@agentclientprotocol/codex-acp",
   "@agentclientprotocol/sdk",
   "@earendil-works/pi-tui",
+  "@modelcontextprotocol/client",
   "@github/copilot-sdk",
   "@lydell/node-pty",
   "@openai/codex",
@@ -93,7 +94,7 @@ try {
     format: "esm",
     minify: {
       compress: true,
-      mangle: false,
+      mangle: { keepNames: true },
       codegen: {
         removeWhitespace: true,
         legalComments: "inline",

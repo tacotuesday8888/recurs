@@ -21,16 +21,16 @@ recurs
 
 `--global` only makes the `recurs` command available from any directory.
 Use the `@alpha` tag explicitly: npm's unqualified `latest` tag still points to
-`0.1.0-alpha.2`, while `alpha` points to `0.1.0-alpha.8`. The published
-alpha.8 archive is immutable; later changes on `main` are current-source
-behavior until another deliberately tagged prerelease is published.
+`0.1.0-alpha.2`, while `alpha` was verified to point to `0.1.0-alpha.7` on
+September 9, 2026. Source version `0.1.0-alpha.9` is being prepared; see
+[release readiness](RELEASE_READINESS.md) for artifact and publication evidence.
 
 The same reviewed npm artifact is also available through Bun-as-installer, the
 checksummed GitHub release installer, and Homebrew:
 
 ```bash
 bun install --global recurs@alpha
-curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.8/install.sh | sh
+curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.7/install.sh | sh
 brew install tacotuesday8888/recurs/recurs
 ```
 
@@ -76,33 +76,29 @@ npm link
 recurs
 ```
 
-The packaged Recurs artifact is gated below 2.1 MB unpacked, but its runtime
-dependencies are installed separately. The `0.1.0-alpha.8` artifact measured
-463 KiB compressed / 1.98 MiB unpacked and 42.7 MiB in a clean Apple-silicon
-production prefix, without Codex. The
-source-development tree is larger because it retains exact Codex compatibility
-fixtures. Treat these as directional measurements because platform packages
-and npm versions differ.
+The Recurs JavaScript bundle remains gated below 2.10 MB. Runtime dependencies
+are installed separately. Current source uses name-preserving variable
+minification; final package and installation measurements are recorded in
+[release readiness](RELEASE_READINESS.md). Source development also installs
+Codex compatibility fixtures that are absent from a normal Recurs install.
 
 ## First run
 
-Run `recurs` in a local terminal to open the chats for the current project.
-Choose **Start New Project** to enter guided setup, or run `recurs setup`
-directly. Guided setup:
+Run `recurs` in a local terminal inside your project. Choose an existing
+session or **Start new project**. Setup discovers saved accounts and local
+runtimes, connects your chosen model, and asks for a permission boundary.
+Choose **Start coding** to begin immediately with bounded defaults.
 
-1. discovers saved accounts and local runtimes;
-2. offers reviewed provider paths;
-3. selects permissions and an operating mode;
-4. offers explicit specialist routing;
-5. optionally forms a project-specific company; and
-6. reads or creates project context.
+For a tailored team, select an operating mode instead. Setup then offers team
+limits, model routes, and optional Quick, Guided, or Deep project onboarding.
+Quick keeps the interview short; Guided and Deep can inspect the project with
+your consent before proposing roles and responsibilities. Review the complete
+proposal with Page Up/Down before approving it. Approval saves configuration;
+`/goal launch` starts the approved work.
 
-Setup is local and user-present. Automation environments cannot drive the
-interactive flow. An approved company starts a fresh parent session with its
-first goal active; run `/goal launch` to begin the bounded company workflow
-without retyping that objective. Saved interviews and proposals remain
-distinct from inactive rosters, stop setup without creating a new session, and
-resume through `recurs setup`.
+Run `recurs setup` to revisit configuration or resume an interrupted interview.
+Existing sessions keep their original backend pins. Returning users can open
+their saved conversation without repeating setup.
 
 Recurs's release gate drives this exact first-run path through an installed npm
 artifact with an empty private home and a deterministic local provider. The
@@ -114,30 +110,32 @@ shown by `/agents teams` is already applied.
 
 ### Terminal interface
 
-In an interactive TTY, Recurs opens on a project-scoped chat launcher. Opening
-a chat with an approved blueprint reveals its one-to-four-layer company floor;
-a legacy chat without one opens directly in the normal coding transcript. The
-roster, reporting order, departments, and maximum depth come from onboarding
-and the selected operating mode; they are not a fixed demo company.
-Inactive approved roles remain visibly inactive, while assigned models,
-activity, completion, review, repair, usage, and failures come only from
-normalized runtime events.
+The session launcher opens the parent conversation. Type a task, use `/` for
+command completion, or complete file paths in the editor. Enter sends;
+Shift+Enter inserts a newline. Page Up/Down scrolls history and Ctrl+End returns
+to the latest output. Streaming output preserves your reading position.
 
-Use the arrow keys to select a role and `Enter` to open chat. `Ctrl+G` moves
-between chat and the company floor. `Ctrl+T` opens the live assignment panel,
-which lists only assignments that actually activated. `Ctrl+C` cancels the
-active turn. `Escape` returns from the company floor to the project chats,
-while `q` quits; `Escape` also closes the task panel. The launcher never mixes
-chats from another workspace.
+- **Ctrl+G** opens the configured team tree. Roles without executions are
+  labeled inactive; configured roles are not counted as running agents.
+- **Ctrl+T** opens actual executions: ordinary children, batches, teams and
+  company goals, including completed and failed history.
+- **Enter** on an execution opens that exact session's durable transcript,
+  model, permission boundary, changed files and evidence.
+- **Ctrl+C** in a child inspector cancels that execution and its descendants
+  when this process owns it. The inspector has no parent composer. Return to
+  the parent to send instructions; targeted child steering is unavailable.
+- **R** refreshes an inspected transcript. Escape returns to the execution list.
+  In an empty parent composer, Escape returns to session navigation.
+- **Ctrl+Q** quits. Ctrl+C in the parent conversation cancels its active turn.
 
-Chat keeps the existing slash commands, command and file completion, image
-staging, approvals, agent questions, and owned-process attachment. Permission
-and approval questions use the same terminal surface, are queued rather than
-dropped, and restore an unfinished draft afterward. Selecting an inactive or
-child role opens its truthful operating context; messages still route through
-the parent until direct child messaging exists. Non-TTY and structured-output
-modes are unchanged. Set `RECURS_NO_TUI=1` to use the legacy line-oriented
-interface in a local terminal.
+Approval and agent questions are queued, and your draft returns afterward.
+Vendor runtimes may expose only prompts and final responses; the inspector
+states when internal traces are unavailable. Reopened work whose owner cannot
+be established is marked unknown, with a recovery explanation.
+
+`NO_COLOR`, `CLICOLOR=0`, and `TERM=dumb` disable presentation color. Set
+`RECURS_NO_TUI=1` for the line-oriented interactive interface. Headless text,
+JSON, JSONL and ACP remain available.
 
 ## Provider access
 
@@ -273,27 +271,13 @@ Use `/help` inside the CLI for the exact current command list.
 
 ### Terminal presentation
 
-The interactive CLI opens on the current project's chats and uses the same
-terminal system for setup, the company floor, live tasks, approvals, and chat.
-Operational screens use the compact `R↘ RECURS / PROJECT / VIEW` breadcrumb so
-the large repository wordmark never crowds the work. Color-capable interactive
-terminals keep the user's existing background; V19 foreground accents express
-hierarchy and state without repainting the viewport. The composer and controls
-stay at the bottom while the active content uses the available viewport.
-`NO_COLOR`, `CLICOLOR=0`, and dumb or non-TTY terminals keep semantic labels
-and remove presentation color.
+Recurs uses pi-tui for differential rendering, input, bracketed paste and
+completion. The application presents a conventional conversation, configured
+team tree and separate execution inspector. It does not run decorative timers.
+Terminal output is sanitized before presentation, and unknown usage or cost is
+never represented as zero. Company handoff usage is labeled partial.
 
-The company floor combines two truthful sources: the approved onboarding
-blueprint supplies its reporting layers and complete roster, and normalized
-runtime events supply activation, assigned models, effort, status, and
-activity. Review and repair phase, request counts, handoff outcomes, evidence
-counts, and failures remain visible. Usage observed only on completed handoffs
-is labeled `USAGE PARTIAL`; missing reports remain `USAGE UNKNOWN` and are
-never promoted to an aggregate provider total.
-
-The recovered [V19 visual reference](design/recurs-full-cli-v19-reference.html)
-and [runtime design contract](design/CLI_V19_CONTRACT.md) define the selected
-experience. The reference's sample names and routes are illustrative only.
+The current terminal acceptance record lives in [release readiness](RELEASE_READINESS.md).
 
 ### Recovering without guessing
 
@@ -528,12 +512,22 @@ does not prove user presence, so user-present-only provider paths fail closed.
 
 ## Agent Skills and MCP
 
-Agent Skills are bounded text/resource context. They do not grant tools or
-execute arbitrary code merely by being installed.
+Manage extensions before or after connecting a model:
 
-Approved stdio MCP servers are launched with a filtered environment, bounded
-messages, digest-bound configuration, explicit tool names, and the active
-permission policy. Server metadata and results are untrusted data.
+```bash
+recurs mcp list
+recurs skills list
+```
+
+The same commands are available as `/mcp` and `/skills` inside a session.
+MCP supports approved stdio processes and standard HTTP, OAuth, tools,
+resources and prompts. User and project scopes have explicit precedence and
+project trust. See [MCP setup and troubleshooting](MCP.md).
+
+Skills can be copied from local bundles or installed from an explicitly
+selected public source. They load instructions and referenced resources
+without granting new tool permissions or executing dependency installers.
+See [skills installation, invocation and scope](SKILLS.md).
 
 ## Lifecycle hooks
 
@@ -616,7 +610,7 @@ boundary.
 - Provider discovery does not make an unimplemented transport runnable.
 - Delegated runtimes remain limited to their reviewed host-tool contract.
 - Agent Skills are context, not executable plugins.
-- MCP marketplace installation and remote OAuth are not implemented.
+- There is no extension marketplace or guarantee that every third-party server or skill has been tested.
 
 The code-backed capability inventory lives in
 [FEATURE_STATUS.md](FEATURE_STATUS.md).

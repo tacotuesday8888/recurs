@@ -50,6 +50,7 @@ export {
 export {
   CODEX_CLI_INTEGRITY,
   CODEX_CLI_VERSION,
+  CodexCliInstallationError,
   resolveBundledCodexInstallation,
   resolveCodexCliInstallation,
   type BundledCodexInstallation,

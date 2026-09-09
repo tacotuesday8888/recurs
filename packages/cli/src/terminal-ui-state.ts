@@ -1,16 +1,19 @@
-import type { EventSink, RecursEvent } from "@recurs/core";
+import type { AgentExecution, EventSink, RecursEvent } from "@recurs/core";
 import type { CompanyBlueprintV2 } from "@recurs/contracts";
 
-import { sanitizeTerminalText } from "./terminal-text.js";
-import { formatTerminalLabel } from "./terminal-style.js";
+export { renderCompanyHome } from "./terminal-agent-tree.js";
 
 export type TerminalAgentStatus =
   | "running"
   | "completed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "ready"
+  | "unknown";
 
 export interface TerminalAgentView {
+  readonly executionId: string;
+  readonly parentExecutionId: string | null;
   readonly assignmentId: string;
   readonly parentAssignmentId: string | null;
   readonly roleId: string;
@@ -88,6 +91,8 @@ export interface TerminalUiSnapshot {
 }
 
 interface MutableAgent {
+  executionId: string;
+  parentExecutionId: string | null;
   assignmentId: string;
   parentAssignmentId: string | null;
   roleId: string;
@@ -143,6 +148,29 @@ export class TerminalUiState implements EventSink {
     this.#blueprint = blueprint;
   }
 
+  restoreExecutions(executions: readonly AgentExecution[]): void {
+    for (const execution of executions) {
+      if (execution.parentExecutionId === null) continue;
+      const previous = [...this.#assignments.values()].find((agent) => agent.executionId === execution.executionId);
+      this.#assignments.set(execution.executionId, {
+        executionId: execution.executionId,
+        parentExecutionId: execution.parentExecutionId,
+        assignmentId: previous?.assignmentId ?? execution.executionId,
+        parentAssignmentId: previous?.parentAssignmentId ?? null,
+        childAgentId: execution.agentId,
+        roleId: execution.roleId,
+        departmentId: previous?.departmentId ?? "agents",
+        roleName: this.#blueprint?.roles.find((role) => role.id === execution.roleId)?.displayName ?? execution.roleName,
+        model: execution.model,
+        effort: execution.effort,
+        status: execution.status,
+        detail: execution.detail ?? execution.description,
+      });
+      this.#activatedAssignments.add(execution.executionId);
+    }
+    this.#onChange?.();
+  }
+
   onChange(listener: (() => void) | null): void {
     this.#onChange = listener;
   }
@@ -176,12 +204,12 @@ export class TerminalUiState implements EventSink {
           },
           reason: null,
         };
-        this.#assignments.clear();
-        this.#activatedAssignments.clear();
         break;
       case "company_assignment_started":
         this.#activatedAssignments.delete(event.assignmentId);
         this.#assignments.set(event.assignmentId, {
+          executionId: "",
+          parentExecutionId: null,
           assignmentId: event.assignmentId,
           parentAssignmentId: event.parentAssignmentId,
           roleId: event.roleId,
@@ -195,13 +223,35 @@ export class TerminalUiState implements EventSink {
         });
         break;
       case "agent_started": {
-        const agent = [...this.#assignments.values()].find(
-          (candidate) => candidate.childAgentId === event.childAgentId,
+        const placeholder = [...this.#assignments.values()].find(
+          (candidate) => candidate.childAgentId === event.childAgentId && candidate.executionId === "",
         );
+        if (placeholder !== undefined) this.#assignments.delete(placeholder.assignmentId);
+        const parent = [...this.#assignments.values()].find((candidate) => candidate.childAgentId === event.parentAgentId);
+        this.#assignments.set(event.childSessionId, {
+          executionId: event.childSessionId,
+          parentExecutionId: event.sessionId,
+          assignmentId: placeholder?.assignmentId ?? event.childSessionId,
+          parentAssignmentId: placeholder?.parentAssignmentId ?? parent?.assignmentId ?? null,
+          childAgentId: event.childAgentId,
+          roleId: placeholder?.roleId ?? event.company?.roleId ?? event.profileId,
+          departmentId: placeholder?.departmentId ?? "agents",
+          roleName: placeholder?.roleName ?? event.profileId.replace(/_v\d+$/u, ""),
+          model: event.modelId,
+          effort: event.reasoningEffort,
+          status: "running",
+          detail: event.description,
+        });
+        this.#activatedAssignments.add(event.childSessionId);
+        break;
+      }
+      case "agent_completed":
+      case "agent_failed":
+      case "agent_cancelled": {
+        const agent = this.#assignments.get(event.childSessionId);
         if (agent !== undefined) {
-          agent.model = event.modelId;
-          agent.effort = event.reasoningEffort;
-          this.#activatedAssignments.add(agent.assignmentId);
+          agent.status = event.type === "agent_completed" ? "completed" : event.type === "agent_failed" ? "failed" : "cancelled";
+          agent.detail = event.type === "agent_failed" ? event.failure.safeMessage : event.type === "agent_cancelled" ? event.reason : agent.detail;
         }
         break;
       }
@@ -267,10 +317,11 @@ export class TerminalUiState implements EventSink {
     status: Exclude<TerminalAgentStatus, "running">,
     detail: string | null,
   ): void {
-    const agent = this.#assignments.get(assignmentId);
+    const matches = [...this.#assignments.values()].filter((agent) => agent.assignmentId === assignmentId);
+    const agent = matches.findLast((candidate) => candidate.status === "running") ?? matches.at(-1);
     if (agent === undefined) return;
     agent.status = status;
-    agent.detail = detail;
+    if (detail !== null) agent.detail = detail;
   }
 
   snapshot(): TerminalUiSnapshot {
@@ -278,10 +329,10 @@ export class TerminalUiState implements EventSink {
       let current = agent;
       let value = 1;
       const seen = new Set([agent.assignmentId]);
-      while (current.parentAssignmentId !== null) {
-        if (seen.has(current.parentAssignmentId)) break;
-        seen.add(current.parentAssignmentId);
-        const parent = this.#assignments.get(current.parentAssignmentId);
+      while (current.parentExecutionId !== null) {
+        if (seen.has(current.parentExecutionId)) break;
+        seen.add(current.parentExecutionId);
+        const parent = this.#assignments.get(current.parentExecutionId);
         if (parent === undefined) break;
         current = parent;
         value += 1;
@@ -289,7 +340,7 @@ export class TerminalUiState implements EventSink {
       return value;
     };
     const agents = [...this.#assignments.values()]
-      .filter((agent) => this.#activatedAssignments.has(agent.assignmentId))
+      .filter((agent) => this.#activatedAssignments.has(agent.executionId))
       .map((agent): TerminalAgentView => Object.freeze({
         ...agent,
         depth: depth(agent),
@@ -390,6 +441,8 @@ export class TerminalUiState implements EventSink {
       if (matches.some((agent) => agent.status === "running")) return "running";
       if (matches.every((agent) => agent.status === "completed")) return "completed";
       if (matches.some((agent) => agent.status === "failed")) return "failed";
+      if (matches.some((agent) => agent.status === "unknown")) return "unknown";
+      if (matches.some((agent) => agent.status === "ready")) return "ready";
       return "cancelled";
     };
     const children = new Map<string, string[]>();
@@ -439,429 +492,4 @@ export class TerminalUiState implements EventSink {
         (traversalOrder.get(right.roleId) ?? Number.MAX_SAFE_INTEGER)
     ));
   }
-}
-
-function fit(text: string, width: number): string {
-  const safeText = sanitizeTerminalText(text, { multiline: false });
-  if (safeText.length <= width) return safeText;
-  if (width <= 1) return safeText.slice(0, width);
-  return `${safeText.slice(0, width - 1)}…`;
-}
-
-function statusMark(status: TerminalCompanyNodeStatus): string {
-  switch (status) {
-    case "running": return "◆";
-    case "completed": return "✓";
-    case "failed": return "×";
-    case "cancelled": return "−";
-    case "inactive": return "·";
-    case "ready": return "○";
-  }
-}
-
-const LAYER_LABELS = Object.freeze(["DIRECT", "LEAD", "SENIOR", "WORK"]);
-
-function mascotRows(
-  depth: number,
-  frame: number,
-  active: boolean,
-  condensed = false,
-): readonly string[] {
-  const face = active && frame % 2 === 1 ? "▶" : "◀";
-  const feet = active && frame % 2 === 1 ? " ▀  ▀" : "▀  ▀ ";
-  if (condensed) {
-    if (depth === 0) {
-      return Object.freeze([
-        " ▄████▄ ",
-        `${face}██▄██▌`,
-        ` ${feet}`,
-      ]);
-    }
-    if (depth === 1) return Object.freeze([" ▄██▄ ", `${face}████▌`]);
-    return Object.freeze([depth === 2 ? `${face}███▌` : "▄██▄"]);
-  }
-  if (depth === 0) {
-    return Object.freeze([
-      "   ▄██▄   ",
-      " ▄██████▄ ",
-      `${face}██▄██▄██ `,
-      "  ▀████▀  ",
-      ` ${feet} `,
-    ]);
-  }
-  if (depth === 1) {
-    return Object.freeze([
-      "  ▄██▄ ",
-      `${face}████▌ `,
-      " ▀██▀  ",
-      ` ${feet}`,
-    ]);
-  }
-  if (depth === 2) {
-    return Object.freeze([
-      " ▄██▄ ",
-      `${face}███▌ `,
-      "  ▀ ▀ ",
-    ]);
-  }
-  return Object.freeze(["▄██▄", active && frame % 2 === 1 ? " ▀▀ " : "▀  ▀"]);
-}
-
-function nodeMeta(node: TerminalCompanyNodeView): string {
-  if (!node.activated) return "NOT ACTIVATED";
-  const route = node.model === null
-    ? null
-    : `${node.model}${node.effort === null ? "" : ` · ${node.effort}`}`;
-  return route ?? node.detail.toUpperCase();
-}
-
-function centeredCell(text: string, width: number): string {
-  const value = fit(text, Math.max(1, width));
-  const used = Array.from(value).length;
-  const left = Math.max(0, Math.floor((width - used) / 2));
-  return `${" ".repeat(left)}${value}${" ".repeat(Math.max(0, width - used - left))}`;
-}
-
-function layerRows(
-  nodes: readonly TerminalCompanyNodeView[],
-  depth: number,
-  width: number,
-  frame: number,
-  selectedRoleId: string | undefined,
-  condensed = false,
-): readonly string[] {
-  const labelWidth = width >= 72 ? 12 : 10;
-  const contentWidth = Math.max(1, width - labelWidth);
-  const minimumCellWidth = depth <= 1 ? 20 : 16;
-  const maximumColumns = Math.max(1, Math.floor(contentWidth / minimumCellWidth));
-  const rows: string[] = [];
-  for (let start = 0; start < nodes.length; start += maximumColumns) {
-    const group = nodes.slice(start, start + maximumColumns);
-    const cellWidth = Math.max(1, Math.floor(contentWidth / group.length));
-    const pets = group.map((node) => mascotRows(
-      depth,
-      frame,
-      node.status === "running",
-      condensed,
-    ));
-    const petHeight = Math.max(...pets.map((pet) => pet.length));
-    const petRows = Array.from({ length: petHeight }, (_, row) =>
-      group.map((_, index) => centeredCell(pets[index]?.[row] ?? "", cellWidth))
-        .join("")
-    );
-    const blockRows = condensed
-      ? [
-          ...petRows,
-          group.map((node) => centeredCell(
-            `${node.roleId === selectedRoleId ? "> " : ""}${node.roleName.toUpperCase()}  ${statusMark(node.status)} ${nodeMeta(node)}`,
-            cellWidth,
-          )).join(""),
-        ]
-      : [
-          ...petRows,
-          group.map((node) => centeredCell(
-            `${node.roleId === selectedRoleId ? "> " : ""}${node.roleName.toUpperCase()}`,
-            cellWidth,
-          )).join(""),
-          group.map((node) => centeredCell(
-            `${statusMark(node.status)} ${nodeMeta(node)}`,
-            cellWidth,
-          )).join(""),
-        ];
-    for (const [index, row] of blockRows.entries()) {
-      const label = start === 0 && index === 0
-        ? `${String(depth).padStart(2, "0")}  ${LAYER_LABELS[depth] ?? "WORK"}`
-        : "";
-      rows.push(fit(`${label.padEnd(labelWidth)}${row}`, width));
-    }
-  }
-  return Object.freeze(rows);
-}
-
-function connectorRows(
-  width: number,
-  depth: number,
-  frame: number,
-  parents: readonly TerminalCompanyNodeView[],
-  children: readonly TerminalCompanyNodeView[],
-): readonly string[] {
-  const labelWidth = width >= 72 ? 12 : 10;
-  const contentWidth = Math.max(1, width - labelWidth);
-  const centers = (count: number): readonly number[] => Array.from(
-    { length: count },
-    (_, index) => Math.min(
-      contentWidth - 1,
-      Math.floor(((index + 0.5) * contentWidth) / Math.max(1, count)),
-    ),
-  );
-  const parentCenters = centers(parents.length);
-  const childCenters = centers(children.length);
-  const glyphs = Array.from({ length: contentWidth }, () => " ");
-  let edge = 0;
-  for (const [parentIndex, parent] of parents.entries()) {
-    const targets = children.map((child, index) => ({ child, index })).filter(
-      ({ child }) => child.reportsToRoleId === parent.roleId,
-    );
-    const parentCenter = parentCenters[parentIndex];
-    if (parentCenter === undefined || targets.length === 0) continue;
-    for (const { index } of targets) {
-      const childCenter = childCenters[index];
-      if (childCenter === undefined) continue;
-      if (childCenter === parentCenter) {
-        glyphs[parentCenter] = "│";
-        continue;
-      }
-      const from = Math.min(parentCenter, childCenter);
-      const to = Math.max(parentCenter, childCenter);
-      for (let column = from + 1; column < to; column += 1) {
-        if (glyphs[column] === " ") glyphs[column] = "·";
-      }
-      const span = Math.max(1, to - from - 1);
-      const pulse = from + 1 + ((frame * 3 + depth * 5 + edge) % span);
-      if (pulse < to) glyphs[pulse] = "•";
-      glyphs[from] = glyphs[from] === " " ? "╰" : "┼";
-      glyphs[to] = glyphs[to] === " " ? "╮" : "┼";
-      glyphs[parentCenter] = "┬";
-      edge += 1;
-    }
-  }
-  if (edge === 0 && !glyphs.includes("│")) return Object.freeze([]);
-  return Object.freeze([
-    fit(`${"".padEnd(labelWidth)}${glyphs.join("")}`, width),
-  ]);
-}
-
-function compactCount(value: number): string {
-  if (value < 1_000) return String(value);
-  if (value < 1_000_000) return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}K`;
-  return `${(value / 1_000_000).toFixed(value < 10_000_000 ? 1 : 0)}M`;
-}
-
-function reviewSummary(goal: TerminalGoalView): string | null {
-  if (goal.reviewVerdict === null) return null;
-  const verdict = goal.reviewVerdict.replaceAll("_", " ").toUpperCase();
-  const findings = goal.reviewFindings === 0
-    ? "NO FINDINGS"
-    : `${goal.reviewFindings} ${goal.reviewFindings === 1 ? "FINDING" : "FINDINGS"}`;
-  return `REVIEW ${verdict} · ${findings}`;
-}
-
-function handoffSummary(goal: TerminalGoalView): string {
-  const parts = [`HANDOFFS ${goal.handoffs.completed} DONE`];
-  if (goal.handoffs.failed > 0) parts.push(`${goal.handoffs.failed} FAILED`);
-  if (goal.handoffs.cancelled > 0) parts.push(`${goal.handoffs.cancelled} CANCELLED`);
-  parts.push(`EVIDENCE ${goal.evidenceCount}`);
-  return parts.join(" · ");
-}
-
-function usageSummary(goal: TerminalGoalView): string {
-  const usage = goal.handoffUsage;
-  if (usage.reported === 0) {
-    return usage.missing === 0 ? "USAGE PENDING" : "USAGE UNKNOWN";
-  }
-  const cost = usage.costMissing === 0 && usage.costReported > 0
-    ? `$${usage.reportedCostUsd.toFixed(2)} REPORTED`
-    : "COST UNKNOWN";
-  return `USAGE PARTIAL · ${compactCount(usage.inputTokens)} IN · ${
-    compactCount(usage.outputTokens)
-  } OUT · ${cost}`;
-}
-
-function compactCompanyHome(
-  snapshot: TerminalUiSnapshot,
-  width: number,
-  header: string,
-  goalLabel: string,
-  title: string,
-  selectedRoleId: string | undefined,
-  requestedHeight: number | undefined,
-): readonly string[] {
-  const targetHeight = Math.max(
-    1,
-    requestedHeight ?? snapshot.company.length + 9,
-  );
-  const selectedIndex = Math.max(
-    0,
-    snapshot.company.findIndex((node) => node.roleId === selectedRoleId),
-  );
-  const visibleCount = Math.max(1, targetHeight - 9);
-  const start = Math.min(
-    Math.max(0, selectedIndex - visibleCount + 1),
-    Math.max(0, snapshot.company.length - visibleCount),
-  );
-  const visible = snapshot.company.slice(start, start + visibleCount);
-  const selected = snapshot.company[selectedIndex] ?? snapshot.company[0];
-  const lines = [
-    fit(header, width),
-    "─".repeat(width),
-    fit(goalLabel.toUpperCase(), width),
-    fit(title, width),
-    "",
-    ...visible.map((node) => fit(
-      `${String(node.depth).padStart(2, "0")} ${LAYER_LABELS[node.depth] ?? "WORK"}  ${
-        node.roleId === selectedRoleId ? ">" : " "
-      } ${node.roleName.toUpperCase()} · ${statusMark(node.status)} ${nodeMeta(node)}`,
-      width,
-    )),
-  ];
-  while (lines.length < targetHeight - 4) lines.push("");
-  lines.push(
-    fit(
-      selected === undefined
-        ? "NO ROLE SELECTED"
-        : `✳ ${selected.roleName.toUpperCase()} · ${formatTerminalLabel(selected.departmentId).toUpperCase()} · ${selected.status.toUpperCase()}`,
-      width,
-    ),
-    "─".repeat(width),
-    fit(`${formatTerminalLabel(snapshot.session.mode)} · ${formatTerminalLabel(snapshot.session.permission)}`, width),
-    fit("ENTER OPEN   ARROWS SELECT   CTRL+T TASKS   Q QUIT", width),
-  );
-  return Object.freeze(lines.slice(0, targetHeight));
-}
-
-export function renderCompanyHome(
-  snapshot: TerminalUiSnapshot,
-  requestedWidth: number,
-  frame: number,
-  selectedRoleId?: string,
-  requestedHeight?: number,
-): readonly string[] {
-  const width = Math.max(1, requestedWidth);
-  const workspace = (snapshot.session.workspace ?? "workspace")
-    .replaceAll("_", "-").toUpperCase();
-  const live = snapshot.goal?.status === "running";
-  const leftHeader = width < 54
-    ? "R↘ RECURS / COMPANY"
-    : `R↘ RECURS / ${workspace} / COMPANY`;
-  const rightHeader = `${live ? "● LIVE" : "○ READY"} · ${formatTerminalLabel(snapshot.session.mode).toUpperCase()}`;
-  const headerGap = Math.max(1, width - Array.from(leftHeader).length -
-    Array.from(rightHeader).length);
-  const header = width < 54
-    ? leftHeader
-    : `${leftHeader}${" ".repeat(headerGap)}${rightHeader}`;
-  const title = snapshot.goal === null
-    ? "Your company is ready."
-    : snapshot.goal.status === "running"
-      ? "Your company is working."
-      : snapshot.goal.status === "completed"
-        ? "Your company finished."
-        : `Company goal ${snapshot.goal.status}.`;
-  const goalLabel = snapshot.goal === null
-    ? "NO ACTIVE GOAL · START FROM CHAT"
-    : `ACTIVE GOAL · ${snapshot.goal.objective}`;
-  const labelWidth = width >= 72 ? 12 : 10;
-  const layerTooDense = [...new Set(snapshot.company.map((node) => node.depth))]
-    .some((depth) => {
-      const minimumCellWidth = depth <= 1 ? 20 : 16;
-      const capacity = Math.max(
-        1,
-        Math.floor((width - labelWidth) / minimumCellWidth),
-      );
-      return snapshot.company.filter((node) => node.depth === depth).length >
-        capacity;
-    });
-  if (
-    width < 40 || layerTooDense ||
-    (requestedHeight !== undefined && requestedHeight < 22)
-  ) {
-    return compactCompanyHome(
-      snapshot,
-      width,
-      header,
-      goalLabel,
-      title,
-      selectedRoleId,
-      requestedHeight,
-    );
-  }
-  const lines = [
-    fit(header, width),
-    "─".repeat(width),
-    fit(goalLabel.toUpperCase(), width),
-    fit(title, width),
-    "",
-  ];
-  const depths = [...new Set(snapshot.company.map((node) => node.depth))]
-    .sort((left, right) => left - right);
-  const condensed = requestedHeight !== undefined && requestedHeight < 38;
-  let previousLayer: readonly TerminalCompanyNodeView[] = Object.freeze([]);
-  for (const depth of depths) {
-    const layer = snapshot.company.filter((node) => node.depth === depth);
-    if (depth > 0) {
-      lines.push(...connectorRows(
-        width,
-        depth,
-        frame,
-        previousLayer,
-        layer,
-      ));
-    }
-    lines.push(...layerRows(
-      layer,
-      depth,
-      width,
-      frame,
-      selectedRoleId,
-      condensed,
-    ));
-    previousLayer = layer;
-  }
-  const selected = snapshot.company.find(
-    (node) => node.roleId === selectedRoleId,
-  ) ?? snapshot.company[0];
-  if (selected !== undefined) {
-    lines.push(
-      "",
-      fit(
-        `✳ ${selected.roleName.toUpperCase()}  ${formatTerminalLabel(selected.departmentId).toUpperCase()} · ${selected.status.toUpperCase()} · ${selected.detail}  ENTER OPEN`,
-        width,
-      ),
-    );
-  }
-  const goal = snapshot.goal;
-  lines.push(
-    "─".repeat(width),
-    fit(
-      goal === null
-        ? `${formatTerminalLabel(snapshot.session.mode)} · ${formatTerminalLabel(snapshot.session.permission)}`
-        : `${goal.status.toUpperCase()} · ${goal.activeAgents}/${goal.maxActiveAgents} ACTIVE · ${goal.objective}`,
-      width,
-    ),
-    ...(goal === null || condensed
-      ? []
-      : [
-          fit(
-            `${goal.phase === null ? "STARTING" : goal.phase.toUpperCase()}${
-              goal.phase === "repair" ? ` ${goal.repairRound}` : ""
-            } · REQUESTS ${goal.requestsUsed}/${goal.maxRequests}`,
-            width,
-          ),
-          ...(reviewSummary(goal) === null
-            ? []
-            : [fit(reviewSummary(goal)!, width)]),
-          fit(handoffSummary(goal), width),
-          fit(usageSummary(goal), width),
-          ...(goal.reason === null
-            ? []
-            : [fit(`DETAIL · ${goal.reason}`, width)]),
-        ]),
-    fit(
-      snapshot.company.length <= 1
-        ? "ENTER CHAT   CTRL+Q QUIT"
-        : "ENTER OPEN   ARROWS SELECT   / COMMANDS   CTRL+Q QUIT",
-      width,
-    ),
-  );
-  if (requestedHeight === undefined) return Object.freeze(lines);
-  const height = Math.max(1, requestedHeight);
-  if (lines.length < height) {
-    const footerRows = goal === null || condensed ? 3 : 7 +
-      (reviewSummary(goal) === null ? 0 : 1) + (goal.reason === null ? 0 : 1);
-    const insertion = Math.max(5, lines.length - footerRows);
-    lines.splice(insertion, 0, ...Array.from(
-      { length: height - lines.length },
-      () => "",
-    ));
-  }
-  return Object.freeze(lines.slice(0, height));
 }

@@ -568,7 +568,7 @@ describe("runCli", () => {
     expect(stdout.value).toContain("Onboarding complete");
     expect(stdout.value).toContain("Starting a fresh durable session");
     expect(stdout.value).toContain("Full Access was not enabled");
-    expect(stdout.value).toContain("The best coding model is a team.");
+    expect(stdout.value).toContain("Coding agents with teams you can inspect and control.");
     expect(stderr.value).toBe("");
   });
 
@@ -3892,7 +3892,7 @@ describe("runCli", () => {
     });
 
     expect(exitCode).toBe(0);
-    expect(stdout.value).toContain("The best coding model is a team.");
+    expect(stdout.value).toContain("Coding agents with teams you can inspect and control.");
     expect(stderr.value).toBe("");
   });
 

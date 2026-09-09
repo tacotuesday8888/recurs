@@ -95,7 +95,7 @@ describe("startRepl", () => {
     expect(withoutAnsi(output.value)).toContain(
       "████   █████   ████  █   █  ████   ████",
     );
-    expect(output.value).toContain("The best coding model is a team.");
+    expect(output.value).toContain("Coding agents with teams you can inspect and control.");
     expect(output.value).toContain("\u001b[96mrecurs › \u001b[0m");
   });
 
@@ -117,7 +117,7 @@ describe("startRepl", () => {
     });
 
     expect(output.value).toContain("RECURS");
-    expect(output.value).toContain("The best coding model is a team.");
+    expect(output.value).toContain("Coding agents with teams you can inspect and control.");
     expect(output.value).not.toContain("\u001b[");
     expect(output.value).not.toContain("█");
   });

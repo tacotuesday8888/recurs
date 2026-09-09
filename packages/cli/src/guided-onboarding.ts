@@ -27,6 +27,7 @@ import {
   compileCompanyBlueprint,
   CompanyOnboardingCoordinatorError,
   type CompanyOnboardingCoordinator,
+  type CompanyOnboardingAdvanceResult,
 } from "@recurs/core";
 import { openAIResponsesReasoningEfforts } from "@recurs/app";
 import {
@@ -712,11 +713,14 @@ async function selectPermission(
 
 async function selectOperatingMode(
   ports: GuidedOnboardingPorts,
-): Promise<OperatingModeId> {
+): Promise<OperatingModeId | "start_coding"> {
   const selected = await ports.selectChoice(
     "Choose how much agent teamwork Recurs should use",
-    GUIDED_OPERATING_MODE_CHOICES,
+    [{ id: "start_coding", label: "Start coding (recommended)",
+      detail: "use bounded defaults now; configure a project team later with recurs setup", recommended: true },
+      ...GUIDED_OPERATING_MODE_CHOICES.map((choice) => ({ ...choice, recommended: false }))],
   );
+  if (selected === "start_coding") return selected;
   return selected === null
     ? DEFAULT_OPERATING_MODE_ID
     : guidedOperatingModeId(selected) ?? DEFAULT_OPERATING_MODE_ID;
@@ -1401,7 +1405,11 @@ async function setupCompanyBlueprintV2(
       ports.stdout,
       `${theme.muted(formationStage)}\n`,
     );
-    const advanced = await service.coordinator.advance(run.state.id, ports.signal);
+    // A saved proposal is already complete: reopening it must present the same
+    // durable revision without asking the formation model to advance again.
+    const advanced: CompanyOnboardingAdvanceResult = run.state.status === "proposed" && run.state.proposal !== null
+      ? { kind: "proposal" as const, blueprint: run.state.proposal.blueprint, run }
+      : await service.coordinator.advance(run.state.id, ports.signal);
     run = advanced.run;
     if (advanced.kind === "researched") {
       const completed = run.state.research.filter((item) =>
@@ -1691,7 +1699,7 @@ async function runGuidedOnboardingSteps(
   await writeOutput(ports.stdout, [
     `\n${renderRecursHeader(theme, "Welcome to Recurs", { columns })}`,
     "",
-    theme.strong("The best coding model is a team. You control the team."),
+    theme.strong("Coding agents with teams you can inspect and control."),
     "Connect a parent, set its boundaries, then choose how the team works.",
     "Company formation is optional.",
     theme.muted("Credentials stay with the vendor runtime or a named process environment—never this generic prompt."),
@@ -1794,7 +1802,19 @@ async function runGuidedOnboardingSteps(
     ports.stdout,
     `\n${renderSetupStep(theme, 3, stepCount, "Team")}\n`,
   );
-  const operatingModeId = await selectOperatingMode(ports);
+  const selectedMode = await selectOperatingMode(ports);
+  if (selectedMode === "start_coding") {
+    await ports.ensureTeamControls?.(DEFAULT_OPERATING_MODE_ID, ports.signal);
+    await writeOutput(ports.stdout, [
+      "Ready to code.",
+      `Authority: ${permissionLabel(permissionMode)}`,
+      "Describe a coding task. Use /agents controls to inspect limits, /model for routes,",
+      "or recurs setup to complete Quick, Guided, or Deep project onboarding later.",
+      "",
+    ].join("\n"));
+    return { state: "configured", permissionMode, operatingModeId: DEFAULT_OPERATING_MODE_ID };
+  }
+  const operatingModeId = selectedMode;
   const teamControls = await setupTeamControls(ports, operatingModeId);
   if (teamControls === null) return { state: "failed", exitCode: 2 };
   await writeOutput(

@@ -59,7 +59,7 @@ export function replApprovalResponse(input: string): ApprovalResponse {
   return answer === "y" || answer === "yes" ? "allow_once" : "deny";
 }
 
-const RECURS_PROMISE = "The best coding model is a team. You control the team.";
+const RECURS_PROMISE = "Coding agents with teams you can inspect and control.";
 
 export function completeReplInput(
   line: string,

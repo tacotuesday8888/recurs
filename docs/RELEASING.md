@@ -14,10 +14,12 @@ Run these gates from a clean checkout of the exact commit that will be tagged:
 npm ci
 npm run check
 npm run package:smoke-install
+npm run package:smoke-terminal
+npm run package:smoke-extensions
 npm run package:smoke-install-bun
 ```
 
-The package gate permits exactly `dist/cli/main.js`, `package.json`, `LICENSE`,
+The package gate permits exactly `dist/cli/main.js`, `dist/cli/recurs-wordmark.png`, `package.json`, `LICENSE`,
 `README.md`, `PRIVACY.md`, `SECURITY.md`, and `THIRD_PARTY_NOTICES.md`. It pins
 the official Apache-2.0 license bytes, exact runtime dependencies, public npm
 registry, provenance setting, package size, executable mode, and absence of
@@ -33,11 +35,10 @@ journey, not a prose-only capability claim.
 The portable npm artifact contains the same TypeScript runtime verified in CI.
 Its package gate caps the unpacked artifact at 2.1 MB; that is not the installed
 footprint. npm resolves runtime dependencies separately, but Codex is not a
-default runtime dependency. The exact `0.1.0-alpha.8` artifact measured
-473,879 bytes compressed / 2,075,263 bytes unpacked and 43,676 KiB in a clean
-Apple-silicon production prefix on 2026-08-13. The source-development tree was
-about 402 MiB because it retains roughly 307 MiB of pinned Codex compatibility
-fixtures.
+default runtime dependency. Current artifact and installed-prefix measurements
+are recorded in [the release evidence](RELEASE_READINESS.md). Source checkout
+size includes pinned Codex compatibility fixtures and is not an install-size
+measurement.
 Record a clean installed-prefix measurement for every release candidate and
 disclose it in release notes.
 
@@ -120,16 +121,14 @@ publishes or verifies the same npm bytes, and makes the GitHub release public
 only after npm succeeds. While Recurs uses prerelease versions, the workflow
 marks the GitHub release as a prerelease and explicitly leaves the `latest`
 label unset; promoting a stable version requires an intentional policy change.
-As of 2026-08-13, npm's `alpha` tag points to `0.1.0-alpha.8` while
-unqualified `latest` still points to `0.1.0-alpha.2`. Keep public commands on
-`recurs@alpha` until a deliberate dist-tag decision is reviewed; never move an
-alpha onto `latest` as incidental release cleanup.
+The September 2026 preflight found npm's `alpha` tag at `0.1.0-alpha.7`,
+while `latest` still pointed to `0.1.0-alpha.2`; an older alpha.8 workflow had
+not completed publication. The alpha.9 candidate must use a new tag and its
+own protected run. Keep public commands on `recurs@alpha`; never move an alpha
+onto `latest` as incidental release cleanup. Verify registry tags after each
+publication and distinguish preparation from publication in public docs.
 
-The 2026-08-13 alpha.8 release measured 473,879 bytes compressed,
-2,075,263 bytes unpacked, and 43,676 KiB in a clean
-Apple-silicon production prefix. The packed archive contained exactly the seven
-allowed files and no bundled dependency tree. Recompute these values after any
-packed-file change. After publication, update
+After publication, update
 `tacotuesday8888/homebrew-recurs/Formula/recurs.rb` so its package URL and
 SHA-256 exactly match the attested release formula, review any platform
 dependency metadata separately, open a tap pull request, and merge it only

@@ -1,6 +1,6 @@
 # Recurs Feature Status
 
-**Audited:** 2026-08-13 against the source, exported package surfaces, CLI
+**Source:** `0.1.0-alpha.9` release candidate. **Audited:** 2026-09-09 against the source, exported package surfaces, CLI
 assembly, durable contracts/stores, provider manifests, and automated tests in
 this public alpha.
 
@@ -15,14 +15,15 @@ context, not a product commitment.
 | --- | --- |
 | Base loop | Provider-neutral streamed turns, strict event reduction, bounded retries/steps/output, tool calls, cancellation, loop detection, steering, and queued follow-ups |
 | Sessions | Durable version-2 sessions, exact backend pins, mutation leases, resume/fork, compaction, recovery, goals, checkpoints, and conflict-safe undo |
-| CLI | Differential-rendered company map and interactive chat with slash/file completion, queued approvals, draft preservation, and images; headless text, JSON, and JSONL; `review`; ACP v1; scoped help; offline `doctor`; explicit local-data location; project `AGENTS.md` loading |
+| CLI | Conventional team tree, actual execution inspector and scrollable Markdown chat with slash/file completion, queued approvals, draft preservation, and images; headless text, JSON, and JSONL; `review`; ACP v1; scoped help; offline `doctor`; explicit local-data location; project `AGENTS.md` loading |
 | Permissions | Ask Always, Approved for Me, Full Access, enforced Plan mode, read-only Review mode, parent ceilings, explicit apply, exact session-scoped interactive grants, and private exact-workspace allow/ask/deny rules |
 | Tools | Bounded file reads/list/search, code outline, TypeScript diagnostics, Git inspection, public web fetch, patching, verification, commands, and owned process sessions |
-| Interoperability | Bounded Agent Skills, user-configured or explicitly project-trusted stdio MCP, a Recurs-owned ACP server, and observe-only user lifecycle hooks |
+| Interoperability | Installable scoped Agent Skills with pinned GitHub bundles, user-configured or explicitly project-trusted stdio/HTTP MCP with OAuth, resources and prompts, a Recurs-owned ACP server, and observe-only user lifecycle hooks |
+| Execution visibility | Ordinary, batch, team and company children share a durable execution inventory with exact parent IDs, model/permissions, transcripts, artifacts, unknown-owner states and scoped cancellation |
 | General sub-agents | One Explore/Implement/Review child, bounded parallel Explore/Review batches, durable Implement teams, independent Review, finding-driven Repair, staging, recovery, explicit apply, and normalized live phase/status/review activity |
 | Operating modes | Stable version-6 Economy, Standard, Balanced, Performance, and Max policies with historical V1-V5 loading |
 | Backend routing | Explicit saved Implement/Review/Repair routes with revalidation, immutable per-run decisions, policy eligibility, and parent fallback; provider discovery does not silently assign specialist routes |
-| Company onboarding | Resumable Quick, Guided, and Deep interviews; Stable Core + Specialists or Guardrailed Dynamic designs; consented read-only research; conversational/YAML revisions; explicit approval |
+| Company onboarding | Immediate coding after connection and authority, plus resumable Quick, Guided, and Deep interviews; Stable Core + Specialists or Guardrailed Dynamic designs; consented read-only research; conversational/YAML revisions; explicit approval |
 | Company execution | Validated assignment DAGs, orchestrator/lead/worker planning handoffs, dependency-ordered implementation stages, independent review, bounded repair, parent apply, and synthesis; the packed-install gate proves the complete formation-to-repaired-apply journey |
 | Company authority | Immutable blueprints; root and independent-review anchors; user-selected topology; frozen active-agent, depth, concurrency, escalation, review, repair, request, and reported-cost limits; claim-time revalidation; structured manager/root escalation; cancellation; truthful events |
 | Company adaptation | Tailored role charters, attributable project knowledge, historical authority snapshots, exact Skill/MCP bundle bindings, approval-gated blueprint amendments, and repeated-run recommendations that can only narrow future team limits |
@@ -49,41 +50,25 @@ context, not a product commitment.
 
 ## Distribution
 
-- `0.1.0-alpha.8` npm package, minimal bundle, empty-prefix installation smoke,
-  and protected publication workflow;
-- checksum-verifying curl installer and official Homebrew tap formula derived
-  from that exact npm archive; and
-- a pinned Linux Bun smoke that globally installs the npm archive, preserves
-  the Node shebang, runs it through Node.js, and proves it fails without Node.
+Source `0.1.0-alpha.9` is prepared through a single-package release pipeline.
+The JavaScript bundle retains its 2.10 MB ceiling. npm, Bun-as-installer,
+checksum-verifying curl and Homebrew all use the same npm archive. There is no
+native Bun runtime, signed standalone binary or Windows subprocess sandbox.
 
-There is no native Bun runtime, signed binary, Windows subprocess containment,
-or desktop app. Bun's verified boundary is package installation, not Recurs
-execution.
-
-The package gate keeps the unpacked Recurs artifact below 2.1 MB. The exact
-`0.1.0-alpha.8` archive measured 463 KiB compressed / 1.98 MiB unpacked. Its
-2026-08-13 Apple-silicon production prefix was 42.7 MiB. Optional Codex
-compatibility packages are not downloaded with Recurs. Codex subscription
-users supply the exact reviewed official CLI separately, so an existing Codex
-installation is shared rather than duplicated. Source development still
-installs the pinned Codex packages to exercise legacy compatibility and exact
-app-server behavior in tests.
-
-The published alpha.8 archive is the immutable tagged artifact. Later changes
-on `main` are current-source behavior until another deliberate preview. npm's
-`alpha` tag selects alpha.8, while unqualified `latest` still selects alpha.2.
+The registry check on September 9 found npm `alpha` at alpha.7 and `latest`
+at alpha.2. The earlier alpha.8 publication claim was incorrect. Exact new
+artifact, merged-source and publication status belong in the
+[release record](RELEASE_READINESS.md).
 
 ## Not implemented
 
-- a full-screen company operations dashboard or desktop client;
+- a desktop client;
 - enough repeated and statistically useful real-model evidence to publish a
   default Sol/Terra/Luna winner;
 - a persistent daemon, cloud worker, scheduler, or work that survives CLI exit;
 - child-created unbounded recursion, autonomous organization rewrites, or
   automatic role/tool authority expansion;
-- arbitrary in-process plugins, blocking/mutating hooks, automatic plugin/MCP
-  installation, a plugin marketplace, remote MCP/OAuth,
-  MCP prompts/resources, or broad connector support;
+- arbitrary in-process plugins, blocking/mutating hooks, automatic extension installation, a plugin marketplace, or universal third-party compatibility;
 - automatic task classification, evidence-expiry policy, or general
   capability/price-aware role routing;
 - Windows subprocess containment and a Recurs-owned Linux seccomp policy;

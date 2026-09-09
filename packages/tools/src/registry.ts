@@ -108,12 +108,15 @@ function sandboxedContext(
   profile: ToolSecurityProfile,
   context: ToolContext,
   intents: readonly { readonly category: string }[],
+  deniedReadPaths: readonly string[],
 ): ToolContext {
   if (profile !== "workspace_sandboxed") return context;
+  const protectedPaths = [...new Set([...deniedReadPaths, ...(context.processSandbox?.deniedReadPaths ?? [])])];
   return {
     ...context,
     processSandbox: {
       mode: "workspace",
+      ...(protectedPaths.length === 0 ? {} : { deniedReadPaths: protectedPaths }),
       network: intents.some((intent) => intent.category === "network")
         ? "allow"
         : "deny",
@@ -193,15 +196,18 @@ export class ToolRegistry {
   readonly #tools = new Map<string, RegisteredTool>();
   readonly #checkpoints: CheckpointStore | undefined;
   readonly #securityProfile: ToolSecurityProfile;
+  readonly #deniedReadPaths: readonly string[];
 
   constructor(
     tools: readonly Tool<never>[] = [],
     options: {
       checkpoints?: CheckpointStore;
       securityProfile?: ToolSecurityProfile;
+      deniedReadPaths?: readonly string[];
     } = {},
   ) {
     this.#checkpoints = options.checkpoints;
+    this.#deniedReadPaths = Object.freeze([...(options.deniedReadPaths ?? [])]);
     this.#securityProfile = options.securityProfile ?? "local_guarded";
     for (const tool of tools) {
       this.register(tool);
@@ -412,6 +418,7 @@ export class ToolRegistry {
       this.#securityProfile,
       context,
       intents,
+      this.#deniedReadPaths,
     );
     await preflightTool(tool, call.name, input, executionContext);
 

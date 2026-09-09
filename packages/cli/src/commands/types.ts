@@ -63,6 +63,10 @@ export interface CommandContext {
 
 export interface CommandDependencies {
   sessions?: JsonlSessionStore;
+  executionControls?: {
+    isExecutionActive(sessionId: string): boolean;
+    cancelExecution(sessionId: string): boolean;
+  };
   provider?: ModelProvider;
   resolveProvider?(
     session: SessionState,

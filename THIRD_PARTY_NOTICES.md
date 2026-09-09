@@ -13,6 +13,7 @@ not install or bundle either package.
 | `@agentclientprotocol/sdk` | 1.3.0 | Apache-2.0 | <https://github.com/agentclientprotocol/typescript-sdk> |
 | `@earendil-works/pi-tui` | 0.83.0 | MIT | <https://github.com/earendil-works/pi/tree/main/packages/tui> |
 | `@github/copilot-sdk` | 1.0.8 | MIT | <https://github.com/github/copilot-sdk> |
+| `@modelcontextprotocol/client` | 2.0.0 | Apache-2.0 and MIT | <https://github.com/modelcontextprotocol/typescript-sdk> |
 | `@lydell/node-pty` | 1.1.0 | MIT | <https://github.com/lydell/node-pty> |
 | `@openai/codex` | 0.145.0 | Apache-2.0 | <https://github.com/openai/codex> |
 | `typescript` | 6.0.3 | Apache-2.0 | <https://github.com/microsoft/TypeScript> |
@@ -33,3 +34,14 @@ that CLI or its native platform payload in the Recurs npm artifact.
 
 Rolldown is used only as a build tool. The package verifier rejects unexpected
 external imports and preserves legal comments in the generated Recurs bundle.
+
+The official MCP TypeScript SDK 2.0.0 package metadata still declares MIT,
+while its shipped `LICENSE` documents a transition: new contributions and
+relicensed contributions use Apache-2.0; original contributions without
+relicensing consent retain MIT. The SDK client and its `@modelcontextprotocol/core`
+2.0.0 dependency are installed separately, with their full license files. Recurs
+uses the SDK through its public interface and does not copy its implementation.
+The client's other separately installed runtime dependencies include
+`cross-spawn` (MIT), `eventsource` (MIT), `eventsource-parser` (MIT), `jose` (MIT),
+`pkce-challenge` (MIT), and `zod` (MIT). Their packaged license files remain
+authoritative.

@@ -7,6 +7,7 @@ import {
   type RecursEvent,
 } from "@recurs/core";
 import { runProcess, ToolError, type ProcessResult } from "@recurs/tools";
+import { prepareMcpAuthDirectory } from "./mcp-auth.js";
 
 import {
   PrivateUserConfigurationError,
@@ -424,6 +425,7 @@ class LifecycleHookEventSink implements EventSink {
     private readonly processRunner: HookProcessRunner = runProcess,
     private readonly now: () => Date = () => new Date(),
     private readonly shutdownTimeoutMs = MAX_SHUTDOWN_MS,
+    private readonly credentialDirectory: string,
   ) {}
 
   #send(event: RecursEvent): Promise<void> {
@@ -477,6 +479,8 @@ class LifecycleHookEventSink implements EventSink {
             mode: "workspace",
             network: "deny",
             workspaceAccess: "read_only",
+            readOnlyFiles: [hook.command],
+            deniedReadPaths: [this.credentialDirectory],
           },
         });
         result = this.#result(event, hook, payload, { outcome: "completed" });
@@ -548,6 +552,7 @@ export async function createLifecycleHookHost(input: {
     input.processRunner,
     input.now,
     input.shutdownTimeoutMs,
+    await prepareMcpAuthDirectory(input.dataDirectory),
   );
   return Object.freeze({ events: sink, close: () => sink.close() });
 }

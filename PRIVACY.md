@@ -25,7 +25,11 @@ checkpoints, provider-routing metadata, team journals, company blueprints, and
 project knowledge below one private data directory. These records can contain
 sensitive source context. Saved BYOK records contain an environment-variable
 name and one-way credential fingerprint, never the credential value. Vendor
-tokens remain owned by the delegated runtime.
+tokens remain owned by the delegated runtime. MCP OAuth access and refresh
+tokens are stored separately in private files below the data directory’s
+`auth/mcp` folder. They are excluded from ordinary agent file tools and
+process reads. `/mcp logout <id>` removes the local MCP credentials; server-side
+revocation depends on the issuer.
 
 Run this explicit, read-only command to locate the active directory:
 

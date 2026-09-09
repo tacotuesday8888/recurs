@@ -83,7 +83,7 @@ function fourLayerBlueprint(): CompanyBlueprintV2 {
 }
 
 describe("TerminalUiState", () => {
-  it("renders the onboarding-defined company as a dynamic one-to-four-layer floor", () => {
+  it("renders the onboarding-defined company as a compact reporting tree", () => {
     const state = new TerminalUiState({
       model: "gpt-5.6-sol",
       mode: "max_v6",
@@ -104,17 +104,17 @@ describe("TerminalUiState", () => {
     ]);
 
     const rendered = renderCompanyHome(state.snapshot(), 132, 0).join("\n");
-    expect(rendered).toContain("R↘ RECURS / AUTH-SERVICE / COMPANY");
-    expect(rendered).toContain("Your company is ready.");
-    expect(rendered).toContain("00  DIRECT");
-    expect(rendered).toContain("01  LEAD");
-    expect(rendered).toContain("02  SENIOR");
-    expect(rendered).toContain("03  WORK");
-    expect(rendered).toContain("DIRECTOR");
-    expect(rendered).toContain("ENGINEERING LEAD");
-    expect(rendered).toContain("AUTH WORKER");
-    expect(rendered).toContain("NOT ACTIVATED");
-    expect(rendered).not.toContain("SCOPED BUILDER");
+    expect(rendered).toContain("Recurs · auth-service · Team");
+    expect(rendered).toContain("Start a coding task in chat");
+    expect(rendered).toContain("Director");
+    expect(rendered).toContain("Engineering Lead");
+    expect(rendered).toContain("Implement");
+    expect(rendered).toContain("Auth Worker");
+    expect(rendered).toContain("Director");
+    expect(rendered).toContain("Engineering Lead");
+    expect(rendered).toContain("Auth Worker");
+    expect(rendered).toContain("not activated");
+    expect(rendered).not.toContain("Scoped Builder");
   });
 
   it("keeps reporting groups in the onboarding-defined hierarchy order", () => {
@@ -216,10 +216,10 @@ describe("TerminalUiState", () => {
       1,
       "auth_worker",
     ).join("\n");
-    expect(rendered).toContain("Your company is working.");
-    expect(rendered).toContain("AUTH WORKER");
-    expect(rendered).toContain("gpt-5.6-terra · medium");
-    expect(rendered).toContain("ENGINEERING · RUNNING");
+    expect(rendered).toContain("running · Implement token rotation");
+    expect(rendered).toContain("Auth Worker");
+    expect(rendered).toContain("gpt-5.6-terra / medium");
+    expect(rendered).toContain("Auth Worker · running");
   });
 
   it("does not invent an onboarding roster when no blueprint is attached", () => {
@@ -230,10 +230,10 @@ describe("TerminalUiState", () => {
     });
 
     const rendered = renderCompanyHome(state.snapshot(), 100, 0).join("\n");
-    expect(rendered).toContain("PARENT");
-    expect(rendered).not.toContain("ENGINEERING LEAD");
-    expect(rendered).not.toContain("QUALITY LEAD");
-    expect(rendered).not.toContain("AUTH WORKER");
+    expect(rendered).toContain("Parent");
+    expect(rendered).not.toContain("Engineering Lead");
+    expect(rendered).not.toContain("Quality Lead");
+    expect(rendered).not.toContain("Auth Worker");
   });
 
   it("projects a truthful layered company from normalized runtime events", async () => {
@@ -343,7 +343,8 @@ describe("TerminalUiState", () => {
         assignmentId: "worker-1",
         parentAssignmentId: "lead-1",
         roleName: "Builder",
-        depth: 2,
+        parentExecutionId: "parent-session",
+        depth: 1,
         model: "gpt-5.6-terra",
         effort: "medium",
         status: "running",
@@ -351,10 +352,10 @@ describe("TerminalUiState", () => {
     ]);
 
     const rendered = renderCompanyHome(snapshot, 88, 0).join("\n");
-    expect(rendered).toContain("IMPLEMENTATION LEAD");
-    expect(rendered).toContain("BUILDER");
-    expect(rendered).toContain("gpt-5.6-terra · medium");
-    expect(rendered).toContain("│");
+    expect(rendered).toContain("Implementation Lead");
+    expect(rendered).toContain("Builder");
+    expect(rendered).toContain("gpt-5.6-terra / medium");
+    expect(rendered).toContain("└─");
     expect(rendered).not.toContain("balanced_v6");
     expect(rendered).not.toContain("approved_for_me");
     expect(rendered).not.toContain("goal-1");
@@ -476,7 +477,7 @@ describe("TerminalUiState", () => {
     }
   });
 
-  it("keeps the compact V19 company header usable at wide and narrow widths", () => {
+  it("keeps the team header usable at wide and narrow widths", () => {
     const state = new TerminalUiState({
       model: "parent-model",
       mode: "balanced_v6",
@@ -486,28 +487,14 @@ describe("TerminalUiState", () => {
     const wide = renderCompanyHome(state.snapshot(), 80, 0);
     const narrow = renderCompanyHome(state.snapshot(), 24, 0);
 
-    expect(wide[0]).toContain("R↘ RECURS / WORKSPACE / COMPANY");
+    expect(wide[0]).toContain("Recurs · workspace · Team");
     expect(wide).toEqual(expect.arrayContaining([
-      expect.stringContaining("00  DIRECT"),
-      expect.stringContaining("PARENT"),
+      expect.stringContaining("Parent"),
     ]));
-    expect(wide.join("\n")).not.toContain("· · NOT ACTIVATED");
-    expect(narrow[0]).toBe("R↘ RECURS / COMPANY");
+    expect(wide.join("\n")).not.toContain("· · not activated");
+    expect(narrow[0]).toContain("Recurs · workspace");
     expect(narrow.every((line) => Array.from(line).length <= 24)).toBe(true);
-    expect(narrow).toMatchInlineSnapshot(`
-      [
-        "R↘ RECURS / COMPANY",
-        "────────────────────────",
-        "NO ACTIVE GOAL · START …",
-        "Your company is ready.",
-        "",
-        "00 DIRECT    PARENT · ○…",
-        "✳ PARENT · COMPANY · RE…",
-        "────────────────────────",
-        "Balanced · Approved for…",
-        "ENTER OPEN   ARROWS SEL…",
-      ]
-    `);
+
   });
 
   it("keeps the selected role visible in a short terminal", () => {
@@ -526,11 +513,11 @@ describe("TerminalUiState", () => {
     );
 
     expect(rendered).toHaveLength(16);
-    expect(rendered.join("\n")).toContain("> AUTH WORKER");
-    expect(rendered.join("\n")).toContain("03 WORK");
+    expect(rendered.join("\n")).toContain(">     └─ Auth Worker");
+    expect(rendered.join("\n")).toContain("└─ Auth Worker");
   });
 
-  it("keeps the V19 layered company floor at a normal 30-row height", () => {
+  it("keeps the reporting tree at a normal 30-row height", () => {
     const state = new TerminalUiState({
       model: "parent-model",
       mode: "max_v6",
@@ -547,14 +534,14 @@ describe("TerminalUiState", () => {
     const frame = rendered.join("\n");
 
     expect(rendered.length).toBeLessThanOrEqual(30);
-    expect(frame).toContain("00  DIRECT");
-    expect(frame).toContain("01  LEAD");
-    expect(frame).toContain("02  SENIOR");
-    expect(frame).toContain("03  WORK");
-    expect(frame).toContain("▄██▄");
-    expect(frame).toContain("╰");
-    expect(frame).toContain("AUTH WORKER");
-    expect(frame).not.toContain("· · NOT ACTIVATED");
+    expect(frame).toContain("Director");
+    expect(frame).toContain("Engineering Lead");
+    expect(frame).toContain("Implement");
+    expect(frame).toContain("Auth Worker");
+    expect(frame).not.toContain("▄██▄");
+    expect(frame).toContain("└─");
+    expect(frame).toContain("Auth Worker");
+    expect(frame).not.toContain("· · not activated");
   });
 
   it("projects review, repair, handoff, evidence, request, and partial usage activity", async () => {
@@ -771,7 +758,7 @@ describe("TerminalUiState", () => {
     });
   });
 
-  it("moves connector dots between animation frames without changing layout", () => {
+  it("does not animate idle team geometry", () => {
     const state = new TerminalUiState({
       model: "parent-model",
       mode: "balanced_v6",
@@ -780,7 +767,7 @@ describe("TerminalUiState", () => {
     const first = renderCompanyHome(state.snapshot(), 80, 0);
     const second = renderCompanyHome(state.snapshot(), 80, 1);
 
-    expect(first).not.toEqual(second);
+    expect(first).toEqual(second);
     expect(first).toHaveLength(second.length);
     expect(first.map((line) => line.length)).toEqual(
       second.map((line) => line.length),
