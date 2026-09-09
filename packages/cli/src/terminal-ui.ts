@@ -1661,6 +1661,7 @@ export class RecursInteractiveShell {
           } else if (args === "design r" || args === "design v19") {
             const design = args === "design v19" ? "v19" : "r";
             await persistAppearance(() => ({ ...this.#theme.appearance, design }));
+            this.#transcript.append(`Design: ${design}\n`);
             if (design === "v19") showCompany(); else showChat();
           } else if (args.startsWith("color ")) {
             const [, role, value, ...extra] = args.split(/\s+/u);

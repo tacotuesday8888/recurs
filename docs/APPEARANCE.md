@@ -78,4 +78,6 @@ saved Recurs settings. Try “Apply terminal fixture patch”, “Inspect with t
 child”, or “show long output”. F2 changes the design and colors; Ctrl+G opens the
 team; Ctrl+T opens executions; Enter inspects an execution; Ctrl+Q exits.
 
+Add `--setup` to either walkthrough command to start with the complete onboarding flow.
+
 In your real project, use `/theme design r` or `/theme design v19`.

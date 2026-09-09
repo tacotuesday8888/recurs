@@ -112,7 +112,7 @@ if (process.argv.includes("--interactive")) {
   console.log("Recurs UI walkthrough · isolated fixture workspace · no API account needed");
   console.log("Try: Apply terminal fixture patch · Inspect with terminal child · show long output");
   console.log("F2: design/colors · Ctrl+G: team · Ctrl+T: executions · Ctrl+Q: exit");
-  const child = spawnProcess(executable, [], { cwd: workspace, env: Object.fromEntries(Object.entries({ ...environment, NO_COLOR: undefined }).filter(([, value]) => value !== undefined)), stdio: "inherit" });
+  const child = spawnProcess(executable, process.argv.includes("--setup") ? ["setup"] : [], { cwd: workspace, env: Object.fromEntries(Object.entries({ ...environment, NO_COLOR: undefined }).filter(([, value]) => value !== undefined)), stdio: "inherit" });
   const code = await new Promise((resolve, reject) => { child.once("error", reject); child.once("exit", (code) => resolve(code ?? 1)); });
   await new Promise((resolve) => server.close(resolve));
   process.exit(code);
@@ -291,7 +291,8 @@ try {
   colorful.process.write("\u0007");
   await colorful.wait((screen) => screen.includes("/ CHAT"), "V19 conversation");
   colorful.process.write("/theme design r\r");
-  await colorful.wait((screen) => screen.includes("Appearance: orange (saved)"), "select R design");
+  await colorful.wait((screen) => screen.includes("Design: r"), "select R design");
+  assert.equal(JSON.parse(await readFile(path.join(home, ".recurs/config/appearance.json"), "utf8")).design, "r");
 
 
   colorful.process.write("\u0011");
