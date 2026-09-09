@@ -2,7 +2,11 @@
 
 Notable user-facing changes are recorded here when they ship.
 
-## 0.1.0-alpha.9 - release candidate
+## 0.1.0-alpha.10 - release candidate
+
+The unpublished alpha.9 tag is preserved. Its publication stopped on a
+terminal-smoke npm 12 pack-report parsing error; alpha.10 fixes the harness
+using the shared parser and pins CI to the publication client.
 
 - Start coding after model connection and permission selection; detailed Quick,
   Guided and Deep team onboarding remains available. Review full proposals in

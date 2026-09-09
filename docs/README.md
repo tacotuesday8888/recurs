@@ -1,6 +1,6 @@
 # Recurs Documentation
 
-Source `0.1.0-alpha.9` release candidate. Current documents:
+Source `0.1.0-alpha.10` release candidate. Current documents:
 
 - [Release readiness](RELEASE_READINESS.md) — current implementation and verification record.
 - [MCP](MCP.md) — local and remote servers, trust, authentication and troubleshooting.
@@ -56,7 +56,7 @@ architecture for current product truth.
 
 ## Release status
 
-Source `0.1.0-alpha.9` is the current release candidate. At preflight, npm
+Source `0.1.0-alpha.10` is the current release candidate. At preflight, npm
 `alpha` selects alpha.7 and `latest` selects alpha.2. Publication requires the
 protected trusted-publisher workflow; see [current evidence](RELEASE_READINESS.md).
 

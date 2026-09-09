@@ -1,6 +1,6 @@
 # Recurs Feature Status
 
-**Source:** `0.1.0-alpha.9` release candidate. **Audited:** 2026-09-09 against the source, exported package surfaces, CLI
+**Source:** `0.1.0-alpha.10` release candidate. **Audited:** 2026-09-09 against the source, exported package surfaces, CLI
 assembly, durable contracts/stores, provider manifests, and automated tests in
 this public alpha.
 
@@ -50,7 +50,7 @@ context, not a product commitment.
 
 ## Distribution
 
-Source `0.1.0-alpha.9` is prepared through a single-package release pipeline.
+Source `0.1.0-alpha.10` is prepared through a single-package release pipeline.
 The JavaScript bundle retains its 2.10 MB ceiling. npm, Bun-as-installer,
 checksum-verifying curl and Homebrew all use the same npm archive. There is no
 native Bun runtime, signed standalone binary or Windows subprocess sandbox.

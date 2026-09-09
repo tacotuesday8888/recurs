@@ -3,6 +3,11 @@
 Objective: complete the September 2026 Recurs release-readiness request. This is
 one continuing objective; milestones below are not claims of overall completion.
 
+Current release target: **0.1.0-alpha.10**. Alpha.9 was tagged but not published;
+its protected workflow stopped before uploads on an npm 12 pack-report parser
+mismatch in the terminal test. The tag is preserved without history rewriting.
+Alpha.10 reuses the shared parser and pins CI to the same npm 12.0.1 publisher.
+
 ## Authority and starting state
 
 - Canonical repository started clean at `e5999f5` on `main`, matching `origin/main`.
@@ -53,10 +58,10 @@ All entries require fresh evidence from the integrated artifact.
 - [x] Interruption, reopening, recovery and compatibility
 - [x] Terminal resize, small windows, paste, long output, scrolling and no-color
 - [x] Security finding revalidation and failure-path checks
-- [ ] Full checks and Linux/macOS CI
+- [x] Full checks and Linux/macOS CI
 - [x] Packaged installed CLI verification and measured performance
 - [x] Current README, real terminal capture, docs and contributor guidance
-- [ ] Green PR merge, canonical synchronization and branch accounting
+- [x] Green PR merge, canonical synchronization and branch accounting
 - [ ] Exact release artifact, protected publication and installed published check
 
 ## Verification log
@@ -148,3 +153,46 @@ A local `--version` measurement on the earlier alpha.9 artifact recorded
 0.46 s elapsed on macOS arm64. This is startup evidence, not a workload memory
 benchmark. The npm README uses release-neutral status wording so immutable
 published packages do not retain a stale registry snapshot.
+
+## Final merged source and platform gates
+
+[PR #193](https://github.com/tacotuesday8888/recurs/pull/193) merged as
+`01c78e62e711a3420334865fed93b8cf3c3493d7`; canonical `main` matched
+`origin/main` and was clean. Release tag: `v0.1.0-alpha.9`.
+
+[Final CI](https://github.com/tacotuesday8888/recurs/actions/runs/34305124016)
+passed on the exact PR head:
+
+| Gate | Verified result |
+| --- | --- |
+| Linux / Node 22.22.0 | 180 files, 2,286 tests passed; all three installed gates passed |
+| macOS / Node 24.18.0 | 180 files, 2,282 tests passed, four existing platform skips; all installed gates passed |
+| Package scripts | 38 checks passed, package allowlist and 2.1 MB ceiling retained |
+| Bun 1.3.14 / Linux | Install and Node entrypoint checks passed |
+| CodeQL | Both analyses and overall check passed after individual false-positive review |
+
+The Linux hook fix passed actual Bubblewrap execution in final CI; it is no
+longer awaiting platform verification. [CodeQL review](security/mcp-oauth-client-id-hash-review.md)
+records why hashing a public OAuth client ID for directory selection is not
+password storage; the security rule remains enabled.
+
+Both platform installed gates produced the same tarball SHA-256:
+`1976e9cb21e590e4fae3903aa0020e61b70e06de7fb4a11e4254ab6f2d160d0b`.
+Exact size: 565,497 compressed bytes / 1,834,086 unpacked bytes / eight files.
+Installed regular-file sizes: 47,725,847 bytes (Linux), 47,788,882 (macOS),
+excluding npm cache and optional vendor runtimes. These are platform-specific
+measurements, not universal size or speed guarantees.
+
+The protected [publication run](https://github.com/tacotuesday8888/recurs/actions/runs/34305523427)
+was approved by the authorized owner for this exact tag. Publication verification
+is the remaining gate; tag creation alone is not publication.
+
+## Publication harness correction
+
+Alpha.9's protected run failed before draft assets or npm publication because
+`smoke-terminal.mjs` assumed npm pack always returned an array. The repository
+already has `parseSingleNpmPackReport`, covering both npm report shapes; the
+terminal gate now uses it. All CI lanes pin the same npm 12.0.1 client as the
+publisher, so this path is verified before the next tag. This is a harness
+correction, not a skipped gate or rewritten release. Alpha.10 is the next
+candidate; existing alpha.9 source/platform evidence remains labeled above.

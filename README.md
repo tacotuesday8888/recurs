@@ -40,7 +40,7 @@ Other install paths:
 | --- | --- |
 | Homebrew | `brew install tacotuesday8888/recurs/recurs` |
 | Bun | `bun install --global recurs@alpha` |
-| curl | `curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.9/install.sh \| sh` |
+| curl | `curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.10/install.sh \| sh` |
 
 Bun can install Recurs; Node.js runs it. Linux command isolation requires
 Bubblewrap. See [installation and troubleshooting](docs/CLI.md#install).
@@ -106,7 +106,7 @@ JSON, JSONL and ACP share the same execution core.
 
 ## Status and contributing
 
-Source version: `0.1.0-alpha.9`. Published packages and checksummed install assets
+Source version: `0.1.0-alpha.10`. Published packages and checksummed install assets
 are listed in [GitHub Releases](https://github.com/tacotuesday8888/recurs/releases).
 Source changes can precede publication; the npm badge shows the published alpha.
 The [release work record](docs/RELEASE_READINESS.md) tracks exact source, artifact,

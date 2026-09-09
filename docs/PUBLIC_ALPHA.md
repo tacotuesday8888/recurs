@@ -1,6 +1,6 @@
 # Public alpha status
 
-Source version: **0.1.0-alpha.9 release candidate**. The September 9, 2026
+Source version: **0.1.0-alpha.10 release candidate**. The September 9, 2026
 registry check found npm `alpha` at alpha.7 and `latest` at alpha.2. Prior docs
 calling alpha.8 public were incorrect. Consult the [release record](RELEASE_READINESS.md)
 for the exact source, packaged artifact, merged state and publication outcome.
