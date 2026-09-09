@@ -92,3 +92,20 @@ message steering is not implemented; further direction goes through the parent.
 There is no persistent daemon or Windows process isolation. Vendor internal
 traces and monetary cost can remain unavailable. More real workloads and user
 feedback can still reveal improvements after this release.
+
+## Initial platform pass and bounded live result
+
+[CI 34348611364](https://github.com/tacotuesday8888/recurs/actions/runs/34348611364)
+passed on `d274775`: Linux 183 files / 2,338 tests; macOS 183 files / 2,334
+passed and four platform skips. Both platforms passed all three installed gates
+with archive `36cc49f554cd8464db3b34085c513e42672f0d728c59fc699e7b01659e60a8f5`.
+Bun installation and both CodeQL analyses also passed. Final documentation and
+install-link changes receive a fresh PR run before merge.
+
+The [bounded live multi-file task](research/product-live-coding-acceptance-2026-09.md)
+used historical Candidate A with the existing Codex login. Its independent
+verifier improved from 3/24 to 24/24, exactly four allowed implementation files
+changed, and the exact interrupted session reopened successfully. The resumed
+turn hit its eight-minute deadline before final completion; marker recall and
+live child execution were not proven. This is partial live acceptance, not a
+clean completed-model-turn result. No more inference was launched after the bound.

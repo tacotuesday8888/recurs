@@ -33,7 +33,7 @@ checksummed GitHub release installer, and Homebrew:
 
 ```bash
 bun install --global recurs@alpha
-curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.10/install.sh | sh
+curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.11/install.sh | sh
 brew install tacotuesday8888/recurs/recurs
 ```
 

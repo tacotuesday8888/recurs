@@ -40,7 +40,7 @@ Other install paths:
 | --- | --- |
 | Homebrew | `brew install tacotuesday8888/recurs/recurs` |
 | Bun | `bun install --global recurs@alpha` |
-| curl | `curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.10/install.sh \| sh` |
+| curl | `curl -fsSL https://github.com/tacotuesday8888/recurs/releases/download/v0.1.0-alpha.11/install.sh \| sh` |
 
 Bun can install Recurs; Node.js runs it. Linux command isolation requires
 Bubblewrap. See [installation and troubleshooting](docs/CLI.md#install).

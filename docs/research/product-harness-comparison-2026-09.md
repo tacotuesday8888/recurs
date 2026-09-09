@@ -90,3 +90,41 @@ showed a correctness or recovery advantage on these prescribed cases.
 Single-run timing is diagnostic only. Different tokenization, prompts, tool
 schemas, startup work, and runtime policies prevent interpreting these timings
 as a model-speed, cost-efficiency, or intelligence ranking.
+
+## Follow-up timing investigation: macOS Git dispatch
+
+A read-only investigation of the Candidate A multi-file trace placed 1232 ms
+and 1086 ms inside its two patch calls, and 698 ms inside its verification shell
+call. Its two file reads took 6 ms and 5 ms. This localized the gap to tool
+execution rather than fixture response latency.
+
+Separate disposable-fixture probes of the current local process/checkpoint
+helpers produced these diagnostic samples, in milliseconds:
+
+| Operation | Samples |
+| --- | --- |
+| Direct inherited-environment Git status | 14, 15, 17 |
+| Recurs isolated Git status | 309 cold, 92, 93 |
+| Checkpoint capture before | 373, 324, 327 |
+| Checkpoint capture after | 340, 334, 337 |
+
+Warm isolated-environment preparation took 1–2 ms. Seeding the existing trusted
+Apple developer-tool cache did not materially reduce Git execution in this
+probe: both seeded and unseeded calls took approximately 88–91 ms.
+
+To isolate the executable-dispatch contribution, a second probe ran read-only
+`git status --porcelain` using the same isolated environment and workspace:
+
+| Executable | Samples |
+| --- | --- |
+| `/usr/bin/git` dispatcher | 166, 100, 98 |
+| Canonical developer Git selected by `xcrun --find git` | 7, 13, 8 |
+
+The selected binary was verified as root-owned and not group/world writable.
+Recurs's checkpoint and patch paths make multiple Git calls, so this repeated
+dispatch overhead is a concrete optimization candidate. These measurements do
+not attribute every millisecond to Git or imply checkpoint durability is
+unnecessary. No executable-resolution, containment, or durability changes were
+made. A future change should preserve trusted path validation, configured
+developer-tool selection, environment isolation, and all checkpoint checks,
+then rerun security and installed acceptance on both supported platforms.
