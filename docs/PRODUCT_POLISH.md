@@ -1,6 +1,6 @@
 # Product polish — September 2026
 
-Current source candidate: **0.1.0-alpha.11**. Publication is pending. Alpha.10's
+Published release: **0.1.0-alpha.11**. Alpha.10's
 completed release evidence remains in [the release record](RELEASE_READINESS.md).
 This phase improves daily use of the existing TypeScript CLI and controlled
 agent hierarchy; it does not claim perfection or general superiority.
@@ -66,7 +66,7 @@ with 47,810,485 installed regular-file bytes on macOS arm64 / Node 22.22.3.
 Five `--version` startups were 780, 452, 457, 454, and 453 ms. These are local
 measurements, excluding optional vendor runtimes, not universal performance claims.
 Named palettes and captured layout were visually inspected. The existing
-2.1 MB package ceiling remains enforced.
+2.1 MB JavaScript bundle and 2.30 MB unpacked-package budgets remain enforced.
 
 After the final review fixes, 242 focused terminal/runtime tests, whole-project
 TypeScript checking, and full ESLint passed. The final installed terminal gate
@@ -119,3 +119,87 @@ fixed generic message; diagnostics remain in the local comparison report. No
 security rule was suppressed or branch policy bypassed. ESLint, syntax checking,
 and a fresh six-case Recurs/Pi run passed after the fix. This script is not part
 of the published package, so the final candidate archive bytes are unchanged.
+
+## Merged release source and exact candidate
+
+[PR #196](https://github.com/tacotuesday8888/recurs/pull/196) merged as
+`328fb28fb1610c8a8144990f7cc66bfd938bc457`; tag `v0.1.0-alpha.11` points to
+that source. Canonical main and origin/main matched and were clean after merge.
+The merge used normal policy after the review finding was fixed and resolved.
+
+[Final PR CI](https://github.com/tacotuesday8888/recurs/actions/runs/34349847824)
+passed 183 test files on each platform: 2,338 Linux tests; 2,334 macOS tests and
+four existing platform skips. All three installed gates, Bun installation and
+both CodeQL analyses passed. Linux used Node 22.22.0; macOS used Node 24.18.0
+and the same npm 12.0.1 client as publication.
+
+Both platforms and the final local matched comparison produced identical bytes:
+
+- Archive SHA-256: `a9f50accd9ee6096bed3184ee3ba062c2b43fcdaf2e51f210a58dc48893266bd`.
+- Integrity: `sha512-HXxOTDbyXUAMZWxh6MOIr8cz+lGhOeaEOyZlnQwZdXN8h9QmMU3XoClZKoAcXp+LLUSf8MSwTqpkVE57YemtFg==`.
+- Compressed / unpacked: 572,136 / 1,855,987 bytes.
+- Installed regular files: 47,747,751 bytes on Linux; 47,810,786 on macOS,
+  excluding cache and optional vendor runtimes.
+
+The [final candidate comparison](research/product-harness-comparison-alpha11.json)
+again passed all three cases for Recurs and Pi 0.85.1. Request counts were 6/6/5
+for each; resulting files matched; interruption markers survived; independent
+verifiers remained unchanged and passed. Recurs elapsed 3658/3076/2554 ms versus
+Pi 336/580/330 ms. No comparative correctness or speed advantage is claimed.
+The generic fixture-error response fix was then rerun successfully with the
+same package bytes; no fixture errors occurred in either pass.
+
+## Public release and installed GitHub artifact
+
+The protected [publisher](https://github.com/tacotuesday8888/recurs/actions/runs/34350317221)
+succeeded and made [alpha.11](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.11)
+public at **2026-09-09 12:23:18 UTC**. The merged source also passed
+[main CI](https://github.com/tacotuesday8888/recurs/actions/runs/34350311473)
+and [main CodeQL](https://github.com/tacotuesday8888/recurs/actions/runs/34350329098).
+
+All five downloaded GitHub assets passed attestation verification against the
+publication workflow, exact alpha.11 tag, source `328fb28`, and run `34350317221`.
+The archive checksum matches the exact final candidate above. The public
+checksum-verifying curl installer installed into an isolated home/prefix;
+`--version` returned alpha.11 and `doctor` reported six checks OK, one expected
+unconfigured-provider warning, and zero failures, including real Seatbelt
+execution with network denied.
+
+The public installed executable SHA-256 is
+`0b7d0e8fe760d1b5e5adf5c476c9724048ab2e6cd65e1ceb3f44556dc600ee6b`, identical to
+the final matched candidate. It passed the complete public-installed extensions
+gate: skills lifecycle including quoted resource paths, HTTP MCP discovery and
+lifecycle, and Guided/Deep proposal save/reopen/approval. Each formation depth
+used two local fixture responses; zero live model requests were made.
+
+npm accepted the publication and initially reported processing. Its metadata
+then exposed alpha.11 and the matching SRI before the tarball became available.
+A cached archive 404 advertised a 300-second lifetime. The first Homebrew
+install check hit that 404; the formula's style check passed. The tap merge was
+held, with the exact attested formula retained, until normal download and
+installation verification could succeed. Final registry/tap results follow.
+
+
+The standard npm tarball URL subsequently returned HTTP 200. Its downloaded
+bytes matched the attested GitHub archive exactly and its SHA-512 matched npm's
+metadata. A fresh isolated npm home/cache/prefix installed `recurs@alpha` with
+lifecycle scripts disabled; the executable returned `0.1.0-alpha.11`. Final
+registry tags were `alpha: 0.1.0-alpha.11` and `latest: 0.1.0-alpha.2`. No release
+was republished and no tag was overwritten to resolve the temporary cache.
+
+## Homebrew and branch accounting
+
+[Homebrew PR #5](https://github.com/tacotuesday8888/homebrew-recurs/pull/5)
+passed its independent [installation workflow, attempt 2](https://github.com/tacotuesday8888/homebrew-recurs/actions/runs/34350900158/attempts/2)
+after npm propagation, and merged as `d67dc5191b72fdd389fd27df3842f4eb690e65fd`.
+The installed CLI check and formula style check passed. The formula matches the
+attested `recurs.rb` exactly; tap main and origin/main matched and were clean.
+Its merged feature branch was removed. No formula changes or gate bypasses
+were used to work around the temporary registry cache.
+
+The completed implementation branch was merged and removed. The separate,
+intentionally unfinished website worktrees remain outside this CLI release:
+`codex/recurs-interactive-website-r2` at `4bb4bf4` and
+`codex/sites-website-rebuild` at `deb3230`. They were preserved. Dependabot
+PRs #180–185 remain separate dependency work. Current-source publication docs
+and the final candidate comparison are delivered through a documentation PR.

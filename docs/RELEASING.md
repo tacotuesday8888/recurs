@@ -126,8 +126,11 @@ while `latest` still pointed to `0.1.0-alpha.2`; an older alpha.8 workflow had
 not completed publication. The alpha.9 tag was preserved after its publication harness failed before
 uploading assets. Alpha.10 used the corrected shared npm report parser and
 [published successfully](https://github.com/tacotuesday8888/recurs/actions/runs/34306661860)
-through its own protected run on September 9, 2026. npm `alpha` now selects
-`0.1.0-alpha.10`; `latest` remains `0.1.0-alpha.2`. Keep public commands on `recurs@alpha`; never move an alpha
+through its own protected run on September 9, 2026. At that milestone, npm
+`alpha` selected `0.1.0-alpha.10`. Alpha.11 subsequently published through
+[its protected run](https://github.com/tacotuesday8888/recurs/actions/runs/34350317221);
+current npm `alpha` selects `0.1.0-alpha.11`, while `latest` remains
+`0.1.0-alpha.2`. Keep public commands on `recurs@alpha`; never move an alpha
 onto `latest` as incidental release cleanup. Verify registry tags after each
 publication and distinguish preparation from publication in public docs.
 

@@ -3,8 +3,7 @@
 Recurs is a TypeScript coding-agent harness for interactive work, bounded
 headless runs, repository review, and durable agent teams.
 
-This guide follows the `0.1.0-alpha.11` source candidate, pending publication.
-The published install commands below currently select `0.1.0-alpha.10`.
+This guide follows the published `0.1.0-alpha.11` release.
 
 ## Install
 
@@ -23,9 +22,9 @@ recurs
 ```
 
 `--global` only makes the `recurs` command available from any directory.
-Use the `@alpha` tag explicitly: npm `alpha` selects `0.1.0-alpha.10`, while
+Use the `@alpha` tag explicitly: npm `alpha` selects `0.1.0-alpha.11`, while
 unqualified `latest` remains `0.1.0-alpha.2` (verified September 9, 2026).
-The [release record](RELEASE_READINESS.md) includes the published artifact's
+The [product polish release record](PRODUCT_POLISH.md) includes the published artifact's
 integrity, provenance, and fresh installation checks.
 
 The same reviewed npm artifact is also available through Bun-as-installer, the
