@@ -256,6 +256,21 @@ describe("company proposal editor", () => {
     expect(launch).toHaveBeenCalledOnce();
   });
 
+  it("returns to proposal review if an editor removes the draft file", async () => {
+    const setup = await proposedRun({ async revise() { throw new Error("chat must not run"); } });
+    const editor = new CompanyProposalEditor({
+      coordinator: setup.coordinator,
+      model: { async revise() { throw new Error("chat must not run"); } },
+      environment: { EDITOR: "fixture-editor" }, temporaryDirectory: setup.root,
+      async launchEditor(_command, file) { await rm(file); return "completed"; },
+    });
+    const edited = await editor.editYaml({ run: setup.run });
+    expect(edited.kind).toBe("invalid");
+    expect(edited.message).toContain("Your saved proposal is unchanged");
+    expect(edited.message).not.toContain(setup.root);
+    expect(edited.run).toEqual(setup.run);
+  });
+
   it("reports missing, failed, and cancelled editors without changing the proposal", async () => {
     const setup = await proposedRun({
       async revise() { throw new Error("chat must not run"); },

@@ -113,6 +113,9 @@ describe("durable execution inventory", () => {
     const inventory = await service.list(parent.id);
     expect(inventory.map((item) => item.executionId)).toEqual([parent.id, "child", "sibling", "grandchild"]);
     expect(inventory.find((item) => item.executionId === "grandchild")).toMatchObject({ parentExecutionId: "child", depth: 2, model: "scripted" });
+    // The inspector must show this execution's persisted budget, not mode defaults.
+    expect((await service.inspect(parent.id, child.id))?.execution.limits).toEqual(child.agent.limits);
+    expect((await service.inspect(parent.id, child.id))?.execution.limits.maxRequests).toBe(8);
     expect(await service.inspect(parent.id, foreignParent.id)).toBeNull();
   });
 

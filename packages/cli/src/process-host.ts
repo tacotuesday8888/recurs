@@ -140,6 +140,7 @@ import {
 import {
   TeamControlService,
   type TeamControlChanges,
+  type TeamControlSnapshot,
 } from "./team-control-service.js";
 import {
   LocalConnectionError,
@@ -199,6 +200,11 @@ export interface CliDependencies {
     readonly repositoryConsent: boolean;
     readonly cwd: string;
   }): ReturnType<typeof createStandaloneCompanyOnboarding>;
+  inspectTeamControls?(input: {
+    readonly cwd: string;
+    readonly operatingModeId: OperatingModeId;
+    readonly signal?: AbortSignal;
+  }): Promise<TeamControlSnapshot>;
   ensureTeamControls?(input: {
     readonly cwd: string;
     readonly operatingModeId: OperatingModeId;
@@ -1261,6 +1267,11 @@ async function runGuidedOnboarding(
               cwd: dependencies.cwd ?? process.cwd(),
             }),
         }),
+    ...(dependencies.inspectTeamControls === undefined ? {} : {
+      inspectTeamControls: (operatingModeId: OperatingModeId, signal?: AbortSignal) => dependencies.inspectTeamControls!({
+        cwd: dependencies.cwd ?? process.cwd(), operatingModeId, ...(signal === undefined ? {} : { signal }),
+      }),
+    }),
     ...(dependencies.ensureTeamControls === undefined
       ? {}
       : {
@@ -1689,6 +1700,15 @@ export async function runCli(
             startOptions,
           );
           if (exit === undefined || exit.type === "quit") return 0;
+          if (exit.type === "new_project" && runtime.state.type === "session") {
+            const result = await runtime.submit("/new", createHostInvocation({
+              invocation: "repl", userPresent: true, remote: false,
+              scripted: false, embedding: "cli",
+            }));
+            if (isCommandResult(result)) await renderCommandResult(result, dependencies.stdout, dependencies.stderr);
+            startOptions = { launch: isCommandResult(result) && result.type === "message" && result.level === "error" };
+            continue;
+          }
           await runtime.close?.();
           runtime = undefined;
           if (exit.type === "resume_session") {
@@ -2691,6 +2711,7 @@ export async function runCliProcess(
         ? {
             createInteractiveShell: (cwd) => createRecursInteractiveShell({
               cwd,
+              dataDirectory,
             }),
           }
         : {}),
@@ -2722,6 +2743,10 @@ export async function runCliProcess(
           })),
         },
       ),
+      inspectTeamControls: async ({ cwd, operatingModeId, signal }) => {
+        const controls = await projectTeamControlService(cwd, dataDirectory);
+        return await controls.service.inspect({ workspace: controls.workspace, operatingModeId, blueprint: null, ...(signal === undefined ? {} : { signal }) });
+      },
       ensureTeamControls: async ({ cwd, operatingModeId, signal }) => {
         const controls = await projectTeamControlService(cwd, dataDirectory);
         await controls.service.ensureRecommended(

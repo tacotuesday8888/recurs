@@ -23,12 +23,13 @@ import {
   ToolRegistry,
   type ApprovalHandler,
 } from "@recurs/tools";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   CommandRegistry,
   RecursRuntime,
   createCommandRegistry,
+  type CommandSelectionHandler,
 } from "../src/index.js";
 import { testAt, testBackendPin } from "../../../tests/support/backend.js";
 
@@ -160,6 +161,45 @@ describe("RecursRuntime", () => {
     await expect(runtime.listSessions()).resolves.toEqual([
       expect.objectContaining({ id: "current-chat", cwd: directory }),
     ]);
+  });
+
+  it.each(["session", "workspace"])("exposes sanitized selection only to local interactive %s commands", async (mode) => {
+    const directory = await mkdtemp(path.join(tmpdir(), "recurs-command-selection-"));
+    directories.push(directory);
+    const sessions = new JsonlSessionStore(path.join(directory, "sessions"));
+    const session = await sessions.createPinnedSession({
+      id: "s1", at: testAt, cwd: directory, backend: testBackendPin(),
+    });
+    const commands = new CommandRegistry([{
+      name: "model", description: "Selection probe", usage: "/model",
+      async execute(_args, context) {
+        const selected = context.selectChoice === undefined ? "unavailable" :
+          await context.selectChoice("Choose\n\u001b[2J", [{
+            id: "stable-id", label: "Label\n\u001b[2J", detail: "Detail\u202e", current: true,
+          }]);
+        return { type: "message", level: "info", text: selected ?? "cancelled" };
+      },
+    }]);
+    const runtime = new RecursRuntime({ commands, sessions }, mode === "session" ? session : createWorkspaceShell(directory));
+    const selection = vi.fn<CommandSelectionHandler>(async () => "stable-id");
+    runtime.setSelectionHandler(selection);
+    for (const input of [
+      { userPresent: false, remote: false, scripted: true, embedding: "cli" as const },
+      { userPresent: true, remote: true, scripted: false, embedding: "cli" as const },
+      { userPresent: true, remote: false, scripted: false, embedding: "sdk" as const },
+    ]) {
+      expect(await runtime.submit("/model", createHostInvocation({ invocation: "repl", ...input }))).toMatchObject({ text: "unavailable" });
+    }
+    expect(selection).not.toHaveBeenCalled();
+    const invocation = createHostInvocation({ invocation: "repl", userPresent: true, remote: false, scripted: false, embedding: "cli" });
+    expect(await runtime.submit("/model", invocation)).toMatchObject({ text: "stable-id" });
+    const [message, options] = selection.mock.calls[0]!;
+    expect(options[0]!.id).toBe("stable-id");
+    expect(options[0]!.current).toBe(true);
+    expect(message + options[0]!.label + options[0]!.detail).not.toMatch(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u);
+    runtime.setSelectionHandler(null);
+    expect(await runtime.submit("/model", invocation)).toMatchObject({ text: "unavailable" });
+    expect(selection).toHaveBeenCalledTimes(1);
   });
 
   it("threads the exact trusted host invocation into slash-command context", async () => {

@@ -1,5 +1,8 @@
 # Recurs Documentation
 
+Current source: `0.1.0-alpha.11` (publication pending).
+[Product polish and comparison evidence](PRODUCT_POLISH.md).
+
 Current published alpha: `0.1.0-alpha.10`. Current documents:
 
 - [Release readiness](RELEASE_READINESS.md) — current implementation and verification record.

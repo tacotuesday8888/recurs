@@ -6,8 +6,11 @@ import type { Writable } from "node:stream";
 import {
   COMPANY_REPOSITORY_MARKERS,
   DEFAULT_OPERATING_MODE_ID,
+  effectiveTeamControlPolicy,
+  recommendedTeamControlPolicy,
   getOperatingModePolicy,
   operatingModePolicies,
+  type BillingSource,
   type CompanyBlueprintV1,
   type CompanyBlueprintV2,
   type CompanyDesignMode,
@@ -57,7 +60,7 @@ import {
   renderCompanyToolReadiness,
   type CompanyCapabilityCatalogs,
 } from "./company-tool-readiness.js";
-import type { TeamControlChanges } from "./team-control-service.js";
+import type { TeamControlChanges, TeamControlSnapshot } from "./team-control-service.js";
 import { writeOutput } from "./render.js";
 import {
   createTerminalTheme,
@@ -162,7 +165,7 @@ export function guidedConnectionChoices(
     choices.push({
       id: "codex",
       label: "Connect Codex with ChatGPT",
-      detail: "official Codex runtime · Act + Plan · vendor-owned login",
+      detail: "sign in with ChatGPT through Codex · Act + Plan",
       action: { kind: "codex" },
     });
   }
@@ -174,7 +177,7 @@ export function guidedConnectionChoices(
     choices.push({
       id: "copilot",
       label: "Connect GitHub Copilot",
-      detail: "optional official SDK · Act + Plan · vendor-owned login",
+      detail: "sign in with GitHub Copilot · Act + Plan",
       action: { kind: "copilot" },
     });
   }
@@ -187,7 +190,7 @@ export function guidedConnectionChoices(
         ? "coding plan key"
         : provider.accessKind === "subscription"
         ? "subscription key"
-        : "environment key"} · reviewed fixed origin · Act + Plan`,
+        : "environment key"} · Act + Plan`,
       action: { kind: "byok", providerId: provider.id },
     });
   }
@@ -232,6 +235,11 @@ export const GUIDED_PERMISSION_CHOICES: readonly GuidedChoice[] = Object.freeze(
   }),
 ]);
 
+const billingLabels: Readonly<Record<BillingSource, string>> = Object.freeze({
+  metered_api: "metered API", included_subscription: "subscription", prepaid_credits: "prepaid credits",
+  cloud_account: "cloud billing", local_compute: "local compute",
+});
+
 const currentOperatingModeVersion = getOperatingModePolicy(
   DEFAULT_OPERATING_MODE_ID,
 ).version;
@@ -242,7 +250,7 @@ export const GUIDED_OPERATING_MODE_CHOICES: readonly GuidedChoice[] =
     .map((policy) => {
       const team = policy.workflow.team;
       const billing = policy.model.selection === "configured_role_candidate"
-        ? policy.model.eligibleBillingSources.join(", ")
+        ? policy.model.eligibleBillingSources.map((source) => billingLabels[source]).join(", ")
         : "parent model only";
       return Object.freeze({
         id: policy.id,
@@ -384,6 +392,7 @@ export interface GuidedOnboardingPorts {
     readonly role: TeamRunRole;
     readonly connectionId: string | null;
   }[]>;
+  inspectTeamControls?(operatingModeId: OperatingModeId, signal?: AbortSignal): Promise<TeamControlSnapshot>;
   ensureTeamControls?(
     operatingModeId: OperatingModeId,
     signal: AbortSignal | undefined,
@@ -759,12 +768,28 @@ const TEAM_TOPOLOGY_CHOICES: readonly GuidedChoice[] = Object.freeze([
   }),
 ]);
 
-function guidedPositiveInteger(
-  value: string | null,
-  fallback: number,
-): number | null {
-  if (value === null) return fallback;
-  return /^[1-9]\d*$/u.test(value) ? Number(value) : null;
+function teamLimitsLabel(policy: Pick<TeamControlSnapshot["selected"], "topology" | "maxActiveAgents" | "maxConcurrentAgents" | "maxDelegationDepth">): string {
+  return `${policy.topology.replaceAll("_", " ")} · ${policy.maxActiveAgents} active · ${policy.maxConcurrentAgents} at once · up to ${policy.maxDelegationDepth + 1} layers`;
+}
+
+async function savedTeamLimits(ports: GuidedOnboardingPorts, mode: OperatingModeId): Promise<string> {
+  const snapshot = await ports.inspectTeamControls?.(mode, ports.signal);
+  return snapshot?.compatible
+    ? teamLimitsLabel(snapshot.selected)
+    : "Saved or Recommended · inspect with /agents controls";
+}
+
+async function promptTeamLimit(
+  ports: GuidedOnboardingPorts, label: string, maximum: number, fallback: number,
+): Promise<number> {
+  for (;;) {
+    const input = await ports.promptText(`${label} (1–${maximum}; Enter keeps ${fallback})`, String(fallback));
+    if (input === null) throw new DOMException("Setup cancelled", "AbortError");
+    const value = input.trim() === "" ? fallback : Number(input.trim());
+    if ((input.trim() === "" || /^[1-9]\d*$/u.test(input.trim())) &&
+        Number.isSafeInteger(value) && value >= 1 && value <= maximum) return value;
+    await writeOutput(ports.stderr, `Enter a whole number from 1 to ${maximum}. Your team settings have not changed.\n`);
+  }
 }
 
 async function setupTeamControls(
@@ -775,24 +800,26 @@ async function setupTeamControls(
     ports.configureTeamControls === undefined) {
     return "Recommended";
   }
+  const snapshot = await ports.inspectTeamControls?.(operatingModeId, ports.signal);
+  const defaults = snapshot?.compatible ? snapshot.selected : recommendedTeamControlPolicy(operatingModeId);
   const setup = await ports.selectChoice(
-    "Choose the team-control detail",
+    "Choose your team limits",
     Object.freeze([
       Object.freeze({
         id: "recommended",
         label: "Keep saved or recommended",
-        detail: "preserve an existing project choice, otherwise save the mode's bounded defaults",
+        detail: teamLimitsLabel(defaults),
       }),
       Object.freeze({
         id: "customize",
         label: "Customize advanced limits",
-        detail: "choose topology, active agents, concurrency, and delegation depth",
+        detail: "choose the team structure, agent count, and reporting layers",
       }),
     ]),
   );
   if (setup !== "customize") {
     await ports.ensureTeamControls?.(operatingModeId, ports.signal);
-    return "Saved or Recommended";
+    return await savedTeamLimits(ports, operatingModeId);
   }
   if (ports.configureTeamControls === undefined) {
     await writeOutput(
@@ -815,36 +842,12 @@ async function setupTeamControls(
   ) as TeamTopologyV1 | null;
   if (topology === null) {
     await ports.ensureTeamControls?.(operatingModeId, ports.signal);
-    return "Saved or Recommended";
+    return await savedTeamLimits(ports, operatingModeId);
   }
-  const active = guidedPositiveInteger(
-    await ports.promptText(
-      "Maximum active agents for one goal",
-      String(mode.company.maxActiveRoles),
-    ),
-    mode.company.maxActiveRoles,
-  );
-  const concurrent = guidedPositiveInteger(
-    await ports.promptText(
-      "Maximum concurrent agents",
-      String(mode.company.maxConcurrentAssignments),
-    ),
-    mode.company.maxConcurrentAssignments,
-  );
-  const depth = guidedPositiveInteger(
-    await ports.promptText(
-      "Maximum delegation depth",
-      String(mode.company.maxDepth),
-    ),
-    mode.company.maxDepth,
-  );
-  if (active === null || concurrent === null || depth === null) {
-    await writeOutput(
-      ports.stderr,
-      "Advanced team limits must be positive whole numbers.\n",
-    );
-    return null;
-  }
+  await writeOutput(ports.stdout, "Active agents are the team members available for a goal. Concurrent agents work at the same time. Delegation depth counts handoffs below the lead; depth 1 allows two layers.\n");
+  const active = await promptTeamLimit(ports, "Maximum active agents for one goal", mode.company.maxActiveRoles, defaults.maxActiveAgents);
+  const concurrent = await promptTeamLimit(ports, "Maximum concurrent agents", Math.min(active, mode.company.maxConcurrentAssignments), Math.min(active, defaults.maxConcurrentAgents));
+  const depth = await promptTeamLimit(ports, "Maximum delegation depth", mode.company.maxDepth, defaults.maxDelegationDepth);
   const changes = {
     topology,
     maxActiveAgents: active,
@@ -855,14 +858,14 @@ async function setupTeamControls(
     `Save ${topology.replaceAll("_", " ")} team controls with ${active} active, ${concurrent} concurrent, and depth ${depth}?`,
   )) {
     await ports.ensureTeamControls?.(operatingModeId, ports.signal);
-    return "Saved or Recommended";
+    return await savedTeamLimits(ports, operatingModeId);
   }
   await ports.configureTeamControls({
     operatingModeId,
     changes,
     signal: ports.signal,
   });
-  return `${topology.replaceAll("_", " ")} · ${active} active · ${concurrent} concurrent · depth ${depth}`;
+  return teamLimitsLabel(changes);
 }
 
 const TEAM_ROLES: readonly TeamRunRole[] = Object.freeze([
@@ -893,12 +896,16 @@ function currentRoute(
   return accounts.find((account) => account.agentRoles.includes(role))?.id ?? null;
 }
 
+function routeModelLabel(account: AccountSummary): string {
+  return `${account.providerId}/${account.modelId} · effort ${account.reasoningEffort ?? "unspecified"}`;
+}
+
 function routeSummary(accounts: readonly AccountSummary[]): string {
   return TEAM_ROLES.map((role) => {
     const account = accounts.find((candidate) =>
       candidate.agentRoles.includes(role)
     );
-    return `${role}: ${account?.label ?? "parent"}`;
+    return `${role}: ${account === undefined ? "inherit parent (no separate assignment)" : `${account.label} · ${routeModelLabel(account)} (configured candidate)`}`;
   }).join(" · ");
 }
 
@@ -929,11 +936,14 @@ async function configureTeamRoutes(
   operatingModeId: OperatingModeId,
   ports: GuidedOnboardingPorts,
 ): Promise<boolean> {
+  const policy = getOperatingModePolicy(operatingModeId);
   const candidates = routeCandidates(accounts, operatingModeId);
   if (candidates.length === 0) {
     await writeOutput(
       ports.stdout,
-      "Team routing: every role inherits the parent model. Add a second eligible Act + Plan connection later to specialize roles.\n",
+      policy.model.selection === "inherit_parent"
+        ? "Team routing: this mode requires the parent model for every role. Saved overrides remain configured but are not used by this policy. Choose a current mode with /agents mode, then revisit recurs setup to specialize roles.\n"
+        : `Team routing: no additional saved connection is eligible for selection in ${policy.displayName}. Keep parent inheritance, or revisit recurs setup with another Act + Plan connection whose primary billing source is ${policy.model.eligibleBillingSources.map((source) => billingLabels[source]).join(" or ")}. Use /agents routes to inspect saved assignments; candidates are rechecked at the next child launch.\n`,
     );
     return true;
   }
@@ -943,7 +953,7 @@ async function configureTeamRoutes(
       Object.freeze({
         id: "keep",
         label: "Keep current routing (recommended)",
-        detail: routeSummary(accounts),
+        detail: `${routeSummary(accounts)} · eligibility rechecked at next child launch`,
       }),
       Object.freeze({
         id: "customize",
@@ -965,13 +975,13 @@ async function configureTeamRoutes(
       Object.freeze([
         Object.freeze({
           id: "parent",
-          label: "Inherit the parent model",
-          detail: "no separate connection or billing source",
+          label: `Inherit the parent model${existing === null ? " (current)" : ""}`,
+          detail: "uses the parent session pin; no separate connection or billing source",
         }),
         ...candidates.map((account) => Object.freeze({
           id: account.id,
-          label: account.label,
-          detail: `${account.modelId} · ${account.billingSources.join(" + ")}`,
+          label: `${account.label}${existing === account.id ? " (current)" : ""}`,
+          detail: `${routeModelLabel(account)} · ${account.billingSources.map((source) => billingLabels[source]).join(" + ")} · ${account.id}`,
         })),
       ]),
     );
@@ -1017,13 +1027,13 @@ const COMPANY_ONBOARDING_DEPTH_CHOICES: readonly GuidedChoice[] = Object.freeze(
   Object.freeze({
     id: "guided",
     label: "Guided (recommended)",
-    detail: "adaptive questions and up to three bounded read-only investigations",
+    detail: "tailored questions and up to three read-only project checks",
     recommended: true,
   }),
   Object.freeze({
     id: "deep",
     label: "Deep",
-    detail: "a longer interview and up to eight mode-clamped investigations",
+    detail: "a longer interview and up to eight read-only project checks, within your team limits",
   }),
 ]);
 
@@ -1229,7 +1239,7 @@ const COMPANY_PROPOSAL_ACTIONS: readonly GuidedChoice[] = Object.freeze([
   Object.freeze({
     id: "discuss",
     label: "Discuss a revision",
-    detail: "ask the formation model for one validated, bounded change",
+    detail: "describe what to change and review the revised proposal",
   }),
   Object.freeze({
     id: "edit_yaml",
@@ -1239,7 +1249,7 @@ const COMPANY_PROPOSAL_ACTIONS: readonly GuidedChoice[] = Object.freeze([
   Object.freeze({
     id: "save_exit",
     label: "Save and exit",
-    detail: "leave the proposal durable and start no project work",
+    detail: "save this proposal and continue setup later",
   }),
 ]);
 
@@ -1700,9 +1710,9 @@ async function runGuidedOnboardingSteps(
     `\n${renderRecursHeader(theme, "Welcome to Recurs", { columns })}`,
     "",
     theme.strong("Coding agents with teams you can inspect and control."),
-    "Connect a parent, set its boundaries, then choose how the team works.",
+    "Choose a model, set permissions, then start coding or set up a team.",
     "Company formation is optional.",
-    theme.muted("Credentials stay with the vendor runtime or a named process environment—never this generic prompt."),
+    theme.muted("Sign in with your provider, or use an API key from your terminal environment. Setup never asks you to paste a secret."),
     "",
   ].join("\n"));
   const [accounts, localRuntimes, providers] = await Promise.all([
@@ -1731,7 +1741,7 @@ async function runGuidedOnboardingSteps(
   const stepCount = companyOnboarding ? 6 : 5;
   await writeOutput(
     ports.stdout,
-    `${renderSetupStep(theme, 1, stepCount, "Parent model")}\n`,
+    `${renderSetupStep(theme, 1, stepCount, "Model connection")}\n`,
   );
   let selected: GuidedConnectionChoice | null = null;
   while (true) {
@@ -1795,7 +1805,7 @@ async function runGuidedOnboardingSteps(
   }
   await writeOutput(
     ports.stdout,
-    `\n${renderSetupStep(theme, 2, stepCount, "Authority")}\n`,
+    `\n${renderSetupStep(theme, 2, stepCount, "Permissions")}\n`,
   );
   const permissionMode = await selectPermission(ports);
   await writeOutput(
@@ -1805,8 +1815,12 @@ async function runGuidedOnboardingSteps(
   const selectedMode = await selectOperatingMode(ports);
   if (selectedMode === "start_coding") {
     await ports.ensureTeamControls?.(DEFAULT_OPERATING_MODE_ID, ports.signal);
+    throwIfOnboardingAborted(ports.signal);
+    const limits = await savedTeamLimits(ports, DEFAULT_OPERATING_MODE_ID);
+    throwIfOnboardingAborted(ports.signal);
     await writeOutput(ports.stdout, [
       "Ready to code.",
+      `Team limits: ${limits}`,
       `Authority: ${permissionLabel(permissionMode)}`,
       "Describe a coding task. Use /agents controls to inspect limits, /model for routes,",
       "or recurs setup to complete Quick, Guided, or Deep project onboarding later.",
@@ -1815,7 +1829,7 @@ async function runGuidedOnboardingSteps(
     return { state: "configured", permissionMode, operatingModeId: DEFAULT_OPERATING_MODE_ID };
   }
   const operatingModeId = selectedMode;
-  const teamControls = await setupTeamControls(ports, operatingModeId);
+  let teamControls = await setupTeamControls(ports, operatingModeId);
   if (teamControls === null) return { state: "failed", exitCode: 2 };
   await writeOutput(
     ports.stdout,
@@ -1869,6 +1883,10 @@ async function runGuidedOnboardingSteps(
   const primary = accountsAfterRouting.find((account) => account.primary);
   const operatingMode = getOperatingModePolicy(operatingModeId);
   const approvedBlueprint = company.blueprintV2 ?? company.blueprint;
+  if (company.blueprintV2 !== undefined) {
+    const controls = await ports.inspectTeamControls?.(operatingModeId, ports.signal);
+    if (controls?.compatible) teamControls = teamLimitsLabel(effectiveTeamControlPolicy(controls.selected, company.blueprintV2));
+  }
   const roster = company.blueprintV2 !== undefined
     ? `Recommended · ${companyDesignLabel(company.blueprintV2.designMode)} · ${companyDepthLabel(company.blueprintV2.provenance.depth)} · ${company.blueprintV2.departments.length} department(s) · ${company.blueprintV2.roles.length} approved role(s)`
     : company.blueprint !== undefined
@@ -1880,6 +1898,7 @@ async function runGuidedOnboardingSteps(
         "Next: /goal launch",
       ]
     : ["Next: describe a coding task, or use /goal <objective> for multi-step work."];
+  throwIfOnboardingAborted(ports.signal);
   await writeOutput(ports.stdout, [
     theme.success("Onboarding complete"),
     `Connection: ${primary === undefined ? "ready" : `${primary.label} · ${primary.modelId}`}`,

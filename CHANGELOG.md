@@ -2,6 +2,23 @@
 
 Notable user-facing changes are recorded here when they ship.
 
+## 0.1.0-alpha.11 - 2026-09-09
+
+- Add live terminal theme previews, persistent system/dark/light/contrast
+  palettes, custom semantic colors, F2 access, and draft-preserving cancellation.
+- Choose saved models interactively with `/model`; retain fresh-session
+  confirmation and immutable existing model pins. Add `/agents routes` to
+  explain configured specialist models, effort, inheritance, and eligibility.
+- Preserve the active model and permissions when starting a new chat. Improve
+  onboarding limit validation, effective-control summaries, missing-tool
+  guidance, and recovery from an editor removing its temporary proposal draft.
+- Scope team counts to the current goal, expose configured versus actual
+  hierarchy, preserve distinct repeated roles, and show exact execution limits,
+  usage, and recovery commands in the inspector.
+- Expand source comparison to seven TypeScript CLI projects and add a
+  reproducible three-case installed Recurs/Pi operational comparison. These
+  fixtures test execution mechanics, not model intelligence or superiority.
+
 ## 0.1.0-alpha.10 - 2026-09-09
 
 The unpublished alpha.9 tag is preserved. Its publication stopped on a

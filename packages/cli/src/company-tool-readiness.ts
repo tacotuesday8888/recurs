@@ -124,7 +124,10 @@ export function renderCompanyToolReadiness(
         ? "Approved bindings: none"
         : `Approved bindings: ${set.bindings.length}`,
       `Catalog: ${skillCatalog} · ${mcpCatalog}`,
-      "Core company execution remains available. Optional Skill/MCP access requires explicit /company bind approval.",
+      counts.missing === 0
+        ? "Required tool access is ready. You can review the company and approve it."
+        : "Some roles need tool setup. Review /company readiness after approval, then use /company bind to connect an enabled skill or MCP server.",
+      "Use /skills list or /mcp list to inspect installed tools; /mcp diagnose <server> checks a connection.",
     ].join("\n");
   }
 
@@ -160,6 +163,11 @@ export function renderCompanyToolReadiness(
           `MCP servers configured but disabled: ${disabledServers}`,
           `Project MCP trust: ${catalogs.mcp.projectTrust}`,
         ]),
-    "Catalog binding: exact approved bindings only. Discovery never infers a mapping, installs or trusts a capability, or widens role authority.",
+    ...(counts.missing > 0 ? [
+      "Next: inspect /skills list or /mcp list, then approve access with /company bind <bundle> <skill|mcp> <id>.",
+      "For a disabled tool, use /skills enable <name> or /mcp enable <user|project> <id>. Check MCP connections with /mcp diagnose <id>.",
+      "Project tools also require trust: /skills enable-project or /mcp trust-project. Review their configuration before trusting them.",
+    ] : []),
+    "Catalog binding: exact approved bindings only. Installing a tool does not grant a company role access to it.",
   ].join("\n");
 }

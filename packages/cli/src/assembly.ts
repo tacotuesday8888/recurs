@@ -2141,7 +2141,18 @@ export async function createStandaloneRuntime(
     skills,
     mcp,
     ...(modelSessions === undefined ? {} : { models: modelSessions }),
-    ...(modelSessions === undefined ? {} : { modelTeams }),
+    ...(modelSessions === undefined ? {} : {
+      modelTeams,
+      modelRoutes: {
+        async inspect(signal: AbortSignal) {
+          const document = await connectionRegistry.read({ signal });
+          return {
+            connections: modelSelectionOptions(document),
+            routes: document.agentRoutes,
+          };
+        },
+      },
+    }),
     teamControls: teamControlService,
     signal: () =>
       runtimeReference.current?.currentSignal() ?? new AbortController().signal,

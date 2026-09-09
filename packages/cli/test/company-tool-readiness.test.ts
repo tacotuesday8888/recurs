@@ -121,7 +121,9 @@ describe("company tool readiness", () => {
     expect(output).toMatch(/Role bundles: \d+ built-in ready · \d+ not ready/u);
     expect(output).toContain("Approved bindings: none");
     expect(output).toContain("Catalog: 1 enabled Skill · 1 enabled MCP server");
-    expect(output).toContain("Core company execution remains available");
+    expect(output).toContain("Some roles need tool setup");
+    expect(output).toContain("/company readiness");
+    expect(output).toContain("/mcp diagnose <server>");
     expect(output).not.toMatch(
       /blueprint-v2|quality_v1|private-release-check|private-issue-tracker|\/private/u,
     );

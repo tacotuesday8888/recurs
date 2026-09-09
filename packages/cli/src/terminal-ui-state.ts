@@ -25,6 +25,8 @@ export interface TerminalAgentView {
   readonly effort: string | null;
   readonly status: TerminalAgentStatus;
   readonly detail: string | null;
+  readonly companyGoalRunId: string | null;
+  readonly updatedAt: string;
 }
 
 export type TerminalCompanyNodeStatus =
@@ -44,6 +46,7 @@ export interface TerminalCompanyNodeView {
   readonly status: TerminalCompanyNodeStatus;
   readonly activated: boolean;
   readonly detail: string;
+  readonly representativeExecutionId?: string;
 }
 
 export interface TerminalGoalView {
@@ -84,10 +87,12 @@ export interface TerminalUiSnapshot {
     readonly mode: string;
     readonly permission: string;
     readonly workspace?: string;
+    readonly limits?: AgentExecution["limits"];
   };
   readonly goal: TerminalGoalView | null;
   readonly agents: readonly TerminalAgentView[];
   readonly company: readonly TerminalCompanyNodeView[];
+  readonly configuredCompany?: boolean;
 }
 
 interface MutableAgent {
@@ -103,6 +108,8 @@ interface MutableAgent {
   effort: string | null;
   status: TerminalAgentStatus;
   detail: string | null;
+  companyGoalRunId: string | null;
+  updatedAt: string;
 }
 
 interface MutableGoal {
@@ -133,7 +140,7 @@ interface MutableGoal {
 }
 
 export class TerminalUiState implements EventSink {
-  readonly #session: TerminalUiSnapshot["session"];
+  #session: TerminalUiSnapshot["session"];
   readonly #blueprint: CompanyBlueprintV2 | null;
   readonly #assignments = new Map<string, MutableAgent>();
   readonly #activatedAssignments = new Set<string>();
@@ -150,7 +157,10 @@ export class TerminalUiState implements EventSink {
 
   restoreExecutions(executions: readonly AgentExecution[]): void {
     for (const execution of executions) {
-      if (execution.parentExecutionId === null) continue;
+      if (execution.parentExecutionId === null) {
+        this.#session = Object.freeze({ ...this.#session, limits: execution.limits });
+        continue;
+      }
       const previous = [...this.#assignments.values()].find((agent) => agent.executionId === execution.executionId);
       this.#assignments.set(execution.executionId, {
         executionId: execution.executionId,
@@ -165,9 +175,16 @@ export class TerminalUiState implements EventSink {
         effort: execution.effort,
         status: execution.status,
         detail: execution.detail ?? execution.description,
+        companyGoalRunId: execution.companyGoalRunId,
+        updatedAt: execution.updatedAt,
       });
       this.#activatedAssignments.add(execution.executionId);
     }
+    this.#onChange?.();
+  }
+
+  updateParentSession(session: TerminalUiSnapshot["session"]): void {
+    this.#session = Object.freeze({ ...this.#session, ...session });
     this.#onChange?.();
   }
 
@@ -220,6 +237,8 @@ export class TerminalUiState implements EventSink {
           effort: null,
           status: "running",
           detail: null,
+          companyGoalRunId: event.goalRunId,
+          updatedAt: event.at,
         });
         break;
       case "agent_started": {
@@ -241,6 +260,8 @@ export class TerminalUiState implements EventSink {
           effort: event.reasoningEffort,
           status: "running",
           detail: event.description,
+          companyGoalRunId: placeholder?.companyGoalRunId ?? parent?.companyGoalRunId ?? null,
+          updatedAt: event.at,
         });
         this.#activatedAssignments.add(event.childSessionId);
         break;
@@ -252,6 +273,7 @@ export class TerminalUiState implements EventSink {
         if (agent !== undefined) {
           agent.status = event.type === "agent_completed" ? "completed" : event.type === "agent_failed" ? "failed" : "cancelled";
           agent.detail = event.type === "agent_failed" ? event.failure.safeMessage : event.type === "agent_cancelled" ? event.reason : agent.detail;
+          agent.updatedAt = event.at;
         }
         break;
       }
@@ -347,9 +369,9 @@ export class TerminalUiState implements EventSink {
       }))
       .sort((left, right) =>
         left.depth - right.depth ||
-        left.assignmentId.localeCompare(right.assignmentId)
+        left.updatedAt.localeCompare(right.updatedAt) || left.executionId.localeCompare(right.executionId)
       );
-    const activeAgents = agents.filter((agent) => agent.status === "running").length;
+    const activeAgents = agents.filter((agent) => agent.status === "running" && agent.companyGoalRunId === this.#goal?.id).length;
     const goal = this.#goal === null
       ? null
       : (() => {
@@ -360,12 +382,24 @@ export class TerminalUiState implements EventSink {
             activeAgents,
           });
         })();
-    const company = this.#companyView(agents, goal);
+    // Keyboard selection and rendering share one depth-first order.
+    const companyNodes = this.#companyView(agents, goal);
+    const company: TerminalCompanyNodeView[] = [];
+    const visited = new Set<string>();
+    const visit = (node: TerminalCompanyNodeView): void => {
+      if (visited.has(node.roleId)) return;
+      visited.add(node.roleId);
+      company.push(node);
+      companyNodes.filter((child) => child.reportsToRoleId === node.roleId).forEach(visit);
+    };
+    companyNodes.filter((node) => node.reportsToRoleId === null).forEach(visit);
+    companyNodes.forEach(visit);
     return Object.freeze({
       session: this.#session,
       goal,
       agents: Object.freeze(agents),
-      company,
+      company: Object.freeze(company),
+      configuredCompany: this.#blueprint !== null,
     });
   }
 
@@ -394,12 +428,10 @@ export class TerminalUiState implements EventSink {
         detail: goal?.phase ?? (goal === null ? "ready" : goal.status),
       } satisfies TerminalCompanyNodeView), ...agents.map((agent) =>
         Object.freeze({
-          roleId: agent.roleId,
-          reportsToRoleId: agent.parentAssignmentId === null
-            ? "parent"
-            : agents.find((candidate) =>
-                candidate.assignmentId === agent.parentAssignmentId
-              )?.roleId ?? "parent",
+          roleId: agent.executionId,
+          reportsToRoleId: agents.some((candidate) => candidate.executionId === agent.parentExecutionId)
+            ? agent.parentExecutionId : "parent",
+          representativeExecutionId: agent.executionId,
           assignmentIds: Object.freeze([agent.assignmentId]),
           departmentId: agent.departmentId,
           roleName: agent.roleName,
@@ -439,11 +471,7 @@ export class TerminalUiState implements EventSink {
       }
       if (matches.length === 0) return "inactive";
       if (matches.some((agent) => agent.status === "running")) return "running";
-      if (matches.every((agent) => agent.status === "completed")) return "completed";
-      if (matches.some((agent) => agent.status === "failed")) return "failed";
-      if (matches.some((agent) => agent.status === "unknown")) return "unknown";
-      if (matches.some((agent) => agent.status === "ready")) return "ready";
-      return "cancelled";
+      return matches.at(-1)!.status;
     };
     const children = new Map<string, string[]>();
     for (const role of this.#blueprint.roles) {
@@ -462,8 +490,9 @@ export class TerminalUiState implements EventSink {
       traversal.map((roleId, index) => [roleId, index]),
     );
     return Object.freeze(this.#blueprint.roles.map((role) => {
-      const matches = agents.filter((agent) => agent.roleId === role.id);
-      const representative = matches.find((agent) => agent.status === "running") ??
+      const matches = agents.filter((agent) => agent.roleId === role.id && (goal === null || agent.companyGoalRunId === goal.id))
+        .toSorted((left, right) => left.updatedAt.localeCompare(right.updatedAt));
+      const representative = matches.findLast((agent) => agent.status === "running") ??
         matches.at(-1);
       const status = statusFor(role.id, matches);
       const isRoot = role.id === rootRoleId;
@@ -478,6 +507,7 @@ export class TerminalUiState implements EventSink {
         effort: isRoot ? null : representative?.effort ?? null,
         status,
         activated: isRoot || matches.length > 0,
+        ...(representative === undefined ? {} : { representativeExecutionId: representative.executionId }),
         detail: isRoot
           ? goal?.phase ?? (goal === null ? "ready" : goal.status)
           : matches.length === 0

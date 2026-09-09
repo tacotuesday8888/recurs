@@ -44,6 +44,7 @@ import type { CommandRegistry } from "./commands/registry.js";
 import type {
   CommandContext,
   CommandResult,
+  CommandSelectionHandler,
 } from "./commands/types.js";
 import { applyCommandSessionRecord } from "./session-mutations.js";
 import type {
@@ -128,6 +129,7 @@ export class RecursRuntime {
   #activeSteering: TurnSteeringQueue | null = null;
   #activeQueuedTurns: QueuedTurnAdmissionQueue | null = null;
   #confirm: (message: string) => Promise<boolean>;
+  #selection: CommandSelectionHandler | null = null;
   #approve: ((intent: PermissionIntent) => Promise<ApprovalResponse>) | null = null;
   #userInput: UserInputHandler | null = null;
   #session: SessionState | null;
@@ -241,6 +243,32 @@ export class RecursRuntime {
     this.#confirm = confirm;
   }
 
+  setSelectionHandler(selection: CommandSelectionHandler | null): void {
+    this.#selection = selection;
+  }
+
+  #selectionFor(invocation: HostInvocation): CommandSelectionHandler | undefined {
+    if (this.#selection === null) return undefined;
+    try {
+      const trusted = deriveTrustedRunContext(invocation);
+      if (trusted.presence !== "present" || trusted.location !== "local" ||
+        trusted.automation !== "manual" ||
+        (trusted.embedding !== "cli" && trusted.embedding !== "desktop")) return undefined;
+    } catch { return undefined; }
+    const selection = this.#selection;
+    return (message, options) => selection(
+      terminalSafeConfirmationText(message),
+      options.map((option) => ({
+        id: option.id,
+        ...(typeof option.current === "boolean" ? { current: option.current } : {}),
+        label: terminalSafeConfirmationText(option.label),
+        ...(option.detail === undefined ? {} : {
+          detail: terminalSafeConfirmationText(option.detail),
+        }),
+      })),
+    );
+  }
+
   setApprovalHandler(
     approve: (intent: PermissionIntent) => Promise<ApprovalResponse>,
   ): void {
@@ -345,11 +373,13 @@ export class RecursRuntime {
   }
 
   #commandContext(invocation: HostInvocation): CommandContext {
+    const selectChoice = this.#selectionFor(invocation);
     const context: CommandContext = {
       session: this.session,
       invocation,
       now: () => this.dependencies.now?.() ?? new Date().toISOString(),
       confirm: (message) => this.confirm(message),
+      ...(selectChoice === undefined ? {} : { selectChoice }),
       cancelActiveRun: async () => this.cancel(),
       manageQueuedTurns: async (args) => {
         const result = await this.#manageQueuedTurns(args, invocation);
@@ -379,11 +409,13 @@ export class RecursRuntime {
       model: "unconfigured",
       permissionMode: workspace.permissionMode,
     });
+    const selectChoice = this.#selectionFor(invocation);
     const context: CommandContext = {
       session: transient,
       invocation,
       now: () => this.dependencies.now?.() ?? new Date().toISOString(),
       confirm: (message) => this.confirm(message),
+      ...(selectChoice === undefined ? {} : { selectChoice }),
       cancelActiveRun: async () => this.cancel(),
       manageQueuedTurns: async () => ({
         type: "message",

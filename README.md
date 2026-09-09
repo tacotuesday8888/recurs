@@ -15,7 +15,7 @@ of agents. Choose who does the work, which models they use, how far they can
 delegate, and what they may change. Inspect the agents that actually ran,
 their conversations, evidence, and results.
 
-![Installed Recurs terminal running a deterministic parser-review fixture](docs/assets/terminal-session.svg)
+![Installed Recurs terminal in the dark theme](docs/assets/terminal-dark.svg)
 
 *Captured from the installed CLI through a real terminal. The local fixture
 provider tests the interface; it is not a model-quality benchmark.*
@@ -65,6 +65,7 @@ Recurs shows both, separately.
 
 ```text
 /agents controls       inspect effective team limits
+/agents routes         preview specialist models and inheritance
 /agents executions     list actual executions
 /agents inspect <id>   read one execution's conversation and evidence
 /agents stop <id>      cancel an owned execution and its descendants
@@ -74,7 +75,25 @@ Recurs shows both, separately.
 
 A larger team is not automatically better. Explicit configuration and reliable
 visibility are the product; automatic model-team selection remains gated on
-recorded evaluation evidence. [What the comparisons show →](docs/AUTO_MODEL_TEAMS.md)
+recorded evaluation evidence. [Team evaluation →](docs/AUTO_MODEL_TEAMS.md) ·
+[Current TypeScript CLI comparison →](docs/research/product-comparison-2026-09.md)
+
+## Make it yours
+
+Choose a saved model with `/model`. Press **F2** or enter `/theme` to preview
+system, dark, light, or high-contrast colors. Escape restores your previous
+appearance and preserves your draft; Enter saves it across restarts.
+
+```text
+/theme dark
+/theme light
+/theme color accent #67e8f9
+```
+
+Eight semantic colors cover text, backgrounds, code, and status. `NO_COLOR`
+and terminal-default colors remain supported. [Appearance guide →](docs/APPEARANCE.md)
+
+![Theme picker captured from the installed terminal](docs/assets/terminal-appearance.svg)
 
 ## Extend your workflow
 
@@ -106,10 +125,11 @@ JSON, JSONL and ACP share the same execution core.
 
 ## Status and contributing
 
-Source version: `0.1.0-alpha.10`. Published packages and checksummed install assets
+Source version: `0.1.0-alpha.11`. Published packages and checksummed install assets
 are listed in [GitHub Releases](https://github.com/tacotuesday8888/recurs/releases).
 Source changes can precede publication; the npm badge shows the published alpha.
-The [release work record](docs/RELEASE_READINESS.md) tracks exact source, artifact,
+The [release work record](docs/RELEASE_READINESS.md) and
+[product polish record](docs/PRODUCT_POLISH.md) track exact source, artifact,
 test and publication status.
 
 Recurs supports macOS and Linux. There is no persistent background daemon or

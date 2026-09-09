@@ -98,9 +98,9 @@ describe("TerminalUiState", () => {
     ])).toEqual([
       ["root_orchestrator", 0, "ready"],
       ["engineering_lead", 1, "inactive"],
-      ["quality_lead", 1, "inactive"],
       ["implement", 2, "inactive"],
       ["auth_worker", 3, "inactive"],
+      ["quality_lead", 1, "inactive"],
     ]);
 
     const rendered = renderCompanyHome(state.snapshot(), 132, 0).join("\n");

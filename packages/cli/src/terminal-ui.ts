@@ -22,6 +22,7 @@ import {
   type EventSink,
   type RecursEvent,
   type SessionListEntry,
+  type AgentExecution,
 } from "@recurs/core";
 import {
   createHostInvocation,
@@ -35,6 +36,9 @@ import { Writable, type Readable } from "node:stream";
 
 import type { CommandResult } from "./commands/types.js";
 import { parseCommand } from "./commands/parser.js";
+import { loadTerminalAppearance, saveTerminalAppearance, isTerminalThemeName, parseTerminalAppearance, TERMINAL_COLOR_ROLES, type TerminalAppearance } from "./terminal-appearance.js";
+import { TerminalChoicePicker } from "./terminal-choice-picker.js";
+import { TerminalThemePicker } from "./terminal-theme-picker.js";
 import { ExecutionInspector } from "./terminal-execution-inspector.js";
 import { safeCliErrorMessage } from "./error-rendering.js";
 import { loadImageInputs } from "./image-input.js";
@@ -152,10 +156,10 @@ export class LaunchComponent implements Component {
     if (this.model.sessions.length === 0) rows.push(line("  No saved chats yet."));
     rows.push(
       "",
-      theme?.strong(line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} Start new project`)) ??
-        line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} Start new project`),
-      theme?.muted(line("    Connect a model, choose authority, and form your company")) ??
-        line("    Connect a model, choose authority, and form your company"),
+      theme?.strong(line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} Start new chat`)) ??
+        line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} Start new chat`),
+      theme?.muted(line(this.model.currentSessionId === null ? "    Connect a model and start coding; team setup is optional" : "    Keep this model and permissions; configure the team anytime")) ??
+        line(this.model.currentSessionId === null ? "    Connect a model and start coding; team setup is optional" : "    Keep this model and permissions; configure the team anytime"),
       theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
       theme?.muted(line("enter open   arrows select   q quit")) ??
         line("enter open   arrows select   q quit"),
@@ -387,14 +391,17 @@ export class TaskPanelComponent implements Component {
     const theme = this.actions.theme;
     const line = (value: string): string => truncateToWidth(sanitizeTerminalText(value, { multiline: false }), safeWidth);
     const title = line(`R↘ RECURS / ${(snapshot.session.workspace ?? "workspace").toUpperCase()} / TASKS`);
-    const count = line(`CHILD EXECUTIONS · ${agents.length}`);
-    const footer = line("ENTER OPEN   ARROWS SELECT   CTRL+T OR ESC BACK");
+    const running = agents.filter((agent) => agent.status === "running").length;
+    const unknown = agents.filter((agent) => agent.status === "unknown").length;
+    const observedDepth = Math.max(0, ...agents.map((agent) => agent.depth));
+    const count = line(`${agents.length} CHILD EXECUTIONS · ${running} running${unknown === 0 ? "" : ` · ${unknown} unknown`} · depth ${observedDepth}${snapshot.session.limits === undefined ? " observed" : `/${snapshot.session.limits.maxDepth} max`}`);
+    const footer = line("ESC BACK   ENTER INSPECT   ARROWS SELECT   CTRL+T BACK");
     const height = Math.max(1, this.actions.rows?.() ?? agents.length * 2 + 8);
     const compact = height < 10;
     const header = compact ? [title, count] : [
       theme?.accent(title) ?? title,
       theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
-      line(snapshot.goal?.objective.toUpperCase() ?? "Agent executions"), count, "",
+      line("Actual execution history · parent conversation is depth 0"), count, "",
     ];
     const tail = compact ? [footer] : ["", "─".repeat(safeWidth), footer];
     const available = Math.max(0, height - header.length - tail.length);
@@ -405,7 +412,9 @@ export class TaskPanelComponent implements Component {
     const rows = [...header];
     for (const agent of agents.slice(start, start + visibleCount)) {
       const selected = agent.executionId === this.#selectedExecutionId ? ">" : " ";
-      const role = line(`${selected} ${"  ".repeat(Math.min(6, agent.depth))}${agent.roleName}  ${agent.status.toUpperCase()}`);
+      const siblings = agents.filter((candidate) => candidate.parentExecutionId === agent.parentExecutionId);
+      const branch = siblings.at(-1)?.executionId === agent.executionId ? "└─" : "├─";
+      const role = line(`${selected} ${"  ".repeat(Math.min(6, Math.max(0, agent.depth - 1)))}${branch} ${agent.roleName}  ${agent.status.toUpperCase()} · depth ${agent.depth}`);
       rows.push(theme?.companyLayer(Math.min(3, agent.depth) as 0 | 1 | 2 | 3, role) ?? role);
       if (!compact) {
         const route = agent.model === null ? "MODEL PENDING" : `${agent.model}${agent.effort === null ? "" : ` · ${agent.effort}`}`;
@@ -440,6 +449,7 @@ export interface RecursInteractiveShellOptions {
   readonly terminal?: InteractiveTerminal;
   readonly cwd: string;
   readonly animate?: boolean;
+  readonly dataDirectory?: string;
   readonly colorEnabled?: boolean;
   readonly loadImages?: (
     paths: readonly string[],
@@ -549,10 +559,10 @@ export class TerminalSafeAutocompleteProvider implements AutocompleteProvider {
   }
 }
 
-function editorTheme(colorEnabled: boolean): EditorTheme {
-  const accent = ansi("96", colorEnabled);
-  const strong = ansi("1", colorEnabled);
-  const muted = ansi("2", colorEnabled);
+function editorTheme(colorEnabled: boolean, theme?: TerminalTheme): EditorTheme {
+  const accent = theme?.accent ?? ansi("96", colorEnabled);
+  const strong = theme?.strong ?? ansi("1", colorEnabled);
+  const muted = theme?.muted ?? ansi("2", colorEnabled);
   return {
     borderColor: accent,
     selectList: {
@@ -661,10 +671,10 @@ class OnboardingComponent extends Container {
     workspace: string,
   ) {
     super();
-    const accent = ansi("96", colorEnabled);
-    const strong = ansi("1", colorEnabled);
-    const muted = ansi("2", colorEnabled);
-    this.#editor = new Editor(tui, editorTheme(colorEnabled), { paddingX: 1 });
+    const accent = theme.accent;
+    const strong = theme.strong;
+    const muted = theme.muted;
+    this.#editor = new Editor(tui, editorTheme(colorEnabled, theme), { paddingX: 1 });
     this.#footer = new Text(
       muted("↑↓ choose · Enter continue · PgUp/PgDn review · Esc cancel"),
       1,
@@ -679,7 +689,7 @@ class OnboardingComponent extends Container {
     });
     this.#header = new Text(
       `${strong(accent(`R↘ RECURS / ${workspace.toUpperCase()} / SETUP`))}\n${
-        muted("Connect a model, choose boundaries, then form your company.")
+        muted("Connect a model, choose permissions, and start coding. Team setup is optional.")
       }`,
       1,
       0,
@@ -727,7 +737,7 @@ class OnboardingComponent extends Container {
     this.#scrollOffset = 0;
     const list = new OnboardingChoiceList(
       choices,
-      editorTheme(this.colorEnabled).selectList,
+      editorTheme(this.colorEnabled, this.theme).selectList,
     );
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -854,8 +864,9 @@ function renderAttachedAgentHeader(
   status: string,
   _depth: 0 | 1 | 2 | 3,
   colorEnabled: boolean,
+  theme?: TerminalTheme,
 ): string {
-  return `${ansi("1", colorEnabled)(roleName)} · ${status}\n${ansi("2", colorEnabled)(route)}`;
+  return `${(theme?.strong ?? ansi("1", colorEnabled))(roleName)} · ${status}\n${(theme?.muted ?? ansi("2", colorEnabled))(route)}`;
 }
 
 export class ChatComponent extends Container {
@@ -883,14 +894,15 @@ export class ChatComponent extends Container {
     colorEnabled: boolean,
     private readonly rows: () => number,
     status?: () => ReturnType<typeof runtimeSession> & { running: boolean },
+    private readonly theme?: TerminalTheme,
   ) {
     super();
-    const accent = ansi("96", colorEnabled);
-    const muted = ansi("2", colorEnabled);
-    const strong = ansi("1", colorEnabled);
+    const accent = theme?.accent ?? ansi("96", colorEnabled);
+    const muted = theme?.muted ?? ansi("2", colorEnabled);
+    const strong = theme?.strong ?? ansi("1", colorEnabled);
     this.#transcript = new Markdown("", 1, 0, {
-      heading: strong, link: accent, linkUrl: muted, code: accent,
-      codeBlock: (text) => text, codeBlockBorder: muted,
+      heading: (text) => strong(accent(text)), link: accent, linkUrl: muted, code: theme?.code ?? accent,
+      codeBlock: theme?.code ?? ((text) => text), codeBlockBorder: muted,
       quote: muted, quoteBorder: muted, hr: muted, listBullet: accent,
       bold: strong, italic: ansi("3", colorEnabled),
       strikethrough: ansi("9", colorEnabled), underline: ansi("4", colorEnabled),
@@ -905,6 +917,7 @@ export class ChatComponent extends Container {
           "ready",
           0,
           colorEnabled,
+          theme,
         )
       }`,
       1,
@@ -915,13 +928,13 @@ export class ChatComponent extends Container {
       const current = status();
       this.#header.setText(`${accent(`R↘ RECURS / ${path.basename(cwd).toUpperCase()} / CHAT`)}\n${renderAttachedAgentHeader(
         "Parent", `${current.model} · ${formatTerminalLabel(current.mode)} · ${formatTerminalLabel(current.permission)}`,
-        current.running ? "running" : "ready", 0, colorEnabled,
+        current.running ? "running" : "ready", 0, colorEnabled, theme,
       )}`);
     };
-    this.editor = new Editor(tui, editorTheme(colorEnabled), { paddingX: 1 });
+    this.editor = new Editor(tui, editorTheme(colorEnabled, theme), { paddingX: 1 });
     this.editor.setAutocompleteProvider(new TerminalSafeAutocompleteProvider(
       new CombinedAutocompleteProvider(
-        commands.map((name) => ({ name })),
+        [...new Set([...commands, "theme"])].map((name) => ({ name })),
         cwd,
       ),
     ));
@@ -937,7 +950,7 @@ export class ChatComponent extends Container {
       if (expanded.length > 0) this.onSubmit?.(expanded);
     };
     this.#footer = new Text(
-      muted("Enter send · Shift+Enter newline · PgUp/PgDn scroll · Ctrl+T agents · Ctrl+C cancel"),
+      muted("Enter send · PgUp/PgDn scroll · Ctrl+T executions · F2 theme"),
       1,
       0,
     );
@@ -955,6 +968,9 @@ export class ChatComponent extends Container {
 
   override render(width: number): string[] {
     this.#updateHeader();
+    this.#footer.setText((this.theme?.muted ?? ((text: string) => text))(width < 64
+      ? "Enter send · /help · Ctrl+T agents"
+      : "Enter send · PgUp/PgDn scroll · Ctrl+T executions · F2 theme"));
     const header = this.#header.render(width);
     const fullQuestion = this.#question.render(width);
     const editor = this.editor.render(width);
@@ -985,6 +1001,8 @@ export class ChatComponent extends Container {
     while (rendered.length < this.rows()) rendered.splice(visibleHeader.length, 0, "");
     return rendered.slice(-Math.max(1, this.rows()));
   }
+
+  refreshAppearance(): void { this.#transcript.invalidate(); this.editor.invalidate(); }
 
   scroll(data: string): boolean {
     if (this.#pending !== null) {
@@ -1081,6 +1099,7 @@ function runtimeSession(runtime: RecursRuntime): {
   readonly model: string;
   readonly mode: string;
   readonly permission: string;
+  readonly limits?: AgentExecution["limits"];
 } {
   const state = runtime.state;
   if (state.type !== "session") {
@@ -1098,6 +1117,7 @@ function runtimeSession(runtime: RecursRuntime): {
     model: session.model,
     mode: session.executionMode === "plan" ? "plan" : operatingMode,
     permission: session.permissionMode,
+    ...(isPinnedSessionState(session) ? { limits: session.agent.limits } : {}),
   };
 }
 
@@ -1106,6 +1126,9 @@ export class RecursInteractiveShell {
   readonly #cwd: string;
   readonly #colorEnabled: boolean;
   readonly #theme: TerminalTheme;
+  readonly #dataDirectory: string | undefined;
+  #appearanceLoaded = false;
+  #appearanceWarning: string | null = null;
   readonly #loadImages: NonNullable<RecursInteractiveShellOptions["loadImages"]>;
   readonly #attachProcess: ProcessAttachmentHost;
   readonly #input: Readable;
@@ -1132,6 +1155,7 @@ export class RecursInteractiveShell {
   constructor(options: RecursInteractiveShellOptions) {
     this.#terminal = options.terminal ?? new ProcessTerminal();
     this.#cwd = options.cwd;
+    this.#dataDirectory = options.dataDirectory;
     this.#loadImages = options.loadImages ?? loadImageInputs;
     this.#attachProcess = options.attachProcess ?? attachOwnedTerminalProcess;
     this.#input = options.input ?? processStdin;
@@ -1155,6 +1179,18 @@ export class RecursInteractiveShell {
     });
   }
 
+  async #loadAppearance(): Promise<void> {
+    if (this.#appearanceLoaded) return;
+    this.#appearanceLoaded = true;
+    if (this.#dataDirectory === undefined || process.env.RECURS_THEME !== undefined) return;
+    try {
+      const appearance = await loadTerminalAppearance(this.#dataDirectory);
+      if (appearance !== null) this.#theme.setAppearance(appearance);
+    } catch {
+      this.#appearanceWarning = "Appearance could not be loaded; using terminal defaults. /theme can choose a replacement.";
+    }
+  }
+
   async onboard<T>(
     run: (
       ui: InteractiveOnboardingUi,
@@ -1162,6 +1198,7 @@ export class RecursInteractiveShell {
     ) => Promise<T>,
     signal?: AbortSignal,
   ): Promise<T> {
+    await this.#loadAppearance();
     const controller = new AbortController();
     const cancel = (): void => {
       if (!controller.signal.aborted) {
@@ -1259,6 +1296,7 @@ export class RecursInteractiveShell {
     runtime: RecursRuntime,
     options: InteractiveShellStartOptions = {},
   ): Promise<InteractiveShellExit> {
+    await this.#loadAppearance();
     const openedSessionId = runtime.state.type === "session" ? runtime.state.session.id : null;
     if (openedSessionId !== this.#transcriptSessionId) {
       this.#transcript.clear();
@@ -1303,6 +1341,10 @@ export class RecursInteractiveShell {
       }
     }
     if (restoredRootNotice !== null) this.#transcript.append(`\nExecution history: ${restoredRootNotice}\n`);
+    if (this.#appearanceWarning !== null) {
+      this.#transcript.append(`\n${this.#appearanceWarning}\n`);
+      this.#appearanceWarning = null;
+    }
     const chat = new ChatComponent(
       tui,
       this.#transcript,
@@ -1312,17 +1354,18 @@ export class RecursInteractiveShell {
       this.#colorEnabled,
       () => this.#terminal.rows,
       () => ({ ...runtimeSession(runtime), running: runtime.hasActiveRun }),
+      this.#theme,
     );
-    const companyEditor = new Editor(tui, editorTheme(this.#colorEnabled), {
+    const companyEditor = new Editor(tui, editorTheme(this.#colorEnabled, this.#theme), {
       paddingX: 1,
     });
     companyEditor.setAutocompleteProvider(new TerminalSafeAutocompleteProvider(
       new CombinedAutocompleteProvider(
-        runtime.commandNames().map((name) => ({ name })),
+        [...new Set([...runtime.commandNames(), "theme"])].map((name) => ({ name })),
         this.#cwd,
       ),
     ));
-    let view: "launch" | "company" | "chat" | "tasks" | "inspect" = "company";
+    let view: "launch" | "company" | "chat" | "tasks" | "inspect" | "appearance" | "selection" = "company";
     let viewBeforeTasks: "company" | "chat" = "company";
     const showChat = (): void => {
       if (view === "chat") return;
@@ -1392,7 +1435,7 @@ export class RecursInteractiveShell {
     };
     const showRole = (node: TerminalCompanyNodeView): void => {
       if (node.reportsToRoleId === null) { showChat(); return; }
-      const agent = state.snapshot().agents.findLast((candidate) => candidate.roleId === node.roleId);
+      const agent = state.snapshot().agents.find((candidate) => candidate.executionId === node.representativeExecutionId);
       if (agent !== undefined) { showExecution(agent); return; }
       selectedExecutionId = null;
       inspector.show(null, `${node.roleName}: configured role; no execution has activated. Return to chat to give the parent instructions.`);
@@ -1441,6 +1484,44 @@ export class RecursInteractiveShell {
       rows: () => this.#terminal.rows,
       theme: this.#theme,
     });
+    const themePreview: { cancel: (() => void) | null } = { cancel: null };
+    let appearanceWrites = Promise.resolve();
+    const persistAppearance = (input: TerminalAppearance | (() => TerminalAppearance)): Promise<void> => {
+      const write = appearanceWrites.then(async () => {
+        const appearance = typeof input === "function" ? input() : input;
+        if (this.#dataDirectory !== undefined) await saveTerminalAppearance(this.#dataDirectory, appearance);
+        this.#theme.setAppearance(appearance);
+        chat.refreshAppearance();
+        companyEditor.invalidate();
+        tui.requestRender(true);
+      });
+      appearanceWrites = write.catch(() => {});
+      return write;
+    };
+    const showAppearance = (): void => {
+      const current = this.#theme.appearance;
+      const restore = () => {
+        this.#theme.setAppearance(current);
+        chat.refreshAppearance();
+        companyEditor.invalidate();
+        themePreview.cancel = null;
+        showChat();
+      };
+      themePreview.cancel = restore;
+      const picker = new TerminalThemePicker({
+        theme: this.#theme, current, rows: () => this.#terminal.rows,
+        preview: (appearance) => { this.#theme.setAppearance(appearance); tui.requestRender(true); },
+        save: async (appearance) => {
+          await persistAppearance(appearance);
+          themePreview.cancel = null;
+          showChat();
+        },
+        cancel: restore,
+        refresh: () => tui.requestRender(true),
+      });
+      view = "appearance";
+      mount(picker, picker);
+    };
     const ask = async (
       question: string,
       options: readonly string[] = [],
@@ -1455,6 +1536,25 @@ export class RecursInteractiveShell {
       tui.requestRender(true);
       return answer;
     };
+    const selection: { cancel: (() => void) | null } = { cancel: null };
+    runtime.setSelectionHandler?.((message, choices) => new Promise((resolve) => {
+      let settled = false;
+      const settle = (id: string | null) => {
+        if (settled) return;
+        settled = true;
+        selection.cancel = null;
+        showChat();
+        resolve(id);
+      };
+      selection.cancel = () => settle(null);
+      if (choices.length === 0) { settle(null); return; }
+      const picker = new TerminalChoicePicker({
+        message, choices, theme: this.#theme, rows: () => this.#terminal.rows,
+        settle, refresh: () => tui.requestRender(true),
+      });
+      view = "selection";
+      mount(picker, picker);
+    }));
     runtime.setConfirmHandler(async (message) => {
       const answer = await ask(
         `${message} [y/N]`,
@@ -1490,7 +1590,7 @@ export class RecursInteractiveShell {
     let activeSubmissions = 0;
     const submissionTasks = new Set<Promise<void>>();
     const submit = async (input: string): Promise<void> => {
-      if (activeSubmissions > 0 && !runtime.canAcceptLiveInput) {
+      if (activeSubmissions > 0 && !runtime.canAcceptLiveInput && parseCommand(input)?.name !== "theme") {
         this.#transcript.append(
           "\nWait for the active turn, cancel it with Ctrl+C, or enable a mode that accepts steering.\n",
         );
@@ -1501,6 +1601,27 @@ export class RecursInteractiveShell {
       this.#transcript.append(`\n› ${input}\n`);
       try {
         const parsed = parseCommand(input);
+        if (parsed?.name === "theme") {
+          const args = parsed.args.trim();
+          if (args.length === 0) {
+            if (runtime.hasActiveRun) throw new Error("Open the theme picker after the current turn, or apply /theme dark directly.");
+            await appearanceWrites;
+            showAppearance(); return;
+          }
+          if (isTerminalThemeName(args)) {
+            await persistAppearance({ version: 1, theme: args });
+          } else if (args.startsWith("color ")) {
+            const [, role, value, ...extra] = args.split(/\s+/u);
+            if (extra.length !== 0 || role === undefined || value === undefined) throw new Error("Use /theme color <role> #RRGGBB");
+            await persistAppearance(() => parseTerminalAppearance({
+              ...this.#theme.appearance, colors: { ...this.#theme.appearance.colors, [role]: value },
+            }));
+          } else {
+            throw new Error(`Use /theme [system|dark|light|contrast], or /theme color <${TERMINAL_COLOR_ROLES.join("|")}> #RRGGBB`);
+          }
+          this.#transcript.append(`Appearance: ${this.#theme.appearance.theme}${this.#dataDirectory === undefined ? " (this process)" : " (saved)"}.\n`);
+          return;
+        }
         if (parsed?.name === "image") {
           if (parsed.args.length === 0) {
             this.#transcript.append(stagedImagesText(stagedImages));
@@ -1546,6 +1667,7 @@ export class RecursInteractiveShell {
           finish({ type: "resume_session", sessionId: runtime.state.session.id });
           return;
         }
+        state.updateParentSession(runtimeSession(runtime));
         if (!isCommandResult(result)) return;
         if (result.type === "quit") {
           finish({ type: "quit" });
@@ -1573,6 +1695,7 @@ export class RecursInteractiveShell {
           }
           return;
         }
+        if (parsed?.name === "help" && result.type === "message") this.#transcript.append("\n/theme [system|dark|light|contrast]  Preview or save terminal appearance\n/theme color <role> #RRGGBB         Customize a semantic color\n");
         await renderCommandResult(
           result,
           this.#transcriptOutput,
@@ -1602,6 +1725,17 @@ export class RecursInteractiveShell {
       void task.finally(() => submissionTasks.delete(task));
     };
     tui.addInputListener((data) => {
+      if (view === "selection") {
+        if (matchesKey(data, Key.ctrl("q"))) { selection.cancel?.(); finish({ type: "quit" }); return { consume: true }; }
+        if (matchesKey(data, Key.ctrl("g")) || matchesKey(data, Key.ctrl("t"))) return { consume: true };
+        return undefined;
+      }
+      if (view === "appearance") {
+        if (matchesKey(data, Key.ctrl("q"))) { themePreview.cancel?.(); finish({ type: "quit" }); return { consume: true }; }
+        if (matchesKey(data, Key.ctrl("g")) || matchesKey(data, Key.ctrl("t"))) return { consume: true };
+        return undefined;
+      }
+      if ((view === "chat" || view === "company") && matchesKey(data, Key.f2) && activeSubmissions === 0 && !runtime.hasActiveRun) { showAppearance(); return { consume: true }; }
       if (view === "chat" && supportsLaunch && matchesKey(data, Key.escape) && chat.editor.getText().length === 0) {
         showLaunch();
         return { consume: true };
@@ -1641,15 +1775,21 @@ export class RecursInteractiveShell {
     this.#terminal.setTitle(terminalTitle(this.#cwd));
     tui.start();
     tui.requestRender(true);
+    let completedExit: InteractiveShellExit | null = null;
     try {
-      return await finished;
+      completedExit = await finished;
+      return completedExit;
     } finally {
+      await appearanceWrites;
+      themePreview.cancel?.();
+      selection.cancel?.();
+      runtime.setSelectionHandler?.(null);
       state.onChange(null);
       chat.cancelQuestions();
       tui.stop();
       runtime.cancel();
-      await runtime.close?.();
       await Promise.allSettled([...submissionTasks]);
+      if (completedExit?.type !== "new_project" || runtime.state.type !== "session") await runtime.close?.();
     }
   }
 }

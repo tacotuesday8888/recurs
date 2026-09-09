@@ -177,7 +177,7 @@ export function createModelCommand(dependencies: CommandDependencies): Command {
     description: "List saved models or start a fresh pinned session",
     usage: "/model [connection-id|auto [status|evaluate <company-goal-run-id>]]",
     async execute(args, context) {
-      const requested = args.trim();
+      let requested = args.trim();
       if (requested === "auto" || requested.startsWith("auto ")) {
         return await executeAuto(
           requested.slice("auto".length).trim(),
@@ -201,6 +201,29 @@ export function createModelCommand(dependencies: CommandDependencies): Command {
         options = await dependencies.models.list(signal);
       } catch {
         return message("Saved model connections could not be loaded", "error");
+      }
+      if (requested.length === 0 && options.length > 0 &&
+        context.selectChoice !== undefined && localManualInvocation(context.invocation)) {
+        const active = currentConnectionId(context.session);
+        const selectedId = await context.selectChoice(
+          "Choose a saved model for a fresh session",
+          options.map((option) => ({
+            id: option.connectionId,
+            current: option.connectionId === active,
+            label: `${option.providerId}/${option.modelId}${
+              option.reasoningEffort === undefined ? "" : ` · ${option.reasoningEffort}`
+            }${option.connectionId === active ? " · active" : ""}`,
+            detail: `${option.label} · ${option.execution} · billing: ${option.billingSources.join(", ")}${
+              option.primary ? " · primary" : ""
+            }`,
+          })),
+        );
+        if (selectedId === null) return message("Model unchanged", "warning");
+        if (!CONNECTION_ID.test(selectedId) ||
+          !options.some((option) => option.connectionId === selectedId)) {
+          return message("Saved model connection not found", "error");
+        }
+        requested = selectedId;
       }
       if (requested.length === 0) {
         return options.length === 0

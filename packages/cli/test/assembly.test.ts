@@ -1444,6 +1444,16 @@ describe("standalone assembly without a provider", () => {
     runtime.setConfirmHandler(async () => true);
     await runtime.submit("/plan");
 
+    const routeRegistry = new FileConnectionRegistry(dataDirectory);
+    const beforeRoutes = await routeRegistry.read();
+    await routeRegistry.commit(beforeRoutes.revision, (draft) => {
+      draft.agentRoutes.review = second.id;
+    });
+    expect(await runtime.submit("/agents routes")).toMatchObject({
+      text: expect.stringMatching(new RegExp(`Parent pinned:.*model-a[\\s\\S]*review:.*model-b.*${second.id}[\\s\\S]*resolve at next launch`, "u")),
+    });
+    expect((await routeRegistry.read()).revision).toBe(beforeRoutes.revision + 1);
+
     expect(await runtime.submit("/model")).toMatchObject({
       text: expect.stringMatching(
         new RegExp(`${first.id}.*model-a.*active.*primary[\\s\\S]*${second.id}.*model-b`, "u"),

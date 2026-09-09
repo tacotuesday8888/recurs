@@ -329,12 +329,15 @@ export class CompanyProposalEditor {
         revised.run,
         previous,
       );
-    } catch {
+    } catch (error) {
+      if (input.signal?.aborted || error instanceof Error && error.name === "AbortError") {
+        return result("cancelled", input.run, previous);
+      }
       return result(
         "invalid",
         input.run,
         previous,
-        "The edited YAML was invalid or widened immutable company authority.",
+        "The edited YAML could not be applied. Check its syntax and keep the approved permission and model settings unchanged, then choose Edit YAML again.",
       );
     }
   }
@@ -351,7 +354,7 @@ export class CompanyProposalEditor {
         "unavailable",
         input.run,
         previous,
-        "Set VISUAL or EDITOR to edit the company YAML.",
+        "Set VISUAL or EDITOR (for example, EDITOR=\"code --wait\") and retry, or choose Discuss a revision.",
       );
     }
     let command: CompanyEditorCommand;
@@ -366,6 +369,7 @@ export class CompanyProposalEditor {
       );
     }
     const signal = input.signal ?? new AbortController().signal;
+    if (signal.aborted) return result("cancelled", input.run, previous);
     const directory = await mkdtemp(path.join(
       this.dependencies.temporaryDirectory ?? tmpdir(),
       "recurs-company-",
@@ -403,6 +407,12 @@ export class CompanyProposalEditor {
         yaml: await readFile(file, "utf8"),
         signal,
       });
+    } catch (error) {
+      return result(
+        signal.aborted || error instanceof Error && error.name === "AbortError" ? "cancelled" : "invalid",
+        input.run, previous,
+        "The edited file could not be read. Your saved proposal is unchanged; choose Edit YAML again or Discuss a revision.",
+      );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
