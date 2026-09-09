@@ -1,22 +1,25 @@
 # Public alpha status
 
-Source version: **0.1.0-alpha.10 release candidate**. The September 9, 2026
-registry check found npm `alpha` at alpha.7 and `latest` at alpha.2. Prior docs
-calling alpha.8 public were incorrect. Consult the [release record](RELEASE_READINESS.md)
-for the exact source, packaged artifact, merged state and publication outcome.
+**0.1.0-alpha.10 is published.** npm `alpha` selects `0.1.0-alpha.10`;
+`latest` remains `0.1.0-alpha.2` (verified September 9, 2026). The
+[GitHub prerelease](https://github.com/tacotuesday8888/recurs/releases/tag/v0.1.0-alpha.10)
+contains the attested package, installer, formula, and checksums. See the
+[release record](RELEASE_READINESS.md) for exact source, integrity, and public
+installation evidence. Alpha.9's failed publication tag remains preserved.
 
 ## Supported paths
 
 Use `npm install --global recurs@alpha` on macOS or Linux with Node.js 22.22+,
 Git and ripgrep. Linux subprocess isolation requires Bubblewrap. Bun can install
-the same npm archive but Node runs the CLI. The release pipeline also prepares
+the same npm archive but Node runs the CLI. The published release includes
 a checksum-verifying curl installer and Homebrew formula from those exact bytes.
+The Homebrew tap update passed its install/test gate and is merged.
 
 A normal installation does not download Codex or Copilot. Their supported
 vendor runtimes are supplied separately. See the [provider matrix](PROVIDER_CAPABILITY_MATRIX.md)
 and [CLI guide](CLI.md).
 
-## What this candidate changes
+## What this release changes
 
 Quick coding startup, reviewable project onboarding, a conventional terminal,
 a durable execution inventory, exact agent inspection/cancellation, standard
