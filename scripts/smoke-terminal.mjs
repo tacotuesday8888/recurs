@@ -17,6 +17,11 @@ import { spawn } from "@lydell/node-pty";
 import xterm from "@xterm/headless";
 import { parseSingleNpmPackReport } from "./npm-pack-report.mjs";
 
+const interactive = process.argv.includes("--interactive");
+if (interactive && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+  console.error("Run the UI walkthrough in an interactive terminal.");
+  process.exit(1);
+}
 const exec = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporary = await realpath(await mkdtemp(path.join(tmpdir(), "recurs-terminal-")));
@@ -27,30 +32,35 @@ await Promise.all([mkdir(home), mkdir(workspace)]);
 await exec("git", ["init", "--quiet", workspace]);
 await writeFile(path.join(workspace, "parser.ts"), "export const parse = (input: string) => input.trim();\n");
 const environment = { HOME: home, USERPROFILE: home, RECURS_HOME: path.join(home, ".recurs"), PATH: process.env.PATH, LANG: "en_US.UTF-8", TERM: "xterm-256color", NO_COLOR: "1" };
-const packed = parseSingleNpmPackReport((await exec("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", temporary], { cwd: root })).stdout);
-await exec("npm", ["install", "--prefix", prefix, "--ignore-scripts", "--omit=dev", "--no-package-lock", "--no-audit", "--no-fund", "--cache", path.join(temporary, "cache"), path.join(temporary, packed.filename)], { env: environment, timeout: 120_000 });
-const executable = path.join(prefix, "node_modules", ".bin", "recurs");
-const startupMs = [];
-for (let index = 0; index < 5; index += 1) {
-  const start = performance.now();
-  await exec(executable, ["--version"], { cwd: workspace, env: environment });
-  startupMs.push(Math.round(performance.now() - start));
-}
-async function fileBytes(directory) {
-  let total = 0;
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const filename = path.join(directory, entry.name);
-    if (entry.isDirectory()) total += await fileBytes(filename);
-    else if (entry.isFile()) total += (await stat(filename)).size;
+let executable = path.join(root, "dist/cli/main.js");
+let measurements;
+let packed;
+if (!interactive) {
+  packed = parseSingleNpmPackReport((await exec("npm", ["pack", "--ignore-scripts", "--json", "--cache", path.join(temporary, "cache"), "--pack-destination", temporary], { cwd: root })).stdout);
+  await exec("npm", ["install", "--prefix", prefix, "--ignore-scripts", "--omit=dev", "--no-package-lock", "--no-audit", "--no-fund", "--cache", path.join(temporary, "cache"), path.join(temporary, packed.filename)], { env: environment, timeout: 120_000 });
+  executable = path.join(prefix, "node_modules", ".bin", "recurs");
+  const startupMs = [];
+  for (let index = 0; index < 5; index += 1) {
+    const start = performance.now();
+    await exec(executable, ["--version"], { cwd: workspace, env: environment });
+    startupMs.push(Math.round(performance.now() - start));
   }
-  return total;
+  async function fileBytes(directory) {
+    let total = 0;
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const filename = path.join(directory, entry.name);
+      if (entry.isDirectory()) total += await fileBytes(filename);
+      else if (entry.isFile()) total += (await stat(filename)).size;
+    }
+    return total;
+  }
+  measurements = {
+    archiveSha256: createHash("sha256").update(await readFile(path.join(temporary, packed.filename))).digest("hex"),
+    compressedBytes: packed.size, unpackedBytes: packed.unpackedSize,
+    installedFileBytes: await fileBytes(prefix), startupVersionMs: startupMs,
+    node: process.version, platform: `${process.platform}-${process.arch}`,
+  };
 }
-const measurements = {
-  archiveSha256: createHash("sha256").update(await readFile(path.join(temporary, packed.filename))).digest("hex"),
-  compressedBytes: packed.size, unpackedBytes: packed.unpackedSize,
-  installedFileBytes: await fileBytes(prefix), startupVersionMs: startupMs,
-  node: process.version, platform: `${process.platform}-${process.arch}`,
-};
 let requests = 0;
 let releaseChild;
 const childGate = new Promise((resolve) => { releaseChild = resolve; });
@@ -103,8 +113,7 @@ const server = createServer(async (request, response) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
 await exec(executable, ["setup", "local", "--url", baseUrl, "--model", "terminal-fixture"], { cwd: workspace, env: environment });
-if (process.argv.includes("--interactive")) {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("Run the UI walkthrough in an interactive terminal.");
+if (interactive) {
   const design = process.argv[process.argv.indexOf("--design") + 1];
   const selectedDesign = process.argv.includes("--design") && design === "v19" ? "v19" : "r";
   await writeFile(path.join(home, ".recurs/config/appearance.json"), JSON.stringify({ version: 1, theme: "orange", design: selectedDesign }), { mode: 0o600 });

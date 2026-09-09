@@ -71,7 +71,7 @@ The opening uses a spinning, extruded R with inset detail, rendered in native te
 ## Run both designs locally
 
 From a checkout, `npm run ui:preview -- --design r` or `npm run ui:preview -- --design v19`
-opens the actual installed CLI in a disposable workspace with a deterministic local
+builds and opens the actual local CLI in a disposable workspace with a deterministic local
 provider. This walkthrough uses the production UI and real tool execution, while
 provider responses are scripted. It needs no API account and does not alter your
 saved Recurs settings. Try “Apply terminal fixture patch”, “Inspect with terminal
