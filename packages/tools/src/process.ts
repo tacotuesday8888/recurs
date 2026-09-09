@@ -94,6 +94,8 @@ export interface WorkspaceProcessSandbox {
   /** Existing command execution remains read-write unless explicitly narrowed. */
   readonly workspaceAccess?: "read_write" | "read_only";
   readonly readOnlyPaths?: readonly string[];
+  /** Explicit host executables that must remain visible under hidden temporary roots. */
+  readonly readOnlyFiles?: readonly string[];
   /** Private credential directories hidden even when they fall inside the workspace. */
   readonly deniedReadPaths?: readonly string[];
 }
@@ -419,13 +421,12 @@ function appendLinuxCredentialMasks(
   }
 }
 
-function linuxSandboxLaunch(
+export function linuxSandboxArguments(
   command: string,
   args: readonly string[],
   options: NonNullable<RunProcessOptions["sandbox"]>,
   roots: SandboxRoots,
-): ProcessLaunch {
-  const launcher = trustedLinuxBubblewrap();
+): readonly string[] {
   if (roots.hostHome === path.parse(roots.hostHome).root) {
     throw new ToolError(
       "sandbox_unavailable",
@@ -455,15 +456,19 @@ function linuxSandboxLaunch(
   ].filter((value): value is string => value !== undefined);
   const uniqueHiddenRoots = [...new Set(hiddenRoots)]
     .filter((root) => root !== path.parse(root).root);
-  const readOnlyPaths = [...new Set(options.readOnlyPaths ?? [])].map(
-    (candidate) => {
+  const supportPaths = [
+    ...[...new Set(options.readOnlyPaths ?? [])].map((candidate) => ({ candidate, directory: true })),
+    ...[...new Set(options.readOnlyFiles ?? [])].map((candidate) => ({ candidate, directory: false })),
+  ].map(
+    ({ candidate, directory }) => {
       let canonical: string;
       try {
         canonical = realpathSync(candidate);
-        if (!statSync(canonical).isDirectory()) {
+        const details = statSync(canonical);
+        if (directory ? !details.isDirectory() : !details.isFile()) {
           throw new ToolError(
             "sandbox_unavailable",
-            "A Linux sandbox support path is not a directory",
+            "A Linux sandbox support path has the wrong file type",
           );
         }
       } catch (error) {
@@ -485,10 +490,10 @@ function linuxSandboxLaunch(
           "A Linux sandbox support path is not eligible for exposure",
         );
       }
-      return canonical;
+      return { canonical, directory };
     },
   );
-  if (readOnlyPaths.length > 8) {
+  if (supportPaths.length > 8) {
     throw new ToolError(
       "sandbox_unavailable",
       "The Linux sandbox has too many support paths",
@@ -514,10 +519,16 @@ function linuxSandboxLaunch(
   for (const requiredRoot of [
     roots.workspaceRoot,
     roots.privateRoot,
-    ...readOnlyPaths,
+    ...supportPaths.map(({ canonical, directory }) => directory ? canonical : path.dirname(canonical)),
   ]) {
     if (uniqueHiddenRoots.some((root) => isWithin(root, requiredRoot))) {
       bwrapArgs.push("--dir", requiredRoot);
+    }
+  }
+  for (const { canonical, directory } of supportPaths) {
+    if (!directory && uniqueHiddenRoots.some((root) => isWithin(root, canonical))) {
+      // Create the exact mount point before its temporary parent becomes read-only.
+      bwrapArgs.push("--ro-bind", "/dev/null", canonical);
     }
   }
   for (const root of uniqueHiddenRoots.toSorted(
@@ -533,14 +544,14 @@ function linuxSandboxLaunch(
     roots.privateRoot,
     roots.privateRoot,
   );
-  for (const readOnlyPath of readOnlyPaths) {
-    bwrapArgs.push("--ro-bind", readOnlyPath, readOnlyPath);
+  for (const { canonical } of supportPaths) {
+    bwrapArgs.push("--ro-bind", canonical, canonical);
   }
   appendLinuxCredentialMasks(bwrapArgs, roots.hostHome);
   for (const denied of canonicalDeniedReadPaths(options, roots)) {
     const hiddenByTemporaryRoot = uniqueHiddenRoots.some((root) => isWithin(root, denied));
-    const explicitlyExposed = [roots.workspaceRoot, roots.privateRoot, ...readOnlyPaths]
-      .some((root) => isWithin(root, denied));
+    const explicitlyExposed = [roots.workspaceRoot, roots.privateRoot, ...supportPaths.map(({ canonical }) => canonical)]
+      .some((root) => isWithin(root, denied) || isWithin(denied, root));
     if (hiddenByTemporaryRoot && !explicitlyExposed) continue;
     // Apply last so a workspace or support-path mount cannot expose credentials again.
     bwrapArgs.push("--perms", "000", "--tmpfs", denied, "--remount-ro", denied);
@@ -561,7 +572,16 @@ function linuxSandboxLaunch(
     command,
     ...args,
   );
-  return { command: launcher, args: bwrapArgs };
+  return bwrapArgs;
+}
+
+function linuxSandboxLaunch(
+  command: string,
+  args: readonly string[],
+  options: NonNullable<RunProcessOptions["sandbox"]>,
+  roots: SandboxRoots,
+): ProcessLaunch {
+  return { command: trustedLinuxBubblewrap(), args: linuxSandboxArguments(command, args, options, roots) };
 }
 
 function sandboxLaunch(

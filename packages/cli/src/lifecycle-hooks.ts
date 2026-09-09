@@ -479,6 +479,7 @@ class LifecycleHookEventSink implements EventSink {
             mode: "workspace",
             network: "deny",
             workspaceAccess: "read_only",
+            readOnlyFiles: [hook.command],
             deniedReadPaths: [this.credentialDirectory],
           },
         });

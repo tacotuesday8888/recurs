@@ -46,6 +46,20 @@ separate runs and must not be added together as unique test coverage.
 test files passed ESLint. Full repository checks, installed-artifact acceptance,
 Linux CI, and final merge status are recorded by the release owner separately.
 
+### Linux hook launch follow-up
+
+The first Linux release CI run exposed a real hook-launch gap: temporary roots
+are hidden, so an explicitly configured hook executable under `/tmp` could not
+start. Hooks now expose only their validated executable as a read-only file,
+without exposing its directory or neighboring sockets. The mount point is
+prepared before the temporary root becomes read-only, and credential masks
+remain last, including when an exposed file is beneath a protected directory.
+The workspace-write denial test now requires a successful public-read hook as
+a positive control. Focused local verification passed **3 files / 17 tests**,
+including Linux argument-generation assertions and real macOS sandbox runs;
+typecheck, ESLint, and diff checks passed. Actual Linux execution of this fix
+is pending the release CI rerun and is not implied by the local checks.
+
 ## Limits retained explicitly
 
 - `local_guarded` intentionally retains host authority. Process groups are

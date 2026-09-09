@@ -335,7 +335,7 @@ describe("lifecycle hook event boundary", () => {
       cwd: workspace,
       timeoutMs: 500,
       maxOutputBytes: 8 * 1024,
-      sandbox: { mode: "workspace", network: "deny", workspaceAccess: "read_only", deniedReadPaths: [path.join(data, "auth")] },
+      sandbox: { mode: "workspace", network: "deny", workspaceAccess: "read_only", readOnlyFiles: [first], deniedReadPaths: [path.join(data, "auth")] },
     });
     expect(launches[0]?.stdin).not.toContain("PRIVATE_PROMPT");
     expect(JSON.parse(launches[0]!.stdin)).toMatchObject({
@@ -477,12 +477,17 @@ describe("lifecycle hook event boundary", () => {
     async () => {
       const { root, data, workspace, config } = await fixture();
       const target = path.join(workspace, "hook-mutation");
+      await writeFile(path.join(workspace, "public.txt"), "public-readable");
+      const positive = await writeExecutable(root, "positive", "#!/bin/sh\ncat \"$PWD/public.txt\" >/dev/null\n");
       const command = await writeExecutable(root, "mutation", "#!/bin/sh\ntouch \"$PWD/hook-mutation\"\n");
       await writeConfig(config, {
         version: 1,
-        hooks: [{ id: "mutation", events: ["turn.start"], command, timeoutMs: 5_000 }],
+        hooks: [
+          { id: "positive", events: ["turn.start"], command: positive, timeoutMs: 2_500 },
+          { id: "mutation", events: ["turn.start"], command, timeoutMs: 2_500 },
+        ],
       });
-      const output = collector(1);
+      const output = collector(2);
       const host = await createLifecycleHookHost({
         dataDirectory: data,
         workspace,
@@ -498,6 +503,7 @@ describe("lifecycle hook event boundary", () => {
       });
       await output.completed;
 
+      expect(output.events).toContainEqual(expect.objectContaining({ hookId: "positive", outcome: "completed" }));
       await expect(access(target)).rejects.toMatchObject({ code: "ENOENT" });
       expect(output.events.at(-1)).toMatchObject({
         type: "lifecycle_hook_finished",
