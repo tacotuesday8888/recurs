@@ -10,16 +10,16 @@ not install or bundle either package.
 | Package | Version | License | Source |
 | --- | ---: | --- | --- |
 | `@agentclientprotocol/codex-acp` | 1.1.7 | Apache-2.0 | <https://github.com/agentclientprotocol/codex-acp> |
-| `@agentclientprotocol/sdk` | 1.3.0 | Apache-2.0 | <https://github.com/agentclientprotocol/typescript-sdk> |
+| `@agentclientprotocol/sdk` | 1.4.0 | Apache-2.0 | <https://github.com/agentclientprotocol/typescript-sdk> |
 | `@earendil-works/pi-tui` | 0.83.0 | MIT | <https://github.com/earendil-works/pi/tree/main/packages/tui> |
 | `@github/copilot-sdk` | 1.0.8 | MIT | <https://github.com/github/copilot-sdk> |
 | `@modelcontextprotocol/client` | 2.0.0 | Apache-2.0 and MIT | <https://github.com/modelcontextprotocol/typescript-sdk> |
 | `@lydell/node-pty` | 1.1.0 | MIT | <https://github.com/lydell/node-pty> |
 | `@openai/codex` | 0.145.0 | Apache-2.0 | <https://github.com/openai/codex> |
 | `typescript` | 6.0.3 | Apache-2.0 | <https://github.com/microsoft/TypeScript> |
-| `ws` | 8.21.1 | MIT | <https://github.com/websockets/ws> |
-| `yaml` | 2.9.0 | ISC | <https://github.com/eemeli/yaml> |
-| `zod` | 4.4.3 | MIT | <https://github.com/colinhacks/zod> |
+| `ws` | 8.21.3 | MIT | <https://github.com/websockets/ws> |
+| `yaml` | 2.9.1 | ISC | <https://github.com/eemeli/yaml> |
+| `zod` | 4.6.2 | MIT | <https://github.com/colinhacks/zod> |
 
 Each dependency remains subject to its own license. Its installed npm package
 and source repository are authoritative for the complete license text and any

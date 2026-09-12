@@ -218,6 +218,8 @@ export function translateAcpUpdate(
         throw new AcpUpdateError("ACP agent drifted from reviewed configuration");
       }
       return [];
+    // Informational updates, including vendor-internal context compaction,
+    // never change the Recurs durable record.
     case "user_message_chunk":
     case "plan":
     case "plan_update":
@@ -225,6 +227,8 @@ export function translateAcpUpdate(
     case "available_commands_update":
     case "session_info_update":
     case "usage_update":
+    case "compaction_update":
+    case "compaction_summary_chunk":
       return [];
   }
 }

@@ -128,7 +128,7 @@ describe("provider-neutral contracts", () => {
     expect(contracts.dependencies).toBeUndefined();
     expect(providers.dependencies).toEqual({
       "@recurs/contracts": "0.0.0",
-      "ws": "8.21.1",
+      "ws": "8.21.3",
     });
     expect(tools.dependencies).toEqual({ "@recurs/contracts": "0.0.0" });
   });

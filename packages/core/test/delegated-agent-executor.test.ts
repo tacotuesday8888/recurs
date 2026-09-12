@@ -239,7 +239,7 @@ function toolRegistry(
   return registry;
 }
 
-async function settleWithin<T>(promise: Promise<T>, milliseconds = 250): Promise<T> {
+async function settleWithin<T>(promise: Promise<T>, milliseconds = 5_000): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
