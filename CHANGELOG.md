@@ -2,6 +2,15 @@
 
 Notable user-facing changes are recorded here when they ship.
 
+## Unreleased
+
+- Translate the ACP SDK 1.4 compaction updates from delegated runtimes as
+  vendor-internal, keeping the Recurs durable record unchanged.
+- Refresh reviewed runtime dependencies (ACP SDK 1.4.0, ws 8.21.3, yaml 2.9.1,
+  zod 4.6.2) and verify that every workspace package pins the same versions
+  as the published package.
+- Stop a cancellation test from timing out on slow CI runners.
+
 ## 0.1.0-alpha.11 - 2026-09-09
 
 - Add live terminal theme previews, persistent system/dark/light/contrast
