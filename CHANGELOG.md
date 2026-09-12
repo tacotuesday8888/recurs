@@ -4,6 +4,9 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Add `/export [path]` to save the complete durable conversation, including
+  compacted turns, tool calls, and bounded tool results, as Markdown in the
+  private data directory or at an explicit workspace path.
 - Translate the ACP SDK 1.4 compaction updates from delegated runtimes as
   vendor-internal, keeping the Recurs durable record unchanged.
 - Refresh reviewed runtime dependencies (ACP SDK 1.4.0, ws 8.21.3, yaml 2.9.1,

@@ -77,6 +77,8 @@ export interface CommandContext {
 
 export interface CommandDependencies {
   sessions?: JsonlSessionStore;
+  /** Private per-project directory that receives `/export` files by default. */
+  exportDirectory?: string;
   executionControls?: {
     isExecutionActive(sessionId: string): boolean;
     cancelExecution(sessionId: string): boolean;
