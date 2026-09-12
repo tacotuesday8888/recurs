@@ -179,8 +179,9 @@ State is stored below the Recurs data directory:
 - checkpoints and patch artifacts;
 - team-run journals and leases;
 - company blueprints, amendments, knowledge, goals, project team-control
-  revisions, and team-control recommendations; and
-- immutable model-team evaluations and selections.
+  revisions, and team-control recommendations;
+- immutable model-team evaluations and selections; and
+- explicit Markdown conversation exports.
 
 Writes use private directories, bounded documents, canonical parsing, atomic
 replacement, and revision checks. User prompts and tool arguments may appear

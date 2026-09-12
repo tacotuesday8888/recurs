@@ -1,4 +1,5 @@
 import { getAgentProfilePolicy, type AgentLifecycle, type AgentProfileId, type AgentSessionDescriptor, type ModelMessage, type ProviderUsage } from "@recurs/contracts";
+import type { AnySessionRecord } from "./events.js";
 import type { JsonlSessionStore } from "./jsonl-session-store.js";
 import { isPinnedSessionState, type PinnedSessionState } from "./session-v2.js";
 
@@ -113,37 +114,45 @@ export class AgentExecutionService {
     const state = await this.sessions.loadStateReadOnly(executionId);
     if (!isPinnedSessionState(state)) return null;
     const { records } = await this.sessions.loadReadOnly(executionId);
-    const messages: ModelMessage[] = [];
-    for (const record of records) {
-      if (record.version !== 2) continue;
-      switch (record.type) {
-        case "session_created":
-          if (record.fork !== undefined) messages.push(...structuredClone(record.fork.messages));
-          break;
-        case "turn_started":
-        case "turn_steered":
-          messages.push({ id: `${record.sequence}:user`, role: "user", content: record.prompt });
-          break;
-        case "model_completed":
-          messages.push(structuredClone(record.message));
-          break;
-        case "runtime_completed":
-          messages.push({ id: `${record.sequence}:runtime`, role: "assistant", content: record.result.finalText });
-          break;
-        case "tool_completed":
-          messages.push({ id: `${record.sequence}:tool`, role: "tool", toolCallId: record.callId, content: record.result.output });
-          break;
-        case "tool_failed":
-          messages.push({ id: `${record.sequence}:tool`, role: "tool", toolCallId: record.callId, content: record.error.safeMessage });
-          break;
-      }
-    }
     return {
       execution,
-      messages,
+      messages: durableSessionMessages(records),
       transcriptNotice: state.backend.pin.kind === "agent_runtime"
         ? "This vendor runtime persists prompts and final responses. Its internal conversation and tool trace are not available here."
         : "Completed messages and tool results are durable. An in-flight partial model response is not yet recorded.",
     };
   }
+}
+
+/**
+ * Reconstruct the complete durable conversation from version-2 session records.
+ * Unlike the live session state, this keeps every message across compactions.
+ */
+export function durableSessionMessages(records: readonly AnySessionRecord[]): ModelMessage[] {
+  const messages: ModelMessage[] = [];
+  for (const record of records) {
+    if (record.version !== 2) continue;
+    switch (record.type) {
+      case "session_created":
+        if (record.fork !== undefined) messages.push(...structuredClone(record.fork.messages));
+        break;
+      case "turn_started":
+      case "turn_steered":
+        messages.push({ id: `${record.sequence}:user`, role: "user", content: record.prompt });
+        break;
+      case "model_completed":
+        messages.push(structuredClone(record.message));
+        break;
+      case "runtime_completed":
+        messages.push({ id: `${record.sequence}:runtime`, role: "assistant", content: record.result.finalText });
+        break;
+      case "tool_completed":
+        messages.push({ id: `${record.sequence}:tool`, role: "tool", toolCallId: record.callId, content: record.result.output });
+        break;
+      case "tool_failed":
+        messages.push({ id: `${record.sequence}:tool`, role: "tool", toolCallId: record.callId, content: record.error.safeMessage });
+        break;
+    }
+  }
+  return messages;
 }

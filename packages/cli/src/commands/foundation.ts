@@ -26,6 +26,7 @@ const helpText = [
   "/fork                         Fork completed context into a new session",
   "/resume [session-id]          List sessions or resume an exact id",
   "/compact                      Summarize earlier context safely",
+  "/export [path]                Save the conversation as Markdown",
   "/diff [--staged] [path]       Show the current Git diff",
   "/review                       Review changes with read-only tools",
   "/undo                         Restore the latest safe checkpoint",
