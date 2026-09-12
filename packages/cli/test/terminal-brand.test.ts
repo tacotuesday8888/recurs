@@ -1,5 +1,6 @@
 import {
   resetCapabilitiesCache,
+  visibleWidth,
   setCapabilities,
 } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,7 +11,7 @@ import { createTerminalTheme } from "../src/terminal-style.js";
 afterEach(() => resetCapabilitiesCache());
 
 describe("RecursBrandComponent", () => {
-  it("uses the shipped GitHub wordmark in image-capable terminals", () => {
+  it("uses native theme-aware lettering even in image-capable terminals", () => {
     setCapabilities({ images: "kitty", trueColor: true, hyperlinks: true });
     const component = new RecursBrandComponent(createTerminalTheme(process.stdout, {
       colorEnabled: true,
@@ -19,7 +20,8 @@ describe("RecursBrandComponent", () => {
     const rows = component.render(100);
 
     expect(rows.length).toBeGreaterThan(1);
-    expect(rows.join("\n")).toContain("\u001b_G");
+    expect(rows.join("\n")).not.toContain("\u001b_G");
+    expect(rows.join("\n")).toContain("█▀▄");
   });
 
   it("keeps a terminal-native Recurs wordmark when images are unavailable", () => {
@@ -30,8 +32,12 @@ describe("RecursBrandComponent", () => {
 
     const rows = component.render(80);
 
-    expect(rows).toHaveLength(7);
-    expect(rows.join("\n")).toContain("████");
+    expect(rows).toHaveLength(3);
+    expect(rows.join("\n")).toContain("█▀▄");
     expect(rows.every((row) => !row.includes("[Image"))).toBe(true);
+  });
+  it.each([1, 4, 12, 22, 23, 24, 80])("fits native lettering into %i columns", (width) => {
+    const component = new RecursBrandComponent(createTerminalTheme(process.stdout, { colorEnabled: false }));
+    expect(component.render(width).every((row) => visibleWidth(row) <= width)).toBe(true);
   });
 });

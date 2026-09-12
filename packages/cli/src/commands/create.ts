@@ -1,3 +1,4 @@
+import { createWorkspaceCommands } from "./workspace.js";
 import { createAgentsCommand } from "./agents.js";
 import { createCompanyCommand } from "./company.js";
 import { createExportCommand } from "./export.js";
@@ -19,6 +20,7 @@ export function createCommandRegistry(
 ): CommandRegistry {
   return new CommandRegistry([
     ...createFoundationCommands(),
+    ...createWorkspaceCommands(dependencies),
     ...createSessionCommands(dependencies),
     createExportCommand(dependencies),
     createModelCommand(dependencies),

@@ -107,6 +107,28 @@ describe("terminal execution workflow regressions", () => {
     expect(terminal.output).toContain("Restored actual root prompt");
     expect(terminal.output).toContain("1 session log(s) could not be read.");
   });
+  it("keeps home navigation available when a new chat skips the initial launcher", async () => {
+    const terminal = new TestTerminal(100, 30);
+    const runtime = {
+      state: { type: "session", session: { id: "root", model: "model", permissionMode: "ask_always" } },
+      companyBlueprint: null, hasActiveRun: false,
+      async listSessions() { return [{ id: "root", cwd: "/workspace", model: "model", title: "Saved chat", updatedAt: "2026-09-12T00:00:00Z", version: 2 }]; },
+      setConfirmHandler() {}, setApprovalHandler() {}, setUserInputHandler() {},
+      cancel() { return false; }, async close() {}, commandNames() { return []; },
+    } as unknown as RecursRuntime;
+    const shell = new RecursInteractiveShell({ terminal, cwd: "/workspace", animate: false, colorEnabled: false });
+    const running = shell.start(runtime, { launch: false });
+    try {
+      await vi.waitFor(() => expect(terminal.output).toContain("/ CHAT"));
+      terminal.output = "";
+      terminal.input?.("\x1b");
+      await vi.waitFor(() => expect(terminal.output).toContain("M manage"));
+      expect(terminal.output).toContain("Saved chat");
+      terminal.input?.("\r");
+      await vi.waitFor(() => expect(terminal.output).toContain("/ CHAT"));
+    } finally { terminal.input?.("\x11"); await running; }
+  });
+
   it("opens an empty team floor and keeps unanswered approvals in view", async () => {
     const terminal = new TestTerminal(100, 30);
     let confirm: (message: string) => Promise<boolean> = async () => true;

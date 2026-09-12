@@ -8,6 +8,17 @@ const sink = new Writable({ write(_chunk, _encoding, done) { done(); } });
 const theme = createTerminalTheme(sink, { colorEnabled: false });
 
 describe("terminal choice picker", () => {
+  it("keeps an empty catalog stable through keyboard navigation", () => {
+    const settle = vi.fn();
+    const picker = new TerminalChoicePicker({ message: "Model", choices: [], theme, rows: () => 6, refresh() {}, settle });
+    for (const key of ["\u001b[A", "\u001b[B", "\u001b[5~", "\u001b[6~"]) {
+      picker.handleInput(key);
+      expect(picker.render(40).join("\n")).toContain("No choices available");
+      expect(picker.render(40).join("\n")).not.toMatch(/NaN|1\/0/u);
+    }
+    picker.handleInput("\r");
+    expect(settle).toHaveBeenCalledWith(null);
+  });
   it("selects the explicit current connection despite active words in another model or account name", () => {
     const settle = vi.fn();
     const picker = new TerminalChoicePicker({
@@ -55,4 +66,44 @@ describe("terminal choice picker", () => {
     expect(settle).toHaveBeenCalledOnce();
     expect(settle).toHaveBeenCalledWith(null);
   });
+});
+
+describe("choice picker stress", () => {
+  it("keeps the current choice visible across catalog and viewport sizes", () => {
+    for (const size of [1, 2, 50, 1000]) for (const height of [1, 2, 3, 4, 8, 24]) {
+      const choices = Array.from({ length: size }, (_, i) => ({ id: `id-${i}`, label: `模型-${i}`, detail: "Long account description ".repeat(20), current: i === size - 1 }));
+      const settle = vi.fn();
+      const picker = new TerminalChoicePicker({ message: "Select a saved model ".repeat(10), choices, theme, rows: () => height, refresh() {}, settle });
+      for (const width of [1, 8, 20, 80]) {
+        const rows = picker.render(width);
+        expect(rows.length).toBeLessThanOrEqual(height);
+        expect(rows.every((row) => visibleWidth(row) <= width)).toBe(true);
+        if (width >= 20) expect(rows.join("\n")).toContain(`模型-${size - 1}`);
+      }
+      picker.handleInput("\r");
+      expect(settle).toHaveBeenCalledWith(`id-${size - 1}`);
+    }
+  });
+});
+
+it("filters long lists by label and detail without losing exact choice identity", () => {
+  const settle = vi.fn();
+  const picker = new TerminalChoicePicker({ message: "Chats", choices: [{ id: "one", label: "Parser", detail: "typescript" }, { id: "two", label: "Review", detail: "database" }], theme, rows: () => 12, settle, refresh() {} });
+  picker.handleInput("/"); picker.handleInput("database");
+  expect(picker.render(80).join("\n")).toContain("Review");
+  expect(picker.render(80).join("\n")).not.toContain("Parser");
+  picker.handleInput("\r");
+  expect(settle).toHaveBeenCalledWith("two");
+});
+
+it("keeps unmatched searches open and restores the full list on Escape", () => {
+  const settle = vi.fn();
+  const picker = new TerminalChoicePicker({ message: "Chats", choices: [{ id: "one", label: "Parser" }], theme, rows: () => 5, settle, refresh() {} });
+  picker.handleInput("/"); picker.handleInput("missing"); picker.handleInput("\r");
+  expect(settle).not.toHaveBeenCalled();
+  expect(picker.render(30).join("\n")).toContain("No matches");
+  picker.handleInput("\u001b");
+  expect(picker.render(30).join("\n")).toContain("Parser");
+  picker.handleInput("\u001b");
+  expect(settle).toHaveBeenCalledWith(null);
 });

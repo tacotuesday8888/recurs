@@ -42,6 +42,11 @@ export class TerminalThemePicker implements Component {
     const header = theme.strong(line("Appearance · preview"));
     if (this.#editingRole !== null) {
       const role = TERMINAL_COLOR_ROLES[this.#editingRole]!;
+      if (height < 5) {
+        const value = theme.accent(line(`${role} #${this.#hex}`));
+        if (height === 1) return [value];
+        return [value, ...(height >= 3 ? [line(this.#error ?? "Enter 6 hex digits")] : []), line("Enter preview · Esc back")];
+      }
       return [header, "", theme.accent(line(`Color · ${role}`)), line(`#${this.#hex}`),
         line("Enter 6 hex digits, then Enter to preview."), line("Tab next role · Backspace edit · Esc back"),
         line("Save the theme afterward with Enter."), ...(this.#error === null ? [] : [theme.failure(line(this.#error))])].slice(-height);
@@ -52,6 +57,7 @@ export class TerminalThemePicker implements Component {
     });
     const footer = line(this.#saving ? "Saving…" : width < 64 ? "C colors · Enter save · Esc back" : "C colors · Esc cancel · Enter save · ↑↓ preview");
     const error = this.#error === null ? [] : [theme.failure(line(this.#error))];
+    if (height === 1) return [choices[this.#selected]!];
     if (height < 9) {
       const visible = Math.max(1, height - 2 - error.length);
       const start = Math.max(0, this.#selected - visible + 1);

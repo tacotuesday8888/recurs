@@ -1570,3 +1570,58 @@ describe("unified execution commands", () => {
     expect(cancelExecution).toHaveBeenCalledExactlyOnceWith("exact-child");
   });
 });
+
+describe("chat organization", () => {
+  it("renames, pins, archives and restores a chat without modifying its execution history", async () => {
+    const state = await storeSession("organized");
+    const ctx = context(state);
+    const registry = createCommandRegistry({ sessions });
+    const before = await readFile(path.join(sessions.directory, "organized.jsonl"), "utf8");
+    expect(await registry.execute("/rename Parser cleanup", ctx)).toMatchObject({ level: "info" });
+    await registry.execute("/pin", ctx);
+    await registry.execute("/archive", ctx);
+    expect((await sessions.list()).find((entry) => entry.id === state.id)).toMatchObject({ title: "Parser cleanup", pinned: true, archived: true });
+    expect(await registry.execute("/chats", ctx)).toMatchObject({ text: expect.stringContaining("No matching chats") });
+    expect(await registry.execute("/chats archived", ctx)).toMatchObject({ text: expect.stringContaining("Parser cleanup") });
+    await registry.execute("/unarchive", ctx);
+    await registry.execute("/unpin", ctx);
+    expect((await new JsonlSessionStore(sessions.directory).list())[0]).toMatchObject({ title: "Parser cleanup", pinned: false, archived: false });
+    expect(await readFile(path.join(sessions.directory, "organized.jsonl"), "utf8")).toBe(before);
+  });
+  it("copies a completed chat and rejects invalid titles without changing metadata", async () => {
+    const state = await storeSession("original", at, [{ id: "question", role: "user", content: "hello" }, { id: "answer", role: "assistant", content: "world", toolCalls: [] }]);
+    const ctx = context(state), registry = createCommandRegistry({ sessions });
+    expect(await registry.execute(`/rename ${"x".repeat(121)}`, ctx)).toMatchObject({ level: "error" });
+    expect(await registry.execute("/copy original", ctx)).toMatchObject({ level: "info" });
+    expect(ctx.session.id).not.toBe(state.id);
+    expect(ctx.session.forkedFrom?.sessionId).toBe(state.id);
+  });
+});
+
+
+describe("workspace navigation", () => {
+  it("shows real Git context and reads source without changing files", async () => {
+    await execFileAsync("git", ["init", "--quiet", "--initial-branch=ui-fixture"], { cwd });
+    await writeFile(path.join(cwd, "parser.ts"), "export const answer = 42;\n");
+    const state = await storeSession("workspace-view");
+    const ctx = context(state), registry = createCommandRegistry({ sessions });
+    const status = await registry.execute("/workspace status", ctx);
+    expect(status).toMatchObject({ level: "info", text: expect.stringContaining("Branch: ui-fixture") });
+    expect(status).toMatchObject({ text: expect.stringContaining("Changed files: 1") });
+    expect(await registry.execute("/source parser.ts", ctx)).toMatchObject({ text: expect.stringContaining("export const answer = 42;") });
+    expect(await registry.execute("/source --lines 1:1 parser.ts", ctx)).toMatchObject({ text: expect.stringContaining("lines 1–1 of 1") });
+    expect(await registry.execute("/source --lines 2:1 parser.ts", ctx)).toMatchObject({ level: "error" });
+    expect(await registry.execute("/source ../outside", ctx)).toMatchObject({ level: "error" });
+    expect(await registry.execute("/source .env", ctx)).toMatchObject({ level: "error" });
+    expect(await registry.execute("/workspace worktrees", ctx)).toMatchObject({ text: expect.stringContaining(cwd) });
+    expect(await readFile(path.join(cwd, "parser.ts"), "utf8")).toBe("export const answer = 42;\n");
+  });
+  it("cancels workspace selection and routes Git changes through the agent", async () => {
+    const ctx = context(await storeSession("workspace-actions")), registry = createCommandRegistry({ sessions });
+    ctx.selectChoice = vi.fn().mockResolvedValue(null);
+    expect(await registry.execute("/workspace", ctx)).toMatchObject({ text: "Workspace selection cancelled" });
+    expect(await registry.execute("/workspace push", ctx)).toMatchObject({ type: "submit_prompt", prompt: expect.stringContaining("ask for confirmation before pushing") });
+    ctx.session = { ...ctx.session, executionMode: "plan" };
+    expect(await registry.execute("/workspace commit", ctx)).toMatchObject({ level: "error" });
+  });
+});

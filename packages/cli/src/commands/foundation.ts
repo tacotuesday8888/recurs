@@ -20,7 +20,14 @@ const helpText = [
   "/agents [profiles|mode name]  Inspect profiles or set bounded child-agent policy",
   "/skills [action]              Inspect Agent Skills or trust project skills",
   "/mcp                          Inspect MCP servers and project trust",
-  "/status                       Show session, goal, mode, and usage",
+  "/status, /usage               Show session, context, and reported usage",
+  "/workspace                    Branch, changes, worktrees, and Git actions",
+  "/source <path>                Read a source file with syntax coloring",
+  "/chats [archived|all]          Find saved chats",
+  "/rename <title>               Name the current chat",
+  "/pin, /unpin [session-id]      Pin or unpin a chat",
+  "/archive, /unarchive [id]      Archive or restore a chat",
+  "/copy [session-id]            Copy completed conversation context",
   "/init                         Create AGENTS.md without overwriting it",
   "/new                          Start a new durable session",
   "/fork                         Fork completed context into a new session",
@@ -50,6 +57,7 @@ function createHelpCommand(): Command {
 function createStatusCommand(): Command {
   return {
     name: "status",
+    aliases: ["usage"],
     description: "Show current session state",
     usage: "/status",
     async execute(_args, context) {
@@ -102,13 +110,15 @@ function createStatusCommand(): Command {
           `Goal: ${goal}`,
           "",
           "USAGE",
-          `Usage: ${context.session.usage.inputTokens} input / ${context.session.usage.outputTokens} output tokens`,
+          `Usage: ${context.session.usage.inputTokens} input / ${context.session.usage.outputTokens} output tokens (recorded totals; unreported usage excluded)`,
           ...(usageDetail.length === 0
             ? []
             : [`Usage detail: ${usageDetail.join(" / ")} tokens (provider-reported)`]),
           `Context limits: ${modelLimits === undefined
             ? "unknown"
             : `${modelLimits.maxInputTokens} input / ${modelLimits.maxOutputTokens ?? "unknown"} output tokens (provider verified)`}`,
+          `Reported cost: ${context.session.usage.costUsd === undefined ? "unavailable" : `$${context.session.usage.costUsd.toFixed(4)}`}`,
+          "Account rate limits: not exposed by this connection; check your provider account.",
           `Pending tools: ${context.session.pendingToolCalls.length}`,
           ...(isPinnedSessionState(context.session)
             ? [`Queued turns: ${context.session.queuedTurns.length}`]

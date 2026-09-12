@@ -1,3 +1,4 @@
+import { createTerminalTheme } from "../src/terminal-style.js";
 import * as terminalOpening from "../src/terminal-opening.js";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -202,6 +203,30 @@ describe("CompanyHomeComponent", () => {
 });
 
 describe("LaunchComponent", () => {
+  it("prioritizes saved chats over the opening artwork", () => {
+    const sessions = Array.from({ length: 4 }, (_, index) => ({ id: `chat-${index}`, title: `Saved work ${index}`, cwd: "/workspace", model: "model", updatedAt: "2026-09-12T00:00:00Z", version: 2 as const }));
+    const component = new LaunchComponent({ workspace: "project", currentSessionId: "chat-0", sessions }, { openSession() {}, newProject() {}, quit() {}, refresh() {} }, { rows: () => 30, theme: createTerminalTheme(process.stdout, { colorEnabled: false }) });
+    const rows = component.render(100);
+    for (const entry of sessions) expect(rows.join("\n")).toContain(entry.title);
+    expect(rows).toHaveLength(30);
+  });
+
+  it.each([1, 2, 3, 4, 8, 10, 12, 24])("keeps home selection visible at %i rows after navigation and resize", (height) => {
+    const openSession = vi.fn(), newProject = vi.fn();
+    const sessions = Array.from({ length: 100 }, (_, i) => ({ id: `session-${i}`, cwd: "/workspace", model: `model-${i}`, updatedAt: "2026-09-12T00:00:00Z", version: 2 as const }));
+    const component = new LaunchComponent({ workspace: "project", currentSessionId: "session-0", sessions }, { openSession, newProject, quit() {}, refresh() {} }, { rows: () => height });
+    for (let i = 0; i < 100; i++) component.handleInput("\u001b[B");
+    const rows = component.render(32);
+    expect(rows.length).toBeLessThanOrEqual(height);
+    expect(rows.every((row) => visibleWidth(row) <= 32)).toBe(true);
+    expect(rows.join("\n")).toContain("> Start new chat");
+    component.handleInput("\r");
+    expect(newProject).toHaveBeenCalledOnce();
+    component.handleInput("\u001b[B");
+    expect(component.render(32).join("\n")).toContain("> Current chat");
+    component.handleInput("\r");
+    expect(openSession).toHaveBeenCalledWith("session-0");
+  });
   it("shows real recent chats plus a new chat that retains the current configuration", () => {
     const openSession = vi.fn();
     const newProject = vi.fn();

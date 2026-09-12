@@ -59,8 +59,8 @@ describe("terminal presentation", () => {
     expect(rows.map((row) => row.indexOf("█"))).toEqual([
       23, 22, 21, 20, 19, 18, 17,
     ]);
-    expect(wordmark).toContain("\u001b[38;5;33m");
-    expect(wordmark).toContain("\u001b[38;5;118m");
+    expect(wordmark).toContain("\u001b[38;5;166m");
+    expect(wordmark).toContain("\u001b[38;5;223m");
   });
 
   it("keeps the returning-loop mark when the terminal is narrow", () => {

@@ -181,27 +181,28 @@ function createResumeCommand(dependencies: CommandDependencies): Command {
 function createForkCommand(dependencies: CommandDependencies): Command {
   return {
     name: "fork",
+    aliases: ["copy"],
     description: "Fork the completed conversation into a new durable session",
-    usage: "/fork",
+    usage: "/fork [session-id]",
     async execute(args, context) {
-      const invalid = requireNoArguments("/fork", args);
-      if (invalid !== null) return invalid;
       if (dependencies.sessions === undefined) {
         return message("Session storage is unavailable", "error");
       }
-      if (!isPinnedSessionState(context.session)) {
+      const source = args.trim() ? await dependencies.sessions.loadState(args.trim()) : context.session;
+      if (source.cwd !== context.session.cwd) return message("Copy a chat from the current workspace", "error");
+      if (!isPinnedSessionState(source)) {
         return message("Legacy sessions cannot be forked", "error");
       }
-      if (context.session.backend.pin.kind === "agent_runtime") {
+      if (source.backend.pin.kind === "agent_runtime") {
         return message(
           "Delegated runtime continuations cannot be forked safely",
           "error",
         );
       }
-      const sourceId = context.session.id;
+      const sourceId = source.id;
       const next = await dependencies.sessions.forkPinnedSession({
         sourceId,
-        expectedSourceSequence: context.session.lastSequence,
+        expectedSourceSequence: source.lastSequence,
         id: randomUUID(),
         at: context.now(),
       });
@@ -209,6 +210,37 @@ function createForkCommand(dependencies: CommandDependencies): Command {
       return message(`Forked session ${sourceId} as ${next.id}`);
     },
   };
+}
+
+function createChatCommands(dependencies: CommandDependencies): Command[] {
+  const actions = ["rename", "pin", "unpin", "archive", "unarchive"] as const;
+  return [{
+    name: "chats", description: "Find active or archived chats", usage: "/chats [archived|all]",
+    async execute(args, context) {
+      if (!dependencies.sessions) return message("Session storage is unavailable", "error");
+      if (!["", "archived", "all"].includes(args.trim())) return message("Use /chats [archived|all]", "error");
+      const entries = (await dependencies.sessions.list()).filter((entry) => entry.cwd === context.session.cwd && (args.trim() === "all" || Boolean(entry.archived) === (args.trim() === "archived")));
+      if (entries.length === 0) return message("No matching chats. Use /chats all to include archived chats.");
+      if (!context.selectChoice) return message(entries.map((entry) => `${entry.id}  ${entry.pinned ? "[pinned] " : ""}${entry.title ?? entry.model}${entry.archived ? " [archived]" : ""}`).join("\n"));
+      const id = await context.selectChoice("Chats · select to open", entries.map((entry) => ({ id: entry.id, label: `${entry.pinned ? "★ " : ""}${entry.title ?? entry.model}${entry.archived ? " · archived" : ""}`, detail: `${entry.updatedAt} · ${entry.cwd}`, current: entry.id === context.session.id })));
+      if (id === null) return message("Chat selection cancelled");
+      if (!entries.some((entry) => entry.id === id)) return message("Chat selection is unavailable", "error");
+      context.session = await dependencies.sessions.loadState(id);
+      return message(`Resumed session ${id}`);
+    },
+  }, ...actions.map((name): Command => ({
+    name, description: `${name[0]!.toUpperCase()}${name.slice(1)} a saved chat`, usage: name === "rename" ? "/rename <title>" : `/${name} [session-id]`,
+    async execute(args, context) {
+      if (!dependencies.sessions) return message("Session storage is unavailable", "error");
+      const renameTarget = name === "rename" ? /^--id ([^ ]+) ([\s\S]+)$/u.exec(args.trim()) : null;
+      const id = name === "rename" ? renameTarget?.[1] ?? context.session.id : args.trim() || context.session.id;
+      const entries = await dependencies.sessions.list();
+      if (!entries.some((entry) => entry.id === id && entry.cwd === context.session.cwd)) return message("Chat not found in this workspace", "error");
+      const patch = name === "rename" ? { title: renameTarget?.[2]?.trim() ?? args.trim() } : name === "pin" || name === "unpin" ? { pinned: name === "pin" } : { archived: name === "archive" };
+      const updated = await dependencies.sessions.updateMetadata(id, patch);
+      return message(`${name === "rename" ? "Renamed" : name === "pin" ? "Pinned" : name === "unpin" ? "Unpinned" : name === "archive" ? "Archived" : "Unarchived"} chat: ${updated.title ?? id}${name === "archive" ? " · /chats archived to reopen" : ""}`);
+    },
+  }))];
 }
 
 function createCompactCommand(dependencies: CommandDependencies): Command {
@@ -261,6 +293,7 @@ export function createSessionCommands(
   dependencies: CommandDependencies,
 ): Command[] {
   return [
+    ...createChatCommands(dependencies),
     createInitCommand(),
     createNewCommand(dependencies),
     createForkCommand(dependencies),

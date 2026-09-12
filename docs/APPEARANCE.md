@@ -8,6 +8,11 @@ restores the appearance you opened with. Your unfinished message stays intact.
 The **3D R opening and V19 agent floor are one interface**. The R rotates 2.5 times faster than the original. **Ctrl+G** switches between conversation and the agent floor, even before the first child starts. **Ctrl+T** opens executions; **Enter** inspects one; **Escape** returns. **F3** opens permissions, **F2** colors, and **Ctrl+Q** exits. Pending approvals stay visible until answered or cancelled with Escape. Legacy `/theme design r|v19` commands still open the corresponding view; they no longer select separate interfaces.
 
 The current preset is marked, and selection remains visible in short terminals.
+The GitHub wordmark and terminal lettering share the same block geometry and
+warm ember/orange palette. Native lettering works without image protocols.
+Code changes retain explicit plus/minus markers alongside green/red color,
+including in no-color mode. Review views and active progress use the selected
+theme, and the home screen switches to a compact layout on short terminals.
 
 | Preset | Appearance |
 | --- | --- |

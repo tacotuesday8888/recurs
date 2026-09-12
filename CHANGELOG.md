@@ -4,6 +4,16 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Align the repository wordmark and real terminal captures with the default
+  orange palette; simplify the front page and installation guidance.
+- Add numbered unified/split code review and original/updated excerpts,
+  lexical code highlighting, observed progress phases and elapsed time.
+- Rename, pin, archive, restore and copy native chats; search selection lists,
+  preserve archived history, and keep home navigation available after new chats.
+- Show local branch context and offer source/worktree inspection, agent-assisted
+  Git workflows and explicit usage availability. Improve short-terminal layouts
+  and keep successful edit counts distinct from the final Git diff.
+
 - Add `/export [path]` to save the complete durable conversation, including
   compacted turns, tool calls, and bounded tool results, as Markdown in the
   private data directory or at an explicit workspace path.

@@ -262,6 +262,16 @@ Common slash commands:
 ```text
 /help
 /status
+/usage
+/chats
+/rename <title>
+/pin
+/archive
+/chats archived
+/copy
+/workspace
+/source <path>
+/diff
 /model
 /permissions
 /agents
@@ -302,7 +312,46 @@ team tree and separate execution inspector. It does not run decorative timers.
 Terminal output is sanitized before presentation, and unknown usage or cost is
 never represented as zero. Company handoff usage is labeled partial.
 
-The current terminal acceptance record lives in [release readiness](RELEASE_READINESS.md).
+### Chats, changes, and workspace
+
+The home screen lists saved chats with pinned items first. **M** manages the
+selected chat; **A** opens archived chats. `/rename <title>`, `/pin`, `/unpin`,
+`/archive`, and `/unarchive` organize the current chat. Pin/archive commands also
+accept a session ID from this workspace. Titles support 1–120 printable
+characters. Cosmetic metadata is stored separately from execution history.
+Archiving hides a chat from the home screen; it does not delete its history.
+`/chats all` includes archived entries. Press **/** in a selection list to
+search labels and descriptions; Escape clears the search before closing it. `/copy [session-id]` aliases `/fork` and
+copies completed native conversation context. Vendor runtime continuations
+cannot be forked; the CLI reports that limitation without creating a fake copy.
+
+`/diff` opens a read-only Git diff snapshot in the full-screen terminal.
+**1** unified, **2** split, **3** original excerpt, **4** updated excerpt, and
+**Tab** cycles views. Split view needs 90 columns and falls back to unified in
+narrower windows. Arrow keys scroll and pan; Page Up/Down and Home/End navigate;
+Escape returns to chat. `/diff --staged` reviews staged changes. Original and
+updated modes show the diff's excerpts, not the entire source file. Previews are
+bounded and label truncation. `/source <path>` reads a bounded source snapshot; use
+`/source --lines 20:80 <path>` for a range in a large file.
+TS/JS/JSON code blocks receive lexical highlighting, with plain code fallback
+for other languages and large blocks.
+
+`/workspace` (also `/git`) offers local branch status, source files and worktrees.
+Use `/workspace status|files|worktrees` directly. The header refreshes Git context
+at startup and after submissions. Ahead/behind reflects local refs, without a
+network fetch. Commit, push, PR and branch actions submit an agent-assisted
+workflow; they do not silently execute Git mutations or publish anything.
+Plan mode rejects mutation workflows. Existing file-access and credential-path
+rules apply to source inspection.
+
+`/usage` aliases `/status`. Recorded token totals exclude unreported turns;
+provider account limits are marked unavailable when the connection does not
+expose them. Live progress and elapsed time reflect observed events; thinking
+appears only when a reasoning event is reported. Confirmed patch counts are
+per-turn observed operations, not the final repository diff.
+
+The terminal acceptance record and design comparisons live in
+[UI verification](UI_VERIFICATION.md) and [release readiness](RELEASE_READINESS.md).
 
 ### Export a conversation
 
