@@ -16,7 +16,7 @@ context, not a product commitment.
 | --- | --- |
 | Base loop | Provider-neutral streamed turns, strict event reduction, bounded retries/steps/output, tool calls, cancellation, loop detection, steering, and queued follow-ups |
 | Sessions | Durable version-2 sessions, exact backend pins, mutation leases, resume/fork, compaction, recovery, goals, checkpoints, and conflict-safe undo |
-| CLI | Conventional team tree, actual execution inspector and scrollable Markdown chat with slash/file completion, queued approvals, draft preservation, images, and `/export` Markdown transcripts; headless text, JSON, and JSONL; `review`; ACP v1; scoped help; offline `doctor`; explicit local-data location; project `AGENTS.md` loading |
+| CLI | Conventional team tree, actual execution inspector and scrollable Markdown chat with slash/file completion, queued approvals, draft preservation, images, and `/export` Markdown transcripts; headless text, JSON, and JSONL with `--resume`/`--continue`; `review`; ACP v1; scoped help; static shell completion; offline `doctor`; explicit local-data location; project `AGENTS.md` loading |
 | Appearance | Persistent system/dark/light/contrast palettes, strict custom semantic colors, F2 preview/save/cancel, draft preservation and no-color support; full-screen terminal only |
 | Permissions | Ask Always, Approved for Me, Full Access, enforced Plan mode, read-only Review mode, parent ceilings, explicit apply, exact session-scoped interactive grants, and private exact-workspace allow/ask/deny rules |
 | Tools | Bounded file reads/list/search, code outline, TypeScript diagnostics, Git inspection, public web fetch, patching, verification, commands, and owned process sessions |

@@ -34,6 +34,7 @@ Usage:
   recurs permissions [--json]    Inspect exact workspace permission rules
   recurs eval company [--json]   Run a bounded company-formation evaluation
   recurs benchmark company --configured --allow-network [--scenario <id>] [--repetitions 1|2|3] [--compare-all-strong] [--json]
+  recurs completion bash|zsh|fish  Print a shell completion script
   recurs help <command>          Show scoped command help
   recurs --version               Show the installed Recurs version
   recurs --help                  Show this help
@@ -229,6 +230,20 @@ Usage:
 
 ACP is a machine protocol: standard output is reserved for protocol frames.
 The client supplies one absolute workspace root per session.
+`,
+  completion: `Print a shell completion script for the recurs command
+
+Usage:
+  recurs completion bash|zsh|fish
+
+Add one line to your shell startup file:
+  eval "$(recurs completion bash)"     # ~/.bashrc
+  eval "$(recurs completion zsh)"      # ~/.zshrc
+  recurs completion fish | source      # ~/.config/fish/config.fish
+
+The script is static. It completes the reviewed commands, subcommands, and
+option values only; it never runs Recurs or reads sessions, connections, or
+private state while you type.
 `,
 } as const);
 

@@ -3621,6 +3621,43 @@ describe("runCli", () => {
     },
   );
 
+  it.each(["bash", "zsh", "fish"])(
+    "prints a static %s completion script without creating a runtime",
+    async (shell) => {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+
+      expect(await runCli(["completion", shell], {
+        stdout,
+        stderr,
+        async createRuntime() {
+          throw new Error("must not create runtime");
+        },
+      })).toBe(0);
+      expect(stdout.value).toContain("recurs");
+      expect(stdout.value).toContain(shell === "fish" ? "-l continue" : "--continue");
+      expect(stderr.value).toBe("");
+    },
+  );
+
+  it.each([["completion"], ["completion", "powershell"], ["completion", "zsh", "extra"]])(
+    "rejects unsupported completion requests %j with the help text",
+    async (...argv) => {
+      const stdout = new TextOutput();
+      const stderr = new TextOutput();
+
+      expect(await runCli(argv, {
+        stdout,
+        stderr,
+        async createRuntime() {
+          throw new Error("must not create runtime");
+        },
+      })).toBe(2);
+      expect(stdout.value).toBe("");
+      expect(stderr.value).toContain("recurs completion bash|zsh|fish");
+    },
+  );
+
   it.each([
     ["run", "Run one coding-agent prompt", "--format text|json|jsonl"],
     ["review", "Review the current staged", "fresh durable Plan session"],
@@ -3637,6 +3674,7 @@ describe("runCli", () => {
       "selected parent-only baseline",
     ],
     ["acp", "Serve Recurs as an ACP agent", "standard output"],
+    ["completion", "Print a shell completion script", "recurs completion bash|zsh|fish"],
   ] as const)(
     "prints scoped %s help through both supported forms",
     async (topic, heading, detail) => {

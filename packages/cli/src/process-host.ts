@@ -100,6 +100,7 @@ import {
 } from "./permission-rules.js";
 import type { CommandResult } from "./commands/types.js";
 import { safeCliErrorMessage } from "./error-rendering.js";
+import { isCompletionShell, renderShellCompletion } from "./shell-completion.js";
 import { ImageInputError, loadImageInputs } from "./image-input.js";
 import {
   createLifecycleHookHost,
@@ -1389,6 +1390,15 @@ export async function runCli(
       argv[0] === "version")
   ) {
     await writeOutput(dependencies.stdout, `recurs ${RECURS_VERSION}\n`);
+    return 0;
+  }
+  if (argv[0] === "completion") {
+    const shell = argv[1];
+    if (argv.length !== 2 || !isCompletionShell(shell)) {
+      await writeOutput(dependencies.stderr, help);
+      return 2;
+    }
+    await writeOutput(dependencies.stdout, renderShellCompletion(shell));
     return 0;
   }
   if (argv[0] === "data") {

@@ -39,6 +39,21 @@ brew install tacotuesday8888/recurs/recurs
 All four paths require Node.js. Bun installs the package but is not a supported
 Recurs runtime. There is no signed standalone binary or desktop release.
 
+### Shell completion
+
+Print a static completion script for your shell and load it from your shell
+startup file:
+
+```bash
+eval "$(recurs completion bash)"     # ~/.bashrc
+eval "$(recurs completion zsh)"      # ~/.zshrc
+recurs completion fish | source      # ~/.config/fish/config.fish
+```
+
+The script completes the reviewed commands, subcommands, and option values.
+It never runs Recurs or reads sessions, connections, or private state while
+you type.
+
 ### Upgrade or uninstall
 
 Use the same channel you installed from:

@@ -4,6 +4,8 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Add `recurs completion bash|zsh|fish`, a static completion script for the
+  reviewed command surface.
 - Add `recurs run --continue` to resume the newest durable parent session of
   the current working root without looking up its id.
 - Align the repository wordmark and real terminal captures with the default
