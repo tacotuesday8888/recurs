@@ -31,6 +31,11 @@ tokens are stored separately in private files below the data directory’s
 process reads. `/mcp logout <id>` removes the local MCP credentials; server-side
 revocation depends on the issuer.
 
+`/export` writes one Markdown copy of a conversation, including recorded tool
+arguments and bounded results, below the project's `exports` folder in the
+same private directory, or to a workspace path you name explicitly. Treat an
+exported file as sensitive source context and share it deliberately.
+
 Run this explicit, read-only command to locate the active directory:
 
 ```bash

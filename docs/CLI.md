@@ -292,6 +292,7 @@ Common slash commands:
 /image
 /undo
 /fork
+/export [path]
 /quit
 ```
 
@@ -351,6 +352,17 @@ per-turn observed operations, not the final repository diff.
 
 The terminal acceptance record and design comparisons live in
 [UI verification](UI_VERIFICATION.md) and [release readiness](RELEASE_READINESS.md).
+
+### Export a conversation
+
+`/export` writes the durable conversation as Markdown: every recorded prompt,
+response, tool call, and bounded tool result, including turns that were later
+compacted out of the live context. Without a path it creates a new file below
+the project's private `exports` folder inside the Recurs data directory and
+prints the location. `/export notes/session.md` writes to that workspace path
+instead; the directory must already exist inside the workspace, an existing
+file is never overwritten, and Plan mode keeps the workspace read-only.
+Exports contain source context, so share them deliberately.
 
 ### Recovering without guessing
 

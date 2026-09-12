@@ -1,6 +1,7 @@
 import { createWorkspaceCommands } from "./workspace.js";
 import { createAgentsCommand } from "./agents.js";
 import { createCompanyCommand } from "./company.js";
+import { createExportCommand } from "./export.js";
 import { createFoundationCommands } from "./foundation.js";
 import { createGoalCommand } from "./goal.js";
 import { createPermissionsCommand } from "./permissions.js";
@@ -21,6 +22,7 @@ export function createCommandRegistry(
     ...createFoundationCommands(),
     ...createWorkspaceCommands(dependencies),
     ...createSessionCommands(dependencies),
+    createExportCommand(dependencies),
     createModelCommand(dependencies),
     ...createRepositoryCommands(dependencies),
     createGoalCommand(dependencies),

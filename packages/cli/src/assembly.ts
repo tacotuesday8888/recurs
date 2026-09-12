@@ -2117,6 +2117,7 @@ export async function createStandaloneRuntime(
         };
   const commands = createCommandRegistry({
     sessions,
+    exportDirectory: path.join(projectData, "exports"),
     executionControls: childAgents,
     ...(initialBackend?.kind === "direct"
       ? { provider: initialBackend.commandProvider }

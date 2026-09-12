@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import {
   mkdtemp,
   readFile,
+  realpath,
   rm,
   writeFile,
 } from "node:fs/promises";
@@ -1247,6 +1248,61 @@ describe("session commands", () => {
       id: "stale-target",
       at,
     })).rejects.toMatchObject({ code: "session_conflict" });
+  });
+
+  it("exports the durable conversation as Markdown into the private directory by default", async () => {
+    const state = await storeSession("s1", at, [
+      { id: "m0", role: "user", content: "Fix the parser" },
+      { id: "m1", role: "assistant", content: "Done.", toolCalls: [{ id: "call-1", name: "read_file", arguments: { path: "parser.ts" } }] },
+    ]);
+    const exportDirectory = path.join(root, "exports");
+    const registry = createCommandRegistry({ sessions, exportDirectory });
+
+    const result = await registry.execute("/export", context(state));
+    expect(result).toMatchObject({ level: "info", text: expect.stringContaining(exportDirectory) });
+    if (result.type !== "message") throw new Error("Expected export message");
+    const target = result.text.replace("Exported conversation to ", "");
+    const exported = await readFile(target, "utf8");
+    expect(target).toMatch(/recurs-s1-\d{8}T\d{6}Z\.md$/u);
+    expect(exported).toContain("# Recurs session s1");
+    expect(exported).toContain("## User\n\nFix the parser");
+    expect(exported).toContain("## Assistant\n\nDone.");
+    expect(exported).toContain("- `read_file`");
+    expect(exported).toContain('"path": "parser.ts"');
+    expect(exported).toContain(`- Workspace: \`${cwd}\``);
+  });
+
+  it("exports to an explicit workspace path without overwriting or escaping the workspace", async () => {
+    const state = await storeSession("s1", at, [
+      { id: "m0", role: "user", content: "Hello" },
+      { id: "m1", role: "assistant", content: "Hi." },
+    ]);
+    const registry = createCommandRegistry({ sessions });
+    const commandContext = context(state);
+
+    expect(await registry.execute("/export notes/session.md", commandContext)).toMatchObject({
+      level: "error", text: "Export directory does not exist inside the workspace",
+    });
+    expect(await registry.execute("/export ../outside.md", commandContext)).toMatchObject({
+      level: "error", text: "Export path must stay inside the workspace",
+    });
+    expect(await registry.execute(`/export ${root}/outside.md`, commandContext)).toMatchObject({
+      level: "error", text: "Export path must stay inside the workspace",
+    });
+    expect(await registry.execute("/export", commandContext)).toMatchObject({ level: "error" });
+
+    const first = await registry.execute("/export session.md", commandContext);
+    const canonical = await realpath(cwd);
+    expect(first).toMatchObject({ level: "info", text: `Exported conversation to ${path.join(canonical, "session.md")}` });
+    expect(await readFile(path.join(cwd, "session.md"), "utf8")).toContain("## User\n\nHello");
+    expect(await registry.execute("/export session.md", commandContext)).toMatchObject({
+      level: "error", text: expect.stringContaining("already exists"),
+    });
+
+    commandContext.session = { ...commandContext.session, executionMode: "plan" };
+    expect(await registry.execute("/export plan.md", commandContext)).toMatchObject({
+      level: "error", text: expect.stringContaining("Plan mode is read-only"),
+    });
   });
 
   it("lists resumable sessions newest first", async () => {
