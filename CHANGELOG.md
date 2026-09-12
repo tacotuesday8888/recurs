@@ -4,6 +4,16 @@ Notable user-facing changes are recorded here when they ship.
 
 ## Unreleased
 
+- Align the repository wordmark and real terminal captures with the default
+  orange palette; simplify the front page and installation guidance.
+- Add numbered unified/split code review and original/updated excerpts,
+  lexical code highlighting, observed progress phases and elapsed time.
+- Rename, pin, archive, restore and copy native chats; search selection lists,
+  preserve archived history, and keep home navigation available after new chats.
+- Show local branch context and offer source/worktree inspection, agent-assisted
+  Git workflows and explicit usage availability. Improve short-terminal layouts
+  and keep successful edit counts distinct from the final Git diff.
+
 - Translate the ACP SDK 1.4 compaction updates from delegated runtimes as
   vendor-internal, keeping the Recurs durable record unchanged.
 - Refresh reviewed runtime dependencies (ACP SDK 1.4.0, ws 8.21.3, yaml 2.9.1,
