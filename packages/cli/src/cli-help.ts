@@ -6,6 +6,7 @@ Usage:
   recurs run <prompt> [-C <dir>] Run one prompt in one working root
   recurs run <prompt> [--plan] [--format text|json|jsonl] [--permissions ask|approved|full] [--mode economy|standard|balanced|performance|max] [--connection <id>]
   recurs run <prompt> --resume <session-id> [--format text|json|jsonl]
+  recurs run <prompt> --continue Resume this workspace's latest durable session
   recurs run -                   Read one bounded prompt from piped stdin
   recurs run <prompt> --stdin    Append bounded piped stdin to the prompt
   recurs run <prompt> --image <path> [--image <path>]
@@ -56,11 +57,13 @@ Usage:
                     [--connection <id>] [--plan]
                     [--image <path>] (repeat up to four times)
   recurs run <prompt> --resume <session-id> [--format text|json|jsonl]
+  recurs run <prompt> --continue [--format text|json|jsonl]
   recurs run -
   recurs run <prompt> --stdin
 
 Fresh runs create a new durable session. Resume retains the stored provider,
-working root, permissions, and operating mode. JSON writes one terminal object;
+working root, permissions, and operating mode; --continue resumes the newest
+durable parent session recorded for this working root the same way. JSON writes one terminal object;
 JSONL streams normalized events. Stdin is bounded to 1 MiB of valid UTF-8.
 Explicit PNG, JPEG, and WebP inputs are bounded to five MiB total and require
 a direct provider adapter with image support. --plan pins the fresh session to

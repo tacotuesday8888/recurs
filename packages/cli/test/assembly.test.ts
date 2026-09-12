@@ -2111,6 +2111,51 @@ describe("standalone assembly without a provider", () => {
       code: "invalid_input",
       message: "Only a durable parent session can be resumed from one-shot mode",
     });
+
+    await sessions.createPinnedSession({
+      id: "latest-parent-session",
+      cwd: repositoryRoot,
+      backend: parent.session.backend.pin,
+      at: "9997-12-31T23:59:59.999Z",
+    });
+    const beforeLatestResume = await sessions.list();
+    const latest = await createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: repositoryRoot,
+        dataDirectory,
+        resumeLatestSession: true,
+        reuseExistingSession: false,
+      },
+    );
+    expect(latest.session.id).toBe("latest-parent-session");
+    expect(latest.session.agent.role).toBe("parent");
+    expect(await sessions.list()).toHaveLength(beforeLatestResume.length);
+    await expect(createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: repositoryRoot,
+        dataDirectory,
+        resumeLatestSession: true,
+        resumeSessionId: parent.session.id,
+      },
+    )).rejects.toMatchObject({
+      code: "invalid_input",
+      message: "Choose either the latest session or one exact session id, not both",
+    });
+    const emptyWorkspace = path.join(root, "empty-workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(emptyWorkspace));
+    await expect(createStandaloneRuntime(
+      { async emit() {} },
+      {
+        cwd: emptyWorkspace,
+        dataDirectory,
+        resumeLatestSession: true,
+      },
+    )).rejects.toMatchObject({
+      code: "invalid_input",
+      message: "No durable parent session exists for this workspace; start without --continue",
+    });
     await expect(createStandaloneRuntime(
       { async emit() {} },
       {

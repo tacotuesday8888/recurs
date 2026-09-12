@@ -439,6 +439,7 @@ recurs run "inspect the repository" --plan
 recurs run "fix the failing test" --permissions approved
 recurs run "describe this screenshot" --image ./screen.png
 recurs run "continue" --resume <session-id>
+recurs run "keep going" --continue
 recurs run - --format jsonl
 ```
 
@@ -450,6 +451,10 @@ Useful options:
 - `--mode economy|standard|balanced|performance|max` selects the operating
   mode.
 - `--connection <id>` selects one saved connection.
+- `--resume <session-id>` continues one exact durable parent session;
+  `--continue` continues the newest one recorded for this working root. Both
+  keep the stored connection, permissions, and operating mode, so they cannot
+  be combined with `--plan`, `--permissions`, `--mode`, or `--connection`.
 - `--format text|json|jsonl` selects output framing.
 - `--stdin` appends bounded piped input.
 - `--image <path>` attaches PNG, JPEG, or WebP input.

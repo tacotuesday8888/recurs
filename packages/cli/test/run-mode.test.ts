@@ -2983,10 +2983,15 @@ describe("runCli", () => {
       ["run", "continue", "--resume", "session_1", "--format", "jsonl"],
       dependenciesWithOptions,
     )).toBe(0);
+    expect(await runCli(
+      ["run", "keep going", "--continue", "--format", "jsonl"],
+      dependenciesWithOptions,
+    )).toBe(0);
 
     expect(runtimeOptions).toEqual([
       { reuseExistingSession: false },
       { reuseExistingSession: false, resumeSessionId: "session_1" },
+      { reuseExistingSession: false, resumeLatestSession: true },
     ]);
     expect(stderr.value).toBe("");
   });
@@ -3498,6 +3503,13 @@ describe("runCli", () => {
     ["run", "inspect", "--mode", "balanced", "--mode", "max"],
     ["run", "inspect", "--resume", "session-1", "--mode", "economy"],
     ["run", "inspect", "--resume", "session-1", "--plan"],
+    ["run", "inspect", "--continue", "--continue"],
+    ["run", "inspect", "--continue", "--resume", "session-1"],
+    ["run", "inspect", "--continue", "--plan"],
+    ["run", "inspect", "--continue", "--permissions", "approved"],
+    ["run", "inspect", "--continue", "--mode", "economy"],
+    ["run", "inspect", "--continue", "--connection", "saved"],
+    ["review", "--continue"],
     ["run", "inspect", "--plan", "--plan"],
     ["run", "inspect", "--connection"],
     ["run", "inspect", "--connection", "../outside"],

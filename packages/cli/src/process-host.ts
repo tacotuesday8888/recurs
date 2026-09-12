@@ -367,6 +367,7 @@ interface RunArguments {
   operatingModeId?: OperatingModeId;
   connectionId?: string;
   resumeSessionId?: string;
+  resumeLatestSession?: boolean;
   imagePaths: readonly string[];
 }
 
@@ -460,6 +461,7 @@ function parseAgentArguments(
   let operatingModeId: OperatingModeId | undefined;
   let connectionId: string | undefined;
   let resumeSessionId: string | undefined;
+  let resumeLatestSession = false;
   let appendStdin = false;
   const imagePaths: string[] = [];
   const prompt: string[] = [];
@@ -524,6 +526,11 @@ function parseAgentArguments(
       index += 1;
       continue;
     }
+    if (argument === "--continue") {
+      if (command === "review" || resumeLatestSession) return null;
+      resumeLatestSession = true;
+      continue;
+    }
     if (argument === "--stdin") {
       if (command === "review") return null;
       if (appendStdin) return null;
@@ -563,12 +570,13 @@ function parseAgentArguments(
   }
   const joined = prompt.join(" ").trim();
   if (
-    resumeSessionId !== undefined &&
+    (resumeSessionId !== undefined || resumeLatestSession) &&
     (
       permissionMode !== undefined ||
       operatingModeId !== undefined ||
       connectionId !== undefined ||
-      executionMode !== undefined
+      executionMode !== undefined ||
+      (resumeSessionId !== undefined && resumeLatestSession)
     )
   ) {
     return null;
@@ -591,6 +599,7 @@ function parseAgentArguments(
         ...(operatingModeId === undefined ? {} : { operatingModeId }),
         ...(connectionId === undefined ? {} : { connectionId }),
         ...(resumeSessionId === undefined ? {} : { resumeSessionId }),
+        ...(resumeLatestSession ? { resumeLatestSession } : {}),
       };
 }
 
@@ -2479,6 +2488,9 @@ export async function runCli(
         ...(parsed.resumeSessionId === undefined
           ? {}
           : { resumeSessionId: parsed.resumeSessionId }),
+        ...(parsed.resumeLatestSession === true
+          ? { resumeLatestSession: true }
+          : {}),
       },
     );
     const result = await runtime.submit(
