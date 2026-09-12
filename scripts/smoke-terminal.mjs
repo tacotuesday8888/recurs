@@ -226,7 +226,13 @@ try {
   ui.process.write("\u001b");
   await ui.wait((screen) => screen.includes("Full Access was not enabled"), "escape denies full access");
   ui.process.write("/permissions ask\r");
-  await ui.wait((screen) => screen.includes("Permission mode: Ask Always"), "restore permission boundary");
+  // The first "/permissions ask" result is still on screen, so wait for the
+  // restore to appear after the unique denial line; otherwise the next keys
+  // race the still-running command and the app ignores F2 while it works.
+  await ui.wait((screen) => {
+    const denial = screen.indexOf("Full Access was not enabled");
+    return denial !== -1 && screen.slice(denial).includes("Permission mode: Ask Always");
+  }, "restore permission boundary");
   ui.process.write("\u0007");
   await ui.wait((screen) => screen.includes("Team"), "team floor before children");
   ui.process.write("\u0007");
