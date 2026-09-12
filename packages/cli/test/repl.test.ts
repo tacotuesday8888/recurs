@@ -91,7 +91,7 @@ describe("startRepl", () => {
       environment: { TERM: "xterm-256color" },
     });
 
-    expect(output.value).toContain("\u001b[38;5;33m");
+    expect(output.value).toContain("\u001b[38;5;166m");
     expect(withoutAnsi(output.value)).toContain(
       "████   █████   ████  █   █  ████   ████",
     );

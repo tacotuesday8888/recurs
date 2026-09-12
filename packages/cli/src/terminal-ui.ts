@@ -1,3 +1,6 @@
+import { workspaceGitStatus } from "./workspace-context.js";
+import { highlightTerminalCode } from "./terminal-code.js";
+import { TerminalDiffViewer } from "./terminal-diff.js";
 import { TerminalActivity } from "./terminal-activity.js";
 import { renderTerminalOpening } from "./terminal-opening.js";
 import {
@@ -79,6 +82,8 @@ export interface LaunchViewModel {
 }
 
 export interface LaunchActions {
+  readonly manage?: (session: SessionListEntry) => void;
+  readonly archived?: () => void;
   readonly openSession: (sessionId: string) => void;
   readonly newProject: () => void;
   readonly quit: () => void;
@@ -93,18 +98,26 @@ export interface LaunchPresentation {
 
 export class LaunchComponent implements Component {
   #selectedIndex: number;
+  #sessions: readonly SessionListEntry[];
 
   constructor(
     private readonly model: LaunchViewModel,
     private readonly actions: LaunchActions,
     private readonly presentation: LaunchPresentation = {},
   ) {
-    const current = model.sessions.findIndex((entry) =>
+    this.#sessions = model.sessions.filter((entry) => !entry.archived);
+    const current = this.#sessions.findIndex((entry) =>
       entry.id === model.currentSessionId
     );
     this.#selectedIndex = current < 0 ? 0 : current;
   }
 
+  setSessions(sessions: readonly SessionListEntry[]): void {
+    const selected = this.#sessions[this.#selectedIndex]?.id;
+    this.#sessions = sessions.filter((entry) => !entry.archived);
+    const next = this.#sessions.findIndex((entry) => entry.id === selected);
+    this.#selectedIndex = next < 0 ? Math.min(this.#selectedIndex, this.#sessions.length) : next;
+  }
   invalidate(): void {}
 
   render(width: number): string[] {
@@ -114,20 +127,32 @@ export class LaunchComponent implements Component {
       sanitizeTerminalText(value, { multiline: false }),
       safeWidth,
     );
-    const terminalRows = this.presentation.rows?.() ?? 30;
-    const opening = theme === undefined ? [] : renderTerminalOpening(safeWidth, Math.max(0, terminalRows - 13), theme, this.presentation.frame?.() ?? 0);
+    const terminalRows = Math.max(1, this.presentation.rows?.() ?? 30);
+    if (terminalRows < 12) {
+      const selected = this.#sessions[this.#selectedIndex];
+      const label = selected === undefined ? "Start new chat" : selected.title ?? (selected.id === this.model.currentSessionId ? "Current chat" : `Recent chat ${this.#selectedIndex + 1}`);
+      const selection = theme?.accent(line(`> ${label}`)) ?? line(`> ${label}`);
+      if (terminalRows === 1) return [selection];
+      const compact = [selection, line("↑↓ select · Enter open · q quit")];
+      if (terminalRows >= 3) compact.unshift(theme?.strong(line(`RECURS / ${this.model.workspace}`)) ?? line(`RECURS / ${this.model.workspace}`));
+      if (terminalRows >= 4) compact.splice(compact.length - 1, 0, theme?.muted(line(selected?.model ?? "Connect a model to start")) ?? line(selected?.model ?? "Connect a model to start"));
+      while (compact.length < terminalRows) compact.splice(compact.length - 1, 0, "");
+      return compact;
+    }
+    const openingBudget = this.#sessions.length === 0 ? Math.max(0, terminalRows - 13) : Math.min(7, Math.max(0, terminalRows - 13 - 2 * Math.min(this.#sessions.length, 6)));
+    const opening = theme === undefined ? [] : renderTerminalOpening(safeWidth, openingBudget, theme, this.presentation.frame?.() ?? 0);
     const fixedRows = 11 + opening.length;
     const visibleSessions = Math.max(
       1,
       Math.floor((terminalRows - fixedRows) / 2),
     );
-    const selection = Math.min(this.#selectedIndex, this.model.sessions.length);
-    const sessionSelection = Math.min(selection, Math.max(0, this.model.sessions.length - 1));
+    const selection = Math.min(this.#selectedIndex, this.#sessions.length);
+    const sessionSelection = Math.min(selection, Math.max(0, this.#sessions.length - 1));
     const windowStart = Math.min(
       Math.max(0, sessionSelection - visibleSessions + 1),
-      Math.max(0, this.model.sessions.length - visibleSessions),
+      Math.max(0, this.#sessions.length - visibleSessions),
     );
-    const visible = this.model.sessions.slice(
+    const visible = this.#sessions.slice(
       windowStart,
       windowStart + visibleSessions,
     );
@@ -139,15 +164,13 @@ export class LaunchComponent implements Component {
       theme?.accent(line(`RECURS / ${workspace} / PROJECTS`)) ??
         line(`RECURS / ${workspace} / PROJECTS`),
       theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
-      theme?.strong(line(`Chats · ${this.model.sessions.length}`)) ??
-        line(`Chats · ${this.model.sessions.length}`),
+      theme?.strong(line(`Chats · ${this.#sessions.length}`)) ??
+        line(`Chats · ${this.#sessions.length}`),
     ];
     for (const [offset, session] of visible.entries()) {
       const index = windowStart + offset;
       const updated = session.updatedAt.replace("T", " ").slice(0, 16);
-      const label = session.id === this.model.currentSessionId
-        ? "Current chat"
-        : `Recent chat ${index + 1}`;
+      const label = `${session.pinned ? "★ " : ""}${session.title ?? (session.id === this.model.currentSessionId ? "Current chat" : `Recent chat ${index + 1}`)}`;
       rows.push(
         line(`${index === this.#selectedIndex ? ">" : " "} ${label}`),
         theme?.muted(line(`    ${session.model} · ${updated} UTC${
@@ -157,8 +180,8 @@ export class LaunchComponent implements Component {
         }`),
       );
     }
-    const newProjectIndex = this.model.sessions.length;
-    if (this.model.sessions.length === 0) rows.push(line("  No saved chats yet."));
+    const newProjectIndex = this.#sessions.length;
+    if (this.#sessions.length === 0) rows.push(line("  No saved chats yet."));
     rows.push(
       "",
       theme?.strong(line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} Start new chat`)) ??
@@ -166,17 +189,19 @@ export class LaunchComponent implements Component {
       theme?.muted(line(this.model.currentSessionId === null ? "    Connect a model and start coding; team setup is optional" : "    Keep this model and permissions; configure the team anytime")) ??
         line(this.model.currentSessionId === null ? "    Connect a model and start coding; team setup is optional" : "    Keep this model and permissions; configure the team anytime"),
       theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
-      theme?.muted(line("enter open   arrows select   q quit")) ??
-        line("enter open   arrows select   q quit"),
+      theme?.muted(line(this.actions.manage === undefined ? "enter open   arrows select   q quit" : "Enter open · M manage · A archived · q quit")) ??
+        line(this.actions.manage === undefined ? "enter open   arrows select   q quit" : "Enter open · M manage · A archived · q quit"),
     );
     while (rows.length < terminalRows) rows.splice(rows.length - 2, 0, "");
     return rows;
   }
 
   handleInput(data: string): void {
-    const count = this.model.sessions.length + 1;
+    const count = this.#sessions.length + 1;
+    if (data === "m") { const selected = this.#sessions[this.#selectedIndex]; if (selected) this.actions.manage?.(selected); return; }
+    if (data === "a") { this.actions.archived?.(); return; }
     if (matchesKey(data, Key.enter)) {
-      const session = this.model.sessions[this.#selectedIndex];
+      const session = this.#sessions[this.#selectedIndex];
       if (session === undefined) this.actions.newProject();
       else this.actions.openSession(session.id);
       return;
@@ -906,7 +931,7 @@ export class ChatComponent extends Container {
     private readonly rows: () => number,
     status?: () => ReturnType<typeof runtimeSession> & { running: boolean },
     private readonly theme?: TerminalTheme,
-    private readonly presentation?: { activity: TerminalActivity; frame(): number; welcome?(width: number, height: number): string[] },
+    private readonly presentation?: { activity: TerminalActivity; frame(): number; workspace?(): string; welcome?(width: number, height: number): string[] },
   ) {
     super();
     const accent = theme?.accent ?? ansi("96", colorEnabled);
@@ -915,7 +940,8 @@ export class ChatComponent extends Container {
     this.#transcript = new Markdown("", 1, 0, {
       heading: (text) => strong(accent(text)), link: accent, linkUrl: muted, code: theme?.code ?? accent,
       codeBlock: theme?.code ?? ((text) => text), codeBlockBorder: muted,
-      highlightCode: (code, language) => code.split("\n").map((line) => {
+      highlightCode: (code, language) => language !== "diff" && language !== "patch" && theme !== undefined
+        ? highlightTerminalCode(code, language, theme) : code.split("\n").map((line) => {
         if (theme === undefined) return line;
         if (language === "diff" || language === "patch") {
           if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@")) return theme.accent(line);
@@ -950,7 +976,7 @@ export class ChatComponent extends Container {
       this.#header.setText(`${accent(`RECURS / ${path.basename(cwd).toUpperCase()} / CHAT`)}\n${renderAttachedAgentHeader(
         "Parent", `${current.model} · ${formatTerminalLabel(current.mode)} · ${formatTerminalLabel(current.permission)}`,
         current.running ? "running" : "ready", ((this.presentation?.frame() ?? 0) % 4) as 0 | 1 | 2 | 3, colorEnabled, theme,
-      )}`);
+      )}${this.presentation?.workspace === undefined ? "" : `\n${muted(this.presentation.workspace())}`}`);
     };
     this.editor = new Editor(tui, editorTheme(colorEnabled, theme), { paddingX: 1 });
     this.editor.setAutocompleteProvider(new TerminalSafeAutocompleteProvider(
@@ -992,7 +1018,8 @@ export class ChatComponent extends Container {
   override render(width: number): string[] {
     this.#updateHeader();
     this.#footer.setText((this.theme?.muted ?? ((text: string) => text))(width < 64
-      ? "Ctrl+G team · /help · F3 permissions"
+      ? "Enter send · /help · Esc home"
+      : width < 100 ? "Enter send · Ctrl+G team · Ctrl+T tasks · /help · Esc home"
       : "Enter send · Ctrl+G team · Ctrl+T tasks · F2 colors · F3 permissions · Esc home · Ctrl+Q quit"));
     const header = this.#header.render(width);
     const fullQuestion = this.#question.render(width);
@@ -1391,11 +1418,27 @@ export class RecursInteractiveShell {
         }
       }
     }
+    if (runtime.state.type === "session" && isPinnedSessionState(runtime.state.session) && runtime.state.session.forkedFrom) {
+      this.#transcript.append(`\nCopied conversation · source ${runtime.state.session.forkedFrom.sessionId} · this chat is independent.\n`);
+    }
     if (restoredRootNotice !== null) this.#transcript.append(`\nExecution history: ${restoredRootNotice}\n`);
     if (this.#appearanceWarning !== null) {
       this.#transcript.append(`\n${this.#appearanceWarning}\n`);
       this.#appearanceWarning = null;
     }
+    let workspaceSummary = "Local workspace · /workspace details";
+    const workspaceController = new AbortController();
+    let refreshingWorkspace = false;
+    const refreshWorkspace = async (): Promise<void> => {
+      if (refreshingWorkspace || workspaceController.signal.aborted) return;
+      refreshingWorkspace = true;
+      try {
+        const { metadata } = await workspaceGitStatus(this.#cwd, workspaceController.signal);
+        workspaceSummary = `Local · ${metadata.branch ?? "detached HEAD"} · ${metadata.totalChanges ?? "?"} changed · /workspace`;
+      } catch { workspaceSummary = "Local workspace · Git status unavailable · /workspace"; }
+      finally { refreshingWorkspace = false; if (!workspaceController.signal.aborted) tui.requestRender(); }
+    };
+    void refreshWorkspace();
     const chat = new ChatComponent(
       tui,
       this.#transcript,
@@ -1406,7 +1449,7 @@ export class RecursInteractiveShell {
       () => this.#terminal.rows,
       () => ({ ...runtimeSession(runtime), running: runtime.hasActiveRun }),
       this.#theme,
-      { activity: this.#activity, frame: () => this.#frame, welcome: (width, height) => renderTerminalOpening(width, height, this.#theme, this.#frame) },
+      { activity: this.#activity, frame: () => this.#frame, workspace: () => workspaceSummary, welcome: (width, height) => renderTerminalOpening(width, height, this.#theme, this.#frame) },
     );
     const companyEditor = new Editor(tui, editorTheme(this.#colorEnabled, this.#theme), {
       paddingX: 1,
@@ -1417,7 +1460,7 @@ export class RecursInteractiveShell {
         this.#cwd,
       ),
     ));
-    let view: "launch" | "company" | "chat" | "tasks" | "inspect" | "appearance" | "selection" = "company";
+    let view: "launch" | "company" | "chat" | "tasks" | "inspect" | "appearance" | "selection" | "diff" = "company";
     let attached = false;
     let viewBeforeTasks: "company" | "chat" = "company";
     const showChat = (): void => {
@@ -1433,6 +1476,7 @@ export class RecursInteractiveShell {
     const showLaunch = (): void => {
       view = "launch";
       mount(launch, launch);
+      void runtime.listSessions().then((sessions) => { launch.setSessions(sessions); tui.requestRender(); }).catch((error: unknown) => { this.#transcript.append(`\n${safeCliErrorMessage(error)}\n`); showChat(); });
     };
     const showTasks = (): void => {
       if (view === "launch") return;
@@ -1511,8 +1555,7 @@ export class RecursInteractiveShell {
       theme: this.#theme,
       rows: () => this.#terminal.rows,
     });
-    const supportsLaunch = options.launch !== false &&
-      typeof runtime.listSessions === "function";
+    const supportsLaunch = typeof runtime.listSessions === "function";
     const sessions = supportsLaunch ? await runtime.listSessions() : [];
     const runtimeState = runtime.state;
     const currentSessionId = runtimeState.type === "session"
@@ -1529,6 +1572,28 @@ export class RecursInteractiveShell {
         }
         else finish({ type: "resume_session", sessionId });
       },
+      manage: (entry) => {
+        if (runtime.hasActiveRun || activeSubmissions > 0) { showChat(); return; }
+        const choices = [{ id: "rename", label: "Rename chat" }, { id: entry.pinned ? "unpin" : "pin", label: entry.pinned ? "Unpin chat" : "Pin chat" }, { id: "archive", label: "Archive chat", detail: "Keep the conversation; reopen it from archived chats." }, { id: "copy", label: "Copy chat", detail: "Fork completed conversation context into a new chat." }];
+        let settled = false;
+        const picker = new TerminalChoicePicker({ message: entry.title ?? "Manage chat", choices, theme: this.#theme, rows: () => this.#terminal.rows, refresh: () => tui.requestRender(), settle: (action) => {
+          if (settled) return;
+          settled = true;
+          if (action === null) { showLaunch(); return; }
+          const task = (async () => {
+            if (action === "rename") {
+              const title = await ask("New chat name (1–120 characters)");
+              if (title !== null && title.trim()) await submit(`/rename --id ${entry.id} ${title.trim()}`);
+            } else await submit(`/${action} ${entry.id}`);
+            if (action !== "copy") showLaunch();
+            else showChat();
+          })().catch((error: unknown) => { this.#transcript.append(`\n${safeCliErrorMessage(error)}\n`); showChat(); });
+          submissionTasks.add(task);
+          void task.finally(() => submissionTasks.delete(task));
+        } });
+        view = "selection"; mount(picker, picker);
+      },
+      archived: () => { showChat(); chat.onSubmit?.("/chats archived"); },
       newProject: () => finish({ type: "new_project" }),
       quit: () => finish({ type: "quit" }),
       refresh: () => tui.requestRender(),
@@ -1760,8 +1825,11 @@ export class RecursInteractiveShell {
           return;
         }
         if (parsed?.name === "diff" && result.type === "message" && /^(diff --git |--- )/u.test(result.text)) {
-          const fence = "`".repeat(Math.max(3, ...[...result.text.matchAll(/`+/gu)].map((match) => match[0].length + 1)));
+          const fence = "`".repeat([...result.text.matchAll(/`+/gu)].reduce((longest, match) => Math.max(longest, match[0].length + 1), 3));
           this.#transcript.append(`\n${fence}diff\n${result.text}\n${fence}\n`);
+          const viewer = new TerminalDiffViewer(result.text, { theme: this.#theme, rows: () => this.#terminal.rows, back: showChat, refresh: () => tui.requestRender() });
+          view = "diff";
+          mount(viewer, viewer);
           return;
         }
         if (parsed?.name === "help" && result.type === "message") this.#transcript.append("\n/theme [orange|system|dark|light|contrast]  Preview or save terminal appearance\n/theme color <role> #RRGGBB         Customize a semantic color\n/theme design r|v19               Open chat or the agent floor (legacy alias)\nCtrl+G team/chat · Ctrl+T executions · Enter inspect · Esc back\nF2 colors · F3 permissions · PgUp/PgDn history · Ctrl+C cancel work · Ctrl+Q quit\n");
@@ -1777,6 +1845,7 @@ export class RecursInteractiveShell {
         this.#transcript.append(`\n${message}\n`);
       } finally {
         activeSubmissions -= 1;
+        void refreshWorkspace();
         tui.requestRender();
       }
     };
@@ -1845,7 +1914,7 @@ export class RecursInteractiveShell {
       }
       return undefined;
     });
-    if (!supportsLaunch) {
+    if (!supportsLaunch || options.launch === false) {
       view = "chat";
       mount(chat, chat.editor);
     } else {
@@ -1867,6 +1936,7 @@ export class RecursInteractiveShell {
       return completedExit;
     } finally {
       clearInterval(animation);
+      workspaceController.abort();
       await appearanceWrites;
       themePreview.cancel?.();
       selection.cancel?.();

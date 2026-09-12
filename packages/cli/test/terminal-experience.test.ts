@@ -63,7 +63,8 @@ describe("implemented terminal experience", () => {
     activity.emit({ ...base, type: "tool_completed", callId: "patch", result: { output: "Applied" } });
     expect(plain(activity.render(80, 9, 0, theme))).toBe(rendered);
     activity.emit({ ...base, type: "turn_started", turnId: "next", prompt: "next" });
-    expect(activity.render(80, 9, 0, theme)).toEqual([]);
+    expect(plain(activity.render(80, 9, 0, theme))).toContain("Waiting for model");
+    expect(plain(activity.render(80, 9, 0, theme))).not.toContain("observed patch lines");
   });
   it("does not present failed or oversized patch input as applied edits", () => {
     const activity = new TerminalActivity();
@@ -83,7 +84,7 @@ describe("implemented terminal experience", () => {
     const rendered = chat.render(80).join("\n");
     expect(rendered).toContain(theme.success("+new"));
     expect(rendered).toContain(theme.failure("-old"));
-    expect(rendered).toContain(theme.code("-negative"));
+    expect(plain([rendered])).toContain("-negative");
   });
   it("keeps input and questions visible with real activity at small sizes", async () => {
     const terminal = { columns: 32, rows: 12, write() {}, hideCursor() {}, showCursor() {} } as unknown as Terminal;

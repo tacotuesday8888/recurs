@@ -2794,6 +2794,22 @@ describe("standalone assembly without a provider", () => {
     });
   });
 
+  it("does not automatically reopen archived chats", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "recurs-archived-session-"));
+    directories.push(root);
+    const workspace = path.join(root, "workspace");
+    await import("node:fs/promises").then(({ mkdir }) => mkdir(workspace));
+    const options = { cwd: workspace, dataDirectory: path.join(root, "data"), provider: new ScriptedProvider([]) };
+    const first = await createStandaloneRuntime({ async emit() {} }, options);
+    const archivedId = first.session.id;
+    await first.submit("/archive");
+    await first.close();
+    const second = await createStandaloneRuntime({ async emit() {} }, options);
+    expect(second.session.id).not.toBe(archivedId);
+    expect((await second.listSessions()).find((entry) => entry.id === archivedId)?.archived).toBe(true);
+    await second.close();
+  });
+
   it("creates distinct pinned sessions when host isolation disables reuse", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "recurs-isolated-session-"));
     directories.push(root);

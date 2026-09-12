@@ -105,7 +105,7 @@ describe("TerminalUiState", () => {
 
     const rendered = renderCompanyHome(state.snapshot(), 132, 0).join("\n");
     expect(rendered).toContain("Recurs · auth-service · Team");
-    expect(rendered).toContain("Start a coding task in chat");
+    expect(rendered).toContain("Ctrl+G to start in chat");
     expect(rendered).toContain("Director");
     expect(rendered).toContain("Engineering Lead");
     expect(rendered).toContain("Implement");

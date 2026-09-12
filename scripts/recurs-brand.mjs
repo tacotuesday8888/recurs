@@ -1,14 +1,19 @@
 export const RECURS_BRAND = Object.freeze({
   viewBox: Object.freeze([0, 0, 160, 160]),
   palette: Object.freeze({
-    blue: "#4285f4",
-    cyan: "#3ddbd9",
-    mint: "#b7f34a",
-    background: "#0b1016",
-    foreground: "#f4f7fb",
-    muted: "#8e98a8",
+    ember: "#d96545",
+    orange: "#f3a05b",
+    highlight: "#e7c29c",
+    background: "#191714",
+    foreground: "#f3ede5",
+    muted: "#b7ac9e",
   }),
-  terminalAnsi256: Object.freeze([33, 39, 45, 51, 49, 83, 118]),
+  terminalAnsi256: Object.freeze([166, 172, 208, 209, 215, 216, 223]),
+  openingWordmarkRows: Object.freeze([
+    "█▀▄ █▀▀ █▀▀ █ █ █▀▄ █▀▀",
+    "█▀▄ █▀▀ █   █ █ █▀▄ ▀▀█",
+    "▀ ▀ ▀▀▀ ▀▀▀ ▀▀▀ ▀ ▀ ▀▀▀",
+  ]),
   terminalRows: Object.freeze([
     "   ▗█▀▀█▖",
     "  █▌ ▗█▘",

@@ -36,10 +36,14 @@ export function renderCompanyHome(
   const header = fit(`Recurs · ${snapshot.session.workspace ?? "workspace"} · Team`);
   const status = fit(`${snapshot.session.model} · ${formatTerminalLabel(snapshot.session.mode)} · ${formatTerminalLabel(snapshot.session.permission)}`);
   const goal = snapshot.goal;
+  const working = active > 0 || ordered.some((node) => node.status === "running");
   const details = [
     fit(configured ? `${ordered.length} configured roles · ${active} running · ${snapshot.agents.length} executions in history` : `${snapshot.agents.length} actual child executions · ${active} running`),
     ...(goal === null ? [] : [fit(`Goal limits: depth ${goal.maxDelegationDepth} · ${goal.maxActiveAgents} active roles · ${goal.maxConcurrentAgents} concurrent`)]),
-    fit(goal === null ? "Start a coding task in chat, or launch an approved goal." : `${goal.status} · ${goal.objective}`),
+    fit(goal !== null ? `${goal.status} · ${goal.objective}` : working
+      ? "Work in progress · Enter inspects the selected agent."
+      : snapshot.agents.length > 0 ? "Work history · Inspect an agent, or continue in chat."
+      : "Your team appears here as agents run · Ctrl+G to start in chat."),
   ];
   const goalDetails: string[] = [];
   if (goal !== null) {
@@ -73,7 +77,7 @@ export function renderCompanyHome(
   });
   const levels = [...new Set(ordered.map((node) => node.depth))].sort((a, b) => a - b);
   const widest = Math.max(1, ...levels.map((depth) => ordered.filter((node) => node.depth === depth).length));
-  if (floor && ordered.length > 0 && width >= widest * 20 && count >= levels.length * 4 - 1) {
+  if (floor && ordered.length > 0 && width >= widest * 20 && count >= levels.length * 5 - 1) {
     rows = [];
     for (const [index, depth] of levels.entries()) {
       const nodes = ordered.filter((node) => node.depth === depth);
@@ -85,6 +89,7 @@ export function renderCompanyHome(
       }).join("");
       rows.push(fit(cells((node) => node.status === "running" ? node.detail.startsWith("Waiting") ? "◇" : ["▟█▙", "▜█▛"][frame % 2]! : node.status === "completed" ? "✓" : node.status === "failed" ? "!" : "▗█▖")));
       rows.push(fit(cells((node) => `${node.roleId === selected?.roleId ? "> " : ""}${node.roleName}`)));
+      rows.push(fit(cells((node) => node.model ?? "model not activated")));
       rows.push(fit(cells((node) => node.model === null ? "not activated" : node.status)));
       if (index < levels.length - 1) {
         const children = ordered.filter((node) => node.depth === levels[index + 1]);

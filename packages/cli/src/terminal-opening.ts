@@ -1,6 +1,8 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TerminalTheme } from "./terminal-style.js";
 
+import { RECURS_OPENING_WORDMARK_ROWS } from "./generated/recurs-brand.js";
+
 type Vector = readonly [number, number, number];
 interface SurfacePoint { position: Vector; normal: Vector; texture: number }
 let surface: readonly SurfacePoint[] | undefined;
@@ -85,10 +87,6 @@ export function renderTerminalOpening(width: number, available: number, theme: T
     }), "");
     if (compact) return [...rows, theme.accent(center("RECURS"))].slice(0, available);
   }
-  rows.push(...[
-    "█▀▄ █▀▀ █▀▀ █ █ █▀▄ █▀▀",
-    "█▀▄ █▀▀ █   █ █ █▀▄ ▀▀█",
-    "▀ ▀ ▀▀▀ ▀▀▀ ▀▀▀ ▀ ▀ ▀▀▀",
-  ].map((line) => theme.accent(center(line))), "", theme.muted(center("One task. A team you control.")));
+  rows.push(...RECURS_OPENING_WORDMARK_ROWS.map((line) => theme.accent(center(line))), "", theme.muted(center("One task. A team you control.")));
   return rows.slice(0, available);
 }

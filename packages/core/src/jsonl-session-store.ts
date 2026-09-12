@@ -1,8 +1,10 @@
+import { FileSessionMetadataStore, type SessionMetadata } from "./file-session-metadata-store.js";
 import {
   mkdir,
   open,
   readFile,
   readdir,
+  realpath,
 } from "node:fs/promises";
 import path from "node:path";
 import { TextDecoder } from "node:util";
@@ -38,6 +40,9 @@ export interface LoadedSessionRecords {
 }
 
 export interface SessionListEntry {
+  title?: string | null;
+  pinned?: boolean;
+  archived?: boolean;
   id: string;
   cwd: string;
   model: string;
@@ -734,6 +739,11 @@ export class JsonlSessionStore {
     return { sessions, unavailableSessionIds };
   }
 
+  async updateMetadata(id: string, patch: Partial<Omit<SessionMetadata, "id">>): Promise<SessionMetadata> {
+    await this.loadState(id);
+    return new FileSessionMetadataStore(path.join(await realpath(this.directory), "metadata")).update(id, patch);
+  }
+
   async list(): Promise<SessionListEntry[]> {
     let files: string[];
     try {
@@ -766,8 +776,9 @@ export class JsonlSessionStore {
         version: first.version,
       });
     }
-    return entries.sort((left, right) =>
-      right.updatedAt.localeCompare(left.updatedAt),
+    const metadata = new Map((await new FileSessionMetadataStore(path.join(await realpath(this.directory), "metadata")).list()).map((entry) => [entry.id, entry]));
+    return entries.map((entry) => ({ ...entry, ...metadata.get(entry.id) })).sort((left, right) =>
+      Number(right.pinned ?? false) - Number(left.pinned ?? false) || right.updatedAt.localeCompare(left.updatedAt),
     );
   }
 }

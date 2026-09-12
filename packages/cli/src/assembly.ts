@@ -1354,7 +1354,7 @@ export async function createStandaloneRuntime(
       matching === null &&
       options.reuseExistingSession !== false
     ) {
-      for (const entry of existing) {
+      for (const entry of existing.filter((entry) => !entry.archived).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))) {
         const candidate = await sessions.loadState(entry.id);
         if (
           isPinnedSessionState(candidate) &&
