@@ -105,7 +105,7 @@ export class TerminalDiffViewer implements Component {
   }
   handleInput(data: string): void {
     if (matchesKey(data, Key.escape) || data === "q") { this.options.back(); return; }
-    if (/^[1-4]$/u.test(data) || matchesKey(data, Key.tab)) { this.#mode = data === "\t" ? (this.#mode + 1) % MODES.length : Number(data) - 1; this.#offset = 0; }
+    if (/^[1-4]$/u.test(data) || matchesKey(data, Key.tab)) { this.#mode = matchesKey(data, Key.tab) ? (this.#mode + 1) % MODES.length : Number(data) - 1; this.#offset = 0; }
     else if (matchesKey(data, Key.up)) this.#offset = Math.max(0, this.#offset - 1);
     else if (matchesKey(data, Key.down)) this.#offset = Math.min(this.#maximum, this.#offset + 1);
     else if (matchesKey(data, Key.pageUp)) this.#offset = Math.max(0, this.#offset - this.#page);

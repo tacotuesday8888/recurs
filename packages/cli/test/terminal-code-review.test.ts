@@ -21,6 +21,13 @@ describe("terminal code review", () => {
     expect(colored.join("\n")).toContain(theme.muted("// comment"));
     expect(plain(highlightTerminalCode(code, "unknown", theme))).toBe(code);
   });
+  it("cycles review modes with both legacy and extended-protocol Tab", () => {
+    const viewer = new TerminalDiffViewer(patch, { theme, rows: () => 20, back() {}, refresh() {} });
+    viewer.handleInput("\t");
+    expect(plain(viewer.render(100))).toContain("Changes · Split");
+    viewer.handleInput("\u001b[9u");
+    expect(plain(viewer.render(100))).toContain("Changes · Original excerpt");
+  });
   it("counts header-like content as changes and preserves both line numbers", () => {
     const lines = parseTerminalDiff("--- a/file\n+++ b/file\n@@ -10,2 +20,2 @@\n--- old\n+++ new\n context\n");
     expect(lines.find((line) => line.kind === "remove")).toMatchObject({ oldLine: 10, text: "--- old" });
