@@ -1,0 +1,31 @@
+export function selectPaths(paths, excluded = ['node_modules', '.git']) {
+  const excludedParts = new Set(excluded);
+  const selected = new Set();
+
+  for (const path of paths) {
+    if (typeof path !== 'string' || path.includes('\0')) continue;
+
+    const posixPath = path.replaceAll('\\', '/');
+    if (posixPath.startsWith('/') || /^[A-Za-z]:\//.test(posixPath)) continue;
+
+    const parts = [];
+    let escapesRoot = false;
+    for (const part of posixPath.split('/')) {
+      if (!part || part === '.') continue;
+      if (part === '..') {
+        if (parts.length === 0) {
+          escapesRoot = true;
+          break;
+        }
+        parts.pop();
+      } else {
+        parts.push(part);
+      }
+    }
+
+    if (escapesRoot || parts.length === 0 || parts.some(part => excludedParts.has(part))) continue;
+    selected.add(parts.join('/'));
+  }
+
+  return [...selected].sort();
+}

@@ -4,6 +4,7 @@ import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { summarizeEvidence } from "../../scripts/benchmark-evidence.mjs";
+import ts from "typescript";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const repository = dirname(root);
@@ -22,6 +23,10 @@ if (compilerResult.kind === "error") {
   process.exit(1);
 }
 if (compilerResult.code !== 0) process.exit(compilerResult.code ?? 1);
+const terminalArt = await readFile(join(repository, "packages/cli/src/terminal-opening-art.ts"), "utf8");
+await writeFile(join(output, "terminal-opening-art.js"), ts.transpileModule(terminalArt, {
+  compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
+}).outputText);
 
 for (const file of ["index.html", "styles.css"]) {
   await cp(join(source, file), join(output, file));
@@ -30,7 +35,7 @@ for (const asset of ["recurs-mark.svg", "recurs-wordmark.svg", "terminal-patch.s
   await cp(join(repository, "docs/assets", asset), join(output, "assets", asset));
 }
 
-const evidenceFiles = ["results.json", "current-results.json", "task-fit-results.json"];
+const evidenceFiles = ["results.json", "current-results.json", "task-fit-results.json", "task-fit-corrected-results.json"];
 const sets = await Promise.all(evidenceFiles.map(async (file) =>
   JSON.parse(await readFile(join(repository, "benchmarks", file), "utf8"))));
 const summary = sets.flatMap((evidence) => summarizeEvidence(evidence).map((campaign) => ({
@@ -49,7 +54,9 @@ const captureSource = await readFile(join(output, "assets/terminal-patch.svg"), 
 const captureSize = /<svg\b[^>]*\bwidth="(\d+)"[^>]*\bheight="(\d+)"/u.exec(captureSource);
 if (!captureSize) throw new Error("Terminal capture dimensions unavailable");
 const { chartMetrics, chartCampaigns, chartTaskName, renderChart } = await import(new URL("../.build/charts.js", import.meta.url));
+const { terminalLetterSvg } = await import(new URL("../.build/letter.js", import.meta.url));
 const replacements = {
+  TERMINAL_R: terminalLetterSvg(),
   CHART_TASK_OPTIONS: chartCampaigns(summary).map(campaign => `<option value="${escapeHtml(campaign.id)}"${campaign.id === initial.id ? " selected" : ""}>${escapeHtml(chartTaskName(campaign))}</option>`).join(""),
   CHART_METRIC_OPTIONS: Object.entries(chartMetrics).map(([value, label]) => `<option value="${value}">${label}</option>`).join(""),
   CHART: renderChart(initial, "runtime"),
@@ -70,7 +77,7 @@ await writeFile(join(output, "index.html"), html);
 await writeFile(join(output, "summary.json"), `${JSON.stringify(summary)}\n`);
 for (const file of evidenceFiles) await cp(join(repository, "benchmarks", file), join(output, file));
 
-for (const [source, target] of [["TASK_FIT_PROTOCOL.md", "task-fit-protocol.md"], ["TASK_FIT_CORRECTION.md", "task-fit-correction.md"], ["queue-verifier-audit.json", "queue-verifier-audit.json"], ["TASK_FIT_RESULTS.md", "task-fit-results.md"]]) await cp(join(repository, "benchmarks", source), join(output, target));
+for (const [source, target] of [["TASK_FIT_PROTOCOL.md", "task-fit-protocol.md"], ["TASK_FIT_CORRECTION.md", "task-fit-correction.md"], ["queue-verifier-audit.json", "queue-verifier-audit.json"], ["workspace-v2-verifier-audit.json", "workspace-v2-verifier-audit.json"], ["TASK_FIT_RESULTS.md", "task-fit-results.md"], ["TASK_FIT_STARTUP_AMENDMENT.md", "task-fit-startup-amendment.md"]]) await cp(join(repository, "benchmarks", source), join(output, target));
 
 await writeFile(join(output, "404.html"), '<!doctype html><html lang="en"><meta charset="utf-8"><title>Page not found — Recurs</title><h1>Page not found</h1><a href="/">Back to Recurs</a></html>');
 await writeFile(join(output, ".nojekyll"), "");

@@ -1,0 +1,51 @@
+export function selectPaths(paths, excluded = ['node_modules', '.git']) {
+  const excludedSegments = new Set(excluded);
+  const selected = new Set();
+
+  for (const path of paths) {
+    if (typeof path !== 'string' || path.includes('\0')) {
+      continue;
+    }
+
+    const normalizedSeparators = path.replace(/\\/g, '/');
+
+    // A leading slash includes Unix absolute paths and UNC paths after the
+    // separator conversion. Drive-rooted Windows paths need their own check.
+    if (
+      normalizedSeparators.startsWith('/') ||
+      /^[A-Za-z]:\//.test(normalizedSeparators)
+    ) {
+      continue;
+    }
+
+    const segments = [];
+    let rejected = false;
+
+    for (const segment of normalizedSeparators.split('/')) {
+      if (excludedSegments.has(segment)) {
+        rejected = true;
+        break;
+      }
+
+      if (segment === '' || segment === '.') {
+        continue;
+      }
+
+      if (segment === '..') {
+        if (segments.length === 0) {
+          rejected = true;
+          break;
+        }
+        segments.pop();
+      } else {
+        segments.push(segment);
+      }
+    }
+
+    if (!rejected && segments.length > 0) {
+      selected.add(segments.join('/'));
+    }
+  }
+
+  return [...selected].sort();
+}

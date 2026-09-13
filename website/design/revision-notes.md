@@ -15,7 +15,7 @@ The terminal stays near its native dimensions and fits the desktop first screen.
 
 The evidence area shows all original tasks, paired observations, routes and
 provenance. Mobile metrics stack with labels so time, tokens and cost remain
-visible. Invalid team setups and the unrun corrected campaign are explicit.
+visible. Original invalid team setups and the completed corrected campaign remain separate.
 The footer action is Try Recurs. No simulated editable terminal or model activity.
 
 Verify Chrome desktop/mobile rendering, video controls, keyboard switching,
@@ -71,3 +71,26 @@ scroll with damped settling, stationary wordmark, deep links and restored anchor
 below the sticky header, visible skip link, End/Home, session pause persistence,
 live reduced-motion changes, no-JavaScript content, and all five chart metrics.
 A real browser recording and timed position samples were retained for visual review.
+
+## Exact terminal R correction
+
+Replace the bracket ornament with the terminal opening's actual beveled, extruded
+ASCII-lit R to the left of the existing wordmark. Extract only the pure geometry
+and cell renderer; share it with the site at build time. Preserve native terminal
+output, the wordmark, palette and native scroll behavior. Render the R at the
+terminal's 80ms cadence, with the existing damped scroll phase, and suspend its
+timer offscreen, in the background, when paused or when reduced motion is enabled.
+
+| Before | After | Why |
+| --- | --- | --- |
+| Separate rotating brackets | Exact shared terminal R geometry and lighting | Matches the user's explicitly requested terminal identity. |
+| Original workspace setup only | Distinct v1 invalid and v2 corrected results | Preserves all outcomes and makes the correction reviewable. |
+
+Eighty pre-extraction terminal frame hashes cover color on/off, compact layouts,
+and phases 0, 8, 24 and 50; all remain identical after extraction.
+
+Actual Chrome measurements across 80 representative R frames, including SVG DOM
+replacement and forced layout: mean 3.19ms, p95 3.50ms, maximum 3.60ms on the
+local development machine. These are UI rendering measurements, not benchmark
+model timing. Fourteen website checks pass, including shared-cell equality and
+full-rotation crop bounds.

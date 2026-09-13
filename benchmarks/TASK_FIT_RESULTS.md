@@ -68,20 +68,48 @@ node scripts/benchmark-queue-audit.mjs
 The replay uses temporary fixture workspaces, Node permissions and the harness's
 OS sandbox with network denied. It rewrites only the separate audit report.
 
-## Corrected independent protocol: not run
+## Corrected independent protocol: four additional observations
 
 The v2 blueprint groups the same three modules into two disjoint worker scopes
-and preflights the mode's actual worker cap. Fixture, objective and behavioral
-verifier remain identical. [TASK_FIT_CORRECTION.md](TASK_FIT_CORRECTION.md)
-predeclares one additional four-slot campaign using the same routes and limits.
-It is awaiting authorization; no campaign or measurement is claimed. It must
-remain additional evidence, preserving the original invalid setups.
+and preflights the actual worker cap. Fixture, objective and behavioral verifier
+remain identical. The [correction protocol](TASK_FIT_CORRECTION.md) predeclared
+one additional four-slot campaign, retained in
+[task-fit-corrected-results.json](task-fit-corrected-results.json).
+The original twelve records and invalid v1 setups are unchanged.
 
-The corrected source was frozen at `a715dcc`, with bundle SHA-256
-`7fe8cb8857d2c00f2a586234c57de1d829f3eae7022a33a1cebedbe590b464be`.
-Later prompt deduplication, diagnostic capture and terminal changes are excluded
-from that bundle. The original twelve-slot source was `351c05a`, bundle SHA-256
-`69e39cb6ed7ec1fd5d3d69292c7a62298f52554f7a6a30ab173c5c9ffd4bda42`.
+| Arm | Verified / planned | Median time | Input (cached included) | Output | Outer invocations |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Luna medium single agent | 1/2 | 135.510 s | 431,520 (365,056 cached) | 11,719 | 2 |
+| Luna parent/review + Terra implement/repair | 2/2 | 198.512 s | 862,092 (663,296 cached) | 16,867 | 10 |
+
+| Execution order | Trial | Result | Time | Input | Cached input | Output |
+| ---: | --- | --- | ---: | ---: | ---: | ---: |
+| 1 | Single agent 1 | Passed | 113.020 s | 158,193 | 120,576 | 4,957 |
+| 2 | Team 1 | Passed | 170.410 s | 405,841 | 314,368 | 7,195 |
+| 3 | Team 2 | Passed | 226.613 s | 456,251 | 348,928 | 9,672 |
+| 4 | Single agent 2 | Failed verifier | 157.999 s | 273,327 | 244,480 | 6,762 |
+
+The second baseline execution ended normally but left every declared file
+identical to the initial fixture. Visible tests passed; all three hidden utility
+checks and `allowed_changes` failed. That check also requires a nonempty diff,
+so its failure here does not mean a forbidden file was modified.
+Both teams delivered verified changes. Team 1 used two implementation invocations
+and one review; team 2 used two implementation invocations, two reviews and one
+repair. These observations show a quality/time/token tradeoff in this small
+sample, not a reliable general advantage. Each arm has only two observations.
+Dollar cost remains unknown. Parent and child durations are never summed.
+No claim of parallel execution is made from the permitted worker count or role
+latency aggregates. Structured review findings and rejected staged code were
+not retained by the frozen executable.
+
+Final workspaces are archived under `task-fit-artifacts/workspace_maintenance-v2/`,
+separate from the original v1 captures. An [independent offline replay](workspace-v2-verifier-audit.json) matched all seven recorded checks and derived integrity for all four final workspaces. The first corrected executable failed
+before campaign creation after 0.42 seconds. The
+[startup amendment](TASK_FIT_STARTUP_AMENDMENT.md) preserves that failure and the
+old hash; it is not a trial. The measured campaign used source `a715dcc` plus only
+the contract compatibility patch at `61fc1e0`, with bundle SHA-256
+`1dc58ace2efc4646646fe9443801be9ca3c7402ddb5e7be83306e1691932db3a`.
+Later prompt, runtime, artifact-capture and UI changes remain excluded.
 
 ## Separate prompt reduction
 

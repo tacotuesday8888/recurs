@@ -1,11 +1,11 @@
 # Reproducible Recurs benchmarks
 
-The published evidence does **not** establish a team advantage. The three evidence
+The published evidence does **not** establish a team advantage. The four evidence
 sets are sanitized exports of real model-backed campaigns. `task-fit-results.json`
 retains all twelve original pilot slots, including two invalid team setups.
 See [task-fit findings](TASK_FIT_RESULTS.md), [protocol](TASK_FIT_PROTOCOL.md), and
 the separate [offline queue-verifier audit](queue-verifier-audit.json). The
-corrected independent campaign is predeclared but unrun, awaiting authorization. `current-results.json`
+corrected independent campaign is retained separately in `task-fit-corrected-results.json`: team 2/2 verified versus single agent 1/2, with more time and tokens used by the team. Its [startup amendment](TASK_FIT_STARTUP_AMENDMENT.md) records a pretrial contract failure separately. `current-results.json`
 contains one fresh foreground pair; `results.json` preserves the full historical
 Round 2 inventory. Neither contains simulated model-quality results.
 

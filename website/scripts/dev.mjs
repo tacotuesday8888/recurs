@@ -16,6 +16,8 @@ const routes = new Map([
   ["/evidence.js", ["evidence.js", "text/javascript; charset=utf-8"]],
   ["/charts.js", ["charts.js", "text/javascript; charset=utf-8"]],
   ["/motion.js", ["motion.js", "text/javascript; charset=utf-8"]],
+  ["/letter.js", ["letter.js", "text/javascript; charset=utf-8"]],
+  ["/terminal-opening-art.js", ["terminal-opening-art.js", "text/javascript; charset=utf-8"]],
   ["/task-fit-protocol.md", ["task-fit-protocol.md", "text/plain; charset=utf-8"]],
   ["/summary.json", ["summary.json", "application/json"]],
   ["/results.json", ["results.json", "application/json"]],
@@ -23,8 +25,8 @@ const routes = new Map([
   ["/assets/recurs-mark.svg", ["assets/recurs-mark.svg", "image/svg+xml"]],
   ["/.nojekyll", [".nojekyll", "text/plain; charset=utf-8"]],
 ]);
-for (const name of ["task-fit-results.json", "queue-verifier-audit.json"]) routes.set(`/${name}`, [name, "application/json"]);
-for (const name of ["task-fit-correction.md", "task-fit-results.md"]) routes.set(`/${name}`, [name, "text/plain; charset=utf-8"]);
+for (const name of ["task-fit-results.json", "task-fit-corrected-results.json", "queue-verifier-audit.json", "workspace-v2-verifier-audit.json"]) routes.set(`/${name}`, [name, "application/json"]);
+for (const name of ["task-fit-correction.md", "task-fit-results.md", "task-fit-startup-amendment.md"]) routes.set(`/${name}`, [name, "text/plain; charset=utf-8"]);
 for (const name of ["recurs-wordmark.svg", "terminal-patch.svg", "terminal-v19-working.svg", "terminal-diff.svg", "terminal-permission.svg"]) {
   routes.set(`/assets/${name}`, [`assets/${name}`, "image/svg+xml"]);
 }

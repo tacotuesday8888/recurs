@@ -1,0 +1,6 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { report } from '../src/report.js';
+test('report selects files and hides credentials', () => {
+  assert.deepEqual(report(['src/a.js', 'node_modules/a.js'], 'USER=dev\npassword=private'), { files: ['src/a.js'], environment: { USER: 'dev', password: '[REDACTED]' } });
+});

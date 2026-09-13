@@ -1,0 +1,4 @@
+import { selectPaths } from './paths.js';
+import { parseEnv } from './env.js';
+import { redact } from './redact.js';
+export function report(paths, env) { return { files: selectPaths(paths), environment: redact(parseEnv(env)) }; }

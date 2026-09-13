@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFile, access } from "node:fs/promises";
 import test from "node:test";
-import { campaignName, context, pairedRows, resultRows, trialDetails } from "../.build/evidence.js";
+import { campaignName, context, pairedRows, pilotOverview, resultRows, trialDetails } from "../.build/evidence.js";
 
 const root = new URL("../.build/", import.meta.url);
 const html = await readFile(new URL("index.html", root), "utf8");
@@ -13,7 +13,7 @@ test("static first render includes actual results and all campaign choices", () 
   assert.match(html, /408,985/u);
   assert.match(html, /Dollar cost is unavailable, not zero/u);
   assert.doesNotMatch(html, /\{\{[A-Z_]+\}\}/u);
-  assert.equal(campaigns.length, 8);
+  assert.equal(campaigns.length, 9);
   for (const campaign of campaigns) assert.ok(html.includes(campaignName(campaign)));
   assert.match(html, /gpt-5\.6-luna/u);
   assert.match(html, /69e39cb6ed7ec1fd5d3d69292c7a62298f52554f7a6a30ab173c5c9ffd4bda42/u);
@@ -60,5 +60,17 @@ test("invalid team topology is explicit and never described as efficiency", () =
   assert.match(context(invalid), /Invalid team setup/u);
   assert.match(pairedRows(invalid), /Invalid setup/u);
   assert.match(html, /Workers never started/u);
-  assert.match(html, /has not run/u);
+  assert.match(html, /four corrected workspace v2 records/u);
+});
+
+
+test("workspace scenario versions remain distinct in the overview and campaign names", () => {
+  const original = campaigns.find(campaign => campaign.scenario === "workspace_maintenance" && campaign.scenarioVersion === 1);
+  const corrected = { ...structuredClone(original), id: "corrected-label-test", scenarioVersion: 2 };
+  assert.match(campaignName(original), /v1.*invalid team setup/u);
+  assert.match(campaignName(corrected), /v2/u);
+  assert.doesNotMatch(campaignName(corrected), /invalid team setup/u);
+  const overview = pilotOverview([original, corrected]);
+  assert.match(overview, /v1 · invalid team setup/u);
+  assert.match(overview, /v2<\/th>/u);
 });

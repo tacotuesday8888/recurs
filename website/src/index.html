@@ -14,7 +14,7 @@
   <div class="scroll-progress" aria-hidden="true"><span></span></div>
   <a class="skip" href="#main">Skip to content</a>
   <header class="wrap">
-    <a class="brand" href="#" aria-label="Recurs home"><span class="brand-drift" aria-hidden="true"><svg class="brand-spin" viewBox="0 0 48 48"><path d="M8 18V8h10M30 8h10v10M40 30v10H30M18 40H8V30"/><path class="orbit-inner" d="M18 18h12v12H18z"/></svg></span><img class="wordmark" src="./assets/recurs-wordmark.svg" width="180" height="54" alt=""></a>
+    <a class="brand" href="#" aria-label="Recurs home"><span class="brand-drift" aria-hidden="true"><svg class="brand-spin" viewBox="0 0 180 200">{{TERMINAL_R}}</svg></span><img class="wordmark" src="./assets/recurs-wordmark.svg" width="180" height="54" alt=""></a>
     <nav aria-label="Main navigation"><a href="#terminal">Terminal</a><a href="#evidence">Benchmarks</a><a href="https://github.com/tacotuesday8888/recurs">GitHub</a><button id="motion-toggle" type="button" aria-pressed="false" hidden>Pause motion</button></nav>
   </header>
   <main id="main">
@@ -46,9 +46,9 @@
     <section class="evidence-section" id="evidence" aria-labelledby="evidence-title">
       <div class="wrap">
         <div class="evidence-heading"><div><h2 id="evidence-title">Does a team help?</h2></div><a class="text-link" href="./task-fit-results.json" download>Download the pilot</a></div>
-        <p class="evidence-intro">The small option fix passed in both arms; the team used more time and input tokens. Both single-agent queue repairs passed; neither team attempt delivered a verified repair. The independent-work comparison had an invalid team setup. This pilot does not establish a team advantage.</p>
+        <p class="evidence-intro">Results vary by task. The corrected workspace run favored the team on completion, but used more time and tokens. The smaller tasks showed no team advantage. Two trials per arm cannot establish a general ranking.</p>
         {{PILOT_OVERVIEW}}
-        <p class="context">The queue audit preserves every original outcome. Its corrected listener check changes no trial result. A corrected four-slot independent-work campaign is predeclared but has not run; it is awaiting authorization. <a href="./task-fit-results.md">Read the findings and limitations</a>.</p>
+        <p class="context">Twelve original records and four corrected workspace v2 records. Original failures and invalid setups remain visible. <a href="./task-fit-results.md">Read the findings and limitations</a>.</p>
         <section class="chart-explorer" aria-label="Explore benchmark tradeoffs">
           <p class="chart-scope">Both configurations run inside Recurs: one agent or a mixed-model team.</p>
           <div class="chart-controls"><label>Task<select id="chart-task" disabled>{{CHART_TASK_OPTIONS}}</select></label><label>Measure<select id="chart-metric" disabled>{{CHART_METRIC_OPTIONS}}</select></label></div>
@@ -66,9 +66,9 @@
         </div></details>
         <div class="method-grid">
           <div><h3>Same task. Explicit routes.</h3><p>Fresh, byte-identical fixtures and frozen model routes. Matched comparisons keep the same parent and effort; unmatched observations are labeled. An external verifier checks behavior and workspace integrity. Arm order alternates across repetitions.</p></div>
-          <div><h3>Small sample. Real limits.</h3><p>The pilot has two repetitions per arm across three synthetic tasks. It enforces a parent-only baseline. Two team setups were invalid; a separate offline queue-verifier amendment changed no measured outcome. Earlier probes remain separate, with their original delegation and provenance limits.</p></div>
+          <div><h3>Small sample. Real limits.</h3><p>The original pilot covers three synthetic tasks; a separate four-slot correction repeats the workspace task. Each comparison has two repetitions per arm. It enforces a parent-only baseline. Two team setups were invalid; a separate offline queue-verifier amendment changed no measured outcome. Earlier probes remain separate, with their original delegation and provenance limits.</p></div>
         </div>
-        <div class="evidence-links"><a href="./task-fit-protocol.md">Pilot protocol</a><a href="./task-fit-correction.md">Correction protocol</a><a href="./queue-verifier-audit.json" download>Queue audit</a><a href="./current-results.json" download>Earlier one-pair probe</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/benchmarks/README.md">Reproduce the benchmark</a><a href="./results.json" download>Historical records</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/research/2026-08-07-RECURS-MODEL-TEAM-EVALUATION-V2.md">Read Round 2</a></div>
+        <div class="evidence-links"><a href="./task-fit-protocol.md">Pilot protocol</a><a href="./task-fit-correction.md">Correction protocol</a><a href="./task-fit-corrected-results.json" download>Corrected workspace results</a><a href="./task-fit-startup-amendment.md">Startup amendment</a><a href="./queue-verifier-audit.json" download>Queue audit</a><a href="./current-results.json" download>Earlier one-pair probe</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/benchmarks/README.md">Reproduce the benchmark</a><a href="./results.json" download>Historical records</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/research/2026-08-07-RECURS-MODEL-TEAM-EVALUATION-V2.md">Read Round 2</a></div>
       </div>
     </section>
     <section class="wrap closing"><h2>Try Recurs</h2><div><p>Recurs is an early alpha, licensed under Apache 2.0. <br>Try it on a repository you can review.</p><a class="button" href="https://github.com/tacotuesday8888/recurs">Explore the repository</a></div></section>
