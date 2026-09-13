@@ -20,6 +20,8 @@ const MAX_MUTATION_ATTEMPTS = 3;
 export type ConnectionLifecycleErrorCode =
   | "connection_not_found"
   | "registry_changed"
+  | "registry_unavailable"
+  | "registry_busy"
   | "verification_failed"
   | "operation_unavailable"
   | "cancelled";
@@ -235,9 +237,46 @@ function registryFailure(
 ): ConnectionLifecycleError {
   if (error instanceof ConnectionLifecycleError) return error;
   if (signal.aborted) return cancelled();
+  if (revisionConflict(error)) {
+    return new ConnectionLifecycleError(
+      "registry_changed",
+      "Connection registry changed; try again",
+    );
+  }
+  // Storage failures can contain private paths and account data. Classify known
+  // failures without forwarding their message or cause to the terminal.
+  const cause = error instanceof ConnectionRegistryError ? error.cause : error;
+  const code = typeof cause === "object" && cause !== null && "code" in cause
+    ? cause.code
+    : undefined;
+  if (code === "EACCES" || code === "EPERM" || code === "EROFS") {
+    return new ConnectionLifecycleError(
+      "registry_unavailable",
+      "Cannot access saved connections; check permissions for the Recurs data directory",
+    );
+  }
+  if (error instanceof ConnectionRegistryError) {
+    if (error.code === "lock_timeout") {
+      return new ConnectionLifecycleError(
+        "registry_busy",
+        "Saved connections are busy; try again",
+      );
+    }
+    const messages = {
+      registry_invalid: "Saved connections are invalid; check the Recurs data directory",
+      storage_unsafe: "Saved connection storage failed its safety checks",
+      migration_conflict: "Legacy settings conflict with saved connections",
+    };
+    if (error.code in messages) {
+      return new ConnectionLifecycleError(
+        "registry_unavailable",
+        messages[error.code as keyof typeof messages],
+      );
+    }
+  }
   return new ConnectionLifecycleError(
-    "registry_changed",
-    "Connection registry changed; try again",
+    "registry_unavailable",
+    "Saved connections are unavailable; run recurs doctor",
   );
 }
 

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ConnectionLifecycleService,
+  ConnectionRegistryError,
   FileConnectionRegistry,
   type ConnectionRegistryDocument,
   type ConnectionRegistryMutation,
@@ -468,6 +469,37 @@ describe("connection lifecycle service", () => {
     });
     expect((exhausted as Error).cause).toBeUndefined();
     expect(always.commitCalls).toBe(3);
+    expect((await registry.read()).primaryConnectionId).toBe("local-primary");
+  });
+
+  it.each([
+    [Object.assign(new Error("private-path-canary"), { code: "EPERM" }), "registry_unavailable", "Cannot access saved connections; check permissions for the Recurs data directory"],
+    [new ConnectionRegistryError("storage_unsafe", "private-path-canary", { cause: Object.assign(new Error("private-cause-canary"), { code: "EACCES" }) }), "registry_unavailable", "Cannot access saved connections; check permissions for the Recurs data directory"],
+    [Object.assign(new Error("private-path-canary"), { code: "EROFS" }), "registry_unavailable", "Cannot access saved connections; check permissions for the Recurs data directory"],
+    [new ConnectionRegistryError("registry_invalid", "private-path-canary"), "registry_unavailable", "Saved connections are invalid; check the Recurs data directory"],
+    [new ConnectionRegistryError("storage_unsafe", "private-path-canary"), "registry_unavailable", "Saved connection storage failed its safety checks"],
+    [new ConnectionRegistryError("migration_conflict", "private-path-canary"), "registry_unavailable", "Legacy settings conflict with saved connections"],
+    [new ConnectionRegistryError("lock_timeout", "private-path-canary"), "registry_busy", "Saved connections are busy; try again"],
+    [new Error("private-path-canary"), "registry_unavailable", "Saved connections are unavailable; run recurs doctor"],
+  ] as const)("classifies account-list storage failures without exposing their cause: %s", async (failure, code, message) => {
+    const { registry } = await seededRegistry();
+    vi.spyOn(registry, "migrateLegacyLocal").mockRejectedValue(failure);
+    let result: unknown;
+    try { await new ConnectionLifecycleService(registry).list(); }
+    catch (error) { result = error; }
+    expect(result).toMatchObject({ code, message });
+    expect((result as Error).cause).toBeUndefined();
+    expect(String(result)).not.toContain("canary");
+  });
+
+  it("does not retry a denied registry write or change the selected account", async () => {
+    const { registry } = await seededRegistry();
+    const commit = vi.spyOn(registry, "commit").mockRejectedValue(
+      Object.assign(new Error("private-write-canary"), { code: "EACCES" }),
+    );
+    await expect(new ConnectionLifecycleService(registry).setPrimary("codex-secondary"))
+      .rejects.toMatchObject({ code: "registry_unavailable" });
+    expect(commit).toHaveBeenCalledTimes(1);
     expect((await registry.read()).primaryConnectionId).toBe("local-primary");
   });
 
