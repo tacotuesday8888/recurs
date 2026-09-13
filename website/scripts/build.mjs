@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { summarizeEvidence } from "../../scripts/benchmark-evidence.mjs";
 import ts from "typescript";
+import { RECURS_BRAND } from "../../scripts/recurs-brand.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const repository = dirname(root);
@@ -28,9 +29,11 @@ await writeFile(join(output, "terminal-opening-art.js"), ts.transpileModule(term
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 },
 }).outputText);
 
-for (const file of ["index.html", "styles.css"]) {
-  await cp(join(source, file), join(output, file));
-}
+await cp(join(source, "index.html"), join(output, "index.html"));
+const brandVariables = Object.entries(RECURS_BRAND.palette)
+  .map(([name, color]) => `--recurs-${name}: ${color};`).join(" ");
+await writeFile(join(output, "styles.css"),
+  `/* Palette generated from scripts/recurs-brand.mjs. */\n:root { ${brandVariables} }\n${await readFile(join(source, "styles.css"), "utf8")}`);
 for (const asset of ["recurs-mark.svg", "recurs-wordmark.svg", "terminal-patch.svg", "terminal-v19-working.svg", "terminal-diff.svg", "terminal-permission.svg", "terminal-workflow.mp4", "terminal-workflow.json"]) {
   await cp(join(repository, "docs/assets", asset), join(output, "assets", asset));
 }

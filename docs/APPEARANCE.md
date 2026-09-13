@@ -10,6 +10,17 @@ The **3D R opening and V19 agent floor are one interface**. **Ctrl+G** switches 
 The current preset is marked, and selection remains visible in short terminals.
 The GitHub wordmark and terminal lettering share the same block geometry and
 warm ember/orange palette. Native lettering works without image protocols.
+
+`scripts/recurs-brand.mjs` owns the shared palette: charcoal background `#191714`,
+foreground `#f3ede5`, orange accent `#f3a05b`, muted text `#b7ac9e`, and warm
+highlight `#e7c29c`. The generator exports these colors to the default terminal
+preset and GitHub SVGs; the website build embeds the same palette as CSS variables
+in its existing stylesheet. Website selection and R lighting inherit these roles.
+The GitHub gradient also uses ember `#d96545`; terminal code uses the highlight.
+Derived website surfaces and borders remain separate, as do optional terminal themes.
+The website R shares the terminal opening renderer, and the website copies GitHub
+wordmark and terminal media assets without modification.
+
 Code changes retain explicit plus/minus markers alongside green/red color,
 including in no-color mode. Review views and active progress use the selected
 theme, and the home screen switches to a compact layout on short terminals.
