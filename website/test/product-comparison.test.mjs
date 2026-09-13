@@ -173,7 +173,9 @@ test("real audited page preserves every outcome and separates reviewer observati
   assert.match(html, /Separately, our offline audit/u);
   assert.match(html, /not a replay of that candidate/u);
   assert.match(html, /repair did not deliver an accepted result/u);
-  assert.match(html, /Earlier tests inside Recurs/u);
+  assert.doesNotMatch(html, /Earlier tests inside Recurs/u);
+  assert.match(html, /Codex CLI finished <strong>3 of 6<\/strong>; Recurs finished <strong>2 of 6<\/strong>/u);
+  assert.match(html, /<details class="product-evidence-details"><summary>Explore the 12 attempts<\/summary>/u);
   assert.equal((html.match(/data-product-task=/gu) ?? []).length, 3);
   assert.equal((html.match(/<li><p><strong>/gu) ?? []).length, 12);
   assert.match(html, /464\.9 seconds/u);

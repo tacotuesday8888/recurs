@@ -13,69 +13,30 @@
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <header class="wrap">
-    <a class="brand" href="#" aria-label="Recurs home"><span class="brand-drift" aria-hidden="true"><svg class="brand-spin" viewBox="0 0 180 200">{{TERMINAL_R}}</svg></span><img class="wordmark" src="./assets/recurs-wordmark.svg" width="180" height="54" alt=""></a>
-    <nav aria-label="Main navigation"><a href="#terminal">Terminal</a><a href="{{BENCHMARKS_TARGET}}">Benchmarks</a><a href="https://github.com/tacotuesday8888/recurs">GitHub</a><button id="motion-toggle" type="button" aria-pressed="false" hidden>Pause motion</button></nav>
+    <a class="brand" href="#" aria-label="Recurs home"><img class="wordmark" src="./assets/recurs-wordmark.svg" width="180" height="54" alt=""></a>
+    <nav aria-label="Main navigation"><a href="#terminal">Terminal</a><a href="{{BENCHMARKS_TARGET}}">Benchmarks</a><a href="https://github.com/tacotuesday8888/recurs">GitHub</a></nav>
   </header>
   <main id="main">
     <section class="hero wrap" aria-labelledby="hero-title">
-      <div class="hero-copy"><h1 id="hero-title">Coding agents<br>in your terminal.</h1><p>Choose your models. Delegate tasks. Review the changes.</p></div>
+      <div class="brand-drift hero-letter" aria-hidden="true"><svg class="brand-spin" viewBox="0 0 180 200">{{TERMINAL_R}}</svg></div>
+      <div class="hero-copy"><h1 id="hero-title">Coding agents.<br>Your terminal.</h1><p>Choose your models. Build with a team.<br> Keep the final say.</p>
       <div class="install-action" id="install">
-        <div class="install-methods" role="group" aria-label="Installation method"><button data-install="npm" aria-pressed="true" type="button">npm</button><button data-install="bun" aria-pressed="false" type="button">Bun</button><button data-install="brew" aria-pressed="false" type="button">Homebrew</button></div>
         <div class="install-command"><code id="install-command">npm install --global recurs@alpha</code><button id="copy-install" type="button" aria-label="Copy installation command">Copy</button></div>
-        <p class="fine" id="install-note">Node.js 22.22+ on macOS or Linux. <a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/CLI.md#install">Setup guide</a></p>
+        <details class="install-options"><summary>Installation options</summary><div class="install-methods" role="group" aria-label="Installation method"><button data-install="npm" aria-pressed="true" type="button">npm</button><button data-install="bun" aria-pressed="false" type="button">Bun</button><button data-install="brew" aria-pressed="false" type="button">Homebrew</button></div><p class="fine" id="install-note">Node.js 22.22+ on macOS or Linux. <a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/CLI.md#install">Setup guide</a></p></details>
         <span id="copy-status" class="sr-only" role="status"></span>
-      </div>
+      </div></div>
     </section>
     <section class="wrap product" id="terminal" aria-label="Explore the Recurs terminal">
-      <div class="view-controls" role="group" aria-label="Terminal views">
-        <button type="button" data-view="working" aria-pressed="true"><span>Activity</span></button>
-        <button type="button" data-view="diff" aria-pressed="false"><span>Changes</span></button>
-        <button type="button" data-view="permission" aria-pressed="false"><span>Approvals</span></button>
-        <button type="button" id="recording-control" class="recording-control" aria-controls="workflow-recording" hidden>Play recording</button>
-        <a class="open-recording" href="./assets/terminal-workflow.mp4" target="_blank" rel="noopener">Open recording</a>
-      </div>
+      <div class="product-header"><h2>Inside Recurs</h2><button type="button" id="recording-control" class="recording-control" aria-controls="workflow-recording" hidden>Play demo</button></div>
       <div class="terminal-stage"><div class="terminal-image"><img id="terminal-capture" src="./assets/terminal-patch.svg" width="{{TERMINAL_WIDTH}}" height="{{TERMINAL_HEIGHT}}" alt="Recurs terminal with collapsed progress, clickable activity and a boxed composer"><video id="workflow-recording" width="{{TERMINAL_WIDTH}}" height="{{TERMINAL_HEIGHT}}" muted playsinline preload="metadata" poster="./assets/terminal-patch.svg" aria-label="Recorded Recurs workflow: inspect a read, open an edit, and return to collapsed progress" hidden><source src="./assets/terminal-workflow.mp4" type="video/mp4"></video></div></div>
-      <noscript><p>Install Recurs to explore the full workflow. This capture remains available without JavaScript.</p></noscript>
     </section>
     <section class="wrap workflow" aria-label="How you control the team">
-      <h2>Choose models.<br>Control delegation.</h2>
-      <div><h3>Choose the team</h3><p>Route implementation, review, and repair to your models. Set how far agents can delegate and how many can work at once.</p></div>
-      <div><h3>Review what returns</h3><p>Follow progress as it happens. Open tool details or the diff when you need them, and approve changes under your permission policy.</p></div>
+      <div><h3>Choose the team</h3><p>Pick the models and decide how much they can delegate.</p></div>
+      <div><h3>Review what returns</h3><p>Open the work, inspect the diff, and approve what happens next.</p></div>
     </section>
     {{PRODUCT_COMPARISON}}
-    <section class="evidence-section" id="evidence" aria-labelledby="evidence-title">
-      <div class="wrap">
-        <div class="evidence-heading"><h2 id="evidence-title">{{HISTORICAL_EVIDENCE_TITLE}}</h2><a class="text-link" href="./task-fit-results.md">Read the findings</a></div>
-        <p class="evidence-intro">One agent or a team? We tried each task twice with each setup. Both ran inside Recurs, on small coding exercises.</p>
-        <div class="task-results">{{TASK_RESULTS}}</div>
-        <p class="result-definitions">Finished means the code passed the task’s checks. Typical time is the midpoint of two attempt times, including failures.</p>
-        <p class="evidence-limits">These small tasks had two attempts per setup. Bugs found and full-project development were not measured. Dollar cost is unavailable. Review attempts, token use, and the complete records are in the details below.</p>
-        <details class="inspect-trials"><summary>See test details and data <span aria-hidden="true">＋</span></summary><div class="inspect-content">
-        {{PILOT_OVERVIEW}}
-        <p class="context">Twelve original records and four corrected workspace v2 records. Original failures and invalid setups remain visible. <a href="./task-fit-results.json" download>Download the original pilot</a>.</p>
-        <section class="chart-explorer" aria-label="Explore benchmark tradeoffs">
-          <p class="chart-scope">Both configurations run inside Recurs: one agent or a mixed-model team.</p>
-          <div class="chart-controls"><label>Task<select id="chart-task" disabled>{{CHART_TASK_OPTIONS}}</select></label><label>Measure<select id="chart-metric" disabled>{{CHART_METRIC_OPTIONS}}</select></label></div>
-          <div id="benchmark-chart">{{CHART}}</div>
-        </section>
-        <div class="experiment-controls"><label for="campaign">Select a benchmark</label><select id="campaign" disabled>{{CAMPAIGN_OPTIONS}}</select></div>
-        <p id="campaign-context" class="context">{{CAMPAIGN_CONTEXT}}</p>
-        <div class="table-scroll" tabindex="0" role="region" aria-label="Benchmark results, scroll horizontally on small screens">
-          <table class="results-table"><caption class="sr-only">Verified outcomes and measured resource use</caption><thead><tr><th scope="col">Configuration</th><th scope="col">Verified</th><th scope="col">Median time</th><th scope="col">Input tokens</th><th scope="col">Output tokens</th><th scope="col">Reported cost</th></tr></thead><tbody id="results-body">{{RESULT_ROWS}}</tbody></table>
-        </div>
-        <p class="fine">Passes / planned trials. Time is the median of recorded trials, including failures. Tokens are totals across recorded trials; cached input is included. The pilot alternates arm order. Invalid setup times are retained for audit and are not comparable task-completion times. Dollar cost is unavailable, not zero.</p>
-        <details class="paired-trials"><summary>Every paired observation <span aria-hidden="true">＋</span></summary><div class="table-scroll" tabindex="0" role="region" aria-label="Paired trial observations"><table><thead><tr><th>Repetition</th><th>Configuration</th><th>Outcome</th><th>Time</th><th>Uncached input</th><th>Cached input</th><th>Output</th></tr></thead><tbody id="paired-body">{{PAIRED_ROWS}}</tbody></table></div></details>
-        <details><summary>Routes, interventions, and trial-level checks <span aria-hidden="true">＋</span></summary><div id="trial-details">{{TRIAL_DETAILS}}</div></details>
-        <div class="method-grid">
-          <div><h3>Same task. Explicit routes.</h3><p>Fresh, byte-identical fixtures and frozen model routes. Matched comparisons keep the same parent and effort; unmatched observations are labeled. An external verifier checks behavior and workspace integrity. Arm order alternates across repetitions.</p></div>
-          <div><h3>Small sample. Real limits.</h3><p>The original pilot covers three synthetic tasks; a separate four-slot correction repeats the workspace task. Each comparison has two repetitions per arm. It enforces a parent-only baseline. Two team setups were invalid; a separate offline queue-verifier amendment changed no measured outcome. Earlier probes remain separate, with their original delegation and provenance limits.</p></div>
-        </div>
-        <div class="evidence-links"><a href="./task-fit-protocol.md">Pilot protocol</a><a href="./task-fit-correction.md">Correction protocol</a><a href="./task-fit-corrected-results.json" download>Corrected workspace results</a><a href="./task-fit-startup-amendment.md">Startup amendment</a><a href="./queue-verifier-audit.json" download>Queue audit</a><a href="./current-results.json" download>Earlier one-pair probe</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/benchmarks/README.md">Reproduce the benchmark</a><a href="./results.json" download>Historical records</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/research/2026-08-07-RECURS-MODEL-TEAM-EVALUATION-V2.md">Read Round 2</a></div>
-        </div></details>
-      </div>
-    </section>
     <section class="wrap closing"><h2>Try Recurs</h2><div><p>Recurs is an early alpha, licensed under Apache 2.0. <br>Try it on a repository you can review.</p><a class="button" href="https://github.com/tacotuesday8888/recurs">Explore the repository</a></div></section>
   </main>
-  <footer class="wrap"><span>recurs · {{VERSION}}</span><nav aria-label="Project links"><a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/FEATURE_STATUS.md">Capabilities</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/SECURITY.md">Security</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/LICENSE">License</a></nav></footer>
+  <footer class="wrap"><span>recurs · {{VERSION}}</span><nav aria-label="Project links"><a href="https://github.com/tacotuesday8888/recurs/blob/main/docs/FEATURE_STATUS.md">Capabilities</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/SECURITY.md">Security</a><a href="https://github.com/tacotuesday8888/recurs/blob/main/LICENSE">License</a><button id="motion-toggle" type="button" aria-pressed="false" hidden>Animation on</button></nav></footer>
 </body>
 </html>

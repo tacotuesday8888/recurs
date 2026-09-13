@@ -36,3 +36,11 @@
 .product-method > p:last-child { padding-bottom: 22px; }
 
 .product-comparison .task-comparison tbody td { padding-left: 14px; }
+
+/* Keep the complete record one interaction away, with the actual totals in view. */
+.product-comparison .product-summary { margin-bottom: 20px; max-width: 70ch; font-size: 15px; }
+.product-summary strong { color: var(--ink); font-weight: 500; }
+.product-evidence-details { margin-top: 0; background: transparent; border: 0; border-radius: 0; }
+.product-evidence-details > summary { width: fit-content; padding: 4px 0; color: var(--accent); font-size: 14px; }
+.product-evidence-content { padding-top: 12px; }
+.product-evidence-content > .evidence-intro { font-size: 14px; margin-block: 16px; }

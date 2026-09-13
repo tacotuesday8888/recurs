@@ -463,7 +463,10 @@ try {
 
   colorful.process.write("\u001b");
   await colorful.wait((screen) => screen.includes("M manage") && screen.includes("Parser review"), "named pinned chat on home");
+  colorful.process.resize(100, 40); colorful.terminal.resize(100, 40);
+  await colorful.wait((screen) => screen.split("\n").findIndex(line => line.includes("M manage")) >= 38, "full-size spinning R on chat home");
   await captureColorScreen(colorful, "chats");
+  colorful.process.resize(100, 30); colorful.terminal.resize(100, 30);
   colorful.process.write("m");
   await colorful.wait((screen) => screen.includes("Rename chat") && screen.includes("Unpin chat"), "chat action menu");
   colorful.process.write("\r");

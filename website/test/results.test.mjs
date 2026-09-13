@@ -17,15 +17,11 @@ test("plain task results use the three declared comparisons and preserve failure
   assert.throws(() => taskResults(campaigns.filter(campaign => campaign.scenarioVersion !== 2)), /Missing public task result/u);
 });
 
-test("public copy separates unmeasured claims from observations and retains the complete audit", () => {
-  const publicView = html.slice(html.indexOf('id="evidence"'), html.indexOf('<details class="inspect-trials"'));
-  assert.match(publicView, /Both ran inside Recurs/u);
-  assert.match(publicView, /Bugs found and full-project development were not measured/u);
-  assert.match(publicView, /Dollar cost is unavailable/u);
-  assert.equal((publicView.match(/Dollar cost/gu) ?? []).length, 1);
-  assert.doesNotMatch(publicView, /Codex|input tokens|harnessRevision|launchProtocol/u);
-  assert.match(html, /<details class="inspect-trials">[\s\S]*id="chart-task"[\s\S]*id="campaign"/u);
-  assert.match(html, /v1 · invalid team setup/u);
+test("historical campaigns are preserved in downloadable artifacts, not promoted on the homepage", async () => {
+  assert.doesNotMatch(html, /id="evidence"|id="campaign"|Earlier tests inside Recurs/u);
+  for (const file of ["results.json", "current-results.json", "task-fit-results.json", "task-fit-corrected-results.json"]) {
+    assert.deepEqual(await readFile(new URL(`../.build/${file}`, import.meta.url)), await readFile(new URL(`../../benchmarks/${file}`, import.meta.url)));
+  }
 });
 
 test("count-up markup starts at final values and provides static accessible text", () => {
