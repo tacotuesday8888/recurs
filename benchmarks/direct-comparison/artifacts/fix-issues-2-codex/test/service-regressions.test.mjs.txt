@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createService } from '../src/service.mjs';
+
+test('cannot close an issue belonging to another tenant', () => {
+  const service = createService([
+    { id: 'a', tenant: 'red', title: 'Red issue', status: 'open', secret: 'red secret' },
+    { id: 'b', tenant: 'blue', title: 'Blue issue', status: 'open', secret: 'blue secret' },
+  ]);
+
+  assert.throws(() => service.close('red', 'b'), { code: 'NOT_FOUND' });
+  assert.equal(service.get('blue', 'b').status, 'open');
+});
+
+test('uses an exclusive cursor when listing the next page', () => {
+  const service = createService([
+    { id: 'a', tenant: 'red', title: 'A', status: 'open', secret: 'a secret' },
+    { id: 'b', tenant: 'red', title: 'B', status: 'open', secret: 'b secret' },
+    { id: 'c', tenant: 'red', title: 'C', status: 'open', secret: 'c secret' },
+  ]);
+
+  const firstPage = service.list('red', { limit: 2 });
+  const secondPage = service.list('red', { after: firstPage.nextCursor, limit: 2 });
+
+  assert.deepEqual(firstPage.items.map(({ id }) => id), ['a', 'b']);
+  assert.deepEqual(secondPage.items.map(({ id }) => id), ['c']);
+  assert.equal(secondPage.nextCursor, null);
+});
+
+test('responses expose only public issue fields', () => {
+  const service = createService([
+    { id: 'a', tenant: 'red', title: 'A', status: 'open', secret: 'private' },
+  ]);
+
+  assert.deepEqual(service.list('red').items[0], { id: 'a', title: 'A', status: 'open' });
+  assert.deepEqual(service.get('red', 'a'), { id: 'a', title: 'A', status: 'open' });
+  assert.deepEqual(service.close('red', 'a'), { id: 'a', title: 'A', status: 'closed' });
+});

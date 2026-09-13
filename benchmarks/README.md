@@ -1,8 +1,10 @@
 # Reproducible Recurs benchmarks
 
-The [direct Codex comparison](direct-comparison/README.md) now has a fixed task
-inventory, offline graders, and a bounded foreground runner. It is prepared but
-has **no model results yet**. It does not replace or relabel the evidence below.
+The [direct Codex comparison](direct-comparison/README.md) stopped after a runner
+setup error: one Codex attempt completed, two Recurs launches were blocked before
+model execution, and one Codex attempt was cancelled. Eight slots were not started.
+There are **no valid comparison pairs**. The [complete inventory and audit](direct-comparison/STOPPED_CAMPAIGN.md)
+preserve this attempt separately from the evidence below.
 
 The published evidence does **not** establish a team advantage. The four evidence
 sets are sanitized exports of real model-backed campaigns. `task-fit-results.json`

@@ -1,4 +1,16 @@
-# Direct Codex comparison — prepared, not run
+# Direct Codex comparison — stopped at setup
+
+The approved campaign stopped after four of twelve slots. Recurs's scripted
+`run` command cannot use the configured connection, which requires manual,
+user-present execution. The original preflight checked model routes but missed
+this incompatibility. It now rejects the configuration before either product
+starts. **There are no valid comparison pairs or comparative scores.**
+
+See the [stopped campaign audit](STOPPED_CAMPAIGN.md) and
+[all twelve outcomes](stopped-campaign.json). The original [plan](plan.json)
+is retained unchanged; its `prepared_not_run` field describes the pretrial
+declaration, not the campaign's current status. The protocol below documents
+what was attempted, not a currently runnable subscription campaign.
 
 Three authored tasks in a small issue-tracking service:
 
@@ -57,7 +69,7 @@ tokens. Provider-reported costs remain unavailable unless actually observed;
 subscription token counts do not establish dollars saved. No invented score or
 estimated price will be substituted for missing evidence.
 
-Do not connect these prepared tasks to website charts as results. Keep the existing
+Do not connect this stopped campaign to website charts as comparative results. Keep the existing
 pilot records intact. A future export must include the frozen inventory, outcomes,
 manual audit and measured coverage; it must not relabel the earlier pilot as Codex.
 
@@ -78,19 +90,20 @@ Create a private JSON configuration outside the repository with absolute
 `recursBundle` (a frozen built executable), and `connections` mapping parent,
 implement, review and repair to existing Recurs connection IDs. Never include keys
 or copy authentication files into it. Preflight validates versions and redacted
-route metadata without sending a model request.
+route metadata without sending a model request. It also checks invocation
+compatibility. The fixed subscription configuration is currently unsupported
+by this runner, so both `preflight` and `run` stop with exit code 2.
 
 ```sh
 node scripts/direct-benchmark/run.mjs preflight /tmp/direct-config.json /tmp/unused
-# Only after this new, bounded campaign is authorized:
-node scripts/direct-benchmark/run.mjs run /tmp/direct-config.json /tmp/new-direct-campaign
+# Do not launch another campaign with this unsupported protocol.
 ```
 
 The foreground runner reserves slots before launching models, caps captured
 output at 16 MiB per attempt, kills the process group on timeout/cancellation,
 and refuses to reuse an artifact directory. Raw artifacts are private; publish
-only audited, sanitized exports. The previous four-attempt approval covered the
-completed workspace correction; it is not reused for this new campaign.
+only audited, sanitized exports. Authorization for the stopped campaign does
+not replace the need to declare and authorize a different execution protocol.
 
 Grading follows outcome-based agent evaluation guidance from
 [Anthropic](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents).

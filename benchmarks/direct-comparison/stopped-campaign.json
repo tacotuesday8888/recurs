@@ -1,0 +1,373 @@
+{
+  "version": 1,
+  "campaignId": "direct-comparison-20260913-stopped",
+  "status": "stopped_invalid_setup",
+  "planned": 12,
+  "attempted": 4,
+  "validPairs": 0,
+  "comparisonEligible": false,
+  "stopReason": "Recurs scripted run cannot use the configured manual-only subscription connection; campaign cancelled rather than changing its protocol.",
+  "protocolSourceCommit": "c657da6c1189b3e1a47b2c6e27cbc3709f45b215",
+  "recursSourceCommit": "9f6b9c7c4f620b0b7351a1bec5837108418df33b",
+  "provenance": {
+    "codexLauncher": "134063e133f0b4244fa3b251acf973d4fe4b4aeeacbdc135211bf480f59f1477",
+    "codexBinary": "1da3f4e0e96028b8a771814293c3033dafd1971f943f6c7e79b0897fe705f590",
+    "recursBundle": "b09aa8d1770dc006cbff3b94567011eaa0dd746cdd40e430a2403ac06a024791",
+    "nodeVersion": "v22.22.3",
+    "codexVersion": "codex-cli 0.145.0",
+    "harness": {
+      "run.mjs": "6e74f7757b7055c7b8e704aeb067b6810095fe823150724b458d037f4ab07cf8",
+      "suite.mjs": "9ae7bc473561514eb88ada88839b9b7d26c7dd0c394ed5137219f6a956420ff0",
+      "fixtures.mjs": "b15712893db137e677e58f9419ab84f1c576a6b0f4ee5f9c6b5c734d783e84ec",
+      "grade.mjs": "c0866789ff8b20ae854842d9e04342c10c41fb8ed1702e4f076deb5fd53e3752"
+    },
+    "routes": {
+      "parent": {
+        "model": "gpt-5.6-luna",
+        "effort": "medium",
+        "adapter": "codex-app-server"
+      },
+      "review": {
+        "model": "gpt-5.6-luna",
+        "effort": "medium",
+        "adapter": "codex-app-server"
+      },
+      "implement": {
+        "model": "gpt-5.6-terra",
+        "effort": "medium",
+        "adapter": "codex-app-server"
+      },
+      "repair": {
+        "model": "gpt-5.6-terra",
+        "effort": "medium",
+        "adapter": "codex-app-server"
+      }
+    }
+  },
+  "privateInventorySha256": "b71b48af86daa9a2bc9cd69860ac315bd7aca830f3e98c3a56279962b8bda354",
+  "privateResultsSha256": "0b14e301a5056cc515bda95c5d9571f3f193225edc2b5944e055eae1e079a61c",
+  "inventory": "plan.json",
+  "limits": {
+    "repetitions": 2,
+    "slots": 12,
+    "trialWallSeconds": 300,
+    "campaignWallSeconds": 3600
+  },
+  "usageNote": "Native turn.completed counters are preserved without aggregation or dollar estimates. The cancelled turn has no final usage record. No token or price comparison is supported.",
+  "slots": [
+    {
+      "id": "fix-issues-1-codex",
+      "taskId": "fix-issues",
+      "repetition": 1,
+      "arm": "codex",
+      "executionStatus": "completed",
+      "classification": "completed",
+      "comparisonEligible": false,
+      "exitCode": 0,
+      "wallMs": 60286,
+      "grade": {
+        "passed": true,
+        "behaviorPassed": true,
+        "candidateTestsPassed": true,
+        "existingTestsPreserved": true,
+        "packagePreserved": true,
+        "testsAdded": true,
+        "documentationUpdated": true,
+        "manualAuditRequired": true
+      },
+      "reportedUsage": {
+        "input_tokens": 149804,
+        "cached_input_tokens": 130304,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 2580,
+        "reasoning_output_tokens": 639
+      },
+      "costUsd": null,
+      "artifacts": [
+        {
+          "candidatePath": "src/public-issue.mjs",
+          "path": "artifacts/fix-issues-1-codex/src/public-issue.mjs.txt",
+          "sha256": "170bc2c44ded0bcb1695376d08030250545cc1edf25a6b1ad9c317acb730c3cb"
+        },
+        {
+          "candidatePath": "src/service.mjs",
+          "path": "artifacts/fix-issues-1-codex/src/service.mjs.txt",
+          "sha256": "4248e8e578d8e88dbc3cdd8693f208bf2259a530d1510a0f95119a9d5a2b423a"
+        },
+        {
+          "candidatePath": "test/regressions.test.mjs",
+          "path": "artifacts/fix-issues-1-codex/test/regressions.test.mjs.txt",
+          "sha256": "bf1c7db9df43601a865f085a1051a60eb988a206e3c26fe2eed7e9fb887ace25"
+        }
+      ],
+      "audit": {
+        "graderReplayMatches": true,
+        "modelStarted": true,
+        "turnCompleted": true,
+        "configurationCode": null,
+        "externalSkillReads": true,
+        "referenceOrGraderReadsObserved": false,
+        "manualReview": "STOPPED_CAMPAIGN.md"
+      },
+      "privateTraceSha256": {
+        "stdout": "04c248dcd02e40d44dff652336ea9380dd288ed033de2b6204c90c84916c12cf",
+        "stderr": "7201c139e98d3f2eb0340bddfe0166996c9be038e3b5aaf8987361bd800b3f84"
+      }
+    },
+    {
+      "id": "fix-issues-1-recurs",
+      "taskId": "fix-issues",
+      "repetition": 1,
+      "arm": "recurs",
+      "executionStatus": "execution_failed",
+      "classification": "setup_blocked",
+      "comparisonEligible": false,
+      "exitCode": 2,
+      "wallMs": 515,
+      "grade": {
+        "passed": false,
+        "behaviorPassed": false,
+        "candidateTestsPassed": true,
+        "existingTestsPreserved": true,
+        "packagePreserved": true,
+        "testsAdded": false,
+        "documentationUpdated": true,
+        "manualAuditRequired": true
+      },
+      "reportedUsage": null,
+      "costUsd": null,
+      "artifacts": [],
+      "audit": {
+        "graderReplayMatches": true,
+        "modelStarted": false,
+        "turnCompleted": false,
+        "configurationCode": "policy_blocked",
+        "externalSkillReads": false,
+        "referenceOrGraderReadsObserved": false,
+        "manualReview": "STOPPED_CAMPAIGN.md"
+      },
+      "privateTraceSha256": {
+        "stdout": "085f0bf46b8e96b9962631dd26fb82f71e3195f43e309b94ac6dc511d05cd9bd",
+        "stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "id": "fix-issues-2-recurs",
+      "taskId": "fix-issues",
+      "repetition": 2,
+      "arm": "recurs",
+      "executionStatus": "execution_failed",
+      "classification": "setup_blocked",
+      "comparisonEligible": false,
+      "exitCode": 2,
+      "wallMs": 493,
+      "grade": {
+        "passed": false,
+        "behaviorPassed": false,
+        "candidateTestsPassed": true,
+        "existingTestsPreserved": true,
+        "packagePreserved": true,
+        "testsAdded": false,
+        "documentationUpdated": true,
+        "manualAuditRequired": true
+      },
+      "reportedUsage": null,
+      "costUsd": null,
+      "artifacts": [],
+      "audit": {
+        "graderReplayMatches": true,
+        "modelStarted": false,
+        "turnCompleted": false,
+        "configurationCode": "policy_blocked",
+        "externalSkillReads": false,
+        "referenceOrGraderReadsObserved": false,
+        "manualReview": "STOPPED_CAMPAIGN.md"
+      },
+      "privateTraceSha256": {
+        "stdout": "4deb071c16b76d77ade1fe78394ec993642e9403916e16610adf60097dc739d9",
+        "stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "id": "fix-issues-2-codex",
+      "taskId": "fix-issues",
+      "repetition": 2,
+      "arm": "codex",
+      "executionStatus": "cancelled",
+      "classification": "cancelled",
+      "comparisonEligible": false,
+      "exitCode": null,
+      "wallMs": 65516,
+      "grade": {
+        "passed": true,
+        "behaviorPassed": true,
+        "candidateTestsPassed": true,
+        "existingTestsPreserved": true,
+        "packagePreserved": true,
+        "testsAdded": true,
+        "documentationUpdated": true,
+        "manualAuditRequired": true
+      },
+      "reportedUsage": null,
+      "costUsd": null,
+      "artifacts": [
+        {
+          "candidatePath": "src/public-issue.mjs",
+          "path": "artifacts/fix-issues-2-codex/src/public-issue.mjs.txt",
+          "sha256": "170bc2c44ded0bcb1695376d08030250545cc1edf25a6b1ad9c317acb730c3cb"
+        },
+        {
+          "candidatePath": "src/service.mjs",
+          "path": "artifacts/fix-issues-2-codex/src/service.mjs.txt",
+          "sha256": "4248e8e578d8e88dbc3cdd8693f208bf2259a530d1510a0f95119a9d5a2b423a"
+        },
+        {
+          "candidatePath": "test/service-regressions.test.mjs",
+          "path": "artifacts/fix-issues-2-codex/test/service-regressions.test.mjs.txt",
+          "sha256": "938c678883ccc2fc8b3a8cf4a3f7222b6f1db5e9b1313cfc1df6996ddcf1137c"
+        }
+      ],
+      "audit": {
+        "graderReplayMatches": true,
+        "modelStarted": true,
+        "turnCompleted": false,
+        "configurationCode": null,
+        "externalSkillReads": true,
+        "referenceOrGraderReadsObserved": false,
+        "manualReview": "STOPPED_CAMPAIGN.md"
+      },
+      "privateTraceSha256": {
+        "stdout": "edcf874febe977fa5952127e33f8f0c04e00a2a80661a9cf320e3a4e4a85c5a8",
+        "stderr": "f5c155c6c2b47c4b31e754ee9a07e6830f4e48c8cf2b0f6a6dbce14c60952faa"
+      }
+    },
+    {
+      "id": "build-bulk-close-1-codex",
+      "taskId": "build-bulk-close",
+      "repetition": 1,
+      "arm": "codex",
+      "executionStatus": "not_attempted",
+      "classification": "not_attempted",
+      "comparisonEligible": false,
+      "exitCode": null,
+      "wallMs": null,
+      "grade": null,
+      "reportedUsage": null,
+      "costUsd": null,
+      "artifacts": [],
+      "audit": null
+    },
+    {
+      "id": "build-bulk-close-1-recurs",
+      "taskId": "build-bulk-close",
+      "repetition": 1,
+      "arm": "recurs",
+      "executionStatus": "not_attempted",
+      "classification": "not_attempted",
+      "comparisonEligible": false,
+      "exitCode": null,
+      "wallMs": null,
+      "grade": null,
+      "reportedUsage": null,
+      "costUsd": null,
+      "artifacts": [],
+      "audit": null
+    },
+    {
+      "id": "build-bulk-close-2-recurs",
+      "taskId": "build-bulk-close",
+      "repetition": 2,
+      "arm": "recurs",
+      "executionStatus": "not_attempted",
+      "classification": "not_attempted",
+      "comparisonEligible": false,
+      "exitCode": null,
+      "wallMs": null,
+      "grade": null,
+      "reportedUsage": null,
+      "costUsd": null,
+      "artifacts": [],
+      "audit": null
+    },
+    {
+      "id": "build-bulk-close-2-codex",
+      "taskId": "build-bulk-close",
+      "repetition": 2,
+      "arm": "codex",
+      "executionStatus": "not_attempted",
+      "classification": "not_attempted",
+      "comparisonEligible": false,
+      "exitCode": null,
+      "wallMs": null,
+      "grade": null,
+      "reportedUsage": null,
+      "costUsd": null,
+      "artifacts": [],
+      "audit": null
+    },
+    {
+      "id": "catch-regressions-1-codex",
+      "taskId": "catch-regressions",
+      "repetition": 1,
+      "arm": "codex",
+      "executionStatus": "not_attempted",
+      "classification": "not_attempted",
+      "comparisonEligible": false,
+      "exitCode": null,
+      "wallMs": null,
+      "grade": null,
+      "reportedUsage": null,
+      "costUsd": null,
+      "artifacts": [],
+      "audit": null
+    },
+    {
+      "id": "catch-regressions-1-recurs",
+      "taskId": "catch-regressions",
+      "repetition": 1,
+      "arm": "recurs",
+      "executionStatus": "not_attempted",
+      "classification": "not_attempted",
+      "comparisonEligible": false,
+      "exitCode": null,
+      "wallMs": null,
+      "grade": null,
+      "reportedUsage": null,
+      "costUsd": null,
+      "artifacts": [],
+      "audit": null
+    },
+    {
+      "id": "catch-regressions-2-recurs",
+      "taskId": "catch-regressions",
+      "repetition": 2,
+      "arm": "recurs",
+      "executionStatus": "not_attempted",
+      "classification": "not_attempted",
+      "comparisonEligible": false,
+      "exitCode": null,
+      "wallMs": null,
+      "grade": null,
+      "reportedUsage": null,
+      "costUsd": null,
+      "artifacts": [],
+      "audit": null
+    },
+    {
+      "id": "catch-regressions-2-codex",
+      "taskId": "catch-regressions",
+      "repetition": 2,
+      "arm": "codex",
+      "executionStatus": "not_attempted",
+      "classification": "not_attempted",
+      "comparisonEligible": false,
+      "exitCode": null,
+      "wallMs": null,
+      "grade": null,
+      "reportedUsage": null,
+      "costUsd": null,
+      "artifacts": [],
+      "audit": null
+    }
+  ]
+}
