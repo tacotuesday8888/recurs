@@ -45,12 +45,17 @@ const { campaignName, context, resultRows, trialDetails, escapeHtml } = await im
 const initial = summary.findLast((campaign) => campaign.complete && campaign.arms.every((arm) => arm.parentMatched));
 if (!initial) throw new Error("A complete matched-parent campaign is required for the default view");
 const packageInfo = JSON.parse(await readFile(join(repository, "package.json"), "utf8"));
+const captureSource = await readFile(join(output, "assets/terminal-v19-working.svg"), "utf8");
+const captureSize = /<svg\b[^>]*\bwidth="(\d+)"[^>]*\bheight="(\d+)"/u.exec(captureSource);
+if (!captureSize) throw new Error("Terminal capture dimensions unavailable");
 const replacements = {
   CAMPAIGN_OPTIONS: summary.map((campaign) => `<option value="${escapeHtml(campaign.id)}"${campaign.id === initial.id ? " selected" : ""}>${escapeHtml(campaignName(campaign))}</option>`).join(""),
   CAMPAIGN_CONTEXT: escapeHtml(context(initial)),
   RESULT_ROWS: resultRows(initial),
   TRIAL_DETAILS: trialDetails(initial),
   VERSION: escapeHtml(packageInfo.version),
+  TERMINAL_WIDTH: captureSize[1],
+  TERMINAL_HEIGHT: captureSize[2],
 };
 let html = await readFile(join(output, "index.html"), "utf8");
 for (const [key, value] of Object.entries(replacements)) html = html.replaceAll(`{{${key}}}`, value);

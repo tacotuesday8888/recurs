@@ -26,7 +26,8 @@ zero user-input requests. These callbacks are not a measurement of human effort.
 The campaign remained insufficient evidence (`minimum_comparable_pairs_not_met`
 and `usage_incomplete`; token reporting was complete but dollar cost was absent).
 One pair cannot establish quality, repair reliability, or a general efficiency
-advantage. No retries, credits purchases, policy changes or outcome exclusions
+advantage. The baseline ran first; this one-pair probe does not counterbalance
+execution order or cache conditions. No retries, credit purchases, policy changes or outcome exclusions
 were used.
 
 Provenance: source base `69c0fe5`, dirty `codex/product-workflows` candidate;

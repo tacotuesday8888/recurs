@@ -29,7 +29,7 @@
         <button type="button" data-view="permission" aria-pressed="false">Approving a change</button>
         <span>Actual terminal captures</span>
       </div>
-      <div class="terminal-image"><img id="terminal-capture" src="./assets/terminal-v19-working.svg" width="832" height="586" alt="Recurs terminal showing active coding work and its agent floor"></div>
+      <div class="terminal-image"><img id="terminal-capture" src="./assets/terminal-v19-working.svg" width="{{TERMINAL_WIDTH}}" height="{{TERMINAL_HEIGHT}}" alt="Recurs terminal showing active coding work and its agent floor"></div>
       <form class="command-guide" id="command-guide">
         <label for="command"><span aria-hidden="true">›</span><span class="sr-only">Explore a command</span></label>
         <input id="command" name="command" autocomplete="off" spellcheck="false" maxlength="200" placeholder="Explore /agents, /diff, /permissions, /help" aria-describedby="guide-result">
@@ -64,7 +64,7 @@
         <div class="table-scroll" tabindex="0" role="region" aria-label="Benchmark results, scroll horizontally on small screens">
           <table><caption class="sr-only">Verified outcomes and measured resource use</caption><thead><tr><th scope="col">Configuration</th><th scope="col">Verified</th><th scope="col">Median time</th><th scope="col">Input tokens</th><th scope="col">Output tokens</th><th scope="col">Reported cost</th></tr></thead><tbody id="results-body">{{RESULT_ROWS}}</tbody></table>
         </div>
-        <p class="fine">Passes / planned trials. Time is the median of recorded trials, including failures. Tokens are totals across recorded trials; cached input is included. Dollar cost is unavailable, not zero.</p>
+        <p class="fine">Passes / planned trials. Time is the median of recorded trials, including failures. Tokens are totals across recorded trials; cached input is included. The fresh probe ran the baseline first. Dollar cost is unavailable, not zero.</p>
         <details><summary>Routes, interventions, and trial-level checks <span aria-hidden="true">+</span></summary><div id="trial-details">{{TRIAL_DETAILS}}</div></details>
         <div class="method-grid">
           <div><h3>Same task. Explicit routes.</h3><p>Fresh, byte-identical fixtures and frozen model routes. Matched comparisons keep the same parent and effort; unmatched observations are labeled. An external verifier checks behavior and workspace integrity. Arm order alternates across repetitions.</p></div>
