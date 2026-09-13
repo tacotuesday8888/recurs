@@ -5,6 +5,7 @@ import { Writable } from "node:stream";
 
 import {
   FileConnectionRegistry,
+  type ConnectionRegistryDocument,
   type DelegatedConnectionRecord,
 } from "@recurs/app";
 import { CODEX_APP_SERVER_PROFILE_REVISION } from "@recurs/runtimes";
@@ -89,6 +90,35 @@ function connection(
 }
 
 describe("company benchmark command", () => {
+  it("creates a contract-valid campaign for every latest scenario advertised by --list", () => {
+    const parent = connection("luna-parent", "gpt-5.6-luna", "medium");
+    const worker = connection("terra-worker", "gpt-5.6-terra", "medium");
+    const document: ConnectionRegistryDocument = {
+      schemaVersion: 2, revision: 1, primaryConnectionId: parent.id,
+      connections: [parent, worker],
+      agentRoutes: { implement: worker.id, review: parent.id, repair: worker.id },
+    };
+    const listed = JSON.parse(renderCompanyBenchmarkScenarios(true)) as {
+      scenarios: { id: string; version: number; verifierId: string }[];
+    };
+    expect(listed.scenarios.map(({ id, version }) => `${id}:v${version}`)).toEqual([
+      "alias_registry:v1", "layered_config:v1", "retry_after:v1",
+      "options_precedence:v1", "queue_cancellation:v2", "workspace_maintenance:v2",
+    ]);
+    for (const scenario of listed.scenarios) {
+      const campaign = createConfiguredCompanyBenchmarkCampaign({
+        document, scenarioId: scenario.id, connectionId: parent.id,
+        repetitions: 2, compareAllStrong: false,
+        campaignId: `campaign-${scenario.id}`, createdAt: AT,
+      });
+      expect(campaign.scenario).toMatchObject(scenario);
+      expect(campaign.scenario.fixtureSha256)
+        .toBe(getCompanyBenchmarkScenario(scenario.id).fixtureSha256);
+      expect(campaign.armOrder.map(({ armId }) => armId))
+        .toEqual(["single-strong", "company-auto", "company-auto", "single-strong"]);
+    }
+  });
+
   it("accepts explicit artifact directories without treating them as connection ids", () => {
     expect(parseCompanyBenchmarkCommand(["company", "--configured", "--allow-network", "--scenario", "queue_cancellation", "--artifacts", "/tmp/recurs trial artifacts"]))
       .toMatchObject({ artifactsDirectory: "/tmp/recurs trial artifacts", scenarioId: "queue_cancellation" });

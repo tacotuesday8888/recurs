@@ -61,7 +61,7 @@ export type CompanyBenchmarkRationale =
 
 export interface CompanyBenchmarkScenarioRefV1 {
   readonly id: string;
-  readonly version: 1;
+  readonly version: 1 | 2;
   readonly taskClass: CompanyBenchmarkTaskClass;
   readonly difficulty: CompanyBenchmarkDifficulty;
   readonly fixtureSha256: string;
@@ -506,12 +506,14 @@ function parseScenario(value: unknown): CompanyBenchmarkScenarioRefV1 {
     "id", "version", "taskClass", "difficulty", "fixtureSha256", "verifierId",
     "objectiveRevision",
   ]);
-  if (item.version !== 1) {
+  const id = idField(item, "id", "Company benchmark scenario id");
+  if (item.version !== 1 && !(item.version === 2 &&
+    (id === "queue_cancellation" || id === "workspace_maintenance"))) {
     throw new TypeError("Company benchmark scenario version is unsupported");
   }
   return {
-    id: idField(item, "id", "Company benchmark scenario id"),
-    version: 1,
+    id,
+    version: item.version,
     taskClass: enumField(
       item,
       "taskClass",
