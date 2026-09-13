@@ -46,15 +46,6 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-function preferredEffort(
-  model: CodexAppServerOnboardingModel,
-  preferred: ModelReasoningEffort,
-): ModelReasoningEffort {
-  return model.supportedReasoningEfforts.includes(preferred)
-    ? preferred
-    : model.defaultReasoningEffort;
-}
-
 function desiredModels(
   models: readonly CodexAppServerOnboardingModel[],
 ): readonly {
@@ -62,37 +53,13 @@ function desiredModels(
   readonly effort: ModelReasoningEffort;
   readonly parent: boolean;
 }[] {
-  const byId = new Map(models.map((model) => [model.id, model]));
-  const sol = byId.get("gpt-5.6-sol") ?? models[0];
-  if (sol === undefined) return [];
-  const terra = byId.get("gpt-5.6-terra") ?? sol;
-  const luna = byId.get("gpt-5.6-luna") ?? terra;
-  // Discovery may save useful alternatives, but role routing remains an
-  // explicit user choice or an evidence-gated Models Auto decision.
-  const selected = new Map<string, {
-    model: CodexAppServerOnboardingModel;
-    effort: ModelReasoningEffort;
-    parent: boolean;
-  }>();
-  const add = (
-    model: CodexAppServerOnboardingModel,
-    effort: ModelReasoningEffort,
-    parent: boolean,
-  ): void => {
-    const current = selected.get(model.id) ?? {
-      model,
-      effort,
-      parent: false,
-    };
-    current.parent ||= parent;
-    selected.set(model.id, current);
-  };
-  add(sol, preferredEffort(sol, "high"), true);
-  add(terra, preferredEffort(terra, "medium"), false);
-  add(luna, preferredEffort(luna, "medium"), false);
-  return Object.freeze([...selected.values()].map((entry) =>
-    Object.freeze({ ...entry })
-  ));
+  // Save the live catalog. New model IDs must not require a Recurs release.
+  return Object.freeze(models.map((model, index) => Object.freeze({
+    model,
+    effort: model.defaultReasoningEffort,
+    parent: index === 0,
+  })));
+
 }
 
 function validTimestamp(value: string): boolean {
@@ -184,7 +151,7 @@ export async function setupCodexAppServerConnections(
         accountLabel: input.accountDisplayLabel,
         organizationLabel: null,
         modelId: model.id,
-        reasoningEffort: effort,
+        reasoningEffort: previous?.kind === "delegated_agent" && previous.reasoningEffort !== undefined && model.supportedReasoningEfforts.includes(previous.reasoningEffort) ? previous.reasoningEffort : effort,
         runtimeCapabilityProfileRevision:
           CODEX_APP_SERVER_ONBOARDING_PROFILE_REVISION,
         accountSubjectFingerprint: input.accountSubjectFingerprint,
@@ -208,15 +175,7 @@ export async function setupCodexAppServerConnections(
         const existingPrimary = draft.connections.find(
           (connection) => connection.id === draft.primaryConnectionId,
         );
-        if (
-          draft.primaryConnectionId === null ||
-          (existingPrimary?.kind === "delegated_agent" &&
-            existingPrimary.providerId === PROVIDER_ID &&
-            existingPrimary.accountSubjectFingerprint ===
-              input.accountSubjectFingerprint)
-        ) {
-          draft.primaryConnectionId = parent.id;
-        }
+        if (existingPrimary === undefined) draft.primaryConnectionId = parent.id;
       }, { signal });
       return deepFreeze({
         connections: records.map((record) => structuredClone(record)),

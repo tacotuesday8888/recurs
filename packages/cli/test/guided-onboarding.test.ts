@@ -840,7 +840,7 @@ describe("guided onboarding policy", () => {
 
     expect(outcome).toEqual({ state: "failed", exitCode: 130 });
     expect(messages).toEqual([
-      "Choose a saved, detected, or recommended model connection",
+      "Connect a model",
     ]);
     expect(output).toContain("Setup cancelled. No new session was created.");
     expect(output).not.toContain("Unexpected failure");
@@ -1132,13 +1132,13 @@ describe("guided onboarding policy", () => {
     });
     expect(selections).toEqual([]);
     expect(choiceMenus.map((menu) => menu.message)).toEqual([
-      "Choose a saved, detected, or recommended model connection",
-      "Choose how much Recurs may do without asking",
-      "Choose how much agent teamwork Recurs should use",
+      "Connect a model",
+      "Permissions",
+      "Ready to code",
       "Tailor the first Recurs agent company to this project",
     ]);
     expect(choiceMenus[3]?.ids).toEqual(["create", "skip"]);
-    expect(output).toContain("Company formation is optional.");
+    expect(output).toContain("Connect a model to start coding.");
     expect(output).toContain(
       "Roster: not activated · Run recurs setup to form a company later.",
     );
@@ -1294,7 +1294,7 @@ describe("guided onboarding policy", () => {
     expect(confirmations[1]).toContain("Approve and activate");
     expect(confirmations[2]).toContain("never overwrite");
     expect(output.join("")).toMatch(
-      /02\/06 {2}PERMISSIONS[\s\S]*03\/06 {2}TEAM[\s\S]*04\/06 {2}MODELS[\s\S]*05\/06 {2}ROSTER[\s\S]*06\/06 {2}PROJECT CONTEXT/u,
+      /02\/03 {2}PERMISSIONS[\s\S]*03\/03 {2}START[\s\S]*01\/03 {2}TEAM MODELS[\s\S]*02\/03 {2}ROSTER[\s\S]*03\/03 {2}PROJECT CONTEXT/u,
     );
     expect(output.join("")).toMatch(
       /Team: Balanced[\s\S]*Models: implement:[\s\S]*Roster: Recommended[\s\S]*Authority: Approved for Me[\s\S]*Models Auto becomes available after eligible real company-goal evidence/u,

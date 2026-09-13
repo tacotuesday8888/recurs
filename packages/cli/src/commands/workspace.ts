@@ -6,39 +6,52 @@ import { message, type Command, type CommandContext, type CommandDependencies } 
 export function createWorkspaceCommands(dependencies: CommandDependencies): Command[] {
   const signal = () => dependencies.signal?.() ?? new AbortController().signal;
   const toolContext = (context: CommandContext) => ({ cwd: context.session.cwd, sessionId: context.session.id, signal: signal(), executionMode: context.session.executionMode, readRevisions: new Map<string, string>() });
-  return [{
+  const readSource = async (filename: string, context: CommandContext, range?: { startLine: number; endLine: number }): Promise<ReturnType<typeof message>> => {
+    const tool = createReadFileTool();
+    const result = await tool.execute(tool.parse({ path: filename, ...range }), toolContext(context));
+    const fence = "`".repeat([...result.output.matchAll(/`+/gu)].reduce((longest, match) => Math.max(longest, match[0].length + 1), 3));
+    const language = path.extname(filename).slice(1).replace(/[^a-z0-9]/giu, "");
+    const location = result.output.length === 0 ? `no lines in requested range · ${result.metadata?.totalLines} total` : `lines ${result.metadata?.startLine}–${result.metadata?.endLine} of ${result.metadata?.totalLines}`;
+    return { type: "message", level: "info", text: `${filename} · ${location}\n\n${fence}${language}\n${result.output}\n${fence}`, source: { path: filename, content: result.output, startLine: Number(result.metadata?.startLine ?? 1), totalLines: Number(result.metadata?.totalLines ?? 0) } };
+  };
+  const source: Command = {
     name: "source", description: "Read a workspace source file", usage: "/source [--lines start:end] <path>",
     async execute(args, context) {
       const range = /^--lines (\d+):(\d+) ([\s\S]+)$/u.exec(args.trim());
       if (!args.trim() || args.trim().startsWith("--lines ") && range === null) return message("Use /source [--lines start:end] <path>", "error");
       const filename = range?.[3]?.trim() ?? args.trim();
-      const tool = createReadFileTool();
-      const result = await tool.execute(tool.parse({ path: filename, ...(range === null ? {} : { startLine: Number(range[1]), endLine: Number(range[2]) }) }), toolContext(context));
-      const fence = "`".repeat([...result.output.matchAll(/`+/gu)].reduce((longest, match) => Math.max(longest, match[0].length + 1), 3));
-      const language = path.extname(filename).slice(1).replace(/[^a-z0-9]/giu, "");
-      const location = result.output.length === 0 ? `no lines in requested range · ${result.metadata?.totalLines} total` : `lines ${result.metadata?.startLine}–${result.metadata?.endLine} of ${result.metadata?.totalLines}`;
-      return message(`${filename} · source snapshot · ${location}\n\n${fence}${language}\n${result.output}\n${fence}`);
+      return readSource(filename, context, range === null ? undefined : { startLine: Number(range[1]), endLine: Number(range[2]) });
     },
-  }, {
+  };
+  const filesCommand: Command = {
+    name: "files", description: "Find and open a source file", usage: "/files [glob]",
+    async execute(args, context) {
+      const tool = createListFilesTool();
+      const result = await tool.execute(tool.parse({ path: ".", limit: 2000, ...(args.trim() ? { glob: args.trim() } : {}) }), toolContext(context));
+      const files = result.output.trim().split("\n").filter(Boolean).map((line) => (JSON.parse(line) as { path: string }).path);
+      if (!files.length) return message("No matching files");
+      if (!context.selectChoice) return message(files.join("\n") + (result.metadata?.truncated ? "\n… Use /files <glob> to narrow the list" : ""));
+      const selected = await context.selectChoice(result.metadata?.truncated ? "Files · first 2,000 · /files <glob> to narrow" : "Files", files.map((file) => ({ id: file, label: file })));
+      if (selected === null) return message("Files closed");
+      if (!files.includes(selected)) return message("File no longer available", "error");
+      return readSource(selected, context);
+    },
+  };
+  return [source, filesCommand, {
     name: "workspace", aliases: ["git"], description: "Inspect the local environment or choose a Git workflow", usage: "/workspace [status|files|worktrees|commit|push|pr|branch]",
     async execute(args, context) {
       let action = args.trim();
       if (!action && context.selectChoice) {
-        action = await context.selectChoice("Workspace · choose an action", [
-          { id: "status", label: "Branch and changes" }, { id: "files", label: "Source files", detail: "Read files with /source <path>." },
-          { id: "worktrees", label: "Local worktrees" }, { id: "branch", label: "Change branch or environment", detail: "Ask the agent to inspect and prepare the change." },
-          { id: "commit", label: "Review and commit", detail: "Agent-assisted; inspect the diff and confirm the files first." },
-          { id: "push", label: "Push branch", detail: "Agent-assisted; verify the remote and get confirmation." },
-          { id: "pr", label: "Pull request", detail: "Agent-assisted; inspect the current PR or prepare a draft." },
+        action = await context.selectChoice("Workspace", [
+          { id: "status", label: "Branch and changes" }, { id: "files", label: "Source files", detail: "Find and open a file" },
+          { id: "worktrees", label: "Local worktrees" }, { id: "branch", label: "Change branch or environment", detail: "Choose with the agent" },
+          { id: "commit", label: "Review and commit", detail: "Review files and message with the agent" },
+          { id: "push", label: "Push branch", detail: "Confirm remote and branch with the agent" },
+          { id: "pr", label: "Pull request", detail: "Open or prepare a PR with the agent" },
         ]) ?? "cancel";
       }
       if (action === "cancel") return message("Workspace selection cancelled");
-      if (action === "files") {
-        const tool = createListFilesTool();
-        const result = await tool.execute(tool.parse({ path: ".", limit: 200 }), toolContext(context));
-        const files = result.output.trim().split("\n").filter(Boolean).map((line) => (JSON.parse(line) as { path: string }).path);
-        return message(["Source files · /source <path> to read", ...files, ...(result.metadata?.truncated ? ["… partial list (up to 200 files)"] : [])].join("\n"));
-      }
+      if (action === "files") return filesCommand.execute("", context);
       if (action === "worktrees") return message(`Local worktrees\n\n${await workspaceWorktrees(context.session.cwd, signal())}\nTo create or move to a worktree, use /workspace branch.`);
       if (["commit", "push", "pr", "branch"].includes(action)) {
         if (context.session.executionMode === "plan") return message("Exit Plan mode before starting a Git workflow that may change the workspace", "error");

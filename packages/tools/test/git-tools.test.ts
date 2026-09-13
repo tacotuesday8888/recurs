@@ -1106,3 +1106,17 @@ describe("credential-safe Git inspection", () => {
     }
   });
 });
+
+it("compares a local revision without including credentials or invoking revision options", async () => {
+  await commitFixture("safe.ts", "export const n = 1;\n", "first", "2026-01-01T00:00:00Z");
+  await commitFixture("safe.ts", "export const n = 2;\n", "second", "2026-01-02T00:00:00Z");
+  await writeFile(path.join(cwd, "safe.ts"), "export const n = 3;\n");
+  const result = await invoke(createGitDiffTool(), { base: "HEAD~1" });
+  expect(result.output).toContain("-export const n = 1;");
+  expect(result.output).toContain("+export const n = 3;");
+  for (const base of ["--output=leak", "HEAD:secret", "HEAD\n--output=leak", "HEAD..main"]) {
+    // Ranges either fail strict resolution or input validation; no process option is accepted.
+    await expect(invoke(createGitDiffTool(), { base })).rejects.toMatchObject({ code: "invalid_input" });
+  }
+  await expect(invoke(createGitDiffTool(), { base: "HEAD", staged: true })).rejects.toMatchObject({ code: "invalid_input" });
+});

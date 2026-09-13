@@ -1,3 +1,4 @@
+import * as runtimes from "@recurs/runtimes";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import {
@@ -3927,4 +3928,46 @@ describe("standalone assembly without a provider", () => {
       },
     });
   });
+});
+
+
+it("changes Codex effort through a new immutable connection without overwriting another policy", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "recurs-effort-switch-"));
+  directories.push(root);
+  const original = codexAppServerConnection("parent-medium", "gpt-5.6-luna", "medium");
+  const other = { ...original, id: "other-high", reasoningEffort: "high" as const, label: "Separate saved configuration" };
+  const registry = new FileConnectionRegistry(path.join(root, "data"));
+  await registry.commit(0, (draft) => { draft.connections.push(original, other); draft.primaryConnectionId = original.id; });
+  const discovery = vi.spyOn(runtimes, "inspectCodexAppServerSubscription").mockResolvedValue({
+    accountSubjectFingerprint: original.accountSubjectFingerprint,
+    accountDisplayLabel: "Test account", planType: "pro",
+    models: [{ id: original.modelId, displayName: original.modelId, defaultReasoningEffort: "medium", supportedReasoningEfforts: ["medium", "high"] }],
+  });
+  const runtime = await createStandaloneRuntime({ async emit() {} }, {
+    cwd: root, dataDirectory: path.join(root, "data"),
+    delegatedRuntimeFactory: (connection) => ({
+      adapterId: "codex-app-server", connectionId: connection.id,
+      capabilityProfileRevision: connection.runtimeCapabilityProfileRevision,
+      capabilities: { resume: false, cancellation: "protocol", fileEvents: false, usageEvents: true,
+        supportedPermissionModes: ["ask_always", "approved_for_me", "full_access"],
+        approvalControl: "host", planMode: "enforced", toolExecution: "host_tools", checkpointing: "host_tools" },
+      async *run() { yield { type: "done", finalText: "", stopReason: "complete" }; },
+    }),
+  });
+  try {
+    const oldId = runtime.session.id;
+    runtime.setConfirmHandler(async () => true);
+    expect(await runtime.submit("/effort high", localManualInvocation())).toMatchObject({ text: "Thinking: high" });
+    expect(runtime.session.id).not.toBe(oldId);
+    expect(runtime.session).toMatchObject({ backend: { pin: { reasoningEffortAtCreation: "high" } } });
+    const saved = await registry.read();
+    expect(saved.primaryConnectionId).toBe(original.id);
+    expect(saved.connections.find((entry) => entry.id === original.id)).toEqual(original);
+    expect(saved.connections.find((entry) => entry.id === other.id)).toEqual(other);
+    expect(saved.connections).toHaveLength(3);
+    await runtime.submit(`/resume ${oldId}`);
+    expect(runtime.session).toMatchObject({ backend: { pin: { connectionId: original.id, reasoningEffortAtCreation: "medium" } } });
+    await runtime.submit("/effort high", localManualInvocation());
+    expect((await registry.read()).connections).toHaveLength(3);
+  } finally { discovery.mockRestore(); await runtime.close(); }
 });

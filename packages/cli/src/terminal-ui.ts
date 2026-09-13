@@ -1,3 +1,6 @@
+import { TerminalSourceViewer } from "./terminal-source.js";
+import { agentGlyph } from "./terminal-agent-tree.js";
+import { effortBadge } from "./terminal-effort.js";
 import { workspaceGitStatus } from "./workspace-context.js";
 import { highlightTerminalCode } from "./terminal-code.js";
 import { TerminalDiffViewer } from "./terminal-diff.js";
@@ -161,8 +164,8 @@ export class LaunchComponent implements Component {
     }).toUpperCase();
     const rows = [
       ...opening,
-      theme?.accent(line(`RECURS / ${workspace} / PROJECTS`)) ??
-        line(`RECURS / ${workspace} / PROJECTS`),
+      theme?.accent(line(`RECURS / ${workspace} / CHATS`)) ??
+        line(`RECURS / ${workspace} / CHATS`),
       theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
       theme?.strong(line(`Chats · ${this.#sessions.length}`)) ??
         line(`Chats · ${this.#sessions.length}`),
@@ -186,8 +189,8 @@ export class LaunchComponent implements Component {
       "",
       theme?.strong(line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} Start new chat`)) ??
         line(`${newProjectIndex === this.#selectedIndex ? ">" : " "} Start new chat`),
-      theme?.muted(line(this.model.currentSessionId === null ? "    Connect a model and start coding; team setup is optional" : "    Keep this model and permissions; configure the team anytime")) ??
-        line(this.model.currentSessionId === null ? "    Connect a model and start coding; team setup is optional" : "    Keep this model and permissions; configure the team anytime"),
+      theme?.muted(line(this.model.currentSessionId === null ? "    Choose a model" : "    Use current model")) ??
+        line(this.model.currentSessionId === null ? "    Choose a model" : "    Use current model"),
       theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
       theme?.muted(line(this.actions.manage === undefined ? "enter open   arrows select   q quit" : "Enter open · M manage · A archived · q quit")) ??
         line(this.actions.manage === undefined ? "enter open   arrows select   q quit" : "Enter open · M manage · A archived · q quit"),
@@ -323,9 +326,9 @@ export class CompanyHomeComponent implements Component {
       if (index === 3) return theme.strong(line);
       const label = /^(0[0-3])\s/u.exec(line);
       if (label !== null) depth = Number.parseInt(label[1]!, 10) as 0 | 1 | 2 | 3;
-      if (line.trimStart().startsWith("╰")) {
-        depth = Math.min(3, (depth ?? -1) + 1) as 0 | 1 | 2 | 3;
-      }
+      const roleLabels = (lines[index + 1] ?? "").trim().split(/\s{2,}/u).map((label) => label.replace(/^> /u, ""));
+      const role = snapshot.company.find((node) => roleLabels.includes(node.roleName));
+      if (role !== undefined) depth = role.depth;
       if (line.startsWith("✳")) depth = null;
       if (line.startsWith("─")) {
         depth = null;
@@ -435,7 +438,7 @@ export class TaskPanelComponent implements Component {
     const header = compact ? [title, count] : [
       theme?.accent(title) ?? title,
       theme?.muted("─".repeat(safeWidth)) ?? "─".repeat(safeWidth),
-      line("Actual execution history · parent conversation is depth 0"), count, "",
+      line("Execution history"), count, "",
     ];
     const tail = compact ? [footer] : ["", "─".repeat(safeWidth), footer];
     const available = Math.max(0, height - header.length - tail.length);
@@ -897,11 +900,12 @@ function renderAttachedAgentHeader(
   roleName: string,
   route: string,
   status: string,
-  _depth: 0 | 1 | 2 | 3,
+  depth: 0 | 1 | 2 | 3,
   colorEnabled: boolean,
   theme?: TerminalTheme,
 ): string {
-  return `${(theme?.strong ?? ansi("1", colorEnabled))(roleName)} · ${status}\n${(theme?.muted ?? ansi("2", colorEnabled))(route)}`;
+  const glyph = theme?.companyLayer(depth, agentGlyph(depth)) ?? agentGlyph(depth);
+  return `${glyph} ${(theme?.strong ?? ansi("1", colorEnabled))(roleName)} · ${status}\n${(theme?.muted ?? ansi("2", colorEnabled))(route)}`;
 }
 
 export class ChatComponent extends Container {
@@ -974,7 +978,7 @@ export class ChatComponent extends Container {
       if (status === undefined) return;
       const current = status();
       this.#header.setText(`${accent(`RECURS / ${path.basename(cwd).toUpperCase()} / CHAT`)}\n${renderAttachedAgentHeader(
-        "Parent", `${current.model} · ${formatTerminalLabel(current.mode)} · ${formatTerminalLabel(current.permission)}`,
+        "Parent", `${current.model}${current.effort && theme ? ` · ${effortBadge(current.effort, theme, current.running ? this.presentation?.frame() ?? 0 : 0)}` : ""} · ${formatTerminalLabel(current.mode)} · ${formatTerminalLabel(current.permission)}`,
         current.running ? "running" : "ready", ((this.presentation?.frame() ?? 0) % 4) as 0 | 1 | 2 | 3, colorEnabled, theme,
       )}${this.presentation?.workspace === undefined ? "" : `\n${muted(this.presentation.workspace())}`}`);
     };
@@ -997,7 +1001,7 @@ export class ChatComponent extends Container {
       if (expanded.length > 0) this.onSubmit?.(expanded);
     };
     this.#footer = new Text(
-      muted("Enter send · Ctrl+G team · Ctrl+T tasks · F2 colors · F3 permissions · Esc home · Ctrl+Q quit"),
+      muted("Enter send · Ctrl+G team · Ctrl+T tasks · F2 colors · F3 permissions · F4 thinking · Esc home"),
       1,
       0,
     );
@@ -1020,7 +1024,7 @@ export class ChatComponent extends Container {
     this.#footer.setText((this.theme?.muted ?? ((text: string) => text))(width < 64
       ? "Enter send · /help · Esc home"
       : width < 100 ? "Enter send · Ctrl+G team · Ctrl+T tasks · /help · Esc home"
-      : "Enter send · Ctrl+G team · Ctrl+T tasks · F2 colors · F3 permissions · Esc home · Ctrl+Q quit"));
+      : "Enter send · Ctrl+G team · Ctrl+T tasks · F2 colors · F3 permissions · F4 thinking · Esc home"));
     const header = this.#header.render(width);
     const fullQuestion = this.#question.render(width);
     const editor = this.editor.render(width);
@@ -1159,6 +1163,7 @@ export class ChatComponent extends Container {
 
 function runtimeSession(runtime: RecursRuntime): {
   readonly model: string;
+  readonly effort?: string;
   readonly mode: string;
   readonly permission: string;
   readonly limits?: AgentExecution["limits"];
@@ -1177,6 +1182,7 @@ function runtimeSession(runtime: RecursRuntime): {
     : "single_agent";
   return {
     model: session.model,
+    ...(isPinnedSessionState(session) && session.backend.pin.reasoningEffortAtCreation ? { effort: session.backend.pin.reasoningEffortAtCreation } : {}),
     mode: session.executionMode === "plan" ? "plan" : operatingMode,
     permission: session.permissionMode,
     ...(isPinnedSessionState(session) ? { limits: session.agent.limits } : {}),
@@ -1198,6 +1204,7 @@ export class RecursInteractiveShell {
   readonly #pendingEvents: RecursEvent[] = [];
   readonly #transcript = new TranscriptBuffer();
   #transcriptSessionId: string | null = null;
+  #transitionDraft = "";
   readonly #transcriptOutput: Writable;
   readonly #textEvents: TextEventRenderer;
   #state: TerminalUiState | null = null;
@@ -1419,7 +1426,7 @@ export class RecursInteractiveShell {
       }
     }
     if (runtime.state.type === "session" && isPinnedSessionState(runtime.state.session) && runtime.state.session.forkedFrom) {
-      this.#transcript.append(`\nCopied conversation · source ${runtime.state.session.forkedFrom.sessionId} · this chat is independent.\n`);
+      this.#transcript.append(`\nCopied from ${runtime.state.session.forkedFrom.sessionId}.\n`);
     }
     if (restoredRootNotice !== null) this.#transcript.append(`\nExecution history: ${restoredRootNotice}\n`);
     if (this.#appearanceWarning !== null) {
@@ -1451,6 +1458,7 @@ export class RecursInteractiveShell {
       this.#theme,
       { activity: this.#activity, frame: () => this.#frame, workspace: () => workspaceSummary, welcome: (width, height) => renderTerminalOpening(width, height, this.#theme, this.#frame) },
     );
+    if (this.#transitionDraft) { chat.editor.setText(this.#transitionDraft); this.#transitionDraft = ""; }
     const companyEditor = new Editor(tui, editorTheme(this.#colorEnabled, this.#theme), {
       paddingX: 1,
     });
@@ -1461,6 +1469,7 @@ export class RecursInteractiveShell {
       ),
     ));
     let view: "launch" | "company" | "chat" | "tasks" | "inspect" | "appearance" | "selection" | "diff" = "company";
+    const currentDraft = (): string => view === "company" ? companyEditor.getText() || chat.editor.getText() : chat.editor.getText();
     let attached = false;
     let viewBeforeTasks: "company" | "chat" = "company";
     const showChat = (): void => {
@@ -1658,7 +1667,7 @@ export class RecursInteractiveShell {
       tui.requestRender(true);
       return answer;
     };
-    const selection: { cancel: (() => void) | null } = { cancel: null };
+    const selection: { cancel: (() => void) | null; effort: boolean } = { cancel: null, effort: false };
     runtime.setSelectionHandler?.((message, choices) => new Promise((resolve) => {
       let settled = false;
       const settle = (id: string | null) => {
@@ -1668,10 +1677,11 @@ export class RecursInteractiveShell {
         showChat();
         resolve(id);
       };
+      selection.effort = message === "Thinking effort";
       selection.cancel = () => settle(null);
       if (choices.length === 0) { settle(null); return; }
       const picker = new TerminalChoicePicker({
-        message, choices, theme: this.#theme, rows: () => this.#terminal.rows,
+        message, choices, frame: () => this.#frame, theme: this.#theme, rows: () => this.#terminal.rows,
         settle, refresh: () => tui.requestRender(true),
       });
       view = "selection";
@@ -1713,8 +1723,9 @@ export class RecursInteractiveShell {
     const submissionTasks = new Set<Promise<void>>();
     const submit = async (input: string): Promise<void> => {
       if (activeSubmissions > 0 && !runtime.canAcceptLiveInput && parseCommand(input)?.name !== "theme") {
+        chat.editor.setText(input);
         this.#transcript.append(
-          "\nWait for the active turn, cancel it with Ctrl+C, or enable a mode that accepts steering.\n",
+          "\nBusy · draft kept · Ctrl+C to cancel\n",
         );
         tui.requestRender(true);
         return;
@@ -1824,10 +1835,15 @@ export class RecursInteractiveShell {
           }
           return;
         }
-        if (parsed?.name === "diff" && result.type === "message" && /^(diff --git |--- )/u.test(result.text)) {
-          const fence = "`".repeat([...result.text.matchAll(/`+/gu)].reduce((longest, match) => Math.max(longest, match[0].length + 1), 3));
-          this.#transcript.append(`\n${fence}diff\n${result.text}\n${fence}\n`);
-          const viewer = new TerminalDiffViewer(result.text, { theme: this.#theme, rows: () => this.#terminal.rows, back: showChat, refresh: () => tui.requestRender() });
+        if (result.type === "message" && result.source) {
+          const viewer = new TerminalSourceViewer(result.source, { theme: this.#theme, rows: () => this.#terminal.rows, back: showChat, refresh: () => tui.requestRender(), browse: () => { showChat(); chat.onSubmit?.("/files"); } });
+          view = "diff";
+          mount(viewer, viewer);
+          return;
+        }
+        if (result.type === "message" && (result.review !== undefined || parsed?.name === "diff" || parsed?.name === "changes") && /^(diff --git |--- )/u.test(result.text)) {
+
+          const viewer = new TerminalDiffViewer(result.text, { ...(result.review ? { title: result.review.title } : {}), theme: this.#theme, rows: () => this.#terminal.rows, back: showChat, refresh: () => tui.requestRender() });
           view = "diff";
           mount(viewer, viewer);
           return;
@@ -1880,6 +1896,7 @@ export class RecursInteractiveShell {
         }
         if (matchesKey(data, Key.ctrl("g")) || matchesKey(data, Key.ctrl("t")) || matchesKey(data, Key.f2) || matchesKey(data, Key.f3)) return { consume: true };
       }
+      if ((view === "chat" || view === "company") && matchesKey(data, Key.f4) && activeSubmissions === 0 && !runtime.hasActiveRun) { showChat(); chat.onSubmit?.("/effort"); return { consume: true }; }
       if ((view === "chat" || view === "company") && matchesKey(data, Key.f3) && activeSubmissions === 0 && !runtime.hasActiveRun) {
         showChat();
         chat.onSubmit?.("/permissions");
@@ -1927,7 +1944,7 @@ export class RecursInteractiveShell {
     tui.requestRender(true);
     const animation = !this.#animate ? undefined : setInterval(() => {
       this.#frame += 1;
-      if (!attached && (view === "launch" || view === "chat" && (chat.showsOpening || runtime.hasActiveRun) || (view === "company" || view === "tasks") && (runtime.hasActiveRun || state.snapshot().agents.some((agent) => agent.status === "running")))) tui.requestRender();
+      if (!attached && (view === "selection" && selection.effort || view === "launch" || view === "chat" && (chat.showsOpening || runtime.hasActiveRun) || (view === "company" || view === "tasks") && (runtime.hasActiveRun || state.snapshot().agents.some((agent) => agent.status === "running")))) tui.requestRender();
     }, 80);
     animation?.unref();
     let completedExit: InteractiveShellExit | null = null;
@@ -1937,6 +1954,7 @@ export class RecursInteractiveShell {
     } finally {
       clearInterval(animation);
       workspaceController.abort();
+      if (completedExit?.type === "resume_session" || completedExit?.type === "new_project") this.#transitionDraft = currentDraft();
       await appearanceWrites;
       themePreview.cancel?.();
       selection.cancel?.();

@@ -835,3 +835,23 @@ describe("McpServerCatalog", () => {
     await restarted.close();
   });
 });
+
+
+it("lets the terminal inspect and disable an MCP server, with cancellation leaving configuration intact", async () => {
+  const data = await root();
+  await writeConfiguration(data);
+  const catalog = await McpServerCatalog.load(data);
+  const command = createMcpCommand(catalog);
+  const selections: (string | null)[] = [null, "test-server", "inspect", "test-server", "disable"];
+  const commandContext = {
+    invocation: createHostInvocation({ invocation: "repl", userPresent: true, remote: false, scripted: false, embedding: "cli" }),
+    selectChoice: async () => selections.shift() ?? null,
+  } as never;
+  try {
+    expect(await command.execute("", commandContext)).toMatchObject({ text: "MCP closed" });
+    expect(catalog.snapshot().servers[0]?.enabled).toBe(true);
+    expect(await command.execute("", commandContext)).toMatchObject({ text: expect.stringContaining("Deterministic test tools") });
+    await command.execute("", commandContext);
+    expect(catalog.snapshot().servers[0]?.enabled).toBe(false);
+  } finally { await catalog.close(); }
+});

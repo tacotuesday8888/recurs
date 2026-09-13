@@ -66,16 +66,16 @@ export class TerminalActivity {
     const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
     const rows = [this.#started === null ? theme.muted(fit("ACTIVITY")) : theme.accent(fit(`${this.#ended === null ? spinner : "·"} ${this.#phase} · ${elapsed}${this.#ended === null ? " · Ctrl+C cancel" : ""}`))];
     // Counts remain visible even when recent tools compete for vertical space.
-    if (this.#added + this.#removed > 0) rows.push(fit(`${theme.success(`+${this.#added}`)} ${theme.failure(`−${this.#removed}`)} ${theme.muted("observed patch lines · /diff to review")}`));
+    if (this.#added + this.#removed > 0) rows.push(fit(`${theme.success(`+${this.#added}`)} ${theme.failure(`−${this.#removed}`)} ${theme.muted("this turn · /diff")}`));
     const itemCount = Math.min(3, Math.max(0, height - rows.length));
     const items = itemCount === 0 ? [] : this.#items.slice(-itemCount);
     for (const item of items) {
       const mark = item.status === "running" ? spinner : item.status === "completed" ? "✓" : item.status === "cancelled" ? "■" : "!";
       const style = item.status === "running" ? theme.accent : item.status === "completed" ? theme.success : item.status === "cancelled" ? theme.muted : theme.failure;
-      rows.push(style(fit(`${mark} ${item.name} · ${item.status}${item.detail ? ` · ${item.detail}` : ""}`)));
+      rows.push(style(fit(`${mark} ${item.name}${["failed", "denied", "cancelled", "unconfirmed"].includes(item.status) ? ` · ${item.status}` : ""}${item.detail ? ` · ${item.detail}` : ""}`)));
     }
     for (const line of this.#patch.slice(0, Math.max(0, height - rows.length))) rows.push((line.startsWith("+") ? theme.success : theme.failure)(fit(line)));
-    if (this.#files.size > 0 && rows.length < height) rows.push(theme.code(fit(`${this.#files.size} changed files · ${[...this.#files].slice(0, 2).join(", ")}`)));
+    if (this.#files.size > 0 && rows.length < height) rows.push(theme.code(fit(`${this.#files.size} changed file${this.#files.size === 1 ? "" : "s"} · ${[...this.#files].slice(0, 2).join(", ")}`)));
     return rows.slice(0, height);
   }
 }

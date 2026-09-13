@@ -79,3 +79,15 @@ describe("terminal code review", () => {
     expect(plain(activity.render(100, 9, 0, theme))).toContain("Cancelled · 5s");
   });
 });
+
+it("navigates a multi-file diff without mixing file selection and mode keys", () => {
+  const viewer = new TerminalDiffViewer(patch + patch.replaceAll("parser.ts", "second.ts"), { theme, rows: () => 9, back() {}, refresh() {} });
+  viewer.render(100);
+  viewer.handleInput("f");
+  expect(plain(viewer.render(100))).toContain("Changed files · 2");
+  viewer.handleInput("\u001b[B");
+  viewer.handleInput("\r");
+  const rendered = plain(viewer.render(100));
+  expect(rendered).toContain("second.ts");
+  expect(rendered).not.toContain("parser.ts");
+});

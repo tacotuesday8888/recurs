@@ -5,7 +5,7 @@ picker. Arrow keys preview colors immediately. **Enter** saves; **Escape**
 restores the appearance you opened with. Your unfinished message stays intact.
 **C** edits individual colors: **Tab** selects a role, six hex digits and **Enter** preview the color, then **Enter** saves the theme. **Ctrl+C** cancels the entire preview.
 
-The **3D R opening and V19 agent floor are one interface**. The R rotates 2.5 times faster than the original. **Ctrl+G** switches between conversation and the agent floor, even before the first child starts. **Ctrl+T** opens executions; **Enter** inspects one; **Escape** returns. **F3** opens permissions, **F2** colors, and **Ctrl+Q** exits. Pending approvals stay visible until answered or cancelled with Escape. Legacy `/theme design r|v19` commands still open the corresponding view; they no longer select separate interfaces.
+The **3D R opening and V19 agent floor are one interface**. **Ctrl+G** switches between conversation and the agent floor, even before the first child starts. **Ctrl+T** opens executions; **Enter** inspects one; **Escape** returns. **F3** opens permissions, **F4** thinking effort, **F2** colors, and **Ctrl+Q** exits. Pending approvals stay visible until answered or cancelled with Escape. Legacy `/theme design r|v19` commands still open the corresponding view; they no longer select separate interfaces.
 
 The current preset is marked, and selection remains visible in short terminals.
 The GitHub wordmark and terminal lettering share the same block geometry and
@@ -94,3 +94,7 @@ output”. Responses are scripted; tools, approvals, file edits, and child execu
 are real. Add `-- --setup` to exercise onboarding with the fixture connection.
 
 For everyday use in your own project, run `recurs` (or the current local build).
+
+The parent and child agents use distinct glyphs and layer colors. The chat header
+shows the configured effort; high and maximum effort use a small ornament.
+Maximum effort pulses while the picker is open. Reduced motion freezes it.

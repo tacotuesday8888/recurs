@@ -1625,3 +1625,48 @@ describe("workspace navigation", () => {
     expect(await registry.execute("/workspace commit", ctx)).toMatchObject({ level: "error" });
   });
 });
+
+it("validates and confirms effort selection without mutating the old session", async () => {
+  const original = await storeSession("effort-original", at, [], { ...testBackendPin(), reasoningEffortAtCreation: "medium" });
+  const next = await storeSession("effort-next", at, [], { ...testBackendPin(), reasoningEffortAtCreation: "high" });
+  if (!isPinnedSessionState(original)) throw new Error("expected pin");
+  const option = { connectionId: original.backend.pin.connectionId, providerId: original.backend.pin.providerId, modelId: original.model, label: "Model", primary: true, execution: "Act + Plan" as const, billingSources: ["included_subscription" as const], reasoningEffort: "medium" as const };
+  const create = vi.fn(async () => ({ status: "created" as const, session: next }));
+  const registry = createCommandRegistry({ models: { list: async () => [option], efforts: async () => ["low", "medium", "high"], create } });
+  const ctx = context(original);
+  ctx.selectChoice = vi.fn(async () => null);
+  expect(await registry.execute("/effort", ctx)).toMatchObject({ text: "Effort unchanged" });
+  expect(await registry.execute("/effort ultra", ctx)).toMatchObject({ level: "error" });
+  expect(await registry.execute("/effort medium", ctx)).toMatchObject({ text: "Thinking: medium" });
+  expect(create).not.toHaveBeenCalled();
+  expect(await registry.execute("/effort high", ctx)).toMatchObject({ text: "Thinking: high" });
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ expected: option, reasoningEffort: "high", current: original }));
+  expect(ctx.session.id).toBe(next.id);
+  expect(original.backend.pin.reasoningEffortAtCreation).toBe("medium");
+});
+
+it("opens only a selected workspace file and preserves cancellation", async () => {
+  await execFileAsync("git", ["init", "--quiet"], { cwd });
+  await writeFile(path.join(cwd, "a.ts"), "export const a = 1;\n");
+  const ctx = context(await storeSession("file-picker"));
+  const registry = createCommandRegistry({ sessions });
+  ctx.selectChoice = vi.fn(async () => null);
+  expect(await registry.execute("/files", ctx)).toMatchObject({ text: "Files closed" });
+  ctx.selectChoice = vi.fn(async () => "../outside");
+  expect(await registry.execute("/files", ctx)).toMatchObject({ level: "error" });
+  ctx.selectChoice = vi.fn(async () => "a.ts");
+  expect(await registry.execute("/files *.ts", ctx)).toMatchObject({ source: { path: "a.ts", startLine: 1, totalLines: 1, content: "export const a = 1;\n" } });
+  await writeFile(path.join(cwd, "--lines 1:2 a.ts"), "literal filename\n");
+  ctx.selectChoice = vi.fn(async () => "--lines 1:2 a.ts");
+  expect(await registry.execute("/files", ctx)).toMatchObject({ source: { path: "--lines 1:2 a.ts", content: "literal filename\n" } });
+});
+
+it("reviews untracked files before the first commit, excluding credentials", async () => {
+  await execFileAsync("git", ["init", "--quiet"], { cwd });
+  await writeFile(path.join(cwd, "fresh.ts"), "export const fresh = true;\n");
+  await writeFile(path.join(cwd, ".env"), "SECRET=do-not-render\n");
+  const ctx = context(await storeSession("unborn-review"));
+  const result = await createCommandRegistry({ sessions }).execute("/diff --all", ctx);
+  expect(result).toMatchObject({ text: expect.stringContaining("+export const fresh = true;"), review: { title: "Uncommitted" } });
+  expect(JSON.stringify(result)).not.toContain("do-not-render");
+});

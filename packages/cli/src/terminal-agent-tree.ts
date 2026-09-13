@@ -4,6 +4,13 @@ import type { TerminalCompanyNodeView, TerminalUiSnapshot } from "./terminal-ui-
 import { sanitizeTerminalText } from "./terminal-text.js";
 import { formatTerminalLabel } from "./terminal-style.js";
 
+export function agentGlyph(depth: number, frame = 0): string {
+  const pulse = Math.floor(frame / 3) % 2;
+  if (depth === 0) return pulse ? "╭▜█▛╮" : "╰▟█▙╯";
+  if (depth === 1) return pulse ? "▜█▛" : "▟█▙";
+  return pulse ? "▝▀▘" : "▗▄▖";
+}
+
 /** Configured roles are distinct from the actual executions in the task panel. */
 export function renderCompanyHome(
   snapshot: TerminalUiSnapshot,
@@ -38,12 +45,12 @@ export function renderCompanyHome(
   const goal = snapshot.goal;
   const working = active > 0 || ordered.some((node) => node.status === "running");
   const details = [
-    fit(configured ? `${ordered.length} configured roles · ${active} running · ${snapshot.agents.length} executions in history` : `${snapshot.agents.length} actual child executions · ${active} running`),
+    fit(configured ? `${ordered.length} configured roles · ${active} running · ${snapshot.agents.length} in history` : `${snapshot.agents.length} child execution${snapshot.agents.length === 1 ? "" : "s"} · ${active} running`),
     ...(goal === null ? [] : [fit(`Goal limits: depth ${goal.maxDelegationDepth} · ${goal.maxActiveAgents} active roles · ${goal.maxConcurrentAgents} concurrent`)]),
     fit(goal !== null ? `${goal.status} · ${goal.objective}` : working
-      ? "Work in progress · Enter inspects the selected agent."
-      : snapshot.agents.length > 0 ? "Work history · Inspect an agent, or continue in chat."
-      : "Your team appears here as agents run · Ctrl+G to start in chat."),
+      ? "Working"
+      : snapshot.agents.length > 0 ? "Recent work"
+      : "No agents running · Ctrl+G chat"),
   ];
   const goalDetails: string[] = [];
   if (goal !== null) {
@@ -56,7 +63,7 @@ export function renderCompanyHome(
     if (goal.reason !== null) goalDetails.push(goal.reason);
   }
   const footer = [
-    fit(selected === undefined ? "No role selected" : `${selected.roleName} · ${selected.status} · ${selected.model ?? "model not activated"} · ${selected.detail}`),
+    fit(selected === undefined ? "No role selected" : `${selected.roleName} · ${selected.detail.replace(/ · Ctrl\+G conversation$/u, "")}`),
     fit("Ctrl+G chat · Enter inspect · ↑↓ roles · Ctrl+T executions"),
   ];
   if (height < 5 + details.length) {
@@ -87,9 +94,9 @@ export function renderCompanyHome(
         const padding = Math.max(0, Math.floor((cellWidth - visibleWidth(text)) / 2));
         return " ".repeat(padding) + text + " ".repeat(Math.max(0, cellWidth - padding - visibleWidth(text)));
       }).join("");
-      rows.push(fit(cells((node) => node.status === "running" ? node.detail.startsWith("Waiting") ? "◇" : ["▟█▙", "▜█▛"][frame % 2]! : node.status === "completed" ? "✓" : node.status === "failed" ? "!" : "▗█▖")));
+      rows.push(fit(cells((node) => node.status === "completed" ? "✓" : node.status === "failed" ? "!" : node.status === "running" && node.detail.startsWith("Waiting") ? "◇" : agentGlyph(node.depth, node.status === "running" ? frame : 0))));
       rows.push(fit(cells((node) => `${node.roleId === selected?.roleId ? "> " : ""}${node.roleName}`)));
-      rows.push(fit(cells((node) => node.model ?? "model not activated")));
+      rows.push(fit(cells((node) => node.model === null ? "not activated" : `${node.model}${node.effort ? ` · ${node.effort}` : ""}`)));
       rows.push(fit(cells((node) => node.model === null ? "not activated" : node.status)));
       if (index < levels.length - 1) {
         const children = ordered.filter((node) => node.depth === levels[index + 1]);
