@@ -33,6 +33,25 @@ export function assertRoutes(accounts, connections) {
   }
 }
 
+export function assertInvocationSupported(accounts, connections) {
+  // `recurs run` is always scripted/unattended, including inside a foreground
+  // PTY. Account readiness and model routing do not authorize that invocation.
+  for (const role of ['parent', 'review', 'implement', 'repair']) {
+    const account = accounts.find((entry) => entry.id === connections[role]);
+    if (!account) throw new Error(`Missing ${role} connection`);
+    if (account.adapterId === 'codex-app-server' || account.kind === 'delegated_agent') {
+      throw new Error(`Unsupported ${role} invocation: recurs run is scripted; this connection requires local, user-present, manual CLI use. No comparison models were launched. A supported execution protocol must be declared separately.`);
+    }
+  }
+}
+
+export function hasConfigurationFailure(stdout) {
+  return stdout.split('\n').some((line) => {
+    try { return JSON.parse(line).type === 'configuration_error'; }
+    catch { return false; }
+  });
+}
+
 async function preflight(config) {
   if (process.platform === 'win32') throw new Error('This foreground process-group runner currently supports macOS and Linux only');
   for (const key of ['codexLauncher', 'codexBinary', 'recursBundle']) {
@@ -44,6 +63,7 @@ async function preflight(config) {
   const result = await execute(process.execPath, [config.recursBundle, 'account', 'list', '--json'], options);
   const accounts = JSON.parse(result.stdout).accounts;
   assertRoutes(accounts, config.connections);
+  assertInvocationSupported(accounts, config.connections);
   return {
     codexLauncher: await sha(config.codexLauncher), codexBinary: await sha(config.codexBinary), recursBundle: await sha(config.recursBundle),
     nodeVersion: process.version, codexVersion: version.stdout.trim(),
@@ -145,6 +165,7 @@ async function main(args) {
       await writeFile(path.join(directory, 'stdout.private.jsonl'), result.stdout, { mode: 0o600 });
       await writeFile(path.join(directory, 'stderr.private.txt'), result.stderr, { mode: 0o600 });
       record.status = result.status; record.exitCode = result.exitCode; record.wallMs = result.wallMs;
+      if (slot.arm === 'recurs' && hasConfigurationFailure(result.stdout)) record.status = 'invalid_configuration_preflight';
       try { record.grade = await grade(task.id, await readCandidate(workspace)); }
       catch { record.grade = { passed: false, reason: 'candidate_invalid_or_grader_error', manualAuditRequired: true }; }
       try {

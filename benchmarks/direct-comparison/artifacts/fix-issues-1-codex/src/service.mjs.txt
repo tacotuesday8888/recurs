@@ -1,0 +1,35 @@
+import { createStore } from './store.mjs';
+import { publicIssue } from './public-issue.mjs';
+
+export function createService(seed) {
+  const store = createStore(seed);
+  const requireIssue = (tenant, id) => {
+    const row = store.get(id);
+    if (!row || row.tenant !== tenant) {
+      throw Object.assign(new Error('Issue not found'), { code: 'NOT_FOUND' });
+    }
+    return row;
+  };
+  return {
+    list(tenant, { after = '', limit = 20 } = {}) {
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+        throw Object.assign(new Error('Invalid page size'), { code: 'INVALID_LIMIT' });
+      }
+      const visible = store.all().filter((row) => row.tenant === tenant && row.id > after)
+        .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+      const page = visible.slice(0, limit);
+      return {
+        items: page.map(publicIssue),
+        nextCursor: visible.length > limit ? page.at(-1).id : null,
+      };
+    },
+    get(tenant, id) {
+      const row = store.get(id);
+      return row?.tenant === tenant ? publicIssue(row) : null;
+    },
+    close(tenant, id) {
+      requireIssue(tenant, id);
+      return publicIssue(store.update(id, { status: 'closed' }));
+    },
+  };
+}

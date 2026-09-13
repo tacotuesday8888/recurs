@@ -1,0 +1,4 @@
+export function publicIssue(row) {
+  const { id, title, status } = row;
+  return { id, title, status };
+}
