@@ -46,7 +46,7 @@ export interface ParsedCommand {
 }
 
 export type CommandResult =
-  | { type: "message"; level: "info" | "warning" | "error"; text: string }
+  | { type: "message"; level: "info" | "warning" | "error"; text: string; source?: { path: string; content: string; startLine: number; totalLines: number }; review?: { title: string } }
   | { type: "attach_process"; sessionId: string }
   | { type: "submit_prompt"; prompt: string; executionMode?: ExecutionMode }
   | { type: "submit_queued_prompt"; queuedInputId: string; prompt: string }
@@ -223,9 +223,11 @@ export type ModelSessionCreation =
     };
 
 export interface ModelSessionService {
+  efforts?(connectionId: string, signal: AbortSignal): Promise<readonly ModelReasoningEffort[]>;
   list(signal: AbortSignal): Promise<readonly ModelSelectionOption[]>;
   create(input: {
     readonly expected: ModelSelectionOption;
+    readonly reasoningEffort?: ModelReasoningEffort;
     readonly current: SessionState;
     readonly at: string;
     readonly signal: AbortSignal;

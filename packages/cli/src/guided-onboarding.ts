@@ -581,20 +581,21 @@ async function selectReasoningEffort(
   const supported = openAIResponsesReasoningEfforts(modelId);
   if (supported.length === 0) return undefined;
   const selected = await ports.selectChoice(
-    "Choose the model reasoning effort",
+    "Thinking effort",
     Object.freeze([
       Object.freeze({
         id: "provider-default",
         label: "Provider default (recommended)",
-        detail: "leave the Responses API effort unset",
+        detail: "Use the model’s default",
       }),
       ...supported.map((effort) => Object.freeze({
         id: effort,
         label: effort,
-        detail: "pin this effort into every request in the new session",
+        detail: "Use for this session",
       })),
     ]),
   );
+  if (selected === null) throw new DOMException("Setup cancelled", "AbortError");
   return supported.includes(selected as ModelReasoningEffort)
     ? selected as ModelReasoningEffort
     : undefined;
@@ -699,7 +700,7 @@ async function selectPermission(
   ports: GuidedOnboardingPorts,
 ): Promise<PermissionMode> {
   const selected = await ports.selectChoice(
-    "Choose how much Recurs may do without asking",
+    "Permissions",
     GUIDED_PERMISSION_CHOICES,
   );
   const mode = selected === null
@@ -724,9 +725,9 @@ async function selectOperatingMode(
   ports: GuidedOnboardingPorts,
 ): Promise<OperatingModeId | "start_coding"> {
   const selected = await ports.selectChoice(
-    "Choose how much agent teamwork Recurs should use",
-    [{ id: "start_coding", label: "Start coding (recommended)",
-      detail: "use bounded defaults now; configure a project team later with recurs setup", recommended: true },
+    "Ready to code",
+    [{ id: "start_coding", label: "Start coding",
+      detail: "Set up a team later with /agents", recommended: true },
       ...GUIDED_OPERATING_MODE_CHOICES.map((choice) => ({ ...choice, recommended: false }))],
   );
   if (selected === "start_coding") return selected;
@@ -1662,17 +1663,17 @@ async function selectGuidedConnection(
   const moreProviders: GuidedChoice = Object.freeze({
     id: "more-providers",
     label: "More providers",
-    detail: `${menu.additional.length} other reviewed connection path${menu.additional.length === 1 ? "" : "s"}`,
+    detail: `${menu.additional.length} providers`,
   });
   const back: GuidedChoice = Object.freeze({
     id: "back-to-recommended",
     label: "Back",
-    detail: "return to saved, detected, and recommended paths",
+    detail: "Back to connections",
   });
 
   while (true) {
     const selectedId = await ports.selectChoice(
-      "Choose a saved, detected, or recommended model connection",
+      "Connect a model",
       menu.additional.length === 0
         ? menu.featured
         : [...menu.featured, moreProviders],
@@ -1683,7 +1684,7 @@ async function selectGuidedConnection(
     }
 
     const additionalId = await ports.selectChoice(
-      "Choose another reviewed provider",
+      "More providers",
       [...menu.additional, back],
     );
     if (additionalId === null) return null;
@@ -1709,10 +1710,7 @@ async function runGuidedOnboardingSteps(
   await writeOutput(ports.stdout, [
     `\n${renderRecursHeader(theme, "Welcome to Recurs", { columns })}`,
     "",
-    theme.strong("Coding agents with teams you can inspect and control."),
-    "Choose a model, set permissions, then start coding or set up a team.",
-    "Company formation is optional.",
-    theme.muted("Sign in with your provider, or use an API key from your terminal environment. Setup never asks you to paste a secret."),
+    "Connect a model to start coding.",
     "",
   ].join("\n"));
   const [accounts, localRuntimes, providers] = await Promise.all([
@@ -1738,10 +1736,9 @@ async function runGuidedOnboardingSteps(
   const companyOnboarding = ports.confirm !== undefined &&
     (ports.createCompanyOnboarding !== undefined ||
       ports.inspectCompanyRepositoryFacts !== undefined);
-  const stepCount = companyOnboarding ? 6 : 5;
   await writeOutput(
     ports.stdout,
-    `${renderSetupStep(theme, 1, stepCount, "Model connection")}\n`,
+    `${renderSetupStep(theme, 1, 3, "Model connection")}\n`,
   );
   let selected: GuidedConnectionChoice | null = null;
   while (true) {
@@ -1805,12 +1802,12 @@ async function runGuidedOnboardingSteps(
   }
   await writeOutput(
     ports.stdout,
-    `\n${renderSetupStep(theme, 2, stepCount, "Permissions")}\n`,
+    `\n${renderSetupStep(theme, 2, 3, "Permissions")}\n`,
   );
   const permissionMode = await selectPermission(ports);
   await writeOutput(
     ports.stdout,
-    `\n${renderSetupStep(theme, 3, stepCount, "Team")}\n`,
+    `\n${renderSetupStep(theme, 3, 3, "Start")}\n`,
   );
   const selectedMode = await selectOperatingMode(ports);
   if (selectedMode === "start_coding") {
@@ -1820,10 +1817,8 @@ async function runGuidedOnboardingSteps(
     throwIfOnboardingAborted(ports.signal);
     await writeOutput(ports.stdout, [
       "Ready to code.",
-      `Team limits: ${limits}`,
-      `Authority: ${permissionLabel(permissionMode)}`,
-      "Describe a coding task. Use /agents controls to inspect limits, /model for routes,",
-      "or recurs setup to complete Quick, Guided, or Deep project onboarding later.",
+      `${permissionLabel(permissionMode)} · ${limits}`,
+      "Describe your task.",
       "",
     ].join("\n"));
     return { state: "configured", permissionMode, operatingModeId: DEFAULT_OPERATING_MODE_ID };
@@ -1833,7 +1828,7 @@ async function runGuidedOnboardingSteps(
   if (teamControls === null) return { state: "failed", exitCode: 2 };
   await writeOutput(
     ports.stdout,
-    `\n${renderSetupStep(theme, 4, stepCount, "Models")}\n`,
+    `\n${renderSetupStep(theme, 1, companyOnboarding ? 3 : 2, "Team models")}\n`,
   );
   const accountsAfterConnection = await ports.listAccounts?.() ?? [];
   const routed = await configureTeamRoutes(
@@ -1846,7 +1841,7 @@ async function runGuidedOnboardingSteps(
   if (companyOnboarding) {
     await writeOutput(
       ports.stdout,
-      `\n${renderSetupStep(theme, 5, 6, "Roster")}\n`,
+      `\n${renderSetupStep(theme, 2, 3, "Roster")}\n`,
     );
     company = await setupCompanyBlueprint(
       ports,
@@ -1871,8 +1866,8 @@ async function runGuidedOnboardingSteps(
     ports.stdout,
     `\n${renderSetupStep(
       theme,
-      companyOnboarding ? 6 : 5,
-      stepCount,
+      companyOnboarding ? 3 : 2,
+      companyOnboarding ? 3 : 2,
       "Project context",
     )}\n`,
   );

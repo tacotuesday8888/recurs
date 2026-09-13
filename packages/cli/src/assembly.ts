@@ -101,6 +101,8 @@ import {
   type ModelProvider,
 } from "@recurs/providers";
 import {
+  inspectCodexAppServerSubscription,
+  createCodexAppServerProcessProfile,
   CODEX_ACP_PROFILE_REVISION,
   CODEX_APP_SERVER_PROFILE_REVISION,
 } from "@recurs/runtimes";
@@ -2006,6 +2008,14 @@ export async function createStandaloneRuntime(
     injected !== undefined || environmentConnection !== null
       ? undefined
       : {
+          async efforts(connectionId, signal) {
+            const document = await connectionRegistry.read();
+            const connection = document.connections.find((entry) => entry.id === connectionId);
+            if (connection?.kind !== "delegated_agent" || connection.adapterId !== "codex-app-server") return [];
+            const catalog = await inspectCodexAppServerSubscription(createCodexAppServerProcessProfile(), signal);
+            if (catalog.accountSubjectFingerprint !== connection.accountSubjectFingerprint) return [];
+            return catalog.models.find((model) => model.id === connection.modelId)?.supportedReasoningEfforts ?? [];
+          },
           async list(signal) {
             if (signal.aborted) {
               throw new DOMException("Aborted", "AbortError");
@@ -2030,7 +2040,7 @@ export async function createStandaloneRuntime(
                 ? { status: "cancelled" }
                 : { status: "failed" };
             }
-            const connection = document.connections.find((candidate) =>
+            let connection = document.connections.find((candidate) =>
               candidate.id === input.expected.connectionId
             );
             if (connection === undefined) return { status: "not_found" };
@@ -2040,6 +2050,28 @@ export async function createStandaloneRuntime(
             );
             if (!isDeepStrictEqual(actual, input.expected)) {
               return { status: "changed" };
+            }
+            if (input.reasoningEffort !== undefined && input.reasoningEffort !== actual.reasoningEffort) {
+              if (connection.kind !== "delegated_agent" || connection.adapterId !== "codex-app-server") return { status: "unavailable" };
+              const catalog = await inspectCodexAppServerSubscription(createCodexAppServerProcessProfile(), input.signal);
+              const model = catalog.models.find((entry) => entry.id === connection!.modelId);
+              if (catalog.accountSubjectFingerprint !== connection.accountSubjectFingerprint || !model?.supportedReasoningEfforts.includes(input.reasoningEffort)) return { status: "unavailable" };
+              // An immutable connection variant keeps old sessions and role routes valid.
+              const existing = document.connections.find((entry) => isDeepStrictEqual(
+                { ...entry, id: connection!.id, createdAt: connection!.createdAt, updatedAt: connection!.updatedAt },
+                { ...connection, reasoningEffort: input.reasoningEffort },
+              ));
+              // This is a configuration variant of the original connection, with its
+              // original verification and billing consent, not a new authorization.
+              const variant: DelegatedConnectionRecord = { ...connection, id: existing?.id ?? `codex-${randomUUID()}`, reasoningEffort: input.reasoningEffort, updatedAt: input.at };
+              try {
+                document = await connectionRegistry.commit(document.revision, (draft) => {
+                  const index = draft.connections.findIndex((entry) => entry.id === variant.id);
+                  if (index < 0) draft.connections.push(variant);
+                  else draft.connections[index] = variant;
+                }, { signal: input.signal });
+              } catch { return { status: input.signal.aborted ? "cancelled" : "changed" }; }
+              connection = variant;
             }
             let backend: RuntimeBackend | null;
             try {

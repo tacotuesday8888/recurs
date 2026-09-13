@@ -12,6 +12,7 @@ import { CommandRegistry } from "./registry.js";
 import { createSessionCommands } from "./session.js";
 import { createSkillsCommand } from "./skills.js";
 import { createMcpCommand } from "./mcp.js";
+import { createEffortCommand } from "./effort.js";
 import { createModelCommand } from "./model.js";
 import type { CommandDependencies } from "./types.js";
 
@@ -24,6 +25,7 @@ export function createCommandRegistry(
     ...createSessionCommands(dependencies),
     createExportCommand(dependencies),
     createModelCommand(dependencies),
+    createEffortCommand(dependencies),
     ...createRepositoryCommands(dependencies),
     createGoalCommand(dependencies),
     createPlanCommand(),

@@ -62,7 +62,7 @@ describe("Codex app-server onboarding", () => {
     expect(result.primaryConnectionId).toBe(byModel.get("gpt-5.6-sol")!.id);
     expect(byModel.get("gpt-5.6-sol")).toMatchObject({
       adapterId: "codex-app-server",
-      reasoningEffort: "high",
+      reasoningEffort: "low",
       runtimeCapabilityProfileRevision:
         "codex-app-server-0.145.0-host-tools-v2",
     });
@@ -138,4 +138,35 @@ describe("Codex app-server onboarding", () => {
       repair: byModel.get("gpt-5.6-terra")!.id,
     });
   });
+});
+
+it("discovers new model IDs and preserves the selected model and effort on reconnect", async () => {
+  const directory = await root();
+  const input = { accountSubjectFingerprint: `sha256:${"d".repeat(64)}`, accountDisplayLabel: "ChatGPT", models: [...models, { id: "gpt-6-astra", displayName: "GPT-6 Astra", defaultReasoningEffort: "medium" as const, supportedReasoningEfforts: ["low", "medium", "high"] as const }], billingSelection: "allow_declared_additional" as const, now };
+  const first = await setupCodexAppServerConnections(directory, input);
+  const astra = first.connections.find((record) => record.modelId === "gpt-6-astra")!;
+  expect(astra.reasoningEffort).toBe("medium");
+  const registry = new FileConnectionRegistry(directory);
+  const current = await registry.read();
+  await registry.commit(current.revision, (draft) => {
+    draft.primaryConnectionId = astra.id;
+    const connection = draft.connections.find((entry) => entry.id === astra.id)!;
+    if (connection.kind === "delegated_agent") connection.reasoningEffort = "high";
+  });
+  const next = await setupCodexAppServerConnections(directory, input);
+  expect(next.primaryConnectionId).toBe(astra.id);
+  expect(next.connections.find((entry) => entry.id === astra.id)?.reasoningEffort).toBe("high");
+});
+
+it("uses the provider's recommended default rather than alphabetical order", async () => {
+  const directory = await root();
+  const result = await setupCodexAppServerConnections(directory, {
+    accountSubjectFingerprint: `sha256:${"d".repeat(64)}`,
+    accountDisplayLabel: "Test subscription", billingSelection: "allow_declared_additional", now,
+    models: [
+      { id: "a-fast", displayName: "Fast", defaultReasoningEffort: "medium", supportedReasoningEfforts: ["medium"] },
+      { id: "z-default", displayName: "Default", isDefault: true, defaultReasoningEffort: "high", supportedReasoningEfforts: ["high"] },
+    ],
+  });
+  expect(result.connections.find((record) => record.id === result.primaryConnectionId)).toMatchObject({ modelId: "z-default", reasoningEffort: "high" });
 });

@@ -9,3 +9,9 @@ export async function workspaceWorktrees(cwd: string, signal: AbortSignal): Prom
   const result = await runProcess("git", args, { cwd, signal, timeoutMs: 5000, maxOutputBytes: 65536 });
   return result.stdout;
 }
+
+export async function workspaceBranches(cwd: string, signal: AbortSignal): Promise<readonly string[]> {
+  const args = await safeGitArguments(cwd, ["for-each-ref", "--count=500", "--format=%(refname)", "refs/heads", "refs/remotes"], signal);
+  const result = await runProcess("git", args, { cwd, signal, timeoutMs: 5000, maxOutputBytes: 65536 });
+  return result.stdout.trim().split("\n").filter(Boolean);
+}

@@ -340,14 +340,20 @@ search labels and descriptions; Escape clears the search before closing it. `/co
 copies completed native conversation context. Vendor runtime continuations
 cannot be forked; the CLI reports that limitation without creating a fake copy.
 
-`/diff` opens a read-only Git diff snapshot in the full-screen terminal.
+`/diff` opens a review scope picker: unstaged, staged, all uncommitted, branch comparison, last turn, or last commit. `/changes` is an alias.
+Use `/diff --unstaged|--staged|--all|--committed|--last-turn` directly, or
+`/diff --base <local-ref>` to compare tracked files against a local revision.
+All uncommitted includes readable untracked files; partial previews are labeled.
+Last turn shows successful applied patches from that turn, not a final Git snapshot.
 **1** unified, **2** split, **3** original excerpt, **4** updated excerpt, and
 **Tab** cycles views. Split view needs 90 columns and falls back to unified in
 narrower windows. Arrow keys scroll and pan; Page Up/Down and Home/End navigate;
-Escape returns to chat. `/diff --staged` reviews staged changes. Original and
+**F** opens the changed-file list; Enter jumps to a file. Escape returns to chat. Original and
 updated modes show the diff's excerpts, not the entire source file. Previews are
 bounded and label truncation. `/source <path>` reads a bounded source snapshot; use
-`/source --lines 20:80 <path>` for a range in a large file.
+`/source --lines 20:80 <path>` for a range in a large file. `/files [glob]` opens
+a searchable file picker. The source viewer has line numbers, scrolling and
+horizontal panning; **F** returns to the file picker.
 TS/JS/JSON code blocks receive lexical highlighting, with plain code fallback
 for other languages and large blocks.
 
@@ -399,6 +405,10 @@ work. If the connection needs attention, use `recurs provider detect`,
 reuse provider credentials outside the official, user-present connection flow.
 
 ### Choose a model or inspect role routes
+
+`/effort` or **F4** selects from the connected Codex model’s live effort catalog.
+Changing effort confirms a new chat; the old chat and its exact model settings
+remain available. Other connections use saved `/model` configurations.
 
 In the local interactive terminal, `/model` opens saved connections in a picker.
 Use Up/Down or Page Up/Down to browse, Enter to select, or Escape to cancel.

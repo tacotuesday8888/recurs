@@ -286,9 +286,9 @@ function terminalText(value) {
 
 export function createInstalledCompanyPromptDriver({ connectionId, write }) {
   const onboarding = [
-    ["Choose a saved, detected, or recommended model connection:", connectionId],
-    ["Choose how much Recurs may do without asking:", "approved_for_me"],
-    ["Choose how much agent teamwork Recurs should use:", "balanced_v6"],
+    ["Connect a model:", connectionId],
+    ["Permissions:", "approved_for_me"],
+    ["Ready to code:", "balanced_v6"],
     ["Choose your team limits:", "recommended"],
     ["Tailor the first Recurs agent company to this project:", "create"],
     ["How deeply should Recurs understand the project before proposing your company?:", "quick"],

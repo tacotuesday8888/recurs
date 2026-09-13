@@ -1,3 +1,4 @@
+import { effortBadge } from "./terminal-effort.js";
 import { Key, matchesKey, truncateToWidth, type Component } from "@earendil-works/pi-tui";
 import type { CommandSelectionOption } from "./commands/types.js";
 import { wrapTerminalText, type TerminalTheme } from "./terminal-style.js";
@@ -11,6 +12,7 @@ export class TerminalChoicePicker implements Component {
     return !query ? this.options.choices : this.options.choices.filter((choice) => `${choice.label} ${choice.detail ?? ""}`.toLocaleLowerCase().includes(query));
   }
   constructor(private readonly options: {
+    frame?(): number;
     message: string;
     choices: readonly CommandSelectionOption[];
     theme: TerminalTheme;
@@ -44,7 +46,8 @@ export class TerminalChoicePicker implements Component {
     const count = Math.max(1, height - title.length - detail.length - 3);
     const start = Math.min(Math.max(0, this.#selected - count + 1), Math.max(0, choicesInView.length - count));
     const choices = choicesInView.slice(start, start + count).map((choice, offset) => {
-      const text = line(`${start + offset === this.#selected ? "›" : " "} ${choice.label}`);
+      const label = this.options.message === "Thinking effort" && start + offset === this.#selected ? effortBadge(choice.id, theme, this.options.frame?.() ?? 0) : choice.label;
+      const text = line(`${start + offset === this.#selected ? "›" : " "} ${label}`);
       return start + offset === this.#selected ? theme.accent(text) : text;
     });
     const footer = line(`Esc ${this.#query === null ? "cancel" : "clear"} · Enter select · / search · ↑↓ ${this.#selected + 1}/${choicesInView.length}`);

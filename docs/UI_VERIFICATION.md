@@ -71,3 +71,12 @@ chat search/rename/pin/archive/restore/copy and restart. Screenshots under
 The fixture proves these interactions and actual local tools, not live model
 quality or every vendor's sign-in, quota, and network behavior. Linux and macOS
 CI also run installed-package and extension smoke tests.
+
+## Current product pass
+
+See [the product audit](PRODUCT_COMPLETION.md) for the fixes, installed checks,
+measured rendering diagnostics, and actual Codex trial evidence. Review now has
+scope and changed-file pickers. `/files` opens a numbered source viewer; `/mcp`
+opens server actions. `/effort` and F4 select live supported Codex effort levels
+through a new immutable chat configuration. Reconnection retains saved choices.
+GitHub captures contain the rendered terminal cells without editorial captions.

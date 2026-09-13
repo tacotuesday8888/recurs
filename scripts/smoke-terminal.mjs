@@ -170,7 +170,7 @@ async function captureColorScreen(ui, name) {
   for (let row = 0; row < ui.terminal.rows; row++) {
     const line = ui.terminal.buffer.active.getLine(ui.terminal.buffer.active.viewportY + row);
     let start = 0; let lastBackground;
-    const y = 40 + row * 18;
+    const y = 28 + row * 18;
     for (let column = 0; column <= ui.terminal.cols; column++) {
       const cell = column < ui.terminal.cols ? line?.getCell(column) : undefined;
       const background = cell === undefined ? undefined : cellColor(cell, false);
@@ -182,9 +182,9 @@ async function captureColorScreen(ui, name) {
       glyphs.push(`<text x="${16 + column * 8}" y="${y}" fill="${cellColor(cell, true)}"${cell.isBold() ? ' font-weight="bold"' : ""}${cell.isDim() ? ' opacity="0.65"' : ""}>${escapeXml(cell.getChars())}</text>`);
     }
   }
-  const width = 32 + ui.terminal.cols * 8, height = 46 + ui.terminal.rows * 18;
+  const width = 32 + ui.terminal.cols * 8, height = 32 + ui.terminal.rows * 18;
   const canvas = cellColor(ui.terminal.buffer.active.getLine(ui.terminal.buffer.active.viewportY).getCell(0), false);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Recurs terminal: ${escapeXml(name)}"><rect width="${width}" height="${height}" rx="10" fill="${canvas}"/><text x="16" y="18" fill="#b7ac9e" font-family="monospace" font-size="11">Recurs · actual installed terminal · ${escapeXml(name)}</text><g shape-rendering="crispEdges">${backgrounds.join("")}</g><g font-family="monospace" font-size="13">${glyphs.join("")}</g></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Recurs terminal: ${escapeXml(name)}"><rect width="${width}" height="${height}" rx="10" fill="${canvas}"/><g shape-rendering="crispEdges">${backgrounds.join("")}</g><g font-family="monospace" font-size="13">${glyphs.join("")}</g></svg>`;
   await writeFile(path.join(temporary, `terminal-${name}.svg`), svg);
   if (process.argv.includes("--update-capture")) await writeFile(path.join(root, "docs/assets", `terminal-${name}.svg`), svg);
 }
@@ -192,7 +192,7 @@ async function captureColorScreen(ui, name) {
 try {
   const motion = await launch(["setup"], { NO_COLOR: undefined });
   motion.process.resize(80, 24); motion.terminal.resize(80, 24);
-  await motion.wait((screen) => screen.includes("model connection"), "animated onboarding connection selection");
+  await motion.wait((screen) => screen.includes("Connect a model") && screen.includes("Use primary:"), "animated onboarding connection selection");
   const firstFrame = motion.screen();
   await new Promise((resolve) => setTimeout(resolve, 640));
   assert.notEqual(motion.screen(), firstFrame, "onboarding R must visibly rotate while waiting for input");
@@ -201,9 +201,9 @@ try {
   assert.equal(motion.exit(), 130);
   motion.terminal.dispose();
   const ui = await launch(["setup"]);
-  await ui.wait((screen) => screen.includes("model connection"), "connection selection");
+  await ui.wait((screen) => screen.includes("Connect a model") && screen.includes("Use primary:"), "connection selection");
   ui.process.write("\r");
-  await ui.wait((screen) => screen.includes("without asking"), "permission selection");
+  await ui.wait((screen) => screen.includes("Permissions") && screen.includes("Ask Always"), "permission selection");
   ui.process.write("\r");
   await ui.wait((screen) => screen.includes("Start coding"), "quick-start selection");
   ui.process.write("\r");
@@ -280,7 +280,7 @@ try {
   await colorful.wait((screen) => screen.includes("/ CHAT"), "saved light theme reopen");
   assert.equal(colorful.terminal.buffer.active.getLine(0).getCell(0).getBgColor(), 0xffffff);
   colorful.process.write("/new\r");
-  await colorful.wait((screen) => screen.includes("/ CHAT") && !screen.includes("Inspection line 64"), "fresh colored conversation");
+  await colorful.wait((screen) => screen.includes("/ CHAT") && screen.includes("One task. A team you control.") && !screen.includes("Inspection line 64"), "fresh colored conversation");
   colorful.process.write("Review parser.ts\r");
   await colorful.wait((screen) => screen.includes("Terminal fixture complete.") && screen.includes("Parent · ready"), "colored Markdown and code");
   await captureColorScreen(colorful, "light");
@@ -308,14 +308,18 @@ try {
   await colorful.wait((screen) => screen.includes("PERMISSION REQUIRED"), "real patch approval");
   await captureColorScreen(colorful, "permission");
   colorful.process.write("yes\r");
-  await colorful.wait((screen) => screen.includes("observed patch lines") && screen.includes("Parent · ready"), "applied patch activity");
+  await colorful.wait((screen) => screen.includes("this turn · /diff") && screen.includes("Parent · ready") && screen.includes("1 changed"), "applied patch activity");
   assert((await readFile(path.join(workspace, "parser.ts"), "utf8")).startsWith("// Normalize whitespace"));
   assert(colorful.screen().includes("+2") && colorful.screen().includes("−1"));
   await captureColorScreen(colorful, "patch");
   colorful.process.write("/diff\r");
+  await colorful.wait((screen) => screen.includes("All uncommitted") && screen.includes("Last turn"), "review scope picker");
+  colorful.process.write("\u001b");
+  await colorful.wait((screen) => screen.includes("Review closed"), "review picker cancellation");
+  colorful.process.write("/diff --unstaged\r");
   await colorful.wait((screen) => screen.includes("Changes · Unified"), "code review opens");
   colorful.process.resize(100, 16); colorful.terminal.resize(100, 16);
-  await colorful.wait((screen) => screen.includes("Esc back"), "compact review viewport");
+  await colorful.wait((screen) => screen.includes("Changes · Unified") && screen.includes("Normalize whitespace") && screen.includes("Esc back"), "compact review viewport");
   await captureColorScreen(colorful, "diff");
   colorful.process.resize(100, 30); colorful.terminal.resize(100, 30);
   for (const [key, label] of [["2", "Split"], ["3", "Original excerpt"], ["4", "Updated excerpt"], ["1", "Unified"]]) {
@@ -328,8 +332,22 @@ try {
   colorful.process.resize(100, 30); colorful.terminal.resize(100, 30);
   colorful.process.write("\u001b");
   await colorful.wait((screen) => screen.includes("/ CHAT"), "review returns to chat");
+  for (const [scope, title] of [["--last-turn", "Last turn · applied patches"], ["--committed", "Last commit"], ["--all", "Uncommitted"], ["--base HEAD", "Changes from HEAD"]]) {
+    colorful.process.write(`/diff ${scope}\r`);
+    await colorful.wait((screen) => screen.includes(`${title} · Unified`) && screen.includes("export const parse"), `review scope ${scope}`);
+    colorful.process.write("\u001b");
+    await colorful.wait((screen) => screen.includes("/ CHAT"), `leave review ${scope}`);
+  }
   colorful.process.write("/source parser.ts\r");
-  await colorful.wait((screen) => screen.includes("source snapshot"), "source snapshot");
+  await colorful.wait((screen) => screen.includes("Esc back · F files") && screen.includes("Normalize whitespace"), "source view");
+  colorful.process.write("\u001b");
+  await colorful.wait((screen) => screen.includes("/ CHAT"), "source returns to chat");
+  colorful.process.write("/files *.ts\r");
+  await colorful.wait((screen) => screen.includes("Files") && screen.includes("parser.ts") && screen.includes("Esc cancel"), "file picker");
+  colorful.process.write("\r");
+  await colorful.wait((screen) => screen.includes("Esc back · F files") && screen.includes("Normalize whitespace"), "selected source opens");
+  colorful.process.write("\u001b");
+  await colorful.wait((screen) => screen.includes("/ CHAT"), "selected source returns");
   colorful.process.write("/workspace status\r");
   await colorful.wait((screen) => screen.includes("Changed files: 1"), "workspace branch and changes");
   colorful.process.write("/usage\r");
@@ -357,8 +375,11 @@ try {
   await colorful.wait((screen) => screen.includes("/ CHAT"), "tasks return to conversation");
   colorful.process.write("\u0007");
   await colorful.wait((screen) => screen.includes("Team") && screen.includes("explore"), "working agent floor");
-  assert(colorful.screen().includes("Work in progress"));
+  assert(colorful.screen().includes("Working"));
+  colorful.process.resize(100, 22); colorful.terminal.resize(100, 22);
+  await colorful.wait((screen) => screen.includes("Recurs · parser-project · Team") && screen.includes("> Parent") && screen.includes("explore") && screen.includes("Enter inspect"), "compact working team");
   await captureColorScreen(colorful, "v19-working");
+  colorful.process.resize(100, 30); colorful.terminal.resize(100, 30);
   releaseChild();
   colorful.process.write("\u0007");
   await colorful.wait((screen) => screen.includes("Parent · ready"), "child settled");
@@ -398,7 +419,7 @@ try {
   colorful.process.write("/unarchive\r");
   await colorful.wait((screen) => screen.includes("Unarchived chat:"), "restore archived chat");
   colorful.process.write("/copy\r");
-  await colorful.wait((screen) => screen.includes("Copied conversation · source"), "copy completed native context");
+  await colorful.wait((screen) => screen.includes("Copied from"), "copy completed native context");
   colorful.process.write("/rename Review copy\r");
   await colorful.wait((screen) => screen.includes("Renamed chat: Review copy"), "rename copied chat");
   colorful.process.write("\u0011");
@@ -412,7 +433,7 @@ try {
   await organized.wait(() => organized.exit() !== undefined, "organized restart exit");
   organized.terminal.dispose();
   await writeFile(path.join(temporary, "terminal.cast"), [JSON.stringify({ version: 2, width: 100, height: 30, title: "Recurs installed terminal acceptance", env: { TERM: "xterm-256color" } }), ...capture.map((event) => JSON.stringify(event))].join("\n") + "\n");
-  console.log(JSON.stringify({ status: "passed", artifact: packed.filename, measurements, requests, checks: ["clean packed install", "saved connection", "first-run quick start", "bracketed paste", "streamed Markdown/code", "long output", "history scroll", "32x10 resize", "execution list", "clean exit", "durable reopen", "saved-model picker cancellation", "theme preview restores draft", "no-color preference save", "light theme persists", "live dark theme", "actual color captures", "native R opening", "orange preset", "file-write approval", "real applied patch and line counts", "working child and inspector", "legacy view aliases", "permission picker and applied mode", "Escape cancels full access", "team navigation before children", "unified/split/original/updated review", "narrow diff fallback", "source and branch inspection", "usage availability labels", "rename/pin/archive/restore/copy", "chat menu cancellation", "organized history survives restart"], capture: temporary }, null, 2));
+  console.log(JSON.stringify({ status: "passed", artifact: packed.filename, measurements, requests, checks: ["clean packed install", "saved connection", "first-run quick start", "bracketed paste", "streamed Markdown/code", "long output", "history scroll", "32x10 resize", "execution list", "clean exit", "durable reopen", "saved-model picker cancellation", "theme preview restores draft", "no-color preference save", "light theme persists", "live dark theme", "actual color captures", "native R opening", "orange preset", "file-write approval", "real applied patch and line counts", "working child and inspector", "legacy view aliases", "permission picker and applied mode", "Escape cancels full access", "team navigation before children", "unified/split/original/updated review", "narrow diff fallback", "review scope picker and applied/committed/all/base snapshots", "source and file picker", "source and branch inspection", "usage availability labels", "rename/pin/archive/restore/copy", "chat menu cancellation", "organized history survives restart"], capture: temporary }, null, 2));
 } finally {
   releaseChild();
   try { current?.kill(); } catch { /* The child may already have exited. */ }
