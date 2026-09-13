@@ -310,6 +310,18 @@ function repairTrial(
   return parseCompanyBenchmarkTrial(raw);
 }
 
+describe("official Codex benchmark control authority", () => {
+  it("requires native baseline execution and exact matched parent account/model/effort", () => {
+    const original = campaignValue();
+    const value = { ...original, comparisonDesign: "official_codex_control_v1", launchProtocolRevision: "company-benchmark-codex-control-300s-v1", baseline: { ...original.baseline, configuredRoutes: [{ ...original.baseline.configuredRoutes[0], adapterId: "codex-cli-exec" }] } };
+    expect(parseCompanyBenchmarkCampaign(value).comparisonDesign).toBe("official_codex_control_v1");
+    for (const patch of [{ providerId: "other" }, { modelId: "other" }, { connectionId: "other" }, { reasoningEffort: "low" }, { adapterId: "codex-app-server" }]) {
+      expect(() => parseCompanyBenchmarkCampaign({ ...value, baseline: { ...value.baseline, configuredRoutes: [{ ...value.baseline.configuredRoutes[0], ...patch }] } })).toThrow();
+    }
+    expect(() => parseCompanyBenchmarkCampaign({ ...value, launchProtocolRevision: "company-benchmark-launch-v1" })).toThrow();
+  });
+});
+
 describe("company benchmark campaign contracts", () => {
   it.each(["queue_cancellation", "workspace_maintenance"])(
     "preserves the declared v2 scenario version for %s",

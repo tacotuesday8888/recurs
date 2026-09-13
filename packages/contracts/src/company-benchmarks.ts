@@ -37,7 +37,8 @@ export type CompanyBenchmarkArmKind = "single_agent" | "company";
 export type CompanyBenchmarkRole = "parent" | "implement" | "review" | "repair";
 export type CompanyBenchmarkComparisonDesign =
   | "shared_parent_v1"
-  | "independent_company_parent_v1";
+  | "independent_company_parent_v1"
+  | "official_codex_control_v1";
 export type CompanyBenchmarkCoverage = "none" | "partial" | "complete";
 export type CompanyBenchmarkExecutionStatus =
   | "completed"
@@ -366,6 +367,7 @@ const TERMINAL_STAGES = new Set<string>([
 const COMPARISON_DESIGNS = new Set<CompanyBenchmarkComparisonDesign>([
   "shared_parent_v1",
   "independent_company_parent_v1",
+  "official_codex_control_v1",
 ]);
 
 function exact(
@@ -809,6 +811,17 @@ export function parseCompanyBenchmarkCampaign(
     throw new TypeError(
       "Every company benchmark arm must use the baseline parent route",
     );
+  }
+  if (comparisonDesign === "official_codex_control_v1") {
+    const control = baseline.configuredRoutes[0]!;
+    if (control.providerId !== "openai-codex-chatgpt" || control.adapterId !== "codex-cli-exec" ||
+      item.launchProtocolRevision !== "company-benchmark-codex-control-300s-v1" ||
+      companyArms.some((arm) => {
+        const parent = arm.configuredRoutes[0]!;
+        return parent.providerId !== control.providerId || parent.adapterId !== "codex-app-server" ||
+          parent.connectionId !== control.connectionId || parent.modelId !== control.modelId ||
+          parent.reasoningEffort !== control.reasoningEffort;
+      })) throw new TypeError("Codex control requires the same subscription parent model and effort through the declared native CLI protocol");
   }
 
   const repetitions = integerField(

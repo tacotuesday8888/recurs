@@ -200,6 +200,12 @@ describe("company benchmark evidence analysis", () => {
       "independent_company_parent_v1",
     );
     expect(analysis.parentComparison).toBe("matched");
+    const native = { ...campaign, comparisonDesign: "official_codex_control_v1" as const,
+      baseline: { ...campaign.baseline, configuredRoutes: [{ ...parent, adapterId: "codex-cli-exec" }] } };
+    expect(analyzeCompanyBenchmarkCampaign({ campaign: native, trials: [], attribution }).parentComparison).toBe("matched");
+    expect(analyzeCompanyBenchmarkCampaign({ campaign: { ...native, baseline: { ...native.baseline,
+      configuredRoutes: [{ ...native.baseline.configuredRoutes[0]!, connectionId: "different-account-route" }] } }, trials: [], attribution }).parentComparison).toBe("unmatched");
+
   });
 
   it("labels different parents as unmatched and keeps every co-failure in reliability", () => {

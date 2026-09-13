@@ -22,6 +22,7 @@ import {
   verifyCompanyBenchmarkWorkspace,
 } from "../src/company-benchmark-scenario.js";
 
+import { PRODUCT_TASK_REFERENCES } from "./company-benchmark-product-reference.js";
 import { TASK_FIT_REFERENCES } from "./company-benchmark-task-fit-reference.js";
 
 const roots: string[] = [];
@@ -71,6 +72,18 @@ afterEach(async () => {
 });
 
 describe("built-in company benchmark scenarios", () => {
+  it.each(Object.keys(PRODUCT_TASK_REFERENCES))("grades fresh %s references through the production inventory and authenticated verifier", async (id) => {
+    const scenario = getCompanyBenchmarkScenario(id);
+    const workspaceRoot = await workspace();
+    const prepared = await initializeCompanyBenchmarkWorkspace({ scenario, workspaceRoot, processRunner: containedTestRunner });
+    const initial = await verifyCompanyBenchmarkWorkspace({ scenario, workspaceRoot, baseRevision: prepared.baseRevision, processRunner: containedTestRunner });
+    expect(initial.status).toBe("failed");
+    for (const [filePath, content] of Object.entries(PRODUCT_TASK_REFERENCES[id]!)) await writeFile(path.join(workspaceRoot, filePath), content);
+    const verified = await verifyCompanyBenchmarkWorkspace({ scenario, workspaceRoot, baseRevision: prepared.baseRevision, processRunner: containedTestRunner });
+    expect(verified.status).toBe("passed");
+    expect(verified.checks.filter(check => check.id.startsWith("hidden_")).map(check => check.id)).toEqual(scenario.hiddenCheckIds);
+  });
+
   it("preserves historical digests while adding three task-fit fixtures", () => {
     expect(COMPANY_BENCHMARK_SCENARIOS.map((scenario) => scenario.id)).toEqual([
       "alias_registry",
@@ -81,6 +94,7 @@ describe("built-in company benchmark scenarios", () => {
       "workspace_maintenance",
       "queue_cancellation",
       "workspace_maintenance",
+      "shipment_quote", "incremental_build_repair", "release_window_regressions",
     ]);
     const scenario = getCompanyBenchmarkScenario("alias_registry", 1);
 
@@ -114,7 +128,7 @@ describe("built-in company benchmark scenarios", () => {
       ["workspace_maintenance", "7080a2ecb4f59487dfe98ce5e722e9b386c35801e6374a4a769c9a1e6c1a07c1"],
     ]);
     for (const candidate of COMPANY_BENCHMARK_SCENARIOS) {
-      expect(candidate.hiddenCheckIds).toHaveLength(3);
+      expect(candidate.hiddenCheckIds).toHaveLength(candidate.id in PRODUCT_TASK_REFERENCES ? 4 : 3);
       expect(getCompanyBenchmarkScenario(candidate.id, candidate.version)).toBe(candidate);
     }
     expect(getCompanyBenchmarkScenario("alias_registry", 1)).toBe(scenario);
