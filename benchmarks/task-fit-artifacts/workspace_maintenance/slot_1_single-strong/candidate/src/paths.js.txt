@@ -1,0 +1,32 @@
+export function selectPaths(paths, excluded = ['node_modules', '.git']) {
+  const excludedSegments = new Set(excluded);
+  const selected = new Set();
+
+  for (const path of paths) {
+    if (typeof path !== 'string' || path.includes(String.fromCharCode(0))) continue;
+
+    const normalized = path.split(String.fromCharCode(92)).join('/');
+    if (normalized.startsWith('/') || (normalized.length >= 3 && /^[A-Za-z]:/.test(normalized) && normalized[2] === '/')) continue;
+
+    const segments = [];
+    let escapesRoot = false;
+    for (const segment of normalized.split('/')) {
+      if (!segment || segment === '.') continue;
+      if (segment === '..') {
+        if (segments.length === 0) {
+          escapesRoot = true;
+          break;
+        }
+        segments.pop();
+      } else {
+        segments.push(segment);
+      }
+    }
+
+    if (escapesRoot || segments.length === 0) continue;
+    if (segments.some(segment => excludedSegments.has(segment))) continue;
+    selected.add(segments.join('/'));
+  }
+
+  return [...selected].sort();
+}

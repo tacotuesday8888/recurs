@@ -33,6 +33,7 @@ import {
   type CompanyBenchmarkScenario,
   type CompanyBenchmarkWorkspaceVerification,
   type RecursEvent,
+  type TeamRunState,
 } from "@recurs/core";
 import type { ModelProvider } from "@recurs/providers";
 import type {
@@ -299,6 +300,7 @@ export class RuntimeCompanyBenchmarkAdapter
     );
     const startedAtMs = nowMs();
     let retainedTrial: CompanyBenchmarkTrialV1 | null = null;
+    let retainedTeamRuns: readonly TeamRunState[] = [];
     let runtime: Awaited<ReturnType<typeof createStandaloneRuntime>> | null =
       null;
     let recorder: CompanyBenchmarkExecutionRecorder | null = null;
@@ -466,6 +468,7 @@ export class RuntimeCompanyBenchmarkAdapter
       const teamRuns = await Promise.all(
         entries.map((entry) => store.load(entry.id)),
       );
+      retainedTeamRuns = teamRuns;
       const completedAtMs = Math.max(startedAtMs, nowMs());
       const trial = projectCompanyBenchmarkTrial({
         campaign: input.campaign,
@@ -537,6 +540,7 @@ export class RuntimeCompanyBenchmarkAdapter
             directory: this.#options.artifactsDirectory,
             workspace, scenario, trial: retainedTrial,
             campaignId: input.campaign.id, slotId: input.slot.slotId,
+            teamRuns: retainedTeamRuns,
           });
         } catch {
           // Optional capture failure must never discard the measured trial.

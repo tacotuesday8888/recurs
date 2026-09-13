@@ -1,0 +1,9 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createQueue } from '../src/queue.js';
+test('successful work drains in FIFO order', async () => {
+  const q = createQueue(1), order = [];
+  assert.deepEqual(await Promise.all([1,2,3].map(n => q.add(() => { order.push(n); return n * 2; }))), [2,4,6]);
+  assert.deepEqual(order, [1,2,3]);
+  assert.deepEqual(q.stats(), { active: 0, queued: 0 });
+});

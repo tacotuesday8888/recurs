@@ -70,3 +70,25 @@ It never copies the private runtime home, credentials or raw model transcript.
 Unavailable, non-regular, oversized or outside-workspace files are marked rather
 than followed. Retain failed candidates too. Captures must identify the exact
 candidate and result; test-only reference patches are not model evidence.
+
+## Foreground time limit
+
+Run each campaign with a terminal attached. `scripts/benchmark-time-limit.mjs`
+passes through the normal CLI and environment, interrupts at twenty minutes,
+and allows fifteen seconds for cleanup before termination. It does not alter
+provider authority, routes or permissions. The pilot used the byte-equivalent
+wrapper from a temporary file; the committed helper adds only usage validation.
+
+```sh
+node scripts/benchmark-time-limit.mjs dist/cli/main.js benchmark company \
+  --configured --allow-network --scenario options_precedence --repetitions 2 \
+  --connection <luna-medium-id> --parent-connection <luna-medium-id> \
+  --implement-connection <terra-medium-id> --review-connection <luna-medium-id> \
+  --repair-connection <terra-medium-id> --artifacts /tmp/recurs-task-fit/options
+```
+
+Use the same frozen bundle and explicit routes for `queue_cancellation` and
+`workspace_maintenance`. Do not launch the campaigns concurrently: local and
+provider contention would further complicate wall-time comparisons. This pilot
+ran on a development machine with other ongoing work; wall times are exploratory,
+not measurements from an otherwise isolated machine.

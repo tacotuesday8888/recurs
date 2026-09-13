@@ -1,0 +1,4 @@
+export function redact(value) {
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, key === 'password' ? '[REDACTED]' : item]));
+  return value;
+}

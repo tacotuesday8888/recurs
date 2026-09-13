@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "campaignId": "company-proof-55728455-bba5-4e33-a454-065d3e18b2d5",
+  "slotId": "slot_2_company-auto",
+  "scenarioId": "queue_cancellation",
+  "fixtureSha256": "42ce5cfca2d9760632d7c0bb9906f7e6c47f27b9ca4588088f0c98e44cfea2b7",
+  "files": [
+    {
+      "path": "package.json",
+      "status": "retained",
+      "sha256": "16e39d822f7dd3ce4709a298f01e1a86bd08aeaf9f9783d127b474406295a578"
+    },
+    {
+      "path": "README.md",
+      "status": "retained",
+      "sha256": "a9ee3c518fea0ba621b830cadf9136c782f161f5f9c17f47f090de29d5bb8b5c"
+    },
+    {
+      "path": "src/job.js",
+      "status": "retained",
+      "sha256": "d6b5a925d1254b2553d8270778b1baacb2164c75408a303f0f202df70533506e"
+    },
+    {
+      "path": "src/queue.js",
+      "status": "retained",
+      "sha256": "a78542dbd75add344a1d25a3c9c9a4b27962372e07cd52813f94fd94124cb571"
+    },
+    {
+      "path": "test/visible.test.js",
+      "status": "retained",
+      "sha256": "f99f92d0937ad48f70a10ed869b5c8ea1f8446a5b50bb01f87781881ede82b04"
+    }
+  ],
+  "trialId": "benchmark_trial_f120ac1402ea99fa5f7f9f311529cf08",
+  "capture": "Final delivered workspace only; rejected staged candidates were not retained."
+}

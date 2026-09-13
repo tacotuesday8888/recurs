@@ -1,0 +1,18 @@
+export function redact(value) {
+  if (Array.isArray(value)) return value.map(item => redact(item));
+  if (!value || typeof value !== 'object') return value;
+
+  const result = {};
+  for (const [key, item] of Object.entries(value)) {
+    const output = /^(password|token|secret|api_key)$/i.test(key)
+      ? '[REDACTED]'
+      : redact(item);
+    Object.defineProperty(result, key, {
+      value: output,
+      enumerable: true,
+      configurable: true,
+      writable: true
+    });
+  }
+  return result;
+}

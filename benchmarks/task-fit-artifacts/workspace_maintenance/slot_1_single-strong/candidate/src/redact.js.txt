@@ -1,0 +1,12 @@
+export function redact(value) {
+  if (Array.isArray(value)) return value.map(item => redact(item));
+  if (!value || typeof value !== 'object') return value;
+
+  const sensitiveKeys = new Set(['password', 'token', 'secret', 'api_key']);
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      sensitiveKeys.has(key.toLowerCase()) ? '[REDACTED]' : redact(item)
+    ])
+  );
+}

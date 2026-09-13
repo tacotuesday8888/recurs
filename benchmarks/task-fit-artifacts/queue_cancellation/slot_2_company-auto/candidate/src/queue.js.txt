@@ -1,0 +1,40 @@
+import { createJob } from './job.js';
+export function createQueue(concurrency = 1) {
+  if (!Number.isInteger(concurrency) || concurrency < 1) throw new RangeError('concurrency');
+  const pending = [];
+  let active = 0;
+
+  function removePending(job) {
+    const index = pending.indexOf(job);
+    if (index !== -1) pending.splice(index, 1);
+  }
+
+  function pump() {
+    while (active < concurrency && pending.length) {
+      const job = pending.shift();
+      if (!job.start()) continue;
+      active++;
+      Promise.resolve()
+        .then(() => job.task(job.signal))
+        .then(
+          value => job.fulfill(value),
+          error => job.fail(error),
+        )
+        .finally(() => {
+          active--;
+          pump();
+        });
+    }
+  }
+
+  return {
+    add(task, { signal } = {}) {
+      const job = createJob(task, signal);
+      if (!job.enqueue(removePending)) return job.promise;
+      pending.push(job);
+      pump();
+      return job.promise;
+    },
+    stats() { return { active, queued: pending.length }; },
+  };
+}

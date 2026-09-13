@@ -1,0 +1,58 @@
+export function createJob(task, signal) {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  let removeAbortListener = null;
+
+  const job = {
+    task,
+    signal,
+    promise,
+    state: 'queued',
+    enqueue(onAbort) {
+      if (signal?.aborted) {
+        job.cancel();
+        return false;
+      }
+
+      if (signal) {
+        const abort = () => {
+          if (job.state !== 'queued') return;
+          onAbort(job);
+          job.cancel();
+        };
+        signal.addEventListener('abort', abort, { once: true });
+        removeAbortListener = () => signal.removeEventListener('abort', abort);
+      }
+      return true;
+    },
+    start() {
+      if (job.state !== 'queued') return false;
+      removeAbortListener?.();
+      removeAbortListener = null;
+      job.state = 'running';
+      return true;
+    },
+    fulfill(value) {
+      job.state = 'completed';
+      resolve(value);
+    },
+    fail(error) {
+      job.state = 'failed';
+      reject(error);
+    },
+    cancel() {
+      if (job.state !== 'queued') return;
+      removeAbortListener?.();
+      removeAbortListener = null;
+      job.state = 'cancelled';
+      reject(abortError());
+    },
+  };
+
+  return job;
+}
+export function abortError() {
+  const error = new Error('Job cancelled');
+  error.name = 'AbortError';
+  return error;
+}
