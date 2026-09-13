@@ -2,6 +2,7 @@ import { createTerminalTheme } from "../src/terminal-style.js";
 import * as terminalOpening from "../src/terminal-opening.js";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { stripVTControlCharacters } from "node:util";
 import path from "node:path";
 import { RecursRuntime } from "../src/runtime.js";
 import { createCommandRegistry } from "../src/commands/create.js";
@@ -203,6 +204,18 @@ describe("CompanyHomeComponent", () => {
 });
 
 describe("LaunchComponent", () => {
+  it("uses a full-height R on a tall home screen and keeps every chat reachable", () => {
+    const sessions = Array.from({ length: 30 }, (_, index) => ({ id: `chat-${index}`, title: `Saved work ${index}`, cwd: "/workspace", model: "model", updatedAt: "2026-09-12T00:00:00Z", version: 2 as const }));
+    const component = new LaunchComponent({ workspace: "project", currentSessionId: "chat-0", sessions }, { openSession() {}, newProject() {}, quit() {}, refresh() {} }, { rows: () => 40, frame: () => 0, theme: createTerminalTheme(process.stdout, { colorEnabled: true }) });
+    const rows = component.render(100);
+    expect(rows).toHaveLength(40);
+    expect(rows.findIndex(row => row.includes("/ CHATS"))).toBe(22);
+    expect(rows.slice(0, 20).filter(row => stripVTControlCharacters(row).trim()).length).toBeGreaterThanOrEqual(14);
+    for (let i = 0; i < 29; i++) component.handleInput("\u001b[B");
+    expect(component.render(100).join("\n")).toContain("> Saved work 29");
+    component.handleInput("\u001b[B");
+    expect(component.render(100).join("\n")).toContain("> Start new chat");
+  });
   it("reserves animated branding above a long chat history without hiding navigation", () => {
     const sessions = Array.from({ length: 30 }, (_, index) => ({ id: `chat-${index}`, title: `Saved work ${index}`, cwd: "/workspace", model: "model", updatedAt: "2026-09-12T00:00:00Z", version: 2 as const }));
     let frame = 0;

@@ -131,6 +131,10 @@ first submitted message. The chat-history home reserves space for the same R,
 even with many saved chats, and scrolls the list instead. Only the normal editor
 cursor is highlighted; typing does not tint the whole prompt. Regression tests
 cover typing, submission, animation frames and a 30-chat history at 24 rows.
+The home screen now gives the R up to 20 art rows, including when saved chats
+exist. A 40-row regression checks the full-size mark and navigation through all
+30 saved chats. The packed-terminal walkthrough resizes the live home screen
+to 40 rows and captures it after the footer reaches its new position.
 The updated packed-terminal walkthrough captures an unsent draft and chat
 history, and supplies the 90-frame GIF and video with archive and media hashes
 in `docs/assets/terminal-workflow.json`. The integrated check passed 2,516 tests

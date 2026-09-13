@@ -143,9 +143,9 @@ export class LaunchComponent implements Component {
       while (compact.length < terminalRows) compact.splice(compact.length - 1, 0, "");
       return compact;
     }
-    const openingBudget = this.#sessions.length === 0 ? Math.max(0, terminalRows - 13) : Math.max(0, Math.min(9, terminalRows - 15));
-    const opening = theme === undefined ? [] : renderTerminalOpening(safeWidth, openingBudget, theme, this.presentation.frame?.() ?? 0);
-    const fixedRows = 11 + opening.length;
+    const openingBudget = Math.max(0, Math.min(22, terminalRows - 10));
+    const opening = theme === undefined ? [] : renderTerminalOpening(safeWidth, openingBudget, theme, this.presentation.frame?.() ?? 0, { compactWordmark: true });
+    const fixedRows = 8 + opening.length;
     const visibleSessions = Math.max(
       1,
       Math.floor((terminalRows - fixedRows) / 2),
