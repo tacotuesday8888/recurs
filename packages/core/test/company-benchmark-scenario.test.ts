@@ -22,6 +22,8 @@ import {
   verifyCompanyBenchmarkWorkspace,
 } from "../src/company-benchmark-scenario.js";
 
+import { TASK_FIT_REFERENCES } from "./company-benchmark-task-fit-reference.js";
+
 const roots: string[] = [];
 let sandboxAvailable: boolean | undefined;
 
@@ -69,11 +71,14 @@ afterEach(async () => {
 });
 
 describe("built-in company benchmark scenarios", () => {
-  it("publishes three versioned fixtures with stable digests", () => {
+  it("preserves historical digests while adding three task-fit fixtures", () => {
     expect(COMPANY_BENCHMARK_SCENARIOS.map((scenario) => scenario.id)).toEqual([
       "alias_registry",
       "layered_config",
       "retry_after",
+      "options_precedence",
+      "queue_cancellation",
+      "workspace_maintenance",
     ]);
     const scenario = getCompanyBenchmarkScenario("alias_registry", 1);
 
@@ -84,7 +89,7 @@ describe("built-in company benchmark scenarios", () => {
       difficulty: "medium",
       verifierId: "alias_registry_hidden_v2",
     });
-    expect(COMPANY_BENCHMARK_SCENARIOS.map((candidate) => [
+    expect(COMPANY_BENCHMARK_SCENARIOS.slice(0, 3).map((candidate) => [
       candidate.id,
       candidate.fixtureSha256,
     ])).toEqual([
@@ -137,6 +142,25 @@ describe("built-in company benchmark scenarios", () => {
       expect(result.checks.slice(-3).map((check) => check.id))
         .toEqual(scenario.hiddenCheckIds);
     }
+  });
+
+  it.each(Object.keys(TASK_FIT_REFERENCES))("validates correct task-fit patches and rejects the original defects: %s", async (scenarioId) => {
+    const root = await workspace();
+    const scenario = getCompanyBenchmarkScenario(scenarioId, 1);
+    const prepared = await initializeCompanyBenchmarkWorkspace({ scenario, workspaceRoot: root, processRunner: containedTestRunner });
+    const original = await verifyCompanyBenchmarkWorkspace({ scenario, workspaceRoot: root, baseRevision: prepared.baseRevision, processRunner: containedTestRunner });
+    expect(original.status).toBe("failed");
+    for (const [filePath, content] of Object.entries(TASK_FIT_REFERENCES[scenarioId]!)) {
+      await writeFile(path.join(root, filePath), content);
+    }
+    const correct = await verifyCompanyBenchmarkWorkspace({ scenario, workspaceRoot: root, baseRevision: prepared.baseRevision, processRunner: containedTestRunner });
+    expect(correct.status, JSON.stringify(correct)).toBe("passed");
+    // Leave one original module defect in an otherwise correct candidate.
+    const brokenPath = scenario.allowedChangedPaths[0]!;
+    await writeFile(path.join(root, brokenPath), scenario.files.find((file) => file.path === brokenPath)!.content);
+    const incomplete = await verifyCompanyBenchmarkWorkspace({ scenario, workspaceRoot: root, baseRevision: prepared.baseRevision, processRunner: containedTestRunner });
+    expect(incomplete.status).toBe("failed");
+    expect(incomplete.checks.some((check) => scenario.hiddenCheckIds.includes(check.id as typeof scenario.hiddenCheckIds[number]) && check.status === "failed")).toBe(true);
   });
 
   it("rejects expected-shaped hidden results without run provenance", async () => {

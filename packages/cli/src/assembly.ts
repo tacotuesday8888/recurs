@@ -200,6 +200,8 @@ export interface StandaloneRuntimeOptions {
   executionMode?: ExecutionMode;
   connectionId?: string;
   companyBlueprint?: CompanyBlueprint;
+  /** Omit host delegation tools for an explicitly parent-only execution. */
+  delegationEnabled?: boolean;
   skillHomeDirectory?: string;
   ptyDriver?: PtyDriver;
   approvalHandler?: ApprovalHandler;
@@ -1546,8 +1548,8 @@ export async function createStandaloneRuntime(
       return events.emit(event);
     },
   });
-  tools.register(childAgents.createTool());
-  if (!("type" in state) && state.agent.company?.blueprintVersion === 1) {
+  if (options.delegationEnabled !== false) tools.register(childAgents.createTool());
+  if (options.delegationEnabled !== false && !("type" in state) && state.agent.company?.blueprintVersion === 1) {
     tools.register(new CompanyAgentManager({
       sessions,
       blueprints: companyBlueprints,
@@ -1562,7 +1564,7 @@ export async function createStandaloneRuntime(
       return events.emit(event);
     },
   });
-  tools.register(childBatches.createTool());
+  if (options.delegationEnabled !== false) tools.register(childBatches.createTool());
   const reviews = new AgentReviewPanel({ sessions, children: childAgents });
   const teamSupervisor = new TeamRunSupervisor({
     sessions,
@@ -1667,10 +1669,12 @@ export async function createStandaloneRuntime(
       return events.emit(event);
     },
   });
-  tools.register(teams.createTool());
-  for (const tool of createTeamRunTools(teamSupervisor)) tools.register(tool);
+  if (options.delegationEnabled !== false) {
+    tools.register(teams.createTool());
+    for (const tool of createTeamRunTools(teamSupervisor)) tools.register(tool);
+  }
   let companyGoalsSupervisor: CompanyGoalSupervisor | undefined;
-  if (!("type" in state) && state.agent.company?.blueprintVersion === 2) {
+  if (options.delegationEnabled !== false && !("type" in state) && state.agent.company?.blueprintVersion === 2) {
     companyGoalsSupervisor = new CompanyGoalSupervisor({
       sessions,
       blueprints: companyBlueprintsV2,

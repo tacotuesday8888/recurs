@@ -43,14 +43,15 @@ const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 
 export const COMPANY_BENCHMARK_USAGE = [
   "Usage: recurs benchmark company --list [--json]",
-  "       recurs benchmark company --configured --allow-network [--scenario <id>] [--connection <id>] [--parent-connection <id>] [--implement-connection <id>] [--review-connection <id>] [--repair-connection <id>] [--repetitions 1|2|3] [--compare-all-strong] [--json]",
-  "       recurs benchmark company --resume <campaign-id> --allow-network [--json]",
+  "       recurs benchmark company --configured --allow-network [--scenario <id>] [--connection <id>] [--parent-connection <id>] [--implement-connection <id>] [--review-connection <id>] [--repair-connection <id>] [--repetitions 1|2|3] [--compare-all-strong] [--artifacts <directory>] [--json]",
+  "       recurs benchmark company --resume <campaign-id> --allow-network [--artifacts <directory>] [--json]",
 ].join("\n");
 
 export type CompanyBenchmarkCommandOptions =
   | { readonly action: "list"; readonly json: boolean }
   | {
       readonly action: "run";
+      readonly artifactsDirectory?: string;
       readonly scenarioId: string;
       readonly connectionId: string | null;
       readonly roleConnectionIds: Readonly<
@@ -62,6 +63,7 @@ export type CompanyBenchmarkCommandOptions =
     }
   | {
       readonly action: "resume";
+      readonly artifactsDirectory?: string;
       readonly campaignId: string;
       readonly json: boolean;
     };
@@ -103,6 +105,7 @@ export function parseCompanyBenchmarkCommand(
   if (argv[0] !== "company") {
     throw new CompanyBenchmarkArgumentError(COMPANY_BENCHMARK_USAGE);
   }
+  let artifactsDirectory: string | undefined;
   let list = false;
   let configured = false;
   let allowNetwork = false;
@@ -127,6 +130,14 @@ export function parseCompanyBenchmarkCommand(
     else if (argument === "--allow-network") allowNetwork = true;
     else if (argument === "--compare-all-strong") compareAllStrong = true;
     else if (argument === "--json") json = true;
+    else if (argument === "--artifacts") {
+      const value = argv[index + 1];
+      if (value === undefined || value.startsWith("--") || value.trim().length === 0 || value.includes("\0")) {
+        throw new CompanyBenchmarkArgumentError("--artifacts requires an output directory.");
+      }
+      artifactsDirectory = path.resolve(value);
+      index += 1;
+    }
     else if (argument === "--scenario") {
       scenarioId = argumentValue(argv, index);
       index += 1;
@@ -163,7 +174,7 @@ export function parseCompanyBenchmarkCommand(
     }
   }
   if (list) {
-    if (configured || allowNetwork || connectionId !== null ||
+    if (artifactsDirectory !== undefined || configured || allowNetwork || connectionId !== null ||
       Object.keys(roleConnectionIds).length > 0 ||
       resume !== null || repetitions !== 3 || scenarioId !== "alias_registry" ||
       compareAllStrong) {
@@ -185,10 +196,10 @@ export function parseCompanyBenchmarkCommand(
       scenarioId !== "alias_registry" || compareAllStrong
     ) {
       throw new CompanyBenchmarkArgumentError(
-        "--resume uses the frozen campaign and accepts only --allow-network and --json.",
+        "--resume uses the frozen campaign and accepts only --allow-network, --artifacts and --json.",
       );
     }
-    return { action: "resume", campaignId: resume, json };
+    return { action: "resume", campaignId: resume, json, ...(artifactsDirectory === undefined ? {} : { artifactsDirectory }) };
   }
   if (!configured) {
     throw new CompanyBenchmarkArgumentError(
@@ -204,6 +215,7 @@ export function parseCompanyBenchmarkCommand(
   }
   return {
     action: "run",
+    ...(artifactsDirectory === undefined ? {} : { artifactsDirectory }),
     scenarioId,
     connectionId,
     roleConnectionIds,
@@ -354,7 +366,7 @@ export function createConfiguredCompanyBenchmarkCampaign(input: {
       objectiveRevision: scenario.objectiveRevision,
     },
     harnessRevision: `recurs_${RECURS_VERSION.replaceAll(/[^A-Za-z0-9_-]/gu, "_")}`,
-    launchProtocolRevision: "company-benchmark-launch-v1",
+    launchProtocolRevision: "company-benchmark-parent-only-v2",
     operatingModeId: MODE_ID,
     operatingModeVersion: policy.version,
     permissionMode: "approved_for_me",
@@ -364,7 +376,7 @@ export function createConfiguredCompanyBenchmarkCampaign(input: {
     repetitions: input.repetitions,
     ceilings: {
       maxTrialSlots: armOrder.length,
-      maxRequests: REQUESTS_PER_SLOT * armOrder.length,
+      maxRequests: (["options_precedence", "queue_cancellation", "workspace_maintenance"].includes(scenario.id) ? 16 : REQUESTS_PER_SLOT) * armOrder.length,
       maxReportedCostUsd:
         REPORTED_COST_USD_PER_SLOT * armOrder.length,
     },
@@ -468,6 +480,12 @@ export async function runCompanyBenchmarkCommand(
     new RuntimeCompanyBenchmarkAdapter({
       blueprint,
       sourceDataDirectory: dependencies.dataDirectory,
+      ...(options.artifactsDirectory === undefined ? {} : { artifactsDirectory: options.artifactsDirectory }),
+      onArtifactError: () => dependencies.onProgress?.({
+        campaignId: campaign.id, slotId: null, completedSlots: completed,
+        totalSlots: campaign.armOrder.length,
+        message: "Candidate artifact retention failed; the measured trial is preserved.",
+      }),
     });
   const runner = new CompanyBenchmarkRunner({
     trials: state.trials,

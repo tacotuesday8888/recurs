@@ -6,6 +6,8 @@ import {
 } from "./company-blueprint-v2.js";
 import type { CompanyBenchmarkScenario } from "./company-benchmark-scenario.js";
 
+import { TASK_FIT_SPECS } from "./company-benchmark-task-fit.js";
+
 const CREATED_AT = "2026-07-24T00:00:00.000Z";
 const APPROVED_AT = "2026-07-24T00:00:01.000Z";
 
@@ -19,6 +21,8 @@ export function createCompanyBenchmarkBlueprint(
 ): CompanyBlueprintV2 {
   const legacyAlias = scenario.id === "alias_registry" &&
     scenario.version === 1;
+  const taskFit = TASK_FIT_SPECS.find((spec) => spec.id === scenario.id);
+  const parallelScopes = taskFit?.parallelScopes ?? [];
   const authorityId = `company-benchmark-${scenario.id}-v${scenario.version}`;
   return approveCompanyBlueprintV2(compileCompanyBlueprintV2({
     id: legacyAlias
@@ -81,7 +85,9 @@ export function createCompanyBenchmarkBlueprint(
         kind: "orchestrator",
         departmentKey: "delivery",
         responsibility: "Own the exact benchmark objective.",
-        instructions: "Delegate only the approved implementation and review.",
+        instructions: parallelScopes.length === 0
+          ? "Delegate only the approved implementation and review."
+          : "Delegate each independent module to its scoped worker concurrently, then run one combined independent review. Do not serialize independent implementation assignments.",
         reportsToKey: null,
         capabilities: ["plan"],
         executionProfileId: null,
@@ -89,21 +95,37 @@ export function createCompanyBenchmarkBlueprint(
         toolBundles: ["project_context_v1"],
         expectedEvidence: ["A concise synthesis."],
         activation: "always",
-      }, {
+      }, ...(parallelScopes.length === 0 ? [{
         key: "builder",
         displayName: "Scoped Builder",
-        kind: "worker",
+        kind: "worker" as const,
         departmentKey: "delivery",
-        responsibility: "Implement the two approved source files.",
+        responsibility: taskFit === undefined
+          ? "Implement the two approved source files."
+          : `Implement only: ${scenario.allowedChangedPaths.join(", ")}.`,
         instructions: "Stay within the approved source paths.",
         reportsToKey: "root",
-        capabilities: ["implement", "repair"],
-        executionProfileId: "implement_v2",
-        permissionMode: "approved_for_me",
-        toolBundles: ["implementation_v1"],
+        capabilities: ["implement" as const, "repair" as const],
+        executionProfileId: "implement_v2" as const,
+        permissionMode: "approved_for_me" as const,
+        toolBundles: ["implementation_v1" as const],
         expectedEvidence: ["Changed paths and implementation evidence."],
-        activation: "on_demand",
-      }, {
+        activation: "on_demand" as const,
+      }] : []), ...parallelScopes.map((scope, index) => ({
+        key: `module_${index + 1}`,
+        displayName: `Module ${index + 1} Builder`,
+        kind: "worker" as const,
+        departmentKey: "delivery",
+        responsibility: `Implement only ${scope}.`,
+        instructions: `Own ${scope}. Other workers own other modules; do not edit their paths. Run relevant checks and report concise evidence.`,
+        reportsToKey: "root",
+        capabilities: ["implement" as const, "repair" as const],
+        executionProfileId: "implement_v2" as const,
+        permissionMode: "approved_for_me" as const,
+        toolBundles: ["implementation_v1" as const],
+        expectedEvidence: ["Changed path and test evidence."],
+        activation: "on_demand" as const,
+      })), {
         key: "reviewer",
         displayName: "Independent Reviewer",
         kind: "reviewer",
@@ -120,7 +142,7 @@ export function createCompanyBenchmarkBlueprint(
       }],
       rootRoleKey: "root",
       independentReviewRoleKeys: ["reviewer"],
-      defaultActiveRoleKeys: ["root", "builder", "reviewer"],
+      defaultActiveRoleKeys: ["root", ...(parallelScopes.length === 0 ? ["builder"] : parallelScopes.map((_, index) => `module_${index + 1}`)), "reviewer"],
     },
     availableToolBundles: [
       "project_context_v1",

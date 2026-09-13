@@ -28,6 +28,16 @@ describe("company benchmark blueprint", () => {
     )).toBe(true);
   });
 
+  it("gives independent modules disjoint worker scopes and one combined reviewer", () => {
+    const blueprint = createCompanyBenchmarkBlueprint(getCompanyBenchmarkScenario("workspace_maintenance", 1));
+    const workers = blueprint.roles.filter((role) => role.kind === "worker");
+    expect(workers).toHaveLength(3);
+    expect(workers.map((role) => role.responsibility)).toEqual([
+      "Implement only src/paths.js.", "Implement only src/env.js.", "Implement only src/redact.js.",
+    ]);
+    expect(blueprint.authorityAnchors.independentReviewRoleIds).toHaveLength(1);
+  });
+
   it("binds company authority to the selected scenario", () => {
     const alias = getCompanyBenchmarkScenario("alias_registry", 1);
     const layered = getCompanyBenchmarkScenario("layered_config", 1);

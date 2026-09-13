@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -155,6 +155,7 @@ class BenchmarkProvider implements ModelProvider {
   #reviewRound = 0;
   reviewBranchCount = 0;
   companyToolResult = "";
+  baselineDelegationRejected = false;
 
   constructor(
     readonly blueprint: ReturnType<typeof createCompanyBenchmarkBlueprint>,
@@ -259,8 +260,15 @@ class BenchmarkProvider implements ModelProvider {
           : textResponse("Repaired the lowercase-only alias boundary.");
     } else {
       const companyImplement = context.includes("Recurs Implement agent");
+      if (!companyImplement && step === 0) {
+        expect([...tools].filter((name) => name.startsWith("delegate_"))).toEqual([]);
+        for (const event of toolResponse({ id: "forbidden-delegation", name: "delegate_task", arguments: {} })) yield event;
+        return;
+      }
+      if (!companyImplement) this.baselineDelegationRejected = context.includes("Unknown tool: delegate_task");
+      const localStep = companyImplement ? step : step - 1;
       const aliasSource = companyImplement ? flawedAliasPath : correctAliasPath;
-      if (step === 0) {
+      if (localStep === 0) {
         response = [
           {
             type: "tool_call",
@@ -281,7 +289,7 @@ class BenchmarkProvider implements ModelProvider {
           { type: "usage", inputTokens: 10, outputTokens: 2 },
           { type: "done", stopReason: "tool_calls" },
         ];
-      } else if (step === 1) {
+      } else if (localStep === 1) {
         const scenario = getCompanyBenchmarkScenario("alias_registry", 1);
         response = toolResponse({
           id: `patch-implementation-${sessionId}`,
@@ -439,7 +447,7 @@ describe("RuntimeCompanyBenchmarkAdapter", () => {
         objectiveRevision: scenario.objectiveRevision,
       },
       harnessRevision: "recurs-alpha",
-      launchProtocolRevision: "company-benchmark-launch-v1",
+      launchProtocolRevision: "company-benchmark-parent-only-v2",
       operatingModeId: "balanced_v6",
       operatingModeVersion: 6,
       permissionMode: "approved_for_me",
@@ -484,6 +492,7 @@ describe("RuntimeCompanyBenchmarkAdapter", () => {
     const adapter = new RuntimeCompanyBenchmarkAdapter({
       blueprint,
       createProvider: () => provider,
+      artifactsDirectory: path.join(root, "artifacts"),
       processRunner: (command, args, options) => runProcess(
         command,
         args,
@@ -527,6 +536,18 @@ describe("RuntimeCompanyBenchmarkAdapter", () => {
         JSON.stringify(results, null, 2)
       }`,
     ).toHaveLength(1);
+    const artifactNames = await readdir(path.join(root, "artifacts"));
+    expect(artifactNames).toHaveLength(2);
+    for (const name of artifactNames) {
+      const artifact = path.join(root, "artifacts", name);
+      expect((await readdir(artifact)).sort()).toEqual(["candidate", "fixture", "manifest.json"]);
+      const manifest = JSON.parse(await readFile(path.join(artifact, "manifest.json"), "utf8"));
+      expect(manifest.files.every((file: { status: string }) => file.status === "retained")).toBe(true);
+      expect(manifest.trial.verification.status).toBe("passed");
+      expect(await readFile(path.join(artifact, "candidate/src/alias-path.js"), "utf8")).toBe(correctAliasPath);
+    }
+    expect(provider.baselineDelegationRejected).toBe(true);
+    expect(baseline.activatedRoutes.map((item) => item.role)).toEqual(["parent"]);
     expect(baseline.verification.status).toBe("passed");
     expect(company.verification.status).toBe("passed");
     expect(company.review).toMatchObject({
