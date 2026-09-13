@@ -1,4 +1,4 @@
-import type { CompanyBlueprintV2 } from "@recurs/contracts";
+import { getOperatingModePolicy, type CompanyBlueprintV2 } from "@recurs/contracts";
 
 import {
   approveCompanyBlueprintV2,
@@ -22,7 +22,12 @@ export function createCompanyBenchmarkBlueprint(
   const legacyAlias = scenario.id === "alias_registry" &&
     scenario.version === 1;
   const taskFit = TASK_FIT_SPECS.find((spec) => spec.id === scenario.id);
-  const parallelScopes = taskFit?.parallelScopes ?? [];
+  const modulePaths = taskFit?.parallelScopes ?? [];
+  const workerLimit = getOperatingModePolicy("balanced_v6").workflow.team!.maxImplementers;
+  const parallelScopes = scenario.version === 1 ? modulePaths : Array.from(
+    { length: Math.min(workerLimit, modulePaths.length) },
+    (_, index) => modulePaths.filter((_, position) => position % workerLimit === index).join(", "),
+  );
   const authorityId = `company-benchmark-${scenario.id}-v${scenario.version}`;
   return approveCompanyBlueprintV2(compileCompanyBlueprintV2({
     id: legacyAlias
@@ -87,7 +92,9 @@ export function createCompanyBenchmarkBlueprint(
         responsibility: "Own the exact benchmark objective.",
         instructions: parallelScopes.length === 0
           ? "Delegate only the approved implementation and review."
-          : "Delegate each independent module to its scoped worker concurrently, then run one combined independent review. Do not serialize independent implementation assignments.",
+          : scenario.version === 1
+            ? "Delegate each independent module to its scoped worker concurrently, then run one combined independent review. Do not serialize independent implementation assignments."
+            : "Delegate the approved worker scopes concurrently, with one assignment per worker. Each worker handles all files in its scope. Run one combined independent review afterward.",
         reportsToKey: null,
         capabilities: ["plan"],
         executionProfileId: null,
@@ -152,4 +159,15 @@ export function createCompanyBenchmarkBlueprint(
     initialGoal: scenario.objective,
     roadmap: ["Implement, review, repair, and verify the fixture."],
   }), APPROVED_AT);
+}
+
+/** New campaigns must not request a worker topology their frozen mode forbids. */
+export function assertCompanyBenchmarkBlueprintFitsOperatingMode(blueprint: CompanyBlueprintV2): void {
+  const policy = getOperatingModePolicy(blueprint.authority.operatingModeId);
+  const active = new Set(blueprint.activation.defaultActiveRoleIds);
+  const implementers = blueprint.roles.filter((role) => active.has(role.id) && role.capabilities.includes("implement"));
+  const maximum = policy.workflow.team?.maxImplementers ?? 0;
+  if (implementers.length > maximum) {
+    throw new TypeError(`Benchmark blueprint requests ${implementers.length} Implement workers; ${policy.id} permits ${maximum}.`);
+  }
 }

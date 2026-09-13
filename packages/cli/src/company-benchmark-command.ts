@@ -27,6 +27,7 @@ import {
   FileCompanyBenchmarkSummaryStore,
   FileCompanyBenchmarkTrialStore,
   createCompanyBenchmarkBlueprint,
+  assertCompanyBenchmarkBlueprintFitsOperatingMode,
   getCompanyBenchmarkScenario,
   type CompanyBenchmarkExecutionAdapter,
 } from "@recurs/core";
@@ -226,7 +227,7 @@ export function parseCompanyBenchmarkCommand(
 }
 
 export function renderCompanyBenchmarkScenarios(json: boolean): string {
-  const scenarios = COMPANY_BENCHMARK_SCENARIOS.map((scenario) => ({
+  const scenarios = COMPANY_BENCHMARK_SCENARIOS.filter((scenario) => getCompanyBenchmarkScenario(scenario.id) === scenario).map((scenario) => ({
     id: scenario.id,
     version: scenario.version,
     taskClass: scenario.taskClass,
@@ -290,8 +291,9 @@ export function createConfiguredCompanyBenchmarkCampaign(input: {
   readonly campaignId: string;
   readonly createdAt: string;
 }): CompanyBenchmarkCampaignV1 {
-  const scenario = getCompanyBenchmarkScenario(input.scenarioId, 1);
+  const scenario = getCompanyBenchmarkScenario(input.scenarioId);
   const blueprint = createCompanyBenchmarkBlueprint(scenario);
+  assertCompanyBenchmarkBlueprintFitsOperatingMode(blueprint);
   const baselineParent = requireCodexConnection(
     input.document,
     input.connectionId,

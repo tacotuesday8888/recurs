@@ -39,7 +39,7 @@ export interface CompanyBenchmarkFixtureFile {
 
 export interface CompanyBenchmarkScenario {
   readonly id: string;
-  readonly version: 1;
+  readonly version: 1 | 2;
   readonly taskClass: "general_coding";
   readonly difficulty: "medium";
   readonly verifierId: string;
@@ -441,19 +441,28 @@ const taskFitScenarios: readonly CompanyBenchmarkScenario[] = TASK_FIT_SPECS.map
   });
 });
 
+const correctedTaskFitScenarios: readonly CompanyBenchmarkScenario[] = taskFitScenarios
+  .filter((scenario) => scenario.id === "queue_cancellation" || scenario.id === "workspace_maintenance")
+  .map((scenario) => Object.freeze({
+    ...scenario,
+    version: 2 as const,
+    verifierId: scenario.id === "queue_cancellation" ? "queue_cancellation_hidden_v2" : scenario.verifierId,
+  }));
+
 export const COMPANY_BENCHMARK_SCENARIOS = Object.freeze([
   aliasRegistryScenario,
   layeredConfigScenario,
   retryAfterScenario,
   ...taskFitScenarios,
+  ...correctedTaskFitScenarios,
 ] as const);
 
 export function getCompanyBenchmarkScenario(
   id: string,
-  version: number,
+  version?: number,
 ): CompanyBenchmarkScenario {
-  const scenario = COMPANY_BENCHMARK_SCENARIOS.find((candidate) =>
-    candidate.id === id && candidate.version === version
+  const scenario = [...COMPANY_BENCHMARK_SCENARIOS].reverse().find((candidate) =>
+    candidate.id === id && (version === undefined || candidate.version === version)
   );
   if (scenario === undefined) {
     throw new TypeError(`Unknown company benchmark scenario: ${id} v${version}`);
@@ -670,7 +679,7 @@ async function inventoryIsSafe(
   return true;
 }
 
-function hiddenVerifierProgram(checks: string): string {
+function hiddenVerifierProgram(checks: string, extraImports = ""): string {
   return `
   import assert from "node:assert/strict";
   import { createHmac } from "node:crypto";
@@ -678,6 +687,7 @@ function hiddenVerifierProgram(checks: string): string {
   import path from "node:path";
   import { pathToFileURL } from "node:url";
 
+  ${extraImports}
   const key = readFileSync(0);
   const hmac = createHmac("sha256", key);
   key.fill(0);
@@ -873,6 +883,20 @@ function hiddenVerifierSource(
     return RETRY_AFTER_HIDDEN_VERIFIER_SOURCE;
   }
   const spec = TASK_FIT_SPECS.find((candidate) => candidate.id === scenario.id);
+  if (spec !== undefined && scenario.id === "queue_cancellation" && scenario.version === 2) {
+    // Keep the frozen v1 checker available; v2 inspects actual retained listeners.
+    const checks = spec.hiddenChecks
+      .replace(
+        "let releaseA, releaseB, startedC = false, additions = 0, removals = 0;",
+        "let releaseA, releaseB, startedC = false;",
+      )
+      .replace("      const add = signal.addEventListener.bind(signal), remove = signal.removeEventListener.bind(signal);\n", "")
+      .replace("      signal.addEventListener = (...args) => { additions++; return add(...args); };\n", "")
+      .replace("      signal.removeEventListener = (...args) => { removals++; return remove(...args); };\n", "")
+      .replace("equal(additions, removals);", "equal(inspectListeners(signal, 'abort').length, 0);");
+    if (checks === spec.hiddenChecks || checks.includes("additions")) throw new TypeError("Frozen queue verifier transformation failed");
+    return hiddenVerifierProgram(checks, "import { getEventListeners } from 'node:events';\nconst inspectListeners = getEventListeners;");
+  }
   if (spec !== undefined) return hiddenVerifierProgram(spec.hiddenChecks);
   throw new TypeError("Company benchmark verifier is unavailable");
 }
