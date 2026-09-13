@@ -120,3 +120,9 @@ it("navigates a multi-file diff without mixing file selection and mode keys", ()
   expect(rendered).toContain("second.ts");
   expect(rendered).not.toContain("parser.ts");
 });
+
+it("bounds parsing of malformed quoted Git paths with repeated escapes", () => {
+  const input = `diff --git a/file.ts "b/${"\\!".repeat(50000)}\n`;
+  const viewer = new TerminalDiffViewer(input, { theme, rows: () => 10, back() {}, refresh() {} });
+  expect(viewer.render(80).every((row) => visibleWidth(row) <= 80)).toBe(true);
+});
