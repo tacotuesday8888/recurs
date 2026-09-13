@@ -203,6 +203,19 @@ describe("CompanyHomeComponent", () => {
 });
 
 describe("LaunchComponent", () => {
+  it("reserves animated branding above a long chat history without hiding navigation", () => {
+    const sessions = Array.from({ length: 30 }, (_, index) => ({ id: `chat-${index}`, title: `Saved work ${index}`, cwd: "/workspace", model: "model", updatedAt: "2026-09-12T00:00:00Z", version: 2 as const }));
+    let frame = 0;
+    const component = new LaunchComponent({ workspace: "project", currentSessionId: "chat-0", sessions }, { openSession() {}, newProject() {}, quit() {}, refresh() {} }, { rows: () => 24, frame: () => frame, theme: createTerminalTheme(process.stdout, { colorEnabled: true }) });
+    const first = component.render(80);
+    frame = 12;
+    expect(component.render(80)).not.toEqual(first);
+    expect(first).toHaveLength(24);
+    expect(first.join("\n")).toContain("Saved work 0");
+    for (let i = 0; i < 30; i++) component.handleInput("\u001b[B");
+    expect(component.render(80).join("\n")).toContain("> Start new chat");
+  });
+
   it("prioritizes saved chats over the opening artwork", () => {
     const sessions = Array.from({ length: 4 }, (_, index) => ({ id: `chat-${index}`, title: `Saved work ${index}`, cwd: "/workspace", model: "model", updatedAt: "2026-09-12T00:00:00Z", version: 2 as const }));
     const component = new LaunchComponent({ workspace: "project", currentSessionId: "chat-0", sessions }, { openSession() {}, newProject() {}, quit() {}, refresh() {} }, { rows: () => 30, theme: createTerminalTheme(process.stdout, { colorEnabled: false }) });

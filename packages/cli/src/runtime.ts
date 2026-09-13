@@ -88,6 +88,7 @@ export interface RuntimeDependencies {
 }
 
 export interface RuntimeSubmissionOptions {
+  readonly signal?: AbortSignal;
   readonly images?: readonly ModelImageInput[];
 }
 
@@ -821,6 +822,21 @@ export class RecursRuntime {
     invocation: HostInvocation = untrustedProgrammaticInvocation(),
     options: RuntimeSubmissionOptions = {},
   ): Promise<CommandResult | RunResult> {
+    options.signal?.throwIfAborted();
+    const cancel = () => { this.cancel(); };
+    options.signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      return await this.#submit(input, invocation, options);
+    } finally {
+      options.signal?.removeEventListener("abort", cancel);
+    }
+  }
+
+  async #submit(
+    input: string,
+    invocation: HostInvocation,
+    options: RuntimeSubmissionOptions,
+  ): Promise<CommandResult | RunResult> {
     if (this.#closed) {
       throw new RuntimeError("busy", "Runtime is closed");
     }
@@ -870,6 +886,7 @@ export class RecursRuntime {
       if (ownsController) {
         this.#activeController = new AbortController();
       }
+      const commandSignal = this.#activeController?.signal;
       const context = this.#commandContext(invocation);
       let result: CommandResult;
       try {
@@ -882,6 +899,8 @@ export class RecursRuntime {
           this.#activeController = null;
         }
       }
+      options.signal?.throwIfAborted();
+      if (result.type === "submit_prompt" || result.type === "submit_queued_prompt") commandSignal?.throwIfAborted();
       if (result.type === "submit_prompt") {
         return this.#runPrompt(
           result.prompt,

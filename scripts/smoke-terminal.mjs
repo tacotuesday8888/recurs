@@ -314,6 +314,10 @@ try {
   await colorful.wait((screen) => screen.includes("One task. A team you control."), "native opening");
   await colorful.wait((screen) => screen.includes("Local ·") && screen.includes("changed · /workspace"), "opening branch context");
   await captureColorScreen(colorful, "opening");
+  colorful.process.write("Draft before sending");
+  await colorful.wait((screen) => screen.includes("Draft before sending") && screen.includes("One task. A team you control."), "opening stays while drafting");
+  await captureColorScreen(colorful, "opening-draft");
+  colorful.process.write("\u0015");
   colorful.process.write("/permissions ask\r");
   await colorful.wait((screen) => screen.includes("Permission mode: Ask Always"), "fixture ask permission");
   if (process.argv.includes("--record-gif-frames")) {
