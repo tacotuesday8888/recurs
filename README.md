@@ -10,7 +10,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-d96545.svg" alt="Apache 2.0"></a>
 </p>
 
-![Recurs terminal](docs/assets/terminal-patch.svg)
+![Recurs terminal workflow](docs/assets/terminal-workflow.gif)
 
 ## Install
 
@@ -41,12 +41,17 @@ Bun can install Recurs; Node.js runs it. Linux command isolation requires Bubble
 
 ## Code, review, continue
 
-- Stream responses, inspect tool activity, and approve changes.
+- Follow progress and approve changes. Press **Ctrl+O** to expand code and tool details.
 - Browse files and review numbered diffs in unified or split view.
 - Rename, pin, archive, copy, and reopen chats.
 - Connect MCP servers and add skills.
 
+<details>
+<summary>Open code review</summary>
+
 ![Code review](docs/assets/terminal-diff.svg)
+
+</details>
 
 ## Work with a team
 
