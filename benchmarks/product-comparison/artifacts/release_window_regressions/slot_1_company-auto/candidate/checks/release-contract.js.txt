@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+
+export async function checkReleaseWindow(api) {
+  const select = (windows, nowMs) => api.selectRelease(windows, nowMs);
+  const snapshot = (windows) => windows.map((window) => ({ ...window }));
+
+  {
+    const windows = [
+      { id: 'before', startMs: 10, endMs: 20, paused: false, priority: 99 },
+      { id: 'starts-now', startMs: 20, endMs: 30, paused: false, priority: 1 },
+      { id: 'ends-now', startMs: 0, endMs: 20, paused: false, priority: 100 },
+      { id: 'paused', startMs: 0, endMs: 30, paused: true, priority: 101 },
+    ];
+    const original = snapshot(windows);
+
+    const result = select(windows, 20);
+
+    assert.deepEqual(result, {
+      id: 'starts-now',
+      startMs: 20,
+      endMs: 30,
+      priority: 1,
+    });
+    assert.deepEqual(Object.keys(result).sort(), ['endMs', 'id', 'priority', 'startMs']);
+    assert.notStrictEqual(result, windows[1]);
+    assert.deepEqual(windows, original);
+  }
+
+  {
+    const windows = [
+      { id: 'lowest', startMs: -10, endMs: 10, paused: false, priority: -2 },
+      { id: 'highest', startMs: -10, endMs: 10, paused: false, priority: 7 },
+      { id: 'paused-highest', startMs: -10, endMs: 10, paused: true, priority: 8 },
+    ];
+    const original = snapshot(windows);
+
+    assert.deepEqual(select(windows, 0), {
+      id: 'highest',
+      startMs: -10,
+      endMs: 10,
+      priority: 7,
+    });
+    assert.deepEqual(windows, original);
+  }
+
+  {
+    const windows = [
+      { id: 'zeta', startMs: 0, endMs: 10, paused: false, priority: 4 },
+      { id: 'Alpha', startMs: 0, endMs: 10, paused: false, priority: 4 },
+      { id: 'alpha', startMs: 0, endMs: 10, paused: false, priority: 4 },
+    ];
+    const original = snapshot(windows);
+
+    assert.deepEqual(select(windows, 5), {
+      id: 'Alpha',
+      startMs: 0,
+      endMs: 10,
+      priority: 4,
+    });
+    assert.deepEqual(windows, original);
+  }
+
+  {
+    const windows = [
+      { id: 'past', startMs: 0, endMs: 5, paused: false, priority: 1 },
+      { id: 'future', startMs: 6, endMs: 10, paused: false, priority: 2 },
+      { id: 'paused', startMs: 0, endMs: 10, paused: true, priority: 3 },
+    ];
+    const original = snapshot(windows);
+
+    assert.strictEqual(select(windows, 5), null);
+    assert.deepEqual(windows, original);
+  }
+
+  {
+    const windows = [{ id: 'only', startMs: 0, endMs: 1, paused: false, priority: 0 }];
+    const first = select(windows, 0);
+    const second = select(windows, 0);
+
+    assert.notStrictEqual(first, second);
+  }
+}

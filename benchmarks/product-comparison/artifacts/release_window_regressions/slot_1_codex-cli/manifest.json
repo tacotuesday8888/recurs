@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "retainedDirectory": "trial-4JrPw8",
+  "scenarioId": "release_window_regressions",
+  "scenarioVersion": 1,
+  "fixtureSha256": "bd70a07991afcdbf700df9143e1018b9a95d365be3eceb24fb061fa94dc0cd0b",
+  "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+  "slotId": "slot_1_codex-cli",
+  "trialId": "benchmark_trial_8e8a027bd323a39cc2c29611e2188749",
+  "files": [
+    {
+      "path": "package.json",
+      "sha256": "8a87d1929819e454ddf6407fba0a6083f031d873b1e17a74861460c7715abcde",
+      "fixtureSha256": "8a87d1929819e454ddf6407fba0a6083f031d873b1e17a74861460c7715abcde"
+    },
+    {
+      "path": "README.md",
+      "sha256": "3caa643656a3ae7eeea3d12e35805fc794033231cf3fe55ce65f600c0d3cba9c",
+      "fixtureSha256": "3caa643656a3ae7eeea3d12e35805fc794033231cf3fe55ce65f600c0d3cba9c"
+    },
+    {
+      "path": "src/release.js",
+      "sha256": "154453e5dff59c5f7093934ef0b1411af33543c84df4d57f317ff931772123d1",
+      "fixtureSha256": "154453e5dff59c5f7093934ef0b1411af33543c84df4d57f317ff931772123d1"
+    },
+    {
+      "path": "checks/release-contract.js",
+      "sha256": "0c93fbc0a614005cab5584b9f28f44553dfabe620d40e85235c692404e4d912e",
+      "fixtureSha256": "99963850db2a9f50fd411f01b0d79f5ee5a12c91497093d3a03b2c00a002dd6f"
+    },
+    {
+      "path": "test/visible.test.js",
+      "sha256": "2406422267c3984beb003a80057bc777a84b25883c2f20fe8d58ec524a98bb60",
+      "fixtureSha256": "2406422267c3984beb003a80057bc777a84b25883c2f20fe8d58ec524a98bb60"
+    }
+  ]
+}

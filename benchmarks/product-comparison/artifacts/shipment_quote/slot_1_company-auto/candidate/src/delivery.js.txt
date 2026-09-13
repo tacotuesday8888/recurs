@@ -1,0 +1,16 @@
+const isIntegerInRange = (value, minimum, maximum) =>
+  Number.isInteger(value) && value >= minimum && value <= maximum;
+
+export function deliveryCost(totalGrams, merchandiseCents, zone) {
+  if (!isIntegerInRange(totalGrams, 0, 10_000_000_000) ||
+      !isIntegerInRange(merchandiseCents, 0, 100_000_000_000) ||
+      (zone !== 'local' && zone !== 'remote')) {
+    throw new TypeError('Invalid delivery input');
+  }
+  if (totalGrams === 0 || (zone === 'local' && merchandiseCents >= 5_000)) {
+    return 0;
+  }
+
+  const kilograms = Math.ceil(totalGrams / 1_000);
+  return zone === 'local' ? 500 + 200 * kilograms : 900 + 350 * kilograms;
+}

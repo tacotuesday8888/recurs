@@ -1,0 +1,1 @@
+export function normalizeCart(_items, _catalog) { throw new Error('Cart normalization not implemented'); }

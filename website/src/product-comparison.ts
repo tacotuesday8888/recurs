@@ -36,6 +36,14 @@ export interface ProductComparison {
   tokenAccounting: { comparable: boolean; note: string };
   attempts: ProductAttempt[];
 }
+interface ReviewFinding {
+  version: 1;
+  title: string;
+  summary: string;
+  reviewerObservation: string;
+  auditObservation: string;
+  outcome: string;
+}
 
 function object(value: unknown, keys: string[]): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Expected comparison object");
@@ -65,6 +73,12 @@ function link(value: unknown): string {
     if (parsed.hostname !== "github.com" || !parsed.pathname.startsWith("/tacotuesday8888/recurs/") || parsed.username || parsed.password) throw new Error("Expected public repository link");
   } else if (href.split("/").includes("..")) throw new Error("Unsafe comparison link");
   return href;
+}
+
+export function parseProductReviewFinding(input: unknown): ReviewFinding {
+  const finding = object(input, ["version", "title", "summary", "reviewerObservation", "auditObservation", "outcome"]);
+  if (finding.version !== 1) throw new Error("Unsupported review observation");
+  return { version: 1, title: string(finding.title, "review title"), summary: string(finding.summary, "review summary"), reviewerObservation: string(finding.reviewerObservation, "review observation"), auditObservation: string(finding.auditObservation, "audit observation"), outcome: string(finding.outcome, "review outcome") };
 }
 
 /** Public export boundary. Missing slots and missing counters are never inferred. */
@@ -162,10 +176,12 @@ function model(route: Route): string {
 }
 
 /** No data means no section. Only audited exports enter the live build. */
-export function renderProductComparison(input?: unknown): string {
+export function renderProductComparison(input?: unknown, reviewInput?: unknown): string {
   if (input === undefined) return "";
   const data = parseProductComparison(input);
   const tokens = comparableTokens(data);
+  const finding = reviewInput === undefined ? undefined : parseProductReviewFinding(reviewInput);
+  const reviewStory = finding === undefined ? "" : `<aside class="product-review-story" aria-labelledby="product-review-title"><h3 id="product-review-title">${escapeHtml(finding.title)}</h3><p>${escapeHtml(finding.summary)}</p><details><summary>See the review finding</summary><p>${escapeHtml(finding.reviewerObservation)}</p><p>${escapeHtml(finding.auditObservation)}</p><p>${escapeHtml(finding.outcome)}</p></details></aside>`;
   const rows = productTaskIds.map(id => {
     const task = taskCopy[id];
     const attempts = data.attempts.filter(attempt => attempt.scenarioId === id);
@@ -188,5 +204,5 @@ export function renderProductComparison(input?: unknown): string {
     const roleNames: Record<string, string> = { parent: "lead", implement: "implementation", review: "review", repair: "repair" };
     return `<li><strong>${armName(id)}:</strong> ${config.routes.map(route => `${escapeHtml(model(route))} for ${roleNames[route.role]}`).join("; ")}.</li>`;
   }).join("");
-  return `<section class="evidence-section product-comparison" id="product-comparison" aria-labelledby="product-comparison-title"><div class="wrap"><div class="evidence-heading"><h2 id="product-comparison-title">Codex CLI and Recurs, on three new tasks</h2><a class="text-link" href="${escapeHtml(data.auditHref)}">Read the audit</a></div><p class="evidence-intro">Two attempts per product and task, with a five-minute limit each. Both use the Codex subscription. These are small, authored Node projects.</p><details class="product-configuration"><summary>Models and comparison setup</summary><ul>${configs}</ul><p>These are configured routes; the audit records which workers actually ran. Native Codex tools, including delegation, remained available. The comparison includes differences in models, tools and coordination.</p></details><div class="task-results">${rows}</div><p class="result-definitions">Finished requires completed execution, passing task and workspace checks, and passing source review. A timed-out run with passing files is still shown as timed out. Every declared attempt is retained.</p><p class="evidence-limits">Times include setup, execution and grading before artifact retention. The scheduler task measures three seeded regressions, not general bug finding. Two attempts per task do not establish a general success rate. Dollar cost is unavailable.</p><p class="product-token-note">${tokens ? "Provider-reported input includes cached tokens; cached tokens are not added again. Per-attempt counters are in the details." : "Token totals are not shown as a comparison because equivalent, complete coverage has not been established for every attempt."} ${escapeHtml(data.tokenAccounting.note)}</p><div class="evidence-links"><a href="${escapeHtml(data.protocolHref)}">Frozen protocol</a><a href="${escapeHtml(data.auditHref)}">Complete audit and records</a></div></div></section>`;
+  return `<section class="evidence-section product-comparison" id="product-comparison" aria-labelledby="product-comparison-title"><div class="wrap"><div class="evidence-heading"><h2 id="product-comparison-title">Codex CLI and Recurs, on three new tasks</h2><a class="text-link" href="${escapeHtml(data.auditHref)}">Read the audit</a></div><p class="evidence-intro">Two attempts per product and task, with a five-minute limit each. Both use the Codex subscription. These are small, authored Node projects.</p><details class="product-configuration"><summary>Models and comparison setup</summary><ul>${configs}</ul><p>These are configured routes; the audit records which workers actually ran. Native Codex tools, including delegation, remained available. The comparison includes differences in models, tools and coordination.</p></details>${reviewStory}<div class="task-results">${rows}</div><p class="result-definitions">Finished requires completed execution, passing task and workspace checks, and passing source review. A timed-out run with passing files is still shown as timed out. Every declared attempt is retained.</p><p class="evidence-limits">Times include setup, execution and grading before artifact retention. The scheduler task measures three seeded regressions, not general bug finding. Two attempts per task do not establish a general success rate. Dollar cost is unavailable.</p><p class="product-token-note">${tokens ? "Provider-reported input includes cached tokens; cached tokens are not added again. Per-attempt counters are in the details." : "Token totals are not shown as a comparison because equivalent, complete coverage has not been established for every attempt."} ${escapeHtml(data.tokenAccounting.note)}</p><div class="evidence-links"><a href="${escapeHtml(data.protocolHref)}">Frozen protocol</a><a href="${escapeHtml(data.auditHref)}">Complete audit and records</a></div></div></section>`;
 }

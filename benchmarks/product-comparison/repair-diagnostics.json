@@ -1,0 +1,296 @@
+{
+  "version": 1,
+  "scope": "Selected normalized role and review records for the two failed Recurs trials; model-authored review observations are not independent verification of unavailable rejected source. Nested evidence truncation flags are preserved.",
+  "trials": [
+    {
+      "scenarioId": "release_window_regressions",
+      "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+      "slotId": "slot_2_company-auto",
+      "trialId": "benchmark_trial_288337771eed6185e6a46fe956bca0f5",
+      "roles": [
+        {
+          "role": "parent",
+          "attempts": 1,
+          "completedAttempts": 1,
+          "failedAttempts": 0,
+          "cancelledAttempts": 0,
+          "wallClockMs": 298439,
+          "attemptLatenciesMs": [
+            298439
+          ],
+          "evidenceItems": 0,
+          "changedFiles": []
+        },
+        {
+          "role": "implement",
+          "attempts": 1,
+          "completedAttempts": 1,
+          "failedAttempts": 0,
+          "cancelledAttempts": 0,
+          "wallClockMs": 103518,
+          "attemptLatenciesMs": [
+            103518
+          ],
+          "evidenceItems": 15,
+          "changedFiles": [
+            "checks/release-contract.js"
+          ]
+        },
+        {
+          "role": "review",
+          "attempts": 2,
+          "completedAttempts": 2,
+          "failedAttempts": 0,
+          "cancelledAttempts": 0,
+          "wallClockMs": 158323,
+          "attemptLatenciesMs": [
+            60471,
+            46104
+          ],
+          "evidenceItems": 21,
+          "changedFiles": []
+        },
+        {
+          "role": "repair",
+          "attempts": 1,
+          "completedAttempts": 1,
+          "failedAttempts": 0,
+          "cancelledAttempts": 0,
+          "wallClockMs": 47874,
+          "attemptLatenciesMs": [
+            47874
+          ],
+          "evidenceItems": 6,
+          "changedFiles": [
+            "checks/release-contract.js"
+          ]
+        }
+      ],
+      "review": {
+        "attempts": 2,
+        "approved": 0,
+        "changesRequested": 2,
+        "unverified": 0,
+        "finalVerdict": "changes_requested",
+        "findings": 3,
+        "affectedPaths": [
+          "checks/release-contract.js"
+        ],
+        "evidenceItems": 27
+      },
+      "repairRounds": 1,
+      "failures": [
+        {
+          "stage": "execution",
+          "code": "company_goal_failed",
+          "scope": "roster_execution"
+        },
+        {
+          "stage": "verification",
+          "code": "scenario_verification_failed",
+          "scope": "verification",
+          "terminalStage": "verification"
+        }
+      ],
+      "teamDiagnostics": [
+        {
+          "runId": "8e64fcb9-3c79-4b72-bf11-397d2ab0d547",
+          "status": "changes_requested",
+          "reviews": [
+            {
+              "round": 0,
+              "verdict": "changes_requested",
+              "findings": [
+                {
+                  "path": "checks/release-contract.js",
+                  "problem": "No test exercises an empty windows array, which is valid and must return null. An implementation that fails or returns a non-null value only for empty input would pass every current case.",
+                  "acceptance": "Add an independent call using [] and assert that the result is null without mutation.",
+                  "evidence": [
+                    "README.md:13 defines windows as an array and does not require it to be non-empty.",
+                    "checks/release-contract.js:51-91 contains four cases, none with an empty array."
+                  ]
+                },
+                {
+                  "path": "checks/release-contract.js",
+                  "problem": "No test exercises priority 0, although integer priorities include zero. A faulty implementation that mishandles or ignores zero-priority eligible windows can pass all current cases.",
+                  "acceptance": "Add a case with an eligible priority-0 window whose expected selection distinguishes it from another eligible lower-priority window.",
+                  "evidence": [
+                    "README.md:13 requires priority to be an integer, including 0.",
+                    "checks/release-contract.js:51-91 uses priorities 99, 50, 1, -2, 100, 7, and 4, but never 0.",
+                    "The recorded npm test only exercises the visible fixture acceptance test, so it does not establish rejection of this faulty behavior."
+                  ]
+                }
+              ],
+              "evidence": [
+                "Recorded npm test exited 0, consistent with test/visible.test.js invoking the checker twice against the working fixture.",
+                "The inspected diff imports only node:assert/strict and exercises api.selectRelease through public behavior.",
+                "git status showed only checks/release-contract.js changed.",
+                "inspected git status"
+              ]
+            },
+            {
+              "round": 1,
+              "verdict": "changes_requested",
+              "findings": [
+                {
+                  "path": "checks/release-contract.js",
+                  "problem": "The direct `await api.selectRelease(...)` call propagates a non-Error rejection unchanged. A faulty API that throws or rejects with a string would cause `checkReleaseWindow` to reject with a string rather than an Error caused by an assertion.",
+                  "acceptance": "Handle API invocation failures so every checker rejection is an Error, while preserving observed contract violations as assertion/Error failures.",
+                  "evidence": [
+                    "Current checks/release-contract.js line 9 awaits api.selectRelease without catch or Error normalization.",
+                    "The README checker contract requires throwing an Error when observed behavior violates the contract."
+                  ]
+                }
+              ],
+              "evidence": [
+                "Only checks/release-contract.js is shown as modified in git status.",
+                "Provided execution evidence reports npm test exited 0.",
+                "The current implementation was re-read in full.",
+                "inspected git status"
+              ]
+            }
+          ],
+          "stagedCandidate": "not_retained",
+          "artifactHashes": [
+            {
+              "kind": "worker",
+              "round": 0,
+              "sha256": "3027318467667516247f5d127c1237d8b0bdd94a2fb1351fe60133b7ccd7cb41"
+            }
+          ],
+          "truncated": true
+        }
+      ],
+      "teamDiagnosticsTruncated": false
+    },
+    {
+      "scenarioId": "incremental_build_repair",
+      "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "slotId": "slot_2_company-auto",
+      "trialId": "benchmark_trial_2a8c8044c5caf6907a83579ca947c1cb",
+      "roles": [
+        {
+          "role": "parent",
+          "attempts": 1,
+          "completedAttempts": 1,
+          "failedAttempts": 0,
+          "cancelledAttempts": 0,
+          "wallClockMs": 161738,
+          "attemptLatenciesMs": [
+            161738
+          ],
+          "evidenceItems": 0,
+          "changedFiles": []
+        },
+        {
+          "role": "implement",
+          "attempts": 1,
+          "completedAttempts": 1,
+          "failedAttempts": 0,
+          "cancelledAttempts": 0,
+          "wallClockMs": 41361,
+          "attemptLatenciesMs": [
+            41361
+          ],
+          "evidenceItems": 7,
+          "changedFiles": [
+            "src/changes.js",
+            "src/dependents.js",
+            "src/plan.js"
+          ]
+        },
+        {
+          "role": "review",
+          "attempts": 1,
+          "completedAttempts": 1,
+          "failedAttempts": 0,
+          "cancelledAttempts": 0,
+          "wallClockMs": 33290,
+          "attemptLatenciesMs": [
+            33290
+          ],
+          "evidenceItems": 9,
+          "changedFiles": []
+        },
+        {
+          "role": "repair",
+          "attempts": 1,
+          "completedAttempts": 1,
+          "failedAttempts": 0,
+          "cancelledAttempts": 0,
+          "wallClockMs": 46468,
+          "attemptLatenciesMs": [
+            46468
+          ],
+          "evidenceItems": 10,
+          "changedFiles": []
+        }
+      ],
+      "review": {
+        "attempts": 1,
+        "approved": 0,
+        "changesRequested": 1,
+        "unverified": 0,
+        "finalVerdict": "changes_requested",
+        "findings": 1,
+        "affectedPaths": [
+          "src/plan.js"
+        ],
+        "evidenceItems": 12
+      },
+      "repairRounds": 1,
+      "failures": [
+        {
+          "stage": "execution",
+          "code": "company_goal_failed",
+          "scope": "roster_execution"
+        },
+        {
+          "stage": "verification",
+          "code": "scenario_verification_failed",
+          "scope": "verification",
+          "terminalStage": "verification"
+        }
+      ],
+      "teamDiagnostics": [
+        {
+          "runId": "94ca8b8d-82c5-4299-bca3-2927b094d7ad",
+          "status": "changes_requested",
+          "reviews": [
+            {
+              "round": 0,
+              "verdict": "changes_requested",
+              "findings": [
+                {
+                  "path": "src/plan.js",
+                  "problem": "The build filter uses hasOwnProperty, which includes non-enumerable own properties, despite the contract requiring modules to be own enumerable keys of current.",
+                  "acceptance": "Filter build modules by enumerable own membership in current, such as Object.keys(current), while preserving sorting and input immutability.",
+                  "evidence": [
+                    "src/plan.js:6-8 uses hasOwn.call(current, name) rather than an enumerable-key check.",
+                    "README.md requires build to be filtered to modules that are OWN enumerable keys of current."
+                  ]
+                }
+              ],
+              "evidence": [
+                "Git status shows changes limited to src/changes.js, src/dependents.js, and src/plan.js.",
+                "Recorded npm test evidence reports exit 0, consistent with the visible tests but insufficient to cover the non-enumerable-key case.",
+                "The inspected implementations correctly use own enumerable snapshot keys, reverse transitive dependencies with cycle-safe sets, and seed planning from changed plus removed.",
+                "inspected git status"
+              ]
+            }
+          ],
+          "stagedCandidate": "not_retained",
+          "artifactHashes": [
+            {
+              "kind": "worker",
+              "round": 0,
+              "sha256": "20b56fda8f8b7dc5fa356b3b72e5723443d909c542bb5f1c99c0745a93dcd8d4"
+            }
+          ],
+          "truncated": true
+        }
+      ],
+      "teamDiagnosticsTruncated": false
+    }
+  ]
+}

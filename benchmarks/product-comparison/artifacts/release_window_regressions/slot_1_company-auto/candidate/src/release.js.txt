@@ -1,0 +1,8 @@
+export function selectRelease(windows, nowMs) {
+  let selected = null;
+  for (const window of windows) {
+    if (window.paused || nowMs < window.startMs || nowMs >= window.endMs) continue;
+    if (!selected || window.priority > selected.priority || (window.priority === selected.priority && window.id < selected.id)) selected = window;
+  }
+  return selected ? {id:selected.id,startMs:selected.startMs,endMs:selected.endMs,priority:selected.priority} : null;
+}

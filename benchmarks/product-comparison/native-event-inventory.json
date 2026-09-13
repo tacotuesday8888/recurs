@@ -1,0 +1,186 @@
+{
+  "version": 1,
+  "scope": "Five retained completed native CLI traces only; interrupted twelfth slot has no retained trace in this candidate set. Original traces are immutable and are not included in this report.",
+  "traces": [
+    {
+      "directory": "trial-4JrPw8",
+      "scenarioId": "release_window_regressions",
+      "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+      "slotId": "slot_1_codex-cli",
+      "traceSha256": "0e3bf356db372efa52c501cdde819896dc15bb41ca0d2dbd1f17b8fda63c808d",
+      "eventTypes": {
+        "thread.started": 1,
+        "turn.started": 1,
+        "item.completed": 14,
+        "item.started": 9,
+        "turn.completed": 1
+      },
+      "itemEventTypes": {
+        "agent_message": 5,
+        "command_execution": 12,
+        "file_change": 6
+      },
+      "completedItemTypes": {
+        "agent_message": 5,
+        "command_execution": 6,
+        "file_change": 3
+      },
+      "externalSkillAccess": {
+        "observed": false,
+        "completedSkillReadCommands": 0,
+        "stdoutSkillMentions": 0,
+        "stderrSkillMentions": 0,
+        "note": "No external skill-read command or skill mention was observed in the retained native trace. This describes trace evidence only; it does not establish what configuration or cached instructions the CLI may have loaded internally."
+      },
+      "nativeDelegation": {
+        "observed": false,
+        "delegationEvents": 0,
+        "note": "No collaboration/delegation item type was observed. Inventory counts completed command items separately from lifecycle events; tool availability is not proof of use."
+      }
+    },
+    {
+      "directory": "trial-DjDr4F",
+      "scenarioId": "shipment_quote",
+      "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+      "slotId": "slot_1_codex-cli",
+      "traceSha256": "507607999603318bb0844941f9ff95a2ca8a281020e1a918fa24af2fa38840b7",
+      "eventTypes": {
+        "thread.started": 1,
+        "turn.started": 1,
+        "item.completed": 11,
+        "item.started": 7,
+        "turn.completed": 1
+      },
+      "itemEventTypes": {
+        "agent_message": 4,
+        "command_execution": 12,
+        "file_change": 2
+      },
+      "completedItemTypes": {
+        "agent_message": 4,
+        "command_execution": 6,
+        "file_change": 1
+      },
+      "externalSkillAccess": {
+        "observed": false,
+        "completedSkillReadCommands": 0,
+        "stdoutSkillMentions": 0,
+        "stderrSkillMentions": 0,
+        "note": "No external skill-read command or skill mention was observed in the retained native trace. This describes trace evidence only; it does not establish what configuration or cached instructions the CLI may have loaded internally."
+      },
+      "nativeDelegation": {
+        "observed": false,
+        "delegationEvents": 0,
+        "note": "No collaboration/delegation item type was observed. Inventory counts completed command items separately from lifecycle events; tool availability is not proof of use."
+      }
+    },
+    {
+      "directory": "trial-EsPVZn",
+      "scenarioId": "incremental_build_repair",
+      "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "slotId": "slot_2_codex-cli",
+      "traceSha256": "a603561a57132b3a8f2623963802ca5c6114d8835f455def7099e74ab86feb77",
+      "eventTypes": {
+        "thread.started": 1,
+        "turn.started": 1,
+        "item.completed": 13,
+        "item.started": 8,
+        "turn.completed": 1
+      },
+      "itemEventTypes": {
+        "agent_message": 5,
+        "command_execution": 14,
+        "file_change": 2
+      },
+      "completedItemTypes": {
+        "agent_message": 5,
+        "command_execution": 7,
+        "file_change": 1
+      },
+      "externalSkillAccess": {
+        "observed": false,
+        "completedSkillReadCommands": 0,
+        "stdoutSkillMentions": 0,
+        "stderrSkillMentions": 0,
+        "note": "No external skill-read command or skill mention was observed in the retained native trace. This describes trace evidence only; it does not establish what configuration or cached instructions the CLI may have loaded internally."
+      },
+      "nativeDelegation": {
+        "observed": false,
+        "delegationEvents": 0,
+        "note": "No collaboration/delegation item type was observed. Inventory counts completed command items separately from lifecycle events; tool availability is not proof of use."
+      }
+    },
+    {
+      "directory": "trial-I64g8i",
+      "scenarioId": "shipment_quote",
+      "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+      "slotId": "slot_2_codex-cli",
+      "traceSha256": "dd2c78d344c48c4afc677ecbdb21411596b53a6d5f0c79c396984dd6f2e30794",
+      "eventTypes": {
+        "thread.started": 1,
+        "turn.started": 1,
+        "item.completed": 10,
+        "item.started": 6,
+        "turn.completed": 1
+      },
+      "itemEventTypes": {
+        "agent_message": 4,
+        "command_execution": 10,
+        "file_change": 2
+      },
+      "completedItemTypes": {
+        "agent_message": 4,
+        "command_execution": 5,
+        "file_change": 1
+      },
+      "externalSkillAccess": {
+        "observed": false,
+        "completedSkillReadCommands": 0,
+        "stdoutSkillMentions": 0,
+        "stderrSkillMentions": 0,
+        "note": "No external skill-read command or skill mention was observed in the retained native trace. This describes trace evidence only; it does not establish what configuration or cached instructions the CLI may have loaded internally."
+      },
+      "nativeDelegation": {
+        "observed": false,
+        "delegationEvents": 0,
+        "note": "No collaboration/delegation item type was observed. Inventory counts completed command items separately from lifecycle events; tool availability is not proof of use."
+      }
+    },
+    {
+      "directory": "trial-oGtkuW",
+      "scenarioId": "incremental_build_repair",
+      "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "slotId": "slot_1_codex-cli",
+      "traceSha256": "84c13e9cece6d9dd4c1d57c7d93056754fb112cf5e0b5c363189a19f437faf93",
+      "eventTypes": {
+        "thread.started": 1,
+        "turn.started": 1,
+        "item.completed": 8,
+        "item.started": 5,
+        "turn.completed": 1
+      },
+      "itemEventTypes": {
+        "agent_message": 3,
+        "command_execution": 8,
+        "file_change": 2
+      },
+      "completedItemTypes": {
+        "agent_message": 3,
+        "command_execution": 4,
+        "file_change": 1
+      },
+      "externalSkillAccess": {
+        "observed": false,
+        "completedSkillReadCommands": 0,
+        "stdoutSkillMentions": 0,
+        "stderrSkillMentions": 0,
+        "note": "No external skill-read command or skill mention was observed in the retained native trace. This describes trace evidence only; it does not establish what configuration or cached instructions the CLI may have loaded internally."
+      },
+      "nativeDelegation": {
+        "observed": false,
+        "delegationEvents": 0,
+        "note": "No collaboration/delegation item type was observed. Inventory counts completed command items separately from lifecycle events; tool availability is not proof of use."
+      }
+    }
+  ]
+}

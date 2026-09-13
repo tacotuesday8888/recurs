@@ -1,0 +1,12 @@
+import { diffSnapshots } from './changes.js';
+import { affectedModules } from './dependents.js';
+export function planBuild(graph, previous, current) {
+  const delta = diffSnapshots(previous,current);
+  const affected = affectedModules(graph, [...delta.changed, ...delta.removed]);
+  const hasOwn = Object.prototype.hasOwnProperty;
+
+  return {
+    ...delta,
+    build: affected.filter(name => hasOwn.call(current, name)),
+  };
+}

@@ -1,0 +1,52 @@
+const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isIntegerInRange = (value, minimum, maximum) =>
+  Number.isInteger(value) && value >= minimum && value <= maximum;
+
+export function normalizeCart(items, catalog) {
+  if (!Array.isArray(items) || items.length > 100 || !isRecord(catalog)) {
+    throw new TypeError('Invalid cart or catalog');
+  }
+
+  const lines = [];
+  const bySku = new Map();
+
+  for (const item of items) {
+    if (!isRecord(item) || typeof item.sku !== 'string' || item.sku.length === 0 ||
+        !isIntegerInRange(item.quantity, 1, 1000)) {
+      throw new TypeError('Invalid cart item');
+    }
+    if (!Object.hasOwn(catalog, item.sku)) {
+      throw new TypeError('Unknown SKU');
+    }
+
+    const product = catalog[item.sku];
+    if (!isRecord(product) ||
+        !isIntegerInRange(product.unitCents, 0, 1_000_000) ||
+        !isIntegerInRange(product.grams, 1, 100_000) ||
+        !isIntegerInRange(product.stock, 0, 1_000_000)) {
+      throw new TypeError('Invalid catalog entry');
+    }
+
+    const existing = bySku.get(item.sku);
+    if (existing) {
+      existing.quantity += item.quantity;
+      if (existing.quantity > product.stock) {
+        throw new RangeError('Cart quantity exceeds stock');
+      }
+    } else {
+      if (item.quantity > product.stock) {
+        throw new RangeError('Cart quantity exceeds stock');
+      }
+      const line = {
+        sku: item.sku,
+        quantity: item.quantity,
+        unitCents: product.unitCents,
+        grams: product.grams,
+      };
+      bySku.set(item.sku, line);
+      lines.push(line);
+    }
+  }
+
+  return lines;
+}

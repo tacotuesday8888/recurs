@@ -1,0 +1,28 @@
+function isIntegerInRange(value, minimum, maximum) {
+  return Number.isInteger(value) && value >= minimum && value <= maximum;
+}
+
+export function priceCart(lines, discountBps = 0) {
+  if (!Array.isArray(lines) || !isIntegerInRange(discountBps, 0, 10000)) {
+    throw new TypeError('Invalid price input');
+  }
+
+  let subtotalCents = 0;
+  for (const line of lines) {
+    if (line === null || typeof line !== 'object' || Array.isArray(line) ||
+        typeof line.sku !== 'string' || line.sku.length === 0 ||
+        !isIntegerInRange(line.quantity, 1, 1000000) ||
+        !isIntegerInRange(line.unitCents, 0, 1000000) ||
+        !isIntegerInRange(line.grams, 1, 100000)) {
+      throw new TypeError('Invalid normalized line');
+    }
+    subtotalCents += line.quantity * line.unitCents;
+  }
+
+  const discountCents = Math.floor(subtotalCents * discountBps / 10000);
+  return {
+    subtotalCents,
+    discountCents,
+    merchandiseCents: subtotalCents - discountCents
+  };
+}

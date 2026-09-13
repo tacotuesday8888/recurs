@@ -22,3 +22,8 @@
   .product-comparison .evidence-heading h2 { max-width: 24ch; }
   .product-attempts ol { padding-right: 16px; padding-left: 34px; }
 }
+.product-review-story { margin-block: 28px; padding-block: 22px; border-block: 1px solid var(--line); max-width: 80ch; }
+.product-review-story h3 { font-size: 22px; line-height: 1.3; }
+.product-review-story p { margin-top: 12px; color: var(--muted); line-height: 1.6; }
+.product-review-story details { margin-top: 14px; }
+.product-review-story summary { cursor: pointer; width: fit-content; }

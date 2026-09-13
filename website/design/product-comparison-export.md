@@ -10,7 +10,8 @@ The exact TypeScript contract and runtime validator are in
 audit and protocol links, two configurations, the token-accounting decision and
 all twelve declared slots. The three task IDs and two product IDs come from the
 frozen product campaign; each product/task must have repetitions 1 and 2 exactly
-once. Missing trials require explicit `not_started` records, never omitted rows.
+once. Missing trials require an explicit status: `not_started` when never launched,
+or `cancelled` for the interrupted reserved slot with no retained trial. Never omit a row.
 
 Each attempt records execution status, task verification, workspace integrity,
 source review, validity, an audit note, nullable elapsed milliseconds and usage.
@@ -19,8 +20,9 @@ verification, integrity and source review. Passing files after a timeout remain
 an unfinished attempt. Invalid setups keep their duration and explanation in the
 record, with no speed or success claim inferred from them.
 
-Use `timed_out` for audited timeouts, independently of a lower-level cancelled or
-failed process status. `not_started` has null time and counters, no usage coverage,
+Use `timed_out` when execution actually timed out. A recorded completed execution
+that exceeded the declared limit keeps that recorded status and elapsed time,
+with invalid comparison status and an explanation. `not_started` has null time and counters, no usage coverage,
 and `not_run` for each check/review. An invalid slot requires an explanatory note.
 Measured zero is a number; missing values are null. Do not use settlement charges
 or deadline ceilings as measured time or tokens.
@@ -46,6 +48,17 @@ JavaScript. Native disclosure elements expose attempt details and configured
 model routes. No new motion controller, palette or logo asset is introduced.
 When real data is present, the existing evidence section is labeled as earlier
 tests inside Recurs; its stored data and detailed records remain unchanged.
+The Benchmarks navigation link points to the fresh comparison.
+
+The live build also reads `benchmarks/product-comparison/review-finding.json`.
+This separate version-1 observation contains exactly `title`, `summary`,
+`reviewerObservation`, `auditObservation` and `outcome` strings. Text is validated
+and escaped. Keep reviewer observations separate from independently reproduced
+candidate behavior; disclose an unsuccessful repair and unavailable rejected
+source. Its content hash is bound in the final audit. This sidecar does not alter
+the comparison schema or the frozen automated scores.
+Only the title and short summary are expanded initially; a native disclosure
+holds the detailed observation, reproduction and outcome.
 
 Run `npm --prefix website run check` for the build and offline display tests.
 For manual layout checks only, run

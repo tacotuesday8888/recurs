@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { quote } from '../src/quote.js';
+test('two parcels produce an integrated shipment quote', () => {
+  assert.deepEqual(quote([{sku:'book',quantity:2}], {book:{unitCents:1200,grams:600,stock:3}}), {
+    lines:[{sku:'book',quantity:2,unitCents:1200,grams:600}],
+    subtotalCents:2400,discountCents:0,merchandiseCents:2400,deliveryCents:900,totalCents:3300,
+  });
+});
+test('empty quote has no charge', () => {
+  assert.equal(quote([], {}).totalCents, 0);
+});

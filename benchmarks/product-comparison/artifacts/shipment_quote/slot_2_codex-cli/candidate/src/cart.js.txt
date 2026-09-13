@@ -1,0 +1,42 @@
+export function normalizeCart(items, catalog) {
+  if (!Array.isArray(items) || items.length > 100) {
+    throw new TypeError('items must be an array of at most 100 records');
+  }
+  if (catalog === null || typeof catalog !== 'object' || Array.isArray(catalog)) {
+    throw new TypeError('catalog must be a non-array object');
+  }
+
+  const quantities = new Map();
+  for (const item of items) {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) {
+      throw new TypeError('each item must be a record');
+    }
+    const { sku, quantity } = item;
+    if (typeof sku !== 'string' || sku.length === 0 ||
+        !Number.isInteger(quantity) || quantity < 1 || quantity > 1000) {
+      throw new TypeError('invalid cart item');
+    }
+    if (!Object.hasOwn(catalog, sku)) {
+      throw new TypeError(`missing SKU: ${sku}`);
+    }
+
+    const entry = catalog[sku];
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry) ||
+        !Number.isInteger(entry.unitCents) || entry.unitCents < 0 || entry.unitCents > 1000000 ||
+        !Number.isInteger(entry.grams) || entry.grams < 1 || entry.grams > 100000 ||
+        !Number.isInteger(entry.stock) || entry.stock < 0 || entry.stock > 1000000) {
+      throw new TypeError(`invalid catalog entry: ${sku}`);
+    }
+
+    const total = (quantities.get(sku) ?? 0) + quantity;
+    if (total > entry.stock) {
+      throw new RangeError(`insufficient stock: ${sku}`);
+    }
+    quantities.set(sku, total);
+  }
+
+  return [...quantities].map(([sku, quantity]) => {
+    const { unitCents, grams } = catalog[sku];
+    return { sku, quantity, unitCents, grams };
+  });
+}

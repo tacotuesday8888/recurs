@@ -63,11 +63,13 @@ const { taskResults } = await import(new URL("../.build/results.js", import.meta
 const { parseProductComparison, renderProductComparison } = await import(new URL("../.build/product-comparison.js", import.meta.url));
 const productComparison = await buildProductComparison({
   dataPath: join(repository, "benchmarks/product-comparison/website-results.json"),
+  reviewFindingPath: join(repository, "benchmarks/product-comparison/review-finding.json"),
   outputPath: output,
   parse: parseProductComparison,
   render: renderProductComparison,
 });
 const replacements = {
+  BENCHMARKS_TARGET: productComparison ? "#product-comparison" : "#evidence",
   PRODUCT_COMPARISON: productComparison,
   HISTORICAL_EVIDENCE_TITLE: productComparison ? "Earlier tests inside Recurs" : "What happened in our tests?",
   TASK_RESULTS: taskResults(summary),

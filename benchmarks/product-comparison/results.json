@@ -1,0 +1,3084 @@
+{
+  "version": 1,
+  "kind": "model_backed",
+  "selection": {
+    "version": 1,
+    "kind": "model_backed",
+    "title": "Fresh Codex subscription product tasks — all twelve declared slots",
+    "sourceRevision": "127e5b389f41f6752633bd62a2d99065dd9ed1e7",
+    "sourceState": "Frozen pre-run executable; cancellation fixes made afterward are not included in measured candidates.",
+    "executedArtifact": ".build/product-comparison/recurs.mjs",
+    "executedArtifactSha256": "492f054579645ac1197f33708ca02bdad55c1b6a63687f0dbade9363d9541137",
+    "selectionReason": "All twelve predeclared slots, including one Recurs deadline overrun and one interrupted Codex attempt. No outcome-based retries.",
+    "includeReservationInventory": true,
+    "campaignIds": [
+      "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+      "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f"
+    ]
+  },
+  "redactions": [
+    "Local connection IDs replaced with stable SHA-256 aliases"
+  ],
+  "campaigns": [
+    {
+      "sourceSha256": "9e43717564cd057b175820a196d3f0b1c42fcaa305a2cc4023b78e807cae33fa",
+      "campaign": {
+        "id": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+        "version": 1,
+        "createdAt": "2026-09-13T20:51:50.272Z",
+        "scenario": {
+          "id": "shipment_quote",
+          "version": 1,
+          "taskClass": "general_coding",
+          "difficulty": "medium",
+          "fixtureSha256": "cc15286cb738bb8385de3bae31b4d32d31202f7a4a7faf0ea3a3a4329705909f",
+          "verifierId": "shipment_quote_hidden_v1",
+          "objectiveRevision": "shipment_quote_objective_v1"
+        },
+        "harnessRevision": "recurs_development",
+        "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+        "operatingModeId": "balanced_v6",
+        "operatingModeVersion": 6,
+        "permissionMode": "approved_for_me",
+        "comparisonDesign": "official_codex_control_v1",
+        "repetitions": 2,
+        "ceilings": {
+          "maxTrialSlots": 4,
+          "maxRequests": 384,
+          "maxReportedCostUsd": 12
+        },
+        "blueprint": {
+          "id": "company-benchmark-shipment_quote-v1-blueprint",
+          "revision": 1,
+          "sha256": "a217170285b472f4ff5e9e90011eb3ba9a2998d78114de2fedbd0a226110b7c7"
+        },
+        "baseline": {
+          "id": "codex-cli",
+          "kind": "single_agent",
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-cli-exec",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ]
+        },
+        "companyArms": [
+          {
+            "id": "company-auto",
+            "kind": "company",
+            "configuredRoutes": [
+              {
+                "role": "parent",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-3419f03f8f2e702f17ecea88",
+                "modelId": "gpt-5.6-luna",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "implement",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-1d55712ef02ba31dd879c353",
+                "modelId": "gpt-5.6-terra",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "review",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-3419f03f8f2e702f17ecea88",
+                "modelId": "gpt-5.6-luna",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "repair",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-1d55712ef02ba31dd879c353",
+                "modelId": "gpt-5.6-terra",
+                "reasoningEffort": "medium"
+              }
+            ]
+          }
+        ],
+        "armOrder": [
+          {
+            "slotId": "slot_1_codex-cli",
+            "armId": "codex-cli",
+            "repetition": 1
+          },
+          {
+            "slotId": "slot_1_company-auto",
+            "armId": "company-auto",
+            "repetition": 1
+          },
+          {
+            "slotId": "slot_2_company-auto",
+            "armId": "company-auto",
+            "repetition": 2
+          },
+          {
+            "slotId": "slot_2_codex-cli",
+            "armId": "codex-cli",
+            "repetition": 2
+          }
+        ]
+      },
+      "trials": [
+        {
+          "id": "benchmark_trial_2db7137a453fbecdf338a9e847e8d679",
+          "version": 1,
+          "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+          "slotId": "slot_1_codex-cli",
+          "armId": "codex-cli",
+          "armKind": "single_agent",
+          "repetition": 1,
+          "scenario": {
+            "id": "shipment_quote",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "cc15286cb738bb8385de3bae31b4d32d31202f7a4a7faf0ea3a3a4329705909f",
+            "verifierId": "shipment_quote_hidden_v1",
+            "objectiveRevision": "shipment_quote_objective_v1"
+          },
+          "harnessRevision": "recurs_development",
+          "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+          "blueprint": null,
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-cli-exec",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-cli-exec",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T20:53:10.924Z",
+          "completedAt": "2026-09-13T20:54:59.340Z",
+          "wallClockMs": 108416,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 106446,
+              "attemptLatenciesMs": [
+                106446
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 115091,
+                "outputTokens": 5162,
+                "cachedInputTokens": 91392,
+                "cacheWriteInputTokens": 0,
+                "reasoningTokens": 1608,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 0,
+              "changedFiles": [
+                "src/cart.js",
+                "src/delivery.js",
+                "src/pricing.js",
+                "src/quote.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 1,
+            "usageReports": 1,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 115091,
+            "outputTokens": 5162,
+            "cachedInputTokens": 91392,
+            "cacheWriteInputTokens": 0,
+            "reasoningTokens": 1608,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_shipment_cart",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_shipment_validation",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_shipment_rates",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_shipment_integration",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 0,
+            "approved": 0,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": null,
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 0
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 0,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 0,
+            "finalItems": 0
+          },
+          "changedFiles": [
+            "src/cart.js",
+            "src/delivery.js",
+            "src/pricing.js",
+            "src/quote.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        },
+        {
+          "id": "benchmark_trial_6233ec1471b7bb492a99d162bc05f046",
+          "version": 1,
+          "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+          "slotId": "slot_1_company-auto",
+          "armId": "company-auto",
+          "armKind": "company",
+          "repetition": 1,
+          "scenario": {
+            "id": "shipment_quote",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "cc15286cb738bb8385de3bae31b4d32d31202f7a4a7faf0ea3a3a4329705909f",
+            "verifierId": "shipment_quote_hidden_v1",
+            "objectiveRevision": "shipment_quote_objective_v1"
+          },
+          "harnessRevision": "recurs_development",
+          "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+          "blueprint": {
+            "id": "company-benchmark-shipment_quote-v1-blueprint",
+            "revision": 1,
+            "sha256": "a217170285b472f4ff5e9e90011eb3ba9a2998d78114de2fedbd0a226110b7c7"
+          },
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T20:54:59.411Z",
+          "completedAt": "2026-09-13T20:58:01.983Z",
+          "wallClockMs": 182572,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 181796,
+              "attemptLatenciesMs": [
+                181796
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 88081,
+                "outputTokens": 833,
+                "cachedInputTokens": 79104,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 150,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 27,
+              "changedFiles": []
+            },
+            {
+              "role": "implement",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 69418,
+              "attemptLatenciesMs": [
+                69418
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 115867,
+                "outputTokens": 2865,
+                "cachedInputTokens": 92416,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 697,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 15,
+              "changedFiles": [
+                "src/cart.js",
+                "src/delivery.js",
+                "src/pricing.js",
+                "src/quote.js"
+              ]
+            },
+            {
+              "role": "review",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 67165,
+              "attemptLatenciesMs": [
+                67165
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 53558,
+                "outputTokens": 3135,
+                "cachedInputTokens": 34048,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 2568,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 17,
+              "changedFiles": []
+            }
+          ],
+          "usage": {
+            "requestsUsed": 3,
+            "usageReports": 3,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 257506,
+            "outputTokens": 6833,
+            "cachedInputTokens": 205568,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 3415,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_shipment_cart",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_shipment_validation",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_shipment_rates",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_shipment_integration",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 1,
+            "approved": 1,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": "approved",
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 22
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 3,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 59,
+            "finalItems": 27
+          },
+          "changedFiles": [
+            "src/cart.js",
+            "src/delivery.js",
+            "src/pricing.js",
+            "src/quote.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        },
+        {
+          "id": "benchmark_trial_282ff85c468a155806baa318849e00a7",
+          "version": 1,
+          "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+          "slotId": "slot_2_codex-cli",
+          "armId": "codex-cli",
+          "armKind": "single_agent",
+          "repetition": 2,
+          "scenario": {
+            "id": "shipment_quote",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "cc15286cb738bb8385de3bae31b4d32d31202f7a4a7faf0ea3a3a4329705909f",
+            "verifierId": "shipment_quote_hidden_v1",
+            "objectiveRevision": "shipment_quote_objective_v1"
+          },
+          "harnessRevision": "recurs_development",
+          "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+          "blueprint": null,
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-cli-exec",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-cli-exec",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T21:05:47.019Z",
+          "completedAt": "2026-09-13T21:06:58.178Z",
+          "wallClockMs": 71159,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 69197,
+              "attemptLatenciesMs": [
+                69197
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 88788,
+                "outputTokens": 3141,
+                "cachedInputTokens": 55040,
+                "cacheWriteInputTokens": 0,
+                "reasoningTokens": 909,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 0,
+              "changedFiles": [
+                "src/cart.js",
+                "src/delivery.js",
+                "src/pricing.js",
+                "src/quote.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 1,
+            "usageReports": 1,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 88788,
+            "outputTokens": 3141,
+            "cachedInputTokens": 55040,
+            "cacheWriteInputTokens": 0,
+            "reasoningTokens": 909,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_shipment_cart",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_shipment_validation",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_shipment_rates",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_shipment_integration",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 0,
+            "approved": 0,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": null,
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 0
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 0,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 0,
+            "finalItems": 0
+          },
+          "changedFiles": [
+            "src/cart.js",
+            "src/delivery.js",
+            "src/pricing.js",
+            "src/quote.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        },
+        {
+          "id": "benchmark_trial_d64c19fc9965c15c3c99d3fcfc5b2d11",
+          "version": 1,
+          "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+          "slotId": "slot_2_company-auto",
+          "armId": "company-auto",
+          "armKind": "company",
+          "repetition": 2,
+          "scenario": {
+            "id": "shipment_quote",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "cc15286cb738bb8385de3bae31b4d32d31202f7a4a7faf0ea3a3a4329705909f",
+            "verifierId": "shipment_quote_hidden_v1",
+            "objectiveRevision": "shipment_quote_objective_v1"
+          },
+          "harnessRevision": "recurs_development",
+          "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+          "blueprint": {
+            "id": "company-benchmark-shipment_quote-v1-blueprint",
+            "revision": 1,
+            "sha256": "a217170285b472f4ff5e9e90011eb3ba9a2998d78114de2fedbd0a226110b7c7"
+          },
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T20:58:02.051Z",
+          "completedAt": "2026-09-13T21:05:46.947Z",
+          "wallClockMs": 464896,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 464889,
+              "attemptLatenciesMs": [
+                464889
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 194049,
+                "outputTokens": 1315,
+                "cachedInputTokens": 158464,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 264,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 28,
+              "changedFiles": []
+            },
+            {
+              "role": "implement",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 368588,
+              "attemptLatenciesMs": [
+                368588
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 101360,
+                "outputTokens": 3006,
+                "cachedInputTokens": 82432,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 848,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 10,
+              "changedFiles": [
+                "src/cart.js",
+                "src/delivery.js",
+                "src/pricing.js",
+                "src/quote.js"
+              ]
+            },
+            {
+              "role": "review",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 51534,
+              "attemptLatenciesMs": [
+                51534
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 57592,
+                "outputTokens": 1788,
+                "cachedInputTokens": 38144,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 1327,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 17,
+              "changedFiles": []
+            }
+          ],
+          "usage": {
+            "requestsUsed": 3,
+            "usageReports": 3,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 353001,
+            "outputTokens": 6109,
+            "cachedInputTokens": 279040,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 2439,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "failed",
+            "workspaceIntegrity": "failed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "failed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 1,
+            "approved": 1,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": "approved",
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 21
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 3,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 55,
+            "finalItems": 28
+          },
+          "changedFiles": [
+            "src/cart.js",
+            "src/delivery.js",
+            "src/pricing.js",
+            "src/quote.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": [
+            {
+              "stage": "verification",
+              "code": "scenario_verification_failed",
+              "scope": "verification",
+              "terminalStage": "verification"
+            }
+          ]
+        }
+      ],
+      "settlements": [
+        {
+          "id": "benchmark_settlement_ac15af45920d2fde4152677a6defc978",
+          "version": 1,
+          "reservationId": "benchmark_reservation_2db7137a453fbecdf338a9e847e8d679",
+          "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+          "slotId": "slot_1_codex-cli",
+          "status": "completed",
+          "settledAt": "2026-09-13T20:54:59.371Z",
+          "trialId": "benchmark_trial_2db7137a453fbecdf338a9e847e8d679",
+          "requestsCharged": 1,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.03125,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_4cda84729bd4309a100f74104975dcb4",
+          "version": 1,
+          "reservationId": "benchmark_reservation_6233ec1471b7bb492a99d162bc05f046",
+          "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+          "slotId": "slot_1_company-auto",
+          "status": "completed",
+          "settledAt": "2026-09-13T20:58:02.016Z",
+          "trialId": "benchmark_trial_6233ec1471b7bb492a99d162bc05f046",
+          "requestsCharged": 3,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.09424212598425198,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_ecc83df31247fe71c4f78b91bb1d0f68",
+          "version": 1,
+          "reservationId": "benchmark_reservation_282ff85c468a155806baa318849e00a7",
+          "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+          "slotId": "slot_2_codex-cli",
+          "status": "completed",
+          "settledAt": "2026-09-13T21:06:58.207Z",
+          "trialId": "benchmark_trial_282ff85c468a155806baa318849e00a7",
+          "requestsCharged": 1,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.03124870493162039,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_dd55b6b2cd428ce4cb7da6c48c538704",
+          "version": 1,
+          "reservationId": "benchmark_reservation_d64c19fc9965c15c3c99d3fcfc5b2d11",
+          "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+          "slotId": "slot_2_company-auto",
+          "status": "completed",
+          "settledAt": "2026-09-13T21:05:46.981Z",
+          "trialId": "benchmark_trial_d64c19fc9965c15c3c99d3fcfc5b2d11",
+          "requestsCharged": 3,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.09374611479486117,
+          "failureCode": null
+        }
+      ],
+      "reservations": [
+        {
+          "id": "benchmark_reservation_2db7137a453fbecdf338a9e847e8d679",
+          "version": 1,
+          "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+          "slotId": "slot_1_codex-cli",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T20:53:10.890Z",
+          "requestAllowance": 96,
+          "reportedCostAllowanceUsd": 3
+        },
+        {
+          "id": "benchmark_reservation_6233ec1471b7bb492a99d162bc05f046",
+          "version": 1,
+          "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+          "slotId": "slot_1_company-auto",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T20:54:59.393Z",
+          "requestAllowance": 127,
+          "reportedCostAllowanceUsd": 3.9895833333333335
+        },
+        {
+          "id": "benchmark_reservation_282ff85c468a155806baa318849e00a7",
+          "version": 1,
+          "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+          "slotId": "slot_2_codex-cli",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T21:05:47.002Z",
+          "requestAllowance": 377,
+          "reportedCostAllowanceUsd": 11.780761759220887
+        },
+        {
+          "id": "benchmark_reservation_d64c19fc9965c15c3c99d3fcfc5b2d11",
+          "version": 1,
+          "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+          "slotId": "slot_2_company-auto",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T20:58:02.035Z",
+          "requestAllowance": 190,
+          "reportedCostAllowanceUsd": 5.937253937007874
+        }
+      ]
+    },
+    {
+      "sourceSha256": "06cdc2db27f9271cc7a1e8ab6cc366b1e08e87357930ffe40ff376e32ccd186f",
+      "campaign": {
+        "id": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+        "version": 1,
+        "createdAt": "2026-09-13T20:51:50.275Z",
+        "scenario": {
+          "id": "incremental_build_repair",
+          "version": 1,
+          "taskClass": "general_coding",
+          "difficulty": "medium",
+          "fixtureSha256": "87663fbb67fa02df29453048f8a64b3411d8ca373b2e2e12084e57920feb24f7",
+          "verifierId": "incremental_build_repair_hidden_v1",
+          "objectiveRevision": "incremental_build_repair_objective_v1"
+        },
+        "harnessRevision": "recurs_development",
+        "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+        "operatingModeId": "balanced_v6",
+        "operatingModeVersion": 6,
+        "permissionMode": "approved_for_me",
+        "comparisonDesign": "official_codex_control_v1",
+        "repetitions": 2,
+        "ceilings": {
+          "maxTrialSlots": 4,
+          "maxRequests": 384,
+          "maxReportedCostUsd": 12
+        },
+        "blueprint": {
+          "id": "company-benchmark-incremental_build_repair-v1-blueprint",
+          "revision": 1,
+          "sha256": "d9e3fa32d56f4bd6225cd668e265fd0d783c93fc8175a3f1f77d5373ed7b61f5"
+        },
+        "baseline": {
+          "id": "codex-cli",
+          "kind": "single_agent",
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-cli-exec",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ]
+        },
+        "companyArms": [
+          {
+            "id": "company-auto",
+            "kind": "company",
+            "configuredRoutes": [
+              {
+                "role": "parent",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-3419f03f8f2e702f17ecea88",
+                "modelId": "gpt-5.6-luna",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "implement",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-1d55712ef02ba31dd879c353",
+                "modelId": "gpt-5.6-terra",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "review",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-3419f03f8f2e702f17ecea88",
+                "modelId": "gpt-5.6-luna",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "repair",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-1d55712ef02ba31dd879c353",
+                "modelId": "gpt-5.6-terra",
+                "reasoningEffort": "medium"
+              }
+            ]
+          }
+        ],
+        "armOrder": [
+          {
+            "slotId": "slot_1_codex-cli",
+            "armId": "codex-cli",
+            "repetition": 1
+          },
+          {
+            "slotId": "slot_1_company-auto",
+            "armId": "company-auto",
+            "repetition": 1
+          },
+          {
+            "slotId": "slot_2_company-auto",
+            "armId": "company-auto",
+            "repetition": 2
+          },
+          {
+            "slotId": "slot_2_codex-cli",
+            "armId": "codex-cli",
+            "repetition": 2
+          }
+        ]
+      },
+      "trials": [
+        {
+          "id": "benchmark_trial_b6bc7c3faa51f1f56c9837178070075f",
+          "version": 1,
+          "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+          "slotId": "slot_1_codex-cli",
+          "armId": "codex-cli",
+          "armKind": "single_agent",
+          "repetition": 1,
+          "scenario": {
+            "id": "incremental_build_repair",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "87663fbb67fa02df29453048f8a64b3411d8ca373b2e2e12084e57920feb24f7",
+            "verifierId": "incremental_build_repair_hidden_v1",
+            "objectiveRevision": "incremental_build_repair_objective_v1"
+          },
+          "harnessRevision": "recurs_development",
+          "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+          "blueprint": null,
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-cli-exec",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-cli-exec",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T21:06:59.618Z",
+          "completedAt": "2026-09-13T21:07:50.694Z",
+          "wallClockMs": 51076,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 49672,
+              "attemptLatenciesMs": [
+                49672
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 69882,
+                "outputTokens": 2072,
+                "cachedInputTokens": 53760,
+                "cacheWriteInputTokens": 0,
+                "reasoningTokens": 579,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 0,
+              "changedFiles": [
+                "src/changes.js",
+                "src/dependents.js",
+                "src/plan.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 1,
+            "usageReports": 1,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 69882,
+            "outputTokens": 2072,
+            "cachedInputTokens": 53760,
+            "cacheWriteInputTokens": 0,
+            "reasoningTokens": 579,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_build_snapshots",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_build_transitive",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_build_cycles",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_build_integration",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 0,
+            "approved": 0,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": null,
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 0
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 0,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 0,
+            "finalItems": 0
+          },
+          "changedFiles": [
+            "src/changes.js",
+            "src/dependents.js",
+            "src/plan.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        },
+        {
+          "id": "benchmark_trial_da51c2d91603a4fcae920b166b11c89c",
+          "version": 1,
+          "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+          "slotId": "slot_1_company-auto",
+          "armId": "company-auto",
+          "armKind": "company",
+          "repetition": 1,
+          "scenario": {
+            "id": "incremental_build_repair",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "87663fbb67fa02df29453048f8a64b3411d8ca373b2e2e12084e57920feb24f7",
+            "verifierId": "incremental_build_repair_hidden_v1",
+            "objectiveRevision": "incremental_build_repair_objective_v1"
+          },
+          "harnessRevision": "recurs_development",
+          "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+          "blueprint": {
+            "id": "company-benchmark-incremental_build_repair-v1-blueprint",
+            "revision": 1,
+            "sha256": "d9e3fa32d56f4bd6225cd668e265fd0d783c93fc8175a3f1f77d5373ed7b61f5"
+          },
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T21:07:50.761Z",
+          "completedAt": "2026-09-13T21:09:58.138Z",
+          "wallClockMs": 127377,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 126568,
+              "attemptLatenciesMs": [
+                126568
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 62296,
+                "outputTokens": 776,
+                "cachedInputTokens": 35072,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 117,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 23,
+              "changedFiles": []
+            },
+            {
+              "role": "implement",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 52383,
+              "attemptLatenciesMs": [
+                52383
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 108428,
+                "outputTokens": 1777,
+                "cachedInputTokens": 88320,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 343,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 13,
+              "changedFiles": [
+                "src/changes.js",
+                "src/dependents.js",
+                "src/plan.js"
+              ]
+            },
+            {
+              "role": "review",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 29951,
+              "attemptLatenciesMs": [
+                29951
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 37144,
+                "outputTokens": 1187,
+                "cachedInputTokens": 22016,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 778,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 12,
+              "changedFiles": []
+            }
+          ],
+          "usage": {
+            "requestsUsed": 3,
+            "usageReports": 3,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 207868,
+            "outputTokens": 3740,
+            "cachedInputTokens": 145408,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 1238,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_build_snapshots",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_build_transitive",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_build_cycles",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_build_integration",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 1,
+            "approved": 1,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": "approved",
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 17
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 3,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 48,
+            "finalItems": 23
+          },
+          "changedFiles": [
+            "src/changes.js",
+            "src/dependents.js",
+            "src/plan.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        },
+        {
+          "id": "benchmark_trial_9bbd7099f75e3220696504e43012fbe6",
+          "version": 1,
+          "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+          "slotId": "slot_2_codex-cli",
+          "armId": "codex-cli",
+          "armKind": "single_agent",
+          "repetition": 2,
+          "scenario": {
+            "id": "incremental_build_repair",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "87663fbb67fa02df29453048f8a64b3411d8ca373b2e2e12084e57920feb24f7",
+            "verifierId": "incremental_build_repair_hidden_v1",
+            "objectiveRevision": "incremental_build_repair_objective_v1"
+          },
+          "harnessRevision": "recurs_development",
+          "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+          "blueprint": null,
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-cli-exec",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-cli-exec",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T21:12:40.880Z",
+          "completedAt": "2026-09-13T21:14:10.594Z",
+          "wallClockMs": 89714,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 87633,
+              "attemptLatenciesMs": [
+                87633
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 121729,
+                "outputTokens": 4098,
+                "cachedInputTokens": 100352,
+                "cacheWriteInputTokens": 0,
+                "reasoningTokens": 793,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 0,
+              "changedFiles": [
+                "src/changes.js",
+                "src/dependents.js",
+                "src/plan.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 1,
+            "usageReports": 1,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 121729,
+            "outputTokens": 4098,
+            "cachedInputTokens": 100352,
+            "cacheWriteInputTokens": 0,
+            "reasoningTokens": 793,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_build_snapshots",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_build_transitive",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_build_cycles",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_build_integration",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 0,
+            "approved": 0,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": null,
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 0
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 0,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 0,
+            "finalItems": 0
+          },
+          "changedFiles": [
+            "src/changes.js",
+            "src/dependents.js",
+            "src/plan.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        },
+        {
+          "id": "benchmark_trial_2a8c8044c5caf6907a83579ca947c1cb",
+          "version": 1,
+          "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+          "slotId": "slot_2_company-auto",
+          "armId": "company-auto",
+          "armKind": "company",
+          "repetition": 2,
+          "scenario": {
+            "id": "incremental_build_repair",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "87663fbb67fa02df29453048f8a64b3411d8ca373b2e2e12084e57920feb24f7",
+            "verifierId": "incremental_build_repair_hidden_v1",
+            "objectiveRevision": "incremental_build_repair_objective_v1"
+          },
+          "harnessRevision": "recurs_development",
+          "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+          "blueprint": {
+            "id": "company-benchmark-incremental_build_repair-v1-blueprint",
+            "revision": 1,
+            "sha256": "d9e3fa32d56f4bd6225cd668e265fd0d783c93fc8175a3f1f77d5373ed7b61f5"
+          },
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "failed",
+          "startedAt": "2026-09-13T21:09:58.206Z",
+          "completedAt": "2026-09-13T21:12:40.793Z",
+          "wallClockMs": 162587,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 161738,
+              "attemptLatenciesMs": [
+                161738
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 74935,
+                "outputTokens": 711,
+                "cachedInputTokens": 47104,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 69,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 0,
+              "changedFiles": []
+            },
+            {
+              "role": "implement",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 41361,
+              "attemptLatenciesMs": [
+                41361
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 67682,
+                "outputTokens": 1620,
+                "cachedInputTokens": 49152,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 323,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 7,
+              "changedFiles": [
+                "src/changes.js",
+                "src/dependents.js",
+                "src/plan.js"
+              ]
+            },
+            {
+              "role": "review",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 33290,
+              "attemptLatenciesMs": [
+                33290
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 50213,
+                "outputTokens": 1369,
+                "cachedInputTokens": 35072,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 850,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 9,
+              "changedFiles": []
+            },
+            {
+              "role": "repair",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 46468,
+              "attemptLatenciesMs": [
+                46468
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 94184,
+                "outputTokens": 1751,
+                "cachedInputTokens": 76288,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 849,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 10,
+              "changedFiles": []
+            }
+          ],
+          "usage": {
+            "requestsUsed": 4,
+            "usageReports": 4,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 287014,
+            "outputTokens": 5451,
+            "cachedInputTokens": 207616,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 2091,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "failed",
+            "workspaceIntegrity": "failed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "failed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "failed"
+              },
+              {
+                "id": "hidden_build_snapshots",
+                "status": "failed"
+              },
+              {
+                "id": "hidden_build_transitive",
+                "status": "failed"
+              },
+              {
+                "id": "hidden_build_cycles",
+                "status": "failed"
+              },
+              {
+                "id": "hidden_build_integration",
+                "status": "failed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 1,
+            "approved": 0,
+            "changesRequested": 1,
+            "unverified": 0,
+            "finalVerdict": "changes_requested",
+            "findings": 1,
+            "affectedPaths": [
+              "src/plan.js"
+            ],
+            "evidenceItems": 12
+          },
+          "repairRounds": 1,
+          "interventions": {
+            "externalConfirmationRequests": 4,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 26,
+            "finalItems": 0
+          },
+          "changedFiles": [
+            "src/changes.js",
+            "src/dependents.js",
+            "src/plan.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": [
+            {
+              "stage": "execution",
+              "code": "company_goal_failed",
+              "scope": "roster_execution"
+            },
+            {
+              "stage": "verification",
+              "code": "scenario_verification_failed",
+              "scope": "verification",
+              "terminalStage": "verification"
+            }
+          ]
+        }
+      ],
+      "settlements": [
+        {
+          "id": "benchmark_settlement_271bcdf3f113db269bd1cc99d1a1f811",
+          "version": 1,
+          "reservationId": "benchmark_reservation_b6bc7c3faa51f1f56c9837178070075f",
+          "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+          "slotId": "slot_1_codex-cli",
+          "status": "completed",
+          "settledAt": "2026-09-13T21:07:50.721Z",
+          "trialId": "benchmark_trial_b6bc7c3faa51f1f56c9837178070075f",
+          "requestsCharged": 1,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.03125,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_b3269442e46e953dbdc6570e55759e45",
+          "version": 1,
+          "reservationId": "benchmark_reservation_da51c2d91603a4fcae920b166b11c89c",
+          "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+          "slotId": "slot_1_company-auto",
+          "status": "completed",
+          "settledAt": "2026-09-13T21:09:58.171Z",
+          "trialId": "benchmark_trial_da51c2d91603a4fcae920b166b11c89c",
+          "requestsCharged": 3,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.09424212598425198,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_71005c76e548e2502d761acc1b149770",
+          "version": 1,
+          "reservationId": "benchmark_reservation_9bbd7099f75e3220696504e43012fbe6",
+          "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+          "slotId": "slot_2_codex-cli",
+          "status": "completed",
+          "settledAt": "2026-09-13T21:14:10.626Z",
+          "trialId": "benchmark_trial_9bbd7099f75e3220696504e43012fbe6",
+          "requestsCharged": 1,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.03124870493162039,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_577322704d3b885af420ccb26653e039",
+          "version": 1,
+          "reservationId": "benchmark_reservation_2a8c8044c5caf6907a83579ca947c1cb",
+          "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+          "slotId": "slot_2_company-auto",
+          "status": "completed",
+          "settledAt": "2026-09-13T21:12:40.836Z",
+          "trialId": "benchmark_trial_2a8c8044c5caf6907a83579ca947c1cb",
+          "requestsCharged": 4,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.12499481972648156,
+          "failureCode": null
+        }
+      ],
+      "reservations": [
+        {
+          "id": "benchmark_reservation_b6bc7c3faa51f1f56c9837178070075f",
+          "version": 1,
+          "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+          "slotId": "slot_1_codex-cli",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T21:06:59.578Z",
+          "requestAllowance": 96,
+          "reportedCostAllowanceUsd": 3
+        },
+        {
+          "id": "benchmark_reservation_da51c2d91603a4fcae920b166b11c89c",
+          "version": 1,
+          "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+          "slotId": "slot_1_company-auto",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T21:07:50.740Z",
+          "requestAllowance": 127,
+          "reportedCostAllowanceUsd": 3.9895833333333335
+        },
+        {
+          "id": "benchmark_reservation_9bbd7099f75e3220696504e43012fbe6",
+          "version": 1,
+          "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+          "slotId": "slot_2_codex-cli",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T21:12:40.861Z",
+          "requestAllowance": 376,
+          "reportedCostAllowanceUsd": 11.749513054289267
+        },
+        {
+          "id": "benchmark_reservation_2a8c8044c5caf6907a83579ca947c1cb",
+          "version": 1,
+          "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+          "slotId": "slot_2_company-auto",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T21:09:58.188Z",
+          "requestAllowance": 190,
+          "reportedCostAllowanceUsd": 5.937253937007874
+        }
+      ]
+    },
+    {
+      "sourceSha256": "565aba0a1da3d15ac2b9b1dc7e39129161d455a40ceeb97a3f63971e095dd9d8",
+      "campaign": {
+        "id": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+        "version": 1,
+        "createdAt": "2026-09-13T20:51:50.276Z",
+        "scenario": {
+          "id": "release_window_regressions",
+          "version": 1,
+          "taskClass": "general_coding",
+          "difficulty": "medium",
+          "fixtureSha256": "bd70a07991afcdbf700df9143e1018b9a95d365be3eceb24fb061fa94dc0cd0b",
+          "verifierId": "release_window_regressions_hidden_v1",
+          "objectiveRevision": "release_window_regressions_objective_v1"
+        },
+        "harnessRevision": "recurs_development",
+        "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+        "operatingModeId": "balanced_v6",
+        "operatingModeVersion": 6,
+        "permissionMode": "approved_for_me",
+        "comparisonDesign": "official_codex_control_v1",
+        "repetitions": 2,
+        "ceilings": {
+          "maxTrialSlots": 4,
+          "maxRequests": 384,
+          "maxReportedCostUsd": 12
+        },
+        "blueprint": {
+          "id": "company-benchmark-release_window_regressions-v1-blueprint",
+          "revision": 1,
+          "sha256": "0feaed933c72b1343c51188aa6afe532cdf56fdc9be9eff45af8b6cbafc76d49"
+        },
+        "baseline": {
+          "id": "codex-cli",
+          "kind": "single_agent",
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-cli-exec",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ]
+        },
+        "companyArms": [
+          {
+            "id": "company-auto",
+            "kind": "company",
+            "configuredRoutes": [
+              {
+                "role": "parent",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-3419f03f8f2e702f17ecea88",
+                "modelId": "gpt-5.6-luna",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "implement",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-1d55712ef02ba31dd879c353",
+                "modelId": "gpt-5.6-terra",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "review",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-3419f03f8f2e702f17ecea88",
+                "modelId": "gpt-5.6-luna",
+                "reasoningEffort": "medium"
+              },
+              {
+                "role": "repair",
+                "providerId": "openai-codex-chatgpt",
+                "adapterId": "codex-app-server",
+                "connectionId": "route-1d55712ef02ba31dd879c353",
+                "modelId": "gpt-5.6-terra",
+                "reasoningEffort": "medium"
+              }
+            ]
+          }
+        ],
+        "armOrder": [
+          {
+            "slotId": "slot_1_codex-cli",
+            "armId": "codex-cli",
+            "repetition": 1
+          },
+          {
+            "slotId": "slot_1_company-auto",
+            "armId": "company-auto",
+            "repetition": 1
+          },
+          {
+            "slotId": "slot_2_company-auto",
+            "armId": "company-auto",
+            "repetition": 2
+          },
+          {
+            "slotId": "slot_2_codex-cli",
+            "armId": "codex-cli",
+            "repetition": 2
+          }
+        ]
+      },
+      "trials": [
+        {
+          "id": "benchmark_trial_8e8a027bd323a39cc2c29611e2188749",
+          "version": 1,
+          "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+          "slotId": "slot_1_codex-cli",
+          "armId": "codex-cli",
+          "armKind": "single_agent",
+          "repetition": 1,
+          "scenario": {
+            "id": "release_window_regressions",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "bd70a07991afcdbf700df9143e1018b9a95d365be3eceb24fb061fa94dc0cd0b",
+            "verifierId": "release_window_regressions_hidden_v1",
+            "objectiveRevision": "release_window_regressions_objective_v1"
+          },
+          "harnessRevision": "recurs_development",
+          "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+          "blueprint": null,
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-cli-exec",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-cli-exec",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T21:14:12.063Z",
+          "completedAt": "2026-09-13T21:16:15.666Z",
+          "wallClockMs": 123603,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 122107,
+              "attemptLatenciesMs": [
+                122107
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 125170,
+                "outputTokens": 5937,
+                "cachedInputTokens": 87296,
+                "cacheWriteInputTokens": 0,
+                "reasoningTokens": 2223,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 0,
+              "changedFiles": [
+                "checks/release-contract.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 1,
+            "usageReports": 1,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 125170,
+            "outputTokens": 5937,
+            "cachedInputTokens": 87296,
+            "cacheWriteInputTokens": 0,
+            "reasoningTokens": 2223,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_release_reference",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_release_boundaries",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_release_paused",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_release_priority",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 0,
+            "approved": 0,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": null,
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 0
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 0,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 0,
+            "finalItems": 0
+          },
+          "changedFiles": [
+            "checks/release-contract.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        },
+        {
+          "id": "benchmark_trial_23999aacf73368d5581eb8fb9d1ad80c",
+          "version": 1,
+          "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+          "slotId": "slot_1_company-auto",
+          "armId": "company-auto",
+          "armKind": "company",
+          "repetition": 1,
+          "scenario": {
+            "id": "release_window_regressions",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "bd70a07991afcdbf700df9143e1018b9a95d365be3eceb24fb061fa94dc0cd0b",
+            "verifierId": "release_window_regressions_hidden_v1",
+            "objectiveRevision": "release_window_regressions_objective_v1"
+          },
+          "harnessRevision": "recurs_development",
+          "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+          "blueprint": {
+            "id": "company-benchmark-release_window_regressions-v1-blueprint",
+            "revision": 1,
+            "sha256": "0feaed933c72b1343c51188aa6afe532cdf56fdc9be9eff45af8b6cbafc76d49"
+          },
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "completed",
+          "startedAt": "2026-09-13T21:16:15.736Z",
+          "completedAt": "2026-09-13T21:18:41.197Z",
+          "wallClockMs": 145461,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 144606,
+              "attemptLatenciesMs": [
+                144606
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 75058,
+                "outputTokens": 748,
+                "cachedInputTokens": 48128,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 96,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 17,
+              "changedFiles": []
+            },
+            {
+              "role": "implement",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 45766,
+              "attemptLatenciesMs": [
+                45766
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 68173,
+                "outputTokens": 1862,
+                "cachedInputTokens": 50176,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 477,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 5,
+              "changedFiles": [
+                "checks/release-contract.js"
+              ]
+            },
+            {
+              "role": "review",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 55390,
+              "attemptLatenciesMs": [
+                55390
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 63926,
+                "outputTokens": 2111,
+                "cachedInputTokens": 47104,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 1629,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 11,
+              "changedFiles": []
+            }
+          ],
+          "usage": {
+            "requestsUsed": 3,
+            "usageReports": 3,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 207157,
+            "outputTokens": 4721,
+            "cachedInputTokens": 145408,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 2202,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "passed",
+            "workspaceIntegrity": "passed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "passed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_release_reference",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_release_boundaries",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_release_paused",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_release_priority",
+                "status": "passed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 1,
+            "approved": 1,
+            "changesRequested": 0,
+            "unverified": 0,
+            "finalVerdict": "approved",
+            "findings": 0,
+            "affectedPaths": [],
+            "evidenceItems": 15
+          },
+          "repairRounds": 0,
+          "interventions": {
+            "externalConfirmationRequests": 3,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 33,
+            "finalItems": 17
+          },
+          "changedFiles": [
+            "checks/release-contract.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": []
+          },
+          "failures": []
+        },
+        {
+          "id": "benchmark_trial_288337771eed6185e6a46fe956bca0f5",
+          "version": 1,
+          "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+          "slotId": "slot_2_company-auto",
+          "armId": "company-auto",
+          "armKind": "company",
+          "repetition": 2,
+          "scenario": {
+            "id": "release_window_regressions",
+            "version": 1,
+            "taskClass": "general_coding",
+            "difficulty": "medium",
+            "fixtureSha256": "bd70a07991afcdbf700df9143e1018b9a95d365be3eceb24fb061fa94dc0cd0b",
+            "verifierId": "release_window_regressions_hidden_v1",
+            "objectiveRevision": "release_window_regressions_objective_v1"
+          },
+          "harnessRevision": "recurs_development",
+          "launchProtocolRevision": "company-benchmark-codex-control-300s-v1",
+          "blueprint": {
+            "id": "company-benchmark-release_window_regressions-v1-blueprint",
+            "revision": 1,
+            "sha256": "0feaed933c72b1343c51188aa6afe532cdf56fdc9be9eff45af8b6cbafc76d49"
+          },
+          "configuredRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "activatedRoutes": [
+            {
+              "role": "parent",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "implement",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "review",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-3419f03f8f2e702f17ecea88",
+              "modelId": "gpt-5.6-luna",
+              "reasoningEffort": "medium"
+            },
+            {
+              "role": "repair",
+              "providerId": "openai-codex-chatgpt",
+              "adapterId": "codex-app-server",
+              "connectionId": "route-1d55712ef02ba31dd879c353",
+              "modelId": "gpt-5.6-terra",
+              "reasoningEffort": "medium"
+            }
+          ],
+          "executionStatus": "failed",
+          "startedAt": "2026-09-13T21:18:41.284Z",
+          "completedAt": "2026-09-13T21:23:40.629Z",
+          "wallClockMs": 299345,
+          "roles": [
+            {
+              "role": "parent",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 298439,
+              "attemptLatenciesMs": [
+                298439
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 140576,
+                "outputTokens": 1069,
+                "cachedInputTokens": 107264,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 158,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 0,
+              "changedFiles": []
+            },
+            {
+              "role": "implement",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 103518,
+              "attemptLatenciesMs": [
+                103518
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 152638,
+                "outputTokens": 4200,
+                "cachedInputTokens": 137728,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 1760,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 15,
+              "changedFiles": [
+                "checks/release-contract.js"
+              ]
+            },
+            {
+              "role": "review",
+              "attempts": 2,
+              "completedAttempts": 2,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 158323,
+              "attemptLatenciesMs": [
+                60471,
+                46104
+              ],
+              "usage": {
+                "requestsUsed": 2,
+                "usageReports": 2,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 93042,
+                "outputTokens": 4594,
+                "cachedInputTokens": 55040,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 3331,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 21,
+              "changedFiles": []
+            },
+            {
+              "role": "repair",
+              "attempts": 1,
+              "completedAttempts": 1,
+              "failedAttempts": 0,
+              "cancelledAttempts": 0,
+              "wallClockMs": 47874,
+              "attemptLatenciesMs": [
+                47874
+              ],
+              "usage": {
+                "requestsUsed": 1,
+                "usageReports": 1,
+                "costReports": 0,
+                "tokenCoverage": "complete",
+                "costCoverage": "none",
+                "inputTokens": 102951,
+                "outputTokens": 1537,
+                "cachedInputTokens": 92416,
+                "cacheWriteInputTokens": null,
+                "reasoningTokens": 293,
+                "reportedCostUsd": null
+              },
+              "evidenceItems": 6,
+              "changedFiles": [
+                "checks/release-contract.js"
+              ]
+            }
+          ],
+          "usage": {
+            "requestsUsed": 5,
+            "usageReports": 5,
+            "costReports": 0,
+            "tokenCoverage": "complete",
+            "costCoverage": "none",
+            "inputTokens": 489207,
+            "outputTokens": 11400,
+            "cachedInputTokens": 392448,
+            "cacheWriteInputTokens": null,
+            "reasoningTokens": 5542,
+            "reportedCostUsd": null
+          },
+          "verification": {
+            "status": "failed",
+            "workspaceIntegrity": "failed",
+            "checks": [
+              {
+                "id": "workspace_inventory",
+                "status": "passed"
+              },
+              {
+                "id": "git_state",
+                "status": "passed"
+              },
+              {
+                "id": "allowed_changes",
+                "status": "failed"
+              },
+              {
+                "id": "visible_tests",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_release_reference",
+                "status": "passed"
+              },
+              {
+                "id": "hidden_release_boundaries",
+                "status": "failed"
+              },
+              {
+                "id": "hidden_release_paused",
+                "status": "failed"
+              },
+              {
+                "id": "hidden_release_priority",
+                "status": "failed"
+              }
+            ]
+          },
+          "review": {
+            "attempts": 2,
+            "approved": 0,
+            "changesRequested": 2,
+            "unverified": 0,
+            "finalVerdict": "changes_requested",
+            "findings": 3,
+            "affectedPaths": [
+              "checks/release-contract.js"
+            ],
+            "evidenceItems": 27
+          },
+          "repairRounds": 1,
+          "interventions": {
+            "externalConfirmationRequests": 5,
+            "userInputRequests": 0,
+            "automaticApprovals": 0,
+            "automaticDenials": 0
+          },
+          "evidence": {
+            "roleItems": 42,
+            "finalItems": 0
+          },
+          "changedFiles": [
+            "checks/release-contract.js"
+          ],
+          "overlap": {
+            "metric": "changed_file_overlap_v1",
+            "implementOverlappingPaths": [],
+            "implementDuplicateClaims": 0,
+            "repairTouchedImplementationPaths": [
+              "checks/release-contract.js"
+            ]
+          },
+          "failures": [
+            {
+              "stage": "execution",
+              "code": "company_goal_failed",
+              "scope": "roster_execution"
+            },
+            {
+              "stage": "verification",
+              "code": "scenario_verification_failed",
+              "scope": "verification",
+              "terminalStage": "verification"
+            }
+          ]
+        }
+      ],
+      "settlements": [
+        {
+          "id": "benchmark_settlement_58174e31c0fde205f5a6a12c3ab06575",
+          "version": 1,
+          "reservationId": "benchmark_reservation_8e8a027bd323a39cc2c29611e2188749",
+          "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+          "slotId": "slot_1_codex-cli",
+          "status": "completed",
+          "settledAt": "2026-09-13T21:16:15.701Z",
+          "trialId": "benchmark_trial_8e8a027bd323a39cc2c29611e2188749",
+          "requestsCharged": 1,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.03125,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_d7171f3fa398120259b48432faf42936",
+          "version": 1,
+          "reservationId": "benchmark_reservation_23999aacf73368d5581eb8fb9d1ad80c",
+          "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+          "slotId": "slot_1_company-auto",
+          "status": "completed",
+          "settledAt": "2026-09-13T21:18:41.244Z",
+          "trialId": "benchmark_trial_23999aacf73368d5581eb8fb9d1ad80c",
+          "requestsCharged": 3,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.09424212598425198,
+          "failureCode": null
+        },
+        {
+          "id": "benchmark_settlement_8fc4ffa6166c7afb3d3236a7c27e7658",
+          "version": 1,
+          "reservationId": "benchmark_reservation_4106d5115007456d4e11fe567c445c0c",
+          "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+          "slotId": "slot_2_codex-cli",
+          "status": "interrupted",
+          "settledAt": "2026-09-13T22:08:55.758Z",
+          "trialId": null,
+          "requestsCharged": 375,
+          "reportedCostUsd": null,
+          "costChargedUsd": 11.718264349357646,
+          "failureCode": "prior_attempt_outcome_unknown"
+        },
+        {
+          "id": "benchmark_settlement_c7aa489a91ce7502c61db48715065993",
+          "version": 1,
+          "reservationId": "benchmark_reservation_288337771eed6185e6a46fe956bca0f5",
+          "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+          "slotId": "slot_2_company-auto",
+          "status": "completed",
+          "settledAt": "2026-09-13T21:23:40.681Z",
+          "trialId": "benchmark_trial_288337771eed6185e6a46fe956bca0f5",
+          "requestsCharged": 5,
+          "reportedCostUsd": null,
+          "costChargedUsd": 0.15624352465810196,
+          "failureCode": null
+        }
+      ],
+      "reservations": [
+        {
+          "id": "benchmark_reservation_8e8a027bd323a39cc2c29611e2188749",
+          "version": 1,
+          "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+          "slotId": "slot_1_codex-cli",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T21:14:12.039Z",
+          "requestAllowance": 96,
+          "reportedCostAllowanceUsd": 3
+        },
+        {
+          "id": "benchmark_reservation_23999aacf73368d5581eb8fb9d1ad80c",
+          "version": 1,
+          "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+          "slotId": "slot_1_company-auto",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T21:16:15.718Z",
+          "requestAllowance": 127,
+          "reportedCostAllowanceUsd": 3.9895833333333335
+        },
+        {
+          "id": "benchmark_reservation_4106d5115007456d4e11fe567c445c0c",
+          "version": 1,
+          "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+          "slotId": "slot_2_codex-cli",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T21:23:40.704Z",
+          "requestAllowance": 375,
+          "reportedCostAllowanceUsd": 11.718264349357646
+        },
+        {
+          "id": "benchmark_reservation_288337771eed6185e6a46fe956bca0f5",
+          "version": 1,
+          "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+          "slotId": "slot_2_company-auto",
+          "attempt": 1,
+          "reservedAt": "2026-09-13T21:18:41.264Z",
+          "requestAllowance": 190,
+          "reportedCostAllowanceUsd": 5.937253937007874
+        }
+      ]
+    }
+  ]
+}

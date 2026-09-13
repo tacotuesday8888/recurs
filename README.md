@@ -66,7 +66,8 @@ concurrency, and permissions. Follow each running agent and inspect its work.
 ## Reference
 
 [CLI](docs/CLI.md) · [MCP](docs/MCP.md) · [Skills](docs/SKILLS.md) ·
-[Appearance](docs/APPEARANCE.md) · [Contributing](CONTRIBUTING.md)
+[Appearance](docs/APPEARANCE.md) · [Benchmarks](benchmarks/product-comparison/README.md) ·
+[Contributing](CONTRIBUTING.md)
 
 Recurs is an alpha (`0.1.0-alpha.11`). Use `@alpha` for the current published
 package. This README follows the source; captures come from the terminal test

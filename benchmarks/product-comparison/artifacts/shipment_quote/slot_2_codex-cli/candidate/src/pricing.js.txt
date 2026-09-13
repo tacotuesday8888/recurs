@@ -1,0 +1,16 @@
+export function priceCart(lines, discountBps = 0) {
+  if (!Number.isInteger(discountBps) || discountBps < 0 || discountBps > 10000) {
+    throw new TypeError('discountBps must be an integer from 0 to 10000');
+  }
+
+  const subtotalCents = lines.reduce(
+    (sum, line) => sum + line.quantity * line.unitCents,
+    0,
+  );
+  const discountCents = Math.floor(subtotalCents * discountBps / 10000);
+  return {
+    subtotalCents,
+    discountCents,
+    merchandiseCents: subtotalCents - discountCents,
+  };
+}

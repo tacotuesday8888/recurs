@@ -1,0 +1,15 @@
+export function diffSnapshots(previous, current) {
+  const previousNames = Object.keys(previous);
+  const currentNames = Object.keys(current);
+  const previousHas = name => Object.prototype.hasOwnProperty.call(previous, name);
+  const currentHas = name => Object.prototype.hasOwnProperty.call(current, name);
+
+  return {
+    changed: currentNames
+      .filter(name => !previousHas(name) || previous[name] !== current[name])
+      .sort(),
+    removed: previousNames
+      .filter(name => !currentHas(name))
+      .sort(),
+  };
+}

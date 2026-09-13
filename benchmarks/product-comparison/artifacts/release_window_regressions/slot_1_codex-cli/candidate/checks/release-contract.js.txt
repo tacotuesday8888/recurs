@@ -1,0 +1,71 @@
+import assert from 'node:assert/strict';
+
+export async function checkReleaseWindow(api) {
+  const call = async (windows, nowMs, expected, selectedId = null) => {
+    const before = windows.map((window) => ({...window}));
+    const result = await api.selectRelease(windows, nowMs);
+
+    assert.deepStrictEqual(result, expected);
+    assert.deepStrictEqual(windows, before);
+
+    if (selectedId !== null) {
+      assert.notStrictEqual(result, windows.find((window) => window.id === selectedId));
+    }
+
+    return result;
+  };
+
+  const windows = [
+    {id: 'low', startMs: 0, endMs: 100, paused: false, priority: 1},
+    {id: 'starts-at-ten', startMs: 10, endMs: 20, paused: false, priority: 9},
+    {id: 'tie-z', startMs: 0, endMs: 100, paused: false, priority: 7},
+    {id: 'tie-a', startMs: 0, endMs: 100, paused: false, priority: 7},
+    {id: 'paused-high', startMs: 0, endMs: 100, paused: true, priority: 100},
+    {id: 'starts-at-twenty', startMs: 20, endMs: 30, paused: false, priority: 100},
+  ];
+
+  const expectedTie = {id: 'tie-a', startMs: 0, endMs: 100, priority: 7};
+  const expectedTen = {id: 'starts-at-ten', startMs: 10, endMs: 20, priority: 9};
+  const expectedTwenty = {id: 'starts-at-twenty', startMs: 20, endMs: 30, priority: 100};
+
+  await call(windows, 0, expectedTie, 'tie-a');
+  const first = await call(windows, 10, expectedTen, 'starts-at-ten');
+  const second = await call(windows, 10, expectedTen, 'starts-at-ten');
+  assert.notStrictEqual(first, second);
+  await call(windows, 20, expectedTwenty, 'starts-at-twenty');
+  await call(windows, 100, null);
+
+  const reordered = [windows[3], windows[2], windows[1], windows[0], windows[5], windows[4]];
+  await call(reordered, 10, expectedTen, 'starts-at-ten');
+
+  const pausedAndOutside = [
+    {id: 'paused', startMs: -10, endMs: 10, paused: true, priority: 20},
+    {id: 'future', startMs: 11, endMs: 20, paused: false, priority: 20},
+    {id: 'expired', startMs: -20, endMs: -1, paused: false, priority: 20},
+  ];
+  await call(pausedAndOutside, 0, null);
+  await call(pausedAndOutside, 11, {id: 'future', startMs: 11, endMs: 20, priority: 20}, 'future');
+
+  const endBoundary = [
+    {id: 'ending-now', startMs: 0, endMs: 10, paused: false, priority: 100},
+    {id: 'not-started', startMs: 11, endMs: 20, paused: false, priority: 1},
+  ];
+  await call(endBoundary, 10, null);
+
+  const lexicalTie = [
+    {id: 'a', startMs: 0, endMs: 1, paused: false, priority: 3},
+    {id: 'Z', startMs: 0, endMs: 1, paused: false, priority: 3},
+  ];
+  await call(lexicalTie, 0, {id: 'Z', startMs: 0, endMs: 1, priority: 3}, 'Z');
+
+  const extremeTimes = [
+    {id: 'minimum', startMs: Number.MIN_SAFE_INTEGER, endMs: -1, paused: false, priority: -1},
+    {id: 'maximum', startMs: 0, endMs: Number.MAX_SAFE_INTEGER, paused: false, priority: 0},
+  ];
+  await call(extremeTimes, Number.MIN_SAFE_INTEGER, {
+    id: 'minimum', startMs: Number.MIN_SAFE_INTEGER, endMs: -1, priority: -1,
+  }, 'minimum');
+  await call(extremeTimes, Number.MAX_SAFE_INTEGER - 1, {
+    id: 'maximum', startMs: 0, endMs: Number.MAX_SAFE_INTEGER, priority: 0,
+  }, 'maximum');
+}

@@ -1,0 +1,25 @@
+export function priceCart(lines, discountBps = 0) {
+  if (!Array.isArray(lines) || !Number.isInteger(discountBps) ||
+      discountBps < 0 || discountBps > 10_000) {
+    throw new TypeError('Invalid pricing input');
+  }
+
+  let subtotal = 0n;
+  for (const line of lines) {
+    if (line === null || typeof line !== 'object' || Array.isArray(line) ||
+        !Number.isInteger(line.quantity) || line.quantity < 0 ||
+        !Number.isInteger(line.unitCents) || line.unitCents < 0) {
+      throw new TypeError('Invalid normalized line');
+    }
+    subtotal += BigInt(line.quantity) * BigInt(line.unitCents);
+  }
+
+  const discount = (subtotal * BigInt(discountBps)) / 10_000n;
+  const subtotalCents = Number(subtotal);
+  const discountCents = Number(discount);
+  return {
+    subtotalCents,
+    discountCents,
+    merchandiseCents: subtotalCents - discountCents,
+  };
+}

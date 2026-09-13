@@ -1,0 +1,9 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { planBuild } from '../src/plan.js';
+test('changed library invalidates its application', () => {
+  assert.deepEqual(planBuild({app:['lib'],lib:[]},{app:'a',lib:'old'},{app:'a',lib:'new'}),{changed:['lib'],removed:[],build:['app','lib']});
+});
+test('unchanged projects do no work', () => {
+  assert.deepEqual(planBuild({app:[]},{app:'a'},{app:'a'}),{changed:[],removed:[],build:[]});
+});

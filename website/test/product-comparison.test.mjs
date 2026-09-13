@@ -94,12 +94,14 @@ test("strict export validation rejects missing/duplicate slots, invented metrics
 
 test("text is escaped and evidence links are constrained to public repository or local artifacts", () => {
   const data = syntheticProductComparison();
-  data.attempts[0].note = '<img src=x onerror="alert(1)">';
-  data.tokenAccounting.note = "<script>invalid</script>";
-  data.configurations[0].routes[0].modelId = "<custom>";
+  data.attempts[0].note = '<img src=x onerror="alert(1)"><IMG src=x onerror="alert(1)">';
+  data.tokenAccounting.note = "<ScRiPt>invalid</ScRiPt>";
+  data.configurations[0].routes[0].modelId = "<CuStOm>";
   const html = renderProductComparison(data);
-  assert.doesNotMatch(html, /<img|<script>|<custom>/u);
-  assert.match(html, /&lt;custom&gt;/u);
+  assert.doesNotMatch(html, /<img|<script|<custom/iu);
+  assert.ok(html.includes('&lt;IMG src=x onerror=&quot;alert(1)&quot;&gt;'));
+  assert.ok(html.includes("&lt;ScRiPt&gt;invalid&lt;/ScRiPt&gt;"));
+  assert.ok(html.includes("&lt;CuStOm&gt;"));
   for (const href of ["javascript:alert(1)", "//example.com", "https://example.com/a", "https://github.com/another/repo", "./../secret", "./file?bad"]) {
     data.auditHref = href;
     assert.throws(() => parseProductComparison(data));
@@ -143,4 +145,34 @@ test("normal website build contains neither synthetic metrics nor placeholder co
   const styles = await readFile(new URL("../.build/styles.css", import.meta.url), "utf8");
   assert.match(styles, /\.product-measures \{ min-width: 0;/u);
   assert.doesNotMatch(styles.slice(styles.indexOf("/* Uses the existing Recurs palette")), /#[a-f0-9]{3,8}\b|animation:|scroll-behavior:|\.brand/u);
+});
+
+test("real audited page preserves every outcome and separates reviewer observation from reproduction", async () => {
+  const exported = JSON.parse(await readFile(new URL("../../benchmarks/product-comparison/website-results.json", import.meta.url), "utf8"));
+  const parsed = parseProductComparison(exported);
+  assert.deepEqual(["codex-cli", "company-auto"].map(arm => parsed.attempts.filter(a => a.armId === arm && productAttemptCompleted(a)).length), [3, 2]);
+  const html = await readFile(new URL("../.build/index.html", import.meta.url), "utf8");
+  assert.match(html, /href="#product-comparison">Benchmarks/u);
+  assert.match(html, /Review flagged an edge case\. Our audit confirmed the test gap\./u);
+  assert.match(html, /Recurs flagged a rebuild edge case, but the repair did not finish\./u);
+  assert.match(html, /<details><summary>See the review finding<\/summary>/u);
+  assert.match(html, /Separately, our offline audit/u);
+  assert.match(html, /not a replay of that candidate/u);
+  assert.match(html, /repair did not deliver an accepted result/u);
+  assert.match(html, /Earlier tests inside Recurs/u);
+  assert.equal((html.match(/data-product-task=/gu) ?? []).length, 3);
+  assert.equal((html.match(/<li><p><strong>/gu) ?? []).length, 12);
+  assert.match(html, /464\.9 seconds/u);
+  assert.match(html, /no final trial, candidate, elapsed time or token counters were retained/iu);
+  assert.doesNotMatch(html, /SYNTHETIC-TEST-ONLY/u);
+});
+
+test("optional review observation escapes text and rejects incomplete unsupported records", () => {
+  const finding = { version: 1, title: "<em>Review</em>", summary: "<EM>Summary</EM>", reviewerObservation: "Reviewer observation", auditObservation: "Separate reproduction", outcome: "Repair failed" };
+  const html = renderProductComparison(syntheticProductComparison(), finding);
+  assert.match(html, /&lt;em&gt;Review&lt;\/em&gt;/u);
+  assert.equal(html.includes("<em>Review</em>"), false);
+  assert.throws(() => renderProductComparison(syntheticProductComparison(), { ...finding, version: 2 }));
+  assert.throws(() => renderProductComparison(syntheticProductComparison(), { version: 1 }));
+  assert.doesNotMatch(renderProductComparison(syntheticProductComparison()), /product-review-story/u);
 });

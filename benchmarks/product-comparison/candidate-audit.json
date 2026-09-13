@@ -1,0 +1,790 @@
+{
+  "version": 1,
+  "candidates": [
+    {
+      "directory": "trial-4JrPw8",
+      "scenarioId": "release_window_regressions",
+      "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+      "slotId": "slot_1_codex-cli",
+      "sourceReview": "passed",
+      "sourceReviewNote": "Behavioral assertions use valid explicit-time inputs and Node assertions only; no oracle imports, implementation introspection, persistent state, or global tampering. Checks start/end boundaries, paused exclusion, priority/ties, input preservation and fresh return records.",
+      "replay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_reference",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_boundaries",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_paused",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_priority",
+            "status": "passed"
+          }
+        ]
+      },
+      "files": [
+        {
+          "path": "package.json",
+          "sha256": "8a87d1929819e454ddf6407fba0a6083f031d873b1e17a74861460c7715abcde"
+        },
+        {
+          "path": "README.md",
+          "sha256": "3caa643656a3ae7eeea3d12e35805fc794033231cf3fe55ce65f600c0d3cba9c"
+        },
+        {
+          "path": "src/release.js",
+          "sha256": "154453e5dff59c5f7093934ef0b1411af33543c84df4d57f317ff931772123d1"
+        },
+        {
+          "path": "checks/release-contract.js",
+          "sha256": "0c93fbc0a614005cab5584b9f28f44553dfabe620d40e85235c692404e4d912e"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "2406422267c3984beb003a80057bc777a84b25883c2f20fe8d58ec524a98bb60"
+        }
+      ]
+    },
+    {
+      "directory": "trial-CGjm7K",
+      "scenarioId": "incremental_build_repair",
+      "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "slotId": "slot_1_company-auto",
+      "sourceReview": "passed",
+      "sourceReviewNote": "No prohibited grading tricks. Ordinary contract gap identified by source review: diffSnapshots uses hasOwnProperty for membership, so non-enumerable own properties can incorrectly suppress additions/removals; planBuild likewise admits non-enumerable current properties. affectedModules correctly uses a Set of Object.keys. These edges are absent from the frozen verifier, whose passing result is preserved and does not establish complete contract coverage.",
+      "replay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_snapshots",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_transitive",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_cycles",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "files": [
+        {
+          "path": "package.json",
+          "sha256": "94f0cfcebb5150e3a62ce133cfeab1f08e4d9ab6b2e3be2c325b9cd22b1f2ec4"
+        },
+        {
+          "path": "README.md",
+          "sha256": "e4979f51e1fa0d53d2cdb7d027d1b1469c951af5ec8bae081ba5c4d23c742c49"
+        },
+        {
+          "path": "src/changes.js",
+          "sha256": "b0708f76a18caae8e96764a46b4b6aa98f82c6f5b12df51e01533401bb79cc8c"
+        },
+        {
+          "path": "src/dependents.js",
+          "sha256": "116ca5bd681a143b780df4cc235d88a10974ea676f792a5baba6913e21f0f36b"
+        },
+        {
+          "path": "src/plan.js",
+          "sha256": "6ca6acd10602f01f165e3920df21ba586427d042fa23761849d74b84f95a0f76"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "4d4cccae78784beaaba21e38cf44eab3abce9e8b3f2bd15dbbb638de1bd43988"
+        }
+      ]
+    },
+    {
+      "directory": "trial-DjDr4F",
+      "scenarioId": "shipment_quote",
+      "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+      "slotId": "slot_1_codex-cli",
+      "sourceReview": "passed",
+      "sourceReviewNote": "No prohibited grading tricks; ordinary shipment implementation with input validation, duplicate merging, whole-cart discount, delivery rounding and module composition.",
+      "replay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_cart",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_validation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_rates",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "files": [
+        {
+          "path": "package.json",
+          "sha256": "c80cce815eace1f79166243b3eff09259f1d1bcba14af00c6da2639534fe6d5e"
+        },
+        {
+          "path": "README.md",
+          "sha256": "267f1776ff37129d27c42a0ba05293e7359ff6d22d7c013d1f4beb7808ba397e"
+        },
+        {
+          "path": "src/cart.js",
+          "sha256": "6b657a077d5ed39635fc31a7d277ef00079f6e8fb9b1e766ec3e4557720b5f60"
+        },
+        {
+          "path": "src/pricing.js",
+          "sha256": "87df710d921ac93d976d49ebbd307731b0d6ff13c5e4fb4fbab3815c3a646ab0"
+        },
+        {
+          "path": "src/delivery.js",
+          "sha256": "88bd36a312ea55c8be2c4cd5bf35431de47a7780e055106b770494f4ea797b78"
+        },
+        {
+          "path": "src/quote.js",
+          "sha256": "d3f786482d62d29c5b3f4b3ec16d3d122f67c6bfe173382c8a749fd0ce0fd004"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "0246e806bb3e006d84b0c02fd90078d314c787b86bbd2822e976908b4b3e1e2e"
+        }
+      ]
+    },
+    {
+      "directory": "trial-EsPVZn",
+      "scenarioId": "incremental_build_repair",
+      "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "slotId": "slot_2_codex-cli",
+      "sourceReview": "passed",
+      "sourceReviewNote": "No prohibited grading tricks. Ordinary contract gap identified by source review: diffSnapshots uses hasOwnProperty for membership, so non-enumerable own properties can incorrectly suppress additions/removals; affectedModules can seed a non-enumerable graph key. planBuild correctly filters with a Set of Object.keys. These edges are absent from the frozen verifier, whose passing result is preserved and does not establish complete contract coverage.",
+      "replay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_snapshots",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_transitive",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_cycles",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "files": [
+        {
+          "path": "package.json",
+          "sha256": "94f0cfcebb5150e3a62ce133cfeab1f08e4d9ab6b2e3be2c325b9cd22b1f2ec4"
+        },
+        {
+          "path": "README.md",
+          "sha256": "e4979f51e1fa0d53d2cdb7d027d1b1469c951af5ec8bae081ba5c4d23c742c49"
+        },
+        {
+          "path": "src/changes.js",
+          "sha256": "708c4017fa64a8037901f88bb028fcba354c148b377779862b5cdbc4eae2ccab"
+        },
+        {
+          "path": "src/dependents.js",
+          "sha256": "63f2dc7ec4c8982ca820c04c3111cd38558d5f24ecf927785f16a5c51936d0c8"
+        },
+        {
+          "path": "src/plan.js",
+          "sha256": "b7c8e2a7e4cae2e8f85e9afde8b6de263c6e7cb9e02f7d943f5fa272f6b7811f"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "4d4cccae78784beaaba21e38cf44eab3abce9e8b3f2bd15dbbb638de1bd43988"
+        }
+      ]
+    },
+    {
+      "directory": "trial-GCDwh1",
+      "scenarioId": "release_window_regressions",
+      "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+      "slotId": "slot_2_company-auto",
+      "sourceReview": "passed",
+      "sourceReviewNote": "No prohibited grading tricks. Ordinary task failure: retained checker is the unchanged no-op fixture and cannot detect behavioral regressions.",
+      "replay": {
+        "status": "failed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "failed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_reference",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_boundaries",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_release_paused",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_release_priority",
+            "status": "failed"
+          }
+        ]
+      },
+      "files": [
+        {
+          "path": "package.json",
+          "sha256": "8a87d1929819e454ddf6407fba0a6083f031d873b1e17a74861460c7715abcde"
+        },
+        {
+          "path": "README.md",
+          "sha256": "3caa643656a3ae7eeea3d12e35805fc794033231cf3fe55ce65f600c0d3cba9c"
+        },
+        {
+          "path": "src/release.js",
+          "sha256": "154453e5dff59c5f7093934ef0b1411af33543c84df4d57f317ff931772123d1"
+        },
+        {
+          "path": "checks/release-contract.js",
+          "sha256": "99963850db2a9f50fd411f01b0d79f5ee5a12c91497093d3a03b2c00a002dd6f"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "2406422267c3984beb003a80057bc777a84b25883c2f20fe8d58ec524a98bb60"
+        }
+      ]
+    },
+    {
+      "directory": "trial-I64g8i",
+      "scenarioId": "shipment_quote",
+      "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+      "slotId": "slot_2_codex-cli",
+      "sourceReview": "passed",
+      "sourceReviewNote": "No prohibited grading tricks; ordinary shipment implementation with input validation, duplicate merging, whole-cart discount, delivery rounding and module composition.",
+      "replay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_cart",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_validation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_rates",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "files": [
+        {
+          "path": "package.json",
+          "sha256": "c80cce815eace1f79166243b3eff09259f1d1bcba14af00c6da2639534fe6d5e"
+        },
+        {
+          "path": "README.md",
+          "sha256": "267f1776ff37129d27c42a0ba05293e7359ff6d22d7c013d1f4beb7808ba397e"
+        },
+        {
+          "path": "src/cart.js",
+          "sha256": "34dfb5e59d54efd4a0b5e1b86960b125f57907446fa2552253d446cfdb064f5e"
+        },
+        {
+          "path": "src/pricing.js",
+          "sha256": "f9fc224fcaca73f8deb4a12f6e2b7f73804a5fb03b1f1cb8b82a4b59f8a486b0"
+        },
+        {
+          "path": "src/delivery.js",
+          "sha256": "11e0e6eb04b68af0adaa6891120048a77980c865a05b4edbeb3444d28e27fea5"
+        },
+        {
+          "path": "src/quote.js",
+          "sha256": "bc56290a5eb0b66013306f025bce25f5b49ab5d173a4491a773fdb8953ebbe13"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "0246e806bb3e006d84b0c02fd90078d314c787b86bbd2822e976908b4b3e1e2e"
+        }
+      ]
+    },
+    {
+      "directory": "trial-fnDlDe",
+      "scenarioId": "incremental_build_repair",
+      "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "slotId": "slot_2_company-auto",
+      "sourceReview": "passed",
+      "sourceReviewNote": "No prohibited grading tricks. Ordinary task failure: retained modules are unchanged fixture code, missing hash modifications/removals, transitive traversal, deduplication and removed-node integration.",
+      "replay": {
+        "status": "failed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "failed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_build_snapshots",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_build_transitive",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_build_cycles",
+            "status": "failed"
+          },
+          {
+            "id": "hidden_build_integration",
+            "status": "failed"
+          }
+        ]
+      },
+      "files": [
+        {
+          "path": "package.json",
+          "sha256": "94f0cfcebb5150e3a62ce133cfeab1f08e4d9ab6b2e3be2c325b9cd22b1f2ec4"
+        },
+        {
+          "path": "README.md",
+          "sha256": "e4979f51e1fa0d53d2cdb7d027d1b1469c951af5ec8bae081ba5c4d23c742c49"
+        },
+        {
+          "path": "src/changes.js",
+          "sha256": "bc3c958ed360b3d3c98171e99eb2c2c9390477be1666debad1afdfe144954f63"
+        },
+        {
+          "path": "src/dependents.js",
+          "sha256": "e995eeae8fc5a1ec3db808ccb1cb401c90aec5d268e240a4bd85659952b17925"
+        },
+        {
+          "path": "src/plan.js",
+          "sha256": "22a3a3e04a7e7f18ef66a235b82432051a3d84a582290953c37b3c36ef45fbfb"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "4d4cccae78784beaaba21e38cf44eab3abce9e8b3f2bd15dbbb638de1bd43988"
+        }
+      ]
+    },
+    {
+      "directory": "trial-m7rmxE",
+      "scenarioId": "shipment_quote",
+      "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+      "slotId": "slot_1_company-auto",
+      "sourceReview": "passed",
+      "sourceReviewNote": "No prohibited grading tricks; ordinary shipment implementation with input validation, duplicate merging, whole-cart discount, delivery rounding and module composition.",
+      "replay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_cart",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_validation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_rates",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "files": [
+        {
+          "path": "package.json",
+          "sha256": "c80cce815eace1f79166243b3eff09259f1d1bcba14af00c6da2639534fe6d5e"
+        },
+        {
+          "path": "README.md",
+          "sha256": "267f1776ff37129d27c42a0ba05293e7359ff6d22d7c013d1f4beb7808ba397e"
+        },
+        {
+          "path": "src/cart.js",
+          "sha256": "6d8fe8a39c37a568c232e46e35d0b89e96a3363e91d9b3907e39a8703070a47c"
+        },
+        {
+          "path": "src/pricing.js",
+          "sha256": "ae230b9af9c7a37bd85bebf069e3c9c15489534130d6ea9dcb83e06a40365c68"
+        },
+        {
+          "path": "src/delivery.js",
+          "sha256": "7080adac4916f32a590d6d1370c14c43b3232fa31a97456e3001b85ec1f1acae"
+        },
+        {
+          "path": "src/quote.js",
+          "sha256": "8cfce1c030626db4ca6986ea74aed54ca6d36445afef6cec1278bd3e9aaf30e4"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "0246e806bb3e006d84b0c02fd90078d314c787b86bbd2822e976908b4b3e1e2e"
+        }
+      ]
+    },
+    {
+      "directory": "trial-oGtkuW",
+      "scenarioId": "incremental_build_repair",
+      "campaignId": "product-proof-09560244-d02e-4339-b1e0-3b492bf5bb18",
+      "slotId": "slot_1_codex-cli",
+      "sourceReview": "passed",
+      "sourceReviewNote": "No prohibited grading tricks. Ordinary contract gap identified by source review: diffSnapshots uses hasOwnProperty for membership, so non-enumerable own properties can incorrectly suppress additions/removals; affectedModules can seed a non-enumerable graph key, and planBuild likewise admits non-enumerable current properties. These edges are absent from the frozen verifier, whose passing result is preserved and does not establish complete contract coverage.",
+      "replay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_snapshots",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_transitive",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_cycles",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_build_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "files": [
+        {
+          "path": "package.json",
+          "sha256": "94f0cfcebb5150e3a62ce133cfeab1f08e4d9ab6b2e3be2c325b9cd22b1f2ec4"
+        },
+        {
+          "path": "README.md",
+          "sha256": "e4979f51e1fa0d53d2cdb7d027d1b1469c951af5ec8bae081ba5c4d23c742c49"
+        },
+        {
+          "path": "src/changes.js",
+          "sha256": "943ad7ed412a291c73b5bfe8df08a8d8732c4bc2e265d4f8e11cbb143ad27d5d"
+        },
+        {
+          "path": "src/dependents.js",
+          "sha256": "96fad6d816eaf725f5f23e4359f295e55ff2a98e7b8f17dace5d38f01fce28b5"
+        },
+        {
+          "path": "src/plan.js",
+          "sha256": "88e01d77b49ba1f6078b18fd9ba62324b9909db8f873fe0e5c6436766c81c0ed"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "4d4cccae78784beaaba21e38cf44eab3abce9e8b3f2bd15dbbb638de1bd43988"
+        }
+      ]
+    },
+    {
+      "directory": "trial-q3jpDP",
+      "scenarioId": "shipment_quote",
+      "campaignId": "product-proof-61e91c45-4e02-4858-8851-81fd6912469d",
+      "slotId": "slot_2_company-auto",
+      "sourceReview": "passed",
+      "sourceReviewNote": "No prohibited grading tricks; ordinary shipment implementation with input validation, duplicate merging, whole-cart discount, delivery rounding and composition. Offline replay assesses retained source only; it does not erase the original campaign deadline overrun or make the timed attempt valid.",
+      "replay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_cart",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_validation",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_rates",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_shipment_integration",
+            "status": "passed"
+          }
+        ]
+      },
+      "files": [
+        {
+          "path": "package.json",
+          "sha256": "c80cce815eace1f79166243b3eff09259f1d1bcba14af00c6da2639534fe6d5e"
+        },
+        {
+          "path": "README.md",
+          "sha256": "267f1776ff37129d27c42a0ba05293e7359ff6d22d7c013d1f4beb7808ba397e"
+        },
+        {
+          "path": "src/cart.js",
+          "sha256": "e8e3d6a6253d26d4d1504695b7b2ba5875b5824793b853ece6dff3d480445d79"
+        },
+        {
+          "path": "src/pricing.js",
+          "sha256": "901b70753ed93f7564a2cd8293f742ac9bc5701b455ab3048aa504b2eb9b31b3"
+        },
+        {
+          "path": "src/delivery.js",
+          "sha256": "d272924545df8c8a7aa025f875725e71a12024416438858862a0f433ab29f395"
+        },
+        {
+          "path": "src/quote.js",
+          "sha256": "f80fccb8d58bbeba70e6d1af44b0e6f598ec8d0d3df9c0f6cb07434b0df71ea2"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "0246e806bb3e006d84b0c02fd90078d314c787b86bbd2822e976908b4b3e1e2e"
+        }
+      ]
+    },
+    {
+      "directory": "trial-uiUloN",
+      "scenarioId": "release_window_regressions",
+      "campaignId": "product-proof-56505aa1-b7fc-43d2-8fa1-26062ef8cf2f",
+      "slotId": "slot_1_company-auto",
+      "sourceReview": "passed",
+      "sourceReviewNote": "Behavioral assertions use valid explicit-time inputs and Node assertions only; no oracle imports, implementation introspection, persistent state, or global tampering. Checks start/end boundaries, paused exclusion, priority/ties, input preservation and fresh return records.",
+      "replay": {
+        "status": "passed",
+        "checks": [
+          {
+            "id": "workspace_inventory",
+            "status": "passed"
+          },
+          {
+            "id": "git_state",
+            "status": "passed"
+          },
+          {
+            "id": "allowed_changes",
+            "status": "passed"
+          },
+          {
+            "id": "visible_tests",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_reference",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_boundaries",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_paused",
+            "status": "passed"
+          },
+          {
+            "id": "hidden_release_priority",
+            "status": "passed"
+          }
+        ]
+      },
+      "files": [
+        {
+          "path": "package.json",
+          "sha256": "8a87d1929819e454ddf6407fba0a6083f031d873b1e17a74861460c7715abcde"
+        },
+        {
+          "path": "README.md",
+          "sha256": "3caa643656a3ae7eeea3d12e35805fc794033231cf3fe55ce65f600c0d3cba9c"
+        },
+        {
+          "path": "src/release.js",
+          "sha256": "154453e5dff59c5f7093934ef0b1411af33543c84df4d57f317ff931772123d1"
+        },
+        {
+          "path": "checks/release-contract.js",
+          "sha256": "7fe0319a60e2643627fa02a6eda27fa31f7ecf37f1ff7802fa05e6f849de16d4"
+        },
+        {
+          "path": "test/visible.test.js",
+          "sha256": "2406422267c3984beb003a80057bc777a84b25883c2f20fe8d58ec524a98bb60"
+        }
+      ]
+    }
+  ]
+}
