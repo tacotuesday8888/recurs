@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { summarizeEvidence } from "../../scripts/benchmark-evidence.mjs";
 import ts from "typescript";
 import { RECURS_BRAND } from "../../scripts/recurs-brand.mjs";
+import { buildProductComparison } from "./product-comparison-build.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const repository = dirname(root);
@@ -33,7 +34,7 @@ await cp(join(source, "index.html"), join(output, "index.html"));
 const brandVariables = Object.entries(RECURS_BRAND.palette)
   .map(([name, color]) => `--recurs-${name}: ${color};`).join(" ");
 await writeFile(join(output, "styles.css"),
-  `/* Palette generated from scripts/recurs-brand.mjs. */\n:root { ${brandVariables} }\n${await readFile(join(source, "styles.css"), "utf8")}`);
+  `/* Palette generated from scripts/recurs-brand.mjs. */\n:root { ${brandVariables} }\n${await readFile(join(source, "styles.css"), "utf8")}\n${await readFile(join(source, "product-comparison.css"), "utf8")}`);
 for (const asset of ["recurs-mark.svg", "recurs-wordmark.svg", "terminal-patch.svg", "terminal-v19-working.svg", "terminal-diff.svg", "terminal-permission.svg", "terminal-workflow.mp4", "terminal-workflow.json"]) {
   await cp(join(repository, "docs/assets", asset), join(output, "assets", asset));
 }
@@ -59,7 +60,16 @@ if (!captureSize) throw new Error("Terminal capture dimensions unavailable");
 const { chartMetrics, chartCampaigns, chartTaskName, renderChart } = await import(new URL("../.build/charts.js", import.meta.url));
 const { terminalLetterSvg } = await import(new URL("../.build/letter.js", import.meta.url));
 const { taskResults } = await import(new URL("../.build/results.js", import.meta.url));
+const { parseProductComparison, renderProductComparison } = await import(new URL("../.build/product-comparison.js", import.meta.url));
+const productComparison = await buildProductComparison({
+  dataPath: join(repository, "benchmarks/product-comparison/website-results.json"),
+  outputPath: output,
+  parse: parseProductComparison,
+  render: renderProductComparison,
+});
 const replacements = {
+  PRODUCT_COMPARISON: productComparison,
+  HISTORICAL_EVIDENCE_TITLE: productComparison ? "Earlier tests inside Recurs" : "What happened in our tests?",
   TASK_RESULTS: taskResults(summary),
   TERMINAL_R: terminalLetterSvg(),
   CHART_TASK_OPTIONS: chartCampaigns(summary).map(campaign => `<option value="${escapeHtml(campaign.id)}"${campaign.id === initial.id ? " selected" : ""}>${escapeHtml(chartTaskName(campaign))}</option>`).join(""),
